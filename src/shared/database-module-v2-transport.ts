@@ -228,8 +228,7 @@ const readViewKind = (value: unknown, label: string): DatabaseViewKind => {
   if (
     value === "kanban" ||
     value === "list" ||
-    value === "calendar" ||
-    value === "canvas"
+    value === "calendar"
   ) {
     return value;
   }

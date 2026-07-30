@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import type { Project } from "./types";
 
-export type ViewTab = "kanban" | "list" | "toggle-list" | "canvas" | "calendar";
+export type ViewTab = "kanban" | "list" | "toggle-list" | "calendar";
 
 export interface Tab {
   id: string;
@@ -17,7 +17,7 @@ interface TabsState {
 
 const STORAGE_KEY = "nodex-tabs";
 const OLD_PROJECT_KEY = "nodex-project";
-const VALID_VIEW_MODES: ViewTab[] = ["kanban", "list", "toggle-list", "canvas", "calendar"];
+const VALID_VIEW_MODES: ViewTab[] = ["kanban", "list", "toggle-list", "calendar"];
 
 function generateId(): string {
   return crypto.randomUUID();

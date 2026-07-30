@@ -1534,10 +1534,26 @@ function NfmSideMenuPopup({
 
     const selectedBlocks = getSideMenuActionBlocks(openState, block);
     const topLevelSelectedBlocks = getTopLevelSideMenuActionBlocks(selectedBlocks);
+    const selectedCanvasBlocks = topLevelSelectedBlocks.filter(
+      (candidate) => candidate.type === "canvas",
+    );
 
     if (!isEditable) return;
 
     if (key === "duplicate") {
+      if (selectedCanvasBlocks.length > 0) {
+        if (
+          selectedCanvasBlocks.length === 1
+          && topLevelSelectedBlocks.length === 1
+          && selectedCanvasBlocks[0]?.id
+        ) {
+          void runtimeSnapshot.onDuplicateCanvas(
+            selectedCanvasBlocks[0].id,
+          );
+        }
+        close("action");
+        return;
+      }
       const referenceBlock = topLevelSelectedBlocks[topLevelSelectedBlocks.length - 1] ?? block;
       editor.insertBlocks?.(topLevelSelectedBlocks.map(cloneBlockForInsert), referenceBlock, "after");
       close("action");
@@ -1545,6 +1561,17 @@ function NfmSideMenuPopup({
     }
 
     if (key === "delete") {
+      if (selectedCanvasBlocks.length > 0) {
+        if (
+          selectedCanvasBlocks.length === 1
+          && topLevelSelectedBlocks.length === 1
+          && selectedCanvasBlocks[0]?.id
+        ) {
+          void runtimeSnapshot.onDeleteCanvas(selectedCanvasBlocks[0].id);
+        }
+        close("action");
+        return;
+      }
       editor.removeBlocks?.(topLevelSelectedBlocks);
       close("action");
       return;
@@ -2009,7 +2036,7 @@ export function NfmSideMenu() {
       <span ref={triggerWrapperRef} className="inline-flex">
         <SideMenuButton
           label={dict.side_menu.drag_handle_label}
-          draggable={true}
+          draggable
           onPointerDown={(event) => {
             if (event.pointerType !== "mouse" || event.button !== 0) return;
             dragStartedRef.current = false;

@@ -16,6 +16,18 @@ pub(crate) struct PrimaryCanvasIdentity {
     pub(crate) document_id: String,
 }
 
+pub(crate) fn primary_canvas_block_id(project_id: &str) -> String {
+    format!("canvas:primary:{project_id}")
+}
+
+pub(crate) fn primary_canvas_document_id(project_id: &str) -> String {
+    format!("document:canvas:primary:{project_id}")
+}
+
+pub(crate) fn is_primary_canvas_block_id(canvas_id: &str, project_id: &str) -> bool {
+    canvas_id == primary_canvas_block_id(project_id)
+}
+
 pub(crate) fn create_primary_canvas(
     connection: &Connection,
     project_id: &str,
@@ -23,8 +35,8 @@ pub(crate) fn create_primary_canvas(
     assets_root: &Path,
 ) -> Result<PrimaryCanvasIdentity, StoreError> {
     let identity = PrimaryCanvasIdentity {
-        block_id: format!("canvas:primary:{project_id}"),
-        document_id: format!("document:canvas:primary:{project_id}"),
+        block_id: primary_canvas_block_id(project_id),
+        document_id: primary_canvas_document_id(project_id),
     };
     let collision = connection
         .query_row(
@@ -86,6 +98,11 @@ pub(crate) fn create_primary_canvas(
          VALUES (?1, ?2, ?3, ?4)",
         params![identity.block_id, identity.document_id, project_id, now],
     )?;
+    connection.execute(
+        "INSERT INTO canvas_owners(block_id, library_id, created_at, updated_at) \
+         SELECT ?1, library_id, ?2, ?2 FROM projects WHERE id = ?3",
+        params![identity.block_id, now, project_id],
+    )?;
     let authority = read_document_authority(connection, &identity.document_id)?
         .ok_or_else(|| corrupt("Primary Canvas has no Document authority"))?;
     let (_, created) = ensure_canvas_scene(connection, &authority, assets_root)?;
@@ -101,4 +118,29 @@ fn corrupt(message: &str) -> StoreError {
 
 fn internal(message: &str) -> StoreError {
     StoreError::new(StoreErrorCode::Internal, message, false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_primary_canvas_block_id, primary_canvas_block_id, primary_canvas_document_id};
+
+    #[test]
+    fn derives_and_recognizes_primary_canvas_identities() {
+        assert_eq!(
+            primary_canvas_block_id("project:default"),
+            "canvas:primary:project:default"
+        );
+        assert_eq!(
+            primary_canvas_document_id("project:default"),
+            "document:canvas:primary:project:default"
+        );
+        assert!(is_primary_canvas_block_id(
+            "canvas:primary:project:default",
+            "project:default"
+        ));
+        assert!(!is_primary_canvas_block_id(
+            "canvas:primary:project:other",
+            "project:default"
+        ));
+    }
 }

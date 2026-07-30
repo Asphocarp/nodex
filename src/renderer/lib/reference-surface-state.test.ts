@@ -48,4 +48,25 @@ describe("ReferenceSurfaceActivationBudget", () => {
     expect(budget.getActiveKeys()).toEqual(["expanded-a", "editing"]);
     expect(budget.getActiveKeys()).toHaveLength(2);
   });
+
+  test("prefers actual viewport intersection and stable center distance", () => {
+    const budget = new ReferenceSurfaceActivationBudget(2);
+    budget.setEligible("prewarm", true, 0, {
+      visibility: "prewarm",
+      viewportCenterDistance: 10,
+      documentOrder: 1,
+    });
+    budget.setEligible("visible-far", true, 0, {
+      visibility: "visible",
+      viewportCenterDistance: 300,
+      documentOrder: 2,
+    });
+    budget.setEligible("visible-near", true, 0, {
+      visibility: "visible",
+      viewportCenterDistance: 20,
+      documentOrder: 3,
+    });
+
+    expect(budget.getActiveKeys()).toEqual(["visible-near", "visible-far"]);
+  });
 });

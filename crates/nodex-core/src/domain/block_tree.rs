@@ -29,6 +29,7 @@ pub const REGISTERED_BLOCK_TYPES: &[&str] = &[
     "divider",
     "image",
     "callout",
+    "canvas",
     "page",
     "database",
     "threadSection",
@@ -695,7 +696,7 @@ fn element_plain_text(element: &XmlElementNode) -> String {
 
 fn is_childless_content(content: &XmlElementNode) -> bool {
     match content.name.as_str() {
-        "databaseViewRef" | "database" | "page" => true,
+        "canvas" | "databaseViewRef" | "database" | "page" => true,
         "syncedBlockRef" | "templateRef" => non_empty_string_attribute(content, "sourceBlockId"),
         "pageRef" => non_empty_string_attribute(content, "targetBlockId"),
         _ => false,
@@ -932,6 +933,50 @@ mod tests {
                 .iter()
                 .any(|issue| issue.code == BlockTreeIssueCode::DuplicateBlockId)
         );
+        assert!(
+            issues
+                .iter()
+                .any(|issue| issue.code == BlockTreeIssueCode::ChildlessBlockHasChildren)
+        );
+    }
+
+    #[test]
+    fn pure_validator_treats_canvas_owners_as_childless() {
+        let canvas = BlockNode {
+            id: "canvas-1".to_owned(),
+            container_attributes: [(
+                "id".to_owned(),
+                PortableValue::String("canvas-1".to_owned()),
+            )]
+            .into_iter()
+            .collect(),
+            content: XmlElementNode {
+                name: "canvas".to_owned(),
+                attributes: BTreeMap::new(),
+                children: vec![],
+            },
+            children: vec![BlockNode {
+                id: "child".to_owned(),
+                container_attributes: [(
+                    "id".to_owned(),
+                    PortableValue::String("child".to_owned()),
+                )]
+                .into_iter()
+                .collect(),
+                content: XmlElementNode {
+                    name: "paragraph".to_owned(),
+                    attributes: BTreeMap::new(),
+                    children: vec![],
+                },
+                children: vec![],
+            }],
+        };
+
+        let issues = validate_block_tree(&BlockTree {
+            root_attributes: BTreeMap::new(),
+            blocks: vec![canvas],
+        });
+
         assert!(
             issues
                 .iter()

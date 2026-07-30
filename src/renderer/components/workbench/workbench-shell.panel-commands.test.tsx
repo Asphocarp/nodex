@@ -3,6 +3,7 @@ import { describe, test, expect } from "vitest";
 import { settleAsyncRender, textContent, textContentIncludingShadowRoots } from "../../test/dom";
 import { fireEvent, within, act, waitFor } from "@testing-library/react";
 import { splitWorkbenchPanelLeaf } from "../../../shared/workbench-panel-layout";
+import { primaryCanvasBlockId } from "../../../shared/block-documents";
 import { appendMockNfmEditor, executeCommandPaletteCommand, getLastTerminalPanelProps, getPanelTabById, getPanelTabChromeById, getWorkbenchPanelActivateCalls, getWorkbenchTabDeleteInputs, getWorkbenchTabProjectionDeleteTabIds, invokeCalls, listBackgroundProcessesCalls, makeAttachedSession, makePanelLayout, makePanels, makeProject, makeSession, makeSessionTab, openBottomPanel, openPanelMenu, pointerDownAndSettle, renderWorkbench, sideChatConversations, startSideChatCalls, setInvokeCalls, setStartSideChatCalls } from "./workbench-testkit/workbench-shell-harness";
 
 describe("workbench session shell / panel-commands", () => {
@@ -42,10 +43,32 @@ describe("workbench session shell / panel-commands", () => {
     const menu = screen.getByRole("menu");
     expect(within(menu).getByText("DB View") !== null).toBe(true);
     expect(within(menu).getByText("Page") !== null).toBe(true);
+    expect(within(menu).getByText("Canvas") !== null).toBe(true);
     expect(within(menu).getByText("Browser") !== null).toBe(true);
     expect(within(menu).queryByText("Review")).toBe(null);
     expect(within(menu).getByText("Files") !== null).toBe(true);
     expect(within(menu).getByText("Terminal") !== null).toBe(true);
+  });
+
+  test("Canvas action opens the primary Canvas as a Canvas Stage tab", async () => {
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [makeAttachedSession()] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const menu = await openPanelMenu(screen, "Open side panel tab");
+    setInvokeCalls([]);
+    fireEvent.click(within(menu).getByText("Canvas"));
+    await settleAsyncRender();
+
+    expect(invokeCalls.some((call) =>
+      call[0] === "window-session-view:tab-create"
+      && JSON.stringify(call[1]).includes('"kind":"canvas_stage"')
+      && JSON.stringify(call[1]).includes(
+        `"canvasBlockId":"${primaryCanvasBlockId("alpha")}"`,
+      )
+    )).toBe(true);
   });
 
   test("bottom plus menu keeps Browser multi-tab and hides singleton Review tabs from either panel", async () => {

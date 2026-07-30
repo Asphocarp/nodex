@@ -136,6 +136,7 @@ export function EmbeddedOwnedBlockDocument({
                     }}
                     surfaceWriteFence={surface.runtime}
                     onOpenPage={hostRuntime?.openPage}
+                    onOpenCanvas={hostRuntime?.openCanvas}
                     isActivePanelTab={isActive}
                     placeholder="Add content…"
                     className="min-w-0"

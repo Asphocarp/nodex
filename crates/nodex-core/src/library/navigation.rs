@@ -2,18 +2,20 @@ use std::collections::HashSet;
 
 use nodex_core_contracts::agent::{AgentAuthorizationTarget, AgentProjectResourceAction};
 use nodex_core_contracts::library::{
-    LibraryAgentBlockTarget, LibraryCatalogEntry, LibraryCatalogKind, LibraryLifecycle,
-    LibraryNavigationNode, LibraryNavigationParent, LibraryPageAccessContext,
-    LibraryPageDataSourceContext, LibraryPageDetail, LibraryPageDocumentDescriptor,
-    LibraryPageIntrinsicProperty, LibraryPageLocation, LibraryPageMembership,
-    LibraryPageOwnershipPath, LibraryPageOwnershipPathAncestor, LibraryPageTarget, LibraryRead,
-    LibraryReadValue, LibraryResourceTarget, LibraryRouteTarget,
+    LibraryAgentBlockTarget, LibraryCanvasLocation, LibraryCanvasSummary, LibraryCanvasTarget,
+    LibraryCatalogEntry, LibraryCatalogKind, LibraryLifecycle, LibraryNavigationNode,
+    LibraryNavigationParent, LibraryPageAccessContext, LibraryPageDataSourceContext,
+    LibraryPageDetail, LibraryPageDocumentDescriptor, LibraryPageIntrinsicProperty,
+    LibraryPageLocation, LibraryPageMembership, LibraryPageOwnershipPath,
+    LibraryPageOwnershipPathAncestor, LibraryPageTarget, LibraryRead, LibraryReadValue,
+    LibraryResourceTarget, LibraryRouteTarget,
 };
 use nodex_core_contracts::{AdapterKind, BoundModuleContext};
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde_json::Value;
 
 use crate::database::read::{page_data_source_projection, page_record};
+use crate::document::is_primary_canvas_block_id;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::cursor;
@@ -73,6 +75,15 @@ pub(super) fn read(
                 return Err(unauthorized(
                     "Library Page paths require a trusted root or bound Project Adapter",
                 ));
+            }
+            if let LibraryRouteTarget::Canvas { canvas_id } = &target {
+                require_canvas_read_access(
+                    connection,
+                    library_id,
+                    requesting_project_id,
+                    requesting_adapter,
+                    canvas_id,
+                )?;
             }
             Ok(LibraryReadValue::Path {
                 nodes: path(connection, library_id, &target)?,
@@ -244,6 +255,15 @@ pub(super) fn read(
                 .optional()?;
             Ok(LibraryReadValue::PageLocation { value })
         }
+        LibraryRead::CanvasTarget { canvas_id } => Ok(LibraryReadValue::CanvasTarget {
+            value: Box::new(canvas_target(
+                connection,
+                library_id,
+                requesting_project_id,
+                requesting_adapter,
+                &canvas_id,
+            )?),
+        }),
         LibraryRead::Search {
             query,
             include_archived,
@@ -333,6 +353,60 @@ fn require_bound_page_read_access(
     }
     Err(unauthorized(
         "Library Page reads require a trusted root or bound Project Adapter",
+    ))
+}
+
+fn require_canvas_read_access(
+    connection: &Connection,
+    library_id: &str,
+    requesting_project_id: Option<&str>,
+    requesting_adapter: &AdapterKind,
+    canvas_id: &str,
+) -> Result<(), StoreError> {
+    let row = connection
+        .query_row(
+            "SELECT block.project_id, host_page.block_id \
+             FROM canvas_owners canvas \
+             JOIN blocks block ON block.id = canvas.block_id \
+             LEFT JOIN pages host_page ON host_page.document_id = block.containing_document_id \
+             WHERE block.id = ?1 AND canvas.library_id = ?2 AND block.type = 'canvas'",
+            params![canvas_id, library_id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+        )
+        .optional()?
+        .ok_or_else(|| not_found("Library Canvas is unavailable"))?;
+    authorize_canvas_row(
+        connection,
+        library_id,
+        requesting_project_id,
+        requesting_adapter,
+        &row.0,
+        row.1.as_deref(),
+    )
+}
+
+fn authorize_canvas_row(
+    connection: &Connection,
+    library_id: &str,
+    requesting_project_id: Option<&str>,
+    requesting_adapter: &AdapterKind,
+    owner_project_id: &str,
+    host_page_id: Option<&str>,
+) -> Result<(), StoreError> {
+    if let Some(project_id) = requesting_project_id {
+        if project_id == owner_project_id {
+            return Ok(());
+        }
+        if let Some(page_id) = host_page_id {
+            return super::require_page_read_access(connection, library_id, project_id, page_id);
+        }
+        return Err(unauthorized("Canvas belongs to another Project"));
+    }
+    if trusted_root_adapter(requesting_adapter) {
+        return Ok(());
+    }
+    Err(unauthorized(
+        "Library Canvas reads require a trusted root or bound Project Adapter",
     ))
 }
 
@@ -916,13 +990,16 @@ fn root_node_window(
                EXISTS(SELECT 1 FROM document_block_index child \
                  INNER JOIN blocks child_block ON child_block.id = child.block_id \
                  WHERE child.document_id = page.document_id \
-                   AND child_block.type IN ('page', 'database') \
+                   AND child_block.type IN ('page', 'database', 'canvas') \
                    AND child_block.lifecycle = 'active'), \
                container.name, container.default_view_id, container.metadata_revision, \
                block.location_revision, container.updated_at, \
                (SELECT COUNT(*) FROM database_views view \
                  WHERE view.database_block_id = container.block_id \
-                   AND view.lifecycle = 'active') \
+                   AND view.lifecycle = 'active'), \
+               json_extract(canvas_name.value_json, '$'), block.metadata_revision, \
+               block.location_revision, canvas.updated_at, canvas_document.generation, \
+               canvas_document.head_seq, block.project_id \
              FROM library_block_placements placement \
              INNER JOIN blocks block ON block.id = placement.block_id \
              LEFT JOIN pages page ON page.block_id = block.id \
@@ -930,9 +1007,14 @@ fn root_node_window(
              LEFT JOIN document_materializations materialization \
                ON materialization.document_id = page.document_id \
              LEFT JOIN database_containers container ON container.block_id = block.id \
-             WHERE placement.library_id = ?1 AND block.type IN ('page', 'database') \
+             LEFT JOIN canvas_owners canvas ON canvas.block_id = block.id \
+             LEFT JOIN block_documents canvas_ownership ON canvas_ownership.block_id = block.id \
+             LEFT JOIN documents canvas_document ON canvas_document.id = canvas_ownership.document_id \
+             LEFT JOIN block_properties canvas_name ON canvas_name.block_id = block.id \
+               AND canvas_name.property_key = 'document.display_name' \
+             WHERE placement.library_id = ?1 AND block.type IN ('page', 'database', 'canvas') \
                AND block.lifecycle = 'active' \
-               AND COALESCE(page.lifecycle, container.lifecycle) = 'active' \
+               AND COALESCE(page.lifecycle, container.lifecycle, block.lifecycle) = 'active' \
                AND (?2 IS NULL OR placement.rank_key > ?2 \
                  OR (placement.rank_key = ?2 AND block.id > ?3)) \
              ORDER BY placement.rank_key, block.id LIMIT ?4",
@@ -947,9 +1029,10 @@ fn root_node_window(
          INNER JOIN blocks block ON block.id = placement.block_id \
          LEFT JOIN pages page ON page.block_id = block.id \
          LEFT JOIN database_containers container ON container.block_id = block.id \
-         WHERE placement.library_id = ?1 AND block.type IN ('page', 'database') \
+         LEFT JOIN canvas_owners canvas ON canvas.block_id = block.id \
+         WHERE placement.library_id = ?1 AND block.type IN ('page', 'database', 'canvas') \
            AND block.lifecycle = 'active' \
-           AND COALESCE(page.lifecycle, container.lifecycle) = 'active'",
+           AND COALESCE(page.lifecycle, container.lifecycle, block.lifecycle) = 'active'",
         [library_id],
         |row| row.get::<_, i64>(0),
     )?;
@@ -993,13 +1076,16 @@ fn page_child_node_window(
                EXISTS(SELECT 1 FROM document_block_index child \
                  INNER JOIN blocks child_block ON child_block.id = child.block_id \
                  WHERE child.document_id = page.document_id \
-                   AND child_block.type IN ('page', 'database') \
+                   AND child_block.type IN ('page', 'database', 'canvas') \
                    AND child_block.lifecycle = 'active'), \
                container.name, container.default_view_id, container.metadata_revision, \
                block.location_revision, container.updated_at, \
                (SELECT COUNT(*) FROM database_views view \
                  WHERE view.database_block_id = container.block_id \
-                   AND view.lifecycle = 'active') \
+                   AND view.lifecycle = 'active'), \
+               json_extract(canvas_name.value_json, '$'), block.metadata_revision, \
+               block.location_revision, canvas.updated_at, canvas_document.generation, \
+               canvas_document.head_seq, block.project_id \
              FROM ordered \
              INNER JOIN blocks block ON block.id = ordered.block_id \
              LEFT JOIN pages page ON page.block_id = block.id \
@@ -1007,8 +1093,13 @@ fn page_child_node_window(
              LEFT JOIN document_materializations materialization \
                ON materialization.document_id = page.document_id \
              LEFT JOIN database_containers container ON container.block_id = block.id \
-             WHERE block.type IN ('page', 'database') AND block.lifecycle = 'active' \
-               AND COALESCE(page.lifecycle, container.lifecycle) = 'active' \
+             LEFT JOIN canvas_owners canvas ON canvas.block_id = block.id \
+             LEFT JOIN block_documents canvas_ownership ON canvas_ownership.block_id = block.id \
+             LEFT JOIN documents canvas_document ON canvas_document.id = canvas_ownership.document_id \
+             LEFT JOIN block_properties canvas_name ON canvas_name.block_id = block.id \
+               AND canvas_name.property_key = 'document.display_name' \
+             WHERE block.type IN ('page', 'database', 'canvas') AND block.lifecycle = 'active' \
+               AND COALESCE(page.lifecycle, container.lifecycle, block.lifecycle) = 'active' \
                AND (?2 IS NULL OR ordered.path > ?2 \
                  OR (ordered.path = ?2 AND block.id > ?3)) \
              ORDER BY ordered.path, block.id LIMIT ?4",
@@ -1031,8 +1122,9 @@ fn page_child_node_window(
          INNER JOIN blocks block ON block.id = ordered.block_id \
          LEFT JOIN pages page ON page.block_id = block.id \
          LEFT JOIN database_containers container ON container.block_id = block.id \
-         WHERE block.type IN ('page', 'database') AND block.lifecycle = 'active' \
-           AND COALESCE(page.lifecycle, container.lifecycle) = 'active'",
+         LEFT JOIN canvas_owners canvas ON canvas.block_id = block.id \
+         WHERE block.type IN ('page', 'database', 'canvas') AND block.lifecycle = 'active' \
+           AND COALESCE(page.lifecycle, container.lifecycle, block.lifecycle) = 'active'",
         [document_id],
         |row| row.get::<_, i64>(0),
     )?;
@@ -1047,7 +1139,7 @@ fn page_node(connection: &Connection, page_id: &str) -> Result<LibraryNavigation
                EXISTS(SELECT 1 FROM document_block_index child \
                  INNER JOIN blocks block ON block.id = child.block_id \
                  WHERE child.document_id = page.document_id \
-                   AND block.type IN ('page', 'database') AND block.lifecycle = 'active') \
+                   AND block.type IN ('page', 'database', 'canvas') AND block.lifecycle = 'active') \
              FROM pages page \
              INNER JOIN documents document ON document.id = page.document_id \
              INNER JOIN document_materializations materialization \
@@ -1108,6 +1200,149 @@ fn database_node(
         )
         .optional()?
         .ok_or_else(|| not_found("Library Database projection is unavailable"))
+}
+
+fn canvas_node(
+    connection: &Connection,
+    library_id: &str,
+    canvas_id: &str,
+) -> Result<LibraryNavigationNode, StoreError> {
+    connection
+        .query_row(
+            "SELECT block.id, json_extract(property.value_json, '$'), \
+                    block.metadata_revision, block.location_revision, canvas.updated_at, \
+                    document.generation, document.head_seq, block.project_id \
+             FROM canvas_owners canvas \
+             JOIN blocks block ON block.id = canvas.block_id \
+             JOIN block_documents ownership ON ownership.block_id = block.id \
+             JOIN documents document ON document.id = ownership.document_id \
+             LEFT JOIN block_properties property ON property.block_id = block.id \
+               AND property.property_key = 'document.display_name' \
+             WHERE block.id = ?1 AND canvas.library_id = ?2 \
+               AND block.type = 'canvas' AND block.lifecycle <> 'deleted' \
+               AND document.sync_engine = 'canvas_scene'",
+            params![canvas_id, library_id],
+            |row| {
+                let canvas_id = row.get::<_, String>(0)?;
+                let project_id = row.get::<_, String>(7)?;
+                Ok(LibraryNavigationNode::Canvas {
+                    is_primary: is_primary_canvas_block_id(&canvas_id, &project_id),
+                    canvas_id,
+                    title: row
+                        .get::<_, Option<String>>(1)?
+                        .unwrap_or_else(|| "Canvas".to_owned()),
+                    metadata_revision: row.get(2)?,
+                    location_revision: row.get(3)?,
+                    updated_at: row.get(4)?,
+                    document_generation: row.get(5)?,
+                    document_head_seq: row.get(6)?,
+                })
+            },
+        )
+        .optional()?
+        .ok_or_else(|| not_found("Library Canvas projection is unavailable"))
+}
+
+fn canvas_target(
+    connection: &Connection,
+    library_id: &str,
+    requesting_project_id: Option<&str>,
+    requesting_adapter: &AdapterKind,
+    canvas_id: &str,
+) -> Result<LibraryCanvasTarget, StoreError> {
+    let row = connection
+        .query_row(
+            "SELECT block.project_id, block.lifecycle, block.location_kind, \
+                    block.containing_document_id, block.metadata_revision, \
+                    block.location_revision, json_extract(property.value_json, '$'), \
+                    document.generation, document.head_seq, block.updated_at, \
+                    host_page.block_id \
+             FROM canvas_owners canvas \
+             JOIN blocks block ON block.id = canvas.block_id \
+             JOIN block_documents ownership ON ownership.block_id = block.id \
+             JOIN documents document ON document.id = ownership.document_id \
+             LEFT JOIN block_properties property ON property.block_id = block.id \
+               AND property.property_key = 'document.display_name' \
+             LEFT JOIN pages host_page ON host_page.document_id = block.containing_document_id \
+             WHERE block.id = ?1 AND canvas.library_id = ?2 \
+               AND block.type = 'canvas' AND document.sync_engine = 'canvas_scene'",
+            params![canvas_id, library_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, i64>(5)?,
+                    row.get::<_, Option<String>>(6)?,
+                    row.get::<_, i64>(7)?,
+                    row.get::<_, i64>(8)?,
+                    row.get::<_, String>(9)?,
+                    row.get::<_, Option<String>>(10)?,
+                ))
+            },
+        )
+        .optional()?;
+    let Some((
+        project_id,
+        lifecycle,
+        location_kind,
+        containing_document_id,
+        metadata_revision,
+        location_revision,
+        title,
+        document_generation,
+        document_head_seq,
+        updated_at,
+        host_page_id,
+    )) = row
+    else {
+        return Ok(LibraryCanvasTarget::Missing {
+            canvas_id: canvas_id.to_owned(),
+        });
+    };
+    authorize_canvas_row(
+        connection,
+        library_id,
+        requesting_project_id,
+        requesting_adapter,
+        &project_id,
+        host_page_id.as_deref(),
+    )?;
+    if lifecycle == "deleted" {
+        return Ok(LibraryCanvasTarget::Deleted {
+            canvas_id: canvas_id.to_owned(),
+            library_id: library_id.to_owned(),
+        });
+    }
+    let location = if location_kind == "space" {
+        LibraryCanvasLocation::Library
+    } else {
+        let page_id =
+            host_page_id.ok_or_else(|| corrupt("Document-placed Canvas has no Page owner"))?;
+        LibraryCanvasLocation::Page {
+            page_id,
+            document_id: containing_document_id
+                .ok_or_else(|| corrupt("Document-placed Canvas has no host Document"))?,
+        }
+    };
+    let is_primary = is_primary_canvas_block_id(canvas_id, &project_id);
+    Ok(LibraryCanvasTarget::Available {
+        summary: LibraryCanvasSummary {
+            canvas_id: canvas_id.to_owned(),
+            project_id,
+            title: title.unwrap_or_else(|| "Canvas".to_owned()),
+            lifecycle,
+            is_primary,
+            location,
+            metadata_revision,
+            location_revision,
+            document_generation,
+            document_head_seq,
+            updated_at,
+        },
+    })
 }
 
 fn view_node_window(
@@ -1194,6 +1429,21 @@ fn navigation_row(row: &Row<'_>) -> rusqlite::Result<OrderedNavigationNode> {
             updated_at: row.get(14)?,
             has_multiple_views: row.get::<_, i64>(15)? > 1,
         },
+        "canvas" => {
+            let project_id = row.get::<_, String>(22)?;
+            LibraryNavigationNode::Canvas {
+                is_primary: is_primary_canvas_block_id(&id, &project_id),
+                canvas_id: id,
+                title: row
+                    .get::<_, Option<String>>(16)?
+                    .unwrap_or_else(|| "Canvas".to_owned()),
+                metadata_revision: row.get(17)?,
+                location_revision: row.get(18)?,
+                updated_at: row.get(19)?,
+                document_generation: row.get(20)?,
+                document_head_seq: row.get(21)?,
+            }
+        }
         _ => {
             return Err(rusqlite::Error::InvalidColumnType(
                 0,
@@ -1270,6 +1520,20 @@ fn forced_child_node(
                 .then(|| database_node(connection, database_id))
                 .transpose()
         }
+        (LibraryNavigationParent::Library, LibraryRouteTarget::Canvas { canvas_id }) => {
+            let exists = connection.query_row(
+                "SELECT EXISTS(SELECT 1 FROM library_block_placements placement \
+                 INNER JOIN canvas_owners canvas ON canvas.block_id = placement.block_id \
+                 INNER JOIN blocks block ON block.id = canvas.block_id \
+                 WHERE placement.library_id = ?1 AND placement.block_id = ?2 \
+                   AND block.lifecycle = 'active')",
+                params![library_id, canvas_id],
+                |row| row.get::<_, bool>(0),
+            )?;
+            exists
+                .then(|| canvas_node(connection, library_id, canvas_id))
+                .transpose()
+        }
         (
             LibraryNavigationParent::Page {
                 page_id: parent_page_id,
@@ -1285,6 +1549,14 @@ fn forced_child_node(
             LibraryRouteTarget::Database { database_id },
         ) => forced_document_child(connection, library_id, parent_page_id, database_id)?
             .then(|| database_node(connection, database_id))
+            .transpose(),
+        (
+            LibraryNavigationParent::Page {
+                page_id: parent_page_id,
+            },
+            LibraryRouteTarget::Canvas { canvas_id },
+        ) => forced_document_child(connection, library_id, parent_page_id, canvas_id)?
+            .then(|| canvas_node(connection, library_id, canvas_id))
             .transpose(),
         (
             LibraryNavigationParent::Database { database_id },
@@ -1330,7 +1602,7 @@ fn forced_document_child(
              SELECT EXISTS(SELECT 1 FROM ordered \
                INNER JOIN blocks block ON block.id = ordered.block_id \
                WHERE ordered.block_id = ?3 AND block.lifecycle = 'active' \
-                 AND block.type IN ('page', 'database'))",
+                 AND block.type IN ('page', 'database', 'canvas'))",
             params![parent_page_id, library_id, target_id],
             |row| row.get(0),
         )
@@ -1347,6 +1619,7 @@ fn path(
         LibraryRouteTarget::Database { database_id } => {
             database_path(connection, library_id, database_id)
         }
+        LibraryRouteTarget::Canvas { canvas_id } => canvas_path(connection, library_id, canvas_id),
         LibraryRouteTarget::View { view_id } => {
             let database_id = connection
                 .query_row(
@@ -1440,6 +1713,29 @@ fn database_path(
     Ok(nodes)
 }
 
+fn canvas_path(
+    connection: &Connection,
+    library_id: &str,
+    canvas_id: &str,
+) -> Result<Vec<LibraryNavigationNode>, StoreError> {
+    let canvas = canvas_node(connection, library_id, canvas_id)?;
+    let host_page = connection
+        .query_row(
+            "SELECT page.block_id FROM blocks block \
+             INNER JOIN pages page ON page.document_id = block.containing_document_id \
+             WHERE block.id = ?1 AND block.location_kind = 'document'",
+            [canvas_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    let mut nodes = host_page
+        .map(|page_id| page_path(connection, library_id, &page_id))
+        .transpose()?
+        .unwrap_or_default();
+    nodes.push(canvas);
+    Ok(nodes)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn catalog(
     connection: &Connection,
@@ -1459,13 +1755,19 @@ fn catalog(
         LibraryLifecycle::Active => "active",
         LibraryLifecycle::Archived => "archived",
     };
-    let kinds =
-        kinds.unwrap_or_else(|| vec![LibraryCatalogKind::Page, LibraryCatalogKind::Database]);
+    let kinds = kinds.unwrap_or_else(|| {
+        vec![
+            LibraryCatalogKind::Page,
+            LibraryCatalogKind::Database,
+            LibraryCatalogKind::Canvas,
+        ]
+    });
     let kind_subject = kinds
         .iter()
         .map(|kind| match kind {
             LibraryCatalogKind::Page => "page",
             LibraryCatalogKind::Database => "database",
+            LibraryCatalogKind::Canvas => "canvas",
         })
         .collect::<Vec<_>>()
         .join(",");
@@ -1485,6 +1787,7 @@ fn catalog(
     let (after_updated_at, after_id) = keyset_text_coordinate(after.as_ref())?;
     let include_pages = kinds.contains(&LibraryCatalogKind::Page);
     let include_databases = kinds.contains(&LibraryCatalogKind::Database);
+    let include_canvases = kinds.contains(&LibraryCatalogKind::Canvas);
     let query_limit =
         i64::try_from(limit.saturating_add(1)).map_err(|_| invalid("Library limit overflowed"))?;
     let catalog_cte = "\
@@ -1525,14 +1828,28 @@ fn catalog(
         FROM database_containers container \
         INNER JOIN blocks block ON block.id = container.block_id \
         WHERE ?4 AND container.library_id = ?1 AND container.lifecycle = ?2 \
+        UNION ALL \
+        SELECT block.id, 'canvas', COALESCE(json_extract(property.value_json, '$'), 'Canvas'), \
+          canvas.updated_at, block.location_revision, block.metadata_revision, \
+          COALESCE(( \
+            SELECT host_materialization.title FROM pages host_page \
+            INNER JOIN document_materializations host_materialization \
+              ON host_materialization.document_id = host_page.document_id \
+            WHERE host_page.document_id = block.containing_document_id LIMIT 1 \
+          ), 'Library') \
+        FROM canvas_owners canvas \
+        INNER JOIN blocks block ON block.id = canvas.block_id \
+        LEFT JOIN block_properties property ON property.block_id = block.id \
+          AND property.property_key = 'document.display_name' \
+        WHERE ?5 AND canvas.library_id = ?1 AND block.lifecycle = ?2 \
       ) ";
     let rows_sql = format!(
         "{catalog_cte} \
          SELECT id, kind, title, updated_at, location_revision, metadata_revision, location_label \
-         FROM catalog WHERE (?5 = '' OR instr(lower(title), ?5) > 0) \
-           AND (?6 IS NULL OR updated_at < ?6 \
-             OR (updated_at = ?6 AND id > ?7)) \
-         ORDER BY updated_at DESC, id LIMIT ?8"
+         FROM catalog WHERE (?6 = '' OR instr(lower(title), ?6) > 0) \
+           AND (?7 IS NULL OR updated_at < ?7 \
+             OR (updated_at = ?7 AND id > ?8)) \
+         ORDER BY updated_at DESC, id LIMIT ?9"
     );
     let mut entries = connection
         .prepare(&rows_sql)?
@@ -1542,6 +1859,7 @@ fn catalog(
                 lifecycle_value,
                 include_pages,
                 include_databases,
+                include_canvases,
                 query,
                 after_updated_at,
                 after_id,
@@ -1552,6 +1870,7 @@ fn catalog(
                 let kind = match row.get::<_, String>(1)?.as_str() {
                     "page" => LibraryCatalogKind::Page,
                     "database" => LibraryCatalogKind::Database,
+                    "canvas" => LibraryCatalogKind::Canvas,
                     _ => unreachable!("catalog CTE emits fixed kinds"),
                 };
                 let target = match kind {
@@ -1559,6 +1878,7 @@ fn catalog(
                     LibraryCatalogKind::Database => {
                         LibraryResourceTarget::Database { database_id: id }
                     }
+                    LibraryCatalogKind::Canvas => LibraryResourceTarget::Canvas { canvas_id: id },
                 };
                 Ok(LibraryCatalogEntry {
                     target,
@@ -1596,7 +1916,7 @@ fn catalog(
     let total_sql = format!(
         "{catalog_cte} \
          SELECT COUNT(*) FROM catalog \
-         WHERE (?5 = '' OR instr(lower(title), ?5) > 0)"
+         WHERE (?6 = '' OR instr(lower(title), ?6) > 0)"
     );
     let total = connection.query_row(
         &total_sql,
@@ -1605,6 +1925,7 @@ fn catalog(
             lifecycle_value,
             include_pages,
             include_databases,
+            include_canvases,
             query
         ],
         |row| row.get::<_, i64>(0),
@@ -1667,6 +1988,10 @@ fn matches_target(node: &LibraryNavigationNode, target: &LibraryRouteTarget) -> 
             },
         ) => database_id == target,
         (
+            LibraryNavigationNode::Canvas { canvas_id, .. },
+            LibraryRouteTarget::Canvas { canvas_id: target },
+        ) => canvas_id == target,
+        (
             LibraryNavigationNode::View { view_id, .. },
             LibraryRouteTarget::View { view_id: target },
         ) => view_id == target,
@@ -1678,6 +2003,7 @@ fn navigation_node_id(node: &LibraryNavigationNode) -> &str {
     match node {
         LibraryNavigationNode::Page { page_id, .. } => page_id,
         LibraryNavigationNode::Database { database_id, .. } => database_id,
+        LibraryNavigationNode::Canvas { canvas_id, .. } => canvas_id,
         LibraryNavigationNode::View { view_id, .. } => view_id,
     }
 }
@@ -1686,6 +2012,7 @@ fn catalog_id(entry: &LibraryCatalogEntry) -> &str {
     match &entry.target {
         LibraryResourceTarget::Page { page_id } => page_id,
         LibraryResourceTarget::Database { database_id } => database_id,
+        LibraryResourceTarget::Canvas { canvas_id } => canvas_id,
     }
 }
 

@@ -19,6 +19,14 @@ export interface ManagedImageSaveResult {
   readonly fileName: string;
 }
 
+export interface ManagedCanvasImageMaterializationResult {
+  readonly source: string;
+  readonly fileName: string;
+  readonly mimeType: string;
+  readonly contentHash: string;
+  readonly byteLength: number;
+}
+
 export interface ManagedResourceSaveResult {
   readonly source: string;
   readonly fileName: string;

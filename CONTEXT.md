@@ -45,8 +45,8 @@ unchanged.
 
 A Block is the only persistent application content identity. Every content
 object has one globally unique `blockId`, a type, lifecycle, Library, and one
-current parent. A Block can be text, media, a Page, a Database, a reference, or
-another registered type.
+current parent. A Block can be text, media, a Page, a Canvas, a Database, a
+reference, or another registered type.
 
 Yjs client and struct identifiers are implementation details and never replace
 `blockId`. Physical retention may remove a live Block only after global
@@ -132,6 +132,13 @@ state, order, and managed-file metadata. Application Page references retain
 only `targetBlockId` plus a disposable title hint. Asset data is uploaded first
 and scene authority stores a `nodex://assets/*` URI.
 
+A Canvas Block has one exclusive Library or Page placement and one row in
+`canvas_owners`. Its stable Canvas ID is its Block ID; clients resolve the
+owned Document through `block_documents` and never derive or persist that
+Document ID in a host shell. Project creation seeds one deterministic primary
+Canvas, but primary status is only the default Project entry point—not a
+different Document or Database View type.
+
 Synced Block and Reusable Template remain dormant capabilities without ordinary
 Library UI. Their hidden source Blocks have real Library placement and body-only
 Documents. `syncedBlockRef` presents live source content; `templateRef`
@@ -145,6 +152,13 @@ contains it. Ordinary Block content lives in its host Document. A nested
 document-bearing Block stores only a childless shell there; the owned Document
 loads independently.
 
+A Page-owned Canvas shell is exactly a childless `canvas` Block with the Canvas
+owner's Block ID and empty props. It contains no scene JSON, files, app state,
+title snapshot, or `documentId`. Creating, moving, duplicating, or deleting that
+shell is a typed Library operation that changes the Canvas owner and host
+Document in one transaction; an ordinary Yjs edit may neither fabricate nor
+remove the owner shell.
+
 Nested `page` and non-owning `pageRef` Blocks share one flat outliner
 presentation. Collapsed rows read an exact-head rich-title summary without a
 provider. Explicit title engagement may mount the target title while the body
@@ -155,7 +169,8 @@ from mounting recursively.
 ### Parent and placement
 
 Parent answers who owns an active Block. Page uses the explicit `library |
-page | data_source` algebra, and Page ownership is a rooted acyclic forest.
+page | data_source` algebra; Canvas uses `library | page`; and Page ownership
+is a rooted acyclic forest.
 Moving a Page into itself or an ownership descendant is rejected before commit
 and by the persistence boundary. Non-Page Blocks are Library-owned or live in the
 nearest Page/owner Document according to their registered behavior. Relational
@@ -369,6 +384,7 @@ state is rejected rather than replayed.
 | Block identity, type, lifecycle, Library, and parent | `blocks` plus typed placement detail |
 | Page title and body | Page Document (`yjs`) |
 | Ordinary Block hierarchy/order/content | nearest owning Document |
+| Canvas metadata and Library/Page placement | `blocks`, `canvas_owners`, and the exact host shell or Library placement |
 | Canvas scene and managed-file metadata | normalized Canvas scene rows |
 | Document ownership | `block_documents` |
 | Library top-level placement | Library placement records |
@@ -414,6 +430,10 @@ state is rejected rather than replayed.
 17. Database creation atomically creates Container, initial Source, initial
     View, and default View authority from independently allocated identities.
 18. Data Source is never a Block under the accepted architecture.
+19. A Page-owned Canvas appears once as a childless owning shell; its scene and
+    Document identity never enter the Page Document.
+20. Canvas lifecycle and placement use typed Library commands that atomically
+    preserve or change the owned Document and every affected host shell.
 
 ## Operation semantics
 
@@ -478,7 +498,7 @@ are not durable content. Disclosure may persist as disposable profile-local
 preference by stable Block ID. Project Sessions and Codex Thread links are
 shared execution concepts. Tabs, panel trees, active leaves, geometry, and
 navigation history are Window Session view state; their descriptors may point
-to shared Page/Database resources or Main-owned Browser/Terminal runtimes
+to shared Page/Canvas/Database resources or Main-owned Browser/Terminal runtimes
 without becoming another authority for those targets.
 The renderer has one discriminated Window Session location and one layout-v4
 writer. Per-Project view presentation, sidebar disclosure/width, and recent
@@ -491,6 +511,8 @@ owners.
 - Say **Block** when behavior applies to all content identities.
 - Say **Document** for independently synchronized content owned by a
   document-bearing Block; name `yjs` or `canvas_scene` when encoding matters.
+- Say **Canvas** for the document-bearing whiteboard Block and **Canvas Stage**
+  for its full tab presentation; do not call either a Database View.
 - Say **Database** for the placeable Container and **Data Source** for schema,
   Pages, values, and query identity.
 - Say **View** for a saved presentation targeting one Data Source.
@@ -507,7 +529,7 @@ owners.
 Shared domain Interfaces live under `src/shared/`; SQLite Implementations live
 under `src/main/local-store/`; trusted HTTP/IPC/CLI/Agent adapters bind access
 in `src/main`; renderer transport remains behind `src/renderer/lib/api.ts`.
-Page Stage and owned-Document surfaces live under
+Page Stage, Canvas Stage, and owned-Document surfaces live under
 `src/renderer/components/block-documents/` with runtime/descriptor validation
 under `src/renderer/lib/`.
 

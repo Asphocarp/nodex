@@ -634,6 +634,7 @@ impl LibraryModule {
             LibraryResourceTarget::Database { database_id } => {
                 (Vec::new(), vec![database_id.clone()])
             }
+            LibraryResourceTarget::Canvas { .. } => (Vec::new(), Vec::new()),
         };
         let committed_at = unix_timestamp_millis();
         let receipt = LibraryReceipt {
@@ -657,6 +658,7 @@ impl LibraryModule {
                 affected_resource_ids: vec![resource_id],
                 page_create: None,
                 page_copy: None,
+                canvas_mutation: None,
                 block_transfer: None,
                 page_lifecycle: None,
                 block_property_mutation: None,
@@ -683,6 +685,7 @@ impl LibraryModule {
             // which to enumerate the complete projection closure. Broad invalidation
             // is the only truthful impact for this test authority.
             LibraryResourceTarget::Database { .. } => ProjectionImpact::All,
+            LibraryResourceTarget::Canvas { .. } => ProjectionImpact::All,
         };
         let event = CommittedCoreModuleEvent {
             event_version: CORE_EVENT_VERSION,
@@ -803,6 +806,7 @@ fn resource_id(target: &LibraryResourceTarget) -> String {
     match target {
         LibraryResourceTarget::Page { page_id } => page_id.clone(),
         LibraryResourceTarget::Database { database_id } => database_id.clone(),
+        LibraryResourceTarget::Canvas { canvas_id } => canvas_id.clone(),
     }
 }
 
@@ -4945,6 +4949,7 @@ mod agent_page_move;
 mod agent_page_write;
 mod agent_search;
 mod block_transfer;
+mod canvas_mutation;
 mod content;
 mod content_rehome;
 pub(crate) mod cursor;

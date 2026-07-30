@@ -24,6 +24,20 @@ export interface CrossSurfaceBlockTransferPayload {
   readonly displayHints: readonly string[];
 }
 
+export const containsCanvasBlockDrag = (
+  payload: Pick<CrossSurfaceBlockTransferPayload, "displayHints">,
+): boolean => payload.displayHints.includes("canvas");
+
+export const isSingleCanvasBlockDrag = (
+  payload: Pick<
+    CrossSurfaceBlockTransferPayload,
+    "displayHints" | "rootBlockIds"
+  >,
+): boolean =>
+  payload.rootBlockIds.length === 1
+  && payload.displayHints.length === 1
+  && payload.displayHints[0] === "canvas";
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
@@ -371,6 +385,7 @@ export const shouldBlockNoteYieldManagedDrag = (input: {
   readonly eventTarget: EventTarget | null;
 }): boolean => {
   if (!input.session) return false;
+  if (containsCanvasBlockDrag(input.session.payload)) return true;
   if (input.session.sourceSurfaceId !== input.currentSurfaceId) return true;
   if (!(input.eventTarget instanceof Element)) return true;
   return (

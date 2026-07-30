@@ -40,6 +40,7 @@ import { useKanban } from "@/lib/use-kanban";
 import { cn } from "@/lib/utils";
 import type { WorkbenchSessionRenderProjection } from "@/lib/workbench-session-presentation";
 import { projectWorkspaceRootOrNull } from "@/lib/workbench-workspace-context";
+import type { OpenCanvasStageHandler } from "@/lib/use-workbench-panel-openers";
 import type { WorkbenchProjectionPageStageTabConfig } from "../../../shared/types";
 import { PageStage } from "./workbench-page-stage";
 
@@ -157,6 +158,7 @@ export function PageStageSessionTab({
   onEnsureBlankSessionForProject,
   onRefreshSessions,
   onOpenPageTab,
+  onOpenCanvasStage,
   onOpenThread,
   historyPanelActive,
   onToggleHistoryPanel,
@@ -185,6 +187,7 @@ export function PageStageSessionTab({
     projectId: string,
   ) => Promise<WorkbenchSessionRenderProjection[]>;
   onOpenPageTab: OpenPageTabHandler;
+  onOpenCanvasStage: OpenCanvasStageHandler;
   onOpenThread: (threadId: string) => Promise<void>;
   historyPanelActive: boolean;
   onToggleHistoryPanel: (context: PageStageHistoryModalContext) => void;
@@ -465,6 +468,17 @@ export function PageStageSessionTab({
               void onOpenPageTab(projectId, pageId, titleSnapshot, {
                 openMode: "durable",
               });
+            }}
+            onOpenCanvas={({
+              projectId,
+              canvasBlockId,
+              titleSnapshot,
+            }) => {
+              void onOpenCanvasStage(
+                projectId,
+                canvasBlockId,
+                titleSnapshot,
+              );
             }}
             onStartNewSessionThreadFromEditor={
               handleStartNewSessionThreadFromEditor

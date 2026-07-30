@@ -894,10 +894,9 @@ export const decodeCanvasSceneSyncHttpResponse = (
       "Canvas snapshot response must have a payload",
     );
   }
-  let serialized: string;
   let parsed: unknown;
   try {
-    serialized = new TextDecoder("utf-8", { fatal: true }).decode(
+    const serialized = new TextDecoder("utf-8", { fatal: true }).decode(
       envelope.payload,
     );
     parsed = JSON.parse(serialized) as unknown;
@@ -908,11 +907,6 @@ export const decodeCanvasSceneSyncHttpResponse = (
     );
   }
   const scene = parsePortableCanvasScene(parsed);
-  if (canonicalStringifyCanvasScene(scene) !== serialized) {
-    throw new DocumentHttpWireError(
-      "Canvas snapshot payload is not canonical JSON",
-    );
-  }
   return { kind: "snapshot", ...common, scene };
 };
 

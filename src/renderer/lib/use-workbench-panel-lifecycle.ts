@@ -433,13 +433,7 @@ const updateSessionPanel = useCallback(async (
           );
         },
         disposeCanvas: async (tab) => {
-          if (
-            tab.kind !== "db_view"
-            || !("view" in tab.config)
-            || tab.config.view !== "canvas"
-          ) {
-            return true;
-          }
+          if (tab.kind !== "canvas_stage") return true;
           try {
             await canvasSceneSurfaceRegistry.dispose(
               makeCanvasSceneSurfaceKey(

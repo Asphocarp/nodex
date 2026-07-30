@@ -23,6 +23,7 @@ import type {
 } from "@/lib/types";
 import {
   SquareKanban,
+  Shapes,
   Table2,
 } from "lucide-react";
 
@@ -49,6 +50,7 @@ export interface PanelNewTabAction {
 export const NODEX_PANEL_OPTION_ACTION_ORDER: WorkbenchTabProjection["kind"][] = [
   "db_view",
   "page_stage",
+  "canvas_stage",
 ];
 
 const NODEX_PANEL_OPTION_ACTION_KIND_SET = new Set<WorkbenchTabProjection["kind"]>(
@@ -119,6 +121,13 @@ export const PANEL_NEW_TAB_ACTIONS: PanelNewTabAction[] = [
     label: "Page",
     description: "Open a Library Page",
     Icon: SquareKanban,
+  },
+  {
+    kind: "canvas_stage",
+    defaultPanelId: "right",
+    label: "Canvas",
+    description: "Open the project Canvas",
+    Icon: Shapes,
   },
 ];
 

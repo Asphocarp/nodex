@@ -20,6 +20,7 @@ import {
   type SelectionEditorLike,
 } from "./special-block-copy";
 import { createEmptyThreadSectionBlock } from "./thread-section";
+import { canvasCreatePendingExtension } from "./canvas-create-pending-extension";
 
 const toggleInputRule = createExtension({
   key: "toggle-input-rule",
@@ -334,6 +335,7 @@ export type NfmPasteHandler = (context: {
 export function createNfmEditorExtensions() {
   return [
     nfmSearchExtension(),
+    canvasCreatePendingExtension(),
     structuredPlainTextCopyExt(),
     headingToggleAware,
     toggleInputRule,

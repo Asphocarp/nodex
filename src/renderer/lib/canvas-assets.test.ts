@@ -5,6 +5,7 @@ import {
   materializeDurableCanvasFiles,
   resolveCanvasBinaryFiles,
 } from "./canvas-assets";
+import { CanvasSceneStagedFileCatalog } from "./canvas-scene-binding";
 
 describe("Canvas managed asset bridge", () => {
   test("keeps only active image files and uploads new payloads before return", async () => {
@@ -24,9 +25,15 @@ describe("Canvas managed asset bridge", () => {
       },
       current: {},
       dependencies: {
-        uploadImage: async () => {
+        materializeImage: async () => {
           uploadOrder.push("uploaded");
-          return "nodex://assets/new.png";
+          return {
+            source: "nodex://assets/new.png",
+            fileName: "new.png",
+            mimeType: "image/png",
+            contentHash: "a".repeat(64),
+            byteLength: 1,
+          };
         },
       },
     });
@@ -37,6 +44,46 @@ describe("Canvas managed asset bridge", () => {
       [...collectCanvasReferencedFileIds([{ type: "image", fileId: "new" }])]
         .join(","),
     ).toBe("new");
+  });
+
+  test("single-flights the same staged file across concurrent surface ports", async () => {
+    const catalog = new CanvasSceneStagedFileCatalog();
+    let materializationCount = 0;
+    const request = {
+      elementsIncludingDeleted: [
+        { id: "image", type: "image", fileId: "shared", isDeleted: false },
+      ],
+      binaryFiles: {
+        shared: {
+          id: "shared",
+          mimeType: "image/png",
+          dataURL: "data:image/png;base64,AA==",
+          created: 10,
+        },
+      },
+      current: {},
+      getAccepted: () => ({}),
+      dependencies: {
+        materializeImage: async () => {
+          materializationCount += 1;
+          return {
+            source: "nodex://assets/shared.png",
+            fileName: "shared.png",
+            mimeType: "image/png",
+            contentHash: "a".repeat(64),
+            byteLength: 1,
+          };
+        },
+      },
+    } as const;
+
+    const [first, second] = await Promise.all([
+      catalog.materialize(request),
+      catalog.materialize(request),
+    ]);
+
+    expect(materializationCount).toBe(1);
+    expect(first.shared).toEqual(second.shared);
   });
 
   test("resolves durable refs into disposable Excalidraw binary data", async () => {

@@ -7,7 +7,6 @@ import {
   useRef,
   useState,
 } from "react";
-import type { RefObject } from "react";
 import type {
   AppState,
   BinaryFileData,
@@ -23,10 +22,9 @@ import {
   compactCanvasScene,
   createCanvasSceneSyncAdapter,
   createDefaultCanvasSceneOutbox,
-  useKanban,
   useTheme,
   readCanvasSceneCompaction,
-} from "./canvas-view-deps";
+} from "../kanban/canvas-view-deps";
 import {
   createPageElement,
   collectPlacedPageIds,
@@ -36,22 +34,19 @@ import {
   syncPlacedPageIds,
   updatePageElements,
 } from "@/lib/canvas-card-elements";
-import type { DatabasePageSummary } from "@/lib/types";
-import { toDatabasePageSummary } from "../../../shared/page-summary";
-import {
-  primaryCanvasBlockId,
-  type PortableCanvasScene,
-} from "../../../shared/block-documents";
+import type { BoardSummary, DatabasePageSummary } from "@/lib/types";
+import type { PortableCanvasScene } from "../../../shared/block-documents";
 import {
   CanvasBinaryFileResolver,
   type CanvasBinaryFiles,
 } from "@/lib/canvas-assets";
 import { CanvasSceneBinding } from "@/lib/canvas-scene-binding";
 import { CanvasSceneProvider } from "@/lib/canvas-scene-provider";
+import { canvasDocumentSessionRegistry } from "@/lib/canvas-document-session";
 import { canvasSceneSurfaceRegistry } from "@/lib/canvas-scene-surface-runtime";
 import type { ReadyRegisteredOwnedBlockDocumentDescriptor } from "@/lib/owned-block-document";
 import { LayoutGrid } from "lucide-react";
-import { CanvasDocumentState } from "./canvas-document-state";
+import { CanvasDocumentState } from "../kanban/canvas-document-state";
 import { CANVAS_SCENE_MAINTENANCE_VERSION } from "../../../shared/block-documents/canvas-scene-maintenance";
 import {
   createCanvasPresenceController,
@@ -61,7 +56,7 @@ import {
   createCanvasViewportPersistence,
   readCanvasViewportPreference,
   type CanvasViewportPersistence,
-} from "@/lib/canvas-viewport-preference";
+} from "@/lib/canvas-presentation-preference";
 
 const ExcalidrawLazy = lazy(async () => {
   const mod = await loadExcalidraw();
@@ -84,24 +79,47 @@ const collaborationPromise = loadExcalidraw().then((mod) => ({
   newElementWith: mod.newElementWith,
 }));
 
-interface CanvasViewProps {
-  projectId: string;
-  databaseViewId: string;
-  canvasSurfaceKey: string;
-  openPageStage: (
-    projectId: string,
-    pageId: string,
-    titleSnapshot?: string,
-  ) => void;
-  pageStagePageId: string | undefined;
-  pageStageCloseRef: RefObject<(() => Promise<void>) | null>;
+export interface CanvasPagePaletteCapability {
+  readonly board: BoardSummary | null;
+  readonly createPage: () => Promise<DatabasePageSummary | null>;
 }
 
-export function CanvasView({ projectId, databaseViewId, canvasSurfaceKey, openPageStage, pageStagePageId, pageStageCloseRef }: CanvasViewProps) {
+export interface CanvasOpenPageInput {
+  readonly projectId: string;
+  readonly pageId: string;
+  readonly titleSnapshot?: string;
+}
+
+export interface CanvasDocumentSurfaceProps {
+  readonly projectId: string;
+  readonly canvasBlockId: string;
+  readonly surfaceKey: string;
+  readonly viewportPreferenceScope: string;
+  readonly variant: "inline" | "stage";
+  readonly active: boolean;
+  readonly pagePalette?: CanvasPagePaletteCapability;
+  readonly onOpenPage?: (input: CanvasOpenPageInput) => void;
+  readonly activePageId?: string;
+  readonly onCloseActivePage?: () => Promise<void>;
+}
+
+export function CanvasDocumentSurface({
+  projectId,
+  canvasBlockId,
+  surfaceKey,
+  viewportPreferenceScope,
+  variant,
+  active,
+  pagePalette,
+  onOpenPage,
+  activePageId,
+  onCloseActivePage,
+}: CanvasDocumentSurfaceProps) {
+  if (!active) return null;
   return (
     <RegisteredOwnedBlockDocumentBoundary
       projectId={projectId}
-      ownerBlockId={primaryCanvasBlockId(projectId)}
+      ownerBlockId={canvasBlockId}
     >
       {(model, controls) => {
         if (model.status === "loading") {
@@ -131,15 +149,18 @@ export function CanvasView({ projectId, databaseViewId, canvasSurfaceKey, openPa
             key={JSON.stringify([
               model.descriptor.storeEpoch,
               model.descriptor.documentId,
+              viewportPreferenceScope,
             ])}
             projectId={projectId}
-            databaseViewId={databaseViewId}
-            canvasSurfaceKey={canvasSurfaceKey}
+            surfaceKey={surfaceKey}
+            viewportPreferenceScope={viewportPreferenceScope}
+            variant={variant}
             descriptor={descriptor as CanvasEditorProps["descriptor"]}
             onReload={controls.reload}
-            openPageStage={openPageStage}
-            pageStagePageId={pageStagePageId}
-            pageStageCloseRef={pageStageCloseRef}
+            pagePalette={pagePalette}
+            onOpenPage={onOpenPage}
+            activePageId={activePageId}
+            onCloseActivePage={onCloseActivePage}
           />
         );
       }}
@@ -147,7 +168,10 @@ export function CanvasView({ projectId, databaseViewId, canvasSurfaceKey, openPa
   );
 }
 
-interface CanvasEditorProps extends CanvasViewProps {
+interface CanvasEditorProps extends Omit<
+  CanvasDocumentSurfaceProps,
+  "active" | "canvasBlockId"
+> {
   readonly descriptor: ReadyRegisteredOwnedBlockDocumentDescriptor & {
     readonly sync: { readonly kind: "canvas_scene" };
   };
@@ -156,30 +180,37 @@ interface CanvasEditorProps extends CanvasViewProps {
 
 function CanvasEditor({
   projectId,
-  databaseViewId,
-  canvasSurfaceKey,
+  surfaceKey,
+  viewportPreferenceScope,
+  variant,
   descriptor,
   onReload,
-  openPageStage,
-  pageStagePageId,
-  pageStageCloseRef,
+  pagePalette,
+  onOpenPage,
+  activePageId,
+  onCloseActivePage,
 }: CanvasEditorProps) {
-  const {
-    board,
-    createPage,
-  } = useKanban({ projectId, databaseViewId });
+  const board = pagePalette?.board ?? null;
   const { resolved: themeResolved } = useTheme();
   const excalidrawApiRef = useRef<ExcalidrawImperativeAPI | null>(null);
   const bindingRef = useRef<CanvasSceneBinding | null>(null);
   const presenceRef = useRef<CanvasPresenceController | null>(null);
   const viewportPersistenceRef = useRef<CanvasViewportPersistence | null>(null);
-  const clientSessionIdRef = useRef(
-    `canvas:${globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36)}`,
+  const documentClientSessionIdRef = useRef(
+    `canvas-document:${
+      globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36)
+    }`,
+  );
+  const presenceClientSessionIdRef = useRef(
+    `canvas-surface:${
+      globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36)
+    }`,
   );
   const [restoredViewport] = useState(() =>
     readCanvasViewportPreference({
       storeEpoch: descriptor.storeEpoch,
       documentId: descriptor.documentId,
+      preferenceScope: viewportPreferenceScope,
     }));
   const [resolvedScene, setResolvedScene] = useState<{
     readonly materialization: PortableCanvasScene;
@@ -218,10 +249,20 @@ function CanvasEditor({
     });
   }, []);
 
+  const generateIdForFile = useCallback(
+    () =>
+      globalThis.crypto?.randomUUID?.()
+      ?? `canvas-file:${Date.now().toString(36)}:${
+        Math.random().toString(36).slice(2)
+      }`,
+    [],
+  );
+
   useLayoutEffect(() => {
     const persistence = createCanvasViewportPersistence({
       storeEpoch: descriptor.storeEpoch,
       documentId: descriptor.documentId,
+      preferenceScope: viewportPreferenceScope,
     });
     viewportPersistenceRef.current = persistence;
     const flushCurrentViewport = (): void => {
@@ -244,7 +285,11 @@ function CanvasEditor({
         viewportPersistenceRef.current = null;
       }
     };
-  }, [descriptor.documentId, descriptor.storeEpoch]);
+  }, [
+    descriptor.documentId,
+    descriptor.storeEpoch,
+    viewportPreferenceScope,
+  ]);
 
   useEffect(() => {
     let active = true;
@@ -252,17 +297,26 @@ function CanvasEditor({
     const fileResolver = new CanvasBinaryFileResolver();
     let binding: CanvasSceneBinding | null = null;
     let presence: CanvasPresenceController | null = null;
-    const provider = new CanvasSceneProvider({
+    const documentSession = canvasDocumentSessionRegistry.acquire({
       projectId,
+      ownerBlockId: descriptor.ownerBlockId,
       documentId: descriptor.documentId,
-      clientSessionId: clientSessionIdRef.current,
-      expectedStoreEpoch: descriptor.storeEpoch,
-      expectedGeneration: descriptor.generation,
-      adapter: createCanvasSceneSyncAdapter(projectId),
-      outbox: createDefaultCanvasSceneOutbox(),
-      onScene: (scene) => binding?.presentRemoteScene(scene),
-      onPresence: (event) => presence?.receive(event),
+      storeEpoch: descriptor.storeEpoch,
+      generation: descriptor.generation,
+      createProvider: ({ onScene, onPresence }) =>
+        new CanvasSceneProvider({
+          projectId,
+          documentId: descriptor.documentId,
+          clientSessionId: documentClientSessionIdRef.current,
+          expectedStoreEpoch: descriptor.storeEpoch,
+          expectedGeneration: descriptor.generation,
+          adapter: createCanvasSceneSyncAdapter(projectId),
+          outbox: createDefaultCanvasSceneOutbox(),
+          onScene,
+          onPresence,
+        }),
     });
+    const provider = documentSession.provider;
     const unsubscribeStatus = provider.subscribeStatus(() => {
       if (!active) return;
       const status = provider.getStatus();
@@ -281,7 +335,12 @@ function CanvasEditor({
       if (status.error) setSceneError(status.error.message);
     });
     presence = createCanvasPresenceController({
-      publish: provider.publishPresence,
+      publish: (clock, state) =>
+        provider.publishPresenceFor(
+          presenceClientSessionIdRef.current,
+          clock,
+          state,
+        ),
       onCollaborators: (collaborators) => {
         if (!active) return;
         const api = excalidrawApiRef.current;
@@ -312,6 +371,7 @@ function CanvasEditor({
     window.addEventListener("blur", handleWindowBlur);
     binding = new CanvasSceneBinding({
       provider,
+      stagedFileCatalog: documentSession.stagedFileCatalog,
       onRemoteScene: (scene) => {
         void presentScene(scene);
       },
@@ -320,22 +380,30 @@ function CanvasEditor({
       },
     });
     bindingRef.current = binding;
+    const unsubscribeScene = documentSession.subscribeScene(
+      binding.presentRemoteScene,
+    );
+    const unsubscribePresence = documentSession.subscribePresence(
+      presence.receive,
+    );
     const unregisterWriteLeasePreparer = provider.registerWriteLeasePreparer(
       binding.flushCommitted,
     );
     const runtime = canvasSceneSurfaceRegistry.acquire({
-      key: canvasSurfaceKey,
+      key: surfaceKey,
       descriptor,
       provider,
+      connectDocumentSession: documentSession.connect,
       presence,
       binding,
       fileResolver,
+      releaseDocumentSession: documentSession.release,
       maintainIfIdle: async () => {
         const request = {
           version: CANVAS_SCENE_MAINTENANCE_VERSION,
           projectId,
           documentId: descriptor.documentId,
-          clientSessionId: clientSessionIdRef.current,
+          clientSessionId: documentClientSessionIdRef.current,
         };
         const eligibility = await readCanvasSceneCompaction(request);
         if (!eligibility.ok || !eligibility.value.eligible) return;
@@ -349,6 +417,8 @@ function CanvasEditor({
       },
       disposeSubscriptions: () => {
         unregisterWriteLeasePreparer();
+        unsubscribeScene();
+        unsubscribePresence();
         unsubscribeStatus();
         document.removeEventListener("visibilitychange", updateIdleState);
         window.removeEventListener("focus", handleWindowFocus);
@@ -442,10 +512,10 @@ function CanvasEditor({
       if (bindingRef.current === binding) bindingRef.current = null;
       if (presenceRef.current === presence) presenceRef.current = null;
       void canvasSceneSurfaceRegistry
-        .release(canvasSurfaceKey, runtime)
+        .release(surfaceKey, runtime)
         .catch(() => undefined);
     };
-  }, [canvasSurfaceKey, descriptor, onReload, projectId]);
+  }, [descriptor, onReload, projectId, surfaceKey]);
 
   // Sync card labels when board changes
   useEffect(() => {
@@ -507,14 +577,18 @@ function CanvasEditor({
       if (!pageId) return;
 
       // Toggle: clicking the already-peeked card closes it (matches board/list behavior)
-      if (pageStagePageId === pageId) {
-        await pageStageCloseRef.current?.();
+      if (activePageId === pageId) {
+        await onCloseActivePage?.();
         return;
       }
 
-      openPageStage(projectId, pageId, getPageTitleHintFromElement(element));
+      onOpenPage?.({
+        projectId,
+        pageId,
+        titleSnapshot: getPageTitleHintFromElement(element),
+      });
     },
-    [openPageStage, projectId, pageStageCloseRef, pageStagePageId],
+    [activePageId, onCloseActivePage, onOpenPage, projectId],
   );
 
   // Place an existing card on the canvas
@@ -566,11 +640,11 @@ function CanvasEditor({
 
   // Create a new card and place it on canvas
   const handleCreateAndPlace = useCallback(async () => {
-    if (!excalidrawApiRef.current) return;
-    const card = await createPage("triage", { title: "New Page" });
+    if (!excalidrawApiRef.current || !pagePalette) return;
+    const card = await pagePalette.createPage();
     if (!card) return;
-    await handlePlaceCard(toDatabasePageSummary(card));
-  }, [createPage, handlePlaceCard]);
+    await handlePlaceCard(card);
+  }, [handlePlaceCard, pagePalette]);
 
   // Excalidraw observations become mergeable scene mutations with explicit tombstones.
   const handleChange = useCallback(
@@ -645,7 +719,11 @@ function CanvasEditor({
   }
 
   return (
-    <div className="h-full min-h-0 w-full px-4 pb-4">
+    <div
+      className={variant === "inline"
+        ? "h-full min-h-0 w-full"
+        : "h-full min-h-0 w-full px-4 pb-4"}
+    >
       {sceneError ? (
         <div
           role="alert"
@@ -664,12 +742,25 @@ function CanvasEditor({
       <Suspense
         fallback={
           <div className="flex h-full flex-1 items-center justify-center">
-            <div className="text-sm text-(--foreground-secondary)">Loading Excalidraw...</div>
+            <div className="text-sm text-(--foreground-secondary)">
+              Loading Excalidraw...
+            </div>
           </div>
         }
       >
-        <div className="h-full min-h-0 overflow-hidden rounded-lg border border-(--border)">
+        {/* Excalidraw's fixed, viewport-sized SVG layer must remain visual-only. */}
+        <div
+          data-excalidraw-embed-boundary={variant}
+          data-canvas-surface-key={surfaceKey}
+          className="h-full min-h-0 overflow-hidden rounded-lg border border-(--border) [&_.excalidraw_.SVGLayer]:absolute! [&_.excalidraw_.SVGLayer]:inset-0! [&_.excalidraw_.SVGLayer]:size-full! [&_.excalidraw_.SVGLayer]:pointer-events-none! [&_.excalidraw_.SVGLayer_svg]:pointer-events-none!"
+          onClick={(event) => event.stopPropagation()}
+          onContextMenu={(event) => event.stopPropagation()}
+          onDoubleClick={(event) => event.stopPropagation()}
+          onKeyDown={(event) => event.stopPropagation()}
+          onPointerDown={(event) => event.stopPropagation()}
+        >
           <ExcalidrawLazy
+            name={surfaceKey}
             excalidrawAPI={handleExcalidrawAPI}
             initialData={{
               elements: resolvedScene.materialization.elements as unknown as readonly OrderedExcalidrawElement[],
@@ -696,19 +787,22 @@ function CanvasEditor({
             onScrollChange={handleViewportChange}
             onPointerUpdate={handlePointerUpdate}
             onLinkOpen={handleLinkOpen}
-            renderTopRightUI={renderTopRightUI}
+            generateIdForFile={generateIdForFile}
+            renderTopRightUI={pagePalette ? renderTopRightUI : undefined}
             UIOptions={{
               canvasActions: {
                 loadScene: false,
               },
             }}
           >
-            <CanvasCardSidebarLazy
-              board={board}
-              placedPageIds={placedPageIds}
-              onPlaceCard={handlePlaceCard}
-              onCreateAndPlace={handleCreateAndPlace}
-            />
+            {pagePalette ? (
+              <CanvasCardSidebarLazy
+                board={board}
+                placedPageIds={placedPageIds}
+                onPlaceCard={handlePlaceCard}
+                onCreateAndPlace={handleCreateAndPlace}
+              />
+            ) : null}
           </ExcalidrawLazy>
         </div>
       </Suspense>

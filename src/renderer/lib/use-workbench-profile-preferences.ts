@@ -108,6 +108,10 @@ function normalizeViewMap(
   return Object.entries(record).reduce<Record<string, WorkbenchView>>(
     (result, [projectId, candidate]) => {
       if (!projectId) return result;
+      if (candidate === "canvas") {
+        result[projectId] = "kanban";
+        return result;
+      }
       const view = WorkbenchViewSchema.safeParse(candidate);
       if (!view.success) return result;
       result[projectId] = view.data;

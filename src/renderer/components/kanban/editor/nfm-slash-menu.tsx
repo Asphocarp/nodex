@@ -23,6 +23,7 @@ import {
   CalendarDays,
   Clock,
   FileText,
+  Shapes,
   SendHorizontal,
   Settings2,
 } from "lucide-react";
@@ -74,6 +75,9 @@ import {
 } from "@/lib/nfm/date-mention";
 import type { NfmDateMentionInlineContent } from "@/lib/nfm/types";
 import { dateMentionPayloadToProps } from "./date-mention-chip";
+import { useBlockReferenceHostRuntime } from "@/components/block-documents/block-reference-runtime-context";
+import { toast } from "@/components/ui/toast";
+import { setCanvasCreatePending } from "./canvas-create-pending-extension";
 
 interface NfmSlashMenuProps {
   projectId: string;
@@ -133,6 +137,27 @@ function insertInlineContent(editor: unknown, content: unknown[]) {
   (editor as UnsafeInlineContentEditor).insertInlineContent(content, {
     updateSelection: true,
   });
+}
+
+type CanvasSlashEditor = UnsafeEditor & {
+  getTextCursorPosition: () => {
+    readonly block?: {
+      readonly id?: string;
+      readonly type?: string;
+    };
+  };
+};
+
+export function prepareCanvasCreateParagraph(editor: unknown): string {
+  insertOrUpdateBlockForSlashMenu(
+    editor as UnsafeEditor,
+    { type: "paragraph" } as UnsafeBlock,
+  );
+  const block = (editor as CanvasSlashEditor).getTextCursorPosition().block;
+  if (!block?.id || block.type !== "paragraph") {
+    throw new Error("Choose an empty paragraph to create a Canvas.");
+  }
+  return block.id;
 }
 
 function createDefaultNfmTableBlock() {
@@ -367,6 +392,10 @@ export function NfmSuggestionMenuSurface({
 
 export function getNfmSlashMenuCustomItems(
   editor: unknown,
+  createCanvasAtEmptyParagraph?: (input: {
+    readonly blockId: string;
+    readonly displayName?: string;
+  }) => Promise<{ readonly canvasBlockId: string }>,
 ): DefaultReactSuggestionItem[] {
   const tableItem = {
     key: "table",
@@ -430,8 +459,48 @@ export function getNfmSlashMenuCustomItems(
     },
   };
 
+  const canvasItem = createCanvasAtEmptyParagraph
+    ? {
+        key: "canvas",
+        title: "Canvas",
+        subtext: "Create an independent Canvas in this Page",
+        aliases: ["canvas", "whiteboard", "drawing"],
+        group: "Basic blocks",
+        badge: "/canvas",
+        icon: <Shapes size={16} />,
+        onItemClick: () => {
+          void (async () => {
+            let blockId: string | null = null;
+            try {
+              blockId = prepareCanvasCreateParagraph(editor);
+              setCanvasCreatePending(
+                editor as Parameters<typeof setCanvasCreatePending>[0],
+                blockId,
+                true,
+              );
+              await createCanvasAtEmptyParagraph({ blockId });
+            } catch (error) {
+              if (blockId) {
+                setCanvasCreatePending(
+                  editor as Parameters<typeof setCanvasCreatePending>[0],
+                  blockId,
+                  false,
+                );
+              }
+              toast.danger(
+                error instanceof Error
+                  ? error.message
+                  : "Could not create Canvas",
+              );
+            }
+          })();
+        },
+      }
+    : null;
+
   return [
     tableItem,
+    ...(canvasItem ? [canvasItem] : []),
     threadSectionItem,
     agentConfigItem,
   ];
@@ -442,6 +511,7 @@ export function NfmSlashMenu({
   allowPageReferences = true,
 }: NfmSlashMenuProps) {
   const editor = useBlockNoteEditor();
+  const hostRuntime = useBlockReferenceHostRuntime();
 
   const getItems = useMemo(
     () => async (query: string) => {
@@ -452,12 +522,15 @@ export function NfmSlashMenu({
       return filterSuggestionItems(
         [
           ...defaults,
-          ...getNfmSlashMenuCustomItems(editor),
+          ...getNfmSlashMenuCustomItems(
+            editor,
+            hostRuntime?.createCanvasAtEmptyParagraph,
+          ),
         ],
         query,
       );
     },
-    [editor],
+    [editor, hostRuntime?.createCanvasAtEmptyParagraph],
   );
 
   return (

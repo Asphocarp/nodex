@@ -36,8 +36,58 @@ export interface CanvasLocalSceneObservation {
 export interface CanvasSceneBindingOptions {
   readonly provider: CanvasSceneProvider;
   readonly assetDependencies?: CanvasAssetBridgeDependencies;
+  readonly stagedFileCatalog?: CanvasSceneStagedFileCatalog;
   readonly onRemoteScene: (scene: PortableCanvasScene) => void;
   readonly onError?: (error: Error) => void;
+}
+
+export class CanvasSceneStagedFileCatalog {
+  private readonly staged = new Map<string, CanvasSceneFile>();
+  private materializationTail: Promise<void> = Promise.resolve();
+
+  acknowledge(scene: PortableCanvasScene): void {
+    for (const fileId of Object.keys(scene.files)) this.staged.delete(fileId);
+  }
+
+  reject(
+    files: Readonly<Record<string, CanvasSceneFile>>,
+    accepted: Readonly<Record<string, CanvasSceneFile>>,
+  ): void {
+    for (const [fileId, file] of Object.entries(files)) {
+      if (accepted[fileId]) continue;
+      if (this.staged.get(fileId) === file) this.staged.delete(fileId);
+    }
+  }
+
+  materialize(input: {
+    readonly elementsIncludingDeleted: readonly unknown[];
+    readonly binaryFiles: CanvasBinaryFiles;
+    readonly current: Readonly<Record<string, CanvasSceneFile>>;
+    readonly getAccepted: () => Readonly<Record<string, CanvasSceneFile>>;
+    readonly dependencies?: CanvasAssetBridgeDependencies;
+  }): Promise<Readonly<Record<string, CanvasSceneFile>>> {
+    const task = this.materializationTail.then(async () => {
+      const additions = await materializeDurableCanvasFiles({
+        elementsIncludingDeleted: input.elementsIncludingDeleted,
+        binaryFiles: input.binaryFiles,
+        current: {
+          ...input.getAccepted(),
+          ...Object.fromEntries(this.staged),
+          ...input.current,
+        },
+        ...(input.dependencies ? { dependencies: input.dependencies } : {}),
+      });
+      for (const [fileId, file] of Object.entries(additions)) {
+        this.staged.set(fileId, file);
+      }
+      return additions;
+    });
+    this.materializationTail = task.then(
+      () => undefined,
+      () => undefined,
+    );
+    return task;
+  }
 }
 
 interface BindingSubmissionWaiter {
@@ -212,6 +262,7 @@ export class CanvasSceneBinding {
   private readonly onError?: CanvasSceneBindingOptions["onError"];
   private readonly elementTracker: CanvasElementChangeTracker;
   private readonly commitTasks = new Set<Promise<void>>();
+  private readonly stagedFiles: CanvasSceneStagedFileCatalog;
   private surfaceAppState: CanvasSceneAppState;
   private pending: PendingObservation | null = null;
   private inFlight: PendingObservation | null = null;
@@ -224,6 +275,8 @@ export class CanvasSceneBinding {
   constructor(options: CanvasSceneBindingOptions) {
     this.provider = options.provider;
     this.assetDependencies = options.assetDependencies;
+    this.stagedFiles =
+      options.stagedFileCatalog ?? new CanvasSceneStagedFileCatalog();
     this.onRemoteScene = options.onRemoteScene;
     this.onError = options.onError;
     const initialScene = this.provider.getScene();
@@ -243,6 +296,7 @@ export class CanvasSceneBinding {
   presentRemoteScene = (scene: PortableCanvasScene): void => {
     if (this.destroyed) return;
     try {
+      this.stagedFiles.acknowledge(scene);
       if (
         !this.hasSeededElements
         && !this.pending
@@ -389,11 +443,11 @@ export class CanvasSceneBinding {
       let persisted = false;
       try {
         while (true) {
-          const beforeUpload = this.getCurrentScene();
-          const fileAdditions = await materializeDurableCanvasFiles({
+          const fileAdditions = await this.stagedFiles.materialize({
             elementsIncludingDeleted: observation.changedImageCandidates,
             binaryFiles: observation.binaryFiles,
-            current: { ...beforeUpload.files, ...uploadedFiles },
+            current: uploadedFiles,
+            getAccepted: () => this.getCurrentScene().files,
             ...(this.assetDependencies
               ? { dependencies: this.assetDependencies }
               : {}),
@@ -425,6 +479,11 @@ export class CanvasSceneBinding {
           },
           (error: unknown) => {
             const failure = toError(error);
+            this.elementTracker.markRejected(observation.elementCandidates);
+            this.stagedFiles.reject(
+              uploadedFiles,
+              this.provider.getScene()?.files ?? {},
+            );
             observation.waiters.forEach((waiter) =>
               waiter.rejectCommitted(failure)
             );

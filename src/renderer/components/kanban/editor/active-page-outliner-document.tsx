@@ -265,6 +265,7 @@ function ActivePageOutlinerContent({
             documentOwnerBlockId={target.page.pageId}
             surfaceWriteFence={surface.runtime}
             onOpenPage={hostRuntime.openPage}
+            onOpenCanvas={hostRuntime.openCanvas}
             isActivePanelTab={hostRuntime.isActiveSurface}
             placeholder="Add a description…"
             className="min-h-0! min-w-0"

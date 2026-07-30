@@ -17,6 +17,7 @@ import {
   type WorkbenchSessionViewSnapshot,
   type WorkbenchSessionViewTab,
 } from "./workbench-session-view";
+import { primaryCanvasBlockId } from "./block-documents";
 
 function identityFactory(prefix: string): WorkbenchSessionViewIdentityFactory {
   let next = 0;
@@ -57,16 +58,91 @@ function materializedView(): WorkbenchSessionViewSnapshot {
 }
 
 describe("WorkbenchSessionView", () => {
-  test("migrates the v1 view envelope to the Browser-storage-aware v2 envelope", () => {
+  test("migrates the v1 view envelope to the current envelope", () => {
     const current = materializedView();
     const migrated = WorkbenchSessionViewSnapshotSchema.parse({
       ...current,
       version: 1,
     });
 
-    expect(migrated.version).toBe(2);
+    expect(migrated.version).toBe(3);
     expect(migrated.sessionId).toBe(current.sessionId);
     expect(migrated.tabsById).toEqual(current.tabsById);
+  });
+
+  test("migrates a v2 primary Canvas DB tab in place without disturbing panel identity", () => {
+    const current = materializedView();
+    const tabId = Object.keys(current.tabsById)[0]!;
+    const legacy = {
+      ...current,
+      version: 2,
+      tabsById: {
+        ...current.tabsById,
+        [tabId]: {
+          ...current.tabsById[tabId],
+          titleSnapshot: "Project canvas",
+          config: {
+            projectId: "project-1",
+            databaseViewId: "view-1",
+            view: "canvas",
+          },
+        },
+      },
+    };
+    const beforePanel = structuredClone(legacy.panels);
+
+    const migrated = WorkbenchSessionViewSnapshotSchema.parse(legacy);
+
+    expect(migrated.version).toBe(3);
+    expect(migrated.tabsById[tabId]).toEqual({
+      ...legacy.tabsById[tabId],
+      kind: "canvas_stage",
+      state: null,
+      config: {
+        projectId: "project-1",
+        canvasBlockId: primaryCanvasBlockId("project-1"),
+        titleSnapshot: "Project canvas",
+      },
+    });
+    expect(migrated.panels).toEqual(beforePanel);
+    expect(
+      WorkbenchSessionViewSnapshotSchema.parse(migrated),
+    ).toEqual(migrated);
+  });
+
+  test("accepts exact Canvas Stage identity and rejects document authority leakage", () => {
+    const current = materializedView();
+    const valid = createWorkbenchSessionViewTab(current, {
+      panelId: "right",
+      tab: {
+        id: "canvas-tab",
+        kind: "canvas_stage",
+        titleSnapshot: "Sketch",
+        config: {
+          projectId: "project-1",
+          canvasBlockId: "canvas-1",
+          titleSnapshot: "Sketch",
+        },
+        stateKey: 0,
+        state: null,
+      },
+    });
+
+    expect(WorkbenchSessionViewSnapshotSchema.parse(valid)).toEqual(valid);
+    expect(() => WorkbenchSessionViewSnapshotSchema.parse({
+      ...valid,
+      tabsById: {
+        ...valid.tabsById,
+        "canvas-tab": {
+          ...valid.tabsById["canvas-tab"],
+          config: {
+            projectId: "project-1",
+            canvasBlockId: "canvas-1",
+            documentId: "private-document-id",
+          },
+        },
+      },
+    })).toThrow();
   });
 
   test("materializes one initial Database view as a local right-panel tab", () => {

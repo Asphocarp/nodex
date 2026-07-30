@@ -4,8 +4,9 @@ import type {
   DataSourceId,
 } from "./database-identities";
 import type { DatabaseViewKind } from "./database-kernel";
+import type { RelocationDocumentCommit } from "./block-documents/contracts";
 
-export const LIBRARY_MODULE_CONTRACT_VERSION = 2 as const;
+export const LIBRARY_MODULE_CONTRACT_VERSION = 4 as const;
 export const DEFAULT_LIBRARY_READ_LIMIT = 20 as const;
 export const MAX_LIBRARY_READ_LIMIT = 100 as const;
 export const MAX_LIBRARY_CURSOR_LENGTH = 2_048 as const;
@@ -14,6 +15,7 @@ export const MAX_LIBRARY_QUERY_LENGTH = 256 as const;
 export type LibraryRouteTarget =
   | { readonly kind: "page"; readonly pageId: string }
   | { readonly kind: "database"; readonly databaseId: DatabaseId }
+  | { readonly kind: "canvas"; readonly canvasId: string }
   | { readonly kind: "view"; readonly viewId: DatabaseViewId };
 
 export type LibraryResourceTarget = Exclude<
@@ -49,6 +51,18 @@ export interface LibraryDatabaseNavigationNode {
   readonly updatedAt: string;
 }
 
+export interface LibraryCanvasNavigationNode {
+  readonly kind: "canvas";
+  readonly canvasId: string;
+  readonly title: string;
+  readonly isPrimary: boolean;
+  readonly metadataRevision: number;
+  readonly locationRevision: number;
+  readonly documentGeneration: number;
+  readonly documentHeadSeq: number;
+  readonly updatedAt: string;
+}
+
 export interface LibraryViewNavigationNode {
   readonly kind: "view";
   readonly viewId: DatabaseViewId;
@@ -63,12 +77,13 @@ export interface LibraryViewNavigationNode {
 export type LibraryNavigationNode =
   | LibraryPageNavigationNode
   | LibraryDatabaseNavigationNode
+  | LibraryCanvasNavigationNode
   | LibraryViewNavigationNode;
 
 export interface LibraryCatalogEntry {
   readonly target: Exclude<LibraryRouteTarget, { readonly kind: "view" }>;
   readonly title: string;
-  readonly kind: "page" | "database";
+  readonly kind: "page" | "database" | "canvas";
   readonly lifecycle: "active" | "archived";
   readonly locationLabel: string;
   readonly updatedAt: string;
@@ -78,6 +93,7 @@ export interface LibraryCatalogEntry {
 
 export type LibraryRead =
   | { readonly mode: "metadata" }
+  | { readonly mode: "canvas_target"; readonly canvasId: string }
   | {
       readonly mode: "children";
       readonly parent: LibraryNavigationParent;
@@ -89,7 +105,7 @@ export type LibraryRead =
   | {
       readonly mode: "catalog";
       readonly query?: string;
-      readonly kinds?: readonly ("page" | "database")[];
+      readonly kinds?: readonly ("page" | "database" | "canvas")[];
       readonly lifecycle?: "active" | "archived";
       readonly cursor?: string;
       readonly limit?: number;
@@ -100,8 +116,40 @@ export interface LibraryModuleReadRequest {
   readonly read: LibraryRead;
 }
 
+export type LibraryCanvasLocation =
+  | { readonly kind: "library" }
+  | {
+      readonly kind: "page";
+      readonly pageId: string;
+      readonly documentId: string;
+    };
+
+export interface LibraryCanvasSummary {
+  readonly canvasId: string;
+  readonly projectId: string;
+  readonly title: string;
+  readonly lifecycle: string;
+  readonly isPrimary: boolean;
+  readonly location: LibraryCanvasLocation;
+  readonly metadataRevision: number;
+  readonly locationRevision: number;
+  readonly documentGeneration: number;
+  readonly documentHeadSeq: number;
+  readonly updatedAt: string;
+}
+
+export type LibraryCanvasTarget =
+  | { readonly status: "missing"; readonly canvasId: string }
+  | {
+      readonly status: "deleted";
+      readonly canvasId: string;
+      readonly libraryId: string;
+    }
+  | { readonly status: "available"; readonly summary: LibraryCanvasSummary };
+
 export type LibraryReadValue =
   | { readonly kind: "metadata" }
+  | { readonly kind: "canvas_target"; readonly value: LibraryCanvasTarget }
   | {
       readonly kind: "children";
       readonly parent: LibraryNavigationParent;
@@ -137,6 +185,34 @@ export interface LibraryPlacementAnchor {
   readonly expectedLocationRevision: number;
 }
 
+export type LibraryPageInsertion =
+  | {
+      readonly kind: "append";
+      readonly parentBlockId?: string;
+    }
+  | {
+      readonly kind: "before";
+      readonly parentBlockId?: string;
+      readonly anchorBlockId: string;
+    }
+  | {
+      readonly kind: "replace_empty_paragraph";
+      readonly blockId: string;
+    };
+
+export type LibraryCanvasDestination =
+  | {
+      readonly kind: "library";
+      readonly before?: LibraryPlacementAnchor;
+    }
+  | {
+      readonly kind: "page";
+      readonly pageId: string;
+      readonly expectedDocumentGeneration: number;
+      readonly expectedDocumentHeadSeq: number;
+      readonly insertion: LibraryPageInsertion;
+    };
+
 export type LibraryWriteParent =
   | {
       readonly kind: "library";
@@ -165,6 +241,46 @@ export interface CreateLibraryDatabaseOperation {
   readonly viewId: DatabaseViewId;
   readonly name: string;
   readonly parent: LibraryWriteParent;
+}
+
+export interface CreateLibraryCanvasOperation {
+  readonly kind: "create_canvas";
+  readonly canvasId: string;
+  readonly documentId: string;
+  readonly displayName: string;
+  readonly destination: LibraryCanvasDestination;
+}
+
+export interface RenameLibraryCanvasOperation {
+  readonly kind: "rename_canvas";
+  readonly canvasId: string;
+  readonly displayName: string;
+  readonly expectedMetadataRevision: number;
+}
+
+export interface MoveLibraryCanvasOperation {
+  readonly kind: "move_canvas";
+  readonly canvasId: string;
+  readonly expectedLocationRevision: number;
+  readonly destination: LibraryCanvasDestination;
+}
+
+export interface DuplicateLibraryCanvasOperation {
+  readonly kind: "duplicate_canvas";
+  readonly sourceCanvasId: string;
+  readonly canvasId: string;
+  readonly documentId: string;
+  readonly displayName?: string;
+  readonly expectedDocumentGeneration: number;
+  readonly expectedDocumentHeadSeq: number;
+  readonly destination: LibraryCanvasDestination;
+}
+
+export interface DeleteLibraryCanvasOperation {
+  readonly kind: "delete_canvas";
+  readonly canvasId: string;
+  readonly expectedLocationRevision: number;
+  readonly expectedMetadataRevision: number;
 }
 
 export interface MoveLibraryBlockOperation {
@@ -225,6 +341,11 @@ export interface GrantLibraryResourceToProjectOperation {
 export type LibraryApplyOperation =
   | CreateLibraryPageOperation
   | CreateLibraryDatabaseOperation
+  | CreateLibraryCanvasOperation
+  | RenameLibraryCanvasOperation
+  | MoveLibraryCanvasOperation
+  | DuplicateLibraryCanvasOperation
+  | DeleteLibraryCanvasOperation
   | MoveLibraryBlockOperation
   | ArchiveLibraryResourceOperation
   | RestoreLibraryResourceOperation
@@ -237,6 +358,16 @@ export interface LibraryModuleApplyRequest {
   readonly operation: LibraryApplyOperation;
 }
 
+export interface LibraryCanvasMutationResult {
+  readonly operationKind: string;
+  readonly canvasId: string;
+  readonly documentId: string;
+  readonly sourceCanvasId: string | null;
+  readonly locationRevision: number;
+  readonly metadataRevision: number;
+  readonly documentCommits: readonly RelocationDocumentCommit[];
+}
+
 export interface LibraryModuleApplyReceipt {
   readonly version: typeof LIBRARY_MODULE_CONTRACT_VERSION;
   readonly operationId: string;
@@ -246,6 +377,7 @@ export interface LibraryModuleApplyReceipt {
   readonly duplicate: boolean;
   readonly didMutate: boolean;
   readonly createdTarget: Exclude<LibraryRouteTarget, { readonly kind: "view" }> | null;
+  readonly canvasMutation: LibraryCanvasMutationResult | null;
   readonly affectedParentKeys: readonly string[];
   readonly affectedPageIds: readonly string[];
   readonly affectedDatabaseIds: readonly DatabaseId[];

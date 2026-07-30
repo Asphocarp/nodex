@@ -395,15 +395,6 @@ pub enum DocumentOwnerCommand {
         owner_kind: DeletableOwnedSourceKind,
         owner: DocumentOwnerRevision,
     },
-    CreateCanvasOwner {
-        block_id: String,
-        document_id: String,
-        display_name: String,
-        before: Option<DocumentSpaceAnchor>,
-    },
-    DeleteCanvasOwner {
-        owner: DocumentOwnerRevision,
-    },
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]

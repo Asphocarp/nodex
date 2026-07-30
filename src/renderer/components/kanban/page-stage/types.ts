@@ -96,6 +96,11 @@ export interface PageStageProps {
     titleSnapshot?: string;
   }) => void | Promise<void>;
   onOpenDatabase?: (databaseId: DatabaseId) => void | Promise<void>;
+  onOpenCanvas?: (input: {
+    projectId: string;
+    canvasBlockId: string;
+    titleSnapshot?: string;
+  }) => void | Promise<void>;
   breadcrumb?: Omit<PageStageBreadcrumbProps, "currentTitle" | "disabled">;
   onOpenNewCodexThread?: () => void;
   onOpenLocalEnvironmentSettings?: (input: {

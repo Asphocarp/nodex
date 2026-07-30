@@ -1096,7 +1096,7 @@ impl TreeBudget {
         Ok(())
     }
 
-    fn add_database(&mut self) -> Result<(), CliError> {
+    fn add_leaf(&mut self) -> Result<(), CliError> {
         if self.nodes == MAX_TREE_NODES {
             return Err(CliError::new(
                 CliErrorCode::ScopeBudgetExceeded,
@@ -1131,6 +1131,10 @@ enum TreeNode {
     },
     Database {
         database_id: String,
+        title: String,
+    },
+    Canvas {
+        canvas_id: String,
         title: String,
     },
 }
@@ -1264,8 +1268,14 @@ fn read_page_tree_node(
                 LibraryNavigationNode::Database {
                     database_id, title, ..
                 } => {
-                    budget.add_database()?;
+                    budget.add_leaf()?;
                     children.push(TreeNode::Database { database_id, title });
+                }
+                LibraryNavigationNode::Canvas {
+                    canvas_id, title, ..
+                } => {
+                    budget.add_leaf()?;
+                    children.push(TreeNode::Canvas { canvas_id, title });
                 }
                 LibraryNavigationNode::View { .. } => {
                     return Err(internal("a Page tree unexpectedly contained a View"));
@@ -1318,6 +1328,9 @@ fn render_tree_node(node: &TreeNode, depth: usize, output: &mut String) {
         }
         TreeNode::Database { database_id, title } => {
             output.push_str(&format!("Database {title} @{database_id}\n"));
+        }
+        TreeNode::Canvas { canvas_id, title } => {
+            output.push_str(&format!("Canvas {title} @{canvas_id}\n"));
         }
     }
 }

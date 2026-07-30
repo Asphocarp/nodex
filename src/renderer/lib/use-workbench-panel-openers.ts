@@ -84,6 +84,30 @@ import type {
 } from "./use-workbench-panel-lifecycle";
 
 type ProjectSession = WorkbenchSessionRenderProjection;
+export interface OpenCanvasStageOptions {
+  readonly targetPanelId?: PanelId;
+  readonly targetLeafId?: string;
+}
+
+export type OpenCanvasStageHandler = (
+  projectId: string,
+  canvasBlockId: string,
+  titleSnapshot?: string,
+  options?: OpenCanvasStageOptions,
+) => Promise<boolean>;
+
+export function findCanvasStageTab(
+  session: Pick<WorkbenchSessionRenderProjection, "tabs">,
+  projectId: string,
+  canvasBlockId: string,
+): WorkbenchTabProjection | null {
+  return session.tabs.find((tab) =>
+    tab.kind === "canvas_stage"
+    && tab.config.projectId === projectId
+    && tab.config.canvasBlockId === canvasBlockId
+  ) ?? null;
+}
+
 type PanelLifecycle = Pick<
   ReturnType<typeof useWorkbenchPanelLifecycle>,
   | "clearPanelPreviewTab"
@@ -691,6 +715,69 @@ const openSideChat = useCallback(async (
     updateActivePanel,
   ]);
 
+  const openCanvasStage = useCallback<OpenCanvasStageHandler>(async (
+    projectId,
+    canvasBlockId,
+    titleSnapshot,
+    options,
+  ) => {
+    if (!activeSession || activeSession.projectId === null) return false;
+
+    const existing = findCanvasStageTab(
+      activeSession,
+      projectId,
+      canvasBlockId,
+    );
+    if (existing) {
+      const existingLeafId = resolveLeafIdForPanelTab(
+        activeSession,
+        existing.panelId,
+        existing.id,
+      );
+      clearPanelPreviewTab(
+        activeSession.id,
+        existing.panelId,
+        existingLeafId,
+      );
+      await setActivePanelTab(existing.panelId, existing.id, {
+        leafId: existingLeafId,
+        openPanel: true,
+      });
+      return true;
+    }
+
+    const panelId = options?.targetPanelId ?? "right";
+    const leafId = options?.targetLeafId
+      ?? resolveSessionPanelActiveLeafId(activeSession, panelId);
+    clearPanelPreviewTab(activeSession.id, panelId, leafId);
+    const created = createSessionViewTab({
+      sessionId: activeSession.id,
+      panelId,
+      targetLeafId: leafId,
+      kind: "canvas_stage",
+      title: titleSnapshot?.trim() || "Canvas",
+      config: {
+        projectId,
+        canvasBlockId,
+        ...(titleSnapshot?.trim()
+          ? { titleSnapshot: titleSnapshot.trim() }
+          : {}),
+      },
+    });
+    if (!created) return false;
+
+    await setActivePanelTab(panelId, created.id, {
+      leafId,
+      openPanel: true,
+    });
+    return true;
+  }, [
+    activeSession,
+    clearPanelPreviewTab,
+    createSessionViewTab,
+    setActivePanelTab,
+  ]);
+
   useEffect(() => {
     if (!pendingPageDeepLinkOpen) return;
     if (pendingPageDeepLinkOpen.projectId !== activeProjectId) return;
@@ -728,5 +815,6 @@ const openSideChat = useCallback(async (
     openPreviewTab,
     openWorkspaceFileTab,
     openPageTab,
+    openCanvasStage,
   };
 }

@@ -224,6 +224,13 @@ export interface DesktopDocumentSyncPort {
   transferBlocks(
     intent: BlockTransferIntent,
   ): Promise<BlockTransferCommandResult>;
+  publishDocumentCommits(input: {
+    readonly scope: DesktopDocumentSyncScope;
+    readonly storeEpoch: string;
+    readonly commits: readonly RelocationDocumentCommit[];
+    readonly clientSessionId: string;
+    readonly resyncOnly?: boolean;
+  }): void;
   coordinateNodexAgentLeasedMutation<
     Result extends NativeNodexAgentLeasedMutationResult,
   >(options: NativeNodexAgentLeaseCoordination<Result>): Promise<Result>;
@@ -1102,7 +1109,7 @@ export function createDesktopDocumentSyncBridge(
   };
 
   const fanoutDocumentCommits = (
-    projectId: string,
+    scope: DesktopDocumentSyncScope,
     storeEpoch: string,
     commits: readonly RelocationDocumentCommit[],
     resyncOnly: boolean,
@@ -1112,8 +1119,8 @@ export function createDesktopDocumentSyncBridge(
       const targets = new Map<number, DocumentSyncClientTarget>();
       for (const [key, subscription] of subscriptions) {
         if (
-          subscription.scope.kind !== "project"
-          || subscription.scope.projectId !== projectId
+          subscription.engine !== "yjs"
+          || !scopesMatch(subscription.scope, scope)
           || subscription.documentId !== commit.documentId
         ) {
           continue;
@@ -1157,7 +1164,7 @@ export function createDesktopDocumentSyncBridge(
     receipt: BlockTransferReceipt,
     resyncOnly: boolean,
   ): void => fanoutDocumentCommits(
-    projectId,
+    { kind: "project", projectId },
     receipt.storeEpoch,
     receipt.documentCommits,
     resyncOnly,
@@ -1344,7 +1351,7 @@ export function createDesktopDocumentSyncBridge(
 
     const success = result as Result & SuccessfulNativeNodexAgentLeasedMutation;
     fanoutDocumentCommits(
-      options.projectId,
+      { kind: "project", projectId: options.projectId },
       options.storeEpoch,
       success.value.documentCommits,
       false,
@@ -1379,7 +1386,7 @@ export function createDesktopDocumentSyncBridge(
         success.value.documentCommits,
       );
       fanoutDocumentCommits(
-        options.projectId,
+        { kind: "project", projectId: options.projectId },
         options.storeEpoch,
         success.value.documentCommits,
         true,
@@ -1848,6 +1855,21 @@ export function createDesktopDocumentSyncBridge(
     },
     applyDocumentMutation,
     transferBlocks,
+    publishDocumentCommits: ({
+      scope,
+      storeEpoch,
+      commits,
+      clientSessionId,
+      resyncOnly = false,
+    }) => {
+      fanoutDocumentCommits(
+        scope,
+        storeEpoch,
+        commits,
+        resyncOnly,
+        clientSessionId,
+      );
+    },
     coordinateNodexAgentLeasedMutation,
     restoreVersion: async (request) => await applyDocumentMutation(request),
   };

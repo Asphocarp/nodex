@@ -35,7 +35,6 @@ export const DatabaseViewKindSchema = z.enum([
   "kanban",
   "list",
   "calendar",
-  "canvas",
 ]);
 
 const DatabaseViewFilterOperatorSchema = z.enum([

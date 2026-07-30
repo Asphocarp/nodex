@@ -5,12 +5,18 @@ import {
 } from "./database-identities";
 import type { DatabaseViewKind } from "./database-kernel";
 import {
+  assertExistingCanvasBlockId,
+  assertExistingCanvasDocumentId,
+} from "./block-documents/canvas-document-identity";
+import {
   DEFAULT_LIBRARY_READ_LIMIT,
   LIBRARY_MODULE_CONTRACT_VERSION,
   MAX_LIBRARY_CURSOR_LENGTH,
   MAX_LIBRARY_QUERY_LENGTH,
   MAX_LIBRARY_READ_LIMIT,
   type LibraryCatalogEntry,
+  type LibraryCanvasDestination,
+  type LibraryCanvasTarget,
   type LibraryModuleApplyReceipt,
   type LibraryModuleApplyRequest,
   type LibraryModuleApplyResult,
@@ -95,9 +101,32 @@ const revision = (value: unknown, label: string): number => {
 const uuidV7 = (value: unknown, label: string): string =>
   assertUuidV7(string(value, label), label);
 
+const existingCanvasBlockId = (value: unknown, label: string): string =>
+  assertExistingCanvasBlockId(string(value, label), label);
+
+const existingCanvasDocumentId = (value: unknown, label: string): string =>
+  assertExistingCanvasDocumentId(string(value, label), label);
+
 const boolean = (value: unknown, label: string): boolean => {
   if (typeof value === "boolean") return value;
   throw new TypeError(`${label} must be a boolean`);
+};
+
+const bytes = (value: unknown, label: string): Uint8Array => {
+  if (value instanceof Uint8Array) return Uint8Array.from(value);
+  if (
+    Array.isArray(value)
+    && value.every(
+      (entry) =>
+        typeof entry === "number"
+        && Number.isInteger(entry)
+        && entry >= 0
+        && entry <= 255,
+    )
+  ) {
+    return Uint8Array.from(value);
+  }
+  throw new TypeError(`${label} must be a byte array`);
 };
 
 const readLimit = (value: unknown, label: string): number | undefined => {
@@ -129,6 +158,16 @@ const parseRouteTarget = (
     return {
       kind: "database",
       databaseId: parseDatabaseId(target.databaseId),
+    };
+  }
+  if (target.kind === "canvas") {
+    exactKeys(target, label, ["kind", "canvasId"]);
+    return {
+      kind: "canvas",
+      canvasId: existingCanvasBlockId(
+        target.canvasId,
+        `${label}.canvasId`,
+      ),
     };
   }
   if (target.kind === "view") {
@@ -221,6 +260,98 @@ const parseWriteParent = (
   throw new TypeError(`${label}.kind is unsupported`);
 };
 
+const parseCanvasDestination = (
+  value: unknown,
+  label: string,
+): LibraryCanvasDestination => {
+  const destination = record(value, label);
+  if (destination.kind === "library") {
+    exactKeys(destination, label, ["kind"], ["before"]);
+    const before = destination.before === undefined
+      ? undefined
+      : parsePlacementAnchor(destination.before, `${label}.before`);
+    return { kind: "library", ...(before ? { before } : {}) };
+  }
+  if (destination.kind !== "page") {
+    throw new TypeError(`${label}.kind is unsupported`);
+  }
+  exactKeys(destination, label, [
+    "kind",
+    "pageId",
+    "expectedDocumentGeneration",
+    "expectedDocumentHeadSeq",
+    "insertion",
+  ]);
+  const insertion = record(destination.insertion, `${label}.insertion`);
+  const parsedInsertion = (() => {
+    if (insertion.kind === "append") {
+      exactKeys(insertion, `${label}.insertion`, ["kind"], ["parentBlockId"]);
+      return {
+        kind: "append" as const,
+        ...(insertion.parentBlockId === undefined
+          ? {}
+          : {
+              parentBlockId: uuidV7(
+                insertion.parentBlockId,
+                `${label}.insertion.parentBlockId`,
+              ),
+            }),
+      };
+    }
+    if (insertion.kind === "before") {
+      exactKeys(
+        insertion,
+        `${label}.insertion`,
+        ["kind", "anchorBlockId"],
+        ["parentBlockId"],
+      );
+      return {
+        kind: "before" as const,
+        anchorBlockId: uuidV7(
+          insertion.anchorBlockId,
+          `${label}.insertion.anchorBlockId`,
+        ),
+        ...(insertion.parentBlockId === undefined
+          ? {}
+          : {
+              parentBlockId: uuidV7(
+                insertion.parentBlockId,
+                `${label}.insertion.parentBlockId`,
+              ),
+            }),
+      };
+    }
+    if (insertion.kind === "replace_empty_paragraph") {
+      exactKeys(insertion, `${label}.insertion`, ["kind", "blockId"]);
+      return {
+        kind: "replace_empty_paragraph" as const,
+        blockId: uuidV7(
+          insertion.blockId,
+          `${label}.insertion.blockId`,
+        ),
+      };
+    }
+    throw new TypeError(`${label}.insertion.kind is unsupported`);
+  })();
+  const expectedDocumentGeneration = revision(
+    destination.expectedDocumentGeneration,
+    `${label}.expectedDocumentGeneration`,
+  );
+  if (expectedDocumentGeneration < 1) {
+    throw new TypeError(`${label}.expectedDocumentGeneration must be positive`);
+  }
+  return {
+    kind: "page",
+    pageId: uuidV7(destination.pageId, `${label}.pageId`),
+    expectedDocumentGeneration,
+    expectedDocumentHeadSeq: revision(
+      destination.expectedDocumentHeadSeq,
+      `${label}.expectedDocumentHeadSeq`,
+    ),
+    insertion: parsedInsertion,
+  };
+};
+
 const parseApplyResourceTarget = (
   value: unknown,
   label: string,
@@ -298,6 +429,158 @@ export const bindLibraryModuleApply = (
         viewId: parseDatabaseViewId(uuidV7(operation.viewId, "viewId")),
         name: string(operation.name, "libraryModuleApply.operation.name", 256),
         parent: parseWriteParent(operation.parent, "libraryModuleApply.operation.parent"),
+      },
+    };
+  }
+  if (operation.kind === "create_canvas") {
+    exactKeys(operation, "libraryModuleApply.operation", [
+      "kind",
+      "canvasId",
+      "documentId",
+      "displayName",
+      "destination",
+    ]);
+    return {
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      operationId,
+      storeEpoch,
+      operation: {
+        kind: operation.kind,
+        canvasId: uuidV7(operation.canvasId, "canvasId"),
+        documentId: uuidV7(operation.documentId, "documentId"),
+        displayName: string(
+          operation.displayName,
+          "libraryModuleApply.operation.displayName",
+          256,
+        ),
+        destination: parseCanvasDestination(
+          operation.destination,
+          "libraryModuleApply.operation.destination",
+        ),
+      },
+    };
+  }
+  if (operation.kind === "rename_canvas") {
+    exactKeys(operation, "libraryModuleApply.operation", [
+      "kind",
+      "canvasId",
+      "displayName",
+      "expectedMetadataRevision",
+    ]);
+    return {
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      operationId,
+      storeEpoch,
+      operation: {
+        kind: operation.kind,
+        canvasId: existingCanvasBlockId(operation.canvasId, "canvasId"),
+        displayName: string(
+          operation.displayName,
+          "libraryModuleApply.operation.displayName",
+          256,
+        ),
+        expectedMetadataRevision: revision(
+          operation.expectedMetadataRevision,
+          "libraryModuleApply.operation.expectedMetadataRevision",
+        ),
+      },
+    };
+  }
+  if (operation.kind === "move_canvas") {
+    exactKeys(operation, "libraryModuleApply.operation", [
+      "kind",
+      "canvasId",
+      "expectedLocationRevision",
+      "destination",
+    ]);
+    return {
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      operationId,
+      storeEpoch,
+      operation: {
+        kind: operation.kind,
+        canvasId: existingCanvasBlockId(operation.canvasId, "canvasId"),
+        expectedLocationRevision: revision(
+          operation.expectedLocationRevision,
+          "libraryModuleApply.operation.expectedLocationRevision",
+        ),
+        destination: parseCanvasDestination(
+          operation.destination,
+          "libraryModuleApply.operation.destination",
+        ),
+      },
+    };
+  }
+  if (operation.kind === "duplicate_canvas") {
+    exactKeys(
+      operation,
+      "libraryModuleApply.operation",
+      [
+        "kind",
+        "sourceCanvasId",
+        "canvasId",
+        "documentId",
+        "expectedDocumentGeneration",
+        "expectedDocumentHeadSeq",
+        "destination",
+      ],
+      ["displayName"],
+    );
+    const displayName = optionalString(
+      operation.displayName,
+      "libraryModuleApply.operation.displayName",
+      256,
+    );
+    return {
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      operationId,
+      storeEpoch,
+      operation: {
+        kind: operation.kind,
+        sourceCanvasId: existingCanvasBlockId(
+          operation.sourceCanvasId,
+          "sourceCanvasId",
+        ),
+        canvasId: uuidV7(operation.canvasId, "canvasId"),
+        documentId: uuidV7(operation.documentId, "documentId"),
+        ...(displayName === undefined ? {} : { displayName }),
+        expectedDocumentGeneration: revision(
+          operation.expectedDocumentGeneration,
+          "libraryModuleApply.operation.expectedDocumentGeneration",
+        ),
+        expectedDocumentHeadSeq: revision(
+          operation.expectedDocumentHeadSeq,
+          "libraryModuleApply.operation.expectedDocumentHeadSeq",
+        ),
+        destination: parseCanvasDestination(
+          operation.destination,
+          "libraryModuleApply.operation.destination",
+        ),
+      },
+    };
+  }
+  if (operation.kind === "delete_canvas") {
+    exactKeys(operation, "libraryModuleApply.operation", [
+      "kind",
+      "canvasId",
+      "expectedLocationRevision",
+      "expectedMetadataRevision",
+    ]);
+    return {
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      operationId,
+      storeEpoch,
+      operation: {
+        kind: operation.kind,
+        canvasId: existingCanvasBlockId(operation.canvasId, "canvasId"),
+        expectedLocationRevision: revision(
+          operation.expectedLocationRevision,
+          "libraryModuleApply.operation.expectedLocationRevision",
+        ),
+        expectedMetadataRevision: revision(
+          operation.expectedMetadataRevision,
+          "libraryModuleApply.operation.expectedMetadataRevision",
+        ),
       },
     };
   }
@@ -381,13 +664,13 @@ export const bindLibraryModuleApply = (
 const parseKinds = (
   value: unknown,
   label: string,
-): readonly ("page" | "database")[] | undefined => {
+): readonly ("page" | "database" | "canvas")[] | undefined => {
   if (value === undefined) return undefined;
-  if (!Array.isArray(value) || value.length > 2) {
+  if (!Array.isArray(value) || value.length > 3) {
     throw new TypeError(`${label} must be a bounded array`);
   }
   const parsed = value.map((entry) => {
-    if (entry === "page" || entry === "database") return entry;
+    if (entry === "page" || entry === "database" || entry === "canvas") return entry;
     throw new TypeError(`${label} contains an unsupported kind`);
   });
   if (new Set(parsed).size !== parsed.length) {
@@ -410,6 +693,19 @@ export const bindLibraryModuleRead = (
   if (read.mode === "metadata") {
     exactKeys(read, "libraryModuleRead.read", ["mode"]);
     return { version: LIBRARY_MODULE_CONTRACT_VERSION, read: { mode: "metadata" } };
+  }
+  if (read.mode === "canvas_target") {
+    exactKeys(read, "libraryModuleRead.read", ["mode", "canvasId"]);
+    return {
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      read: {
+        mode: "canvas_target",
+        canvasId: existingCanvasBlockId(
+          read.canvasId,
+          "libraryModuleRead.read.canvasId",
+        ),
+      },
+    };
   }
   if (read.mode === "children") {
     exactKeys(
@@ -501,8 +797,7 @@ const parseViewKind = (value: unknown, label: string): DatabaseViewKind => {
   if (
     value === "kanban" ||
     value === "list" ||
-    value === "calendar" ||
-    value === "canvas"
+    value === "calendar"
   ) {
     return value;
   }
@@ -578,6 +873,42 @@ const parseNavigationNode = (
       updatedAt: string(node.updatedAt, `${label}.updatedAt`),
     };
   }
+  if (node.kind === "canvas") {
+    exactKeys(node, label, [
+      "kind",
+      "canvasId",
+      "title",
+      "isPrimary",
+      "metadataRevision",
+      "locationRevision",
+      "documentGeneration",
+      "documentHeadSeq",
+      "updatedAt",
+    ]);
+    return {
+      kind: "canvas",
+      canvasId: existingCanvasBlockId(node.canvasId, `${label}.canvasId`),
+      title: string(node.title, `${label}.title`, 256),
+      isPrimary: boolean(node.isPrimary, `${label}.isPrimary`),
+      metadataRevision: revision(
+        node.metadataRevision,
+        `${label}.metadataRevision`,
+      ),
+      locationRevision: revision(
+        node.locationRevision,
+        `${label}.locationRevision`,
+      ),
+      documentGeneration: revision(
+        node.documentGeneration,
+        `${label}.documentGeneration`,
+      ),
+      documentHeadSeq: revision(
+        node.documentHeadSeq,
+        `${label}.documentHeadSeq`,
+      ),
+      updatedAt: string(node.updatedAt, `${label}.updatedAt`),
+    };
+  }
   if (node.kind === "view") {
     exactKeys(node, label, [
       "kind",
@@ -620,9 +951,13 @@ const parseCatalogEntry = (
   ]);
   const target = parseRouteTarget(entry.target, `${label}.target`);
   if (target.kind === "view") {
-    throw new TypeError(`${label}.target must identify a Page or Database`);
+    throw new TypeError(`${label}.target must identify a Library resource`);
   }
-  if (entry.kind !== "page" && entry.kind !== "database") {
+  if (
+    entry.kind !== "page"
+    && entry.kind !== "database"
+    && entry.kind !== "canvas"
+  ) {
     throw new TypeError(`${label}.kind is unsupported`);
   }
   if (target.kind !== entry.kind) {
@@ -654,11 +989,131 @@ const parseCatalogEntry = (
   };
 };
 
+const parseCanvasTarget = (
+  value: unknown,
+  label: string,
+): LibraryCanvasTarget => {
+  const target = record(value, label);
+  if (target.status === "missing") {
+    exactKeys(target, label, ["status", "canvasId"]);
+    return {
+      status: target.status,
+      canvasId: existingCanvasBlockId(
+        target.canvasId,
+        `${label}.canvasId`,
+      ),
+    };
+  }
+  if (target.status === "deleted") {
+    exactKeys(target, label, ["status", "canvasId", "libraryId"]);
+    return {
+      status: target.status,
+      canvasId: existingCanvasBlockId(
+        target.canvasId,
+        `${label}.canvasId`,
+      ),
+      libraryId: string(target.libraryId, `${label}.libraryId`),
+    };
+  }
+  if (target.status !== "available") {
+    throw new TypeError(`${label}.status is unsupported`);
+  }
+  exactKeys(target, label, ["status", "summary"]);
+  const summary = record(target.summary, `${label}.summary`);
+  exactKeys(summary, `${label}.summary`, [
+    "canvasId",
+    "projectId",
+    "title",
+    "lifecycle",
+    "isPrimary",
+    "location",
+    "metadataRevision",
+    "locationRevision",
+    "documentGeneration",
+    "documentHeadSeq",
+    "updatedAt",
+  ]);
+  const location = record(summary.location, `${label}.summary.location`);
+  const parsedLocation = (() => {
+    if (location.kind === "library") {
+      exactKeys(location, `${label}.summary.location`, ["kind"]);
+      return { kind: "library" as const };
+    }
+    if (location.kind === "page") {
+      exactKeys(location, `${label}.summary.location`, [
+        "kind",
+        "pageId",
+        "documentId",
+      ]);
+      return {
+        kind: "page" as const,
+        pageId: uuidV7(
+          location.pageId,
+          `${label}.summary.location.pageId`,
+        ),
+        documentId: uuidV7(
+          location.documentId,
+          `${label}.summary.location.documentId`,
+        ),
+      };
+    }
+    throw new TypeError(`${label}.summary.location.kind is unsupported`);
+  })();
+  return {
+    status: target.status,
+    summary: {
+      canvasId: existingCanvasBlockId(
+        summary.canvasId,
+        `${label}.summary.canvasId`,
+      ),
+      projectId: string(summary.projectId, `${label}.summary.projectId`),
+      title: string(summary.title, `${label}.summary.title`, 256),
+      lifecycle: string(
+        summary.lifecycle,
+        `${label}.summary.lifecycle`,
+        64,
+      ),
+      isPrimary: boolean(summary.isPrimary, `${label}.summary.isPrimary`),
+      location: parsedLocation,
+      metadataRevision: revision(
+        summary.metadataRevision,
+        `${label}.summary.metadataRevision`,
+      ),
+      locationRevision: revision(
+        summary.locationRevision,
+        `${label}.summary.locationRevision`,
+      ),
+      documentGeneration: revision(
+        summary.documentGeneration,
+        `${label}.summary.documentGeneration`,
+      ),
+      documentHeadSeq: revision(
+        summary.documentHeadSeq,
+        `${label}.summary.documentHeadSeq`,
+      ),
+      updatedAt: string(summary.updatedAt, `${label}.summary.updatedAt`),
+    },
+  };
+};
+
 const parseReadValue = (value: unknown): LibraryReadValue => {
   const readValue = record(value, "libraryModuleReadResult.value.value");
   if (readValue.kind === "metadata") {
     exactKeys(readValue, "libraryModuleReadResult.value.value", ["kind"]);
     return { kind: "metadata" };
+  }
+  if (readValue.kind === "canvas_target") {
+    exactKeys(readValue, "libraryModuleReadResult.value.value", [
+      "kind",
+      "value",
+    ]);
+    return {
+      kind: readValue.kind,
+      value: parseCanvasTarget(
+        readValue.value,
+        "libraryModuleReadResult.value.value.value",
+      ),
+    };
   }
   if (readValue.kind === "children") {
     exactKeys(readValue, "libraryModuleReadResult.value.value", [
@@ -832,6 +1287,7 @@ const parseApplyReceipt = (value: unknown): LibraryModuleApplyReceipt => {
     "duplicate",
     "didMutate",
     "createdTarget",
+    "canvasMutation",
     "affectedParentKeys",
     "affectedPageIds",
     "affectedDatabaseIds",
@@ -846,6 +1302,11 @@ const parseApplyReceipt = (value: unknown): LibraryModuleApplyReceipt => {
   const operationKinds = new Set([
     "create_page",
     "create_database",
+    "create_canvas",
+    "rename_canvas",
+    "move_canvas",
+    "duplicate_canvas",
+    "delete_canvas",
     "move_block",
     "archive_resource",
     "restore_resource",
@@ -881,6 +1342,89 @@ const parseApplyReceipt = (value: unknown): LibraryModuleApplyReceipt => {
   if (createdTarget?.kind === "view") {
     throw new TypeError("libraryModuleApplyResult.value.createdTarget cannot be a View");
   }
+  const canvasMutation = (() => {
+    if (receipt.canvasMutation === null) return null;
+    const mutation = record(
+      receipt.canvasMutation,
+      "libraryModuleApplyResult.value.canvasMutation",
+    );
+    exactKeys(mutation, "libraryModuleApplyResult.value.canvasMutation", [
+      "operationKind",
+      "canvasId",
+      "documentId",
+      "sourceCanvasId",
+      "locationRevision",
+      "metadataRevision",
+      "documentCommits",
+    ]);
+    if (!Array.isArray(mutation.documentCommits)) {
+      throw new TypeError(
+        "libraryModuleApplyResult.value.canvasMutation.documentCommits must be an array",
+      );
+    }
+    return {
+      operationKind: string(
+        mutation.operationKind,
+        "libraryModuleApplyResult.value.canvasMutation.operationKind",
+      ),
+      canvasId: existingCanvasBlockId(
+        mutation.canvasId,
+        "libraryModuleApplyResult.value.canvasMutation.canvasId",
+      ),
+      documentId: existingCanvasDocumentId(
+        mutation.documentId,
+        "libraryModuleApplyResult.value.canvasMutation.documentId",
+      ),
+      sourceCanvasId: mutation.sourceCanvasId === null
+        ? null
+        : existingCanvasBlockId(
+            mutation.sourceCanvasId,
+            "libraryModuleApplyResult.value.canvasMutation.sourceCanvasId",
+          ),
+      locationRevision: revision(
+        mutation.locationRevision,
+        "libraryModuleApplyResult.value.canvasMutation.locationRevision",
+      ),
+      metadataRevision: revision(
+        mutation.metadataRevision,
+        "libraryModuleApplyResult.value.canvasMutation.metadataRevision",
+      ),
+      documentCommits: mutation.documentCommits.map((candidate, index) => {
+        const commit = record(
+          candidate,
+          `libraryModuleApplyResult.value.canvasMutation.documentCommits[${index}]`,
+        );
+        const commitLabel =
+          `libraryModuleApplyResult.value.canvasMutation.documentCommits[${index}]`;
+        exactKeys(commit, commitLabel, [
+          "documentId",
+          "generation",
+          "baseHeadSeq",
+          "headSeq",
+          "updateId",
+          "update",
+          "stateVector",
+        ]);
+        return {
+          documentId: uuidV7(commit.documentId, `${commitLabel}.documentId`),
+          generation: revision(commit.generation, `${commitLabel}.generation`),
+          baseHeadSeq: revision(
+            commit.baseHeadSeq,
+            `${commitLabel}.baseHeadSeq`,
+          ),
+          headSeq: revision(commit.headSeq, `${commitLabel}.headSeq`),
+          updateId: string(commit.updateId, `${commitLabel}.updateId`),
+          update: commit.update === null
+            ? null
+            : bytes(commit.update, `${commitLabel}.update`),
+          stateVector: bytes(
+            commit.stateVector,
+            `${commitLabel}.stateVector`,
+          ),
+        };
+      }),
+    };
+  })();
   return {
     version: LIBRARY_MODULE_CONTRACT_VERSION,
     operationId: string(receipt.operationId, "libraryModuleApplyResult.value.operationId"),
@@ -890,6 +1434,7 @@ const parseApplyReceipt = (value: unknown): LibraryModuleApplyReceipt => {
     duplicate: boolean(receipt.duplicate, "libraryModuleApplyResult.value.duplicate"),
     didMutate: boolean(receipt.didMutate, "libraryModuleApplyResult.value.didMutate"),
     createdTarget,
+    canvasMutation,
     affectedParentKeys: parseStringList(
       receipt.affectedParentKeys,
       "libraryModuleApplyResult.value.affectedParentKeys",

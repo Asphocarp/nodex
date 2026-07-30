@@ -26,9 +26,11 @@ export interface CanvasSceneSurfaceAcquireInput {
   readonly key: string;
   readonly descriptor: ReadyRegisteredOwnedBlockDocumentDescriptor;
   readonly provider: CanvasSceneProvider;
+  readonly connectDocumentSession?: () => Promise<void>;
   readonly presence: CanvasPresenceController;
   readonly binding: CanvasSceneBinding;
   readonly fileResolver: CanvasBinaryFileResolver;
+  readonly releaseDocumentSession?: () => Promise<void>;
   readonly maintainIfIdle?: () => Promise<void>;
   readonly disposeSubscriptions: () => void;
 }
@@ -40,6 +42,7 @@ export interface CanvasSceneSurfaceRegistry {
     expected: CanvasSceneSurfaceRuntime,
   ): Promise<void>;
   dispose(key: string): Promise<void>;
+  flushOwnerCommitted(ownerBlockId: string): Promise<void>;
   persistAllDurable(): Promise<void>;
   flushAllCommitted(): Promise<void>;
 }
@@ -65,24 +68,32 @@ class DefaultCanvasSceneSurfaceRuntime implements CanvasSceneSurfaceRuntime {
     this.key = input.key;
     this.descriptor = input.descriptor;
     this.provider = input.provider;
+    this.connectDocumentSession = input.connectDocumentSession;
     this.presence = input.presence;
     this.binding = input.binding;
     this.fileResolver = input.fileResolver;
+    this.releaseDocumentSession = input.releaseDocumentSession;
     this.maintainIfIdle = input.maintainIfIdle;
     this.disposeSubscriptions = input.disposeSubscriptions;
   }
 
   private readonly provider: CanvasSceneProvider;
+  private readonly connectDocumentSession: (() => Promise<void>) | undefined;
   private readonly presence: CanvasPresenceController;
   private readonly binding: CanvasSceneBinding;
   private readonly fileResolver: CanvasBinaryFileResolver;
+  private readonly releaseDocumentSession: (() => Promise<void>) | undefined;
   private readonly maintainIfIdle: (() => Promise<void>) | undefined;
   private readonly disposeSubscriptions: () => void;
 
   connect = async (): Promise<void> => {
     if (this.closed) throw new Error("Canvas scene surface runtime is closed");
     await this.connectBarrier;
-    await this.provider.connect();
+    await (
+      this.connectDocumentSession
+        ? this.connectDocumentSession()
+        : this.provider.connect()
+    );
   };
 
   submitLocalScene = (
@@ -102,8 +113,8 @@ class DefaultCanvasSceneSurfaceRuntime implements CanvasSceneSurfaceRuntime {
   flushCommitted = (): Promise<void> => this.binding.flushCommitted();
 
   close = (): Promise<void> => {
-    if (this.closed) return Promise.resolve();
     if (this.closePromise) return this.closePromise;
+    if (this.closed) return Promise.resolve();
     const promise = this.closeInternal().finally(() => {
       if (this.closePromise === promise) this.closePromise = null;
     });
@@ -112,8 +123,18 @@ class DefaultCanvasSceneSurfaceRuntime implements CanvasSceneSurfaceRuntime {
   };
 
   private async closeInternal(): Promise<void> {
-    await this.binding.persistDurable();
-    await this.provider.waitForRelocationIdle();
+    this.closed = true;
+    let firstError: unknown = null;
+    const run = async (operation: () => void | Promise<void>): Promise<void> => {
+      try {
+        await operation();
+      } catch (error) {
+        firstError ??= error;
+      }
+    };
+
+    await run(() => this.binding.persistDurable());
+    await run(() => this.provider.waitForRelocationIdle());
     const status = this.provider.getStatus();
     if (
       this.maintainIfIdle
@@ -124,12 +145,17 @@ class DefaultCanvasSceneSurfaceRuntime implements CanvasSceneSurfaceRuntime {
     ) {
       await this.maintainIfIdle().catch(() => undefined);
     }
-    await this.presence.close();
-    await this.provider.close({ requireCommitted: false });
-    this.disposeSubscriptions();
-    this.fileResolver.destroy();
-    this.binding.destroy();
-    this.closed = true;
+    await run(() => this.presence.close());
+    await run(() =>
+      this.releaseDocumentSession
+        ? this.releaseDocumentSession()
+        : this.provider.close({ requireCommitted: false })
+    );
+    await run(() => this.disposeSubscriptions());
+    await run(() => this.fileResolver.destroy());
+    await run(() => this.binding.destroy());
+
+    if (firstError) throw firstError;
   }
 }
 
@@ -151,10 +177,8 @@ export const createCanvasSceneSurfaceRegistry = (): CanvasSceneSurfaceRegistry =
   ): Promise<void> => {
     try {
       await expected.close();
+    } finally {
       forgetSettled(key, expected);
-    } catch (error) {
-      activeOrClosing.add(expected);
-      throw error;
     }
   };
 
@@ -162,7 +186,7 @@ export const createCanvasSceneSurfaceRegistry = (): CanvasSceneSurfaceRegistry =
     acquire(input) {
       const predecessor = currentByKey.get(input.key);
       const connectBarrier = predecessor
-        ? release(input.key, predecessor)
+        ? release(input.key, predecessor).catch(() => undefined)
         : Promise.resolve();
       const runtime = new DefaultCanvasSceneSurfaceRuntime(
         input,
@@ -177,6 +201,12 @@ export const createCanvasSceneSurfaceRegistry = (): CanvasSceneSurfaceRegistry =
       const runtime = currentByKey.get(key);
       if (!runtime) return;
       await release(key, runtime);
+    },
+    async flushOwnerCommitted(ownerBlockId) {
+      for (const runtime of activeOrClosing) {
+        if (runtime.descriptor.ownerBlockId !== ownerBlockId) continue;
+        await runtime.flushCommitted();
+      }
     },
     async persistAllDurable() {
       await Promise.all(

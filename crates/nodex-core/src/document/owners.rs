@@ -1,6 +1,3 @@
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
-use std::path::Path;
-
 use nodex_core_contracts::document::{
     DeletableOwnedSourceKind, DocumentHeadRevision, DocumentInvalidationReason,
     DocumentOwnerCommand, DocumentOwnerEffect, DocumentOwnerRevision, DocumentSpaceAnchor,
@@ -8,6 +5,7 @@ use nodex_core_contracts::document::{
 use nodex_core_contracts::{BoundModuleContext, CommittedCoreModuleEvent};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Value, json};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use yrs::{ReadTxn, Transact};
 
 use crate::domain::block_materialization::MaterializedBlockNode;
@@ -19,7 +17,6 @@ use crate::infrastructure::event_log::{
 use crate::infrastructure::projection_impact::impact_for_page_document;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
-use super::canvas::ensure_canvas_scene;
 use super::genesis::prepare_yjs_genesis_with_blocks;
 use super::history::{prepare_document_revision, record_document_revision_edit};
 use super::operations::{
@@ -35,14 +32,12 @@ use super::runtime::reconstruct_yjs_engine;
 use super::{
     BlockDocumentSchema, DocumentMaterialization, REUSABLE_TEMPLATE_SCHEMA_KEY,
     REUSABLE_TEMPLATE_SCHEMA_VERSION, SYNCED_BLOCK_SCHEMA_KEY, SYNCED_BLOCK_SCHEMA_VERSION,
-    YrsDocumentEngine, decode_block_document, materialize_decoded_document,
+    YrsDocumentEngine, decode_block_document, is_primary_canvas_block_id,
+    materialize_decoded_document,
 };
 
 const SYNCED_OWNER_TYPE: &str = "synced_block_source";
 const TEMPLATE_OWNER_TYPE: &str = "reusable_template_source";
-const CANVAS_OWNER_TYPE: &str = "canvas";
-const CANVAS_SCHEMA_KEY: &str = "nodex.canvas";
-const CANVAS_SCHEMA_VERSION: i64 = 1;
 const MAX_OWNER_BLOCKS: usize = 100_000;
 
 pub(crate) struct OwnerCommandExecution {
@@ -61,7 +56,6 @@ pub(crate) fn execute_owner_command(
     store_epoch: &str,
     operation_id: &str,
     command: &DocumentOwnerCommand,
-    assets_root: &Path,
 ) -> Result<OwnerCommandExecution, StoreError> {
     let project_id = context
         .project_id
@@ -122,23 +116,6 @@ pub(crate) fn execute_owner_command(
                 before: before.as_ref(),
             },
         ),
-        DocumentOwnerCommand::CreateCanvasOwner {
-            block_id,
-            document_id,
-            display_name,
-            before,
-        } => create_canvas_owner(
-            connection,
-            context,
-            store_epoch,
-            operation_id,
-            &project_id.0,
-            block_id,
-            document_id,
-            display_name,
-            before.as_ref(),
-            assets_root,
-        ),
         DocumentOwnerCommand::DeleteOwnedSource { owner_kind, owner } => {
             let expected_type = match owner_kind {
                 DeletableOwnedSourceKind::SyncedBlock => SYNCED_OWNER_TYPE,
@@ -155,16 +132,6 @@ pub(crate) fn execute_owner_command(
                 false,
             )
         }
-        DocumentOwnerCommand::DeleteCanvasOwner { owner } => delete_owner(
-            connection,
-            context,
-            store_epoch,
-            operation_id,
-            &project_id.0,
-            owner,
-            CANVAS_OWNER_TYPE,
-            true,
-        ),
         DocumentOwnerCommand::PromoteSyncedSource {
             host,
             root_block_id,
@@ -994,65 +961,6 @@ fn create_yjs_owner(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn create_canvas_owner(
-    connection: &Connection,
-    _context: &BoundModuleContext,
-    _store_epoch: &str,
-    _operation_id: &str,
-    project_id: &str,
-    block_id: &str,
-    document_id: &str,
-    display_name: &str,
-    before: Option<&DocumentSpaceAnchor>,
-    assets_root: &Path,
-) -> Result<OwnerCommandExecution, StoreError> {
-    if block_id == format!("canvas:primary:{project_id}") {
-        return Err(StoreError::new(
-            StoreErrorCode::AlreadyOwned,
-            "The deterministic primary Canvas identity cannot be reused",
-            false,
-        ));
-    }
-    stage_owner(
-        connection,
-        project_id,
-        block_id,
-        CANVAS_OWNER_TYPE,
-        document_id,
-        CANVAS_SCHEMA_KEY,
-        CANVAS_SCHEMA_VERSION,
-        Some(display_name),
-        before,
-        true,
-    )?;
-    let authority = read_document_authority(connection, document_id)?
-        .ok_or_else(|| corrupt("Staged Canvas owner has no Document authority"))?;
-    let (_, created) = ensure_canvas_scene(connection, &authority, assets_root)?;
-    if !created {
-        return Err(corrupt("New Canvas owner reused existing scene authority"));
-    }
-    let event_sequence = read_event_head(connection)?;
-    Ok(OwnerCommandExecution {
-        primary_document_id: document_id.to_owned(),
-        generation: 1,
-        head_seq: 0,
-        event_sequence,
-        effect: DocumentOwnerEffect {
-            created_block_ids: vec![block_id.to_owned()],
-            preserved_block_ids: Vec::new(),
-            deleted_block_ids: Vec::new(),
-            document_heads: vec![DocumentHeadRevision {
-                document_id: document_id.to_owned(),
-                generation: 1,
-                head_seq: 0,
-            }],
-        },
-        events: Vec::new(),
-        invalidate_document_ids: vec![document_id.to_owned()],
-    })
-}
-
-#[allow(clippy::too_many_arguments)]
 fn delete_owner(
     connection: &Connection,
     _context: &BoundModuleContext,
@@ -1296,7 +1204,7 @@ fn validate_owner_revision(
             false,
         ));
     }
-    if canvas && owner.owner_block_id == format!("canvas:primary:{project_id}") {
+    if canvas && is_primary_canvas_block_id(&owner.owner_block_id, project_id) {
         return Err(StoreError::new(
             StoreErrorCode::AlreadyOwned,
             "A Project's primary Canvas cannot be deleted",

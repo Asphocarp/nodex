@@ -53,6 +53,12 @@ export const databaseBlockConfig = {
   content: "none",
 } as const satisfies CustomBlockConfig;
 
+export const canvasBlockConfig = {
+  type: "canvas",
+  propSchema: {},
+  content: "none",
+} as const satisfies CustomBlockConfig;
+
 export const databaseViewRefBlockConfig = {
   type: "databaseViewRef",
   propSchema: {
@@ -155,6 +161,7 @@ export const blockDocumentCustomBlockConfigs = {
   threadSection: threadSectionBlockConfig,
   page: pageBlockConfig,
   database: databaseBlockConfig,
+  canvas: canvasBlockConfig,
   pageRef: pageRefBlockConfig,
   databaseViewRef: databaseViewRefBlockConfig,
   syncedBlockRef: syncedBlockRefBlockConfig,

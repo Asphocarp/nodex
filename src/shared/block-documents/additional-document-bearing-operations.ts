@@ -65,9 +65,7 @@ export interface AdditionalDocumentBearingMutationResult {
     | CreateReusableTemplateSource["kind"]
     | CreateReusableTemplateReference["kind"]
     | InstantiateReusableTemplate["kind"]
-    | "delete_owned_source"
-    | "create_canvas_owner"
-    | "delete_canvas_owner";
+    | "delete_owned_source";
   readonly blockIds: readonly string[];
   readonly documentHeads: Readonly<
     Record<string, { readonly generation: number; readonly headSeq: number }>

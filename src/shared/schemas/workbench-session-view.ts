@@ -12,6 +12,7 @@ import {
 } from "../workbench-session-view";
 import { WorkbenchViewSchema } from "./workbench";
 import { BrowserSidebarDeviceToolbarStateSchema } from "../browser/browser-schemas";
+import { primaryCanvasBlockId } from "../block-documents";
 
 export const MAX_WORKBENCH_SESSION_VIEW_JSON_BYTES = 2 * 1024 * 1024;
 export const MAX_WORKBENCH_PANEL_NODE_DEPTH = 32;
@@ -112,6 +113,12 @@ const WorkbenchPageStageTabConfigSchema = z.object({
   titleSnapshot: z.string().optional(),
 }).strict();
 
+const WorkbenchCanvasStageTabConfigSchema = z.object({
+  projectId: z.string().min(1),
+  canvasBlockId: z.string().min(1),
+  titleSnapshot: z.string().optional(),
+}).strict();
+
 const WorkbenchTerminalTabConfigSchema = z.object({
   terminalSessionId: z.string().min(1),
 }).strict();
@@ -158,6 +165,11 @@ export const WorkbenchSessionViewTabSchema = z.discriminatedUnion("kind", [
   }).strict(),
   z.object({
     ...tabBaseSchema,
+    kind: z.literal("canvas_stage"),
+    config: WorkbenchCanvasStageTabConfigSchema,
+  }).strict(),
+  z.object({
+    ...tabBaseSchema,
     kind: z.literal("terminal"),
     config: WorkbenchTerminalTabConfigSchema,
   }).strict(),
@@ -196,9 +208,50 @@ function migrateWorkbenchSessionView(value: unknown): unknown {
     return value;
   }
   const record = value as Record<string, unknown>;
-  if (record.version !== 1) return value;
+  if (record.version !== 1 && record.version !== 2) return value;
+  const tabsById = typeof record.tabsById === "object"
+      && record.tabsById !== null
+      && !Array.isArray(record.tabsById)
+    ? Object.fromEntries(
+        Object.entries(record.tabsById).map(([tabId, candidate]) => {
+          if (
+            typeof candidate !== "object"
+            || candidate === null
+            || Array.isArray(candidate)
+          ) {
+            return [tabId, candidate];
+          }
+          const tab = candidate as Record<string, unknown>;
+          const config = typeof tab.config === "object"
+              && tab.config !== null
+              && !Array.isArray(tab.config)
+            ? tab.config as Record<string, unknown>
+            : null;
+          if (
+            tab.kind !== "db_view"
+            || config?.view !== "canvas"
+            || typeof config.projectId !== "string"
+          ) {
+            return [tabId, candidate];
+          }
+          return [tabId, {
+            ...tab,
+            kind: "canvas_stage",
+            state: null,
+            config: {
+              projectId: config.projectId,
+              canvasBlockId: primaryCanvasBlockId(config.projectId),
+              ...(typeof tab.titleSnapshot === "string"
+                ? { titleSnapshot: tab.titleSnapshot }
+                : {}),
+            },
+          }];
+        }),
+      )
+    : record.tabsById;
   return {
     ...record,
+    tabsById,
     version: WORKBENCH_SESSION_VIEW_VERSION,
   };
 }

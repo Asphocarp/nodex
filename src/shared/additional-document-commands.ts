@@ -124,31 +124,13 @@ export interface DeleteOwnedSourceOperation {
   readonly referencePolicy: "require_unreferenced";
 }
 
-export interface CreateCanvasOwnerOperation {
-  readonly kind: "create_canvas_owner";
-  readonly scope: "non_primary";
-  readonly blockId: string;
-  readonly documentId: string;
-  readonly displayName: string;
-  readonly placement: AdditionalDocumentSpacePlacement;
-}
-
-export interface DeleteCanvasOwnerOperation {
-  readonly kind: "delete_canvas_owner";
-  readonly scope: "non_primary";
-  readonly owner: AdditionalDocumentOwnerRevision;
-  readonly referencePolicy: "require_unreferenced";
-}
-
 export type AdditionalDocumentOperation =
   | CreateSyncedSourceOperation
   | PromoteSyncedSourceOperation
   | DemoteSyncedSourceOperation
   | CreateTemplateOperation
   | InstantiateTemplateOperation
-  | DeleteOwnedSourceOperation
-  | CreateCanvasOwnerOperation
-  | DeleteCanvasOwnerOperation;
+  | DeleteOwnedSourceOperation;
 
 export type AdditionalDocumentCommandKind = AdditionalDocumentOperation["kind"];
 
@@ -170,9 +152,7 @@ export type AdditionalDocumentIdentitySemantics =
   | "move_preserving_content_ids_create_source_and_reference_ids"
   | "move_preserving_content_ids_delete_source_and_reference_ids"
   | "copy_deriving_every_content_id_from_operation_id"
-  | "delete_owner_preserving_retained_history_ids"
-  | "create_empty_owner"
-  | "delete_canvas_owner_preserving_retained_history_ids";
+  | "delete_owner_preserving_retained_history_ids";
 
 export interface AdditionalDocumentCommandCapability {
   readonly availability: "kernel_ready" | "capability_gap";
@@ -219,16 +199,6 @@ export const ADDITIONAL_DOCUMENT_COMMAND_CAPABILITIES: Readonly<
     availability: "kernel_ready",
     coordination: "hub_lease",
     identitySemantics: "delete_owner_preserving_retained_history_ids",
-  },
-  create_canvas_owner: {
-    availability: "kernel_ready",
-    coordination: "fifo_only",
-    identitySemantics: "create_empty_owner",
-  },
-  delete_canvas_owner: {
-    availability: "kernel_ready",
-    coordination: "hub_lease",
-    identitySemantics: "delete_canvas_owner_preserving_retained_history_ids",
   },
 };
 
@@ -843,58 +813,6 @@ const parseOperation = (value: unknown): AdditionalDocumentOperation => {
       ),
     };
   }
-  if (kind === "create_canvas_owner") {
-    assertExactKeys(operation, label, [
-      "kind",
-      "scope",
-      "blockId",
-      "documentId",
-      "displayName",
-      "placement",
-    ]);
-    const blockId = readString(operation, "blockId", label);
-    const placement = parseSpacePlacement(
-      operation.placement,
-      `${label}.placement`,
-    );
-    if (placement.before?.blockId === blockId) {
-      throw new AdditionalDocumentCommandContractError(
-        `${label}.placement cannot anchor before the identity being created`,
-      );
-    }
-    return {
-      kind,
-      scope: readLiteral(operation, "scope", label, "non_primary"),
-      blockId,
-      documentId: readString(operation, "documentId", label),
-      displayName: readString(
-        operation,
-        "displayName",
-        label,
-        MAX_DISPLAY_NAME_LENGTH,
-      ),
-      placement,
-    };
-  }
-  if (kind === "delete_canvas_owner") {
-    assertExactKeys(operation, label, [
-      "kind",
-      "scope",
-      "owner",
-      "referencePolicy",
-    ]);
-    return {
-      kind,
-      scope: readLiteral(operation, "scope", label, "non_primary"),
-      owner: parseOwner(operation.owner, `${label}.owner`),
-      referencePolicy: readLiteral(
-        operation,
-        "referencePolicy",
-        label,
-        "require_unreferenced",
-      ),
-    };
-  }
   throw new AdditionalDocumentCommandContractError(
     `${label}.kind is not supported`,
   );
@@ -906,7 +824,6 @@ const requiredLeaseDocuments = (
   switch (operation.kind) {
     case "create_synced_source":
     case "create_template":
-    case "create_canvas_owner":
       return [];
     case "promote_synced_source":
       return [operation.host];
@@ -915,7 +832,6 @@ const requiredLeaseDocuments = (
     case "instantiate_template":
       return [operation.source, operation.target];
     case "delete_owned_source":
-    case "delete_canvas_owner":
       return [operation.owner];
   }
 };

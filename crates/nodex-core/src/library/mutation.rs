@@ -5,9 +5,9 @@ use std::path::Path;
 use nodex_core_contracts::LIBRARY_CONTRACT_VERSION;
 use nodex_core_contracts::library::{
     LibraryAccess, LibraryBlockPropertyMutationReceipt, LibraryBlockTransferDocumentCommit,
-    LibraryBlockTransferResult, LibraryCommitValue, LibraryIntent, LibraryPageCopyResult,
-    LibraryPageCreateResult, LibraryPageLifecycleMutationReceipt, LibraryReceipt,
-    LibraryResourceTarget, LibraryWriteParent,
+    LibraryBlockTransferResult, LibraryCanvasMutationResult, LibraryCommitValue, LibraryIntent,
+    LibraryPageCopyResult, LibraryPageCreateResult, LibraryPageLifecycleMutationReceipt,
+    LibraryReceipt, LibraryResourceTarget, LibraryWriteParent,
 };
 use nodex_core_contracts::{
     BoundModuleContext, CommittedModuleValue, ModuleApplyRequest, ModuleMutationReceipt,
@@ -64,6 +64,7 @@ pub(super) struct MutationEffects {
     pub(super) committed_revisions: BTreeMap<String, i64>,
     pub(super) page_create: Option<LibraryPageCreateResult>,
     pub(super) page_copy: Option<LibraryPageCopyResult>,
+    pub(super) canvas_mutation: Option<LibraryCanvasMutationResult>,
     pub(super) block_transfer: Option<LibraryBlockTransferResult>,
     pub(super) page_lifecycle: Option<LibraryPageLifecycleMutationReceipt>,
     pub(super) block_property_mutation: Option<LibraryBlockPropertyMutationReceipt>,
@@ -90,16 +91,16 @@ pub(super) struct ResolvedParentDocument {
     pub(super) schema: BlockDocumentSchema,
 }
 
-struct ResourceAuthority {
-    id: String,
-    project_id: String,
-    resource_kind: &'static str,
-    lifecycle: String,
-    location_kind: String,
-    containing_document_id: Option<String>,
-    location_revision: i64,
-    block_metadata_revision: i64,
-    resource_metadata_revision: i64,
+pub(super) struct ResourceAuthority {
+    pub(super) id: String,
+    pub(super) project_id: String,
+    pub(super) resource_kind: &'static str,
+    pub(super) lifecycle: String,
+    pub(super) location_kind: String,
+    pub(super) containing_document_id: Option<String>,
+    pub(super) location_revision: i64,
+    pub(super) block_metadata_revision: i64,
+    pub(super) resource_metadata_revision: i64,
 }
 
 pub(super) fn apply(
@@ -256,6 +257,93 @@ pub(super) fn apply(
                     view_id,
                     name,
                     parent,
+                ),
+                LibraryIntent::CreateCanvas {
+                    canvas_id,
+                    document_id,
+                    display_name,
+                    destination,
+                } => super::canvas_mutation::create(
+                    transaction,
+                    &context,
+                    &store_epoch,
+                    &library_id,
+                    &request.operation_id,
+                    &request_hash,
+                    canvas_id,
+                    document_id,
+                    display_name,
+                    destination,
+                    &assets_root,
+                ),
+                LibraryIntent::RenameCanvas {
+                    canvas_id,
+                    display_name,
+                    expected_metadata_revision,
+                } => super::canvas_mutation::rename(
+                    transaction,
+                    &context,
+                    &store_epoch,
+                    &library_id,
+                    &request.operation_id,
+                    &request_hash,
+                    canvas_id,
+                    display_name,
+                    *expected_metadata_revision,
+                ),
+                LibraryIntent::MoveCanvas {
+                    canvas_id,
+                    expected_location_revision,
+                    destination,
+                } => super::canvas_mutation::move_canvas(
+                    transaction,
+                    &context,
+                    &store_epoch,
+                    &library_id,
+                    &request.operation_id,
+                    &request_hash,
+                    canvas_id,
+                    *expected_location_revision,
+                    destination,
+                ),
+                LibraryIntent::DuplicateCanvas {
+                    source_canvas_id,
+                    canvas_id,
+                    document_id,
+                    display_name,
+                    expected_document_generation,
+                    expected_document_head_seq,
+                    destination,
+                } => super::canvas_mutation::duplicate(
+                    transaction,
+                    &context,
+                    &store_epoch,
+                    &library_id,
+                    &request.operation_id,
+                    &request_hash,
+                    source_canvas_id,
+                    canvas_id,
+                    document_id,
+                    display_name.as_deref(),
+                    *expected_document_generation,
+                    *expected_document_head_seq,
+                    destination,
+                    &assets_root,
+                ),
+                LibraryIntent::DeleteCanvas {
+                    canvas_id,
+                    expected_location_revision,
+                    expected_metadata_revision,
+                } => super::canvas_mutation::delete(
+                    transaction,
+                    &context,
+                    &store_epoch,
+                    &library_id,
+                    &request.operation_id,
+                    &request_hash,
+                    canvas_id,
+                    *expected_location_revision,
+                    *expected_metadata_revision,
                 ),
                 LibraryIntent::CopyPage {
                     source_page_id,
@@ -741,6 +829,7 @@ fn move_block(
             committed_revisions,
             page_create: None,
             page_copy: None,
+            canvas_mutation: None,
             block_transfer: None,
             page_lifecycle: None,
             block_property_mutation: None,
@@ -783,6 +872,11 @@ fn change_resource_lifecycle(
     if authority.location_kind == "database" {
         return Err(invalid(
             "A Data Source row Page must change lifecycle through the Database Module",
+        ));
+    }
+    if authority.resource_kind == "canvas" {
+        return Err(invalid(
+            "Canvas lifecycle must change through a Canvas mutation",
         ));
     }
     if authority.resource_kind == "database" && !restore {
@@ -938,6 +1032,7 @@ fn change_resource_lifecycle(
             ),
             page_create: None,
             page_copy: None,
+            canvas_mutation: None,
             block_transfer: None,
             page_lifecycle: None,
             block_property_mutation: None,
@@ -986,6 +1081,11 @@ fn grant_project_access(
         ));
     }
     let authority = read_resource_authority(connection, library_id, target)?;
+    if authority.resource_kind == "canvas" {
+        return Err(invalid(
+            "Canvas access is inherited from its owning Page or Project",
+        ));
+    }
     let access = match access {
         LibraryAccess::Read => "read",
         LibraryAccess::ReadWrite => "read_write",
@@ -1088,6 +1188,7 @@ fn grant_project_access(
                 .collect(),
             page_create: None,
             page_copy: None,
+            canvas_mutation: None,
             block_transfer: None,
             page_lifecycle: None,
             block_property_mutation: None,
@@ -1100,7 +1201,7 @@ fn grant_project_access(
     )
 }
 
-fn read_resource_authority(
+pub(super) fn read_resource_authority(
     connection: &Connection,
     library_id: &str,
     target: &LibraryResourceTarget,
@@ -1108,18 +1209,21 @@ fn read_resource_authority(
     let (id, resource_kind) = match target {
         LibraryResourceTarget::Page { page_id } => (page_id, "page"),
         LibraryResourceTarget::Database { database_id } => (database_id, "database"),
+        LibraryResourceTarget::Canvas { canvas_id } => (canvas_id, "canvas"),
     };
     let row = connection
         .query_row(
             "SELECT block.project_id, block.lifecycle, block.location_kind, \
                block.containing_document_id, block.location_revision, block.metadata_revision, \
                CASE WHEN block.type = 'page' THEN page.metadata_revision \
-                    ELSE container.metadata_revision END \
+                    WHEN block.type = 'database' THEN container.metadata_revision \
+                    ELSE block.metadata_revision END \
              FROM blocks block \
              LEFT JOIN pages page ON page.block_id = block.id \
              LEFT JOIN database_containers container ON container.block_id = block.id \
+             LEFT JOIN canvas_owners canvas ON canvas.block_id = block.id \
              WHERE block.id = ?1 AND block.type = ?2 \
-               AND COALESCE(page.library_id, container.library_id) = ?3",
+               AND COALESCE(page.library_id, container.library_id, canvas.library_id) = ?3",
             params![id, resource_kind, library_id],
             |row| {
                 Ok(ResourceAuthority {
@@ -1321,7 +1425,7 @@ fn resolve_write_parent_with_access(
     })
 }
 
-fn load_parent_document(
+pub(super) fn load_parent_document(
     connection: &Connection,
     document_id: &str,
 ) -> Result<ResolvedParentDocument, StoreError> {
@@ -1407,7 +1511,7 @@ fn persist_parent_operations(
     .map(|commit| commit.head_seq)
 }
 
-fn persist_parent_operations_detailed(
+pub(super) fn persist_parent_operations_detailed(
     connection: &Connection,
     store_epoch: &str,
     operation_id: &str,
@@ -1623,6 +1727,7 @@ fn create_database(
             ),
             page_create: None,
             page_copy: None,
+            canvas_mutation: None,
             block_transfer: None,
             page_lifecycle: None,
             block_property_mutation: None,
@@ -1902,6 +2007,7 @@ fn create_page(
             ),
             page_create: Some(page_create),
             page_copy: None,
+            canvas_mutation: None,
             block_transfer: None,
             page_lifecycle: None,
             block_property_mutation: None,
@@ -2066,6 +2172,7 @@ pub(super) fn finish_mutation(
             affected_resource_ids: block_ids,
             page_create: effects.page_create,
             page_copy: effects.page_copy,
+            canvas_mutation: effects.canvas_mutation,
             block_transfer: effects.block_transfer,
             page_lifecycle: effects.page_lifecycle,
             block_property_mutation: effects.block_property_mutation,
@@ -2472,7 +2579,7 @@ fn materialized_block_ids(blocks: &[MaterializedBlockNode]) -> Vec<String> {
         .collect()
 }
 
-fn embedded_resource_block(block_id: &str, block_type: &str) -> MaterializedBlockNode {
+pub(super) fn embedded_resource_block(block_id: &str, block_type: &str) -> MaterializedBlockNode {
     MaterializedBlockNode {
         id: block_id.to_owned(),
         block_type: block_type.to_owned(),
@@ -2512,9 +2619,9 @@ mod tests {
 
     use nodex_core_contracts::document::{DocumentSemanticCommand, OwnedDocumentIntent};
     use nodex_core_contracts::library::{
-        LibraryAgentSiblingAnchor, LibraryNavigationParent, LibraryPageFileKind,
-        LibraryPagePrepareKind, LibraryPageWriteDestination, LibraryRead, LibraryReadValue,
-        LibrarySearchSnapshotScope,
+        LibraryAgentSiblingAnchor, LibraryCanvasDestination, LibraryNavigationParent,
+        LibraryPageFileKind, LibraryPageInsertion, LibraryPagePrepareKind,
+        LibraryPageWriteDestination, LibraryRead, LibraryReadValue, LibrarySearchSnapshotScope,
     };
     use nodex_core_contracts::{
         AdapterKind, LibraryId, ModuleReadRequest, OWNED_DOCUMENT_CONTRACT_VERSION, ProfileId,
@@ -2580,6 +2687,31 @@ mod tests {
                 view_id: "018f0000-0000-7000-8000-000000000003".to_owned(),
                 name: "Product work".to_owned(),
                 parent: LibraryWriteParent::Library { before: None },
+            },
+        }
+    }
+
+    fn create_canvas_request(
+        operation_id: &str,
+        expected_document_head_seq: i64,
+        replacement_block_id: &str,
+    ) -> ModuleApplyRequest<LibraryIntent> {
+        ModuleApplyRequest {
+            contract_version: LIBRARY_CONTRACT_VERSION,
+            operation_id: operation_id.to_owned(),
+            store_epoch: StoreEpoch("epoch-1".to_owned()),
+            intent: LibraryIntent::CreateCanvas {
+                canvas_id: "018f0000-0000-7000-8000-000000000010".to_owned(),
+                document_id: "018f0000-0000-7000-8000-000000000011".to_owned(),
+                display_name: "Architecture sketch".to_owned(),
+                destination: LibraryCanvasDestination::Page {
+                    page_id: "page:created".to_owned(),
+                    expected_document_generation: 1,
+                    expected_document_head_seq,
+                    insertion: LibraryPageInsertion::ReplaceEmptyParagraph {
+                        block_id: replacement_block_id.to_owned(),
+                    },
+                },
             },
         }
     }
@@ -3416,6 +3548,461 @@ mod tests {
                 Ok(())
             })
             .expect("move ownership evidence");
+    }
+
+    #[test]
+    fn canvas_lifecycle_is_atomic_with_its_host_page_shell() {
+        let (_directory, kernel, module) = seeded_library();
+        module
+            .apply(
+                &context(),
+                create_request("operation:create-page-for-canvas", "Canvas host"),
+            )
+            .expect("create Canvas host Page");
+        let (empty_block_id, page_head_seq) = kernel
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .query_row(
+                        "SELECT index_row.block_id, document.head_seq \
+                     FROM pages page \
+                     JOIN documents document ON document.id = page.document_id \
+                     JOIN document_block_index index_row \
+                       ON index_row.document_id = page.document_id \
+                     WHERE page.block_id = 'page:created' \
+                       AND index_row.block_type = 'paragraph'",
+                        [],
+                        |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+                    )
+                    .map_err(StoreError::from)
+            })
+            .expect("empty Page paragraph");
+
+        let created = module
+            .apply(
+                &context(),
+                create_canvas_request("operation:create-canvas", page_head_seq, &empty_block_id),
+            )
+            .expect("create nested Canvas");
+        let created_result = created
+            .committed
+            .value
+            .canvas_mutation
+            .as_ref()
+            .expect("Canvas mutation result");
+        assert_eq!(created_result.operation_kind, "create_canvas");
+        assert_eq!(created_result.document_commits.len(), 1);
+        let host_document_id = created_result.document_commits[0].document_id.clone();
+
+        kernel
+            .readers()
+            .read_default(|connection| {
+                let evidence = connection.query_row(
+                    "SELECT block.type, block.location_kind, block.containing_document_id, \
+                            ownership.document_id, document.sync_engine, \
+                            (SELECT count(*) FROM canvas_owners WHERE block_id = block.id), \
+                            (SELECT count(*) FROM canvas_scenes \
+                              WHERE document_id = ownership.document_id), \
+                            (SELECT count(*) FROM document_block_index \
+                              WHERE document_id = block.containing_document_id \
+                                AND block_id = block.id AND block_type = 'canvas'), \
+                            (SELECT count(*) FROM document_block_index \
+                              WHERE document_id = block.containing_document_id \
+                                AND block_id = ?1) \
+                     FROM blocks block \
+                     JOIN block_documents ownership ON ownership.block_id = block.id \
+                     JOIN documents document ON document.id = ownership.document_id \
+                     WHERE block.id = '018f0000-0000-7000-8000-000000000010'",
+                    [&empty_block_id],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, Option<String>>(2)?,
+                            row.get::<_, String>(3)?,
+                            row.get::<_, String>(4)?,
+                            row.get::<_, i64>(5)?,
+                            row.get::<_, i64>(6)?,
+                            row.get::<_, i64>(7)?,
+                            row.get::<_, i64>(8)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(evidence.0, "canvas");
+                assert_eq!(evidence.1, "document");
+                assert_eq!(evidence.3, "018f0000-0000-7000-8000-000000000011");
+                assert_eq!(evidence.4, "canvas_scene");
+                assert_eq!(
+                    (evidence.5, evidence.6, evidence.7, evidence.8),
+                    (1, 1, 1, 0)
+                );
+                assert!(evidence.2.is_some());
+                Ok(())
+            })
+            .expect("Canvas authority evidence");
+
+        let guard_host_document_id = host_document_id.clone();
+        kernel
+            .writer()
+            .call(move |connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    let parent = load_parent_document(transaction, &guard_host_document_id)?;
+                    persist_parent_operations(
+                        transaction,
+                        "epoch-1",
+                        "operation:add-guard-paragraph",
+                        "guard-setup",
+                        &parent,
+                        &[DocumentBlockOperation::InsertBlock {
+                            block: MaterializedBlockNode {
+                                id: "018f0000-0000-7000-8000-000000000020".to_owned(),
+                                block_type: "paragraph".to_owned(),
+                                props: BTreeMap::from([
+                                    ("backgroundColor".to_owned(), json!("default")),
+                                    ("textColor".to_owned(), json!("default")),
+                                    ("textAlignment".to_owned(), json!("left")),
+                                ]),
+                                content: Some(json!([])),
+                                children: Vec::new(),
+                            },
+                            parent_block_id: None,
+                            before_block_id: None,
+                        }],
+                    )
+                })
+            })
+            .expect("add editable sibling for guard test");
+
+        let ordinary_delete = kernel
+            .writer()
+            .call(move |connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    let parent = load_parent_document(transaction, &host_document_id)?;
+                    persist_parent_operations(
+                        transaction,
+                        "epoch-1",
+                        "operation:ordinary-canvas-delete",
+                        "guard",
+                        &parent,
+                        &[DocumentBlockOperation::DeleteBlock {
+                            block_id: "018f0000-0000-7000-8000-000000000010".to_owned(),
+                        }],
+                    )
+                })
+            })
+            .expect_err("ordinary Document update cannot delete Canvas owner");
+        assert_eq!(ordinary_delete.code, StoreErrorCode::InvalidInput);
+        assert!(
+            ordinary_delete
+                .message
+                .contains("typed lifecycle operation"),
+            "{}",
+            ordinary_delete.message,
+        );
+
+        let renamed = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "operation:rename-canvas".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::RenameCanvas {
+                        canvas_id: "018f0000-0000-7000-8000-000000000010".to_owned(),
+                        display_name: "System map".to_owned(),
+                        expected_metadata_revision: 1,
+                    },
+                },
+            )
+            .expect("rename Canvas");
+        assert_eq!(
+            renamed
+                .committed
+                .value
+                .canvas_mutation
+                .as_ref()
+                .expect("rename result")
+                .metadata_revision,
+            2
+        );
+        assert_eq!(
+            renamed.committed.receipt.affected_page_ids,
+            vec!["page:created".to_owned()]
+        );
+
+        let duplicated = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "operation:duplicate-canvas".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::DuplicateCanvas {
+                        source_canvas_id: "018f0000-0000-7000-8000-000000000010".to_owned(),
+                        canvas_id: "018f0000-0000-7000-8000-000000000012".to_owned(),
+                        document_id: "018f0000-0000-7000-8000-000000000013".to_owned(),
+                        display_name: None,
+                        expected_document_generation: 1,
+                        expected_document_head_seq: 0,
+                        destination: LibraryCanvasDestination::Library { before: None },
+                    },
+                },
+            )
+            .expect("duplicate Canvas");
+        let duplicate_result = duplicated
+            .committed
+            .value
+            .canvas_mutation
+            .as_ref()
+            .expect("duplicate result");
+        assert_eq!(
+            duplicate_result.source_canvas_id.as_deref(),
+            Some("018f0000-0000-7000-8000-000000000010")
+        );
+        assert_ne!(
+            duplicate_result.document_id,
+            "018f0000-0000-7000-8000-000000000011"
+        );
+
+        let host_head_seq = kernel
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .query_row(
+                        "SELECT document.head_seq FROM pages page \
+                         JOIN documents document ON document.id = page.document_id \
+                         WHERE page.block_id = 'page:created'",
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .map_err(StoreError::from)
+            })
+            .expect("current Canvas host head");
+        let moved = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "operation:move-canvas".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::MoveCanvas {
+                        canvas_id: "018f0000-0000-7000-8000-000000000012".to_owned(),
+                        expected_location_revision: 1,
+                        destination: LibraryCanvasDestination::Page {
+                            page_id: "page:created".to_owned(),
+                            expected_document_generation: 1,
+                            expected_document_head_seq: host_head_seq,
+                            insertion: LibraryPageInsertion::Append {
+                                parent_block_id: None,
+                            },
+                        },
+                    },
+                },
+            )
+            .expect("move Canvas into Page");
+        let move_result = moved
+            .committed
+            .value
+            .canvas_mutation
+            .as_ref()
+            .expect("move result");
+        assert_eq!(move_result.location_revision, 2);
+        assert_eq!(
+            move_result.document_id,
+            "018f0000-0000-7000-8000-000000000013"
+        );
+        kernel
+            .readers()
+            .read_default(|connection| {
+                let evidence = connection.query_row(
+                    "SELECT block.location_kind, block.containing_document_id, \
+                            ownership.document_id, \
+                            (SELECT count(*) FROM document_block_index \
+                              WHERE block_id = block.id), \
+                            (SELECT count(*) FROM top_level_block_placements \
+                              WHERE block_id = block.id) \
+                     FROM blocks block \
+                     JOIN block_documents ownership ON ownership.block_id = block.id \
+                     WHERE block.id = '018f0000-0000-7000-8000-000000000012'",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, Option<String>>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, i64>(3)?,
+                            row.get::<_, i64>(4)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(evidence.0, "document");
+                assert!(evidence.1.is_some());
+                assert_eq!(evidence.2, "018f0000-0000-7000-8000-000000000013");
+                assert_eq!((evidence.3, evidence.4), (1, 0));
+                Ok(())
+            })
+            .expect("moved Canvas identity evidence");
+
+        let target = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::CanvasTarget {
+                        canvas_id: "018f0000-0000-7000-8000-000000000010".to_owned(),
+                    },
+                },
+            )
+            .expect("read Canvas target");
+        let LibraryReadValue::CanvasTarget { value } = target.value else {
+            panic!("Canvas target snapshot");
+        };
+        assert!(matches!(
+            value.as_ref(),
+            nodex_core_contracts::library::LibraryCanvasTarget::Available { summary }
+                if summary.title == "System map"
+                    && summary.canvas_id == "018f0000-0000-7000-8000-000000000010"
+        ));
+
+        let children = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::Children {
+                        parent: LibraryNavigationParent::Page {
+                            page_id: "page:created".to_owned(),
+                        },
+                        cursor: None,
+                        limit: None,
+                        force_include_target: None,
+                    },
+                },
+            )
+            .expect("read Canvas host children");
+        let LibraryReadValue::Children { items, .. } = children.value else {
+            panic!("Canvas child navigation");
+        };
+        assert_eq!(
+            items
+                .iter()
+                .filter(|item| matches!(
+                    item,
+                    nodex_core_contracts::library::LibraryNavigationNode::Canvas { .. }
+                ))
+                .count(),
+            2
+        );
+
+        let document_module = OwnedDocumentModule::new("profile-1", "library-1", &kernel);
+        let scene_advanced = document_module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
+                    operation_id: "operation:advance-canvas-before-delete".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: OwnedDocumentIntent::ApplyCanvasMutation {
+                        document_id: "018f0000-0000-7000-8000-000000000011".to_owned(),
+                        generation: 1,
+                        expected_head_seq: 0,
+                        mutation: json!({
+                            "elementCandidates": [],
+                            "appStateIntents": {
+                                "gridSize": {
+                                    "expected": { "kind": "absent" },
+                                    "value": { "kind": "value", "value": 20 }
+                                }
+                            },
+                            "fileAdditions": {}
+                        }),
+                    },
+                },
+            )
+            .expect("advance Canvas content before deletion");
+        assert_eq!(scene_advanced.committed.value.head_seq, 1);
+
+        let deleted = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "operation:delete-canvas".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::DeleteCanvas {
+                        canvas_id: "018f0000-0000-7000-8000-000000000010".to_owned(),
+                        expected_location_revision: 1,
+                        expected_metadata_revision: 2,
+                    },
+                },
+            )
+            .expect("delete Canvas");
+        assert_eq!(
+            deleted
+                .committed
+                .value
+                .canvas_mutation
+                .as_ref()
+                .expect("delete result")
+                .operation_kind,
+            "delete_canvas"
+        );
+        assert_eq!(
+            deleted.committed.receipt.affected_page_ids,
+            vec!["page:created".to_owned()]
+        );
+        assert_eq!(
+            deleted
+                .committed
+                .receipt
+                .committed_revisions
+                .get("documentHead:018f0000-0000-7000-8000-000000000011"),
+            Some(&1)
+        );
+        kernel
+            .readers()
+            .read_default(|connection| {
+                let evidence = connection.query_row(
+                    "SELECT block.lifecycle, \
+                       (SELECT count(*) FROM document_block_index \
+                         WHERE block_id = block.id), \
+                       (SELECT count(*) FROM canvas_scenes scene \
+                         JOIN block_documents ownership ON ownership.document_id = scene.document_id \
+                         WHERE ownership.block_id = block.id) \
+                     FROM blocks block \
+                     WHERE block.id = '018f0000-0000-7000-8000-000000000010'",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, i64>(2)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(evidence, ("deleted".to_owned(), 0, 1));
+                Ok(())
+            })
+            .expect("Canvas tombstone evidence");
+        let deleted_target = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::CanvasTarget {
+                        canvas_id: "018f0000-0000-7000-8000-000000000010".to_owned(),
+                    },
+                },
+            )
+            .expect("read deleted Canvas target");
+        assert!(matches!(
+            deleted_target.value,
+            LibraryReadValue::CanvasTarget { value }
+                if matches!(
+                    value.as_ref(),
+                    nodex_core_contracts::library::LibraryCanvasTarget::Deleted { .. }
+                )
+        ));
     }
 
     #[test]

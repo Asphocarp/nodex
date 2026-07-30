@@ -3625,6 +3625,16 @@
                   }
                 ]
               },
+              "canvas_mutation": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/LibraryCanvasMutationResult"
+                  }
+                ]
+              },
               "page_copy": {
                 "oneOf": [
                   {
@@ -5756,60 +5766,6 @@
               },
               "owner_kind": {
                 "$ref": "#/components/schemas/DeletableOwnedSourceKind"
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "block_id",
-              "document_id",
-              "display_name",
-              "kind"
-            ],
-            "properties": {
-              "before": {
-                "oneOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "$ref": "#/components/schemas/DocumentSpaceAnchor"
-                  }
-                ]
-              },
-              "block_id": {
-                "type": "string"
-              },
-              "display_name": {
-                "type": "string"
-              },
-              "document_id": {
-                "type": "string"
-              },
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "create_canvas_owner"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "owner",
-              "kind"
-            ],
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "delete_canvas_owner"
-                ]
-              },
-              "owner": {
-                "$ref": "#/components/schemas/DocumentOwnerRevision"
               }
             }
           }
@@ -8513,6 +8469,265 @@
           }
         }
       },
+      "LibraryCanvasDestination": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "before": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/LibraryPlacementAnchor"
+                  }
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "library"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "page_id",
+              "expected_document_generation",
+              "expected_document_head_seq",
+              "insertion",
+              "kind"
+            ],
+            "properties": {
+              "expected_document_generation": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "expected_document_head_seq": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "insertion": {
+                "$ref": "#/components/schemas/LibraryPageInsertion"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "page"
+                ]
+              },
+              "page_id": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
+      "LibraryCanvasLocation": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "library"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "page_id",
+              "document_id",
+              "kind"
+            ],
+            "properties": {
+              "document_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "page"
+                ]
+              },
+              "page_id": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
+      "LibraryCanvasMutationResult": {
+        "type": "object",
+        "required": [
+          "operation_kind",
+          "canvas_id",
+          "document_id",
+          "location_revision",
+          "metadata_revision",
+          "document_commits"
+        ],
+        "properties": {
+          "canvas_id": {
+            "type": "string"
+          },
+          "document_commits": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibraryBlockTransferDocumentCommit"
+            }
+          },
+          "document_id": {
+            "type": "string"
+          },
+          "location_revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "metadata_revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "operation_kind": {
+            "type": "string"
+          },
+          "source_canvas_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "LibraryCanvasSummary": {
+        "type": "object",
+        "required": [
+          "canvas_id",
+          "project_id",
+          "title",
+          "lifecycle",
+          "is_primary",
+          "location",
+          "metadata_revision",
+          "location_revision",
+          "document_generation",
+          "document_head_seq",
+          "updated_at"
+        ],
+        "properties": {
+          "canvas_id": {
+            "type": "string"
+          },
+          "document_generation": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "document_head_seq": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "is_primary": {
+            "type": "boolean"
+          },
+          "lifecycle": {
+            "type": "string"
+          },
+          "location": {
+            "$ref": "#/components/schemas/LibraryCanvasLocation"
+          },
+          "location_revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "metadata_revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        }
+      },
+      "LibraryCanvasTarget": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "canvas_id",
+              "status"
+            ],
+            "properties": {
+              "canvas_id": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "missing"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "canvas_id",
+              "library_id",
+              "status"
+            ],
+            "properties": {
+              "canvas_id": {
+                "type": "string"
+              },
+              "library_id": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "deleted"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "summary",
+              "status"
+            ],
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "available"
+                ]
+              },
+              "summary": {
+                "$ref": "#/components/schemas/LibraryCanvasSummary"
+              }
+            }
+          }
+        ]
+      },
       "LibraryCatalogEntry": {
         "type": "object",
         "required": [
@@ -8558,7 +8773,8 @@
         "type": "string",
         "enum": [
           "page",
-          "database"
+          "database",
+          "canvas"
         ]
       },
       "LibraryContentAssetKind": {
@@ -8935,6 +9151,56 @@
                 "type": "string",
                 "enum": [
                   "database"
+                ]
+              },
+              "location_revision": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "metadata_revision": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "title": {
+                "type": "string"
+              },
+              "updated_at": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "canvas_id",
+              "title",
+              "is_primary",
+              "metadata_revision",
+              "location_revision",
+              "document_generation",
+              "document_head_seq",
+              "updated_at",
+              "kind"
+            ],
+            "properties": {
+              "canvas_id": {
+                "type": "string"
+              },
+              "document_generation": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "document_head_seq": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "is_primary": {
+                "type": "boolean"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "canvas"
                 ]
               },
               "location_revision": {
@@ -10131,6 +10397,72 @@
           "document_generation_changed",
           "insufficient_evidence",
           "no_inverse_contract"
+        ]
+      },
+      "LibraryPageInsertion": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "append"
+                ]
+              },
+              "parent_block_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "anchor_block_id",
+              "kind"
+            ],
+            "properties": {
+              "anchor_block_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "before"
+                ]
+              },
+              "parent_block_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "block_id",
+              "kind"
+            ],
+            "properties": {
+              "block_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "replace_empty_paragraph"
+                ]
+              }
+            }
+          }
         ]
       },
       "LibraryPageIntrinsicProperty": {
@@ -11391,6 +11723,24 @@
                 ]
               }
             }
+          },
+          {
+            "type": "object",
+            "required": [
+              "canvas_id",
+              "kind"
+            ],
+            "properties": {
+              "canvas_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "canvas"
+                ]
+              }
+            }
           }
         ]
       },
@@ -11428,6 +11778,24 @@
                 "type": "string",
                 "enum": [
                   "database"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "canvas_id",
+              "kind"
+            ],
+            "properties": {
+              "canvas_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "canvas"
                 ]
               }
             }
@@ -12771,6 +13139,164 @@
                   },
                   "view_id": {
                     "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "canvas_id",
+                  "document_id",
+                  "display_name",
+                  "destination",
+                  "kind"
+                ],
+                "properties": {
+                  "canvas_id": {
+                    "type": "string"
+                  },
+                  "destination": {
+                    "$ref": "#/components/schemas/LibraryCanvasDestination"
+                  },
+                  "display_name": {
+                    "type": "string"
+                  },
+                  "document_id": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "create_canvas"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "canvas_id",
+                  "display_name",
+                  "expected_metadata_revision",
+                  "kind"
+                ],
+                "properties": {
+                  "canvas_id": {
+                    "type": "string"
+                  },
+                  "display_name": {
+                    "type": "string"
+                  },
+                  "expected_metadata_revision": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "rename_canvas"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "canvas_id",
+                  "expected_location_revision",
+                  "destination",
+                  "kind"
+                ],
+                "properties": {
+                  "canvas_id": {
+                    "type": "string"
+                  },
+                  "destination": {
+                    "$ref": "#/components/schemas/LibraryCanvasDestination"
+                  },
+                  "expected_location_revision": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "move_canvas"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "source_canvas_id",
+                  "canvas_id",
+                  "document_id",
+                  "expected_document_generation",
+                  "expected_document_head_seq",
+                  "destination",
+                  "kind"
+                ],
+                "properties": {
+                  "canvas_id": {
+                    "type": "string"
+                  },
+                  "destination": {
+                    "$ref": "#/components/schemas/LibraryCanvasDestination"
+                  },
+                  "display_name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "document_id": {
+                    "type": "string"
+                  },
+                  "expected_document_generation": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "expected_document_head_seq": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "duplicate_canvas"
+                    ]
+                  },
+                  "source_canvas_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "canvas_id",
+                  "expected_location_revision",
+                  "expected_metadata_revision",
+                  "kind"
+                ],
+                "properties": {
+                  "canvas_id": {
+                    "type": "string"
+                  },
+                  "expected_location_revision": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "expected_metadata_revision": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "delete_canvas"
+                    ]
                   }
                 }
               },
@@ -15842,6 +16368,24 @@
                   },
                   "page_id": {
                     "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "canvas_id",
+                  "kind"
+                ],
+                "properties": {
+                  "canvas_id": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "canvas_target"
+                    ]
                   }
                 }
               },
@@ -19578,6 +20122,16 @@
                           }
                         ]
                       },
+                      "canvas_mutation": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "$ref": "#/components/schemas/LibraryCanvasMutationResult"
+                          }
+                        ]
+                      },
                       "page_copy": {
                         "oneOf": [
                           {
@@ -20990,6 +21544,24 @@
                                 "$ref": "#/components/schemas/LibraryPageLocation"
                               }
                             ]
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "value",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "canvas_target"
+                            ]
+                          },
+                          "value": {
+                            "$ref": "#/components/schemas/LibraryCanvasTarget"
                           }
                         }
                       },

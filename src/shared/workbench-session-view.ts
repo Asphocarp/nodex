@@ -19,7 +19,7 @@ import {
 import type { BrowserSidebarDeviceToolbarState } from "./browser-sidebar";
 import type { InitialProjectPresentation } from "./initial-project-welcome";
 
-export const WORKBENCH_SESSION_VIEW_VERSION = 2 as const;
+export const WORKBENCH_SESSION_VIEW_VERSION = 3 as const;
 export const WORKBENCH_SESSION_VIEW_MAX_TABS = 2_048;
 
 export type WorkbenchPanelId = "right" | "bottom";
@@ -70,6 +70,7 @@ export interface WorkbenchPanelState {
 export type WorkbenchSessionViewTabKind =
   | "db_view"
   | "page_stage"
+  | "canvas_stage"
   | "terminal"
   | "browser"
   | "review"
@@ -78,12 +79,18 @@ export type WorkbenchSessionViewTabKind =
 export interface WorkbenchDbViewTabConfig {
   projectId: string;
   databaseViewId: string;
-  view: "kanban" | "list" | "toggle-list" | "canvas" | "calendar";
+  view: "kanban" | "list" | "toggle-list" | "calendar";
 }
 
 export interface WorkbenchPageStageTabConfig {
   projectId: string;
   pageId: string;
+  titleSnapshot?: string;
+}
+
+export interface WorkbenchCanvasStageTabConfig {
+  projectId: string;
+  canvasBlockId: string;
   titleSnapshot?: string;
 }
 
@@ -116,6 +123,7 @@ export interface WorkbenchFilesTabConfig {
 export interface WorkbenchSessionViewTabConfigByKind {
   db_view: WorkbenchDbViewTabConfig;
   page_stage: WorkbenchPageStageTabConfig;
+  canvas_stage: WorkbenchCanvasStageTabConfig;
   terminal: WorkbenchTerminalTabConfig;
   browser: WorkbenchBrowserTabConfig;
   review: WorkbenchReviewTabConfig;

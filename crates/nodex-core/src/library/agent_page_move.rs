@@ -335,6 +335,7 @@ pub(super) fn execute_move_pages(
                 committed_revisions: execution.committed_revisions,
                 page_create: None,
                 page_copy: None,
+                canvas_mutation: None,
                 block_transfer: None,
                 page_lifecycle: None,
                 block_property_mutation: None,

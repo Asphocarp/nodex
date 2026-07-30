@@ -16,7 +16,10 @@ use serde_json::json;
 use crate::database::{
     create_database_authority_records, resolve_page_transfer_data_source_destination_prevalidated,
 };
-use crate::document::{PrimaryCanvasIdentity, create_primary_canvas, read_store_epoch, sha256};
+use crate::document::{
+    PrimaryCanvasIdentity, create_primary_canvas, primary_canvas_block_id,
+    primary_canvas_document_id, read_store_epoch, sha256,
+};
 use crate::domain::identity::stable_uuid_v7;
 use crate::domain::project_appearance::{
     normalize_project_appearance, project_marker_color_literal, project_marker_icon_literal,
@@ -1344,8 +1347,8 @@ fn create_project_records(
     starter_page: Option<StarterPageGenesisRequest<'_>>,
 ) -> Result<CreatedProjectAggregate, StoreError> {
     let identities = aggregate_identities(identity_namespace, project_id);
-    let canvas_block_id = format!("canvas:primary:{project_id}");
-    let canvas_document_id = format!("document:canvas:primary:{project_id}");
+    let canvas_block_id = primary_canvas_block_id(project_id);
+    let canvas_document_id = primary_canvas_document_id(project_id);
     let collision = connection
         .query_row(
             "SELECT 1 WHERE EXISTS (SELECT 1 FROM projects WHERE id = ?1) \
@@ -1688,6 +1691,9 @@ fn not_found(message: &str) -> StoreError {
 mod tests {
     use std::fs;
 
+    use nodex_core_contracts::library::{
+        LibraryIntent, LibraryRead, LibraryReadValue, LibraryRouteTarget,
+    };
     use nodex_core_contracts::workspace::{
         CodexThreadActiveFlag, CodexThreadStatusType, ProjectAppearance, ProjectCatalogChangeKind,
         ProjectLifecycle, ProjectMarker, ProjectMarkerColor, ProjectMarkerIcon,
@@ -1697,14 +1703,15 @@ mod tests {
         ProjectWorkspaceTurnAuthoritySource,
     };
     use nodex_core_contracts::{
-        AdapterKind, BoundModuleContext, CoreErrorCode, CoreModuleEventPayload, LibraryId,
-        ModuleApplyRequest, ModuleReadRequest, PROJECT_WORKSPACE_CONTRACT_VERSION, ProfileId,
-        ProjectId, ProjectionImpact, StoreEpoch,
+        AdapterKind, BoundModuleContext, CoreErrorCode, CoreModuleEventPayload,
+        LIBRARY_CONTRACT_VERSION, LibraryId, ModuleApplyRequest, ModuleReadRequest,
+        PROJECT_WORKSPACE_CONTRACT_VERSION, ProfileId, ProjectId, ProjectionImpact, StoreEpoch,
     };
     use tempfile::{TempDir, tempdir};
 
     use crate::infrastructure::sqlite::{StoreErrorCode, with_immediate_transaction};
     use crate::infrastructure::store::SqliteStoreKernel;
+    use crate::library::LibraryModule;
     use crate::workspace::ProjectWorkspaceModule;
 
     const NOW: &str = "2026-07-19T04:00:00.000Z";
@@ -2143,6 +2150,93 @@ mod tests {
             })
             .expect("Project count");
         assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn fresh_project_primary_canvas_round_trips_through_library_navigation_and_delete_guard() {
+        let (_directory, kernel, workspace) = seeded_module();
+        workspace
+            .apply(
+                &context(),
+                create_request("workspace-create-primary-canvas", "project-native"),
+            )
+            .expect("create Project with primary Canvas");
+
+        let library = LibraryModule::new("profile-1", "library-1", &kernel);
+        let mut native_context = context();
+        native_context.project_id = Some(ProjectId("project-native".to_owned()));
+        let canvas_id = "canvas:primary:project-native";
+
+        let target = library
+            .read(
+                &native_context,
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::CanvasTarget {
+                        canvas_id: canvas_id.to_owned(),
+                    },
+                },
+            )
+            .expect("read primary Canvas target");
+        assert!(matches!(
+            target.value,
+            LibraryReadValue::CanvasTarget { value }
+                if matches!(
+                    value.as_ref(),
+                    nodex_core_contracts::library::LibraryCanvasTarget::Available { summary }
+                        if summary.canvas_id == canvas_id && summary.is_primary
+                )
+        ));
+
+        let path = library
+            .read(
+                &native_context,
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::Path {
+                        target: LibraryRouteTarget::Canvas {
+                            canvas_id: canvas_id.to_owned(),
+                        },
+                    },
+                },
+            )
+            .expect("read primary Canvas navigation path");
+        let LibraryReadValue::Path { nodes, .. } = path.value else {
+            panic!("primary Canvas navigation path");
+        };
+        assert!(matches!(
+            nodes.last(),
+            Some(
+            nodex_core_contracts::library::LibraryNavigationNode::Canvas {
+                canvas_id: candidate,
+                is_primary: true,
+                ..
+            }) if candidate == canvas_id
+        ));
+
+        let deletion = library
+            .apply(
+                &native_context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "library-delete-primary-canvas".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::DeleteCanvas {
+                        canvas_id: canvas_id.to_owned(),
+                        expected_location_revision: 1,
+                        expected_metadata_revision: 1,
+                    },
+                },
+            )
+            .expect_err("primary Canvas deletion must remain protected");
+        assert_eq!(deletion.code, CoreErrorCode::ProtectedOwnerDeletion);
+        assert!(
+            deletion
+                .message
+                .contains("primary Canvas cannot be deleted"),
+            "{}",
+            deletion.message,
+        );
     }
 
     #[test]

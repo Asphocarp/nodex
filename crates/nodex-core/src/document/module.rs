@@ -1212,7 +1212,6 @@ impl OwnedDocumentModule {
         let context = context.clone();
         let cache = Arc::clone(&self.cache);
         let fail_after_commit = Arc::clone(&self.fail_after_commit);
-        let assets_root = self.assets_root.clone();
         self.writer
             .call(move |connection| {
                 let transaction =
@@ -1251,7 +1250,6 @@ impl OwnedDocumentModule {
                     &store_epoch,
                     &operation_id,
                     &command,
-                    &assets_root,
                 )?;
                 let committed_at = executed
                     .events
@@ -1711,8 +1709,12 @@ impl OwnedDocumentModule {
                         false,
                     ));
                 }
-                let prepared =
-                    prepare_incremental_canvas_mutation(&transaction, &authority, &mutation)?;
+                let prepared = prepare_incremental_canvas_mutation(
+                    &transaction,
+                    &authority,
+                    &mutation,
+                    &assets_root,
+                )?;
                 if prepared.changed() {
                     let revision_now = sqlite_now(&transaction)?;
                     if let Some(revision) =
@@ -3906,8 +3908,6 @@ fn owner_command_kind(command: &DocumentOwnerCommand) -> &'static str {
         DocumentOwnerCommand::CreateTemplate { .. } => "create_template",
         DocumentOwnerCommand::InstantiateTemplate { .. } => "instantiate_template",
         DocumentOwnerCommand::DeleteOwnedSource { .. } => "delete_owned_source",
-        DocumentOwnerCommand::CreateCanvasOwner { .. } => "create_canvas_owner",
-        DocumentOwnerCommand::DeleteCanvasOwner { .. } => "delete_canvas_owner",
     }
 }
 
@@ -3935,13 +3935,11 @@ fn semantic_owner_command(command: &DocumentOwnerCommand) -> DocumentOwnerComman
             source.head_seq = 0;
             target.head_seq = 0;
         }
-        DocumentOwnerCommand::DeleteOwnedSource { owner, .. }
-        | DocumentOwnerCommand::DeleteCanvasOwner { owner } => {
+        DocumentOwnerCommand::DeleteOwnedSource { owner, .. } => {
             owner.head_seq = 0;
         }
         DocumentOwnerCommand::CreateSyncedSource { .. }
-        | DocumentOwnerCommand::CreateTemplate { .. }
-        | DocumentOwnerCommand::CreateCanvasOwner { .. } => {}
+        | DocumentOwnerCommand::CreateTemplate { .. } => {}
     }
     command
 }
@@ -4630,6 +4628,64 @@ fn authorize_document_access(
     access: DocumentAccessKind,
 ) -> Result<(), StoreError> {
     if let Some(project_id) = context.project_id.as_ref() {
+        if authority.owner_type == "canvas" {
+            let host_page_id = connection
+                .query_row(
+                    "SELECT canvas.library_id, block.project_id, host_page.block_id \
+                     FROM canvas_owners canvas \
+                     JOIN blocks block ON block.id = canvas.block_id \
+                     LEFT JOIN pages host_page \
+                       ON host_page.document_id = block.containing_document_id \
+                     WHERE canvas.block_id = ?1",
+                    [&authority.owner_block_id],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, Option<String>>(2)?,
+                        ))
+                    },
+                )
+                .optional()?
+                .ok_or_else(|| {
+                    StoreError::new(
+                        StoreErrorCode::NotFound,
+                        "Canvas owner metadata is unavailable",
+                        false,
+                    )
+                })?;
+            if host_page_id.0 != context.library_id.0 {
+                return Err(StoreError::new(
+                    StoreErrorCode::Unauthorized,
+                    "Canvas is outside the bound Library",
+                    false,
+                ));
+            }
+            if project_id.0 != host_page_id.1 {
+                let page_id = host_page_id.2.ok_or_else(|| {
+                    StoreError::new(
+                        StoreErrorCode::Unauthorized,
+                        "Top-level Canvas belongs to another Project",
+                        false,
+                    )
+                })?;
+                match access {
+                    DocumentAccessKind::Read => crate::library::require_page_read_access(
+                        connection,
+                        &context.library_id.0,
+                        &project_id.0,
+                        &page_id,
+                    )?,
+                    DocumentAccessKind::Write => crate::library::require_page_write_access(
+                        connection,
+                        &context.library_id.0,
+                        &project_id.0,
+                        &page_id,
+                    )?,
+                }
+            }
+            return Ok(());
+        }
         if context.adapter == AdapterKind::NativeCli && authority.owner_type == "page" {
             match access {
                 DocumentAccessKind::Read => crate::library::require_page_read_access(
@@ -4669,6 +4725,25 @@ fn authorize_document_access(
     }
     authorize_library_document_scope(context)
         .map_err(|error| StoreError::new(StoreErrorCode::Unauthorized, error.message, false))?;
+    if authority.owner_type == "canvas" {
+        let available = connection
+            .query_row(
+                "SELECT 1 FROM canvas_owners \
+                 WHERE block_id = ?1 AND library_id = ?2",
+                [&authority.owner_block_id, &context.library_id.0],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some();
+        if available {
+            return Ok(());
+        }
+        return Err(StoreError::new(
+            StoreErrorCode::NotFound,
+            "Canvas Document does not exist in the local Library",
+            false,
+        ));
+    }
     if authority.owner_type != "page"
         || authority.page_library_id.as_deref() != Some(context.library_id.0.as_str())
         || authority.page_lifecycle.as_deref() == Some("deleted")
@@ -4985,7 +5060,8 @@ mod tests {
 
     use crate::document::{
         BlockDocumentSchema, DocumentAwareness, DocumentBlockOperation, DocumentRealtimeEvent,
-        OwnedDocumentRealtimeAdapter, YrsDocumentEngine, prepare_document_operation_update,
+        DocumentSubscriptionEngine, OwnedDocumentRealtimeAdapter, YrsDocumentEngine,
+        prepare_document_operation_update,
     };
     use crate::infrastructure::sqlite::{StoreError, with_immediate_transaction};
     use crate::workspace::ProjectWorkspaceModule;
@@ -5012,8 +5088,6 @@ mod tests {
     const CREATED_TEMPLATE_BLOCK_ID: &str = "019bf52d-6870-7000-8000-000000000014";
     const CREATED_TEMPLATE_DOCUMENT_ID: &str = "019bf52d-6870-7000-8000-000000000015";
     const CREATED_TEMPLATE_CONTENT_ID: &str = "019bf52d-6870-7000-8000-000000000016";
-    const CREATED_CANVAS_BLOCK_ID: &str = "019bf52d-6870-7000-8000-000000000017";
-    const CREATED_CANVAS_DOCUMENT_ID: &str = "019bf52d-6870-7000-8000-000000000018";
 
     struct SeededModule {
         _directory: tempfile::TempDir,
@@ -5633,6 +5707,16 @@ mod tests {
             .call(|connection| {
                 with_immediate_transaction(connection, |transaction| {
                     transaction.execute(
+                        "INSERT OR IGNORE INTO profiles(id, created_at, updated_at) \
+                         VALUES (?1, ?2, ?2)",
+                        params![PROFILE_ID, NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT OR IGNORE INTO libraries(id, profile_id, created_at, updated_at) \
+                         VALUES (?1, ?2, ?3, ?3)",
+                        params![LIBRARY_ID, PROFILE_ID, NOW],
+                    )?;
+                    transaction.execute(
                         "INSERT INTO projects(id, library_id, name, created, updated) \
                          VALUES (?1, ?2, 'Canvas test', ?3, ?3)",
                         params![PROJECT_ID, LIBRARY_ID, NOW],
@@ -5668,6 +5752,11 @@ mod tests {
                         "INSERT INTO block_documents(block_id, document_id, project_id, created_at) \
                          VALUES (?1, ?2, ?3, ?4)",
                         params![OWNER_BLOCK_ID, DOCUMENT_ID, PROJECT_ID, NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO canvas_owners(block_id, library_id, created_at, updated_at) \
+                         VALUES (?1, ?2, ?3, ?3)",
+                        params![OWNER_BLOCK_ID, LIBRARY_ID, NOW],
                     )?;
                     Ok(())
                 })
@@ -6201,6 +6290,86 @@ mod tests {
             })
             .expect("Canvas asset evidence");
 
+        fs::write(
+            seeded
+                ._directory
+                .path()
+                .join("assets/canvas-image-copy.png"),
+            b"managed-canvas-asset",
+        )
+        .expect("duplicate managed Canvas asset");
+        let duplicate_image = seeded
+            .module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
+                    operation_id: "canvas:image:duplicate-assertion".to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::ApplyCanvasMutation {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        generation: 1,
+                        expected_head_seq: 4,
+                        mutation: json!({
+                            "elementCandidates": [],
+                            "appStateIntents": {},
+                            "fileAdditions": {
+                                "file:image": {
+                                    "id": "file:image",
+                                    "mimeType": "image/png",
+                                    "source": "nodex://assets/canvas-image-copy.png",
+                                    "created": 999
+                                }
+                            }
+                        }),
+                    },
+                },
+            )
+            .expect("accept content-identical Canvas file assertion");
+        assert_eq!(duplicate_image.committed.value.head_seq, 4);
+        assert_eq!(
+            duplicate_image.committed.value.outcome,
+            DocumentCommitOutcome::NoChange,
+        );
+
+        fs::write(
+            seeded
+                ._directory
+                .path()
+                .join("assets/canvas-image-conflict.png"),
+            b"different-canvas-asset",
+        )
+        .expect("conflicting managed Canvas asset");
+        let conflicting_image = seeded
+            .module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
+                    operation_id: "canvas:image:conflicting-assertion".to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::ApplyCanvasMutation {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        generation: 1,
+                        expected_head_seq: 4,
+                        mutation: json!({
+                            "elementCandidates": [],
+                            "appStateIntents": {},
+                            "fileAdditions": {
+                                "file:image": {
+                                    "id": "file:image",
+                                    "mimeType": "image/png",
+                                    "source": "nodex://assets/canvas-image-conflict.png",
+                                    "created": 999
+                                }
+                            }
+                        }),
+                    },
+                },
+            )
+            .expect_err("reject content-changing Canvas file assertion");
+        assert_eq!(conflicting_image.code, CoreErrorCode::InvalidInput);
+
         let removed = seeded
             .module
             .apply(
@@ -6317,6 +6486,128 @@ mod tests {
             panic!("expected Canvas version detail")
         };
         assert_eq!(value["materialization"]["kind"], "canvas_scene");
+    }
+
+    #[test]
+    fn canvas_scene_access_inherits_its_host_page_grant() {
+        const GRANTED_PROJECT_ID: &str = "project:canvas-grantee";
+        const HOST_DOCUMENT_ID: &str = "019bf52d-6870-7000-8000-000000000099";
+        let seeded = canvas_module();
+        seeded
+            .kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    transaction.execute(
+                        "INSERT INTO projects(id, library_id, name, created, updated) \
+                         VALUES (?1, ?2, 'Canvas grantee', ?3, ?3)",
+                        params![GRANTED_PROJECT_ID, LIBRARY_ID, NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO documents(\
+                           id, project_id, generation, head_seq, schema_key, schema_version, \
+                           state_vector, state_hash, readiness, authority, created_at, updated_at, sync_engine\
+                         ) VALUES (?1, ?2, 1, 0, 'nodex.page', 2, X'', ?3, \
+                           'ready', 'ydoc_primary', ?4, ?4, 'yjs')",
+                        params![HOST_DOCUMENT_ID, PROJECT_ID, "0".repeat(64), NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO block_documents(block_id, document_id, project_id, created_at) \
+                         VALUES (?1, ?2, ?3, ?4)",
+                        params![TARGET_PAGE_BLOCK_ID, HOST_DOCUMENT_ID, PROJECT_ID, NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO pages(\
+                           block_id, library_id, document_id, parent_kind, parent_id, lifecycle, \
+                           parent_revision, metadata_revision, created_at, updated_at\
+                         ) VALUES (?1, ?2, ?3, 'library', ?2, 'active', 1, 1, ?4, ?4)",
+                        params![TARGET_PAGE_BLOCK_ID, LIBRARY_ID, HOST_DOCUMENT_ID, NOW],
+                    )?;
+                    transaction.execute(
+                        "UPDATE blocks SET location_kind = 'document', \
+                         containing_document_id = ?1, location_revision = 2 WHERE id = ?2",
+                        params![HOST_DOCUMENT_ID, OWNER_BLOCK_ID],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO project_resource_grants(\
+                           id, project_id, library_id, root_kind, root_id, access, recursive, \
+                           revision, lifecycle, created_at, updated_at\
+                         ) VALUES ('grant:canvas-host', ?1, ?2, 'page', ?3, 'read', 1, 1, \
+                           'active', ?4, ?4)",
+                        params![GRANTED_PROJECT_ID, LIBRARY_ID, TARGET_PAGE_BLOCK_ID, NOW],
+                    )?;
+                    Ok(())
+                })
+            })
+            .expect("seed hosted Canvas grant");
+
+        seeded
+            .module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
+                    operation_id: "canvas:grantee:prepare".to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::PrepareOwner {
+                        owner_block_id: OWNER_BLOCK_ID.to_owned(),
+                    },
+                },
+            )
+            .expect("prepare hosted Canvas scene");
+        let granted = context_for_project("canvas-grantee:read", GRANTED_PROJECT_ID);
+        seeded
+            .module
+            .sync_canvas(&granted, DOCUMENT_ID)
+            .expect("read grant opens the hosted Canvas");
+        seeded
+            .module
+            .apply(
+                &granted,
+                canvas_mutation_request("canvas:grantee:read-denied", 0, 1, "Denied"),
+            )
+            .expect_err("read grant cannot mutate the hosted Canvas");
+
+        seeded
+            .kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "UPDATE project_resource_grants \
+                     SET access = 'read_write', revision = 2 \
+                     WHERE id = 'grant:canvas-host'",
+                    [],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+        seeded
+            .module
+            .apply(
+                &context_for_project("canvas-grantee:write", GRANTED_PROJECT_ID),
+                canvas_mutation_request("canvas:grantee:write", 0, 1, "Granted"),
+            )
+            .expect("read-write grant mutates the hosted Canvas");
+
+        seeded
+            .kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "UPDATE blocks SET location_kind = 'space', \
+                     containing_document_id = NULL, location_revision = 3 WHERE id = ?1",
+                    [OWNER_BLOCK_ID],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+        seeded
+            .module
+            .sync_canvas(
+                &context_for_project("canvas-grantee:top-level", GRANTED_PROJECT_ID),
+                DOCUMENT_ID,
+            )
+            .expect_err("foreign Project cannot open a top-level Canvas");
     }
 
     #[test]
@@ -7075,56 +7366,6 @@ mod tests {
     }
 
     #[test]
-    fn canvas_owner_create_and_delete_support_zero_head_invalidation_replay() {
-        let seeded = empty_project_module();
-        let created = seeded
-            .module
-            .apply(
-                &context(),
-                owner_request(
-                    "owner:create-canvas",
-                    DocumentOwnerCommand::CreateCanvasOwner {
-                        block_id: CREATED_CANVAS_BLOCK_ID.to_owned(),
-                        document_id: CREATED_CANVAS_DOCUMENT_ID.to_owned(),
-                        display_name: "Sketch".to_owned(),
-                        before: None,
-                    },
-                ),
-            )
-            .expect("create non-primary Canvas");
-        assert_eq!(created.committed.value.head_seq, 0);
-        assert!(created.events.is_empty());
-        let deleted = seeded
-            .module
-            .apply(
-                &context(),
-                owner_request(
-                    "owner:delete-canvas",
-                    DocumentOwnerCommand::DeleteCanvasOwner {
-                        owner: DocumentOwnerRevision {
-                            owner_block_id: CREATED_CANVAS_BLOCK_ID.to_owned(),
-                            document_id: CREATED_CANVAS_DOCUMENT_ID.to_owned(),
-                            generation: 1,
-                            head_seq: 0,
-                            metadata_revision: 1,
-                            location_revision: 1,
-                        },
-                    },
-                ),
-            )
-            .expect("delete non-primary Canvas");
-        assert_eq!(deleted.events.len(), 1);
-        let replay = seeded
-            .module
-            .replay_document_events(&context(), 0, None)
-            .expect("Canvas invalidation replay");
-        let DocumentEventReplay::Events { events, .. } = replay else {
-            panic!("expected Canvas invalidation event")
-        };
-        assert_eq!(events, deleted.events);
-    }
-
-    #[test]
     fn prepare_owner_commits_registered_genesis_once() {
         for (owner_type, schema_key, schema_version) in [
             ("page", "nodex.page", 2),
@@ -7660,14 +7901,17 @@ mod tests {
 
         let canvas = canvas_module();
         let canvas_adapter = OwnedDocumentRealtimeAdapter::new(canvas.module);
-        let unauthorized_canvas = canvas_adapter
+        let canvas_subscription = canvas_adapter
             .subscribe(
                 &library_context,
                 DOCUMENT_ID.to_owned(),
                 "client:library-canvas".to_owned(),
             )
-            .expect_err("Library scope is limited to Page Documents");
-        assert_eq!(unauthorized_canvas.code, CoreErrorCode::NotFound);
+            .expect("trusted Library scope resolves a registered Canvas owner");
+        assert_eq!(
+            canvas_subscription.engine,
+            DocumentSubscriptionEngine::CanvasScene
+        );
 
         let unauthorized_library = adapter
             .subscribe(

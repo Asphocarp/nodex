@@ -663,6 +663,17 @@ vi.mock(".././main-view-host", () => ({
   },
 }));
 
+vi.mock("../workbench-canvas-stage-panel", () => ({
+  WorkbenchCanvasStagePanel: (props: Record<string, unknown>) => {
+    (globalThis as {
+      __lastWorkbenchCanvasStagePanelProps?: Record<string, unknown>;
+    }).__lastWorkbenchCanvasStagePanelProps = props;
+    return createElement("div", {
+      "data-testid": "workbench-canvas-stage-panel",
+    });
+  },
+}));
+
 export const MockOwnedBlockDocumentBoundary = ({
   projectId,
   ownerBlockId,
@@ -1529,6 +1540,8 @@ export function updateSessionTab(
     case "db_view":
       return { ...tab, ...common, ...(input.config === undefined ? {} : { config: parseWorkbenchProjectionTabConfig(tab.kind, input.config) }) };
     case "page_stage":
+      return { ...tab, ...common, ...(input.config === undefined ? {} : { config: parseWorkbenchProjectionTabConfig(tab.kind, input.config) }) };
+    case "canvas_stage":
       return { ...tab, ...common, ...(input.config === undefined ? {} : { config: parseWorkbenchProjectionTabConfig(tab.kind, input.config) }) };
     case "terminal":
       return { ...tab, ...common, ...(input.config === undefined ? {} : { config: parseWorkbenchProjectionTabConfig(tab.kind, input.config) }) };

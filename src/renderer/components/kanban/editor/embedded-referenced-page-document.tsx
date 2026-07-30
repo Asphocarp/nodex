@@ -106,6 +106,7 @@ export function EmbeddedReferencedPageDocument({
                   sourcePageContext={{ pageId: card.id }}
                   surfaceWriteFence={surface.runtime}
                   onOpenPage={hostRuntime?.openPage}
+                  onOpenCanvas={hostRuntime?.openCanvas}
                   isActivePanelTab={isActive}
                   placeholder="Add a description…"
                   className="min-w-0"

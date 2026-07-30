@@ -2,7 +2,6 @@ import { useEffect, useState, type FormEvent } from "react";
 import {
   ArrowDown,
   ArrowUp,
-  Boxes,
   CalendarDays,
   CheckSquare2,
   Columns3,
@@ -126,7 +125,6 @@ const VIEW_KINDS: readonly {
   { value: "list", label: "List" },
   { value: "kanban", label: "Board" },
   { value: "calendar", label: "Calendar" },
-  { value: "canvas", label: "Canvas" },
 ];
 
 const propertyTypeIcon = (valueType: DatabasePropertyValueType) => {
@@ -154,8 +152,6 @@ const viewKindIcon = (kind: DatabaseViewKind) => {
       return Columns3;
     case "calendar":
       return CalendarDays;
-    case "canvas":
-      return Boxes;
     case "list":
       return List;
   }

@@ -10,6 +10,8 @@ import {
   type CanvasSceneSyncCommandResult,
   type CanvasSceneSyncRequest,
 } from "../../shared/block-documents/canvas-scene-sync";
+import { CanvasSceneContractError } from "../../shared/block-documents/canvas-scene";
+import { DocumentHttpWireError } from "../../shared/block-documents/http-wire";
 import {
   parseCanvasSceneCompactionResult,
   parseCanvasSceneCompactionStats,
@@ -47,6 +49,13 @@ type CanvasFailure = Extract<
   CanvasSceneMutationCommandResult,
   { readonly ok: false }
 >;
+
+class CanvasSceneAdapterContractError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CanvasSceneAdapterContractError";
+  }
+}
 
 export interface CoreCanvasSceneAdapter {
   subscribeWithLifecycle(
@@ -167,7 +176,9 @@ export const createCoreCanvasSceneAdapter = (
           response.projectId !== request.projectId
           || response.documentId !== request.documentId
         ) {
-          throw new Error("Core Canvas sync escaped its Project or Document boundary");
+          throw new CanvasSceneAdapterContractError(
+            "Core Canvas sync escaped its Project or Document boundary",
+          );
         }
         return { ok: true, value: response };
       } catch (error) {
@@ -199,7 +210,9 @@ export const createCoreCanvasSceneAdapter = (
           }),
         );
         if (committed.value.canvas === undefined) {
-          throw new Error("Core Canvas mutation response has no Canvas result");
+          throw new CanvasSceneAdapterContractError(
+            "Core Canvas mutation response has no Canvas result",
+          );
         }
         const value = canonicalizeCanvasSceneMutationResult(
           committed.value.canvas,
@@ -209,7 +222,9 @@ export const createCoreCanvasSceneAdapter = (
           || value.documentId !== canonical.documentId
           || value.mutationId !== canonical.mutationId
         ) {
-          throw new Error("Core Canvas mutation escaped its request boundary");
+          throw new CanvasSceneAdapterContractError(
+            "Core Canvas mutation escaped its request boundary",
+          );
         }
         return { ok: true, value };
       } catch (error) {
@@ -229,11 +244,15 @@ export const createCoreCanvasSceneAdapter = (
           }),
         );
         if (snapshot.value.kind !== "canvas_compaction_eligibility") {
-          throw new Error("Core returned the wrong Canvas maintenance read");
+          throw new CanvasSceneAdapterContractError(
+            "Core returned the wrong Canvas maintenance read",
+          );
         }
         const value = parseCanvasSceneCompactionStats(snapshot.value.stats);
         if (value.documentId !== request.documentId) {
-          throw new Error("Core Canvas maintenance read escaped its Document boundary");
+          throw new CanvasSceneAdapterContractError(
+            "Core Canvas maintenance read escaped its Document boundary",
+          );
         }
         return { ok: true, value };
       } catch (error) {
@@ -261,7 +280,9 @@ export const createCoreCanvasSceneAdapter = (
           }),
         );
         if (committed.value.canvas === undefined) {
-          throw new Error("Core Canvas compaction response has no Canvas result");
+          throw new CanvasSceneAdapterContractError(
+            "Core Canvas compaction response has no Canvas result",
+          );
         }
         const value = parseCanvasSceneCompactionResult(committed.value.canvas);
         if (
@@ -269,7 +290,9 @@ export const createCoreCanvasSceneAdapter = (
           || value.documentId !== request.documentId
           || value.operationId !== request.mutationId
         ) {
-          throw new Error("Core Canvas compaction escaped its request boundary");
+          throw new CanvasSceneAdapterContractError(
+            "Core Canvas compaction escaped its request boundary",
+          );
         }
         return { ok: true, value };
       } catch (error) {
@@ -344,6 +367,19 @@ const canvasCommandError = (
       retryable: error.coreError.retryable,
       resetRequired:
         code === "stale_store_epoch" || code === "generation_conflict",
+      ...(mutationId ? { mutationId } : {}),
+    };
+  }
+  if (
+    error instanceof DocumentHttpWireError
+    || error instanceof CanvasSceneContractError
+    || error instanceof CanvasSceneAdapterContractError
+  ) {
+    return {
+      code: "canvas_scene_corrupt",
+      message: error.message,
+      retryable: false,
+      resetRequired: false,
       ...(mutationId ? { mutationId } : {}),
     };
   }

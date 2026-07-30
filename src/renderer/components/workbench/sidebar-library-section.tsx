@@ -5,6 +5,7 @@ import {
   FileText,
   LayoutList,
   Plus,
+  Shapes,
 } from "lucide-react";
 import {
   useEffect,
@@ -52,6 +53,7 @@ import type { LibraryWriteParent } from "../../../shared/library-module";
 const nodeKey = (node: LibraryNavigationNode): string => {
   if (node.kind === "page") return `page:${node.pageId}`;
   if (node.kind === "database") return `database:${node.databaseId}`;
+  if (node.kind === "canvas") return `canvas:${node.canvasId}`;
   return `view:${node.viewId}`;
 };
 
@@ -60,6 +62,9 @@ const nodeTarget = (node: LibraryNavigationNode): LibraryRouteTarget => {
   if (node.kind === "database") {
     return { kind: "database", databaseId: node.databaseId };
   }
+  if (node.kind === "canvas") {
+    return { kind: "canvas", canvasId: node.canvasId };
+  }
   return { kind: "view", viewId: node.viewId };
 };
 
@@ -67,6 +72,7 @@ const targetKey = (target: LibraryRouteTarget | null): string | null => {
   if (!target) return null;
   if (target.kind === "page") return `page:${target.pageId}`;
   if (target.kind === "database") return `database:${target.databaseId}`;
+  if (target.kind === "canvas") return `canvas:${target.canvasId}`;
   return `view:${target.viewId}`;
 };
 
@@ -86,6 +92,7 @@ const childParent = (node: LibraryNavigationNode): LibraryNavigationParent | nul
 const nodeIcon = (node: LibraryNavigationNode) => {
   if (node.kind === "page") return <FileText className="icon-xs" />;
   if (node.kind === "database") return <Database className="icon-xs" />;
+  if (node.kind === "canvas") return <Shapes className="icon-xs" />;
   return <LayoutList className="icon-xs" />;
 };
 
@@ -221,7 +228,7 @@ function LibraryTreeItem({
     : [];
   const totalChildren = childQuery.data?.pages[0]?.total ?? children.length;
   const label = node.title || "Untitled";
-  const resourceTarget = node.kind === "view"
+  const resourceTarget = node.kind === "view" || node.kind === "canvas"
     ? null
     : nodeTarget(node) as LibraryResourceTarget;
   const ownPageParent: LibraryWriteParent | undefined = node.kind === "page"
@@ -365,7 +372,7 @@ function LibraryTreeItem({
           {nodeIcon(node)}
         </span>
         <span className="min-w-0 flex-1 truncate pr-2">{label}</span>
-        {node.kind !== "view" && context.mutationsEnabled ? (
+        {node.kind !== "view" && node.kind !== "canvas" && context.mutationsEnabled ? (
           <span
             className="mr-1 opacity-0 focus-within:opacity-100 group-hover:opacity-100"
             onClick={(event) => event.stopPropagation()}

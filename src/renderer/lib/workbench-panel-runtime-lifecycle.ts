@@ -29,7 +29,7 @@ export async function closeDurablePanelTabWithRuntime(
     };
   }
 
-  if (tab?.kind === "db_view" && !await runtime.disposeCanvas(tab)) {
+  if (tab?.kind === "canvas_stage" && !await runtime.disposeCanvas(tab)) {
     return {
       status: "vetoed",
       reason: "canvas-durability",

@@ -1,6 +1,7 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { createRef } from "react";
-import { CalendarDays, SquareKanban, Table2 } from "lucide-react";
+import { fireEvent } from "@testing-library/react";
+import { CalendarDays, Shapes, SquareKanban, Table2 } from "lucide-react";
 import { render, textContent } from "../../test/dom";
 
 type DbViewToolbarItem = {
@@ -83,6 +84,29 @@ describe("DbViewToolbar", () => {
     expect(container.querySelectorAll('[data-tab-label-visible="true"]').length).toBe(1);
     expect(getByLabelText("Search").getAttribute("aria-label")).toBe("Search");
     expect(getByTestId(DB_VIEW_TOOLBAR_TEST_ID).querySelector('[aria-hidden="true"]') !== null).toBe(true);
+  });
+
+  test("renders Canvas as an adjacent destination action, not a Database tab", async () => {
+    const onOpenCanvas = vi.fn();
+    const { DbViewToolbar } = await import("./db-view-toolbar");
+    const { getByLabelText } = render(
+      <DbViewToolbar
+        {...BASE_PROPS}
+        destinationItems={[{
+          id: "primary-canvas",
+          label: "Canvas",
+          icon: Shapes,
+          onSelect: onOpenCanvas,
+        }]}
+        activeSearchQuery=""
+        taskSearchOpen={false}
+      />,
+    );
+
+    const canvas = getByLabelText("Canvas");
+    expect(canvas.getAttribute("role")).not.toBe("tab");
+    fireEvent.click(canvas);
+    expect(onOpenCanvas).toHaveBeenCalledOnce();
   });
 
   test("renders the inline search field when open or when a query is active", async () => {

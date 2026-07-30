@@ -13,7 +13,7 @@ import {
 const result = (): LibraryModuleReadResult => ({
   ok: true,
   value: {
-    version: 2,
+    version: 4,
     profileId: "profile-1",
     libraryId: "library-1",
     storeEpoch: "epoch-1",
@@ -25,8 +25,10 @@ const result = (): LibraryModuleReadResult => ({
 const operationId = "019f7399-7676-70ae-b2aa-168692b64d18";
 const pageId = "019f7399-7676-70ae-b2aa-168692b64d19";
 const documentId = "019f7399-7676-70ae-b2aa-168692b64d1a";
+const canvasId = "019f7399-7676-70ae-b2aa-168692b64d1b";
+const canvasDocumentId = "019f7399-7676-70ae-b2aa-168692b64d1c";
 const applyRequest = {
-  version: 2,
+  version: 4,
   operationId,
   storeEpoch: "epoch-1",
   operation: {
@@ -40,7 +42,7 @@ const applyRequest = {
 const applyResult = (): LibraryModuleApplyResult => ({
   ok: true,
   value: {
-    version: 2,
+    version: 4,
     operationId,
     storeEpoch: "epoch-1",
     libraryId: "library-1",
@@ -48,6 +50,7 @@ const applyResult = (): LibraryModuleApplyResult => ({
     duplicate: false,
     didMutate: true,
     createdTarget: { kind: "page", pageId },
+    canvasMutation: null,
     affectedParentKeys: ["library"],
     affectedPageIds: [pageId],
     affectedDatabaseIds: [],
@@ -77,7 +80,7 @@ describe("Library Module IPC", () => {
         return applyResult();
       },
     });
-    const request = { version: 2, read: { mode: "metadata" } };
+    const request = { version: 4, read: { mode: "metadata" } };
     expect(await handlers.get(LIBRARY_MODULE_READ_IPC_CHANNEL)?.(
       "trusted",
       request,
@@ -90,11 +93,46 @@ describe("Library Module IPC", () => {
       "trusted",
       applyRequest,
     )).toEqual(applyResult());
+    const canvasRequest = {
+      version: 4,
+      operationId: "019f7399-7676-70ae-b2aa-168692b64d1d",
+      storeEpoch: "epoch-1",
+      operation: {
+        kind: "create_canvas",
+        canvasId,
+        documentId: canvasDocumentId,
+        displayName: "Research map",
+        destination: {
+          kind: "page",
+          pageId,
+          expectedDocumentGeneration: 1,
+          expectedDocumentHeadSeq: 3,
+          insertion: {
+            kind: "replace_empty_paragraph",
+            blockId: documentId,
+          },
+        },
+      },
+    } as const;
+    expect(await handlers.get(LIBRARY_MODULE_APPLY_IPC_CHANNEL)?.(
+      "trusted",
+      canvasRequest,
+    )).toEqual(applyResult());
+    expect(await handlers.get(LIBRARY_MODULE_APPLY_IPC_CHANNEL)?.(
+      "trusted",
+      {
+        ...canvasRequest,
+        operation: {
+          ...canvasRequest.operation,
+          sceneJson: "{}",
+        },
+      },
+    )).toMatchObject({ ok: false, error: { code: "invalid_request" } });
     expect(await handlers.get(LIBRARY_MODULE_APPLY_IPC_CHANNEL)?.(
       "subframe",
       applyRequest,
     )).toMatchObject({ ok: false, error: { code: "invalid_request" } });
 
-    expect(received).toEqual([request, applyRequest]);
+    expect(received).toEqual([request, applyRequest, canvasRequest]);
   });
 });

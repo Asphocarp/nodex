@@ -129,6 +129,15 @@ function serializeBlocks(blocks: NfmBlock[], indent: number): string[] {
         );
         break;
       }
+      case "canvas": {
+        if (!block.uuid || block.uuid !== block.uuid.trim()) {
+          throw new TypeError("Canonical Canvas NFM requires an exact non-empty uuid");
+        }
+        lines.push(
+          prefix + `<canvas uuid="${escapeXmlAttr(block.uuid)}" />`,
+        );
+        break;
+      }
       case "syncedBlockRef": {
         lines.push(
           prefix +

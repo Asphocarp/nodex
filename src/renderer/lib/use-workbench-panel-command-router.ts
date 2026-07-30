@@ -84,6 +84,7 @@ import type {
   WorkbenchTabCreateInput,
   WorkbenchTabProjection,
 } from "./types";
+import { primaryCanvasBlockId } from "../../shared/block-documents";
 
 type ProjectSession = WorkbenchSessionRenderProjection;
 type PanelLifecycle = Pick<
@@ -99,6 +100,7 @@ type PanelLifecycle = Pick<
 >;
 type PanelOpeners = Pick<
   ReturnType<typeof useWorkbenchPanelOpeners>,
+  | "openCanvasStage"
   | "openPreviewTab"
   | "openSideChat"
 >;
@@ -208,6 +210,7 @@ export function useWorkbenchPanelCommandRouter({
     setActivePanelTab,
   } = lifecycle;
   const {
+    openCanvasStage,
     openPreviewTab,
     openSideChat,
   } = panelOpeners;
@@ -513,6 +516,18 @@ export function useWorkbenchPanelCommandRouter({
     if (kind === "db_view") {
       return await focusOrCreateProjectDbViewTab(panelId, options.leafId);
     }
+    if (kind === "canvas_stage") {
+      if (!activeSession?.projectId) return false;
+      return await openCanvasStage(
+        activeSession.projectId,
+        primaryCanvasBlockId(activeSession.projectId),
+        "Canvas",
+        {
+          targetPanelId: panelId,
+          targetLeafId: options.leafId,
+        },
+      );
+    }
     if (!isWorkbenchTabKind(kind)) return false;
     if (kind === "files") {
       await createManualTab(kind, panelId, options.leafId);
@@ -525,9 +540,11 @@ export function useWorkbenchPanelCommandRouter({
     await createManualTab(kind, panelId, options.leafId);
     return true;
   }, [
+    activeSession?.projectId,
     createManualTab,
     focusOrCreateProjectDbViewTab,
     focusOrCreateSessionTerminalTab,
+    openCanvasStage,
     openPreviewTab,
     openSideChat,
     resolveActivePanelCapabilities,

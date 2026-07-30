@@ -3,6 +3,7 @@ import {
   CANVAS_SCENE_SYNC_VERSION,
   materializePortableCanvasScene,
   type CanvasSceneMutationCommandResult,
+  type CanvasSceneMutationError,
   type CanvasSceneMutationRequest,
   type CanvasSceneRealtimeEvent,
   type CanvasSceneSyncCommandResult,
@@ -49,6 +50,7 @@ class MemoryAdapter implements CanvasSceneSyncAdapter {
   generation = 1;
   headSeq = 0;
   applyError: Error | null = null;
+  applyCommandError: CanvasSceneMutationError | null = null;
   syncImplementation: CanvasSceneSyncAdapter["sync"] | null = null;
   private readonly committed = new Map<string, Extract<Awaited<CanvasSceneMutationCommandResult>, { readonly ok: true }>["value"]>();
 
@@ -100,6 +102,9 @@ class MemoryAdapter implements CanvasSceneSyncAdapter {
     this.calls.push(`apply:${request.mutationId}`);
     this.applied.push(request);
     if (this.applyError) throw this.applyError;
+    if (this.applyCommandError) {
+      return { ok: false, error: this.applyCommandError };
+    }
     const committed = this.committed.get(request.mutationId);
     if (committed) return { ok: true, value: { ...committed, duplicate: true } };
     const elements = new Map(
@@ -169,14 +174,16 @@ class MemoryAdapter implements CanvasSceneSyncAdapter {
 
 const manualScheduler = () => {
   const callbacks: Array<() => void> = [];
-  const schedule: CanvasSceneProviderScheduler = (callback) => {
+  const delays: number[] = [];
+  const schedule: CanvasSceneProviderScheduler = (callback, delayMs) => {
     callbacks.push(callback);
+    delays.push(delayMs);
     return () => {
       const index = callbacks.indexOf(callback);
       if (index >= 0) callbacks.splice(index, 1);
     };
   };
-  return { callbacks, schedule };
+  return { callbacks, delays, schedule };
 };
 
 const makeProvider = (input: {
@@ -186,6 +193,7 @@ const makeProvider = (input: {
   scheduleRetry?: CanvasSceneProviderScheduler;
   onScene?: (value: PortableCanvasScene) => void;
   now?: () => number;
+  random?: () => number;
   scheduleLeaseDeadline?: CanvasSceneProviderScheduler;
   clientSessionId?: string;
   onPresence?: (event: CanvasPresenceRealtimeEvent) => void;
@@ -209,6 +217,7 @@ const makeProvider = (input: {
     ...(input.schedule ? { schedule: input.schedule } : {}),
     ...(input.scheduleRetry ? { scheduleRetry: input.scheduleRetry } : {}),
     ...(input.now ? { now: input.now } : {}),
+    ...(input.random ? { random: input.random } : {}),
     ...(input.scheduleLeaseDeadline
       ? { scheduleLeaseDeadline: input.scheduleLeaseDeadline }
       : {}),
@@ -447,6 +456,77 @@ describe("CanvasSceneProvider", () => {
     await provider.close();
   });
 
+  test("backs repeated transport failures off exponentially", async () => {
+    const adapter = new MemoryAdapter();
+    const retry = manualScheduler();
+    adapter.applyError = new Error("offline");
+    const provider = makeProvider({
+      adapter,
+      scheduleRetry: retry.schedule,
+      random: () => 0.5,
+    });
+    await provider.connect();
+    const submission = provider.enqueue({
+      elementCandidates: [element(2)],
+    });
+    await submission.durable;
+    await waitForCondition(() => retry.callbacks.length === 1);
+    expect(retry.delays).toEqual([150]);
+
+    retry.callbacks.shift()?.();
+    await waitForCondition(() => retry.callbacks.length === 1);
+    expect(retry.delays).toEqual([150, 300]);
+
+    adapter.applyError = null;
+    retry.callbacks.shift()?.();
+    await submission.committed;
+    await provider.close();
+  });
+
+  test("quarantines a deterministic rejection and continues with later edits", async () => {
+    const adapter = new MemoryAdapter();
+    const outbox = new MemoryCanvasSceneOutbox();
+    adapter.applyCommandError = {
+      code: "invalid_canvas_scene_mutation",
+      message: "Canvas managed file image cannot be redefined",
+      retryable: false,
+      resetRequired: false,
+      mutationId: "mutation-1",
+    };
+    const provider = makeProvider({ adapter, outbox, now: () => 123 });
+    await provider.connect();
+
+    const rejected = provider.enqueue({
+      elementCandidates: [element(2)],
+    });
+    await rejected.durable;
+    await expect(rejected.committed).rejects.toThrow("cannot be redefined");
+    await waitForCondition(() => provider.getStatus().phase === "ready");
+
+    expect(await outbox.list("document-1")).toEqual([]);
+    expect(await outbox.listQuarantined("document-1")).toEqual([
+      expect.objectContaining({
+        rejectedAt: 123,
+        intent: expect.objectContaining({ mutationId: "mutation-1" }),
+      }),
+    ]);
+
+    adapter.applyCommandError = null;
+    await provider.submit({ elementCandidates: [element(3)] });
+    expect(provider.getScene()?.elements[0]?.version).toBe(3);
+    await provider.close();
+
+    const reopenedAdapter = new MemoryAdapter();
+    const reopened = makeProvider({
+      adapter: reopenedAdapter,
+      outbox,
+      clientSessionId: "window-reopened",
+    });
+    await reopened.connect();
+    expect(reopenedAdapter.applied).toEqual([]);
+    await reopened.close();
+  });
+
   test("lets a new client session recover an intent after local-durable close", async () => {
     const outbox = new MemoryCanvasSceneOutbox();
     const firstAdapter = new MemoryAdapter();
@@ -480,6 +560,32 @@ describe("CanvasSceneProvider", () => {
       .toBe(firstAdapter.applied[0]?.mutationId);
     expect(await outbox.list("document-1")).toHaveLength(0);
     await second.close();
+  });
+
+  test("owner retirement clears active local intent and closes terminally", async () => {
+    const outbox = new MemoryCanvasSceneOutbox();
+    const adapter = new MemoryAdapter();
+    const retry = manualScheduler();
+    adapter.applyError = new Error("offline");
+    const provider = makeProvider({
+      adapter,
+      outbox,
+      scheduleRetry: retry.schedule,
+    });
+    await provider.connect();
+
+    const submission = provider.enqueue({
+      elementCandidates: [element(2)],
+    });
+    await submission.durable;
+    void submission.committed.catch(() => undefined);
+    expect(await outbox.list("document-1")).toHaveLength(1);
+
+    await provider.retireOwner();
+
+    expect(await outbox.list("document-1")).toEqual([]);
+    expect(provider.getStatus().phase).toBe("closed");
+    await expect(provider.connect()).rejects.toThrow("closed");
   });
 
   test("persists later FIFO intents while an older intent is offline", async () => {
@@ -602,7 +708,9 @@ describe("CanvasSceneProvider", () => {
       private readonly delegate = new MemoryCanvasSceneOutbox();
       removeAttempts = 0;
       list = this.delegate.list;
+      listQuarantined = this.delegate.listQuarantined;
       put = this.delegate.put;
+      quarantine = this.delegate.quarantine;
       clear = this.delegate.clear;
       remove = async (documentId: string, mutationId: string): Promise<void> => {
         this.removeAttempts += 1;

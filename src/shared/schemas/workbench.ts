@@ -11,7 +11,6 @@ export const WorkbenchViewSchema = z.enum([
   "kanban",
   "list",
   "toggle-list",
-  "canvas",
   "calendar",
 ]) satisfies z.ZodType<WorkbenchLayoutView>;
 

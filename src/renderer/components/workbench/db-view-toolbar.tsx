@@ -37,6 +37,7 @@ export interface DbViewToolbarItem {
 
 interface DbViewToolbarProps {
   items: DbViewToolbarItem[];
+  destinationItems?: DbViewToolbarItem[];
   activeSearchQuery: string;
   taskSearchOpen: boolean;
   searchShortcutLabel: string;
@@ -73,6 +74,7 @@ export function resolveDbViewToolbarClearAction(hasActiveSearchQuery: boolean): 
 
 export function DbViewToolbar({
   items,
+  destinationItems = [],
   activeSearchQuery,
   taskSearchOpen,
   searchShortcutLabel,
@@ -256,6 +258,28 @@ export function DbViewToolbar({
               })}
             </TabsPrimitive.List>
           </TabsPrimitive.Root>
+          {destinationItems.map((item) => {
+            const Icon = item.icon;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                aria-label={item.label}
+                title={item.label}
+                className={cn(
+                  "group/view mx-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-full",
+                  "text-(--foreground-secondary) outline-none",
+                  "hover:bg-[color-mix(in_srgb,var(--foreground)_5%,transparent)] hover:text-(--foreground)",
+                  "focus-visible:ring-2 focus-visible:ring-(--ring)/35",
+                )}
+                onClick={item.onSelect}
+              >
+                {Icon ? (
+                  <Icon className="size-4 text-[color-mix(in_srgb,var(--foreground)_62%,transparent)] group-hover/view:text-current" />
+                ) : null}
+              </button>
+            );
+          })}
 
           {viewContextLabel ? (
             <div className="flex min-w-0 shrink items-center">{viewContextLabel}</div>

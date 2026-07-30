@@ -6,6 +6,7 @@ import type {
   ManagedAssetPreview,
   ManagedAssetPreviewInput,
   ManagedAssetUploadInput,
+  ManagedCanvasImageMaterializationResult,
   ManagedImageSaveResult,
   ManagedResourceSaveResult,
 } from "./managed-assets";
@@ -1141,6 +1142,10 @@ export interface IpcApi {
   "asset:image:save": {
     args: [input: ManagedAssetUploadInput];
     result: ManagedImageSaveResult;
+  };
+  "asset:canvas-image:materialize": {
+    args: [input: ManagedAssetUploadInput];
+    result: ManagedCanvasImageMaterializationResult;
   };
   "asset:image:read": {
     args: [source: string];

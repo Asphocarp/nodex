@@ -122,6 +122,16 @@ export const libraryPathQueryOptions = (target: LibraryRouteTarget) =>
     staleTime: 30_000,
   });
 
+export const libraryCanvasTargetQueryOptions = (canvasId: string) =>
+  queryOptions({
+    queryKey: queryKeys.library.canvasTarget(canvasId),
+    queryFn: () => requireReadValue({
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      read: { mode: "canvas_target", canvasId },
+    }, "canvas_target"),
+    staleTime: 30_000,
+  });
+
 export const useLibraryNavigationInvalidation = (): void => {
   const queryClient = useQueryClient();
   const registry = useProjectionInvalidationRegistry();
@@ -213,6 +223,11 @@ export const useLibraryPath = (
   target: LibraryRouteTarget,
   enabled = true,
 ) => useQuery({ ...libraryPathQueryOptions(target), enabled });
+
+export const useLibraryCanvasTarget = (
+  canvasId: string,
+  enabled = true,
+) => useQuery({ ...libraryCanvasTargetQueryOptions(canvasId), enabled });
 
 export const useLibraryCatalog = (
   input: Parameters<typeof libraryCatalogQueryOptions>[0] = {},

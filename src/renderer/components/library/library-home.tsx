@@ -1,4 +1,4 @@
-import { Archive, Database, FileText, Library, Plus, Search } from "lucide-react";
+import { Archive, Database, FileText, Library, Plus, Search, Shapes } from "lucide-react";
 import { useDeferredValue, useMemo, useState, type ReactNode } from "react";
 
 import type {
@@ -15,7 +15,7 @@ import {
   type LibraryResourceTarget,
 } from "./library-resource-actions";
 
-export type LibraryKindFilter = "all" | "page" | "database";
+export type LibraryKindFilter = "all" | "page" | "database" | "canvas";
 export type LibraryLifecycleFilter = "active" | "archived";
 
 export function LibraryHomeView({
@@ -72,7 +72,7 @@ export function LibraryHomeView({
               Library
             </h1>
             <p className="mt-1 max-w-xl text-sm text-token-description-foreground">
-              Pages and Databases stay here independently of Project lifecycle.
+              Pages, Databases, and Canvases stay here independently of Project lifecycle.
             </p>
           </div>
           {newAction}
@@ -88,7 +88,7 @@ export function LibraryHomeView({
               <input
                 type="search"
                 value={query}
-                placeholder="Search Pages and Databases"
+                placeholder="Search Pages, Databases, and Canvases"
                 className="min-w-0 flex-1 bg-transparent text-sm text-token-text-primary outline-none placeholder:text-token-input-placeholder-foreground"
                 onChange={(event) => onQueryChange(event.target.value)}
               />
@@ -102,6 +102,7 @@ export function LibraryHomeView({
               <option value="all">All types</option>
               <option value="page">Pages</option>
               <option value="database">Databases</option>
+              <option value="canvas">Canvases</option>
             </select>
             <select
               aria-label="Lifecycle"
@@ -142,13 +143,15 @@ export function LibraryHomeView({
               <div className="px-3 py-12 text-center text-sm text-token-description-foreground">
                 {lifecycle === "archived" ? (
                   <><Archive className="mx-auto mb-3 icon-lg opacity-60" />No archived content</>
-                ) : "No matching Pages or Databases"}
+                ) : "No matching Library content"}
               </div>
             ) : items.map((item) => (
               <div
                 key={item.target.kind === "page"
                   ? `page:${item.target.pageId}`
-                  : `database:${item.target.databaseId}`}
+                  : item.target.kind === "database"
+                    ? `database:${item.target.databaseId}`
+                    : `canvas:${item.target.canvasId}`}
                 className={cn(
                   "group grid h-11 w-full grid-cols-[minmax(0,1fr)_minmax(9rem,0.45fr)_8rem_2rem] items-center gap-4 px-3 text-left text-sm",
                   "hover:bg-token-list-hover-background",
@@ -161,7 +164,9 @@ export function LibraryHomeView({
                 >
                   {item.kind === "page"
                     ? <FileText className="icon-sm shrink-0 text-token-text-secondary" />
-                    : <Database className="icon-sm shrink-0 text-token-text-secondary" />}
+                    : item.kind === "database"
+                      ? <Database className="icon-sm shrink-0 text-token-text-secondary" />
+                      : <Shapes className="icon-sm shrink-0 text-token-text-secondary" />}
                   <span className="truncate">{item.title || "Untitled"}</span>
                 </button>
                 <span className="truncate text-token-description-foreground">
@@ -170,7 +175,7 @@ export function LibraryHomeView({
                 <time className="text-right text-xs text-token-description-foreground" dateTime={item.updatedAt}>
                   {new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(item.updatedAt))}
                 </time>
-                {mutationsEnabled ? (
+                {mutationsEnabled && item.target.kind !== "canvas" ? (
                 <span className="opacity-0 focus-within:opacity-100 group-hover:opacity-100">
                   <LibraryResourceActions
                     target={item.target}

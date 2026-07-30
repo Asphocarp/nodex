@@ -46,6 +46,31 @@ describe("project session Page Stage config", () => {
   });
 });
 
+describe("project session Canvas Stage config", () => {
+  test("persists only public Canvas identity, access context, and title fallback", () => {
+    expect(parseWorkbenchProjectionTabConfig("canvas_stage", {
+      projectId: "alpha",
+      canvasBlockId: "canvas:one",
+      titleSnapshot: "Sketch",
+    })).toEqual({
+      projectId: "alpha",
+      canvasBlockId: "canvas:one",
+      titleSnapshot: "Sketch",
+    });
+  });
+
+  test("rejects missing Canvas identity and private Document identity", () => {
+    expect(() => parseWorkbenchProjectionTabConfig("canvas_stage", {
+      projectId: "alpha",
+    })).toThrow();
+    expect(() => parseWorkbenchProjectionTabConfig("canvas_stage", {
+      projectId: "alpha",
+      canvasBlockId: "canvas:one",
+      documentId: "document:private",
+    })).toThrow();
+  });
+});
+
 describe("project session Files config", () => {
   test("persists projectless exact-file tabs without inventing a workspace root", () => {
     expect(parseWorkbenchProjectionTabConfig("files", {

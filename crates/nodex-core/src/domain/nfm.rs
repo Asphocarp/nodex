@@ -188,6 +188,9 @@ pub enum NfmBlock {
     Database {
         uuid: String,
     },
+    Canvas {
+        uuid: String,
+    },
     SyncedBlockRef {
         source_block_id: String,
     },
@@ -413,6 +416,9 @@ fn materialize_block(block: &MaterializedBlockNode) -> Result<NfmBlock, NfmMater
             display_hint: non_empty_string_prop(&block.props, "displayHint"),
         },
         "database" => NfmBlock::Database {
+            uuid: block.id.clone(),
+        },
+        "canvas" => NfmBlock::Canvas {
             uuid: block.id.clone(),
         },
         "syncedBlockRef" => NfmBlock::SyncedBlockRef {
@@ -1021,6 +1027,10 @@ fn serialize_blocks(blocks: &[NfmBlock], indent: usize) -> Vec<String> {
                 "{prefix}<database uuid=\"{}\" />",
                 escape_xml_attr(uuid)
             )),
+            NfmBlock::Canvas { uuid } => lines.push(format!(
+                "{prefix}<canvas uuid=\"{}\" />",
+                escape_xml_attr(uuid)
+            )),
             NfmBlock::SyncedBlockRef { source_block_id } => lines.push(format!(
                 "{prefix}<synced-block-ref source-block=\"{}\" />",
                 escape_xml_attr(source_block_id)
@@ -1504,6 +1514,7 @@ fn collect_block_text(blocks: &[NfmBlock], parts: &mut Vec<String>) {
                 collect_block_text(children, parts);
             }
             NfmBlock::ToggleListInlineView { .. }
+            | NfmBlock::Canvas { .. }
             | NfmBlock::Database { .. }
             | NfmBlock::Page { .. } => {}
         }

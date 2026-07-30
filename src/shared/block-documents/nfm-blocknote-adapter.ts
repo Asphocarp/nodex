@@ -255,6 +255,14 @@ function nfmBlockToBN(
         children: [],
       };
 
+    case "canvas":
+      return {
+        id: block.uuid,
+        type: "canvas",
+        props: {},
+        children: [],
+      };
+
     case "syncedBlockRef":
       return {
         type: "syncedBlockRef",
@@ -680,6 +688,16 @@ function bnBlockToNfm(block: BNBlock): NfmBlock | null {
       }
       return {
         type: "database",
+        uuid: block.id,
+        children: [],
+      };
+
+    case "canvas":
+      if (!block.id) {
+        throw new TypeError("Canonical Canvas Block requires an identity");
+      }
+      return {
+        type: "canvas",
         uuid: block.id,
         children: [],
       };

@@ -214,6 +214,12 @@ describe("NfmSlashMenu", () => {
     expect(keys.includes("toggle_list_inline_view")).toBe(false);
     expect(keys.includes("thread_section")).toBe(true);
     expect(keys.includes("agent_config")).toBe(true);
+    expect(keys.includes("canvas")).toBe(false);
+    expect(
+      getNfmSlashMenuCustomItems({}, async () => ({
+        canvasBlockId: "canvas-1",
+      })).some((item) => (item as { key?: string }).key === "canvas"),
+    ).toBe(true);
   });
 
   test("thread mention subtext suppresses default idle labels but keeps actionable states", () => {

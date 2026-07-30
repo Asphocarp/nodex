@@ -70,6 +70,31 @@ describe("asset service", () => {
     });
   });
 
+  test("materializes Canvas images by content identity", async () => {
+    await withFixture(async () => {
+      const input = {
+        name: "diagram.png",
+        mimeType: "image/png",
+        bytes: new TextEncoder().encode("same-canvas-image"),
+      };
+
+      const first = assetService.materializeCanvasImage(input);
+      const second = assetService.materializeCanvasImage({
+        ...input,
+        name: "renamed.png",
+      });
+
+      expect(second).toEqual(first);
+      expect(first.fileName).toBe(
+        `canvas-${first.contentHash}.png`,
+      );
+      expect(first.byteLength).toBe(input.bytes.byteLength);
+      expect(
+        fs.readdirSync(path.join(fixtureRoot, "assets")),
+      ).toEqual([first.fileName]);
+    });
+  });
+
   test("saveUploadedImage rejects resources outside the raster allowlist", async () => {
     await withFixture(() => {
       expect(() => assetService.saveUploadedImage({

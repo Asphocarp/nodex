@@ -399,6 +399,11 @@ fn parse_self_closing_block(
                 .ok_or_else(|| syntax(line_index, "database requires an exact uuid"))?;
             NfmBlock::Database { uuid }
         }
+        "canvas" => {
+            let uuid = exact_non_empty_attr(&attrs, "uuid")
+                .ok_or_else(|| syntax(line_index, "canvas requires an exact uuid"))?;
+            NfmBlock::Canvas { uuid }
+        }
         "synced-block-ref" => NfmBlock::SyncedBlockRef {
             source_block_id: attrs.get("source-block").cloned().unwrap_or_default(),
         },
@@ -934,6 +939,7 @@ fn materialize_parsed_block(
             &[],
         ),
         NfmBlock::Database { .. } => ("database", BTreeMap::new(), None, &[]),
+        NfmBlock::Canvas { .. } => ("canvas", BTreeMap::new(), None, &[]),
         NfmBlock::SyncedBlockRef { source_block_id } => (
             "syncedBlockRef",
             [(
@@ -1552,5 +1558,19 @@ mod tests {
         let error = parse_nfm_with_ids("One\nTwo", &mut || "duplicate".to_owned())
             .expect_err("duplicate IDs");
         assert_eq!(error, NfmParseError::InvalidBlockId);
+    }
+
+    #[test]
+    fn canvas_owner_shells_require_and_preserve_an_exact_uuid() {
+        let nfm = r#"<canvas uuid="canvas-1" />"#;
+        let parsed = parse_nfm(nfm).expect("canonical Canvas");
+
+        assert_eq!(serialize_nfm(&parsed), nfm);
+        assert!(matches!(
+            parsed.as_slice(),
+            [NfmBlock::Canvas { uuid }] if uuid == "canvas-1"
+        ));
+        assert!(parse_nfm("<canvas />").is_err());
+        assert!(parse_nfm(r#"<canvas uuid=" canvas-1" />"#).is_err());
     }
 }

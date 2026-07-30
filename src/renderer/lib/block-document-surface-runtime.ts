@@ -313,6 +313,8 @@ export class BlockDocumentSurfaceRuntime {
   private terminal: SurfaceTerminalState | null = null;
   private isolationPromise: Promise<void> | null = null;
   private connectPromise: Promise<void> | null = null;
+  private durableMutationPreparationPromise:
+    Promise<BlockDocumentSurfaceStatus> | null = null;
   private persistPromise: Promise<BlockDocumentSurfacePersistResult> | null = null;
   private closePromise: Promise<BlockDocumentSurfaceCloseResult> | null = null;
   private reloadPromise: Promise<void> | null = null;
@@ -444,6 +446,37 @@ export class BlockDocumentSurfaceRuntime {
       return Promise.reject(new Error("Block Document surface is closed"));
     }
     return this.provider.flush();
+  };
+
+  /**
+   * Flushes the live Document to Core before an exact structural mutation.
+   * Local checkpoints are recovery cache and deliberately stay off this
+   * transaction-critical path.
+   */
+  prepareDurableMutation = (): Promise<BlockDocumentSurfaceStatus> => {
+    if (this.terminal) return Promise.reject(this.terminal.error);
+    if (this.closed || this.closing) {
+      return Promise.reject(new Error("Block Document surface is closed"));
+    }
+    if (this.durableMutationPreparationPromise) {
+      return this.durableMutationPreparationPromise;
+    }
+
+    const promise = (async () => {
+      await Promise.all(
+        [...this.persistPreparers].map((preparer) =>
+          Promise.resolve().then(() => preparer()),
+        ),
+      );
+      await this.provider.flush();
+      return this.getStatus();
+    })().finally(() => {
+      if (this.durableMutationPreparationPromise === promise) {
+        this.durableMutationPreparationPromise = null;
+      }
+    });
+    this.durableMutationPreparationPromise = promise;
+    return promise;
   };
 
   checkpoint = (): Promise<void> => {

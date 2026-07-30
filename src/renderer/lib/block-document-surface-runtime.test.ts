@@ -540,6 +540,26 @@ describe("BlockDocumentSurfaceRuntime", () => {
     await runtime.close();
   });
 
+  test("prepares exact structural mutations without waiting for a local checkpoint", async () => {
+    const events: string[] = [];
+    const providers: FakeSurfaceProvider[] = [];
+    const runtime = new BlockDocumentSurfaceRuntime({
+      descriptor: descriptor(),
+      adapter: unusedAdapter,
+      createProvider: createFactory(providers, events),
+      localCheckpointStore: null,
+    });
+    runtime.registerPersistPreparer(() => {
+      events.push("prepare");
+    });
+
+    await runtime.prepareDurableMutation();
+
+    expect(events).toEqual(["subscribe", "prepare", "flush"]);
+    expect(events.includes("checkpoint")).toBe(false);
+    await runtime.close();
+  });
+
   test("isolates fatal checkpoints and invokes the reload seam only once", async () => {
     const providers: FakeSurfaceProvider[] = [];
     const checkpoints = new MemoryCheckpointStore();

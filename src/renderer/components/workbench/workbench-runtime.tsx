@@ -106,7 +106,10 @@ import {
 import { useWorkbenchSessionCatalog } from "@/lib/use-workbench-session-catalog";
 import { useWorkbenchPanelController } from "@/lib/use-workbench-panel-controller";
 import { useWorkbenchPanelLifecycle } from "@/lib/use-workbench-panel-lifecycle";
-import { useWorkbenchPanelOpeners } from "@/lib/use-workbench-panel-openers";
+import {
+  useWorkbenchPanelOpeners,
+  type OpenCanvasStageHandler,
+} from "@/lib/use-workbench-panel-openers";
 import { useWorkbenchPanelCommandRouter } from "@/lib/use-workbench-panel-command-router";
 import { useWorkbenchSessionCommands } from "@/lib/use-workbench-session-commands";
 import {
@@ -618,6 +621,18 @@ export function WorkbenchRuntime({
     bottom: { itemsByLeafId: {}, activeTabIdsByLeafId: {} },
   });
   const panelTabMruByLeafRef = useRef<Record<string, string[]>>({});
+  const openCanvasStageRef = useRef<OpenCanvasStageHandler | null>(null);
+  const ensureCanvasHostSessionRef = useRef<(
+    (
+      projectId: string,
+      options?: { select?: boolean },
+    ) => Promise<ProjectSession>
+  ) | null>(null);
+  const [pendingCanvasStageOpen, setPendingCanvasStageOpen] = useState<{
+    readonly projectId: string;
+    readonly canvasBlockId: string;
+    readonly titleSnapshot?: string;
+  } | null>(null);
   const pendingWorkbenchCommandInvocationsRef = useRef<
     WorkbenchCommandInvocation[]
   >([]);
@@ -1187,8 +1202,32 @@ export function WorkbenchRuntime({
   }, [navigateToLibraryRoute]);
 
   const openLibraryTarget = useCallback((target: LibraryRouteTarget) => {
+    if (target.kind === "canvas") {
+      const projectId = activeSession?.projectId ?? activeProjectId;
+      if (!projectId) {
+        navigateToLibraryRoute(target);
+        return;
+      }
+      setLibraryRoute(null);
+      if (activeSession?.projectId === projectId && openCanvasStageRef.current) {
+        void openCanvasStageRef.current(projectId, target.canvasId, "Canvas");
+        return;
+      }
+      setPendingCanvasStageOpen({
+        projectId,
+        canvasBlockId: target.canvasId,
+        titleSnapshot: "Canvas",
+      });
+      void ensureCanvasHostSessionRef.current?.(projectId);
+      return;
+    }
     navigateToLibraryRoute(target);
-  }, [navigateToLibraryRoute]);
+  }, [
+    activeProjectId,
+    activeSession?.projectId,
+    navigateToLibraryRoute,
+    setLibraryRoute,
+  ]);
 
   const sidebarController = useWorkbenchSidebarController({
     projects,
@@ -1302,8 +1341,29 @@ export function WorkbenchRuntime({
     openMcpAppSidePanel,
     openPlanSidePanel,
     openAutomationSidePanel,
+    openCanvasStage,
     openPageTab,
   } = panelOpeners;
+  openCanvasStageRef.current = openCanvasStage;
+
+  useEffect(() => {
+    if (!pendingCanvasStageOpen) return;
+    if (activeSession?.projectId !== pendingCanvasStageOpen.projectId) return;
+
+    let cancelled = false;
+    void openCanvasStage(
+      pendingCanvasStageOpen.projectId,
+      pendingCanvasStageOpen.canvasBlockId,
+      pendingCanvasStageOpen.titleSnapshot,
+    ).then((opened) => {
+      if (cancelled || !opened) return;
+      setPendingCanvasStageOpen(null);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSession?.projectId, openCanvasStage, pendingCanvasStageOpen]);
 
   const sessionCommands = useWorkbenchSessionCommands({
     activeProject,
@@ -1364,6 +1424,7 @@ export function WorkbenchRuntime({
     forkSessionFromTurn,
     forkSessionFromTurnIntoWorktree,
   } = sessionCommands;
+  ensureCanvasHostSessionRef.current = ensureBlankSessionForProject;
 
   const panelCommands = useWorkbenchPanelCommandRouter({
     activeSession,
@@ -1934,7 +1995,12 @@ export function WorkbenchRuntime({
       ...target,
       accessProjectId: projectId,
     });
-  }, [libraryWorkspaceEnabled, openPageTab, selectProject, setLibraryRoute]);
+  }, [
+    libraryWorkspaceEnabled,
+    openPageTab,
+    selectProject,
+    setLibraryRoute,
+  ]);
   const handOffCancelledPendingWorktree = useCallback(async (
     entry: CodexPendingWorktreeEntry,
   ) => {

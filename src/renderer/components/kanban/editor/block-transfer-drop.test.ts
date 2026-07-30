@@ -256,6 +256,78 @@ describe("Kanban Card Block transfer drop", () => {
     }
   });
 
+  test("routes a same-Page Canvas drag through the typed Canvas operation", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const transfer = vi.fn();
+    const transferCanvas = vi.fn(async () => undefined);
+    const cleanup = setupBlockTransferDocumentDrop(
+      container,
+      { document: [{ id: "canvas-1" }, { id: "paragraph-1" }] },
+      {
+        surfaceId: "surface-page",
+        projectId: "project-a",
+        documentId: "document-page",
+        storeEpoch: "epoch-a",
+        hostPageId: "page-1",
+        ancestorPageIds: [],
+        createOperationId: () => "operation-canvas",
+        transfer,
+        transferCanvas,
+        reportError: vi.fn(),
+      },
+    );
+    const values = new Map<string, string>();
+    const types: string[] = [];
+    const dataTransfer = {
+      types,
+      effectAllowed: "uninitialized",
+      dropEffect: "none",
+      setData: (type: string, value: string) => {
+        if (!types.includes(type)) types.push(type);
+        values.set(type, value);
+      },
+      getData: (type: string) => values.get(type) ?? "",
+    } as unknown as DataTransfer;
+    beginLocalBlockDragSession(
+      {
+        sourceSurfaceId: "surface-page",
+        projectId: "project-a",
+        storeEpoch: "epoch-a",
+        source: { kind: "page", pageId: "page-1" },
+        rootBlockIds: ["canvas-1"],
+        displayHints: ["canvas"],
+      },
+      dataTransfer,
+    );
+    const drop = new Event("drop", { bubbles: true, cancelable: true });
+    Object.defineProperties(drop, {
+      dataTransfer: { value: dataTransfer },
+      clientX: { value: 0 },
+      clientY: { value: 0 },
+      altKey: { value: false },
+    });
+
+    try {
+      container.dispatchEvent(drop);
+      await vi.waitFor(() => expect(transferCanvas).toHaveBeenCalledOnce());
+      expect(drop.defaultPrevented).toBe(true);
+      expect(transfer).not.toHaveBeenCalled();
+      expect(transferCanvas).toHaveBeenCalledWith({
+        canvasBlockId: "canvas-1",
+        sourceSurfaceId: "surface-page",
+        sourcePageId: "page-1",
+        targetPageId: "page-1",
+        mode: "move",
+        insertion: { kind: "append" },
+      });
+    } finally {
+      cleanup();
+      endLocalBlockDragSession();
+      container.remove();
+    }
+  });
+
   test("routes a nested editor drop to the deepest semantic surface", async () => {
     const outer = document.createElement("div");
     const inner = document.createElement("div");

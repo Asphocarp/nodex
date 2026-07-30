@@ -19,12 +19,28 @@ export interface BlockReferenceHostRuntime {
    */
   readonly ancestorDocumentOwnerBlockIds: readonly string[];
   readonly isActiveSurface: boolean;
+  readonly documentSurfaceId?: string;
   readonly openPage?: (input: {
     projectId: string;
     pageId: string;
     titleSnapshot?: string;
   }) => void | Promise<void>;
   readonly openDatabase?: (databaseId: DatabaseId) => void | Promise<void>;
+  readonly openCanvas?: (input: {
+    readonly projectId: string;
+    readonly canvasBlockId: string;
+    readonly titleSnapshot?: string;
+  }) => void | Promise<void>;
+  readonly createCanvasAtEmptyParagraph?: (input: {
+    readonly blockId: string;
+    readonly displayName?: string;
+  }) => Promise<{ readonly canvasBlockId: string }>;
+  readonly renameCanvas?: (input: {
+    readonly canvasBlockId: string;
+    readonly displayName: string;
+  }) => Promise<void>;
+  readonly duplicateCanvasAfter?: (canvasBlockId: string) => Promise<void>;
+  readonly deleteCanvas?: (canvasBlockId: string) => Promise<void>;
 }
 
 export const appendInlineCardAncestor = (

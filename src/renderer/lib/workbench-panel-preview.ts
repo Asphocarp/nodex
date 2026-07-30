@@ -165,6 +165,7 @@ export function makePreviewWorkbenchTabProjection(
     }
     case "db_view":
     case "page_stage":
+    case "canvas_stage":
     case "terminal":
     case "review":
     case "files":
@@ -215,6 +216,12 @@ export function makePinnedPreviewTabCreateInput(
         kind: previewTab.kind,
         config: previewTab.config,
         clientTabId: previewTab.id,
+      };
+    case "canvas_stage":
+      return {
+        ...base,
+        kind: previewTab.kind,
+        config: previewTab.config,
       };
     case "browser":
       return {

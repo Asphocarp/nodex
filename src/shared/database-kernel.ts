@@ -27,7 +27,7 @@ export type DatabasePropertyValueType =
   | "date"
   | "datetime"
   | "person";
-export type DatabaseViewKind = "kanban" | "list" | "calendar" | "canvas";
+export type DatabaseViewKind = "kanban" | "list" | "calendar";
 
 export function databaseGroupValueFromKey(
   valueType: DatabasePropertyValueType,
@@ -1003,8 +1003,7 @@ const parseInitialView = (
   if (
     view.viewKind !== "kanban" &&
     view.viewKind !== "list" &&
-    view.viewKind !== "calendar" &&
-    view.viewKind !== "canvas"
+    view.viewKind !== "calendar"
   ) {
     throw new DatabaseMutationContractError(`${label}.viewKind is unsupported`);
   }
@@ -1254,8 +1253,7 @@ const parseOperation = (value: unknown): DatabaseMutationOperation => {
     if (
       operation.viewKind !== "kanban" &&
       operation.viewKind !== "list" &&
-      operation.viewKind !== "calendar" &&
-      operation.viewKind !== "canvas"
+      operation.viewKind !== "calendar"
     ) {
       throw new DatabaseMutationContractError(
         `${label}.viewKind is unsupported`,

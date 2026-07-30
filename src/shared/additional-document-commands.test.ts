@@ -152,23 +152,6 @@ describe("additional document command contract", () => {
         },
         lease([ownerHead]),
       ),
-      request({
-        kind: "create_canvas_owner",
-        scope: "non_primary",
-        blockId: "canvas:secondary",
-        documentId: "document:canvas:secondary",
-        displayName: "Sketch",
-        placement: { kind: "space" },
-      }),
-      request(
-        {
-          kind: "delete_canvas_owner",
-          scope: "non_primary",
-          owner,
-          referencePolicy: "require_unreferenced",
-        },
-        lease([ownerHead]),
-      ),
     ] as const;
 
     const kinds = cases.map(
@@ -183,8 +166,6 @@ describe("additional document command contract", () => {
         "create_template",
         "instantiate_template",
         "delete_owned_source",
-        "create_canvas_owner",
-        "delete_canvas_owner",
       ]),
     );
     expect(additionalDocumentCommandRequiredCoordination(cases[0])).toBe(
@@ -195,9 +176,6 @@ describe("additional document command contract", () => {
     );
     expect(additionalDocumentCommandRequiredCoordination(cases[5])).toBe(
       "hub_lease",
-    );
-    expect(additionalDocumentCommandRequiredCoordination(cases[6])).toBe(
-      "fifo_only",
     );
   });
 
@@ -458,11 +436,10 @@ describe("additional document command contract", () => {
     expectContractError(() =>
       parseAdditionalDocumentCommandRequest({
         ...request({
-          kind: "create_canvas_owner",
-          scope: "non_primary",
-          blockId: "canvas:secondary",
-          documentId: "document:canvas",
-          displayName: "Canvas",
+          kind: "create_synced_source",
+          sourceBlockId: "synced:source",
+          documentId: "document:synced",
+          initialBlocks: [paragraph("synced:root")],
           placement: { kind: "space" },
         }),
         actor: { evidence: "x".repeat(65 * 1024) },
@@ -485,12 +462,6 @@ describe("additional document command contract", () => {
     ).toBe("copy_deriving_every_content_id_from_operation_id");
     expect(
       ADDITIONAL_DOCUMENT_COMMAND_CAPABILITIES.delete_owned_source.availability,
-    ).toBe("kernel_ready");
-    expect(
-      ADDITIONAL_DOCUMENT_COMMAND_CAPABILITIES.create_canvas_owner.availability,
-    ).toBe("kernel_ready");
-    expect(
-      ADDITIONAL_DOCUMENT_COMMAND_CAPABILITIES.delete_canvas_owner.availability,
     ).toBe("kernel_ready");
   });
 });
@@ -528,13 +499,13 @@ describe("additional document command result contract", () => {
     expect(isAdditionalDocumentSemanticHash("A".repeat(64))).toBe(false);
   });
 
-  test("accepts Canvas effects and rejects stale capability-gap claims", () => {
-    expect(
+  test("rejects retired Canvas-owner receipts and stale capability-gap claims", () => {
+    expectContractError(() =>
       parseAdditionalDocumentCommandReceipt({
         ...receipt,
         operationKind: "create_canvas_owner",
-      }).operationKind,
-    ).toBe("create_canvas_owner");
+      }),
+    );
     expectContractError(() =>
       parseAdditionalDocumentCommandResult({
         ok: false,

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type {
   WorkbenchProjectionBrowserTabConfig,
+  WorkbenchProjectionCanvasStageTabConfig,
   WorkbenchProjectionPageStageTabConfig,
   ProjectSessionCreateInput,
   WorkbenchProjectionDbViewTabConfig,
@@ -42,6 +43,12 @@ export const WorkbenchProjectionPageStageTabConfigSchema = z.object({
   titleSnapshot: z.string().optional(),
 }).strict() satisfies z.ZodType<WorkbenchProjectionPageStageTabConfig>;
 
+export const WorkbenchProjectionCanvasStageTabConfigSchema = z.object({
+  projectId: z.string().min(1),
+  canvasBlockId: z.string().min(1),
+  titleSnapshot: z.string().optional(),
+}).strict() satisfies z.ZodType<WorkbenchProjectionCanvasStageTabConfig>;
+
 export const WorkbenchProjectionTerminalTabConfigSchema = z.object({
   terminalSessionId: z.string().min(1),
 }).strict() satisfies z.ZodType<WorkbenchProjectionTerminalTabConfig>;
@@ -79,6 +86,9 @@ export function parseWorkbenchProjectionTabConfig<Kind extends WorkbenchTabKind>
   let parsed: WorkbenchProjectionTabConfig;
   if (kind === "db_view") parsed = WorkbenchProjectionDbViewTabConfigSchema.parse(config);
   else if (kind === "page_stage") parsed = WorkbenchProjectionPageStageTabConfigSchema.parse(config);
+  else if (kind === "canvas_stage") {
+    parsed = WorkbenchProjectionCanvasStageTabConfigSchema.parse(config);
+  }
   else if (kind === "terminal") parsed = WorkbenchProjectionTerminalTabConfigSchema.parse(config);
   else if (kind === "browser") parsed = WorkbenchProjectionBrowserTabConfigSchema.parse(config);
   else if (kind === "review") parsed = WorkbenchProjectionProjectScopedTabConfigSchema.parse(config);

@@ -108,6 +108,7 @@ async function launchApplication(cwd: string, nodexHome: string): Promise<Electr
       NODEX_HOME: nodexHome,
       NODEX_INITIAL_PROJECTS_DIR: path.join(cwd, "workspace"),
       NODE_ENV: "test",
+      NODEX_LIBRARY_WORKSPACE_ENABLED: "1",
     },
   });
 }
@@ -488,6 +489,177 @@ test("provisions and persists the initial source-backed Project across a full El
     await expect(restartedWindow.getByRole("heading", {
       name: "Select a project",
     })).toHaveCount(0);
+  } finally {
+    if (application) await stopApplication(application);
+    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("creates and draws in an inline Canvas without taking over the Page", async () => {
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-canvas-e2e-"));
+  const nodexHome = path.join(fixtureRoot, "profile");
+  const workspace = path.join(fixtureRoot, "workspace");
+  fs.mkdirSync(workspace, { recursive: true });
+  prepareRuntimeFixture(fixtureRoot);
+
+  let application: ElectronApplication | undefined;
+  try {
+    application = await launchApplication(fixtureRoot, nodexHome);
+    const page = await application.firstWindow();
+    await page.evaluate(() => window.api?.awaitInitialization?.());
+    await page.evaluate(
+      async ({ name, source }) =>
+        window.api?.invoke("projects:create", { name, sources: [source] }),
+      { name: "Canvas workflow", source: workspace },
+    );
+
+    await page.getByRole("button", {
+      name: "Canvas workflow",
+      exact: true,
+    }).click();
+    await page
+      .locator('[data-app-action-sidebar-thread-title="Database View"]')
+      .first()
+      .click();
+    await page.waitForTimeout(1_000);
+    await page.getByRole("button", { name: "Open Library" }).click({
+      force: true,
+    });
+    await page.getByRole("button", { name: "New Library item" }).click({
+      force: true,
+    });
+    await page.getByRole("menuitem", { name: "Page" }).click();
+    await page.getByRole("button", { name: "Page actions" }).waitFor();
+
+    await page.getByRole("button", { name: "Open Library" }).click({
+      force: true,
+    });
+    await page
+      .getByRole("button", { name: "Actions for Untitled" })
+      .last()
+      .click();
+    await page.getByRole("menuitem", { name: "Open in Project…" }).click();
+    await page.getByRole("button", { name: "Grant and open" }).click();
+    await page.getByRole("button", { name: "Page actions" }).waitFor();
+
+    const editor = page
+      .getByTestId("page-stage-scroll-container")
+      .locator(".nfm-editor .ProseMirror[contenteditable=true]")
+      .first();
+    await editor.click();
+    await page.keyboard.type("/canvas");
+    await page.evaluate(() => {
+      const state = window as typeof window & {
+        __canvasPendingObserved?: boolean;
+      };
+      state.__canvasPendingObserved = false;
+      const observer = new MutationObserver(() => {
+        if (!document.querySelector("[data-canvas-create-pending]")) return;
+        state.__canvasPendingObserved = true;
+        observer.disconnect();
+      });
+      observer.observe(document.documentElement, {
+        childList: true,
+        subtree: true,
+      });
+    });
+    await page.getByRole("option", { name: /Canvas/ }).click();
+    await expect.poll(
+      () => page.evaluate(() =>
+        (window as typeof window & {
+          __canvasPendingObserved?: boolean;
+        }).__canvasPendingObserved === true
+      ),
+    ).toBe(true);
+
+    const canvasBlock = page.locator("[data-canvas-block]").first();
+    await expect(canvasBlock).toBeVisible({ timeout: 5_000 });
+    await expect(canvasBlock).toHaveAttribute(
+      "data-canvas-block-active",
+      "false",
+    );
+    await expect(
+      canvasBlock.locator("[data-canvas-create-pending]"),
+    ).toHaveCount(0);
+    await expect(canvasBlock.locator(".excalidraw")).toHaveCount(0);
+
+    await canvasBlock.getByRole("button", {
+      name: "Activate Canvas",
+    }).click();
+    const boundary = canvasBlock.locator(
+      '[data-excalidraw-embed-boundary="inline"]',
+    );
+    await expect(boundary.locator(".excalidraw")).toBeVisible();
+
+    const pageActions = page.getByRole("button", { name: "Page actions" });
+    const actionsBox = await pageActions.boundingBox();
+    if (!actionsBox) throw new Error("Page actions have no layout box");
+    const pageActionsHitBoundary = await page.evaluate(({ x, y }) => {
+      const hit = document.elementFromPoint(x, y);
+      return hit
+        ?.closest("[data-excalidraw-embed-boundary]")
+        ?.getAttribute("data-excalidraw-embed-boundary") ?? null;
+    }, {
+      x: actionsBox.x + actionsBox.width / 2,
+      y: actionsBox.y + actionsBox.height / 2,
+    });
+    expect(pageActionsHitBoundary).toBeNull();
+    await pageActions.click();
+    await page.keyboard.press("Escape");
+
+    const canvasId = await canvasBlock.getAttribute("data-canvas-block");
+    if (!canvasId) throw new Error("Canvas block has no owner identity");
+    const readCanvasHead = async (): Promise<number> =>
+      await page.evaluate(async (targetCanvasId) => {
+        const raw = await window.api?.invoke("library-module:read", {
+          version: 3,
+          read: { mode: "canvas_target", canvasId: targetCanvasId },
+        }) as {
+          ok?: boolean;
+          value?: {
+            value?: {
+              kind?: string;
+              value?: {
+                status?: string;
+                summary?: { documentHeadSeq?: number };
+              };
+            };
+          };
+        } | undefined;
+        const target = raw?.value?.value;
+        if (
+          !raw?.ok
+          || target?.kind !== "canvas_target"
+          || target.value?.status !== "available"
+        ) {
+          return -1;
+        }
+        return target.value.summary?.documentHeadSeq ?? -1;
+      }, canvasId);
+    const initialHead = await readCanvasHead();
+
+    const rectangleTool = boundary.getByRole("radio", { name: /Rectangle/ });
+    await rectangleTool.check({ force: true });
+    const interactiveCanvas = boundary.locator(
+      "canvas.excalidraw__canvas.interactive",
+    );
+    const canvasBox = await interactiveCanvas.boundingBox();
+    if (!canvasBox) throw new Error("Interactive Canvas has no layout box");
+    await page.mouse.move(
+      canvasBox.x + canvasBox.width * 0.35,
+      canvasBox.y + canvasBox.height * 0.55,
+    );
+    await page.mouse.down();
+    await page.mouse.move(
+      canvasBox.x + canvasBox.width * 0.55,
+      canvasBox.y + canvasBox.height * 0.72,
+      { steps: 5 },
+    );
+    await page.mouse.up();
+
+    await expect.poll(readCanvasHead, { timeout: 10_000 }).toBeGreaterThan(
+      initialHead,
+    );
   } finally {
     if (application) await stopApplication(application);
     fs.rmSync(fixtureRoot, { recursive: true, force: true });

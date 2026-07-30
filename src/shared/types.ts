@@ -540,10 +540,16 @@ export interface ProjectPinnedOrderInput {
 }
 
 export type ProjectSessionDbView =
-  "kanban" | "list" | "toggle-list" | "canvas" | "calendar";
+  "kanban" | "list" | "toggle-list" | "calendar";
 
 export type WorkbenchTabKind =
-  "db_view" | "page_stage" | "terminal" | "browser" | "review" | "files";
+  | "db_view"
+  | "page_stage"
+  | "canvas_stage"
+  | "terminal"
+  | "browser"
+  | "review"
+  | "files";
 
 export const PROJECT_SESSION_SINGLETON_TAB_KINDS = [
   "review",
@@ -567,6 +573,12 @@ export interface WorkbenchProjectionDbViewTabConfig {
 export interface WorkbenchProjectionPageStageTabConfig {
   projectId: string;
   pageId: string;
+  titleSnapshot?: string;
+}
+
+export interface WorkbenchProjectionCanvasStageTabConfig {
+  projectId: string;
+  canvasBlockId: string;
   titleSnapshot?: string;
 }
 
@@ -719,6 +731,7 @@ export interface WorkbenchProjectionBrowserTabConfig {
 export interface WorkbenchProjectionTabConfigByKind {
   db_view: WorkbenchProjectionDbViewTabConfig;
   page_stage: WorkbenchProjectionPageStageTabConfig;
+  canvas_stage: WorkbenchProjectionCanvasStageTabConfig;
   terminal: WorkbenchProjectionTerminalTabConfig;
   browser: WorkbenchProjectionBrowserTabConfig;
   review: WorkbenchProjectionProjectScopedTabConfig;

@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { makeWorkbenchPanelLayout } from "../../shared/workbench-panel-layout";
+import { WORKBENCH_SESSION_VIEW_VERSION } from "../../shared/workbench-session-view";
 import type {
   BrowserSidebarTabSnapshot,
   BrowserUsePresentationRequest,
@@ -236,7 +237,7 @@ describe("useBrowserUsePresentationCoordinator", () => {
         findById: () => ({
           domain: target,
           view: {
-            version: 2,
+            version: WORKBENCH_SESSION_VIEW_VERSION,
             sessionId: target.id,
             tabsById: {},
             panels: target.panels,

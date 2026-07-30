@@ -1011,6 +1011,7 @@ export interface components {
                 readonly agent_page_copy?: null | components["schemas"]["LibraryAgentPageCopyResult"];
                 readonly block_property_mutation?: null | components["schemas"]["LibraryBlockPropertyMutationReceipt"];
                 readonly block_transfer?: null | components["schemas"]["LibraryBlockTransferResult"];
+                readonly canvas_mutation?: null | components["schemas"]["LibraryCanvasMutationResult"];
                 readonly page_copy?: null | components["schemas"]["LibraryPageCopyResult"];
                 readonly page_create?: null | components["schemas"]["LibraryPageCreateResult"];
                 readonly page_lifecycle?: null | components["schemas"]["LibraryPageLifecycleMutationReceipt"];
@@ -1542,17 +1543,6 @@ export interface components {
             readonly kind: "delete_owned_source";
             readonly owner: components["schemas"]["DocumentOwnerRevision"];
             readonly owner_kind: components["schemas"]["DeletableOwnedSourceKind"];
-        } | {
-            readonly before?: null | components["schemas"]["DocumentSpaceAnchor"];
-            readonly block_id: string;
-            readonly display_name: string;
-            readonly document_id: string;
-            /** @enum {string} */
-            readonly kind: "create_canvas_owner";
-        } | {
-            /** @enum {string} */
-            readonly kind: "delete_canvas_owner";
-            readonly owner: components["schemas"]["DocumentOwnerRevision"];
         };
         readonly DocumentOwnerEffect: {
             readonly created_block_ids: readonly string[];
@@ -2177,6 +2167,71 @@ export interface components {
                 readonly [key: string]: components["schemas"]["LibraryBlockTransferMembership"];
             };
         };
+        readonly LibraryCanvasDestination: {
+            readonly before?: null | components["schemas"]["LibraryPlacementAnchor"];
+            /** @enum {string} */
+            readonly kind: "library";
+        } | {
+            /** Format: int64 */
+            readonly expected_document_generation: number;
+            /** Format: int64 */
+            readonly expected_document_head_seq: number;
+            readonly insertion: components["schemas"]["LibraryPageInsertion"];
+            /** @enum {string} */
+            readonly kind: "page";
+            readonly page_id: string;
+        };
+        readonly LibraryCanvasLocation: {
+            /** @enum {string} */
+            readonly kind: "library";
+        } | {
+            readonly document_id: string;
+            /** @enum {string} */
+            readonly kind: "page";
+            readonly page_id: string;
+        };
+        readonly LibraryCanvasMutationResult: {
+            readonly canvas_id: string;
+            readonly document_commits: readonly components["schemas"]["LibraryBlockTransferDocumentCommit"][];
+            readonly document_id: string;
+            /** Format: int64 */
+            readonly location_revision: number;
+            /** Format: int64 */
+            readonly metadata_revision: number;
+            readonly operation_kind: string;
+            readonly source_canvas_id?: string | null;
+        };
+        readonly LibraryCanvasSummary: {
+            readonly canvas_id: string;
+            /** Format: int64 */
+            readonly document_generation: number;
+            /** Format: int64 */
+            readonly document_head_seq: number;
+            readonly is_primary: boolean;
+            readonly lifecycle: string;
+            readonly location: components["schemas"]["LibraryCanvasLocation"];
+            /** Format: int64 */
+            readonly location_revision: number;
+            /** Format: int64 */
+            readonly metadata_revision: number;
+            readonly project_id: string;
+            readonly title: string;
+            readonly updated_at: string;
+        };
+        readonly LibraryCanvasTarget: {
+            readonly canvas_id: string;
+            /** @enum {string} */
+            readonly status: "missing";
+        } | {
+            readonly canvas_id: string;
+            readonly library_id: string;
+            /** @enum {string} */
+            readonly status: "deleted";
+        } | {
+            /** @enum {string} */
+            readonly status: "available";
+            readonly summary: components["schemas"]["LibraryCanvasSummary"];
+        };
         readonly LibraryCatalogEntry: {
             readonly kind: components["schemas"]["LibraryCatalogKind"];
             readonly lifecycle: components["schemas"]["LibraryLifecycle"];
@@ -2190,7 +2245,7 @@ export interface components {
             readonly updated_at: string;
         };
         /** @enum {string} */
-        readonly LibraryCatalogKind: "page" | "database";
+        readonly LibraryCatalogKind: "page" | "database" | "canvas";
         /** @enum {string} */
         readonly LibraryContentAssetKind: "image" | "attachment";
         readonly LibraryContentAssetReference: {
@@ -2282,6 +2337,21 @@ export interface components {
             readonly has_multiple_views: boolean;
             /** @enum {string} */
             readonly kind: "database";
+            /** Format: int64 */
+            readonly location_revision: number;
+            /** Format: int64 */
+            readonly metadata_revision: number;
+            readonly title: string;
+            readonly updated_at: string;
+        } | {
+            readonly canvas_id: string;
+            /** Format: int64 */
+            readonly document_generation: number;
+            /** Format: int64 */
+            readonly document_head_seq: number;
+            readonly is_primary: boolean;
+            /** @enum {string} */
+            readonly kind: "canvas";
             /** Format: int64 */
             readonly location_revision: number;
             /** Format: int64 */
@@ -2580,6 +2650,20 @@ export interface components {
         };
         /** @enum {string} */
         readonly LibraryPageHistoryRecoveryReason: "document_generation_changed" | "insufficient_evidence" | "no_inverse_contract";
+        readonly LibraryPageInsertion: {
+            /** @enum {string} */
+            readonly kind: "append";
+            readonly parent_block_id?: string | null;
+        } | {
+            readonly anchor_block_id: string;
+            /** @enum {string} */
+            readonly kind: "before";
+            readonly parent_block_id?: string | null;
+        } | {
+            readonly block_id: string;
+            /** @enum {string} */
+            readonly kind: "replace_empty_paragraph";
+        };
         readonly LibraryPageIntrinsicProperty: {
             readonly key: string;
             /** Format: int64 */
@@ -2876,6 +2960,10 @@ export interface components {
             readonly database_id: string;
             /** @enum {string} */
             readonly kind: "database";
+        } | {
+            readonly canvas_id: string;
+            /** @enum {string} */
+            readonly kind: "canvas";
         };
         readonly LibraryRouteTarget: {
             /** @enum {string} */
@@ -2885,6 +2973,10 @@ export interface components {
             readonly database_id: string;
             /** @enum {string} */
             readonly kind: "database";
+        } | {
+            readonly canvas_id: string;
+            /** @enum {string} */
+            readonly kind: "canvas";
         } | {
             /** @enum {string} */
             readonly kind: "view";
@@ -3216,6 +3308,47 @@ export interface components {
                 readonly name: string;
                 readonly parent: components["schemas"]["LibraryWriteParent"];
                 readonly view_id: string;
+            } | {
+                readonly canvas_id: string;
+                readonly destination: components["schemas"]["LibraryCanvasDestination"];
+                readonly display_name: string;
+                readonly document_id: string;
+                /** @enum {string} */
+                readonly kind: "create_canvas";
+            } | {
+                readonly canvas_id: string;
+                readonly display_name: string;
+                /** Format: int64 */
+                readonly expected_metadata_revision: number;
+                /** @enum {string} */
+                readonly kind: "rename_canvas";
+            } | {
+                readonly canvas_id: string;
+                readonly destination: components["schemas"]["LibraryCanvasDestination"];
+                /** Format: int64 */
+                readonly expected_location_revision: number;
+                /** @enum {string} */
+                readonly kind: "move_canvas";
+            } | {
+                readonly canvas_id: string;
+                readonly destination: components["schemas"]["LibraryCanvasDestination"];
+                readonly display_name?: string | null;
+                readonly document_id: string;
+                /** Format: int64 */
+                readonly expected_document_generation: number;
+                /** Format: int64 */
+                readonly expected_document_head_seq: number;
+                /** @enum {string} */
+                readonly kind: "duplicate_canvas";
+                readonly source_canvas_id: string;
+            } | {
+                readonly canvas_id: string;
+                /** Format: int64 */
+                readonly expected_location_revision: number;
+                /** Format: int64 */
+                readonly expected_metadata_revision: number;
+                /** @enum {string} */
+                readonly kind: "delete_canvas";
             } | {
                 readonly destination: components["schemas"]["LibraryPageCopyDestination"];
                 /** Format: int64 */
@@ -3914,6 +4047,10 @@ export interface components {
                 /** @enum {string} */
                 readonly kind: "page_location";
                 readonly page_id: string;
+            } | {
+                readonly canvas_id: string;
+                /** @enum {string} */
+                readonly kind: "canvas_target";
             } | {
                 /** @enum {string} */
                 readonly kind: "page_lifecycle_preflight";
@@ -4741,6 +4878,7 @@ export interface components {
                     readonly agent_page_copy?: null | components["schemas"]["LibraryAgentPageCopyResult"];
                     readonly block_property_mutation?: null | components["schemas"]["LibraryBlockPropertyMutationReceipt"];
                     readonly block_transfer?: null | components["schemas"]["LibraryBlockTransferResult"];
+                    readonly canvas_mutation?: null | components["schemas"]["LibraryCanvasMutationResult"];
                     readonly page_copy?: null | components["schemas"]["LibraryPageCopyResult"];
                     readonly page_create?: null | components["schemas"]["LibraryPageCreateResult"];
                     readonly page_lifecycle?: null | components["schemas"]["LibraryPageLifecycleMutationReceipt"];
@@ -5045,6 +5183,10 @@ export interface components {
                     /** @enum {string} */
                     readonly kind: "page_location";
                     readonly value?: null | components["schemas"]["LibraryPageLocation"];
+                } | {
+                    /** @enum {string} */
+                    readonly kind: "canvas_target";
+                    readonly value: components["schemas"]["LibraryCanvasTarget"];
                 } | {
                     /** @enum {string} */
                     readonly kind: "page_lifecycle_preflight";

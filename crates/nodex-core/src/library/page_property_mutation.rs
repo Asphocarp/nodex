@@ -343,6 +343,7 @@ pub(super) fn apply(
             committed_revisions,
             page_create: None,
             page_copy: None,
+            canvas_mutation: None,
             block_transfer: None,
             page_lifecycle: None,
             block_property_mutation: Some(outcome_receipt),
@@ -1891,6 +1892,7 @@ fn finish_rejection(
             affected_resource_ids: Vec::new(),
             page_create: None,
             page_copy: None,
+            canvas_mutation: None,
             block_transfer: None,
             page_lifecycle: None,
             block_property_mutation: Some(LibraryBlockPropertyMutationReceipt {

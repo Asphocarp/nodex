@@ -59,11 +59,13 @@ pub use yrs_engine::{
     has_pending_dependencies,
 };
 
-pub(crate) use canvas::{clone_canvas_genesis, load_canvas_scene, load_v94_canvas_scene};
+pub(crate) use canvas::{
+    clone_canvas_genesis, ensure_canvas_scene, load_canvas_scene, load_v94_canvas_scene,
+};
 pub(crate) use canvas_scene::{
-    CANVAS_SCENE_HASH_VERSION, CanvasHashItemKind, CanvasScene, canvas_hash_bucket,
-    canvas_semantic_intent_fingerprint, compute_canvas_scene_incremental_metadata,
-    derive_canvas_element,
+    CANVAS_OWNER_TYPE, CANVAS_SCENE_HASH_VERSION, CANVAS_SCHEMA_KEY, CANVAS_SCHEMA_VERSION,
+    CanvasHashItemKind, CanvasScene, canvas_hash_bucket, canvas_semantic_intent_fingerprint,
+    compute_canvas_scene_incremental_metadata, derive_canvas_element,
 };
 pub(crate) use genesis::{
     PreparedYjsGenesis, prepare_page_yjs_genesis, prepare_page_yjs_genesis_with_content,
@@ -75,7 +77,10 @@ pub(crate) use persistence::{
     persist_yjs_genesis, read_document_authority, read_store_epoch,
     rebuild_legacy_import_projections, sha256,
 };
-pub(crate) use primary_canvas::{PrimaryCanvasIdentity, create_primary_canvas};
+pub(crate) use primary_canvas::{
+    PrimaryCanvasIdentity, create_primary_canvas, is_primary_canvas_block_id,
+    primary_canvas_block_id, primary_canvas_document_id,
+};
 pub(crate) use rehome::rebuild_rehomed_document_projections;
 pub(crate) use runtime::reconstruct_yjs_engine;
 pub(crate) use semantic::{

@@ -291,7 +291,7 @@ describe("Document HTTP contract", () => {
           )),
         ),
       )
-    ).toThrow("canonical JSON");
+    ).not.toThrow();
     expect(() =>
       decodeCanvasSceneSyncHttpResponse(
         encodeDocumentSyncHttpResponse({
@@ -311,6 +311,53 @@ describe("Document HTTP contract", () => {
         )),
       )
     ).toThrow("exceeds");
+  });
+
+  test("accepts schema-valid Rust snapshot JSON with equivalent number encodings", () => {
+    const metadata = {
+      version: 2,
+      engine: "canvas_scene",
+      kind: "snapshot",
+      syncRequestId: "sync-rust-numbers",
+      projectId: "project-1",
+      documentId: "canvas-1",
+      storeEpoch: "store-1",
+      generation: 1,
+      headSeq: 1,
+      sceneHash: "b".repeat(64),
+    } as const;
+    const scene = materializePortableCanvasScene({
+      elements: [{
+        id: "shape-1",
+        type: "rectangle",
+        isDeleted: false,
+        version: 1,
+        versionNonce: 2,
+        index: "a0",
+        x: 0,
+        y: 0.000001,
+        width: 100000000000000000000,
+      }],
+    });
+    const rustSerialized = canonicalStringifyCanvasScene(scene)
+      .replace('"x":0', '"x":-0.0')
+      .replace('"y":0.000001', '"y":1e-6')
+      .replace('"width":100000000000000000000', '"width":1e20');
+
+    const decoded = decodeCanvasSceneSyncHttpResponse(
+      encodeDocumentHttpEnvelope(
+        metadata,
+        new TextEncoder().encode(rustSerialized),
+      ),
+    );
+
+    expect(decoded.kind).toBe("snapshot");
+    if (decoded.kind !== "snapshot") throw new Error("Expected Canvas snapshot");
+    expect(decoded.scene.elements[0]).toMatchObject({
+      x: 0,
+      y: 0.000001,
+      width: 100000000000000000000,
+    });
   });
 
   test("round-trips Awareness, realtime events, and typed errors", () => {

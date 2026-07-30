@@ -9,6 +9,7 @@ import { editorCodeBlockOptions } from "./code-block-options";
 import { createAgentConfigInlineContentSpec } from "./agent-config-chip";
 import { createAttachmentInlineContentSpec } from "./attachment-chip";
 import { createCalloutBlock } from "./callout-block";
+import { createCanvasBlockSpec } from "./canvas-block";
 import {
   createPageBlockSpec,
   createPageRefBlockSpec,
@@ -39,6 +40,7 @@ export const nfmSchema = BlockNoteSchema.create({
     threadSection: createThreadSectionBlockSpec(),
     page: createPageBlockSpec(),
     database: createDatabaseBlockSpec(),
+    canvas: createCanvasBlockSpec(),
     databaseViewRef: createDatabaseViewRefBlockSpec(),
     pageRef: createPageRefBlockSpec(),
     syncedBlockRef: createSyncedBlockRefBlockSpec(),

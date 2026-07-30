@@ -370,6 +370,7 @@ pub(super) fn execute_page_copy(
                 committed_revisions: execution.committed_revisions,
                 page_create: None,
                 page_copy: Some(execution.result),
+                canvas_mutation: None,
                 block_transfer: None,
                 page_lifecycle: None,
                 block_property_mutation: None,

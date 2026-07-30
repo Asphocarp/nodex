@@ -71,6 +71,7 @@ describe("resolveWorkbenchPanelCapabilities", () => {
       "side_chat",
       "db_view",
       "page_stage",
+      "canvas_stage",
     ]);
     expect(bottom.availableActionKinds).toEqual([
       "terminal",

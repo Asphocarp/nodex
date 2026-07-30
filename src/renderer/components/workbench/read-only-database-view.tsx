@@ -3,7 +3,6 @@ import {
   ArrowDown,
   ArrowUp,
   CalendarDays,
-  LayoutGrid,
   List,
 } from "lucide-react";
 import {
@@ -523,29 +522,6 @@ export function DatabaseViewSurface({
               </button>
             ) : null}
           </div>
-        </div>
-      ) : model.query.view.kind === "canvas" ? (
-        <div className="min-h-0 flex-1 overflow-auto p-3">
-          <div className="mb-2 flex h-7 items-center gap-2 px-1 text-xs text-token-description-foreground">
-            <LayoutGrid className="size-3.5" />
-            <span className="min-w-0 flex-1 truncate">{model.databaseName} / {model.viewName}</span>
-            <span>{allRows.length}</span>
-          </div>
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-2">
-            {allRows.map((row) => (
-              <DurablePageSurface key={row.pageId} compact {...pageProps(row)} />
-            ))}
-          </div>
-          {continuableScopes.length > 0 && onLoadMoreGroup ? (
-            <button
-              type="button"
-              disabled={anyContinuationLoading}
-              onClick={loadMoreEverywhere}
-              className="mt-2 w-full rounded-md px-2 py-1.5 text-left text-xs text-token-text-secondary hover:bg-token-foreground/5 disabled:opacity-50"
-            >
-              {anyContinuationLoading ? "Loading…" : "Show more"}
-            </button>
-          ) : null}
         </div>
       ) : (
         <div className="min-h-0 flex-1 overflow-auto p-3">

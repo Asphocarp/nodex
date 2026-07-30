@@ -5,6 +5,26 @@ import { parseNfm } from "./parser";
 import { serializeNfm } from "./serializer";
 
 describe("NFM code fences", () => {
+  test("Canvas owner shells require and preserve an exact uuid", () => {
+    const nfm = '<canvas uuid="canvas-1" />';
+    const blocks = parseNfm(nfm);
+
+    expect(blocks).toEqual([
+      {
+        type: "canvas",
+        uuid: "canvas-1",
+        children: [],
+      },
+    ]);
+    expect(serializeNfm(blocks)).toBe(nfm);
+    expect(() => parseNfm("<canvas />")).toThrow(
+      "Canonical Canvas NFM requires an exact non-empty uuid",
+    );
+    expect(() => parseNfm('<canvas uuid=" canvas-1" />')).toThrow(
+      "Canonical Canvas NFM requires an exact non-empty uuid",
+    );
+  });
+
   test("keeps Card identity and mention URL tags in clipboard text", () => {
     const nfm = [
       '<page uuid="019f-card" />',

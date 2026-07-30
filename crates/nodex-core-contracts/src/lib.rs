@@ -266,7 +266,7 @@ mod tests {
             [
                 ModuleContractVersion {
                     module: ModuleName::Library,
-                    contract_version: 2,
+                    contract_version: 3,
                 },
                 ModuleContractVersion {
                     module: ModuleName::Database,
@@ -274,7 +274,7 @@ mod tests {
                 },
                 ModuleContractVersion {
                     module: ModuleName::OwnedDocument,
-                    contract_version: 1,
+                    contract_version: 3,
                 },
                 ModuleContractVersion {
                     module: ModuleName::ProjectWorkspace,

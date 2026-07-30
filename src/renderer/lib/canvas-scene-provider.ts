@@ -122,6 +122,7 @@ export interface CanvasSceneProviderOptions {
   readonly schedule?: CanvasSceneProviderScheduler;
   readonly scheduleRetry?: CanvasSceneProviderScheduler;
   readonly now?: () => number;
+  readonly random?: () => number;
   readonly scheduleLeaseDeadline?: CanvasSceneProviderScheduler;
 }
 
@@ -359,6 +360,7 @@ export class CanvasSceneProvider {
   private readonly createMutationId: () => string;
   private readonly createSyncRequestId: () => string;
   private readonly now: () => number;
+  private readonly random: () => number;
   private readonly writeLeasePreparers = new Set<CanvasSceneWriteLeasePreparer>();
 
   private unsubscribeRealtime: (() => void) | null = null;
@@ -389,6 +391,7 @@ export class CanvasSceneProvider {
   private error: CanvasSceneMutationError | undefined;
   private activeLease: ActiveCanvasSceneLease | null = null;
   private pendingPresenceEvents: CanvasPresenceRealtimeEvent[] = [];
+  private retryAttempt = 0;
   private leaseSequence = 0;
   private runningLeasePreparers = false;
   private status: CanvasSceneProviderStatus;
@@ -403,6 +406,7 @@ export class CanvasSceneProvider {
     this.createSyncRequestId =
       options.createSyncRequestId ?? createFallbackSyncRequestId;
     this.now = options.now ?? Date.now;
+    this.random = options.random ?? Math.random;
     this.status = this.buildStatus();
   }
 
@@ -411,6 +415,13 @@ export class CanvasSceneProvider {
   getScene = (): PortableCanvasScene | null => this.scene;
 
   publishPresence = async (
+    clock: number,
+    state: CanvasPresenceValue | null,
+  ): Promise<CanvasPresenceCommandResult> =>
+    this.publishPresenceFor(this.options.clientSessionId, clock, state);
+
+  publishPresenceFor = async (
+    clientSessionId: string,
     clock: number,
     state: CanvasPresenceValue | null,
   ): Promise<CanvasPresenceCommandResult> => {
@@ -433,7 +444,7 @@ export class CanvasSceneProvider {
     try {
       return await this.options.adapter.publishPresence({
         projectId: this.options.projectId,
-        clientSessionId: this.options.clientSessionId,
+        clientSessionId,
         publication: canonicalizeCanvasPresencePublication({
           version: 1,
           engine: "canvas_scene",
@@ -581,30 +592,27 @@ export class CanvasSceneProvider {
     return promise;
   };
 
+  retireOwner = (): Promise<void> => {
+    if (this.closePromise) {
+      return this.closePromise
+        .catch(() => undefined)
+        .then(() => this.options.outbox.clear(this.options.documentId));
+    }
+    if (this.closed) {
+      return this.options.outbox.clear(this.options.documentId);
+    }
+    const promise = this.retireOwnerInternal().finally(() => {
+      if (this.closePromise === promise) this.closePromise = null;
+    });
+    this.closePromise = promise;
+    return promise;
+  };
+
   private async closeInternal(requireCommitted: boolean): Promise<void> {
     try {
       if (requireCommitted) await this.flushCommitted();
       else await this.persistDurable();
     } finally {
-      this.closing = true;
-      this.refreshStatus();
-      this.cancelCoalesce?.();
-      this.cancelRetry?.();
-      if (this.activeLease) {
-        this.nackLeaseBestEffort(
-          this.activeLease,
-          "provider_destroyed",
-          "Canvas scene provider closed during a Document write lease",
-        );
-        this.clearActiveLease();
-      }
-      this.unsubscribeRealtime?.();
-      this.cancelCoalesce = null;
-      this.cancelRetry = null;
-      this.unsubscribeRealtime = null;
-      this.pendingPresenceEvents = [];
-      this.activeSyncRequestId = null;
-      this.connected = false;
       if (!requireCommitted) {
         const failure = new Error(
           "Canvas scene provider closed after local durability; commit continues from the outbox",
@@ -616,11 +624,46 @@ export class CanvasSceneProvider {
           rejectCommitted(waiter, failure)
         );
       }
-      this.closed = true;
-      this.closing = false;
-      this.refreshStatus();
-      this.listeners.clear();
+      this.finalizeClosed();
     }
+  }
+
+  private async retireOwnerInternal(): Promise<void> {
+    this.closing = true;
+    this.refreshStatus();
+    const failure = new Error("Canvas owner was deleted");
+    this.rejectAll(failure);
+    try {
+      await this.options.outbox.clear(this.options.documentId);
+    } finally {
+      this.finalizeClosed();
+    }
+  }
+
+  private finalizeClosed(): void {
+    this.closing = true;
+    this.refreshStatus();
+    this.cancelCoalesce?.();
+    this.cancelRetry?.();
+    if (this.activeLease) {
+      this.nackLeaseBestEffort(
+        this.activeLease,
+        "provider_destroyed",
+        "Canvas scene provider closed during a Document write lease",
+      );
+      this.clearActiveLease();
+    }
+    this.unsubscribeRealtime?.();
+    this.cancelCoalesce = null;
+    this.cancelRetry = null;
+    this.unsubscribeRealtime = null;
+    this.pendingPresenceEvents = [];
+    this.activeSyncRequestId = null;
+    this.connected = false;
+    this.closed = true;
+    this.closing = false;
+    this.refreshStatus();
+    this.listeners.clear();
   }
 
   private async connectInternal(): Promise<void> {
@@ -764,6 +807,7 @@ export class CanvasSceneProvider {
       this.flushPendingPresenceEvents();
       this.error = undefined;
       this.connected = true;
+      if (!this.inFlight) this.retryAttempt = 0;
       this.refreshStatus();
       return;
     }
@@ -785,6 +829,7 @@ export class CanvasSceneProvider {
     this.scene = scene;
     this.error = undefined;
     this.connected = true;
+    if (!this.inFlight) this.retryAttempt = 0;
     this.options.onScene(this.scene);
     this.flushPendingPresenceEvents();
     this.refreshStatus();
@@ -945,6 +990,14 @@ export class CanvasSceneProvider {
     }
     if (this.inFlight !== current) return;
     if (!result.ok) {
+      if (
+        result.error.code === "invalid_canvas_scene_mutation"
+        && !result.error.retryable
+        && !result.error.resetRequired
+      ) {
+        await this.quarantineInFlight(current, result.error);
+        return;
+      }
       this.handleCommandError(result.error);
       return;
     }
@@ -983,6 +1036,7 @@ export class CanvasSceneProvider {
       return;
     }
     this.inFlight = null;
+    this.retryAttempt = 0;
     if (
       result.value.headSeq === this.headSeq + 1
       && result.value.committedDelta
@@ -1009,6 +1063,36 @@ export class CanvasSceneProvider {
       await this.requestSync();
     }
     current.waiters.forEach(resolveCommitted);
+    this.pump();
+  }
+
+  private async quarantineInFlight(
+    current: InFlightMutation,
+    error: CanvasSceneMutationError,
+  ): Promise<void> {
+    try {
+      await this.options.outbox.quarantine(
+        current.intent,
+        error,
+        this.now(),
+      );
+    } catch (quarantineError) {
+      if (this.inFlight !== current) return;
+      this.enterFatal(
+        `Could not quarantine rejected Canvas mutation: ${
+          quarantineError instanceof Error
+            ? quarantineError.message
+            : String(quarantineError)
+        }`,
+      );
+      return;
+    }
+    if (this.inFlight !== current) return;
+    this.inFlight = null;
+    const failure = new Error(error.message);
+    current.waiters.forEach((waiter) => rejectCommitted(waiter, failure));
+    this.refreshStatus();
+    await this.requestSync();
     this.pump();
   }
 
@@ -1421,6 +1505,12 @@ export class CanvasSceneProvider {
     this.error = error;
     this.connected = false;
     this.cancelRetry?.();
+    const baseDelayMs = Math.min(
+      5_000,
+      150 * Math.pow(2, this.retryAttempt),
+    );
+    const delayMs = Math.round(baseDelayMs * (0.8 + this.random() * 0.4));
+    this.retryAttempt = Math.min(this.retryAttempt + 1, 6);
     this.cancelRetry = this.scheduleRetry(() => {
       this.cancelRetry = null;
       this.error = undefined;
@@ -1428,7 +1518,7 @@ export class CanvasSceneProvider {
         if (this.inFlight) void this.sendInFlight();
         else this.pump();
       });
-    }, 150);
+    }, delayMs);
     this.refreshStatus();
   }
 

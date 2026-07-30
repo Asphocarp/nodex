@@ -31,11 +31,13 @@ import type {
   WorkbenchTabProjection,
 } from "@/lib/types";
 import type { WorkbenchView } from "@/lib/use-workbench-profile-preferences";
+import type { OpenCanvasStageHandler } from "@/lib/use-workbench-panel-openers";
 import {
   applyWorkbenchViewTabPatch,
 } from "@/lib/window-session-view-adapter";
 import type { WorkbenchSessionRenderProjection } from "@/lib/workbench-session-presentation";
 import { DbViewSessionTab } from "./workbench-db-view-panel";
+import { WorkbenchCanvasStagePanel } from "./workbench-canvas-stage-panel";
 import {
   PageStageSessionTab,
   type OpenPageTabHandler,
@@ -67,6 +69,7 @@ export function WorkbenchTabProjectionPanel({
   onReminderHandled,
   onLeavePageStage,
   onOpenPageTab,
+  onOpenCanvasStage,
   onOpenFileTab,
   onEnsureBlankSessionForProject,
   onRefreshSessions,
@@ -123,6 +126,7 @@ export function WorkbenchTabProjectionPanel({
   }) => void;
   onLeavePageStage: (snapshot: PageStageSessionSnapshot) => void;
   onOpenPageTab: OpenPageTabHandler;
+  onOpenCanvasStage: OpenCanvasStageHandler;
   onOpenFileTab: (input: {
     path: string;
     title: string;
@@ -160,7 +164,6 @@ export function WorkbenchTabProjectionPanel({
   if (tab.kind === "db_view" && "view" in tab.config) {
     return (
       <DbViewSessionTab
-        windowSessionId={windowSessionId}
         sessionId={activeSession.id}
         tab={tab}
         projects={projects}
@@ -179,7 +182,28 @@ export function WorkbenchTabProjectionPanel({
         setDbViewPrefs={setDbViewPrefs}
         onReminderHandled={onReminderHandled}
         onOpenPageTab={onOpenPageTab}
+        onOpenCanvasStage={onOpenCanvasStage}
+        targetLeafId={resolveLeafIdForPanelTab(
+          activeSession,
+          tab.panelId,
+          tab.id,
+        )}
         onUpdateTab={onUpdateTab}
+      />
+    );
+  }
+
+  if (tab.kind === "canvas_stage") {
+    return (
+      <WorkbenchCanvasStagePanel
+        tab={tab}
+        windowSessionId={windowSessionId}
+        projectSessionId={activeSession.id}
+        isActivePanelTab={isActivePanelTab}
+        onClose={() => void onCloseTab(tab.id)}
+        onTitleChange={(title) => {
+          onUpdateTab(tab.id, { title });
+        }}
       />
     );
   }
@@ -226,6 +250,7 @@ export function WorkbenchTabProjectionPanel({
         onEnsureBlankSessionForProject={onEnsureBlankSessionForProject}
         onRefreshSessions={onRefreshSessions}
         onOpenPageTab={onOpenPageTab}
+        onOpenCanvasStage={onOpenCanvasStage}
         onOpenThread={onOpenThread}
         historyPanelActive={Boolean(
           pageStageHistoryModal

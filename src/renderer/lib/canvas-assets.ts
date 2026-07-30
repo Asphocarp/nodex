@@ -1,5 +1,9 @@
 import type { CanvasSceneFile } from "../../shared/block-documents/canvas-scene";
-import { readManagedImageDataUrl, uploadImageAsset } from "./assets";
+import type { ManagedCanvasImageMaterializationResult } from "../../shared/managed-assets";
+import {
+  materializeCanvasImageAsset,
+  readManagedImageDataUrl,
+} from "./assets";
 
 export interface CanvasBinaryFileData {
   readonly id: string;
@@ -12,7 +16,9 @@ export interface CanvasBinaryFileData {
 export type CanvasBinaryFiles = Readonly<Record<string, CanvasBinaryFileData>>;
 
 export interface CanvasAssetBridgeDependencies {
-  readonly uploadImage?: (file: File) => Promise<string>;
+  readonly materializeImage?: (
+    file: File,
+  ) => Promise<ManagedCanvasImageMaterializationResult>;
   readonly readAssetDataUrl?: (source: string) => Promise<string>;
   readonly now?: () => number;
 }
@@ -61,7 +67,8 @@ export const materializeDurableCanvasFiles = async (input: {
   readonly current: Readonly<Record<string, CanvasSceneFile>>;
   readonly dependencies?: CanvasAssetBridgeDependencies;
 }): Promise<Readonly<Record<string, CanvasSceneFile>>> => {
-  const upload = input.dependencies?.uploadImage ?? uploadImageAsset;
+  const materialize =
+    input.dependencies?.materializeImage ?? materializeCanvasImageAsset;
   const durable: Record<string, CanvasSceneFile> = {};
   for (const fileId of collectCanvasReferencedFileIds(
     input.elementsIncludingDeleted,
@@ -76,11 +83,11 @@ export const materializeDurableCanvasFiles = async (input: {
       throw new Error(`Canvas image ${fileId} has no binary payload`);
     }
     const file = await dataUrlToFile(binary);
-    const source = await upload(file);
+    const materialized = await materialize(file);
     durable[fileId] = {
       id: fileId,
       mimeType: binary.mimeType,
-      source,
+      source: materialized.source,
       created: binary.created,
     };
   }

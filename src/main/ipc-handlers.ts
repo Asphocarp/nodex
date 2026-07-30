@@ -46,6 +46,7 @@ import {
   updateWindowRestoreSettings,
 } from "./local-store/config";
 import {
+  materializeCanvasImage,
   materializeLocalResource,
   readManagedAssetImage,
   readManagedAssetPreview,
@@ -2992,6 +2993,10 @@ export function registerIpcHandlers(
   registerHandle("asset:image:save", (event, input) => {
     requireTrustedAppRendererSender(event, "Managed image writes");
     return saveUploadedImage(input);
+  });
+  registerHandle("asset:canvas-image:materialize", (event, input) => {
+    requireTrustedAppRendererSender(event, "Managed Canvas image writes");
+    return materializeCanvasImage(input);
   });
   registerHandle("asset:image:read", (event, source) => {
     requireTrustedAppRendererSender(event, "Managed image reads");

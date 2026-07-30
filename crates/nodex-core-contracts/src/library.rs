@@ -10,13 +10,14 @@ use crate::agent::{
 };
 use crate::{CommittedModuleValue, ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const LIBRARY_CONTRACT_VERSION: u32 = 2;
+pub const LIBRARY_CONTRACT_VERSION: u32 = 4;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum LibraryRouteTarget {
     Page { page_id: String },
     Database { database_id: String },
+    Canvas { canvas_id: String },
     View { view_id: String },
 }
 
@@ -25,6 +26,7 @@ pub enum LibraryRouteTarget {
 pub enum LibraryResourceTarget {
     Page { page_id: String },
     Database { database_id: String },
+    Canvas { canvas_id: String },
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -52,6 +54,35 @@ pub enum LibraryWriteParent {
         expected_document_generation: i64,
         expected_document_head_seq: i64,
         before: Option<LibraryPlacementAnchor>,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LibraryPageInsertion {
+    Append {
+        parent_block_id: Option<String>,
+    },
+    Before {
+        parent_block_id: Option<String>,
+        anchor_block_id: String,
+    },
+    ReplaceEmptyParagraph {
+        block_id: String,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LibraryCanvasDestination {
+    Library {
+        before: Option<LibraryPlacementAnchor>,
+    },
+    Page {
+        page_id: String,
+        expected_document_generation: i64,
+        expected_document_head_seq: i64,
+        insertion: LibraryPageInsertion,
     },
 }
 
@@ -499,6 +530,9 @@ pub enum LibraryRead {
     PageLocation {
         page_id: String,
     },
+    CanvasTarget {
+        canvas_id: String,
+    },
     PageLifecyclePreflight {
         page_id: String,
     },
@@ -556,6 +590,7 @@ pub enum LibraryRead {
 pub enum LibraryCatalogKind {
     Page,
     Database,
+    Canvas,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -587,6 +622,16 @@ pub enum LibraryNavigationNode {
         location_revision: i64,
         updated_at: String,
     },
+    Canvas {
+        canvas_id: String,
+        title: String,
+        is_primary: bool,
+        metadata_revision: i64,
+        location_revision: i64,
+        document_generation: i64,
+        document_head_seq: i64,
+        updated_at: String,
+    },
     View {
         view_id: String,
         database_id: String,
@@ -608,6 +653,46 @@ pub struct LibraryCatalogEntry {
     pub updated_at: String,
     pub location_revision: i64,
     pub metadata_revision: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LibraryCanvasLocation {
+    Library,
+    Page {
+        page_id: String,
+        document_id: String,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryCanvasSummary {
+    pub canvas_id: String,
+    pub project_id: String,
+    pub title: String,
+    pub lifecycle: String,
+    pub is_primary: bool,
+    pub location: LibraryCanvasLocation,
+    pub metadata_revision: i64,
+    pub location_revision: i64,
+    pub document_generation: i64,
+    pub document_head_seq: i64,
+    pub updated_at: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum LibraryCanvasTarget {
+    Missing {
+        canvas_id: String,
+    },
+    Deleted {
+        canvas_id: String,
+        library_id: String,
+    },
+    Available {
+        summary: LibraryCanvasSummary,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -1657,6 +1742,9 @@ pub enum LibraryReadValue {
     PageLocation {
         value: Option<LibraryPageLocation>,
     },
+    CanvasTarget {
+        value: Box<LibraryCanvasTarget>,
+    },
     PageLifecyclePreflight {
         value: Box<LibraryPageLifecyclePreflight>,
     },
@@ -1708,6 +1796,36 @@ pub enum LibraryIntent {
         view_id: String,
         name: String,
         parent: LibraryWriteParent,
+    },
+    CreateCanvas {
+        canvas_id: String,
+        document_id: String,
+        display_name: String,
+        destination: LibraryCanvasDestination,
+    },
+    RenameCanvas {
+        canvas_id: String,
+        display_name: String,
+        expected_metadata_revision: i64,
+    },
+    MoveCanvas {
+        canvas_id: String,
+        expected_location_revision: i64,
+        destination: LibraryCanvasDestination,
+    },
+    DuplicateCanvas {
+        source_canvas_id: String,
+        canvas_id: String,
+        document_id: String,
+        display_name: Option<String>,
+        expected_document_generation: i64,
+        expected_document_head_seq: i64,
+        destination: LibraryCanvasDestination,
+    },
+    DeleteCanvas {
+        canvas_id: String,
+        expected_location_revision: i64,
+        expected_metadata_revision: i64,
     },
     CopyPage {
         source_page_id: String,
@@ -1804,12 +1922,24 @@ pub struct LibraryCommitValue {
     pub affected_resource_ids: Vec<String>,
     pub page_create: Option<LibraryPageCreateResult>,
     pub page_copy: Option<LibraryPageCopyResult>,
+    pub canvas_mutation: Option<LibraryCanvasMutationResult>,
     pub block_transfer: Option<LibraryBlockTransferResult>,
     pub page_lifecycle: Option<LibraryPageLifecycleMutationReceipt>,
     pub block_property_mutation: Option<LibraryBlockPropertyMutationReceipt>,
     pub agent_page_copy: Option<LibraryAgentPageCopyResult>,
     pub agent_create_pages: Option<LibraryAgentCreatePagesResult>,
     pub agent_move_pages: Option<LibraryAgentMovePagesResult>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryCanvasMutationResult {
+    pub operation_kind: String,
+    pub canvas_id: String,
+    pub document_id: String,
+    pub source_canvas_id: Option<String>,
+    pub location_revision: i64,
+    pub metadata_revision: i64,
+    pub document_commits: Vec<LibraryBlockTransferDocumentCommit>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]

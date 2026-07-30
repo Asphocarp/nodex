@@ -2,7 +2,6 @@ import { CalendarView } from "@/components/kanban/calendar-view";
 import { KanbanBoard } from "@/components/kanban/board";
 import { ListView } from "@/components/kanban/list-view";
 import { ToggleListView } from "@/components/kanban/toggle-list-view";
-import { CanvasView } from "@/components/kanban/canvas-view";
 import type { OpenPageStageOptions } from "@/components/kanban/open-page-stage";
 import type { DbViewPrefs } from "../../lib/db-view-prefs";
 import type { CalendarViewState } from "@/lib/calendar-view-state";
@@ -15,7 +14,6 @@ import { DatabaseViewSurface } from "./read-only-database-view";
 interface MainViewHostProps {
   projectId: string;
   databaseViewId: string;
-  canvasSurfaceKey: string;
   databaseView: DatabaseViewRenderModel | null;
   databaseViewPagination?: ReadonlyMap<string, ColumnPaginationState>;
   onLoadMoreDatabaseViewGroup?: (scopeKey: string) => Promise<void> | void;
@@ -54,7 +52,6 @@ interface MainViewHostProps {
 export function MainViewHost({
   projectId,
   databaseViewId,
-  canvasSurfaceKey,
   databaseView,
   databaseViewPagination,
   onLoadMoreDatabaseViewGroup,
@@ -118,19 +115,6 @@ export function MainViewHost({
         pageStagePageId={pageStagePageId}
         pageStageCloseRef={pageStageCloseRef}
         scrollStateKey={scrollStateKey}
-      />
-    );
-  }
-
-  if (view === "canvas") {
-    return (
-      <CanvasView
-        projectId={projectId}
-        databaseViewId={databaseViewId}
-        canvasSurfaceKey={canvasSurfaceKey}
-        openPageStage={openPageStage}
-        pageStagePageId={pageStagePageId}
-        pageStageCloseRef={pageStageCloseRef}
       />
     );
   }

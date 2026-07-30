@@ -1,12 +1,17 @@
 import type {
   GrantLibraryResourceToProjectOperation,
-  LibraryResourceTarget,
+  LibraryResourceTarget as AnyLibraryResourceTarget,
   LibraryWriteParent,
   MoveLibraryBlockOperation,
 } from "../../shared/library-module";
 
+type LibraryMoveableResourceTarget = Exclude<
+  AnyLibraryResourceTarget,
+  { readonly kind: "canvas" }
+>;
+
 export const buildLibraryMoveOperation = (input: Readonly<{
-  target: LibraryResourceTarget;
+  target: LibraryMoveableResourceTarget;
   expectedLocationRevision: number;
   parent: LibraryWriteParent;
 }>): MoveLibraryBlockOperation => ({
@@ -26,7 +31,7 @@ export const buildLibraryMoveOperation = (input: Readonly<{
 });
 
 export const buildLibraryProjectGrantOperation = (input: Readonly<{
-  target: LibraryResourceTarget;
+  target: LibraryMoveableResourceTarget;
   projectId: string;
   access: "read" | "read_write";
 }>): GrantLibraryResourceToProjectOperation => ({

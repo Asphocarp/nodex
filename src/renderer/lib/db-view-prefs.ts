@@ -20,7 +20,7 @@ import {
   type SortEmptyPlacement,
 } from "./sort-empty-placement";
 
-type WorkbenchView = "kanban" | "list" | "toggle-list" | "canvas" | "calendar";
+type WorkbenchView = "kanban" | "list" | "toggle-list" | "calendar";
 
 export type SupportedDbView = "kanban" | "list" | "toggle-list";
 

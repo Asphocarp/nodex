@@ -127,6 +127,7 @@ function CommandPaletteStory({
       panelActionAvailability: {
         db_view: true,
         page_stage: true,
+        canvas_stage: true,
         terminal: true,
         browser: true,
         review: true,

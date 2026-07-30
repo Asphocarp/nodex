@@ -36,6 +36,7 @@ import type {
   LibraryBlockPropertyMutationCommandResultV2,
   LibraryBlockPropertyMutationRequestV2,
 } from "../../shared/block-property-mutations-v2";
+import type { RelocationDocumentCommit } from "../../shared/block-documents/contracts";
 import type { DesktopDataAuthorityRuntime } from "./desktop-data-authority";
 import {
   createCoreLibraryModuleAdapter,
@@ -45,6 +46,14 @@ import {
 export interface DesktopLibraryModuleBridgeInput {
   readonly authority: Promise<DesktopDataAuthorityRuntime>;
   readonly resolveProjectId: (event: unknown) => string | null;
+  readonly publishDocumentCommits?: (input: {
+    readonly scope:
+      | { readonly kind: "project"; readonly projectId: string }
+      | { readonly kind: "library" };
+    readonly storeEpoch: string;
+    readonly commits: readonly RelocationDocumentCommit[];
+    readonly clientSessionId: string;
+  }) => void;
 }
 
 export interface DesktopLibraryModuleBridge {
@@ -120,6 +129,25 @@ export function createDesktopLibraryModuleBridge(
     projectCoreAdapters.set(projectId, adapter);
     return adapter;
   };
+  const publishCanvasDocumentCommits = (
+    result: LibraryModuleApplyResult,
+    scopes: readonly (
+      | { readonly kind: "project"; readonly projectId: string }
+      | { readonly kind: "library" }
+    )[],
+  ): void => {
+    if (!result.ok) return;
+    const commits = result.value.canvasMutation?.documentCommits ?? [];
+    if (commits.length === 0) return;
+    for (const scope of scopes) {
+      input.publishDocumentCommits?.({
+        scope,
+        storeEpoch: result.value.storeEpoch,
+        commits,
+        clientSessionId: "rust:library",
+      });
+    }
+  };
 
   return {
     read: async (request) => {
@@ -140,12 +168,19 @@ export function createDesktopLibraryModuleBridge(
           },
         };
       }
-      return await projectCoreAdapter(runtime, projectId).apply(request);
+      const result = await projectCoreAdapter(runtime, projectId).apply(request);
+      publishCanvasDocumentCommits(result, [
+        { kind: "project", projectId },
+        { kind: "library" },
+      ]);
+      return result;
     },
     applyTrustedLibrary: async (request) => {
       const runtime = await input.authority;
       rootCoreAdapter ??= coreAdapter(runtime);
-      return await rootCoreAdapter.apply(request);
+      const result = await rootCoreAdapter.apply(request);
+      publishCanvasDocumentCommits(result, [{ kind: "library" }]);
+      return result;
     },
     readProjectPageDetail: async (projectId, pageId) => {
       const runtime = await input.authority;

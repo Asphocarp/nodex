@@ -27,11 +27,14 @@ import {
   useLibraryPath,
 } from "@/lib/use-library-navigation";
 import type {
-  LibraryResourceTarget,
+  LibraryResourceTarget as AnyLibraryResourceTarget,
   LibraryWriteParent,
 } from "../../../shared/library-module";
 
-export type { LibraryResourceTarget } from "../../../shared/library-module";
+export type LibraryResourceTarget = Exclude<
+  AnyLibraryResourceTarget,
+  { readonly kind: "canvas" }
+>;
 
 export interface LibraryProjectOption {
   readonly id: string;

@@ -1,6 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import { getNodexHome } from "./assets-deps";
 import {
@@ -17,6 +17,7 @@ import {
   type ManagedAssetPreview,
   type ManagedAssetPreviewInput,
   type ManagedAssetUploadInput,
+  type ManagedCanvasImageMaterializationResult,
   type ManagedFolderManifest,
   type ManagedFolderManifestEntry,
   type ManagedImageSaveResult,
@@ -208,6 +209,97 @@ const decodeInlineImageDataUrl = (
   return { bytes, mimeType };
 };
 
+const assertContentAddressedAsset = (
+  absolutePath: string,
+  expectedHash: string,
+): void => {
+  const stats = fs.lstatSync(absolutePath);
+  if (!stats.isFile() || stats.isSymbolicLink()) {
+    throw new Error("Managed Canvas image asset must be a regular file");
+  }
+  const actualHash = createHash("sha256")
+    .update(fs.readFileSync(absolutePath))
+    .digest("hex");
+  if (actualHash === expectedHash) return;
+  throw new Error("Managed Canvas image asset hash collision");
+};
+
+const isAlreadyExistsError = (
+  error: unknown,
+): error is NodeJS.ErrnoException =>
+  error instanceof Error
+  && "code" in error
+  && error.code === "EEXIST";
+
+const publishContentAddressedAsset = (
+  assetsRootPath: string,
+  fileName: string,
+  bytes: Buffer,
+  contentHash: string,
+): void => {
+  const absolutePath = resolveAssetPathInRoot(assetsRootPath, fileName);
+  fs.mkdirSync(assetsRootPath, { recursive: true });
+  if (fs.existsSync(absolutePath)) {
+    assertContentAddressedAsset(absolutePath, contentHash);
+    return;
+  }
+
+  const temporaryName = `.${fileName}.${process.pid}.${randomUUID()}.tmp`;
+  const temporaryPath = resolveAssetPathInRoot(assetsRootPath, temporaryName);
+  let fileDescriptor: number | null = null;
+  try {
+    fileDescriptor = fs.openSync(temporaryPath, "wx", 0o600);
+    fs.writeFileSync(fileDescriptor, bytes);
+    fs.fsyncSync(fileDescriptor);
+    fs.closeSync(fileDescriptor);
+    fileDescriptor = null;
+    try {
+      fs.linkSync(temporaryPath, absolutePath);
+    } catch (error) {
+      if (!isAlreadyExistsError(error)) throw error;
+    }
+    assertContentAddressedAsset(absolutePath, contentHash);
+  } finally {
+    if (fileDescriptor !== null) fs.closeSync(fileDescriptor);
+    try {
+      fs.unlinkSync(temporaryPath);
+    } catch (error) {
+      if (!isAlreadyExistsError(error) && fs.existsSync(temporaryPath)) {
+        throw error;
+      }
+    }
+  }
+};
+
+const materializeCanvasImageBytesAtRoot = (
+  bytes: Buffer,
+  mimeType: string,
+  assetsRootPath: string,
+): ManagedCanvasImageMaterializationResult => {
+  if (!isSupportedImageMimeType(mimeType)) {
+    throw new Error(`Unsupported Canvas image type: ${mimeType}`);
+  }
+  if (bytes.byteLength > MAX_IMAGE_UPLOAD_BYTES) {
+    throw new Error("Canvas image exceeds 10MB upload limit");
+  }
+  const contentHash = createHash("sha256").update(bytes).digest("hex");
+  const extension = IMAGE_MIME_TO_EXTENSION[mimeType] ?? "";
+  const fileName = `canvas-${contentHash}${extension}`;
+  publishContentAddressedAsset(
+    assetsRootPath,
+    fileName,
+    bytes,
+    contentHash,
+  );
+  return {
+    source: getAssetSource(fileName),
+    fileName,
+    mimeType,
+    contentHash,
+    byteLength: bytes.byteLength,
+  };
+};
+
 /** One-way import seam; managed filename is content-addressed and idempotent. */
 export function materializeInlineImageAtRoot(
   dataUrl: string,
@@ -217,25 +309,27 @@ export function materializeInlineImageAtRoot(
   },
 ): { readonly source: string; readonly fileName: string; readonly mimeType: string } {
   const { bytes, mimeType } = decodeInlineImageDataUrl(dataUrl);
-  const hash = createHash("sha256").update(bytes).digest("hex");
+  if (options.namespace === "canvas") {
+    const result = materializeCanvasImageBytesAtRoot(
+      bytes,
+      mimeType,
+      options.assetsRootPath,
+    );
+    return {
+      source: result.source,
+      fileName: result.fileName,
+      mimeType: result.mimeType,
+    };
+  }
+  const contentHash = createHash("sha256").update(bytes).digest("hex");
   const extension = IMAGE_MIME_TO_EXTENSION[mimeType] ?? "";
-  const fileName = `${options.namespace}-${hash}${extension}`;
-  const absolutePath = resolveAssetPathInRoot(
+  const fileName = `${options.namespace}-${contentHash}${extension}`;
+  publishContentAddressedAsset(
     options.assetsRootPath,
     fileName,
+    bytes,
+    contentHash,
   );
-  if (fs.existsSync(absolutePath)) {
-    const stats = fs.lstatSync(absolutePath);
-    if (!stats.isFile() || stats.isSymbolicLink()) {
-      throw new Error("Managed inline image asset must be a regular file");
-    }
-    const existing = fs.readFileSync(absolutePath);
-    if (createHash("sha256").update(existing).digest("hex") !== hash) {
-      throw new Error("Managed inline image asset hash collision");
-    }
-  } else {
-    writeAssetBytesAtRoot(options.assetsRootPath, fileName, bytes);
-  }
   return { source: getAssetSource(fileName), fileName, mimeType };
 }
 
@@ -249,6 +343,22 @@ export function materializeInlineCanvasImage(
       assetsRootPath: getAssetsRootPath(),
       namespace: "canvas",
     });
+  } finally {
+    mutation.release();
+  }
+}
+
+export function materializeCanvasImage(
+  input: ManagedAssetUploadInput,
+): ManagedCanvasImageMaterializationResult {
+  const mutation = storeMaintenanceGate.beginMutation();
+  try {
+    const upload = normalizeAssetUploadInput(input);
+    return materializeCanvasImageBytesAtRoot(
+      upload.bytes,
+      upload.mimeType,
+      getAssetsRootPath(),
+    );
   } finally {
     mutation.release();
   }

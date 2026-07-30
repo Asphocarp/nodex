@@ -2300,6 +2300,9 @@ export async function runMainAppStartup(
     }, 250);
     restart.unref?.();
   };
+  const documentSync = createDesktopDocumentSyncBridge({
+    authority: dataAuthority,
+  });
   const libraryModule = createDesktopLibraryModuleBridge({
     authority: dataAuthority,
     resolveProjectId: (rawEvent) => {
@@ -2314,11 +2317,9 @@ export async function runMainAppStartup(
       if (!projectId) return null;
       return projectId;
     },
+    publishDocumentCommits: documentSync.publishDocumentCommits,
   });
   desktopLibraryModule = libraryModule;
-  const documentSync = createDesktopDocumentSyncBridge({
-    authority: dataAuthority,
-  });
   const databaseModule = createDesktopDatabaseModuleBridge({
     authority: dataAuthority,
   });

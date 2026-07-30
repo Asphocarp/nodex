@@ -22,6 +22,22 @@ Owned Document is the engine-neutral domain boundary. It owns identity, Project 
 - `block_tree` schemas use the `yjs` sync engine.
 - `scene_graph` Canvas schemas use the `canvas_scene` sync engine.
 
+Canvas is a first-class document-bearing Block, not a Database View mode. Its
+Block ID is the public Canvas identity, `canvas_owners` records Library
+membership, and `block_documents` resolves the scene Document. A Canvas has one
+exclusive Library or Page placement. When Page-owned, the Page's Y.Doc contains
+only one childless `canvas` shell with the Canvas Block ID and empty
+props/children. The shell never stores scene JSON, `documentId`, files, app
+state, or title snapshots.
+
+Canvas structure belongs to the Library Module. Create, rename, move, duplicate,
+and delete atomically coordinate owner metadata, independent Document
+genesis/lifecycle, scene authority, Library placement or exact Page shell,
+projections, event, and exact-retry receipt. Scene editing, history, presence,
+assets, and synchronization remain in the Document/Canvas engine. Project
+creation still seeds one deterministic primary Canvas, but it uses the same
+resource and presentation paths as every other Canvas.
+
 The common descriptor carries an explicit sync-engine discriminant. Yjs state vectors and binary updates belong only to Yjs-specific heads, transports, stores, providers, checkpoints, and recovery data. Canvas scene snapshots, element candidate batches, and scene receipts belong only to the Canvas engine. Legacy-shadow state remains isolated in the shipped-store import seam and is not a public authority variant.
 
 Canvas authority is normalized in SQLite:
@@ -45,6 +61,14 @@ The existing process-wide Hub remains the owner of Project-scoped subscription i
 Canvas no longer writes `document_updates`, `document_snapshots`, Yjs state vectors, or Yjs IndexedDB checkpoints. Its durable size follows the current scene plus bounded receipts/checkpoints rather than every pointer-era Yjs structure. BlockNote-backed Documents retain the existing Yjs provider and storage behavior unchanged.
 
 The renderer and main process gain parallel engine-specific providers and transports behind one Owned Document identity boundary. Common types cannot expose a fake universal content object; callers must dispatch on the sync-engine discriminant. Block relocation remains a `block_tree` operation and rejects Canvas statically and at the authority boundary, while common write leases remain available to Canvas restore and owner deletion.
+
+Inline Page Canvas and `canvas_stage` tabs are separate surface runtimes over
+the same public Canvas ID and durable scene. They keep independent selection,
+tool, undo, presence client, and surface-scoped camera. Window Session state may
+persist Project authorization, Canvas ID, and a fallback title, but never
+Document identity or scene content. The retired Database Canvas presentation
+normalizes to List so Database View and whiteboard semantics cannot converge
+again accidentally.
 
 Schema migration materializes every existing Canvas Y.Doc into scene-native authority before deleting that Canvas Document's Yjs tail and operational snapshots. Existing Canvas history checkpoints are converted to canonical scene JSON before their Yjs payload is removed. The migration is atomic and fails readiness without partially changing an owner when any scene, reference, or managed asset is invalid.
 

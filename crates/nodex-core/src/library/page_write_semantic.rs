@@ -137,6 +137,7 @@ fn create_page_in_data_source(
             committed_revisions: created.committed_revisions,
             page_create: Some(created.page_create),
             page_copy: None,
+            canvas_mutation: None,
             block_transfer: None,
             page_lifecycle: None,
             block_property_mutation: None,

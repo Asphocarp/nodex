@@ -1,6 +1,10 @@
 import { describe, expect, test } from "vitest";
 import { parseNfm } from "../nfm/parser";
-import { nfmToBlockNoteWithIds } from "./nfm-blocknote-adapter";
+import {
+  blockNoteToNfm,
+  nfmToBlockNote,
+  nfmToBlockNoteWithIds,
+} from "./nfm-blocknote-adapter";
 
 describe("NFM BlockNote genesis adapter", () => {
   test("allocates one stable application identity for every nested Block", () => {
@@ -28,5 +32,23 @@ describe("NFM BlockNote genesis adapter", () => {
     expect(message).toBe(
       "Block ID allocator returned an invalid or duplicate identity",
     );
+  });
+
+  test("round-trips a Canvas owner as a childless identity shell", () => {
+    const [block] = nfmToBlockNote(parseNfm('<canvas uuid="canvas-1" />'));
+
+    expect(block).toEqual({
+      id: "canvas-1",
+      type: "canvas",
+      props: {},
+      children: [],
+    });
+    expect(blockNoteToNfm([block])).toEqual([
+      {
+        type: "canvas",
+        uuid: "canvas-1",
+        children: [],
+      },
+    ]);
   });
 });

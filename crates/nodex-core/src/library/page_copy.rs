@@ -247,6 +247,7 @@ pub(super) fn copy_page(
             committed_revisions: execution.committed_revisions,
             page_create: None,
             page_copy: Some(execution.result),
+            canvas_mutation: None,
             block_transfer: None,
             page_lifecycle: None,
             block_property_mutation: None,
@@ -1639,13 +1640,13 @@ mod tests {
         AgentResourceAccessOverlayKind, AgentResourceAccessOverlayScope, AgentResourceGrantRoot,
         AgentResourceGrantSpec, AgentTurnProvenance,
     };
-    use nodex_core_contracts::document::{DocumentOwnerCommand, OwnedDocumentIntent};
+    use nodex_core_contracts::document::OwnedDocumentIntent;
     use nodex_core_contracts::library::{
         LibraryAccess, LibraryAgentCreatePageDraft, LibraryAgentCreatePagesRequest,
         LibraryAgentMovePagesRequest, LibraryAgentPageCopyRequest, LibraryAgentPageDestination,
-        LibraryIntent, LibraryNavigationNode, LibraryNavigationParent, LibraryPageCopyDestination,
-        LibraryPageCopyValue, LibraryPageCopyViewPlacement, LibraryRead, LibraryReadValue,
-        LibraryResourceTarget, LibraryWriteParent,
+        LibraryCanvasDestination, LibraryIntent, LibraryNavigationNode, LibraryNavigationParent,
+        LibraryPageCopyDestination, LibraryPageCopyValue, LibraryPageCopyViewPlacement,
+        LibraryRead, LibraryReadValue, LibraryResourceTarget, LibraryWriteParent,
     };
     use nodex_core_contracts::workspace::{
         PROJECT_WORKSPACE_CONTRACT_VERSION, ProjectWorkspaceIntent, ProjectWorkspaceThreadPatch,
@@ -4025,25 +4026,26 @@ mod tests {
     #[test]
     fn clones_canvas_genesis_without_a_second_public_event() {
         let (_directory, kernel) = seeded_kernel();
-        let documents = OwnedDocumentModule::new("profile-1", "library-1", &kernel);
-        documents
+        let library = LibraryModule::new("profile-1", "library-1", &kernel);
+        let source_canvas_id = "018f0000-0000-7000-8000-000000000201";
+        let source_canvas_document_id = "018f0000-0000-7000-8000-000000000203";
+        library
             .apply(
                 &context(),
                 ModuleApplyRequest {
-                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                     operation_id: "operation:create-canvas".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
-                    intent: OwnedDocumentIntent::ApplyOwnerCommand {
-                        command: DocumentOwnerCommand::CreateCanvasOwner {
-                            block_id: "018f0000-0000-7000-8000-000000000201".to_owned(),
-                            document_id: "document:canvas-source".to_owned(),
-                            display_name: "Sketch".to_owned(),
-                            before: None,
-                        },
+                    intent: LibraryIntent::CreateCanvas {
+                        canvas_id: source_canvas_id.to_owned(),
+                        document_id: source_canvas_document_id.to_owned(),
+                        display_name: "Sketch".to_owned(),
+                        destination: LibraryCanvasDestination::Library { before: None },
                     },
                 },
             )
-            .expect("create Canvas owner");
+            .expect("create Canvas");
+        let documents = OwnedDocumentModule::new("profile-1", "library-1", &kernel);
         documents
             .apply(
                 &context(),
@@ -4052,7 +4054,7 @@ mod tests {
                     operation_id: "operation:edit-canvas".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: OwnedDocumentIntent::ApplyCanvasMutation {
-                        document_id: "document:canvas-source".to_owned(),
+                        document_id: source_canvas_document_id.to_owned(),
                         generation: 1,
                         expected_head_seq: 0,
                         mutation: serde_json::json!({
@@ -4125,7 +4127,7 @@ mod tests {
                         )?;
                         let source = read_document_authority(
                             transaction,
-                            "document:canvas-source",
+                            source_canvas_document_id,
                         )?
                         .expect("source Canvas authority");
                         let target = read_document_authority(
@@ -4162,8 +4164,8 @@ mod tests {
                      FROM documents document JOIN canvas_scenes scene \
                        ON scene.document_id = document.id \
                      JOIN canvas_scene_elements element ON element.document_id = document.id \
-                     WHERE document.id = 'document:canvas-source'",
-                    [],
+                     WHERE document.id = ?1",
+                    [source_canvas_document_id],
                     |row| {
                         Ok((
                             row.get::<_, i64>(0)?,

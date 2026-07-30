@@ -145,9 +145,15 @@ describe("CanvasSceneBinding", () => {
     const binding = new CanvasSceneBinding({
       provider: providerFor(provider),
       assetDependencies: {
-        uploadImage: async () => {
+        materializeImage: async () => {
           await uploadGate;
-          return "nodex://assets/image.png";
+          return {
+            source: "nodex://assets/image.png",
+            fileName: "image.png",
+            mimeType: "image/png",
+            contentHash: "a".repeat(64),
+            byteLength: 1,
+          };
         },
       },
       onRemoteScene: () => undefined,
@@ -184,16 +190,81 @@ describe("CanvasSceneBinding", () => {
     );
   });
 
+  test("reuses a staged image while its first durable mutation awaits Core ACK", async () => {
+    const provider = new StubSceneProvider();
+    let releaseCommit = (): void => undefined;
+    provider.submitGate = new Promise<void>((resolve) => {
+      releaseCommit = resolve;
+    });
+    let materializations = 0;
+    const binding = new CanvasSceneBinding({
+      provider: providerFor(provider),
+      assetDependencies: {
+        materializeImage: async () => {
+          materializations += 1;
+          return {
+            source: "nodex://assets/canvas-content.png",
+            fileName: "canvas-content.png",
+            mimeType: "image/png",
+            contentHash: "a".repeat(64),
+            byteLength: 1,
+          };
+        },
+      },
+      onRemoteScene: () => undefined,
+    });
+    const binaryFiles = {
+      image: {
+        id: "image",
+        mimeType: "image/png",
+        dataURL: "data:image/png;base64,AA==",
+        created: 1,
+      },
+    };
+
+    const first = binding.submitLocalScene({
+      elementsIncludingDeleted: [
+        element(2, { type: "image", fileId: "image" }),
+      ],
+      appState: provider.scene.appState,
+      binaryFiles,
+    });
+    await first.durable;
+    const second = binding.submitLocalScene({
+      elementsIncludingDeleted: [
+        element(3, { type: "image", fileId: "image", x: 40 }),
+      ],
+      appState: provider.scene.appState,
+      binaryFiles,
+    });
+    await second.durable;
+
+    expect(materializations).toBe(1);
+    expect(provider.submissions).toHaveLength(2);
+    expect(provider.submissions[0]?.fileAdditions).toEqual(
+      provider.submissions[1]?.fileAdditions,
+    );
+
+    releaseCommit();
+    await Promise.all([first.committed, second.committed]);
+  });
+
   test("retains a failed image candidate for an explicit durable retry", async () => {
     const provider = new StubSceneProvider();
     let uploadAttempts = 0;
     const binding = new CanvasSceneBinding({
       provider: providerFor(provider),
       assetDependencies: {
-        uploadImage: async () => {
+        materializeImage: async () => {
           uploadAttempts += 1;
           if (uploadAttempts === 1) throw new Error("upload failed");
-          return "nodex://assets/image.png";
+          return {
+            source: "nodex://assets/image.png",
+            fileName: "image.png",
+            mimeType: "image/png",
+            contentHash: "a".repeat(64),
+            byteLength: 1,
+          };
         },
       },
       onRemoteScene: () => undefined,

@@ -9,6 +9,7 @@ import type {
   NfmColor,
   NfmInlineContent,
   NfmCallout,
+  NfmCanvas,
   NfmImage,
   NfmThreadSection,
   NfmSyncedBlockRef,
@@ -163,6 +164,15 @@ export function parseNfm(input: string): NfmBlock[] {
       const database = parseDatabase(content.trim());
       if (database) {
         addBlock(database, indent);
+        i++;
+        continue;
+      }
+    }
+
+    if (content.trimStart().startsWith("<canvas")) {
+      const canvas = parseCanvas(content.trim());
+      if (canvas) {
+        addBlock(canvas, indent);
         i++;
         continue;
       }
@@ -642,6 +652,16 @@ function parseDatabase(line: string): NfmDatabase | null {
     throw new TypeError("Canonical Database NFM requires an exact non-empty uuid");
   }
   return { type: "database", uuid, children: [] };
+}
+
+function parseCanvas(line: string): NfmCanvas | null {
+  const match = line.match(/^<canvas(?:\s+([^>]*))?\s*\/>$/);
+  if (!match) return null;
+  const uuid = getXmlAttr(match[1] ?? "", "uuid");
+  if (!uuid || uuid !== uuid.trim()) {
+    throw new TypeError("Canonical Canvas NFM requires an exact non-empty uuid");
+  }
+  return { type: "canvas", uuid, children: [] };
 }
 
 function parsePageRef(line: string): NfmPageRef | null {

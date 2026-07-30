@@ -1,6 +1,9 @@
 import { describe, expect, test } from "vitest";
 
-import { plainTextToPortableRichText } from "../../shared/block-documents";
+import {
+  plainTextToPortableRichText,
+  primaryCanvasBlockId,
+} from "../../shared/block-documents";
 import type { BlockPropertyMutationRequestV2 } from "../../shared/block-property-mutations-v2";
 import {
   parseDataSourceId,
@@ -1024,7 +1027,7 @@ describe("Core Library Module Adapter", () => {
     })).resolves.toEqual({
       ok: true,
       value: {
-        version: 2,
+        version: 4,
         profileId: identity.profileId,
         libraryId: identity.libraryId,
         storeEpoch: identity.storeEpoch,
@@ -1056,6 +1059,254 @@ describe("Core Library Module Adapter", () => {
       limit: undefined,
       force_include_target: null,
     }]);
+  });
+
+  test("maps Canvas targets and typed Canvas lifecycle receipts", async () => {
+    const canvasId = "019f7399-7676-70ae-b2aa-168692b64d21";
+    const documentId = "019f7399-7676-70ae-b2aa-168692b64d22";
+    const client = new FakeCoreClient();
+    client.enqueueRead({
+      contract_version: 2,
+      store_epoch: identity.storeEpoch,
+      event_head: 11,
+      value: {
+        kind: "canvas_target",
+        value: {
+          status: "available",
+          summary: {
+            canvas_id: canvasId,
+            project_id: "project:test",
+            title: "Design map",
+            lifecycle: "active",
+            is_primary: false,
+            location: { kind: "library" },
+            metadata_revision: 2,
+            location_revision: 3,
+            document_generation: 1,
+            document_head_seq: 4,
+            updated_at: "2026-07-30T15:00:00.000Z",
+          },
+        },
+      },
+    });
+    client.enqueueApply({
+      value: {
+        affected_resource_ids: [canvasId],
+        canvas_mutation: {
+          operation_kind: "create_canvas",
+          canvas_id: canvasId,
+          document_id: documentId,
+          source_canvas_id: null,
+          location_revision: 1,
+          metadata_revision: 1,
+          document_commits: [],
+        },
+      },
+      receipt: {
+        operation_id: "operation:create-canvas",
+        duplicate: false,
+        operation_kind: "create_canvas",
+        did_mutate: true,
+        created_target: { kind: "canvas", canvas_id: canvasId },
+        affected_parent_keys: ["library"],
+        affected_page_ids: [],
+        affected_database_ids: [],
+        affected_view_ids: [],
+        committed_revisions: { [canvasId]: 1 },
+        change_log_seq: 12,
+        committed_at: "2026-07-30T15:01:00.000Z",
+      },
+      event_sequence: 12,
+      store_epoch: identity.storeEpoch,
+    });
+    const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
+
+    await expect(adapter.read({
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      read: { mode: "canvas_target", canvasId },
+    })).resolves.toMatchObject({
+      ok: true,
+      value: {
+        value: {
+          kind: "canvas_target",
+          value: {
+            status: "available",
+            summary: {
+              canvasId,
+              title: "Design map",
+              location: { kind: "library" },
+            },
+          },
+        },
+      },
+    });
+    await expect(adapter.apply({
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      operationId: "operation:create-canvas",
+      storeEpoch: identity.storeEpoch,
+      operation: {
+        kind: "create_canvas",
+        canvasId,
+        documentId,
+        displayName: "Design map",
+        destination: { kind: "library" },
+      },
+    })).resolves.toMatchObject({
+      ok: true,
+      value: {
+        createdTarget: { kind: "canvas", canvasId },
+        canvasMutation: { canvasId, documentId },
+      },
+    });
+    expect(client.applies).toEqual([{
+      operationId: "operation:create-canvas",
+      intent: {
+        kind: "create_canvas",
+        canvas_id: canvasId,
+        document_id: documentId,
+        display_name: "Design map",
+        destination: { kind: "library", before: null },
+      },
+    }]);
+  });
+
+  test("round-trips the deterministic primary Canvas target", async () => {
+    const canvasId = primaryCanvasBlockId("project:test");
+    const client = new FakeCoreClient();
+    client.enqueueRead({
+      contract_version: 2,
+      store_epoch: identity.storeEpoch,
+      event_head: 11,
+      value: {
+        kind: "canvas_target",
+        value: {
+          status: "available",
+          summary: {
+            canvas_id: canvasId,
+            project_id: "project:test",
+            title: "Canvas",
+            lifecycle: "active",
+            is_primary: true,
+            location: { kind: "library" },
+            metadata_revision: 1,
+            location_revision: 1,
+            document_generation: 1,
+            document_head_seq: 0,
+            updated_at: "2026-07-31T15:00:00.000Z",
+          },
+        },
+      },
+    });
+    const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
+
+    await expect(adapter.read({
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      read: { mode: "canvas_target", canvasId },
+    })).resolves.toMatchObject({
+      ok: true,
+      value: {
+        value: {
+          kind: "canvas_target",
+          value: {
+            status: "available",
+            summary: { canvasId, isPrimary: true },
+          },
+        },
+      },
+    });
+    expect(client.reads).toEqual([{
+      kind: "canvas_target",
+      canvas_id: canvasId,
+    }]);
+  });
+
+  test("publishes Canvas host commits to mounted Project and Library Documents", async () => {
+    const projectClient = new FakeCoreClient();
+    const canvasId = "019f7399-7676-70ae-b2aa-168692b64d31";
+    const canvasDocumentId = "019f7399-7676-70ae-b2aa-168692b64d32";
+    projectClient.enqueueApply({
+      value: {
+        affected_resource_ids: [canvasId],
+        canvas_mutation: {
+          operation_kind: "create_canvas",
+          canvas_id: canvasId,
+          document_id: canvasDocumentId,
+          source_canvas_id: null,
+          location_revision: 1,
+          metadata_revision: 1,
+          document_commits: [{
+            document_id: "document:page",
+            generation: 2,
+            base_head_seq: 7,
+            head_seq: 8,
+            update_id: "update:canvas-shell",
+            update: [1, 2, 3],
+            state_vector: [4, 5],
+          }],
+        },
+      },
+      receipt: {
+        operation_id: "operation:create-inline-canvas",
+        duplicate: false,
+        operation_kind: "create_canvas",
+        did_mutate: true,
+        created_target: { kind: "canvas", canvas_id: canvasId },
+        affected_parent_keys: ["page:page:one"],
+        affected_page_ids: ["page:one"],
+        affected_database_ids: [],
+        affected_view_ids: [],
+        committed_revisions: { [canvasId]: 1 },
+        change_log_seq: 13,
+        committed_at: "2026-07-30T15:02:00.000Z",
+      },
+      event_sequence: 13,
+      store_epoch: identity.storeEpoch,
+    });
+    const runtime = {
+      backend: "rust",
+      rootClient: { handshake: fakeHandshake() },
+      clientForProject: () => projectClient,
+    } as unknown as RustDataAuthorityRuntime;
+    const published: Array<Record<string, unknown>> = [];
+    const bridge = createDesktopLibraryModuleBridge({
+      authority: Promise.resolve(runtime),
+      resolveProjectId: () => "project:test",
+      publishDocumentCommits: (input) => published.push(input),
+    });
+
+    const result = await bridge.apply({
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      operationId: "operation:create-inline-canvas",
+      storeEpoch: identity.storeEpoch,
+      operation: {
+        kind: "create_canvas",
+        canvasId,
+        documentId: canvasDocumentId,
+        displayName: "Inline Canvas",
+        destination: { kind: "library" },
+      },
+    }, {});
+
+    expect(result).toMatchObject({ ok: true });
+    expect(published).toEqual([
+      expect.objectContaining({
+        scope: { kind: "project", projectId: "project:test" },
+        storeEpoch: identity.storeEpoch,
+        clientSessionId: "rust:library",
+        commits: [expect.objectContaining({
+          documentId: "document:page",
+          generation: 2,
+          headSeq: 8,
+        })],
+      }),
+      expect.objectContaining({
+        scope: { kind: "library" },
+        commits: [expect.objectContaining({
+          documentId: "document:page",
+          headSeq: 8,
+        })],
+      }),
+    ]);
   });
 
   test("maps a committed aggregate and rejects a stale epoch before Core", async () => {
@@ -1137,7 +1388,7 @@ describe("Core Library Module Adapter", () => {
     });
 
     await expect(bridge.apply({
-      version: 2,
+      version: 4,
       operationId: "operation:unbound",
       storeEpoch: identity.storeEpoch,
       operation: {

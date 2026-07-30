@@ -28,8 +28,10 @@ const deferred = () => {
 };
 
 const runtimeDependencies = (input: {
+  ownerBlockId?: string;
   durable?: Promise<void>;
   committed?: Promise<void>;
+  closeError?: Error;
   status?: {
     readonly phase: "ready" | "saving" | "offline";
     readonly connected: boolean;
@@ -70,6 +72,7 @@ const runtimeDependencies = (input: {
     },
     close: async () => {
       calls.push("close-provider");
+      if (input.closeError) throw input.closeError;
     },
   } as unknown as CanvasSceneProvider;
   const fileResolver = {
@@ -85,7 +88,10 @@ const runtimeDependencies = (input: {
   return {
     calls,
     input: {
-      descriptor,
+      descriptor: {
+        ...descriptor,
+        ownerBlockId: input.ownerBlockId ?? "canvas-1",
+      },
       provider,
       presence,
       binding,
@@ -167,6 +173,19 @@ describe("CanvasSceneSurfaceRegistry", () => {
     expect(dependencies.calls).toEqual(["flush"]);
   });
 
+  test("flushes only runtimes for the requested public Canvas owner", async () => {
+    const registry = createCanvasSceneSurfaceRegistry();
+    const first = runtimeDependencies({ ownerBlockId: "canvas-1" });
+    const second = runtimeDependencies({ ownerBlockId: "canvas-2" });
+    registry.acquire({ key: "surface-1", ...first.input });
+    registry.acquire({ key: "surface-2", ...second.input });
+
+    await registry.flushOwnerCommitted("canvas-1");
+
+    expect(first.calls).toEqual(["flush"]);
+    expect(second.calls).toEqual([]);
+  });
+
   test("runs best-effort maintenance before closing an idle provider", async () => {
     const registry = createCanvasSceneSurfaceRegistry();
     const dependencies = runtimeDependencies({});
@@ -230,5 +249,36 @@ describe("CanvasSceneSurfaceRegistry", () => {
       "close-provider",
       "destroy-binding",
     ]));
+  });
+
+  test("terminally releases a failed close and lets a replacement connect", async () => {
+    const registry = createCanvasSceneSurfaceRegistry();
+    const first = runtimeDependencies({
+      durable: Promise.reject(new Error("durability unavailable")),
+      closeError: new Error("provider close unavailable"),
+    });
+    const second = runtimeDependencies({});
+    const key = makeCanvasSceneSurfaceKey("window-1", "session-1", "tab-1");
+    const runtime = registry.acquire({ key, ...first.input });
+
+    await expect(registry.release(key, runtime)).rejects.toThrow(
+      "durability unavailable",
+    );
+    expect(first.calls).toEqual(expect.arrayContaining([
+      "persist",
+      "lease-idle",
+      "close-presence",
+      "close-provider",
+      "dispose-subscriptions",
+      "destroy-files",
+      "destroy-binding",
+    ]));
+
+    await registry.flushAllCommitted();
+    expect(first.calls).not.toContain("flush");
+
+    const replacement = registry.acquire({ key, ...second.input });
+    await expect(replacement.connect()).resolves.toBeUndefined();
+    expect(second.calls).toContain("connect");
   });
 });

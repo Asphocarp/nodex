@@ -242,7 +242,8 @@ export function isRootThreadRightPanelComposerOverlayEligibleTab(
   return tab.kind === "review"
     || tab.kind === "browser"
     || tab.kind === "db_view"
-    || tab.kind === "page_stage";
+    || tab.kind === "page_stage"
+    || tab.kind === "canvas_stage";
 }
 
 export function makeBackgroundAgentPanelTabId(threadId: string): string {

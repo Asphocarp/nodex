@@ -202,6 +202,7 @@ pub(crate) fn prepare_incremental_canvas_mutation(
     connection: &Connection,
     authority: &DocumentAuthorityRow,
     mutation: &CanvasMutation,
+    assets_root: &Path,
 ) -> Result<PreparedCanvasMutation, StoreError> {
     validate_canvas_authority(authority)?;
     let metadata = read_canvas_authority_metadata(connection, authority)?;
@@ -315,6 +316,13 @@ pub(crate) fn prepare_incremental_canvas_mutation(
         let addition = mutation.file_additions.get(file_id);
         if let (Some(existing), Some(addition)) = (existing_file, addition)
             && existing.file.value != addition.value
+            && !same_canvas_file_content(
+                connection,
+                &authority.head.id,
+                &existing.file,
+                addition,
+                assets_root,
+            )?
         {
             return Err(invalid(format!(
                 "Canvas managed file {file_id} cannot be redefined"
@@ -2442,6 +2450,21 @@ fn asset_evidence(
     }
     let bytes = fs::read(path).map_err(|_| invalid("Canvas managed asset could not be read"))?;
     Ok((sha256(&bytes), length))
+}
+
+fn same_canvas_file_content(
+    connection: &Connection,
+    document_id: &str,
+    existing: &CanvasFile,
+    candidate: &CanvasFile,
+    assets_root: &Path,
+) -> Result<bool, StoreError> {
+    if existing.mime_type != candidate.mime_type {
+        return Ok(false);
+    }
+    let existing_evidence = asset_evidence(connection, document_id, existing, assets_root)?;
+    let candidate_evidence = asset_evidence(connection, document_id, candidate, assets_root)?;
+    Ok(existing_evidence == candidate_evidence)
 }
 
 fn validate_file_additions(

@@ -140,6 +140,7 @@ export type NfmBlockType =
   | "callout"
   | "image"
   | "toggleListInlineView"
+  | "canvas"
   | "database"
   | "databaseViewRef"
   | "syncedBlockRef"
@@ -270,6 +271,12 @@ export interface NfmDatabase extends NfmBlockBase {
   uuid: string;
 }
 
+export interface NfmCanvas extends NfmBlockBase {
+  type: "canvas";
+  /** Owning Canvas shell identity. */
+  uuid: string;
+}
+
 export interface NfmSyncedBlockRef extends NfmBlockBase {
   type: "syncedBlockRef";
   sourceBlockId: string;
@@ -337,6 +344,7 @@ export type NfmBlock =
   | NfmCallout
   | NfmImage
   | NfmToggleListInlineView
+  | NfmCanvas
   | NfmDatabase
   | NfmDatabaseViewRef
   | NfmSyncedBlockRef

@@ -737,6 +737,16 @@ fn reconcile_document_blocks(
             }
         }
     }
+    for (block_id, _, block_type, lifecycle, _, _) in &existing {
+        if active_ids.contains(block_id) {
+            continue;
+        }
+        if TYPED_CREATION_BLOCK_TYPES.contains(&block_type.as_str()) && lifecycle != "deleted" {
+            return Err(invalid(format!(
+                "Block {block_id} requires a typed lifecycle operation"
+            )));
+        }
+    }
     for block_id in existing_ids.difference(&active_ids) {
         connection.execute(
             "UPDATE blocks SET lifecycle = 'deleted', metadata_revision = metadata_revision + 1, \

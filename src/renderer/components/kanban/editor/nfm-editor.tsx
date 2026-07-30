@@ -169,6 +169,18 @@ import { usePasteResourceSettings } from "@/lib/use-paste-resource-settings";
 import { cn } from "@/lib/utils";
 import { useCommandPaletteThreadItems } from "@/lib/command-palette-chat-search";
 import type { BlockDocumentSurfaceWriteFence } from "@/lib/block-document-surface-runtime";
+import {
+  createCanvasInHostPage,
+  deleteCanvasOwner,
+  duplicateCanvasInHostPage,
+  isCanvasHostDocumentRuntime,
+  moveCanvasOwnerBetweenHostPages,
+  moveCanvasOwnerToPage,
+  registerCanvasHostDocumentRuntime,
+  renameCanvasOwner,
+  resolveCanvasHostDocumentRuntime,
+  resolveCanvasInsertionAfterBlock,
+} from "@/lib/canvas-host-operations";
 import type { PageEditorSession } from "@/lib/page-editor-session-registry";
 import { useBlockDocumentSurfaceWriteFrozen } from "@/lib/use-block-document-surface-write-fence";
 import {
@@ -214,6 +226,7 @@ interface NfmEditorCommonProps {
     titleSnapshot?: string;
   }) => void | Promise<void>;
   onOpenDatabase?: BlockReferenceHostRuntime["openDatabase"];
+  onOpenCanvas?: BlockReferenceHostRuntime["openCanvas"];
   onStartNewSessionThreadFromEditor?: (input: {
     projectId: string;
     targetSessionId?: string;
@@ -393,6 +406,7 @@ function NfmEditorInstance({
   onOpenCodexThread,
   onOpenPage,
   onOpenDatabase,
+  onOpenCanvas,
   onStartNewSessionThreadFromEditor,
   onSendThreadSectionPrompt,
   isActivePanelTab = true,
@@ -1310,6 +1324,31 @@ function NfmEditorInstance({
   }, [editor, syncSearchStats]);
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const canvasCommandHandlersRef = useRef({
+    duplicate: async (canvasBlockId: string) => {
+      void canvasBlockId;
+    },
+    delete: async (canvasBlockId: string) => {
+      void canvasBlockId;
+    },
+  });
+
+  useEffect(() => {
+    if (
+      !sourcePageContext
+      || !isCanvasHostDocumentRuntime(surfaceWriteFence)
+    ) {
+      return;
+    }
+    return registerCanvasHostDocumentRuntime(
+      source.clientSessionId,
+      surfaceWriteFence,
+    );
+  }, [
+    source.clientSessionId,
+    sourcePageContext,
+    surfaceWriteFence,
+  ]);
 
   useImperativeHandle(
     embeddedBoundary?.navigationRef,
@@ -1356,6 +1395,37 @@ function NfmEditorInstance({
       const targetIsTextField =
         event.target instanceof HTMLInputElement ||
         event.target instanceof HTMLTextAreaElement;
+
+      if (
+        !targetIsTextField
+        && !event.altKey
+        && !event.ctrlKey
+        && !event.metaKey
+        && !event.shiftKey
+        && !event.isComposing
+        && (event.key === "Backspace" || event.key === "Delete")
+      ) {
+        const selectedBlocks = editor.getSelection()?.blocks ?? [];
+        const selectedCanvasBlocks = selectedBlocks.filter(
+          (block) => block.type === "canvas",
+        );
+        if (selectedCanvasBlocks.length > 0) {
+          event.preventDefault();
+          event.stopPropagation();
+          if (
+            selectedBlocks.length === 1
+            && selectedCanvasBlocks.length === 1
+            && selectedCanvasBlocks[0]?.id
+          ) {
+            void canvasCommandHandlersRef.current.delete(
+              selectedCanvasBlocks[0].id,
+            );
+          } else {
+            toast.info("Delete one Canvas at a time.");
+          }
+          return;
+        }
+      }
 
       if (
         !targetIsTextField &&
@@ -1694,6 +1764,48 @@ function NfmEditorInstance({
         throw new Error("No blocks selected.");
       }
 
+      const selectedCanvasBlocks = selection.blocks.filter(
+        (block) => block.type === "canvas",
+      );
+      if (selectedCanvasBlocks.length > 0) {
+        if (
+          selectedCanvasBlocks.length !== 1
+          || selection.blocks.length !== 1
+        ) {
+          throw new Error("Move one Canvas at a time.");
+        }
+        if (destination.kind !== "page") {
+          throw new Error("Canvas can only move to another Page.");
+        }
+        if (
+          !sourcePageContext
+          || destination.projectId !== projectId
+          || destination.pageId === sourcePageContext.pageId
+        ) {
+          throw new Error("Choose another Page in this Project.");
+        }
+        if (!isCanvasHostDocumentRuntime(surfaceWriteFence)) {
+          throw new Error(
+            "The Page Document is not ready to move this Canvas.",
+          );
+        }
+        const target = await prepareOwnedBlockDocument(
+          destination.projectId,
+          destination.pageId,
+        );
+        if (!target.ok) throw new Error(target.error.message);
+        await moveCanvasOwnerToPage({
+          canvasBlockId: selectedCanvasBlocks[0]!.id,
+          targetPageId: destination.pageId,
+          targetDocumentGeneration: target.value.generation,
+          targetDocumentHeadSeq: target.value.headSeq,
+          insertion: { kind: "append" },
+          sourceRuntime: surfaceWriteFence,
+        });
+        restoreEditorFocus();
+        return;
+      }
+
       if (destination.kind === "page") {
         await appendSendBlockSelectionToCard(selection, destination);
       } else {
@@ -1707,6 +1819,9 @@ function NfmEditorInstance({
       resolveSendBlocksSelection,
       restoreEditorFocus,
       sendBlockSelectionToProject,
+      projectId,
+      sourcePageContext,
+      surfaceWriteFence,
     ],
   );
 
@@ -1820,6 +1935,51 @@ function NfmEditorInstance({
         createOperationId: () => crypto.randomUUID(),
         transfer: (intent: Parameters<typeof transferBlocks>[1]) =>
           transferBlocks(projectId, intent),
+        ...(sourcePageContext && isCanvasHostDocumentRuntime(surfaceWriteFence)
+          ? {
+              transferCanvas: async ({
+                canvasBlockId,
+                sourceSurfaceId,
+                targetPageId,
+                mode,
+                insertion,
+              }: {
+                readonly canvasBlockId: string;
+                readonly sourceSurfaceId: string;
+                readonly sourcePageId: string;
+                readonly targetPageId: string;
+                readonly mode: "move" | "copy";
+                readonly insertion: Parameters<
+                  typeof duplicateCanvasInHostPage
+                >[0]["insertion"];
+              }) => {
+                if (mode === "copy") {
+                  await duplicateCanvasInHostPage({
+                    sourceCanvasBlockId: canvasBlockId,
+                    hostPageId: targetPageId,
+                    insertion,
+                    runtime: surfaceWriteFence,
+                  });
+                  return;
+                }
+                const sourceRuntime = resolveCanvasHostDocumentRuntime(
+                  sourceSurfaceId,
+                );
+                if (!sourceRuntime) {
+                  throw new Error(
+                    "The source Page is no longer ready to move this Canvas.",
+                  );
+                }
+                await moveCanvasOwnerBetweenHostPages({
+                  canvasBlockId,
+                  targetPageId,
+                  insertion,
+                  sourceRuntime,
+                  targetRuntime: surfaceWriteFence,
+                });
+              },
+            }
+          : {}),
         reportError: (message: string) => toast.danger(message),
       },
     }),
@@ -1829,7 +1989,8 @@ function NfmEditorInstance({
       source.documentId,
       source.clientSessionId,
       source.storeEpoch,
-      sourcePageContext?.pageId,
+      sourcePageContext,
+      surfaceWriteFence,
     ],
   );
 
@@ -1895,6 +2056,10 @@ function NfmEditorInstance({
     onConvertDividerToThreadSection: handleConvertDividerToThreadSection,
     onBlockDragStart: handleBlockDragStart,
     onBlockDragEnd: handleBlockDragEnd,
+    onDuplicateCanvas: (canvasBlockId: string) =>
+      canvasCommandHandlersRef.current.duplicate(canvasBlockId),
+    onDeleteCanvas: (canvasBlockId: string) =>
+      canvasCommandHandlersRef.current.delete(canvasBlockId),
   });
   sideMenuHandlersRef.current = {
     canSendBlocks: blockActionCapabilities.canMoveBlocks,
@@ -1905,6 +2070,10 @@ function NfmEditorInstance({
     onConvertDividerToThreadSection: handleConvertDividerToThreadSection,
     onBlockDragStart: handleBlockDragStart,
     onBlockDragEnd: handleBlockDragEnd,
+    onDuplicateCanvas: (canvasBlockId: string) =>
+      canvasCommandHandlersRef.current.duplicate(canvasBlockId),
+    onDeleteCanvas: (canvasBlockId: string) =>
+      canvasCommandHandlersRef.current.delete(canvasBlockId),
   };
 
   const sideMenuRuntimeValue = useMemo(
@@ -1952,6 +2121,110 @@ function NfmEditorInstance({
     [onOpenCodexThread],
   );
 
+  const createCanvasAtEmptyParagraph = useCallback(
+    async ({
+      blockId,
+      displayName,
+    }: {
+      readonly blockId: string;
+      readonly displayName?: string;
+    }) => {
+      if (!sourcePageContext) {
+        throw new Error("Canvas can only be added inside a Page.");
+      }
+      if (!isCanvasHostDocumentRuntime(surfaceWriteFence)) {
+        throw new Error(
+          "The Page Document is not ready to create a Canvas.",
+        );
+      }
+      return createCanvasInHostPage({
+        hostPageId: sourcePageContext.pageId,
+        replacementBlockId: blockId,
+        displayName,
+        runtime: surfaceWriteFence,
+      });
+    },
+    [sourcePageContext, surfaceWriteFence],
+  );
+
+  const requireCanvasHostRuntime = useCallback(() => {
+    if (!sourcePageContext) {
+      throw new Error("Canvas can only be changed inside a Page.");
+    }
+    if (!isCanvasHostDocumentRuntime(surfaceWriteFence)) {
+      throw new Error("The Page Document is not ready for a Canvas change.");
+    }
+    return {
+      hostPageId: sourcePageContext.pageId,
+      runtime: surfaceWriteFence,
+    };
+  }, [sourcePageContext, surfaceWriteFence]);
+
+  const duplicateCanvasAfter = useCallback(
+    async (canvasBlockId: string) => {
+      const host = requireCanvasHostRuntime();
+      const canvasBlock = editor.getBlock(canvasBlockId);
+      if (!canvasBlock || canvasBlock.type !== "canvas") {
+        throw new Error("Canvas Block is no longer in this Page.");
+      }
+      const parent = editor.getParentBlock(canvasBlockId);
+      const siblingBlockIds = (parent?.children ?? editor.document)
+        .map((block) => block.id);
+      await duplicateCanvasInHostPage({
+        sourceCanvasBlockId: canvasBlockId,
+        hostPageId: host.hostPageId,
+        insertion: resolveCanvasInsertionAfterBlock({
+          blockId: canvasBlockId,
+          ...(parent ? { parentBlockId: parent.id } : {}),
+          siblingBlockIds,
+        }),
+        runtime: host.runtime,
+      });
+    },
+    [editor, requireCanvasHostRuntime],
+  );
+
+  const deleteCanvas = useCallback(
+    async (canvasBlockId: string) => {
+      await deleteCanvasOwner({ canvasBlockId });
+    },
+    [],
+  );
+
+  const renameCanvas = useCallback(
+    async ({
+      canvasBlockId,
+      displayName,
+    }: {
+      readonly canvasBlockId: string;
+      readonly displayName: string;
+    }) => {
+      await renameCanvasOwner({ canvasBlockId, displayName });
+    },
+    [],
+  );
+  canvasCommandHandlersRef.current = {
+    duplicate: async (canvasBlockId) => {
+      try {
+        await duplicateCanvasAfter(canvasBlockId);
+        toast.success("Canvas duplicated");
+      } catch (error) {
+        toast.danger(
+          error instanceof Error ? error.message : "Could not duplicate Canvas",
+        );
+      }
+    },
+    delete: async (canvasBlockId) => {
+      try {
+        await deleteCanvas(canvasBlockId);
+      } catch (error) {
+        toast.danger(
+          error instanceof Error ? error.message : "Could not delete Canvas",
+        );
+      }
+    },
+  };
+
   const threadMentionRuntimeValue = useMemo<ThreadMentionRuntimeValue>(
     () => ({
       threads: threadMentionSummaryMap,
@@ -1986,8 +2259,18 @@ function NfmEditorInstance({
           currentDocumentOwnerBlockId,
         ),
         isActiveSurface: isActivePanelTab,
+        documentSurfaceId: source.clientSessionId,
         ...(onOpenPage ? { openPage: onOpenPage } : {}),
         ...(onOpenDatabase ? { openDatabase: onOpenDatabase } : {}),
+        ...(onOpenCanvas ? { openCanvas: onOpenCanvas } : {}),
+        ...(sourcePageContext && isCanvasHostDocumentRuntime(surfaceWriteFence)
+          ? {
+              createCanvasAtEmptyParagraph,
+              deleteCanvas,
+              duplicateCanvasAfter,
+              renameCanvas,
+            }
+          : {}),
       };
     },
     [
@@ -1995,12 +2278,19 @@ function NfmEditorInstance({
       isActivePanelTab,
       onOpenPage,
       onOpenDatabase,
+      onOpenCanvas,
       projectId,
       projectName,
       projectWorkspacePath,
       parentBlockReferenceRuntime?.ancestorPageIds,
       parentBlockReferenceRuntime?.ancestorDocumentOwnerBlockIds,
-      sourcePageContext?.pageId,
+      sourcePageContext,
+      source.clientSessionId,
+      surfaceWriteFence,
+      createCanvasAtEmptyParagraph,
+      deleteCanvas,
+      duplicateCanvasAfter,
+      renameCanvas,
     ],
   );
 

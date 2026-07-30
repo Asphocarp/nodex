@@ -130,6 +130,7 @@ fn library_policy(read: &LibraryRead) -> ReadBudgetPolicy {
         | LibraryRead::ReleaseSearchSnapshot { .. }
         | LibraryRead::AgentBlockTarget { .. }
         | LibraryRead::PageTarget { .. }
+        | LibraryRead::CanvasTarget { .. }
         | LibraryRead::PageLocation { .. }
         | LibraryRead::PageLifecyclePreflight { .. } => ReadBudgetPolicy::Identity,
     }

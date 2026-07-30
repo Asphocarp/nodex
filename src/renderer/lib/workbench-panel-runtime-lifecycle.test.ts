@@ -102,10 +102,9 @@ describe("Workbench panel runtime lifecycle", () => {
   test("Canvas durability veto prevents descriptor removal", async () => {
     const removeDescriptor = vi.fn();
     const result = await closeDurablePanelTabWithRuntime(
-      makeTab("db_view", {
+      makeTab("canvas_stage", {
         projectId: "project:one",
-        databaseViewId: "view:one",
-        view: "canvas",
+        canvasBlockId: "canvas:one",
       }),
       {
         flushFile: async () => true,

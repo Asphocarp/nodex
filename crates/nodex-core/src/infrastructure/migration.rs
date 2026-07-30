@@ -43,6 +43,38 @@ const MAX_AUTOMATION_JITTER_SALT_BYTES: u64 = 512;
 const MAX_WRITABLE_ROOTS_PER_THREAD: usize = 128;
 const MAX_WRITABLE_ROOT_BYTES: usize = 16_384;
 const UUID_V7_UNIX_TIMESTAMP_HEX_DIGITS: usize = 12;
+const V97_CANVAS_OWNERS_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS canvas_owners (
+  block_id TEXT PRIMARY KEY REFERENCES blocks(id) ON DELETE CASCADE,
+  library_id TEXT NOT NULL REFERENCES libraries(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  CHECK (length(block_id) BETWEEN 1 AND 512),
+  CHECK (length(library_id) BETWEEN 1 AND 512),
+  CHECK (length(created_at) > 0),
+  CHECK (length(updated_at) > 0)
+) WITHOUT ROWID, STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_canvas_owners_library
+  ON canvas_owners(library_id, block_id);
+
+CREATE TRIGGER IF NOT EXISTS canvas_owners_validate_insert
+BEFORE INSERT ON canvas_owners
+WHEN NOT EXISTS (
+  SELECT 1
+  FROM blocks block
+  JOIN projects project ON project.id = block.project_id
+  JOIN block_documents ownership ON ownership.block_id = block.id
+  JOIN documents document ON document.id = ownership.document_id
+  WHERE block.id = NEW.block_id
+    AND block.type = 'canvas'
+    AND project.library_id = NEW.library_id
+    AND document.sync_engine = 'canvas_scene'
+)
+BEGIN
+  SELECT RAISE(ABORT, 'Canvas owner metadata requires a Canvas Document owner');
+END;
+"#;
 const V85_SCHEMA_SQL: &str = r#"
 CREATE TABLE core_store_metadata (
   id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -709,6 +741,7 @@ pub fn prepare_profile_store_with_observer(
         validate_store(connection)?;
         validate_codex_thread_timestamp_invariants(connection)?;
         validate_canonical_text_timestamp_invariants(connection)?;
+        validate_database_view_kind_invariants(connection)?;
         return Ok(StorePreparation {
             schema_version: CORE_SCHEMA_VERSION,
             created_fresh: true,
@@ -732,6 +765,7 @@ pub fn prepare_profile_store_with_observer(
         validate_store(connection)?;
         validate_codex_thread_timestamp_invariants(connection)?;
         validate_canonical_text_timestamp_invariants(connection)?;
+        validate_database_view_kind_invariants(connection)?;
         let validated_yjs_documents: i64 = connection.query_row(
             "SELECT count(*) FROM document_engine_fingerprints",
             [],
@@ -795,6 +829,7 @@ pub fn prepare_profile_store_with_observer(
     validate_core_metadata(connection, CORE_SCHEMA_VERSION)?;
     validate_codex_thread_timestamp_invariants(connection)?;
     validate_canonical_text_timestamp_invariants(connection)?;
+    validate_database_view_kind_invariants(connection)?;
     Ok(StorePreparation {
         schema_version: CORE_SCHEMA_VERSION,
         created_fresh: false,
@@ -848,6 +883,7 @@ pub(crate) fn prepare_legacy_import_candidate(
     validate_exact_current_schema(connection)?;
     validate_codex_thread_timestamp_invariants(connection)?;
     validate_canonical_text_timestamp_invariants(connection)?;
+    validate_database_view_kind_invariants(connection)?;
     Ok(StorePreparation {
         schema_version: CORE_SCHEMA_VERSION,
         created_fresh: false,
@@ -887,6 +923,7 @@ fn upgrade_owned_store(
         93 => validate_exact_v93_schema(connection)?,
         94 => validate_exact_v94_schema(connection)?,
         95 => validate_exact_v95_schema(connection)?,
+        96 => validate_exact_v96_schema(connection)?,
         _ => return Err(corrupt("Rust Core forward-migration source is unsupported")),
     }
 
@@ -936,6 +973,9 @@ fn upgrade_owned_store(
         if source_version < 96 {
             ensure_v96_canvas_tombstone_bytes_schema(transaction)?;
         }
+        if source_version < 97 {
+            ensure_v97_canvas_owners_schema(transaction)?;
+        }
         let updated = transaction.execute(
             "UPDATE core_store_metadata SET store_format_version = ?1 \
              WHERE id = 1 AND schema_owner = ?2 AND store_format_version = ?3",
@@ -955,6 +995,7 @@ fn upgrade_owned_store(
     validate_exact_current_schema(connection)?;
     validate_codex_thread_timestamp_invariants(connection)?;
     validate_canonical_text_timestamp_invariants(connection)?;
+    validate_database_view_kind_invariants(connection)?;
     Ok(StorePreparation {
         schema_version: CORE_SCHEMA_VERSION,
         created_fresh: false,
@@ -1228,6 +1269,7 @@ fn publish_current_store(
         ensure_v94_project_appearance_schema(transaction)?;
         ensure_v95_canvas_incremental_schema(transaction)?;
         ensure_v96_canvas_tombstone_bytes_schema(transaction)?;
+        ensure_v97_canvas_owners_schema(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
@@ -1256,6 +1298,7 @@ fn create_fresh_store(
         ensure_v94_project_appearance_schema(transaction)?;
         ensure_v95_canvas_incremental_schema(transaction)?;
         ensure_v96_canvas_tombstone_bytes_schema(transaction)?;
+        ensure_v97_canvas_owners_schema(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
@@ -1586,6 +1629,39 @@ fn ensure_v95_canvas_incremental_schema(connection: &Connection) -> Result<(), S
 fn ensure_v96_canvas_tombstone_bytes_schema(connection: &Connection) -> Result<(), StoreError> {
     connection.execute_batch(V96_CANVAS_TOMBSTONE_BYTES_SQL)?;
     Ok(())
+}
+
+fn ensure_v97_canvas_owners_schema(connection: &Connection) -> Result<(), StoreError> {
+    connection.execute_batch(V97_CANVAS_OWNERS_SQL)?;
+    connection.execute(
+        "UPDATE database_views SET kind = 'list' WHERE kind = 'canvas'",
+        [],
+    )?;
+    connection.execute(
+        "INSERT OR IGNORE INTO canvas_owners(block_id, library_id, created_at, updated_at) \
+         SELECT block.id, project.library_id, block.created_at, block.updated_at \
+         FROM blocks block JOIN projects project ON project.id = block.project_id \
+         JOIN block_documents ownership ON ownership.block_id = block.id \
+         JOIN documents document ON document.id = ownership.document_id \
+         WHERE block.type = 'canvas' AND document.sync_engine = 'canvas_scene'",
+        [],
+    )?;
+    Ok(())
+}
+
+fn validate_database_view_kind_invariants(connection: &Connection) -> Result<(), StoreError> {
+    let unsupported: i64 = connection.query_row(
+        "SELECT count(*) FROM database_views \
+         WHERE kind NOT IN ('kanban', 'list', 'calendar')",
+        [],
+        |row| row.get(0),
+    )?;
+    if unsupported == 0 {
+        return Ok(());
+    }
+    Err(corrupt(
+        "Database View authority contains a retired presentation kind",
+    ))
 }
 
 fn migrate_v95_canvas_scene(connection: &Connection, document_id: &str) -> Result<(), StoreError> {
@@ -2761,6 +2837,10 @@ fn validate_exact_v95_schema(connection: &Connection) -> Result<(), StoreError> 
     validate_exact_core_schema(connection, true, true, true, true, true, true, true, 95)
 }
 
+fn validate_exact_v96_schema(connection: &Connection) -> Result<(), StoreError> {
+    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 96)
+}
+
 fn validate_exact_current_schema(connection: &Connection) -> Result<(), StoreError> {
     validate_exact_core_schema(
         connection,
@@ -2819,6 +2899,9 @@ fn validate_exact_core_schema(
     }
     if schema_version >= 96 {
         ensure_v96_canvas_tombstone_bytes_schema(&expected)?;
+    }
+    if schema_version >= 97 {
+        ensure_v97_canvas_owners_schema(&expected)?;
     }
 
     let expected_inventory = read_schema_inventory(&expected)?;
@@ -2893,6 +2976,9 @@ pub fn expected_store_schema_fingerprint(version: i64) -> Result<String, StoreEr
     }
     if version >= 96 {
         ensure_v96_canvas_tombstone_bytes_schema(&expected)?;
+    }
+    if version >= 97 {
+        ensure_v97_canvas_owners_schema(&expected)?;
     }
     read_schema_inventory(&expected).map(|inventory| schema_inventory_fingerprint(&inventory))
 }
@@ -3333,7 +3419,7 @@ mod tests {
                    id, database_block_id, data_source_id, name, kind, config_json,
                    rank_key, lifecycle, created_at, updated_at
                  ) VALUES (
-                   'view:timestamp', 'database:timestamp', 'source:timestamp', 'List', 'list',
+                   'view:timestamp', 'database:timestamp', 'source:timestamp', 'Canvas', 'canvas',
                    '{}', 'a', 'active', ?1, ?1
                  )",
                 [legacy],
@@ -4194,9 +4280,18 @@ mod tests {
                     )?,
                     0
                 );
+                assert_eq!(
+                    connection.query_row(
+                        "SELECT library_id FROM canvas_owners \
+                         WHERE block_id = 'block:canvas-v94'",
+                        [],
+                        |row| row.get::<_, String>(0),
+                    )?,
+                    "library:canvas-v94"
+                );
                 Ok::<_, StoreError>(())
             })
-            .expect("read v96 tombstone bytes");
+            .expect("read upgraded Canvas metadata");
         drop(upgraded);
 
         let reopened = SqliteStoreKernel::open(&home).expect("reopen v96 Canvas store");
@@ -4363,6 +4458,14 @@ mod tests {
                 assert_eq!(
                     timestamps,
                     ["2026-02-06T20:37:07.873Z"; 6].map(str::to_owned)
+                );
+                assert_eq!(
+                    connection.query_row(
+                        "SELECT kind FROM database_views WHERE id = 'view:timestamp'",
+                        [],
+                        |row| row.get::<_, String>(0),
+                    )?,
+                    "list"
                 );
                 Ok::<_, StoreError>(())
             })

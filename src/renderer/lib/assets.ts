@@ -2,6 +2,7 @@ import {
   MAX_MANAGED_IMAGE_BYTES,
   MAX_MANAGED_RESOURCE_BYTES,
   getManagedAssetDisplayUrl,
+  type ManagedCanvasImageMaterializationResult,
   type ManagedAssetPreview,
   type ManagedAssetPreviewInput,
   type ManagedResourceSaveResult,
@@ -36,6 +37,18 @@ export async function uploadImageAsset(file: File): Promise<string> {
     fileToUploadInput(file, new Uint8Array(await file.arrayBuffer())),
   );
   return result.source;
+}
+
+export async function materializeCanvasImageAsset(
+  file: File,
+): Promise<ManagedCanvasImageMaterializationResult> {
+  if (file.size > MAX_MANAGED_IMAGE_BYTES) {
+    throw new Error("Image exceeds 10MB upload limit");
+  }
+  return await invoke(
+    "asset:canvas-image:materialize",
+    fileToUploadInput(file, new Uint8Array(await file.arrayBuffer())),
+  );
 }
 
 function toUploadedResourceAssetResponse(

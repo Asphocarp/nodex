@@ -7,6 +7,24 @@ export const ReferenceSurfaceActivationPriority = {
   editing: 1,
 } as const;
 
+export interface ReferenceSurfaceActivationRank {
+  readonly visibility: "prewarm" | "visible";
+  readonly viewportCenterDistance: number;
+  readonly documentOrder: number;
+}
+
+interface EligibleSurface {
+  readonly sequence: number;
+  readonly priority: number;
+  readonly rank: ReferenceSurfaceActivationRank;
+}
+
+const defaultRank: ReferenceSurfaceActivationRank = {
+  visibility: "prewarm",
+  viewportCenterDistance: Number.POSITIVE_INFINITY,
+  documentOrder: Number.POSITIVE_INFINITY,
+};
+
 const sameStringSet = (
   left: ReadonlySet<string>,
   right: ReadonlySet<string>,
@@ -28,10 +46,7 @@ export class ReferenceSurfaceActivationBudget {
   readonly capacity: number;
 
   private activationSequence = 0;
-  private readonly eligibleByKey = new Map<
-    string,
-    { readonly sequence: number; readonly priority: number }
-  >();
+  private readonly eligibleByKey = new Map<string, EligibleSurface>();
   private activeKeys = new Set<string>();
   private readonly listeners = new Set<Listener>();
 
@@ -53,7 +68,12 @@ export class ReferenceSurfaceActivationBudget {
 
   getActiveKeys = (): readonly string[] => [...this.activeKeys];
 
-  setEligible = (key: string, eligible: boolean, priority = 0): void => {
+  setEligible = (
+    key: string,
+    eligible: boolean,
+    priority = 0,
+    rank: ReferenceSurfaceActivationRank = defaultRank,
+  ): void => {
     const current = this.eligibleByKey.get(key);
     if (!eligible) {
       if (!current) return;
@@ -67,13 +87,19 @@ export class ReferenceSurfaceActivationBudget {
       this.eligibleByKey.set(key, {
         sequence: this.activationSequence,
         priority,
+        rank,
       });
       this.recomputeActiveKeys();
       return;
     }
 
-    if (current.priority === priority) return;
-    this.eligibleByKey.set(key, { ...current, priority });
+    if (
+      current.priority === priority
+      && current.rank.visibility === rank.visibility
+      && current.rank.viewportCenterDistance === rank.viewportCenterDistance
+      && current.rank.documentOrder === rank.documentOrder
+    ) return;
+    this.eligibleByKey.set(key, { ...current, priority, rank });
     this.recomputeActiveKeys();
   };
 
@@ -101,6 +127,11 @@ export class ReferenceSurfaceActivationBudget {
     const ordered = [...this.eligibleByKey.entries()].sort(
       (left, right) =>
         right[1].priority - left[1].priority
+        || Number(right[1].rank.visibility === "visible")
+          - Number(left[1].rank.visibility === "visible")
+        || left[1].rank.viewportCenterDistance
+          - right[1].rank.viewportCenterDistance
+        || left[1].rank.documentOrder - right[1].rank.documentOrder
         || right[1].sequence - left[1].sequence,
     );
     const nextActiveKeys = new Set(
@@ -127,11 +158,27 @@ export const useReferenceSurfaceActivation = (
   eligible: boolean,
   budget: ReferenceSurfaceActivationBudget = referenceSurfaceActivationBudget,
   priority = 0,
+  rank: ReferenceSurfaceActivationRank = defaultRank,
 ): boolean => {
+  const rankVisibility = rank.visibility;
+  const rankViewportCenterDistance = rank.viewportCenterDistance;
+  const rankDocumentOrder = rank.documentOrder;
   useEffect(() => {
-    budget.setEligible(key, eligible, priority);
+    budget.setEligible(key, eligible, priority, {
+      visibility: rankVisibility,
+      viewportCenterDistance: rankViewportCenterDistance,
+      documentOrder: rankDocumentOrder,
+    });
     return () => budget.setEligible(key, false);
-  }, [budget, eligible, key, priority]);
+  }, [
+    budget,
+    eligible,
+    key,
+    priority,
+    rankDocumentOrder,
+    rankViewportCenterDistance,
+    rankVisibility,
+  ]);
 
   const getSnapshot = useCallback(() => budget.isActive(key), [budget, key]);
   return useSyncExternalStore(budget.subscribe, getSnapshot, getSnapshot);

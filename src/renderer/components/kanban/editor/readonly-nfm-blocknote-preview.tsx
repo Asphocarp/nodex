@@ -9,7 +9,7 @@ import {
 import type { PartialBlock } from "@blocknote/core";
 import { createReactBlockSpec, createReactInlineContentSpec, useCreateBlockNote } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/shadcn";
-import { Bot, Database, FileText, Link2, ListTree, Paperclip, RefreshCw, Rows3, Settings2 } from "lucide-react";
+import { Bot, BoxSelect, Database, FileText, Link2, ListTree, Paperclip, RefreshCw, Rows3, Settings2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { parseNfm, nfmToBlockNote } from "@/lib/nfm";
@@ -32,6 +32,7 @@ import {
   agentConfigInlineContentConfig,
   attachmentInlineContentConfig,
   databaseBlockConfig,
+  canvasBlockConfig,
   pageBlockConfig,
   pageRefBlockConfig,
   databaseViewRefBlockConfig,
@@ -145,6 +146,22 @@ const createReadonlyDatabaseBlockSpec = createReactBlockSpec(
         detail={block.id}
       />
     ),
+  },
+);
+
+const createReadonlyCanvasBlockSpec = createReactBlockSpec(
+  canvasBlockConfig,
+  {
+    render: ({ block }) => (
+      <InertEmbedPlaceholder
+        icon={BoxSelect}
+        label="Canvas"
+        detail={block.id}
+      />
+    ),
+    meta: {
+      isolating: true,
+    },
   },
 );
 
@@ -297,6 +314,7 @@ export const readonlyNfmBlockNotePreviewSchema = BlockNoteSchema.create({
     cardToggle: createPageToggleBlockSpec(),
     page: createReadonlyPageBlockSpec(),
     database: createReadonlyDatabaseBlockSpec(),
+    canvas: createReadonlyCanvasBlockSpec(),
     pageRef: createReadonlyPageRefBlockSpec(),
     databaseViewRef: createReadonlyDatabaseViewRefBlockSpec(),
     syncedBlockRef: createReadonlySyncedBlockRefBlockSpec(),

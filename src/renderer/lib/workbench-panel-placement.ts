@@ -90,3 +90,14 @@ export function readPageStagePanelTabPageRef(
     pageId: tab.config.pageId,
   };
 }
+
+export function readCanvasStagePanelTabCanvasRef(
+  tab: WorkbenchTabProjection | null | undefined,
+): { projectId: string; canvasBlockId: string } | null {
+  if (!tab || tab.kind !== "canvas_stage") return null;
+
+  return {
+    projectId: tab.config.projectId,
+    canvasBlockId: tab.config.canvasBlockId,
+  };
+}

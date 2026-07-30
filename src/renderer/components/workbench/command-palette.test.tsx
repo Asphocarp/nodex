@@ -63,6 +63,7 @@ function makeCommandContext(
     panelActionAvailability: {
       db_view: true,
       page_stage: true,
+      canvas_stage: true,
       terminal: true,
       browser: true,
       review: true,
@@ -189,6 +190,7 @@ describe("buildCommandPaletteCommands", () => {
       panelActionAvailability: {
         db_view: false,
         page_stage: false,
+        canvas_stage: false,
         terminal: false,
         browser: false,
         review: false,
@@ -222,6 +224,7 @@ describe("buildCommandPaletteCommands", () => {
       panelActionAvailability: {
         db_view: false,
         page_stage: false,
+        canvas_stage: false,
         terminal: true,
         browser: true,
         review: false,

@@ -28,6 +28,7 @@ const NONE_BLOCK_TYPES: &[&str] = &[
     "toggleListInlineView",
     "page",
     "database",
+    "canvas",
     "pageRef",
     "databaseViewRef",
     "syncedBlockRef",

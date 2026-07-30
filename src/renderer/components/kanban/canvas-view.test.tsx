@@ -9,8 +9,6 @@ import {
   canonicalPortableCanvasSceneFingerprint,
   chooseCanvasSceneElementWinner,
   materializePortableCanvasScene,
-  primaryCanvasBlockId,
-  primaryCanvasDocumentId,
   plainTextToPortableRichText,
   type CanvasSceneMutationRequest,
   type CanvasSceneRealtimeEvent,
@@ -22,7 +20,7 @@ import type { CanvasSceneSyncAdapter } from "@/lib/canvas-scene-provider";
 import {
   readCanvasViewportPreference,
   writeCanvasViewportPreference,
-} from "@/lib/canvas-viewport-preference";
+} from "@/lib/canvas-presentation-preference";
 
 type MockCanvasElement = Record<string, unknown> & {
   readonly id: string;
@@ -70,6 +68,7 @@ let openedCards: Array<{
   readonly pageId: string;
   readonly title?: string;
 }> = [];
+let requestedOwnerBlockIds: string[] = [];
 
 const mockBoard = {
   columns: [{
@@ -306,10 +305,10 @@ function MockExcalidraw(props: {
 
 const descriptor = {
   projectId: "project-1",
-  ownerBlockId: primaryCanvasBlockId("project-1"),
+  ownerBlockId: "019f7399-7676-70ae-b2aa-168692b64d20",
   ownerType: "canvas",
   ownerLifecycle: "active",
-  documentId: primaryCanvasDocumentId("project-1"),
+  documentId: "019f7399-7676-70ae-b2aa-168692b64d22",
   storeEpoch: "epoch-1",
   generation: 1,
   headSeq: 1,
@@ -351,14 +350,18 @@ vi.mock("./canvas-view-deps", () => ({
       return createElement("div", { "data-testid": "card-sidebar" }, `placed:${[...placedPageIds].sort().join(",")}`);
     },
   }),
-  RegisteredOwnedBlockDocumentBoundary: ({ children }: {
+  RegisteredOwnedBlockDocumentBoundary: ({ children, ownerBlockId }: {
     readonly children: (model: unknown, controls: unknown) => ReactNode;
-  }) => children({
+    readonly ownerBlockId: string;
+  }) => {
+    requestedOwnerBlockIds.push(ownerBlockId);
+    return children({
     status: "ydoc_primary",
     projectId: "project-1",
-    ownerBlockId: descriptor.ownerBlockId,
-    descriptor,
-  }, { reload: async () => undefined }),
+    ownerBlockId,
+    descriptor: { ...descriptor, ownerBlockId },
+  }, { reload: async () => undefined });
+  },
   createCanvasSceneSyncAdapter: () => adapter,
   createDefaultCanvasSceneOutbox: () => new MemoryCanvasSceneOutbox(),
   readCanvasSceneCompaction: async () => {
@@ -392,29 +395,34 @@ vi.mock("./canvas-view-deps", () => ({
     closeFlushHandlers.add(handler);
     return () => closeFlushHandlers.delete(handler);
   },
-  useKanban: () => ({
-    board: mockBoard,
-    createPage: async () => makeCardSummary("card-new", "New Card"),
-  }),
   useTheme: () => ({ resolved: "light" }),
 }));
 
 async function renderCanvas(strict = false) {
-  const { CanvasView } = await import("./canvas-view");
-  const canvas = createElement(CanvasView, {
+  const { CanvasDocumentSurface } = await import(
+    "../canvas/canvas-document-surface"
+  );
+  const canvas = createElement(CanvasDocumentSurface, {
     projectId: "project-1",
-    databaseViewId: "view-project-1-primary",
-    canvasSurfaceKey: "canvas:test",
-    openPageStage: (projectId: string, pageId: string, title?: string) => {
-      openedCards.push({ projectId, pageId, title });
+    canvasBlockId: descriptor.ownerBlockId,
+    surfaceKey: "canvas:test",
+    viewportPreferenceScope: "stage:test",
+    variant: "stage",
+    active: true,
+    pagePalette: {
+      board: mockBoard,
+      createPage: async () => makeCardSummary("card-new", "New Card"),
     },
-    pageStagePageId: undefined,
-    pageStageCloseRef: { current: null },
+    onOpenPage: ({ projectId, pageId, titleSnapshot }) => {
+      openedCards.push({ projectId, pageId, title: titleSnapshot });
+    },
+    activePageId: undefined,
+    onCloseActivePage: async () => undefined,
   });
   return render(strict ? createElement(StrictMode, null, canvas) : canvas);
 }
 
-describe("CanvasView", () => {
+describe("CanvasDocumentSurface", () => {
   beforeEach(() => {
     serverScene = materializePortableCanvasScene({ elements: [makePlacedElement("card-1")] });
     serverHead = 1;
@@ -436,6 +444,7 @@ describe("CanvasView", () => {
     maintenanceReadCount = 0;
     maintenanceApplyCount = 0;
     openedCards = [];
+    requestedOwnerBlockIds = [];
     localStorage.clear();
   });
 
@@ -451,6 +460,26 @@ describe("CanvasView", () => {
     expect(appliedMutations).toHaveLength(1);
   });
 
+  test("opens an arbitrary Canvas owner without requiring a Page palette", async () => {
+    const { CanvasDocumentSurface } = await import(
+      "../canvas/canvas-document-surface"
+    );
+    const canvasId = "019f7399-7676-70ae-b2aa-168692b64d21";
+    const view = render(createElement(CanvasDocumentSurface, {
+      projectId: "project-1",
+      canvasBlockId: canvasId,
+      surfaceKey: "canvas:standalone",
+      viewportPreferenceScope: "stage:standalone",
+      variant: "stage",
+      active: true,
+    }));
+
+    await view.findByTestId("excalidraw");
+    expect(requestedOwnerBlockIds).toEqual([canvasId]);
+    expect(view.queryByRole("button", { name: "Pages" })).toBeNull();
+    expect(view.queryByTestId("card-sidebar")).toBeNull();
+  });
+
   test("Pages button toggles the Excalidraw sidebar", async () => {
     const view = await renderCanvas();
     fireEvent.click(await view.findByRole("button", { name: "Pages" }));
@@ -461,6 +490,7 @@ describe("CanvasView", () => {
     writeCanvasViewportPreference({
       storeEpoch: descriptor.storeEpoch,
       documentId: descriptor.documentId,
+      preferenceScope: "stage:test",
     }, {
       scrollX: -320,
       scrollY: 180,
@@ -489,6 +519,7 @@ describe("CanvasView", () => {
     expect(readCanvasViewportPreference({
       storeEpoch: descriptor.storeEpoch,
       documentId: descriptor.documentId,
+      preferenceScope: "stage:test",
     })).toEqual({
       scrollX: 640,
       scrollY: -80,

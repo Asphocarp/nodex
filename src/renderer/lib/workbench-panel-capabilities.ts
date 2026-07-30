@@ -42,6 +42,7 @@ const PROJECT_ACTION_ORDER: readonly WorkbenchPanelActionKind[] = [
   "side_chat",
   "db_view",
   "page_stage",
+  "canvas_stage",
 ];
 
 const PROJECTLESS_ACTION_ORDER: readonly WorkbenchPanelActionKind[] = [
@@ -66,6 +67,7 @@ const PROJECT_REQUIRED_ACTIONS = new Set<WorkbenchPanelActionKind>([
   "review",
   "db_view",
   "page_stage",
+  "canvas_stage",
 ]);
 const SINGLETON_ACTIONS = new Set<WorkbenchPanelActionKind>(
   PROJECT_SESSION_SINGLETON_TAB_KINDS,

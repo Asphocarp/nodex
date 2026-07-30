@@ -1,7 +1,7 @@
 import type { WorkbenchSessionViewSnapshot } from "./workbench-session-view";
 import type { LibraryRouteTarget } from "./library-module";
 
-export type WorkbenchLayoutView = "kanban" | "list" | "toggle-list" | "canvas" | "calendar";
+export type WorkbenchLayoutView = "kanban" | "list" | "toggle-list" | "calendar";
 export type WorkbenchLayoutStageId = "db" | "pages" | "threads" | "files";
 export type WorkbenchLayoutStageNavDirection = "left" | "right";
 
@@ -86,7 +86,7 @@ export type WorkbenchLibraryLocationTarget =
   | Extract<LibraryRouteTarget, { readonly kind: "page" }>
   | (Extract<
       LibraryRouteTarget,
-      { readonly kind: "database" | "view" }
+      { readonly kind: "database" | "canvas" | "view" }
     > & {
       readonly accessProjectId?: string;
     });

@@ -6,6 +6,7 @@ import {
   materializePortableCanvasScene,
   type CanvasSceneRealtimeEvent,
 } from "../../shared/block-documents";
+import { DocumentHttpWireError } from "../../shared/block-documents/http-wire";
 import { createCoreCanvasSceneAdapter } from "./core-canvas-scene-adapter";
 import { CoreModuleResponseError } from "./core-client";
 import { FakeCoreClient } from "./testing/fake-core-client";
@@ -45,6 +46,12 @@ class SubscriptionLossCanvasClient extends FakeCoreClient {
       });
     }
     return super.documentCanvasSync(...args);
+  }
+}
+
+class InvalidSnapshotCanvasClient extends FakeCoreClient {
+  override documentCanvasSync(): ReturnType<FakeCoreClient["documentCanvasSync"]> {
+    throw new DocumentHttpWireError("Canvas snapshot payload is invalid");
   }
 }
 
@@ -138,6 +145,31 @@ const committedEvent = (): CoreEventEnvelope => ({
 });
 
 describe("Core Canvas scene adapter", () => {
+  test("classifies an invalid Canvas snapshot as a terminal protocol error", async () => {
+    const client = new InvalidSnapshotCanvasClient();
+    const adapter = createCoreCanvasSceneAdapter(client);
+    const request = {
+      version: CANVAS_SCENE_SYNC_VERSION,
+      syncRequestId: "sync:invalid",
+      projectId: PROJECT_ID,
+      documentId: DOCUMENT_ID,
+      clientSessionId: CLIENT_SESSION_ID,
+    } as const;
+    const close = adapter.subscribe(request, () => undefined);
+
+    await expect(adapter.sync(request)).resolves.toEqual({
+      ok: false,
+      error: {
+        code: "canvas_scene_corrupt",
+        message: "Canvas snapshot payload is invalid",
+        retryable: false,
+        resetRequired: false,
+      },
+    });
+
+    close();
+  });
+
   test("reconnects and retries once when Core reports a lost subscription lease", async () => {
     const client = new SubscriptionLossCanvasClient();
     client.enqueueDocumentCanvasSync(syncSnapshot("sync:one"));

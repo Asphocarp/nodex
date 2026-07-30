@@ -253,28 +253,6 @@ const coreOwnerCommand = (
         },
       };
     }
-    case "create_canvas_owner":
-      return {
-        kind: operation.kind,
-        block_id: operation.blockId,
-        document_id: operation.documentId,
-        display_name: operation.displayName,
-        before: coreSpaceAnchor(operation.placement),
-      };
-    case "delete_canvas_owner": {
-      const ownerHead = coreHead(request, operation.owner);
-      return {
-        kind: operation.kind,
-        owner: {
-          owner_block_id: operation.owner.ownerBlockId,
-          document_id: operation.owner.documentId,
-          generation: operation.owner.generation,
-          head_seq: ownerHead.head_seq,
-          metadata_revision: operation.owner.metadataRevision,
-          location_revision: operation.owner.locationRevision,
-        },
-      };
-    }
   }
 };
 

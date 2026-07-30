@@ -5,14 +5,20 @@ import type { BlockTransferCommandResult } from "../../../../shared/block-transf
 import {
   blockTransferDropLabel,
   claimLocalBlockDragDropTarget,
+  containsCanvasBlockDrag,
   type CrossSurfaceBlockTransferPayload,
   endLocalBlockDragSession,
+  isSingleCanvasBlockDrag,
   registerLocalBlockDragDropTarget,
   releaseLocalBlockDragDropTarget,
   resolveLocalBlockDragDropSession,
   resolveLocalBlockDragSession,
   resolveCrossSurfaceTransferMode,
 } from "../cross-surface-drag";
+import type {
+  LibraryPageInsertion,
+} from "../../../../shared/library-module";
+import { resolveCanvasDropInsertion } from "@/lib/canvas-host-operations";
 import {
   buildKanbanCardEditorTransferTargetData,
   isKanbanCardDragData,
@@ -39,6 +45,14 @@ export interface BlockTransferDropBoundary {
   readonly transfer: (
     intent: PublicBlockTransferIntent,
   ) => Promise<BlockTransferCommandResult>;
+  readonly transferCanvas?: (intent: {
+    readonly canvasBlockId: string;
+    readonly sourceSurfaceId: string;
+    readonly sourcePageId: string;
+    readonly targetPageId: string;
+    readonly mode: "move" | "copy";
+    readonly insertion: LibraryPageInsertion;
+  }) => Promise<void>;
   readonly createOperationId: () => string;
   readonly reportError: (message: string) => void;
 }
@@ -310,7 +324,12 @@ export const setupBlockTransferDocumentDrop = (
     ) {
       return null;
     }
-    if (session.sourceSurfaceId === boundary.surfaceId) return null;
+    if (
+      session.sourceSurfaceId === boundary.surfaceId
+      && !containsCanvasBlockDrag(session.payload)
+    ) {
+      return null;
+    }
     return session;
   };
   const canTransferPayload = (
@@ -340,6 +359,21 @@ export const setupBlockTransferDocumentDrop = (
         session.payload.source.pageId === boundary.hostPageId) ||
       (session.payload.source.kind === "document" &&
         session.payload.source.documentId === boundary.documentId)
+    ) {
+      if (!containsCanvasBlockDrag(session.payload)) {
+        event.dataTransfer!.dropEffect = "none";
+        clear();
+        return;
+      }
+    }
+    if (
+      containsCanvasBlockDrag(session.payload)
+      && (
+        !isSingleCanvasBlockDrag(session.payload)
+        || session.payload.source.kind !== "page"
+        || !boundary.hostPageId
+        || !boundary.transferCanvas
+      )
     ) {
       event.dataTransfer!.dropEffect = "none";
       clear();
@@ -377,10 +411,12 @@ export const setupBlockTransferDocumentDrop = (
       (session.payload.source.kind === "document" &&
         session.payload.source.documentId === boundary.documentId)
     ) {
-      boundary.reportError(
-        "This Block is already in the same collaborative Document.",
-      );
-      return;
+      if (!containsCanvasBlockDrag(session.payload)) {
+        boundary.reportError(
+          "This Block is already in the same collaborative Document.",
+        );
+        return;
+      }
     }
     if (!canTransferPayload(session.payload)) {
       boundary.reportError(
@@ -391,6 +427,33 @@ export const setupBlockTransferDocumentDrop = (
 
     const anchor = resolveAnchor(container, event.clientX, event.clientY);
     const target = resolveBlockTransferDocumentTarget(editor, anchor);
+    if (containsCanvasBlockDrag(session.payload)) {
+      if (
+        !isSingleCanvasBlockDrag(session.payload)
+        || session.payload.source.kind !== "page"
+        || !boundary.hostPageId
+        || !boundary.transferCanvas
+      ) {
+        boundary.reportError("Move or copy one Canvas at a time.");
+        return;
+      }
+      const mode = resolveCrossSurfaceTransferMode(event);
+      const canvasBlockId = session.payload.rootBlockIds[0]!;
+      if (mode === "move" && target.beforeBlockId === canvasBlockId) return;
+      void boundary.transferCanvas({
+        canvasBlockId,
+        sourceSurfaceId: session.sourceSurfaceId,
+        sourcePageId: session.payload.source.pageId,
+        targetPageId: boundary.hostPageId,
+        mode,
+        insertion: resolveCanvasDropInsertion(target),
+      }).catch((error: unknown) => {
+        boundary.reportError(
+          error instanceof Error ? error.message : "Canvas move failed",
+        );
+      });
+      return;
+    }
     const intent: PublicBlockTransferIntent = {
       version: 2,
       operationId: boundary.createOperationId(),

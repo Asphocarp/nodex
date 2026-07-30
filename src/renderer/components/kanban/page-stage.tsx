@@ -74,6 +74,7 @@ interface PageStageDescriptionEditorProps {
   readonly onOpenCodexThread: PageStageProps["onOpenCodexThread"];
   readonly onOpenPage: PageStageProps["onOpenPage"];
   readonly onOpenDatabase: PageStageProps["onOpenDatabase"];
+  readonly onOpenCanvas: PageStageProps["onOpenCanvas"];
   readonly onStartNewSessionThreadFromEditor: PageStageProps["onStartNewSessionThreadFromEditor"];
   readonly onSendThreadSectionPrompt: PageStageProps["onSendThreadSectionPrompt"];
   readonly isActivePanelTab: boolean;
@@ -125,6 +126,7 @@ const PageStageDescriptionEditor = memo(
     onOpenCodexThread,
     onOpenPage,
     onOpenDatabase,
+    onOpenCanvas,
     onStartNewSessionThreadFromEditor,
     onSendThreadSectionPrompt,
     isActivePanelTab,
@@ -160,6 +162,7 @@ const PageStageDescriptionEditor = memo(
         onOpenCodexThread={onOpenCodexThread}
         onOpenPage={onOpenPage}
         onOpenDatabase={onOpenDatabase}
+        onOpenCanvas={onOpenCanvas}
         onStartNewSessionThreadFromEditor={onStartNewSessionThreadFromEditor}
         onSendThreadSectionPrompt={onSendThreadSectionPrompt}
         isActivePanelTab={isActivePanelTab}
@@ -335,6 +338,7 @@ export function PageStage(props: PageStageProps) {
           onOpenCodexThread={props.onOpenCodexThread}
           onOpenPage={props.onOpenPage}
           onOpenDatabase={props.onOpenDatabase}
+          onOpenCanvas={props.onOpenCanvas}
           onStartNewSessionThreadFromEditor={
             props.onStartNewSessionThreadFromEditor
           }

@@ -172,7 +172,7 @@ type Story = StoryObj<typeof meta>;
 export const SecondaryView: Story = {};
 
 const withKind = (
-  kind: "list" | "calendar" | "canvas",
+  kind: "list" | "calendar",
 ): DatabaseViewRenderModel => ({
   ...model,
   query: {
@@ -193,4 +193,3 @@ const withKind = (
 
 export const ListView: Story = { args: { model: withKind("list") } };
 export const CalendarAgenda: Story = { args: { model: withKind("calendar") } };
-export const OrderedCanvas: Story = { args: { model: withKind("canvas") } };

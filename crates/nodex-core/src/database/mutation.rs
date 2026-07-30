@@ -2918,7 +2918,7 @@ fn put_view(
     validate_id(database_id, "database_id", MAX_ID_LENGTH)?;
     validate_id(view_id, "view_id", MAX_ID_LENGTH)?;
     let name = validate_name(name, "View name")?;
-    if !matches!(view_kind, "kanban" | "list" | "calendar" | "canvas") {
+    if !matches!(view_kind, "kanban" | "list" | "calendar") {
         return Err(invalid("Database View kind is unsupported"));
     }
     let container = require_container(connection, library_id, database_id)?;

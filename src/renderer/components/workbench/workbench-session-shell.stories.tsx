@@ -1236,6 +1236,12 @@ function installStoryApi(
           const read = (args[0] as LibraryModuleReadRequest).read;
           const value: LibraryReadValue = (() => {
             if (read.mode === "metadata") return { kind: "metadata" };
+            if (read.mode === "canvas_target") {
+              return {
+                kind: "canvas_target",
+                value: { status: "missing", canvasId: read.canvasId },
+              };
+            }
             if (read.mode === "path") {
               return { kind: "path", target: read.target, nodes: [] };
             }

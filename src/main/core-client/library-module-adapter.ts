@@ -7,6 +7,7 @@ import {
 import type { DatabaseViewKind } from "../../shared/database-kernel";
 import type {
   LibraryApplyOperation,
+  LibraryCanvasDestination,
   LibraryModuleApplyRequest,
   LibraryModuleApplyResult,
   LibraryModuleError,
@@ -119,6 +120,9 @@ const toCoreRouteTarget = (target: LibraryRouteTarget) => {
   if (target.kind === "database") {
     return { kind: target.kind, database_id: target.databaseId } as const;
   }
+  if (target.kind === "canvas") {
+    return { kind: target.kind, canvas_id: target.canvasId } as const;
+  }
   return { kind: target.kind, view_id: target.viewId } as const;
 };
 
@@ -145,11 +149,54 @@ const toCoreWriteParent = (parent: LibraryWriteParent) => {
   } as const;
 };
 
+const toCoreCanvasDestination = (destination: LibraryCanvasDestination) => {
+  if (destination.kind === "library") {
+    return {
+      kind: destination.kind,
+      before: destination.before
+        ? {
+            block_id: destination.before.blockId,
+            expected_location_revision:
+              destination.before.expectedLocationRevision,
+          }
+        : null,
+    } as const;
+  }
+  const insertion = (() => {
+    if (destination.insertion.kind === "append") {
+      return {
+        kind: destination.insertion.kind,
+        parent_block_id: destination.insertion.parentBlockId ?? null,
+      } as const;
+    }
+    if (destination.insertion.kind === "before") {
+      return {
+        kind: destination.insertion.kind,
+        parent_block_id: destination.insertion.parentBlockId ?? null,
+        anchor_block_id: destination.insertion.anchorBlockId,
+      } as const;
+    }
+    return {
+      kind: destination.insertion.kind,
+      block_id: destination.insertion.blockId,
+    } as const;
+  })();
+  return {
+    kind: destination.kind,
+    page_id: destination.pageId,
+    expected_document_generation: destination.expectedDocumentGeneration,
+    expected_document_head_seq: destination.expectedDocumentHeadSeq,
+    insertion,
+  } as const;
+};
+
 const toCoreRead = (request: LibraryModuleReadRequest): LibraryRead => {
   const read = request.read;
   switch (read.mode) {
     case "metadata":
       return { kind: "metadata" };
+    case "canvas_target":
+      return { kind: "canvas_target", canvas_id: read.canvasId };
     case "children":
       return {
         kind: "children",
@@ -192,6 +239,46 @@ const toCoreIntent = (operation: LibraryApplyOperation): LibraryIntent => {
         view_id: operation.viewId,
         name: operation.name,
         parent: toCoreWriteParent(operation.parent),
+      };
+    case "create_canvas":
+      return {
+        kind: operation.kind,
+        canvas_id: operation.canvasId,
+        document_id: operation.documentId,
+        display_name: operation.displayName,
+        destination: toCoreCanvasDestination(operation.destination),
+      };
+    case "rename_canvas":
+      return {
+        kind: operation.kind,
+        canvas_id: operation.canvasId,
+        display_name: operation.displayName,
+        expected_metadata_revision: operation.expectedMetadataRevision,
+      };
+    case "move_canvas":
+      return {
+        kind: operation.kind,
+        canvas_id: operation.canvasId,
+        expected_location_revision: operation.expectedLocationRevision,
+        destination: toCoreCanvasDestination(operation.destination),
+      };
+    case "duplicate_canvas":
+      return {
+        kind: operation.kind,
+        source_canvas_id: operation.sourceCanvasId,
+        canvas_id: operation.canvasId,
+        document_id: operation.documentId,
+        display_name: operation.displayName ?? null,
+        expected_document_generation: operation.expectedDocumentGeneration,
+        expected_document_head_seq: operation.expectedDocumentHeadSeq,
+        destination: toCoreCanvasDestination(operation.destination),
+      };
+    case "delete_canvas":
+      return {
+        kind: operation.kind,
+        canvas_id: operation.canvasId,
+        expected_location_revision: operation.expectedLocationRevision,
+        expected_metadata_revision: operation.expectedMetadataRevision,
       };
     case "move_block":
       return {
@@ -355,6 +442,9 @@ const fromCoreRouteTarget = (
   if (target.kind === "database") {
     return { kind: target.kind, databaseId: parseDatabaseId(target.database_id) };
   }
+  if (target.kind === "canvas") {
+    return { kind: target.kind, canvasId: target.canvas_id };
+  }
   return { kind: target.kind, viewId: parseDatabaseViewId(target.view_id) };
 };
 
@@ -367,7 +457,7 @@ const fromCoreParent = (
 };
 
 const parseViewKind = (value: string): DatabaseViewKind => {
-  if (value === "kanban" || value === "list" || value === "calendar" || value === "canvas") {
+  if (value === "kanban" || value === "list" || value === "calendar") {
     return value;
   }
   throw new Error(`Core returned unsupported Database View kind ${value}`);
@@ -401,6 +491,19 @@ const fromCoreNode = (
       updatedAt: node.updated_at,
     };
   }
+  if (node.kind === "canvas") {
+    return {
+      kind: node.kind,
+      canvasId: node.canvas_id,
+      title: node.title,
+      isPrimary: node.is_primary,
+      metadataRevision: node.metadata_revision,
+      locationRevision: node.location_revision,
+      documentGeneration: node.document_generation,
+      documentHeadSeq: node.document_head_seq,
+      updatedAt: node.updated_at,
+    };
+  }
   return {
     kind: node.kind,
     viewId: parseDatabaseViewId(node.view_id),
@@ -418,6 +521,43 @@ const mapReadValue = (snapshot: LibraryReadSnapshot): LibraryReadValue => {
   switch (value.kind) {
     case "metadata":
       return { kind: value.kind } as const;
+    case "canvas_target":
+      return {
+        kind: value.kind,
+        value: value.value.status === "available"
+          ? {
+              status: value.value.status,
+              summary: {
+                canvasId: value.value.summary.canvas_id,
+                projectId: value.value.summary.project_id,
+                title: value.value.summary.title,
+                lifecycle: value.value.summary.lifecycle,
+                isPrimary: value.value.summary.is_primary,
+                location: value.value.summary.location.kind === "library"
+                  ? { kind: "library" as const }
+                  : {
+                      kind: "page" as const,
+                      pageId: value.value.summary.location.page_id,
+                      documentId: value.value.summary.location.document_id,
+                    },
+                metadataRevision: value.value.summary.metadata_revision,
+                locationRevision: value.value.summary.location_revision,
+                documentGeneration: value.value.summary.document_generation,
+                documentHeadSeq: value.value.summary.document_head_seq,
+                updatedAt: value.value.summary.updated_at,
+              },
+            }
+          : value.value.status === "deleted"
+            ? {
+                status: value.value.status,
+                canvasId: value.value.canvas_id,
+                libraryId: value.value.library_id,
+              }
+            : {
+                status: value.value.status,
+                canvasId: value.value.canvas_id,
+              },
+      } as const;
     case "children":
       return {
         kind: value.kind,
@@ -440,10 +580,15 @@ const mapReadValue = (snapshot: LibraryReadSnapshot): LibraryReadValue => {
           target:
             item.target.kind === "page"
               ? { kind: "page" as const, pageId: item.target.page_id }
-              : {
+              : item.target.kind === "database"
+                ? {
                   kind: "database" as const,
                   databaseId: parseDatabaseId(item.target.database_id),
-                },
+                }
+                : {
+                    kind: "canvas" as const,
+                    canvasId: item.target.canvas_id,
+                  },
           title: item.title,
           kind: item.kind,
           lifecycle: item.lifecycle,
@@ -997,7 +1142,10 @@ const fromCoreCreatedTarget = (
   >,
 ): Exclude<LibraryRouteTarget, { kind: "view" }> => {
   if (target.kind === "page") return { kind: target.kind, pageId: target.page_id };
-  return { kind: target.kind, databaseId: parseDatabaseId(target.database_id) };
+  if (target.kind === "database") {
+    return { kind: target.kind, databaseId: parseDatabaseId(target.database_id) };
+  }
+  return { kind: target.kind, canvasId: target.canvas_id };
 };
 
 type CoreBlockPropertyMutation = Extract<
@@ -1280,6 +1428,32 @@ export const createCoreLibraryModuleAdapter = (
             didMutate: receipt.did_mutate,
             createdTarget: receipt.created_target
               ? fromCoreCreatedTarget(receipt.created_target)
+              : null,
+            canvasMutation: committed.value.canvas_mutation
+              ? {
+                  operationKind:
+                    committed.value.canvas_mutation.operation_kind,
+                  canvasId: committed.value.canvas_mutation.canvas_id,
+                  documentId: committed.value.canvas_mutation.document_id,
+                  sourceCanvasId:
+                    committed.value.canvas_mutation.source_canvas_id ?? null,
+                  locationRevision:
+                    committed.value.canvas_mutation.location_revision,
+                  metadataRevision:
+                    committed.value.canvas_mutation.metadata_revision,
+                  documentCommits:
+                    committed.value.canvas_mutation.document_commits.map(
+                      (commit) => ({
+                        documentId: commit.document_id,
+                        generation: commit.generation,
+                        baseHeadSeq: commit.base_head_seq,
+                        headSeq: commit.head_seq,
+                        updateId: commit.update_id,
+                        update: Uint8Array.from(commit.update),
+                        stateVector: Uint8Array.from(commit.state_vector),
+                      }),
+                    ),
+                }
               : null,
             affectedParentKeys: receipt.affected_parent_keys,
             affectedPageIds: receipt.affected_page_ids,

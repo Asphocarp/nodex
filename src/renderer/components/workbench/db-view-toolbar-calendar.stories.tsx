@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
-import { CalendarDays, SquareKanban, Table2 } from "lucide-react";
+import { CalendarDays, Shapes, SquareKanban, Table2 } from "lucide-react";
 import {
   CalendarToolbarControls,
   CalendarToolbarMonthLabel,
@@ -45,6 +45,12 @@ function CalendarDbToolbarStory({ narrow = false }: { narrow?: boolean }) {
       <div className={narrow ? "w-[520px]" : "w-full"}>
         <DbViewToolbar
           items={ITEMS}
+          destinationItems={[{
+            id: "primary-canvas",
+            label: "Canvas",
+            icon: Shapes,
+            onSelect: () => undefined,
+          }]}
           activeSearchQuery=""
           taskSearchOpen={false}
           showSearchControls={false}

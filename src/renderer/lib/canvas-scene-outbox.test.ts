@@ -77,6 +77,40 @@ const verifyFifoAndIdempotence = async (
     .toEqual(["mutation-a"]);
 };
 
+const verifyQuarantine = async (
+  outbox: CanvasSceneOutbox,
+): Promise<void> => {
+  const rejected = intent("mutation-rejected", 1);
+  await outbox.put(rejected);
+  await outbox.quarantine(rejected, {
+    code: "invalid_canvas_scene_mutation",
+    message: "invalid image assertion",
+    retryable: false,
+    resetRequired: false,
+    mutationId: rejected.mutationId,
+  }, 123);
+
+  expect(await outbox.list("document-1")).toEqual([]);
+  expect(await outbox.listQuarantined("document-1")).toEqual([{
+    intent: rejected,
+    error: {
+      code: "invalid_canvas_scene_mutation",
+      message: "invalid image assertion",
+      retryable: false,
+      resetRequired: false,
+      mutationId: rejected.mutationId,
+    },
+    rejectedAt: 123,
+  }]);
+  await outbox.quarantine(rejected, {
+    code: "invalid_canvas_scene_mutation",
+    message: "duplicate quarantine",
+    retryable: false,
+    resetRequired: false,
+  }, 456);
+  expect(await outbox.listQuarantined("document-1")).toHaveLength(1);
+};
+
 const openVersionOneDatabase = (
   factory: IDBFactory,
   rows: readonly unknown[],
@@ -111,8 +145,18 @@ describe("CanvasSceneOutbox", () => {
     await verifyFifoAndIdempotence(new MemoryCanvasSceneOutbox());
   });
 
-  test("IndexedDB v2 preserves enqueue order and duplicate position", async () => {
+  test("memory storage atomically quarantines a rejected mutation", async () => {
+    await verifyQuarantine(new MemoryCanvasSceneOutbox());
+  });
+
+  test("IndexedDB v3 preserves enqueue order and duplicate position", async () => {
     await verifyFifoAndIdempotence(
+      new IndexedDbCanvasSceneOutbox(new IDBFactory()),
+    );
+  });
+
+  test("IndexedDB v3 atomically quarantines a rejected mutation", async () => {
+    await verifyQuarantine(
       new IndexedDbCanvasSceneOutbox(new IDBFactory()),
     );
   });

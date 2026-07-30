@@ -10,6 +10,7 @@ import {
 import { type MotionValue } from "motion/react";
 import {
   Globe2,
+  Shapes,
   SquareKanban,
   Table2,
 } from "lucide-react";
@@ -115,6 +116,7 @@ type PanelLifecycle = Pick<
 >;
 type PanelOpeners = Pick<
   ReturnType<typeof useWorkbenchPanelOpeners>,
+  | "openCanvasStage"
   | "openMcpAppSidePanel"
   | "openPageTab"
   | "openWorkspaceFileTab"
@@ -210,6 +212,7 @@ function getTabIcon(
 ): ComponentType<{ className?: string }> {
   if (kind === "db_view") return Table2;
   if (kind === "page_stage") return SquareKanban;
+  if (kind === "canvas_stage") return Shapes;
   if (kind === "terminal") return CodexSidePanelTerminalIcon;
   if (kind === "browser") return CodexSidePanelBrowserIcon;
   if (kind === "review") return CodexSidePanelReviewIcon;
@@ -259,7 +262,11 @@ function resolveProjectTargetTabChromeContext(
     || isSubagentsPanelTab(tab)
     || isProcessOutputPanelTab(tab)
   ) return {};
-  if (tab.kind !== "db_view" && tab.kind !== "page_stage") return {};
+  if (
+    tab.kind !== "db_view"
+    && tab.kind !== "page_stage"
+    && tab.kind !== "canvas_stage"
+  ) return {};
   if (!("projectId" in tab.config)) return {};
 
   const targetProjectId = tab.config.projectId;
@@ -351,6 +358,7 @@ export function useWorkbenchPanelProjection({
     closeTab,
   } = lifecycle;
   const {
+    openCanvasStage,
     openMcpAppSidePanel,
     openPageTab,
     openWorkspaceFileTab,
@@ -678,6 +686,7 @@ export function useWorkbenchPanelProjection({
                 activePanelPageStagePageIdsByProject
               }
               pageStageTabTitleStore={pageStageTabTitleStore}
+              onOpenCanvasStage={openCanvasStage}
               onOpenPageTab={openPageTab}
               onOpenFileTab={openWorkspaceFileTab}
               onEnsureBlankSessionForProject={ensureBlankSessionForProject}
@@ -770,6 +779,7 @@ export function useWorkbenchPanelProjection({
     onUpdateSessionViewTab,
     openAttachedThreadSession,
     openAttachedThreadSessionById,
+    openCanvasStage,
     openMcpAppSidePanel,
     openPageTab,
     openSubagentsPanelTab,
