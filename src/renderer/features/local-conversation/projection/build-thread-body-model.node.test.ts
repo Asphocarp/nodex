@@ -349,7 +349,7 @@ describe("buildThreadBodyModel", () => {
     expect(model.emptyState.type).toBe("none");
   });
 
-  test("keeps local-project ready progress silent while waiting for the first snapshot", () => {
+  test("keeps an attached local thread visibly preparing until its first snapshot arrives", () => {
     const model = buildThreadBodyModel({
       activeThreadId: "thread_1",
       conversation: null,
@@ -368,7 +368,10 @@ describe("buildThreadBodyModel", () => {
     });
 
     expect(model.showThreadStartProgressPanel).toBe(false);
-    expect(model.emptyState.type).toBe("none");
+    expect(model.emptyState.type).toBe("resumingThread");
+    if (model.emptyState.type === "resumingThread") {
+      expect(model.emptyState.title).toBe("Preparing thread");
+    }
   });
 
   test("shows local-project failures as thread start progress", () => {

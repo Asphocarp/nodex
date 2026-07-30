@@ -3788,6 +3788,7 @@ export function registerIpcHandlers(
           browserViewScopeId:
             options.resolveWindowSessionId?.(event.sender.id)
             ?? `headless:${input.sessionId}`,
+          ownerClientId: resolveRendererClientId(event),
         });
       } finally {
         event.sender.removeListener("destroyed", abortWhenRendererCloses);
@@ -3850,6 +3851,21 @@ export function registerIpcHandlers(
     }
     return codexService.requestRendererConversationResume(threadId, ownerClientId);
   });
+
+  registerHandle(
+    "codex:thread:fresh-owner:adopt",
+    (event, threadId: string, launchId: string) => {
+      const ownerClientId = resolveRendererClientId(event);
+      if (!ownerClientId) {
+        throw new Error("Renderer client is not registered");
+      }
+      return codexService.requestRendererFreshConversationAdoption(
+        threadId,
+        launchId,
+        ownerClientId,
+      );
+    },
+  );
 
   registerHandle(
     "codex:thread:background-subagents:hydrate",

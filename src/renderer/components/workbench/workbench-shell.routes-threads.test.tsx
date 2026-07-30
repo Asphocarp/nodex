@@ -8,7 +8,7 @@ import { THREAD_QUEUE_FOLLOW_UPS_STORAGE_KEY } from "@/lib/thread-composer-follo
 import { COMPOSER_ENTER_BEHAVIOR_STORAGE_KEY } from "@/lib/composer-enter-behavior";
 import { type CodexScheduledAutomationCreateInput } from "@/lib/types";
 import { __getNodexToastSnapshotForTests } from "@/components/ui/toast";
-import { getHeaderShellSlot, getLastThreadStageActions, getPanelTabById, installShellBodyMeasurementForTest, installTerminalEventApiMock, invokeCalls, makeAttachedSession, makeBlankSession, makePanelLayout, makeProject, makeScheduledAutomation, makeSession, makeSessionTab, mockInvokeImpl, mockThreadStartProgress, pointerActivate, renderWorkbench, setMockInvokeImpl, setMockThreadStartProgress } from "./workbench-testkit/workbench-shell-harness";
+import { getHeaderShellSlot, getLastThreadStageActions, getPanelTabById, installShellBodyMeasurementForTest, installTerminalEventApiMock, invokeCalls, makeAttachedSession, makeBlankSession, makePanelLayout, makeProject, makeScheduledAutomation, makeSession, makeSessionTab, mockInvokeImpl, mockThreadStartProgress, pointerActivate, renderWorkbench, setMockConversationHasVisibleTurn, setMockInvokeImpl, setMockThreadStartProgress } from "./workbench-testkit/workbench-shell-harness";
 
 describe("workbench session shell / routes-threads", () => {
   test("opens settings as a full-window route shell from the sidebar settings button", async () => {
@@ -345,7 +345,8 @@ describe("workbench session shell / routes-threads", () => {
     expect(props?.composerEnterBehavior).toBe("cmdIfMultiline");
   });
 
-  test("passes session start progress to an attached empty thread stage", async () => {
+  test("keeps session start progress on the new-thread surface until a turn is visible", async () => {
+    setMockConversationHasVisibleTurn(false);
     setMockThreadStartProgress({
       projectId: "alpha",
       sessionId: "session:alpha:thread",
@@ -366,6 +367,8 @@ describe("workbench session shell / routes-threads", () => {
 
     const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
     expect(JSON.stringify(props?.threadStartProgress)).toBe(JSON.stringify(mockThreadStartProgress));
+    expect(props?.isNewThreadTab).toBe(true);
+    expect(props?.activeThreadId).toBe(null);
   });
 
   test("uses the global app header as the only top title row", async () => {

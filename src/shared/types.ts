@@ -84,6 +84,7 @@ export type {
 } from "./nodex-agent-tools";
 import type {
   CodexCanonicalConversationState,
+  CodexCanonicalLiveTurnParams,
   CodexCanonicalOptionPickerRequest,
   CodexCanonicalOptionPickerResponse,
   CodexCanonicalServerRequest,
@@ -2035,10 +2036,21 @@ export interface CodexThreadStartForSessionInput {
   heartbeatAutomation?: CodexThreadStartHeartbeatAutomationInput | null;
 }
 
+export interface CodexFreshThreadLaunch {
+  readonly launchId: string;
+  readonly threadId: string;
+  readonly clientUserMessageId: string;
+  readonly canonicalParams: CodexCanonicalLiveTurnParams<
+    CodexLiveFileAttachment,
+    CodexReviewDiffCommentAttachment
+  >;
+}
+
 export type CodexThreadStartForSessionResult =
   | {
       kind: "started";
       detail: CodexThreadDetail;
+      freshLaunch?: CodexFreshThreadLaunch;
     }
   | {
       kind: "pending";
@@ -2356,6 +2368,13 @@ export type CodexOwnerAppServerRequest =
         opts?: CodexTurnStartOptions;
         clientUserMessageId: string;
         preparedPrompt: CodexPreparedPrompt;
+      };
+    }
+  | {
+      method: "thread/session-first-turn/start";
+      params: {
+        threadId: string;
+        launchId: string;
       };
     }
   | { method: "turn/steer"; params: CodexAppServerTurnSteerParams }

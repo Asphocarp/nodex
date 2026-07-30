@@ -1871,6 +1871,10 @@ export interface IpcApi {
     args: [threadId: string];
     result: CodexRendererConversationResumeResult | null;
   };
+  "codex:thread:fresh-owner:adopt": {
+    args: [threadId: string, launchId: string];
+    result: Extract<CodexRendererConversationResumeResult, { role: "owner" }>;
+  };
   "codex:thread:background-subagents:hydrate": {
     args: [input: CodexBackgroundSubagentThreadsHydrateInput];
     result: CodexThreadSummary[];

@@ -103,7 +103,13 @@ export function buildThreadBodyModel(input: ThreadBodyModelInput): ThreadBodyMod
           activeTurnId: null,
           latestTurnId: null,
           showThreadStartProgressPanel,
-          emptyState: { type: "none" },
+          emptyState: {
+            type: "resumingThread",
+            title: "Preparing thread",
+            description:
+              "Waiting for the first visible turn before presenting the attached thread.",
+            status: resumeState,
+          },
         };
       }
 

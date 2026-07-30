@@ -73,6 +73,21 @@ export const ExistingEmpty: Story = {
   },
 };
 
+export const FirstTurnOptimistic: Story = {
+  args: {
+    preset: "session-starting-local",
+    isQueueingEnabled: false,
+  },
+  parameters: {
+    docs: {
+      description: {
+        story:
+          "Fresh Session handoff after the initiating renderer has committed the first user turn, while the protocol turn remains in progress.",
+      },
+    },
+  },
+};
+
 export const Resuming: Story = {
   args: {
     preset: "resuming",

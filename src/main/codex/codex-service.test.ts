@@ -185,6 +185,14 @@ interface TestableCodexService {
     threadId: string,
     ownerClientId: string,
   ) => Promise<import("../../shared/types").CodexRendererConversationResumeResult | null>;
+  requestRendererFreshConversationAdoption: (
+    threadId: string,
+    launchId: string,
+    ownerClientId: string,
+  ) => Promise<Extract<
+    import("../../shared/types").CodexRendererConversationResumeResult,
+    { role: "owner" }
+  >>;
   releaseConversationResumeBuffer: (threadId: string) => Promise<boolean>;
   replayRendererOwnerPendingRequests: (threadId: string, ownerClientId: string) => number;
   ackRendererThreadOwnerNotification: (
@@ -4269,6 +4277,190 @@ describe("codex-service renderer owner stream publishing", () => {
         ownerClientId: "owner-a",
       });
       expect(service.getRendererConversationOwner("thread-owner-adoption-race")).toBe("owner-a");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("fresh-thread ownership is reserved for its initiating renderer without thread/resume", async () => {
+    const service = createService();
+    const threadId = "thread-fresh-owner-reservation";
+    const launchId = "launch-fresh-owner-reservation";
+    const ownerClientId = "renderer-fresh-owner";
+    const requests: string[] = [];
+    const client = Reflect.get(service as object, "client") as {
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    client.request = async (method) => {
+      requests.push(method);
+      throw new Error(`Unexpected app-server request: ${method}`);
+    };
+    const serviceInternals = service as unknown as {
+      getConversationRecord: (id: string) => {
+        resumeState: string;
+        streamRole: string | null;
+        isStreaming: boolean;
+      };
+      pendingFreshSessionFirstTurnByThreadId: Map<
+        string,
+        {
+          launchId: string;
+          rendererClientId: string;
+          state: "prepared" | "adopted" | "starting";
+        }
+      >;
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      syncDormantConversationFromRecord: (
+        id: string,
+        reason: "owner-unavailable",
+      ) => void;
+    };
+    serviceInternals.setConversationRecordDetail(makeThreadDetail(threadId));
+    const record = serviceInternals.getConversationRecord(threadId);
+    record.resumeState = "resumed";
+    record.streamRole = "owner";
+    record.isStreaming = true;
+    serviceInternals.syncDormantConversationFromRecord(
+      threadId,
+      "owner-unavailable",
+    );
+    serviceInternals.pendingFreshSessionFirstTurnByThreadId.set(threadId, {
+      launchId,
+      rendererClientId: ownerClientId,
+      state: "prepared",
+    });
+
+    try {
+      await expect(
+        service.requestRendererConversationResume(threadId, ownerClientId),
+      ).resolves.toBeNull();
+      await expect(
+        service.requestRendererConversationResume(threadId, "renderer-other"),
+      ).resolves.toMatchObject({
+        role: "follower",
+        ownerClientId,
+      });
+
+      const adopted = await service.requestRendererFreshConversationAdoption(
+        threadId,
+        launchId,
+        ownerClientId,
+      );
+      expect(adopted.role).toBe("owner");
+      expect(adopted.conversation.threadId).toBe(threadId);
+      expect(service.getRendererConversationOwner(threadId)).toBe(
+        ownerClientId,
+      );
+      expect(requests).toEqual([]);
+      await service.releaseConversationResumeBuffer(threadId);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("a fresh owner consumes its exact first-turn launch only once", async () => {
+    const service = createService();
+    const threadId = "thread-fresh-owner-first-turn";
+    const launchId = "launch-fresh-owner-first-turn";
+    const ownerClientId = "renderer-fresh-owner-first-turn";
+    const turnStartParams = {
+      threadId,
+      clientUserMessageId: "client-user-message-fresh-owner",
+      input: [{ type: "text", text: "First visible prompt" }],
+      cwd: "/workspace/project",
+      attachments: [],
+    };
+    const requests: Array<{ method: string; params: unknown }> = [];
+    const client = Reflect.get(service as object, "client") as {
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    client.request = async (method, params) => {
+      requests.push({ method, params });
+      if (method !== "turn/start") {
+        throw new Error(`Unexpected app-server request: ${method}`);
+      }
+      return {
+        turn: {
+          id: "turn-fresh-owner-first-turn",
+          status: "in_progress",
+          transcript: [],
+        },
+      };
+    };
+    const serviceInternals = service as unknown as {
+      pendingFreshSessionFirstTurnByThreadId: Map<string, {
+        launchId: string;
+        rendererClientId: string;
+        projectId: string | null;
+        sessionId: string;
+        threadId: string;
+        runInTarget: "localProject";
+        startedAt: number;
+        clientUserMessageId: string;
+        canonicalParams: Record<string, unknown>;
+        turnStartParams: typeof turnStartParams;
+        verifiedBuiltinFullAccess: boolean;
+        goalObjective: string;
+        rawGoalDraft: null;
+        heartbeatAutomation: null;
+        state: "prepared" | "adopted" | "starting";
+      }>;
+      startRendererOwnedSessionFirstTurn: (
+        clientId: string,
+        id: string,
+        launch: string,
+      ) => Promise<{ turn: { id: string } }>;
+      markAutomationRunAcceptedForUserContinuation: (
+        id: string,
+      ) => Promise<void>;
+      markThreadAsActive: (id: string) => Promise<void>;
+      applyStartedSessionThreadGoal: (input: unknown) => Promise<void>;
+    };
+    serviceInternals.markAutomationRunAcceptedForUserContinuation =
+      async () => undefined;
+    serviceInternals.markThreadAsActive = async () => undefined;
+    serviceInternals.applyStartedSessionThreadGoal = async () => undefined;
+    serviceInternals.pendingFreshSessionFirstTurnByThreadId.set(threadId, {
+      launchId,
+      rendererClientId: ownerClientId,
+      projectId: "project-1",
+      sessionId: "session-fresh-owner-first-turn",
+      threadId,
+      runInTarget: "localProject",
+      startedAt: Date.now(),
+      clientUserMessageId: turnStartParams.clientUserMessageId,
+      canonicalParams: {},
+      turnStartParams,
+      verifiedBuiltinFullAccess: false,
+      goalObjective: "",
+      rawGoalDraft: null,
+      heartbeatAutomation: null,
+      state: "adopted",
+    });
+
+    try {
+      const response =
+        await serviceInternals.startRendererOwnedSessionFirstTurn(
+          ownerClientId,
+          threadId,
+          launchId,
+        );
+      expect(response.turn.id).toBe("turn-fresh-owner-first-turn");
+      expect(requests).toEqual([{
+        method: "turn/start",
+        params: turnStartParams,
+      }]);
+      expect(
+        serviceInternals.pendingFreshSessionFirstTurnByThreadId.has(threadId),
+      ).toBe(false);
+      await expect(
+        serviceInternals.startRendererOwnedSessionFirstTurn(
+          ownerClientId,
+          threadId,
+          launchId,
+        ),
+      ).rejects.toThrow(`Fresh thread launch '${launchId}' is unavailable`);
+      expect(requests).toHaveLength(1);
     } finally {
       await service.shutdown();
     }

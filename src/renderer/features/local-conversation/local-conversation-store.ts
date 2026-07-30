@@ -557,6 +557,7 @@ interface CodexThreadStartProgressState {
   outputText: string;
   outputCarriageReturnPending: boolean;
   outputTruncated: boolean;
+  rendererLaunchPending: boolean;
   updatedAt: number;
 }
 
@@ -701,6 +702,13 @@ interface RendererOwnerAppServerRequestClient {
       preparedPrompt: CodexPreparedPrompt;
     },
   ): Promise<TurnStartResponse | unknown>;
+  startSessionFirstTurn(
+    conversationId: string,
+    params: {
+      threadId: string;
+      launchId: string;
+    },
+  ): Promise<TurnStartResponse | unknown>;
   steerTurn(conversationId: string, params: TurnSteerParams): Promise<{ turnId: string } | null>;
   interruptTurn(conversationId: string, params: { threadId: string; turnId?: string }): Promise<boolean>;
   updateThreadSettings(
@@ -767,6 +775,19 @@ class IpcRendererOwnerAppServerRequestClient implements RendererOwnerAppServerRe
   ): Promise<TurnStartResponse | unknown> {
     return await this.sendRequest(conversationId, {
       method: "turn/start",
+      params,
+    });
+  }
+
+  async startSessionFirstTurn(
+    conversationId: string,
+    params: {
+      threadId: string;
+      launchId: string;
+    },
+  ): Promise<TurnStartResponse | unknown> {
+    return await this.sendRequest(conversationId, {
+      method: "thread/session-first-turn/start",
       params,
     });
   }
@@ -4147,6 +4168,7 @@ export class CodexAppServerManager {
     threadId: string,
     label: string,
     buildNextConversation: (conversation: CodexConversationSnapshot) => CodexConversationSnapshot | null,
+    options: { notifyMode?: ConversationNotifyMode } = {},
   ): Promise<number> {
     const currentConversation = this.conversationsById.get(threadId);
     if (!currentConversation) {
@@ -4158,6 +4180,7 @@ export class CodexAppServerManager {
     const expectedRevision = this.publishOwnerActionConversationMutation(
       threadId,
       buildNextConversation,
+      options,
     );
     if (expectedRevision === null) {
       return this.streamState.getRevision(threadId) ?? 0;
@@ -4186,6 +4209,11 @@ export class CodexAppServerManager {
         clearOutput: true,
         updatedAt: Date.now(),
       });
+      this.setRendererFreshLaunchPending(
+        input.projectId,
+        input.sessionId,
+        true,
+      );
     }
 
     try {
@@ -4196,11 +4224,30 @@ export class CodexAppServerManager {
       })) as CodexThreadStartForSessionResult;
 
       if (result.kind === "started") {
-        await this.requestThreadStreamSnapshot(result.detail.threadId).catch(() => null);
+        if (result.freshLaunch) {
+          await this.adoptFreshThreadLaunch(
+            input.projectId,
+            input.sessionId,
+            result.freshLaunch,
+          );
+        } else {
+          await this.requestThreadStreamSnapshot(result.detail.threadId)
+            .catch(() => null);
+          this.setRendererFreshLaunchPending(
+            input.projectId,
+            input.sessionId,
+            false,
+          );
+        }
       }
       return result;
     } catch (error) {
       if (!reportsDirectThreadProgress) throw error;
+      this.setRendererFreshLaunchPending(
+        input.projectId,
+        input.sessionId,
+        false,
+      );
       const currentProgress = this.threadStartProgressByTarget.get(progressTargetKey);
       if (currentProgress?.phase !== "failed") {
         this.applyThreadStartProgress({
@@ -4215,6 +4262,74 @@ export class CodexAppServerManager {
       }
       throw error;
     }
+  }
+
+  private async adoptFreshThreadLaunch(
+    projectId: string | null,
+    sessionId: string,
+    launch: NonNullable<
+      Extract<CodexThreadStartForSessionResult, { kind: "started" }>["freshLaunch"]
+    >,
+  ): Promise<void> {
+    const result = await invoke(
+      "codex:thread:fresh-owner:adopt",
+      launch.threadId,
+      launch.launchId,
+    );
+    const conversation = materializeOwnerCanonicalConversationSnapshot(
+      result.conversation,
+    );
+    this.applyConversationSnapshot(launch.threadId, conversation);
+    this.streamState.markOwner(launch.threadId, result.revision);
+    this.seedOwnerStreamPublishCursor(
+      launch.threadId,
+      result.revision,
+      conversation,
+    );
+    await invoke("codex:thread:resume-buffer:release", launch.threadId);
+    await invoke(
+      "codex:thread-owner:pending-requests:replay",
+      launch.threadId,
+    );
+
+    // The transaction commits and synchronously notifies the optimistic turn
+    // before returning this transport-completion promise.
+    const firstTurnCompletion = this.executeOwnerOptimisticTurnTransaction({
+      threadId: launch.threadId,
+      clientUserMessageId: launch.clientUserMessageId,
+      canonicalParams: launch.canonicalParams,
+      request: () =>
+        this.ownerAppServerRequestClient.startSessionFirstTurn(
+          launch.threadId,
+          {
+            threadId: launch.threadId,
+            launchId: launch.launchId,
+          },
+        ),
+      onOptimisticCommitted: () => {
+        this.commitRendererFreshLaunchVisible(
+          projectId,
+          sessionId,
+          launch.threadId,
+        );
+      },
+      optimisticNotifyMode: "sync",
+    });
+    void firstTurnCompletion.catch(() => {
+      this.setRendererFreshLaunchPending(projectId, sessionId, false);
+      const current = this.readThreadStartProgress(projectId, sessionId);
+      if (current?.phase === "failed") return;
+
+      this.applyThreadStartProgress({
+        projectId,
+        sessionId,
+        runInTarget: current?.runInTarget ?? "localProject",
+        threadId: launch.threadId,
+        phase: "failed",
+        message: "Message could not be sent.",
+        updatedAt: Date.now(),
+      });
+    });
   }
 
   async startSideChat(input: CodexSideChatStartInput): Promise<CodexSideChatStartResult> {
@@ -4673,7 +4788,6 @@ export class CodexAppServerManager {
       resolveImageInput: resolveOwnerPromptImageInput,
     });
     const clientUserMessageId = createOwnerClientUserMessageId();
-    const observedAtMs = Date.now();
     const conversation = this.conversationsById.get(threadId);
     if (!conversation) {
       this.handleOwnerReducerUnavailable(threadId);
@@ -4685,6 +4799,39 @@ export class CodexAppServerManager {
       preparedPrompt,
     });
     if (!canonicalParams) {
+      this.handleOwnerReducerUnavailable(threadId);
+      throw new Error(`Canonical conversation state unavailable for '${threadId}'`);
+    }
+    return await this.executeOwnerOptimisticTurnTransaction({
+      threadId,
+      clientUserMessageId,
+      canonicalParams,
+      request: () => this.ownerAppServerRequestClient.startTurn(threadId, {
+        threadId,
+        prompt,
+        opts,
+        clientUserMessageId,
+        preparedPrompt,
+      }),
+    });
+  }
+
+  private async executeOwnerOptimisticTurnTransaction(input: {
+    readonly threadId: string;
+    readonly clientUserMessageId: string;
+    readonly canonicalParams: CodexCanonicalLiveTurnParams;
+    readonly request: () => Promise<TurnStartResponse | unknown>;
+    readonly onOptimisticCommitted?: () => void;
+    readonly optimisticNotifyMode?: ConversationNotifyMode;
+  }): Promise<unknown> {
+    const {
+      threadId,
+      clientUserMessageId,
+      canonicalParams,
+    } = input;
+    const observedAtMs = Date.now();
+    const conversation = this.conversationsById.get(threadId);
+    if (!conversation) {
       this.handleOwnerReducerUnavailable(threadId);
       throw new Error(`Canonical conversation state unavailable for '${threadId}'`);
     }
@@ -4707,16 +4854,12 @@ export class CodexAppServerManager {
         observedAtMs,
         optimisticRuntimeStatus,
       ),
+      { notifyMode: input.optimisticNotifyMode },
     );
+    input.onOptimisticCommitted?.();
 
     try {
-      const startResult = await this.ownerAppServerRequestClient.startTurn(threadId, {
-        threadId,
-        prompt,
-        opts,
-        clientUserMessageId,
-        preparedPrompt,
-      });
+      const startResult = await input.request();
       const startedTurn = parseOwnerTurnStartResult(threadId, startResult);
       const rebindPublication = this.publishOwnerActionSnapshotMutation(
         threadId,
@@ -8532,6 +8675,7 @@ export class CodexAppServerManager {
   private publishOwnerActionConversationMutation(
     conversationId: string,
     buildNextConversation: (conversation: CodexConversationSnapshot) => CodexConversationSnapshot | null,
+    options: { notifyMode?: ConversationNotifyMode } = {},
   ): number | null {
     const role = this.streamState.getRole(conversationId);
     const acceptedRevision = this.streamState.getRevision(conversationId);
@@ -8551,7 +8695,12 @@ export class CodexAppServerManager {
     );
 
     if (buildCodexConversationStateUpdates(currentConversation, nextConversation).length === 0) {
-      this.applyConversationSnapshot(conversationId, nextConversation);
+      this.applyConversationSnapshot(
+        conversationId,
+        nextConversation,
+        undefined,
+        options.notifyMode ?? "default",
+      );
       this.adoptOwnerStreamLocalBase(conversationId, nextConversation);
       return acceptedRevision;
     }
@@ -8562,7 +8711,12 @@ export class CodexAppServerManager {
       currentConversation,
     );
     const streamRevision = cursor.acceptedRevision + (cursor.inFlight ? 2 : 1);
-    this.applyConversationSnapshot(conversationId, nextConversation);
+    this.applyConversationSnapshot(
+      conversationId,
+      nextConversation,
+      undefined,
+      options.notifyMode ?? "default",
+    );
     this.queueOwnerStreamCursorPublish(conversationId, 0, cursor);
     return streamRevision;
   }
@@ -8857,6 +9011,7 @@ export class CodexAppServerManager {
       outputText: mergedOutput.text,
       outputCarriageReturnPending: mergedOutput.carriageReturnPending,
       outputTruncated: mergedOutput.didTruncate,
+      rendererLaunchPending: previous?.rendererLaunchPending ?? false,
       updatedAt: event.updatedAt,
     };
     if (areThreadStartProgressStatesEqual(previous, nextState)) {
@@ -8865,6 +9020,40 @@ export class CodexAppServerManager {
 
     this.threadStartProgressByTarget.set(targetKey, nextState);
     this.notifyControlCallbacks();
+  }
+
+  private setRendererFreshLaunchPending(
+    projectId: string | null,
+    sessionId: string,
+    pending: boolean,
+  ): void {
+    const targetKey = getThreadStartProgressTargetKey(projectId, sessionId);
+    const current = this.threadStartProgressByTarget.get(targetKey);
+    if (!current || current.rendererLaunchPending === pending) return;
+
+    this.threadStartProgressByTarget.set(targetKey, {
+      ...current,
+      rendererLaunchPending: pending,
+    });
+    this.notifyControlCallbacks();
+  }
+
+  private commitRendererFreshLaunchVisible(
+    projectId: string | null,
+    sessionId: string,
+    threadId: string,
+  ): void {
+    const targetKey = getThreadStartProgressTargetKey(projectId, sessionId);
+    const current = this.threadStartProgressByTarget.get(targetKey);
+    if (!current) return;
+
+    this.threadStartProgressByTarget.set(targetKey, {
+      ...current,
+      threadId,
+      phase: "ready",
+      rendererLaunchPending: false,
+    });
+    this.notifyControlCallbacks("sync");
   }
 
   private withCachedThreadTitle(thread: CodexThreadSummary): CodexThreadSummary {
@@ -9416,8 +9605,17 @@ export class CodexAppServerManager {
     }
   }
 
-  private notifyControlCallbacks(): void {
-    this.notifyListeners(this.controlCallbacks);
+  private notifyControlCallbacks(
+    notifyMode: ConversationNotifyMode = "default",
+  ): void {
+    const notify = () => {
+      this.notifyListeners(this.controlCallbacks);
+    };
+    if (notifyMode === "sync") {
+      flushSync(notify);
+      return;
+    }
+    notify();
   }
 
   private notifyProjectThreadSummaries(projectId: string): void {
@@ -9875,6 +10073,7 @@ function areThreadStartProgressStatesEqual(
     && left.outputText === right.outputText
     && left.outputCarriageReturnPending === right.outputCarriageReturnPending
     && left.outputTruncated === right.outputTruncated
+    && left.rendererLaunchPending === right.rendererLaunchPending
     && left.updatedAt === right.updatedAt
   );
 }
@@ -10323,6 +10522,7 @@ export function useCodexThreadStartProgress(
         message: progress.message,
         outputText: progress.outputText,
         outputTruncated: progress.outputTruncated,
+        rendererLaunchPending: progress.rendererLaunchPending,
         updatedAt: progress.updatedAt,
       };
     },

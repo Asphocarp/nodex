@@ -23,7 +23,10 @@ import {
   applyCodexConversationStateUpdates,
   buildCodexConversationStateUpdates,
 } from "../../../shared/codex-conversation-patches";
-import { createCodexCanonicalHydratedConversationState } from "../../../shared/codex-conversation-state/codex-conversation-state";
+import {
+  createCodexCanonicalHydratedConversationState,
+  type CodexCanonicalLiveTurnParams,
+} from "../../../shared/codex-conversation-state/codex-conversation-state";
 import { getCodexFileChangeList, getCodexFileChangePaths } from "../../../shared/codex-file-change";
 import { render, settleAsyncRender, textContent } from "../../test/dom";
 
@@ -34,6 +37,8 @@ let rendererClientRequestListener: ((message: unknown) => void) | null = null;
 let threadListByProject: Record<string, CodexThreadSummary[]> = {};
 let snapshotByThread: Record<string, CodexConversationSnapshot | null> = {};
 let startThreadForSessionResult: unknown = null;
+let freshThreadAdoptionResult: CodexConversationSnapshot | null = null;
+let freshThreadAdoptionRevision = 0;
 let resumeThreadResult: unknown = null;
 let resumeThreadError: Error | null = null;
 let resumeThreadRole: "owner" | "follower" = "owner";
@@ -137,6 +142,20 @@ vi.mock("./local-conversation-deps", () => ({
         : null;
     }
 
+    if (channel === "codex:thread:fresh-owner:adopt") {
+      const conversation = ensureCanonicalResumeFixture(
+        freshThreadAdoptionResult,
+      );
+      if (!conversation) {
+        throw new Error("Fresh thread adoption fixture is unavailable");
+      }
+      return {
+        role: "owner",
+        conversation,
+        revision: freshThreadAdoptionRevision,
+      };
+    }
+
     if (channel === "codex:model:list") {
       return [
         {
@@ -202,7 +221,10 @@ vi.mock("./local-conversation-deps", () => ({
       if (input.request?.method === "thread/rollback") {
         return ownerEditRollbackResult;
       }
-      if (input.request?.method === "turn/start") {
+      if (
+        input.request?.method === "turn/start"
+        || input.request?.method === "thread/session-first-turn/start"
+      ) {
         ownerTurnStartHandler?.();
         await ownerTurnStartGate?.();
         if (ownerTurnStartError) {
@@ -985,6 +1007,198 @@ describe("local-conversation-store", () => {
       expect(manager.readConversation("thread-snapshot")?.threadName).toBe("Snapshot applied");
     } finally {
       snapshotByThread = {};
+      manager.destroy();
+    }
+  });
+
+  test("adopts a fresh thread as owner and commits its first optimistic turn before transport settles", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    threadListByProject = {};
+    const threadId = "thread-fresh-owner";
+    const clientUserMessageId = "client-first-message";
+    const adoptedConversation = withCanonicalState(
+      buildConversation(threadId, "project-1"),
+    );
+    const hydration =
+      adoptedConversation.canonicalState?.sidecar.hydrationContext;
+    if (!hydration) {
+      throw new Error("Expected canonical fresh-thread hydration");
+    }
+    const canonicalParams: CodexCanonicalLiveTurnParams = {
+      threadId,
+      clientUserMessageId,
+      input: [{
+        type: "text",
+        text: "Start without a blank transcript",
+        text_elements: [],
+      }],
+      cwd: hydration.cwd,
+      approvalPolicy: hydration.currentPermissions.approvalPolicy,
+      approvalsReviewer: hydration.currentPermissions.approvalsReviewer,
+      sandboxPolicy: hydration.currentPermissions.sandboxPolicy,
+      permissions:
+        hydration.currentPermissions.activePermissionProfile?.id ?? null,
+      runtimeWorkspaceRoots: [
+        ...hydration.currentPermissions.runtimeWorkspaceRoots,
+      ],
+      useAppServerPermissionDefault: false,
+      model: hydration.latestModel,
+      serviceTier: null,
+      effort: hydration.latestReasoningEffort,
+      multiAgentMode: "explicitRequestOnly",
+      summary: "none",
+      personality: null,
+      outputSchema: null,
+      collaborationMode: null,
+      attachments: [],
+      commentAttachments: [],
+    };
+    startThreadForSessionResult = {
+      kind: "started",
+      detail: adoptedConversation,
+      freshLaunch: {
+        launchId: "launch-first-message",
+        threadId,
+        clientUserMessageId,
+        canonicalParams,
+      },
+    };
+    freshThreadAdoptionResult = adoptedConversation;
+    freshThreadAdoptionRevision = 3;
+    let releaseTurnStart = () => {};
+    const turnStartGate = new Promise<void>((resolve) => {
+      releaseTurnStart = resolve;
+    });
+    let transportStarted = false;
+    let renderedTurnCount = 0;
+    let renderedTurnCountAtTransportStart = -1;
+    ownerTurnStartHandler = () => {
+      transportStarted = true;
+      renderedTurnCountAtTransportStart = renderedTurnCount;
+    };
+    ownerTurnStartGate = () => turnStartGate;
+
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    function OptimisticTurnProbe() {
+      const visibleThreadId = useSyncExternalStore(
+        (listener) => manager.subscribeControl(listener),
+        () => {
+          const progress = manager.readThreadStartProgress(
+            "project-1",
+            "session-1",
+          );
+          if (progress?.phase !== "ready") return null;
+          if (progress.rendererLaunchPending) return null;
+          return progress.threadId ?? null;
+        },
+      );
+      renderedTurnCount = useSyncExternalStore(
+        (listener) => visibleThreadId
+          ? manager.addConversationCallback(visibleThreadId, () => {
+              listener();
+            })
+          : () => {},
+        () => visibleThreadId
+          ? manager.readConversation(visibleThreadId)?.turns.length ?? 0
+          : 0,
+      );
+      return createElement("div", null, String(renderedTurnCount));
+    }
+    const probe = render(createElement(OptimisticTurnProbe));
+    await settleAsyncRender();
+    try {
+      let startPromise:
+        | ReturnType<typeof manager.startThreadForSession>
+        | null = null;
+      await act(async () => {
+        startPromise = manager.startThreadForSession({
+          projectId: "project-1",
+          sessionId: "session-1",
+          prompt: "Start without a blank transcript",
+          runInTarget: "localProject",
+        });
+        for (let index = 0; index < 20 && !transportStarted; index += 1) {
+          await settleAsyncRender();
+        }
+      });
+
+      const optimistic = manager.readConversation(threadId);
+      expect(transportStarted).toBe(true);
+      expect(renderedTurnCountAtTransportStart).toBe(1);
+      expect(manager.readConversationStreamRole(threadId)).toBe("owner");
+      expect(optimistic?.canonicalState?.turns).toHaveLength(1);
+      expect(
+        optimistic?.canonicalState?.turns[0]?.sidecar.params
+          .clientUserMessageId,
+      ).toBe(clientUserMessageId);
+      expect(
+        manager.readThreadStartProgress("project-1", "session-1")
+          ?.rendererLaunchPending,
+      ).toBe(false);
+      expect(
+        invokeRecords.some(
+          (record) => record.channel === "codex:thread:resume:request",
+        ),
+      ).toBe(false);
+      expect(
+        invokeRecords.some(
+          (record) => record.channel === "codex:thread:snapshot:request",
+        ),
+      ).toBe(false);
+      expect(
+        invokeRecords.some(
+          (record) =>
+            record.channel === "codex:thread-owner:app-server-request"
+            && (
+              record.args[0] as {
+                request?: { method?: string };
+              }
+            ).request?.method === "thread/session-first-turn/start",
+        ),
+      ).toBe(true);
+
+      if (!startPromise) {
+        throw new Error("Expected fresh-thread start promise");
+      }
+      await expect(startPromise).resolves.toMatchObject({
+        kind: "started",
+      });
+      expect(
+        manager.readConversation(threadId)?.canonicalState?.turns[0]
+          ?.protocol.id,
+      ).toBe(null);
+
+      await act(async () => {
+        releaseTurnStart();
+        for (let index = 0; index < 20; index += 1) {
+          await settleAsyncRender();
+          if (
+            manager.readConversation(threadId)?.canonicalState?.turns[0]
+              ?.protocol.id === "turn-owner-start"
+          ) {
+            break;
+          }
+        }
+      });
+      expect(
+        manager.readConversation(threadId)?.canonicalState?.turns[0]
+          ?.protocol.id,
+      ).toBe("turn-owner-start");
+    } finally {
+      probe.unmount();
+      releaseTurnStart();
+      freshThreadAdoptionResult = null;
+      freshThreadAdoptionRevision = 0;
+      ownerTurnStartHandler = null;
+      ownerTurnStartGate = null;
       manager.destroy();
     }
   });

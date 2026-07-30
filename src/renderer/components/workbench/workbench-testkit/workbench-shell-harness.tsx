@@ -127,6 +127,7 @@ export let discardSideChatCalls: string[] = [];
 export let sideChatConversations: Record<string, Record<string, unknown>> = {};
 export let sideChatConversationProjectId: string | null = "alpha";
 export let mockThreadStartProgress: unknown = null;
+export let mockConversationHasVisibleTurn = true;
 export let codexHostMessageListener: ((message: CodexHostMessage) => void) | null = null;
 export let pendingWorktreeWarningListener: ((event: CodexPendingWorktreeWarningEvent) => void) | null = null;
 export const CODEX_PANEL_VISIBLE_ICON_PREFIX = "M16.835 8.66301";
@@ -1044,6 +1045,14 @@ vi.mock("@/features/local-conversation", () => ({
     threadIds.flatMap((threadId) =>
       sideChatConversations[threadId] ? [[threadId, sideChatConversations[threadId]]] : []
     ),
+  ),
+  useCodexConversationValue: (
+    threadId: string | null,
+    selector: (conversation: { turns: readonly unknown[] } | null) => unknown,
+  ) => selector(
+    threadId
+      ? { turns: mockConversationHasVisibleTurn ? [{}] : [] }
+      : null,
   ),
   useCodexThreadStartProgress: () => mockThreadStartProgress,
   useLocalConversationAccount: () => null,
@@ -3292,6 +3301,7 @@ beforeEach(() => {
   sideChatConversations = {};
   sideChatConversationProjectId = "alpha";
   mockThreadStartProgress = null;
+  mockConversationHasVisibleTurn = true;
   codexHostMessageListener = null;
   pendingWorktreeWarningListener = null;
   mockInvokeImpl = null;
@@ -3682,6 +3692,12 @@ export function setSideChatConversationProjectId(value: typeof sideChatConversat
 
 export function setMockThreadStartProgress(value: typeof mockThreadStartProgress): void {
   mockThreadStartProgress = value;
+}
+
+export function setMockConversationHasVisibleTurn(
+  value: typeof mockConversationHasVisibleTurn,
+): void {
+  mockConversationHasVisibleTurn = value;
 }
 
 export function setCodexHostMessageListener(value: typeof codexHostMessageListener): void {

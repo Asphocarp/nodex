@@ -2374,6 +2374,28 @@ type CodexAppPrivateTurnStartParams = TurnStartParams & {
   readonly attachments: readonly CodexLiveFileAttachment[];
 };
 
+interface PendingFreshSessionFirstTurnLaunch {
+  readonly launchId: string;
+  readonly rendererClientId: string;
+  readonly projectId: string | null;
+  readonly sessionId: string;
+  readonly threadId: string;
+  readonly runInTarget: PageRunInTarget;
+  readonly startedAt: number;
+  readonly clientUserMessageId: string;
+  readonly canonicalParams: CodexCanonicalLiveTurnParams<
+    CodexLiveFileAttachment,
+    CodexReviewDiffCommentAttachment
+  >;
+  readonly turnStartParams: CodexAppPrivateTurnStartParams;
+  readonly verifiedBuiltinFullAccess: boolean;
+  readonly goalObjective: string;
+  readonly rawGoalDraft: CodexThreadGoalDraftInput | null;
+  readonly heartbeatAutomation:
+    CodexThreadStartForSessionInput["heartbeatAutomation"];
+  state: "prepared" | "adopted" | "starting";
+}
+
 function buildReviewDiffCommentAdditionalContext(
   commentAttachments: readonly CodexReviewDiffCommentAttachment[],
 ): TurnStartParams["additionalContext"] | undefined {
@@ -2978,6 +3000,8 @@ export class CodexService extends EventEmitter {
   private readonly conversationRecords = new Map<string, CodexConversationRecord>();
   private readonly pendingWorktreeRuntime: CodexPendingWorktreeRuntime;
   private readonly conversationResumeInFlightByThreadId = new Map<string, Promise<CodexConversationSnapshot | null>>();
+  private readonly pendingFreshSessionFirstTurnByThreadId =
+    new Map<string, PendingFreshSessionFirstTurnLaunch>();
   private readonly threadGoalHydrationInFlightByThreadId = new Map<string, Promise<{
     ok: boolean;
     goal: ThreadGoal | null;
@@ -4312,6 +4336,27 @@ export class CodexService extends EventEmitter {
   handleRendererClientDisposed(clientId: string): void {
     this.nodexAgentAuthorizationBroker?.revokePresentationClient(clientId);
     this.disposedRendererClientIds.add(clientId);
+    for (const [threadId, launch] of this.pendingFreshSessionFirstTurnByThreadId) {
+      if (launch.rendererClientId !== clientId) continue;
+      if (launch.state === "starting") continue;
+
+      this.pendingFreshSessionFirstTurnByThreadId.delete(threadId);
+      if (this.resumeNotificationBuffersByThreadId.has(threadId)) {
+        this.discardConversationResumeBuffer(
+          threadId,
+          new Error("Fresh thread owner disconnected"),
+        );
+      }
+      this.emitThreadStartProgress({
+        projectId: launch.projectId,
+        sessionId: launch.sessionId,
+        runInTarget: launch.runInTarget,
+        threadId,
+        phase: "failed",
+        message: "Message could not be sent because its window closed.",
+        stream: "stderr",
+      });
+    }
     const viewConversationIds = this.removeRendererClientActiveViews(clientId);
     for (const conversationId of viewConversationIds) {
       this.userInputAutoResolutionController.reevaluatePresentation(
@@ -7272,6 +7317,7 @@ export class CodexService extends EventEmitter {
     this.inactiveRendererOwnerCandidateSinceByConversationId.clear();
     this.inactiveRendererOwnerCleanupInFlight.clear();
     this.conversationResumeInFlightByThreadId.clear();
+    this.pendingFreshSessionFirstTurnByThreadId.clear();
     this.threadGoalHydrationInFlightByThreadId.clear();
     this.pendingPostResumeGoalFlowByThreadId.clear();
     this.rejectBufferedResumeRequests(new Error("Codex service is shutting down"));
@@ -15349,6 +15395,7 @@ export class CodexService extends EventEmitter {
     options: {
       signal?: AbortSignal;
       browserViewScopeId?: string;
+      ownerClientId?: string | null;
     } = {},
   ): Promise<CodexThreadStartForSessionResult> {
     const startedAt = Date.now();
@@ -15718,6 +15765,62 @@ export class CodexService extends EventEmitter {
         attachments: firstTurnAttachments,
         commentAttachments: [...preparedPrompt.commentAttachments],
       };
+      const ownerClientId = options.ownerClientId?.trim() || null;
+      if (ownerClientId) {
+        if (this.disposedRendererClientIds.has(ownerClientId)) {
+          throw new Error(`Renderer client '${ownerClientId}' is unavailable`);
+        }
+
+        const launchId = randomUUID();
+        this.pendingFreshSessionFirstTurnByThreadId.set(link.threadId, {
+          launchId,
+          rendererClientId: ownerClientId,
+          projectId: input.projectId,
+          sessionId: input.sessionId,
+          threadId: link.threadId,
+          runInTarget: runLocation.runInTarget,
+          startedAt,
+          clientUserMessageId,
+          canonicalParams: canonicalTurnParams,
+          turnStartParams,
+          verifiedBuiltinFullAccess: this.isVerifiedBuiltinFullAccess(
+            input.projectId,
+            effectivePermissionState,
+          ),
+          goalObjective: materializedGoalObjective,
+          rawGoalDraft: input.threadGoalDraft ?? null,
+          heartbeatAutomation: input.heartbeatAutomation,
+          state: "prepared",
+        });
+        this.syncDormantConversationFromRecord(
+          link.threadId,
+          "owner-unavailable",
+        );
+
+        const detail = this.serializeThreadDetail(link.threadId);
+        if (!detail) {
+          this.pendingFreshSessionFirstTurnByThreadId.delete(link.threadId);
+          throw new Error("Thread was created but could not be loaded");
+        }
+
+        this.logger.info("Prepared first Codex turn for renderer ownership", {
+          threadId: link.threadId,
+          projectId: input.projectId,
+          sessionId: input.sessionId,
+          durationMs: Date.now() - startedAt,
+        });
+        return {
+          kind: "started",
+          detail,
+          freshLaunch: {
+            launchId,
+            threadId: link.threadId,
+            clientUserMessageId,
+            canonicalParams: canonicalTurnParams,
+          },
+        };
+      }
+
       const startedTurn = await this.dispatchCanonicalOptimisticTurn({
         authorityLaunch: await this.beginNodexAgentTurnAuthority(
           link.threadId,
@@ -16785,6 +16888,18 @@ export class CodexService extends EventEmitter {
         ownerClientId: existingOwnerClientId,
       };
     };
+    const pendingFreshLaunch =
+      this.pendingFreshSessionFirstTurnByThreadId.get(threadId);
+    if (
+      pendingFreshLaunch
+      && !this.getRendererConversationOwner(threadId)
+    ) {
+      if (pendingFreshLaunch.rendererClientId === ownerClientId) {
+        return null;
+      }
+      return buildFollowerResult(pendingFreshLaunch.rendererClientId);
+    }
+
     const ownerBeforeResume = this.getRendererConversationOwner(threadId);
     if (ownerBeforeResume && ownerBeforeResume !== ownerClientId) {
       return buildFollowerResult(ownerBeforeResume);
@@ -16827,6 +16942,85 @@ export class CodexService extends EventEmitter {
       conversation,
       revision: this.conversationStreamRevisionById.get(threadId) ?? 0,
     };
+  }
+
+  async requestRendererFreshConversationAdoption(
+    threadId: string,
+    launchId: string,
+    ownerClientId: string,
+  ): Promise<Extract<CodexRendererConversationResumeResult, { role: "owner" }>> {
+    const launch = this.pendingFreshSessionFirstTurnByThreadId.get(threadId);
+    if (!launch || launch.launchId !== launchId) {
+      throw new Error(`Fresh thread launch '${launchId}' is unavailable`);
+    }
+    if (launch.rendererClientId !== ownerClientId) {
+      throw new Error(
+        `Renderer client '${ownerClientId}' cannot adopt fresh thread '${threadId}'`,
+      );
+    }
+    if (this.disposedRendererClientIds.has(ownerClientId)) {
+      throw new Error(`Renderer client '${ownerClientId}' is unavailable`);
+    }
+
+    const currentOwner = this.getRendererConversationOwner(threadId);
+    if (currentOwner && currentOwner !== ownerClientId) {
+      throw new Error(
+        `Fresh thread '${threadId}' is already owned by renderer '${currentOwner}'`,
+      );
+    }
+    if (currentOwner === ownerClientId && launch.state !== "prepared") {
+      const conversation =
+        this.acceptedConversationDocumentById.get(threadId)
+        ?? this.serializeConversationSnapshot(threadId);
+      if (!conversation) {
+        throw new Error(`Fresh thread '${threadId}' could not be serialized`);
+      }
+      return {
+        role: "owner",
+        conversation,
+        revision: this.conversationStreamRevisionById.get(threadId) ?? 0,
+      };
+    }
+
+    const ownsBuffer = !this.resumeNotificationBuffersByThreadId.has(threadId);
+    if (ownsBuffer) {
+      this.beginResumeNotificationBuffer(threadId);
+    }
+
+    try {
+      const record = this.getConversationRecord(threadId);
+      record.resumeState = "resumed";
+      record.streamRole = "owner";
+      record.isStreaming = true;
+      this.syncDormantConversationFromRecord(
+        threadId,
+        "owner-unavailable",
+      );
+      const conversation =
+        this.acceptedConversationDocumentById.get(threadId)
+        ?? this.serializeConversationSnapshot(threadId);
+      if (!conversation) {
+        throw new Error(`Fresh thread '${threadId}' could not be serialized`);
+      }
+
+      this.setRendererConversationOwner(threadId, ownerClientId);
+      if (this.getRendererConversationOwner(threadId) !== ownerClientId) {
+        throw new Error(
+          `Renderer client '${ownerClientId}' could not adopt fresh thread '${threadId}'`,
+        );
+      }
+      launch.state = "adopted";
+      return {
+        role: "owner",
+        conversation,
+        revision: this.conversationStreamRevisionById.get(threadId) ?? 0,
+      };
+    } catch (error) {
+      if (ownsBuffer) {
+        this.discardConversationResumeBuffer(threadId, error);
+      }
+      throw error;
+    }
   }
 
   async loadOlderThreadTurns(threadId: string): Promise<CodexConversationSnapshot | null> {
@@ -17493,6 +17687,12 @@ export class CodexService extends EventEmitter {
         );
         return result;
       }
+      case "thread/session-first-turn/start":
+        return await this.startRendererOwnedSessionFirstTurn(
+          sourceClientId,
+          conversationId,
+          request.params.launchId,
+        );
       case "turn/steer":
         return await this.client.request<"turn/steer", TurnSteerResponse>(
           "turn/steer",
@@ -17554,6 +17754,117 @@ export class CodexService extends EventEmitter {
         );
       }
     }
+  }
+
+  private async startRendererOwnedSessionFirstTurn(
+    ownerClientId: string,
+    threadId: string,
+    launchId: string,
+  ): Promise<TurnStartResponse> {
+    const launch = this.pendingFreshSessionFirstTurnByThreadId.get(threadId);
+    if (!launch || launch.launchId !== launchId) {
+      throw new Error(`Fresh thread launch '${launchId}' is unavailable`);
+    }
+    if (launch.rendererClientId !== ownerClientId) {
+      throw new Error(
+        `Renderer client '${ownerClientId}' cannot start fresh thread '${threadId}'`,
+      );
+    }
+    if (launch.state !== "adopted") {
+      throw new Error(
+        `Fresh thread launch '${launchId}' must be adopted before its first turn starts`,
+      );
+    }
+
+    launch.state = "starting";
+    let authorityLaunch: NodexAgentTurnAuthorityLaunch | null = null;
+    let response: TurnStartResponse;
+    try {
+      authorityLaunch = await this.beginNodexAgentTurnAuthority(
+        threadId,
+        launch.verifiedBuiltinFullAccess,
+      );
+      response = await this.client.request<"turn/start", TurnStartResponse>(
+        "turn/start",
+        launch.turnStartParams,
+      );
+      if (!this.asTurnSummary(threadId, response.turn)) {
+        throw new Error("Codex turn/start returned an invalid turn payload");
+      }
+      await this.nodexAgentAuthorityRegistry.bindTurn(
+        authorityLaunch,
+        response.turn.id,
+      );
+    } catch (error) {
+      this.nodexAgentAuthorityRegistry.abortTurn(authorityLaunch);
+      this.emitThreadStartProgress({
+        projectId: launch.projectId,
+        sessionId: launch.sessionId,
+        runInTarget: launch.runInTarget,
+        threadId,
+        phase: "failed",
+        message: "Message could not be sent.",
+        stream: "stderr",
+      });
+      throw error;
+    } finally {
+      this.pendingFreshSessionFirstTurnByThreadId.delete(threadId);
+    }
+
+    await this.markAutomationRunAcceptedForUserContinuation(threadId)
+      .catch((error) => {
+        this.logger.warn("Could not mark fresh thread continuation accepted", {
+          threadId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    await this.markThreadAsActive(threadId).catch((error) => {
+      this.logger.warn("Could not project fresh thread active status", {
+        threadId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+    await this.applyStartedSessionThreadGoal({
+      threadId,
+      objective: launch.goalObjective,
+      rawDraft: launch.rawGoalDraft,
+    }).catch((error) => {
+      this.logger.warn("Started fresh thread but could not apply its goal", {
+        threadId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+    if (launch.runInTarget === "newWorktree" && launch.projectId !== null) {
+      await this.createHeartbeatAutomationForStartedWorktreeThread({
+        projectId: launch.projectId,
+        sessionId: launch.sessionId,
+        threadId,
+        heartbeatAutomation: launch.heartbeatAutomation,
+      });
+    }
+
+    this.logger.info("Started renderer-owned first Codex turn", {
+      threadId,
+      turnId: response.turn.id,
+      durationMs: Date.now() - launch.startedAt,
+    });
+    this.emitThreadStartProgress({
+      projectId: launch.projectId,
+      sessionId: launch.sessionId,
+      runInTarget: launch.runInTarget,
+      threadId,
+      phase: "ready",
+      message:
+        launch.runInTarget === "newWorktree"
+          ? "Worktree ready."
+          : "Message sent.",
+      stream: launch.runInTarget === "newWorktree" ? "info" : undefined,
+      outputDelta:
+        launch.runInTarget === "newWorktree"
+          ? "[info] Worktree ready.\n"
+          : undefined,
+    });
+    return response;
   }
 
   async forkConversationFromTurn(

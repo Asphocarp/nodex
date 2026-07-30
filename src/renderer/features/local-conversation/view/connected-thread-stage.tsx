@@ -233,7 +233,11 @@ interface ConnectedThreadStageProps extends ConnectedThreadStageInput {
   threadBodyVisible?: boolean;
 }
 
-function resolveThreadTitle(input: ConnectedThreadStageInput, summary: ReturnType<typeof useConversationSummaryFields>): string {
+function resolveThreadTitle(
+  input: ConnectedThreadStageInput,
+  summary: ReturnType<typeof useConversationSummaryFields>,
+  activeThreadId: string | null,
+): string {
   if (input.sideChatContext?.tabTitle) {
     return input.sideChatContext.tabTitle;
   }
@@ -241,7 +245,7 @@ function resolveThreadTitle(input: ConnectedThreadStageInput, summary: ReturnTyp
   return resolveCodexElectronDisplayThreadTitle({
     threadName: summary.threadName || input.activeThreadSummary?.threadName,
     threadPreview: summary.threadPreview || input.activeThreadSummary?.threadPreview || input.newThreadTarget?.threadTitle,
-    fallback: input.isNewThreadTab ? "New thread" : "No thread",
+    fallback: input.isNewThreadTab || activeThreadId ? "New thread" : "No thread",
   });
 }
 
@@ -272,7 +276,7 @@ function ConnectedThreadStageHeader({
   const summaryFields = useConversationSummaryFields(activeThreadId);
   const cwd = useConversationCwd(activeThreadId);
   const parentConversationId = useConversationParentThreadId(activeThreadId);
-  const title = resolveThreadTitle(input, summaryFields);
+  const title = resolveThreadTitle(input, summaryFields, activeThreadId);
   const handleCopyConversationMarkdown = useCallback(async () => {
     if (!activeThreadId) return;
     await copyConversationMarkdown({
@@ -916,7 +920,11 @@ export function ConnectedThreadStage({
   const activeThreadProjectless = summaryFields.threadId
     ? summaryFields.projectId === null
     : input.activeThreadSummary?.projectId === null;
-  const activeThreadTitle = resolveThreadTitle(input, summaryFields);
+  const activeThreadTitle = resolveThreadTitle(
+    input,
+    summaryFields,
+    activeThreadId,
+  );
   const activeThreadIsManagedWorktree = Boolean(
     summaryFields.managedWorktreePath
     ?? input.activeThreadSummary?.managedWorktreePath,
