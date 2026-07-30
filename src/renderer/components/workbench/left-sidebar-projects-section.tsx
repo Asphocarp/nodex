@@ -65,7 +65,7 @@ export function SidebarProjectsSection({
       actions={(
         <SidebarProjectsSectionActions
           onCreateProject={onCreateProject}
-          openSetupTick={projectPickerOpenTick}
+          openCreateDialogTick={projectPickerOpenTick}
         />
       )}
     >

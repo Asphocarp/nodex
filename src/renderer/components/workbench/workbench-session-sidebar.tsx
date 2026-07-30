@@ -1532,7 +1532,7 @@ function SidebarThreadOrganizerSections({
             projectGroupCollapseAction={projectGroupCollapseAction}
             onProjectGroupCollapseAction={runProjectGroupCollapseAction}
             onCreateProject={onCreateProject}
-            openSetupTick={projectPickerOpenTick}
+            openCreateDialogTick={projectPickerOpenTick}
           />
         )}
       >

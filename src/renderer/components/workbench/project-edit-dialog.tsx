@@ -40,7 +40,7 @@ import { cn } from "@/lib/utils";
 import { ProjectMarkerPicker } from "./project-marker-picker";
 import { ProjectRemoveDialog } from "./project-remove-dialog";
 
-const PRIMARY_SOURCE_TOOLTIP = "Agents run in this folder and look inside it for AGENTS.md and skills";
+const PRIMARY_SOURCE_TOOLTIP = "ChatGPT will run in this folder and look inside it for AGENTS.md and skills";
 
 export interface ProjectDialogSubmitInput {
   appearance: ProjectAppearance;
@@ -79,7 +79,9 @@ function ProjectSourceRow({
   return (
     <motion.div
       layout="position"
-      transition={animateReorder ? { duration: 0.15, ease: "easeOut" } : { duration: 0 }}
+      transition={animateReorder
+        ? { duration: 0.15, ease: [0.19, 1, 0.22, 1] }
+        : { duration: 0 }}
       className="group flex h-12 min-w-0 items-center gap-2 px-3 text-left"
     >
       <NodexTooltip tooltipContent={root}>
@@ -181,7 +183,7 @@ export function ProjectSourcesEditor({
         onDragLeave={() => setDraggingOver(false)}
         onDrop={handleDrop}
         className={cn(
-          "max-h-[min(22.5rem,calc(100dvh-20rem))] divide-y divide-token-border overflow-y-auto rounded-lg border bg-token-input-background",
+          "max-h-[min(22.5rem,calc(100dvh/var(--codex-window-zoom,1)-20rem))] divide-y divide-token-border overflow-y-auto rounded-lg border bg-token-input-background",
           draggingOver ? "border-dashed border-token-focus-border" : "border-token-border",
         )}
       >
@@ -205,7 +207,7 @@ export function ProjectSourcesEditor({
           onClick={() => void addFolder()}
         >
           <CodexFolderPlusIcon className="icon-sm text-token-description-foreground" />
-          {empty ? "Add folders agents can read and edit" : "Add folder"}
+          {empty ? "Add folders ChatGPT can read and edit" : "Add folder"}
         </button>
       </motion.div>
     </NodexDialogBody>
@@ -219,7 +221,6 @@ function ProjectEditorForm({
   initialName,
   initialAppearance,
   initialSources,
-  requireSources = false,
   onSubmit,
   onClose,
   onRemoveProject,
@@ -230,7 +231,6 @@ function ProjectEditorForm({
   initialName: string;
   initialAppearance: ProjectAppearance;
   initialSources: readonly string[];
-  requireSources?: boolean;
   onSubmit: (input: ProjectDialogSubmitInput) => Promise<void>;
   onClose: () => void;
   onRemoveProject?: () => void;
@@ -314,7 +314,7 @@ function ProjectEditorForm({
             <NodexDialogAction
               tone="primary"
               type="submit"
-              disabled={saving || (requireSources && sources.length === 0)}
+              disabled={saving}
             >
               {submitLabel}
             </NodexDialogAction>
@@ -430,7 +430,6 @@ export function ProjectCreateDialog({
         initialName=""
         initialAppearance={DEFAULT_PROJECT_APPEARANCE}
         initialSources={[]}
-        requireSources
         onSubmit={onCreate}
         onClose={onClose}
       />

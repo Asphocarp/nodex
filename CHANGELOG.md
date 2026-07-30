@@ -25,7 +25,7 @@ All notable changes to this project will be documented in this file.
 - Added a separate opt-in Sentry Session Replay toggle for masked renderer replays on diagnostic sessions.
 - Added opt-in Statsig product telemetry with anonymous identity, filtered web analytics, and General settings toggles.
 - Added source-backed local projects with ordered source folders, UUID-only project identity, and server-side project creation.
-- Added a sidebar add-project menu with `Start from scratch` and `Use an existing folder` flows.
+- Added direct sidebar project creation through the shared marker, name, and optional source-folder dialog, including automatic Documents workspace provisioning when no folder is selected.
 - Added draggable project folders in the Workbench sidebar, including pointer and keyboard reordering, stationary source ghosts, compact drag previews, precise insertion indicators, pinned project groups, a Pinned section, and drag-to-pin behavior.
 - Added a first-class project Files tab with a virtualized, searchable workspace tree; durable and preview file-tab navigation; highlighted and wrapped source; extensionless text support; editable Markdown/source files; recoverable autosave; external-change conflict resolution; image/PDF previews; and external-open actions.
 - Added a slash-command menu above the Thread composer, including inline grouped filtering, keyboard selection, nested command panels, app-server-backed Compact/Goal/Memory/Feedback actions, MCP status, model/reasoning/service-tier controls, contextual hidden commands, and Storybook coverage.

@@ -6,7 +6,7 @@ import { NodexDialog } from "@/components/ui/dialog";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import { CodexProjectActionsMenu } from "./codex-sidebar";
 import { ProjectArchiveChatsDialog } from "./project-archive-chats-dialog";
-import { ProjectEditDialog } from "./project-edit-dialog";
+import { ProjectCreateDialog, ProjectEditDialog } from "./project-edit-dialog";
 import { ProjectRemoveDialog } from "./project-remove-dialog";
 import { RemovedProjectsDialogView } from "./removed-projects-dialog";
 
@@ -109,6 +109,24 @@ export const ProjectMenu: Story = {
   play: async ({ canvasElement }) => {
     fireEvent.click(getByRole(canvasElement, "button", { name: "Project actions for Nodex desktop" }));
     await waitFor(() => getByRole(document.body, "menuitem", { name: "Remove" }));
+  },
+};
+
+export const CreateProject: Story = {
+  render: () => (
+    <Surface>
+      <ProjectCreateDialog
+        onClose={() => undefined}
+        onCreate={async () => undefined}
+      />
+    </Surface>
+  ),
+  parameters: {
+    docs: {
+      description: {
+        story: "The direct add-project destination. Submitting the empty source-folder picker provisions a new Documents workspace automatically.",
+      },
+    },
   },
 };
 

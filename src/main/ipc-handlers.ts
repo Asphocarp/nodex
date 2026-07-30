@@ -178,6 +178,7 @@ import { ProjectLifecycleInputSchema } from "../shared/schemas/projects";
 import type { DesktopProjectWorkspacePort } from "./core-client/project-workspace-adapter";
 import type { DesktopDocumentSyncPort } from "./core-client/desktop-document-sync-bridge";
 import type { DesktopLibraryModuleBridge } from "./core-client/desktop-library-module-bridge";
+import { createProjectWithDefaultSource } from "./default-project-source";
 import type { DesktopDatabaseModuleBridge } from "./core-client/desktop-database-module-bridge";
 import { CoreModuleResponseError } from "./core-client/core-client";
 import type { CoreReadResult } from "../shared/core-read-result";
@@ -2039,7 +2040,11 @@ export function registerIpcHandlers(
   );
 
   registerHandle("projects:create", async (_, input) =>
-    await projectWorkspace.createProject(input),
+    await createProjectWithDefaultSource(input, {
+      documentsDirectory: app.getPath("documents"),
+      createProject: async (projectInput) =>
+        await projectWorkspace.createProject(projectInput),
+    }),
   );
 
   registerHandle("projects:update", async (_, projectId: string, updates) =>

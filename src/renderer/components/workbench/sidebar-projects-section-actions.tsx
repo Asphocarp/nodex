@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/dropdown";
 import type { SidebarProjectGroupCollapseAction } from "@/lib/sidebar-project-group-collapse-action";
 import { CodexSidebarActionButton } from "./codex-sidebar";
-import { SidebarProjectAddMenu } from "./sidebar-project-add-menu";
+import { SidebarProjectAddButton } from "./sidebar-project-add-button";
 import { RemovedProjectsDialog } from "./removed-projects-dialog";
 
 const PROJECT_SIDEBAR_OPTIONS_CONTENT_CLASS = "min-w-[172px] max-w-[240px]";
@@ -31,12 +31,12 @@ export function SidebarProjectsSectionActions({
   projectGroupCollapseAction,
   onProjectGroupCollapseAction,
   onCreateProject,
-  openSetupTick,
+  openCreateDialogTick,
 }: {
   projectGroupCollapseAction?: SidebarProjectGroupCollapseAction | null;
   onProjectGroupCollapseAction?: (action: SidebarProjectGroupCollapseAction) => void;
   onCreateProject: (input: ProjectCreateInput) => Promise<Project | null>;
-  openSetupTick: number;
+  openCreateDialogTick: number;
 }) {
   const [removedProjectsOpen, setRemovedProjectsOpen] = useState(false);
   const collapseActionLabel = projectGroupCollapseAction === "collapse-all"
@@ -61,9 +61,9 @@ export function SidebarProjectsSectionActions({
       <SidebarProjectOptionsMenu
         onOpenRemovedProjects={() => setRemovedProjectsOpen(true)}
       />
-      <SidebarProjectAddMenu
+      <SidebarProjectAddButton
         onCreateProject={onCreateProject}
-        openSetupTick={openSetupTick}
+        openDialogTick={openCreateDialogTick}
       />
       <RemovedProjectsDialog
         open={removedProjectsOpen}

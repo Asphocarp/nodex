@@ -160,8 +160,20 @@ describe("SidebarProjectsSection", () => {
     expect(rows[0]?.getAttribute("tabindex")).toBe("0");
   });
 
-  test("opens project creation after the add-project submenu closes", async () => {
-    const { getByLabelText, getByRole, getByText, queryByRole } = renderProjectsSection(
+  test("opens project creation directly from the add-project button", async () => {
+    const createCalls: unknown[] = [];
+    mockInvokeImpl = async (channel) => {
+      if (channel === "projects:pick-source-roots") return ["/repo/new-project"];
+      return null;
+    };
+    const {
+      findByText,
+      getByLabelText,
+      getByRole,
+      getByText,
+      queryByRole,
+      queryByText,
+    } = renderProjectsSection(
       <SidebarProjectsSection
         projects={PROJECTS}
         projectOrder={["alpha", "beta"]}
@@ -169,29 +181,89 @@ describe("SidebarProjectsSection", () => {
         expanded
         onToggleExpanded={() => undefined}
         onSelectProject={() => undefined}
-        onCreateProject={async () => null}
+        onCreateProject={async (input) => {
+          createCalls.push(input);
+          return PROJECTS[0] ?? null;
+        }}
         onArchiveProject={async () => ({ kind: "not-found" })}
         onUpdateProject={async () => null}
         projectPickerOpenTick={0}
       />,
     );
 
-    await act(async () => {
-      fireEvent.pointerDown(getByLabelText("Add new project"), { button: 0, ctrlKey: false });
-      await Promise.resolve();
-    });
-
-    expect(getByText("Start from scratch").textContent).toBe("Start from scratch");
-    expect(getByText("Use an existing folder").textContent).toBe("Use an existing folder");
+    const addProjectButton = getByLabelText("Add new project");
+    const addProjectIcon = addProjectButton.querySelector("svg");
+    expect(addProjectIcon?.getAttribute("viewBox")).toBe("0 0 20 20");
+    expect(addProjectIcon?.querySelectorAll("path")).toHaveLength(1);
 
     await act(async () => {
-      fireEvent.click(getByText("Start from scratch"));
+      fireEvent.click(addProjectButton);
       await Promise.resolve();
     });
 
     await waitFor(() => {
       expect(queryByRole("menu")).toBe(null);
       expect(getByRole("heading", { name: "Create project" })).toBeTruthy();
+    });
+    expect(queryByText("Start from scratch")).toBe(null);
+    expect(queryByText("Use an existing folder")).toBe(null);
+    expect(getByText("Add folders ChatGPT can read and edit")).toBeTruthy();
+    expect(getByRole("button", { name: "Create project" }).hasAttribute("disabled")).toBe(false);
+
+    await act(async () => {
+      fireEvent.click(getByRole("button", { name: "Create project" }));
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(createCalls).toEqual([{
+        appearance: {
+          color: "black",
+          marker: { kind: "icon", icon: "folder" },
+        },
+        name: "",
+        sources: [],
+      }]);
+      expect(queryByRole("heading", { name: "Create project" })).toBe(null);
+    });
+
+    await act(async () => {
+      fireEvent.click(addProjectButton);
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(getByRole("heading", { name: "Create project" })).toBeTruthy();
+    });
+
+    await act(async () => {
+      fireEvent.click(getByLabelText("Choose source folders"));
+      await Promise.resolve();
+    });
+    await findByText("new-project");
+
+    await act(async () => {
+      fireEvent.click(getByRole("button", { name: "Create project" }));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(createCalls).toEqual([
+        {
+          appearance: {
+            color: "black",
+            marker: { kind: "icon", icon: "folder" },
+          },
+          name: "",
+          sources: [],
+        },
+        {
+          appearance: {
+            color: "black",
+            marker: { kind: "icon", icon: "folder" },
+          },
+          name: "",
+          sources: ["/repo/new-project"],
+        },
+      ]);
     });
   });
 
