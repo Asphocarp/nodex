@@ -958,6 +958,7 @@ mod tests {
         };
         let workspace = ProjectWorkspaceModule::new("profile-1", "library-1", &kernel)
             .expect("Workspace module");
+        workspace.seed_rootless_default_project_for_test();
         workspace
             .apply(
                 &context,
@@ -4953,6 +4954,7 @@ pub(crate) use page_copy::{OccurrencePageCloneInput, clone_page_for_occurrence};
 mod mutation;
 mod navigation;
 mod page_copy;
+pub(crate) mod page_genesis;
 mod page_lifecycle;
 mod page_lifecycle_mutation;
 mod page_property_mutation;

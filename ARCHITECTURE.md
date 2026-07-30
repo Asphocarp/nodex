@@ -548,12 +548,39 @@ Project creation is the first native Workspace writer aggregate. One writer job
 creates the Project/sidebar order/sources, its primary Database Block and
 Library placement, complete Database/Data Source/eight built-in Property/default
 View authority, active Project binding, pinned default View Session/Tab, and the
-deterministic primary Canvas plus empty scene authority. Database and Owned
-Document contribute internal genesis seams inside the transaction; Workspace
-does not compose public Module calls or publish collaborator events. A user
-creation publishes one Workspace receipt/event with exact replay, while a fresh
-Profile bootstrap uses the same record aggregate before the server advertises
-readiness so no half-bound default Project can exist.
+deterministic primary Canvas plus empty scene authority. Database, Page, and
+Owned Document contribute internal genesis seams inside the transaction;
+Workspace does not compose public Module calls or publish collaborator events.
+A normal user creation publishes one Workspace receipt/event with exact replay.
+Workspace construction is read-only and leaves a fresh Profile's Project
+catalog empty. Its bootstrap read derives `empty | ready` from the complete
+catalog, including archived Projects. The first source-backed Project enters
+through a distinct `CreateInitialProject` intent that also requires an explicit
+starter Page payload. It checks the catalog is still empty and creates the
+Project aggregate plus the Page, its ready Yjs Document, primary Data Source
+membership, and affected View projections inside the same immediate writer
+transaction. Invalid Page genesis rolls the complete aggregate back. All other
+Workspace mutations, including normal `CreateProject` and projectless Session
+creation, are rejected while the catalog is empty. Exact receipt lookup
+precedes that precondition, so a lost response replays the same aggregate,
+while competing windows or clients cannot create a second initial Project or
+starter Page.
+
+Electron Main owns the non-transactional host half of first-Project setup:
+automatic collision-safe `<Documents>/Nodex/My Project*` allocation, source-aware
+starter content generation, and a bounded fsynced exact-payload recovery journal
+at `${NODEX_HOME}/recovery/initial-project-v2.json`. The journal records the
+stable attempt/operation identities and the complete Core request before the
+filesystem/Core boundary; a matching marker proves ownership of a directory
+created by that attempt. Recovery replays exactly that request, never deletes a
+user directory, and persists the initial Window Session presentation before
+removing marker/journal evidence. The presentation selects the database-starter
+Session and materializes the ordinary Database and Welcome to Nodex Page tabs
+with Page Stage active at full width. The journal never enters Core schema,
+backups, or product queries. Renderer waits for normal application
+initialization, then mounts the same Workbench used by every other Profile;
+there is no setup-only renderer state machine. Historical rootless Projects
+remain ready and use ordinary source replacement.
 
 The same Workspace writer owns Project metadata/source replacement, lifecycle,
 sidebar order, and pinned order. Each operation validates Library ownership and
@@ -565,6 +592,13 @@ advance it, remove archived Projects from sidebar/pinned order, and append a
 restored Project without renumbering surviving gaps. Multi-Project reorder events
 use a deterministic Project anchor for the non-null change ledger coordinate
 while carrying the complete affected order in the Workspace event.
+
+Workspace also owns durable Thread project identity. cwd is execution metadata:
+the Desktop Host may use its longest source-root match only while materializing
+a server-only Thread that does not yet exist in Core. Every later reconciliation
+preserves the existing Project ID, including explicit `null`. Ordinary Thread
+upsert/update rejects an ownership mismatch; `MoveThread` is the sole re-home
+command.
 
 The Desktop Host's `project-lifecycle-service.ts` is the orchestration boundary
 for recoverable Project removal. It derives complete Session/Thread ownership,

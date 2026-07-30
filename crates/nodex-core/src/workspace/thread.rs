@@ -260,6 +260,15 @@ pub(super) fn upsert_thread_records(
         validate_stored_thread(existing)?;
         thread_status(existing)?;
         assert_project_visible(connection, library_id, existing.project_id.as_deref())?;
+        if patch
+            .project_id
+            .as_ref()
+            .is_some_and(|project_id| project_id.as_deref() != existing.project_id.as_deref())
+        {
+            return Err(conflict(
+                "Codex Thread ownership changes require the MoveThread intent",
+            ));
+        }
     }
 
     let project_id = merge_identity(
@@ -1902,6 +1911,10 @@ pub(super) fn finish_thread_mutation(
             block_ids: Vec::new(),
             document_ids: Vec::new(),
             database_ids: Vec::new(),
+            page_ids: Vec::new(),
+            data_source_ids: Vec::new(),
+            view_ids: Vec::new(),
+            document_heads: Vec::new(),
             committed_at: sqlite_now(connection)?,
         },
     )
@@ -1917,6 +1930,10 @@ fn unix_time_millis() -> Result<i64, StoreError> {
 
 fn invalid(message: impl Into<String>) -> StoreError {
     StoreError::new(StoreErrorCode::InvalidInput, message.into(), false)
+}
+
+fn conflict(message: impl Into<String>) -> StoreError {
+    StoreError::new(StoreErrorCode::Conflict, message.into(), true)
 }
 
 fn not_found(message: impl Into<String>) -> StoreError {
@@ -1996,6 +2013,7 @@ mod tests {
             .expect("seed Workspace identity");
         let module = ProjectWorkspaceModule::new("profile-1", "library-1", &kernel)
             .expect("Workspace module");
+        module.seed_rootless_default_project_for_test();
         (directory, kernel, module)
     }
 
@@ -2335,7 +2353,7 @@ mod tests {
                 ),
             )
             .expect_err("linked Thread cannot leave its Session Project");
-        assert_eq!(mismatched_move.code, CoreErrorCode::InvalidInput);
+        assert_eq!(mismatched_move.code, CoreErrorCode::RevisionConflict);
 
         module
             .apply(
@@ -2402,6 +2420,104 @@ mod tests {
             })
             .expect("Thread rollback evidence");
         assert_eq!(stored, (2, 0));
+    }
+
+    #[test]
+    fn preserves_existing_thread_ownership_until_an_explicit_move() {
+        let (_directory, _kernel, module) = seeded_module();
+        create_thread(
+            &module,
+            "thread-owner-create-project",
+            "thread-owner-project",
+            Some("project:default"),
+            None,
+        );
+        create_thread(
+            &module,
+            "thread-owner-create-projectless",
+            "thread-owner-projectless",
+            None,
+            None,
+        );
+
+        module
+            .apply(
+                &context(),
+                request(
+                    "thread-owner-same-project",
+                    ProjectWorkspaceIntent::UpsertThread {
+                        thread_id: "thread-owner-project".to_owned(),
+                        patch: Box::new(ProjectWorkspaceThreadPatch {
+                            project_id: Some(Some("project:default".to_owned())),
+                            ..ProjectWorkspaceThreadPatch::default()
+                        }),
+                    },
+                ),
+            )
+            .expect("same-owner metadata upsert");
+
+        let project_to_projectless = module
+            .apply(
+                &context(),
+                request(
+                    "thread-owner-project-to-projectless",
+                    ProjectWorkspaceIntent::UpsertThread {
+                        thread_id: "thread-owner-project".to_owned(),
+                        patch: Box::new(ProjectWorkspaceThreadPatch {
+                            project_id: Some(None),
+                            ..ProjectWorkspaceThreadPatch::default()
+                        }),
+                    },
+                ),
+            )
+            .expect_err("metadata upsert cannot clear Project ownership");
+        assert_eq!(project_to_projectless.code, CoreErrorCode::RevisionConflict);
+        assert!(project_to_projectless.retryable);
+
+        let projectless_to_project = module
+            .apply(
+                &context(),
+                request(
+                    "thread-owner-projectless-to-project",
+                    ProjectWorkspaceIntent::UpdateThread {
+                        thread_id: "thread-owner-projectless".to_owned(),
+                        patch: Box::new(ProjectWorkspaceThreadPatch {
+                            project_id: Some(Some("project:default".to_owned())),
+                            ..ProjectWorkspaceThreadPatch::default()
+                        }),
+                    },
+                ),
+            )
+            .expect_err("metadata update cannot assign Project ownership");
+        assert_eq!(projectless_to_project.code, CoreErrorCode::RevisionConflict);
+
+        let ProjectWorkspaceReadValue::Thread {
+            thread: project_thread,
+        } = read(
+            &module,
+            ProjectWorkspaceRead::Thread {
+                thread_id: "thread-owner-project".to_owned(),
+            },
+        )
+        else {
+            panic!("Project Thread read");
+        };
+        let ProjectWorkspaceReadValue::Thread {
+            thread: projectless_thread,
+        } = read(
+            &module,
+            ProjectWorkspaceRead::Thread {
+                thread_id: "thread-owner-projectless".to_owned(),
+            },
+        )
+        else {
+            panic!("Projectless Thread read");
+        };
+        assert_eq!(
+            project_thread.project_id.as_deref(),
+            Some("project:default")
+        );
+        assert_eq!(projectless_thread.project_id, None);
     }
 
     #[test]

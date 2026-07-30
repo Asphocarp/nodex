@@ -85,12 +85,21 @@ export function parseInlineContent(input: string): NfmInlineContent[] {
       }
 
       if (input[i] === "`" && !styles.code) {
-        const end = input.indexOf("`", i + 1);
+        const fenceLength = repeatedRunLength(input, i, "`");
+        const fence = "`".repeat(fenceLength);
+        const end = findClosingCodeFence(input, i + fenceLength, fence);
         if (end !== -1) {
           flushText();
-          const codeText = input.slice(i + 1, end);
+          let codeText = input.slice(i + fenceLength, end);
+          if (
+            codeText.startsWith(" ")
+            && codeText.endsWith(" ")
+            && codeText.trim().length > 0
+          ) {
+            codeText = codeText.slice(1, -1);
+          }
           items.push({ type: "text", text: codeText, styles: { ...styles, code: true } });
-          i = end + 1;
+          i = end + fenceLength;
           continue;
         }
       }
@@ -304,6 +313,28 @@ export function parseInlineContent(input: string): NfmInlineContent[] {
   }
 
   return parseRun({}, []);
+}
+
+function repeatedRunLength(input: string, start: number, marker: string): number {
+  let end = start;
+  while (input[end] === marker) end += 1;
+  return end - start;
+}
+
+function findClosingCodeFence(
+  input: string,
+  start: number,
+  fence: string,
+): number {
+  let candidate = input.indexOf(fence, start);
+  while (candidate !== -1) {
+    const runStartIsExact = candidate === 0 || input[candidate - 1] !== "`";
+    const runEnd = candidate + fence.length;
+    const runEndIsExact = runEnd === input.length || input[runEnd] !== "`";
+    if (runStartIsExact && runEndIsExact) return candidate;
+    candidate = input.indexOf(fence, candidate + fence.length);
+  }
+  return -1;
 }
 
 function isEscapable(char: string): boolean {

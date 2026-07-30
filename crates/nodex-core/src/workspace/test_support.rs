@@ -63,6 +63,7 @@ pub(super) fn seeded_workspace() -> TestWorkspace {
         .expect("seed Workspace identity");
     let module =
         ProjectWorkspaceModule::new("profile-1", "library-1", &kernel).expect("Workspace module");
+    module.seed_rootless_default_project_for_test();
     TestWorkspace {
         _directory: directory,
         kernel,

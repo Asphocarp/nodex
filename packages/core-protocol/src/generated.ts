@@ -3423,6 +3423,15 @@ export interface components {
                 readonly appearance?: null | components["schemas"]["ProjectAppearance"];
                 readonly description: string;
                 /** @enum {string} */
+                readonly kind: "create_initial_project";
+                readonly name: string;
+                readonly project_id: string;
+                readonly source_roots: readonly string[];
+                readonly starter_page: components["schemas"]["ProjectWorkspaceStarterPage"];
+            } | {
+                readonly appearance?: null | components["schemas"]["ProjectAppearance"];
+                readonly description: string;
+                /** @enum {string} */
                 readonly kind: "create_project";
                 readonly name: string;
                 readonly project_id: string;
@@ -4025,6 +4034,9 @@ export interface components {
             /** Format: int32 */
             readonly contract_version: number;
             readonly read: {
+                /** @enum {string} */
+                readonly kind: "project_bootstrap";
+            } | {
                 readonly include_archived?: boolean | null;
                 /** @enum {string} */
                 readonly kind: "project_window";
@@ -4363,6 +4375,11 @@ export interface components {
         };
         /** @enum {string} */
         readonly ProjectWorkspaceBackgroundProcessSource: "app-server" | "terminal-action";
+        readonly ProjectWorkspaceBootstrap: {
+            readonly status: components["schemas"]["ProjectWorkspaceBootstrapStatus"];
+        };
+        /** @enum {string} */
+        readonly ProjectWorkspaceBootstrapStatus: "empty" | "ready";
         readonly ProjectWorkspaceDynamicToolCatalog: {
             readonly namespace: string;
             /** Format: int64 */
@@ -4444,6 +4461,12 @@ export interface components {
             readonly thread_id?: string | null;
             readonly unread: boolean;
             readonly updated_at: string;
+        };
+        readonly ProjectWorkspaceStarterPage: {
+            readonly document_id: string;
+            readonly nfm: string;
+            readonly page_id: string;
+            readonly title_markdown: string;
         };
         readonly ProjectWorkspaceTaskThreadSummary: {
             readonly agent_nickname?: string | null;
@@ -5124,6 +5147,10 @@ export interface components {
                 readonly event_head: number;
                 readonly store_epoch: components["schemas"]["StoreEpoch"];
                 readonly value: {
+                    readonly bootstrap: components["schemas"]["ProjectWorkspaceBootstrap"];
+                    /** @enum {string} */
+                    readonly kind: "project_bootstrap";
+                } | {
                     /** @enum {string} */
                     readonly kind: "project_window";
                     readonly projects: components["schemas"]["CollectionWindow_ProjectWorkspaceProject"];

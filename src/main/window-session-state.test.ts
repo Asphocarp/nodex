@@ -96,6 +96,39 @@ describe("WindowSessionState", () => {
     });
   });
 
+  test("seeds one durable active Welcome presentation idempotently", () => {
+    withTempUserData((userDataPath) => {
+      const state = new WindowSessionState(userDataPath);
+      const initial = state.createFreshSession();
+      const presentation = {
+        projectId: "project-default",
+        starterSessionId: "session-default",
+        defaultDatabaseViewId: "view-default",
+        starterPageId: "page-welcome",
+        starterPageTitle: "Welcome to Nodex",
+      };
+
+      const seeded = state.seedInitialProjectPresentation(presentation);
+      const replayed = state.seedInitialProjectPresentation(presentation);
+      const restarted = new WindowSessionState(userDataPath).readCatalog()
+        ?.sessions.find((session) => session.id === initial.id);
+      const view = restarted?.layout.sessionViewsBySessionId[
+        presentation.starterSessionId
+      ];
+
+      expect(seeded.id).toBe(initial.id);
+      expect(replayed).toEqual(seeded);
+      expect(replayed.layoutRevision).toBe(1);
+      expect(restarted?.layout.location).toEqual({
+        kind: "session",
+        activeProjectId: presentation.projectId,
+        sessionId: presentation.starterSessionId,
+      });
+      expect(Object.values(view?.tabsById ?? {}).map((tab) => tab.kind))
+        .toEqual(["db_view", "page_stage"]);
+    });
+  });
+
   test("restores all open sessions without reopening deliberately closed history", () => {
     withTempUserData((userDataPath) => {
       const clock = createClock();

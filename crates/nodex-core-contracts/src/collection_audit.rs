@@ -37,7 +37,8 @@ fn workspace_policy(read: &ProjectWorkspaceRead) -> ReadBudgetPolicy {
         | ProjectWorkspaceRead::BackgroundProcessWindow { .. }
         | ProjectWorkspaceRead::ManagedWorktreeWindow { .. } => ReadBudgetPolicy::CollectionWindow,
         ProjectWorkspaceRead::ProjectActivitySummaries { .. } => ReadBudgetPolicy::BoundedBatch,
-        ProjectWorkspaceRead::Project { .. }
+        ProjectWorkspaceRead::ProjectBootstrap
+        | ProjectWorkspaceRead::Project { .. }
         | ProjectWorkspaceRead::ProjectPermissionMode { .. }
         | ProjectWorkspaceRead::Session { .. }
         | ProjectWorkspaceRead::Thread { .. }

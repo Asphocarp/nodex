@@ -56,10 +56,15 @@ function serializeItem(item: NfmInlineContent): string {
   }
 
   if (item.styles.code) {
-    if (item.text.includes("`")) {
-      return "`` " + item.text + " ``";
-    }
-    return `\`${item.text}\``;
+    const longestBacktickRun = Math.max(
+      0,
+      ...[...item.text.matchAll(/`+/gu)].map((match) => match[0].length),
+    );
+    const fence = "`".repeat(longestBacktickRun + 1);
+    const needsPadding = item.text.startsWith("`") || item.text.endsWith("`");
+    return needsPadding
+      ? `${fence} ${item.text} ${fence}`
+      : `${fence}${item.text}${fence}`;
   }
 
   let text = escapeNfm(item.text);

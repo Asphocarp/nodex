@@ -16,6 +16,7 @@ reuse_build="false"
 run_root=""
 isolated_codex_home=""
 isolated_nodex_home=""
+isolated_initial_projects_directory=""
 
 usage() {
   cat <<'EOF'
@@ -44,6 +45,9 @@ Options:
 Environment:
   NODEX_REMOTE_DEBUGGING_PORT
                     Electron CDP port for built runs (default: 9333).
+  NODEX_INITIAL_PROJECTS_DIR
+                    Initial Project parent. Isolated runs set this to the run
+                    root's workspace directory.
 
 Short options without values may be combined, for example: -ac or -dak.
 
@@ -251,7 +255,9 @@ fi
 
 if [[ "${use_nodex_home}" == "true" ]]; then
   isolated_nodex_home="${run_root}/.nodex"
+  isolated_initial_projects_directory="${run_root}/workspace"
   mkdir -p "${isolated_nodex_home}"
+  mkdir -p "${isolated_initial_projects_directory}"
 fi
 
 printf 'Nodex run mode: %s\n' "${run_script}"
@@ -265,8 +271,10 @@ else
 fi
 if [[ "${use_nodex_home}" == "true" ]]; then
   printf 'NODEX_HOME=%s\n' "${isolated_nodex_home}"
+  printf 'NODEX_INITIAL_PROJECTS_DIR=%s\n' "${isolated_initial_projects_directory}"
 else
   printf 'NODEX_HOME=<inherited or default>\n'
+  printf 'NODEX_INITIAL_PROJECTS_DIR=<inherited or Documents/Nodex>\n'
 fi
 
 (
@@ -275,6 +283,7 @@ fi
   fi
   if [[ "${use_nodex_home}" == "true" ]]; then
     export NODEX_HOME="${isolated_nodex_home}"
+    export NODEX_INITIAL_PROJECTS_DIR="${isolated_initial_projects_directory}"
   fi
 
   cd "${REPO_ROOT}"

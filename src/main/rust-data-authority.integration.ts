@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -102,16 +103,26 @@ describe("Electron native data authority", () => {
       expect(existsSync(databasePath)).toBe(true);
       expect(listCurrentProcessFiles()).not.toContain(databasePath);
 
-      const projects = await runtime.rootClient.workspaceRead({
-        kind: "project_window",
-        include_archived: false,
-        window: { first: 50 },
+      const workspaceAdapter = createCoreProjectWorkspaceAdapter(
+        runtime.rootClient,
+      );
+      await expect(workspaceAdapter.readProjectBootstrap()).resolves.toEqual({
+        status: "empty",
       });
-      if (projects.value.kind !== "project_window") {
-        throw new Error("Core did not return the Workspace Project window");
-      }
-      const projectId = projects.value.projects.items[0]?.id;
-      if (!projectId) throw new Error("Core Project window is empty");
+      const initialProject = await workspaceAdapter.createInitialProject({
+        operationId: randomUUID(),
+        projectId: randomUUID(),
+        name: "Electron authority",
+        description: "",
+        sources: [nodexHome],
+        starterPage: {
+          pageId: randomUUID(),
+          documentId: randomUUID(),
+          titleMarkdown: "Welcome to Nodex",
+          nfm: "Welcome to Nodex.",
+        },
+      });
+      const projectId = initialProject.project.id;
       const desktopWorkspace = createDesktopProjectWorkspaceBridge({
         authority: Promise.resolve(runtime),
       });

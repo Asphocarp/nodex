@@ -21,6 +21,8 @@ export function createDesktopProjectWorkspaceBridge(
   };
 
   return {
+    readProjectBootstrap: async () =>
+      await (await resolve()).readProjectBootstrap(),
     listProjects: async () => await (await resolve()).listProjects(),
     listProjectWindow: async (input) => await (await resolve()).listProjectWindow(input),
     readProjectActivitySummaries: async (projectIds) =>
@@ -31,6 +33,8 @@ export function createDesktopProjectWorkspaceBridge(
       await (await resolve()).readProjectPermissionMode(projectId),
     setProjectPermissionMode: async (projectId, mode) =>
       await (await resolve()).setProjectPermissionMode(projectId, mode),
+    createInitialProject: async (projectInput) =>
+      await (await resolve()).createInitialProject(projectInput),
     createProject: async (projectInput) =>
       await (await resolve()).createProject(projectInput),
     updateProject: async (projectId, projectInput) =>

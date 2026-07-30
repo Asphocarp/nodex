@@ -106,6 +106,7 @@ async function launchApplication(cwd: string, nodexHome: string): Promise<Electr
     env: {
       ...process.env,
       NODEX_HOME: nodexHome,
+      NODEX_INITIAL_PROJECTS_DIR: path.join(cwd, "workspace"),
       NODE_ENV: "test",
     },
   });
@@ -326,11 +327,11 @@ async function sampleLargeContentScenario(input: {
   }
 }
 
-test("persists a project across a full Electron restart", async () => {
+test("provisions and persists the initial source-backed Project across a full Electron restart", async () => {
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-electron-e2e-"));
   const nodexHome = path.join(fixtureRoot, "profile");
-  const workspace = path.join(fixtureRoot, "workspace");
-  fs.mkdirSync(workspace, { recursive: true });
+  const projectsDirectory = path.join(fixtureRoot, "workspace");
+  fs.mkdirSync(projectsDirectory, { recursive: true });
   prepareRuntimeFixture(fixtureRoot);
 
   let application: ElectronApplication | undefined;
@@ -339,17 +340,124 @@ test("persists a project across a full Electron restart", async () => {
     const firstWindow = await application.firstWindow();
     await firstWindow.evaluate(() => window.api?.awaitInitialization?.());
 
-    const created = await firstWindow.evaluate(async ({ name, source }) => {
-      return window.api?.invoke("projects:create", { name, sources: [source] });
-    }, { name: "Electron persistence smoke", source: workspace });
-    expect(created).toMatchObject({ name: "Electron persistence smoke" });
+    await expect.poll(async () => {
+      return await firstWindow.evaluate(async () => {
+        const projects = await window.api?.invoke("projects:list") as {
+          items?: unknown[];
+        } | undefined;
+        return projects?.items?.length ?? 0;
+      });
+    }).toBe(1);
+    await expect(firstWindow.getByRole("heading", {
+      name: "Select a project",
+    })).toHaveCount(0);
 
-    const firstRead = await firstWindow.evaluate(async () => {
-      return window.api?.invoke("projects:list");
+    const firstState = await firstWindow.evaluate(async () => {
+      const projects = await window.api?.invoke("projects:list") as {
+        items?: Array<{
+          id: string;
+          name: string;
+          primaryWorkspaceRoot: string | null;
+        }>;
+      } | undefined;
+      const bootstrap = await window.api?.invoke("window-sessions:bootstrap") as {
+        session?: {
+          layout?: {
+            location?: {
+              kind?: string;
+              activeProjectId?: string | null;
+              sessionId?: string;
+            };
+            sessionViewsBySessionId?: Record<string, {
+              tabsById?: Record<string, {
+                kind?: string;
+                config?: { pageId?: string };
+              }>;
+              panels?: {
+                right?: {
+                  collapsed?: boolean;
+                  size?: { fullWidth?: boolean };
+                  layout?: {
+                    root?: { activeTabId?: string | null };
+                  };
+                };
+              };
+            }>;
+          };
+        };
+      } | undefined;
+      return { projects, bootstrap };
     });
-    expect((firstRead as { items?: unknown[] } | undefined)?.items).toEqual(expect.arrayContaining([
-      expect.objectContaining({ name: "Electron persistence smoke" }),
-    ]));
+    const createdProject = firstState.projects?.items?.[0];
+    expect(createdProject).toMatchObject({ name: "My Project" });
+    expect(createdProject?.primaryWorkspaceRoot).toBe(
+      path.join(projectsDirectory, "My Project"),
+    );
+    expect(fs.realpathSync(createdProject?.primaryWorkspaceRoot ?? "")).toBe(
+      fs.realpathSync(path.join(projectsDirectory, "My Project")),
+    );
+
+    const layout = firstState.bootstrap?.session?.layout;
+    expect(layout?.location).toMatchObject({
+      kind: "session",
+      activeProjectId: createdProject?.id,
+    });
+    const starterSessionId = layout?.location?.sessionId;
+    const starterView = starterSessionId
+      ? layout?.sessionViewsBySessionId?.[starterSessionId]
+      : undefined;
+    const tabs = Object.values(starterView?.tabsById ?? {});
+    expect(tabs.map((tab) => tab.kind)).toEqual(["db_view", "page_stage"]);
+    expect(starterView?.panels?.right).toMatchObject({
+      collapsed: false,
+      size: { fullWidth: true },
+    });
+    const activeRightTabId = starterView?.panels?.right?.layout?.root
+      ?.activeTabId;
+    expect(
+      activeRightTabId
+        ? starterView?.tabsById?.[activeRightTabId]?.kind
+        : undefined,
+    ).toBe("page_stage");
+    const starterPageId = tabs.find((tab) => tab.kind === "page_stage")
+      ?.config?.pageId;
+    expect(starterPageId).toBeTruthy();
+
+    const pageDetail = await firstWindow.evaluate(async ({ projectId, pageId }) => {
+      return await window.api?.invoke("pages:detail:get", projectId, pageId);
+    }, {
+      projectId: createdProject?.id ?? "",
+      pageId: starterPageId ?? "",
+    });
+    expect(pageDetail).toMatchObject({
+      ok: true,
+      value: {
+        page: {
+          title: "Welcome to Nodex",
+        },
+        document: {
+          readiness: "ready",
+        },
+      },
+    });
+    expect((pageDetail as {
+      value?: { page?: { plainText?: string } };
+    }).value?.page?.plainText).toContain("Connect your model");
+    expect((pageDetail as {
+      value?: { page?: { plainText?: string } };
+    }).value?.page?.plainText).toContain(
+      createdProject?.primaryWorkspaceRoot,
+    );
+
+    expect(fs.existsSync(path.join(
+      nodexHome,
+      "recovery",
+      "initial-project-v2.json",
+    ))).toBe(false);
+    expect(fs.existsSync(path.join(
+      createdProject?.primaryWorkspaceRoot ?? "",
+      ".nodex-initial-project-v2.json",
+    ))).toBe(false);
 
     await stopApplication(application);
     application = undefined;
@@ -358,11 +466,28 @@ test("persists a project across a full Electron restart", async () => {
     await restartedWindow.evaluate(() => window.api?.awaitInitialization?.());
 
     const persisted = await restartedWindow.evaluate(async () => {
-      return window.api?.invoke("projects:list");
+      const projects = await window.api?.invoke("projects:list");
+      const bootstrap = await window.api?.invoke("window-sessions:bootstrap");
+      return { projects, bootstrap };
     });
-    expect((persisted as { items?: unknown[] } | undefined)?.items).toEqual(expect.arrayContaining([
-      expect.objectContaining({ name: "Electron persistence smoke" }),
-    ]));
+    expect((persisted as {
+      projects?: { items?: unknown[] };
+    }).projects?.items).toEqual([
+      expect.objectContaining({
+        id: createdProject?.id,
+        name: "My Project",
+        primaryWorkspaceRoot: createdProject?.primaryWorkspaceRoot,
+      }),
+    ]);
+    expect((persisted as {
+      bootstrap?: { session?: { layout?: { location?: unknown } } };
+    }).bootstrap?.session?.layout?.location).toMatchObject({
+      kind: "session",
+      activeProjectId: createdProject?.id,
+    });
+    await expect(restartedWindow.getByRole("heading", {
+      name: "Select a project",
+    })).toHaveCount(0);
   } finally {
     if (application) await stopApplication(application);
     fs.rmSync(fixtureRoot, { recursive: true, force: true });

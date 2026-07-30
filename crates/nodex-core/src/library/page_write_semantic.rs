@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::path::Path;
 
 use nodex_core_contracts::BoundModuleContext;
@@ -6,24 +5,20 @@ use nodex_core_contracts::library::{
     LibraryAgentSiblingAnchor, LibraryBlockTransferLogicalIntent, LibraryBlockTransferMode,
     LibraryBlockTransferPlan, LibraryBlockTransferSource, LibraryBlockTransferTarget,
     LibraryPageCopyDestination, LibraryPageCopyPositionAnchor, LibraryPageCopyValue,
-    LibraryPageCopyViewPlacement, LibraryPageCreateResult, LibraryPageWriteDestination,
-    LibraryResourceTarget,
+    LibraryPageCopyViewPlacement, LibraryPageWriteDestination, LibraryResourceTarget,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::json;
 
 use crate::database::{
-    StagedPagePlacementRevisions, place_staged_page_in_data_source,
     resolve_page_copy_data_source_project, resolve_page_transfer_data_source_destination,
 };
-use crate::document::{mint_document_semantic_etags, parse_inline_markdown_title};
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::LibraryApplyOutcome;
 use super::mutation::{MutationEffects, finish_mutation, sqlite_now};
 
 const MAX_ID_BYTES: usize = 512;
-const MAX_PAGE_TITLE_BYTES: usize = 10_000;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn create_page(
@@ -88,11 +83,6 @@ fn create_page_in_data_source(
     nfm: &str,
     destination: &LibraryPageCopyDestination,
 ) -> Result<LibraryApplyOutcome, StoreError> {
-    if title_markdown.len() > MAX_PAGE_TITLE_BYTES {
-        return Err(invalid("Page title exceeds its bound"));
-    }
-    let rich_title =
-        parse_inline_markdown_title(title_markdown).map_err(|error| invalid(error.to_string()))?;
     let requesting_project_id = bound_project_id(context)?;
     let destination = super::page_copy::data_source_destination(destination)
         .ok_or_else(|| corrupt("Created Page lost its Data Source destination"))?;
@@ -104,90 +94,25 @@ fn create_page_in_data_source(
         destination.expected_data_source_revision,
     )?;
     let now = sqlite_now(connection)?;
-    let staged = super::block_transfer::stage_fresh_page_in_library(
+    let created = super::page_genesis::create_page_in_data_source(
         connection,
-        library_id,
-        &project_id,
-        operation_id,
-        store_epoch,
-        page_id,
-        document_id,
-        "page_body_block",
-        &rich_title,
-        nfm,
-        None,
-        &now,
-    )?;
-    let placement = place_staged_page_in_data_source(
-        connection,
-        library_id,
-        requesting_project_id,
-        None,
-        page_id,
-        &destination,
-        StagedPagePlacementRevisions {
-            location_revision: 1,
-            metadata_revision: 1,
-            parent_revision: 1,
+        super::page_genesis::PageGenesisInput {
+            library_id,
+            project_id: &project_id,
+            actor_project_id: requesting_project_id,
+            placement_access_project_id: Some(requesting_project_id),
+            operation_id,
+            store_epoch,
+            page_id,
+            document_id,
+            title_markdown,
+            nfm,
+            destination: &destination,
+            now: &now,
         },
-        &now,
     )?;
-    let (title_etag, body_etag) = mint_document_semantic_etags(
-        connection,
-        requesting_project_id,
-        store_epoch,
-        document_id,
-        &staged.materialization,
-    )
-    .map_err(|error| internal(error.to_string()))?;
-    let page_create = LibraryPageCreateResult {
-        page_id: page_id.to_owned(),
-        document_id: staged.document_id.clone(),
-        document_generation: 1,
-        document_head_seq: staged.document_head_seq,
-        block_ids: staged.body_block_ids.clone(),
-        title_etag,
-        body_etag,
-    };
-    let mut committed_revisions = BTreeMap::from([
-        (
-            format!("blockLocation:{page_id}"),
-            placement.location_revision,
-        ),
-        (
-            format!("blockMetadata:{page_id}"),
-            placement.metadata_revision,
-        ),
-        (format!("pageParent:{page_id}"), placement.parent_revision),
-        (
-            format!("documentHead:{}", staged.document_id),
-            staged.document_head_seq,
-        ),
-        (
-            format!(
-                "membership:{}:{}",
-                placement.data_source_id, placement.membership_id
-            ),
-            1,
-        ),
-    ]);
-    committed_revisions.extend(
-        placement
-            .value_revisions
-            .iter()
-            .map(|(property_id, revision)| {
-                (
-                    format!(
-                        "propertyValue:{}:{}:{property_id}",
-                        placement.data_source_id, page_id
-                    ),
-                    *revision,
-                )
-            }),
-    );
-    if let (Some(view), Some(revision)) = (&destination.view, placement.position_revision) {
-        committed_revisions.insert(format!("viewPosition:{}:{page_id}", view.view_id), revision);
-    }
+    let affected_block_ids = created.page_create.block_ids.clone();
+    let affected_document_id = created.page_create.document_id.clone();
 
     finish_mutation(
         connection,
@@ -196,21 +121,21 @@ fn create_page_in_data_source(
         operation_id,
         request_hash,
         MutationEffects {
-            project_id,
+            project_id: created.project_id,
             operation_kind: "create_page",
             change_kind: "library.changed",
             did_mutate: true,
             created_target: Some(LibraryResourceTarget::Page {
                 page_id: page_id.to_owned(),
             }),
-            affected_parent_keys: vec![format!("data_source:{}", placement.data_source_id)],
-            affected_block_ids: staged.body_block_ids,
+            affected_parent_keys: vec![format!("data_source:{}", created.data_source_id)],
+            affected_block_ids,
             affected_page_ids: vec![page_id.to_owned()],
-            affected_database_ids: vec![placement.database_id],
-            affected_view_ids: placement.affected_view_ids,
-            affected_document_ids: vec![staged.document_id],
-            committed_revisions,
-            page_create: Some(page_create),
+            affected_database_ids: vec![created.database_id],
+            affected_view_ids: created.affected_view_ids,
+            affected_document_ids: vec![affected_document_id],
+            committed_revisions: created.committed_revisions,
+            page_create: Some(created.page_create),
             page_copy: None,
             block_transfer: None,
             page_lifecycle: None,
@@ -632,8 +557,4 @@ fn unauthorized(message: impl Into<String>) -> StoreError {
 
 fn corrupt(message: impl Into<String>) -> StoreError {
     StoreError::new(StoreErrorCode::StoreCorrupt, message, false)
-}
-
-fn internal(message: impl Into<String>) -> StoreError {
-    StoreError::new(StoreErrorCode::Internal, message, false)
 }

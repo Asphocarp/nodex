@@ -1,5 +1,16 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
-import { dirname, join } from "path";
+import {
+  closeSync,
+  existsSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { randomUUID } from "node:crypto";
+import { basename, dirname, join } from "node:path";
 import { getNodexHome } from "./config";
 import type {
   PersistedAtomEvent,
@@ -41,8 +52,30 @@ function readPersistedAtomsFile(): PersistedAtomState {
 
 function writePersistedAtomsFile(state: PersistedAtomState): void {
   const atomsPath = getPersistedAtomsPath();
-  mkdirSync(dirname(atomsPath), { recursive: true });
-  writeFileSync(atomsPath, JSON.stringify(state, null, 2), "utf8");
+  const parent = dirname(atomsPath);
+  mkdirSync(parent, { recursive: true, mode: 0o700 });
+  const temporaryPath = join(
+    parent,
+    `.${basename(atomsPath)}.${process.pid}.${randomUUID()}.tmp`,
+  );
+  const handle = openSync(temporaryPath, "wx", 0o600);
+  try {
+    writeFileSync(handle, JSON.stringify(state, null, 2), "utf8");
+    fsyncSync(handle);
+  } finally {
+    closeSync(handle);
+  }
+  try {
+    renameSync(temporaryPath, atomsPath);
+    const directory = openSync(parent, "r");
+    try {
+      fsyncSync(directory);
+    } finally {
+      closeSync(directory);
+    }
+  } finally {
+    rmSync(temporaryPath, { force: true });
+  }
 }
 
 export function readPersistedAtomState(): PersistedAtomState {

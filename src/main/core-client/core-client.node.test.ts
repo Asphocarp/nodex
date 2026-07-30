@@ -81,6 +81,31 @@ const withTimeout = async <Value>(
   }
 };
 
+async function createInitialProject(
+  client: CoreClient,
+  nodexHome: string,
+): Promise<number> {
+  const source = path.join(nodexHome, "workspace");
+  const committed = await client.workspaceApply({
+    operationId: "node-initial-project",
+    intent: {
+      kind: "create_initial_project",
+      project_id: "project:default",
+      name: "My Project",
+      description: "",
+      appearance: null,
+      source_roots: [source],
+      starter_page: {
+        page_id: "page:getting-started",
+        document_id: "document:getting-started",
+        title_markdown: "Welcome to Nodex",
+        nfm: "Welcome to Nodex.",
+      },
+    },
+  });
+  return committed.event_sequence;
+}
+
 describe("CoreClient over a Unix socket", () => {
   test("closing one Document stream preserves sibling subscriptions on the connection", async () => {
     const nodexHome = mkdtempSync(path.join(tmpdir(), "nodex-core-client-stream-"));
@@ -90,12 +115,13 @@ describe("CoreClient over a Unix socket", () => {
 
     try {
       await readDescriptor(child);
-      const client = await CoreClient.connect({
+      const rootClient = await CoreClient.connect({
         nodexHome,
         clientKind: "test",
         buildId: "node-document-stream-lifecycle-test",
-        projectId: "project:default",
       });
+      await createInitialProject(rootClient, nodexHome);
+      const client = rootClient.forProject("project:default");
       const documentId = "document:stream-lifecycle";
       await client.libraryApply({
         operationId: "node-document-stream-lifecycle-page",
@@ -174,12 +200,22 @@ describe("CoreClient over a Unix socket", () => {
       const winnerPid = descriptors[0]?.pid;
       expect(children.some((child) => child.pid === winnerPid)).toBe(true);
 
-      const client = await CoreClient.connect({
+      const rootClient = await CoreClient.connect({
         nodexHome,
         clientKind: "test",
         buildId: "node-integration-test",
-        projectId: "project:default",
       });
+      const snapshot = await rootClient.libraryRead({ kind: "metadata" });
+      expect(snapshot.event_head).toBe(0);
+      expect(snapshot.value).toMatchObject({
+        kind: "metadata",
+        library_id: rootClient.handshake.library_id,
+      });
+      const initialProjectEventSequence = await createInitialProject(
+        rootClient,
+        nodexHome,
+      );
+      const client = rootClient.forProject("project:default");
       expect(client.handshake.generation.pid).toBe(winnerPid);
 
       const descriptorPath = path.join(nodexHome, "run/core/core.json");
@@ -196,17 +232,13 @@ describe("CoreClient over a Unix socket", () => {
       const observedEvent = new Promise<CoreEventEnvelope>((resolve) => {
         resolveEvent = resolve;
       });
-      subscription = await client.openEventStream(0, (event) => resolveEvent?.(event));
+      subscription = await client.openEventStream(
+        initialProjectEventSequence,
+        (event) => resolveEvent?.(event),
+      );
       await expect(
-        client.openEventStream(0, () => undefined),
+        client.openEventStream(initialProjectEventSequence, () => undefined),
       ).rejects.toMatchObject({ status: 409 });
-
-      const snapshot = await client.libraryRead({ kind: "metadata" });
-      expect(snapshot.event_head).toBe(0);
-      expect(snapshot.value).toMatchObject({
-        kind: "metadata",
-        library_id: client.handshake.library_id,
-      });
 
       const applyInput = {
         operationId: "node-operation-1",
@@ -385,7 +417,7 @@ describe("CoreClient over a Unix socket", () => {
         readonly database?: { readonly databaseId?: string };
       } | undefined;
       const databaseId = descriptor?.database?.databaseId;
-      if (!databaseId) throw new Error("Default Project has no Database");
+      if (!databaseId) throw new Error("Initial Project has no Database");
       const dataSources = await client.databaseRead({
         target: { kind: "database", database_id: databaseId },
         mode: "data_source_window",
@@ -401,7 +433,7 @@ describe("CoreClient over a Unix socket", () => {
           readonly dataSourceId?: string;
         } | undefined
       )?.dataSourceId;
-      if (!dataSourceId) throw new Error("Default Project has no Data Source");
+      if (!dataSourceId) throw new Error("Initial Project has no Data Source");
       const agentDatabaseQuery = await client.databaseRead({
         target: {
           kind: "agent_data_source",
@@ -424,7 +456,13 @@ describe("CoreClient over a Unix socket", () => {
         value: {
           data_source_id: dataSourceId,
           rows: {
-            items: [],
+            items: [{
+              page_id: "page:getting-started",
+              title: "Welcome to Nodex",
+              database_values: {
+                status: "triage",
+              },
+            }],
             next_cursor: null,
           },
         },

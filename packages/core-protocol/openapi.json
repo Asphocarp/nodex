@@ -13592,6 +13592,53 @@
                   "name",
                   "description",
                   "source_roots",
+                  "starter_page",
+                  "kind"
+                ],
+                "properties": {
+                  "appearance": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/ProjectAppearance"
+                      }
+                    ]
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "create_initial_project"
+                    ]
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "project_id": {
+                    "type": "string"
+                  },
+                  "source_roots": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "starter_page": {
+                    "$ref": "#/components/schemas/ProjectWorkspaceStarterPage"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "project_id",
+                  "name",
+                  "description",
+                  "source_roots",
                   "kind"
                 ],
                 "properties": {
@@ -16351,6 +16398,20 @@
               {
                 "type": "object",
                 "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "project_bootstrap"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
                   "window",
                   "kind"
                 ],
@@ -17553,6 +17614,24 @@
           "terminal-action"
         ]
       },
+      "ProjectWorkspaceBootstrap": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/ProjectWorkspaceBootstrapStatus"
+          }
+        }
+      },
+      "ProjectWorkspaceBootstrapStatus": {
+        "type": "string",
+        "enum": [
+          "empty",
+          "ready"
+        ]
+      },
       "ProjectWorkspaceDynamicToolCatalog": {
         "type": "object",
         "required": [
@@ -17852,6 +17931,29 @@
             "type": "boolean"
           },
           "updated_at": {
+            "type": "string"
+          }
+        }
+      },
+      "ProjectWorkspaceStarterPage": {
+        "type": "object",
+        "required": [
+          "page_id",
+          "document_id",
+          "title_markdown",
+          "nfm"
+        ],
+        "properties": {
+          "document_id": {
+            "type": "string"
+          },
+          "nfm": {
+            "type": "string"
+          },
+          "page_id": {
+            "type": "string"
+          },
+          "title_markdown": {
             "type": "string"
           }
         }
@@ -21347,6 +21449,24 @@
                   },
                   "value": {
                     "oneOf": [
+                      {
+                        "type": "object",
+                        "required": [
+                          "bootstrap",
+                          "kind"
+                        ],
+                        "properties": {
+                          "bootstrap": {
+                            "$ref": "#/components/schemas/ProjectWorkspaceBootstrap"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "project_bootstrap"
+                            ]
+                          }
+                        }
+                      },
                       {
                         "type": "object",
                         "required": [

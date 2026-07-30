@@ -10,7 +10,7 @@ use nodex_core_contracts::library::{
     LibraryAccess, LibraryIntent, LibraryPageFileKind, LibraryPagePrepareKind, LibraryRead,
     LibraryReadValue, LibraryResourceTarget, LibraryWriteParent,
 };
-use nodex_core_contracts::workspace::ProjectWorkspaceIntent;
+use nodex_core_contracts::workspace::{ProjectWorkspaceIntent, ProjectWorkspaceStarterPage};
 use nodex_core_contracts::{ModuleApplyRequest, StoreEpoch, VersionedModuleContract};
 use nodex_core_protocol::ResponseEnvelope;
 use nodex_core_protocol::client::{CoreClient, connect_or_launch};
@@ -77,12 +77,18 @@ fn native_client_cold_starts_reuses_and_reads_the_authenticated_core() {
                 contract_version: <nodex_core_contracts::workspace::ProjectWorkspaceContract as VersionedModuleContract>::VERSION,
                 operation_id: "native-client:create-project".to_owned(),
                 store_epoch: store_epoch.clone(),
-                intent: ProjectWorkspaceIntent::CreateProject {
+                intent: ProjectWorkspaceIntent::CreateInitialProject {
                     project_id: project_id.to_owned(),
                     name: "Native CLI".to_owned(),
                     description: String::new(),
                     appearance: None,
                     source_roots: vec![source.to_string_lossy().into_owned()],
+                    starter_page: ProjectWorkspaceStarterPage {
+                        page_id: "019b1000-1000-7000-8000-000000000004".to_owned(),
+                        document_id: "019b1000-1000-7000-8000-000000000005".to_owned(),
+                        title_markdown: "Welcome to Nodex".to_owned(),
+                        nfm: "Welcome to Nodex.".to_owned(),
+                    },
                 },
             },
         )

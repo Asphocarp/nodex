@@ -17,6 +17,7 @@ import {
   splitWorkbenchPanelLeaf,
 } from "./workbench-panel-layout";
 import type { BrowserSidebarDeviceToolbarState } from "./browser-sidebar";
+import type { InitialProjectPresentation } from "./initial-project-welcome";
 
 export const WORKBENCH_SESSION_VIEW_VERSION = 2 as const;
 export const WORKBENCH_SESSION_VIEW_MAX_TABS = 2_048;
@@ -426,6 +427,64 @@ export function materializeInitialWorkbenchSessionView(
       },
     },
   );
+}
+
+export function materializeInitialProjectWelcomeView(
+  presentation: InitialProjectPresentation,
+  options: {
+    touchedAt?: string;
+  } = {},
+): WorkbenchSessionViewSnapshot {
+  const counters = new Map<string, number>();
+  const identityFactory: WorkbenchSessionViewIdentityFactory = {
+    createId(kind) {
+      const ordinal = counters.get(kind) ?? 0;
+      counters.set(kind, ordinal + 1);
+      return `initial:${presentation.starterSessionId}:${kind}:${ordinal}`;
+    },
+  };
+  const databaseView = materializeInitialWorkbenchSessionView(
+    {
+      id: presentation.starterSessionId,
+      projectId: presentation.projectId,
+      databaseViewId: presentation.defaultDatabaseViewId,
+    },
+    {
+      identityFactory,
+      touchedAt: options.touchedAt,
+    },
+  );
+  const rightLeaf = listWorkbenchPanelLeaves(
+    databaseView.panels.right.layout,
+  )[0];
+  if (!rightLeaf) return databaseView;
+
+  const pageTabId = identityFactory.createId("tab");
+  const withPage = createWorkbenchSessionViewTab(databaseView, {
+    panelId: "right",
+    targetLeafId: rightLeaf.id,
+    tab: {
+      id: pageTabId,
+      kind: "page_stage",
+      titleSnapshot: presentation.starterPageTitle,
+      config: {
+        projectId: presentation.projectId,
+        pageId: presentation.starterPageId,
+        titleSnapshot: presentation.starterPageTitle,
+      },
+      stateKey: 0,
+      state: null,
+    },
+  });
+  const activated = activateWorkbenchSessionViewTab(
+    withPage,
+    "right",
+    rightLeaf.id,
+    pageTabId,
+  );
+  return options.touchedAt
+    ? { ...activated, touchedAt: options.touchedAt }
+    : activated;
 }
 
 export function createWorkbenchSessionViewTab(

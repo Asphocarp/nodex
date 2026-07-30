@@ -171,7 +171,30 @@ export interface DesktopAppServerSweepReconcileResult {
   readonly projectIds: readonly string[];
 }
 
+export interface DesktopProjectBootstrap {
+  readonly status: "empty" | "ready";
+}
+
+export interface DesktopInitialProjectStarterPage {
+  readonly pageId: string;
+  readonly documentId: string;
+  readonly titleMarkdown: string;
+  readonly nfm: string;
+}
+
+export interface DesktopInitialProjectCreateInput extends ProjectCreateInput {
+  readonly operationId: string;
+  readonly projectId: string;
+  readonly starterPage: DesktopInitialProjectStarterPage;
+}
+
+export interface DesktopInitialProjectCreateResult {
+  readonly project: Project;
+  readonly starterSessionId: string;
+}
+
 export interface DesktopProjectWorkspacePort {
+  readProjectBootstrap(): Promise<DesktopProjectBootstrap>;
   /** Available (non-archived) Projects form one fixed 200-item domain collection. */
   listProjects(): Promise<Project[]>;
   listProjectWindow(input?: ProjectWindowInput): Promise<ProjectWindow>;
@@ -186,6 +209,9 @@ export interface DesktopProjectWorkspacePort {
     projectId: string,
     mode: CodexPermissionMode,
   ): Promise<CodexPermissionMode>;
+  createInitialProject(
+    input: DesktopInitialProjectCreateInput,
+  ): Promise<DesktopInitialProjectCreateResult>;
   createProject(input: ProjectCreateInput): Promise<Project>;
   updateProject(
     projectId: string,
@@ -841,6 +867,16 @@ export function createCoreProjectWorkspaceAdapter(
     return [...window.items];
   };
 
+  const readProjectBootstrap = async (): Promise<DesktopProjectBootstrap> => {
+    const snapshot = await client.workspaceRead({ kind: "project_bootstrap" });
+    if (snapshot.value.kind !== "project_bootstrap") {
+      throw new Error("Core returned the wrong Project bootstrap read variant");
+    }
+    return {
+      status: snapshot.value.bootstrap.status,
+    };
+  };
+
   const readProjectActivitySummaries = async (
     projectIds: readonly string[],
   ): Promise<ProjectActivitySummaryResult> => {
@@ -967,6 +1003,7 @@ export function createCoreProjectWorkspaceAdapter(
   };
 
   return {
+    readProjectBootstrap,
     listProjects: readProjects,
     listProjectWindow: readProjectWindow,
     readProjectActivitySummaries,
@@ -983,6 +1020,34 @@ export function createCoreProjectWorkspaceAdapter(
         throw new Error(`Updated Project permission mode not found: ${projectId}`);
       }
       return selected;
+    },
+    createInitialProject: async (input) => {
+      const committed = await client.workspaceApply({
+        operationId: input.operationId,
+        intent: {
+          kind: "create_initial_project",
+          project_id: input.projectId,
+          name: input.name ?? "",
+          description: input.description ?? "",
+          appearance: input.appearance ?? null,
+          source_roots: input.sources ?? [],
+          starter_page: {
+            page_id: input.starterPage.pageId,
+            document_id: input.starterPage.documentId,
+            title_markdown: input.starterPage.titleMarkdown,
+            nfm: input.starterPage.nfm,
+          },
+        },
+      });
+      const project = await getProject(input.projectId);
+      if (!project) {
+        throw new Error(`Created initial Project not found: ${input.projectId}`);
+      }
+      const starterSessionId = committed.value.affected_session_ids[0];
+      if (!starterSessionId) {
+        throw new Error("Created initial Project has no starter Session");
+      }
+      return { project, starterSessionId };
     },
     createProject: async (input) => {
       const projectId = randomUUID();

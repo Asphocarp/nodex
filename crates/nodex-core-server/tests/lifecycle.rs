@@ -330,6 +330,30 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
         .to_owned();
     assert!(library_id.starts_with("library-"));
 
+    let create_initial_project = serde_json::json!({
+        "contract_version": PROJECT_WORKSPACE_CONTRACT_VERSION,
+        "operation_id": "lifecycle-initial-project",
+        "store_epoch": expected.store_epoch,
+        "intent": {
+            "kind": "create_initial_project",
+            "project_id": "project:default",
+            "name": "Default",
+            "description": "",
+            "appearance": null,
+            "source_roots": ["/workspace/default"]
+        }
+    })
+    .to_string();
+    let initial_project = request_with_headers(
+        &expected.socket_path,
+        &auth,
+        "POST",
+        "/core/v1/modules/workspace/apply",
+        &create_initial_project,
+        &connection_headers,
+    );
+    assert_eq!(response_json(&initial_project)["status"], "ok");
+
     let apply_body = serde_json::json!({
         "contract_version": LIBRARY_CONTRACT_VERSION,
         "operation_id": "lifecycle-operation-1",
@@ -1079,6 +1103,30 @@ fn workspace_contract_mismatch_is_replaced_before_a_projectless_session_request(
         ),
         ("x-nodex-connection-binding", binding.as_str()),
     ];
+    let create_initial_project = serde_json::json!({
+        "contract_version": PROJECT_WORKSPACE_CONTRACT_VERSION,
+        "operation_id": "workspace-contract-regression-initial-project",
+        "store_epoch": selected.store_epoch,
+        "intent": {
+            "kind": "create_initial_project",
+            "project_id": "project:default",
+            "name": "Default",
+            "description": "",
+            "appearance": null,
+            "source_roots": ["/workspace/default"]
+        }
+    })
+    .to_string();
+    let initial_project = request_with_headers(
+        &selected.socket_path,
+        &selected_auth,
+        "POST",
+        "/core/v1/modules/workspace/apply",
+        &create_initial_project,
+        &connection_headers,
+    );
+    assert_eq!(response_json(&initial_project)["status"], "ok");
+
     let apply = serde_json::json!({
         "contract_version": PROJECT_WORKSPACE_CONTRACT_VERSION,
         "operation_id": "workspace-create-projectless-session",

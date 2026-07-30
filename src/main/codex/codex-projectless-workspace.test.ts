@@ -22,6 +22,22 @@ async function captureErrorMessage(action: () => Promise<unknown>): Promise<stri
 }
 
 describe("Codex projectless workspace", () => {
+  test("keeps the broad Documents/Nodex authority even when Default is a Project source", () => {
+    const homeDirectory = path.join(path.sep, "Users", "test");
+    const workspaceRoot = resolveCodexProjectlessWorkspaceRoot(homeDirectory);
+    const defaultProjectSource = path.join(
+      homeDirectory,
+      "Documents",
+      "Nodex",
+      "Default",
+    );
+
+    expect(workspaceRoot).toBe(
+      path.join(homeDirectory, "Documents", "Nodex"),
+    );
+    expect(path.relative(workspaceRoot, defaultProjectSource)).toBe("Default");
+  });
+
   test("uses local calendar dates and the exact prompt/directory-name slug boundaries", () => {
     expect(formatCodexProjectlessLocalDate(new Date(2026, 0, 2, 23, 59, 59))).toBe(
       "2026-01-02",

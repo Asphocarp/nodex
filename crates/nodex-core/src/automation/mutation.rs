@@ -1769,7 +1769,9 @@ mod tests {
                 Ok(())
             })
             .expect("seed identity");
-        ProjectWorkspaceModule::new("profile-1", "library-1", &kernel).expect("default Project");
+        let workspace =
+            ProjectWorkspaceModule::new("profile-1", "library-1", &kernel).expect("Workspace");
+        workspace.seed_rootless_default_project_for_test();
         let module = AutomationModule::new("profile-1", "library-1", &kernel);
         Harness {
             _home: home,

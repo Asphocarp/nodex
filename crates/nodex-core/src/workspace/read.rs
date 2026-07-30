@@ -1,6 +1,7 @@
 use nodex_core_contracts::workspace::{
-    ProjectLifecycle, ProjectSource, ProjectWorkspaceExecutionContext, ProjectWorkspaceProject,
-    ProjectWorkspaceRead, ProjectWorkspaceReadValue, ProjectWorkspaceSessionSummary,
+    ProjectLifecycle, ProjectSource, ProjectWorkspaceBootstrap, ProjectWorkspaceBootstrapStatus,
+    ProjectWorkspaceExecutionContext, ProjectWorkspaceProject, ProjectWorkspaceRead,
+    ProjectWorkspaceReadValue, ProjectWorkspaceSessionSummary,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 
@@ -54,6 +55,22 @@ pub(super) fn read(
     request: ProjectWorkspaceRead,
 ) -> Result<ProjectWorkspaceReadValue, StoreError> {
     match request {
+        ProjectWorkspaceRead::ProjectBootstrap => {
+            let project_count = connection.query_row(
+                "SELECT count(*) FROM projects WHERE library_id = ?1",
+                [library_id],
+                |row| row.get::<_, i64>(0),
+            )?;
+            Ok(ProjectWorkspaceReadValue::ProjectBootstrap {
+                bootstrap: ProjectWorkspaceBootstrap {
+                    status: if project_count == 0 {
+                        ProjectWorkspaceBootstrapStatus::Empty
+                    } else {
+                        ProjectWorkspaceBootstrapStatus::Ready
+                    },
+                },
+            })
+        }
         ProjectWorkspaceRead::ProjectWindow {
             include_archived,
             window,

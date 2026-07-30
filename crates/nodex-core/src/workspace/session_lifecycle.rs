@@ -373,6 +373,10 @@ fn finish_lifecycle_mutation(
             block_ids: Vec::new(),
             document_ids: Vec::new(),
             database_ids: Vec::new(),
+            page_ids: Vec::new(),
+            data_source_ids: Vec::new(),
+            view_ids: Vec::new(),
+            document_heads: Vec::new(),
             committed_at,
         },
     )

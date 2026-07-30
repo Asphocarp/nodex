@@ -38,6 +38,7 @@ import type {
   CommandPaletteThreadSearchResult,
   CommandPaletteThreadSummary,
   ManagedWorktreeRecord,
+  Project,
   ProjectSessionForkResult,
 } from "../../shared/types";
 import type {
@@ -65,6 +66,7 @@ import type {
 } from "@nodex/codex-app-server-protocol/v2";
 import type { ServerNotification as CodexServerNotification } from "@nodex/codex-app-server-protocol";
 import type { AgentProviderCatalog } from "../../shared/agent-runtime";
+import { DEFAULT_PROJECT_APPEARANCE } from "../../shared/project-appearance";
 
 type CodexTestServerNotification = {
   method: CodexServerNotification["method"];
@@ -742,6 +744,30 @@ function makeDesktopWorkspaceThread(
     updatedAt: 2,
     linkedAt: "2026-07-20T00:00:00.000Z",
     ...overrides,
+  };
+}
+
+function makeProject(
+  overrides: Partial<Project> & Pick<Project, "id">,
+): Project {
+  const { id, ...rest } = overrides;
+  return {
+    id,
+    libraryId: "library:test",
+    databaseId: `database:${id}`,
+    defaultDatabaseViewId: null,
+    lifecycle: "active",
+    bindingRevision: 1,
+    name: id,
+    description: "",
+    appearance: DEFAULT_PROJECT_APPEARANCE,
+    sources: [],
+    primaryWorkspaceRoot: null,
+    pinned: false,
+    pinnedOrder: null,
+    created: new Date(0),
+    updated: new Date(0),
+    ...rest,
   };
 }
 
@@ -6562,18 +6588,54 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
     }
   });
 
-  test("thread project assignment re-homes sessions containing only Browser and Terminal tabs", async () => {
+  test.each([
+    {
+      label: "Project owner when cwd moves outside every source",
+      threadId: "thread-durable-project",
+      existingProjectId: "project:durable",
+      nextCwd: "/outside/every/project",
+    },
+    {
+      label: "explicit Projectless owner when cwd enters a Project source",
+      threadId: "thread-durable-projectless",
+      existingProjectId: null,
+      nextCwd: "/Users/test/Documents/Nodex/My Project/nested",
+    },
+  ])("sidebar refresh preserves $label", async ({
+    threadId,
+    existingProjectId,
+    nextCwd,
+  }) => {
     const baseWorkspace = createTestProjectWorkspace();
-    const moveInputs: Array<Parameters<DesktopProjectWorkspacePort["moveThread"]>[0]> = [];
+    const existing = await baseWorkspace.upsertThread(threadId, {
+      projectId: existingProjectId,
+      threadName: threadId,
+      threadPreview: threadId,
+      modelProvider: "openai",
+      cwd: "/previous/cwd",
+      status: { statusType: "idle", activeFlags: [] },
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    const upsertPatches: Array<
+      Parameters<DesktopProjectWorkspacePort["upsertThread"]>[1]
+    > = [];
+    const moveInputs: Array<
+      Parameters<DesktopProjectWorkspacePort["moveThread"]>[0]
+    > = [];
     const projectWorkspace = {
       ...baseWorkspace,
-      getProjectSession: async () => ({
-        id: "session-portable",
-        tabs: [
-          { kind: "browser" },
-          { kind: "terminal" },
-        ],
+      getProjectSession: async (sessionId: string) => ({
+        id: sessionId,
+        projectId: existingProjectId,
       }),
+      upsertThread: async (
+        id: string,
+        patch: Parameters<DesktopProjectWorkspacePort["upsertThread"]>[1],
+      ) => {
+        upsertPatches.push(patch);
+        return await baseWorkspace.upsertThread(id, patch);
+      },
       moveThread: async (
         input: Parameters<DesktopProjectWorkspacePort["moveThread"]>[0],
       ) => {
@@ -6583,37 +6645,58 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
     } as unknown as DesktopProjectWorkspacePort;
     const service = createService({ projectWorkspace });
     const internals = service as unknown as {
-      prepareWorkspaceThreadProjectAssignment: (input: {
-        thread: DesktopProjectWorkspaceThread;
-        targetProjectId: string | null;
-        metadata: {
-          cwd: string;
-          managedWorktreePath: null;
-          projectlessOutputDirectory: null;
-          projectlessWorkspaceBrowserRoot: null;
-        };
-      }) => Promise<void>;
+      upsertSidebarThreadFromAppServerThread: (
+        thread: unknown,
+        input: {
+          projects: readonly Project[];
+          includeArchived: boolean;
+          reason: "manual";
+        },
+      ) => Promise<{ projectId: string | null; summary: CodexThreadSummary | null }>;
     };
 
     try {
-      await internals.prepareWorkspaceThreadProjectAssignment({
-        thread: makeDesktopWorkspaceThread({
-          threadId: "thread-portable",
-          projectId: null,
-          sessionId: "session-portable",
-        }),
-        targetProjectId: "project-target",
-        metadata: {
-          cwd: "/workspace/portable",
-          managedWorktreePath: null,
-          projectlessOutputDirectory: null,
-          projectlessWorkspaceBrowserRoot: null,
-        },
+      const result = await internals.upsertSidebarThreadFromAppServerThread({
+        id: threadId,
+        name: threadId,
+        preview: threadId,
+        modelProvider: "openai",
+        cwd: nextCwd,
+        status: { type: "idle" },
+        createdAt: 1,
+        updatedAt: 2,
+      }, {
+        projects: [
+          makeProject({
+            id: "project:durable",
+            sources: [{ root: "/workspace/durable", order: 0 }],
+            primaryWorkspaceRoot: "/workspace/durable",
+          }),
+          makeProject({
+            id: "project:default",
+            sources: [{
+              root: "/Users/test/Documents/Nodex/My Project",
+              order: 0,
+            }],
+            primaryWorkspaceRoot: "/Users/test/Documents/Nodex/My Project",
+          }),
+        ],
+        includeArchived: false,
+        reason: "manual",
       });
 
-      expect(moveInputs.length).toBe(1);
-      expect(moveInputs[0]?.targetProjectId).toBe("project-target");
-      expect(moveInputs[0]?.threadId).toBe("thread-portable");
+      expect(existing.sessionId).not.toBeNull();
+      expect(result.summary?.projectId).toBe(existingProjectId);
+      expect(result.projectId).toBe(existingProjectId);
+      expect((await baseWorkspace.getThread(threadId))?.projectId).toBe(
+        existingProjectId,
+      );
+      expect(moveInputs).toEqual([]);
+      expect(
+        upsertPatches.some((patch) =>
+          Object.prototype.hasOwnProperty.call(patch, "projectId")
+        ),
+      ).toBe(false);
     } finally {
       await service.shutdown();
     }

@@ -1193,10 +1193,17 @@ fn serialize_inline_item(item: &NfmInlineContent) -> String {
             format!("[{}]({href})", apply_styles(escape_nfm(text), styles))
         }
         NfmInlineContent::Text { text, styles } if styles.code => {
-            if text.contains('`') {
-                format!("`` {text} ``")
+            let longest_backtick_run = text
+                .as_bytes()
+                .split(|byte| *byte != b'`')
+                .map(<[u8]>::len)
+                .max()
+                .unwrap_or_default();
+            let fence = "`".repeat(longest_backtick_run + 1);
+            if text.starts_with('`') || text.ends_with('`') {
+                format!("{fence} {text} {fence}")
             } else {
-                format!("`{text}`")
+                format!("{fence}{text}{fence}")
             }
         }
         NfmInlineContent::Text { text, styles } => apply_styles(escape_nfm(text), styles),
@@ -1827,22 +1834,35 @@ impl<'a> InlineParser<'a> {
                 items.append(&mut span_items);
                 continue;
             }
-            if self.rest().starts_with('`')
-                && !styles.code
-                && let Some(end) = self.rest()[1..].find('`')
-            {
-                flush_inline_text(&mut text, &styles, &mut items);
-                let start = self.position + 1;
-                let end = start + end;
-                items.push(NfmInlineContent::Text {
-                    text: self.input[start..end].to_owned(),
-                    styles: NfmStyleSet {
-                        code: true,
-                        ..styles.clone()
-                    },
-                });
-                self.position = end + 1;
-                continue;
+            if self.rest().starts_with('`') && !styles.code {
+                let fence_length = self
+                    .rest()
+                    .as_bytes()
+                    .iter()
+                    .take_while(|byte| **byte == b'`')
+                    .count();
+                let start = self.position + fence_length;
+                if let Some(end) =
+                    find_exact_backtick_run(self.input.as_bytes(), start, fence_length)
+                {
+                    flush_inline_text(&mut text, &styles, &mut items);
+                    let mut code_text = &self.input[start..end];
+                    if code_text.starts_with(' ')
+                        && code_text.ends_with(' ')
+                        && !code_text.trim().is_empty()
+                    {
+                        code_text = &code_text[1..code_text.len() - 1];
+                    }
+                    items.push(NfmInlineContent::Text {
+                        text: code_text.to_owned(),
+                        styles: NfmStyleSet {
+                            code: true,
+                            ..styles.clone()
+                        },
+                    });
+                    self.position = end + fence_length;
+                    continue;
+                }
             }
             if self.rest().starts_with("**") && !styles.bold {
                 flush_inline_text(&mut text, &styles, &mut items);
@@ -2059,6 +2079,24 @@ impl<'a> InlineParser<'a> {
     fn rest(&self) -> &'a str {
         &self.input[self.position..]
     }
+}
+
+fn find_exact_backtick_run(input: &[u8], start: usize, fence_length: usize) -> Option<usize> {
+    let mut cursor = start;
+    while cursor < input.len() {
+        if input[cursor] != b'`' {
+            cursor += 1;
+            continue;
+        }
+        let run_start = cursor;
+        while cursor < input.len() && input[cursor] == b'`' {
+            cursor += 1;
+        }
+        if cursor - run_start == fence_length {
+            return Some(run_start);
+        }
+    }
+    None
 }
 
 fn flush_inline_text(text: &mut String, styles: &NfmStyleSet, output: &mut Vec<NfmInlineContent>) {
@@ -2366,6 +2404,25 @@ mod tests {
             serialize_inline_content(&parsed),
             r#"**bold**<br><mention-thread uuid="thread-1" />[link](https://nodex.local)"#
         );
+    }
+
+    #[test]
+    fn round_trips_variable_length_inline_code_fences() {
+        for code in [
+            "/tmp/Nodex/Default `draft` [one] *two*",
+            "`boundary`",
+            "two `` interior backticks",
+        ] {
+            let expected = NfmInlineContent::Text {
+                text: code.to_owned(),
+                styles: NfmStyleSet {
+                    code: true,
+                    ..NfmStyleSet::default()
+                },
+            };
+            let serialized = serialize_inline_content(std::slice::from_ref(&expected));
+            assert_eq!(parse_inline_content(&serialized), vec![expected]);
+        }
     }
 
     #[test]

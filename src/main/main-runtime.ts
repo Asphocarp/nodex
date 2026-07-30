@@ -210,6 +210,13 @@ import {
   type StoreAdministrationMaintenanceScheduler,
 } from "./store-administration-maintenance-scheduler";
 import { registerManagedAssetProtocol } from "./managed-asset-protocol";
+import { InitialProjectBootstrapService } from "./initial-project-bootstrap-service";
+import {
+  resolveInitialProjectProjectsDirectory,
+} from "./initial-project/initial-project-filesystem";
+import {
+  resolveInitialProjectJournalPath,
+} from "./initial-project/initial-project-journal-store";
 // macOS uses the packaged bundle icon from the app resources.
 // We only keep a PNG around for development Dock icon parity and non-macOS window icons.
 const appIconPath = app.isPackaged
@@ -1493,6 +1500,7 @@ async function publishCoreResync(eventHead: number): Promise<void> {
 
 async function initializeDesktopApp(
   authority: Promise<DesktopDataAuthorityRuntime>,
+  initialProjectBootstrap: InitialProjectBootstrapService,
 ): Promise<void> {
   const initializationStartedAt = performance.now();
   desktopDataAuthorityRuntime = await authority;
@@ -1569,6 +1577,15 @@ async function initializeDesktopApp(
     logger.error("Native Core event supervisor terminated unexpectedly", {
       error: error instanceof Error ? error.message : String(error),
     });
+  });
+  await initialProjectBootstrap.ensureInitialProject({
+    onProvisioned: async (presentation) => {
+      const state = windowSessionState;
+      if (!state) {
+        throw new Error("Window Session state is unavailable during initial Project bootstrap");
+      }
+      state.seedInitialProjectPresentation(presentation);
+    },
   });
   databaseReady = true;
   await resolvePendingPageDeepLink();
@@ -2320,7 +2337,18 @@ export async function runMainAppStartup(
       documentSync,
     }),
   );
-  appInitializationPromise = initializeDesktopApp(dataAuthority);
+  const initialProjectBootstrap = new InitialProjectBootstrapService({
+    projectWorkspace,
+    projectsDirectory: resolveInitialProjectProjectsDirectory({
+      configuredDirectory: process.env.NODEX_INITIAL_PROJECTS_DIR,
+      documentsDirectory: app.getPath("documents"),
+    }),
+    journalPath: resolveInitialProjectJournalPath(getNodexHome()),
+  });
+  appInitializationPromise = initializeDesktopApp(
+    dataAuthority,
+    initialProjectBootstrap,
+  );
   rendererHostReadyForWindows = true;
   configureApplicationMenus();
   registerInitializationIpcHandlers();

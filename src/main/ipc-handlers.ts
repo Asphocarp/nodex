@@ -2048,7 +2048,7 @@ export function registerIpcHandlers(
   );
 
   registerHandle("projects:update", async (_, projectId: string, updates) =>
-    await projectWorkspace.updateProject(projectId, updates),
+    await projectWorkspace.updateProject(projectId, updates)
   );
 
   registerHandle("projects:reorder", async (_, input) =>

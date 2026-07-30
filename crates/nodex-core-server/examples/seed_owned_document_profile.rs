@@ -10,7 +10,7 @@ use nodex_core::workspace::ProjectWorkspaceModule;
 use nodex_core_contracts::document::{
     OwnedDocumentIntent, OwnedDocumentRead, OwnedDocumentReadValue,
 };
-use nodex_core_contracts::workspace::ProjectWorkspaceIntent;
+use nodex_core_contracts::workspace::{ProjectWorkspaceIntent, ProjectWorkspaceStarterPage};
 use nodex_core_contracts::{
     AdapterKind, BoundModuleContext, LibraryId, ModuleApplyRequest, ModuleReadRequest,
     OWNED_DOCUMENT_CONTRACT_VERSION, PROJECT_WORKSPACE_CONTRACT_VERSION, ProfileId, ProjectId,
@@ -72,12 +72,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 contract_version: PROJECT_WORKSPACE_CONTRACT_VERSION,
                 operation_id: "seed:project".to_owned(),
                 store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
-                intent: ProjectWorkspaceIntent::CreateProject {
+                intent: ProjectWorkspaceIntent::CreateInitialProject {
                     project_id: PROJECT_ID.to_owned(),
                     name: "Core renderer test".to_owned(),
                     description: String::new(),
                     appearance: None,
-                    source_roots: Vec::new(),
+                    source_roots: vec![home.join("source").to_string_lossy().into_owned()],
+                    starter_page: ProjectWorkspaceStarterPage {
+                        page_id: "page:core-renderer-getting-started".to_owned(),
+                        document_id: "document:core-renderer-getting-started".to_owned(),
+                        title_markdown: "Welcome to Nodex".to_owned(),
+                        nfm: "Welcome to Nodex.".to_owned(),
+                    },
                 },
             },
         )

@@ -14,7 +14,18 @@ import type {
   WorkbenchProjectionTabConfiguration,
 } from "@/lib/types";
 import type { WorkbenchView } from "@/lib/use-workbench-profile-preferences";
-import { plainTextToPortableRichText } from "../../../shared/block-documents";
+import * as Y from "yjs";
+import {
+  PAGE_DOCUMENT_SCHEMA_VERSION,
+  createPageDocument,
+  plainTextToPortableRichText,
+} from "../../../shared/block-documents";
+import { populateBlockDocumentBodyFromNfm } from "../../../shared/block-documents/block-document-codec";
+import {
+  INITIAL_PROJECT_NAME,
+  INITIAL_PROJECT_WELCOME_TITLE,
+  renderInitialProjectWelcomePage,
+} from "../../../shared/initial-project-welcome";
 import type {
   LibraryModuleReadRequest,
   LibraryReadValue,
@@ -41,7 +52,7 @@ let activeStorySessionsByProject:
 
 type ShellStoryArgs = {
   workspace: "projects" | "projectless-only";
-  activeTab: "browser" | "terminal" | "db" | "single-db" | "page" | "cross-project-card" | "missing-card" | "loading-card" | "review" | "empty";
+  activeTab: "browser" | "terminal" | "db" | "single-db" | "page" | "welcome" | "cross-project-card" | "missing-card" | "loading-card" | "review" | "empty";
   thread: "empty" | "attached";
   rightPanel: "regular" | "collapsed" | "full";
   rightPanelGroups: "single" | "split";
@@ -83,7 +94,7 @@ const meta = {
     },
     activeTab: {
       control: "inline-radio",
-      options: ["browser", "terminal", "db", "single-db", "page", "cross-project-card", "missing-card", "loading-card", "review", "empty"],
+      options: ["browser", "terminal", "db", "single-db", "page", "welcome", "cross-project-card", "missing-card", "loading-card", "review", "empty"],
     },
     thread: {
       control: "inline-radio",
@@ -166,6 +177,22 @@ const PROJECTS: Project[] = [
   },
 ];
 
+const INITIAL_PROJECT_SOURCE_ROOT = "/Users/alex/Documents/Nodex/My Project";
+
+const INITIAL_PROJECT: Project = {
+  ...PROJECTS[0],
+  name: INITIAL_PROJECT_NAME,
+  sources: [{ root: INITIAL_PROJECT_SOURCE_ROOT, order: 0 }],
+  primaryWorkspaceRoot: INITIAL_PROJECT_SOURCE_ROOT,
+  pinned: true,
+  pinnedOrder: 0,
+};
+
+const WELCOME_PAGE_ID = "welcome";
+const WELCOME_PAGE = renderInitialProjectWelcomePage({
+  sourceRoot: INITIAL_PROJECT_SOURCE_ROOT,
+});
+
 const STORY_BOARD: BoardSummary = {
   columns: [
     {
@@ -191,7 +218,46 @@ const STORY_BOARD: BoardSummary = {
   ],
 };
 
+const WELCOME_BOARD: BoardSummary = {
+  columns: [
+    {
+      id: "triage",
+      name: "Triage",
+      cards: [
+        {
+          id: WELCOME_PAGE_ID,
+          status: "triage",
+          archived: false,
+          title: INITIAL_PROJECT_WELCOME_TITLE,
+          richTitle: plainTextToPortableRichText(INITIAL_PROJECT_WELCOME_TITLE),
+          descriptionPreview: WELCOME_PAGE.nfm.slice(0, 240),
+          descriptionLength: WELCOME_PAGE.nfm.length,
+          hasDescription: true,
+          tags: [],
+          created: new Date(CREATED_AT),
+          order: 0,
+          revision: 1,
+        },
+      ],
+    },
+  ],
+};
+
 function buildStoryCardDetail(projectId: string, pageId: string): DatabasePage | null {
+  if (pageId === WELCOME_PAGE_ID) {
+    return {
+      id: pageId,
+      status: "triage",
+      archived: false,
+      title: INITIAL_PROJECT_WELCOME_TITLE,
+      richTitle: plainTextToPortableRichText(INITIAL_PROJECT_WELCOME_TITLE),
+      description: WELCOME_PAGE.nfm,
+      tags: [],
+      created: new Date(CREATED_AT),
+      order: 0,
+      revision: 1,
+    };
+  }
   if (pageId !== "card-1") return null;
   const crossProject = projectId === "codex-readable";
 
@@ -211,6 +277,70 @@ function buildStoryCardDetail(projectId: string, pageId: string): DatabasePage |
     order: 0,
     revision: 1,
   };
+}
+
+interface StoryOwnedDocument {
+  readonly projectId: string;
+  readonly ownerBlockId: string;
+  readonly document: Y.Doc;
+  headSeq: number;
+}
+
+const storyDocuments = new Map<string, StoryOwnedDocument>();
+
+function getStoryOwnedDocument(
+  projectId: string,
+  ownerBlockId: string,
+): StoryOwnedDocument {
+  const documentId = `storybook:${projectId}:${ownerBlockId}`;
+  const existing = storyDocuments.get(documentId);
+  if (existing) return existing;
+
+  const page = buildStoryCardDetail(projectId, ownerBlockId);
+  const envelope = createPageDocument({
+    documentId,
+    initialTitle: page?.title ?? "Story Page",
+  });
+  populateBlockDocumentBodyFromNfm(envelope.body, page?.description ?? "");
+  const created = {
+    projectId,
+    ownerBlockId,
+    document: envelope.document,
+    headSeq: 0,
+  };
+  storyDocuments.set(documentId, created);
+  return created;
+}
+
+function getStoryDocumentDescriptor(owned: StoryOwnedDocument) {
+  return {
+    projectId: owned.projectId,
+    ownerBlockId: owned.ownerBlockId,
+    ownerType: "page",
+    ownerLifecycle: "active" as const,
+    documentId: owned.document.guid,
+    storeEpoch: "storybook-store",
+    generation: 1,
+    headSeq: owned.headSeq,
+    schemaKey: "nodex.page",
+    schemaVersion: PAGE_DOCUMENT_SCHEMA_VERSION,
+    readiness: "ready" as const,
+    sync: {
+      kind: "yjs" as const,
+      stateVector: Y.encodeStateVector(owned.document),
+    },
+  };
+}
+
+function storyUsesWelcomePage(
+  sessionsByProject: Readonly<Record<string, readonly ProjectSession[]>>,
+): boolean {
+  return Object.values(sessionsByProject)
+    .flat()
+    .some((session) => session.tabs.some(
+      (tab) => tab.kind === "page_stage"
+        && tab.config.pageId === WELCOME_PAGE_ID,
+    ));
 }
 
 type SessionTabFixtureCommon = Pick<WorkbenchTabProjection, "id" | "title"> &
@@ -382,6 +512,56 @@ function makeSession(args: ShellStoryArgs): ProjectSession {
       panels,
       thread: null,
       tabs: [],
+      createdAt: CREATED_AT,
+      updatedAt: CREATED_AT,
+    };
+  }
+
+  if (args.activeTab === "welcome") {
+    const tabs = [
+      makeTab({
+        id: "tab:db",
+        kind: "db_view",
+        title: "Database",
+        order: 0,
+        config: {
+          projectId: "nodex",
+          databaseViewId: "database-view:nodex:primary-kanban",
+          view: "kanban",
+        },
+      }),
+      makeTab({
+        id: "tab:welcome",
+        kind: "page_stage",
+        title: INITIAL_PROJECT_WELCOME_TITLE,
+        order: 1,
+        config: {
+          projectId: "nodex",
+          pageId: WELCOME_PAGE_ID,
+          titleSnapshot: INITIAL_PROJECT_WELCOME_TITLE,
+        },
+      }),
+    ];
+    return {
+      id: "session:database-view",
+      projectId: "nodex",
+      databaseStarter: true,
+      noThreadFallbackTitle: "Database View",
+      displayTitle: "Database View",
+      order: 0,
+      pinned: true,
+      pinnedOrder: 0,
+      archived: false,
+      archivedAt: null,
+      unread: false,
+      panels: makePanels({
+        rightTabIds: tabs.map((tab) => tab.id),
+        rightActiveTabId: "tab:welcome",
+        rightFullWidth: true,
+        bottomCollapsed: true,
+      }),
+      thread: null,
+      tabs,
       createdAt: CREATED_AT,
       updatedAt: CREATED_AT,
     };
@@ -624,7 +804,9 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
         return { __projectless__: [session] } as Record<string, ProjectSession[]>;
       }
       return {
-        nodex: [makeSession(args), makeSecondarySession(args)],
+        nodex: args.activeTab === "welcome"
+          ? [makeSession(args)]
+          : [makeSession(args), makeSecondarySession(args)],
         "codex-readable": [
           withPanelLayouts({
             ...makeSession({ ...args, activeTab: "browser", thread: "empty" }),
@@ -754,7 +936,11 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
         windowSessionId="window-session:storybook"
         initialWindowLayoutSnapshot={initialWindowLayoutSnapshot}
         libraryWorkspaceEnabled={args.libraryWorkspace}
-        projects={args.workspace === "projectless-only" ? [] : PROJECTS}
+        projects={args.workspace === "projectless-only"
+          ? []
+          : args.activeTab === "welcome"
+            ? [INITIAL_PROJECT]
+            : PROJECTS}
         setSessionView={(sessionId, update) => {
           setSessionViewsBySessionId((current) => ({
             ...current,
@@ -934,6 +1120,9 @@ function installStoryApi(
         }
         if (channel === "database:view-window:get") {
           const projectId = String(args[0] ?? "nodex");
+          const board = storyUsesWelcomePage(readSessionsByProject())
+            ? WELCOME_BOARD
+            : STORY_BOARD;
           const viewId = `database-view:${projectId}:primary-kanban`;
           const databaseId = `database:${projectId}:primary`;
           const dataSourceId = `${databaseId}:data-source:initial`;
@@ -948,14 +1137,14 @@ function installStoryApi(
             changeLogSeq: 1,
             projectionRevision: 1,
             nextCursor: null,
-            rows: STORY_BOARD.columns.flatMap((column) =>
+            rows: board.columns.flatMap((column) =>
               column.cards.map((page, index) => ({
                 page,
                 groupKey: column.id,
                 rankKey: String(index).padStart(8, "0"),
               }))
             ),
-            board: STORY_BOARD,
+            board,
             view: {
               id: viewId,
               databaseBlockId: databaseId,
@@ -1019,6 +1208,9 @@ function installStoryApi(
         }
         if (channel === "database:view-groups:get") {
           const projectId = String(args[0] ?? "nodex");
+          const board = storyUsesWelcomePage(readSessionsByProject())
+            ? WELCOME_BOARD
+            : STORY_BOARD;
           const databaseId = `database:${projectId}:primary`;
           return { ok: true, value: {
             projectId,
@@ -1029,12 +1221,12 @@ function installStoryApi(
             storeEpoch: "epoch:story",
             changeLogSeq: 1,
             grouped: true,
-            totalRows: STORY_BOARD.columns.reduce(
+            totalRows: board.columns.reduce(
               (total, column) => total + column.cards.length,
               0,
             ),
             truncated: false,
-            groups: STORY_BOARD.columns.map((column) => ({
+            groups: board.columns.map((column) => ({
               groupKey: column.id,
               totalRows: column.cards.length,
             })),
@@ -1087,6 +1279,110 @@ function installStoryApi(
             projectId,
             buildStoryCardDetail(projectId, pageId),
           );
+        }
+        if (channel === "block-document:owned:get") {
+          return getStoryDocumentDescriptor(
+            getStoryOwnedDocument(String(args[0]), String(args[1])),
+          );
+        }
+        if (channel === "block-document:owned:prepare") {
+          return {
+            ok: true,
+            value: getStoryDocumentDescriptor(
+              getStoryOwnedDocument(String(args[0]), String(args[1])),
+            ),
+          };
+        }
+        if (channel === "document-sync:subscribe") {
+          return { ok: true, value: { subscribed: true } };
+        }
+        if (channel === "document-sync:unsubscribe") {
+          return { ok: true, value: { unsubscribed: true } };
+        }
+        if (channel === "document-sync:sync") {
+          const request = args[0] as {
+            documentId: string;
+            stateVector: Uint8Array;
+          };
+          const owned = storyDocuments.get(request.documentId);
+          if (!owned) {
+            return {
+              ok: false,
+              error: {
+                code: "document_not_found",
+                message: "Story document was not found",
+                retryable: false,
+                resetRequired: false,
+              },
+            };
+          }
+          return {
+            ok: true,
+            value: {
+              documentId: request.documentId,
+              storeEpoch: "storybook-store",
+              generation: 1,
+              headSeq: owned.headSeq,
+              stateVector: Y.encodeStateVector(owned.document),
+              update: Y.encodeStateAsUpdate(
+                owned.document,
+                request.stateVector,
+              ),
+            },
+          };
+        }
+        if (channel === "document-sync:apply") {
+          const request = args[0] as {
+            documentId: string;
+            updateId: string;
+            update: Uint8Array;
+          };
+          const owned = storyDocuments.get(request.documentId);
+          if (!owned) {
+            return {
+              ok: false,
+              error: {
+                code: "document_not_found",
+                message: "Story document was not found",
+                retryable: false,
+                resetRequired: false,
+              },
+            };
+          }
+          Y.applyUpdate(owned.document, request.update);
+          owned.headSeq += 1;
+          return {
+            ok: true,
+            value: {
+              documentId: request.documentId,
+              storeEpoch: "storybook-store",
+              generation: 1,
+              updateId: request.updateId,
+              committedSeq: owned.headSeq,
+              headSeq: owned.headSeq,
+              stateVector: Y.encodeStateVector(owned.document),
+              duplicate: false,
+            },
+          };
+        }
+        if (channel === "document-sync:awareness:publish") {
+          return { ok: true, value: { accepted: true } };
+        }
+        if (channel === "document-sync:relocation-lease:respond") {
+          const request = args[0] as {
+            leaseId: string;
+            documentId: string;
+            response: "ack" | "nack";
+          };
+          return {
+            ok: true,
+            value: {
+              accepted: true,
+              leaseId: request.leaseId,
+              documentId: request.documentId,
+              status: request.response === "ack" ? "frozen" : "cancelled",
+            },
+          };
         }
         if (channel === "project-session-threads:attach" || channel === "project-session-threads:detach") {
           return true;
@@ -1146,6 +1442,25 @@ export const MixedRightTabs: Story = {
     docs: {
       description: {
         story: "Regular 600px right panel with registry-backed global bottom/side panel toggles in the fixed toolbar, expand/restore in the panel tab header, and no empty toolbar row above the thread title.",
+      },
+    },
+  },
+};
+
+export const InitialProjectWelcome: Story = {
+  args: {
+    activeTab: "welcome",
+    thread: "empty",
+    rightPanel: "full",
+    rightPanelGroups: "single",
+    bottomPanel: "collapsed",
+    sidebar: "expanded",
+    sidebarWidth: 300,
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "A fresh Profile after automatic bootstrap: My Project is selected and its editable Welcome to Nodex Page is active beside the primary Database tab in a full-width Page Stage.",
       },
     },
   },

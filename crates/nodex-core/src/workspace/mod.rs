@@ -52,7 +52,7 @@ impl ProjectWorkspaceModule {
         library_id: impl Into<String>,
         kernel: &SqliteStoreKernel,
     ) -> Result<Self, CoreError> {
-        let module = Self {
+        Ok(Self {
             profile_id: profile_id.into(),
             library_id: library_id.into(),
             readers: Some(kernel.readers()),
@@ -64,18 +64,7 @@ impl ProjectWorkspaceModule {
                     .expect("Profile database has a parent")
                     .join("assets"),
             ),
-        };
-        mutation::ensure_default_project(
-            module.writer.as_ref().expect("persistent Workspace writer"),
-            &module.profile_id,
-            &module.library_id,
-            module
-                .assets_root
-                .as_deref()
-                .expect("persistent Workspace assets root"),
-        )
-        .map_err(core_error)?;
-        Ok(module)
+        })
     }
 
     pub fn read(
@@ -155,6 +144,19 @@ impl ProjectWorkspaceModule {
                 .expect("persistent Workspace has an assets root"),
         )
         .map_err(core_error)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn seed_rootless_default_project_for_test(&self) {
+        mutation::seed_rootless_default_project_for_test(
+            self.writer.as_ref().expect("persistent Workspace writer"),
+            &self.profile_id,
+            &self.library_id,
+            self.assets_root
+                .as_deref()
+                .expect("persistent Workspace assets root"),
+        )
+        .expect("seed rootless default Project");
     }
 
     fn validate_context(&self, context: &BoundModuleContext) -> Result<(), CoreError> {

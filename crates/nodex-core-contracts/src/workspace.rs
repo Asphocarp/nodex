@@ -4,11 +4,12 @@ use utoipa::ToSchema;
 use crate::collection::{CollectionWindow, CollectionWindowRequest};
 use crate::{ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const PROJECT_WORKSPACE_CONTRACT_VERSION: u32 = 6;
+pub const PROJECT_WORKSPACE_CONTRACT_VERSION: u32 = 8;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ProjectWorkspaceRead {
+    ProjectBootstrap,
     ProjectWindow {
         include_archived: Option<bool>,
         window: CollectionWindowRequest,
@@ -64,6 +65,9 @@ pub enum ProjectWorkspaceRead {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ProjectWorkspaceReadValue {
+    ProjectBootstrap {
+        bootstrap: ProjectWorkspaceBootstrap,
+    },
     ProjectWindow {
         projects: CollectionWindow<ProjectWorkspaceProject>,
     },
@@ -104,6 +108,18 @@ pub enum ProjectWorkspaceReadValue {
     ManagedWorktreeWindow {
         worktrees: CollectionWindow<ProjectWorkspaceManagedWorktreeSummary>,
     },
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectWorkspaceBootstrapStatus {
+    Empty,
+    Ready,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ProjectWorkspaceBootstrap {
+    pub status: ProjectWorkspaceBootstrapStatus,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -613,8 +629,24 @@ pub struct ProjectWorkspaceThreadSummary {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
+pub struct ProjectWorkspaceStarterPage {
+    pub page_id: String,
+    pub document_id: String,
+    pub title_markdown: String,
+    pub nfm: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ProjectWorkspaceIntent {
+    CreateInitialProject {
+        project_id: String,
+        name: String,
+        description: String,
+        appearance: Option<ProjectAppearance>,
+        source_roots: Vec<String>,
+        starter_page: ProjectWorkspaceStarterPage,
+    },
     CreateProject {
         project_id: String,
         name: String,

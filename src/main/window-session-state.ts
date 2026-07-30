@@ -14,13 +14,17 @@ import {
   getWorkbenchSessionReturnLocation,
   type WorkbenchLayoutSnapshot,
 } from "../shared/workbench-layout";
+import type { InitialProjectPresentation } from "../shared/initial-project-welcome";
 import {
   LegacyWindowSessionCatalogV1Schema,
   LegacyWindowSessionCatalogV2Schema,
   WindowSessionCatalogSchema,
 } from "../shared/schemas/window-session";
 import { WorkbenchLayoutSnapshotSchema } from "../shared/schemas/workbench-layout";
-import { cloneWorkbenchLayoutForNewWindow } from "../shared/workbench-session-view";
+import {
+  cloneWorkbenchLayoutForNewWindow,
+  materializeInitialProjectWelcomeView,
+} from "../shared/workbench-session-view";
 import { getLogger } from "./logging/logger";
 
 const WINDOW_SESSIONS_V3_FILE_NAME = "window-sessions-v3.json";
@@ -586,6 +590,65 @@ export class WindowSessionState {
       lastActiveSessionId: session.id,
       sessions: [session],
     });
+  }
+
+  seedInitialProjectPresentation(
+    presentation: InitialProjectPresentation,
+  ): WindowSessionRecord {
+    const catalog = this.readOrCreateCatalog();
+    const target = catalog.sessions.find(
+      (session) => session.id === catalog.lastActiveSessionId,
+    ) ?? catalog.sessions[0];
+    if (!target) {
+      throw new Error("Initial Project has no Window Session presentation target");
+    }
+
+    const currentLocation = getWorkbenchSessionReturnLocation(
+      target.layout.location,
+    );
+    const currentView = target.layout.sessionViewsBySessionId[
+      presentation.starterSessionId
+    ];
+    const alreadySeeded = currentLocation.kind === "session"
+      && currentLocation.activeProjectId === presentation.projectId
+      && currentLocation.sessionId === presentation.starterSessionId
+      && Object.values(currentView?.tabsById ?? {}).some((tab) =>
+        tab.kind === "page_stage"
+        && tab.config.projectId === presentation.projectId
+        && tab.config.pageId === presentation.starterPageId
+      );
+    if (alreadySeeded) return target;
+
+    const timestamp = this.nowIso();
+    const view = materializeInitialProjectWelcomeView(
+      presentation,
+      { touchedAt: timestamp },
+    );
+    const next: WindowSessionRecord = {
+      ...target,
+      layoutRevision: target.layoutRevision + 1,
+      layout: {
+        ...target.layout,
+        location: {
+          kind: "session",
+          activeProjectId: presentation.projectId,
+          sessionId: presentation.starterSessionId,
+        },
+        sessionViewsBySessionId: {
+          ...target.layout.sessionViewsBySessionId,
+          [presentation.starterSessionId]: view,
+        },
+      },
+      updatedAt: timestamp,
+    };
+    const written = this.writeCatalog({
+      version: WINDOW_SESSION_VERSION,
+      lastActiveSessionId: target.id,
+      sessions: catalog.sessions.map((session) =>
+        session.id === target.id ? next : session
+      ),
+    });
+    return this.requireSession(written, target.id);
   }
 
   private nowIso(): string {

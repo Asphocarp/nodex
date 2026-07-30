@@ -318,6 +318,7 @@ import {
   resolveCodexPermissionState,
 } from "./codex-permission-resolver";
 import { reconcileCodexThreadTimestamps } from "./codex-thread-timestamps";
+import { resolveCodexThreadMaterializationOwner } from "./codex-thread-materialization-owner";
 import {
   nodexAgentAuthorityFingerprint,
   type FrozenNodexAgentTurnAuthority,
@@ -9103,11 +9104,18 @@ export class CodexService extends EventEmitter {
       return this.hideNonSidebarThreadMaterialization(candidate.id, input.reason);
     }
 
-    const projectId = resolveSidebarProjectIdForCwd(cwd, input.projects);
     const previousThread = await this.readWorkspaceThread(candidate.id);
     const previousSummary = previousThread
       ? this.buildWorkspaceThreadSummary(previousThread)
       : null;
+    const inferredProjectId = resolveSidebarProjectIdForCwd(cwd, input.projects);
+    const projectId = resolveCodexThreadMaterializationOwner({
+      existingThreadFound: previousThread !== null,
+      existingProjectId: previousThread?.projectId ?? null,
+      explicitInitialOwnerProvided: false,
+      explicitInitialProjectId: null,
+      inferredInitialProjectId: inferredProjectId,
+    });
     const summary = await this.upsertLinkFromThread(
       thread,
       { projectId, cwd },
@@ -14309,44 +14317,6 @@ export class CodexService extends EventEmitter {
     };
   }
 
-  private async prepareWorkspaceThreadProjectAssignment(input: {
-    readonly thread: DesktopProjectWorkspaceThread;
-    readonly targetProjectId: string | null;
-    readonly metadata: Pick<
-      DesktopProjectWorkspaceThreadPatch,
-      | "cwd"
-      | "managedWorktreePath"
-      | "projectlessOutputDirectory"
-      | "projectlessWorkspaceBrowserRoot"
-    >;
-  }): Promise<void> {
-    if (input.thread.projectId === input.targetProjectId) return;
-    if (!input.thread.sessionId) return;
-
-    const session = await this.projectWorkspace.getProjectSession(
-      input.thread.sessionId,
-    );
-    if (session) {
-      const moved = await this.projectWorkspace.moveThread({
-        threadId: input.thread.threadId,
-        sourceProjectId: input.thread.projectId,
-        targetProjectId: input.targetProjectId,
-        useDefaultOrder: true,
-        metadata: input.metadata,
-      });
-      this.rememberWorkspaceThread(moved.thread);
-      this.rememberWorkspaceSidebar(moved.sidebar);
-      this.logger.info("Re-homed sidebar Thread aggregate from app-server metadata", {
-        threadId: input.thread.threadId,
-        sessionId: session.id,
-        fromProjectId: input.thread.projectId,
-        toProjectId: input.targetProjectId,
-      });
-      return;
-    }
-    return;
-  }
-
   private async upsertLinkFromThread(
     thread: unknown,
     fallbackRef?: ThreadRef,
@@ -14360,45 +14330,16 @@ export class CodexService extends EventEmitter {
     const existing = existingThread
       ? this.buildWorkspaceThreadSummary(existingThread)
       : null;
-    const ref = fallbackRef ??
-      (existing
-        ? {
-            projectId: existing.projectId,
-            cwd: existing.cwd,
-            managedWorktreePath: existing.managedWorktreePath ?? null,
-            projectlessOutputDirectory: existing.projectlessOutputDirectory ?? null,
-            projectlessWorkspaceBrowserRoot: existing.projectlessWorkspaceBrowserRoot ?? null,
-          }
-        : null);
-
     const materialization = this.buildWorkspaceThreadMaterialization({
       candidate,
       existing,
-      ref,
+      ref: fallbackRef ?? null,
       fallbackCwd,
     });
     const {
       parsedStatus,
       patch: upsertInput,
-      projectId,
-      resolvedCwd,
-      managedWorktreePath,
-      projectlessOutputDirectory,
-      projectlessWorkspaceBrowserRoot,
     } = materialization;
-    if (existingThread) {
-      await this.prepareWorkspaceThreadProjectAssignment({
-        thread: existingThread,
-        targetProjectId: projectId,
-        metadata: {
-          ...(resolvedCwd === null ? {} : { cwd: resolvedCwd }),
-          managedWorktreePath,
-          projectlessOutputDirectory,
-          projectlessWorkspaceBrowserRoot,
-        },
-      });
-    }
-
     const persisted = this.rememberWorkspaceThread(
       await this.projectWorkspace.upsertThread(
         candidate.id,
@@ -14461,7 +14402,13 @@ export class CodexService extends EventEmitter {
       ?? existing?.projectlessWorkspaceBrowserRoot
       ?? ref?.projectlessWorkspaceBrowserRoot
       ?? null;
-    const projectId = ref ? ref.projectId : existing?.projectId ?? null;
+    const projectId = resolveCodexThreadMaterializationOwner({
+      existingThreadFound: existing !== null,
+      existingProjectId: existing?.projectId ?? null,
+      explicitInitialOwnerProvided: ref !== null,
+      explicitInitialProjectId: ref?.projectId ?? null,
+      inferredInitialProjectId: null,
+    });
     const timestamps = reconcileCodexThreadTimestamps({
       threadId: candidate.id as string,
       observedCreatedAt: candidate.createdAt,
@@ -14469,7 +14416,7 @@ export class CodexService extends EventEmitter {
       existing,
     });
     const patch: DesktopProjectWorkspaceThreadPatch = {
-      projectId,
+      ...(!existing ? { projectId } : {}),
       ...(parentThreadId ? { parentThreadId } : {}),
       threadSource: parseThreadSourceValue(candidate.threadSource),
       ...(typeof candidate.name === "string"

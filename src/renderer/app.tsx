@@ -53,7 +53,6 @@ export default function App() {
         }),
       );
     }
-
     const loadBootstrap = () => Promise.all([
       bootstrapWindowSession(),
       loadProductFeatureGates(),

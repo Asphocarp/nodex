@@ -150,6 +150,91 @@ describe("Core Project Workspace adapter", () => {
     }]);
   });
 
+  test("maps the bootstrap projection and preserves stable initial-creation identities", async () => {
+    const client = new FakeCoreClient();
+    client.enqueueWorkspaceRead({
+      contract_version: 8,
+      event_head: 0,
+      store_epoch: "epoch:test",
+      value: {
+        kind: "project_bootstrap",
+        bootstrap: {
+          status: "empty",
+        },
+      },
+    });
+    client.enqueueWorkspaceApply({
+      value: {
+        affected_project_ids: ["project:initial"],
+        affected_session_ids: ["session:starter"],
+        affected_thread_ids: [],
+      },
+      receipt: {
+        operation_id: "operation:initial",
+        duplicate: false,
+        affected_project_ids: ["project:initial"],
+        affected_session_ids: ["session:starter"],
+      },
+      event_sequence: 1,
+      store_epoch: "epoch:test",
+    });
+    client.enqueueWorkspaceRead({
+      contract_version: 8,
+      event_head: 1,
+      store_epoch: "epoch:test",
+      value: {
+        kind: "project",
+        project: project({
+          id: "project:initial",
+          name: "My Project",
+          sources: [{ root: "/workspace/default", order: 0 }],
+          primary_workspace_root: "/workspace/default",
+        }),
+      },
+    });
+    const adapter = createCoreProjectWorkspaceAdapter(client);
+
+    await expect(adapter.readProjectBootstrap()).resolves.toEqual({
+      status: "empty",
+    });
+    await expect(adapter.createInitialProject({
+      operationId: "operation:initial",
+      projectId: "project:initial",
+      name: "My Project",
+      sources: ["/workspace/default"],
+      starterPage: {
+        pageId: "page:getting-started",
+        documentId: "document:getting-started",
+        titleMarkdown: "Welcome to Nodex",
+        nfm: "Welcome to Nodex.",
+      },
+    })).resolves.toMatchObject({
+      project: { id: "project:initial", name: "My Project" },
+      starterSessionId: "session:starter",
+    });
+    expect(client.workspaceReads).toEqual([
+      { kind: "project_bootstrap" },
+      { kind: "project", project_id: "project:initial" },
+    ]);
+    expect(client.workspaceApplies).toEqual([{
+      operationId: "operation:initial",
+      intent: {
+        kind: "create_initial_project",
+        project_id: "project:initial",
+        name: "My Project",
+        description: "",
+        appearance: null,
+        source_roots: ["/workspace/default"],
+        starter_page: {
+          page_id: "page:getting-started",
+          document_id: "document:getting-started",
+          title_markdown: "Welcome to Nodex",
+          nfm: "Welcome to Nodex.",
+        },
+      },
+    }]);
+  });
+
   test("maps one bounded Project activity summary batch", async () => {
     const client = new FakeCoreClient();
     client.enqueueWorkspaceRead({

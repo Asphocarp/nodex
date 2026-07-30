@@ -4,16 +4,18 @@ use std::path::{Path, PathBuf};
 use nodex_core_contracts::workspace::{
     ProjectAppearance, ProjectCatalogChangeKind, ProjectLifecycle, ProjectMarker,
     ProjectSessionInvalidationScope, ProjectWorkspaceCommitValue, ProjectWorkspaceIntent,
-    ProjectWorkspaceReceipt,
+    ProjectWorkspaceReceipt, ProjectWorkspaceStarterPage,
 };
 use nodex_core_contracts::{
     BoundModuleContext, CommittedModuleValue, ModuleApplyRequest, ModuleMutationReceipt,
-    ProjectionImpact, StoreEpoch,
+    PageDocumentHeadImpact, ProjectionImpact, StoreEpoch,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::json;
 
-use crate::database::create_database_authority_records;
+use crate::database::{
+    create_database_authority_records, resolve_page_transfer_data_source_destination_prevalidated,
+};
 use crate::document::{PrimaryCanvasIdentity, create_primary_canvas, read_store_epoch, sha256};
 use crate::domain::identity::stable_uuid_v7;
 use crate::domain::project_appearance::{
@@ -54,7 +56,13 @@ struct ProjectAggregateIdentities {
 struct CreatedProjectAggregate {
     identities: ProjectAggregateIdentities,
     canvas: PrimaryCanvasIdentity,
+    starter_page: Option<crate::library::page_genesis::CreatedPageGenesis>,
     committed_at: String,
+}
+
+struct StarterPageGenesisRequest<'a> {
+    page: &'a ProjectWorkspaceStarterPage,
+    store_epoch: &'a str,
 }
 
 pub(super) struct WorkspaceMutationEffects {
@@ -69,6 +77,10 @@ pub(super) struct WorkspaceMutationEffects {
     pub(super) block_ids: Vec<String>,
     pub(super) document_ids: Vec<String>,
     pub(super) database_ids: Vec<String>,
+    pub(super) page_ids: Vec<String>,
+    pub(super) data_source_ids: Vec<String>,
+    pub(super) view_ids: Vec<String>,
+    pub(super) document_heads: Vec<PageDocumentHeadImpact>,
     pub(super) committed_at: String,
 }
 
@@ -85,7 +97,8 @@ struct ProjectSource {
     root_key: String,
 }
 
-pub(super) fn ensure_default_project(
+#[cfg(test)]
+pub(super) fn seed_rootless_default_project_for_test(
     writer: &StoreWriter,
     profile_id: &str,
     library_id: &str,
@@ -97,14 +110,6 @@ pub(super) fn ensure_default_project(
     writer.call(move |connection| {
         with_immediate_transaction(connection, |transaction| {
             assert_identity(transaction, &profile_id, &library_id)?;
-            let project_count = transaction.query_row(
-                "SELECT count(*) FROM projects WHERE library_id = ?1",
-                [&library_id],
-                |row| row.get::<_, i64>(0),
-            )?;
-            if project_count > 0 {
-                return Ok(());
-            }
             create_project_records(
                 transaction,
                 &library_id,
@@ -113,8 +118,9 @@ pub(super) fn ensure_default_project(
                 "",
                 &ProjectAppearance::default(),
                 &[],
-                "system:bootstrap-default-project:v1",
+                "test:rootless-default-project:v1",
                 &assets_root,
+                None,
             )?;
             Ok(())
         })
@@ -174,7 +180,40 @@ pub(super) fn apply(
                 });
             }
 
+            if !matches!(
+                &request.intent,
+                ProjectWorkspaceIntent::CreateInitialProject { .. }
+            ) && project_catalog_is_empty(transaction, &library_id)?
+            {
+                return Err(conflict(
+                    "The initial Project must be created before other Workspace mutations",
+                ));
+            }
+
             match &request.intent {
+                ProjectWorkspaceIntent::CreateInitialProject {
+                    project_id,
+                    name,
+                    description,
+                    appearance,
+                    source_roots,
+                    starter_page,
+                } => create_project(
+                    transaction,
+                    &library_id,
+                    &context,
+                    &store_epoch,
+                    &request.operation_id,
+                    &request_hash,
+                    project_id,
+                    name,
+                    description,
+                    appearance.as_ref(),
+                    source_roots,
+                    Some(starter_page),
+                    &assets_root,
+                    ProjectCreationMode::Initial,
+                ),
                 ProjectWorkspaceIntent::CreateProject {
                     project_id,
                     name,
@@ -193,7 +232,9 @@ pub(super) fn apply(
                     description,
                     appearance.as_ref(),
                     source_roots,
+                    None,
                     &assets_root,
+                    ProjectCreationMode::Subsequent,
                 ),
                 ProjectWorkspaceIntent::UpdateProject {
                     project_id,
@@ -612,6 +653,20 @@ pub(super) fn apply(
     })
 }
 
+#[derive(Clone, Copy)]
+enum ProjectCreationMode {
+    Initial,
+    Subsequent,
+}
+
+fn project_catalog_is_empty(connection: &Connection, library_id: &str) -> Result<bool, StoreError> {
+    Ok(connection.query_row(
+        "SELECT NOT EXISTS(SELECT 1 FROM projects WHERE library_id = ?1)",
+        [library_id],
+        |row| row.get(0),
+    )?)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn create_project(
     connection: &Connection,
@@ -625,11 +680,36 @@ fn create_project(
     description: &str,
     appearance: Option<&ProjectAppearance>,
     source_roots: &[String],
+    starter_page: Option<&ProjectWorkspaceStarterPage>,
     assets_root: &Path,
+    mode: ProjectCreationMode,
 ) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
     validate_project_input(project_id, description)?;
+    let project_count = connection.query_row(
+        "SELECT count(*) FROM projects WHERE library_id = ?1",
+        [library_id],
+        |row| row.get::<_, i64>(0),
+    )?;
+    match mode {
+        ProjectCreationMode::Initial if project_count != 0 => {
+            return Err(conflict(
+                "The initial Project has already been created for this Library",
+            ));
+        }
+        ProjectCreationMode::Subsequent if project_count == 0 => {
+            return Err(conflict(
+                "The first Project must be created with CreateInitialProject",
+            ));
+        }
+        ProjectCreationMode::Initial | ProjectCreationMode::Subsequent => {}
+    }
     require_unarchived_project_capacity(connection, library_id)?;
     let sources = normalize_source_roots(source_roots)?;
+    if matches!(mode, ProjectCreationMode::Initial) && sources.is_empty() {
+        return Err(invalid(
+            "The initial Project requires at least one source root",
+        ));
+    }
     let name = normalize_project_name(name, &sources)?;
     let appearance = appearance
         .map(normalize_project_appearance)
@@ -646,7 +726,26 @@ fn create_project(
         &sources,
         operation_id,
         assets_root,
+        starter_page.map(|page| StarterPageGenesisRequest { page, store_epoch }),
     )?;
+    let mut block_ids = vec![
+        created.identities.database_id.clone(),
+        created.canvas.block_id,
+    ];
+    let mut document_ids = vec![created.canvas.document_id];
+    let mut page_ids = Vec::new();
+    let mut data_source_ids = Vec::new();
+    let mut view_ids = Vec::new();
+    let mut document_heads = Vec::new();
+    if let Some(starter_page) = &created.starter_page {
+        page_ids.push(starter_page.page_create.page_id.clone());
+        block_ids.push(starter_page.page_create.page_id.clone());
+        block_ids.extend(starter_page.page_create.block_ids.iter().cloned());
+        document_ids.push(starter_page.page_create.document_id.clone());
+        data_source_ids.push(starter_page.data_source_id.clone());
+        view_ids.extend(starter_page.affected_view_ids.iter().cloned());
+        document_heads.push(starter_page.document_head.clone());
+    }
     finish_mutation(
         connection,
         context,
@@ -664,12 +763,13 @@ fn create_project(
                 project_id: project_id.to_owned(),
             }],
             session_detail_ids: vec![created.identities.session_id],
-            block_ids: vec![
-                created.identities.database_id.clone(),
-                created.canvas.block_id,
-            ],
-            document_ids: vec![created.canvas.document_id],
+            block_ids,
+            document_ids,
             database_ids: vec![created.identities.database_id],
+            page_ids,
+            data_source_ids,
+            view_ids,
+            document_heads,
             committed_at: created.committed_at,
         },
     )
@@ -697,11 +797,11 @@ pub(super) fn finish_mutation(
     let projection_impact = expand_database_coordinates(
         connection,
         ProjectionImpact::Resources {
-            page_ids: Vec::new(),
+            page_ids: effects.page_ids.clone(),
             database_ids: effects.database_ids.clone(),
-            data_source_ids: Vec::new(),
-            view_ids: Vec::new(),
-            document_heads: Vec::new(),
+            data_source_ids: effects.data_source_ids.clone(),
+            view_ids: effects.view_ids.clone(),
+            document_heads: effects.document_heads.clone(),
         },
     )?;
     let payload_json =
@@ -1012,6 +1112,10 @@ fn reorder_projects(
             block_ids: Vec::new(),
             document_ids: Vec::new(),
             database_ids: Vec::new(),
+            page_ids: Vec::new(),
+            data_source_ids: Vec::new(),
+            view_ids: Vec::new(),
+            document_heads: Vec::new(),
             committed_at: now,
         },
     )
@@ -1139,6 +1243,10 @@ fn reorder_pinned_projects(
             block_ids: Vec::new(),
             document_ids: Vec::new(),
             database_ids: Vec::new(),
+            page_ids: Vec::new(),
+            data_source_ids: Vec::new(),
+            view_ids: Vec::new(),
+            document_heads: Vec::new(),
             committed_at: now,
         },
     )
@@ -1175,6 +1283,10 @@ fn finish_project_mutation(
             block_ids: Vec::new(),
             document_ids: Vec::new(),
             database_ids: Vec::new(),
+            page_ids: Vec::new(),
+            data_source_ids: Vec::new(),
+            view_ids: Vec::new(),
+            document_heads: Vec::new(),
             committed_at,
         },
     )
@@ -1229,6 +1341,7 @@ fn create_project_records(
     sources: &[ProjectSource],
     identity_namespace: &str,
     assets_root: &Path,
+    starter_page: Option<StarterPageGenesisRequest<'_>>,
 ) -> Result<CreatedProjectAggregate, StoreError> {
     let identities = aggregate_identities(identity_namespace, project_id);
     let canvas_block_id = format!("canvas:primary:{project_id}");
@@ -1319,11 +1432,42 @@ fn create_project_records(
          ) VALUES (?1, ?2, ?3, 'active', 1, ?4, ?4)",
         params![project_id, library_id, identities.database_id, now],
     )?;
+    let starter_page = starter_page
+        .map(|request| {
+            let destination = resolve_page_transfer_data_source_destination_prevalidated(
+                connection,
+                library_id,
+                project_id,
+                &identities.data_source_id,
+                &identities.view_id,
+                Some("triage"),
+                None,
+            )?;
+            crate::library::page_genesis::create_page_in_data_source(
+                connection,
+                crate::library::page_genesis::PageGenesisInput {
+                    library_id,
+                    project_id,
+                    actor_project_id: project_id,
+                    placement_access_project_id: None,
+                    operation_id: identity_namespace,
+                    store_epoch: request.store_epoch,
+                    page_id: &request.page.page_id,
+                    document_id: &request.page.document_id,
+                    title_markdown: &request.page.title_markdown,
+                    nfm: &request.page.nfm,
+                    destination: &destination.destination,
+                    now: &now,
+                },
+            )
+        })
+        .transpose()?;
     insert_initial_session(connection, project_id, &identities, &now)?;
     let canvas = create_primary_canvas(connection, project_id, &now, assets_root)?;
     Ok(CreatedProjectAggregate {
         identities,
         canvas,
+        starter_page,
         committed_at: now,
     })
 }
@@ -1547,9 +1691,10 @@ mod tests {
     use nodex_core_contracts::workspace::{
         CodexThreadActiveFlag, CodexThreadStatusType, ProjectAppearance, ProjectCatalogChangeKind,
         ProjectLifecycle, ProjectMarker, ProjectMarkerColor, ProjectMarkerIcon,
-        ProjectSessionIntent, ProjectSessionInvalidationScope, ProjectWorkspaceIntent,
-        ProjectWorkspaceRead, ProjectWorkspaceReadValue, ProjectWorkspaceThreadPatch,
-        ProjectWorkspaceThreadStatus, ProjectWorkspaceTurnAuthoritySource,
+        ProjectSessionIntent, ProjectSessionInvalidationScope, ProjectWorkspaceBootstrapStatus,
+        ProjectWorkspaceIntent, ProjectWorkspaceRead, ProjectWorkspaceReadValue,
+        ProjectWorkspaceStarterPage, ProjectWorkspaceThreadPatch, ProjectWorkspaceThreadStatus,
+        ProjectWorkspaceTurnAuthoritySource,
     };
     use nodex_core_contracts::{
         AdapterKind, BoundModuleContext, CoreErrorCode, CoreModuleEventPayload, LibraryId,
@@ -1574,7 +1719,14 @@ mod tests {
         }
     }
 
-    fn seeded_module() -> (TempDir, SqliteStoreKernel, ProjectWorkspaceModule) {
+    fn bootstrap_context() -> BoundModuleContext {
+        BoundModuleContext {
+            project_id: None,
+            ..context()
+        }
+    }
+
+    fn empty_module() -> (TempDir, SqliteStoreKernel, ProjectWorkspaceModule) {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
         fs::create_dir(home.join("assets")).expect("assets root");
@@ -1604,6 +1756,12 @@ mod tests {
             .expect("seed Workspace identity");
         let module = ProjectWorkspaceModule::new("profile-1", "library-1", &kernel)
             .expect("Workspace module");
+        (directory, kernel, module)
+    }
+
+    fn seeded_module() -> (TempDir, SqliteStoreKernel, ProjectWorkspaceModule) {
+        let (directory, kernel, module) = empty_module();
+        module.seed_rootless_default_project_for_test();
         (directory, kernel, module)
     }
 
@@ -1656,6 +1814,335 @@ mod tests {
                 intent,
             },
         )
+    }
+
+    fn starter_page(seed: &str) -> ProjectWorkspaceStarterPage {
+        ProjectWorkspaceStarterPage {
+            page_id: format!("page:getting-started:{seed}"),
+            document_id: format!("document:getting-started:{seed}"),
+            title_markdown: "Welcome to Nodex".to_owned(),
+            nfm: "Welcome to **Nodex**.".to_owned(),
+        }
+    }
+
+    #[test]
+    fn derives_bootstrap_and_atomically_creates_exactly_one_source_backed_initial_project() {
+        let (_directory, kernel, module) = empty_module();
+        let read_bootstrap = |module: &ProjectWorkspaceModule| {
+            let snapshot = module
+                .read(
+                    &context(),
+                    ModuleReadRequest {
+                        contract_version: PROJECT_WORKSPACE_CONTRACT_VERSION,
+                        read: ProjectWorkspaceRead::ProjectBootstrap,
+                    },
+                )
+                .expect("Project bootstrap");
+            let ProjectWorkspaceReadValue::ProjectBootstrap { bootstrap } = snapshot.value else {
+                panic!("Project bootstrap value");
+            };
+            bootstrap
+        };
+
+        let empty = read_bootstrap(&module);
+        assert_eq!(empty.status, ProjectWorkspaceBootstrapStatus::Empty);
+
+        let ordinary_error = module
+            .apply(
+                &bootstrap_context(),
+                request(
+                    "initial-ordinary-create",
+                    ProjectWorkspaceIntent::CreateProject {
+                        project_id: "project:ordinary".to_owned(),
+                        name: "Ordinary".to_owned(),
+                        description: String::new(),
+                        appearance: None,
+                        source_roots: vec!["/workspace/ordinary".to_owned()],
+                    },
+                ),
+            )
+            .expect_err("ordinary creation cannot claim the empty catalog");
+        assert_eq!(ordinary_error.code, CoreErrorCode::RevisionConflict);
+
+        let projectless_error = module
+            .apply(
+                &bootstrap_context(),
+                request(
+                    "initial-projectless-session",
+                    ProjectWorkspaceIntent::CreateSession {
+                        session_id: "session:projectless".to_owned(),
+                        project_id: None,
+                        title: "Projectless".to_owned(),
+                    },
+                ),
+            )
+            .expect_err("Projectless mutations wait for initial Project bootstrap");
+        assert_eq!(projectless_error.code, CoreErrorCode::RevisionConflict);
+
+        let rootless_error = module
+            .apply(
+                &bootstrap_context(),
+                request(
+                    "initial-rootless-create",
+                    ProjectWorkspaceIntent::CreateInitialProject {
+                        project_id: "project:rootless".to_owned(),
+                        name: "Rootless".to_owned(),
+                        description: String::new(),
+                        appearance: None,
+                        source_roots: Vec::new(),
+                        starter_page: starter_page("rootless"),
+                    },
+                ),
+            )
+            .expect_err("initial Project requires a source");
+        assert_eq!(rootless_error.code, CoreErrorCode::InvalidInput);
+
+        let first = ProjectWorkspaceModule::new("profile-1", "library-1", &kernel)
+            .expect("first competing Workspace module");
+        let second = ProjectWorkspaceModule::new("profile-1", "library-1", &kernel)
+            .expect("second competing Workspace module");
+        let first_thread = std::thread::spawn(move || {
+            first.apply(
+                &bootstrap_context(),
+                request(
+                    "initial-concurrent-a",
+                    ProjectWorkspaceIntent::CreateInitialProject {
+                        project_id: "project:initial-a".to_owned(),
+                        name: "My Project".to_owned(),
+                        description: String::new(),
+                        appearance: None,
+                        source_roots: vec!["/workspace/default-a".to_owned()],
+                        starter_page: starter_page("concurrent-a"),
+                    },
+                ),
+            )
+        });
+        let second_thread = std::thread::spawn(move || {
+            second.apply(
+                &bootstrap_context(),
+                request(
+                    "initial-concurrent-b",
+                    ProjectWorkspaceIntent::CreateInitialProject {
+                        project_id: "project:initial-b".to_owned(),
+                        name: "My Project".to_owned(),
+                        description: String::new(),
+                        appearance: None,
+                        source_roots: vec!["/workspace/default-b".to_owned()],
+                        starter_page: starter_page("concurrent-b"),
+                    },
+                ),
+            )
+        });
+        let outcomes = [
+            first_thread.join().expect("first competing writer"),
+            second_thread.join().expect("second competing writer"),
+        ];
+        assert_eq!(
+            outcomes.iter().filter(|outcome| outcome.is_ok()).count(),
+            1,
+            "competing initial Project outcomes: {outcomes:?}",
+        );
+        let loser = outcomes
+            .iter()
+            .find_map(|outcome| outcome.as_ref().err())
+            .expect("one initial Project loses");
+        assert_eq!(loser.code, CoreErrorCode::RevisionConflict);
+
+        let ready = read_bootstrap(&module);
+        assert_eq!(ready.status, ProjectWorkspaceBootstrapStatus::Ready);
+        let (project_count, page_count, ready_document_count, membership_count) = kernel
+            .writer()
+            .call(|connection| {
+                Ok((
+                    connection.query_row(
+                        "SELECT count(*) FROM projects WHERE library_id = 'library-1'",
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )?,
+                    connection.query_row(
+                        "SELECT count(*) FROM pages WHERE library_id = 'library-1'",
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )?,
+                    connection.query_row(
+                        "SELECT count(*) FROM pages page \
+                         JOIN documents document ON document.id = page.document_id \
+                         WHERE page.library_id = 'library-1' AND document.readiness = 'ready'",
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )?,
+                    connection.query_row(
+                        "SELECT count(*) FROM data_source_page_memberships \
+                         WHERE removed_at IS NULL",
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )?,
+                ))
+            })
+            .expect("initial Project aggregate counts");
+        assert_eq!(project_count, 1);
+        assert_eq!(page_count, 1);
+        assert_eq!(ready_document_count, 1);
+        assert_eq!(membership_count, 1);
+        let winner = outcomes
+            .into_iter()
+            .find_map(Result::ok)
+            .expect("one initial Project wins");
+        let impact = winner
+            .event
+            .expect("initial Project event")
+            .projection_impact;
+        let ProjectionImpact::Resources {
+            page_ids,
+            database_ids,
+            data_source_ids,
+            view_ids,
+            document_heads,
+        } = impact
+        else {
+            panic!("initial Project has bounded projection impact")
+        };
+        assert_eq!(page_ids.len(), 1);
+        assert_eq!(database_ids.len(), 1);
+        assert_eq!(data_source_ids.len(), 1);
+        assert_eq!(view_ids.len(), 1);
+        assert_eq!(document_heads.len(), 1);
+        assert_eq!(document_heads[0].page_id, page_ids[0]);
+    }
+
+    #[test]
+    fn bootstrap_includes_rootless_and_archived_projects_without_special_repair_state() {
+        let (_directory, _kernel, module) = seeded_module();
+        let read_bootstrap = || {
+            let snapshot = module
+                .read(
+                    &context(),
+                    ModuleReadRequest {
+                        contract_version: PROJECT_WORKSPACE_CONTRACT_VERSION,
+                        read: ProjectWorkspaceRead::ProjectBootstrap,
+                    },
+                )
+                .expect("Project bootstrap");
+            let ProjectWorkspaceReadValue::ProjectBootstrap { bootstrap } = snapshot.value else {
+                panic!("Project bootstrap value");
+            };
+            bootstrap
+        };
+
+        let rootless = read_bootstrap();
+        assert_eq!(rootless.status, ProjectWorkspaceBootstrapStatus::Ready);
+
+        module
+            .apply(
+                &context(),
+                request(
+                    "archive-legacy-default",
+                    ProjectWorkspaceIntent::SetProjectLifecycle {
+                        project_id: "project:default".to_owned(),
+                        lifecycle: ProjectLifecycle::Archived,
+                    },
+                ),
+            )
+            .expect("archive legacy default");
+        let archived = read_bootstrap();
+        assert_eq!(archived.status, ProjectWorkspaceBootstrapStatus::Ready);
+    }
+
+    #[test]
+    fn invalid_starter_page_rolls_back_the_entire_initial_project_aggregate() {
+        let (_directory, kernel, module) = empty_module();
+        let mut invalid_starter_page = starter_page("invalid");
+        invalid_starter_page.nfm = "<page uuid=\"nested-page\" />".to_owned();
+
+        let error = module
+            .apply(
+                &bootstrap_context(),
+                request(
+                    "initial-invalid-starter-page",
+                    ProjectWorkspaceIntent::CreateInitialProject {
+                        project_id: "project:initial-invalid".to_owned(),
+                        name: "My Project".to_owned(),
+                        description: String::new(),
+                        appearance: None,
+                        source_roots: vec!["/workspace/default-invalid".to_owned()],
+                        starter_page: invalid_starter_page,
+                    },
+                ),
+            )
+            .expect_err("owning nested Page must reject starter genesis");
+        assert_eq!(error.code, CoreErrorCode::InvalidInput);
+
+        let (project_count, database_count, page_count) = kernel
+            .writer()
+            .call(|connection| {
+                Ok((
+                    connection.query_row("SELECT count(*) FROM projects", [], |row| {
+                        row.get::<_, i64>(0)
+                    })?,
+                    connection.query_row(
+                        "SELECT count(*) FROM database_containers",
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )?,
+                    connection
+                        .query_row("SELECT count(*) FROM pages", [], |row| row.get::<_, i64>(0))?,
+                ))
+            })
+            .expect("rolled-back aggregate counts");
+        assert_eq!((project_count, database_count, page_count), (0, 0, 0));
+        let bootstrap = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: PROJECT_WORKSPACE_CONTRACT_VERSION,
+                    read: ProjectWorkspaceRead::ProjectBootstrap,
+                },
+            )
+            .expect("empty bootstrap after rollback");
+        let ProjectWorkspaceReadValue::ProjectBootstrap { bootstrap } = bootstrap.value else {
+            panic!("Project bootstrap value")
+        };
+        assert_eq!(bootstrap.status, ProjectWorkspaceBootstrapStatus::Empty);
+    }
+
+    #[test]
+    fn initial_project_creation_replays_its_receipt_before_the_empty_catalog_precondition() {
+        let (_directory, kernel, module) = empty_module();
+        let initial = request(
+            "initial-exact-replay",
+            ProjectWorkspaceIntent::CreateInitialProject {
+                project_id: "project:initial".to_owned(),
+                name: "My Project".to_owned(),
+                description: String::new(),
+                appearance: None,
+                source_roots: vec!["/workspace/default".to_owned()],
+                starter_page: starter_page("replay"),
+            },
+        );
+        let committed = module
+            .apply(&bootstrap_context(), initial.clone())
+            .expect("create initial Project");
+        let replay = module
+            .apply(&bootstrap_context(), initial)
+            .expect("replay initial Project");
+
+        assert_eq!(
+            replay.committed.event_sequence,
+            committed.committed.event_sequence,
+        );
+        assert!(replay.committed.receipt.mutation.duplicate);
+        assert!(replay.event.is_none());
+        let count = kernel
+            .writer()
+            .call(|connection| {
+                Ok(connection.query_row(
+                    "SELECT count(*) FROM projects WHERE library_id = 'library-1'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )?)
+            })
+            .expect("Project count");
+        assert_eq!(count, 1);
     }
 
     #[test]
