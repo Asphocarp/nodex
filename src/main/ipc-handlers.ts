@@ -17,7 +17,11 @@ import { writeImageToClipboard } from "./clipboard-image-writer";
 import { inspectClipboardPasteItems } from "./clipboard-paste-inspector";
 import { prepareComposerPickedFiles } from "./composer-picked-files";
 import { registerPersistedAtomIpc } from "./persisted-atom-ipc";
-import { terminalManager } from "./terminal-manager";
+import {
+  browserSidebarService,
+  codexService,
+  terminalManager,
+} from "./main-service-composition";
 import {
   getAppUpdateSettings,
   getBackupSettings,
@@ -55,7 +59,6 @@ import {
   parseCodexUserInputAutoResolutionActivityInput,
   parseCodexUserInputAutoResolutionTarget,
 } from "../shared/codex-user-input-auto-resolution";
-import { codexService } from "./codex/codex-service";
 import { composerAppshotService } from "./composer-appshot-service";
 import {
   createCodexProjectlessWorkspace,
@@ -136,9 +139,6 @@ import type {
   NativeContextMenuOptions,
 } from "../shared/native-context-menu";
 import { buildSessionContextMenuIconSvg } from "../shared/session-context-menu-icons";
-import {
-  browserSidebarService,
-} from "./browser-sidebar-service";
 import { BrowserDownloadActionRequestSchema } from "../shared/browser/browser-download-schemas";
 import { getBrowserDownloadService } from "./browser/browser-download-service";
 import { getBrowserProfileServices } from "./browser/browser-profile-services";

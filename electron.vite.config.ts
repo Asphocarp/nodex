@@ -1,6 +1,7 @@
 import { resolve } from "path";
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 import { sentryVitePlugin } from "@sentry/vite-plugin";
+import type { Rollup } from "vite";
 import { resolveRendererManualChunk } from "./config/renderer-manual-chunks";
 import {
   createRendererVitePlugins,
@@ -36,6 +37,21 @@ function createSentryPlugins() {
 
 const sentrySourcemapSetting = shouldEmitSentrySourceMaps() ? "hidden" : false;
 
+function isKnownYProsemirrorAwarenessTypeImportWarning(
+  warning: Rollup.RollupLog,
+): boolean {
+  const importer = warning.ids?.[0]?.replaceAll("\\", "/");
+
+  return warning.code === "UNUSED_EXTERNAL_IMPORT"
+    && warning.exporter === "y-protocols/awareness"
+    && warning.names?.length === 1
+    && warning.names[0] === "Awareness"
+    && warning.ids?.length === 1
+    && importer?.endsWith(
+      "/node_modules/y-prosemirror/src/plugins/cursor-plugin.js",
+    ) === true;
+}
+
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin(), ...createSentryPlugins()],
@@ -44,6 +60,10 @@ export default defineConfig({
       rollupOptions: {
         input: {
           bootstrap: resolve(__dirname, "src/main/bootstrap.ts"),
+        },
+        onwarn(warning, defaultHandler) {
+          if (isKnownYProsemirrorAwarenessTypeImportWarning(warning)) return;
+          defaultHandler(warning);
         },
         output: {
           entryFileNames: "[name].js",

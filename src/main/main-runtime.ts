@@ -33,8 +33,11 @@ import {
   startAutomationReminderScheduler,
 } from "./automation-reminder-scheduler";
 import type { ReminderNotificationPayload } from "./reminder-notification";
-import { terminalManager } from "./terminal-manager";
-import { browserSidebarService } from "./browser-sidebar-service";
+import {
+  browserSidebarService,
+  codexService,
+  terminalManager,
+} from "./main-service-composition";
 import { FileBrowserPageSnapshotStore } from "./browser/browser-page-store";
 import { FileBrowserHistoryStore } from "./browser/browser-history-store";
 import type { BrowserAuthorizedAttachment } from "./browser/browser-runtime-registry";
@@ -62,7 +65,6 @@ import {
   getNodexHome,
   getWindowRestoreSettings,
 } from "./local-store/config";
-import { codexService } from "./codex/codex-service";
 import { createBrowserUsePeerAuthorizer } from "./browser-use/browser-use-peer-authorizer";
 import { BrowserUseSessionRegistry } from "./browser-use/browser-use-session-registry";
 import { BrowserUsePolicyStore } from "./browser-use/browser-use-policy-store";

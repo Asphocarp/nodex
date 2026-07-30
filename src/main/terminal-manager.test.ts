@@ -109,6 +109,33 @@ describe("TerminalManager view leases", () => {
     ptyMock.spawn.mockReset();
   });
 
+  test("forwards local PTY output to the configured observer", () => {
+    const fakePty = makeFakePty();
+    ptyMock.spawn.mockReturnValue(fakePty);
+    const harness = makeHarness();
+    const observer = {
+      observePtyData: vi.fn(),
+    };
+    harness.manager.configurePtyDataObserver(observer);
+
+    harness.manager.create(
+      owner(11),
+      "window-session-a",
+      {
+        sessionId: "terminal-observed",
+        cwd: process.cwd(),
+        size: { cols: 80, rows: 24 },
+      },
+      harness.emit,
+    );
+    fakePty.emitData("server ready on http://localhost:3000");
+
+    expect(observer.observePtyData).toHaveBeenCalledWith(
+      "terminal-observed",
+      "server ready on http://localhost:3000",
+    );
+  });
+
   test("returns a typed conflict and performs compare-and-swap takeover", () => {
     const fakePty = makeFakePty();
     ptyMock.spawn.mockReturnValue(fakePty);

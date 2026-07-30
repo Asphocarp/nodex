@@ -170,17 +170,8 @@ function commandWithNewline(command: string): string {
   return `${command}\r`;
 }
 
-function observeBrowserSidebarPtyData(sessionId: string, data: string): void {
-  void import("./browser-sidebar-service")
-    .then(({ browserSidebarService }) => {
-      browserSidebarService.observePtyData(sessionId, data);
-    })
-    .catch((error: unknown) => {
-      logger.warn("Failed to observe terminal output for local server discovery", {
-        sessionId,
-        error,
-      });
-    });
+export interface TerminalPtyDataObserver {
+  observePtyData(sessionId: string, data: string): void;
 }
 
 export class TerminalManager {
@@ -189,9 +180,14 @@ export class TerminalManager {
   private readonly sessionByProjectSessionId = new Map<string, string>();
   private readonly fallbackEmittersByWebContentsId = new Map<number, EmitTerminalEvent>();
   private eventPublisher: TerminalEventPublisher | null = null;
+  private ptyDataObserver: TerminalPtyDataObserver | null = null;
 
   configureEventPublisher(publisher: TerminalEventPublisher): void {
     this.eventPublisher = publisher;
+  }
+
+  configurePtyDataObserver(observer: TerminalPtyDataObserver): void {
+    this.ptyDataObserver = observer;
   }
 
   create(
@@ -691,7 +687,14 @@ export class TerminalManager {
         const nextBuffer = appendBoundedBuffer(session.buffer, data);
         session.buffer = nextBuffer.buffer;
         session.truncated = session.truncated || nextBuffer.truncated;
-        observeBrowserSidebarPtyData(session.sessionId, data);
+        try {
+          this.ptyDataObserver?.observePtyData(session.sessionId, data);
+        } catch (error) {
+          logger.warn("Failed to observe terminal output for local server discovery", {
+            sessionId: session.sessionId,
+            error,
+          });
+        }
         this.sendToLease(session, "terminal-data", {
           sessionId: session.sessionId,
           data,
