@@ -120,15 +120,20 @@ async function launchLargeContentFixtureApplication(): Promise<ElectronApplicati
 
 async function stopApplication(application: ElectronApplication): Promise<void> {
   const child = application.process();
-  const applicationClosed = application.waitForEvent("close", {
-    timeout: 15_000,
-  });
-  const processExited = child.exitCode === null
-    ? new Promise<void>((resolve) => child.once("exit", () => resolve()))
-    : Promise.resolve();
+  const forceExitTimer = setTimeout(() => {
+    if (child.exitCode === null) {
+      child.kill("SIGKILL");
+    }
+  }, 15_000);
 
-  await application.evaluate(({ app }) => app.exit(0)).catch(() => undefined);
-  await Promise.all([applicationClosed, processExited]);
+  try {
+    await application.close();
+  } finally {
+    clearTimeout(forceExitTimer);
+    if (child.exitCode === null) {
+      child.kill("SIGKILL");
+    }
+  }
 }
 
 async function buildLargeContentFixture(outDir: string): Promise<string> {
