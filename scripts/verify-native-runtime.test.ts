@@ -7,6 +7,7 @@ import { afterEach, describe, expect, test } from "vitest";
 import {
   assertLegacyPackagedRuntimePathsAbsent,
   removePrivateTemporaryDirectory,
+  selectPackagedSmokeProjectId,
 } from "./verify-native-runtime";
 
 const temporaryDirectories: string[] = [];
@@ -20,6 +21,17 @@ afterEach(() => {
 });
 
 describe("packaged native runtime verification", () => {
+  test("uses the one Project returned by fresh-Profile bootstrap", () => {
+    expect(selectPackagedSmokeProjectId([{ id: "019c-generated-project" }]))
+      .toBe("019c-generated-project");
+    expect(() => selectPackagedSmokeProjectId([]))
+      .toThrow("expected one bootstrapped Project, found 0");
+    expect(() => selectPackagedSmokeProjectId([
+      { id: "project-one" },
+      { id: "project-two" },
+    ])).toThrow("expected one bootstrapped Project, found 2");
+  });
+
   test("rejects the obsolete nested Agent runtime even when canonical resources exist", () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-native-runtime-layout-"));
     temporaryDirectories.push(directory);

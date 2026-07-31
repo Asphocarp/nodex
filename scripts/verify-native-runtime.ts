@@ -22,6 +22,10 @@ import {
   type NativeRuntimeArchitecture,
 } from "./native-runtime-manifest";
 import { verifyPackagedAgentSkills } from "./verify-packaged-agent-skills";
+import { InitialProjectBootstrapService } from "../src/main/initial-project-bootstrap-service";
+import { resolveInitialProjectJournalPath } from "../src/main/initial-project/initial-project-journal-store";
+import { CoreClient } from "../src/main/core-client/core-client";
+import { createCoreProjectWorkspaceAdapter } from "../src/main/core-client/project-workspace-adapter";
 
 export interface VerificationOptions {
   readonly appPath: string;
@@ -207,6 +211,51 @@ const readPackagedCoreIdentity = (
   return { pid: value.pid as number, startNonce: value.start_nonce };
 };
 
+export const selectPackagedSmokeProjectId = (
+  projects: readonly { readonly id: string }[],
+): string => {
+  if (projects.length !== 1) {
+    throw new Error(
+      `Packaged CLI smoke expected one bootstrapped Project, found ${projects.length}`,
+    );
+  }
+  const projectId = projects[0]?.id;
+  if (
+    typeof projectId !== "string"
+    || projectId.length === 0
+    || projectId.length > 512
+    || projectId.trim() !== projectId
+  ) {
+    throw new Error("Packaged CLI smoke bootstrap returned an invalid Project ID");
+  }
+  return projectId;
+};
+
+const bootstrapPackagedCliProject = async (
+  environment: NodeJS.ProcessEnv,
+  temporaryRoot: string,
+): Promise<string> => {
+  const nodexHome = environment.NODEX_HOME;
+  if (!nodexHome) {
+    throw new Error("Packaged CLI smoke environment omits NODEX_HOME");
+  }
+  const client = await CoreClient.connect({
+    nodexHome,
+    clientKind: "electron_host",
+    buildId: "packaged-native-runtime-verification",
+  });
+  const projectWorkspace = createCoreProjectWorkspaceAdapter(client);
+  const bootstrap = new InitialProjectBootstrapService({
+    projectWorkspace,
+    projectsDirectory: join(temporaryRoot, "projects"),
+    journalPath: resolveInitialProjectJournalPath(nodexHome),
+  });
+  await bootstrap.ensureInitialProject({
+    onProvisioned: async () => undefined,
+  });
+  return selectPackagedSmokeProjectId(await projectWorkspace.listProjects());
+};
+
 const smokeNativeRuntime = async (
   appPath: string,
   expectedCoreSha256: string,
@@ -256,6 +305,7 @@ const smokeNativeRuntime = async (
     if (reusedCore.pid !== firstCore.pid || reusedCore.startNonce !== firstCore.startNonce) {
       throw new Error("Compatible packaged CLI selectors did not reuse one Core generation");
     }
+    const projectId = await bootstrapPackagedCliProject(environment, directory);
     const searchSentinel = "packaged-native-cli-ripgrep-sentinel";
     const searchBodyPath = join(directory, "search-smoke.nested.md");
     writeFileSync(searchBodyPath, `${searchSentinel}\n`, { encoding: "utf8", mode: 0o600 });
@@ -264,7 +314,7 @@ const smokeNativeRuntime = async (
       [
         "--json",
         "--project",
-        "project:default",
+        projectId,
         "page",
         "create",
         "--parent",
@@ -289,7 +339,7 @@ const smokeNativeRuntime = async (
     }
     const search = runWithEnvironment(
       linkedCli,
-      ["--project", "project:default", "rg", searchSentinel, `@${pageId}`],
+      ["--project", projectId, "rg", searchSentinel, `@${pageId}`],
       environment,
       "Run packaged CLI ripgrep",
     );
