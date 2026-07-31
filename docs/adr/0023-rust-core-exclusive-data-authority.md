@@ -40,9 +40,9 @@ ownership version after that boundary.
   inbox/read/archive state, occurrences, and reminders are Core-owned.
   Electron submits semantic reschedule policies with an expected definition
   revision; it does not calculate or overwrite an arbitrary next-run timestamp.
-- The public `nodex` command is the native protocol Adapter. The npm bin may
-  locate and exec that binary, but implements no HTTP commands, SQL inspection,
-  or storage fallback.
+- The public `nodex` command is the native protocol Adapter shipped inside
+  `Nodex.app`. Homebrew and the app-menu installer link directly to that binary;
+  no npm launcher, HTTP command path, SQL inspection, or storage fallback exists.
 - IPC and loopback HTTP expose typed product contracts only. Arbitrary SQL and
   private Core lifecycle/Store Administration routes are not public surfaces.
 

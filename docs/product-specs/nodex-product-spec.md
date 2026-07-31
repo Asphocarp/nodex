@@ -713,8 +713,6 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 ### Directory Structure
 ```
 nodex/
-├── bin/
-│   └── nodex.mjs              # Compatibility launcher for the native nodex CLI
 ├── crates/
 │   ├── nodex-cli/              # Native agent-facing CLI
 │   ├── nodex-core/             # SQLite/Yrs authority and six deep Modules

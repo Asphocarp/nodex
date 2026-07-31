@@ -3,27 +3,13 @@
   "version": "0.1.10",
   "description": "Block-based Agent Orchestrator",
   "license": "MIT",
-  "private": false,
+  "private": true,
   "packageManager": "pnpm@11.11.0",
   "workspaces": [
     "packages/*",
     "third_party/blocknote/packages/*"
   ],
   "main": "out/main/bootstrap.js",
-  "bin": {
-    "nodex": "./bin/nodex.mjs"
-  },
-  "files": [
-    "bin",
-    "out",
-    "resources/legacy-profile-migrator.json",
-    "resources/legacy-profile-migrator.mjs",
-    "resources/legacy-profile-migrator.mjs.LEGAL.txt",
-    "resources/THIRD_PARTY_NOTICES.txt",
-    "src",
-    "electron.vite.config.ts",
-    "tsconfig.json"
-  ],
   "scripts": {
     "test": "pnpm run test:unit && pnpm run test:main && pnpm run test:renderer && pnpm run test:integration",
     "test:unit": "vitest run --config vitest.node.config.ts",
