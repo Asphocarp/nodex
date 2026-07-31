@@ -130,7 +130,7 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: cargo build -p nodex-core-server --all-targets
-      - run: pnpm test
+      - run: xvfb-run --auto-servernum pnpm test
 
   browser-e2e:
     name: browser and Electron E2E
