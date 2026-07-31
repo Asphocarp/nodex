@@ -119,7 +119,16 @@ async function launchLargeContentFixtureApplication(): Promise<ElectronApplicati
 }
 
 async function stopApplication(application: ElectronApplication): Promise<void> {
-  await application.close();
+  const child = application.process();
+  const applicationClosed = application.waitForEvent("close", {
+    timeout: 15_000,
+  });
+  const processExited = child.exitCode === null
+    ? new Promise<void>((resolve) => child.once("exit", () => resolve()))
+    : Promise.resolve();
+
+  await application.evaluate(({ app }) => app.exit(0)).catch(() => undefined);
+  await Promise.all([applicationClosed, processExited]);
 }
 
 async function buildLargeContentFixture(outDir: string): Promise<string> {
@@ -323,7 +332,7 @@ async function sampleLargeContentScenario(input: {
 }
 
 test("provisions and persists the initial source-backed Project across a full Electron restart", async () => {
-  test.setTimeout(180_000);
+  test.setTimeout(120_000);
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-electron-e2e-"));
   const nodexHome = path.join(fixtureRoot, "profile");
   const projectsDirectory = path.join(fixtureRoot, "workspace");
@@ -491,7 +500,7 @@ test("provisions and persists the initial source-backed Project across a full El
 });
 
 test("creates and draws in an inline Canvas without taking over the Page", async () => {
-  test.setTimeout(180_000);
+  test.setTimeout(120_000);
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-canvas-e2e-"));
   const nodexHome = path.join(fixtureRoot, "profile");
   const workspace = path.join(fixtureRoot, "workspace");
