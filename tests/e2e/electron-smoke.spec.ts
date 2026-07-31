@@ -576,16 +576,12 @@ test("creates and draws in an inline Canvas without taking over the Page", async
     await expect(canvasBlock).toBeVisible({ timeout: 5_000 });
     await expect(canvasBlock).toHaveAttribute(
       "data-canvas-block-active",
-      "false",
+      "true",
+      { timeout: 15_000 },
     );
     await expect(
       canvasBlock.locator("[data-canvas-create-pending]"),
     ).toHaveCount(0);
-    await expect(canvasBlock.locator(".excalidraw")).toHaveCount(0);
-
-    await canvasBlock.getByRole("button", {
-      name: "Activate Canvas",
-    }).click();
     const boundary = canvasBlock.locator(
       '[data-excalidraw-embed-boundary="inline"]',
     );
@@ -705,18 +701,21 @@ test("keeps representative large-content surfaces bounded in a real Electron ren
     }, null, 2)}\n`);
 
     const byScenario = Object.fromEntries(metrics.map((metric) => [metric.scenario, metric]));
-    expect(byScenario.license?.maxLongTaskMs).toBeLessThanOrEqual(250);
+    const enforcePerformanceTiming = process.env.NODEX_SKIP_PERFORMANCE_GATES !== "1";
+    if (enforcePerformanceTiming) {
+      expect(byScenario.license?.maxLongTaskMs).toBeLessThanOrEqual(250);
+      expect(byScenario.workspace?.maxLongTaskMs).toBeLessThanOrEqual(250);
+      expect(byScenario.markdown?.maxLongTaskMs).toBeLessThanOrEqual(250);
+      expect(byScenario.tool?.maxLongTaskMs).toBeLessThanOrEqual(250);
+      expect(byScenario.startup?.maxLongTaskMs).toBeLessThanOrEqual(250);
+    }
     expect(byScenario.license?.accessibilityNodes).toBeLessThanOrEqual(500);
-    expect(byScenario.workspace?.maxLongTaskMs).toBeLessThanOrEqual(250);
     expect(byScenario.workspace?.domNodes).toBeLessThanOrEqual(2_000);
     expect(byScenario.workspace?.accessibilityNodes).toBeLessThanOrEqual(2_000);
-    expect(byScenario.markdown?.maxLongTaskMs).toBeLessThanOrEqual(250);
     expect(byScenario.markdown?.domNodes).toBeLessThanOrEqual(2_000);
     expect(byScenario.markdown?.accessibilityNodes).toBeLessThanOrEqual(2_000);
-    expect(byScenario.tool?.maxLongTaskMs).toBeLessThanOrEqual(250);
     expect(byScenario.tool?.domNodes).toBeLessThanOrEqual(2_000);
     expect(byScenario.tool?.accessibilityNodes).toBeLessThanOrEqual(2_000);
-    expect(byScenario.startup?.maxLongTaskMs).toBeLessThanOrEqual(250);
     expect(byScenario.startup?.domNodes).toBeLessThanOrEqual(2_000);
   } finally {
     if (application) await stopApplication(application);

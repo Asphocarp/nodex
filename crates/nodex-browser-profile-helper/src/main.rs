@@ -5,9 +5,11 @@ use std::path::{Path, PathBuf};
 use aes::Aes128;
 use cbc::Decryptor;
 use cbc::cipher::{BlockDecryptMut, KeyIvInit, block_padding::Pkcs7};
+#[cfg(target_os = "macos")]
 use pbkdf2::pbkdf2_hmac;
 use rusqlite::{Connection, OpenFlags};
 use serde::{Deserialize, Serialize};
+#[cfg(target_os = "macos")]
 use sha1::Sha1;
 use sha2::{Digest as _, Sha256};
 use thiserror::Error;
@@ -17,7 +19,9 @@ const MAX_REQUEST_BYTES: u64 = 1024 * 1024;
 const MAX_RECORDS: usize = 20_000;
 const MAX_SECRET_BYTES: usize = 1024 * 1024;
 const CHROMIUM_EPOCH_OFFSET_SECONDS: f64 = 11_644_473_600.0;
+#[cfg(target_os = "macos")]
 const CHROMIUM_SALT: &[u8] = b"saltysalt";
+#[cfg(target_os = "macos")]
 const CHROMIUM_ITERATIONS: u32 = 1003;
 const CHROMIUM_IV: [u8; 16] = [b' '; 16];
 

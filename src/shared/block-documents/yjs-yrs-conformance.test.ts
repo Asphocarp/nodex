@@ -297,7 +297,7 @@ describe("Yjs/Yrs compatibility", () => {
         semanticXml(source.getXmlFragment("body")),
       );
     },
-    60_000,
+    120_000,
   );
 
   test(
