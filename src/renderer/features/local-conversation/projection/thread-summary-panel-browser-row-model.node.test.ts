@@ -68,6 +68,7 @@ describe("buildThreadSummaryPanelBrowserRows", () => {
     const runtimeBase = {
       browserConversationId: "session-1",
       browserViewScopeId: "window-1",
+      codexSessionId: "thread-1",
       projectId: "project-1",
       webContentsId: null,
       viewport: {

@@ -73,17 +73,20 @@ function deferred<T>() {
   return { promise, reject, resolve };
 }
 
-function setupHook() {
+function setupHook({ seedDetail = false }: { seedDetail?: boolean } = {}) {
   const client = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
       mutations: { retry: false },
     },
   });
+  const project = projectFromWindow();
   client.setQueryData(queryKeys.projects.list(false), projectWindow());
+  if (seedDetail) {
+    client.setQueryData(queryKeys.projects.detail(project.id), project);
+  }
   const wrapper = ({ children }: { children: ReactNode }) =>
     createElement(QueryClientProvider, { client }, children);
-  const project = projectFromWindow();
   const hook = renderHook(
     ({ currentProject }: { currentProject: Project }) =>
       useProjectAppearanceMutation(currentProject),
@@ -92,13 +95,16 @@ function setupHook() {
       wrapper,
     },
   );
-  const readAppearance = () => {
+  const readAppearance = (includeArchived = false) => {
     const current = client.getQueryData<
       InfiniteData<ProjectWindow, string | null>
-    >(queryKeys.projects.list(false));
+    >(queryKeys.projects.list(includeArchived));
     return current?.pages[0]?.items[0]?.appearance;
   };
-  return { client, hook, project, readAppearance };
+  const readDetailAppearance = () => client.getQueryData<Project | null>(
+    queryKeys.projects.detail(project.id),
+  )?.appearance;
+  return { client, hook, project, readAppearance, readDetailAppearance };
 }
 
 const RED_FOLDER = {
@@ -135,6 +141,33 @@ describe("patchProjectAppearanceInWindow", () => {
       "missing",
       DEFAULT_PROJECT_APPEARANCE,
     )).toBe(current);
+  });
+
+  it("updates list and detail caches without treating Project detail as a window", async () => {
+    const {
+      client,
+      hook,
+      project,
+      readAppearance,
+      readDetailAppearance,
+    } = setupHook({
+      seedDetail: true,
+    });
+    client.setQueryData(queryKeys.projects.list(true), projectWindow());
+    mocks.invoke.mockResolvedValue({
+      ...project,
+      appearance: RED_HEART,
+      bindingRevision: 2,
+    });
+
+    await act(async () => {
+      await hook.result.current.changeAppearanceAsync(RED_HEART);
+    });
+
+    expect(readAppearance()).toEqual(RED_HEART);
+    expect(readAppearance(true)).toEqual(RED_HEART);
+    expect(readDetailAppearance()).toEqual(RED_HEART);
+    expect(mocks.toastDanger).not.toHaveBeenCalled();
   });
 
   it("serializes rapid changes and settles on the newest appearance", async () => {
@@ -219,7 +252,12 @@ describe("patchProjectAppearanceInWindow", () => {
     mocks.invoke
       .mockReturnValueOnce(first.promise)
       .mockReturnValueOnce(second.promise);
-    const { hook, project, readAppearance } = setupHook();
+    const {
+      hook,
+      project,
+      readAppearance,
+      readDetailAppearance,
+    } = setupHook({ seedDetail: true });
 
     act(() => {
       hook.result.current.changeAppearance(RED_FOLDER);
@@ -242,6 +280,7 @@ describe("patchProjectAppearanceInWindow", () => {
     });
 
     await waitFor(() => expect(readAppearance()).toEqual(RED_FOLDER));
+    expect(readDetailAppearance()).toEqual(RED_FOLDER);
   });
 
   it("waits for the whole rapid queue and returns the newest confirmed revision", async () => {

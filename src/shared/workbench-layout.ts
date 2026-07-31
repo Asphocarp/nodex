@@ -1,4 +1,8 @@
 import type { WorkbenchSessionViewSnapshot } from "./workbench-session-view";
+import type {
+  WorkbenchSceneKey,
+  WorkbenchSceneSnapshot,
+} from "./workbench-scene";
 import type { LibraryRouteTarget } from "./library-module";
 
 export type WorkbenchLayoutView = "kanban" | "list" | "toggle-list" | "calendar";
@@ -70,7 +74,7 @@ export interface WorkbenchLayoutSnapshotV3 {
   sessionViewsBySessionId: Record<string, WorkbenchSessionViewSnapshot>;
 }
 
-export type WorkbenchSessionLocation =
+export type WorkbenchSessionLocationV4 =
   | {
       readonly kind: "session";
       readonly activeProjectId: string | null;
@@ -91,33 +95,33 @@ export type WorkbenchLibraryLocationTarget =
       readonly accessProjectId?: string;
     });
 
-export type WorkbenchLocation =
-  | WorkbenchSessionLocation
+export type WorkbenchLocationV4 =
+  | WorkbenchSessionLocationV4
   | {
       readonly kind: "library";
       readonly target: WorkbenchLibraryLocationTarget;
-      readonly returnTo: WorkbenchSessionLocation;
+      readonly returnTo: WorkbenchSessionLocationV4;
     }
   | {
       readonly kind: "settings";
       readonly path: string;
-      readonly returnTo: WorkbenchSessionLocation;
+      readonly returnTo: WorkbenchSessionLocationV4;
     }
   | {
       readonly kind: "automations";
       readonly path: string;
-      readonly returnTo: WorkbenchSessionLocation;
+      readonly returnTo: WorkbenchSessionLocationV4;
     }
   | {
       readonly kind: "pending-worktree";
       readonly clientThreadId: string;
-      readonly returnTo: WorkbenchSessionLocation;
+      readonly returnTo: WorkbenchSessionLocationV4;
     };
 
 export interface WorkbenchLayoutSnapshotV4 {
   readonly version: 4;
   readonly location: Exclude<
-    WorkbenchLocation,
+    WorkbenchLocationV4,
     { readonly kind: "pending-worktree" }
   >;
   readonly databaseSearchByProject: Record<string, string>;
@@ -127,7 +131,58 @@ export interface WorkbenchLayoutSnapshotV4 {
   >;
 }
 
-export type WorkbenchLayoutSnapshot = WorkbenchLayoutSnapshotV4;
+export type WorkbenchSceneLocation =
+  | {
+      readonly kind: "project";
+      readonly projectId: string;
+    }
+  | {
+      readonly kind: "session";
+      readonly sessionId: string;
+      readonly projectContextId: string | null;
+    }
+  | {
+      readonly kind: "empty";
+    };
+
+export type WorkbenchLocationV5 =
+  | WorkbenchSceneLocation
+  | {
+      readonly kind: "library";
+      readonly target: WorkbenchLibraryLocationTarget;
+      readonly returnTo: WorkbenchSceneLocation;
+    }
+  | {
+      readonly kind: "settings";
+      readonly path: string;
+      readonly returnTo: WorkbenchSceneLocation;
+    }
+  | {
+      readonly kind: "automations";
+      readonly path: string;
+      readonly returnTo: WorkbenchSceneLocation;
+    }
+  | {
+      readonly kind: "pending-worktree";
+      readonly clientThreadId: string;
+      readonly returnTo: WorkbenchSceneLocation;
+    };
+
+export interface WorkbenchLayoutSnapshotV5 {
+  readonly version: 5;
+  readonly location: Exclude<
+    WorkbenchLocationV5,
+    { readonly kind: "pending-worktree" }
+  >;
+  readonly databaseSearchByProject: Record<string, string>;
+  readonly scenesByOwnerKey: Record<
+    WorkbenchSceneKey,
+    WorkbenchSceneSnapshot
+  >;
+}
+
+export type WorkbenchLocation = WorkbenchLocationV5;
+export type WorkbenchLayoutSnapshot = WorkbenchLayoutSnapshotV5;
 
 function createDefaultDockTree(): WorkbenchLayoutSnapshotV3["dock"]["tree"] {
   return {
@@ -195,22 +250,54 @@ export function createDefaultWorkbenchLayoutSnapshotV4(): WorkbenchLayoutSnapsho
   };
 }
 
-export function createDefaultWorkbenchLayoutSnapshot(): WorkbenchLayoutSnapshot {
-  return createDefaultWorkbenchLayoutSnapshotV4();
+export function createDefaultWorkbenchLayoutSnapshotV5(): WorkbenchLayoutSnapshotV5 {
+  return {
+    version: 5,
+    location: { kind: "empty" },
+    databaseSearchByProject: {},
+    scenesByOwnerKey: {},
+  };
 }
 
-export function getWorkbenchSessionReturnLocation(
-  location: WorkbenchLocation,
-): WorkbenchSessionLocation {
+export function createDefaultWorkbenchLayoutSnapshot(): WorkbenchLayoutSnapshot {
+  return createDefaultWorkbenchLayoutSnapshotV5();
+}
+
+export function getWorkbenchSessionReturnLocationV4(
+  location: WorkbenchLocationV4,
+): WorkbenchSessionLocationV4 {
   if (location.kind === "session" || location.kind === "empty") {
     return location;
   }
   return location.returnTo;
 }
 
-export function getRestorableWorkbenchLocation(
-  location: WorkbenchLocation,
+export function getWorkbenchSceneReturnLocation(
+  location: WorkbenchLocationV5,
+): WorkbenchSceneLocation {
+  if (
+    location.kind === "project"
+    || location.kind === "session"
+    || location.kind === "empty"
+  ) {
+    return location;
+  }
+  return location.returnTo;
+}
+
+export function getRestorableWorkbenchLocationV4(
+  location: WorkbenchLocationV4,
 ): WorkbenchLayoutSnapshotV4["location"] {
   if (location.kind !== "pending-worktree") return location;
   return location.returnTo;
 }
+
+export function getRestorableWorkbenchLocationV5(
+  location: WorkbenchLocationV5,
+): WorkbenchLayoutSnapshotV5["location"] {
+  if (location.kind !== "pending-worktree") return location;
+  return location.returnTo;
+}
+
+export const getRestorableWorkbenchLocation =
+  getRestorableWorkbenchLocationV5;

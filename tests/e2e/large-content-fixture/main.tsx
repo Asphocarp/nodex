@@ -51,7 +51,6 @@ function buildSession(): ProjectSession {
   return {
     id: "session:large-content-performance",
     projectId: project.id,
-    databaseStarter: false,
     noThreadFallbackTitle: "Large content performance",
     displayTitle: "Large content performance",
     order: 0,

@@ -18,7 +18,9 @@ function normalizeNullable(value: string | null | undefined): string {
 export const queryKeys = {
   projects: {
     all: () => ["projects"] as const,
+    lists: () => ["projects", "list"] as const,
     list: (includeArchived = false) => ["projects", "list", includeArchived] as const,
+    detail: (projectId: string) => ["projects", "detail", projectId] as const,
   },
   boards: {
     all: () => ["boards"] as const,

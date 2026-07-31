@@ -207,6 +207,7 @@ export interface ThreadStageRouteInput {
     projectId: string | null;
     projectName: string;
     sessionId: string;
+    projectDraftId?: string;
     threadTitle?: string;
     runInTarget?: PageRunInTarget;
     runInEnvironmentPath?: string | null;
@@ -215,6 +216,7 @@ export interface ThreadStageRouteInput {
   } | null;
   newThreadProjectSelector?: NewChatProjectSelectorModel | null;
   newThreadStartInSelector?: NewChatStartInSelectorModel | null;
+  newThreadStartBlockedReason?: string | null;
   threadStartProgress: {
     runInTarget: PageRunInTarget;
     threadId?: string | null;
@@ -281,6 +283,7 @@ export interface ThreadStageActions {
   onStartThreadForSession?: (input: {
     projectId: string | null;
     sessionId: string;
+    projectDraftId?: string;
     prompt: string;
     promptInput?: CodexPromptInput;
     threadGoalDraft?: CodexThreadGoalDraftInput;
@@ -384,7 +387,7 @@ export interface ThreadStageActions {
   onOpenStatusPanel?: (threadId: string) => void;
   onToggleDesktopPet?: () => void;
   onUnarchiveThread: (threadId: string, projectId: string | null) => Promise<void>;
-  onOpenTurnDiffReview: (intent: ReviewOpenIntent) => void | Promise<void>;
+  onOpenTurnDiffReview?: (intent: ReviewOpenIntent) => void | Promise<void>;
   onOpenTurnDiffFileInSidePanel?: (target: ThreadTurnDiffFileSidePanelTarget) => void | Promise<void>;
   onConsumeComposerIntent: (threadId: string, focusNonce: number) => void;
   onConsumeNewThreadComposerIntent?: (sessionId: string, focusNonce: number) => void;
@@ -984,6 +987,7 @@ export interface ThreadFooterModel {
   newThreadTarget: ThreadStageRouteInput["newThreadTarget"];
   newThreadProjectSelector?: ThreadStageRouteInput["newThreadProjectSelector"];
   newThreadStartInSelector?: ThreadStageRouteInput["newThreadStartInSelector"];
+  newThreadStartBlockedReason?: string | null;
   composerShell: ThreadComposerShellModel;
   body: ThreadBodyModel;
   collaborationModes: CodexCollaborationModePreset[];

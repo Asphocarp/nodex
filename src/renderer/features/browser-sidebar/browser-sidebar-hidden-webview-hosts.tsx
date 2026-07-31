@@ -32,7 +32,6 @@ import {
 
 interface BrowserSidebarHiddenWebviewHostsProps {
   sessionId: string;
-  codexSessionId: string;
   browserViewScopeId: string;
   tabs: WorkbenchTabProjection[];
   mountedTabIds: ReadonlySet<string>;
@@ -43,7 +42,6 @@ interface HiddenHostDescriptor {
   browserConversationId: string;
   browserViewScopeId: string;
   browserTabId: string;
-  codexSessionId: string;
   browserStorageId: string;
   projectId: string | null;
   hostKind: BrowserSidebarWebviewHostKind;
@@ -57,7 +55,6 @@ interface HiddenHostDescriptor {
 
 export function BrowserSidebarHiddenWebviewHosts({
   sessionId,
-  codexSessionId,
   browserViewScopeId,
   tabs,
   mountedTabIds,
@@ -109,7 +106,6 @@ export function BrowserSidebarHiddenWebviewHosts({
         browserConversationId: sessionId,
         browserViewScopeId,
         browserTabId,
-        codexSessionId,
       };
       const snapshot = snapshots.find((candidate) =>
         matchesBrowserSidebarTabIdentity(candidate, identity)
@@ -123,7 +119,6 @@ export function BrowserSidebarHiddenWebviewHosts({
         browserConversationId: sessionId,
         browserViewScopeId,
         browserTabId,
-        codexSessionId,
         browserStorageId: snapshot?.browserStorageId
           ?? readBrowserConfigStorageId(tab)
           ?? `browser:legacy:${browserTabId}`,
@@ -158,7 +153,6 @@ export function BrowserSidebarHiddenWebviewHosts({
         browserConversationId: tab.browserConversationId,
         browserViewScopeId: tab.browserViewScopeId,
         browserTabId: tab.browserTabId,
-        codexSessionId,
         browserStorageId: `browser:use:${tab.browserTabId}`,
         projectId: tab.projectId,
         hostKind: "retained",
@@ -176,7 +170,7 @@ export function BrowserSidebarHiddenWebviewHosts({
     });
 
     return [...browserDescriptors, ...browserUseDescriptors];
-  }, [browserUseState, browserUseViewport, browserViewScopeId, codexSessionId, mountedTabIds, sessionId, snapshots, tabs, visibleTabIds]);
+  }, [browserUseState, browserUseViewport, browserViewScopeId, mountedTabIds, sessionId, snapshots, tabs, visibleTabIds]);
 
   return (
     <>
@@ -221,7 +215,6 @@ function HiddenBrowserWebviewHost({
         browserViewScopeId: descriptor.browserViewScopeId,
         browserTabId: descriptor.browserTabId,
         browserStorageId: descriptor.browserStorageId,
-        codexSessionId: descriptor.codexSessionId,
         projectId: descriptor.projectId,
         initialUrl,
         title: descriptor.title,
@@ -234,7 +227,7 @@ function HiddenBrowserWebviewHost({
     return () => {
       cancelled = true;
     };
-  }, [descriptor.browserConversationId, descriptor.browserStorageId, descriptor.browserTabId, descriptor.browserViewScopeId, descriptor.codexSessionId, descriptor.deviceToolbarState, descriptor.deviceToolbarVisible, descriptor.faviconUrl, descriptor.projectId, descriptor.title, initialUrl]);
+  }, [descriptor.browserConversationId, descriptor.browserStorageId, descriptor.browserTabId, descriptor.browserViewScopeId, descriptor.deviceToolbarState, descriptor.deviceToolbarVisible, descriptor.faviconUrl, descriptor.projectId, descriptor.title, initialUrl]);
 
   useLayoutEffect(() => {
     if (!window.api || !registered) return undefined;

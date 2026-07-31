@@ -239,8 +239,9 @@ query rows never become host Document children.
 ### Project
 
 A Project is an execution context, not content. It owns filesystem sources,
-sessions, Codex Threads, runtime settings, and approval policy. A Window Session
-owns the tabs and panels through which one app window presents those resources;
+ordinary Sessions, Codex Threads, runtime settings, and approval policy. A
+Project may have zero Sessions. A Window Session owns owner-scoped Workbench
+Scenes through which one app window presents Project or Session resources;
 Terminal and Browser Modules own their live runtimes.
 It binds exactly one primary Database and has lifecycle `active | inactive |
 archived`. One Database has at most one active Project.
@@ -399,7 +400,7 @@ state is rejected rather than replayed.
 | Restorable Document states | immutable semantic Document revisions |
 | Presence, cursor, selection, leases | ephemeral collaboration state |
 | Project Sessions and Thread links | Project execution domain |
-| Per-window Session tabs, panels, selection, and geometry | Window Session view |
+| Per-window Project/Session Scene surfaces, panels, selection, and geometry | Window Session view |
 | Browser guests and Terminal PTYs | Main-process runtime Modules |
 
 ## Invariants
@@ -496,14 +497,17 @@ and remount through current descriptors.
 Presence, cursors, selection, disclosure, search, focus, active View, and leases
 are not durable content. Disclosure may persist as disposable profile-local
 preference by stable Block ID. Project Sessions and Codex Thread links are
-shared execution concepts. Tabs, panel trees, active leaves, geometry, and
-navigation history are Window Session view state; their descriptors may point
-to shared Page/Canvas/Database resources or Main-owned Browser/Terminal runtimes
-without becoming another authority for those targets.
-The renderer has one discriminated Window Session location and one layout-v4
-writer. Per-Project view presentation, sidebar disclosure/width, and recent
-Pages are profile preferences, not Session domain state or alternate location
-owners.
+shared execution concepts. Owner-scoped Scene surfaces, panel trees, active
+leaves, geometry, and navigation history are Window Session view state; their
+descriptors may point to shared Session/Page/Canvas/Database resources or
+Main-owned Browser/Terminal runtimes without becoming another authority for
+those targets.
+The renderer has one discriminated `project | session | empty | auxiliary`
+Window Session location and one layout-v5 writer. Project Scenes use the
+Project's current default Database View as the fixed owner-root primary;
+Session Scenes use their Conversation. Per-Project view presentation, sidebar
+disclosure/width, and recent Pages are profile preferences, not Session domain
+state or alternate location owners.
 
 ## Naming rules
 

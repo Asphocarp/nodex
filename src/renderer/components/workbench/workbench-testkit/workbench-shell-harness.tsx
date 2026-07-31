@@ -14,6 +14,7 @@ import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import {
   PAGE_DOCUMENT_SCHEMA_VERSION,
 } from "../../../../shared/block-documents";
+import { WorkbenchLayoutSnapshotV5Schema } from "../../../../shared/schemas/workbench-layout";
 import type {
   CodexAutomationInboxItem,
   CodexAutomationRunsInboxResponse,
@@ -74,7 +75,10 @@ import {
 } from "@/lib/command-palette-commands";
 import type { WorkbenchCommandPort } from "@/lib/use-workbench-command-ingress";
 import { normalizeCodexManualThreadTitle } from "../../../../shared/codex-thread-title";
-import type { CodexPendingWorktreeWarningEvent } from "../../../../shared/codex-pending-worktree";
+import type {
+  CodexPendingWorktreeEntry,
+  CodexPendingWorktreeWarningEvent,
+} from "../../../../shared/codex-pending-worktree";
 import type {
   WorkbenchNavigationCommandState,
   WorkbenchNavigationCommandSource,
@@ -100,6 +104,9 @@ import {
   type WorkbenchSessionViewSnapshot,
   type WorkbenchSessionViewTab,
 } from "../../../../shared/workbench-session-view";
+import {
+  projectWorkbenchSceneToLegacySessionView,
+} from "../../../../shared/workbench-scene";
 
 export let invokeCalls: unknown[][] = [];
 export let mockInvokeImpl: ((channel: string, ...args: unknown[]) => Promise<unknown>) | null = null;
@@ -1046,6 +1053,60 @@ vi.mock("@/features/local-conversation", () => ({
       ),
     );
   },
+  ConnectedThreadComposerDock: (props: Record<string, unknown>) => {
+    (globalThis as {
+      __lastConnectedThreadComposerDockProps?: Record<string, unknown>;
+    }).__lastConnectedThreadComposerDockProps = props;
+    const actions = props.actions as {
+      onStartThreadForSession?: (input: {
+        projectId: string;
+        sessionId: string;
+        projectDraftId?: string;
+        prompt: string;
+      }) => Promise<void>;
+    } | undefined;
+    const target = props.newThreadTarget as {
+      projectId?: string;
+      sessionId?: string;
+      projectDraftId?: string;
+    } | null | undefined;
+    const visibility = props.overlayVisibility as {
+      kind?: string;
+      visible?: boolean;
+      onVisibleChange?: (visible: boolean) => void;
+    } | undefined;
+    return createElement(
+      "div",
+      { "data-project-agent-dock": "true" },
+      props.leadingContent as ReactNode,
+      createElement("textarea", {
+        "aria-label": "Project Agent Dock prompt",
+        defaultValue: "",
+      }),
+      props.isNewThreadTab
+        ? createElement("button", {
+            type: "button",
+            onClick: () => {
+              if (!target?.projectId || !target.sessionId) return;
+              void actions?.onStartThreadForSession?.({
+                projectId: target.projectId,
+                sessionId: target.sessionId,
+                ...(target.projectDraftId
+                  ? { projectDraftId: target.projectDraftId }
+                  : {}),
+                prompt: "Start from Project Agent Dock",
+              });
+            },
+          }, "Send from Dock")
+        : null,
+      visibility?.kind === "controlled" && visibility.visible
+        ? createElement("button", {
+            type: "button",
+            onClick: () => visibility.onVisibleChange?.(false),
+          }, "Hide Dock")
+        : null,
+    );
+  },
   ConnectedReviewDiffPanel: (props: Record<string, unknown>) => {
     (globalThis as { __lastConnectedReviewDiffPanelProps?: Record<string, unknown> }).__lastConnectedReviewDiffPanelProps = props;
     return createElement("div", { "data-review-diff-panel": "true" }, `Review:${String(props.threadId)}`);
@@ -1607,7 +1668,6 @@ export function makeSession(overrides: SessionFixtureOverrides = {}): ProjectSes
   return {
     id: sessionId,
     projectId,
-    databaseStarter: projectId !== null && databaseViewStarter,
     noThreadFallbackTitle,
     displayTitle,
     order: 0,
@@ -2006,7 +2066,7 @@ export function renderWorkbench({
   searchByProject = {},
   dbViewPrefsByProject = {},
   sidebar,
-  initialSelectedSessionId = null,
+  initialSelectedSessionId,
   workbenchCommandRequest = null,
   pendingViewDeepLinkOpen = null,
   libraryWorkspaceEnabled = false,
@@ -2017,6 +2077,7 @@ export function renderWorkbench({
   automationInboxItems = [],
   worktreeEnvironmentOptionsByProject = {},
   codexModels = DEFAULT_TEST_CODEX_MODELS,
+  pendingWorktrees = [],
 }: {
   projects?: Project[];
   sessionsByProject?: Record<string, ProjectSession[]>;
@@ -2050,7 +2111,13 @@ export function renderWorkbench({
   automationInboxItems?: CodexAutomationInboxItem[];
   worktreeEnvironmentOptionsByProject?: Record<string, WorktreeEnvironmentOption[]>;
   codexModels?: CodexModelOption[];
+  pendingWorktrees?: readonly CodexPendingWorktreeEntry[];
 } = {}) {
+  const resolvedInitialSelectedSessionId = initialSelectedSessionId === undefined
+    ? Object.values(sessionsByProject).flat()[0]?.id
+      ?? projectlessSessions[0]?.id
+      ?? null
+    : initialSelectedSessionId;
   const asPageDetailResult = (
     value: unknown,
     projectId: string,
@@ -2128,6 +2195,7 @@ export function renderWorkbench({
     };
   };
   const projectlessSessionStateKey = "__projectless__";
+  let projectState = projects;
   let sessionState = projectlessSessions.length > 0
     ? { ...sessionsByProject, [projectlessSessionStateKey]: projectlessSessions }
     : sessionsByProject;
@@ -2147,6 +2215,10 @@ export function renderWorkbench({
     generatedAt: 1,
   });
   mockInvokeImpl = async (channel, ...args) => {
+    if (channel === "projects:get") {
+      const projectId = String(args[0] ?? "");
+      return projectState.find((project) => project.id === projectId) ?? null;
+    }
     if (channel === "browser-sidebar-command") {
       return { ok: true };
     }
@@ -2158,7 +2230,7 @@ export function renderWorkbench({
         ancestors: ownershipPathsByPage[input.targetPageId] ?? [],
       };
     }
-    if (channel === "codex:pending-worktrees:list") return [];
+    if (channel === "codex:pending-worktrees:list") return pendingWorktrees;
     if (channel === "pages:search") {
       const input = args[0] as {
         projectIds?: string[];
@@ -2196,7 +2268,6 @@ export function renderWorkbench({
         .map((session) => ({
           id: session.id,
           projectId: session.projectId,
-          databaseStarter: session.databaseStarter,
           noThreadFallbackTitle: session.noThreadFallbackTitle,
           displayTitle: session.displayTitle,
           order: session.order,
@@ -3092,12 +3163,10 @@ export function renderWorkbench({
 
   function WorkbenchShellTestHarness() {
     const [renderedProjects, setRenderedProjects] = useState(projects);
-    const [sessionViewsBySessionId, setSessionViewsBySessionId] = useState<
-      Record<string, WorkbenchSessionViewSnapshot>
-    >(() => Object.fromEntries(
+    const sessionViewsBySessionId = Object.fromEntries(
       [...Object.values(sessionsByProject).flat(), ...projectlessSessions]
         .map((session) => [session.id, makeSessionViewFixture(session)]),
-    ));
+    );
     const [sidebarState, setSidebarState] = useState<TestSidebarState>(() => ({
       collapsed: false,
       width: 300,
@@ -3134,23 +3203,26 @@ export function renderWorkbench({
       });
     };
     replaceProjects = (nextProjects) => {
+      projectState = nextProjects;
       setRenderedProjects(nextProjects);
     };
-    const initialWindowLayoutSnapshotRef = useRef({
-      version: 4 as const,
-      location: initialSelectedSessionId
-        ? {
-            kind: "session" as const,
-            activeProjectId: projects[0]?.id ?? null,
-            sessionId: initialSelectedSessionId,
-          }
-        : {
-            kind: "empty" as const,
-            activeProjectId: projects[0]?.id ?? null,
-          },
-      databaseSearchByProject: searchByProject,
-      sessionViewsBySessionId,
-    });
+    const initialWindowLayoutSnapshotRef = useRef(
+      WorkbenchLayoutSnapshotV5Schema.parse({
+        version: 4 as const,
+        location: resolvedInitialSelectedSessionId
+          ? {
+              kind: "session" as const,
+              activeProjectId: projects[0]?.id ?? null,
+              sessionId: resolvedInitialSelectedSessionId,
+            }
+          : {
+              kind: "empty" as const,
+              activeProjectId: projects[0]?.id ?? null,
+            },
+        databaseSearchByProject: searchByProject,
+        sessionViewsBySessionId,
+      }),
+    );
     return (
       <WorkbenchShell
         windowSessionId="window-session:test"
@@ -3159,17 +3231,12 @@ export function renderWorkbench({
         }
         libraryWorkspaceEnabled={libraryWorkspaceEnabled}
         projects={renderedProjects}
-        setSessionView={(sessionId, update) => {
-          setSessionViewsBySessionId((current) => {
-            const next = typeof update === "function"
-              ? update(current[sessionId])
-              : update;
-            recordSessionViewMutation(current[sessionId], next);
-            return {
-              ...current,
-              [sessionId]: next,
-            };
-          });
+        onSceneMutation={(owner, previous, next) => {
+          if (owner.kind !== "session") return;
+          recordSessionViewMutation(
+            projectWorkbenchSceneToLegacySessionView(previous),
+            projectWorkbenchSceneToLegacySessionView(next),
+          );
         }}
         activeView="kanban"
         activeDbViewPrefs={null}
@@ -3332,6 +3399,9 @@ beforeEach(() => {
   sessionStorage.clear();
   delete (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
   delete (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+  delete (globalThis as {
+    __lastConnectedThreadComposerDockProps?: Record<string, unknown>;
+  }).__lastConnectedThreadComposerDockProps;
   delete (globalThis as {
     __mockConnectedThreadStagePropsByThreadId?: Record<string, Record<string, unknown>>;
   }).__mockConnectedThreadStagePropsByThreadId;
@@ -3590,12 +3660,18 @@ export async function moveSidebarPointer(clientX: number, clientY = 80): Promise
 }
 
 export function getMountedSessionIds(container: HTMLElement): string[] {
-  return Array.from(container.querySelectorAll<HTMLElement>("[data-mounted-session-id]"))
-    .map((element) => element.getAttribute("data-mounted-session-id") ?? "");
+  return Array.from(container.querySelectorAll<HTMLElement>(
+    '[data-workbench-scene-owner^="session:"]',
+  )).map((element) => (
+    element.getAttribute("data-workbench-scene-owner")?.slice("session:".length)
+    ?? ""
+  ));
 }
 
 export function getMountedSessionRoot(container: HTMLElement): HTMLElement {
-  const root = container.querySelector<HTMLElement>("[data-mounted-session-id]");
+  const root = container.querySelector<HTMLElement>(
+    '[data-workbench-scene-owner^="session:"]',
+  );
   if (!root) throw new Error("Expected a mounted session root");
   return root;
 }

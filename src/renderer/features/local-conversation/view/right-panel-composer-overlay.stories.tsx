@@ -12,6 +12,7 @@ import {
 
 interface RightPanelComposerOverlayStoryProps {
   tabKind: "review" | "browser";
+  visibilityPolicy: "always" | "controlled" | "browser-auto";
   draft: "empty" | "multiline";
   bottomPanelOpen: boolean;
   atDocumentBottom: boolean;
@@ -65,12 +66,14 @@ function buildStoryFooterModel(running: boolean) {
 
 function RightPanelComposerOverlayStory({
   tabKind,
+  visibilityPolicy,
   draft,
   bottomPanelOpen,
   atDocumentBottom,
   running,
 }: RightPanelComposerOverlayStoryProps) {
   const [overlayHost, setOverlayHost] = useState<HTMLElement | null>(null);
+  const [controlledVisible, setControlledVisible] = useState(true);
   const baseFooterModel = buildStoryFooterModel(running);
   const footerModel = draft === "multiline"
     ? {
@@ -125,8 +128,20 @@ function RightPanelComposerOverlayStory({
               enabled: overlayHost !== null,
               target: overlayHost,
               compact: tabKind === "browser",
-              documentBottomKey: tabKind === "browser" ? "story-browser" : null,
-              isAtDocumentBottom: atDocumentBottom,
+              visibility: visibilityPolicy === "always"
+                ? { kind: "always" }
+                : visibilityPolicy === "controlled"
+                  ? {
+                      kind: "controlled",
+                      visible: controlledVisible,
+                      attention: running ? "activity" : "none",
+                      onVisibleChange: setControlledVisible,
+                    }
+                  : {
+                      kind: "browser-auto",
+                      documentBottomKey: "story-browser",
+                      isAtDocumentBottom: atDocumentBottom,
+                    },
             }}
           />
           {bottomPanelOpen ? (
@@ -145,6 +160,7 @@ const meta = {
   component: RightPanelComposerOverlayStory,
   args: {
     tabKind: "review",
+    visibilityPolicy: "always",
     draft: "empty",
     bottomPanelOpen: false,
     atDocumentBottom: false,
@@ -154,6 +170,10 @@ const meta = {
     tabKind: {
       control: "inline-radio",
       options: ["review", "browser"],
+    },
+    visibilityPolicy: {
+      control: "inline-radio",
+      options: ["always", "controlled", "browser-auto"],
     },
     draft: {
       control: "inline-radio",
@@ -179,6 +199,20 @@ export const FullWidthReview: Story = {
 export const FullWidthBrowser: Story = {
   args: {
     tabKind: "browser",
+    visibilityPolicy: "browser-auto",
+  },
+};
+
+export const ControlledProjectDock: Story = {
+  args: {
+    visibilityPolicy: "controlled",
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "The Project Agent Dock uses externally persisted visibility, releases its pane reserve while hidden, and keeps a quiet restore handle.",
+      },
+    },
   },
 };
 
@@ -198,6 +232,7 @@ export const FullWidthMultilineDraft: Story = {
 export const BrowserAtDocumentBottom: Story = {
   args: {
     tabKind: "browser",
+    visibilityPolicy: "browser-auto",
     atDocumentBottom: true,
   },
 };

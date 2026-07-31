@@ -2,19 +2,22 @@ import { describe, expect, test } from "vitest";
 import {
   clearTransientPanelSelection,
   makeWorkbenchPanelSlotKey,
+  makeWorkbenchSessionPanelOwnerKey,
+  makeWorkbenchSessionPanelSlotKey,
   resolveWorkbenchPanelSlotLeafId,
 } from "./workbench-panel-slot-key";
 
 describe("workbench panel slot keys", () => {
   test("encodes panel and leaf slots and only decodes matching scope", () => {
-    expect(makeWorkbenchPanelSlotKey("session:one", "right"))
-      .toBe("session:one:right");
-    const key = makeWorkbenchPanelSlotKey(
+    const ownerKey = makeWorkbenchSessionPanelOwnerKey("session:one");
+    expect(makeWorkbenchPanelSlotKey(ownerKey, "right"))
+      .toBe(`${ownerKey}:right`);
+    const key = makeWorkbenchSessionPanelSlotKey(
       "session:one",
       "bottom",
       "leaf:two",
     );
-    expect(key).toBe("session:one:bottom:leaf:two");
+    expect(key).toBe(`${ownerKey}:bottom:leaf:two`);
     expect(
       resolveWorkbenchPanelSlotLeafId(
         key,
@@ -38,7 +41,7 @@ describe("workbench panel slot keys", () => {
     ).toBeNull();
     expect(
       resolveWorkbenchPanelSlotLeafId(
-        makeWorkbenchPanelSlotKey("session:one", "bottom"),
+        makeWorkbenchSessionPanelSlotKey("session:one", "bottom"),
         "session:one",
         "bottom",
       ),

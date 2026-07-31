@@ -79,6 +79,9 @@ describe("Browser Use presentation model", () => {
         browserStorageId: "browser-storage-1",
         url: "https://example.com",
         title: "Example",
+        browserUseSource: {
+          codexSessionId: "thread-1",
+        },
       },
     });
   });

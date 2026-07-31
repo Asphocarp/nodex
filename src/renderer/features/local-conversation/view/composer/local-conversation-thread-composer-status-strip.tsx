@@ -1,4 +1,3 @@
-import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChevronDownIcon, LocalStatusIcon } from "@/components/shared/icons";
 import { cn } from "../../../../lib/utils";
@@ -16,6 +15,7 @@ import {
   invoke,
 } from "./local-conversation-thread-composer-deps";
 import { useGitBranchState } from "@/lib/use-git-branch-state";
+import { RIGHT_PANEL_COMPOSER_ACCESSORY_INLINE_INSET_CLASS } from "../right-panel-composer-presentation";
 import { NewChatProjectSelector } from "./new-chat-project-selector";
 import { NewChatStartInSelector } from "./new-chat-start-in-selector";
 
@@ -27,12 +27,6 @@ interface ThreadComposerStatusStripProps {
   className?: string;
 }
 
-const THREAD_COMPOSER_EXTERNAL_FOOTER_TRANSITION = {
-  type: "spring",
-  duration: 0.35,
-  bounce: 0.1,
-} as const;
-
 interface ThreadComposerExternalFooterSlotProps {
   visible: boolean;
   children: ReactNode;
@@ -42,22 +36,15 @@ export function ThreadComposerExternalFooterSlot({
   visible,
   children,
 }: ThreadComposerExternalFooterSlotProps) {
+  if (!visible) return null;
+
   return (
-    <AnimatePresence initial={false} mode="popLayout">
-      {visible ? (
-        <motion.div
-          key="thread-composer-external-footer"
-          data-composer-external-footer-slot="true"
-          initial={{ y: "100%" }}
-          animate={{ y: 0 }}
-          exit={{ y: "100%", pointerEvents: "none" }}
-          transition={THREAD_COMPOSER_EXTERNAL_FOOTER_TRANSITION}
-          className="relative z-0 -mb-2"
-        >
-          {children}
-        </motion.div>
-      ) : null}
-    </AnimatePresence>
+    <div
+      data-composer-external-footer-slot="true"
+      className="relative z-0 -mb-2"
+    >
+      {children}
+    </div>
   );
 }
 
@@ -225,7 +212,8 @@ function ThreadComposerStatusStripContent({
     <div
       data-composer-lower-status-row="true"
       className={cn(
-        "-mx-px -mb-4.5 flex flex-nowrap items-center gap-2 overflow-hidden rounded-t-2xl bg-token-side-bar-background px-2 pt-2 pb-[27px] select-none dark:bg-token-bg-fog electron:relative electron:top-1 electron:mx-[var(--home-composer-inline-inset)] electron:px-1.5 electron:pt-1.5",
+        RIGHT_PANEL_COMPOSER_ACCESSORY_INLINE_INSET_CLASS,
+        "-mb-4.5 flex flex-nowrap items-center gap-2 overflow-hidden rounded-t-2xl bg-token-side-bar-background px-2 pt-2 pb-[27px] select-none dark:bg-token-bg-fog electron:relative electron:top-1 electron:px-1.5 electron:pt-1.5",
         className,
       )}
     >

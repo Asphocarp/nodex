@@ -159,6 +159,13 @@ import type { BrowserSettingsDestination } from "./browser-settings-pages";
 
 type BrowserTab = WorkbenchTabProjection & { preview?: true };
 
+export interface BrowserSurfaceContext {
+  /** Stable presentation owner used to isolate Browser hosts and snapshots. */
+  readonly browserConversationId: string;
+  /** Present only when Browser annotations/attachments target a real Codex conversation. */
+  readonly codexSessionId: string | null;
+}
+
 const BROWSER_CHROME_CLASS =
   "relative z-10 h-toolbar-pane min-w-0 shrink-0 border-b border-token-border bg-token-main-surface-primary";
 const BROWSER_CHROME_ROW_CLASS =
@@ -213,6 +220,7 @@ const DEFAULT_BROWSER_SNAPSHOT: Omit<
 export function BrowserSidebarPanel({
   tab,
   activeSession,
+  surfaceContext,
   browserViewScopeId,
   onRefreshSessions,
   onUpdateTab = () => null,
@@ -223,7 +231,8 @@ export function BrowserSidebarPanel({
   isVisible,
 }: {
   tab: BrowserTab;
-  activeSession: WorkbenchSessionRenderProjection;
+  activeSession?: WorkbenchSessionRenderProjection;
+  surfaceContext?: BrowserSurfaceContext;
   browserViewScopeId: string;
   onRefreshSessions: (
     projectId: string | null,
@@ -240,6 +249,12 @@ export function BrowserSidebarPanel({
   activeForContentSearch?: boolean;
   isVisible: boolean;
 }) {
+  const browserConversationId = surfaceContext?.browserConversationId
+    ?? activeSession?.id
+    ?? browserViewScopeId;
+  const fallbackCodexSessionId = surfaceContext
+    ? surfaceContext.codexSessionId
+    : activeSession?.thread?.threadId ?? activeSession?.id ?? null;
   const browserRuntimeAvailable = typeof window !== "undefined" && Boolean(window.api);
   const browserRuntime = useBrowserSidebarRendererState();
   const { resolved: themeVariant } = useTheme();
@@ -250,7 +265,7 @@ export function BrowserSidebarPanel({
   isVisibleRef.current = isVisible;
   themeVariantRef.current = themeVariant;
   const [snapshot, setSnapshot] = useState<BrowserSidebarTabSnapshot>(() =>
-    makeInitialSnapshot(tab, activeSession, browserViewScopeId)
+    makeInitialSnapshot(tab, browserConversationId, browserViewScopeId)
   );
   const [addressValue, setAddressValue] = useState(readBrowserAddressValue(snapshot.url));
   const [addressFocused, setAddressFocused] = useState(false);
@@ -325,10 +340,10 @@ export function BrowserSidebarPanel({
   const tabProjectId = tab.projectId;
   const tabTitle = tab.title;
   const browserIdentity = useMemo(() => ({
-    browserConversationId: activeSession.id,
+    browserConversationId,
     browserViewScopeId,
     browserTabId,
-  }), [activeSession.id, browserTabId, browserViewScopeId]);
+  }), [browserConversationId, browserTabId, browserViewScopeId]);
   const browserIdentityKey = makeBrowserSidebarTabKey(browserIdentity);
   const browserUseState =
     eventBrowserUseState ?? browserRuntime.browserUseState;
@@ -336,11 +351,17 @@ export function BrowserSidebarPanel({
     .activeBrowserTabIdsByConversationScope[
       `${browserIdentity.browserConversationId}\0${browserIdentity.browserViewScopeId}`
     ] ?? null;
+  const exactBrowserUseTab = browserUseState.tabs.find((item) =>
+    matchesBrowserSidebarTabIdentity(item, browserIdentity)
+  ) ?? null;
   const activeBrowserUseTab = activeBrowserUseTabId === browserIdentity.browserTabId
-    ? browserUseState.tabs.find((item) =>
-        matchesBrowserSidebarTabIdentity(item, browserIdentity)
-      ) ?? null
+    ? exactBrowserUseTab
     : null;
+  const codexSessionId = exactBrowserUseTab?.codexSessionId
+    ?? (tab.kind === "browser"
+      ? tab.config.browserUseSource?.codexSessionId
+      : null)
+    ?? fallbackCodexSessionId;
   const shouldMountWebview = !isBlank || activeBrowserUseTab !== null;
   const handleOpenNewTab = useEffectEvent((
     request: BrowserSidebarOpenNewTabRequest,
@@ -537,16 +558,16 @@ export function BrowserSidebarPanel({
     return window.api?.on("browser-sidebar-image-drag-state", (payload) => {
       const event = payload as BrowserSidebarImageDragStateEvent;
       if (!matchesBrowserSidebarTabIdentity(event, browserIdentity)) return;
+      if (!codexSessionId) return;
       publishBrowserImageDragState(
-        activeSession.thread?.threadId ?? activeSession.id,
+        codexSessionId,
         event,
       );
     });
   }, [
-    activeSession.id,
-    activeSession.thread?.threadId,
     browserIdentity,
     browserRuntimeAvailable,
+    codexSessionId,
   ]);
 
   useEffect(() => {
@@ -555,8 +576,12 @@ export function BrowserSidebarPanel({
       const event = payload as BrowserSidebarContextMenuActionEvent;
       if (!matchesBrowserSidebarTabIdentity(event, browserIdentity)) return;
       if (event.action === "image-attached") {
+        if (!codexSessionId) {
+          setClearDataStatus("Open a Conversation to add browser context");
+          return;
+        }
         publishBrowserImageAttachment(
-          activeSession.thread?.threadId ?? activeSession.id,
+          codexSessionId,
           {
             id: event.attachment.id,
             filename: event.attachment.fileName,
@@ -594,10 +619,9 @@ export function BrowserSidebarPanel({
       });
     });
   }, [
-    activeSession.id,
-    activeSession.thread?.threadId,
     browserIdentity,
     browserRuntimeAvailable,
+    codexSessionId,
     command,
   ]);
 
@@ -647,7 +671,6 @@ export function BrowserSidebarPanel({
       const result = await command({
         type: "register-tab",
         ...browserIdentity,
-        codexSessionId: activeSession.thread?.threadId ?? activeSession.id,
         projectId: tabProjectId,
         initialUrl: tabInitialUrl,
         title: tabTitle,
@@ -668,8 +691,6 @@ export function BrowserSidebarPanel({
       cancelled = true;
     };
   }, [
-    activeSession.id,
-    activeSession.thread?.threadId,
     browserIdentity,
     browserIdentityKey,
     browserRuntimeAvailable,
@@ -1385,7 +1406,7 @@ export function BrowserSidebarPanel({
           />
         ) : (
           <BrowserWebviewStage
-            activeSessionId={activeSession.id}
+            activeSessionId={browserConversationId}
             tabId={tab.id}
             deviceToolbarVisible={snapshot.deviceToolbarVisible}
             viewport={snapshot.viewport}
@@ -1440,6 +1461,10 @@ export function BrowserSidebarPanel({
                     );
                   }}
                   onAddToComposer={() => {
+                    if (!codexSessionId) {
+                      setClearDataStatus("Open a Conversation to add browser context");
+                      return;
+                    }
                     if (annotationAnchors.length === 0) return;
                     if (
                       annotationIntent === "designChange"
@@ -1456,7 +1481,7 @@ export function BrowserSidebarPanel({
                       anchors: annotationAnchors,
                     }).then((evidence) => {
                       publishBrowserAnnotationAttachment(
-                        activeSession.thread?.threadId ?? activeSession.id,
+                        codexSessionId,
                         {
                           schemaVersion: 1,
                           id: globalThis.crypto?.randomUUID?.()
@@ -3226,7 +3251,7 @@ export function BrowserUnavailableState() {
 
 function makeInitialSnapshot(
   tab: BrowserTab,
-  activeSession: WorkbenchSessionRenderProjection,
+  browserConversationId: string,
   browserViewScopeId = "unassigned-window-session",
 ): BrowserSidebarTabSnapshot {
   const url = normalizeBrowserNavigationUrl(readBrowserConfigUrl(tab));
@@ -3235,7 +3260,7 @@ function makeInitialSnapshot(
     ?? readBrowserConfigDeviceToolbarVisible(tab);
   return {
     ...DEFAULT_BROWSER_SNAPSHOT,
-    browserConversationId: activeSession.id,
+    browserConversationId,
     browserViewScopeId,
     browserTabId: requireWorkbenchBrowserTabProjectionId(tab),
     projectId: tab.projectId,

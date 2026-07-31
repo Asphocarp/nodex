@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { render } from "../../../test/dom";
 import {
@@ -150,7 +150,15 @@ describe("RightPanelComposerOverlay", () => {
   test("offers explicit hide and restore controls for compact browser overlays", async () => {
     const target = makeTarget();
     render(
-      <RightPanelComposerOverlay target={target} compact>
+      <RightPanelComposerOverlay
+        target={target}
+        compact
+        visibility={{
+          kind: "browser-auto",
+          documentBottomKey: null,
+          isAtDocumentBottom: false,
+        }}
+      >
         <button type="button">Composer</button>
       </RightPanelComposerOverlay>,
     );
@@ -185,14 +193,108 @@ describe("RightPanelComposerOverlay", () => {
     });
   });
 
+  test("uses external visibility for a normal-width controlled Dock", async () => {
+    const target = makeTarget();
+    const onVisibleChange = vi.fn();
+    const renderOverlay = (visible: boolean) => (
+      <RightPanelComposerOverlay
+        target={target}
+        visibility={{
+          kind: "controlled",
+          visible,
+          attention: "request",
+          onVisibleChange,
+        }}
+      >
+        <button type="button">Composer</button>
+      </RightPanelComposerOverlay>
+    );
+    const view = render(renderOverlay(true));
+
+    const hideButton = await waitFor(() => {
+      const button = document.body.querySelector<HTMLButtonElement>(
+        'button[aria-label="Hide floating composer"]',
+      );
+      if (!button) throw new Error("Expected controlled hide control");
+      return button;
+    });
+    expect(target.style.getPropertyValue("--right-panel-composer-overlay-reserve"))
+      .toBe("118px");
+    expect(hideButton.closest(
+      '[data-testid="right-panel-composer-overlay-host"]',
+    )?.getAttribute("data-overlay-attention")).toBe("request");
+
+    await act(async () => {
+      fireEvent.click(hideButton);
+    });
+    expect(onVisibleChange).toHaveBeenLastCalledWith(false);
+
+    view.rerender(renderOverlay(false));
+    await waitFor(() => {
+      expect(target.style.getPropertyValue("--right-panel-composer-overlay-reserve"))
+        .toBe("0px");
+      expect(document.body.querySelector(
+        '[data-testid="right-panel-composer-overlay"]',
+      )?.getAttribute("aria-hidden")).toBe("true");
+    });
+    const showButton = document.body.querySelector<HTMLButtonElement>(
+      'button[aria-label="Show floating composer"]',
+    );
+    if (!showButton) throw new Error("Expected controlled restore control");
+    await act(async () => {
+      fireEvent.click(showButton);
+    });
+    expect(onVisibleChange).toHaveBeenLastCalledWith(true);
+  });
+
+  test("focuses the controlled Dock composer only after an explicit request", async () => {
+    const target = makeTarget();
+    const renderOverlay = (focusRequestKey: number) => (
+      <RightPanelComposerOverlay
+        target={target}
+        visibility={{
+          kind: "controlled",
+          visible: true,
+          attention: "none",
+          focusRequestKey,
+          onVisibleChange: () => {},
+        }}
+      >
+        <div
+          contentEditable
+          data-codex-composer="true"
+          suppressContentEditableWarning
+        />
+      </RightPanelComposerOverlay>
+    );
+    const view = render(renderOverlay(0));
+    const composer = await waitFor(() => {
+      const element = document.body.querySelector<HTMLElement>(
+        '[data-codex-composer="true"]',
+      );
+      if (!element) throw new Error("Expected controlled Dock composer");
+      return element;
+    });
+    expect(document.activeElement).not.toBe(composer);
+
+    view.rerender(renderOverlay(1));
+
+    await waitFor(() => {
+      expect(document.activeElement).toBe(composer);
+    });
+  });
+
   test("auto-hides at Browser document bottom until explicitly restored", async () => {
     const target = makeTarget();
     const renderOverlay = (isAtDocumentBottom: boolean) => (
       <RightPanelComposerOverlay
         target={target}
         compact
-        documentBottomKey="browser-one"
-        isAtDocumentBottom={isAtDocumentBottom}
+        visibility={{
+          kind: "browser-auto",
+          documentBottomKey: "browser-one",
+          isAtDocumentBottom,
+        }}
       >
         <button type="button">Composer</button>
       </RightPanelComposerOverlay>
@@ -241,8 +343,11 @@ describe("RightPanelComposerOverlay", () => {
       <RightPanelComposerOverlay
         target={target}
         compact
-        documentBottomKey="browser-one"
-        isAtDocumentBottom={isAtDocumentBottom}
+        visibility={{
+          kind: "browser-auto",
+          documentBottomKey: "browser-one",
+          isAtDocumentBottom,
+        }}
       >
         <div
           contentEditable

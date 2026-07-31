@@ -9,24 +9,12 @@ import {
   NodexDropdownSeparator,
 } from "@/components/ui/dropdown";
 import {
-  filterAvailablePanelActions,
   isNodexPanelOptionAction,
   isPanelDestinationAction,
-  PANEL_NEW_TAB_ACTIONS,
   resolvePanelActionShortcutLabel,
+  type PanelNewTabAction,
+  type PanelNewTabActionKind,
 } from "@/lib/workbench-panel-actions";
-import {
-  projectWorkspaceRootOrNull,
-} from "@/lib/workbench-workspace-context";
-import type {
-  useWorkbenchPanelCommandRouter,
-} from "@/lib/use-workbench-panel-command-router";
-import type {
-  useWorkbenchPanelLifecycle,
-} from "@/lib/use-workbench-panel-lifecycle";
-import type {
-  WorkbenchSessionRenderProjection,
-} from "@/lib/workbench-session-presentation";
 import type {
   CommandKeymapState,
 } from "../../../shared/command-keybindings";
@@ -37,6 +25,7 @@ import type {
 import { cn } from "@/lib/utils";
 import { PanelDestinationPicker } from "./panel-destination-picker";
 import type {
+  PanelDestination,
   PanelDestinationPickerScope,
 } from "./panel-destination-picker-model";
 import {
@@ -44,68 +33,34 @@ import {
   TOOLBAR_BUTTON_GHOST_CLASS,
 } from "@/lib/workbench-toolbar-control-styles";
 
-type PanelCommands =
-  Pick<
-    ReturnType<typeof useWorkbenchPanelCommandRouter>,
-    | "dispatchPanelAction"
-  | "focusOrCreateProjectDbViewTab"
-    | "openPanelDestinationFromPicker"
-  >
-  & Pick<
-    ReturnType<typeof useWorkbenchPanelLifecycle>,
-    "activatePanelGroup"
-  >;
-
 interface WorkbenchPanelNewTabButtonProps {
-  readonly session: WorkbenchSessionRenderProjection;
+  readonly actions: readonly PanelNewTabAction[];
   readonly projects: readonly Project[];
   readonly panelId: PanelId;
-  readonly leafId: string;
+  readonly currentProjectId: string | null;
+  readonly currentProjectDbViewExists: boolean;
   readonly isMac: boolean;
   readonly commandKeymapState?: CommandKeymapState | null;
-  readonly commands: PanelCommands;
-}
-
-function hasProjectDbView(
-  session: WorkbenchSessionRenderProjection,
-  projectId: string,
-): boolean {
-  return session.tabs.some((tab) =>
-    tab.kind === "db_view"
-    && "projectId" in tab.config
-    && tab.config.projectId === projectId
-  );
+  readonly onAction: (kind: PanelNewTabActionKind) => void | Promise<void>;
+  readonly onOpenDestination: (destination: PanelDestination) => void | Promise<void>;
 }
 
 /**
  * Self-contained panel action menu. The menu owns its transient open state and
- * routes semantic choices through the Panel Commands port.
+ * delegates semantic choices to the owning panel host.
  */
 export function WorkbenchPanelNewTabButton({
-  session,
+  actions,
   projects,
   panelId,
-  leafId,
+  currentProjectId,
+  currentProjectDbViewExists,
   isMac,
   commandKeymapState,
-  commands,
+  onAction,
+  onOpenDestination,
 }: WorkbenchPanelNewTabButtonProps) {
   const [open, setOpen] = useState(false);
-  const actions = filterAvailablePanelActions(
-    PANEL_NEW_TAB_ACTIONS,
-    session.tabs,
-    panelId,
-    session.projectId,
-    Boolean(session.thread),
-    session.thread?.cwd,
-    session.projectId === null
-      ? null
-      : projectWorkspaceRootOrNull(
-          projects.find(
-            (project) => project.id === session.projectId,
-          ),
-        ),
-  );
   const title = panelId === "right"
     ? "Open side panel tab"
     : "Open bottom panel tab";
@@ -140,8 +95,8 @@ export function WorkbenchPanelNewTabButton({
           );
         const shouldCreateCurrentProjectDbView =
           action.kind === "db_view"
-          && session.projectId !== null
-          && !hasProjectDbView(session, session.projectId);
+          && currentProjectId !== null
+          && !currentProjectDbViewExists;
 
         return (
           <div key={action.kind}>
@@ -157,16 +112,7 @@ export function WorkbenchPanelNewTabButton({
                   commandKeymapState,
                 )}
                 onSelect={() => {
-                  void (async () => {
-                    await commands.activatePanelGroup(
-                      panelId,
-                      leafId,
-                    );
-                    await commands.focusOrCreateProjectDbViewTab(
-                      panelId,
-                      leafId,
-                    );
-                  })();
+                  void onAction(action.kind);
                 }}
               >
                 {action.label}
@@ -194,14 +140,10 @@ export function WorkbenchPanelNewTabButton({
                       ? "Open DB…"
                       : "Open Page…"
                   }
-                  currentProjectId={session.projectId}
+                  currentProjectId={currentProjectId}
                   onClose={() => setOpen(false)}
                   onAccept={async (destination) => {
-                    await commands.openPanelDestinationFromPicker(
-                      destination,
-                      panelId,
-                      leafId,
-                    );
+                    await onOpenDestination(destination);
                     setOpen(false);
                   }}
                 />
@@ -215,10 +157,7 @@ export function WorkbenchPanelNewTabButton({
                   commandKeymapState,
                 )}
                 onSelect={() => {
-                  void commands.dispatchPanelAction(
-                    action.kind,
-                    { panelId, leafId },
-                  );
+                  void onAction(action.kind);
                 }}
               >
                 {action.label}

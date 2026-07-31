@@ -162,7 +162,6 @@ export function makeTestWorkbenchSession(input: {
     projectId: input.projectId === undefined
       ? "project-1"
       : input.projectId,
-    databaseStarter: false,
     noThreadFallbackTitle: "Test Session",
     displayTitle: "Test Session",
     order: 0,

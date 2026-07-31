@@ -6,7 +6,7 @@ import { getKanbanProjectStore } from "@/lib/kanban-store";
 import { LOCAL_ENVIRONMENT_SELECTIONS_STORAGE_KEY } from "./local-environment-selection";
 import { type CodexSidebarThreadItem } from "@/lib/types";
 import { __getNodexToastSnapshotForTests } from "@/components/ui/toast";
-import { getConnectedThreadStagePropsByThreadId, getLastThreadStageActions, getMountedSessionIds, getMountedSessionRoot, getSidebarSection, getThreadRow, getThreadRowTitles, installReducedMotionMatchMediaForTest, invokeCalls, makeAttachedSession, makePanelLayout, makeProject, makeSession, mockInvokeImpl, renderWorkbench, requestThreadStreamSnapshotCalls, selectSidebarSession, setInvokeCalls, setMockInvokeImpl, setRequestThreadStreamSnapshotImpl } from "./workbench-testkit/workbench-shell-harness";
+import { getConnectedThreadStagePropsByThreadId, getLastThreadStageActions, getMountedSessionIds, getMountedSessionRoot, getSidebarProjectGroup, getSidebarSection, getThreadRow, getThreadRowTitles, installReducedMotionMatchMediaForTest, invokeCalls, makeAttachedSession, makePanelLayout, makeProject, makeSession, mockInvokeImpl, renderWorkbench, requestThreadStreamSnapshotCalls, selectSidebarSession, setInvokeCalls, setMockInvokeImpl, setRequestThreadStreamSnapshotImpl } from "./workbench-testkit/workbench-shell-harness";
 import type { ProjectSession } from "./workbench-testkit/workbench-shell-harness";
 
 describe("workbench session shell / sidebar-core", () => {
@@ -25,14 +25,28 @@ describe("workbench session shell / sidebar-core", () => {
   });
 
   test("shows the Chats loading state on the first render instead of flashing the empty state", async () => {
-    const screen = renderWorkbench({ projectlessSessions: [] });
+    const screen = renderWorkbench({
+      projectlessSessions: [],
+      sessionsByProject: { alpha: [] },
+    });
+    const projectRow = screen.container.querySelector(
+      '[data-app-action-sidebar-project-id="alpha"]',
+    );
+    if (!(projectRow instanceof HTMLElement)) {
+      throw new Error("Expected Alpha project row");
+    }
 
-    expect(screen.getAllByText("Loading chats...").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Loading chats...")).toHaveLength(1);
+    expect(within(projectRow).queryByText("Loading chats...")).toBe(null);
     expect(screen.queryByText("No projectless chats")).toBe(null);
+    expect(screen.queryByText("No chats inside")).toBe(null);
 
     await settleAsyncRender();
     await settleAsyncRender();
     expect(screen.getByText("No projectless chats") !== null).toBe(true);
+    const projectsSection = getSidebarSection(screen.container, "Projects");
+    const projectGroup = getSidebarProjectGroup(projectsSection, "alpha");
+    expect(within(projectGroup).getByText("No chats inside") !== null).toBe(true);
     expect(screen.queryByText("Loading chats...")).toBe(null);
   });
 

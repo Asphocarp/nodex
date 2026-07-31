@@ -4,7 +4,7 @@ use utoipa::ToSchema;
 use crate::collection::{CollectionWindow, CollectionWindowRequest};
 use crate::{ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const PROJECT_WORKSPACE_CONTRACT_VERSION: u32 = 8;
+pub const PROJECT_WORKSPACE_CONTRACT_VERSION: u32 = 9;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -560,11 +560,6 @@ pub struct ProjectWorkspaceSessionSummary {
     pub archived: bool,
     pub archived_at: Option<String>,
     pub unread: bool,
-    /// Marks the Project's starter "Database View" Session. A database-starter
-    /// Session's first window materialization presents the Project's primary
-    /// Database default View; the View itself is resolved at read time and is
-    /// never stored on the Session.
-    pub database_starter: bool,
     pub thread_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,

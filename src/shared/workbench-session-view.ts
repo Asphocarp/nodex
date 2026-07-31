@@ -15,45 +15,25 @@ import {
   setWorkbenchPanelBranchRatio,
   setWorkbenchPanelMaximizedLeaf,
   splitWorkbenchPanelLeaf,
+  type WorkbenchPanelLayout,
+  type WorkbenchPanelNode,
+  type WorkbenchPanelSplitLeaf,
+  type WorkbenchPanelSplitSide,
 } from "./workbench-panel-layout";
 import type { BrowserSidebarDeviceToolbarState } from "./browser-sidebar";
-import type { InitialProjectPresentation } from "./initial-project-welcome";
 
 export const WORKBENCH_SESSION_VIEW_VERSION = 3 as const;
 export const WORKBENCH_SESSION_VIEW_MAX_TABS = 2_048;
 
 export type WorkbenchPanelId = "right" | "bottom";
-export type WorkbenchPanelSplitSide = "left" | "right" | "up" | "down";
-
-export interface WorkbenchPanelSplitLeaf {
-  type: "leaf";
-  id: string;
-  tabIds: string[];
-  activeTabId: string | null;
-  mruTabIds: string[];
-}
-
-export interface WorkbenchPanelSplitBranch {
-  type: "split";
-  id: string;
-  direction: "horizontal" | "vertical";
-  first: WorkbenchPanelNode;
-  second: WorkbenchPanelNode;
-  ratio: number;
-}
-
-export type WorkbenchPanelNode =
-  WorkbenchPanelSplitLeaf | WorkbenchPanelSplitBranch;
-
-export interface WorkbenchPanelLayout {
-  version: 2;
-  root: WorkbenchPanelNode;
-  activeLeafId: string;
-  mruLeafIds: string[];
-  maximizedLeafId?: string | null;
-}
-
-export type WorkbenchPanelLayoutV2 = WorkbenchPanelLayout;
+export type {
+  WorkbenchPanelLayout,
+  WorkbenchPanelLayoutV2,
+  WorkbenchPanelNode,
+  WorkbenchPanelSplitBranch,
+  WorkbenchPanelSplitLeaf,
+  WorkbenchPanelSplitSide,
+} from "./workbench-panel-layout";
 
 export interface WorkbenchPanelSize {
   widthPx?: number;
@@ -203,8 +183,9 @@ export interface WorkbenchSessionMaterializationTarget {
   projectId: string | null;
   /**
    * Database View to present in the initial full-width db_view tab, already
-   * resolved by the caller (database-starter Session + the Project's current
-   * default View). Null materializes an empty view.
+   * resolved by the caller from the Project's current default View. This
+   * legacy materializer is used only while decoding pre-Scene layouts. Null
+   * materializes an empty view.
    */
   databaseViewId: string | null;
 }
@@ -435,64 +416,6 @@ export function materializeInitialWorkbenchSessionView(
       },
     },
   );
-}
-
-export function materializeInitialProjectWelcomeView(
-  presentation: InitialProjectPresentation,
-  options: {
-    touchedAt?: string;
-  } = {},
-): WorkbenchSessionViewSnapshot {
-  const counters = new Map<string, number>();
-  const identityFactory: WorkbenchSessionViewIdentityFactory = {
-    createId(kind) {
-      const ordinal = counters.get(kind) ?? 0;
-      counters.set(kind, ordinal + 1);
-      return `initial:${presentation.starterSessionId}:${kind}:${ordinal}`;
-    },
-  };
-  const databaseView = materializeInitialWorkbenchSessionView(
-    {
-      id: presentation.starterSessionId,
-      projectId: presentation.projectId,
-      databaseViewId: presentation.defaultDatabaseViewId,
-    },
-    {
-      identityFactory,
-      touchedAt: options.touchedAt,
-    },
-  );
-  const rightLeaf = listWorkbenchPanelLeaves(
-    databaseView.panels.right.layout,
-  )[0];
-  if (!rightLeaf) return databaseView;
-
-  const pageTabId = identityFactory.createId("tab");
-  const withPage = createWorkbenchSessionViewTab(databaseView, {
-    panelId: "right",
-    targetLeafId: rightLeaf.id,
-    tab: {
-      id: pageTabId,
-      kind: "page_stage",
-      titleSnapshot: presentation.starterPageTitle,
-      config: {
-        projectId: presentation.projectId,
-        pageId: presentation.starterPageId,
-        titleSnapshot: presentation.starterPageTitle,
-      },
-      stateKey: 0,
-      state: null,
-    },
-  });
-  const activated = activateWorkbenchSessionViewTab(
-    withPage,
-    "right",
-    rightLeaf.id,
-    pageTabId,
-  );
-  return options.touchedAt
-    ? { ...activated, touchedAt: options.touchedAt }
-    : activated;
 }
 
 export function createWorkbenchSessionViewTab(

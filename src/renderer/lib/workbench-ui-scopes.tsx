@@ -17,7 +17,10 @@ import {
   type ScopeHandle,
 } from "./maitai";
 
-export type ThreadScopeStableKey = `session:${string}` | `client:${string}`;
+export type ThreadScopeStableKey =
+  | `draft:${string}`
+  | `session:${string}`
+  | `client:${string}`;
 
 export interface ThreadScopeDescriptor {
   readonly stableKey: ThreadScopeStableKey;
@@ -90,6 +93,7 @@ export interface ThreadScopeIdentityRegistry {
     readonly projectSessionId?: string | null;
     readonly clientThreadId?: string | null;
     readonly threadId?: string | null;
+    readonly draftId?: string | null;
   }): ThreadScopeStableKey;
   register(
     stableKey: ThreadScopeStableKey,
@@ -97,6 +101,7 @@ export interface ThreadScopeIdentityRegistry {
       readonly projectSessionId?: string | null;
       readonly clientThreadId?: string | null;
       readonly threadId?: string | null;
+      readonly draftId?: string | null;
     },
   ): void;
 }
@@ -107,10 +112,12 @@ export function createThreadScopeIdentityRegistry(): ThreadScopeIdentityRegistry
     readonly projectSessionId?: string | null;
     readonly clientThreadId?: string | null;
     readonly threadId?: string | null;
+    readonly draftId?: string | null;
   }) => [
     input.projectSessionId?.trim() ? `session:${input.projectSessionId.trim()}` : null,
     input.clientThreadId?.trim() ? `client:${input.clientThreadId.trim()}` : null,
     input.threadId?.trim() ? `thread:${input.threadId.trim()}` : null,
+    input.draftId?.trim() ? `draft:${input.draftId.trim()}` : null,
   ].filter((value): value is string => value !== null);
 
   const register = (
@@ -119,6 +126,7 @@ export function createThreadScopeIdentityRegistry(): ThreadScopeIdentityRegistry
       readonly projectSessionId?: string | null;
       readonly clientThreadId?: string | null;
       readonly threadId?: string | null;
+      readonly draftId?: string | null;
     },
   ) => {
     const known = new Set(
@@ -143,12 +151,19 @@ export function createThreadScopeIdentityRegistry(): ThreadScopeIdentityRegistry
       }
       const clientThreadId = input.clientThreadId?.trim();
       const projectSessionId = input.projectSessionId?.trim();
+      const draftId = input.draftId?.trim();
       const stableKey = clientThreadId
         ? `client:${clientThreadId}` as const
         : projectSessionId
           ? `session:${projectSessionId}` as const
-          : null;
-      if (!stableKey) throw new Error("Thread scope identity requires a session or client thread id");
+          : draftId
+            ? `draft:${draftId}` as const
+            : null;
+      if (!stableKey) {
+        throw new Error(
+          "Thread scope identity requires a draft, session, or client thread id",
+        );
+      }
       register(stableKey, input);
       return stableKey;
     },
@@ -156,19 +171,39 @@ export function createThreadScopeIdentityRegistry(): ThreadScopeIdentityRegistry
   };
 }
 
+export function resolveProjectDraftThreadScopeDescriptor(
+  registry: ThreadScopeIdentityRegistry,
+  draftId: string,
+): ThreadScopeDescriptor {
+  const normalizedDraftId = draftId.trim();
+  if (!normalizedDraftId) {
+    throw new Error("Project draft scope identity requires a draft id");
+  }
+  return {
+    stableKey: registry.resolve({ draftId: normalizedDraftId }),
+    phase: "new",
+    projectSessionId: null,
+    clientThreadId: null,
+    threadId: null,
+  };
+}
+
 export function resolveProjectSessionThreadScopeDescriptor(
   registry: ThreadScopeIdentityRegistry,
   session: ProjectSession,
+  clientThreadId: string | null = null,
 ): ThreadScopeDescriptor {
   const threadId = session.thread?.threadId?.trim() || null;
+  const normalizedClientThreadId = clientThreadId?.trim() || null;
   return {
     stableKey: registry.resolve({
       projectSessionId: session.id,
+      clientThreadId: normalizedClientThreadId,
       threadId,
     }),
-    phase: threadId ? "attached" : "new",
+    phase: threadId ? "attached" : normalizedClientThreadId ? "pending" : "new",
     projectSessionId: session.id,
-    clientThreadId: null,
+    clientThreadId: normalizedClientThreadId,
     threadId,
   };
 }

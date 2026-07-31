@@ -40,6 +40,9 @@ export function buildBrowserUseWorkbenchTabCreateInput({
     title,
     config: {
       projectId: request.projectId,
+      browserUseSource: {
+        codexSessionId: request.codexSessionId,
+      },
       browserStorageId:
         snapshot?.browserStorageId ?? `browser:use:${request.browserTabId}`,
       ...(snapshot?.url ? { url: snapshot.url } : {}),

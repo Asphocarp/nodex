@@ -1,0 +1,360 @@
+import { describe, expect, test } from "vitest";
+import { WorkbenchSceneSnapshotSchema } from "./schemas/workbench-scene";
+import {
+  cloneWorkbenchSceneLayoutForNewWindow,
+  createWorkbenchSceneSurface,
+  getWorkbenchSurfaceReuseKey,
+  makeWorkbenchSceneKey,
+  materializeInitialWorkbenchScene,
+  mergeWorkbenchSceneLeaf,
+  migrateWorkbenchSceneV1ToV2,
+  moveWorkbenchSceneSurface,
+  patchWorkbenchScenePanel,
+  removeWorkbenchSceneSurface,
+  reorderWorkbenchSceneSurfaces,
+  splitWorkbenchSceneLeaf,
+  type WorkbenchSceneIdentityFactory,
+  type WorkbenchSceneSnapshot,
+  type WorkbenchSceneSnapshotV1,
+  type WorkbenchSurfaceDescriptor,
+} from "./workbench-scene";
+
+function identityFactory(prefix: string): WorkbenchSceneIdentityFactory {
+  let next = 0;
+  return {
+    createId(kind) {
+      next += 1;
+      return `${prefix}:${kind}:${next}`;
+    },
+  };
+}
+
+function projectScene(): WorkbenchSceneSnapshot {
+  return materializeInitialWorkbenchScene(
+    { kind: "project", projectId: "project-1" },
+    {
+      identityFactory: identityFactory("project"),
+      touchedAt: "2026-07-31T00:00:00.000Z",
+    },
+  );
+}
+
+function browserSurface(id = "browser-surface"): WorkbenchSurfaceDescriptor {
+  return {
+    id,
+    kind: "browser",
+    titleSnapshot: "Browser",
+    config: {
+      browserTabId: "browser-runtime-1",
+      browserStorageId: "browser-storage-1",
+      url: "https://example.com",
+    },
+    stateKey: 0,
+    state: null,
+  };
+}
+
+describe("WorkbenchScene", () => {
+  test("materializes Project and Session owner-root primary surfaces", () => {
+    const project = projectScene();
+    const session = materializeInitialWorkbenchScene(
+      { kind: "session", sessionId: "session-1" },
+      {
+        identityFactory: identityFactory("session"),
+        touchedAt: "2026-07-31T00:00:00.000Z",
+      },
+    );
+
+    expect(project.primary).toMatchObject({
+      kind: "db_view",
+      config: {
+        projectId: "project-1",
+        target: { kind: "project-default" },
+      },
+    });
+    expect(session.primary).toMatchObject({
+      kind: "conversation",
+      config: { sessionId: "session-1" },
+    });
+    expect(project.panels.right.collapsed).toBe(false);
+    expect(project.panels.right.size.fullWidth).toBe(true);
+    expect(project.panels.right.layout.root).toMatchObject({
+      type: "leaf",
+      tabIds: [project.primary.id],
+      activeTabId: project.primary.id,
+    });
+    expect(project.agentDock).toMatchObject({
+      visible: true,
+      binding: { kind: "new" },
+    });
+    expect(session.panels.right.collapsed).toBe(true);
+    expect(session.agentDock).toBeNull();
+    expect(project.panels.bottom.collapsed).toBe(true);
+    expect(makeWorkbenchSceneKey(project.owner)).toBe("project:project-1");
+    expect(makeWorkbenchSceneKey(session.owner)).toBe("session:session-1");
+    expect(WorkbenchSceneSnapshotSchema.parse(project)).toEqual(project);
+    expect(WorkbenchSceneSnapshotSchema.parse(session)).toEqual(session);
+  });
+
+  test("owns each panel surface exactly once and never allows closing primary", () => {
+    const initial = projectScene();
+    const withBrowser = createWorkbenchSceneSurface(initial, {
+      panelId: "right",
+      surface: browserSurface(),
+    });
+
+    expect(withBrowser.panelSurfacesById["browser-surface"]).toEqual(
+      browserSurface(),
+    );
+    expect(withBrowser.panels.right.layout.root).toMatchObject({
+      type: "leaf",
+      tabIds: [initial.primary.id, "browser-surface"],
+    });
+    expect(WorkbenchSceneSnapshotSchema.parse(withBrowser)).toEqual(withBrowser);
+    expect(createWorkbenchSceneSurface(withBrowser, {
+      panelId: "bottom",
+      surface: browserSurface(),
+    })).toBe(withBrowser);
+  });
+
+  test("rejects owner-root primary mismatches and duplicate placement", () => {
+    const project = projectScene();
+    const mismatched = {
+      ...project,
+      owner: { kind: "project", projectId: "project-2" },
+    };
+    expect(() => WorkbenchSceneSnapshotSchema.parse(mismatched)).toThrow();
+
+    const withBrowser = createWorkbenchSceneSurface(project, {
+      panelId: "right",
+      surface: browserSurface(),
+    });
+    const duplicated = {
+      ...withBrowser,
+      panels: {
+        ...withBrowser.panels,
+        bottom: {
+          ...withBrowser.panels.bottom,
+          layout: withBrowser.panels.right.layout,
+        },
+      },
+    };
+    expect(() => WorkbenchSceneSnapshotSchema.parse(duplicated)).toThrow();
+  });
+
+  test("keeps a Project right surface stack open and full width", () => {
+    const project = projectScene();
+    const maximized = patchWorkbenchScenePanel(project, "right", {
+      collapsed: false,
+      size: { fullWidth: true },
+    });
+    const collapsed = patchWorkbenchScenePanel(maximized, "right", {
+      collapsed: true,
+    });
+
+    expect(maximized.panels.right.size.fullWidth).toBe(true);
+    expect(collapsed.panels.right.collapsed).toBe(false);
+    expect(collapsed.panels.right.size.fullWidth).toBe(true);
+  });
+
+  test("protects the Project root surface through panel mutations", () => {
+    const initial = createWorkbenchSceneSurface(projectScene(), {
+      panelId: "right",
+      surface: browserSurface(),
+    });
+    const rootLeafId = initial.panels.right.layout.activeLeafId;
+
+    expect(removeWorkbenchSceneSurface(initial, initial.primary.id)).toBe(initial);
+    expect(moveWorkbenchSceneSurface(initial, {
+      surfaceId: initial.primary.id,
+      targetPanelId: "bottom",
+    })).toBe(initial);
+    expect(splitWorkbenchSceneLeaf(initial, {
+      panelId: "right",
+      leafId: rootLeafId,
+      side: "right",
+      surfaceId: initial.primary.id,
+    })).toBe(initial);
+    expect(mergeWorkbenchSceneLeaf(initial, {
+      panelId: "right",
+      leafId: rootLeafId,
+    })).toBe(initial);
+
+    const reordered = reorderWorkbenchSceneSurfaces(initial, {
+      panelId: "right",
+      leafId: rootLeafId,
+      orderedSurfaceIds: ["browser-surface", initial.primary.id],
+    });
+    expect(reordered.panels.right.layout.root).toMatchObject({
+      type: "leaf",
+      tabIds: [initial.primary.id, "browser-surface"],
+    });
+    expect(WorkbenchSceneSnapshotSchema.parse(reordered)).toEqual(reordered);
+  });
+
+  test("migrates an active Project Conversation surface into Agent Dock", () => {
+    const current = projectScene();
+    if (current.panels.right.layout.root.type !== "leaf") {
+      throw new Error("Expected a single Project root leaf");
+    }
+    const withoutDock: Omit<WorkbenchSceneSnapshotV1, "version"> = {
+      owner: current.owner,
+      primary: current.primary,
+      panelSurfacesById: current.panelSurfacesById,
+      panels: current.panels,
+      lastFocusedPanelId: current.lastFocusedPanelId,
+      touchedAt: current.touchedAt,
+    };
+    const legacy: WorkbenchSceneSnapshotV1 = {
+      ...withoutDock,
+      version: 1,
+      panelSurfacesById: {
+        "conversation-1": {
+          id: "conversation-1",
+          kind: "conversation",
+          titleSnapshot: "Investigate",
+          config: { sessionId: "session-1" },
+          stateKey: 0,
+          state: null,
+        },
+      },
+      panels: {
+        ...current.panels,
+        right: {
+          ...current.panels.right,
+          collapsed: true,
+          size: { ...current.panels.right.size, fullWidth: false },
+          layout: {
+            ...current.panels.right.layout,
+            root: {
+              ...current.panels.right.layout.root,
+              tabIds: ["conversation-1"],
+              activeTabId: "conversation-1",
+              mruTabIds: ["conversation-1"],
+            },
+          },
+        },
+      },
+    };
+
+    const migrated = migrateWorkbenchSceneV1ToV2(legacy);
+
+    expect(migrated.version).toBe(2);
+    expect(migrated.panelSurfacesById).toEqual({});
+    expect(migrated.agentDock).toEqual({
+      visible: true,
+      binding: { kind: "session", sessionId: "session-1" },
+      newDraftId: `agent-draft:${current.primary.id}`,
+    });
+    expect(migrated.panels.right.layout.root).toMatchObject({
+      type: "leaf",
+      tabIds: [current.primary.id],
+      activeTabId: current.primary.id,
+    });
+    expect(WorkbenchSceneSnapshotSchema.parse(legacy)).toEqual(migrated);
+    expect(WorkbenchSceneSnapshotSchema.parse(migrated)).toEqual(migrated);
+  });
+
+  test("new-window clone remints presentation and Browser identities", () => {
+    const original = createWorkbenchSceneSurface(projectScene(), {
+      panelId: "right",
+      surface: browserSurface(),
+    });
+    const clone = cloneWorkbenchSceneLayoutForNewWindow(
+      {
+        scenesByOwnerKey: {
+          [makeWorkbenchSceneKey(original.owner)]: original,
+        },
+      },
+      identityFactory("clone"),
+    ).scenesByOwnerKey["project:project-1"]!;
+    const clonedBrowser = Object.values(clone.panelSurfacesById)[0];
+
+    expect(clone.owner).toEqual(original.owner);
+    expect(clone.primary.id).not.toBe(original.primary.id);
+    expect(clone.agentDock?.newDraftId).not.toBe(
+      original.agentDock?.newDraftId,
+    );
+    expect(clonedBrowser?.id).not.toBe("browser-surface");
+    expect(clonedBrowser?.kind).toBe("browser");
+    if (clonedBrowser?.kind !== "browser") {
+      throw new Error("Expected cloned Browser surface");
+    }
+    expect(clonedBrowser.config.browserTabId).not.toBe("browser-runtime-1");
+    expect(clonedBrowser.config.browserStorageId).not.toBe("browser-storage-1");
+    expect(WorkbenchSceneSnapshotSchema.parse(clone)).toEqual(clone);
+  });
+
+  test("persists explicit Project runtime contexts without a host Session", () => {
+    const withTerminal = createWorkbenchSceneSurface(projectScene(), {
+      panelId: "bottom",
+      surface: {
+        id: "terminal-surface",
+        kind: "terminal",
+        titleSnapshot: "Terminal",
+        config: {
+          terminalSessionId: "terminal-runtime-1",
+          context: { kind: "project", projectId: "project-1" },
+        },
+        stateKey: 0,
+        state: null,
+      },
+    });
+    const withReview = createWorkbenchSceneSurface(withTerminal, {
+      panelId: "right",
+      surface: {
+        id: "review-surface",
+        kind: "review",
+        titleSnapshot: "Review",
+        config: {
+          projectId: "project-1",
+          context: { kind: "project", projectId: "project-1" },
+        },
+        stateKey: 0,
+        state: null,
+      },
+    });
+
+    expect(WorkbenchSceneSnapshotSchema.parse(withReview)).toEqual(withReview);
+    expect(withReview.panelSurfacesById["terminal-surface"]?.config)
+      .toMatchObject({ context: { kind: "project", projectId: "project-1" } });
+    expect(withReview.panelSurfacesById["review-surface"]?.config)
+      .toMatchObject({ context: { kind: "project", projectId: "project-1" } });
+  });
+
+  test("derives stable semantic reuse keys only for singleton resources", () => {
+    const conversation = materializeInitialWorkbenchScene(
+      { kind: "session", sessionId: "session-1" },
+      { identityFactory: identityFactory("reuse") },
+    ).primary;
+    const database = projectScene().primary;
+
+    expect(getWorkbenchSurfaceReuseKey(conversation)).toBe(
+      "conversation:session-1",
+    );
+    expect(getWorkbenchSurfaceReuseKey(database)).toBe("db:project-1:default");
+    expect(getWorkbenchSurfaceReuseKey({
+      id: "review-project",
+      kind: "review",
+      titleSnapshot: "Review",
+      config: {
+        projectId: "project-1",
+        context: { kind: "project", projectId: "project-1" },
+      },
+      stateKey: 0,
+      state: null,
+    })).toBe("review:project:project-1");
+    expect(getWorkbenchSurfaceReuseKey({
+      id: "review-session",
+      kind: "review",
+      titleSnapshot: "Review",
+      config: {
+        projectId: "project-1",
+        context: { kind: "session", sessionId: "session-1" },
+      },
+      stateKey: 0,
+      state: null,
+    })).toBe("review:session:session-1");
+    expect(getWorkbenchSurfaceReuseKey(browserSurface())).toBeNull();
+  });
+});

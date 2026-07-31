@@ -11,21 +11,23 @@ import {
   type WorkbenchEphemeralPanelStateUpdate,
 } from "./workbench-ephemeral-panel-state";
 import type { PanelId, ProjectSession } from "../../shared/types";
-import type { WorkbenchSessionViewSnapshot } from "../../shared/workbench-session-view";
 import {
-  activateWorkbenchSessionViewTab,
-  createWorkbenchSessionViewTab,
-  ensureWorkbenchSessionViewLeafToRight,
-  mergeWorkbenchSessionViewLeaf,
-  moveWorkbenchSessionViewTab,
-  patchWorkbenchSessionViewPanel,
-  removeWorkbenchSessionViewTab,
-  reorderWorkbenchSessionViewTabs,
-  resizeWorkbenchSessionViewBranch,
-  splitWorkbenchSessionViewLeaf,
-  updateWorkbenchSessionViewTab,
-} from "../../shared/workbench-session-view";
-import { makeWorkbenchPanelSlotKey } from "./workbench-panel-slot-key";
+  activateWorkbenchSceneSurface,
+  createWorkbenchSceneSurface,
+  ensureWorkbenchSceneLeafToRight,
+  mergeWorkbenchSceneLeaf,
+  moveWorkbenchSceneSurface,
+  patchWorkbenchScenePanel,
+  removeWorkbenchSceneSurface,
+  reorderWorkbenchSceneSurfaces,
+  resizeWorkbenchSceneBranch,
+  splitWorkbenchSceneLeaf,
+  updateWorkbenchSceneSurface,
+  type WorkbenchSceneOwner,
+  type WorkbenchSceneSnapshot,
+  type WorkbenchSurfaceDescriptor,
+} from "../../shared/workbench-scene";
+import { makeWorkbenchSessionPanelSlotKey } from "./workbench-panel-slot-key";
 import type {
   AgentPanelTab,
   AutomationPanelTab,
@@ -50,6 +52,7 @@ export type WorkbenchPanelController =
   & {
     readonly pruneSession: (sessionId: string) => void;
     readonly durable: WorkbenchDurablePanelCommands;
+    readonly sceneDurable: WorkbenchSceneDurablePanelCommands | null;
     readonly selectRenderableTab: (
       input: WorkbenchRenderableTabSelectionInput,
     ) => boolean;
@@ -83,65 +86,147 @@ export interface WorkbenchEphemeralTabRemovalInput {
 }
 
 export interface WorkbenchPanelControllerInput {
-  readonly mutateView: (
-    session: ProjectSession,
-    mutation: (
-      view: WorkbenchSessionViewSnapshot,
-    ) => WorkbenchSessionViewSnapshot,
-  ) => WorkbenchSessionViewSnapshot;
+  readonly mutateScene: (
+    owner: WorkbenchSceneOwner,
+    mutation: (scene: WorkbenchSceneSnapshot) => WorkbenchSceneSnapshot,
+  ) => WorkbenchSceneSnapshot;
+}
+
+export interface WorkbenchSceneDurablePanelCommands {
+  readonly apply: NonNullable<WorkbenchPanelControllerInput["mutateScene"]>;
+  readonly createSurface: (
+    owner: WorkbenchSceneOwner,
+    input: Parameters<typeof createWorkbenchSceneSurface>[1],
+  ) => WorkbenchSceneSnapshot;
+  readonly updateSurface: (
+    owner: WorkbenchSceneOwner,
+    surfaceId: string,
+    patch: Parameters<typeof updateWorkbenchSceneSurface>[2],
+  ) => WorkbenchSceneSnapshot;
+  readonly patchPanel: (
+    owner: WorkbenchSceneOwner,
+    panelId: Parameters<typeof patchWorkbenchScenePanel>[1],
+    patch: Parameters<typeof patchWorkbenchScenePanel>[2],
+  ) => WorkbenchSceneSnapshot;
+  readonly activateSurface: (
+    owner: WorkbenchSceneOwner,
+    panelId: Parameters<typeof activateWorkbenchSceneSurface>[1],
+    leafId: string,
+    surfaceId?: string | null,
+  ) => WorkbenchSceneSnapshot;
+  readonly removeSurface: (
+    owner: WorkbenchSceneOwner,
+    surfaceId: string,
+    options?: Parameters<typeof removeWorkbenchSceneSurface>[2],
+  ) => WorkbenchSceneSnapshot;
+  readonly moveSurface: (
+    owner: WorkbenchSceneOwner,
+    input: Parameters<typeof moveWorkbenchSceneSurface>[1],
+  ) => WorkbenchSceneSnapshot;
+  readonly reorderSurfaces: (
+    owner: WorkbenchSceneOwner,
+    input: Parameters<typeof reorderWorkbenchSceneSurfaces>[1],
+  ) => WorkbenchSceneSnapshot;
+  readonly splitLeaf: (
+    owner: WorkbenchSceneOwner,
+    input: Parameters<typeof splitWorkbenchSceneLeaf>[1],
+  ) => WorkbenchSceneSnapshot;
+  readonly mergeLeaf: (
+    owner: WorkbenchSceneOwner,
+    input: Parameters<typeof mergeWorkbenchSceneLeaf>[1],
+  ) => WorkbenchSceneSnapshot;
+  readonly resizeBranch: (
+    owner: WorkbenchSceneOwner,
+    input: Parameters<typeof resizeWorkbenchSceneBranch>[1],
+  ) => WorkbenchSceneSnapshot;
+  readonly ensureLeafToRight: (
+    owner: WorkbenchSceneOwner,
+    input: Parameters<typeof ensureWorkbenchSceneLeafToRight>[1],
+  ) => string;
 }
 
 export interface WorkbenchDurablePanelCommands {
-  readonly apply: WorkbenchPanelControllerInput["mutateView"];
+  readonly apply: (
+    session: ProjectSession,
+    mutation: (scene: WorkbenchSceneSnapshot) => WorkbenchSceneSnapshot,
+  ) => WorkbenchSceneSnapshot;
   readonly createTab: (
     session: ProjectSession,
-    input: Parameters<typeof createWorkbenchSessionViewTab>[1],
-  ) => WorkbenchSessionViewSnapshot;
+    input: {
+      readonly panelId: PanelId;
+      readonly targetLeafId?: string;
+      readonly tab: WorkbenchSurfaceDescriptor;
+    },
+  ) => WorkbenchSceneSnapshot;
   readonly updateTab: (
     session: ProjectSession,
     tabId: string,
-    tab: Parameters<typeof updateWorkbenchSessionViewTab>[2],
-  ) => WorkbenchSessionViewSnapshot;
+    surface: WorkbenchSurfaceDescriptor,
+  ) => WorkbenchSceneSnapshot;
   readonly patchPanel: (
     session: ProjectSession,
-    panelId: Parameters<typeof patchWorkbenchSessionViewPanel>[1],
-    patch: Parameters<typeof patchWorkbenchSessionViewPanel>[2],
-  ) => WorkbenchSessionViewSnapshot;
+    panelId: PanelId,
+    patch: Parameters<typeof patchWorkbenchScenePanel>[2],
+  ) => WorkbenchSceneSnapshot;
   readonly activateTab: (
     session: ProjectSession,
-    panelId: Parameters<typeof activateWorkbenchSessionViewTab>[1],
+    panelId: PanelId,
     leafId: string,
     tabId?: string | null,
-  ) => WorkbenchSessionViewSnapshot;
+  ) => WorkbenchSceneSnapshot;
   readonly reorderTabs: (
     session: ProjectSession,
-    input: Parameters<typeof reorderWorkbenchSessionViewTabs>[1],
-  ) => WorkbenchSessionViewSnapshot;
+    input: {
+      readonly panelId: PanelId;
+      readonly leafId: string;
+      readonly orderedTabIds: string[];
+    },
+  ) => WorkbenchSceneSnapshot;
   readonly mergeLeaf: (
     session: ProjectSession,
-    input: Parameters<typeof mergeWorkbenchSessionViewLeaf>[1],
-  ) => WorkbenchSessionViewSnapshot;
+    input: Parameters<typeof mergeWorkbenchSceneLeaf>[1],
+  ) => WorkbenchSceneSnapshot;
   readonly removeTab: (
     session: ProjectSession,
     tabId: string,
-    options?: Parameters<typeof removeWorkbenchSessionViewTab>[2],
-  ) => WorkbenchSessionViewSnapshot;
+    options?: {
+      readonly preserveEmptyLeafIds?: string[];
+      readonly preferredActiveLeafId?: string | null;
+      readonly preferredActiveTabId?: string | null;
+    },
+  ) => WorkbenchSceneSnapshot;
   readonly moveTab: (
     session: ProjectSession,
-    input: Parameters<typeof moveWorkbenchSessionViewTab>[1],
-  ) => WorkbenchSessionViewSnapshot;
+    input: {
+      readonly tabId: string;
+      readonly targetPanelId: PanelId;
+      readonly targetLeafId?: string;
+      readonly targetIndex?: number;
+      readonly preserveEmptyLeafIds?: string[];
+      readonly splitTarget?: Parameters<typeof moveWorkbenchSceneSurface>[1]["splitTarget"];
+    },
+  ) => WorkbenchSceneSnapshot;
   readonly splitLeaf: (
     session: ProjectSession,
-    input: Parameters<typeof splitWorkbenchSessionViewLeaf>[1],
-  ) => WorkbenchSessionViewSnapshot;
+    input: {
+      readonly panelId: PanelId;
+      readonly leafId: string;
+      readonly side: Parameters<typeof splitWorkbenchSceneLeaf>[1]["side"];
+      readonly tabId?: string;
+    },
+  ) => WorkbenchSceneSnapshot;
   readonly resizeBranch: (
     session: ProjectSession,
-    input: Parameters<typeof resizeWorkbenchSessionViewBranch>[1],
-  ) => WorkbenchSessionViewSnapshot;
+    input: Parameters<typeof resizeWorkbenchSceneBranch>[1],
+  ) => WorkbenchSceneSnapshot;
   readonly ensureLeafToRight: (
     session: ProjectSession,
-    input: Parameters<typeof ensureWorkbenchSessionViewLeafToRight>[1],
+    input: Parameters<typeof ensureWorkbenchSceneLeafToRight>[1],
   ) => string;
+}
+
+function sessionSceneOwner(session: ProjectSession): WorkbenchSceneOwner {
+  return { kind: "session", sessionId: session.id };
 }
 
 function capitalize<Value extends string>(value: Value): Capitalize<Value> {
@@ -168,7 +253,7 @@ const EPHEMERAL_PANEL_FIELDS = [
 ] as const satisfies readonly WorkbenchEphemeralPanelStateField[];
 
 export function useWorkbenchPanelController({
-  mutateView,
+  mutateScene,
 }: WorkbenchPanelControllerInput): WorkbenchPanelController {
   const [state, dispatch] = useReducer(
     reduceWorkbenchEphemeralPanelState,
@@ -201,72 +286,155 @@ export function useWorkbenchPanelController({
     ]),
   ) as UpdateCommands, [update]);
   const durable = useMemo<WorkbenchDurablePanelCommands>(() => ({
-    apply: mutateView,
+    apply: (session, mutation) => mutateScene(sessionSceneOwner(session), mutation),
     createTab: (session, input) =>
-      mutateView(
-        session,
-        (view) => createWorkbenchSessionViewTab(view, input),
+      mutateScene(
+        sessionSceneOwner(session),
+        (scene) => createWorkbenchSceneSurface(scene, {
+          panelId: input.panelId,
+          targetLeafId: input.targetLeafId,
+          surface: input.tab,
+        }),
       ),
-    updateTab: (session, tabId, tab) =>
-      mutateView(
-        session,
-        (view) => updateWorkbenchSessionViewTab(view, tabId, tab),
+    updateTab: (session, tabId, surface) =>
+      mutateScene(
+        sessionSceneOwner(session),
+        (scene) => updateWorkbenchSceneSurface(
+          scene,
+          tabId,
+          surface,
+        ),
       ),
     patchPanel: (session, panelId, patch) =>
-      mutateView(
-        session,
-        (view) => patchWorkbenchSessionViewPanel(view, panelId, patch),
+      mutateScene(
+        sessionSceneOwner(session),
+        (scene) => patchWorkbenchScenePanel(scene, panelId, patch),
       ),
     activateTab: (session, panelId, leafId, tabId) =>
-      mutateView(
-        session,
-        (view) => activateWorkbenchSessionViewTab(
-          view,
+      mutateScene(
+        sessionSceneOwner(session),
+        (scene) => activateWorkbenchSceneSurface(
+          scene,
           panelId,
           leafId,
           tabId,
         ),
       ),
     reorderTabs: (session, input) =>
-      mutateView(
-        session,
-        (view) => reorderWorkbenchSessionViewTabs(view, input),
+      mutateScene(
+        sessionSceneOwner(session),
+        (scene) => reorderWorkbenchSceneSurfaces(scene, {
+          panelId: input.panelId,
+          leafId: input.leafId,
+          orderedSurfaceIds: input.orderedTabIds,
+        }),
       ),
     mergeLeaf: (session, input) =>
-      mutateView(
-        session,
-        (view) => mergeWorkbenchSessionViewLeaf(view, input),
+      mutateScene(
+        sessionSceneOwner(session),
+        (scene) => mergeWorkbenchSceneLeaf(scene, input),
       ),
     removeTab: (session, tabId, options) =>
-      mutateView(
-        session,
-        (view) => removeWorkbenchSessionViewTab(view, tabId, options),
+      mutateScene(
+        sessionSceneOwner(session),
+        (scene) => removeWorkbenchSceneSurface(scene, tabId, {
+          preserveEmptyLeafIds: options?.preserveEmptyLeafIds,
+          preferredActiveLeafId: options?.preferredActiveLeafId,
+          preferredActiveSurfaceId: options?.preferredActiveTabId,
+        }),
       ),
     moveTab: (session, input) =>
-      mutateView(
-        session,
-        (view) => moveWorkbenchSessionViewTab(view, input),
+      mutateScene(
+        sessionSceneOwner(session),
+        (scene) => moveWorkbenchSceneSurface(scene, {
+          surfaceId: input.tabId,
+          targetPanelId: input.targetPanelId,
+          targetLeafId: input.targetLeafId,
+          targetIndex: input.targetIndex,
+          preserveEmptyLeafIds: input.preserveEmptyLeafIds,
+          splitTarget: input.splitTarget,
+        }),
       ),
     splitLeaf: (session, input) =>
-      mutateView(
-        session,
-        (view) => splitWorkbenchSessionViewLeaf(view, input),
+      mutateScene(
+        sessionSceneOwner(session),
+        (scene) => splitWorkbenchSceneLeaf(scene, {
+          panelId: input.panelId,
+          leafId: input.leafId,
+          side: input.side,
+          surfaceId: input.tabId,
+        }),
       ),
     resizeBranch: (session, input) =>
-      mutateView(
-        session,
-        (view) => resizeWorkbenchSessionViewBranch(view, input),
+      mutateScene(
+        sessionSceneOwner(session),
+        (scene) => resizeWorkbenchSceneBranch(scene, input),
       ),
     ensureLeafToRight: (session, input) => {
       let leafId = input.leafId;
-      mutateView(session, (view) => {
-        const result = ensureWorkbenchSessionViewLeafToRight(view, input);
+      mutateScene(sessionSceneOwner(session), (scene) => {
+        const result = ensureWorkbenchSceneLeafToRight(scene, input);
         leafId = result.leafId;
-        return result.view;
+        return result.scene;
       });
       return leafId;
     },
-  }), [mutateView]);
+  }), [mutateScene]);
+  const sceneDurable = useMemo<WorkbenchSceneDurablePanelCommands>(() => ({
+      apply: mutateScene,
+      createSurface: (owner, input) =>
+        mutateScene(owner, (scene) => createWorkbenchSceneSurface(scene, input)),
+      updateSurface: (owner, surfaceId, patch) =>
+        mutateScene(
+          owner,
+          (scene) => updateWorkbenchSceneSurface(scene, surfaceId, patch),
+        ),
+      patchPanel: (owner, panelId, patch) =>
+        mutateScene(
+          owner,
+          (scene) => patchWorkbenchScenePanel(scene, panelId, patch),
+        ),
+      activateSurface: (owner, panelId, leafId, surfaceId) =>
+        mutateScene(
+          owner,
+          (scene) => activateWorkbenchSceneSurface(
+            scene,
+            panelId,
+            leafId,
+            surfaceId,
+          ),
+        ),
+      removeSurface: (owner, surfaceId, options) =>
+        mutateScene(
+          owner,
+          (scene) => removeWorkbenchSceneSurface(scene, surfaceId, options),
+        ),
+      moveSurface: (owner, input) =>
+        mutateScene(owner, (scene) => moveWorkbenchSceneSurface(scene, input)),
+      reorderSurfaces: (owner, input) =>
+        mutateScene(
+          owner,
+          (scene) => reorderWorkbenchSceneSurfaces(scene, input),
+        ),
+      splitLeaf: (owner, input) =>
+        mutateScene(owner, (scene) => splitWorkbenchSceneLeaf(scene, input)),
+      mergeLeaf: (owner, input) =>
+        mutateScene(owner, (scene) => mergeWorkbenchSceneLeaf(scene, input)),
+      resizeBranch: (owner, input) =>
+        mutateScene(
+          owner,
+          (scene) => resizeWorkbenchSceneBranch(scene, input),
+        ),
+      ensureLeafToRight: (owner, input) => {
+        let leafId = input.leafId;
+        mutateScene(owner, (scene) => {
+          const result = ensureWorkbenchSceneLeafToRight(scene, input);
+          leafId = result.leafId;
+          return result.scene;
+        });
+        return leafId;
+      },
+  }), [mutateScene]);
   const selectRenderableTab = useCallback(({
     sessionId,
     panelId,
@@ -275,8 +443,8 @@ export function useWorkbenchPanelController({
     durableTabIds,
   }: WorkbenchRenderableTabSelectionInput): boolean => {
     const slotKeys = [
-      makeWorkbenchPanelSlotKey(sessionId, panelId, leafId),
-      makeWorkbenchPanelSlotKey(sessionId, panelId),
+      makeWorkbenchSessionPanelSlotKey(sessionId, panelId, leafId),
+      makeWorkbenchSessionPanelSlotKey(sessionId, panelId),
     ];
     const candidates = [
       {
@@ -370,8 +538,8 @@ export function useWorkbenchPanelController({
       if (!tab) continue;
       const targetLeafId = tab.leafId ?? leafId;
       const slotKeys = [
-        makeWorkbenchPanelSlotKey(sessionId, panelId, targetLeafId),
-        makeWorkbenchPanelSlotKey(sessionId, panelId),
+        makeWorkbenchSessionPanelSlotKey(sessionId, panelId, targetLeafId),
+        makeWorkbenchSessionPanelSlotKey(sessionId, panelId),
       ];
       dispatch({
         type: "remove-ephemeral-tab",
@@ -477,12 +645,12 @@ export function useWorkbenchPanelController({
     dispatch({
       type: "select-slot",
       slotKeys: [
-        makeWorkbenchPanelSlotKey(
+        makeWorkbenchSessionPanelSlotKey(
           tab.sessionId,
           tab.panelId,
           tab.leafId,
         ),
-        makeWorkbenchPanelSlotKey(tab.sessionId, tab.panelId),
+        makeWorkbenchSessionPanelSlotKey(tab.sessionId, tab.panelId),
       ],
       activeField,
       tabId: tab.id,
@@ -496,12 +664,14 @@ export function useWorkbenchPanelController({
     ...commands,
     pruneSession,
     durable,
+    sceneDurable,
     selectRenderableTab,
     removeEphemeralTab,
     upsertEphemeralTab,
   }), [
     commands,
     durable,
+    sceneDurable,
     pruneSession,
     removeEphemeralTab,
     selectRenderableTab,

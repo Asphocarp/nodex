@@ -70,9 +70,9 @@ pub(super) fn create_session(
     connection.execute(
         "INSERT INTO project_sessions(\
            id, project_id, no_thread_fallback_title, \"order\", pinned, pinned_order, \
-           archived, archived_at, unread, database_starter, \
+           archived, archived_at, unread, \
            created_at, updated_at\
-         ) VALUES (?1, ?2, ?3, 0, 0, NULL, 0, NULL, 0, 0, ?4, ?4)",
+         ) VALUES (?1, ?2, ?3, 0, 0, NULL, 0, NULL, 0, ?4, ?4)",
         params![session_id, project_id, title, now],
     )?;
     finish_lifecycle_mutation(

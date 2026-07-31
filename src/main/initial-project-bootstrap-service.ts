@@ -260,7 +260,6 @@ export class InitialProjectBootstrapService {
     }
     await input.onProvisioned({
       projectId: created.project.id,
-      starterSessionId: created.starterSessionId,
       defaultDatabaseViewId,
       starterPageId: attempt.payload.starterPage.pageId,
       starterPageTitle: attempt.payload.starterPage.titleMarkdown,

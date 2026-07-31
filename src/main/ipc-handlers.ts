@@ -132,7 +132,7 @@ import type {
   WindowSessionNewWindowRequest,
   WindowSessionSaveLayoutInput,
 } from "../shared/window-session";
-import { WorkbenchSessionViewSnapshotSchema } from "../shared/schemas/workbench-session-view";
+import { WorkbenchSceneSnapshotSchema } from "../shared/schemas/workbench-scene";
 import { productFeatureGates } from "./product-feature-gates";
 import { readThirdPartyNotices } from "./third-party-notices";
 import type {
@@ -2212,25 +2212,25 @@ export function registerIpcHandlers(
 
   registerHandle(
     "project-sessions:fork",
-    async (event, sessionId: string, input, sourceViewContext) => {
-      if (sourceViewContext) {
+    async (event, sessionId: string, input, sourceSceneContext) => {
+      if (sourceSceneContext) {
         requireBrowserViewScope(
           event.sender.id,
-          sourceViewContext.browserViewScopeId,
+          sourceSceneContext.browserViewScopeId,
         );
       }
-      const parsedViewContext = sourceViewContext
+      const parsedSceneContext = sourceSceneContext
         ? {
-            browserViewScopeId: sourceViewContext.browserViewScopeId,
-            view: WorkbenchSessionViewSnapshotSchema.parse(
-              sourceViewContext.view,
+            browserViewScopeId: sourceSceneContext.browserViewScopeId,
+            scene: WorkbenchSceneSnapshotSchema.parse(
+              sourceSceneContext.scene,
             ),
           }
         : undefined;
       return await codexService.forkProjectSessionThread(
         sessionId,
         input,
-        parsedViewContext,
+        parsedSceneContext,
       );
     },
   );

@@ -5,10 +5,15 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Added Window Session-owned Project and Session Scenes with one fixed owner-root primary and shared right/bottom panel surfaces. Projects can open with zero chats, while Database, Page, Canvas, Files, Browser, Review, and Terminal surfaces no longer need a chat as their panel host.
 
 ### Changed
+- Replaced the automatically seeded `Database View` chat with Project Home: the Project's current Database is the protected root surface, and its footer Agent Dock can work with a new or existing task without navigating away.
+- Window restore and new-window cloning now persist one owner-scoped Scene layout for both Projects and Sessions instead of parallel Project Session panel-view models.
 
 ### Fixed
+- Fixed Project folder controls so the label opens Project Home and the leading chevron changes chat disclosure without either action triggering the other.
+- New Session Scenes now start with the right panel collapsed, while Project Home and the explicit first-Project Welcome presentation retain their intended full-width layouts.
 
 ## [0.2.0] - 2026-08-01
 

@@ -7,7 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion, useMotionValue, useReducedMotion, useTransform, type MotionStyle } from "motion/react";
 import { ArrowLeft } from "lucide-react";
 import { PanelTabPresentationRegistry } from "./panel-tab-presentation-registry";
@@ -25,8 +25,10 @@ import {
   ToolbarIconButton,
   WindowNavigationToolbarButton,
 } from "./workbench-panel-controls";
-import type {
-  PageStageHistoryModalContext,
+import {
+  PageStageSessionTab,
+  type OpenPageTabHandler,
+  type PageStageHistoryModalContext,
 } from "./workbench-page-stage-panel";
 import {
   HeaderAction,
@@ -35,8 +37,19 @@ import {
   HeaderShellSlot,
 } from "./workbench-header-actions";
 import { HistoryPanel } from "./workbench-history-panel";
-import { useTerminalSessionStoreVersion } from "@/lib/terminal-session-store";
+import {
+  terminalSessionStore,
+  useTerminalSessionStoreVersion,
+} from "@/lib/terminal-session-store";
 import { BrowserSidebarHiddenWebviewHosts } from "@/features/browser-sidebar/browser-sidebar-hidden-webview-hosts";
+import { BrowserSidebarPanel } from "@/features/browser-sidebar/browser-sidebar-panel";
+import {
+  WorkspaceFilesPanel,
+  type WorkspaceFilesTab,
+} from "@/features/workspace-files";
+import {
+  workspaceTextDocumentRegistry,
+} from "@/features/workspace-files/workspace-text-document-controller";
 import { DesktopNotificationController } from "@/features/local-conversation/desktop-notification-controller";
 import {
   getBrowserDocumentBottomKey,
@@ -57,6 +70,10 @@ import { buildAutomationsPath } from "./workbench-automations-routes";
 import type { LibraryRouteTarget } from "../../../shared/library-module";
 import type { LibraryResourceTarget } from "../library/library-resource-actions";
 import { WorkbenchProcessManagerDialog } from "./workbench-process-manager-dialog";
+import {
+  ProjectAgentDockLeadingRow,
+  ProjectAgentDockUnavailableOverlay,
+} from "./project-agent-dock";
 import type { OpenPageStageOptions } from "@/components/kanban/open-page-stage";
 import { NodexTooltip, NodexTooltipProvider } from "@/components/ui/tooltip";
 import { toast } from "@/components/ui/toast";
@@ -64,6 +81,7 @@ import { appScope, useScopeHandle } from "@/lib/maitai";
 import { openModal } from "@/lib/modal-registry";
 import {
   useCodexAppServerControl,
+  ConnectedReviewDiffPanel,
   useConversationSubset,
   useLocalConversationAccount,
   useLocalConversationConnection,
@@ -87,6 +105,14 @@ import {
   type SidebarCollapsibleSectionsState,
 } from "@/lib/sidebar-section-prefs";
 import { useWorkbenchSidebarState } from "@/lib/use-workbench-sidebar-state";
+import {
+  makePageEditorSessionKey,
+  pageEditorSessionRegistry,
+} from "@/lib/page-editor-session-registry";
+import {
+  canvasSceneSurfaceRegistry,
+  makeCanvasSceneSurfaceKey,
+} from "@/lib/canvas-scene-surface-runtime";
 import type { WorkbenchCommandPort } from "@/lib/use-workbench-command-ingress";
 import {
   APP_SHELL_ROUTE_THREAD_SCOPE_DESCRIPTOR,
@@ -94,17 +120,40 @@ import {
   WorkbenchSessionScopePath,
   createThreadScopeIdentityRegistry,
   resolvePendingThreadScopeDescriptor,
+  resolveProjectDraftThreadScopeDescriptor,
+  resolveProjectSessionThreadScopeDescriptor,
 } from "@/lib/workbench-ui-scopes";
 import {
-  type WorkbenchSessionViewSnapshot,
-} from "../../../shared/workbench-session-view";
+  applyForkBrowserTransferToWorkbenchScene,
+  makeWorkbenchSceneKey,
+  materializeInitialWorkbenchScene,
+  type WorkbenchSceneOwner,
+  type WorkbenchSceneSnapshot,
+  type WorkbenchSurfaceDescriptor,
+} from "../../../shared/workbench-scene";
 import {
-  applyForkBrowserTransferToWorkbenchView,
-  applyWorkbenchViewTabPatch,
-  presentWorkbenchSessionDomainWithView,
-  workbenchViewTabFromCreateInput,
-} from "@/lib/window-session-view-adapter";
-import { useWorkbenchSessionCatalog } from "@/lib/use-workbench-session-catalog";
+  findWorkbenchPanelLeafForTab,
+  listWorkbenchPanelLeaves,
+} from "../../../shared/workbench-panel-layout";
+import {
+  applyWorkbenchSurfacePatch,
+  presentWorkbenchSessionDomainWithScene,
+  workbenchSurfaceFromCreateInput,
+  type WorkbenchSurfaceUpdatePatch,
+} from "@/lib/workbench-scene-presentation";
+import {
+  projectSessionProjectionsByProject,
+  useWorkbenchSessionCatalog,
+} from "@/lib/use-workbench-session-catalog";
+import {
+  createWorkbenchSceneNavigator,
+  type PresentWorkbenchPanelSurfaceInput,
+  type WorkbenchSurfaceOpenRequest,
+} from "@/lib/workbench-scene-navigator";
+import {
+  projectDetailQueryOptions,
+  projectSessionDetailQueryOptions,
+} from "@/lib/query-options";
 import { useWorkbenchPanelController } from "@/lib/use-workbench-panel-controller";
 import { useWorkbenchPanelLifecycle } from "@/lib/use-workbench-panel-lifecycle";
 import {
@@ -119,8 +168,13 @@ import {
 } from "./use-workbench-panel-projection";
 import { useWorkbenchSidebarController } from "./use-workbench-sidebar-controller";
 import { useWorkbenchSidebarChrome } from "./use-workbench-sidebar-chrome";
-import { WorkbenchPanelNewTabButton } from "./workbench-panel-new-tab-button";
-import { WorkbenchActiveSession } from "./workbench-active-session";
+import { WorkbenchSessionScene } from "./workbench-session-scene";
+import { ProjectSessionThreadComposerDock } from "./workbench-session-thread-route";
+import { WorkbenchSceneFrame } from "./workbench-scene-frame";
+import { DbViewSessionTab } from "./workbench-db-view-panel";
+import { WorkbenchCanvasStagePanel } from "./workbench-canvas-stage-panel";
+import { TerminalPanel } from "./workbench-terminal-panel";
+import { buildWorkbenchScenePanels } from "./workbench-scene-panels";
 import { useWorkbenchRouteSurfaces } from "./use-workbench-route-surfaces";
 import { WorkbenchCommandPaletteHost } from "./workbench-command-palette-host";
 import { useWorkbenchChromeLayout } from "./use-workbench-chrome-layout";
@@ -134,18 +188,31 @@ import {
   type WorkbenchThreadSummaryCommands,
 } from "@/lib/use-workbench-thread-summary";
 import {
+  presentWorkbenchSession,
   type WorkbenchSessionRenderProjection,
 } from "@/lib/workbench-session-presentation";
+import {
+  projectSessionToSummary,
+} from "@/lib/project-session-query-cache";
+import {
+  buildProjectAgentDockPendingWorktreeModel,
+  buildProjectAgentDockModel,
+  resolveProjectAgentDockPendingWorktree,
+  type ProjectAgentDockTargetRow,
+} from "@/lib/project-agent-dock-model";
+import {
+  createProjectAgentDockDraftSession,
+  createProjectAgentDockMaterializer,
+} from "@/lib/project-agent-dock-controller";
 import type { CodexPendingWorktreeEntry } from "../../../shared/codex-pending-worktree";
-import { buildBrowserUseRouteCaptureCommand } from "@/lib/browser-use-route-capture";
 import { useBrowserUsePresentationCoordinator } from "@/lib/use-browser-use-presentation-coordinator";
 import { useWorkbenchPreferences } from "./use-workbench-preferences";
 import {
   useWorkbenchWindowState,
 } from "@/lib/use-workbench-window-state";
 import {
-  getWorkbenchSessionReturnLocation,
-  type WorkbenchLayoutSnapshotV4,
+  getWorkbenchSceneReturnLocation,
+  type WorkbenchLayoutSnapshotV5,
   type WorkbenchLibraryLocationTarget as WorkbenchLibraryRoute,
 } from "../../../shared/workbench-layout";
 import type {
@@ -158,11 +225,13 @@ import type {
   ProjectPinnedInput,
   ProjectPinnedOrderInput,
   ProjectUpdateInput,
+  ProjectSession as ProjectSessionDomain,
   WorkbenchTabProjection,
   WorkbenchTabCreateInput,
 } from "@/lib/types";
 
 type ProjectSession = WorkbenchSessionRenderProjection;
+
 import {
   type DbViewPrefs,
   type SupportedDbView,
@@ -254,9 +323,16 @@ import type {
 import type {
   CodexBackgroundTerminalProcessThreadRef,
 } from "@/lib/codex-background-terminal-processes";
+import { primaryCanvasBlockId } from "../../../shared/block-documents";
 
 const RIGHT_PANEL_HEADER_FALLBACK_SPACER_WIDTH_PX = 70;
 const RIGHT_PANEL_HEADER_FALLBACK_RAIL_WIDTH_PX = 62;
+
+function createProjectAgentDockDraftId(): string {
+  return globalThis.crypto?.randomUUID?.()
+    ?? `draft-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
 const ELECTRON_STABLE_WORKTREE_STATUS_TRANSPORT: StableWorktreeStatusDialogTransport = {
   list: () => invoke("codex:pending-worktrees:list"),
   subscribe: subscribeCodexPendingWorktreesChanged,
@@ -271,7 +347,7 @@ const ELECTRON_STABLE_WORKTREE_STATUS_TRANSPORT: StableWorktreeStatusDialogTrans
 };
 export interface WorkbenchRuntimeProps {
   windowSessionId: string;
-  initialWindowLayoutSnapshot: WorkbenchLayoutSnapshotV4;
+  initialWindowLayoutSnapshot: WorkbenchLayoutSnapshotV5;
   libraryWorkspaceEnabled: boolean;
   projects: Project[];
   hasMoreProjects?: boolean;
@@ -279,11 +355,10 @@ export interface WorkbenchRuntimeProps {
   onLoadMoreProjects?: () => Promise<void>;
   projectCatalogError?: string | null;
   onRetryProjects?: () => Promise<void> | void;
-  setSessionView?: (
-    sessionId: string,
-    update:
-      | WorkbenchSessionViewSnapshot
-      | ((previous: WorkbenchSessionViewSnapshot | undefined) => WorkbenchSessionViewSnapshot),
+  onSceneMutation?: (
+    owner: WorkbenchSceneOwner,
+    previous: WorkbenchSceneSnapshot,
+    next: WorkbenchSceneSnapshot,
   ) => void;
   activeView: WorkbenchView;
   activeDbViewPrefs: DbViewPrefs | null;
@@ -370,7 +445,7 @@ export function WorkbenchRuntime({
   onLoadMoreProjects,
   projectCatalogError = null,
   onRetryProjects,
-  setSessionView: observeSessionViewMutation,
+  onSceneMutation,
   activeView,
   activeDbViewPrefs,
   dbViewPrefsByProject,
@@ -414,12 +489,16 @@ export function WorkbenchRuntime({
   const workbenchWindow = useWorkbenchWindowState(
     initialWindowLayoutSnapshot,
   );
-  const sessionLocation = getWorkbenchSessionReturnLocation(
+  const sceneLocation = getWorkbenchSceneReturnLocation(
     workbenchWindow.location,
   );
-  const activeProjectId = sessionLocation.activeProjectId;
+  const activeProjectId = sceneLocation.kind === "project"
+    ? sceneLocation.projectId
+    : sceneLocation.kind === "session"
+      ? sceneLocation.projectContextId
+      : null;
   const activeSessionId =
-    sessionLocation.kind === "session" ? sessionLocation.sessionId : null;
+    sceneLocation.kind === "session" ? sceneLocation.sessionId : null;
   const searchByProject = workbenchWindow.databaseSearchByProject;
   const activeSearchQuery = activeProjectId
     ? searchByProject[activeProjectId] ?? ""
@@ -545,26 +624,116 @@ export function WorkbenchRuntime({
     projects,
     expandedProjectIds,
     window: workbenchWindow,
-    observeSessionViewMutation,
   });
-  const sessionsByProject =
-    sessionCatalog.projectionsByProject as Record<string, ProjectSession[]>;
-  const projectlessSessions =
-    sessionCatalog.projectlessProjections as ProjectSession[];
-  const loadingSessions = sessionCatalog.loading;
-  const taskWindowHasMoreByScope = sessionCatalog.hasMoreByScope;
-  const sessionsReady = sessionCatalog.ready;
-  const sessionError = sessionCatalog.error;
+  const selectedProjectSceneId = sceneLocation.kind === "project"
+    ? sceneLocation.projectId
+    : null;
+  const selectedProjectQuery = useQuery({
+    ...projectDetailQueryOptions(selectedProjectSceneId ?? ""),
+    enabled: selectedProjectSceneId !== null,
+  });
+  useEffect(() => {
+    if (
+      !selectedProjectSceneId
+      || !selectedProjectQuery.isSuccess
+      || selectedProjectQuery.data !== null
+    ) {
+      return;
+    }
+    workbenchWindow.removeScene({
+      kind: "project",
+      projectId: selectedProjectSceneId,
+    });
+    workbenchWindow.selectProject(null);
+  }, [
+    selectedProjectQuery.data,
+    selectedProjectQuery.isSuccess,
+    selectedProjectSceneId,
+    workbenchWindow,
+  ]);
+  const projectSceneOwner = useMemo(() => selectedProjectSceneId
+    ? { kind: "project" as const, projectId: selectedProjectSceneId }
+    : null, [selectedProjectSceneId]);
+  const projectSceneKey = projectSceneOwner
+    ? makeWorkbenchSceneKey(projectSceneOwner)
+    : null;
+  const activeProjectScene = projectSceneOwner && projectSceneKey
+    ? workbenchWindow.scenesByOwnerKey[projectSceneKey]
+      ?? materializeInitialWorkbenchScene(projectSceneOwner)
+    : null;
+  useEffect(() => {
+    if (!projectSceneOwner || !projectSceneKey || !activeProjectScene) return;
+    if (workbenchWindow.scenesByOwnerKey[projectSceneKey]) return;
+    workbenchWindow.setScene(projectSceneOwner, activeProjectScene);
+  }, [
+    activeProjectScene,
+    projectSceneKey,
+    projectSceneOwner,
+    workbenchWindow,
+  ]);
+  const projectAgentDockBoundSessionId =
+    activeProjectScene?.agentDock?.binding.kind === "session"
+      ? activeProjectScene.agentDock.binding.sessionId
+      : null;
+  const projectAgentDockSessionQuery = useQuery({
+    ...projectSessionDetailQueryOptions(
+      projectAgentDockBoundSessionId ?? "",
+    ),
+    enabled: projectAgentDockBoundSessionId !== null,
+  });
+  const sessionCollectionsByProject = sessionCatalog.collectionsByProject;
+  const projectlessSessionCollection = sessionCatalog.projectlessCollection;
+  const sessionsByProject = useMemo<Record<string, ProjectSession[]>>(
+    () => projectSessionProjectionsByProject(sessionCollectionsByProject),
+    [sessionCollectionsByProject],
+  );
+  const projectlessSessions = useMemo(
+    () => [...projectlessSessionCollection.projections],
+    [projectlessSessionCollection.projections],
+  );
+  const selectedSessionDetailReady = sessionCatalog.selectedDetailReady;
+  const selectedSessionDetailError = sessionCatalog.selectedDetailError;
   const loadMoreProjectSessionSummaries = sessionCatalog.loadMore;
-  const resolveSessionView = sessionCatalog.resolveView;
+  const resolveSessionScene = sessionCatalog.resolveScene;
   const resolveProjectDefaultDatabaseViewId =
     sessionCatalog.resolveDefaultDatabaseViewId;
-  const mutateSessionView = sessionCatalog.mutateView;
+  const mutateScene = useCallback((
+    owner: WorkbenchSceneOwner,
+    mutation: (scene: WorkbenchSceneSnapshot) => WorkbenchSceneSnapshot,
+  ): WorkbenchSceneSnapshot => {
+    let next = materializeInitialWorkbenchScene(owner);
+    workbenchWindow.setScene(owner, (stored) => {
+      const previous = stored ?? materializeInitialWorkbenchScene(owner);
+      next = mutation(previous);
+      onSceneMutation?.(owner, previous, next);
+      return next;
+    });
+    return next;
+  }, [onSceneMutation, workbenchWindow]);
   const panelController = useWorkbenchPanelController({
-    mutateView: mutateSessionView,
+    mutateScene,
   });
   const panelControllerRef = useRef(panelController);
   panelControllerRef.current = panelController;
+  const workbenchWindowRef = useRef(workbenchWindow);
+  workbenchWindowRef.current = workbenchWindow;
+  const sessionCatalogRef = useRef(sessionCatalog);
+  sessionCatalogRef.current = sessionCatalog;
+  const sceneNavigator = useMemo(() => createWorkbenchSceneNavigator({
+    setScene(owner, update) {
+      workbenchWindowRef.current.setScene(owner, update);
+    },
+    selectOwner(owner, projectContextId) {
+      if (owner.kind === "project") {
+        workbenchWindowRef.current.selectProject(owner.projectId);
+        return;
+      }
+      workbenchWindowRef.current.selectSession({
+        id: owner.sessionId,
+        projectId: projectContextId ?? null,
+      });
+    },
+  }), []);
   const {
     previewTabsByPanel,
     sideChatTabsBySession,
@@ -594,6 +763,10 @@ export function WorkbenchRuntime({
   const [automationsDetailRailOpen, setAutomationsDetailRailOpen] = useState(false);
   const automationsDetailRailRequestedWidth = useMotionValue(AUTOMATION_DETAIL_RAIL_DEFAULT_WIDTH);
   const [threadScopeIdentityRegistry] = useState(createThreadScopeIdentityRegistry);
+  const [projectAgentDockMaterializer] = useState(
+    createProjectAgentDockMaterializer,
+  );
+  const [projectAgentDockQuery, setProjectAgentDockQuery] = useState("");
   const [automationsDetailRailPortalElement, setAutomationsDetailRailPortalElement] = useState<HTMLDivElement | null>(null);
   const [rightPanelComposerOverlayTarget, setRightPanelComposerOverlayTarget] = useState<HTMLElement | null>(null);
   const terminalSessionVersion = useTerminalSessionStoreVersion();
@@ -633,17 +806,7 @@ export function WorkbenchRuntime({
   });
   const panelTabMruByLeafRef = useRef<Record<string, string[]>>({});
   const openCanvasStageRef = useRef<OpenCanvasStageHandler | null>(null);
-  const ensureCanvasHostSessionRef = useRef<(
-    (
-      projectId: string,
-      options?: { select?: boolean },
-    ) => Promise<ProjectSession>
-  ) | null>(null);
-  const [pendingCanvasStageOpen, setPendingCanvasStageOpen] = useState<{
-    readonly projectId: string;
-    readonly canvasBlockId: string;
-    readonly titleSnapshot?: string;
-  } | null>(null);
+  const openProjectCanvasStageRef = useRef<OpenCanvasStageHandler | null>(null);
   const pendingWorkbenchCommandInvocationsRef = useRef<
     WorkbenchCommandInvocation[]
   >([]);
@@ -729,7 +892,200 @@ export function WorkbenchRuntime({
     toggleSidebarCollapsed,
   } = sidebarChrome;
 
-  const activeProject = sessionCatalog.activeProject;
+  const activeProject = selectedProjectSceneId
+    ? selectedProjectQuery.isSuccess
+      ? selectedProjectQuery.data
+      : projects.find((project) => project.id === selectedProjectSceneId)
+        ?? null
+    : sessionCatalog.activeProject;
+  const projectAgentDockCollection = selectedProjectSceneId
+    ? sessionCollectionsByProject[selectedProjectSceneId] ?? null
+    : null;
+  const projectAgentDockExactSession =
+    projectAgentDockSessionQuery.data?.projectId === selectedProjectSceneId
+    && !projectAgentDockSessionQuery.data.archived
+      ? projectAgentDockSessionQuery.data
+      : null;
+  const projectAgentDockPendingWorktree = useMemo(
+    () => resolveProjectAgentDockPendingWorktree(
+      pendingWorktrees,
+      projectAgentDockBoundSessionId,
+      Boolean(projectAgentDockExactSession?.thread),
+    ),
+    [
+      pendingWorktrees,
+      projectAgentDockBoundSessionId,
+      projectAgentDockExactSession?.thread,
+    ],
+  );
+  const projectAgentDockPendingWorktreeModel = useMemo(
+    () => projectAgentDockPendingWorktree
+      ? buildProjectAgentDockPendingWorktreeModel(
+          projectAgentDockPendingWorktree,
+        )
+      : null,
+    [projectAgentDockPendingWorktree],
+  );
+  const projectAgentDockModel = useMemo(() => {
+    if (
+      !selectedProjectSceneId
+      || !activeProjectScene?.agentDock
+      || !projectAgentDockCollection
+    ) {
+      return null;
+    }
+    return buildProjectAgentDockModel({
+      projectId: selectedProjectSceneId,
+      dock: activeProjectScene.agentDock,
+      summaries: projectAgentDockCollection.presentations.map(
+        (presentation) => projectSessionToSummary(presentation.domain),
+      ),
+      exactSelectedSession: projectAgentDockExactSession
+        ? projectSessionToSummary(projectAgentDockExactSession)
+        : null,
+      collectionState: projectAgentDockCollection.state,
+      hasMore: projectAgentDockCollection.hasMore,
+      query: projectAgentDockQuery,
+    });
+  }, [
+    activeProjectScene?.agentDock,
+    projectAgentDockCollection,
+    projectAgentDockExactSession,
+    projectAgentDockQuery,
+    selectedProjectSceneId,
+  ]);
+  const projectAgentDockSession = useMemo(() => {
+    if (!activeProjectScene?.agentDock || !selectedProjectSceneId) return null;
+    if (activeProjectScene.agentDock.binding.kind === "new") {
+      const domain = createProjectAgentDockDraftSession(
+        selectedProjectSceneId,
+        activeProjectScene.agentDock.newDraftId,
+      );
+      return presentWorkbenchSession({
+        domain,
+        scene: materializeInitialWorkbenchScene({
+          kind: "session",
+          sessionId: domain.id,
+        }),
+      });
+    }
+    if (!projectAgentDockExactSession) return null;
+    return presentWorkbenchSession({
+      domain: projectAgentDockExactSession,
+      scene: resolveSessionScene(projectAgentDockExactSession),
+    });
+  }, [
+    activeProjectScene?.agentDock,
+    projectAgentDockExactSession,
+    resolveSessionScene,
+    selectedProjectSceneId,
+  ]);
+  const projectAgentDockThreadScope = useMemo(() => {
+    if (!activeProjectScene?.agentDock) return null;
+    if (activeProjectScene.agentDock.binding.kind === "new") {
+      return resolveProjectDraftThreadScopeDescriptor(
+        threadScopeIdentityRegistry,
+        activeProjectScene.agentDock.newDraftId,
+      );
+    }
+    if (!projectAgentDockExactSession) return null;
+    return resolveProjectSessionThreadScopeDescriptor(
+      threadScopeIdentityRegistry,
+      projectAgentDockExactSession,
+      projectAgentDockPendingWorktree?.clientThreadId ?? null,
+    );
+  }, [
+    activeProjectScene?.agentDock,
+    projectAgentDockExactSession,
+    projectAgentDockPendingWorktree?.clientThreadId,
+    threadScopeIdentityRegistry,
+  ]);
+  const updateProjectAgentDock = useCallback((
+    projectId: string,
+    update: (
+      dock: NonNullable<WorkbenchSceneSnapshot["agentDock"]>,
+    ) => NonNullable<WorkbenchSceneSnapshot["agentDock"]>,
+  ) => {
+    const owner = { kind: "project", projectId } as const;
+    workbenchWindow.setScene(owner, (stored) => {
+      const scene = stored ?? materializeInitialWorkbenchScene(owner);
+      if (!scene.agentDock) return scene;
+      return {
+        ...scene,
+        agentDock: update(scene.agentDock),
+      };
+    }, { recordHistory: false });
+  }, [workbenchWindow]);
+  const setProjectAgentDockVisible = useCallback((visible: boolean) => {
+    if (!selectedProjectSceneId) return;
+    updateProjectAgentDock(selectedProjectSceneId, (dock) =>
+      dock.visible === visible ? dock : { ...dock, visible }
+    );
+  }, [selectedProjectSceneId, updateProjectAgentDock]);
+  const selectProjectAgentDockTarget = useCallback((
+    row: ProjectAgentDockTargetRow,
+  ) => {
+    if (!selectedProjectSceneId) return;
+    updateProjectAgentDock(selectedProjectSceneId, (dock) => ({
+      ...dock,
+      binding: row.kind === "new"
+        ? { kind: "new" }
+        : { kind: "session", sessionId: row.sessionId! },
+    }));
+  }, [selectedProjectSceneId, updateProjectAgentDock]);
+  const materializeProjectAgentDockDraft = useCallback(async (input: {
+    readonly projectId: string;
+    readonly draftId: string;
+  }): Promise<ProjectSessionDomain> => projectAgentDockMaterializer.materialize(
+    input,
+    {
+      createBlank: async (projectId) => (
+        await sessionCatalogRef.current.createBlank(projectId)
+      ).domain,
+      promoteDraftIdentity: ({ draftId, sessionId }) => {
+        threadScopeIdentityRegistry.register(`draft:${draftId}`, {
+          draftId,
+          projectSessionId: sessionId,
+        });
+      },
+      commitMaterializedSession: ({ projectId, draftId, sessionId }) => {
+        const owner = { kind: "project", projectId } as const;
+        workbenchWindowRef.current.setScene(owner, (stored) => {
+          const scene = stored ?? materializeInitialWorkbenchScene(owner);
+          const dock = scene.agentDock;
+          if (!dock || dock.newDraftId !== draftId) return scene;
+          return {
+            ...scene,
+            agentDock: {
+              ...dock,
+              newDraftId: createProjectAgentDockDraftId(),
+              binding: dock.binding.kind === "new"
+                ? { kind: "session", sessionId }
+                : dock.binding,
+            },
+          };
+        }, { recordHistory: false });
+      },
+    },
+  ), [projectAgentDockMaterializer, threadScopeIdentityRegistry]);
+  useEffect(() => {
+    if (!selectedProjectSceneId || !projectAgentDockBoundSessionId) return;
+    if (!projectAgentDockSessionQuery.isSuccess) return;
+    if (projectAgentDockExactSession) return;
+    updateProjectAgentDock(selectedProjectSceneId, (dock) => ({
+      ...dock,
+      binding: { kind: "new" },
+    }));
+  }, [
+    projectAgentDockBoundSessionId,
+    projectAgentDockExactSession,
+    projectAgentDockSessionQuery.isSuccess,
+    selectedProjectSceneId,
+    updateProjectAgentDock,
+  ]);
+  useEffect(() => {
+    setProjectAgentDockQuery("");
+  }, [selectedProjectSceneId]);
   const activeSessions = useMemo(
     () => activeProject ? sessionsByProject[activeProject.id] ?? [] : [],
     [activeProject, sessionsByProject],
@@ -739,7 +1095,7 @@ export function WorkbenchRuntime({
     input: WorkbenchTabCreateInput,
   ): WorkbenchTabProjection | null => {
     if (!activeSession || input.sessionId !== activeSession.id) return null;
-    const tab = workbenchViewTabFromCreateInput(input);
+    const tab = workbenchSurfaceFromCreateInput(input);
     const next = panelControllerRef.current.durable.createTab(
       activeSession,
       {
@@ -748,46 +1104,33 @@ export function WorkbenchRuntime({
         tab,
       },
     );
-    return presentWorkbenchSessionDomainWithView(activeSession, next).tabs
+    return presentWorkbenchSessionDomainWithScene(
+      activeSession,
+      next,
+    ).tabs
       .find((candidate) => candidate.id === tab.id) ?? null;
   }, [activeSession]);
   const updateSessionViewTab = useCallback((
     tabId: string,
-    patch: Parameters<typeof applyWorkbenchViewTabPatch>[1],
+    patch: WorkbenchSurfaceUpdatePatch,
   ): WorkbenchTabProjection | null => {
     if (!activeSession) return null;
-    const current = resolveSessionView(activeSession);
-    const tab = current.tabsById[tabId];
-    if (!tab) return null;
-    const nextTab = applyWorkbenchViewTabPatch(tab, patch);
+    const current = resolveSessionScene(activeSession);
+    const surface = current.panelSurfacesById[tabId];
+    if (!surface) return null;
+    const nextSurface = applyWorkbenchSurfacePatch(surface, patch);
     const next = panelControllerRef.current.durable.updateTab(
       activeSession,
       tabId,
-      nextTab,
+      nextSurface,
     );
-    return presentWorkbenchSessionDomainWithView(activeSession, next).tabs
+    return presentWorkbenchSessionDomainWithScene(
+      activeSession,
+      next,
+    ).tabs
       .find((candidate) => candidate.id === tabId) ?? null;
-  }, [activeSession, resolveSessionView]);
+  }, [activeSession, resolveSessionScene]);
   const activeRenderSession = activeSession;
-  const activeBrowserRouteConversationId = activeRenderSession?.id ?? null;
-  const activeBrowserRouteCodexSessionId =
-    activeRenderSession?.thread?.threadId ?? activeBrowserRouteConversationId;
-  const activeBrowserRouteProjectId = activeRenderSession?.projectId ?? null;
-  useEffect(() => {
-    const command = buildBrowserUseRouteCaptureCommand({
-      browserConversationId: activeBrowserRouteConversationId,
-      browserViewScopeId: windowSessionId,
-      codexSessionId: activeBrowserRouteCodexSessionId,
-      projectId: activeBrowserRouteProjectId,
-    });
-    if (!command) return;
-    void invoke("browser-sidebar-command", command);
-  }, [
-    activeBrowserRouteCodexSessionId,
-    activeBrowserRouteConversationId,
-    activeBrowserRouteProjectId,
-    windowSessionId,
-  ]);
   const forkTransferTargetConversationId = activeRenderSession?.thread?.threadId ?? null;
   const forkTransferTargetSessionId = activeRenderSession?.id ?? null;
   const consumedForkTransferTargetsRef = useRef(new Set<string>());
@@ -805,7 +1148,7 @@ export function WorkbenchRuntime({
       if (!snapshot || !activeRenderSession) return;
       panelControllerRef.current.durable.apply(
         activeRenderSession,
-        (view) => applyForkBrowserTransferToWorkbenchView(view, snapshot),
+        (scene) => applyForkBrowserTransferToWorkbenchScene(scene, snapshot),
       );
     }).catch(() => {
       consumedForkTransferTargetsRef.current.delete(targetKey);
@@ -894,10 +1237,31 @@ export function WorkbenchRuntime({
     sideChatActiveTabByPanel,
     sideChatTabsBySession,
   ]);
-  const rightPanel = activeSessionPanelModel?.rightPanel ?? null;
-  const bottomPanel = activeSessionPanelModel?.bottomPanel ?? null;
-  const sidePanelOpen = activeSessionPanelModel?.sidePanelOpen ?? false;
-  const bottomPanelOpen = activeSessionPanelModel?.bottomPanelOpen ?? false;
+  const activePanelOwnerKey = projectSceneKey
+    ?? (activeSession
+      ? makeWorkbenchSceneKey({
+          kind: "session",
+          sessionId: activeSession.id,
+        })
+      : null);
+  const rightPanel = activeProjectScene?.panels.right
+    ?? activeSessionPanelModel?.rightPanel
+    ?? null;
+  const bottomPanel = activeProjectScene?.panels.bottom
+    ?? activeSessionPanelModel?.bottomPanel
+    ?? null;
+  const rightPanelCollapsed = rightPanel && activePanelOwnerKey
+    ? panelCollapsedOverrides[
+        makeWorkbenchPanelSlotKey(activePanelOwnerKey, "right")
+      ] ?? rightPanel.collapsed
+    : true;
+  const bottomPanelCollapsed = bottomPanel && activePanelOwnerKey
+    ? panelCollapsedOverrides[
+        makeWorkbenchPanelSlotKey(activePanelOwnerKey, "bottom")
+      ] ?? bottomPanel.collapsed
+    : true;
+  const sidePanelOpen = !rightPanelCollapsed;
+  const bottomPanelOpen = !bottomPanelCollapsed;
   useEffect(() => {
     setPageStageHistoryModal((current) => {
       if (!current) return current;
@@ -935,7 +1299,8 @@ export function WorkbenchRuntime({
     [pageStageHistoryModal, projects],
   );
   const pageStageHistoryPanelProjectId = pageStageHistoryModal?.projectId ?? activeProject?.id ?? null;
-  const rightPanelFullWidth = activeSessionPanelModel?.rightPanelFullWidth ?? false;
+  const rightPanelFullWidth = sidePanelOpen
+    && (rightPanel?.size.fullWidth ?? false);
   const rightActiveRenderableTab = activeSessionPanelModel?.rightActiveRenderableTab ?? null;
   const rightPanelComposerOverlayEnabled = Boolean(
     activeSession?.thread
@@ -1033,16 +1398,16 @@ export function WorkbenchRuntime({
     toast.danger(message);
   }, []);
   useEffect(() => {
-    if (!activeSession) {
+    if (!activePanelOwnerKey || !rightPanel || !bottomPanel) {
       panelControllerRef.current.updatePanelCollapsedOverrides((current) => Object.keys(current).length === 0 ? current : {});
       return;
     }
 
-    const rightKey = makeWorkbenchPanelSlotKey(activeSession.id, "right");
-    const bottomKey = makeWorkbenchPanelSlotKey(activeSession.id, "bottom");
+    const rightKey = makeWorkbenchPanelSlotKey(activePanelOwnerKey, "right");
+    const bottomKey = makeWorkbenchPanelSlotKey(activePanelOwnerKey, "bottom");
     panelControllerRef.current.updatePanelCollapsedOverrides((current) => {
-      const rightMatches = current[rightKey] === activeSession.panels.right.collapsed;
-      const bottomMatches = current[bottomKey] === activeSession.panels.bottom.collapsed;
+      const rightMatches = current[rightKey] === rightPanel.collapsed;
+      const bottomMatches = current[bottomKey] === bottomPanel.collapsed;
       if (!rightMatches && !bottomMatches) {
         return current;
       }
@@ -1053,7 +1418,9 @@ export function WorkbenchRuntime({
       return next;
     });
   }, [
-    activeSession,
+    activePanelOwnerKey,
+    bottomPanel,
+    rightPanel,
   ]);
 
   const openSettings = useCallback(() => {
@@ -1224,12 +1591,12 @@ export function WorkbenchRuntime({
         void openCanvasStageRef.current(projectId, target.canvasId, "Canvas");
         return;
       }
-      setPendingCanvasStageOpen({
+      workbenchWindow.selectProject(projectId);
+      void openProjectCanvasStageRef.current?.(
         projectId,
-        canvasBlockId: target.canvasId,
-        titleSnapshot: "Canvas",
-      });
-      void ensureCanvasHostSessionRef.current?.(projectId);
+        target.canvasId,
+        "Canvas",
+      );
       return;
     }
     navigateToLibraryRoute(target);
@@ -1238,11 +1605,11 @@ export function WorkbenchRuntime({
     activeSession?.projectId,
     navigateToLibraryRoute,
     setLibraryRoute,
+    workbenchWindow,
   ]);
 
   const sidebarController = useWorkbenchSidebarController({
     projects,
-    sessionsByProject,
     projectlessSessions,
     knownSessions,
     activeProject,
@@ -1319,11 +1686,187 @@ export function WorkbenchRuntime({
     pinPreviewTab,
     selectPanelTab,
     closePlanSidePanel,
-    activatePanelGroup,
   } = panelLifecycle;
+  const updateActiveWorkbenchPanel = useCallback(async (
+    panelId: PanelId,
+    input: Partial<WorkbenchSceneSnapshot["panels"][PanelId]>,
+  ) => {
+    if (!projectSceneOwner) {
+      return await updateActivePanel(panelId, input);
+    }
+    return panelControllerRef.current.sceneDurable?.patchPanel(
+      projectSceneOwner,
+      panelId,
+      {
+        ...(input.collapsed === undefined
+          ? {}
+          : { collapsed: input.collapsed }),
+        ...(input.size === undefined ? {} : { size: input.size }),
+      },
+    ) ?? null;
+  }, [projectSceneOwner, updateActivePanel]);
+  const setActiveWorkbenchPanelCollapsed = useCallback(async (
+    panelId: PanelId,
+    collapsed: boolean,
+  ) => {
+    if (projectSceneOwner && panelId === "right" && collapsed) {
+      return activeProjectScene?.panels.right ?? null;
+    }
+    if (!projectSceneOwner || !projectSceneKey) {
+      return await setActivePanelCollapsed(panelId, collapsed);
+    }
+    const overrideKey = makeWorkbenchPanelSlotKey(projectSceneKey, panelId);
+    panelControllerRef.current.updatePanelCollapsedOverrides((current) => ({
+      ...current,
+      [overrideKey]: collapsed,
+    }));
+    try {
+      return await updateActiveWorkbenchPanel(panelId, { collapsed });
+    } finally {
+      panelControllerRef.current.updatePanelCollapsedOverrides((current) => {
+        if (!(overrideKey in current)) return current;
+        const next = { ...current };
+        delete next[overrideKey];
+        return next;
+      });
+    }
+  }, [
+    projectSceneKey,
+    projectSceneOwner,
+    activeProjectScene?.panels.right,
+    setActivePanelCollapsed,
+    updateActiveWorkbenchPanel,
+  ]);
+  const presentProjectSceneSurface = useCallback(async (
+    projectId: string,
+    request: WorkbenchSurfaceOpenRequest,
+    options: {
+      readonly panelId?: PanelId;
+      readonly targetLeafId?: string;
+      readonly placement?: PresentWorkbenchPanelSurfaceInput["target"]["placement"];
+    } = {},
+  ): Promise<boolean> => {
+    const result = await sceneNavigator.presentPanelSurface({
+      owner: { kind: "project", projectId },
+      request,
+      target: {
+        panelId: options.panelId ?? "right",
+        ...(options.targetLeafId
+          ? { leafId: options.targetLeafId }
+          : {}),
+        ...(options.placement
+          ? { placement: options.placement }
+          : {}),
+      },
+      mode: "durable",
+      navigation: "background",
+    });
+    return result.status === "presented";
+  }, [sceneNavigator]);
+  const openProjectScenePage = useCallback<OpenPageTabHandler>(async (
+    projectId,
+    pageId,
+    titleSnapshot = "Page",
+    options,
+  ) => {
+    await presentProjectSceneSurface(projectId, {
+      kind: "page_stage",
+      projectId,
+      pageId,
+      titleSnapshot,
+    }, options?.sourceTabId
+      ? {
+          placement: {
+            kind: "adjacent-right",
+            sourceSurfaceId: options.sourceTabId,
+          },
+        }
+      : {});
+  }, [presentProjectSceneSurface]);
+  const openProjectSceneCanvas: OpenCanvasStageHandler = useCallback(async (
+    projectId,
+    canvasBlockId,
+    titleSnapshot = "Canvas",
+    options,
+  ) => await presentProjectSceneSurface(projectId, {
+      kind: "canvas_stage",
+      projectId,
+      canvasBlockId,
+      titleSnapshot,
+    }, {
+      panelId: options?.targetPanelId,
+      targetLeafId: options?.targetLeafId,
+    }), [presentProjectSceneSurface]);
+  const openProjectSceneManualSurface = useCallback(async (
+    projectId: string,
+    kind: "browser" | "files" | "review" | "terminal",
+    options: {
+      readonly panelId: PanelId;
+      readonly targetLeafId?: string;
+      readonly path?: string;
+      readonly url?: string;
+    },
+  ): Promise<boolean> => {
+    const project = projects.find((candidate) => candidate.id === projectId);
+    if (!project) return false;
+    const panelOptions = {
+      panelId: options.panelId,
+      targetLeafId: options.targetLeafId,
+    };
+    if (kind === "browser") {
+      return await presentProjectSceneSurface(projectId, {
+        kind,
+        config: {
+          ...(options.url ? { url: options.url } : {}),
+        },
+      }, panelOptions);
+    }
+    if (kind === "terminal") {
+      return await presentProjectSceneSurface(projectId, {
+        kind,
+        config: {
+          context: { kind: "project", projectId },
+        },
+      }, panelOptions);
+    }
+    if (kind === "review") {
+      return await presentProjectSceneSurface(projectId, {
+        kind,
+        config: {
+          projectId,
+          context: { kind: "project", projectId },
+        },
+      }, panelOptions);
+    }
+    const workspaceRoot = projectWorkspaceRootOrNull(project);
+    return await presentProjectSceneSurface(projectId, {
+      kind,
+      titleSnapshot: options.path?.split(/[\\/]/).pop() || "Files",
+      config: {
+        projectId,
+        hostId: "local",
+        workspaceRoot,
+        cwd: workspaceRoot,
+        ...(options.path ? { path: options.path } : {}),
+      },
+    }, panelOptions);
+  }, [presentProjectSceneSurface, projects]);
   const browserUsePresentation =
     useBrowserUsePresentationCoordinator({
       activeSession,
+      projectScene: (
+        activeProjectScene
+        && projectSceneKey
+        && projectSceneOwner
+        && panelController.sceneDurable
+        && selectedProjectSceneId
+      ) ? {
+        browserConversationId: projectSceneKey,
+        commands: panelController.sceneDurable,
+        owner: projectSceneOwner,
+        projectId: selectedProjectSceneId,
+        scene: activeProjectScene,
+      } : null,
       catalog: sessionCatalog,
       controller: panelController,
       createSessionViewTab,
@@ -1353,28 +1896,9 @@ export function WorkbenchRuntime({
     openPlanSidePanel,
     openAutomationSidePanel,
     openCanvasStage,
-    openPageTab,
   } = panelOpeners;
   openCanvasStageRef.current = openCanvasStage;
-
-  useEffect(() => {
-    if (!pendingCanvasStageOpen) return;
-    if (activeSession?.projectId !== pendingCanvasStageOpen.projectId) return;
-
-    let cancelled = false;
-    void openCanvasStage(
-      pendingCanvasStageOpen.projectId,
-      pendingCanvasStageOpen.canvasBlockId,
-      pendingCanvasStageOpen.titleSnapshot,
-    ).then((opened) => {
-      if (cancelled || !opened) return;
-      setPendingCanvasStageOpen(null);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [activeSession?.projectId, openCanvasStage, pendingCanvasStageOpen]);
+  openProjectCanvasStageRef.current = openProjectSceneCanvas;
 
   const sessionCommands = useWorkbenchSessionCommands({
     activeProject,
@@ -1435,8 +1959,6 @@ export function WorkbenchRuntime({
     forkSessionFromTurn,
     forkSessionFromTurnIntoWorktree,
   } = sessionCommands;
-  ensureCanvasHostSessionRef.current = ensureBlankSessionForProject;
-
   const panelCommands = useWorkbenchPanelCommandRouter({
     activeSession,
     projects,
@@ -1484,10 +2006,18 @@ export function WorkbenchRuntime({
   ]);
 
   const chromeCommands = useWorkbenchChromeCommands({
-    activeSession,
+    activePanelOwner: activePanelOwnerKey && rightPanel && bottomPanel
+      ? {
+          key: activePanelOwnerKey,
+          panels: { right: rightPanel, bottom: bottomPanel },
+        }
+      : null,
     rightPanelFullWidth,
     controller: panelController,
-    lifecycle: panelLifecycle,
+    lifecycle: {
+      setActivePanelCollapsed: setActiveWorkbenchPanelCollapsed,
+      updateActivePanel: updateActiveWorkbenchPanel,
+    },
     navigateBack: workbenchWindow.navigateBack,
     navigateForward: workbenchWindow.navigateForward,
     workbenchRootRef,
@@ -1588,6 +2118,49 @@ export function WorkbenchRuntime({
       rightPanelMotion.mounted,
     ],
   );
+  const projectBrowserRetentionTabs = useMemo<WorkbenchTabProjection[]>(() => {
+    if (!activeProjectScene || !activeProject || !projectSceneKey) return [];
+    return Object.values(activeProjectScene.panelSurfacesById).flatMap(
+      (surface, index) => surface.kind === "browser"
+        ? [{
+            id: surface.id,
+            sessionId: projectSceneKey,
+            projectId: activeProject.id,
+            panelId: findWorkbenchPanelLeafForTab(
+              activeProjectScene.panels.right.layout,
+              surface.id,
+            ) ? "right" as const : "bottom" as const,
+            title: surface.titleSnapshot,
+            order: index,
+            stateKey: surface.stateKey,
+            state: surface.state,
+            createdAt: activeProjectScene.touchedAt,
+            updatedAt: activeProjectScene.touchedAt,
+            kind: "browser" as const,
+            browserTabId: surface.config.browserTabId,
+            config: {
+              projectId: activeProject.id,
+              ...surface.config,
+            },
+          }]
+        : [],
+    );
+  }, [activeProject, activeProjectScene, projectSceneKey]);
+  const visibleProjectBrowserTabIds = useMemo(() => {
+    const visible = new Set<string>();
+    if (!activeProjectScene) return visible;
+    for (const panelId of ["right", "bottom"] as const) {
+      const panel = activeProjectScene.panels[panelId];
+      if (panel.collapsed) continue;
+      for (const leaf of listWorkbenchPanelLeaves(panel.layout)) {
+        const surface = leaf.activeTabId
+          ? activeProjectScene.panelSurfacesById[leaf.activeTabId]
+          : null;
+        if (surface?.kind === "browser") visible.add(surface.id);
+      }
+    }
+    return visible;
+  }, [activeProjectScene]);
 
   useEffect(() => {
     const atMediumWidth = shellWidthClass !== "wide";
@@ -1599,19 +2172,19 @@ export function WorkbenchRuntime({
     shellAtMediumWidthRef.current = atMediumWidth;
     shellAtNarrowWidthRef.current = atNarrowWidth;
 
-    if (!activeSession) return;
+    if (!activePanelOwnerKey || !rightPanel) return;
 
     const shouldClearRightPanel =
       (crossedMediumWidth && atMediumWidth && sidebarOpen && sidePanelOpen)
       || (crossedNarrowWidth && atNarrowWidth && sidePanelOpen);
     if (shouldClearRightPanel) {
       setFloatingSidebarFocusActive(false);
-      const overrideKey = makeWorkbenchPanelSlotKey(activeSession.id, "right");
+      const overrideKey = makeWorkbenchPanelSlotKey(activePanelOwnerKey, "right");
       panelControllerRef.current.updatePanelCollapsedOverrides((current) => ({ ...current, [overrideKey]: true }));
-      void updateActivePanel("right", {
+      void updateActiveWorkbenchPanel("right", {
         collapsed: true,
         size: {
-          ...activeSession.panels.right.size,
+          ...rightPanel.size,
           fullWidth: false,
         },
       }).catch((error) => {
@@ -1633,14 +2206,14 @@ export function WorkbenchRuntime({
       });
     }
   }, [
-    activeSession,
+    activePanelOwnerKey,
+    rightPanel,
     setFloatingSidebarFocusActive,
     setSidebarCollapsedWithCodexState,
     sidePanelOpen,
     sidebarOpen,
     shellWidthClass,
-    updateActivePanel,
-    updateSessionViewTab,
+    updateActiveWorkbenchPanel,
   ]);
 
   const toggleThreadSummaryPanel = useCallback(() => {
@@ -1708,22 +2281,22 @@ export function WorkbenchRuntime({
   );
 
   const toggleActiveSidePanel = useCallback(() => {
-    if (!activeSession) return;
+    if (!activePanelOwnerKey || projectSceneOwner) return;
     if (!sidePanelOpen) {
       void showActiveRightPanel();
       return;
     }
     void hideActiveRightPanel();
-  }, [activeSession, hideActiveRightPanel, showActiveRightPanel, sidePanelOpen]);
+  }, [activePanelOwnerKey, hideActiveRightPanel, projectSceneOwner, showActiveRightPanel, sidePanelOpen]);
 
   const toggleActiveBottomPanel = useCallback(() => {
-    if (!activeSession) return;
+    if (!activePanelOwnerKey) return;
     if (!bottomPanelOpen) {
       void showActiveBottomPanel();
       return;
     }
     void hideActiveBottomPanel();
-  }, [activeSession, bottomPanelOpen, hideActiveBottomPanel, showActiveBottomPanel]);
+  }, [activePanelOwnerKey, bottomPanelOpen, hideActiveBottomPanel, showActiveBottomPanel]);
 
   const executeWorkbenchCommand = useCallback(({ commandId }: WorkbenchCommandInvocation) => {
     if (commandId !== TOGGLE_BOTTOM_PANEL_COMMAND_ID) return;
@@ -1755,7 +2328,7 @@ export function WorkbenchRuntime({
       closeFocusedPanelTab(null, { respectActiveElementGuard: true });
     },
     execute: (commandId, source) => {
-      if (!sessionsReady) {
+      if (!selectedSessionDetailReady) {
         pendingWorkbenchCommandInvocationsRef.current.push({
           commandId,
           source,
@@ -1777,7 +2350,7 @@ export function WorkbenchRuntime({
     openKeyboardShortcutsSettings,
     openRenameSessionDialog,
     requestContentSearchOpen,
-    sessionsReady,
+    selectedSessionDetailReady,
     toggleSettings,
     toggleSidebarCollapsed,
   ]);
@@ -1788,13 +2361,13 @@ export function WorkbenchRuntime({
   }, [commandPort, onRegisterCommandPort]);
 
   useEffect(() => {
-    if (!sessionsReady) return;
+    if (!selectedSessionDetailReady) return;
     const pending =
       pendingWorkbenchCommandInvocationsRef.current.splice(0);
     for (const invocation of pending) {
       executeWorkbenchCommand(invocation);
     }
-  }, [executeWorkbenchCommand, sessionsReady]);
+  }, [executeWorkbenchCommand, selectedSessionDetailReady]);
 
   const sidebarCollapseControlLabel = sidebarLogicalCollapsed ? "Show sidebar" : "Hide sidebar";
   const sidebarCollapseControlButton = (
@@ -1877,7 +2450,7 @@ export function WorkbenchRuntime({
     </>
   );
 
-  const panelHeaderActions = activeSession ? (
+  const panelHeaderActions = activePanelOwnerKey ? (
     <>
       <HeaderAction
         actionId="workbench-bottom-panel-toggle"
@@ -1896,16 +2469,18 @@ export function WorkbenchRuntime({
           {bottomPanelOpen ? <CodexPanelBottomVisibleIcon className="icon-sm" /> : <CodexPanelBottomHiddenIcon className="icon-sm" />}
         </ToolbarIconButton>
       </HeaderAction>
-      <HeaderAction
-        actionId="workbench-side-panel-toggle"
-        slotPosition="right"
-        align="end"
-        order={300}
-      >
-        <ToolbarIconButton label="Toggle side panel" pressed={sidePanelOpen} onClick={toggleActiveSidePanel}>
-          {sidePanelOpen ? <CodexPanelRightVisibleIcon className="icon-sm" /> : <CodexPanelRightHiddenIcon className="icon-sm" />}
-        </ToolbarIconButton>
-      </HeaderAction>
+      {!projectSceneOwner ? (
+        <HeaderAction
+          actionId="workbench-side-panel-toggle"
+          slotPosition="right"
+          align="end"
+          order={300}
+        >
+          <ToolbarIconButton label="Toggle side panel" pressed={sidePanelOpen} onClick={toggleActiveSidePanel}>
+            {sidePanelOpen ? <CodexPanelRightVisibleIcon className="icon-sm" /> : <CodexPanelRightHiddenIcon className="icon-sm" />}
+          </ToolbarIconButton>
+        </HeaderAction>
+      ) : null}
     </>
   ) : null;
 
@@ -1926,39 +2501,25 @@ export function WorkbenchRuntime({
     </>
   );
 
-  const renderPanelNewTabButton = (
-    session: ProjectSession,
-    panelId: PanelId,
-    leafId: string,
-  ) => (
-    <WorkbenchPanelNewTabButton
-      session={session}
-      projects={projects}
-      panelId={panelId}
-      leafId={leafId}
-      isMac={isMacPlatform}
-      commandKeymapState={commandKeymapState}
-      commands={{ ...panelCommands, activatePanelGroup }}
-    />
-  );
-
-  const rightPanelHeaderStartInsetWidth = activeSession && rightPanelFullWidth && sidebarLogicalCollapsed
+  const rightPanelHeaderStartInsetWidth = activePanelOwnerKey && rightPanelFullWidth && sidebarLogicalCollapsed
     ? effectiveHeaderLeftWidth
     : 0;
-  const panelTabScrollEndPaddingPx = activeSession ? 28 : 0;
-  const bottomPanelGlobalHeaderInsetWidth = activeSession ? 40 : 0;
+  const panelTabScrollEndPaddingPx = activePanelOwnerKey ? 28 : 0;
+  const bottomPanelGlobalHeaderInsetWidth = activePanelOwnerKey ? 40 : 0;
 
-  const rightPanelHeaderAfterList = activeSession ? (
+  const rightPanelHeaderAfterList = activePanelOwnerKey ? (
     <>
-      <div className="no-drag pointer-events-auto flex h-full shrink-0 items-center">
-        <ToolbarIconButton
-          label={rightPanelFullWidth ? "Restore panel width" : "Expand panel"}
-          pressed={rightPanelFullWidth}
-          onClick={toggleActiveRightPanelFullWidth}
-        >
-          {rightPanelFullWidth ? <CodexRestorePanelIcon className="icon-xs" /> : <CodexExpandPanelIcon className="icon-xs" />}
-        </ToolbarIconButton>
-      </div>
+      {!projectSceneOwner ? (
+        <div className="no-drag pointer-events-auto flex h-full shrink-0 items-center">
+          <ToolbarIconButton
+            label={rightPanelFullWidth ? "Restore panel width" : "Expand panel"}
+            pressed={rightPanelFullWidth}
+            onClick={toggleActiveRightPanelFullWidth}
+          >
+            {rightPanelFullWidth ? <CodexRestorePanelIcon className="icon-xs" /> : <CodexExpandPanelIcon className="icon-xs" />}
+          </ToolbarIconButton>
+        </div>
+      ) : null}
       <div
         aria-hidden="true"
         data-testid="right-panel-tab-bar-header-spacer"
@@ -1968,7 +2529,7 @@ export function WorkbenchRuntime({
     </>
   ) : null;
 
-  const bottomPanelGlobalHeaderControls = activeSession ? (
+  const bottomPanelGlobalHeaderControls = activePanelOwnerKey ? (
     <div className="pointer-events-auto flex h-full shrink-0 items-center">
       <ToolbarIconButton
         label="Close"
@@ -2020,9 +2581,7 @@ export function WorkbenchRuntime({
     selectProject(projectId);
     if (target.kind === "page") {
       setLibraryRoute(null);
-      await openPageTab(projectId, target.pageId, title, {
-        openMode: "durable",
-      });
+      await openProjectScenePage(projectId, target.pageId, title);
       return;
     }
     setLibraryRoute({
@@ -2031,7 +2590,7 @@ export function WorkbenchRuntime({
     });
   }, [
     libraryWorkspaceEnabled,
-    openPageTab,
+    openProjectScenePage,
     selectProject,
     setLibraryRoute,
   ]);
@@ -2156,7 +2715,7 @@ export function WorkbenchRuntime({
   const appShellHeaderCenterVisible = settingsRouteShell == null
     && libraryRouteShell == null
     && (
-      activeSession != null
+      activePanelOwnerKey != null
       || automationsRouteShell != null
       || pendingWorktreeRouteShell != null
     );
@@ -2217,20 +2776,673 @@ export function WorkbenchRuntime({
         (project) => project.id === activeRenderSession.projectId,
       ) ?? activeProject
     : null;
+  const renderProjectSceneSurface = useCallback((
+    surface: WorkbenchSurfaceDescriptor,
+    context: { readonly active: boolean; readonly panelId: PanelId },
+  ) => {
+    if (!activeProjectScene || !activeProject || !projectSceneKey) return null;
+    const leafId = findWorkbenchPanelLeafForTab(
+      activeProjectScene.panels[context.panelId].layout,
+      surface.id,
+    )?.id ?? activeProjectScene.panels[context.panelId].layout.activeLeafId;
+    const common = {
+      id: surface.id,
+      sessionId: projectSceneKey,
+      projectId: activeProject.id,
+      panelId: context.panelId,
+      title: surface.titleSnapshot,
+      order: 0,
+      stateKey: surface.stateKey,
+      state: surface.state,
+      createdAt: activeProjectScene.touchedAt,
+      updatedAt: activeProjectScene.touchedAt,
+      browserTabId: null,
+    };
+
+    if (surface.kind === "db_view") {
+      const databaseViewId = surface.config.target.kind === "project-default"
+        ? activeProject.defaultDatabaseViewId
+        : surface.config.target.databaseViewId;
+      if (!databaseViewId) {
+        return (
+          <div className="flex h-full items-center justify-center text-sm text-token-text-secondary">
+            Database View is unavailable
+          </div>
+        );
+      }
+      const tab: WorkbenchTabProjection = {
+        ...common,
+        kind: "db_view",
+        config: {
+          projectId: surface.config.projectId,
+          databaseViewId,
+          view: surface.config.view,
+        },
+      };
+      return (
+        <DbViewSessionTab
+          sessionId={`${windowSessionId}:${projectSceneKey}:${surface.id}`}
+          tab={tab}
+          projects={projects}
+          activeView={activeView}
+          activeSearchQuery={activeSearchQuery}
+          activeDbViewPrefs={activeDbViewPrefs}
+          searchByProject={searchByProject}
+          dbViewPrefsByProject={dbViewPrefsByProject}
+          activePanelPageStagePageIdsByProject={new Map()}
+          pageStageCloseRef={pageStageCloseRef}
+          pendingReminderOpen={pendingReminderOpen}
+          taskSearchOpenTick={taskSearchOpenTick}
+          setSearchQuery={setSearchQuery}
+          setDbViewPrefs={setDbViewPrefs}
+          onReminderHandled={onReminderHandled}
+          onOpenPageTab={openProjectScenePage}
+          onOpenCanvasStage={openProjectSceneCanvas}
+          targetLeafId={leafId}
+          onUpdateTab={(surfaceId, patch) => {
+            if (!projectSceneOwner) return null;
+            const nextView = patch.config && "view" in patch.config
+              ? patch.config.view
+              : surface.config.view;
+            panelControllerRef.current.sceneDurable?.updateSurface(
+              projectSceneOwner,
+              surfaceId,
+              {
+                ...(patch.title === undefined
+                  ? {}
+                  : { titleSnapshot: patch.title }),
+                ...(patch.stateKey === undefined
+                  ? {}
+                  : { stateKey: patch.stateKey }),
+                ...(!("state" in patch) ? {} : { state: patch.state }),
+                config: {
+                  ...surface.config,
+                  view: nextView,
+                },
+              },
+            );
+            return {
+              ...tab,
+              ...(patch.title === undefined ? {} : { title: patch.title }),
+              config: { ...tab.config, view: nextView },
+            };
+          }}
+        />
+      );
+    }
+
+    if (surface.kind === "canvas_stage") {
+      const tab: WorkbenchTabProjection = {
+        ...common,
+        kind: "canvas_stage",
+        config: surface.config,
+      };
+      return (
+        <WorkbenchCanvasStagePanel
+          tab={tab}
+          windowSessionId={windowSessionId}
+          projectSessionId={projectSceneKey}
+          isActivePanelTab={context.active}
+          onClose={() => {
+            if (!projectSceneOwner) return;
+            panelControllerRef.current.sceneDurable?.removeSurface(
+              projectSceneOwner,
+              surface.id,
+            );
+          }}
+          onTitleChange={(title) => {
+            if (!projectSceneOwner) return;
+            panelControllerRef.current.sceneDurable?.updateSurface(
+              projectSceneOwner,
+              surface.id,
+              { titleSnapshot: title },
+            );
+          }}
+        />
+      );
+    }
+
+    if (surface.kind === "page_stage") {
+      const tab: WorkbenchTabProjection = {
+        ...common,
+        kind: "page_stage",
+        config: surface.config,
+      };
+      return (
+        <PageStageSessionTab
+          tab={tab}
+          project={projects.find((item) =>
+            item.id === surface.config.projectId
+          ) ?? null}
+          closeRef={pageStageCloseRef}
+          persistRef={pageStagePersistRef}
+          sessionSnapshotRef={pageStageSessionSnapshotRef}
+          sessionId={projectSceneKey}
+          sessionThread={null}
+          canStartThreadInSession={false}
+          titleStore={pageStageTabTitleStore}
+          onLeavePage={onLeavePageStage}
+          onClose={() => {
+            if (!projectSceneOwner) return;
+            panelControllerRef.current.sceneDurable?.removeSurface(
+              projectSceneOwner,
+              surface.id,
+            );
+          }}
+          onOpenTerminal={async () => {
+            await openProjectSceneManualSurface(activeProject.id, "terminal", {
+              panelId: "bottom",
+              targetLeafId: activeProjectScene.panels.bottom.layout.activeLeafId,
+            });
+          }}
+          onEnsureBlankSessionForProject={ensureBlankSessionForProject}
+          onRefreshSessions={refreshProjectSessions}
+          onOpenPageTab={openProjectScenePage}
+          onOpenCanvasStage={openProjectSceneCanvas}
+          onOpenThread={openAttachedThreadSessionById}
+          historyPanelActive={Boolean(
+            pageStageHistoryModal
+            && pageStageHistoryModal.sessionId === projectSceneKey
+            && pageStageHistoryModal.tabId === surface.id
+          )}
+          onToggleHistoryPanel={togglePageStageHistoryModal}
+          isActivePanelTab={context.active}
+        />
+      );
+    }
+
+    if (surface.kind === "files") {
+      const tab: WorkbenchTabProjection = {
+        ...common,
+        kind: "files",
+        config: surface.config,
+      };
+      return (
+        <WorkspaceFilesPanel
+          tab={tab as WorkspaceFilesTab}
+          presentationOwnerId={projectSceneKey}
+          project={projects.find((item) =>
+            item.id === surface.config.projectId
+          ) ?? activeProject}
+          onOpenFileTab={async (input) => openProjectSceneManualSurface(
+            activeProject.id,
+            "files",
+            {
+              panelId: input.panelId,
+              path: input.path,
+            },
+          )}
+          onUpdateTabState={(state) => {
+            if (!projectSceneOwner) return;
+            panelControllerRef.current.sceneDurable?.updateSurface(
+              projectSceneOwner,
+              surface.id,
+              { state },
+            );
+          }}
+        />
+      );
+    }
+
+    if (surface.kind === "browser") {
+      const tab: WorkbenchTabProjection = {
+        ...common,
+        kind: "browser",
+        browserTabId: surface.config.browserTabId,
+        config: {
+          projectId: activeProject.id,
+          ...surface.config,
+        },
+      };
+      return (
+        <BrowserSidebarPanel
+          tab={tab}
+          surfaceContext={{
+            browserConversationId: projectSceneKey,
+            codexSessionId: null,
+          }}
+          browserViewScopeId={windowSessionId}
+          onRefreshSessions={refreshProjectSessions}
+          onUpdateTab={(_surfaceId, patch) => {
+            const patchConfig = patch.config;
+            const nextConfig = {
+              ...surface.config,
+              ...(patchConfig && "url" in patchConfig
+                ? { url: patchConfig.url }
+                : {}),
+              ...(patchConfig && "title" in patchConfig
+                ? { title: patchConfig.title }
+                : {}),
+              ...(patchConfig && "faviconUrl" in patchConfig
+                ? { faviconUrl: patchConfig.faviconUrl }
+                : {}),
+              ...(patchConfig && "deviceToolbarVisible" in patchConfig
+                ? { deviceToolbarVisible: patchConfig.deviceToolbarVisible }
+                : {}),
+              ...(patchConfig && "deviceToolbarState" in patchConfig
+                ? { deviceToolbarState: patchConfig.deviceToolbarState }
+                : {}),
+            };
+            if (projectSceneOwner) {
+              panelControllerRef.current.sceneDurable?.updateSurface(
+                projectSceneOwner,
+                surface.id,
+                {
+                  ...(patch.title === undefined
+                    ? {}
+                    : { titleSnapshot: patch.title }),
+                  ...(!("state" in patch) ? {} : { state: patch.state }),
+                  config: nextConfig,
+                },
+              );
+            }
+            return {
+              ...tab,
+              ...(patch.title === undefined ? {} : { title: patch.title }),
+              config: {
+                projectId: activeProject.id,
+                ...nextConfig,
+              },
+            };
+          }}
+          onOpenNewTab={(request) => {
+            void openProjectSceneManualSurface(activeProject.id, "browser", {
+              panelId: context.panelId,
+              targetLeafId: leafId,
+              url: request.url,
+            });
+          }}
+          boundsSyncTrigger={context.panelId === "right"
+            ? rightPanelMotion.animatedSize
+            : bottomPanelMotion.animatedSize}
+          onOpenBrowserSettings={openBrowserSettings}
+          activeForContentSearch={context.active}
+          isVisible={context.active}
+        />
+      );
+    }
+
+    if (surface.kind === "terminal") {
+      const contextProjectId = surface.config.context?.kind === "project"
+        ? surface.config.context.projectId
+        : activeProject.id;
+      const terminalProject = projects.find((item) =>
+        item.id === contextProjectId
+      ) ?? activeProject;
+      const cwd = projectWorkspaceRootOrNull(terminalProject);
+      if (!cwd) {
+        return (
+          <div className="flex h-full items-center justify-center text-sm text-token-text-secondary">
+            Terminal workspace is unavailable
+          </div>
+        );
+      }
+      return (
+        <TerminalPanel
+          terminalId={surface.config.terminalSessionId}
+          cwd={cwd}
+          conversationId={null}
+          projectSessionId={null}
+          onNewTerminalTab={() => {
+            void openProjectSceneManualSurface(activeProject.id, "terminal", {
+              panelId: context.panelId,
+              targetLeafId: leafId,
+            });
+          }}
+        />
+      );
+    }
+
+    if (surface.kind === "review") {
+      const reviewProject = projects.find((item) =>
+        item.id === surface.config.projectId
+      ) ?? null;
+      return (
+        <ConnectedReviewDiffPanel
+          threadId={null}
+          projectWorkspacePath={projectWorkspaceRootOrNull(reviewProject)}
+          searchOpenTick={0}
+        />
+      );
+    }
+
+    return null;
+  }, [
+    activeDbViewPrefs,
+    activeProject,
+    activeProjectScene,
+    activeSearchQuery,
+    activeView,
+    bottomPanelMotion.animatedSize,
+    dbViewPrefsByProject,
+    ensureBlankSessionForProject,
+    onLeavePageStage,
+    onReminderHandled,
+    openAttachedThreadSessionById,
+    openBrowserSettings,
+    openProjectSceneCanvas,
+    openProjectSceneManualSurface,
+    openProjectScenePage,
+    pageStageCloseRef,
+    pageStageHistoryModal,
+    pageStagePersistRef,
+    pageStageSessionSnapshotRef,
+    pageStageTabTitleStore,
+    pendingReminderOpen,
+    projectSceneKey,
+    projectSceneOwner,
+    projects,
+    refreshProjectSessions,
+    searchByProject,
+    setDbViewPrefs,
+    setSearchQuery,
+    taskSearchOpenTick,
+    togglePageStageHistoryModal,
+    rightPanelMotion.animatedSize,
+    windowSessionId,
+  ]);
+  const closeProjectSceneSurfaceRuntime = useCallback(async (
+    surface: WorkbenchSurfaceDescriptor,
+  ): Promise<boolean> => {
+    if (!projectSceneKey) return false;
+    if (surface.kind === "files") {
+      const saved = await workspaceTextDocumentRegistry.flush(surface.id);
+      if (!saved) {
+        toast.danger("Resolve the file conflict before closing this tab");
+      }
+      return saved;
+    }
+    if (surface.kind === "terminal") {
+      terminalSessionStore.release(surface.config.terminalSessionId);
+      return true;
+    }
+    if (surface.kind === "page_stage") {
+      await pageEditorSessionRegistry.dispose(
+        makePageEditorSessionKey(projectSceneKey, surface.id),
+      );
+      return true;
+    }
+    if (surface.kind === "canvas_stage") {
+      try {
+        await canvasSceneSurfaceRegistry.dispose(
+          makeCanvasSceneSurfaceKey(
+            windowSessionId,
+            projectSceneKey,
+            surface.id,
+          ),
+        );
+        return true;
+      } catch {
+        toast.danger("Canvas changes could not be saved locally");
+        return false;
+      }
+    }
+    if (surface.kind === "browser") {
+      try {
+        await invoke("browser-sidebar-command", {
+          type: "close-tab",
+          browserConversationId: projectSceneKey,
+          browserViewScopeId: windowSessionId,
+          browserTabId: surface.config.browserTabId,
+        });
+      } catch {
+        // Browser runtime cleanup is best effort; the durable descriptor still closes.
+      }
+    }
+    return true;
+  }, [projectSceneKey, windowSessionId]);
+  const projectScenePanels = (
+    activeProjectScene
+    && activeProject
+    && panelController.sceneDurable
+  ) ? buildWorkbenchScenePanels({
+    scene: activeProjectScene,
+    project: activeProject,
+    projects,
+    commands: panelController.sceneDurable,
+    isMac: isMacPlatform,
+    commandKeymapState,
+    availableActions: PANEL_NEW_TAB_ACTIONS.filter((action) =>
+      action.kind !== "side_chat"
+    ),
+    currentProjectDbViewExists: activeProjectScene.primary.kind === "db_view"
+      || Object.values(activeProjectScene.panelSurfacesById).some(
+        (surface) => surface.kind === "db_view",
+      ),
+    rightPanelHeaderAfterList,
+    rightPanelHeaderStartInsetWidth,
+    bottomPanelGlobalHeaderInsetWidth,
+    panelTabScrollEndPaddingPx,
+    renderSurface: renderProjectSceneSurface,
+    onCloseSurface: closeProjectSceneSurfaceRuntime,
+    onOpenAction: (panelId, leafId, action) => {
+      if (action === "canvas_stage") {
+        void openProjectSceneCanvas(
+          activeProject.id,
+          primaryCanvasBlockId(activeProject.id),
+          "Canvas",
+          { targetPanelId: panelId, targetLeafId: leafId },
+        );
+        return;
+      }
+      if (
+        action === "browser"
+        || action === "files"
+        || action === "review"
+        || action === "terminal"
+      ) {
+        void openProjectSceneManualSurface(activeProject.id, action, {
+          panelId,
+          targetLeafId: leafId,
+        });
+        return;
+      }
+      if (action !== "db_view" || !activeProject.defaultDatabaseViewId) return;
+      void presentProjectSceneSurface(activeProject.id, {
+        kind: "db_view",
+        config: {
+          projectId: activeProject.id,
+          target: { kind: "project-default" },
+          view: activeView,
+        },
+      }, { panelId, targetLeafId: leafId });
+    },
+    onOpenDestination: async (panelId, leafId, destination) => {
+      if (destination.kind === "page") {
+        await presentProjectSceneSurface(activeProject.id, {
+          kind: "page_stage",
+          projectId: destination.projectId,
+          pageId: destination.pageId,
+          titleSnapshot: destination.titleSnapshot,
+        }, { panelId, targetLeafId: leafId });
+        return;
+      }
+      await presentProjectSceneSurface(activeProject.id, {
+        kind: "db_view",
+        config: {
+          projectId: destination.projectId,
+          target: {
+            kind: "database-view",
+            databaseViewId: destination.databaseViewId,
+          },
+          view: activeView,
+        },
+      }, { panelId, targetLeafId: leafId });
+    },
+  }) : null;
+  const projectAgentDockLeadingContent = (
+    projectAgentDockModel
+    && selectedProjectSceneId
+  ) ? (
+    <ProjectAgentDockLeadingRow
+      model={projectAgentDockModel}
+      query={projectAgentDockQuery}
+      onQueryChange={setProjectAgentDockQuery}
+      onSelect={selectProjectAgentDockTarget}
+      onLoadMore={() => {
+        void loadMoreProjectSessionSummaries(selectedProjectSceneId);
+      }}
+      onRetry={() => {
+        void sessionCatalog.retryCollection(selectedProjectSceneId);
+        if (projectAgentDockBoundSessionId) {
+          void projectAgentDockSessionQuery.refetch();
+        }
+      }}
+      onOpenTask={() => {
+        const sessionId = projectAgentDockModel.trigger.sessionId;
+        if (!sessionId) return;
+        workbenchWindow.selectSession({
+          id: sessionId,
+          projectId: selectedProjectSceneId,
+        });
+      }}
+      pendingWorktree={projectAgentDockPendingWorktreeModel}
+      onOpenPendingWorktreeDetails={() => {
+        if (!projectAgentDockPendingWorktreeModel) return;
+        setPendingWorktreeClientThreadId(
+          projectAgentDockPendingWorktreeModel.clientThreadId,
+        );
+      }}
+    />
+  ) : null;
+  const projectAgentDockAttention = projectAgentDockPendingWorktreeModel
+    ? projectAgentDockPendingWorktreeModel.attention
+    : projectAgentDockModel?.trigger.attention ?? "none";
+  const projectAgentDock = (
+    selectedProjectSceneId
+    && projectSceneKey
+    && activeProjectScene?.agentDock
+    && activeProject
+    && projectAgentDockModel
+    && projectAgentDockLeadingContent
+  ) ? projectAgentDockSession && projectAgentDockThreadScope ? (
+    <WorkbenchSessionScopePath
+      thread={projectAgentDockThreadScope}
+      route={{
+        routeKey: `/project/${encodeURIComponent(selectedProjectSceneId)}/agent-dock`,
+        kind: "thread",
+      }}
+      selected={false}
+    >
+      <ProjectSessionThreadComposerDock
+        session={projectAgentDockSession}
+        project={activeProject}
+        projects={projects}
+        composerDock={{
+          visible: activeProjectScene.agentDock.visible,
+          target: rightPanelComposerOverlayTarget,
+          visibility: {
+            kind: "controlled",
+            visible: activeProjectScene.agentDock.visible,
+            attention: projectAgentDockAttention,
+            onVisibleChange: setProjectAgentDockVisible,
+          },
+          leadingContent: projectAgentDockLeadingContent,
+        }}
+        composerScopeIdentity={projectAgentDockThreadScope.stableKey}
+        browserUsePresentationOrigin={{
+          browserConversationId: projectSceneKey,
+          browserViewScopeId: windowSessionId,
+        }}
+        newThreadStartBlockedReason={
+          projectAgentDockPendingWorktreeModel?.composerBlockedReason ?? null
+        }
+        projectDraftId={
+          activeProjectScene.agentDock.binding.kind === "new"
+            ? activeProjectScene.agentDock.newDraftId
+            : null
+        }
+        onMaterializeProjectDraft={materializeProjectAgentDockDraft}
+        onRefreshProjectSessions={refreshProjectSessions}
+        onEnsureBlankSessionForProject={ensureBlankSessionForProject}
+        onOpenPendingWorktree={(clientThreadId) => {
+          threadScopeIdentityRegistry.register(
+            projectAgentDockThreadScope.stableKey,
+            {
+              projectSessionId:
+                projectAgentDockThreadScope.projectSessionId,
+              clientThreadId,
+            },
+          );
+        }}
+        onOpenLocalEnvironmentsSettings={openLocalEnvironmentsSettings}
+        onOpenHooksSettings={openHooksSettings}
+        threadQueueFollowUpsEnabled={threadQueueFollowUpsEnabled}
+        composerEnterBehavior={composerEnterBehavior}
+        onQueueingEnabledChange={handleThreadQueueFollowUpsEnabledChange}
+        onOpenThread={openAttachedThreadSession}
+        worktreeStartMode={worktreeStartMode}
+        worktreeBranchPrefix={worktreeAutoBranchPrefix}
+        commandKeymapState={commandKeymapState}
+        isMac={isMacPlatform}
+      />
+    </WorkbenchSessionScopePath>
+  ) : (
+    <ProjectAgentDockUnavailableOverlay
+      target={rightPanelComposerOverlayTarget}
+      visible={activeProjectScene.agentDock.visible}
+      attention={projectAgentDockAttention}
+      onVisibleChange={setProjectAgentDockVisible}
+      leadingContent={projectAgentDockLeadingContent}
+      message={projectAgentDockSessionQuery.isError
+        ? "This task couldn’t be loaded. Retry or choose another target."
+        : "Loading task…"}
+    />
+  ) : null;
+  const projectSceneRoute = (
+    selectedProjectSceneId
+    && projectSceneKey
+    && activeProjectScene
+    && activeProject
+  ) ? (
+    <>
+      <WorkbenchSceneFrame
+        ownerKey={projectSceneKey}
+        primary={null}
+        primaryTestId="project-database-surface"
+        primaryHidden
+        rightPanelTestId="project-right-panel"
+        bottomPanelTestId="project-bottom-panel"
+        layout={{
+          appShellMainContentLayout: "default",
+          frameBorderVisible: appShellMainContentFrameBorderVisible,
+          rightPanelTargetWidth,
+          bottomPanelHeight,
+          rightPanel: {
+            ...rightPanelMotion,
+            open: sidePanelOpen,
+            fullWidth: rightPanelFullWidth,
+            content: projectScenePanels?.right ?? null,
+          },
+          bottomPanel: {
+            ...bottomPanelMotion,
+            open: bottomPanelOpen,
+            content: projectScenePanels?.bottom ?? null,
+          },
+        }}
+        chrome={{
+          bottomPanelGlobalHeaderControls,
+          setRightPanelComposerOverlayTarget,
+          resizeRightPanel,
+          resizeBottomPanel,
+        }}
+      />
+      {projectAgentDock}
+    </>
+  ) : null;
   const activeSessionRoute =
     activeRenderSession && activeSessionPanelModel ? (
-      <WorkbenchActiveSession
+      <WorkbenchSessionScene
         session={activeRenderSession}
         model={activeSessionPanelModel}
         projects={projects}
         project={activeSessionProject}
-        sessionError={sessionError}
+        sessionError={selectedSessionDetailError}
         threadScopeIdentityRegistry={threadScopeIdentityRegistry}
         activateReviewTab={activateReviewTab}
         panelGroupTabs={panelGroupTabs}
         panelLifecycle={panelLifecycle}
         panelCommands={panelCommands}
-        renderPanelNewTabButton={renderPanelNewTabButton}
         layout={{
           appShellMainContentLayout,
           frameBorderVisible: appShellMainContentFrameBorderVisible,
@@ -2253,6 +3465,10 @@ export function WorkbenchRuntime({
         }}
         threadPageProps={{
           session: activeRenderSession,
+          browserUsePresentationOrigin: {
+            browserConversationId: activeRenderSession.id,
+            browserViewScopeId: windowSessionId,
+          },
           project: activeSessionProject,
           projects,
           routeActive: true,
@@ -2366,8 +3582,8 @@ export function WorkbenchRuntime({
     activeSessionId: activeSession?.id ?? null,
     activePendingClientThreadId: pendingWorktreeClientThreadId,
     contextMenuSessionId,
-    sessionsByProject,
-    projectlessSessions,
+    sessionCollectionsByProject,
+    projectlessSessionCollection,
     sidebarThreadModel,
     pendingStableWorktrees,
     expandedProjectIds,
@@ -2375,9 +3591,8 @@ export function WorkbenchRuntime({
     librarySectionCollapsed,
     projectsSectionCollapsed,
     chatsSectionCollapsed,
-    loadingSessions,
-    taskWindowHasMoreByScope,
     onLoadMoreTaskWindow: loadMoreProjectSessionSummaries,
+    onRetryTaskWindow: sessionCatalog.retryCollection,
     width: sidebarWidth,
     getWindowZoom,
     onResizeWidth: applySidebarWidth,
@@ -2490,13 +3705,18 @@ export function WorkbenchRuntime({
             {activeRenderSession ? (
               <BrowserSidebarHiddenWebviewHosts
                 sessionId={activeRenderSession.id}
-                codexSessionId={
-                  activeRenderSession.thread?.threadId ?? activeRenderSession.id
-                }
                 browserViewScopeId={windowSessionId}
                 tabs={browserRetentionTabs}
                 mountedTabIds={mountedBrowserTabIds}
                 visibleTabIds={visibleBrowserTabIds}
+              />
+            ) : activeProjectScene && projectSceneKey ? (
+              <BrowserSidebarHiddenWebviewHosts
+                sessionId={projectSceneKey}
+                browserViewScopeId={windowSessionId}
+                tabs={projectBrowserRetentionTabs}
+                mountedTabIds={visibleProjectBrowserTabIds}
+                visibleTabIds={visibleProjectBrowserTabIds}
               />
             ) : null}
             <header
@@ -2530,7 +3750,9 @@ export function WorkbenchRuntime({
                   data-testid="thread-stage-header-content"
                   className="pointer-events-none w-full min-w-0 flex-1 [&_a]:pointer-events-auto [&_button]:pointer-events-auto [&_input]:pointer-events-auto [&_select]:pointer-events-auto [&_textarea]:pointer-events-auto"
                 >
-                  <SelectedAppShellHeaderContent />
+                  {selectedProjectSceneId
+                    ? null
+                    : <SelectedAppShellHeaderContent />}
                 </div>
                 {!automationsRouteShell ? (
                   <HeaderInlineActionRail
@@ -2622,7 +3844,7 @@ export function WorkbenchRuntime({
               ),
             }}
             session={{
-              content: () => activeSessionRoute ?? (
+              content: () => projectSceneRoute ?? activeSessionRoute ?? (
                 <WorkbenchEmptyRoute
                   activeProjectId={activeProjectId}
                   projectCatalogError={projectCatalogError}

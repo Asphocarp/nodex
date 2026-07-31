@@ -124,9 +124,9 @@ fn seed_identity_and_workspace(kernel: &SqliteStoreKernel) {
                     let mut insert_session = transaction.prepare(
                         "INSERT INTO project_sessions(\
                            id, project_id, no_thread_fallback_title, \"order\", pinned, \
-                           pinned_order, archived, archived_at, unread, database_starter, \
+                           pinned_order, archived, archived_at, unread, \
                            created_at, updated_at\
-                         ) VALUES (?1, ?2, ?3, ?4, 0, NULL, 0, NULL, 0, 0, ?5, ?5)",
+                         ) VALUES (?1, ?2, ?3, ?4, 0, NULL, 0, NULL, 0, ?5, ?5)",
                     )?;
                     let mut link_thread = transaction.prepare(
                         "INSERT INTO project_session_threads(session_id, thread_id, linked_at) \

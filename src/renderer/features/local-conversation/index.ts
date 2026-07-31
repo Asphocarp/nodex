@@ -30,7 +30,12 @@ export {
   useProjectThreadSummaries,
 } from "./local-conversation-store";
 export { LocalConversationStageScreen as StageThreads } from "./view/local-conversation-stage-screen";
-export { ConnectedThreadStage } from "./view/connected-thread-stage";
+export {
+  ConnectedThreadComposerDock,
+  ConnectedThreadStage,
+  type ConnectedThreadComposerDockProps,
+  type ConnectedThreadStageInput,
+} from "./view/connected-thread-stage";
 export { ConnectedReviewDiffPanel } from "./view/connected-review-diff-panel";
 export { ThreadSummaryPanelHeaderAction, ThreadSummaryPanelToggle } from "./view/summary-panel";
 export {

@@ -1,12 +1,12 @@
 import type { BrowserSidebarDeviceToolbarState } from "./browser-sidebar";
 import type {
   WorkbenchPanelId,
-  WorkbenchSessionViewSnapshot,
 } from "./workbench-session-view";
+import type { WorkbenchSceneSnapshot } from "./workbench-scene";
 
-export interface CodexForkBrowserViewContext {
+export interface CodexForkBrowserSceneContext {
   browserViewScopeId: string;
-  view: WorkbenchSessionViewSnapshot;
+  scene: WorkbenchSceneSnapshot;
 }
 
 export interface CodexForkBrowserTabDescriptor {

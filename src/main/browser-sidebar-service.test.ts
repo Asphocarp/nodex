@@ -1337,6 +1337,7 @@ describe("BrowserSidebarService webview lifecycle", () => {
       type: "browser-use-upsert-tab",
       tab: {
         ...browserIdentity,
+        codexSessionId: "thread-1",
         projectId: "alpha",
         title: "Browser",
         url: "https://example.com",
@@ -1410,6 +1411,7 @@ describe("BrowserSidebarService webview lifecycle", () => {
       type: "browser-use-upsert-tab",
       tab: {
         ...browserIdentity,
+        codexSessionId: route.codexSessionId,
         projectId: "alpha",
         title: "Browser",
         url: "https://example.com",
@@ -1476,6 +1478,78 @@ describe("BrowserSidebarService webview lifecycle", () => {
     )).toEqual([currentRequest]);
   });
 
+  test("awaits explicit route capture and never binds Browser Use while registering tabs", async () => {
+    const service = createService();
+    let releaseCapture: () => void = () => undefined;
+    const captureHandler = vi.fn(() => new Promise<void>((resolve) => {
+      releaseCapture = resolve;
+    }));
+    service.setBrowserUseRouteCaptureHandler(captureHandler);
+
+    let settled = false;
+    const capture = service.handleCommand({
+      type: "capture-browser-use-route",
+      browserConversationId: "project:alpha",
+      browserViewScopeId: "window-session-1",
+      codexSessionId: "project-session-1",
+      projectId: "alpha",
+    }, { ownerWebContentsId: 7 }).then((result) => {
+      settled = true;
+      return result;
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    expect(captureHandler).toHaveBeenCalledWith({
+      browserConversationId: "project:alpha",
+      browserViewScopeId: "window-session-1",
+      codexSessionId: "project-session-1",
+      ownerWebContentsId: 7,
+      projectId: "alpha",
+    });
+
+    releaseCapture();
+    await expect(capture).resolves.toEqual({ ok: true });
+    await service.handleCommand({
+      type: "register-tab",
+      browserConversationId: "project:alpha",
+      browserViewScopeId: "window-session-1",
+      browserTabId: "manual-tab",
+      projectId: "alpha",
+      initialUrl: "https://example.com",
+    });
+    expect(captureHandler).toHaveBeenCalledTimes(1);
+
+    const promoteHandler = vi.fn(async () => undefined);
+    service.setBrowserUseRouteCaptureHandler(promoteHandler);
+    await service.promoteBrowserUseRoute({
+      browserConversationId: "project:alpha",
+      browserViewScopeId: "window-session-1",
+      codexSessionId: "thread-real",
+      projectId: "alpha",
+    });
+    expect(promoteHandler).toHaveBeenCalledWith({
+      browserConversationId: "project:alpha",
+      browserViewScopeId: "window-session-1",
+      codexSessionId: "thread-real",
+      ownerWebContentsId: 7,
+      projectId: "alpha",
+    });
+
+    service.setBrowserUseRouteCaptureHandler(async () => {
+      throw new Error("route is busy");
+    });
+    await expect(service.handleCommand({
+      type: "capture-browser-use-route",
+      browserConversationId: "project:beta",
+      browserViewScopeId: "window-session-1",
+      codexSessionId: "project-session-2",
+      projectId: "beta",
+    }, { ownerWebContentsId: 7 })).resolves.toEqual({
+      ok: false,
+      message: "route is busy",
+    });
+  });
+
   test("requests a no-transition presentation when another conversation is active", async () => {
     const service = createService();
     const route = {
@@ -1502,6 +1576,7 @@ describe("BrowserSidebarService webview lifecycle", () => {
       type: "browser-use-upsert-tab",
       tab: {
         ...browserIdentity,
+        codexSessionId: route.codexSessionId,
         projectId: "alpha",
         title: "Browser",
         url: "https://example.com",
@@ -1553,6 +1628,7 @@ describe("BrowserSidebarService webview lifecycle", () => {
         type: "browser-use-upsert-tab",
         tab: {
           ...identity,
+          codexSessionId: identity.browserConversationId,
           projectId: null,
           title: identity.browserConversationId,
           url: `https://${identity.browserConversationId}.example`,

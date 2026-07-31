@@ -36,7 +36,6 @@ const sessionSummary = (overrides: Record<string, unknown> = {}) => ({
   archived: false,
   archived_at: null,
   unread: true,
-  database_starter: true,
   thread_id: "thread:one",
   created_at: "2026-07-19T15:00:00.000Z",
   updated_at: "2026-07-19T15:01:00.000Z",
@@ -210,7 +209,6 @@ describe("Core Project Workspace adapter", () => {
       },
     })).resolves.toMatchObject({
       project: { id: "project:initial", name: "My Project" },
-      starterSessionId: "session:starter",
     });
     expect(client.workspaceReads).toEqual([
       { kind: "project_bootstrap" },
@@ -1362,7 +1360,6 @@ describe("Core Project Workspace adapter", () => {
       expect.objectContaining({
         id: "session:one",
         displayTitle: "Thread one",
-        databaseStarter: true,
         thread: expect.objectContaining({
           threadId: "thread:one",
           statusType: "idle",

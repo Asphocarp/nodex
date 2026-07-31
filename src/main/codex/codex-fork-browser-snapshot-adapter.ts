@@ -8,7 +8,7 @@ import {
 import type {
   CodexForkBrowserSidePanelSnapshot,
   CodexForkBrowserTabDescriptor,
-  CodexForkBrowserViewContext,
+  CodexForkBrowserSceneContext,
 } from "../../shared/codex-fork-browser-transfer";
 export type {
   CodexForkBrowserSidePanelSnapshot,
@@ -18,9 +18,11 @@ import { listWorkbenchPanelLeaves } from "../../shared/workbench-panel-layout";
 import type { ProjectSession } from "../../shared/types";
 import type {
   WorkbenchPanelId,
-  WorkbenchSessionViewSnapshot,
-  WorkbenchSessionViewTab,
 } from "../../shared/workbench-session-view";
+import type {
+  WorkbenchSceneSnapshot,
+  WorkbenchSurfaceDescriptor,
+} from "../../shared/workbench-scene";
 import type { CodexForkSidePanelSnapshotAdapter } from "./codex-fork-side-panel-transfer";
 
 export interface CodexForkBrowserRuntime {
@@ -123,16 +125,16 @@ function initialUrlForBrowser(
 }
 
 function browserTabsInPanel(
-  view: WorkbenchSessionViewSnapshot,
+  scene: WorkbenchSceneSnapshot,
   panel: WorkbenchPanelId,
-): Array<Extract<WorkbenchSessionViewTab, { kind: "browser" }>> {
-  return listWorkbenchPanelLeaves(view.panels[panel].layout)
+): Array<Extract<WorkbenchSurfaceDescriptor, { kind: "browser" }>> {
+  return listWorkbenchPanelLeaves(scene.panels[panel].layout)
     .flatMap((leaf) => leaf.tabIds)
-    .map((tabId) => view.tabsById[tabId])
+    .map((surfaceId) => scene.panelSurfacesById[surfaceId])
     .filter((
-      tab,
-    ): tab is Extract<WorkbenchSessionViewTab, { kind: "browser" }> =>
-      tab?.kind === "browser"
+      surface,
+    ): surface is Extract<WorkbenchSurfaceDescriptor, { kind: "browser" }> =>
+      surface?.kind === "browser"
     );
 }
 
@@ -143,15 +145,15 @@ function capturePanelDescriptors(input: {
   browserUseState: BrowserSidebarBrowserUseStateSnapshot;
   panel: WorkbenchPanelId;
   runtime: CodexForkBrowserRuntime;
-  view: WorkbenchSessionViewSnapshot;
+  scene: WorkbenchSceneSnapshot;
 }): CodexForkBrowserTabDescriptor[] {
   const activeTabId = listWorkbenchPanelLeaves(
-    input.view.panels[input.panel].layout,
+    input.scene.panels[input.panel].layout,
   ).find((leaf) =>
-    leaf.id === input.view.panels[input.panel].layout.activeLeafId
+    leaf.id === input.scene.panels[input.panel].layout.activeLeafId
   )?.activeTabId ?? null;
 
-  return browserTabsInPanel(input.view, input.panel).map((tab) => ({
+  return browserTabsInPanel(input.scene, input.panel).map((tab) => ({
     active: tab.id === activeTabId,
     browserTabId: tab.config.browserTabId,
     deviceToolbarState: input.runtime.getDeviceToolbarTabState({
@@ -172,8 +174,8 @@ function capturePanelDescriptors(input: {
   }));
 }
 
-function captureViewSnapshot(
-  context: CodexForkBrowserViewContext,
+function captureSceneSnapshot(
+  context: CodexForkBrowserSceneContext,
   browserConversationId: string,
   runtime: CodexForkBrowserRuntime,
 ): CodexForkBrowserSidePanelSnapshot {
@@ -186,7 +188,7 @@ function captureViewSnapshot(
     browserUseState,
     panel: "right",
     runtime,
-    view: context.view,
+    scene: context.scene,
   });
   const bottom = capturePanelDescriptors({
     browserConversationId,
@@ -195,17 +197,17 @@ function captureViewSnapshot(
     browserUseState,
     panel: "bottom",
     runtime,
-    view: context.view,
+    scene: context.scene,
   });
   return {
-    bottomPanelOpen: !context.view.panels.bottom.collapsed,
-    focusArea: context.view.lastFocusedPanelId === "bottom"
+    bottomPanelOpen: !context.scene.panels.bottom.collapsed,
+    focusArea: context.scene.lastFocusedPanelId === "bottom"
       ? "bottom-panel"
-      : context.view.lastFocusedPanelId === "right"
+      : context.scene.lastFocusedPanelId === "right"
         ? "right-panel"
         : "main",
-    rightPanelFullWidth: context.view.panels.right.size.fullWidth === true,
-    rightPanelOpen: !context.view.panels.right.collapsed,
+    rightPanelFullWidth: context.scene.panels.right.size.fullWidth === true,
+    rightPanelOpen: !context.scene.panels.right.collapsed,
     sourceBrowserConversationId: browserConversationId,
     sourceBrowserViewScopeId: context.browserViewScopeId,
     tabs: [...right, ...bottom],
@@ -293,23 +295,24 @@ export function createCodexForkBrowserSnapshotAdapter(
   dependencies: CodexForkBrowserSnapshotAdapterDependencies,
 ): CodexForkSidePanelSnapshotAdapter<CodexForkBrowserSidePanelSnapshot> {
   return {
-    async capture(sourceConversationId, sourceViewContext) {
+    async capture(sourceConversationId, sourceSceneContext) {
       const browserConversationId = await dependencies.resolveBrowserConversationId(
         sourceConversationId,
       );
       if (
-        sourceViewContext
-        && sourceViewContext.view.sessionId === browserConversationId
+        sourceSceneContext
+        && sourceSceneContext.scene.owner.kind === "session"
+        && sourceSceneContext.scene.owner.sessionId === browserConversationId
       ) {
-        return captureViewSnapshot(
-          sourceViewContext,
+        return captureSceneSnapshot(
+          sourceSceneContext,
           browserConversationId,
           dependencies.runtime,
         );
       }
       return captureRuntimeFallback(
         browserConversationId,
-        sourceViewContext?.browserViewScopeId
+        sourceSceneContext?.browserViewScopeId
           ?? `headless:${browserConversationId}`,
         dependencies.runtime,
       );

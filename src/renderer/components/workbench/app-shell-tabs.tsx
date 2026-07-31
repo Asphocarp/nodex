@@ -74,6 +74,7 @@ export interface AppShellTabItem {
   titleSource?: AppShellTabTitleSource;
   contextLabel?: string;
   icon?: ComponentType<{ className?: string }>;
+  iconElement?: ReactNode;
   closable?: boolean;
   preview?: boolean;
   reorderable?: boolean;
@@ -735,6 +736,9 @@ function AppShellTab({
   }, [onTabNodeChange, tab.id]);
   const resolvedTitle = useAppShellTabTitle(tab);
   const Icon = tab.icon;
+  const iconElement = tab.iconElement ?? (
+    Icon ? <Icon className="icon-xs shrink-0" /> : null
+  );
   const dataTabId = tab.domTabId ?? tab.id;
   const tabId = makeTabId(controllerId, tab.id);
   const accessibleLabel = makeAppShellTabAccessibleLabel(tab, resolvedTitle);
@@ -978,9 +982,9 @@ function AppShellTab({
             pinCurrentTab();
           }}
         >
-          {Icon ? (
+          {iconElement ? (
             <span aria-hidden="true" className="icon-xs relative flex shrink-0 items-center justify-center overflow-visible">
-              <Icon className="icon-xs shrink-0" />
+              {iconElement}
             </span>
           ) : null}
           {label}

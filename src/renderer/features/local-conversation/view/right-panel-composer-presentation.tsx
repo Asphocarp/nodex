@@ -6,6 +6,9 @@ export type RightPanelComposerPresentation =
   | "compact-hovered"
   | "expanded";
 
+export const RIGHT_PANEL_COMPOSER_ACCESSORY_INLINE_INSET_CLASS =
+  "mx-[var(--right-panel-composer-accessory-inline-inset,0px)]";
+
 interface RightPanelComposerPresentationContextValue {
   floating: boolean;
   presentation: RightPanelComposerPresentation;

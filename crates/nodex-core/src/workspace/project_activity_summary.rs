@@ -215,7 +215,7 @@ mod tests {
                 },
                 nodex_core_contracts::workspace::ProjectWorkspaceProjectActivitySummary {
                     project_id: "project:a".to_owned(),
-                    task_count: 66,
+                    task_count: 65,
                     waiting_count: 1,
                     unread_count: 1,
                     active_count: 1,
@@ -237,7 +237,7 @@ mod tests {
             panic!("Task window");
         };
         assert_eq!(tasks.items.len(), 5);
-        assert_eq!(summaries[1].task_count, 66);
+        assert_eq!(summaries[1].task_count, 65);
     }
 
     #[test]

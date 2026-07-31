@@ -13,6 +13,7 @@ import type {
   CodexThreadStartMemoryPreferences,
 } from "./types";
 import type { AgentExecutionProfile } from "./agent-runtime";
+import type { BrowserUsePresentationOrigin } from "./browser-sidebar";
 
 export type CodexPendingWorktreePhase =
   | "queued"
@@ -69,6 +70,7 @@ export interface CodexPendingStartConversationRequest extends CodexPendingWorktr
   readonly threadGoalDraft?: CodexThreadGoalFrozenDraft | null;
   readonly heartbeatAutomation?: CodexThreadStartHeartbeatAutomationInput | null;
   readonly skipAutoTitleGeneration?: boolean;
+  readonly browserUsePresentationOrigin?: BrowserUsePresentationOrigin;
   readonly sourceConversationId: null;
   readonly sourceCollaborationMode: null;
 }

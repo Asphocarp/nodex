@@ -4,6 +4,9 @@
 - Date: 2026-07-26
 - Owners: Nodex maintainers
 - Extends: ADR 0026
+- Superseded in part by: ADR 0034, which replaces starter-Session
+  materialization with a Project-owned Workbench Scene while retaining the
+  Project default View as the only Database View authority.
 
 ## Context
 

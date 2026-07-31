@@ -106,7 +106,6 @@ function makeSession(input: {
   return {
     id: input.id,
     projectId: "alpha",
-    databaseStarter: false,
     noThreadFallbackTitle: input.id,
     displayTitle: input.id,
     order: input.order,

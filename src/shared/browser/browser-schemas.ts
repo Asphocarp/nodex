@@ -135,6 +135,7 @@ const BrowserSidebarLocalServerSchema = z.object({
 }).strict();
 
 const BrowserUseTabStateSchema = BrowserSidebarTabIdentitySchema.extend({
+  codexSessionId: BrowserIdSchema,
   projectId: BrowserIdSchema.nullable(),
   title: BrowserTitleSchema,
   url: BrowserUrlSchema,
@@ -212,7 +213,6 @@ export const BrowserSidebarCommandSchema = z.union([
   }),
   TargetedCommandSchema({
     type: z.literal("register-tab"),
-    codexSessionId: BrowserIdSchema.optional(),
     projectId: BrowserIdSchema.nullable(),
     initialUrl: BrowserUrlSchema.optional(),
     title: BrowserTitleSchema.optional(),

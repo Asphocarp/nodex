@@ -9,16 +9,7 @@ import {
 } from "react";
 import { type MotionValue } from "motion/react";
 import {
-  Globe2,
-  Shapes,
-  SquareKanban,
-  Table2,
-} from "lucide-react";
-import {
   CodexAutomationsIcon,
-  CodexSidePanelBrowserIcon,
-  CodexSidePanelFilesIcon,
-  CodexSidePanelReviewIcon,
   CodexSidePanelSideChatIcon,
   CodexSidePanelTerminalIcon,
   ComposerPlanModeIcon,
@@ -29,12 +20,11 @@ import {
   getWorkspaceFileDomTabId,
   resolveWorkspaceFileTabIcon,
 } from "@/features/workspace-files";
-import type {
-  PageStageTabTitleStore,
-} from "@/lib/page-stage-tab-title-store";
 import {
   makePageStageTabTitleKey,
+  type PageStageTabTitleStore,
 } from "@/lib/page-stage-tab-title-store";
+import { getPanelNewTabAction } from "@/lib/workbench-panel-actions";
 import {
   terminalSessionStore,
 } from "@/lib/terminal-session-store";
@@ -58,7 +48,8 @@ import {
   type SessionPanelRenderModel,
 } from "@/lib/workbench-panel-projection";
 import {
-  makeWorkbenchPanelSlotKey,
+  makeWorkbenchSessionPanelOwnerKey,
+  makeWorkbenchSessionPanelSlotKey,
 } from "@/lib/workbench-panel-slot-key";
 import {
   isAutomationPanelTab,
@@ -210,14 +201,7 @@ interface WorkbenchPanelProjectionInput {
 function getTabIcon(
   kind: WorkbenchTabProjection["kind"],
 ): ComponentType<{ className?: string }> {
-  if (kind === "db_view") return Table2;
-  if (kind === "page_stage") return SquareKanban;
-  if (kind === "canvas_stage") return Shapes;
-  if (kind === "terminal") return CodexSidePanelTerminalIcon;
-  if (kind === "browser") return CodexSidePanelBrowserIcon;
-  if (kind === "review") return CodexSidePanelReviewIcon;
-  if (kind === "files") return CodexSidePanelFilesIcon;
-  return Globe2;
+  return getPanelNewTabAction(kind).Icon;
 }
 
 function makeBrowserFaviconIcon(
@@ -733,7 +717,7 @@ export function useWorkbenchPanelProjection({
           model.renderableTabsByPanelLeaf[panelId][leaf.id] ?? [];
         const items = renderableTabs.map(makeItem);
         const presentations = panelTabPresentationRegistry.reconcile(
-          makeWorkbenchPanelSlotKey(session.id, panelId, leaf.id),
+          makeWorkbenchSessionPanelSlotKey(session.id, panelId, leaf.id),
           items.map((item) => ({
             id: item.id,
             preview: item.preview === true,
@@ -824,7 +808,7 @@ export function useWorkbenchPanelProjection({
           )
         ) {
           nextControllerKeys.add(
-            makeWorkbenchPanelSlotKey(
+            makeWorkbenchSessionPanelSlotKey(
               activeRenderSession.id,
               panelId,
               leafId,
@@ -850,7 +834,9 @@ export function useWorkbenchPanelProjection({
 
   useEffect(() => {
     if (!activeRenderSession) return;
-    const activeSessionPrefix = `${activeRenderSession.id}:`;
+    const activeSessionPrefix = `${makeWorkbenchSessionPanelOwnerKey(
+      activeRenderSession.id,
+    )}:`;
     const currentKeys = new Set<string>();
 
     for (const panelId of ["right", "bottom"] as const) {
@@ -860,7 +846,7 @@ export function useWorkbenchPanelProjection({
           panelTabs.itemsByLeafId,
         )
       ) {
-        const key = makeWorkbenchPanelSlotKey(
+        const key = makeWorkbenchSessionPanelSlotKey(
           activeRenderSession.id,
           panelId,
           leafId,

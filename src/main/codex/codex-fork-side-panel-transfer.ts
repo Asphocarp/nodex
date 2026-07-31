@@ -1,19 +1,19 @@
 import type {
   CodexForkBrowserSidePanelSnapshot,
-  CodexForkBrowserViewContext,
+  CodexForkBrowserSceneContext,
 } from "../../shared/codex-fork-browser-transfer";
 
 export interface CodexForkSidePanelDirectStageInput {
   readonly sourceConversationId: string;
   readonly targetConversationId: string;
-  readonly sourceViewContext?: CodexForkBrowserViewContext;
+  readonly sourceSceneContext?: CodexForkBrowserSceneContext;
 }
 
 export interface CodexForkSidePanelPendingCaptureInput {
   readonly pendingWorktreeId: string;
   readonly sourceConversationId: string;
   readonly sourceWorkspaceRoot: string;
-  readonly sourceViewContext?: CodexForkBrowserViewContext;
+  readonly sourceSceneContext?: CodexForkBrowserSceneContext;
 }
 
 export interface CodexForkSidePanelPendingPromotionInput {
@@ -45,7 +45,7 @@ export interface CodexForkSidePanelTransferLifecycle<
 export interface CodexForkSidePanelSnapshotAdapter<Snapshot> {
   capture(
     sourceConversationId: string,
-    sourceViewContext?: CodexForkBrowserViewContext,
+    sourceSceneContext?: CodexForkBrowserSceneContext,
   ): Promise<Snapshot>;
   rebase(
     snapshot: Snapshot,
@@ -88,7 +88,7 @@ export class CodexForkSidePanelTransferManager<Snapshot>
   async stageDirect(input: CodexForkSidePanelDirectStageInput): Promise<void> {
     const captured = await this.adapter.capture(
       input.sourceConversationId,
-      input.sourceViewContext,
+      input.sourceSceneContext,
     );
     const rebased = await this.adapter.rebase(captured, {
       targetConversationId: input.targetConversationId,
@@ -99,7 +99,7 @@ export class CodexForkSidePanelTransferManager<Snapshot>
   async capturePending(input: CodexForkSidePanelPendingCaptureInput): Promise<void> {
     const captured = await this.adapter.capture(
       input.sourceConversationId,
-      input.sourceViewContext,
+      input.sourceSceneContext,
     );
     this.pendingByWorktreeId.set(input.pendingWorktreeId, {
       sourceWorkspaceRoot: input.sourceWorkspaceRoot,

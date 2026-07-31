@@ -5,7 +5,6 @@ import {
   activateWorkbenchSessionViewTab,
   cloneWorkbenchLayoutForNewWindow,
   createWorkbenchSessionViewTab,
-  materializeInitialProjectWelcomeView,
   materializeInitialWorkbenchSessionView,
   moveWorkbenchSessionViewTab,
   normalizeWorkbenchSessionView,
@@ -159,39 +158,6 @@ describe("WorkbenchSessionView", () => {
     expect(view.panels.right.collapsed).toBe(false);
     expect(view.panels.right.size.fullWidth).toBe(true);
     expect(view.panels.bottom.collapsed).toBe(true);
-  });
-
-  test("materializes the initial Database and active Welcome Page deterministically", () => {
-    const presentation = {
-      projectId: "project-1",
-      starterSessionId: "session-1",
-      defaultDatabaseViewId: "view-1",
-      starterPageId: "page-1",
-      starterPageTitle: "Welcome to Nodex",
-    };
-    const first = materializeInitialProjectWelcomeView(presentation, {
-      touchedAt: "2026-07-31T00:00:00.000Z",
-    });
-    const replay = materializeInitialProjectWelcomeView(presentation, {
-      touchedAt: "2026-07-31T00:00:00.000Z",
-    });
-    const tabs = Object.values(first.tabsById);
-    const pageTab = tabs.find((tab) => tab.kind === "page_stage");
-    const rightLeaf = first.panels.right.layout.root;
-
-    expect(first).toEqual(replay);
-    expect(tabs.map((tab) => tab.kind)).toEqual(["db_view", "page_stage"]);
-    expect(pageTab?.config).toEqual({
-      projectId: "project-1",
-      pageId: "page-1",
-      titleSnapshot: "Welcome to Nodex",
-    });
-    expect(rightLeaf.type).toBe("leaf");
-    if (rightLeaf.type !== "leaf") throw new Error("Expected one right leaf");
-    expect(rightLeaf.activeTabId).toBe(pageTab?.id);
-    expect(first.panels.right.size.fullWidth).toBe(true);
-    expect(first.panels.bottom.collapsed).toBe(true);
-    expect(first.lastFocusedPanelId).toBe("right");
   });
 
   test("normalization retains the first cross-panel occurrence and repairs unplaced tabs", () => {

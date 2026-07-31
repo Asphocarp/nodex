@@ -1,13 +1,30 @@
 import type { PanelId } from "@/lib/types";
+import { makeWorkbenchSceneKey } from "../../shared/workbench-scene";
+
+export function makeWorkbenchSessionPanelOwnerKey(sessionId: string): string {
+  return makeWorkbenchSceneKey({ kind: "session", sessionId });
+}
 
 export function makeWorkbenchPanelSlotKey(
-  sessionId: string,
+  panelOwnerKey: string,
   panelId: PanelId,
   leafId?: string | null,
 ): string {
   return leafId
-    ? `${sessionId}:${panelId}:${leafId}`
-    : `${sessionId}:${panelId}`;
+    ? `${panelOwnerKey}:${panelId}:${leafId}`
+    : `${panelOwnerKey}:${panelId}`;
+}
+
+export function makeWorkbenchSessionPanelSlotKey(
+  sessionId: string,
+  panelId: PanelId,
+  leafId?: string | null,
+): string {
+  return makeWorkbenchPanelSlotKey(
+    makeWorkbenchSessionPanelOwnerKey(sessionId),
+    panelId,
+    leafId,
+  );
 }
 
 export function resolveWorkbenchPanelSlotLeafId(
@@ -15,7 +32,7 @@ export function resolveWorkbenchPanelSlotLeafId(
   sessionId: string,
   panelId: PanelId,
 ): string | null {
-  const leafPrefix = `${sessionId}:${panelId}:`;
+  const leafPrefix = `${makeWorkbenchSessionPanelOwnerKey(sessionId)}:${panelId}:`;
   if (!key.startsWith(leafPrefix)) return null;
   return key.slice(leafPrefix.length) || null;
 }

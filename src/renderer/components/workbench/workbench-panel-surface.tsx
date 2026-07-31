@@ -32,9 +32,9 @@ import type {
 } from "@/lib/types";
 import type { WorkbenchView } from "@/lib/use-workbench-profile-preferences";
 import type { OpenCanvasStageHandler } from "@/lib/use-workbench-panel-openers";
-import {
-  applyWorkbenchViewTabPatch,
-} from "@/lib/window-session-view-adapter";
+import type {
+  WorkbenchSurfaceUpdatePatch,
+} from "@/lib/workbench-scene-presentation";
 import type { WorkbenchSessionRenderProjection } from "@/lib/workbench-session-presentation";
 import { DbViewSessionTab } from "./workbench-db-view-panel";
 import { WorkbenchCanvasStagePanel } from "./workbench-canvas-stage-panel";
@@ -143,7 +143,7 @@ export function WorkbenchTabProjectionPanel({
   onCloseTab: (tabId: string) => Promise<void>;
   onUpdateTab: (
     tabId: string,
-    patch: Parameters<typeof applyWorkbenchViewTabPatch>[1],
+    patch: WorkbenchSurfaceUpdatePatch,
   ) => WorkbenchTabProjection | null;
   onOpenBrowserTab?: (
     request: BrowserSidebarOpenNewTabRequest,

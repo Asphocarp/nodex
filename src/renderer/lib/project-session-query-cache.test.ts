@@ -28,7 +28,6 @@ function createSession(overrides: Partial<ProjectSession> = {}): ProjectSession 
   return {
     id: overrides.id ?? "session-1",
     projectId: overrides.projectId === undefined ? "project-1" : overrides.projectId,
-    databaseStarter: overrides.databaseStarter ?? true,
     noThreadFallbackTitle: overrides.noThreadFallbackTitle ?? "Session",
     displayTitle: overrides.displayTitle ?? "Session",
     order: overrides.order ?? 0,

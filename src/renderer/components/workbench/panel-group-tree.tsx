@@ -449,6 +449,15 @@ function PanelGroupLeaf({
   const afterList = leaf.id === afterListLeafId ? renderAfterList?.(leaf.id) ?? null : null;
   const leafHeaderStartInsetPx = leaf.id === headerStartInsetLeafId ? headerStartInsetPx : 0;
   const leafHeaderEndInsetPx = leaf.id === headerEndInsetLeafId ? headerEndInsetPx : 0;
+  const resolvedBeforeList = leafHeaderStartInsetPx && leafHeaderStartInsetPx > 0
+    ? (
+        <div
+          aria-hidden="true"
+          className="no-drag pointer-events-none h-full shrink-0"
+          style={{ width: leafHeaderStartInsetPx }}
+        />
+      )
+    : null;
   const splittableTabCount = tabs.filter((tab) => tab.splittable === true).length;
   const activateLeaf = () => {
     if (isActive) return;
@@ -493,13 +502,7 @@ function PanelGroupLeaf({
             activeDragId,
             previewIntent,
           }}
-          beforeList={leafHeaderStartInsetPx && leafHeaderStartInsetPx > 0 ? (
-            <div
-              aria-hidden="true"
-              className="no-drag pointer-events-none h-full shrink-0"
-              style={{ width: leafHeaderStartInsetPx }}
-            />
-          ) : null}
+          beforeList={resolvedBeforeList}
           afterTabsInline={afterTabs}
           afterList={afterList}
           bodyOverlay={(
@@ -517,13 +520,7 @@ function PanelGroupLeaf({
             leafId={leaf.id}
             activeDragId={activeDragId}
             previewIntent={previewIntent}
-            beforeList={leafHeaderStartInsetPx && leafHeaderStartInsetPx > 0 ? (
-              <div
-                aria-hidden="true"
-                className="no-drag pointer-events-none h-full shrink-0"
-                style={{ width: leafHeaderStartInsetPx }}
-              />
-            ) : null}
+            beforeList={resolvedBeforeList}
             afterTabs={afterTabs}
             afterList={afterList}
             tabScrollEndPaddingPx={tabScrollEndPaddingPx}

@@ -541,6 +541,81 @@ CREATE UNIQUE INDEX idx_project_session_threads_thread
   ON project_session_threads(thread_id);
 "#;
 
+// v99 retires the UI-only starter Session. A marked Session without a Thread
+// only existed to host the Project Database panel and is removed. A marked
+// Session that has gained a Thread is user Conversation authority and is kept
+// as an ordinary Session. The marker itself is removed from current Stores.
+const V99_OWNER_SCOPED_SCENES_SCHEMA_SQL: &str = r#"
+DROP INDEX idx_project_sessions_project_order;
+DROP INDEX idx_project_sessions_project_sidebar;
+DROP INDEX idx_project_session_threads_thread;
+
+ALTER TABLE project_session_threads RENAME TO project_session_threads_v98;
+ALTER TABLE project_sessions RENAME TO project_sessions_v98;
+
+CREATE TABLE project_sessions (
+  id TEXT PRIMARY KEY,
+  project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+  no_thread_fallback_title TEXT NOT NULL,
+  "order" INTEGER NOT NULL,
+  pinned INTEGER NOT NULL DEFAULT 0,
+  pinned_order INTEGER,
+  archived INTEGER NOT NULL DEFAULT 0,
+  archived_at TEXT,
+  unread INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  CHECK (pinned IN (0, 1)),
+  CHECK (archived IN (0, 1)),
+  CHECK (unread IN (0, 1))
+);
+
+CREATE TABLE project_session_threads (
+  session_id TEXT PRIMARY KEY REFERENCES project_sessions(id) ON DELETE CASCADE,
+  thread_id TEXT NOT NULL REFERENCES codex_threads(thread_id) ON DELETE CASCADE,
+  linked_at TEXT NOT NULL
+) WITHOUT ROWID;
+
+INSERT INTO project_sessions(
+  id, project_id, no_thread_fallback_title, "order", pinned, pinned_order,
+  archived, archived_at, unread, created_at, updated_at
+)
+SELECT
+  legacy.id,
+  legacy.project_id,
+  legacy.no_thread_fallback_title,
+  legacy."order",
+  legacy.pinned,
+  legacy.pinned_order,
+  legacy.archived,
+  legacy.archived_at,
+  legacy.unread,
+  legacy.created_at,
+  legacy.updated_at
+FROM project_sessions_v98 legacy
+WHERE legacy.database_starter = 0
+   OR EXISTS (
+     SELECT 1
+     FROM project_session_threads_v98 link
+     WHERE link.session_id = legacy.id
+   );
+
+INSERT INTO project_session_threads(session_id, thread_id, linked_at)
+SELECT link.session_id, link.thread_id, link.linked_at
+FROM project_session_threads_v98 link
+JOIN project_sessions session ON session.id = link.session_id;
+
+DROP TABLE project_session_threads_v98;
+DROP TABLE project_sessions_v98;
+
+CREATE INDEX idx_project_sessions_project_order
+  ON project_sessions(project_id, "order", created_at);
+CREATE INDEX idx_project_sessions_project_sidebar
+  ON project_sessions(project_id, archived, pinned, pinned_order, "order");
+CREATE UNIQUE INDEX idx_project_session_threads_thread
+  ON project_session_threads(thread_id);
+"#;
+
 const V94_PROJECT_APPEARANCE_SCHEMA_SQL: &str = r#"
 ALTER TABLE projects ADD COLUMN appearance_color TEXT NOT NULL DEFAULT 'black'
   CHECK (appearance_color IN ('black', 'red', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink'));
@@ -923,6 +998,7 @@ fn upgrade_owned_store(
         95 => validate_exact_v95_schema(connection)?,
         96 => validate_exact_v96_schema(connection)?,
         97 => validate_exact_v97_schema(connection)?,
+        98 => validate_exact_v98_schema(connection)?,
         _ => return Err(corrupt("Rust Core forward-migration source is unsupported")),
     }
 
@@ -971,7 +1047,12 @@ fn upgrade_owned_store(
         if source_version < 97 {
             ensure_v97_canvas_owners_schema(transaction)?;
         }
-        ensure_v98_yjs_integrity_schema(transaction)?;
+        if source_version < 98 {
+            ensure_v98_yjs_integrity_schema(transaction)?;
+        }
+        if source_version < 99 {
+            ensure_v99_owner_scoped_scenes_schema(transaction)?;
+        }
         let updated = transaction.execute(
             "UPDATE core_store_metadata SET store_format_version = ?1 \
              WHERE id = 1 AND schema_owner = ?2 AND store_format_version = ?3",
@@ -1221,6 +1302,7 @@ fn publish_current_store(
         ensure_v96_canvas_tombstone_bytes_schema(transaction)?;
         ensure_v97_canvas_owners_schema(transaction)?;
         ensure_v98_yjs_integrity_schema(transaction)?;
+        ensure_v99_owner_scoped_scenes_schema(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
@@ -1251,6 +1333,7 @@ fn create_fresh_store(
         ensure_v96_canvas_tombstone_bytes_schema(transaction)?;
         ensure_v97_canvas_owners_schema(transaction)?;
         ensure_v98_yjs_integrity_schema(transaction)?;
+        ensure_v99_owner_scoped_scenes_schema(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
@@ -1488,6 +1571,20 @@ fn ensure_v94_project_appearance_schema(connection: &Connection) -> Result<(), S
     if foreign_key_violation.is_some() {
         return Err(corrupt(
             "v94 Project appearance migration produced a foreign-key violation",
+        ));
+    }
+    Ok(())
+}
+
+fn ensure_v99_owner_scoped_scenes_schema(connection: &Connection) -> Result<(), StoreError> {
+    connection.execute_batch(V99_OWNER_SCOPED_SCENES_SCHEMA_SQL)?;
+    let foreign_key_violation = connection
+        .prepare("PRAGMA foreign_key_check")?
+        .query_row([], |_| Ok(()))
+        .optional()?;
+    if foreign_key_violation.is_some() {
+        return Err(corrupt(
+            "v99 Project Session migration produced a foreign-key violation",
         ));
     }
     Ok(())
@@ -2782,6 +2879,10 @@ fn validate_exact_v97_schema(connection: &Connection) -> Result<(), StoreError> 
     validate_exact_core_schema(connection, true, true, true, true, true, true, true, 97)
 }
 
+fn validate_exact_v98_schema(connection: &Connection) -> Result<(), StoreError> {
+    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 98)
+}
+
 fn validate_exact_current_schema(connection: &Connection) -> Result<(), StoreError> {
     validate_exact_core_schema(
         connection,
@@ -2846,6 +2947,9 @@ fn validate_exact_core_schema(
     }
     if schema_version >= 98 {
         ensure_v98_yjs_integrity_schema(&expected)?;
+    }
+    if schema_version >= 99 {
+        ensure_v99_owner_scoped_scenes_schema(&expected)?;
     }
 
     let expected_inventory = read_schema_inventory(&expected)?;
@@ -2926,6 +3030,9 @@ pub fn expected_store_schema_fingerprint(version: i64) -> Result<String, StoreEr
     }
     if version >= 98 {
         ensure_v98_yjs_integrity_schema(&expected)?;
+    }
+    if version >= 99 {
+        ensure_v99_owner_scoped_scenes_schema(&expected)?;
     }
     read_schema_inventory(&expected).map(|inventory| schema_inventory_fingerprint(&inventory))
 }
@@ -3762,24 +3869,17 @@ mod tests {
                 )?;
                 assert_eq!(legacy_tab_table, 0);
                 let session = connection.query_row(
-                    "SELECT project_id, no_thread_fallback_title, database_starter \
+                    "SELECT project_id, no_thread_fallback_title \
                      FROM project_sessions \
                      WHERE id = 'migration-session'",
                     [],
-                    |row| {
-                        Ok((
-                            row.get::<_, Option<String>>(0)?,
-                            row.get::<_, String>(1)?,
-                            row.get::<_, i64>(2)?,
-                        ))
-                    },
+                    |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, String>(1)?)),
                 )?;
                 assert_eq!(
                     session,
                     (
                         Some("migration-project".to_owned()),
                         "Migration Session".to_owned(),
-                        0,
                     )
                 );
                 Ok::<_, StoreError>(())
@@ -3937,6 +4037,67 @@ mod tests {
         .expect("seed v93 Project appearances");
     }
 
+    fn seed_owned_v97_store_with_threaded_and_threadless_starters(home: &Path) {
+        seed_owned_v92_store_with_starter_sessions(home);
+        let mut connection = open_writer(&home.join("nodex.db")).expect("v97 writer");
+        with_immediate_transaction(&mut connection, |transaction| {
+            ensure_v93_database_starter_sessions_schema(transaction)?;
+            let canonical = "2026-07-25T00:00:00.000Z";
+            transaction.execute(
+                "INSERT INTO project_sessions(
+                   id, project_id, no_thread_fallback_title, \"order\", pinned, pinned_order,
+                   archived, archived_at, unread, database_starter, created_at, updated_at
+                 ) VALUES (
+                   'session:threaded-starter', 'project:starter', 'Database View', 2, 1, 1,
+                   0, NULL, 0, 1, ?1, ?1
+                 )",
+                [canonical],
+            )?;
+            transaction.execute(
+                "INSERT INTO codex_threads(
+                   thread_id, project_id, thread_preview, model_provider, status_type,
+                   status_active_flags_json, archived, created_at, updated_at, linked_at
+                 ) VALUES (
+                   'thread:starter', 'project:starter', 'Real conversation', 'openai',
+                   'notLoaded', '[]', 0, 1, 1, ?1
+                 )",
+                [canonical],
+            )?;
+            transaction.execute(
+                "INSERT INTO project_session_threads(session_id, thread_id, linked_at)
+                 VALUES ('session:threaded-starter', 'thread:starter', ?1)",
+                [canonical],
+            )?;
+            ensure_v94_project_appearance_schema(transaction)?;
+            ensure_v95_canvas_incremental_schema(transaction)?;
+            ensure_v96_canvas_tombstone_bytes_schema(transaction)?;
+            ensure_v97_canvas_owners_schema(transaction)?;
+            transaction.execute(
+                "UPDATE core_store_metadata SET store_format_version = 97
+                 WHERE id = 1 AND schema_owner = ?1 AND store_format_version = 92",
+                [CORE_SCHEMA_OWNER],
+            )?;
+            transaction.pragma_update(None, "user_version", 97)?;
+            Ok(())
+        })
+        .expect("seed v97 starter store");
+    }
+
+    fn promote_owned_v97_starter_store_to_v98(home: &Path) {
+        let mut connection = open_writer(&home.join("nodex.db")).expect("v98 writer");
+        with_immediate_transaction(&mut connection, |transaction| {
+            ensure_v98_yjs_integrity_schema(transaction)?;
+            transaction.execute(
+                "UPDATE core_store_metadata SET store_format_version = 98
+                 WHERE id = 1 AND schema_owner = ?1 AND store_format_version = 97",
+                [CORE_SCHEMA_OWNER],
+            )?;
+            transaction.pragma_update(None, "user_version", 98)?;
+            Ok(())
+        })
+        .expect("promote starter store to v98");
+    }
+
     fn seed_owned_v94_store_with_canvas(home: &Path) {
         let mut connection = open_writer(&home.join("nodex.db")).expect("v94 writer");
         install_v84_schema(&connection).expect("v84 schema");
@@ -4038,7 +4199,7 @@ mod tests {
     }
 
     #[test]
-    fn v92_upgrade_replaces_initial_view_pointer_with_database_starter_marker() {
+    fn v92_upgrade_removes_threadless_database_starter_session() {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
         seed_owned_v92_store_with_starter_sessions(&home);
@@ -4051,31 +4212,101 @@ mod tests {
             .call(|connection| {
                 let legacy_column: i64 = connection.query_row(
                     "SELECT count(*) FROM pragma_table_info('project_sessions') \
-                     WHERE name = 'initial_database_view_id'",
+                     WHERE name IN ('initial_database_view_id', 'database_starter')",
                     [],
                     |row| row.get(0),
                 )?;
                 assert_eq!(legacy_column, 0);
-                let starters = connection
-                    .prepare("SELECT id, database_starter FROM project_sessions ORDER BY id")?
-                    .query_map([], |row| {
-                        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-                    })?
+                let sessions = connection
+                    .prepare("SELECT id FROM project_sessions ORDER BY id")?
+                    .query_map([], |row| row.get::<_, String>(0))?
                     .collect::<rusqlite::Result<Vec<_>>>()?;
-                assert_eq!(
-                    starters,
-                    [
-                        ("session:chat".to_owned(), 0),
-                        ("session:starter".to_owned(), 1),
-                    ]
-                );
+                assert_eq!(sessions, ["session:chat".to_owned()]);
                 Ok::<_, StoreError>(())
             })
-            .expect("verify v93 database starter migration");
+            .expect("verify v99 starter retirement migration");
         drop(upgraded);
         let reopened = SqliteStoreKernel::open(&home).expect("validate current store exactly");
         assert_eq!(reopened.preparation().schema_version, CORE_SCHEMA_VERSION);
         assert_eq!(reopened.preparation().migrated_from_version, None);
+    }
+
+    #[test]
+    fn v97_upgrade_preserves_threaded_starter_as_an_ordinary_session() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        seed_owned_v97_store_with_threaded_and_threadless_starters(&home);
+
+        let upgraded = SqliteStoreKernel::open(&home).expect("upgrade v97 Core store");
+        assert_eq!(upgraded.preparation().schema_version, CORE_SCHEMA_VERSION);
+        assert_eq!(upgraded.preparation().migrated_from_version, Some(97));
+        upgraded
+            .writer()
+            .call(|connection| {
+                let sessions = connection
+                    .prepare("SELECT id FROM project_sessions ORDER BY id")?
+                    .query_map([], |row| row.get::<_, String>(0))?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                assert_eq!(
+                    sessions,
+                    [
+                        "session:chat".to_owned(),
+                        "session:threaded-starter".to_owned(),
+                    ]
+                );
+                let link: String = connection.query_row(
+                    "SELECT thread_id FROM project_session_threads
+                     WHERE session_id = 'session:threaded-starter'",
+                    [],
+                    |row| row.get(0),
+                )?;
+                assert_eq!(link, "thread:starter");
+                let marker_columns: i64 = connection.query_row(
+                    "SELECT count(*) FROM pragma_table_info('project_sessions')
+                     WHERE name = 'database_starter'",
+                    [],
+                    |row| row.get(0),
+                )?;
+                assert_eq!(marker_columns, 0);
+                Ok::<_, StoreError>(())
+            })
+            .expect("verify v99 starter retirement");
+    }
+
+    #[test]
+    fn v98_upgrade_runs_only_the_owner_scoped_scene_migration() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        seed_owned_v97_store_with_threaded_and_threadless_starters(&home);
+        promote_owned_v97_starter_store_to_v98(&home);
+
+        let upgraded = SqliteStoreKernel::open(&home).expect("upgrade v98 Core store");
+        assert_eq!(upgraded.preparation().schema_version, CORE_SCHEMA_VERSION);
+        assert_eq!(upgraded.preparation().migrated_from_version, Some(98));
+        upgraded
+            .writer()
+            .call(|connection| {
+                let marker_columns: i64 = connection.query_row(
+                    "SELECT count(*) FROM pragma_table_info('project_sessions')
+                     WHERE name = 'database_starter'",
+                    [],
+                    |row| row.get(0),
+                )?;
+                assert_eq!(marker_columns, 0);
+                let sessions = connection
+                    .prepare("SELECT id FROM project_sessions ORDER BY id")?
+                    .query_map([], |row| row.get::<_, String>(0))?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                assert_eq!(
+                    sessions,
+                    [
+                        "session:chat".to_owned(),
+                        "session:threaded-starter".to_owned(),
+                    ]
+                );
+                Ok::<_, StoreError>(())
+            })
+            .expect("verify v98-to-v99 owner-scoped Scene migration");
     }
 
     #[test]

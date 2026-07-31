@@ -5,11 +5,11 @@ import type {
   BrowserSidebarStateSnapshot,
 } from "../../shared/browser-sidebar";
 import {
-  activateWorkbenchSessionViewTab,
-  createEmptyWorkbenchSessionView,
-  createWorkbenchSessionViewTab,
-  patchWorkbenchSessionViewPanel,
-} from "../../shared/workbench-session-view";
+  activateWorkbenchSceneSurface,
+  createWorkbenchSceneSurface,
+  materializeInitialWorkbenchScene,
+  patchWorkbenchScenePanel,
+} from "../../shared/workbench-scene";
 import type { ProjectSession } from "../../shared/types";
 import {
   createCodexForkBrowserSnapshotAdapter,
@@ -20,7 +20,6 @@ function makeSession(id: string): ProjectSession {
   return {
     id,
     projectId: "project",
-    databaseStarter: false,
     noThreadFallbackTitle: id,
     displayTitle: id,
     order: 0,
@@ -78,16 +77,19 @@ function makeHarness() {
   return { adapter, runtime };
 }
 
-function sourceView() {
-  const empty = createEmptyWorkbenchSessionView("session-source", {
+function sourceScene() {
+  const empty = materializeInitialWorkbenchScene({
+    kind: "session",
+    sessionId: "session-source",
+  }, {
     touchedAt: "2026-07-23T00:00:00.000Z",
     identityFactory: {
       createId: (kind) => `${kind}:seed`,
     },
   });
-  const withTab = createWorkbenchSessionViewTab(empty, {
+  const withTab = createWorkbenchSceneSurface(empty, {
     panelId: "right",
-    tab: {
+    surface: {
       id: "view-browser",
       kind: "browser",
       titleSnapshot: "Docs",
@@ -99,10 +101,10 @@ function sourceView() {
       state: null,
     },
   });
-  const visible = patchWorkbenchSessionViewPanel(withTab, "right", {
+  const visible = patchWorkbenchScenePanel(withTab, "right", {
     collapsed: false,
   });
-  return activateWorkbenchSessionViewTab(
+  return activateWorkbenchSceneSurface(
     visible,
     "right",
     visible.panels.right.layout.activeLeafId,
@@ -115,7 +117,7 @@ describe("createCodexForkBrowserSnapshotAdapter", () => {
     const { adapter } = makeHarness();
     const snapshot = await adapter.capture("thread-source", {
       browserViewScopeId: "window-source",
-      view: sourceView(),
+      scene: sourceScene(),
     });
     expect(snapshot.sourceBrowserViewScopeId).toBe("window-source");
     expect(snapshot.tabs).toMatchObject([
@@ -133,7 +135,7 @@ describe("createCodexForkBrowserSnapshotAdapter", () => {
     const { adapter, runtime } = makeHarness();
     const captured = await adapter.capture("thread-source", {
       browserViewScopeId: "window-source",
-      view: sourceView(),
+      scene: sourceScene(),
     });
     const rebased = await adapter.rebase(captured, {
       targetConversationId: "thread-target",
@@ -158,7 +160,7 @@ describe("createCodexForkBrowserSnapshotAdapter", () => {
     const { adapter } = makeHarness();
     const captured = await adapter.capture("thread-source", {
       browserViewScopeId: "window-source",
-      view: sourceView(),
+      scene: sourceScene(),
     });
     await expect(adapter.apply(captured, {
       targetBrowserViewScopeId: "window-target",

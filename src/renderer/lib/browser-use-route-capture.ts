@@ -1,4 +1,7 @@
-import type { BrowserSidebarCommand } from "../../shared/browser-sidebar";
+import type {
+  BrowserSidebarCommand,
+  BrowserSidebarCommandResult,
+} from "../../shared/browser-sidebar";
 
 type BrowserUseRouteCaptureCommand = Extract<
   BrowserSidebarCommand,
@@ -29,4 +32,17 @@ export function buildBrowserUseRouteCaptureCommand(
     codexSessionId: input.codexSessionId,
     projectId: input.projectId,
   };
+}
+
+export async function captureBrowserUseRoute(
+  input: BrowserUseRouteCaptureInput,
+  run: (
+    command: BrowserUseRouteCaptureCommand,
+  ) => Promise<BrowserSidebarCommandResult>,
+): Promise<void> {
+  const command = buildBrowserUseRouteCaptureCommand(input);
+  if (!command) return;
+  const result = await run(command);
+  if (result.ok) return;
+  throw new Error(result.message || "Browser Use route could not be captured");
 }
