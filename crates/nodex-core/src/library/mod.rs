@@ -1833,6 +1833,7 @@ mod tests {
         const DATABASE: &str = "database:root";
         const SOURCE: &str = "source:root";
         const VIEW: &str = "view:root";
+        const DELETED_VIEW: &str = "view:deleted";
         const NOW: &str = "2026-07-18T23:59:00.000Z";
         let persistent_context = BoundModuleContext {
             profile_id: ProfileId("profile-1".to_owned()),
@@ -1932,6 +1933,13 @@ mod tests {
                            rank_key, created_at, updated_at \
                          ) VALUES (?1, ?2, ?3, 'All', 'list', '{}', 'a', ?4, ?4)",
                         params![VIEW, DATABASE, SOURCE, NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO database_views( \
+                           id, database_block_id, data_source_id, name, kind, config_json, \
+                           rank_key, lifecycle, created_at, updated_at \
+                         ) VALUES (?1, ?2, ?3, 'Deleted', 'list', '{}', 'b', 'deleted', ?4, ?4)",
+                        params![DELETED_VIEW, DATABASE, SOURCE, NOW],
                     )?;
                     transaction.execute(
                         "UPDATE database_containers SET default_view_id = ?1 WHERE block_id = ?2",
@@ -2259,6 +2267,46 @@ mod tests {
             panic!("Page location");
         };
         assert_eq!(value.expect("active Page location").project_id, "project-1");
+        let LibraryReadValue::ViewLocation { value } = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::ViewLocation {
+                        view_id: VIEW.to_owned(),
+                    },
+                },
+            )
+            .expect("trusted root View location")
+            .value
+        else {
+            panic!("View location");
+        };
+        assert_eq!(
+            value.expect("active View location"),
+            nodex_core_contracts::library::LibraryViewLocation {
+                view_id: VIEW.to_owned(),
+                data_source_id: SOURCE.to_owned(),
+                database_id: DATABASE.to_owned(),
+                project_id: "project-1".to_owned(),
+            }
+        );
+        let LibraryReadValue::ViewLocation { value } = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::ViewLocation {
+                        view_id: DELETED_VIEW.to_owned(),
+                    },
+                },
+            )
+            .expect("trusted root deleted View location")
+            .value
+        else {
+            panic!("deleted View location");
+        };
+        assert_eq!(value, None);
         let LibraryReadValue::PageLifecyclePreflight { value } = module
             .read(
                 &persistent_context,
@@ -2408,6 +2456,18 @@ mod tests {
             )
             .expect_err("Project clients cannot perform global Page lookup");
         assert_eq!(location_error.code, CoreErrorCode::Unauthorized);
+        let view_location_error = module
+            .read(
+                &persistent_context,
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::ViewLocation {
+                        view_id: VIEW.to_owned(),
+                    },
+                },
+            )
+            .expect_err("Project clients cannot perform global View lookup");
+        assert_eq!(view_location_error.code, CoreErrorCode::Unauthorized);
 
         const NESTED_PAGE: &str = "page:nested";
         const NESTED_DOCUMENT: &str = "document:nested";

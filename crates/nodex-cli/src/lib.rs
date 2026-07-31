@@ -4,11 +4,14 @@ use std::ffi::OsString;
 
 use clap::Parser;
 
+pub mod agent_interface;
 pub mod cli;
 mod config;
+pub mod deeplink;
 mod draft;
 pub mod error;
 pub mod meta_yaml;
+mod open;
 mod page_lifecycle;
 mod page_mutation;
 pub mod patch;
@@ -16,6 +19,8 @@ mod ripgrep;
 pub mod runtime;
 pub mod sed;
 mod service;
+pub mod skills;
+mod view;
 
 use cli::Cli;
 use error::{CliError, CliErrorCode};
@@ -65,8 +70,13 @@ pub fn run(arguments: impl IntoIterator<Item = OsString>) -> i32 {
 }
 
 fn print_machine_help(arguments: &[OsString]) -> i32 {
-    let command_path = cli::machine_help_command_path(arguments);
-    let document = cli::machine_help(&command_path);
+    let document = match agent_interface::machine_help(arguments) {
+        Ok(document) => document,
+        Err(error) => {
+            render_error(&error, true);
+            return EXIT_REJECTED;
+        }
+    };
     match serde_json::to_string_pretty(&document) {
         Ok(json) => {
             println!("{json}");

@@ -86,6 +86,14 @@ export interface DesktopLibraryModuleBridge {
   findPageLocation(
     pageId: string,
   ): Promise<{ readonly pageId: string; readonly projectId: string } | null>;
+  findViewLocation(
+    viewId: string,
+  ): Promise<{
+    readonly viewId: string;
+    readonly dataSourceId: string;
+    readonly databaseId: string;
+    readonly projectId: string;
+  } | null>;
   readPageLifecyclePreflight(
     projectId: string,
     pageId: string,
@@ -216,6 +224,11 @@ export function createDesktopLibraryModuleBridge(
       const runtime = await input.authority;
       rootCoreAdapter ??= coreAdapter(runtime);
       return await rootCoreAdapter.findPageLocation(pageId);
+    },
+    findViewLocation: async (viewId) => {
+      const runtime = await input.authority;
+      rootCoreAdapter ??= coreAdapter(runtime);
+      return await rootCoreAdapter.findViewLocation(viewId);
     },
     readPageLifecyclePreflight: async (projectId, pageId) => {
       const runtime = await input.authority;

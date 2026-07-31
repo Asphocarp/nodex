@@ -1,5 +1,6 @@
 appId: app.jyu.nodex
 productName: Nodex
+afterPack: scripts/restore-packaged-runtime-closure.mjs
 directories:
   buildResources: resources
   output: dist
@@ -28,6 +29,10 @@ npmRebuild: true
 extraResources:
 - from: .generated/prepared-electron-build.json
   to: prepared-electron-build.json
+- from: .generated/official-agent-skills
+  to: agent-skills
+  filter:
+  - "**/*"
 - from: resources/icon.png
   to: icon.png
 - from: resources/nodex-notification.aiff

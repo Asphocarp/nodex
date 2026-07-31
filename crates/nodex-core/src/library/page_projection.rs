@@ -22,22 +22,35 @@ const MAX_IDENTITY_BYTES: usize = 512;
 const MAX_NAME_BYTES: usize = 4_096;
 const MAX_TEXT_BYTES: usize = 64 * 1024;
 
+pub(super) struct PageFileRequest<'a> {
+    pub event_head: i64,
+    pub requesting_project_id: Option<&'a str>,
+    pub page_id: &'a str,
+    pub kind: LibraryPageFileKind,
+    pub prepare: Option<LibraryPagePrepareKind>,
+}
+
 pub(super) fn page_file(
     connection: &Connection,
     library_id: &str,
     store_epoch: &str,
-    event_head: i64,
-    page_id: &str,
-    kind: LibraryPageFileKind,
-    prepare: Option<LibraryPagePrepareKind>,
+    request: PageFileRequest<'_>,
 ) -> Result<LibraryPageFileProjection, StoreError> {
-    validate_prepare(kind, prepare)?;
+    let PageFileRequest {
+        event_head,
+        requesting_project_id,
+        page_id,
+        kind,
+        prepare,
+    } = request;
+    validate_prepare(kind, prepare.as_ref())?;
     let page = page_content(connection, library_id, store_epoch, event_head, page_id)?;
     let storage = page_storage_authority(connection, library_id, page_id)?;
     let mut validators = LibraryPageFileValidators {
         title_etag: None,
         body_etag: None,
         page_etag: None,
+        move_etag: None,
     };
 
     match prepare {
@@ -71,6 +84,24 @@ pub(super) fn page_file(
                 library_id,
                 store_epoch,
                 page_id,
+            )?);
+        }
+        Some(LibraryPagePrepareKind::PageMove { view_id }) => {
+            let project_id = requesting_project_id
+                .ok_or_else(|| unauthorized("Page move preparation requires a bound Project"))?;
+            let view_id = match view_id {
+                Some(view_id) => Some(view_id),
+                None => {
+                    crate::database::default_page_move_view_id(connection, library_id, page_id)?
+                }
+            };
+            validators.move_etag = Some(crate::database::mint_page_move_etag(
+                connection,
+                library_id,
+                project_id,
+                store_epoch,
+                page_id,
+                view_id.as_deref(),
             )?);
         }
         None => {}
@@ -123,19 +154,25 @@ pub(super) fn page_draft_projection(
         connection,
         library_id,
         store_epoch,
-        event_head,
-        page_id,
-        LibraryPageFileKind::MetaYaml,
-        Some(LibraryPagePrepareKind::TitleSet),
+        PageFileRequest {
+            event_head,
+            requesting_project_id: None,
+            page_id,
+            kind: LibraryPageFileKind::MetaYaml,
+            prepare: Some(LibraryPagePrepareKind::TitleSet),
+        },
     )?;
     let body = page_file(
         connection,
         library_id,
         store_epoch,
-        event_head,
-        page_id,
-        LibraryPageFileKind::BodyNestedMarkdown,
-        Some(LibraryPagePrepareKind::DocumentReplace),
+        PageFileRequest {
+            event_head,
+            requesting_project_id: None,
+            page_id,
+            kind: LibraryPageFileKind::BodyNestedMarkdown,
+            prepare: Some(LibraryPagePrepareKind::DocumentReplace),
+        },
     )?;
     if meta.document_id != body.document_id
         || meta.document_generation != body.document_generation
@@ -174,7 +211,7 @@ pub(super) fn page_draft_projection(
 
 fn validate_prepare(
     kind: LibraryPageFileKind,
-    prepare: Option<LibraryPagePrepareKind>,
+    prepare: Option<&LibraryPagePrepareKind>,
 ) -> Result<(), StoreError> {
     let valid = matches!(
         (kind, prepare),
@@ -188,6 +225,7 @@ fn validate_prepare(
                 Some(LibraryPagePrepareKind::DocumentReplace)
             )
             | (_, Some(LibraryPagePrepareKind::PageDelete))
+            | (_, Some(LibraryPagePrepareKind::PageMove { .. }))
     );
     if valid {
         return Ok(());
@@ -845,6 +883,10 @@ fn invalid(message: impl Into<String>) -> StoreError {
     StoreError::new(StoreErrorCode::InvalidInput, message, false)
 }
 
+fn unauthorized(message: impl Into<String>) -> StoreError {
+    StoreError::new(StoreErrorCode::Unauthorized, message, false)
+}
+
 fn not_found(message: impl Into<String>) -> StoreError {
     StoreError::new(StoreErrorCode::NotFound, message, false)
 }
@@ -940,21 +982,21 @@ mod tests {
         assert!(
             validate_prepare(
                 LibraryPageFileKind::MetaYaml,
-                Some(LibraryPagePrepareKind::TitleSet)
+                Some(&LibraryPagePrepareKind::TitleSet)
             )
             .is_ok()
         );
         assert!(
             validate_prepare(
                 LibraryPageFileKind::BodyNestedMarkdown,
-                Some(LibraryPagePrepareKind::DocumentReplace)
+                Some(&LibraryPagePrepareKind::DocumentReplace)
             )
             .is_ok()
         );
         assert!(
             validate_prepare(
                 LibraryPageFileKind::BodyNestedMarkdown,
-                Some(LibraryPagePrepareKind::TitleSet)
+                Some(&LibraryPagePrepareKind::TitleSet)
             )
             .is_err()
         );

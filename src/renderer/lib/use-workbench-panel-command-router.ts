@@ -163,10 +163,13 @@ function findDbViewTabForProject(
 
 function findDbViewTabForDatabaseView(
   session: ProjectSession,
+  projectId: string,
   databaseViewId: string,
 ): WorkbenchTabProjection | null {
   return session.tabs.find((tab) =>
     tab.kind === "db_view"
+    && "projectId" in tab.config
+    && tab.config.projectId === projectId
     && "databaseViewId" in tab.config
     && tab.config.databaseViewId === databaseViewId
   ) ?? null;
@@ -342,7 +345,11 @@ export function useWorkbenchPanelCommandRouter({
     leafId: string,
   ) => {
     if (!activeSession || activeSession.projectId === null) return;
-    const existing = findDbViewTabForDatabaseView(activeSession, databaseViewId);
+    const existing = findDbViewTabForDatabaseView(
+      activeSession,
+      projectId,
+      databaseViewId,
+    );
     if (existing) {
       const existingLeafId = resolveLeafIdForPanelTab(activeSession, existing.panelId, existing.id);
       await setActivePanelTab(existing.panelId, existing.id, {
@@ -456,6 +463,42 @@ export function useWorkbenchPanelCommandRouter({
     });
   }, [activeSession, projects]);
 
+  const focusOrCreateDatabaseViewTab = useCallback(async (
+    databaseViewId: string,
+    targetPanelId: PanelId,
+    targetLeafId?: string,
+  ): Promise<boolean> => {
+    if (!activeSession || activeSession.projectId === null) return false;
+    const projectId = activeSession.projectId;
+    const existing = findDbViewTabForDatabaseView(
+      activeSession,
+      projectId,
+      databaseViewId,
+    );
+    if (existing) {
+      await setActivePanelTab(existing.panelId, existing.id, {
+        leafId: resolveLeafIdForPanelTab(activeSession, existing.panelId, existing.id),
+        openPanel: true,
+      });
+      return true;
+    }
+    createSessionViewTab({
+      sessionId: activeSession.id,
+      panelId: targetPanelId,
+      ...(targetLeafId ? { targetLeafId } : {}),
+      kind: "db_view",
+      title: "DB View",
+      config: { projectId, databaseViewId, view: "kanban" },
+    });
+    await ensureActivePanelOpenWithoutRefresh(targetPanelId);
+    return true;
+  }, [
+    activeSession,
+    createSessionViewTab,
+    ensureActivePanelOpenWithoutRefresh,
+    setActivePanelTab,
+  ]);
+
   const focusOrCreateProjectDbViewTab = useCallback(async (
     targetPanelId: PanelId,
     targetLeafId?: string,
@@ -475,20 +518,14 @@ export function useWorkbenchPanelCommandRouter({
       toast.danger("This project's Database has no default View to open.");
       return false;
     }
-    createSessionViewTab({
-      sessionId: activeSession.id,
-      panelId: targetPanelId,
-      ...(targetLeafId ? { targetLeafId } : {}),
-      kind: "db_view",
-      title: "DB View",
-      config: { projectId, databaseViewId, view: "kanban" },
-    });
-    await ensureActivePanelOpenWithoutRefresh(targetPanelId);
-    return true;
+    return await focusOrCreateDatabaseViewTab(
+      databaseViewId,
+      targetPanelId,
+      targetLeafId,
+    );
   }, [
     activeSession,
-    createSessionViewTab,
-    ensureActivePanelOpenWithoutRefresh,
+    focusOrCreateDatabaseViewTab,
     resolveProjectDefaultDatabaseViewId,
     setActivePanelTab,
   ]);
@@ -685,6 +722,7 @@ export function useWorkbenchPanelCommandRouter({
     openPanelDestinationFromPicker,
     resolveActivePanelCapabilities,
     focusOrCreateProjectDbViewTab,
+    focusOrCreateDatabaseViewTab,
     dispatchPanelAction,
     rememberFocusedPanelGroup,
     cycleFocusedPanelTab,

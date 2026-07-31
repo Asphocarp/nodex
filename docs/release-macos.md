@@ -22,8 +22,9 @@ The release system has one deep repository-owned Release Module under
 The important seam is the Release Bundle, not a YAML artifact convention.
 Each native architecture emits an `architecture-build.json` that binds its
 source commit/tree, Release Identity, runtime locks, prepared-build generation,
-package provenance, runner/toolchain versions, and artifact hashes. The
-assembler accepts both manifests only when they describe one source and emits:
+package provenance, official Agent Skills manifest/tree identity,
+runner/toolchain versions, and artifact hashes. The assembler accepts both
+manifests only when they describe one source and one Skill artifact, then emits:
 
 - `Nodex-latest-arm64.dmg`
 - `Nodex-latest-x64.dmg`
@@ -68,17 +69,23 @@ The repository must have these environments, restricted to protected `main`:
 | --- | --- | --- |
 | `macos-distribution` | `CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_API_KEY_B64`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER`, `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT` | Apple signing/notarization; Sentry upload once from production arm64 |
 | `release-publish` | none | job-scoped repository `contents: write` only |
+| `official-skills-publish` | `NODEX_SKILLS_GITHUB_TOKEN` | Fine-grained PAT with Contents read/write access to `NodexApp/skills` only |
 | `homebrew-tap` | `HOMEBREW_TAP_GITHUB_TOKEN` | Contents read/write only on `junyudev/homebrew-tap` |
 | `landing-production` | `NODEXAPP_GITHUB_IO_TOKEN` | Contents read/write only on `NodexApp/NodexApp.github.io` |
 
-Migration status on 2026-07-31: the four protected environments exist, but
+Migration status on 2026-07-31: the original four protected environments exist, but
 their secrets cannot be copied through the GitHub API. Before rehearsal, copy
 the five Apple values from the legacy `release` environment into
 `macos-distribution`. Before production, copy its Homebrew token into
 `homebrew-tap`, configure the three Sentry values, and rotate the current
 repository-level landing token into `landing-production`; then delete the
-repository-level copy. Delete the legacy `release` environment only after the
-new scopes have been exercised successfully. If v0.2.0 must intentionally omit
+repository-level copy. Create `official-skills-publish` and store a dedicated
+fine-grained PAT as `NODEX_SKILLS_GITHUB_TOKEN`; its resource owner must be
+`NodexApp`, repository access must contain only `skills`, and repository
+permissions must contain only `Contents: Read and write`. Record its expiry in
+release operations and rotate it before expiry. Delete the legacy `release`
+environment only after the new scopes have been exercised successfully. If
+v0.2.0 must intentionally omit
 Sentry source maps, change the production workflow input to `false` in a
 reviewed foundation commit; do not silently proceed with a partial Sentry
 configuration.
@@ -193,9 +200,12 @@ A valid version transition runs this sequence:
 6. Create or reuse an annotated tag targeting the exact source SHA.
 7. Create/resume the GitHub draft, upload only the manifest allowlist, publish
    it as Latest, and verify immutability, asset digests, and tag target.
-8. Generate the Homebrew cask from the same bundle, audit it, push it, and
+8. Regenerate the official Agent Skills from the exact source, require their
+   manifest/tree hashes to match the Release Bundle, and atomically publish the
+   same version to `NodexApp/skills` with an annotated tag.
+9. Generate the Homebrew cask from the same bundle, audit it, push it, and
    smoke-install the published app.
-9. Deploy the landing site from the same source SHA after release verification,
+10. Deploy the landing site from the same source SHA after release verification,
    so its version and Changelog never lead the published downloads.
 
 Sentry source maps are uploaded only by the production arm64 build. Both builds
@@ -222,6 +232,8 @@ idempotent:
 - matching draft: verify every existing asset digest, upload only missing
   assets, then publish;
 - matching published release: verify it, then retry Homebrew;
+- matching Agent Skills tag and tree: reuse it; a conflicting tree or version
+  rollback stops without moving the tag;
 - conflicting tag or asset digest: stop without mutation.
 
 Never delete or replace a published immutable asset. A product or artifact
@@ -261,10 +273,12 @@ gh release download v0.2.0 --repo junyudev/nodex \
 pnpm release:verify:remote -- \
   --repo junyudev/nodex \
   --bundle .generated/v0.2.0-remote/release-bundle.json
+gh api repos/NodexApp/skills/git/ref/tags/v0.2.0 --jq .object.sha
 ```
 
 Also verify both stable DMG URLs, a clean Apple Silicon install/first launch,
 `nodex --version`, one Core-backed project operation, one Agent thread, one
 Browser operation, update from v0.1.10, Homebrew install/upgrade, and the
-landing download selector. `releases/latest` must be `v0.2.0`, never a Browser
-runtime tag.
+landing download selector. Confirm `npx skills@latest add NodexApp/skills`
+discovers exactly the `nodex` Skill. `releases/latest` must be `v0.2.0`, never
+a Browser runtime tag.

@@ -24,6 +24,7 @@ pub(crate) use mutation::{
     resolve_page_transfer_data_source_source, transfer_existing_page_for_agent_move_prevalidated,
     transfer_existing_page_for_block_transfer,
 };
+pub(crate) use window::{default_page_move_view_id, mint_page_move_etag};
 
 use nodex_core_contracts::database::{
     DatabaseCommitValue, DatabaseIntent, DatabaseRead, DatabaseReadValue, DatabaseReceipt,
@@ -1775,6 +1776,200 @@ mod tests {
             panic!("view window read");
         };
         Ok(value)
+    }
+
+    fn read_view_context(
+        module: &DatabaseModule,
+        view_id: &str,
+        first: u32,
+        after: Option<String>,
+        group_scope: Option<DatabaseGroupScope>,
+    ) -> Result<nodex_core_contracts::database::DatabaseViewContext, CoreError> {
+        let snapshot = module.read(
+            &context(),
+            ModuleReadRequest {
+                contract_version: DATABASE_CONTRACT_VERSION,
+                read: DatabaseRead {
+                    target: DatabaseTarget::View {
+                        view_id: view_id.to_owned(),
+                    },
+                    mode: DatabaseReadMode::ViewContext,
+                    filter: None,
+                    sort: None,
+                    window: Some(CollectionWindowRequest {
+                        after,
+                        first: Some(first),
+                    }),
+                    page_ids: None,
+                    group_scope,
+                },
+            },
+        )?;
+        let DatabaseReadValue::ViewContext { value } = snapshot.value else {
+            panic!("view context read");
+        };
+        assert_eq!(
+            value.rows.authority.projection_revision,
+            snapshot.event_head
+        );
+        Ok(value)
+    }
+
+    #[test]
+    fn view_context_composes_descriptors_groups_rows_and_signed_move_authority() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open(&home).expect("fresh store");
+        let module = seed_grouped_fixture(
+            &kernel,
+            vec![
+                GroupRowSpec {
+                    page_id: "page:row-a",
+                    title: "First",
+                    value_json: Some("\"triage\""),
+                    position: Some(("triage", "a")),
+                },
+                GroupRowSpec {
+                    page_id: "page:row-b",
+                    title: "Second",
+                    value_json: Some("\"done\""),
+                    position: Some(("done", "b")),
+                },
+            ],
+        );
+
+        let first = read_view_context(&module, VIEW_ID, 1, None, None).expect("first context");
+        assert_eq!(first.database["databaseId"], DATABASE_ID);
+        assert_eq!(first.data_source["dataSourceId"], SOURCE_ID);
+        assert_eq!(first.view["viewId"], VIEW_ID);
+        assert_eq!(first.view["config"]["group"]["propertyId"], "status");
+        assert!(
+            first
+                .properties
+                .iter()
+                .any(|property| property["propertyId"] == "status")
+        );
+        assert_eq!(first.groups.total_rows, 2);
+        assert_eq!(first.rows.items.len(), 1);
+        assert!(first.rows.items[0].move_etag.starts_with("nxe1."));
+        let first_etag = first.rows.items[0].move_etag.clone();
+        let cursor = first
+            .rows
+            .next_cursor
+            .clone()
+            .expect("context continuation");
+
+        let second = read_view_context(&module, VIEW_ID, 1, Some(cursor.clone()), None)
+            .expect("next context");
+        assert_eq!(second.rows.items.len(), 1);
+        assert_ne!(
+            first.rows.items[0].summary.page_id,
+            second.rows.items[0].summary.page_id
+        );
+        assert!(second.rows.next_cursor.is_none());
+
+        const OTHER_VIEW_ID: &str = "018f1000-0000-7000-8000-00000000000c";
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "INSERT INTO database_views(\
+                       id, database_block_id, data_source_id, name, kind, config_json, revision, \
+                       rank_key, lifecycle, created_at, updated_at\
+                     ) SELECT ?1, database_block_id, data_source_id, 'Other board', kind, \
+                       config_json, revision, 'z', lifecycle, created_at, updated_at \
+                     FROM database_views WHERE id = ?2",
+                    params![OTHER_VIEW_ID, VIEW_ID],
+                )?;
+                Ok(())
+            })
+            .expect("seed another View");
+        let cross_view = read_view_context(&module, OTHER_VIEW_ID, 1, Some(cursor.clone()), None)
+            .expect_err("cursor cannot cross Views");
+        assert_eq!(cross_view.code, CoreErrorCode::InvalidInput);
+
+        let mut tampered = cursor.into_bytes();
+        let last = tampered.last_mut().expect("non-empty cursor");
+        *last = if *last == b'a' { b'b' } else { b'a' };
+        let tampered = String::from_utf8(tampered).expect("ASCII cursor");
+        let rejection = read_view_context(&module, VIEW_ID, 1, Some(tampered), None)
+            .expect_err("tampered cursor");
+        assert_eq!(rejection.code, CoreErrorCode::InvalidInput);
+
+        let triage = read_view_context(
+            &module,
+            VIEW_ID,
+            200,
+            None,
+            Some(DatabaseGroupScope::Key {
+                key: "triage".to_owned(),
+            }),
+        )
+        .expect("group-scoped context");
+        assert_eq!(triage.groups.total_rows, 2);
+        assert_eq!(triage.rows.items.len(), 1);
+        assert_eq!(
+            triage.rows.items[0].summary.effective_group_key.as_deref(),
+            Some("triage")
+        );
+
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "UPDATE database_view_page_positions \
+                     SET rank_key = 'z', revision = revision + 1, updated_at = ?1 \
+                     WHERE view_id = ?2 AND page_block_id = 'page:row-a'",
+                    params![NOW, VIEW_ID],
+                )?;
+                Ok(())
+            })
+            .expect("change the row position authority");
+        let moved = read_view_context(
+            &module,
+            VIEW_ID,
+            200,
+            None,
+            Some(DatabaseGroupScope::Key {
+                key: "triage".to_owned(),
+            }),
+        )
+        .expect("context after position change");
+        assert_ne!(moved.rows.items[0].move_etag, first_etag);
+
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "INSERT INTO projects(id, library_id, name, created, updated) \
+                     VALUES ('project-2', 'library-1', 'Unauthorized', ?1, ?1)",
+                    [NOW],
+                )?;
+                Ok(())
+            })
+            .expect("seed an unrelated Project");
+        let mut unauthorized_context = context();
+        unauthorized_context.project_id = Some(ProjectId("project-2".to_owned()));
+        let unauthorized = module
+            .read(
+                &unauthorized_context,
+                ModuleReadRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    read: DatabaseRead {
+                        target: DatabaseTarget::View {
+                            view_id: VIEW_ID.to_owned(),
+                        },
+                        mode: DatabaseReadMode::ViewContext,
+                        filter: None,
+                        sort: None,
+                        window: Some(Default::default()),
+                        page_ids: None,
+                        group_scope: None,
+                    },
+                },
+            )
+            .expect_err("another Project cannot read View context");
+        assert_eq!(unauthorized.code, CoreErrorCode::Unauthorized);
     }
 
     #[test]

@@ -721,8 +721,6 @@ nodex/
 │   ├── nodex-core-contracts/   # Versioned semantic Module contracts
 │   ├── nodex-core-protocol/    # Generated transport envelopes/OpenAPI source
 │   └── nodex-core-server/      # Profile-private authenticated UDS process
-├── skills/nodex-kanban/
-│   └── SKILL.md                # Agent skill documentation
 ├── .github/
 │   └── workflows/
 │       ├── ci.yml              # Stable CI / required source gate
@@ -1052,7 +1050,43 @@ Codex Threads emit a separate Electron IPC stream (`codex:event`) from the main-
 
 The packaged native `nodex` binary is a UDS client of the detached Rust Core. The app bundle is the one distribution and update closure for the CLI, Core, ripgrep, migrator, and ServiceManagement helper: Homebrew Cask links that bundled binary into the Homebrew prefix, while the macOS application menu's `Install Command Line Tool…` action creates or updates `~/.local/bin/nodex`. Neither path copies a standalone binary. The app action never edits shell startup files, reports when `~/.local/bin` is absent from `PATH`, and refuses to replace a non-symlink or a symlink not previously managed by Nodex.
 
-The CLI selects the Profile home with the same bootstrap precedence as Electron: nonblank `NODEX_HOME`, nearest project `.nodex/config.toml` over user `~/.nodex/config.toml`, then the default `~/.nodex`; config files are UTF-8, size-bounded, and malformed TOML fails closed instead of silently connecting to another Profile. It resolves a Project from an explicit unique ID/name, otherwise the longest containing managed-worktree root before considering the longest source root; equal candidates fail with stable IDs. `context`, `tree`, and `rg` honor one global `--database` exact ID/unique name or `--page` stable ID/title path, with the primary Database as default. Full Page IDs use `@<id>`, and exact authorized `/`-separated title paths never expose unauthorized candidates. `nodex read <page>` returns canonical `body.nested.md` bytes with a final LF; `--meta` returns the deterministic typed `meta.yaml` projection. Ordinary reads emit no validator, while `--prepare title.set`, `document.replace`, or `page.delete` asks Core for only the compatible narrow ETag. `nodex sed -n '<line>[,<line>]p' <page>` selects from those exact body bytes. `nodex history` returns the retained typed cursor timeline, and `nodex tree [scope]` traverses the selected Database or one authorized Page with fixed depth/node/cycle bounds. `--json` wraps stable machine output and errors; rejected commands exit 2.
+`nodex capabilities --json` is the side-effect-free Agent handshake. It succeeds
+before current-directory lookup, Profile configuration, Project selection, or
+Core launch and reports Agent API revision `1..1`, Nested Markdown revision 2,
+the command capability revisions implemented by that exact binary, supported
+deep-link kinds, and the adjacent packaged Skill bundle identity when present.
+An unpackaged development binary reports `bundle.status = unavailable` rather
+than creating `~/.nodex` or failing. `nodex --json <command> --help` returns the
+same registry's effect, required validators, result schema revision, stable
+error codes, and parseable example; root and command-group help list their exact
+leaf commands.
+
+`nodex view query <view> [--group <stable-key> | --unassigned] [--after
+<cursor>] [--limit 1..200]` resolves either a canonical `@View` ID or an exact
+unique View name across the selected Project's authorized Databases. Core
+returns the Database/Data Source/View descriptors, persisted filter/sort/group/
+display config, projected Property definitions and option labels, bounded group
+totals, and one row window from one read transaction. CLI JSON revision 1 keeps
+stable group keys distinct from display labels and returns each row's opaque
+move ETag plus the signed continuation cursor and projection revision.
+Unauthorized descriptors and candidates are never emitted; tampered or
+cross-View cursors fail closed. The CLI does not accept ad-hoc filters or
+reimplement saved View ordering.
+
+`nodex open page <page> [--print]` and `nodex open view <view> [--print]`
+accept typed selectors only. Both select one Project and require a successful
+Project-bound Core read before returning or launching the canonical
+`nodex://pages/<encoded-id>` or `nodex://views/<encoded-id>` URL. `--print`
+performs validation but never launches; `--json` changes only the output
+envelope. On macOS the default launch invokes the fixed `/usr/bin/open` binary
+with one URL argument and no shell. Other platforms return the URL with an
+explicit unsupported-launch status. Desktop resolves incoming View links
+through a trusted-root Core location projection that requires the active
+View/Data Source/Database/Project chain, then selects that Project and focuses
+an existing exact saved-View tab or creates one. Deleted or unauthorized
+resources fail closed, and callers can never supply an arbitrary launch URL.
+
+The CLI selects the Profile home with the same bootstrap precedence as Electron: nonblank `NODEX_HOME`, nearest project `.nodex/config.toml` over user `~/.nodex/config.toml`, then the default `~/.nodex`; config files are UTF-8, size-bounded, and malformed TOML fails closed instead of silently connecting to another Profile. It resolves a Project from an explicit unique ID/name, otherwise the longest containing managed-worktree root before considering the longest source root; equal candidates fail with stable IDs. `context`, `tree`, and `rg` honor one global `--database` exact ID/unique name or `--page` stable ID/title path, with the primary Database as default. Full Page IDs use `@<id>`, and exact authorized `/`-separated title paths never expose unauthorized candidates. `nodex read <page>` returns canonical `body.nested.md` bytes with a final LF; `--meta` returns the deterministic typed `meta.yaml` projection. Ordinary reads emit no validator, while `--prepare title.set`, `document.replace`, `page.delete`, or `page.move` asks Core for only the compatible narrow ETag. `page.move` accepts an optional explicit `--view @<id>`; without it, an active Data Source Page binds its current default View, while a Page outside a Data Source binds no View. `nodex sed -n '<line>[,<line>]p' <page>` selects from those exact body bytes. `nodex history` returns the retained typed cursor timeline, and `nodex tree [scope]` traverses the selected Database or one authorized Page with fixed depth/node/cycle bounds. `--json` wraps stable machine output and errors; rejected commands exit 2.
 
 `nodex rg [flags] <pattern> [scope]` asks Core for a strict, immutable search lease over the selected primary Database, Database, Data Source, or Page. Core authorizes the complete recursive Page set and projects canonical `meta.yaml` plus `body.nested.md` bytes and their ownership/revision manifest inside one SQLite read transaction without reconstructing Yrs. Metadata and body files are cached independently by projection version and content hash, hard-linked into a current-user read-only lease on the same filesystem, and never accepted back as write input. A released unchanged tree is reusable only after Core revalidates every file; reuse assigns a fresh random lease and manifest while removing the old physical path. The CLI validates the commit marker, expiry, permissions, paths, byte lengths, and SHA-256 hashes before launching the bundled real ripgrep with no config and only the documented read-only flag subset. It remaps opaque physical names to sanitized logical ownership paths containing each full Page ID, preserves ripgrep status 1 for no matches, reports stale materialization as `MATERIALIZATION_STALE`, and releases the lease after success, failure, or SIGINT.
 
@@ -1060,7 +1094,11 @@ The CLI selects the Profile home with the same bootstrap precedence as Electron:
 
 `nodex service status|enable|disable` manages only optional startup prewarming and does not connect to or start Core as part of the control command. Packaged macOS 13+ builds use a signed `SMAppService` LaunchAgent with no KeepAlive or elevated helper. Enable records the currently selected Profile and launches the same `nodex-core` executable; disabled, approval-required, unsupported, and unavailable states remain successful status outcomes because every normal command retains the authenticated on-demand startup path.
 
-`nodex page create` accepts one inline-Markdown title plus bounded Nested Markdown from a file/stdin or an explicit empty body and targets the Library, an authorized Page, or a Database/Data Source owner. Core deterministically allocates the Page, Document, and recursive body Block identities from the idempotent operation, commits their complete genesis and projections together, and retains the exact IDs and initial title/body ETags in the replayable Library receipt. A Data Source target stages that complete genesis in the destination Database's storage Project and atomically replaces the temporary Library placement with the membership, built-in values, and default View position; no partial standalone Page is observable. `nodex page move` and `nodex page duplicate` accept start/end/before/after placement under the same owner kinds; Core resolves live destinations and revisions inside the writer transaction, preserves ownership/membership/View invariants, and returns the moved Page-shell ETag or copied identity map plus title/body ETags. A default grouped Database destination enters its valid `triage` workflow group. `nodex page delete` requires the narrow Page-shell ETag produced by `read --prepare page.delete`, recursively tombstones only through the protected Page lifecycle aggregate, and preserves exact replay after deletion. `nodex page title set` and `nodex page replace` require the corresponding narrow title/body ETag. `nodex patch` accepts the bounded one-Page patch language and preflights every old fragment against the same canonical body: each must match exactly once and no two hunks may overlap. `nodex page insert` accepts only stable start/end/before/after/inside anchors. `nodex block insert|update|move|delete` consumes a bounded closed JSON semantic draft or patch only where Block structure requires it; Core allocates actual Block identities, update guards cover intrinsic Block fields, and delete guards cover the complete subtree. Core repeats all checks against current authority and commits the collaborative update, materializations, history, receipt, and event atomically. Every mutation accepts a stable idempotency key; generated keys are diagnostics only, and a lost-response retry from another CLI process returns the original receipt even though the connection and current Document head changed. Compact results include affected Block IDs and fresh ETags for each changed semantic unit. File/stdin content is bounded UTF-8 with LF endings, and a missing source on an interactive terminal rejects instead of waiting. Decoded Document semantic strings are capped at 8 MiB; their JSON transport has a separate 64 MiB encoded bound so valid content cannot be rejected merely because JSON escaping expands it.
+`nodex page create` accepts one inline-Markdown title plus bounded Nested Markdown from a file/stdin or an explicit empty body and targets the Library, an authorized Page, or a Database/Data Source owner. Core deterministically allocates the Page, Document, and recursive body Block identities from the idempotent operation, commits their complete genesis and projections together, and retains the exact IDs and initial title/body ETags in the replayable Library receipt. A Data Source target may name an explicit `--view` and stable `--group` or `--unassigned`; it stages complete genesis in the destination Database's storage Project and atomically replaces the temporary Library placement with membership, built-in values, grouping Property value, and View position. `nodex page duplicate` supports the same Data Source placement flags. Those flags reject Library/Page destinations, group and unassigned are exclusive, and a sibling anchor must resolve inside the selected View/group. Omitted View/group preserve the existing default semantics, including `triage` for a new built-in status row.
+
+`nodex page move` additionally requires `--if-match <move-etag>`. A current saved-View row supplies it through `view query`; moving a Page into another View uses `read --prepare page.move --view @<target-view-id>`. The signed authority covers Project, Library, store epoch, Page shell, active membership, selected View revision, grouping Property/value revision, and current position/group/rank. After resolving the destination inside the same writer transaction, Core recomputes that exact validator and rejects stale intent before changing ownership, membership, grouping value, or position. Same-Data-Source moves keep parent and membership authority stable while atomically changing the grouping Property and View position; cross-owner moves use the structural transfer aggregate. Success returns final Page location, optional View/group/position revision, a fresh Page-shell ETag, and a fresh move ETag in the connection-independent receipt; an exact retry returns that stored result even though current authority has advanced. No command composes separate Database value and position mutations.
+
+`nodex page delete` requires the narrow Page-shell ETag produced by `read --prepare page.delete`, recursively tombstones only through the protected Page lifecycle aggregate, and preserves exact replay after deletion. `nodex page title set` and `nodex page replace` require the corresponding narrow title/body ETag. `nodex patch` accepts the bounded one-Page patch language and preflights every old fragment against the same canonical body: each must match exactly once and no two hunks may overlap. `nodex page insert` accepts only stable start/end/before/after/inside anchors. `nodex block insert|update|move|delete` consumes a bounded closed JSON semantic draft or patch only where Block structure requires it; Core allocates actual Block identities, update guards cover intrinsic Block fields, and delete guards cover the complete subtree. Core repeats all checks against current authority and commits the collaborative update, materializations, history, receipt, and event atomically. Every mutation accepts a stable idempotency key; generated keys are diagnostics only, and a lost-response retry from another CLI process returns the original receipt even though the connection and current Document head changed. Compact results include affected Block IDs and fresh ETags for each changed semantic unit. File/stdin content is bounded UTF-8 with LF endings, and a missing source on an interactive terminal rejects instead of waiting. Decoded Document semantic strings are capped at 8 MiB; their JSON transport has a separate 64 MiB encoded bound so valid content cannot be rejected merely because JSON escaping expands it.
 
 The JavaScript HTTP launcher and its `serve`, `query`, `schema`, URL/session,
 and direct-SQL command families are removed. The npm `nodex` bin only locates
@@ -1248,15 +1286,76 @@ Independent value editing for an existing Data Source membership is intentionall
 External agents and scripts use the native **`nodex` CLI**, which is an
 authenticated UDS Adapter over the same Core Modules as the desktop. It supports
 context/tree inspection, exact Page and metadata reads, bounded history,
-immutable-snapshot ripgrep, explicit one-Page drafts, semantic Page and stable
-Block mutations, backups, doctor, and optional Core prewarming. Browser and
-Electron callers use typed HTTP/IPC Adapters for their product workflows; the
-The CLI and Electron renderer are separate typed Adapters; neither receives a database path or the Core bearer capability.
+immutable-snapshot ripgrep, composed saved View context, explicit one-Page
+drafts, semantic Page and stable Block mutations, backups, doctor, and optional
+Core prewarming. Browser and Electron callers use typed HTTP/IPC Adapters for
+their product workflows. The CLI and Electron renderer are separate typed
+Adapters; neither receives a database path or the Core bearer capability.
 
 Project, Page, Database, Document, and backup commands all submit semantic
 intent. Core resolves current ownership and revisions, applies the mutation and
 projections atomically, and returns an idempotent receipt. No Adapter accepts raw
 SQL, a database path, physical rank, or Yjs storage coordinates.
+
+The retired `skills/nodex-kanban` package is not a supported integration. Its
+`ls/get/add/update/rm/mv/query/projects` command family and read-only SQL examples
+predated the current native CLI and are removed. The official
+`agent-skills/nodex` umbrella Skill covers Page/rich-editor, saved View/Kanban,
+and typed open workflows over Agent Application Interface revision 1. Its
+frontmatter remains cross-Agent, command details load progressively from four
+references, and fetched Nodex content is always untrusted data. A strict
+allowlist exporter derives the production Nested Markdown reference, validates
+real codec round-trips and official Skill metadata, and emits one reproducible
+`NodexApp/skills`-shaped artifact with a stable tree hash. Internal Skills,
+symlinks, hardlinks, special files, and unknown files are never published.
+
+`nodex setup` and `nodex skills status|install|remove|doctor` manage only the
+official global Codex target `~/.agents/skills/nodex` and Claude Code target
+`${CLAUDE_CONFIG_DIR:-~/.claude}/skills/nodex`. They run before Profile/Core
+bootstrap, verify that the current executable is in a stable installed
+Nodex.app and that its adjacent artifact exactly matches the release manifest,
+then create an absolute symlink without clobbering. A byte-identical ordinary
+directory is compatible external content: it is reported as available but
+never adopted or removed. Any file, different directory, relative/foreign/
+broken symlink, unexpected parent symlink, or moved-App stale link is a
+conflict. Multi-Agent mutations preflight every target before normal writes;
+an interrupted run converges when repeated. Removal unlinks only an exact
+current managed leaf. The native manager never creates `.agents/.nodex`, reads
+project-local Agent trees, runs Agent binaries, copies Skills, scans arbitrary
+roots, or offers force/adopt/repair flags. `~/.codex/skills/nodex` is
+doctor-only legacy evidence and is never changed.
+
+After “Install Command Line Tool…” succeeds, Desktop reads native
+`skills status --json`. If Codex and Claude Code are not both already
+managed-current or compatible-external, it offers a cancellable native choice
+for both Agents, Codex only, Claude Code only, or not now, displaying the exact
+global paths and a PATH reminder when needed. “Set Up Agent Skills…” in the
+application menu reopens the same flow independently. Main always invokes the
+packaged absolute `Contents/Resources/bin/nodex` with fixed argv, `--yes`, and
+no shell; it preserves unknown target records and displays the structured error
+code plus exact target path. Cancelling performs only the read-only status call.
+TypeScript never creates, removes, scans, or repairs Agent Skill files.
+
+The signed App, arm64/x64 release packages, and public `NodexApp/skills` mirror
+all consume one release-generated artifact. Prepared-build and signed-package
+provenance bind both its release-manifest SHA-256 and its six-file Skill tree
+SHA-256; packaging fails on unknown, linked, hard-linked, special, oversized,
+CRLF, stale, or hash-mismatched content. The packaged native CLI must report
+the same bundle version/tree through `capabilities` before a release is valid.
+The public mirror is an output, never an authoring source: release automation
+preserves its `.github` content, refuses a lower SemVer or a reused tag with
+different bytes, and atomically advances `main` with an annotated version tag.
+An exact retry succeeds without a new commit. Mirror failure does not invalidate
+the already published App or its offline native setup and is recovered by
+rerunning the same release job.
+
+CLI + Skill access is local-only. The Skill teaches a shell-capable local Agent
+to call typed commands; it neither transports local Nodex data to a remote
+Agent nor weakens Project/Library authorization. Page/View/search output is
+untrusted task data and cannot replace Skill or system instructions. A missing
+CLI gives install guidance, while an unsupported Agent interface tells the user
+to update Nodex; neither condition permits SQLite, direct file, raw SQL, or
+alternate-scope fallback.
 
 ### Output and Inspection
 
@@ -1318,6 +1417,7 @@ the supported diagnostics.
 - **Stable identities**: Agents address Pages, Data Sources, Views, and properties by canonical IDs.
 - **Strict parsing**: Unknown flags/invalid values fail fast instead of silently being ignored
 - **Machine output**: documented commands expose stable `--json` output in addition to concise human output
+- **Saved View fidelity**: one Core read returns persisted config, schema, groups, rows, cursor authority, and narrow move ETags without CLI-side SQL or filter reconstruction
 - **Profile selection**: `NODEX_HOME` and `[server].home` use the same precedence as the desktop
 - **Private transport**: the CLI authenticates over Profile-private UDS and never receives the database path or Core bearer capability
 

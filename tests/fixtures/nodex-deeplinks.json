@@ -1,0 +1,45 @@
+{
+  "valid": [
+    {
+      "kind": "page",
+      "id": "page:alpha/beta",
+      "canonical": "nodex://pages/page%3Aalpha%2Fbeta",
+      "accepted": [
+        "nodex://pages/page%3Aalpha%2Fbeta",
+        "nodex:///pages/page%3Aalpha%2Fbeta",
+        "nodex://PAGES/page%3Aalpha%2Fbeta?block=ignored",
+        "NODEX://pages/page%3Aalpha%2Fbeta"
+      ]
+    },
+    {
+      "kind": "session",
+      "id": "session:42",
+      "canonical": "nodex://sessions/session%3A42",
+      "accepted": [
+        "nodex://sessions/session%3A42",
+        "nodex:///sessions/session%3A42"
+      ]
+    },
+    {
+      "kind": "view",
+      "id": "view:规划",
+      "canonical": "nodex://views/view%3A%E8%A7%84%E5%88%92",
+      "accepted": [
+        "nodex://views/view%3A%E8%A7%84%E5%88%92",
+        "nodex:///views/view%3A%E8%A7%84%E5%88%92"
+      ]
+    }
+  ],
+  "invalid": [
+    { "value": "https://pages/page-1" },
+    { "value": "nodex://page/page-1" },
+    { "value": "nodex://views/" },
+    { "value": "nodex://views/view-1/extra" },
+    { "value": "nodex://views//view-1" },
+    { "value": "nodex://views/%20view-1%20" },
+    { "value": "nodex:/views/view-1" },
+    { "value": " nodex://views/view-1 " },
+    { "value": "nodex://sessions/%ZZ" },
+    { "value": "nodex://unknown/resource-1" }
+  ]
+}

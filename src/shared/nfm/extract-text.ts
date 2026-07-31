@@ -1,7 +1,7 @@
 import type { NfmBlock, NfmInlineContent } from "./types";
 import { formatDateMentionPlainText } from "./date-mention";
 import { parseNfm } from "./parser";
-import { buildPageDeepLink } from "../page-deeplink";
+import { buildPageDeepLink } from "../nodex-deeplink";
 
 export function extractPlainText(nfm: string, maxLength?: number): string {
   if (!nfm) return "";

@@ -34,8 +34,8 @@ use serde_json::{Value, json};
 
 use crate::cli::{
     BackupCommand, BlockArgs, BlockCommand, Cli, Command, DraftArgs, DraftCommand, HistoryArgs,
-    PageArgs, PageCommand, PageTitleArgs, PageTitleCommand, PrepareKind, ReadArgs, RgArgs, SedArgs,
-    ServiceArgs,
+    OpenArgs, OpenCommand, PageArgs, PageCommand, PageTitleArgs, PageTitleCommand, PrepareKind,
+    ReadArgs, RgArgs, SedArgs, ServiceArgs, ViewArgs, ViewCommand,
 };
 use crate::error::{CliError, CliErrorCode};
 
@@ -116,6 +116,17 @@ fn write_line_terminated(writer: &mut impl Write, bytes: &[u8]) -> Result<(), Cl
 }
 
 pub fn execute(cli: Cli) -> Result<CommandOutput, CliError> {
+    if matches!(&cli.command, Command::Capabilities) {
+        return crate::agent_interface::capabilities().map(CommandOutput::Json);
+    }
+    if matches!(&cli.command, Command::Setup(_) | Command::Skills(_)) {
+        reject_skill_scope_flags(&cli)?;
+        return match cli.command {
+            Command::Setup(arguments) => crate::skills::execute_setup(arguments, cli.json),
+            Command::Skills(arguments) => crate::skills::execute_skills(arguments, cli.json),
+            _ => unreachable!("guarded by the Skill command match"),
+        };
+    }
     let cwd = env::current_dir().map_err(core_unavailable)?;
     match &cli.command {
         Command::Draft(DraftArgs {
@@ -167,6 +178,15 @@ pub fn execute(cli: Cli) -> Result<CommandOutput, CliError> {
             arguments,
             cli.json,
         ),
+        Command::View(ViewArgs {
+            command: ViewCommand::Query(arguments),
+        }) => crate::view::query(&client, cli.project.as_deref(), &cwd, arguments, cli.json),
+        Command::Open(OpenArgs {
+            command: OpenCommand::Page(arguments),
+        }) => crate::open::page(&client, cli.project.as_deref(), &cwd, arguments, cli.json),
+        Command::Open(OpenArgs {
+            command: OpenCommand::View(arguments),
+        }) => crate::open::view(&client, cli.project.as_deref(), &cwd, arguments, cli.json),
         Command::Page(PageArgs {
             command: PageCommand::Create(arguments),
         }) => crate::page_lifecycle::create_page(
@@ -302,6 +322,20 @@ pub fn execute(cli: Cli) -> Result<CommandOutput, CliError> {
             "this native CLI command is parsed but not implemented yet",
         )),
     }
+}
+
+fn reject_skill_scope_flags(cli: &Cli) -> Result<(), CliError> {
+    if cli.profile.is_none()
+        && cli.project.is_none()
+        && cli.database.is_none()
+        && cli.page.is_none()
+    {
+        return Ok(());
+    }
+    Err(CliError::new(
+        CliErrorCode::InvalidInput,
+        "global Agent Skill setup does not accept Profile, Project, Database, or Page scope",
+    ))
 }
 
 fn rg_pages(
@@ -708,6 +742,12 @@ fn read_page(
     arguments: ReadArgs,
     json_output: bool,
 ) -> Result<CommandOutput, CliError> {
+    if arguments.view.is_some() && arguments.prepare != Some(PrepareKind::PageMove) {
+        return Err(CliError::new(
+            CliErrorCode::InvalidInput,
+            "--view is only valid with --prepare page.move",
+        ));
+    }
     let project = selected_project(client, explicit_project, cwd)?;
     let page_id = resolve_page_selector(client, &project.id, &arguments.page)?;
     let file_kind = if arguments.meta {
@@ -715,11 +755,19 @@ fn read_page(
     } else {
         LibraryPageFileKind::BodyNestedMarkdown
     };
-    let prepare = arguments.prepare.map(|prepare| match prepare {
-        PrepareKind::TitleSet => LibraryPagePrepareKind::TitleSet,
-        PrepareKind::DocumentReplace => LibraryPagePrepareKind::DocumentReplace,
-        PrepareKind::PageDelete => LibraryPagePrepareKind::PageDelete,
-    });
+    let prepare = match arguments.prepare {
+        Some(PrepareKind::TitleSet) => Some(LibraryPagePrepareKind::TitleSet),
+        Some(PrepareKind::DocumentReplace) => Some(LibraryPagePrepareKind::DocumentReplace),
+        Some(PrepareKind::PageDelete) => Some(LibraryPagePrepareKind::PageDelete),
+        Some(PrepareKind::PageMove) => Some(LibraryPagePrepareKind::PageMove {
+            view_id: arguments
+                .view
+                .as_deref()
+                .map(|view| stable_scope_id(view, "--view"))
+                .transpose()?,
+        }),
+        None => None,
+    };
     let snapshot = unwrap_library(client.library_read(
         Some(&project.id),
         LibraryRead::PageFile {

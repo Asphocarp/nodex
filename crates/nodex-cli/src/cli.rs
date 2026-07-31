@@ -2,7 +2,8 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use serde::Serialize;
+
+use crate::skills::SkillAgent;
 
 #[derive(Clone, Debug, Parser, PartialEq)]
 #[command(
@@ -30,6 +31,9 @@ pub struct Cli {
 
 #[derive(Clone, Debug, PartialEq, Subcommand)]
 pub enum Command {
+    Capabilities,
+    Setup(SkillMutationArgs),
+    Skills(SkillsArgs),
     Context,
     Tree {
         #[arg(value_name = "SCOPE_SELECTOR")]
@@ -39,6 +43,8 @@ pub enum Command {
     Sed(SedArgs),
     Rg(RgArgs),
     Patch(PatchArgs),
+    Open(OpenArgs),
+    View(ViewArgs),
     Page(PageArgs),
     Block(BlockArgs),
     History(HistoryArgs),
@@ -49,6 +55,56 @@ pub enum Command {
 }
 
 #[derive(Clone, Debug, Args, PartialEq)]
+pub struct SkillsArgs {
+    #[command(subcommand)]
+    pub command: SkillsCommand,
+}
+
+#[derive(Clone, Debug, PartialEq, Subcommand)]
+pub enum SkillsCommand {
+    Status(SkillTargetArgs),
+    Install(SkillMutationArgs),
+    Remove(SkillMutationArgs),
+    Doctor(SkillTargetArgs),
+}
+
+#[derive(Clone, Debug, Args, PartialEq)]
+pub struct SkillTargetArgs {
+    #[arg(long = "agent", value_enum, action = clap::ArgAction::Append)]
+    pub agents: Vec<SkillAgent>,
+}
+
+#[derive(Clone, Debug, Args, PartialEq)]
+pub struct SkillMutationArgs {
+    #[command(flatten)]
+    pub targets: SkillTargetArgs,
+    #[arg(long)]
+    pub dry_run: bool,
+    #[arg(long)]
+    pub yes: bool,
+}
+
+#[derive(Clone, Debug, Args, PartialEq)]
+pub struct OpenArgs {
+    #[command(subcommand)]
+    pub command: OpenCommand,
+}
+
+#[derive(Clone, Debug, PartialEq, Subcommand)]
+pub enum OpenCommand {
+    Page(OpenResourceArgs),
+    View(OpenResourceArgs),
+}
+
+#[derive(Clone, Debug, Args, PartialEq)]
+pub struct OpenResourceArgs {
+    #[arg(value_name = "RESOURCE_SELECTOR")]
+    pub resource: String,
+    #[arg(long = "print")]
+    pub print_only: bool,
+}
+
+#[derive(Clone, Debug, Args, PartialEq)]
 pub struct ReadArgs {
     #[arg(value_name = "PAGE_SELECTOR")]
     pub page: String,
@@ -56,6 +112,8 @@ pub struct ReadArgs {
     pub meta: bool,
     #[arg(long, value_enum)]
     pub prepare: Option<PrepareKind>,
+    #[arg(long, value_name = "VIEW_ID")]
+    pub view: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, ValueEnum)]
@@ -66,6 +124,8 @@ pub enum PrepareKind {
     DocumentReplace,
     #[value(name = "page.delete")]
     PageDelete,
+    #[value(name = "page.move")]
+    PageMove,
 }
 
 #[derive(Clone, Debug, Args, PartialEq)]
@@ -107,8 +167,8 @@ pub enum PageCommand {
     Insert(PageInsertArgs),
     Replace(PageReplaceArgs),
     Title(PageTitleArgs),
-    Move(PageTransferArgs),
-    Duplicate(PageTransferArgs),
+    Move(PageMoveArgs),
+    Duplicate(PageDuplicateArgs),
     Delete(PageDeleteArgs),
 }
 
@@ -120,6 +180,8 @@ pub struct PageCreateArgs {
     pub title: String,
     #[command(flatten)]
     pub content: BodyInputArgs,
+    #[command(flatten)]
+    pub data_source: DataSourcePlacementArgs,
     #[command(flatten)]
     pub mutation: MutationArgs,
 }
@@ -171,8 +233,7 @@ pub struct PageTitleSetArgs {
 }
 
 #[derive(Clone, Debug, Args, PartialEq)]
-pub struct PageTransferArgs {
-    pub page: String,
+pub struct PageDestinationArgs {
     #[arg(long)]
     pub to: String,
     #[arg(long, conflicts_with_all = ["before", "after"])]
@@ -181,6 +242,36 @@ pub struct PageTransferArgs {
     pub before: Option<String>,
     #[arg(long, conflicts_with_all = ["at", "before"])]
     pub after: Option<String>,
+    #[command(flatten)]
+    pub data_source: DataSourcePlacementArgs,
+}
+
+#[derive(Clone, Debug, Args, PartialEq)]
+pub struct DataSourcePlacementArgs {
+    #[arg(long, value_name = "VIEW_ID")]
+    pub view: Option<String>,
+    #[arg(long, value_name = "STABLE_GROUP_KEY", conflicts_with = "unassigned")]
+    pub group: Option<String>,
+    #[arg(long, conflicts_with = "group")]
+    pub unassigned: bool,
+}
+
+#[derive(Clone, Debug, Args, PartialEq)]
+pub struct PageMoveArgs {
+    pub page: String,
+    #[command(flatten)]
+    pub destination: PageDestinationArgs,
+    #[arg(long = "if-match")]
+    pub if_match: String,
+    #[command(flatten)]
+    pub mutation: MutationArgs,
+}
+
+#[derive(Clone, Debug, Args, PartialEq)]
+pub struct PageDuplicateArgs {
+    pub page: String,
+    #[command(flatten)]
+    pub destination: PageDestinationArgs,
     #[command(flatten)]
     pub mutation: MutationArgs,
 }
@@ -215,6 +306,31 @@ pub struct MutationArgs {
     pub idempotency_key: Option<String>,
     #[arg(long, value_delimiter = ',')]
     pub r#return: Vec<String>,
+}
+
+#[derive(Clone, Debug, Args, PartialEq)]
+pub struct ViewArgs {
+    #[command(subcommand)]
+    pub command: ViewCommand,
+}
+
+#[derive(Clone, Debug, PartialEq, Subcommand)]
+pub enum ViewCommand {
+    Query(ViewQueryArgs),
+}
+
+#[derive(Clone, Debug, Args, PartialEq)]
+pub struct ViewQueryArgs {
+    #[arg(value_name = "VIEW_SELECTOR")]
+    pub view: String,
+    #[arg(long, value_name = "STABLE_GROUP_KEY", conflicts_with = "unassigned")]
+    pub group: Option<String>,
+    #[arg(long, conflicts_with = "group")]
+    pub unassigned: bool,
+    #[arg(long, value_name = "OPAQUE_CURSOR")]
+    pub after: Option<String>,
+    #[arg(long, value_parser = clap::value_parser!(u32).range(1..=200))]
+    pub limit: Option<u32>,
 }
 
 #[derive(Clone, Debug, Args, PartialEq)]
@@ -346,85 +462,6 @@ pub enum ServiceCommand {
     Status,
     Enable,
     Disable,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-pub struct MachineHelp {
-    pub version: u32,
-    pub command: String,
-    pub effect: &'static str,
-    pub validators: Vec<&'static str>,
-    pub result: &'static str,
-    pub examples: Vec<&'static str>,
-}
-
-pub fn machine_help_command_path(arguments: &[OsString]) -> Vec<String> {
-    let mut path = Vec::new();
-    let mut skip_value = false;
-    for argument in arguments.iter().skip(1) {
-        let Some(argument) = argument.to_str() else {
-            continue;
-        };
-        if skip_value {
-            skip_value = false;
-            continue;
-        }
-        if matches!(
-            argument,
-            "--profile" | "--project" | "--database" | "--page"
-        ) {
-            skip_value = true;
-            continue;
-        }
-        if matches!(argument, "--json" | "--no-color" | "--help" | "-h") {
-            continue;
-        }
-        if argument.starts_with('-') {
-            continue;
-        }
-        path.push(argument.to_owned());
-        if path.len() == 3 {
-            break;
-        }
-    }
-    path
-}
-
-pub fn machine_help(path: &[String]) -> MachineHelp {
-    let command = if path.is_empty() {
-        "nodex".to_owned()
-    } else {
-        format!("nodex {}", path.join(" "))
-    };
-    let mutation = path.first().is_some_and(|name| {
-        matches!(
-            name.as_str(),
-            "patch" | "page" | "block" | "draft" | "backup"
-        )
-    }) || matches!(path, [service, action] if service == "service" && matches!(action.as_str(), "enable" | "disable"));
-    MachineHelp {
-        version: 1,
-        command,
-        effect: if mutation {
-            "mutation_or_local_write"
-        } else {
-            "read"
-        },
-        validators: if mutation {
-            vec![
-                "idempotency_key_when_remote",
-                "narrow_etag_when_destructive",
-            ]
-        } else {
-            Vec::new()
-        },
-        result: if mutation {
-            "compact_receipt_with_affected_ids_and_etags"
-        } else {
-            "requested_projection_only"
-        },
-        examples: vec!["nodex read @<page-id>", "nodex patch --file ./change.patch"],
-    }
 }
 
 #[cfg(test)]
@@ -572,26 +609,144 @@ mod tests {
             panic!("expected Page duplicate command")
         };
         assert_eq!(arguments.page, "@page_1");
-        assert_eq!(arguments.to, "database");
-        assert_eq!(arguments.after.as_deref(), Some("@page_2"));
+        assert_eq!(arguments.destination.to, "database");
+        assert_eq!(arguments.destination.after.as_deref(), Some("@page_2"));
 
         let error = Cli::try_parse_from([
-            "nodex", "page", "move", "@page_1", "--to", "library", "--at", "start", "--before",
+            "nodex",
+            "page",
+            "move",
+            "@page_1",
+            "--to",
+            "library",
+            "--at",
+            "start",
+            "--before",
             "@page_2",
+            "--if-match",
+            "move-etag",
         ])
         .expect_err("placement modes are exclusive");
         assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
+
+        let missing_etag =
+            Cli::try_parse_from(["nodex", "page", "move", "@page_1", "--to", "library"])
+                .expect_err("Page movement requires its narrow ETag");
+        assert_eq!(
+            missing_etag.kind(),
+            clap::error::ErrorKind::MissingRequiredArgument
+        );
+
+        let grouped = Cli::try_parse_from([
+            "nodex",
+            "page",
+            "move",
+            "@page_1",
+            "--to",
+            "data_source:@source_1",
+            "--view",
+            "@view_1",
+            "--group",
+            "build",
+            "--at",
+            "end",
+            "--if-match",
+            "move-etag",
+        ])
+        .expect("grouped Data Source move");
+        let Command::Page(PageArgs {
+            command: PageCommand::Move(arguments),
+        }) = grouped.command
+        else {
+            panic!("expected Page move command")
+        };
+        assert_eq!(
+            arguments.destination.data_source.view.as_deref(),
+            Some("@view_1")
+        );
+        assert_eq!(
+            arguments.destination.data_source.group.as_deref(),
+            Some("build")
+        );
+
+        let group_conflict = Cli::try_parse_from([
+            "nodex",
+            "page",
+            "duplicate",
+            "@page_1",
+            "--to",
+            "database",
+            "--group",
+            "build",
+            "--unassigned",
+        ])
+        .expect_err("group and unassigned are exclusive");
+        assert_eq!(
+            group_conflict.kind(),
+            clap::error::ErrorKind::ArgumentConflict
+        );
     }
 
     #[test]
-    fn machine_help_is_versioned_and_effect_aware() {
-        let help = machine_help(&["page".into(), "delete".into()]);
-        assert_eq!(help.version, 1);
-        assert_eq!(help.command, "nodex page delete");
-        assert_eq!(help.effect, "mutation_or_local_write");
-        assert!(help.validators.contains(&"narrow_etag_when_destructive"));
+    fn view_query_keeps_group_scope_and_paging_bounded() {
+        let cli = Cli::try_parse_from([
+            "nodex",
+            "--json",
+            "view",
+            "query",
+            "@view-1",
+            "--group",
+            "in-progress",
+            "--limit",
+            "200",
+        ])
+        .expect("saved View query");
+        let Command::View(ViewArgs {
+            command: ViewCommand::Query(arguments),
+        }) = cli.command
+        else {
+            panic!("expected View query")
+        };
+        assert_eq!(arguments.view, "@view-1");
+        assert_eq!(arguments.group.as_deref(), Some("in-progress"));
+        assert_eq!(arguments.limit, Some(200));
 
-        let service = machine_help(&["service".into(), "enable".into()]);
-        assert_eq!(service.effect, "mutation_or_local_write");
+        let conflict = Cli::try_parse_from([
+            "nodex",
+            "view",
+            "query",
+            "@view-1",
+            "--group",
+            "triage",
+            "--unassigned",
+        ])
+        .expect_err("group scopes are exclusive");
+        assert_eq!(conflict.kind(), clap::error::ErrorKind::ArgumentConflict);
+
+        let unbounded =
+            Cli::try_parse_from(["nodex", "view", "query", "@view-1", "--limit", "201"])
+                .expect_err("View windows are bounded");
+        assert_eq!(unbounded.kind(), clap::error::ErrorKind::ValueValidation);
+    }
+
+    #[test]
+    fn open_accepts_only_typed_resource_subcommands() {
+        let page = Cli::try_parse_from(["nodex", "--json", "open", "page", "@page-1", "--print"])
+            .expect("typed Page open");
+        let Command::Open(OpenArgs {
+            command: OpenCommand::Page(arguments),
+        }) = page.command
+        else {
+            panic!("expected Page open")
+        };
+        assert_eq!(arguments.resource, "@page-1");
+        assert!(arguments.print_only);
+
+        let arbitrary_url = Cli::try_parse_from(["nodex", "open", "nodex://pages/page-1"])
+            .expect_err("arbitrary URLs are not an open command");
+        assert_eq!(
+            arbitrary_url.kind(),
+            clap::error::ErrorKind::InvalidSubcommand
+        );
     }
 }

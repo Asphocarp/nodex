@@ -77,7 +77,11 @@ import {
 } from "./codex-scheduled-automation-scheduler";
 import { DesktopNotificationManager } from "./desktop-notification-manager";
 import { composerAppshotService } from "./composer-appshot-service";
-import { parsePageDeepLink, parseSessionDeepLink } from "../shared/page-deeplink";
+import {
+  parsePageDeepLink,
+  parseSessionDeepLink,
+  parseViewDeepLink,
+} from "../shared/nodex-deeplink";
 import {
   isWindowSessionBoundsVisible,
   WindowSessionState,
@@ -159,10 +163,12 @@ import {
   shouldUseOpaqueElectronWindowSurface,
 } from "./electron-window-backdrop";
 import {
+  buildNodexSetupMenuItems,
   buildWindowFileMenu,
   buildWorkbenchViewMenu,
 } from "./application-menu";
 import { installCliCommand } from "./cli-command-installer";
+import { runAgentSkillSetup } from "./agent-skill-setup";
 import { shouldGrantAppRendererPermission } from "./renderer-permissions";
 import {
   initializeDesktopDataAuthority,
@@ -233,6 +239,8 @@ let runtimeReminderTick: (() => Promise<void>) | null = null;
 let databaseReady = false;
 let pendingPageDeepLinkPageId: string | null = null;
 let pendingPageDeepLinkTarget: { projectId: string; pageId: string } | null = null;
+let pendingViewDeepLinkViewId: string | null = null;
+let pendingViewDeepLinkTarget: { projectId: string; viewId: string } | null = null;
 let pendingSessionDeepLinkSessionId: string | null = null;
 let pendingSessionDeepLinkTarget: { projectId: string | null; sessionId: string } | null = null;
 const pendingCloseResolvers = new Map<number, () => void>();
@@ -555,6 +563,12 @@ async function installCommandLineTool(): Promise<void> {
       message: statusMessage,
       detail: pathMessage,
     });
+    await runAgentSkillSetup({
+      cliPath: result.sourcePath,
+      onlyWhenMissing: true,
+      pathConfigured: result.pathConfigured,
+      showMessageBox: (options) => dialog.showMessageBox(options),
+    });
   } catch (error) {
     logger.error("Could not install the Nodex command line tool", { error });
     await dialog.showMessageBox({
@@ -567,6 +581,13 @@ async function installCommandLineTool(): Promise<void> {
       detail: error instanceof Error ? error.message : String(error),
     });
   }
+}
+
+async function setupAgentSkills(): Promise<void> {
+  await runAgentSkillSetup({
+    cliPath: join(process.resourcesPath, "bin/nodex"),
+    showMessageBox: (options) => dialog.showMessageBox(options),
+  });
 }
 
 function configureApplicationMenus(
@@ -610,6 +631,9 @@ function configureApplicationMenus(
     if (!targetWindow || targetWindow.isDestroyed()) return;
     targetWindow.close();
   };
+  const setupEnabled = app.isPackaged
+    && (typeof app.isInApplicationsFolder !== "function"
+      || app.isInApplicationsFolder());
 
   const appMenuTemplate: MenuItemConstructorOptions[] = [
     ...(process.platform === "darwin" ? [{
@@ -621,15 +645,15 @@ function configureApplicationMenus(
             void appUpdateService?.checkForUpdates("manual");
           },
         },
-        {
-          label: "Install Command Line Tool…",
-          enabled: app.isPackaged
-            && (typeof app.isInApplicationsFolder !== "function"
-              || app.isInApplicationsFolder()),
-          click: () => {
+        ...buildNodexSetupMenuItems({
+          enabled: setupEnabled,
+          onInstallCli: () => {
             void installCommandLineTool();
           },
-        },
+          onSetupAgentSkills: () => {
+            void setupAgentSkills();
+          },
+        }),
       ],
     } satisfies MenuItemConstructorOptions] : []),
     buildWindowFileMenu({
@@ -887,6 +911,25 @@ function flushPendingSessionDeepLink(): void {
   }
 }
 
+function flushPendingViewDeepLink(): void {
+  if (!pendingViewDeepLinkTarget) {
+    return;
+  }
+
+  const targetWindow = getLastFocusedWindow();
+  if (!targetWindow || targetWindow.isDestroyed()) {
+    return;
+  }
+
+  if (targetWindow.webContents.isDestroyed() || targetWindow.webContents.isLoadingMainFrame()) {
+    return;
+  }
+
+  if (safeSendToWindow(targetWindow, "deeplink:open-view", [pendingViewDeepLinkTarget])) {
+    pendingViewDeepLinkTarget = null;
+  }
+}
+
 async function resolvePendingPageDeepLink(): Promise<void> {
   if (!databaseReady) {
     return;
@@ -946,6 +989,36 @@ async function resolvePendingSessionDeepLink(): Promise<void> {
   flushPendingSessionDeepLink();
 }
 
+async function resolvePendingViewDeepLink(): Promise<void> {
+  if (!databaseReady) {
+    return;
+  }
+
+  if (!pendingViewDeepLinkViewId) {
+    flushPendingViewDeepLink();
+    return;
+  }
+
+  const viewId = pendingViewDeepLinkViewId;
+  const location = desktopLibraryModule
+    ? await desktopLibraryModule.findViewLocation(viewId)
+    : null;
+  if (pendingViewDeepLinkViewId !== viewId) {
+    return;
+  }
+  pendingViewDeepLinkViewId = null;
+  if (!location) {
+    return;
+  }
+
+  pendingViewDeepLinkTarget = {
+    projectId: location.projectId,
+    viewId,
+  };
+
+  flushPendingViewDeepLink();
+}
+
 function queuePageDeepLink(pageId: string): void {
   pendingPageDeepLinkPageId = pageId;
 
@@ -972,10 +1045,31 @@ function queueSessionDeepLink(sessionId: string): void {
   void resolvePendingSessionDeepLink();
 }
 
+function queueViewDeepLink(viewId: string): void {
+  pendingViewDeepLinkViewId = viewId;
+
+  if (!databaseReady) {
+    return;
+  }
+
+  focusLastWindow();
+  void resolvePendingViewDeepLink().catch((error) => {
+    logger.warn("View deep-link resolution failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  });
+}
+
 function handleIncomingDeepLink(value: string): boolean {
   const sessionTarget = parseSessionDeepLink(value);
   if (sessionTarget) {
     queueSessionDeepLink(sessionTarget.sessionId);
+    return true;
+  }
+
+  const viewTarget = parseViewDeepLink(value);
+  if (viewTarget) {
+    queueViewDeepLink(viewTarget.viewId);
     return true;
   }
 
@@ -993,6 +1087,12 @@ function extractDeepLinkFromArgv(argv: string[]): string | null {
     const sessionTarget = parseSessionDeepLink(arg);
     if (sessionTarget) {
       queueSessionDeepLink(sessionTarget.sessionId);
+      return arg;
+    }
+
+    const viewTarget = parseViewDeepLink(arg);
+    if (viewTarget) {
+      queueViewDeepLink(viewTarget.viewId);
       return arg;
     }
 
@@ -1367,6 +1467,7 @@ function createWindow(
     }
     flushPendingPageDeepLink();
     flushPendingSessionDeepLink();
+    flushPendingViewDeepLink();
     maybeStartAutomaticAppUpdateChecks();
   });
   window.webContents.on("render-process-gone", (_event, details) => {
@@ -1590,6 +1691,7 @@ async function initializeDesktopApp(
   databaseReady = true;
   await resolvePendingPageDeepLink();
   await resolvePendingSessionDeepLink();
+  await resolvePendingViewDeepLink();
   configureRuntimeBackupScheduler(getBackupSettings());
   startRuntimeStoreMaintenanceScheduler();
   startRuntimeReminderDelivery();

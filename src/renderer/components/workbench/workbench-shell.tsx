@@ -17,6 +17,7 @@ import {
   type WorkbenchPageDeepLinkRequest,
   type WorkbenchReminderOpenRequest,
   type WorkbenchSessionDeepLinkRequest,
+  type WorkbenchViewDeepLinkRequest,
 } from "@/lib/use-workbench-command-ingress";
 import { registerAppCloseFlushHandler } from "@/lib/app-close-flush";
 import { workspaceTextDocumentRegistry } from "@/features/workspace-files/workspace-text-document-controller";
@@ -154,6 +155,10 @@ export function WorkbenchShell({
     projectId: string | null;
     sessionId: string;
   } | null>(null);
+  const [pendingViewDeepLinkOpen, setPendingViewDeepLinkOpen] = useState<{
+    projectId: string;
+    viewId: string;
+  } | null>(null);
   const reconciledProjectQueryRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -274,6 +279,22 @@ export function WorkbenchShell({
     [],
   );
 
+  const handleViewDeepLinkHandled = useCallback(
+    (payload: { projectId: string; viewId: string }) => {
+      setPendingViewDeepLinkOpen((current) => {
+        if (!current) return null;
+        if (
+          current.projectId !== payload.projectId
+          || current.viewId !== payload.viewId
+        ) {
+          return current;
+        }
+        return null;
+      });
+    },
+    [],
+  );
+
   const handleOpenProjectPicker = useCallback(() => {
     setProjectPickerOpenTick((tick) => tick + 1);
   }, []);
@@ -333,6 +354,14 @@ export function WorkbenchShell({
     [navigateToProject],
   );
 
+  const handleViewDeepLinkOpen = useCallback(
+    (request: WorkbenchViewDeepLinkRequest) => {
+      setPendingViewDeepLinkOpen(request);
+      navigateToProject(request.projectId);
+    },
+    [navigateToProject],
+  );
+
   useEffect(() => {
     if (!pendingReminderOpen) return;
     if (pendingReminderOpen.projectId !== resolvedDbProjectId) return;
@@ -367,6 +396,7 @@ export function WorkbenchShell({
     onReminderOpen: handleReminderOpen,
     onPageDeepLinkOpen: handlePageDeepLinkOpen,
     onSessionDeepLinkOpen: handleSessionDeepLinkOpen,
+    onViewDeepLinkOpen: handleViewDeepLinkOpen,
     onRequestNewWindow: () => {
       void handleRequestNewWindow();
     },
@@ -455,9 +485,11 @@ export function WorkbenchShell({
       pageStagePersistRef={pageStagePersistRef}
       pendingReminderOpen={pendingReminderOpen}
       pendingPageDeepLinkOpen={pendingDeepLinkOpen}
+      pendingViewDeepLinkOpen={pendingViewDeepLinkOpen}
       pendingSessionOpen={pendingSessionDeepLinkOpen}
       onReminderHandled={handleReminderHandled}
       onPageDeepLinkHandled={handlePageDeepLinkHandled}
+      onViewDeepLinkHandled={handleViewDeepLinkHandled}
       onOpenProjectSessionInNewWindow={handleOpenProjectSessionInNewWindow}
       openPageStage={navigateToPage}
       setDbViewPrefs={setDbViewPrefs}

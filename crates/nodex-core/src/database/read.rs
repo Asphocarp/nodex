@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use nodex_core_contracts::BoundModuleContext;
 use nodex_core_contracts::agent::{AgentAuthorizationTarget, AgentProjectResourceAction};
@@ -6,7 +6,7 @@ use nodex_core_contracts::collection::{
     CollectionWindow, CollectionWindowAuthority, CollectionWindowRequest,
 };
 use nodex_core_contracts::database::{
-    DatabaseRead, DatabaseReadMode, DatabaseReadValue, DatabaseTarget,
+    DatabaseRead, DatabaseReadMode, DatabaseReadValue, DatabaseTarget, DatabaseViewContext,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Map, Value, json};
@@ -115,9 +115,14 @@ pub(crate) fn read_at_event_head(
             "Database reads require a Project or trusted Library scope",
         ));
     }
-    if request.group_scope.is_some() && request.mode != DatabaseReadMode::ViewWindow {
+    if request.group_scope.is_some()
+        && !matches!(
+            request.mode,
+            DatabaseReadMode::ViewWindow | DatabaseReadMode::ViewContext
+        )
+    {
         return Err(invalid(
-            "Database group scope requires the view_window mode",
+            "Database group scope requires the view_window or view_context mode",
         ));
     }
     let primary_database_id = project_id
@@ -373,6 +378,57 @@ pub(crate) fn read_at_event_head(
                         .unwrap_or(&CollectionWindowRequest::default()),
                     request.group_scope.as_ref(),
                 )?,
+            })
+        }
+        (DatabaseTarget::View { view_id }, DatabaseReadMode::ViewContext) => {
+            let project_id = project_id
+                .ok_or_else(|| invalid("Database View context requires a Project scope"))?;
+            let database_id = database_for_view(connection, library_id, view_id)?;
+            authorize_required(
+                connection,
+                Some(project_id),
+                primary_database_id.as_deref(),
+                &database_id,
+            )?;
+            let store_epoch = crate::document::read_store_epoch(connection)?;
+            let projection = super::window::view_context(
+                connection,
+                library_id,
+                view_id,
+                super::window::ViewContextRead {
+                    event_head,
+                    project_id,
+                    store_epoch: &store_epoch,
+                    window: request
+                        .window
+                        .as_ref()
+                        .unwrap_or(&CollectionWindowRequest::default()),
+                    group_scope: request.group_scope.as_ref(),
+                },
+            )?;
+            let property_ids = projection
+                .property_ids
+                .iter()
+                .map(String::as_str)
+                .collect::<BTreeSet<_>>();
+            let properties = property_records(connection, &projection.data_source_id, true)?
+                .into_iter()
+                .filter(|property| {
+                    property
+                        .get("propertyId")
+                        .and_then(Value::as_str)
+                        .is_some_and(|property_id| property_ids.contains(property_id))
+                })
+                .collect();
+            Ok(DatabaseReadValue::ViewContext {
+                value: DatabaseViewContext {
+                    database: container_record(connection, library_id, &projection.database_id)?,
+                    data_source: source_record(connection, library_id, &projection.data_source_id)?,
+                    view: view_record(connection, view_id)?,
+                    properties,
+                    groups: projection.groups,
+                    rows: projection.rows,
+                },
             })
         }
         (DatabaseTarget::View { view_id }, DatabaseReadMode::RowsById) => {

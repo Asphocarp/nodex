@@ -3,6 +3,10 @@ export interface PackagedBuildProvenance {
     readonly name: string;
     readonly version: string;
   };
+  readonly agentSkills: {
+    readonly manifestSha256: string;
+    readonly treeSha256: string;
+  };
   readonly provenanceId: string;
   readonly target: {
     readonly arch: "arm64" | "x64";

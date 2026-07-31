@@ -2,10 +2,14 @@ export {
   NODEX_PAGE_DEEPLINK_KIND,
   NODEX_DEEPLINK_PROTOCOL,
   NODEX_SESSION_DEEPLINK_KIND,
+  NODEX_VIEW_DEEPLINK_KIND,
   buildPageDeepLink,
   buildSessionDeepLink,
+  buildViewDeepLink,
   parsePageDeepLink,
   parseSessionDeepLink,
+  parseViewDeepLink,
   type PageDeepLinkTarget,
   type SessionDeepLinkTarget,
-} from "../../shared/page-deeplink";
+  type ViewDeepLinkTarget,
+} from "../../shared/nodex-deeplink";

@@ -1,0 +1,935 @@
+use std::collections::BTreeMap;
+use std::ffi::OsString;
+
+use serde::Serialize;
+use serde_json::Value;
+
+use crate::error::{CliError, CliErrorCode};
+
+pub const AGENT_API_MIN_REVISION: u32 = 1;
+pub const AGENT_API_MAX_REVISION: u32 = 1;
+const MACHINE_HELP_SCHEMA_VERSION: u32 = 1;
+const NESTED_MARKDOWN_REVISION: u32 = 2;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CommandEffect {
+    Read,
+    Write,
+    Local,
+    Open,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct CommandMetadata {
+    path: &'static [&'static str],
+    capability: &'static str,
+    effect: CommandEffect,
+    validators: &'static [&'static str],
+    result: &'static str,
+    errors: &'static [&'static str],
+    example: &'static str,
+    example_argv: &'static [&'static str],
+}
+
+const READ_ERRORS: &[&str] = &[
+    "PROJECT_NOT_FOUND",
+    "PROJECT_AMBIGUOUS",
+    "SCOPE_NOT_FOUND",
+    "SCOPE_UNAUTHORIZED",
+    "CORE_UNAVAILABLE",
+    "PROTOCOL_INCOMPATIBLE",
+];
+const WRITE_ERRORS: &[&str] = &[
+    "PROJECT_NOT_FOUND",
+    "PROJECT_AMBIGUOUS",
+    "SCOPE_NOT_FOUND",
+    "SCOPE_UNAUTHORIZED",
+    "ETAG_CONFLICT",
+    "IDEMPOTENCY_KEY_REUSED",
+    "CORE_UNAVAILABLE",
+    "PROTOCOL_INCOMPATIBLE",
+];
+const IDEMPOTENCY_VALIDATOR: &[&str] = &["idempotency_key"];
+const ETAG_AND_IDEMPOTENCY_VALIDATORS: &[&str] = &["narrow_etag", "idempotency_key"];
+const OPEN_ERRORS: &[&str] = &[
+    "PROJECT_NOT_FOUND",
+    "PROJECT_AMBIGUOUS",
+    "SCOPE_NOT_FOUND",
+    "SCOPE_UNAUTHORIZED",
+    "CORE_UNAVAILABLE",
+    "PROTOCOL_INCOMPATIBLE",
+    "OPEN_FAILED",
+];
+const SKILL_ERRORS: &[&str] = &[
+    "SKILL_BUNDLE_UNAVAILABLE",
+    "SKILL_BUNDLE_INVALID",
+    "SKILL_TARGET_CONFLICT",
+    "SKILL_TARGET_RACED",
+    "SKILL_AGENT_UNSUPPORTED",
+    "INVALID_INPUT",
+];
+
+const COMMANDS: &[CommandMetadata] = &[
+    CommandMetadata {
+        path: &["capabilities"],
+        capability: "capabilities",
+        effect: CommandEffect::Read,
+        validators: &[],
+        result: "agent_capabilities",
+        errors: &["SKILL_BUNDLE_INVALID"],
+        example: "nodex --json capabilities",
+        example_argv: &["--json", "capabilities"],
+    },
+    CommandMetadata {
+        path: &["setup"],
+        capability: "skills",
+        effect: CommandEffect::Local,
+        validators: &["global_only", "explicit_confirmation"],
+        result: "agent_skill_setup",
+        errors: SKILL_ERRORS,
+        example: "nodex --json setup --agent codex --yes",
+        example_argv: &["--json", "setup", "--agent", "codex", "--yes"],
+    },
+    CommandMetadata {
+        path: &["skills", "status"],
+        capability: "skills",
+        effect: CommandEffect::Read,
+        validators: &["global_only"],
+        result: "agent_skill_status",
+        errors: SKILL_ERRORS,
+        example: "nodex --json skills status",
+        example_argv: &["--json", "skills", "status"],
+    },
+    CommandMetadata {
+        path: &["skills", "install"],
+        capability: "skills",
+        effect: CommandEffect::Local,
+        validators: &["global_only", "explicit_confirmation"],
+        result: "agent_skill_install",
+        errors: SKILL_ERRORS,
+        example: "nodex --json skills install --agent codex --yes",
+        example_argv: &["--json", "skills", "install", "--agent", "codex", "--yes"],
+    },
+    CommandMetadata {
+        path: &["skills", "remove"],
+        capability: "skills",
+        effect: CommandEffect::Local,
+        validators: &["global_only", "managed_current_only"],
+        result: "agent_skill_remove",
+        errors: SKILL_ERRORS,
+        example: "nodex --json skills remove --agent claude-code --yes",
+        example_argv: &[
+            "--json",
+            "skills",
+            "remove",
+            "--agent",
+            "claude-code",
+            "--yes",
+        ],
+    },
+    CommandMetadata {
+        path: &["skills", "doctor"],
+        capability: "skills",
+        effect: CommandEffect::Read,
+        validators: &["global_only"],
+        result: "agent_skill_diagnostics",
+        errors: SKILL_ERRORS,
+        example: "nodex --json skills doctor",
+        example_argv: &["--json", "skills", "doctor"],
+    },
+    CommandMetadata {
+        path: &["context"],
+        capability: "context",
+        effect: CommandEffect::Read,
+        validators: &[],
+        result: "selected_profile_project_context",
+        errors: READ_ERRORS,
+        example: "nodex --json context",
+        example_argv: &["--json", "context"],
+    },
+    CommandMetadata {
+        path: &["tree"],
+        capability: "tree",
+        effect: CommandEffect::Read,
+        validators: &[],
+        result: "authorized_page_tree",
+        errors: READ_ERRORS,
+        example: "nodex --json tree database",
+        example_argv: &["--json", "tree", "database"],
+    },
+    CommandMetadata {
+        path: &["read"],
+        capability: "read",
+        effect: CommandEffect::Read,
+        validators: &["prepare_only_when_writing"],
+        result: "canonical_page_file",
+        errors: READ_ERRORS,
+        example: "nodex --json read @page-id",
+        example_argv: &["--json", "read", "@page-id"],
+    },
+    CommandMetadata {
+        path: &["sed"],
+        capability: "read",
+        effect: CommandEffect::Read,
+        validators: &[],
+        result: "canonical_page_line_slice",
+        errors: READ_ERRORS,
+        example: "nodex --json sed -n 1,20p @page-id",
+        example_argv: &["--json", "sed", "-n", "1,20p", "@page-id"],
+    },
+    CommandMetadata {
+        path: &["rg"],
+        capability: "rg",
+        effect: CommandEffect::Read,
+        validators: &[],
+        result: "ripgrep_matches_over_authorized_snapshot",
+        errors: &[
+            "SCOPE_NOT_FOUND",
+            "SCOPE_UNAUTHORIZED",
+            "MATERIALIZATION_STALE",
+            "SNAPSHOT_EXPIRED",
+            "RG_ARGUMENT_UNSUPPORTED",
+        ],
+        example: "nodex --json rg --fixed-strings Planning database",
+        example_argv: &["--json", "rg", "--fixed-strings", "Planning", "database"],
+    },
+    CommandMetadata {
+        path: &["view", "query"],
+        capability: "viewQuery",
+        effect: CommandEffect::Read,
+        validators: &[],
+        result: "saved_view_context",
+        errors: READ_ERRORS,
+        example: "nodex --json view query @view-id --limit 50",
+        example_argv: &["--json", "view", "query", "@view-id", "--limit", "50"],
+    },
+    CommandMetadata {
+        path: &["open", "page"],
+        capability: "open",
+        effect: CommandEffect::Open,
+        validators: &["project_authorization"],
+        result: "canonical_resource_open",
+        errors: OPEN_ERRORS,
+        example: "nodex --json open page @page-id --print",
+        example_argv: &["--json", "open", "page", "@page-id", "--print"],
+    },
+    CommandMetadata {
+        path: &["open", "view"],
+        capability: "open",
+        effect: CommandEffect::Open,
+        validators: &["project_authorization"],
+        result: "canonical_resource_open",
+        errors: OPEN_ERRORS,
+        example: "nodex --json open view @view-id --print",
+        example_argv: &["--json", "open", "view", "@view-id", "--print"],
+    },
+    CommandMetadata {
+        path: &["patch"],
+        capability: "pageWrite",
+        effect: CommandEffect::Write,
+        validators: IDEMPOTENCY_VALIDATOR,
+        result: "page_mutation_receipt",
+        errors: WRITE_ERRORS,
+        example: "nodex --json patch --file ./change.patch --idempotency-key patch-1",
+        example_argv: &[
+            "--json",
+            "patch",
+            "--file",
+            "./change.patch",
+            "--idempotency-key",
+            "patch-1",
+        ],
+    },
+    CommandMetadata {
+        path: &["page", "create"],
+        capability: "pageWrite",
+        effect: CommandEffect::Write,
+        validators: IDEMPOTENCY_VALIDATOR,
+        result: "page_creation_receipt",
+        errors: WRITE_ERRORS,
+        example: "nodex --json page create --parent library --title Page --empty --idempotency-key create-1",
+        example_argv: &[
+            "--json",
+            "page",
+            "create",
+            "--parent",
+            "library",
+            "--title",
+            "Page",
+            "--empty",
+            "--idempotency-key",
+            "create-1",
+        ],
+    },
+    CommandMetadata {
+        path: &["page", "insert"],
+        capability: "pageWrite",
+        effect: CommandEffect::Write,
+        validators: IDEMPOTENCY_VALIDATOR,
+        result: "page_mutation_receipt",
+        errors: WRITE_ERRORS,
+        example: "nodex --json page insert @page-id --at end --file body.nested.md --idempotency-key insert-1",
+        example_argv: &[
+            "--json",
+            "page",
+            "insert",
+            "@page-id",
+            "--at",
+            "end",
+            "--file",
+            "body.nested.md",
+            "--idempotency-key",
+            "insert-1",
+        ],
+    },
+    CommandMetadata {
+        path: &["page", "replace"],
+        capability: "pageWrite",
+        effect: CommandEffect::Write,
+        validators: ETAG_AND_IDEMPOTENCY_VALIDATORS,
+        result: "page_mutation_receipt",
+        errors: WRITE_ERRORS,
+        example: "nodex --json page replace @page-id --if-match body-etag --file body.nested.md --idempotency-key replace-1",
+        example_argv: &[
+            "--json",
+            "page",
+            "replace",
+            "@page-id",
+            "--if-match",
+            "body-etag",
+            "--file",
+            "body.nested.md",
+            "--idempotency-key",
+            "replace-1",
+        ],
+    },
+    CommandMetadata {
+        path: &["page", "title", "set"],
+        capability: "pageWrite",
+        effect: CommandEffect::Write,
+        validators: ETAG_AND_IDEMPOTENCY_VALIDATORS,
+        result: "page_mutation_receipt",
+        errors: WRITE_ERRORS,
+        example: "nodex --json page title set @page-id --if-match title-etag --value Title --idempotency-key title-1",
+        example_argv: &[
+            "--json",
+            "page",
+            "title",
+            "set",
+            "@page-id",
+            "--if-match",
+            "title-etag",
+            "--value",
+            "Title",
+            "--idempotency-key",
+            "title-1",
+        ],
+    },
+    CommandMetadata {
+        path: &["page", "move"],
+        capability: "pageWrite",
+        effect: CommandEffect::Write,
+        validators: ETAG_AND_IDEMPOTENCY_VALIDATORS,
+        result: "page_transfer_receipt",
+        errors: WRITE_ERRORS,
+        example: "nodex --json page move @page-id --to library --at end --if-match move-etag --idempotency-key move-1",
+        example_argv: &[
+            "--json",
+            "page",
+            "move",
+            "@page-id",
+            "--to",
+            "library",
+            "--at",
+            "end",
+            "--if-match",
+            "move-etag",
+            "--idempotency-key",
+            "move-1",
+        ],
+    },
+    CommandMetadata {
+        path: &["page", "duplicate"],
+        capability: "pageWrite",
+        effect: CommandEffect::Write,
+        validators: IDEMPOTENCY_VALIDATOR,
+        result: "page_copy_receipt",
+        errors: WRITE_ERRORS,
+        example: "nodex --json page duplicate @page-id --to library --at end --idempotency-key copy-1",
+        example_argv: &[
+            "--json",
+            "page",
+            "duplicate",
+            "@page-id",
+            "--to",
+            "library",
+            "--at",
+            "end",
+            "--idempotency-key",
+            "copy-1",
+        ],
+    },
+    CommandMetadata {
+        path: &["page", "delete"],
+        capability: "pageWrite",
+        effect: CommandEffect::Write,
+        validators: ETAG_AND_IDEMPOTENCY_VALIDATORS,
+        result: "page_deletion_receipt",
+        errors: WRITE_ERRORS,
+        example: "nodex --json page delete @page-id --if-match page-etag --idempotency-key delete-1",
+        example_argv: &[
+            "--json",
+            "page",
+            "delete",
+            "@page-id",
+            "--if-match",
+            "page-etag",
+            "--idempotency-key",
+            "delete-1",
+        ],
+    },
+    CommandMetadata {
+        path: &["block", "insert"],
+        capability: "blockWrite",
+        effect: CommandEffect::Write,
+        validators: IDEMPOTENCY_VALIDATOR,
+        result: "block_mutation_receipt",
+        errors: WRITE_ERRORS,
+        example: "nodex --json block insert @page-id --at end --block-json block.json --idempotency-key block-insert-1",
+        example_argv: &[
+            "--json",
+            "block",
+            "insert",
+            "@page-id",
+            "--at",
+            "end",
+            "--block-json",
+            "block.json",
+            "--idempotency-key",
+            "block-insert-1",
+        ],
+    },
+    CommandMetadata {
+        path: &["block", "update"],
+        capability: "blockWrite",
+        effect: CommandEffect::Write,
+        validators: ETAG_AND_IDEMPOTENCY_VALIDATORS,
+        result: "block_mutation_receipt",
+        errors: WRITE_ERRORS,
+        example: "nodex --json block update @page-id --block @block-id --if-match block-etag --patch-json patch.json --idempotency-key block-update-1",
+        example_argv: &[
+            "--json",
+            "block",
+            "update",
+            "@page-id",
+            "--block",
+            "@block-id",
+            "--if-match",
+            "block-etag",
+            "--patch-json",
+            "patch.json",
+            "--idempotency-key",
+            "block-update-1",
+        ],
+    },
+    CommandMetadata {
+        path: &["block", "move"],
+        capability: "blockWrite",
+        effect: CommandEffect::Write,
+        validators: IDEMPOTENCY_VALIDATOR,
+        result: "block_mutation_receipt",
+        errors: WRITE_ERRORS,
+        example: "nodex --json block move @page-id --block @block-id --at end --idempotency-key block-move-1",
+        example_argv: &[
+            "--json",
+            "block",
+            "move",
+            "@page-id",
+            "--block",
+            "@block-id",
+            "--at",
+            "end",
+            "--idempotency-key",
+            "block-move-1",
+        ],
+    },
+    CommandMetadata {
+        path: &["block", "delete"],
+        capability: "blockWrite",
+        effect: CommandEffect::Write,
+        validators: ETAG_AND_IDEMPOTENCY_VALIDATORS,
+        result: "block_mutation_receipt",
+        errors: WRITE_ERRORS,
+        example: "nodex --json block delete @page-id --block @block-id --if-match block-etag --idempotency-key block-delete-1",
+        example_argv: &[
+            "--json",
+            "block",
+            "delete",
+            "@page-id",
+            "--block",
+            "@block-id",
+            "--if-match",
+            "block-etag",
+            "--idempotency-key",
+            "block-delete-1",
+        ],
+    },
+    CommandMetadata {
+        path: &["history"],
+        capability: "read",
+        effect: CommandEffect::Read,
+        validators: &[],
+        result: "page_history_window",
+        errors: READ_ERRORS,
+        example: "nodex --json history @page-id --limit 20",
+        example_argv: &["--json", "history", "@page-id", "--limit", "20"],
+    },
+    CommandMetadata {
+        path: &["backup", "create"],
+        capability: "backup",
+        effect: CommandEffect::Write,
+        validators: IDEMPOTENCY_VALIDATOR,
+        result: "backup_creation_receipt",
+        errors: &["CORE_UNAVAILABLE", "PROTOCOL_INCOMPATIBLE"],
+        example: "nodex --json backup create --label manual --idempotency-key backup-1",
+        example_argv: &[
+            "--json",
+            "backup",
+            "create",
+            "--label",
+            "manual",
+            "--idempotency-key",
+            "backup-1",
+        ],
+    },
+    CommandMetadata {
+        path: &["backup", "list"],
+        capability: "backup",
+        effect: CommandEffect::Read,
+        validators: &[],
+        result: "backup_inventory",
+        errors: &["CORE_UNAVAILABLE", "PROTOCOL_INCOMPATIBLE"],
+        example: "nodex --json backup list",
+        example_argv: &["--json", "backup", "list"],
+    },
+    CommandMetadata {
+        path: &["doctor"],
+        capability: "doctor",
+        effect: CommandEffect::Write,
+        validators: IDEMPOTENCY_VALIDATOR,
+        result: "maintenance_report",
+        errors: &["CORE_UNAVAILABLE", "PROTOCOL_INCOMPATIBLE"],
+        example: "nodex --json doctor --idempotency-key doctor-1",
+        example_argv: &["--json", "doctor", "--idempotency-key", "doctor-1"],
+    },
+    CommandMetadata {
+        path: &["draft", "create"],
+        capability: "draft",
+        effect: CommandEffect::Local,
+        validators: &[],
+        result: "draft_workspace",
+        errors: READ_ERRORS,
+        example: "nodex --json draft create @page-id --output ./page-draft",
+        example_argv: &[
+            "--json",
+            "draft",
+            "create",
+            "@page-id",
+            "--output",
+            "./page-draft",
+        ],
+    },
+    CommandMetadata {
+        path: &["draft", "diff"],
+        capability: "draft",
+        effect: CommandEffect::Local,
+        validators: &[],
+        result: "draft_diff",
+        errors: &["DRAFT_UNSAFE_PATH", "META_YAML_INVALID"],
+        example: "nodex --json draft diff ./page-draft",
+        example_argv: &["--json", "draft", "diff", "./page-draft"],
+    },
+    CommandMetadata {
+        path: &["draft", "apply"],
+        capability: "draft",
+        effect: CommandEffect::Write,
+        validators: &["draft_manifest", "narrow_etag", "idempotency_key"],
+        result: "page_mutation_receipt",
+        errors: &[
+            "DRAFT_UNSAFE_PATH",
+            "DRAFT_CONFLICT",
+            "DRAFT_ALREADY_APPLIED",
+            "ETAG_CONFLICT",
+        ],
+        example: "nodex --json draft apply ./page-draft",
+        example_argv: &["--json", "draft", "apply", "./page-draft"],
+    },
+    CommandMetadata {
+        path: &["draft", "discard"],
+        capability: "draft",
+        effect: CommandEffect::Local,
+        validators: &["draft_manifest"],
+        result: "draft_discard_result",
+        errors: &["DRAFT_UNSAFE_PATH"],
+        example: "nodex --json draft discard ./page-draft",
+        example_argv: &["--json", "draft", "discard", "./page-draft"],
+    },
+    CommandMetadata {
+        path: &["service", "status"],
+        capability: "service",
+        effect: CommandEffect::Local,
+        validators: &[],
+        result: "service_status",
+        errors: &["INVALID_INPUT"],
+        example: "nodex --json service status",
+        example_argv: &["--json", "service", "status"],
+    },
+    CommandMetadata {
+        path: &["service", "enable"],
+        capability: "service",
+        effect: CommandEffect::Local,
+        validators: &[],
+        result: "service_status",
+        errors: &["INVALID_INPUT"],
+        example: "nodex --json service enable",
+        example_argv: &["--json", "service", "enable"],
+    },
+    CommandMetadata {
+        path: &["service", "disable"],
+        capability: "service",
+        effect: CommandEffect::Local,
+        validators: &[],
+        result: "service_status",
+        errors: &["INVALID_INPUT"],
+        example: "nodex --json service disable",
+        example_argv: &["--json", "service", "disable"],
+    },
+];
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentCapabilitiesV1 {
+    pub schema_version: u32,
+    pub agent_api: AgentApiRange,
+    pub formats: AgentFormatCapabilities,
+    pub commands: BTreeMap<&'static str, u32>,
+    pub deep_links: Vec<&'static str>,
+    pub bundle: AgentBundleCapability,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentApiRange {
+    pub minimum_revision: u32,
+    pub maximum_revision: u32,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentFormatCapabilities {
+    pub nested_markdown_revision: u32,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum AgentBundleStatus {
+    Available,
+    Unavailable,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentBundleCapability {
+    pub status: AgentBundleStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub release_version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tree_sha256: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MachineHelp {
+    pub schema_version: u32,
+    pub command: String,
+    pub capability: &'static str,
+    pub effect: CommandEffect,
+    pub validators: Vec<&'static str>,
+    pub result_schema_revision: u32,
+    pub result: &'static str,
+    pub errors: Vec<&'static str>,
+    pub examples: Vec<&'static str>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MachineHelpIndex {
+    pub schema_version: u32,
+    pub command: String,
+    pub commands: Vec<MachineHelpSummary>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MachineHelpSummary {
+    pub command: String,
+    pub capability: &'static str,
+    pub effect: CommandEffect,
+    pub result_schema_revision: u32,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(untagged)]
+pub enum MachineHelpDocument {
+    Index(MachineHelpIndex),
+    Command(MachineHelp),
+}
+
+pub fn capabilities() -> Result<Value, CliError> {
+    let capabilities = AgentCapabilitiesV1 {
+        schema_version: 1,
+        agent_api: AgentApiRange {
+            minimum_revision: AGENT_API_MIN_REVISION,
+            maximum_revision: AGENT_API_MAX_REVISION,
+        },
+        formats: AgentFormatCapabilities {
+            nested_markdown_revision: NESTED_MARKDOWN_REVISION,
+        },
+        commands: capability_revisions(),
+        deep_links: vec!["pages", "views"],
+        bundle: discover_bundle_capability()?,
+    };
+    serde_json::to_value(capabilities).map_err(internal)
+}
+
+pub fn machine_help(arguments: &[OsString]) -> Result<MachineHelpDocument, CliError> {
+    let tokens = command_tokens(arguments);
+    if tokens.is_empty() {
+        return Ok(MachineHelpDocument::Index(machine_help_index(&[])));
+    }
+
+    if let Some(metadata) = COMMANDS
+        .iter()
+        .filter(|metadata| starts_with_path(&tokens, metadata.path))
+        .max_by_key(|metadata| metadata.path.len())
+    {
+        return Ok(MachineHelpDocument::Command(machine_help_for(metadata)));
+    }
+
+    let prefix = tokens.iter().map(String::as_str).collect::<Vec<_>>();
+    if COMMANDS
+        .iter()
+        .any(|metadata| metadata.path.starts_with(&prefix))
+    {
+        return Ok(MachineHelpDocument::Index(machine_help_index(&prefix)));
+    }
+
+    Err(CliError::new(
+        CliErrorCode::InvalidInput,
+        format!(
+            "no machine-readable help exists for command path '{}'",
+            tokens.join(" ")
+        ),
+    ))
+}
+
+fn capability_revisions() -> BTreeMap<&'static str, u32> {
+    COMMANDS
+        .iter()
+        .map(|metadata| (metadata.capability, 1))
+        .collect()
+}
+
+fn machine_help_for(metadata: &CommandMetadata) -> MachineHelp {
+    MachineHelp {
+        schema_version: MACHINE_HELP_SCHEMA_VERSION,
+        command: command_name(metadata.path),
+        capability: metadata.capability,
+        effect: metadata.effect,
+        validators: metadata.validators.to_vec(),
+        result_schema_revision: 1,
+        result: metadata.result,
+        errors: metadata.errors.to_vec(),
+        examples: vec![metadata.example],
+    }
+}
+
+fn machine_help_index(prefix: &[&str]) -> MachineHelpIndex {
+    let commands = COMMANDS
+        .iter()
+        .filter(|metadata| metadata.path.starts_with(prefix))
+        .map(|metadata| MachineHelpSummary {
+            command: command_name(metadata.path),
+            capability: metadata.capability,
+            effect: metadata.effect,
+            result_schema_revision: 1,
+        })
+        .collect();
+    MachineHelpIndex {
+        schema_version: MACHINE_HELP_SCHEMA_VERSION,
+        command: command_name(prefix),
+        commands,
+    }
+}
+
+fn command_name(path: &[&str]) -> String {
+    if path.is_empty() {
+        return "nodex".to_owned();
+    }
+    format!("nodex {}", path.join(" "))
+}
+
+fn starts_with_path(tokens: &[String], path: &[&str]) -> bool {
+    tokens.len() >= path.len()
+        && tokens
+            .iter()
+            .zip(path)
+            .all(|(token, component)| token == component)
+}
+
+fn command_tokens(arguments: &[OsString]) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut skip_global_value = false;
+    for argument in arguments.iter().skip(1) {
+        let Some(argument) = argument.to_str() else {
+            continue;
+        };
+        if skip_global_value {
+            skip_global_value = false;
+            continue;
+        }
+        if matches!(
+            argument,
+            "--profile" | "--project" | "--database" | "--page"
+        ) {
+            skip_global_value = true;
+            continue;
+        }
+        if matches!(argument, "--json" | "--no-color" | "--help" | "-h") {
+            continue;
+        }
+        if argument.starts_with('-') {
+            continue;
+        }
+        tokens.push(argument.to_owned());
+    }
+    tokens
+}
+
+fn discover_bundle_capability() -> Result<AgentBundleCapability, CliError> {
+    let Some(bundle) = crate::skills::bundle::discover_current()? else {
+        return Ok(unavailable_bundle());
+    };
+    Ok(AgentBundleCapability {
+        status: AgentBundleStatus::Available,
+        release_version: Some(bundle.release_version),
+        tree_sha256: Some(bundle.tree_sha256),
+    })
+}
+
+fn unavailable_bundle() -> AgentBundleCapability {
+    AgentBundleCapability {
+        status: AgentBundleStatus::Unavailable,
+        release_version: None,
+        tree_sha256: None,
+    }
+}
+
+fn internal(error: impl std::fmt::Display) -> CliError {
+    CliError::new(CliErrorCode::Internal, error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+    use std::iter;
+
+    use clap::{CommandFactory, Parser};
+
+    use super::*;
+    use crate::cli::Cli;
+
+    #[test]
+    fn command_registry_covers_every_clap_leaf_exactly_once() {
+        let mut clap_paths = Vec::new();
+        collect_clap_leaf_paths(&Cli::command(), &mut Vec::new(), &mut clap_paths);
+        let clap_paths = clap_paths.into_iter().collect::<BTreeSet<_>>();
+        let metadata_paths = COMMANDS
+            .iter()
+            .map(|metadata| metadata.path.join(" "))
+            .collect::<BTreeSet<_>>();
+
+        assert_eq!(metadata_paths.len(), COMMANDS.len(), "duplicate metadata");
+        assert_eq!(clap_paths, metadata_paths);
+    }
+
+    #[test]
+    fn every_documented_example_is_accepted_by_clap() {
+        for metadata in COMMANDS {
+            let arguments = iter::once("nodex").chain(metadata.example_argv.iter().copied());
+            Cli::try_parse_from(arguments).unwrap_or_else(|error| {
+                panic!(
+                    "{} example did not parse: {error}",
+                    command_name(metadata.path)
+                )
+            });
+        }
+    }
+
+    #[test]
+    fn machine_help_returns_leaf_and_group_documents() {
+        let leaf =
+            machine_help(&["nodex", "--json", "page", "delete", "--help"].map(OsString::from))
+                .expect("leaf help");
+        let MachineHelpDocument::Command(leaf) = leaf else {
+            panic!("expected leaf help")
+        };
+        assert_eq!(leaf.command, "nodex page delete");
+        assert_eq!(leaf.effect, CommandEffect::Write);
+        assert!(leaf.validators.contains(&"narrow_etag"));
+
+        let group = machine_help(&["nodex", "--json", "page", "--help"].map(OsString::from))
+            .expect("group help");
+        let MachineHelpDocument::Index(group) = group else {
+            panic!("expected group help")
+        };
+        assert!(
+            group
+                .commands
+                .iter()
+                .all(|command| command.command.starts_with("nodex page "))
+        );
+    }
+
+    #[test]
+    fn capability_revisions_come_from_the_command_registry() {
+        let expected = COMMANDS
+            .iter()
+            .map(|metadata| metadata.capability)
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            capability_revisions()
+                .keys()
+                .copied()
+                .collect::<BTreeSet<_>>(),
+            expected
+        );
+    }
+
+    fn collect_clap_leaf_paths(
+        command: &clap::Command,
+        prefix: &mut Vec<String>,
+        output: &mut Vec<String>,
+    ) {
+        for subcommand in command.get_subcommands() {
+            prefix.push(subcommand.get_name().to_owned());
+            if subcommand.has_subcommands() {
+                collect_clap_leaf_paths(subcommand, prefix, output);
+            } else {
+                output.push(prefix.join(" "));
+            }
+            prefix.pop();
+        }
+    }
+}

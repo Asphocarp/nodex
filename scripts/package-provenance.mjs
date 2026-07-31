@@ -12,8 +12,10 @@ import {
 } from "node:fs";
 import path from "node:path";
 
-const PROVENANCE_SCHEMA_VERSION = 2;
-const PREPARED_SCHEMA_VERSION = 2;
+import { inspectOfficialAgentSkillsArtifact } from "./official-agent-skills-artifact.mjs";
+
+const PROVENANCE_SCHEMA_VERSION = 3;
+const PREPARED_SCHEMA_VERSION = 3;
 const resourcesRelativePath = "Contents/Resources";
 const provenanceRelativePath = `${resourcesRelativePath}/nodex-build-provenance.json`;
 const preparedRelativePath = `${resourcesRelativePath}/prepared-electron-build.json`;
@@ -23,6 +25,7 @@ const nativeManifestRelativePath = `${resourcesRelativePath}/bin/rust-core-runti
 const agentManifestRelativePath = `${resourcesRelativePath}/agent-runtime.json`;
 const browserManifestRelativePath =
   `${resourcesRelativePath}/browser-runtime/browser-runtime-manifest.json`;
+const agentSkillsRelativePath = `${resourcesRelativePath}/agent-skills`;
 
 const isObject = (value) =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -102,6 +105,19 @@ const parsePreparedManifest = (value) => {
   }
   requireString(value.product.name, "Prepared Electron product name");
   requireString(value.product.version, "Prepared Electron product version");
+  assertExactKeys(
+    value.agentSkills,
+    ["manifestSha256", "treeSha256"],
+    "Prepared Electron Agent Skills",
+  );
+  requireSha256(
+    value.agentSkills.manifestSha256,
+    "Prepared Electron Agent Skills manifestSha256",
+  );
+  requireSha256(
+    value.agentSkills.treeSha256,
+    "Prepared Electron Agent Skills treeSha256",
+  );
   const { generationId, ...withoutGeneration } = value;
   if (sha256Bytes(JSON.stringify(withoutGeneration)) !== generationId) {
     throw new Error("Packaged prepared Electron generation identity is invalid");
@@ -170,6 +186,16 @@ export const writePackagedBuildProvenance = (appPath) => {
   const browserManifest = existsSync(browserManifestPath)
     ? readJson(browserManifestPath, "Packaged Browser runtime manifest")
     : null;
+  const agentSkills = inspectOfficialAgentSkillsArtifact(
+    path.join(resolvedAppPath, ...agentSkillsRelativePath.split("/")),
+  );
+  if (
+    agentSkills.manifestSha256 !== prepared.agentSkills.manifestSha256
+    || agentSkills.treeSha256 !== prepared.agentSkills.treeSha256
+    || agentSkills.releaseVersion !== prepared.product.version
+  ) {
+    throw new Error("Packaged Agent Skills do not match the prepared Electron source");
+  }
   const targetArch = nativeManifest.targetArch;
   if (
     nativeManifest.targetPlatform !== "darwin"
@@ -199,6 +225,10 @@ export const writePackagedBuildProvenance = (appPath) => {
     preparedElectron: {
       generationId: prepared.generationId,
       manifestSha256: sha256File(preparedPath),
+    },
+    agentSkills: {
+      manifestSha256: agentSkills.manifestSha256,
+      treeSha256: agentSkills.treeSha256,
     },
     payload: {
       appAsar: fileIdentity(resolvedAppPath, appAsarRelativePath),
@@ -247,6 +277,7 @@ export const verifyPackagedBuildProvenance = (
     "product",
     "target",
     "preparedElectron",
+    "agentSkills",
     "payload",
     "provenanceId",
   ], "Packaged build provenance");
@@ -283,6 +314,19 @@ export const verifyPackagedBuildProvenance = (
   requireSha256(
     value.preparedElectron.generationId,
     "Packaged prepared Electron generationId",
+  );
+  assertExactKeys(
+    value.agentSkills,
+    ["manifestSha256", "treeSha256"],
+    "Packaged Agent Skills identity",
+  );
+  requireSha256(
+    value.agentSkills.manifestSha256,
+    "Packaged Agent Skills manifestSha256",
+  );
+  requireSha256(
+    value.agentSkills.treeSha256,
+    "Packaged Agent Skills treeSha256",
   );
   requireSha256(
     value.preparedElectron.manifestSha256,
@@ -327,11 +371,19 @@ export const verifyPackagedBuildProvenance = (
   const prepared = parsePreparedManifest(
     readJson(preparedPath, "Packaged prepared Electron manifest"),
   );
+  const agentSkills = inspectOfficialAgentSkillsArtifact(
+    path.join(resolvedAppPath, ...agentSkillsRelativePath.split("/")),
+  );
   if (
     sha256File(preparedPath) !== value.preparedElectron.manifestSha256
     || prepared.generationId !== value.preparedElectron.generationId
     || prepared.product.name !== value.product.name
     || prepared.product.version !== value.product.version
+    || prepared.agentSkills.manifestSha256 !== value.agentSkills.manifestSha256
+    || prepared.agentSkills.treeSha256 !== value.agentSkills.treeSha256
+    || agentSkills.manifestSha256 !== value.agentSkills.manifestSha256
+    || agentSkills.treeSha256 !== value.agentSkills.treeSha256
+    || agentSkills.releaseVersion !== value.product.version
   ) {
     throw new Error("Packaged prepared Electron manifest does not match provenance");
   }

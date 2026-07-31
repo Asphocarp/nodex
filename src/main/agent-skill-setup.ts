@@ -1,0 +1,372 @@
+import { execFile } from "node:child_process";
+import { basename, dirname, isAbsolute, resolve } from "node:path";
+import type {
+  MessageBoxOptions,
+  MessageBoxReturnValue,
+} from "electron";
+
+const AGENT_SKILL_CLI_TIMEOUT_MS = 30_000;
+const AGENT_SKILL_CLI_MAX_BUFFER_BYTES = 4 * 1024 * 1024;
+const AVAILABLE_TARGET_STATES = new Set([
+  "managed-current",
+  "compatible-external",
+]);
+
+export type SupportedAgentSkillTarget = "codex" | "claude-code";
+
+export interface AgentSkillCliInvocation {
+  readonly executable: string;
+  readonly argv: readonly string[];
+  readonly shell: false;
+}
+
+export interface AgentSkillCliProcessResult {
+  readonly stderr: string;
+  readonly stdout: string;
+}
+
+export type AgentSkillCliRunner = (
+  invocation: AgentSkillCliInvocation,
+) => Promise<AgentSkillCliProcessResult>;
+
+export interface AgentSkillTargetStatus {
+  readonly agent: string;
+  readonly changed: boolean;
+  readonly detected: boolean;
+  readonly detail?: string;
+  readonly outcome: string;
+  readonly path: string;
+  readonly state: string;
+}
+
+export interface AgentSkillCommandResult {
+  readonly schemaVersion: number;
+  readonly operation: string;
+  readonly dryRun: boolean;
+  readonly changed: boolean;
+  readonly targets: readonly AgentSkillTargetStatus[];
+}
+
+export interface AgentSkillSetupResult {
+  readonly status: "already-configured" | "cancelled" | "failed" | "installed";
+  readonly commandResult?: AgentSkillCommandResult;
+}
+
+export interface RunAgentSkillSetupOptions {
+  readonly cliPath: string;
+  readonly onlyWhenMissing?: boolean;
+  readonly pathConfigured?: boolean;
+  readonly runCli?: AgentSkillCliRunner;
+  readonly showMessageBox: (
+    options: MessageBoxOptions,
+  ) => Promise<MessageBoxReturnValue>;
+}
+
+interface CliSuccessEnvelope {
+  readonly version: number;
+  readonly ok: true;
+  readonly result: unknown;
+}
+
+interface CliErrorEnvelope {
+  readonly version?: number;
+  readonly ok?: false;
+  readonly error?: {
+    readonly code?: unknown;
+    readonly message?: unknown;
+    readonly path?: unknown;
+  };
+}
+
+export class AgentSkillCliProcessError extends Error {
+  readonly stderr: string;
+  readonly stdout: string;
+
+  constructor(message: string, stdout: string, stderr: string) {
+    super(message);
+    this.name = "AgentSkillCliProcessError";
+    this.stdout = stdout;
+    this.stderr = stderr;
+  }
+}
+
+export const runAgentSkillCli: AgentSkillCliRunner = async (invocation) => {
+  return await new Promise<AgentSkillCliProcessResult>((resolveResult, reject) => {
+    execFile(
+      invocation.executable,
+      [...invocation.argv],
+      {
+        encoding: "utf8",
+        maxBuffer: AGENT_SKILL_CLI_MAX_BUFFER_BYTES,
+        shell: invocation.shell,
+        timeout: AGENT_SKILL_CLI_TIMEOUT_MS,
+      },
+      (error, stdout, stderr) => {
+        if (error) {
+          reject(new AgentSkillCliProcessError(
+            error.message,
+            typeof stdout === "string" ? stdout : "",
+            typeof stderr === "string" ? stderr : "",
+          ));
+          return;
+        }
+        resolveResult({
+          stdout: typeof stdout === "string" ? stdout : "",
+          stderr: typeof stderr === "string" ? stderr : "",
+        });
+      },
+    );
+  });
+};
+
+const assertPackagedCliPath = (candidate: string): string => {
+  if (!isAbsolute(candidate)) {
+    throw new Error("The packaged Nodex CLI path must be absolute.");
+  }
+  const normalized = resolve(candidate);
+  const binDirectory = dirname(normalized);
+  const resourcesDirectory = dirname(binDirectory);
+  const contentsDirectory = dirname(resourcesDirectory);
+  const appDirectory = dirname(contentsDirectory);
+  if (
+    basename(normalized) !== "nodex"
+    || basename(binDirectory) !== "bin"
+    || basename(resourcesDirectory) !== "Resources"
+    || basename(contentsDirectory) !== "Contents"
+    || !basename(appDirectory).startsWith("Nodex")
+    || !basename(appDirectory).endsWith(".app")
+  ) {
+    throw new Error(`The packaged Nodex CLI path is invalid: ${normalized}`);
+  }
+  return normalized;
+};
+
+const asRecord = (value: unknown): Record<string, unknown> | null => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+};
+
+const parseTarget = (value: unknown): AgentSkillTargetStatus | null => {
+  const target = asRecord(value);
+  if (!target) return null;
+  if (
+    typeof target.agent !== "string"
+    || typeof target.changed !== "boolean"
+    || typeof target.detected !== "boolean"
+    || typeof target.outcome !== "string"
+    || typeof target.path !== "string"
+    || !isAbsolute(target.path)
+    || typeof target.state !== "string"
+  ) {
+    return null;
+  }
+  return {
+    agent: target.agent,
+    changed: target.changed,
+    detected: target.detected,
+    detail: typeof target.detail === "string" ? target.detail : undefined,
+    outcome: target.outcome,
+    path: target.path,
+    state: target.state,
+  };
+};
+
+export const parseAgentSkillCommandResult = (
+  value: unknown,
+): AgentSkillCommandResult => {
+  const result = asRecord(value);
+  if (
+    !result
+    || typeof result.schemaVersion !== "number"
+    || typeof result.operation !== "string"
+    || typeof result.dryRun !== "boolean"
+    || typeof result.changed !== "boolean"
+    || !Array.isArray(result.targets)
+  ) {
+    throw new Error("The Nodex CLI returned an invalid Agent Skill result.");
+  }
+  if (result.schemaVersion !== 1) {
+    throw new Error("The Nodex CLI returned an unsupported Agent Skill schema.");
+  }
+  const targets = result.targets.map(parseTarget);
+  if (targets.some((target) => target === null)) {
+    throw new Error("The Nodex CLI returned an invalid Agent Skill target.");
+  }
+  return {
+    schemaVersion: result.schemaVersion,
+    operation: result.operation,
+    dryRun: result.dryRun,
+    changed: result.changed,
+    targets: targets as AgentSkillTargetStatus[],
+  };
+};
+
+const parseSuccessEnvelope = (stdout: string): AgentSkillCommandResult => {
+  let value: unknown;
+  try {
+    value = JSON.parse(stdout);
+  } catch {
+    throw new Error("The Nodex CLI returned malformed JSON.");
+  }
+  const envelope = asRecord(value) as CliSuccessEnvelope | null;
+  if (
+    !envelope
+    || envelope.version !== 1
+    || envelope.ok !== true
+  ) {
+    throw new Error("The Nodex CLI returned an invalid success envelope.");
+  }
+  return parseAgentSkillCommandResult(envelope.result);
+};
+
+const invokeAgentSkillCli = async (
+  cliPath: string,
+  argv: readonly string[],
+  runCli: AgentSkillCliRunner,
+): Promise<AgentSkillCommandResult> => {
+  const processResult = await runCli({
+    executable: cliPath,
+    argv,
+    shell: false,
+  });
+  return parseSuccessEnvelope(processResult.stdout);
+};
+
+const selectedAgentsForResponse = (
+  response: number,
+): readonly SupportedAgentSkillTarget[] => {
+  switch (response) {
+    case 0:
+      return ["codex", "claude-code"];
+    case 1:
+      return ["codex"];
+    case 2:
+      return ["claude-code"];
+    default:
+      return [];
+  }
+};
+
+const targetPathsDetail = (
+  status: AgentSkillCommandResult,
+  pathConfigured: boolean | undefined,
+): string => {
+  const paths = status.targets
+    .filter((target) =>
+      target.agent === "codex" || target.agent === "claude-code"
+    )
+    .map((target) => `${target.agent}: ${target.path}`);
+  const pathNote = pathConfigured === false
+    ? "\n\nThe Skill can be linked now, but Agents will need ~/.local/bin on PATH to run nodex."
+    : "";
+  return [
+    "Nodex manages only these global discovery locations:",
+    "",
+    ...paths,
+  ].join("\n") + pathNote;
+};
+
+const errorDetail = (error: unknown): string => {
+  if (error instanceof AgentSkillCliProcessError) {
+    try {
+      const envelope = JSON.parse(error.stderr) as CliErrorEnvelope;
+      const message = typeof envelope.error?.message === "string"
+        ? envelope.error.message
+        : error.message;
+      const path = typeof envelope.error?.path === "string"
+        ? `\n\nTarget: ${envelope.error.path}`
+        : "";
+      const code = typeof envelope.error?.code === "string"
+        ? `\n\nCode: ${envelope.error.code}`
+        : "";
+      return `${message}${path}${code}`;
+    } catch {
+      return error.stderr.trim() || error.message;
+    }
+  }
+  return error instanceof Error ? error.message : String(error);
+};
+
+export async function runAgentSkillSetup(
+  options: RunAgentSkillSetupOptions,
+): Promise<AgentSkillSetupResult> {
+  try {
+    const cliPath = assertPackagedCliPath(options.cliPath);
+    const runCli = options.runCli ?? runAgentSkillCli;
+    const status = await invokeAgentSkillCli(
+      cliPath,
+      ["--json", "skills", "status"],
+      runCli,
+    );
+    const configuredAgents = new Set(
+      status.targets
+        .filter((target) => AVAILABLE_TARGET_STATES.has(target.state))
+        .map((target) => target.agent),
+    );
+    if (
+      options.onlyWhenMissing
+      && configuredAgents.has("codex")
+      && configuredAgents.has("claude-code")
+    ) {
+      return {
+        status: "already-configured",
+        commandResult: status,
+      };
+    }
+
+    const selection = await options.showMessageBox({
+      type: "question",
+      buttons: [
+        "Install for Codex + Claude Code",
+        "Codex only",
+        "Claude Code only",
+        "Not now",
+      ],
+      defaultId: 0,
+      cancelId: 3,
+      noLink: true,
+      message: "Set up the official Nodex Agent Skill?",
+      detail: targetPathsDetail(status, options.pathConfigured),
+    });
+    const agents = selectedAgentsForResponse(selection.response);
+    if (agents.length === 0) {
+      return { status: "cancelled", commandResult: status };
+    }
+
+    const argv = ["--json", "skills", "install"];
+    for (const agent of agents) {
+      argv.push("--agent", agent);
+    }
+    argv.push("--yes");
+    const installed = await invokeAgentSkillCli(cliPath, argv, runCli);
+    const installedTargets = installed.targets
+      .map((target) => `${target.agent}: ${target.path} (${target.outcome})`)
+      .join("\n");
+    await options.showMessageBox({
+      type: "info",
+      buttons: ["OK"],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+      message: installed.changed
+        ? "The official Nodex Agent Skill was set up."
+        : "The official Nodex Agent Skill is already available.",
+      detail: installedTargets,
+    });
+    return {
+      status: "installed",
+      commandResult: installed,
+    };
+  } catch (error) {
+    await options.showMessageBox({
+      type: "error",
+      buttons: ["OK"],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+      message: "Could not set up the official Nodex Agent Skill.",
+      detail: errorDetail(error),
+    });
+    return { status: "failed" };
+  }
+}

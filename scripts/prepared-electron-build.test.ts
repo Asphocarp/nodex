@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { afterEach, describe, expect, test } from "vitest";
 import {
   recordPreparedElectronBuild,
@@ -9,6 +10,65 @@ import {
 
 const temporaryRoots: string[] = [];
 
+const skillFiles = [
+  "SKILL.md",
+  "agents/openai.yaml",
+  "references/nested-markdown.md",
+  "references/page-editor.md",
+  "references/project-database-views.md",
+  "references/troubleshooting.md",
+] as const;
+
+const writeAgentSkillsArtifact = (repositoryRoot: string): void => {
+  const files = new Map(
+    skillFiles.map((relativePath) => [
+      relativePath,
+      Buffer.from(`${relativePath}\n`, "utf8"),
+    ]),
+  );
+  const hash = createHash("sha256");
+  for (const relativePath of [...files.keys()].sort()) {
+    const contents = files.get(relativePath);
+    if (!contents) throw new Error(`Missing test Skill file: ${relativePath}`);
+    hash.update(relativePath);
+    hash.update("\0");
+    hash.update(String(contents.byteLength));
+    hash.update("\0");
+    hash.update(contents);
+    hash.update("\0");
+  }
+  const skillRoot = path.join(
+    repositoryRoot,
+    ".generated/official-agent-skills/skills/nodex",
+  );
+  for (const [relativePath, contents] of files) {
+    const destination = path.join(skillRoot, relativePath);
+    fs.mkdirSync(path.dirname(destination), { recursive: true });
+    fs.writeFileSync(destination, contents);
+  }
+  const artifactRoot = path.join(repositoryRoot, ".generated/official-agent-skills");
+  fs.writeFileSync(path.join(artifactRoot, "README.md"), "README\n");
+  fs.writeFileSync(path.join(artifactRoot, "LICENSE"), "LICENSE\n");
+  fs.writeFileSync(
+    path.join(artifactRoot, "release-manifest.json"),
+    `${JSON.stringify({
+      schemaVersion: 1,
+      distribution: "NodexApp/skills",
+      product: { name: "Nodex", releaseVersion: "1.2.3" },
+      source: { repository: "NodexApp/nodex", ref: "v1.2.3" },
+      agentInterface: { minimumRevision: 1, maximumRevision: 1 },
+      skills: [{
+        name: "nodex",
+        path: "skills/nodex",
+        treeSha256: hash.digest("hex"),
+        fileCount: files.size,
+        totalBytes: [...files.values()]
+          .reduce((total, contents) => total + contents.byteLength, 0),
+      }],
+    }, null, 2)}\n`,
+  );
+};
+
 const makeFixture = (): {
   manifestPath: string;
   repositoryRoot: string;
@@ -16,6 +76,7 @@ const makeFixture = (): {
   const repositoryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-prepared-build-"));
   temporaryRoots.push(repositoryRoot);
   const requiredInputs = [
+    "agent-skills/nodex/SKILL.md",
     "config/value.ts",
     "packages/codex-app-server-protocol/value.ts",
     "packages/core-protocol/value.ts",
@@ -33,15 +94,22 @@ const makeFixture = (): {
     "scripts/generate-third-party-notices.ts",
     "scripts/legacy-profile-migrator/value.ts",
     "scripts/legacy-profile-migrator-artifacts.ts",
+    "scripts/official-agent-skills-artifact.d.mts",
+    "scripts/official-agent-skills-artifact.mjs",
+    "scripts/official-agent-skills.ts",
     "scripts/prepared-electron-build.ts",
     "scripts/sync-app-icons.ts",
     "src/value.ts",
+    "src/shared/nfm/agent-guide.ts",
+    "src/shared/nfm/parser.ts",
+    "src/shared/nfm/serializer.ts",
     "third_party/blocknote/packages/value.ts",
     "crates/example/Cargo.toml",
     "crates/example/src/lib.rs",
     ".node-version",
     "Cargo.lock",
     "Cargo.toml",
+    "LICENSE",
     "electron-builder.yml",
     "electron.vite.config.ts",
     "package.json",
@@ -65,6 +133,7 @@ const makeFixture = (): {
     `${JSON.stringify({ name: "nodex", version: "1.2.3" })}\n`,
     "utf8",
   );
+  writeAgentSkillsArtifact(repositoryRoot);
   return {
     repositoryRoot,
     manifestPath: path.join(repositoryRoot, ".generated/prepared.json"),
@@ -113,6 +182,24 @@ describe("prepared Electron build", () => {
     recordPreparedElectronBuild(fixture);
     fs.writeFileSync(path.join(fixture.repositoryRoot, "out/main/extra.js"), "extra\n");
     expect(() => verifyPreparedElectronBuild(fixture)).toThrow("outputs are stale or damaged");
+  });
+
+  test("binds the exact generated Agent Skills artifact", () => {
+    const fixture = makeFixture();
+    const recorded = recordPreparedElectronBuild(fixture);
+
+    expect(recorded.agentSkills.treeSha256).toMatch(/^[a-f0-9]{64}$/u);
+    fs.appendFileSync(
+      path.join(
+        fixture.repositoryRoot,
+        ".generated/official-agent-skills/skills/nodex/SKILL.md",
+      ),
+      "tampered\n",
+    );
+
+    expect(() => verifyPreparedElectronBuild(fixture)).toThrow(
+      "tree does not match its release manifest",
+    );
   });
 
   test("refuses to bind outputs to a different pre-build input digest", () => {

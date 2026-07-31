@@ -10,6 +10,33 @@ import {
 } from "../shared/workbench-commands";
 
 export const TOGGLE_BOTTOM_PANEL_MENU_ITEM_ID = "view.toggleBottomPanel";
+export const INSTALL_CLI_MENU_ITEM_ID = "app.installCli";
+export const SET_UP_AGENT_SKILLS_MENU_ITEM_ID = "app.setupAgentSkills";
+
+interface NodexSetupMenuOptions {
+  enabled: boolean;
+  onInstallCli: () => void;
+  onSetupAgentSkills: () => void;
+}
+
+export function buildNodexSetupMenuItems(
+  options: NodexSetupMenuOptions,
+): MenuItemConstructorOptions[] {
+  return [
+    {
+      id: INSTALL_CLI_MENU_ITEM_ID,
+      label: "Install Command Line Tool…",
+      enabled: options.enabled,
+      click: options.onInstallCli,
+    },
+    {
+      id: SET_UP_AGENT_SKILLS_MENU_ITEM_ID,
+      label: "Set Up Agent Skills…",
+      enabled: options.enabled,
+      click: options.onSetupAgentSkills,
+    },
+  ];
+}
 
 interface WindowFileMenuOptions {
   commandKeymapState: CommandKeymapState;

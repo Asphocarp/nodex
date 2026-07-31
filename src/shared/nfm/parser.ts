@@ -22,7 +22,7 @@ import { normalizeOrderedListStart } from "./ordered-list";
 import { parseInlineContent } from "./parser-inline";
 import { tryParseGfmTable, tryParseNfmTableXml } from "./table";
 import { getXmlAttr } from "./xml-attributes";
-import { parsePageDeepLink } from "../page-deeplink";
+import { parsePageDeepLink } from "../nodex-deeplink";
 
 /**
  * Parse a Notion-flavored Markdown string into a block tree.

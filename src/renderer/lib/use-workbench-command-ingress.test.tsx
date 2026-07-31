@@ -109,6 +109,7 @@ describe("useWorkbenchCommandIngress", () => {
     const onReminderOpen = vi.fn();
     const onPageDeepLinkOpen = vi.fn();
     const onSessionDeepLinkOpen = vi.fn();
+    const onViewDeepLinkOpen = vi.fn();
     const onRequestNewWindow = vi.fn();
     Object.defineProperty(window, "api", {
       configurable: true,
@@ -131,6 +132,7 @@ describe("useWorkbenchCommandIngress", () => {
       onReminderOpen,
       onPageDeepLinkOpen,
       onSessionDeepLinkOpen,
+      onViewDeepLinkOpen,
       onRequestNewWindow,
     }));
     act(() => {
@@ -146,6 +148,10 @@ describe("useWorkbenchCommandIngress", () => {
       handlers["deeplink:open-session"]?.({
         projectId: null,
         sessionId: "session:projectless",
+      });
+      handlers["deeplink:open-view"]?.({
+        projectId: "beta",
+        viewId: "view-2",
       });
       handlers["window:new"]?.();
       handlers["reminder:open"]?.({
@@ -172,6 +178,10 @@ describe("useWorkbenchCommandIngress", () => {
     expect(onSessionDeepLinkOpen).toHaveBeenCalledWith({
       projectId: null,
       sessionId: "session:projectless",
+    });
+    expect(onViewDeepLinkOpen).toHaveBeenCalledWith({
+      projectId: "beta",
+      viewId: "view-2",
     });
     expect(onRequestNewWindow).toHaveBeenCalledOnce();
   });

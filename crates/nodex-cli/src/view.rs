@@ -1,0 +1,528 @@
+use std::collections::BTreeMap;
+use std::fmt::Write as _;
+use std::path::Path;
+
+use nodex_core_contracts::collection::{CollectionWindowRequest, MAX_COLLECTION_WINDOW_ITEMS};
+use nodex_core_contracts::database::{
+    DatabaseGroupScope, DatabaseRead, DatabaseReadMode, DatabaseReadValue, DatabaseTarget,
+    DatabaseViewContext, DatabaseViewContextRow,
+};
+use nodex_core_contracts::workspace::ProjectWorkspaceProject;
+use nodex_core_protocol::client::CoreClient;
+use serde::Serialize;
+use serde_json::Value;
+
+use crate::cli::ViewQueryArgs;
+use crate::error::{CliError, CliErrorCode};
+use crate::runtime::{CommandOutput, selected_project, unwrap_database};
+
+const VIEW_QUERY_SCHEMA_VERSION: u32 = 1;
+const MAX_VIEW_SELECTOR_CANDIDATES: usize = 10_000;
+
+pub(crate) fn query(
+    client: &CoreClient,
+    explicit_project: Option<&str>,
+    cwd: &Path,
+    arguments: ViewQueryArgs,
+    json_output: bool,
+) -> Result<CommandOutput, CliError> {
+    let project = selected_project(client, explicit_project, cwd)?;
+    let view_id = resolve_view_selector(client, &project, &arguments.view)?;
+    let group_scope = match (arguments.group, arguments.unassigned) {
+        (Some(key), false) => Some(DatabaseGroupScope::Key {
+            key: validate_group_key(key)?,
+        }),
+        (None, true) => Some(DatabaseGroupScope::Unassigned),
+        (None, false) => None,
+        (Some(_), true) => {
+            return Err(CliError::new(
+                CliErrorCode::InvalidInput,
+                "--group and --unassigned are mutually exclusive",
+            ));
+        }
+    };
+    let snapshot = unwrap_database(client.database_read(
+        Some(&project.id),
+        DatabaseRead {
+            target: DatabaseTarget::View { view_id },
+            mode: DatabaseReadMode::ViewContext,
+            filter: None,
+            sort: None,
+            window: Some(CollectionWindowRequest {
+                after: arguments.after,
+                first: arguments.limit,
+            }),
+            page_ids: None,
+            group_scope,
+        },
+    ))?;
+    let DatabaseReadValue::ViewContext { value } = snapshot.value else {
+        return Err(internal("Core returned the wrong saved View context"));
+    };
+    let output = project_context(value)?;
+    if json_output {
+        return serde_json::to_value(output)
+            .map(CommandOutput::Json)
+            .map_err(internal);
+    }
+    Ok(CommandOutput::Text(render_human(&output)))
+}
+
+pub(crate) fn resolve_view_selector(
+    client: &CoreClient,
+    project: &ProjectWorkspaceProject,
+    selector: &str,
+) -> Result<String, CliError> {
+    if let Some(view_id) = selector.strip_prefix('@') {
+        return validate_stable_id(view_id, "View selector");
+    }
+    if selector.is_empty() || selector.len() > 4_096 || selector.trim() != selector {
+        return Err(CliError::new(
+            CliErrorCode::InvalidInput,
+            "a View name selector must be a non-empty bounded exact name",
+        ));
+    }
+
+    let mut database_cursor = None;
+    let mut database_ids = Vec::new();
+    loop {
+        let snapshot = unwrap_database(client.database_read(
+            Some(&project.id),
+            DatabaseRead {
+                target: DatabaseTarget::ProjectDefault,
+                mode: DatabaseReadMode::CatalogWindow,
+                filter: None,
+                sort: None,
+                window: Some(CollectionWindowRequest {
+                    after: database_cursor,
+                    first: Some(MAX_COLLECTION_WINDOW_ITEMS),
+                }),
+                page_ids: None,
+                group_scope: None,
+            },
+        ))?;
+        let DatabaseReadValue::CatalogWindow { databases } = snapshot.value else {
+            return Err(internal(
+                "Core returned the wrong Database catalog for View resolution",
+            ));
+        };
+        for database in databases.items {
+            let database_id = required_string(&database, "/database/databaseId")?;
+            database_ids.push(database_id);
+            enforce_candidate_budget(database_ids.len())?;
+        }
+        let Some(next_cursor) = databases.next_cursor else {
+            break;
+        };
+        database_cursor = Some(next_cursor);
+    }
+
+    let mut matches = Vec::new();
+    for database_id in database_ids {
+        let mut view_cursor = None;
+        loop {
+            let snapshot = unwrap_database(client.database_read(
+                Some(&project.id),
+                DatabaseRead {
+                    target: DatabaseTarget::Database {
+                        database_id: database_id.clone(),
+                    },
+                    mode: DatabaseReadMode::ViewDescriptorWindow,
+                    filter: None,
+                    sort: None,
+                    window: Some(CollectionWindowRequest {
+                        after: view_cursor,
+                        first: Some(MAX_COLLECTION_WINDOW_ITEMS),
+                    }),
+                    page_ids: None,
+                    group_scope: None,
+                },
+            ))?;
+            let DatabaseReadValue::ViewDescriptorWindow { views } = snapshot.value else {
+                return Err(internal("Core returned the wrong View descriptor window"));
+            };
+            for view in views.items {
+                if view.get("name").and_then(Value::as_str) != Some(selector) {
+                    continue;
+                }
+                matches.push(required_string(&view, "/viewId")?);
+                enforce_candidate_budget(matches.len())?;
+            }
+            let Some(next_cursor) = views.next_cursor else {
+                break;
+            };
+            view_cursor = Some(next_cursor);
+        }
+    }
+    resolve_unique_name(selector, matches)
+}
+
+fn resolve_unique_name(selector: &str, mut matches: Vec<String>) -> Result<String, CliError> {
+    matches.sort();
+    matches.dedup();
+    match matches.as_slice() {
+        [] => Err(CliError::new(
+            CliErrorCode::ScopeNotFound,
+            format!("no authorized View matches '{selector}'"),
+        )),
+        [view_id] => Ok(view_id.clone()),
+        _ => Err(CliError::new(
+            CliErrorCode::ScopeAmbiguous,
+            format!(
+                "View name '{selector}' matches multiple Views: {}",
+                matches.join(", ")
+            ),
+        )),
+    }
+}
+
+fn enforce_candidate_budget(count: usize) -> Result<(), CliError> {
+    if count <= MAX_VIEW_SELECTOR_CANDIDATES {
+        return Ok(());
+    }
+    Err(CliError::new(
+        CliErrorCode::ScopeBudgetExceeded,
+        format!("View resolution exceeds the {MAX_VIEW_SELECTOR_CANDIDATES}-candidate limit"),
+    ))
+}
+
+fn validate_stable_id(value: &str, label: &str) -> Result<String, CliError> {
+    if value.is_empty() || value.len() > 512 || value.trim() != value {
+        return Err(CliError::new(
+            CliErrorCode::InvalidInput,
+            format!("{label} must contain one bounded stable identity"),
+        ));
+    }
+    Ok(value.to_owned())
+}
+
+fn validate_group_key(value: String) -> Result<String, CliError> {
+    validate_stable_id(&value, "View group key")
+}
+
+fn required_string(value: &Value, pointer: &str) -> Result<String, CliError> {
+    value
+        .pointer(pointer)
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| internal(format!("Core descriptor omitted {pointer}")))
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ViewQueryOutput {
+    schema_version: u32,
+    database: NamedIdentity,
+    data_source: NamedIdentity,
+    view: ViewIdentity,
+    properties: Vec<Value>,
+    grouped: bool,
+    total_rows: i64,
+    groups_truncated: bool,
+    groups: Vec<ViewGroupOutput>,
+    rows: Vec<ViewRowOutput>,
+    page_info: ViewPageInfo,
+}
+
+#[derive(Debug, Serialize)]
+struct NamedIdentity {
+    id: String,
+    name: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ViewIdentity {
+    id: String,
+    name: String,
+    kind: String,
+    database_id: String,
+    data_source_id: String,
+    grouping_property_id: Option<String>,
+    config: Value,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ViewGroupOutput {
+    key: Option<String>,
+    label: String,
+    total_rows: i64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ViewRowOutput {
+    page_id: String,
+    title: String,
+    description_preview: String,
+    values: BTreeMap<String, Value>,
+    intrinsic_properties: BTreeMap<String, Value>,
+    effective_group_key: Option<String>,
+    position: ViewRowPosition,
+    etags: ViewRowEtags,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ViewRowPosition {
+    rank_key: Option<String>,
+    revision: Option<i64>,
+    order: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+struct ViewRowEtags {
+    r#move: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ViewPageInfo {
+    has_next_page: bool,
+    end_cursor: Option<String>,
+    projection_revision: i64,
+}
+
+fn project_context(context: DatabaseViewContext) -> Result<ViewQueryOutput, CliError> {
+    let database = NamedIdentity {
+        id: required_string(&context.database, "/databaseId")?,
+        name: required_string(&context.database, "/name")?,
+    };
+    let data_source = NamedIdentity {
+        id: required_string(&context.data_source, "/dataSourceId")?,
+        name: required_string(&context.data_source, "/name")?,
+    };
+    let grouping_property_id = context
+        .view
+        .pointer("/config/group/propertyId")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    let labels = group_labels(&context.properties, grouping_property_id.as_deref());
+    let groups = context
+        .groups
+        .groups
+        .into_iter()
+        .map(|group| ViewGroupOutput {
+            label: group
+                .group_key
+                .as_deref()
+                .and_then(|key| labels.get(key))
+                .cloned()
+                .unwrap_or_else(|| {
+                    group
+                        .group_key
+                        .clone()
+                        .unwrap_or_else(|| "Unassigned".to_owned())
+                }),
+            key: group.group_key,
+            total_rows: group.total_rows,
+        })
+        .collect();
+    let view = ViewIdentity {
+        id: required_string(&context.view, "/viewId")?,
+        name: required_string(&context.view, "/name")?,
+        kind: required_string(&context.view, "/kind")?,
+        database_id: required_string(&context.view, "/databaseId")?,
+        data_source_id: required_string(&context.view, "/dataSourceId")?,
+        grouping_property_id,
+        config: context
+            .view
+            .get("config")
+            .cloned()
+            .ok_or_else(|| internal("Core View descriptor omitted config"))?,
+    };
+    let rows = context.rows.items.into_iter().map(project_row).collect();
+    let end_cursor = context.rows.next_cursor;
+    Ok(ViewQueryOutput {
+        schema_version: VIEW_QUERY_SCHEMA_VERSION,
+        database,
+        data_source,
+        view,
+        properties: context.properties,
+        grouped: context.groups.grouped,
+        total_rows: context.groups.total_rows,
+        groups_truncated: context.groups.truncated,
+        groups,
+        rows,
+        page_info: ViewPageInfo {
+            has_next_page: end_cursor.is_some(),
+            end_cursor,
+            projection_revision: context.rows.authority.projection_revision,
+        },
+    })
+}
+
+fn project_row(row: DatabaseViewContextRow) -> ViewRowOutput {
+    ViewRowOutput {
+        page_id: row.summary.page_id,
+        title: row.summary.title,
+        description_preview: row.summary.description_preview,
+        values: row.summary.database_values,
+        intrinsic_properties: row.summary.intrinsic_properties,
+        effective_group_key: row.summary.effective_group_key,
+        position: ViewRowPosition {
+            rank_key: row.summary.rank_key,
+            revision: row.summary.position_revision,
+            order: row.summary.position_order,
+        },
+        etags: ViewRowEtags {
+            r#move: row.move_etag,
+        },
+    }
+}
+
+fn group_labels(
+    properties: &[Value],
+    grouping_property_id: Option<&str>,
+) -> BTreeMap<String, String> {
+    let Some(property_id) = grouping_property_id else {
+        return BTreeMap::new();
+    };
+    properties
+        .iter()
+        .find(|property| property.get("propertyId").and_then(Value::as_str) == Some(property_id))
+        .and_then(|property| property.pointer("/config/options"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|option| {
+            Some((
+                option.get("id")?.as_str()?.to_owned(),
+                option.get("name")?.as_str()?.to_owned(),
+            ))
+        })
+        .collect()
+}
+
+fn render_human(output: &ViewQueryOutput) -> String {
+    let mut rendered = format!(
+        "{} (@{}) · {} row{}\n",
+        output.view.name,
+        output.view.id,
+        output.total_rows,
+        if output.total_rows == 1 { "" } else { "s" }
+    );
+    for row in &output.rows {
+        let group = row.effective_group_key.as_deref().unwrap_or("unassigned");
+        let _ = writeln!(rendered, "{group}\t{}\t@{}", row.title, row.page_id);
+    }
+    if let Some(cursor) = &output.page_info.end_cursor {
+        let _ = writeln!(rendered, "next\t{cursor}");
+    }
+    rendered
+}
+
+fn internal(error: impl std::fmt::Display) -> CliError {
+    CliError::new(CliErrorCode::Internal, error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use nodex_core_contracts::collection::{CollectionWindow, CollectionWindowAuthority};
+    use nodex_core_contracts::database::{
+        DatabaseRowSummary, DatabaseViewGroupSummary, DatabaseViewGroups,
+    };
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn unique_view_names_return_stable_candidates() {
+        assert_eq!(
+            resolve_unique_name("Planning", vec!["view-1".to_owned()]).expect("unique View"),
+            "view-1"
+        );
+        let ambiguous =
+            resolve_unique_name("Planning", vec!["view-b".to_owned(), "view-a".to_owned()])
+                .expect_err("ambiguous View");
+        assert_eq!(ambiguous.code, CliErrorCode::ScopeAmbiguous);
+        assert!(ambiguous.message.ends_with("view-a, view-b"));
+    }
+
+    #[test]
+    fn context_projection_uses_option_labels_and_preserves_stable_group_keys() {
+        let context = DatabaseViewContext {
+            database: json!({ "databaseId": "database-1", "name": "Work" }),
+            data_source: json!({ "dataSourceId": "source-1", "name": "Tasks" }),
+            view: json!({
+                "viewId": "view-1",
+                "name": "Planning",
+                "kind": "kanban",
+                "databaseId": "database-1",
+                "dataSourceId": "source-1",
+                "config": {
+                    "filter": { "kind": "group", "operator": "and", "children": [] },
+                    "sort": [],
+                    "group": { "propertyId": "status" },
+                    "display": { "propertyIds": ["status"], "showTitle": true }
+                }
+            }),
+            properties: vec![json!({
+                "propertyId": "status",
+                "name": "Status",
+                "config": { "options": [{ "id": "triage", "name": "Triage" }] }
+            })],
+            groups: DatabaseViewGroups {
+                database_id: "database-1".to_owned(),
+                data_source_id: "source-1".to_owned(),
+                view_id: "view-1".to_owned(),
+                grouped: true,
+                total_rows: 1,
+                truncated: false,
+                groups: vec![DatabaseViewGroupSummary {
+                    group_key: Some("triage".to_owned()),
+                    total_rows: 1,
+                }],
+            },
+            rows: CollectionWindow {
+                items: vec![DatabaseViewContextRow {
+                    summary: row_summary(),
+                    move_etag: "nxe1.move".to_owned(),
+                }],
+                next_cursor: Some("nxc1.next".to_owned()),
+                authority: CollectionWindowAuthority {
+                    projection_revision: 42,
+                },
+            },
+        };
+
+        let output = project_context(context).expect("project View context");
+        assert_eq!(output.groups[0].key.as_deref(), Some("triage"));
+        assert_eq!(output.groups[0].label, "Triage");
+        assert_eq!(output.rows[0].etags.r#move, "nxe1.move");
+        assert!(output.page_info.has_next_page);
+        assert_eq!(output.page_info.projection_revision, 42);
+        let human = render_human(&output);
+        assert!(human.contains("triage\tShip\t@page-1"));
+    }
+
+    fn row_summary() -> DatabaseRowSummary {
+        DatabaseRowSummary {
+            page_id: "page-1".to_owned(),
+            lifecycle: "active".to_owned(),
+            title: "Ship".to_owned(),
+            rich_title: json!([]),
+            description_preview: String::new(),
+            description_length: 0,
+            has_description: false,
+            database_values: BTreeMap::from([("status".to_owned(), json!("triage"))]),
+            intrinsic_properties: BTreeMap::new(),
+            database_value_revisions: BTreeMap::from([("status".to_owned(), 1)]),
+            metadata_revision: 1,
+            parent_revision: 1,
+            document_id: "document-1".to_owned(),
+            document_generation: 1,
+            document_head_seq: 1,
+            membership_id: "membership-1".to_owned(),
+            membership_revision: 1,
+            membership_created_at: "2026-07-31T00:00:00Z".to_owned(),
+            created_at: "2026-07-31T00:00:00Z".to_owned(),
+            updated_at: "2026-07-31T00:00:00Z".to_owned(),
+            effective_group_key: Some("triage".to_owned()),
+            rank_key: Some("a".to_owned()),
+            position_revision: Some(1),
+            position_order: Some(0),
+        }
+    }
+}

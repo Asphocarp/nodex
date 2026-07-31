@@ -2008,6 +2008,7 @@ export function renderWorkbench({
   sidebar,
   initialSelectedSessionId = null,
   workbenchCommandRequest = null,
+  pendingViewDeepLinkOpen = null,
   libraryWorkspaceEnabled = false,
   onNavigationStateChange,
   cardGetOverride = null,
@@ -2034,6 +2035,9 @@ export function renderWorkbench({
   };
   initialSelectedSessionId?: string | null;
   workbenchCommandRequest?: WorkbenchCommandRequest | null;
+  pendingViewDeepLinkOpen?: ComponentProps<
+    typeof WorkbenchShell
+  >["pendingViewDeepLinkOpen"];
   libraryWorkspaceEnabled?: boolean;
   onNavigationStateChange?: ComponentProps<typeof WorkbenchShell>["onNavigationStateChange"];
   cardGetOverride?: ((projectId: string, pageId: string) => Promise<unknown> | unknown) | null;
@@ -3104,6 +3108,9 @@ export function renderWorkbench({
       },
     }));
     const commandPortRef = useRef<WorkbenchCommandPort | null>(null);
+    const [pendingViewOpen, setPendingViewOpen] = useState(
+      pendingViewDeepLinkOpen,
+    );
     const initialWorkbenchCommandConsumedRef = useRef(false);
     requestWorkbenchNavigation = (direction, source = direction === "back" ? "sidebar_back" : "sidebar_forward") => {
       commandPortRef.current?.navigate(direction, source);
@@ -3169,6 +3176,8 @@ export function renderWorkbench({
         dbViewPrefsByProject={dbViewPrefsByProject}
         sidebar={sidebarState}
         pageStageCloseRef={createRef()}
+        pendingViewDeepLinkOpen={pendingViewOpen}
+        onViewDeepLinkHandled={() => setPendingViewOpen(null)}
         setDbViewPrefs={() => undefined}
         openPageStage={() => undefined}
         onLeavePageStage={() => undefined}

@@ -482,10 +482,13 @@ pub(super) fn prepare(
             connection,
             library_id,
             store_epoch,
-            event_head,
-            &page_id,
-            LibraryPageFileKind::BodyNestedMarkdown,
-            None,
+            super::page_projection::PageFileRequest {
+                event_head,
+                requesting_project_id: Some(project_id),
+                page_id: &page_id,
+                kind: LibraryPageFileKind::BodyNestedMarkdown,
+                prepare: None,
+            },
         ) {
             Ok(body) => body,
             Err(error)
@@ -517,10 +520,13 @@ pub(super) fn prepare(
             connection,
             library_id,
             store_epoch,
-            event_head,
-            &page_id,
-            LibraryPageFileKind::MetaYaml,
-            None,
+            super::page_projection::PageFileRequest {
+                event_head,
+                requesting_project_id: Some(project_id),
+                page_id: &page_id,
+                kind: LibraryPageFileKind::MetaYaml,
+                prepare: None,
+            },
         )?;
         let metadata = meta
             .metadata

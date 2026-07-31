@@ -8,7 +8,7 @@ use crate::agent::AgentExecutionAuthorization;
 use crate::collection::{CollectionWindow, CollectionWindowRequest};
 use crate::{ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const DATABASE_CONTRACT_VERSION: u32 = 4;
+pub const DATABASE_CONTRACT_VERSION: u32 = 5;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -54,6 +54,7 @@ pub enum DatabaseReadMode {
     AgentQuery,
     ViewWindow,
     ViewGroups,
+    ViewContext,
     RowsById,
     RowDetail,
 }
@@ -122,6 +123,9 @@ pub enum DatabaseReadValue {
     ViewGroups {
         value: DatabaseViewGroups,
     },
+    ViewContext {
+        value: DatabaseViewContext,
+    },
     RowsById {
         value: DatabaseRowsById,
     },
@@ -161,6 +165,22 @@ pub struct DatabaseViewGroupSummary {
 }
 
 pub const MAX_VIEW_GROUP_SUMMARIES: usize = 200;
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
+pub struct DatabaseViewContext {
+    pub database: Value,
+    pub data_source: Value,
+    pub view: Value,
+    pub properties: Vec<Value>,
+    pub groups: DatabaseViewGroups,
+    pub rows: CollectionWindow<DatabaseViewContextRow>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct DatabaseViewContextRow {
+    pub summary: DatabaseRowSummary,
+    pub move_etag: String,
+}
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct DatabaseRowsById {

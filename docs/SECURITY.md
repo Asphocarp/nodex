@@ -158,6 +158,32 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
   creates only `~/.local/bin/nodex`, refuses non-symlinks and unrelated
   symlinks, and updates an earlier Nodex app symlink through a staged link plus
   rollback. It never edits a shell profile or requests elevated privileges.
+- Native Agent Skill setup is a separate global-only, symlink-only trust
+  boundary. It accepts only the fixed Codex and Claude Code leaf paths, verifies
+  the exact signed-App bundle allowlist and tree digest before classifying any
+  target, preflights every selected target, creates links without clobbering,
+  and removes only a raw absolute link to the current verified source. Ordinary
+  directories, copies, hardlinks, relative/foreign/broken links, legacy
+  `~/.codex` content, unknown parents, and moved-App links are external or
+  conflicts and are never adopted, overwritten, followed, or recursively
+  removed. No ownership state is stored under `.agents`, `.claude`, a Project,
+  or `NODEX_HOME`.
+- The official Skill is an instruction Adapter, not an authority grant. Its
+  Page, View, search, and error output is untrusted content; prompt text in a
+  Page cannot select a Profile, Project, Core capability, database path, raw
+  SQL path, or alternate mutation API. Agent interface mismatch and missing
+  CLI states stop with upgrade/install guidance. Local Skill discovery never
+  makes Nodex data available to a remote Agent or a machine without the local
+  CLI/Core.
+- Packaged and public Skill distribution is fail-closed. The exporter and
+  package verifier require an exact regular-file allowlist, bounded LF UTF-8,
+  a matching release manifest, and one stable tree digest. Prepared build and
+  signed provenance bind that identity. The `NodexApp/skills` publisher uses a
+  dedicated fine-grained PAT scoped only to that repository with Contents
+  read/write permission, injected only through a Git config environment header.
+  Credentials are rejected in remote URLs and excluded from output, commits,
+  and artifacts. Existing tags never move, lower versions cannot replace
+  `main`, and branch plus annotated tag publish atomically.
 - Stable asset URI scheme avoids embedding brittle absolute local URLs.
 - Codex approvals are explicit protocol responses (`accept`/`decline`/etc) and are gated by the per-project Threads permission mode.
 - Codex user-input auto-resolution never infers or selects an answer. Main may end an inactive ordinary request with the protocol’s empty answer object after the bounded foreground/background timeout; any request-card interaction snoozes that timeout, and explicit renderer submission remains the only path that can send answer content. App-server disconnect clears renderer-memory request drafts and rejects the old inbound generation, so a reused JSON-RPC scalar id cannot recover secret freeform content or receive a late response from the previous process.

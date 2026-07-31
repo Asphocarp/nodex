@@ -11,6 +11,7 @@ interface ElectronBuilderFileSet {
 }
 
 interface ElectronBuilderConfig {
+  readonly afterPack?: string;
   readonly extraResources?: readonly ElectronBuilderFileSet[];
   readonly mac?: {
     readonly binaries?: readonly string[];
@@ -18,13 +19,19 @@ interface ElectronBuilderConfig {
 }
 
 describe("electron-builder runtime resources", () => {
-  test("mounts the Agent package at Resources and signs one shared ripgrep", () => {
+  test("mounts the exact Agent runtime and Skill artifacts at Resources", () => {
     const configPath = path.resolve("electron-builder.yml");
     const config = load(fs.readFileSync(configPath, "utf8")) as ElectronBuilderConfig;
 
+    expect(config.afterPack).toBe("scripts/restore-packaged-runtime-closure.mjs");
     expect(config.extraResources).toContainEqual({
       from: ".generated/codex-runtime/agent-runtime",
       to: ".",
+      filter: ["**/*"],
+    });
+    expect(config.extraResources).toContainEqual({
+      from: ".generated/official-agent-skills",
+      to: "agent-skills",
       filter: ["**/*"],
     });
     expect(config.mac?.binaries).toContain("Contents/Resources/codex-path/rg");

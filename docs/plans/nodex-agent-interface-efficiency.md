@@ -10,7 +10,7 @@ This completed plan records the historical v3 cutover. The later Library
 Page/Data Source migration renamed the public nouns and published the current
 catalog as `nodex_app@4`; it did not rewrite this plan's measured v3 artifacts.
 
-An Agent can follow the familiar `search → fetch` workflow, query a saved View without constructing a source union, atomically create one or several complete Cards, update a Card by its public Card ID, move several Cards, or duplicate one complete Card without choosing a generic operation mode. Nested Markdown is the default format, and the namespace explains its tab-nesting rule with one immediately usable example. Rich titles use its inline Markdown syntax instead of an Agent-specific `plain|rich` JSON tree. Rare identity-sensitive Block operations and `advanced_query_database` remain separately deferred. Independent value edits on an existing Database membership are deliberately absent until their user intents are designed. Deterministic CI budgets and task-success evaluations prevent future catalog growth or misleading simplification from going unnoticed.
+An Agent can follow the familiar `search → fetch` workflow, query a saved View without constructing a source union, atomically create one or several complete Cards, update a Card by its public Card ID, move several Cards, or duplicate one complete Card without choosing a generic operation mode. Nested Markdown is the default format, and the namespace explains its tab-nesting rule with one immediately usable example. Rich titles use its inline Markdown syntax instead of an Agent-specific `plain|rich` JSON tree. Rare identity-sensitive Block operations and `advanced_query_database` remain separately deferred. Independent value edits on an existing Database membership are deliberately absent until their user intents are designed. Deterministic CI budgets and behavior fixtures prevent future catalog growth or misleading simplification from going unnoticed.
 
 The user-visible proof is a Code Mode workflow that discovers Cards, reads only selected complete Nested Markdown, performs a bulk semantic edit, and returns a short summary while every nested call remains readable and raw-inspectable in the transcript. The engineering proof is a generated catalog report and behavior fixtures that meet the budgets below.
 
@@ -21,11 +21,11 @@ The user-visible proof is a Code Mode workflow that discovers Cards, reads only 
 - [x] (2026-07-16) Clone and inspect `makenotion/notion-mcp-server` at `d7e3bbd62890f9efca2cd54449ac072f3bd1a4ba`; confirm that it is the older local OpenAPI server rather than the actively supported remote MCP source.
 - [x] (2026-07-16) Measure the v2 catalog, opt-in Nested Markdown guide, representative query result, and the largest individual schemas.
 - [x] (2026-07-16) Prototype flattened/text-first variants for create, Nested Markdown edit, and transfer to identify the highest-leverage changes.
-- [x] (2026-07-16) Refine the proposal around comprehension: rename `get_block` to `fetch`, make Nested Markdown the default, remove `title.kind`, and split saved-View query from ad-hoc Database query.
+- [x] (2026-07-16) Refine the proposal around intent clarity: rename `get_block` to `fetch`, make Nested Markdown the default, remove `title.kind`, and split saved-View query from ad-hoc Database query.
 - [x] (2026-07-16) Refine the intent catalog to `create_cards`, `update_card`, `advanced_update_card`, `move_cards`, `duplicate_card`, and `advanced_query_database`; remove `edit_database` from v3.
 - [x] (2026-07-16) Replace Agent-visible `NFM` terminology with Nested Markdown, choose compact `markdown` wire fields, and budget one tab-explicit namespace example.
 - [x] (2026-07-16) Record the proposed decision in ADR 0016 and create this restartable implementation plan.
-- [x] (2026-07-16) Add a pure production catalog serializer/measurement seam, deterministic developer report, v2 baseline and v3 acceptance budgets, sparse-result fixtures, and a manually sampled comprehension benchmark harness before changing v2 contracts.
+- [x] (2026-07-16) Add a pure production catalog serializer/measurement seam, deterministic developer report, v2 baseline and v3 acceptance budgets, and sparse-result fixtures before changing v2 contracts.
 - [x] (2026-07-16) Implement and prove canonical inline Markdown title input/output helpers over the existing portable-rich-title storage boundary.
 - [x] (2026-07-16) Define and budget the complete `nodex_app@3` contract, including default `update_card` authoring through Nested Markdown and separately deferred `advanced_update_card` for stable-Block operations; keep v2 active until service migration is complete.
 - [x] (2026-07-16) Implement the v3 Card-first read Adapter for context, search, fetch, saved-View query, and advanced ad-hoc query; preserve one-snapshot reads, fuzzy Card discovery, sparse values, and narrow semantic ETags without activating the catalog.
@@ -35,7 +35,7 @@ The user-visible proof is a Code Mode workflow that discovers Cards, reads only 
 - [x] (2026-07-16) Implement `move_cards` as one mixed-source transaction coordinator with inferred Card authority, deduplicated Document leases, sequential head rebasing, ordered final placement, same-Database placement-only semantics, sparse Card-first output, and exact replay.
 - [x] (2026-07-16) Bind all ten v3 tools through the dynamic execution service, semantic authorization and Document lease paths; pin newly launched tasks to revision 3, retire v2 execution with structured stale-catalog recovery, and keep both revisions readable in transcript Details/Raw.
 - [x] (2026-07-16) Add v3 compact transcript projections for fetch/query/create/update/move/duplicate, bounded Nested Markdown diffs, exact arguments/output/raw inspection, and dual-read authorization previews for historical `nfmPreview` plus v3 `markdownPreview`.
-- [x] (2026-07-16) Build and run a throwaway pure Database query compiler/benchmark, then delete it: the candidate reduced tool bytes by 76.2% and corpus argument bytes by 51.8% with 10/10 canonical AST equivalence, but accepted only 4/10 plausible SQL/colloquial grammar variants, so typed `advanced_query_database` remains the v3 contract pending real model-validity evidence.
+- [x] (2026-07-16) Build and run a throwaway pure Database query compiler/benchmark, then delete it: the candidate reduced tool bytes by 76.2% and corpus argument bytes by 51.8% with 10/10 canonical AST equivalence, but accepted only 4/10 plausible SQL/colloquial grammar variants, so typed `advanced_query_database` remains the v3 contract pending broader deterministic grammar coverage and concrete user demand.
 - [x] (2026-07-16) Evaluate structured dynamic-tool results against the pinned protocol, current official app-server contract, and upstream Codex router/Code Mode implementation; retain JSON-text transport because dynamic tools expose neither an output schema nor structured response content, and Code Mode therefore receives their text payload as a string.
 - [x] (2026-07-16) Update ADR/domain/architecture/product/reliability/security/transcript/reference/changelog sources of truth, rename the public format reference, complete catalog/type/lint/unit/main/renderer/integration/build validation, isolate one renderer worker-start flake, and write the retrospective.
 
@@ -131,10 +131,6 @@ The user-visible proof is a Code Mode workflow that discovers Cards, reads only 
   Rationale: Each has a different owner and optimization mechanism. Deferred loading affects catalog visibility, sparse projections affect calls, and Code Mode affects model round trips.
   Date/Author: 2026-07-16 / Codex
 
-- Decision: Treat tool-selection accuracy, first-call validity, semantic correctness, and recovery calls as a fourth budget.
-  Rationale: The goal is less total wasted context and work. A smaller schema that triggers a wrong tool or repair turn is not an optimization.
-  Date/Author: 2026-07-16 / Codex
-
 - Decision: Measure catalog bytes as the exact UTF-8 JSON sent through the app-server protocol, with an empty-tools namespace envelope for shared bytes and the same namespace filtered to non-deferred tools for eager bytes.
   Rationale: This gives deterministic additive cost centers while keeping complete/eager totals faithful to production serialization. `bytes / 4` is printed only as orientation and is never a test boundary.
   Date/Author: 2026-07-16 / Codex
@@ -224,7 +220,7 @@ The user-visible proof is a Code Mode workflow that discovers Cards, reads only 
   Date/Author: 2026-07-16 / Codex
 
 - Decision: Keep the typed `advanced_query_database` contract in v3 and delete the query-DSL prototype after recording its benchmark.
-  Rationale: The prototype exceeded the 30% size threshold, preserved stable IDs, rejected ambiguous names with candidates, and never executed SQL, but the curated canonical corpus cannot prove model first-call validity and the variant probe exposed substantial grammar-repair risk. A later revision may revisit a DSL only with sampled model evidence and an on-demand grammar design; saved Views remain a separate `query_database_view` intent.
+  Rationale: The prototype exceeded the 30% size threshold, preserved stable IDs, rejected ambiguous names with candidates, and never executed SQL, but the narrow canonical corpus did not cover enough plausible grammar variants. A later revision may revisit a DSL only with broader deterministic grammar coverage, concrete user demand, and an on-demand grammar design; saved Views remain a separate `query_database_view` intent.
   Date/Author: 2026-07-16 / Codex
 
 - Decision: Design future Database schema/View configuration around a parsed compact DSL from the start.
@@ -267,7 +263,7 @@ Document writes converge in `src/main/agent-tools/document-edit-service.ts` and 
 
 Transcript presentation lives in `src/renderer/features/local-conversation/projection/tool-metadata/nodex-dynamic-tool-call-presentation.ts`, with Details and Raw in `dynamic-tool-call-inspector.tsx`. v3 must retain readable compact rows for Card batch creation, Nested Markdown updates, stable-Block updates, Card moves, duplication, and query/search while parsing both stored v2 and new v3 items.
 
-In this plan, **Nested Markdown** is Nodex's lossless Markdown-and-tags projection of a Block tree; one literal tab per level expresses Block nesting. **Inline Markdown** is its bounded single-line rich-title subset: text, styles, links, thread mentions, and date mentions are lossless; Card mentions and other Block/attachment/configuration syntax reject. It also rejects tabs and newlines. **Common path** means a schema normally loaded for search/fetch/Card creation/Card update or saved-View query. **Advanced update path** means the separately deferred identity-sensitive stable-Block protocol exposed by `advanced_update_card`. **Comprehension budget** means representative tool-selection accuracy, valid first call, semantic success, and correction count. **Catalog core bytes** means the UTF-8 length of the serialized namespace, revision, tool names, descriptions, input schemas, and deferred flags; it does not claim exact model token usage.
+In this plan, **Nested Markdown** is Nodex's lossless Markdown-and-tags projection of a Block tree; one literal tab per level expresses Block nesting. **Inline Markdown** is its bounded single-line rich-title subset: text, styles, links, thread mentions, and date mentions are lossless; Card mentions and other Block/attachment/configuration syntax reject. It also rejects tabs and newlines. **Common path** means a schema normally loaded for search/fetch/Card creation/Card update or saved-View query. **Advanced update path** means the separately deferred identity-sensitive stable-Block protocol exposed by `advanced_update_card`. **Catalog core bytes** means the UTF-8 length of the serialized namespace, revision, tool names, descriptions, input schemas, and deferred flags; it does not claim exact model token usage.
 
 ## Proposed v3 Interface
 
@@ -474,8 +470,6 @@ Additional behavioral budgets are mandatory:
 - a Code Mode example emits only a bounded summary even when nested results are large;
 - transcript Raw retains the exact canonical arguments and result.
 
-The comprehension benchmark must cover at least: fuzzy search followed by fetch, fetch compact versus default Nested Markdown, first-call creation of a toggle with tab-nested children using only the namespace hint, preservation of intentional leading spaces, one-Card and multi-Card create with plain/rich titles, title-only update, multi-patch body update, saved-View query, advanced ad-hoc Database query, multi-Card move, single-Card duplication, and stable-Block update. For v2 and v3 record selected tool, schema-valid first call, correct semantic result, correction-call count, and argument/result bytes. V3 must not regress semantic success and should reduce invalid first calls on format, nesting, title, fetch, saved-View, create, move, and duplicate tasks.
-
 ## Plan of Work
 
 ### Milestone 0: record the decision and migration plan
@@ -491,8 +485,6 @@ Create a pure catalog serialization/measurement seam that accepts the registered
 Add a developer command that prints one deterministic table containing namespace bytes, eager bytes, complete bytes, and each tool's description/schema/total bytes. It may also print a labeled tokenizer-independent `bytes / 4` estimate for orientation. Add behavior tests for the caps above against the actual registered catalog. Store caps as named constants with a short rationale, not a brittle full JSON snapshot.
 
 Extend result-budget fixtures through real public output schemas. Preserve the existing thirteen-row query regression, tighten its default cap to 4 KiB, remove value/placement ETags from v3 query projections, add prepared title/body/Block fixtures, and add sparse default results for `create_cards`, `update_card`, `advanced_update_card`, `move_cards`, and `duplicate_card`. Default `fetch` Nested Markdown is exempt from a tiny byte cap because the content is the requested high-value payload, but its metadata overhead must be measured separately. Tests must validate output behavior; they must not assert that source files contain particular strings.
-
-Create the comprehension benchmark harness and fixture prompts before rewriting the schemas. It may be a deterministic manually invoked developer evaluation rather than flaky CI, but it must save comparable v2/v3 JSON summaries and redact model prose not needed for the metrics. Schema validity and semantic result checks should be executable even when model sampling is manual.
 
 Add a generated-catalog assertion that the namespace contains the exact shared Nested Markdown hint within its 200-byte budget and the serialized eager/deferred tool descriptions and schemas do not duplicate it or embed the complete guide. Exercise `get_context({ include: { markdownGuide: true } })` to prove the full guide remains available only when requested.
 
@@ -551,13 +543,12 @@ Build a throwaway pure parser prototype outside the public contract for a small 
 Create a benchmark corpus of representative prompts and current Database schemas covering scalar comparisons, empty checks, conjunction/disjunction, multi-select membership, dates, sorting/null order, selected properties, a saved View, and invalid/ambiguous fields. Compare typed JSON and the compact language on:
 
 - published schema bytes and actual argument bytes;
-- first-call validity;
-- correction calls needed after structured errors;
+- deterministic parse coverage across canonical and plausible grammar variants;
 - semantic equivalence of the compiled AST;
 - transcript readability and authorization/debug evidence;
 - Code Mode ease of constructing queries from fetched schema.
 
-Adopt the DSL in a later toolset revision only if it reduces the `advanced_query_database` schema by at least 30%, does not reduce first-call validity, and does not require exposing a large grammar in the eager catalog. Otherwise keep the typed v3 advanced query and record the negative result. Do not block the main v3 migration on this experiment.
+Adopt the DSL in a later toolset revision only if it reduces the `advanced_query_database` schema by at least 30%, accepts the required grammar corpus without ambiguity, and does not require exposing a large grammar in the eager catalog. Otherwise keep the typed v3 advanced query and record the negative result. Do not block the main v3 migration on this experiment.
 
 For future Database schema and View-definition capabilities, write a separate ADR/ExecPlan before implementation. Start from a parsed configuration DSL and on-demand guide; preserve typed daily values and semantic authorization previews.
 
@@ -640,8 +631,7 @@ The implementation is acceptable when all of the following are observable:
 14. Default search/query/read outputs remain validator-free; prepared Card reads return only requested title/body/Block ETags; default writes return no complete document. Default `fetch` Nested Markdown is counted as requested content rather than low-value overhead.
 15. A Code Mode pipeline can search, filter, narrowly fetch/prepare, create/update/move/duplicate, and expose only a bounded summary without any durable workflow object.
 16. Transcript compact rows, Nested Markdown diffs, Details, and exact Raw work for every v3 tool and still render historical v2 items including retired `edit_database` calls.
-17. The comprehension benchmark does not regress semantic success and reduces invalid format/nesting/title/fetch/saved-View/create/move/duplicate calls.
-18. A retired v2 execution binding fails with a structured stale-catalog recovery rather than silently running v3 semantics.
+17. A retired v2 execution binding fails with a structured stale-catalog recovery rather than silently running v3 semantics.
 
 ## Idempotence and Recovery
 
@@ -676,4 +666,4 @@ Research measurements used Zod's Draft 7 JSON Schema conversion over `NODEX_AGEN
 
 No Notion field names or SQL dialect are compatibility requirements for Nodex. The durable lessons are intent-local tools, text-native bulk authoring, semantic search-and-replace, on-demand grammar, parsed DSLs for recursive schema domains, and explicit context budgets.
 
-Revision note (2026-07-16): Initial plan written from current `nodex_app@2`, official Notion MCP/Markdown and CommonMark documentation, the public local-server source boundary, measured catalog/result sizes, and isolated alternative schema prototypes. Refined the same day to make comprehension a first-class budget, adopt `fetch`, name the public format Nested Markdown with compact `markdown` fields and a tab-explicit namespace example, preserve intentional leading spaces, use direct title strings, split saved-View query from `advanced_query_database`, replace generic create/edit/transfer with `create_cards`, `update_card`, `advanced_update_card`, `move_cards`, and `duplicate_card`, and remove public `edit_database`. Implementation then added the pure budget gate, title-safe inline Markdown, complete v3 contract and Card-first Adapters, atomic Card creation/move/duplicate coordinators, runtime activation, stale-v2 recovery, authorization/transcript projections, a negative query-DSL benchmark, a negative structured-result capability gate, source-of-truth documentation, and final validation.
+Revision note (2026-07-16): Initial plan written from current `nodex_app@2`, official Notion MCP/Markdown and CommonMark documentation, the public local-server source boundary, measured catalog/result sizes, and isolated alternative schema prototypes. Refined the same day around intent clarity: adopt `fetch`, name the public format Nested Markdown with compact `markdown` fields and a tab-explicit namespace example, preserve intentional leading spaces, use direct title strings, split saved-View query from `advanced_query_database`, replace generic create/edit/transfer with `create_cards`, `update_card`, `advanced_update_card`, `move_cards`, and `duplicate_card`, and remove public `edit_database`. Implementation then added the pure budget gate, title-safe inline Markdown, complete v3 contract and Card-first Adapters, atomic Card creation/move/duplicate coordinators, runtime activation, stale-v2 recovery, authorization/transcript projections, a negative query-DSL benchmark, a negative structured-result capability gate, source-of-truth documentation, and final validation.

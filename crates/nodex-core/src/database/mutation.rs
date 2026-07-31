@@ -1853,31 +1853,87 @@ fn transfer_existing_page_for_structural_move(
     defer_projection_refresh: bool,
 ) -> Result<ExistingPageTransferPlacement, StoreError> {
     let mut effects = MutationEffects::default();
-    let database_target = match target {
+    let same_data_source = match &target {
+        ExistingPageTransferTarget::DataSource(destination) => connection
+            .query_row(
+                "SELECT membership.data_source_id = ?2 \
+                 FROM data_source_page_memberships membership \
+                 WHERE membership.page_block_id = ?1 AND membership.removed_at IS NULL",
+                params![page_id, destination.data_source_id],
+                |row| row.get::<_, bool>(0),
+            )
+            .optional()?
+            .unwrap_or(false),
+        ExistingPageTransferTarget::Library | ExistingPageTransferTarget::Page { .. } => false,
+    };
+    let database_target = match &target {
         ExistingPageTransferTarget::Library => DatabaseTransferTarget::Library {
             library_id: library_id.to_owned(),
         },
         ExistingPageTransferTarget::Page { page_id } => DatabaseTransferTarget::Page {
-            page_id: page_id.to_owned(),
+            page_id: (*page_id).to_owned(),
         },
         ExistingPageTransferTarget::DataSource(destination) => DatabaseTransferTarget::DataSource {
             data_source_id: destination.data_source_id.clone(),
         },
     };
-    transfer_page(
-        connection,
-        library_id,
-        requesting_project_id,
-        page_id,
-        expected_parent_revision,
-        expected_active_membership_revision,
-        &database_target,
-        now,
-        &mut effects,
-        preauthorized_library_scope,
-        true,
-        defer_projection_refresh,
-    )?;
+    if same_data_source {
+        let (parent_kind, parent_id, parent_revision, membership_revision) = connection
+            .query_row(
+                "SELECT page.parent_kind, page.parent_id, page.parent_revision, \
+                   membership.revision \
+                 FROM pages page \
+                 JOIN data_source_page_memberships membership \
+                   ON membership.page_block_id = page.block_id \
+                   AND membership.removed_at IS NULL \
+                 WHERE page.block_id = ?1 AND page.library_id = ?2 \
+                   AND page.lifecycle = 'active'",
+                params![page_id, library_id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, i64>(2)?,
+                        row.get::<_, i64>(3)?,
+                    ))
+                },
+            )
+            .optional()?
+            .ok_or_else(|| not_found("Page is unavailable"))?;
+        let DatabaseTransferTarget::DataSource { data_source_id } = &database_target else {
+            return Err(corrupt("Same-Data-Source move lost its target"));
+        };
+        if parent_kind != "data_source" || parent_id != *data_source_id {
+            return Err(corrupt(
+                "Same-Data-Source Page has inconsistent parent authority",
+            ));
+        }
+        require_revision(
+            expected_parent_revision,
+            parent_revision,
+            "Page parent revision changed",
+        )?;
+        require_revision(
+            expected_active_membership_revision,
+            membership_revision,
+            "Page active membership revision changed",
+        )?;
+    } else {
+        transfer_page(
+            connection,
+            library_id,
+            requesting_project_id,
+            page_id,
+            expected_parent_revision,
+            expected_active_membership_revision,
+            &database_target,
+            now,
+            &mut effects,
+            preauthorized_library_scope,
+            true,
+            defer_projection_refresh,
+        )?;
+    }
     if let ExistingPageTransferTarget::DataSource(destination) = target {
         for value in &destination.values {
             let expected_value_revision = connection
@@ -1912,6 +1968,15 @@ fn transfer_existing_page_for_structural_move(
             )?;
         }
         if let Some(view) = &destination.view {
+            let expected_position_revision = connection
+                .query_row(
+                    "SELECT revision FROM database_view_page_positions \
+                     WHERE view_id = ?1 AND page_block_id = ?2",
+                    params![view.view_id, page_id],
+                    |row| row.get::<_, i64>(0),
+                )
+                .optional()?
+                .unwrap_or(0);
             position_pages(
                 connection,
                 library_id,
@@ -1919,7 +1984,7 @@ fn transfer_existing_page_for_structural_move(
                 &view.view_id,
                 &[DatabasePagePosition {
                     page_id: page_id.to_owned(),
-                    expected_position_revision: 0,
+                    expected_position_revision,
                 }],
                 view.group_key.as_deref(),
                 view.before.as_ref().map(|anchor| anchor.page_id.as_str()),

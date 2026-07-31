@@ -44,6 +44,10 @@ const makeArchitecture = (architecture: MacArchitecture, sourceSha = "1".repeat(
     sha256: sha256File(join(root, name)),
   }));
   const manifest: ArchitectureBuildManifest = {
+    agentSkills: {
+      manifestSha256: "9".repeat(64),
+      treeSha256: "a".repeat(64),
+    },
     architecture,
     artifacts,
     packageProvenanceSha256: "2".repeat(64),
@@ -84,6 +88,10 @@ test("assembleReleaseBundle binds both architectures and publishes one canonical
     "Nodex-latest-x64.dmg",
   ]);
   expect(readFileSync(join(output, "latest-mac.yml"), "utf8")).toContain("Nodex-0.2.0-x64.zip");
+  expect(bundle.agentSkills).toEqual({
+    manifestSha256: "9".repeat(64),
+    treeSha256: "a".repeat(64),
+  });
   expect(readFileSync(join(output, "SHA256SUMS"), "utf8")).toContain("release-bundle.json");
   expect(releaseAssetPaths(join(output, "release-bundle.json"))).toHaveLength(bundle.assets.length + 2);
   appendFileSync(join(output, "Nodex-latest-arm64.dmg"), "tampered");
@@ -100,6 +108,30 @@ test("assembleReleaseBundle rejects different source identities", () => {
     version: "0.2.0",
     x64Directory: x64,
   })).toThrow("release identity");
+});
+
+test("assembleReleaseBundle rejects different Agent Skills identities", () => {
+  const arm64 = makeArchitecture("arm64");
+  const x64 = makeArchitecture("x64");
+  const manifestPath = join(x64, "architecture-build.json");
+  const manifest = JSON.parse(
+    readFileSync(manifestPath, "utf8"),
+  ) as ArchitectureBuildManifest;
+  writeFileSync(manifestPath, `${JSON.stringify({
+    ...manifest,
+    agentSkills: {
+      ...manifest.agentSkills,
+      treeSha256: "b".repeat(64),
+    },
+  }, null, 2)}\n`);
+
+  expect(() => assembleReleaseBundle({
+    arm64Directory: arm64,
+    outputDirectory: join(fixture, "output"),
+    sourceSha: "1".repeat(40),
+    version: "0.2.0",
+    x64Directory: x64,
+  })).toThrow("Agent Skills");
 });
 
 test("assembleReleaseBundle rejects updater hashes that do not match the ZIP", () => {

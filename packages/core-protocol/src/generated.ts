@@ -766,6 +766,14 @@ export interface components {
             }[];
             readonly next_cursor?: string | null;
         };
+        readonly CollectionWindow_DatabaseViewContextRow: {
+            readonly authority: components["schemas"]["CollectionWindowAuthority"];
+            readonly items: readonly {
+                readonly move_etag: string;
+                readonly summary: components["schemas"]["DatabaseRowSummary"];
+            }[];
+            readonly next_cursor?: string | null;
+        };
         readonly CollectionWindow_ProjectWorkspaceBackgroundProcess: {
             readonly authority: components["schemas"]["CollectionWindowAuthority"];
             readonly items: readonly {
@@ -1297,7 +1305,7 @@ export interface components {
             readonly value: unknown;
         };
         /** @enum {string} */
-        readonly DatabaseReadMode: "catalog_window" | "database" | "data_source_window" | "data_source" | "property_window" | "option_window" | "view_descriptor_window" | "view" | "agent_query" | "view_window" | "view_groups" | "rows_by_id" | "row_detail";
+        readonly DatabaseReadMode: "catalog_window" | "database" | "data_source_window" | "data_source" | "property_window" | "option_window" | "view_descriptor_window" | "view" | "agent_query" | "view_window" | "view_groups" | "view_context" | "rows_by_id" | "row_detail";
         readonly DatabaseReadRequest: components["schemas"]["ModuleReadRequest_DatabaseRead"];
         readonly DatabaseReadResponse: components["schemas"]["ResponseEnvelope_ModuleReadSnapshot_DatabaseReadValue"];
         readonly DatabaseRowDetail: {
@@ -1394,6 +1402,14 @@ export interface components {
             readonly data_source_id: string;
             /** @enum {string} */
             readonly kind: "data_source";
+        };
+        readonly DatabaseViewContext: {
+            readonly data_source: unknown;
+            readonly database: unknown;
+            readonly groups: components["schemas"]["DatabaseViewGroups"];
+            readonly properties: readonly unknown[];
+            readonly rows: components["schemas"]["CollectionWindow_DatabaseViewContextRow"];
+            readonly view: unknown;
         };
         /**
          * @description Bounded per-group totals for a View, observed from data. At most
@@ -2109,8 +2125,14 @@ export interface components {
                 readonly [key: string]: components["schemas"]["LibraryBlockLocation"];
             };
             readonly mode: components["schemas"]["LibraryBlockTransferMode"];
+            readonly move_etags: {
+                readonly [key: string]: string;
+            };
             readonly page_etags: {
                 readonly [key: string]: string;
+            };
+            readonly page_view_placements: {
+                readonly [key: string]: components["schemas"]["LibraryPageViewPlacementResult"];
             };
             readonly result_root_block_ids: readonly string[];
             readonly source_root_block_ids: readonly string[];
@@ -2558,6 +2580,7 @@ export interface components {
         };
         readonly LibraryPageFileValidators: {
             readonly body_etag?: string | null;
+            readonly move_etag?: string | null;
             readonly page_etag?: string | null;
             readonly title_etag?: string | null;
         };
@@ -2896,8 +2919,11 @@ export interface components {
             readonly page_id: string;
             readonly title: string;
         };
-        /** @enum {string} */
-        readonly LibraryPagePrepareKind: "title_set" | "document_replace" | "page_delete";
+        readonly LibraryPagePrepareKind: "title_set" | "document_replace" | "page_delete" | {
+            readonly page_move: {
+                readonly view_id?: string | null;
+            };
+        };
         readonly LibraryPageTarget: {
             /** @enum {string} */
             readonly status: "missing";
@@ -2919,6 +2945,12 @@ export interface components {
             readonly status: "available";
             readonly target_page_id: string;
         };
+        readonly LibraryPageViewPlacementResult: {
+            readonly group_key?: string | null;
+            /** Format: int64 */
+            readonly position_revision: number;
+            readonly view_id: string;
+        };
         /** @enum {string} */
         readonly LibraryPageWorkflowStatus: "triage" | "plan" | "build" | "review" | "ship";
         readonly LibraryPageWriteDestination: {
@@ -2933,8 +2965,10 @@ export interface components {
         } | {
             readonly at?: null | components["schemas"]["LibraryAgentSiblingAnchor"];
             readonly data_source_id: string;
+            readonly group?: null | components["schemas"]["DatabaseGroupScope"];
             /** @enum {string} */
             readonly kind: "data_source";
+            readonly view_id?: string | null;
         };
         readonly LibraryPlacementAnchor: {
             readonly block_id: string;
@@ -3085,6 +3119,12 @@ export interface components {
         };
         /** @enum {string} */
         readonly LibrarySearchSourceKind: "document_title" | "document_block";
+        readonly LibraryViewLocation: {
+            readonly data_source_id: string;
+            readonly database_id: string;
+            readonly project_id: string;
+            readonly view_id: string;
+        };
         readonly LibraryWriteParent: {
             readonly before?: null | components["schemas"]["LibraryPlacementAnchor"];
             /** @enum {string} */
@@ -3371,6 +3411,7 @@ export interface components {
                 readonly source_page_id: string;
             } | {
                 readonly destination: components["schemas"]["LibraryPageWriteDestination"];
+                readonly expected_etag: string;
                 /** @enum {string} */
                 readonly kind: "move_page";
                 readonly page_id: string;
@@ -4051,6 +4092,10 @@ export interface components {
                 readonly canvas_id: string;
                 /** @enum {string} */
                 readonly kind: "canvas_target";
+            } | {
+                /** @enum {string} */
+                readonly kind: "view_location";
+                readonly view_id: string;
             } | {
                 /** @enum {string} */
                 readonly kind: "page_lifecycle_preflight";
@@ -5082,6 +5127,10 @@ export interface components {
                     readonly value: components["schemas"]["DatabaseViewGroups"];
                 } | {
                     /** @enum {string} */
+                    readonly kind: "view_context";
+                    readonly value: components["schemas"]["DatabaseViewContext"];
+                } | {
+                    /** @enum {string} */
                     readonly kind: "rows_by_id";
                     readonly value: components["schemas"]["DatabaseRowsById"];
                 } | {
@@ -5187,6 +5236,10 @@ export interface components {
                     /** @enum {string} */
                     readonly kind: "canvas_target";
                     readonly value: components["schemas"]["LibraryCanvasTarget"];
+                } | {
+                    /** @enum {string} */
+                    readonly kind: "view_location";
+                    readonly value?: null | components["schemas"]["LibraryViewLocation"];
                 } | {
                     /** @enum {string} */
                     readonly kind: "page_lifecycle_preflight";

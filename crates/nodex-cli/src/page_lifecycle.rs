@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use nodex_core_contracts::database::{
-    DatabaseRead, DatabaseReadMode, DatabaseReadValue, DatabaseTarget,
+    DatabaseGroupScope, DatabaseRead, DatabaseReadMode, DatabaseReadValue, DatabaseTarget,
 };
 use nodex_core_contracts::library::{
     LIBRARY_CONTRACT_VERSION, LibraryAgentSiblingAnchor, LibraryIntent,
@@ -13,7 +13,10 @@ use nodex_core_protocol::ResponseEnvelope;
 use nodex_core_protocol::client::CoreClient;
 use serde_json::json;
 
-use crate::cli::{BoundaryPlacement, PageCreateArgs, PageDeleteArgs, PageTransferArgs};
+use crate::cli::{
+    BoundaryPlacement, DataSourcePlacementArgs, MutationArgs, PageCreateArgs, PageDeleteArgs,
+    PageDestinationArgs, PageDuplicateArgs, PageMoveArgs,
+};
 use crate::error::{CliError, CliErrorCode};
 use crate::page_mutation::{
     MAX_BODY_INPUT_BYTES, read_content_input, validate_return_fields, validate_title,
@@ -42,7 +45,13 @@ pub(crate) fn create_page(
         )?
     };
     let project = selected_project(client, explicit_project, cwd)?;
-    let destination = resolve_page_destination(client, &project, &arguments.parent, None)?;
+    let destination = resolve_page_destination(
+        client,
+        &project,
+        &arguments.parent,
+        None,
+        &arguments.data_source,
+    )?;
     let operation_id = operation_id(arguments.mutation.idempotency_key.as_deref(), json_output)?;
     let response = client
         .library_apply(
@@ -103,36 +112,80 @@ pub(crate) fn move_page(
     client: &CoreClient,
     explicit_project: Option<&str>,
     cwd: &Path,
-    arguments: PageTransferArgs,
+    arguments: PageMoveArgs,
     json_output: bool,
 ) -> Result<CommandOutput, CliError> {
-    transfer_page(client, explicit_project, cwd, arguments, json_output, false)
+    transfer_page(
+        client,
+        explicit_project,
+        cwd,
+        PageTransferRequest {
+            page: arguments.page,
+            destination: arguments.destination,
+            mutation: arguments.mutation,
+            expected_etag: Some(arguments.if_match),
+            duplicate: false,
+        },
+        json_output,
+    )
 }
 
 pub(crate) fn duplicate_page(
     client: &CoreClient,
     explicit_project: Option<&str>,
     cwd: &Path,
-    arguments: PageTransferArgs,
+    arguments: PageDuplicateArgs,
     json_output: bool,
 ) -> Result<CommandOutput, CliError> {
-    transfer_page(client, explicit_project, cwd, arguments, json_output, true)
+    transfer_page(
+        client,
+        explicit_project,
+        cwd,
+        PageTransferRequest {
+            page: arguments.page,
+            destination: arguments.destination,
+            mutation: arguments.mutation,
+            expected_etag: None,
+            duplicate: true,
+        },
+        json_output,
+    )
+}
+
+struct PageTransferRequest {
+    page: String,
+    destination: PageDestinationArgs,
+    mutation: MutationArgs,
+    expected_etag: Option<String>,
+    duplicate: bool,
 }
 
 fn transfer_page(
     client: &CoreClient,
     explicit_project: Option<&str>,
     cwd: &Path,
-    arguments: PageTransferArgs,
+    request: PageTransferRequest,
     json_output: bool,
-    duplicate: bool,
 ) -> Result<CommandOutput, CliError> {
-    validate_return_fields(&arguments.mutation.r#return)?;
+    let PageTransferRequest {
+        page,
+        destination: destination_arguments,
+        mutation,
+        expected_etag,
+        duplicate,
+    } = request;
+    validate_return_fields(&mutation.r#return)?;
     let project = selected_project(client, explicit_project, cwd)?;
-    let page_id = resolve_page_selector(client, &project.id, &arguments.page)?;
-    let anchor = placement_anchor(&arguments)?;
-    let destination = resolve_page_destination(client, &project, &arguments.to, anchor)?;
-    let operation_id = operation_id(arguments.mutation.idempotency_key.as_deref(), json_output)?;
+    let page_id = resolve_page_selector(client, &project.id, &page)?;
+    let anchor = placement_anchor(&destination_arguments)?;
+    let destination = resolve_page_destination(
+        client,
+        &project,
+        &destination_arguments.to,
+        anchor,
+        &destination_arguments.data_source,
+    )?;
+    let operation_id = operation_id(mutation.idempotency_key.as_deref(), json_output)?;
     let intent = if duplicate {
         LibraryIntent::DuplicatePage {
             source_page_id: page_id.clone(),
@@ -142,6 +195,8 @@ fn transfer_page(
         LibraryIntent::MovePage {
             page_id: page_id.clone(),
             destination,
+            expected_etag: expected_etag
+                .ok_or_else(|| internal("Page move command omitted its required move ETag"))?,
         }
     };
     let response = client
@@ -198,6 +253,12 @@ fn transfer_page(
                 "Core semantic Page movement omitted its Page shell ETag",
             )
         })?;
+        let move_etag = moved.move_etags.get(&page_id).ok_or_else(|| {
+            CliError::new(
+                CliErrorCode::Internal,
+                "Core semantic Page movement omitted its fresh move ETag",
+            )
+        })?;
         json!({
             "operation_id": committed.receipt.mutation.operation_id,
             "duplicate": committed.receipt.mutation.duplicate,
@@ -208,11 +269,15 @@ fn transfer_page(
                 "database_ids": committed.receipt.affected_database_ids,
                 "document_ids": moved.document_commits.iter().map(|commit| &commit.document_id).collect::<Vec<_>>(),
                 "location": moved.final_locations.get(&page_id),
+                "view_placement": moved.page_view_placements.get(&page_id),
             },
-            "etags": { "page": page_etag },
+            "etags": {
+                "page": page_etag,
+                "move": move_etag,
+            },
         })
     };
-    maybe_include_commit(&mut result, &arguments.mutation.r#return, &committed.value)?;
+    maybe_include_commit(&mut result, &mutation.r#return, &committed.value)?;
     Ok(CommandOutput::Json(result))
 }
 
@@ -269,7 +334,7 @@ pub(crate) fn delete_page(
 }
 
 fn placement_anchor(
-    arguments: &PageTransferArgs,
+    arguments: &PageDestinationArgs,
 ) -> Result<Option<LibraryAgentSiblingAnchor>, CliError> {
     if let Some(at) = arguments.at {
         return Ok(Some(match at {
@@ -297,20 +362,34 @@ fn resolve_page_destination(
     project: &ProjectWorkspaceProject,
     selector: &str,
     at: Option<LibraryAgentSiblingAnchor>,
+    placement: &DataSourcePlacementArgs,
 ) -> Result<LibraryPageWriteDestination, CliError> {
     let unprefixed = selector.strip_prefix('@').unwrap_or(selector);
     if selector == "library" || unprefixed == client.handshake.library_id {
+        reject_data_source_placement(placement)?;
         return Ok(LibraryPageWriteDestination::Library { at });
     }
     if selector == "database" || unprefixed == project.database_id {
         return Ok(LibraryPageWriteDestination::DataSource {
             data_source_id: primary_data_source(client, project)?,
+            view_id: placement
+                .view
+                .as_deref()
+                .map(|view| stable_id(view, "--view"))
+                .transpose()?,
+            group: group_scope(placement)?,
             at,
         });
     }
     if let Some(data_source_id) = selector.strip_prefix("data_source:") {
         return Ok(LibraryPageWriteDestination::DataSource {
             data_source_id: stable_id(data_source_id, "Data Source owner")?,
+            view_id: placement
+                .view
+                .as_deref()
+                .map(|view| stable_id(view, "--view"))
+                .transpose()?,
+            group: group_scope(placement)?,
             at,
         });
     }
@@ -325,6 +404,7 @@ fn resolve_page_destination(
             return Err(internal("Core returned the wrong Page owner preflight"));
         };
         if value.page.is_some_and(|page| page.lifecycle == "active") {
+            reject_data_source_placement(placement)?;
             return Ok(LibraryPageWriteDestination::Page {
                 page_id: unprefixed.to_owned(),
                 at,
@@ -353,6 +433,12 @@ fn resolve_page_destination(
                 };
                 return Ok(LibraryPageWriteDestination::DataSource {
                     data_source_id: active_data_source_id(client, &project.id, unprefixed)?,
+                    view_id: placement
+                        .view
+                        .as_deref()
+                        .map(|view| stable_id(view, "--view"))
+                        .transpose()?,
+                    group: group_scope(placement)?,
                     at,
                 });
             }
@@ -384,13 +470,43 @@ fn resolve_page_destination(
             .ok_or_else(|| internal("Core Data Source owner has no stable identity"))?;
         return Ok(LibraryPageWriteDestination::DataSource {
             data_source_id: data_source_id.to_owned(),
+            view_id: placement
+                .view
+                .as_deref()
+                .map(|view| stable_id(view, "--view"))
+                .transpose()?,
+            group: group_scope(placement)?,
             at,
         });
     }
+    reject_data_source_placement(placement)?;
     Ok(LibraryPageWriteDestination::Page {
         page_id: resolve_page_selector(client, &project.id, selector)?,
         at,
     })
+}
+
+fn group_scope(
+    placement: &DataSourcePlacementArgs,
+) -> Result<Option<DatabaseGroupScope>, CliError> {
+    if placement.unassigned {
+        return Ok(Some(DatabaseGroupScope::Unassigned));
+    }
+    placement
+        .group
+        .as_deref()
+        .map(|key| stable_id(key, "--group").map(|key| DatabaseGroupScope::Key { key }))
+        .transpose()
+}
+
+fn reject_data_source_placement(placement: &DataSourcePlacementArgs) -> Result<(), CliError> {
+    if placement.view.is_none() && placement.group.is_none() && !placement.unassigned {
+        return Ok(());
+    }
+    Err(CliError::new(
+        CliErrorCode::InvalidInput,
+        "--view, --group, and --unassigned require a Data Source destination",
+    ))
 }
 
 fn primary_data_source(
@@ -488,4 +604,39 @@ fn maybe_include_commit(
 
 fn internal(error: impl std::fmt::Display) -> CliError {
     CliError::new(CliErrorCode::Internal, error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn placement(
+        view: Option<&str>,
+        group: Option<&str>,
+        unassigned: bool,
+    ) -> DataSourcePlacementArgs {
+        DataSourcePlacementArgs {
+            view: view.map(str::to_owned),
+            group: group.map(str::to_owned),
+            unassigned,
+        }
+    }
+
+    #[test]
+    fn data_source_placement_uses_stable_keys_and_rejects_other_parents() {
+        assert_eq!(
+            group_scope(&placement(Some("@view-1"), Some("build"), false)).expect("stable group"),
+            Some(DatabaseGroupScope::Key {
+                key: "build".to_owned()
+            })
+        );
+        assert_eq!(
+            group_scope(&placement(Some("@view-1"), None, true)).expect("unassigned"),
+            Some(DatabaseGroupScope::Unassigned)
+        );
+        assert!(reject_data_source_placement(&placement(None, None, false)).is_ok());
+        let error = reject_data_source_placement(&placement(Some("@view-1"), None, false))
+            .expect_err("View placement cannot target a Page or Library");
+        assert_eq!(error.code, CliErrorCode::InvalidInput);
+    }
 }

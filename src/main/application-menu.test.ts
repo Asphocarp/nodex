@@ -3,8 +3,11 @@ import type { MenuItemConstructorOptions } from "electron";
 import type { WorkbenchCommandInvocation } from "../shared/workbench-commands";
 import { createCommandKeymapState } from "../shared/command-keybindings";
 import {
+  buildNodexSetupMenuItems,
   buildWindowFileMenu,
   buildWorkbenchViewMenu,
+  INSTALL_CLI_MENU_ITEM_ID,
+  SET_UP_AGENT_SKILLS_MENU_ITEM_ID,
   TOGGLE_BOTTOM_PANEL_MENU_ITEM_ID,
 } from "./application-menu";
 
@@ -43,6 +46,33 @@ function fileMenuItems(
 }
 
 describe("application menu", () => {
+  test("builds independent packaged CLI and Agent Skill setup actions", () => {
+    const calls: string[] = [];
+    const items = buildNodexSetupMenuItems({
+      enabled: true,
+      onInstallCli: () => calls.push("cli"),
+      onSetupAgentSkills: () => calls.push("skills"),
+    });
+
+    expect(items.map((item) => item.id)).toEqual([
+      INSTALL_CLI_MENU_ITEM_ID,
+      SET_UP_AGENT_SKILLS_MENU_ITEM_ID,
+    ]);
+    for (const item of items) {
+      if (typeof item.click !== "function") throw new Error("Expected menu click");
+      item.click({} as never, {} as never, {} as never);
+    }
+    expect(calls).toEqual(["cli", "skills"]);
+  });
+
+  test("disables both setup actions outside a stable packaged App", () => {
+    expect(buildNodexSetupMenuItems({
+      enabled: false,
+      onInstallCli: () => undefined,
+      onSetupAgentSkills: () => undefined,
+    }).every((item) => item.enabled === false)).toBe(true);
+  });
+
   test.each(["macOS", "windows", "linux"] as const)(
     "builds the bottom-panel accelerator on %s",
     (platform) => {

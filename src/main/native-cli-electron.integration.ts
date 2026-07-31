@@ -142,6 +142,17 @@ describe.skipIf(!packagedCli)("packaged native CLI and Electron authority", () =
     let provider: NodexYProvider | null = null;
     let document: Y.Doc | null = null;
     try {
+      const capabilities = commandResult((await runCli<JsonObject>(
+        home,
+        ["capabilities"],
+      )).result);
+      const bundle = commandResult(capabilities.bundle);
+      const commands = commandResult(capabilities.commands);
+      expect(commands.skills).toBe(1);
+      expect(bundle.status).toBe("available");
+      expect(stringField(bundle, "releaseVersion")).toMatch(/^\d+\.\d+\.\d+/u);
+      expect(stringField(bundle, "treeSha256")).toMatch(/^[a-f0-9]{64}$/u);
+
       const coldDoctor = await runCli<JsonObject>(home, ["doctor"]);
       expect(coldDoctor.ok).toBe(true);
       const coldCorePid = readRuntimePid(home);
@@ -169,6 +180,8 @@ describe.skipIf(!packagedCli)("packaged native CLI and Electron authority", () =
       }
       const project = projects.value.projects.items[0];
       if (!project) throw new Error("fresh Profile has no default Project");
+      const defaultViewId = project.default_database_view_id;
+      if (!defaultViewId) throw new Error("fresh Project has no default database View");
       const databasePath = path.join(home, "nodex.db");
       const electronFiles = execFileSync(
         "/usr/sbin/lsof",
@@ -206,6 +219,61 @@ describe.skipIf(!packagedCli)("packaged native CLI and Electron authority", () =
           event.event.operation_id === "packaged-cli-create-page"),
         "Electron did not observe the CLI Page creation event",
       );
+
+      const databasePage = commandResult((await runCli<JsonObject>(home, [
+        "--project",
+        project.id,
+        "page",
+        "create",
+        "--parent",
+        "database",
+        "--view",
+        `@${defaultViewId}`,
+        "--title",
+        "Packaged Kanban acceptance",
+        "--file",
+        bodyFile,
+        "--idempotency-key",
+        "packaged-cli-create-database-page",
+      ])).result);
+      const databasePageId = stringField(databasePage, "page_id");
+      const queriedView = commandResult((await runCli<JsonObject>(home, [
+        "--project",
+        project.id,
+        "view",
+        "query",
+        `@${defaultViewId}`,
+        "--limit",
+        "50",
+      ])).result);
+      const rows = queriedView.rows;
+      if (!Array.isArray(rows)) throw new Error("View query omitted rows");
+      const databaseRow = rows.find((row): row is JsonObject => (
+        Boolean(row)
+        && typeof row === "object"
+        && !Array.isArray(row)
+        && (row as JsonObject).pageId === databasePageId
+      ));
+      if (!databaseRow) throw new Error("View query omitted the created database Page");
+      const moveEtag = stringField(commandResult(databaseRow.etags), "move");
+      const movedPage = commandResult((await runCli<JsonObject>(home, [
+        "--project",
+        project.id,
+        "page",
+        "move",
+        `@${databasePageId}`,
+        "--to",
+        "database",
+        "--view",
+        `@${defaultViewId}`,
+        "--at",
+        "start",
+        "--if-match",
+        moveEtag,
+        "--idempotency-key",
+        "packaged-cli-guarded-view-move",
+      ])).result);
+      expect(movedPage.duplicate).toBe(false);
 
       const body = await runCliText(home, [
         "--project",

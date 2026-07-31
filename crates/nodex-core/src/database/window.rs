@@ -1,15 +1,19 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use nodex_core_contracts::collection::{CollectionWindowAuthority, CollectionWindowRequest};
+use nodex_core_contracts::collection::{
+    CollectionWindow, CollectionWindowAuthority, CollectionWindowRequest,
+};
 use nodex_core_contracts::database::{
     DatabaseGroupScope, DatabaseRowDetail, DatabaseRowSummary, DatabaseRowsById,
-    DatabaseViewGroupSummary, DatabaseViewGroups, DatabaseViewWindow, MAX_VIEW_GROUP_SUMMARIES,
+    DatabaseViewContextRow, DatabaseViewGroupSummary, DatabaseViewGroups, DatabaseViewWindow,
+    MAX_VIEW_GROUP_SUMMARIES,
 };
 use rusqlite::types::Value as SqlValue;
 use rusqlite::{Connection, OptionalExtension, Row, params, params_from_iter};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
 
+use super::authorization::{authorize_required, project_primary_database};
 use crate::infrastructure::collection_window::{WindowCandidate, assemble, normalize_request};
 use crate::infrastructure::cursor::{
     self, CollectionCursorSubject, CursorDirection, KeysetCoordinate, KeysetValue,
@@ -38,7 +42,24 @@ struct ResolvedView {
     database_id: String,
     data_source_id: String,
     view_id: String,
+    revision: i64,
     config: ViewConfig,
+}
+
+pub(super) struct ViewContextProjection {
+    pub database_id: String,
+    pub data_source_id: String,
+    pub property_ids: Vec<String>,
+    pub groups: DatabaseViewGroups,
+    pub rows: CollectionWindow<DatabaseViewContextRow>,
+}
+
+pub(super) struct ViewContextRead<'a> {
+    pub event_head: i64,
+    pub project_id: &'a str,
+    pub store_epoch: &'a str,
+    pub window: &'a CollectionWindowRequest,
+    pub group_scope: Option<&'a DatabaseGroupScope>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -150,6 +171,24 @@ pub(super) fn view_window(
     group_scope: Option<&DatabaseGroupScope>,
 ) -> Result<DatabaseViewWindow, StoreError> {
     let view = resolve_view(connection, library_id, view_id)?;
+    view_window_for(
+        connection,
+        library_id,
+        event_head,
+        &view,
+        request,
+        group_scope,
+    )
+}
+
+fn view_window_for(
+    connection: &Connection,
+    library_id: &str,
+    event_head: i64,
+    view: &ResolvedView,
+    request: &CollectionWindowRequest,
+    group_scope: Option<&DatabaseGroupScope>,
+) -> Result<DatabaseViewWindow, StoreError> {
     let normalized = normalize_request(request)?;
     let fingerprint = cursor::query_fingerprint(&(
         "database_view_window_v2",
@@ -291,9 +330,9 @@ pub(super) fn view_window(
         },
     )?;
     Ok(DatabaseViewWindow {
-        database_id: view.database_id,
-        data_source_id: view.data_source_id,
-        view_id: view.view_id,
+        database_id: view.database_id.clone(),
+        data_source_id: view.data_source_id.clone(),
+        view_id: view.view_id.clone(),
         rows,
     })
 }
@@ -308,6 +347,13 @@ pub(super) fn view_groups(
     view_id: &str,
 ) -> Result<DatabaseViewGroups, StoreError> {
     let view = resolve_view(connection, library_id, view_id)?;
+    view_groups_for(connection, &view)
+}
+
+fn view_groups_for(
+    connection: &Connection,
+    view: &ResolvedView,
+) -> Result<DatabaseViewGroups, StoreError> {
     let mut parameters = Vec::new();
     let effective_group = effective_group_expression(&view.config, &mut parameters)?;
     let group_select = effective_group.as_deref().unwrap_or("NULL");
@@ -346,9 +392,9 @@ pub(super) fn view_groups(
     )?;
     if effective_group.is_none() {
         return Ok(DatabaseViewGroups {
-            database_id: view.database_id,
-            data_source_id: view.data_source_id,
-            view_id: view.view_id,
+            database_id: view.database_id.clone(),
+            data_source_id: view.data_source_id.clone(),
+            view_id: view.view_id.clone(),
             grouped: false,
             total_rows,
             truncated: false,
@@ -381,14 +427,276 @@ pub(super) fn view_groups(
     let truncated = groups.len() > MAX_VIEW_GROUP_SUMMARIES;
     groups.truncate(MAX_VIEW_GROUP_SUMMARIES);
     Ok(DatabaseViewGroups {
-        database_id: view.database_id,
-        data_source_id: view.data_source_id,
-        view_id: view.view_id,
+        database_id: view.database_id.clone(),
+        data_source_id: view.data_source_id.clone(),
+        view_id: view.view_id.clone(),
         grouped: true,
         total_rows,
         truncated,
         groups,
     })
+}
+
+pub(super) fn view_context(
+    connection: &Connection,
+    library_id: &str,
+    view_id: &str,
+    read: ViewContextRead<'_>,
+) -> Result<ViewContextProjection, StoreError> {
+    let view = resolve_view(connection, library_id, view_id)?;
+    let window = view_window_for(
+        connection,
+        library_id,
+        read.event_head,
+        &view,
+        read.window,
+        read.group_scope,
+    )?;
+    let groups = view_groups_for(connection, &view)?;
+    let rows = CollectionWindow {
+        items: window
+            .rows
+            .items
+            .into_iter()
+            .map(|summary| {
+                let move_etag = mint_page_move_etag(
+                    connection,
+                    library_id,
+                    read.project_id,
+                    read.store_epoch,
+                    &summary.page_id,
+                    Some(&view.view_id),
+                )?;
+                Ok(DatabaseViewContextRow { summary, move_etag })
+            })
+            .collect::<Result<Vec<_>, StoreError>>()?,
+        next_cursor: window.rows.next_cursor,
+        authority: window.rows.authority,
+    };
+    Ok(ViewContextProjection {
+        database_id: view.database_id.clone(),
+        data_source_id: view.data_source_id.clone(),
+        property_ids: projected_property_ids(&view.config)?.into_iter().collect(),
+        groups,
+        rows,
+    })
+}
+
+struct PageMoveAuthority {
+    lifecycle: String,
+    location_revision: i64,
+    parent_kind: String,
+    parent_id: String,
+    parent_revision: i64,
+    metadata_revision: i64,
+}
+
+struct PageMoveViewAuthority {
+    database_id: String,
+    data_source_id: String,
+    view_id: String,
+    revision: i64,
+    grouping_property_id: Option<String>,
+}
+
+struct PageMoveMembershipAuthority {
+    id: String,
+    revision: i64,
+    grouping_value_json: Option<String>,
+    grouping_value_revision: Option<i64>,
+    position_group_key: Option<String>,
+    position_rank_key: Option<String>,
+    position_revision: Option<i64>,
+}
+
+pub(crate) fn default_page_move_view_id(
+    connection: &Connection,
+    library_id: &str,
+    page_id: &str,
+) -> Result<Option<String>, StoreError> {
+    connection
+        .query_row(
+            "SELECT container.default_view_id \
+             FROM data_source_page_memberships membership \
+             JOIN data_sources source \
+               ON source.id = membership.data_source_id \
+               AND source.library_id = ?1 AND source.lifecycle = 'active' \
+             JOIN database_containers container \
+               ON container.block_id = source.home_database_block_id \
+               AND container.library_id = source.library_id \
+               AND container.lifecycle = 'active' \
+             WHERE membership.page_block_id = ?2 AND membership.removed_at IS NULL",
+            params![library_id, page_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()
+        .map(Option::flatten)
+        .map_err(StoreError::from)
+}
+
+pub(crate) fn mint_page_move_etag(
+    connection: &Connection,
+    library_id: &str,
+    project_id: &str,
+    store_epoch: &str,
+    page_id: &str,
+    view_id: Option<&str>,
+) -> Result<String, StoreError> {
+    let page = connection
+        .query_row(
+            "SELECT page.lifecycle, block.location_revision, page.parent_kind, page.parent_id, \
+               page.parent_revision, page.metadata_revision \
+             FROM pages page \
+             JOIN blocks block ON block.id = page.block_id AND block.type = 'page' \
+             WHERE page.block_id = ?1 AND page.library_id = ?2 \
+               AND page.lifecycle <> 'deleted' AND block.lifecycle <> 'deleted'",
+            params![page_id, library_id],
+            |row| {
+                Ok(PageMoveAuthority {
+                    lifecycle: row.get(0)?,
+                    location_revision: row.get(1)?,
+                    parent_kind: row.get(2)?,
+                    parent_id: row.get(3)?,
+                    parent_revision: row.get(4)?,
+                    metadata_revision: row.get(5)?,
+                })
+            },
+        )
+        .optional()?
+        .ok_or_else(|| corrupt("Database row move authority is unavailable"))?;
+    let view = view_id
+        .map(|view_id| {
+            let view = resolve_view(connection, library_id, view_id)?;
+            let primary_database_id = project_primary_database(connection, library_id, project_id)?;
+            authorize_required(
+                connection,
+                Some(project_id),
+                primary_database_id.as_deref(),
+                &view.database_id,
+            )?;
+            Ok::<_, StoreError>(PageMoveViewAuthority {
+                database_id: view.database_id,
+                data_source_id: view.data_source_id,
+                view_id: view.view_id,
+                revision: view.revision,
+                grouping_property_id: view.config.group.map(|group| group.property_id),
+            })
+        })
+        .transpose()?;
+    let membership = view
+        .as_ref()
+        .map(|view| {
+            connection
+                .query_row(
+                    "SELECT membership.id, membership.revision, value.value_json, value.revision, \
+                       position.group_key, position.rank_key, position.revision \
+                     FROM data_source_page_memberships membership \
+                     LEFT JOIN data_source_property_values value \
+                       ON value.data_source_id = membership.data_source_id \
+                       AND value.membership_id = membership.id \
+                       AND value.property_id = ?3 \
+                     LEFT JOIN database_view_page_positions position \
+                       ON position.view_id = ?4 \
+                       AND position.page_block_id = membership.page_block_id \
+                     WHERE membership.data_source_id = ?1 \
+                       AND membership.page_block_id = ?2 \
+                       AND membership.removed_at IS NULL",
+                    params![
+                        view.data_source_id,
+                        page_id,
+                        view.grouping_property_id,
+                        view.view_id
+                    ],
+                    |row| {
+                        Ok(PageMoveMembershipAuthority {
+                            id: row.get(0)?,
+                            revision: row.get(1)?,
+                            grouping_value_json: row.get(2)?,
+                            grouping_value_revision: row.get(3)?,
+                            position_group_key: row.get(4)?,
+                            position_rank_key: row.get(5)?,
+                            position_revision: row.get(6)?,
+                        })
+                    },
+                )
+                .optional()
+                .map_err(StoreError::from)
+        })
+        .transpose()?
+        .flatten();
+    let effective_group_key = membership.as_ref().and_then(|membership| {
+        membership
+            .position_group_key
+            .as_deref()
+            .filter(|key| !key.is_empty())
+            .map(str::to_owned)
+            .or_else(|| {
+                membership
+                    .grouping_value_json
+                    .as_deref()
+                    .and_then(normalize_grouping_value)
+            })
+    });
+    crate::document::mint_etag(
+        connection,
+        "page_move",
+        project_id,
+        store_epoch,
+        &[library_id, page_id, view_id.unwrap_or("-")],
+        json!({
+            "libraryId": library_id,
+            "page": {
+                "lifecycle": page.lifecycle,
+                "locationRevision": page.location_revision,
+                "parentKind": page.parent_kind,
+                "parentId": page.parent_id,
+                "parentRevision": page.parent_revision,
+                "metadataRevision": page.metadata_revision,
+            },
+            "membership": {
+                "id": membership.as_ref().map(|authority| &authority.id),
+                "revision": membership.as_ref().map(|authority| authority.revision),
+            },
+            "view": {
+                "databaseId": view.as_ref().map(|authority| &authority.database_id),
+                "dataSourceId": view.as_ref().map(|authority| &authority.data_source_id),
+                "id": view.as_ref().map(|authority| &authority.view_id),
+                "revision": view.as_ref().map(|authority| authority.revision),
+                "groupingPropertyId": view
+                    .as_ref()
+                    .and_then(|authority| authority.grouping_property_id.as_deref()),
+                "groupingValueRevision": membership
+                    .as_ref()
+                    .and_then(|authority| authority.grouping_value_revision),
+            },
+            "position": {
+                "revision": membership
+                    .as_ref()
+                    .and_then(|authority| authority.position_revision),
+                "effectiveGroupKey": effective_group_key,
+                "rankKey": membership
+                    .as_ref()
+                    .and_then(|authority| authority.position_rank_key.as_deref()),
+            },
+        }),
+    )
+    .map_err(|error| {
+        StoreError::new(
+            StoreErrorCode::StoreCorrupt,
+            format!("Database row move validator authority is unavailable: {error}"),
+            false,
+        )
+    })
+}
+
+fn normalize_grouping_value(raw: &str) -> Option<String> {
+    match serde_json::from_str::<Value>(raw).ok()? {
+        Value::Null => None,
+        Value::String(value) => (!value.is_empty()).then_some(value),
+        Value::Array(values) if values.is_empty() => None,
+        Value::Bool(value) => Some(value.to_string()),
+        value => Some(value.to_string()),
+    }
 }
 
 pub(super) fn rows_by_id(
@@ -444,7 +752,7 @@ fn resolve_view(
     validate_identity(view_id, "Database View identity")?;
     connection
         .query_row(
-            "SELECT view.database_block_id, view.data_source_id, view.config_json, \
+            "SELECT view.database_block_id, view.data_source_id, view.config_json, view.revision, \
                view.lifecycle, container.lifecycle, source.lifecycle \
              FROM database_views view \
              JOIN database_containers container \
@@ -468,9 +776,10 @@ fn resolve_view(
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
                     config,
-                    row.get::<_, String>(3)?,
+                    row.get::<_, i64>(3)?,
                     row.get::<_, String>(4)?,
                     row.get::<_, String>(5)?,
+                    row.get::<_, String>(6)?,
                 ))
             },
         )
@@ -480,6 +789,7 @@ fn resolve_view(
                 database_id,
                 data_source_id,
                 config,
+                revision,
                 view_lifecycle,
                 database_lifecycle,
                 source_lifecycle,
@@ -501,6 +811,7 @@ fn resolve_view(
                     database_id,
                     data_source_id,
                     view_id: view_id.to_owned(),
+                    revision,
                     config,
                 })
             },
@@ -620,26 +931,7 @@ fn compact_value_projections(
     config: &ViewConfig,
     parameters: &mut Vec<SqlValue>,
 ) -> Result<(String, String), StoreError> {
-    let mut property_ids = config
-        .display
-        .property_ids
-        .iter()
-        .cloned()
-        .collect::<BTreeSet<_>>();
-    if let Some(group) = &config.group {
-        property_ids.insert(group.property_id.clone());
-    }
-    if property_ids.len() > MAX_DISPLAY_PROPERTIES {
-        return Err(invalid("Database View displays too many Properties"));
-    }
-    property_ids.extend(
-        COMPATIBILITY_CARD_PROPERTY_IDS
-            .into_iter()
-            .map(str::to_owned),
-    );
-    for property_id in &property_ids {
-        validate_property_id(property_id)?;
-    }
+    let property_ids = projected_property_ids(config)?;
     if property_ids.is_empty() {
         return Ok(("'{}'".to_owned(), "'{\"database\":{}}'".to_owned()));
     }
@@ -664,6 +956,30 @@ fn compact_value_projections(
          ), '{{}}')))"
     );
     Ok((values, revisions))
+}
+
+fn projected_property_ids(config: &ViewConfig) -> Result<BTreeSet<String>, StoreError> {
+    let mut property_ids = config
+        .display
+        .property_ids
+        .iter()
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    if let Some(group) = &config.group {
+        property_ids.insert(group.property_id.clone());
+    }
+    if property_ids.len() > MAX_DISPLAY_PROPERTIES {
+        return Err(invalid("Database View displays too many Properties"));
+    }
+    property_ids.extend(
+        COMPATIBILITY_CARD_PROPERTY_IDS
+            .into_iter()
+            .map(str::to_owned),
+    );
+    for property_id in &property_ids {
+        validate_property_id(property_id)?;
+    }
+    Ok(property_ids)
 }
 
 /// SQL expression for a row's effective group key, the single source of truth

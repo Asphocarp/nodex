@@ -186,6 +186,21 @@ const pageLocationSnapshot = () => ({
   },
 });
 
+const viewLocationSnapshot = () => ({
+  contract_version: 4 as const,
+  store_epoch: identity.storeEpoch,
+  event_head: 14,
+  value: {
+    kind: "view_location" as const,
+    value: {
+      view_id: "view:test",
+      data_source_id: "source:test",
+      database_id: "database:test",
+      project_id: "project:test",
+    },
+  },
+});
+
 const lifecycleTagsProperty = () => ({
   propertyId: "tags",
   dataSourceId: "source:test",
@@ -465,6 +480,7 @@ describe("Core Library Module Adapter", () => {
     client.enqueueRead(pageTargetSnapshot());
     client.enqueueRead(pageOwnershipPathSnapshot());
     client.enqueueRead(pageLocationSnapshot());
+    client.enqueueRead(viewLocationSnapshot());
     const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
 
     await expect(adapter.resolvePageTarget({
@@ -495,10 +511,17 @@ describe("Core Library Module Adapter", () => {
       pageId: "page:one",
       projectId: "project:test",
     });
+    await expect(adapter.findViewLocation("view:test")).resolves.toEqual({
+      viewId: "view:test",
+      dataSourceId: "source:test",
+      databaseId: "database:test",
+      projectId: "project:test",
+    });
     expect(client.reads).toEqual([
       { kind: "page_target", page_id: "page:one" },
       { kind: "page_ownership_path", page_id: "page:one" },
       { kind: "page_location", page_id: "page:one" },
+      { kind: "view_location", view_id: "view:test" },
     ]);
   });
 
@@ -929,6 +952,7 @@ describe("Core Library Module Adapter", () => {
     projectClient.enqueueRead(pageOwnershipPathSnapshot());
     projectClient.enqueueRead(pageLifecyclePreflightSnapshot());
     rootClient.enqueueRead(pageLocationSnapshot());
+    rootClient.enqueueRead(viewLocationSnapshot());
     const requestedProjects: string[] = [];
     const runtime = {
       backend: "rust",
@@ -958,13 +982,20 @@ describe("Core Library Module Adapter", () => {
       "page:one",
     )).resolves.toMatchObject({ ok: true });
     await bridge.findPageLocation("page:one");
+    await bridge.findViewLocation("view:test");
 
     expect(requestedProjects).toEqual(["project:test"]);
     expect(projectClient.reads).toHaveLength(3);
-    expect(rootClient.reads).toEqual([{
-      kind: "page_location",
-      page_id: "page:one",
-    }]);
+    expect(rootClient.reads).toEqual([
+      {
+        kind: "page_location",
+        page_id: "page:one",
+      },
+      {
+        kind: "view_location",
+        view_id: "view:test",
+      },
+    ]);
   });
 
   test("maps the Project-authorized Page search aggregate", async () => {

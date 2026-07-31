@@ -386,6 +386,7 @@ pub(super) fn apply(
                 LibraryIntent::MovePage {
                     page_id,
                     destination,
+                    expected_etag,
                 } => super::page_write_semantic::move_page(
                     transaction,
                     &context,
@@ -395,6 +396,7 @@ pub(super) fn apply(
                     &request_hash,
                     page_id,
                     destination,
+                    expected_etag,
                     &assets_root,
                 ),
                 LibraryIntent::DeletePage {
@@ -2716,6 +2718,84 @@ mod tests {
         }
     }
 
+    fn prepare_move_etag(module: &LibraryModule, page_id: &str, view_id: Option<&str>) -> String {
+        let prepared = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::PageFile {
+                        page_id: page_id.to_owned(),
+                        file_kind: LibraryPageFileKind::MetaYaml,
+                        prepare: Some(LibraryPagePrepareKind::PageMove {
+                            view_id: view_id.map(str::to_owned),
+                        }),
+                    },
+                },
+            )
+            .expect("prepare Page move");
+        let LibraryReadValue::PageFile { value } = prepared.value else {
+            panic!("Page move preparation")
+        };
+        value
+            .validators
+            .move_etag
+            .expect("Page move preparation ETag")
+    }
+
+    type PageViewState = (
+        String,
+        String,
+        String,
+        i64,
+        String,
+        i64,
+        Option<String>,
+        String,
+        i64,
+    );
+
+    fn read_page_view_state(kernel: &SqliteStoreKernel, page_id: &str) -> PageViewState {
+        kernel
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .query_row(
+                        "SELECT page.parent_kind, page.parent_id, membership.id, \
+                           membership.revision, value.value_json, value.revision, \
+                           position.group_key, position.rank_key, position.revision \
+                         FROM pages page \
+                         JOIN data_source_page_memberships membership \
+                           ON membership.page_block_id = page.block_id \
+                           AND membership.removed_at IS NULL \
+                         JOIN data_source_property_values value \
+                           ON value.data_source_id = membership.data_source_id \
+                           AND value.membership_id = membership.id \
+                           AND value.property_id = 'status' \
+                         JOIN database_view_page_positions position \
+                           ON position.view_id = ?1 \
+                           AND position.page_block_id = page.block_id \
+                         WHERE page.block_id = ?2",
+                        params!["018f0000-0000-7000-8000-000000000003", page_id],
+                        |row| {
+                            Ok((
+                                row.get::<_, String>(0)?,
+                                row.get::<_, String>(1)?,
+                                row.get::<_, String>(2)?,
+                                row.get::<_, i64>(3)?,
+                                row.get::<_, String>(4)?,
+                                row.get::<_, i64>(5)?,
+                                row.get::<_, Option<String>>(6)?,
+                                row.get::<_, String>(7)?,
+                                row.get::<_, i64>(8)?,
+                            ))
+                        },
+                    )
+                    .map_err(StoreError::from)
+            })
+            .expect("Page View authority state")
+    }
+
     fn seeded_library() -> (tempfile::TempDir, SqliteStoreKernel, LibraryModule) {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
@@ -4164,6 +4244,8 @@ mod tests {
                 nfm: body.to_owned(),
                 destination: LibraryPageWriteDestination::DataSource {
                     data_source_id: "018f0000-0000-7000-8000-000000000002".to_owned(),
+                    view_id: None,
+                    group: None,
                     at: None,
                 },
             },
@@ -4556,6 +4638,11 @@ mod tests {
                 },
             )
             .expect("grant searchable Database");
+        let move_etag = prepare_move_etag(
+            &module,
+            &created.page_id,
+            Some("018f0000-0000-7000-8000-000000000003"),
+        );
         module
             .apply(
                 &context(),
@@ -4567,8 +4654,11 @@ mod tests {
                         page_id: created.page_id.clone(),
                         destination: LibraryPageWriteDestination::DataSource {
                             data_source_id: "018f0000-0000-7000-8000-000000000002".to_owned(),
+                            view_id: None,
+                            group: None,
                             at: Some(LibraryAgentSiblingAnchor::End),
                         },
+                        expected_etag: move_etag,
                     },
                 },
             )
@@ -4683,7 +4773,7 @@ mod tests {
 
     #[test]
     fn semantic_page_duplicate_move_and_guarded_delete_are_atomic_and_replayable() {
-        let (_directory, _kernel, module) = seeded_library();
+        let (_directory, kernel, module) = seeded_library();
         let mut retry_context = context();
         retry_context.connection_id = "connection:native-cli-retry".to_owned();
         let create = |operation_id: &str, title: &str| ModuleApplyRequest {
@@ -4785,6 +4875,7 @@ mod tests {
             panic!("Page file")
         };
         let stale_delete_etag = before_move.validators.page_etag.expect("Page ETag");
+        let move_etag = prepare_move_etag(&module, &copied.page_id, None);
 
         let move_request = ModuleApplyRequest {
             contract_version: LIBRARY_CONTRACT_VERSION,
@@ -4795,6 +4886,7 @@ mod tests {
                 destination: LibraryPageWriteDestination::Library {
                     at: Some(LibraryAgentSiblingAnchor::Start),
                 },
+                expected_etag: move_etag,
             },
         };
         let moved = module
@@ -4818,6 +4910,11 @@ mod tests {
         assert!(move_replay.committed.receipt.mutation.duplicate);
         assert_eq!(move_replay.committed.value.block_transfer, Some(transfer));
 
+        let move_to_data_source_etag = prepare_move_etag(
+            &module,
+            &copied.page_id,
+            Some("018f0000-0000-7000-8000-000000000003"),
+        );
         let moved_to_data_source = module
             .apply(
                 &context(),
@@ -4829,8 +4926,11 @@ mod tests {
                         page_id: copied.page_id.clone(),
                         destination: LibraryPageWriteDestination::DataSource {
                             data_source_id: "018f0000-0000-7000-8000-000000000002".to_owned(),
+                            view_id: Some("018f0000-0000-7000-8000-000000000003".to_owned()),
+                            group: None,
                             at: Some(LibraryAgentSiblingAnchor::End),
                         },
+                        expected_etag: move_to_data_source_etag,
                     },
                 },
             )
@@ -4839,15 +4939,120 @@ mod tests {
             .value
             .block_transfer
             .expect("Data Source transfer result");
-        let moved_page_etag = moved_to_data_source
+        let move_within_view_etag = moved_to_data_source
+            .move_etags
+            .get(&copied.page_id)
+            .cloned()
+            .expect("post-Data-Source move ETag");
+        let move_within_view_request = ModuleApplyRequest {
+            contract_version: LIBRARY_CONTRACT_VERSION,
+            operation_id: "native-cli:move-page-to-build".to_owned(),
+            store_epoch: StoreEpoch("epoch-1".to_owned()),
+            intent: LibraryIntent::MovePage {
+                page_id: copied.page_id.clone(),
+                destination: LibraryPageWriteDestination::DataSource {
+                    data_source_id: "018f0000-0000-7000-8000-000000000002".to_owned(),
+                    view_id: Some("018f0000-0000-7000-8000-000000000003".to_owned()),
+                    group: Some(nodex_core_contracts::database::DatabaseGroupScope::Key {
+                        key: "build".to_owned(),
+                    }),
+                    at: Some(LibraryAgentSiblingAnchor::End),
+                },
+                expected_etag: move_within_view_etag,
+            },
+        };
+        let moved_within_view_commit = module
+            .apply(&context(), move_within_view_request.clone())
+            .expect("move Page atomically within the Data Source View")
+            .committed;
+        let moved_within_view = moved_within_view_commit
+            .value
+            .block_transfer
+            .clone()
+            .expect("in-View transfer result");
+        let moved_within_view_replay = module
+            .apply(&retry_context, move_within_view_request)
+            .expect("replay in-View Page move after its ETag advanced");
+        assert!(
+            moved_within_view_replay
+                .committed
+                .receipt
+                .mutation
+                .duplicate
+        );
+        assert_eq!(
+            moved_within_view_replay.committed.value.block_transfer,
+            Some(moved_within_view.clone())
+        );
+        assert_eq!(
+            moved_within_view
+                .page_view_placements
+                .get(&copied.page_id)
+                .map(|placement| placement.group_key.as_deref()),
+            Some(Some("build"))
+        );
+        let stale_move_etag = moved_within_view
+            .move_etags
+            .get(&copied.page_id)
+            .cloned()
+            .expect("fresh in-View move ETag");
+        let moved_page_etag = moved_within_view
             .page_etags
             .get(&copied.page_id)
             .cloned()
-            .expect("post-Data-Source Page ETag");
+            .expect("post-in-View Page ETag");
         assert_eq!(
             moved_to_data_source.affected_database_ids,
             vec!["018f0000-0000-7000-8000-000000000001".to_owned()]
         );
+        let concurrent_page_id = copied.page_id.clone();
+        kernel
+            .writer()
+            .call(move |connection| {
+                connection.execute(
+                    "UPDATE database_view_page_positions \
+                     SET revision = revision + 1, updated_at = ?1 \
+                     WHERE view_id = ?2 AND page_block_id = ?3",
+                    params![
+                        NOW,
+                        "018f0000-0000-7000-8000-000000000003",
+                        concurrent_page_id
+                    ],
+                )?;
+                Ok(())
+            })
+            .expect("concurrent View position revision");
+        let state_after_concurrent_write = read_page_view_state(&kernel, &copied.page_id);
+        assert_eq!(state_after_concurrent_write.4, "\"build\"");
+        assert_eq!(state_after_concurrent_write.6.as_deref(), Some("build"));
+        let stale_move = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "native-cli:move-page-with-stale-etag".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::MovePage {
+                        page_id: copied.page_id.clone(),
+                        destination: LibraryPageWriteDestination::DataSource {
+                            data_source_id: "018f0000-0000-7000-8000-000000000002".to_owned(),
+                            view_id: Some("018f0000-0000-7000-8000-000000000003".to_owned()),
+                            group: Some(nodex_core_contracts::database::DatabaseGroupScope::Key {
+                                key: "triage".to_owned(),
+                            }),
+                            at: Some(LibraryAgentSiblingAnchor::End),
+                        },
+                        expected_etag: stale_move_etag,
+                    },
+                },
+            )
+            .expect_err("stale move ETag must reject the whole transfer");
+        assert_eq!(
+            stale_move.code,
+            nodex_core_contracts::CoreErrorCode::RevisionConflict
+        );
+        let state_after_rejected_move = read_page_view_state(&kernel, &copied.page_id);
+        assert_eq!(state_after_rejected_move, state_after_concurrent_write);
 
         let stale_delete = module
             .apply(

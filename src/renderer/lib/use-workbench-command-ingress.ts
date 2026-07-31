@@ -69,6 +69,11 @@ export interface WorkbenchSessionDeepLinkRequest {
   readonly sessionId: string;
 }
 
+export interface WorkbenchViewDeepLinkRequest {
+  readonly projectId: string;
+  readonly viewId: string;
+}
+
 export interface WorkbenchExternalIngressHandlers {
   readonly onReminderOpen?: (
     request: WorkbenchReminderOpenRequest,
@@ -78,6 +83,9 @@ export interface WorkbenchExternalIngressHandlers {
   ) => void;
   readonly onSessionDeepLinkOpen?: (
     request: WorkbenchSessionDeepLinkRequest,
+  ) => void;
+  readonly onViewDeepLinkOpen?: (
+    request: WorkbenchViewDeepLinkRequest,
   ) => void;
   readonly onRequestNewWindow?: () => void;
 }
@@ -125,6 +133,19 @@ function parseSessionDeepLinkRequest(
   return {
     projectId: request.projectId,
     sessionId: request.sessionId,
+  };
+}
+
+function parseViewDeepLinkRequest(
+  value: unknown,
+): WorkbenchViewDeepLinkRequest | null {
+  if (!value || typeof value !== "object") return null;
+  const request = value as Record<string, unknown>;
+  if (typeof request.projectId !== "string") return null;
+  if (typeof request.viewId !== "string") return null;
+  return {
+    projectId: request.projectId,
+    viewId: request.viewId,
   };
 }
 
@@ -208,6 +229,11 @@ export function useWorkbenchCommandIngress(
     if (!request) return;
     externalHandlers.onSessionDeepLinkOpen?.(request);
   });
+  const onViewDeepLinkOpen = useEffectEvent((value: unknown) => {
+    const request = parseViewDeepLinkRequest(value);
+    if (!request) return;
+    externalHandlers.onViewDeepLinkOpen?.(request);
+  });
   const onRequestNewWindow = useEffectEvent(() => {
     externalHandlers.onRequestNewWindow?.();
   });
@@ -244,6 +270,12 @@ export function useWorkbenchCommandIngress(
     if (!window.api?.on) return undefined;
     return window.api.on("reminder:open", (value: unknown) => {
       onReminderOpen(value);
+    });
+  }, []);
+  useEffect(() => {
+    if (!window.api?.on) return undefined;
+    return window.api.on("deeplink:open-view", (value: unknown) => {
+      onViewDeepLinkOpen(value);
     });
   }, []);
   useEffect(() => {

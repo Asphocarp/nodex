@@ -8,7 +8,7 @@ use nodex_core_contracts::library::{
     LibraryPageDetail, LibraryPageDocumentDescriptor, LibraryPageIntrinsicProperty,
     LibraryPageLocation, LibraryPageMembership, LibraryPageOwnershipPath,
     LibraryPageOwnershipPathAncestor, LibraryPageTarget, LibraryRead, LibraryReadValue,
-    LibraryResourceTarget, LibraryRouteTarget,
+    LibraryResourceTarget, LibraryRouteTarget, LibraryViewLocation,
 };
 use nodex_core_contracts::{AdapterKind, BoundModuleContext};
 use rusqlite::{Connection, OptionalExtension, Row, params};
@@ -158,10 +158,13 @@ pub(super) fn read(
                     connection,
                     library_id,
                     store_epoch,
-                    event_head,
-                    &page_id,
-                    file_kind,
-                    prepare,
+                    super::page_projection::PageFileRequest {
+                        event_head,
+                        requesting_project_id,
+                        page_id: &page_id,
+                        kind: file_kind,
+                        prepare,
+                    },
                 )?),
             })
         }
@@ -237,7 +240,7 @@ pub(super) fn read(
                     "Page location requires a trusted local root Adapter",
                 ));
             }
-            validate_page_identity(&page_id, "Page location")?;
+            validate_identity(&page_id, "Page location")?;
             let value = connection
                 .query_row(
                     "SELECT page.block_id, block.project_id FROM pages page \
@@ -264,6 +267,48 @@ pub(super) fn read(
                 &canvas_id,
             )?),
         }),
+        LibraryRead::ViewLocation { view_id } => {
+            if requesting_project_id.is_some() || !trusted_root_adapter(requesting_adapter) {
+                return Err(unauthorized(
+                    "View location requires a trusted local root Adapter",
+                ));
+            }
+            validate_identity(&view_id, "View location")?;
+            let value = connection
+                .query_row(
+                    "SELECT view.id, view.data_source_id, view.database_block_id, block.project_id \
+                     FROM database_views view \
+                     JOIN data_sources source \
+                       ON source.id = view.data_source_id \
+                       AND source.home_database_block_id = view.database_block_id \
+                       AND source.library_id = ?2 \
+                     JOIN database_containers container \
+                       ON container.block_id = view.database_block_id \
+                       AND container.library_id = source.library_id \
+                     JOIN blocks block \
+                       ON block.id = container.block_id AND block.type = 'database' \
+                     JOIN projects project \
+                       ON project.id = block.project_id AND project.library_id = source.library_id \
+                     WHERE view.id = ?1 \
+                       AND view.lifecycle = 'active' \
+                       AND source.lifecycle = 'active' \
+                       AND container.lifecycle = 'active' \
+                       AND block.lifecycle = 'active' \
+                       AND project.lifecycle = 'active' \
+                     LIMIT 1",
+                    params![view_id, library_id],
+                    |row| {
+                        Ok(LibraryViewLocation {
+                            view_id: row.get(0)?,
+                            data_source_id: row.get(1)?,
+                            database_id: row.get(2)?,
+                            project_id: row.get(3)?,
+                        })
+                    },
+                )
+                .optional()?;
+            Ok(LibraryReadValue::ViewLocation { value })
+        }
         LibraryRead::Search {
             query,
             include_archived,
@@ -424,7 +469,7 @@ fn agent_block_target(
     event_head: i64,
     block_id: &str,
 ) -> Result<Option<LibraryAgentBlockTarget>, StoreError> {
-    validate_page_identity(block_id, "Agent Block target")?;
+    validate_identity(block_id, "Agent Block target")?;
     let row = connection
         .query_row(
             "SELECT block.id, block.type, block.lifecycle, \
@@ -495,7 +540,7 @@ fn page_target(
     requesting_project_id: Option<&str>,
     page_id: &str,
 ) -> Result<Option<LibraryPageTarget>, StoreError> {
-    validate_page_identity(page_id, "Page target")?;
+    validate_identity(page_id, "Page target")?;
     let project_id = requesting_project_id
         .ok_or_else(|| unauthorized("Page target resolution requires a bound Project"))?;
     if !project_scope_exists(connection, library_id, project_id)? {
@@ -599,7 +644,7 @@ fn page_ownership_path(
     requesting_project_id: Option<&str>,
     page_id: &str,
 ) -> Result<Option<LibraryPageOwnershipPath>, StoreError> {
-    validate_page_identity(page_id, "Page ownership path")?;
+    validate_identity(page_id, "Page ownership path")?;
     let project_id = requesting_project_id
         .ok_or_else(|| unauthorized("Page ownership path requires a bound Project"))?;
     if !project_scope_exists(connection, library_id, project_id)? {
@@ -749,7 +794,7 @@ fn project_scope_exists(
         .is_some())
 }
 
-fn validate_page_identity(value: &str, label: &str) -> Result<(), StoreError> {
+fn validate_identity(value: &str, label: &str) -> Result<(), StoreError> {
     if !value.is_empty() && value.len() <= 512 && value.trim() == value {
         return Ok(());
     }

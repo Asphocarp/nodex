@@ -16,7 +16,9 @@ import {
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const MANIFEST_SCHEMA_VERSION = 2;
+import { inspectOfficialAgentSkillsArtifact } from "./official-agent-skills-artifact.mjs";
+
+const MANIFEST_SCHEMA_VERSION = 3;
 const scriptPath = fileURLToPath(import.meta.url);
 const repositoryRoot = path.resolve(path.dirname(scriptPath), "..");
 const defaultManifestPath = path.join(
@@ -34,6 +36,7 @@ const IGNORED_INPUT_DIRECTORY_NAMES = new Set([
 ]);
 
 const REQUIRED_INPUT_PATHS = [
+  "agent-skills",
   "config",
   "crates",
   "packages/codex-app-server-protocol",
@@ -45,6 +48,7 @@ const REQUIRED_INPUT_PATHS = [
   ".node-version",
   "Cargo.lock",
   "Cargo.toml",
+  "LICENSE",
   "electron-builder.yml",
   "electron.vite.config.ts",
   "package.json",
@@ -57,6 +61,7 @@ const REQUIRED_INPUT_PATHS = [
 ] as const;
 
 const PREREQUISITE_SOURCE_PATHS = [
+  "agent-skills",
   "resources/icon.icon",
   "resources/nodex-icon.svg",
   "resources/third-party/open-interpreter",
@@ -64,9 +69,16 @@ const PREREQUISITE_SOURCE_PATHS = [
   "scripts/generate-third-party-notices.ts",
   "scripts/legacy-profile-migrator",
   "scripts/legacy-profile-migrator-artifacts.ts",
+  "scripts/official-agent-skills-artifact.d.mts",
+  "scripts/official-agent-skills-artifact.mjs",
+  "scripts/official-agent-skills.ts",
   "scripts/sync-app-icons.ts",
+  "src/shared/nfm/agent-guide.ts",
+  "src/shared/nfm/parser.ts",
+  "src/shared/nfm/serializer.ts",
   "Cargo.lock",
   "Cargo.toml",
+  "LICENSE",
   "package.json",
   "pnpm-lock.yaml",
 ] as const;
@@ -90,7 +102,13 @@ interface PreparedBuildProduct {
   readonly version: string;
 }
 
+interface PreparedAgentSkills {
+  readonly manifestSha256: string;
+  readonly treeSha256: string;
+}
+
 export interface PreparedElectronBuildManifest {
+  readonly agentSkills: PreparedAgentSkills;
   readonly buildContext: Record<string, string>;
   readonly generationId: string;
   readonly inputDigest: string;
@@ -215,6 +233,16 @@ const inputInventory = (root: string): FileDigest[] => {
 const currentInputDigest = (root: string): string =>
   digestInventory(inputInventory(root), buildContext());
 
+const currentAgentSkills = (root: string): PreparedAgentSkills => {
+  const inspected = inspectOfficialAgentSkillsArtifact(
+    path.join(root, ".generated/official-agent-skills"),
+  );
+  return {
+    manifestSha256: inspected.manifestSha256,
+    treeSha256: inspected.treeSha256,
+  };
+};
+
 const readGitValue = (root: string, arguments_: readonly string[]): string | null => {
   const result = spawnSync("git", arguments_, {
     cwd: root,
@@ -309,18 +337,31 @@ const writeManifest = (
 export function recordPreparedElectronBuild(
   options: PreparedElectronBuildOptions,
   expectedInputDigest?: string,
+  expectedAgentSkills?: PreparedAgentSkills,
 ): PreparedElectronBuildManifest {
   const root = path.resolve(options.repositoryRoot);
   const beforeOutputs = currentInputDigest(root);
+  const beforeAgentSkills = currentAgentSkills(root);
   if (expectedInputDigest && beforeOutputs !== expectedInputDigest) {
     throw new Error("Electron build inputs changed while the production build was running.");
   }
+  if (
+    expectedAgentSkills
+    && JSON.stringify(beforeAgentSkills) !== JSON.stringify(expectedAgentSkills)
+  ) {
+    throw new Error("Official Agent Skills changed while the production build was running.");
+  }
   const outputs = outputInventory(root);
   const afterOutputs = currentInputDigest(root);
+  const afterAgentSkills = currentAgentSkills(root);
   if (beforeOutputs !== afterOutputs) {
     throw new Error("Electron build inputs changed while outputs were being recorded.");
   }
+  if (JSON.stringify(beforeAgentSkills) !== JSON.stringify(afterAgentSkills)) {
+    throw new Error("Official Agent Skills changed while outputs were being recorded.");
+  }
   const manifestWithoutGeneration = {
+    agentSkills: afterAgentSkills,
     buildContext: buildContext(),
     inputDigest: afterOutputs,
     outputs,
@@ -343,6 +384,8 @@ const parseManifest = (value: unknown): PreparedElectronBuildManifest => {
   const candidate = value as Partial<PreparedElectronBuildManifest>;
   if (
     candidate.schemaVersion !== MANIFEST_SCHEMA_VERSION
+    || typeof candidate.agentSkills !== "object"
+    || candidate.agentSkills === null
     || typeof candidate.generationId !== "string"
     || typeof candidate.inputDigest !== "string"
     || !Array.isArray(candidate.outputs)
@@ -381,6 +424,13 @@ export function verifyPreparedElectronBuild(
   if (manifest.inputDigest !== currentInputDigest(root)) {
     throw new Error("Prepared Electron build inputs are stale; run without --reuse-build first.");
   }
+  if (
+    JSON.stringify(manifest.agentSkills) !== JSON.stringify(currentAgentSkills(root))
+  ) {
+    throw new Error(
+      "Prepared Electron build uses stale or damaged official Agent Skills.",
+    );
+  }
   const outputs = outputInventory(root);
   if (JSON.stringify(outputs) !== JSON.stringify(manifest.outputs)) {
     throw new Error("Prepared Electron build outputs are stale or damaged; run without --reuse-build first.");
@@ -391,7 +441,11 @@ export function verifyPreparedElectronBuild(
 function runProductionBuild(): void {
   rmSync(defaultManifestPath, { force: true });
   const beforePrerequisites = currentPrerequisiteSourceDigest(repositoryRoot);
+  const agentSkillsCommand = process.env.NODEX_AGENT_SKILLS_REQUIRE_PREGENERATED === "1"
+    ? "agent-skills:verify"
+    : "agent-skills:generate";
   for (const script of [
+    agentSkillsCommand,
     "legacy-profile-migrator:verify",
     "third-party-notices:generate",
     "sync:icons",
@@ -405,6 +459,7 @@ function runProductionBuild(): void {
     throw new Error("Build prerequisite inputs changed while generated resources were prepared.");
   }
   const beforeBuild = currentInputDigest(repositoryRoot);
+  const agentSkills = currentAgentSkills(repositoryRoot);
   execFileSync(
     "pnpm",
     ["exec", "electron-vite", "build", "--logLevel", "warn"],
@@ -413,6 +468,7 @@ function runProductionBuild(): void {
   recordPreparedElectronBuild(
     { repositoryRoot, manifestPath: defaultManifestPath },
     beforeBuild,
+    agentSkills,
   );
 }
 

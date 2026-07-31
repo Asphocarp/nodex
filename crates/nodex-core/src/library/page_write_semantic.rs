@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use nodex_core_contracts::BoundModuleContext;
+use nodex_core_contracts::database::DatabaseGroupScope;
 use nodex_core_contracts::library::{
     LibraryAgentSiblingAnchor, LibraryBlockTransferLogicalIntent, LibraryBlockTransferMode,
     LibraryBlockTransferPlan, LibraryBlockTransferSource, LibraryBlockTransferTarget,
@@ -218,12 +219,36 @@ pub(super) fn move_page(
     request_hash: &str,
     page_id: &str,
     destination: &LibraryPageWriteDestination,
+    expected_etag: &str,
     assets_root: &Path,
 ) -> Result<LibraryApplyOutcome, StoreError> {
     validate_id(page_id, "page_id")?;
+    if expected_etag.is_empty() {
+        return Err(invalid("Page move requires a move ETag"));
+    }
+    let project_id = bound_project_id(context)?;
     let source = read_source(connection, library_id, page_id)?;
     let destination =
         resolve_destination(connection, context, library_id, destination, Some(page_id))?;
+    let validator_view_id = match &destination {
+        LibraryPageCopyDestination::DataSource { view, .. } => {
+            view.as_ref().map(|view| view.view_id.clone())
+        }
+        LibraryPageCopyDestination::Library { .. } | LibraryPageCopyDestination::Page { .. } => {
+            crate::database::default_page_move_view_id(connection, library_id, page_id)?
+        }
+    };
+    let current_etag = crate::database::mint_page_move_etag(
+        connection,
+        library_id,
+        project_id,
+        store_epoch,
+        page_id,
+        validator_view_id.as_deref(),
+    )?;
+    if !constant_time_equal(expected_etag.as_bytes(), current_etag.as_bytes()) {
+        return Err(conflict("Page move ETag changed"));
+    }
     let target = transfer_target(library_id, &destination)?;
     let intent = LibraryBlockTransferLogicalIntent {
         actor: json!({ "kind": "native_cli", "command": "page_move" }),
@@ -364,18 +389,24 @@ fn resolve_destination(
                 before,
             })
         }
-        LibraryPageWriteDestination::DataSource { data_source_id, at } => {
+        LibraryPageWriteDestination::DataSource {
+            data_source_id,
+            view_id: requested_view_id,
+            group,
+            at,
+        } => {
             validate_id(data_source_id, "destination.data_source_id")?;
             let (view_id, view_config) = connection
                 .query_row(
                     "SELECT view.id, view.config_json FROM data_sources source \
                      JOIN database_containers container \
                        ON container.block_id = source.home_database_block_id \
-                     JOIN database_views view ON view.id = container.default_view_id \
+                     JOIN database_views view \
+                       ON view.id = COALESCE(?3, container.default_view_id) \
                      WHERE source.id = ?1 AND source.library_id = ?2 \
                        AND source.lifecycle = 'active' AND container.lifecycle = 'active' \
-                       AND view.lifecycle = 'active'",
-                    params![data_source_id, library_id],
+                       AND view.data_source_id = source.id AND view.lifecycle = 'active'",
+                    params![data_source_id, library_id, requested_view_id],
                     |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
                 )
                 .optional()?
@@ -385,11 +416,12 @@ fn resolve_destination(
             let group_property_id = view_config
                 .pointer("/group/propertyId")
                 .and_then(serde_json::Value::as_str);
-            let existing_group_key = moving_page_id
-                .map(|page_id| {
-                    connection
-                        .query_row(
-                            "SELECT position.group_key \
+            let existing_group_key = if group.is_none() {
+                moving_page_id
+                    .map(|page_id| {
+                        connection
+                            .query_row(
+                                "SELECT position.group_key \
                              FROM data_source_page_memberships membership \
                              LEFT JOIN database_view_page_positions position \
                                ON position.view_id = ?1 \
@@ -397,16 +429,26 @@ fn resolve_destination(
                              WHERE membership.data_source_id = ?2 \
                                AND membership.page_block_id = ?3 \
                                AND membership.removed_at IS NULL",
-                            params![view_id, data_source_id, page_id],
-                            |row| row.get::<_, Option<String>>(0),
-                        )
-                        .optional()
-                })
-                .transpose()?
-                .flatten()
-                .flatten();
-            let group_key = existing_group_key
-                .or_else(|| (group_property_id == Some("status")).then(|| "triage".to_owned()));
+                                params![view_id, data_source_id, page_id],
+                                |row| row.get::<_, Option<String>>(0),
+                            )
+                            .optional()
+                    })
+                    .transpose()?
+                    .flatten()
+                    .flatten()
+            } else {
+                None
+            };
+            let group_key = match group {
+                Some(DatabaseGroupScope::Key { key }) => {
+                    validate_id(key, "destination.group")?;
+                    Some(key.clone())
+                }
+                Some(DatabaseGroupScope::Unassigned) => None,
+                None => existing_group_key
+                    .or_else(|| (group_property_id == Some("status")).then(|| "triage".to_owned())),
+            };
             let ids = connection
                 .prepare(
                     "SELECT membership.page_block_id \
@@ -558,4 +600,19 @@ fn unauthorized(message: impl Into<String>) -> StoreError {
 
 fn corrupt(message: impl Into<String>) -> StoreError {
     StoreError::new(StoreErrorCode::StoreCorrupt, message, false)
+}
+fn conflict(message: impl Into<String>) -> StoreError {
+    StoreError::new(StoreErrorCode::RevisionConflict, message, true)
+}
+
+fn constant_time_equal(left: &[u8], right: &[u8]) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    left.iter()
+        .zip(right)
+        .fold(0_u8, |difference, (left, right)| {
+            difference | (left ^ right)
+        })
+        == 0
 }

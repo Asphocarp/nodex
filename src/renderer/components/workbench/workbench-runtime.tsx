@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useEffectEvent,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -304,9 +305,17 @@ export interface WorkbenchRuntimeProps {
     projectId: string;
     pageId: string;
   } | null;
+  pendingViewDeepLinkOpen?: {
+    projectId: string;
+    viewId: string;
+  } | null;
   onPageDeepLinkHandled?: (payload: {
     projectId: string;
     pageId: string;
+  }) => void;
+  onViewDeepLinkHandled?: (payload: {
+    projectId: string;
+    viewId: string;
   }) => void;
   pendingSessionOpen?: {
     projectId: string | null;
@@ -372,7 +381,9 @@ export function WorkbenchRuntime({
   pageStageSessionSnapshotRef,
   pendingReminderOpen,
   pendingPageDeepLinkOpen,
+  pendingViewDeepLinkOpen,
   onPageDeepLinkHandled,
+  onViewDeepLinkHandled,
   pendingSessionOpen,
   setSearchQuery: observeSearchQueryMutation,
   setDbViewPrefs,
@@ -1447,7 +1458,30 @@ export function WorkbenchRuntime({
   const {
     cycleFocusedPanelTab,
     closeFocusedPanelTab,
+    focusOrCreateDatabaseViewTab,
   } = panelCommands;
+
+  const openPendingViewDeepLink = useEffectEvent(async (
+    request: { projectId: string; viewId: string },
+  ) => {
+    const opened = await focusOrCreateDatabaseViewTab(
+      request.viewId,
+      "right",
+    );
+    if (!opened) return;
+    onViewDeepLinkHandled?.(request);
+  });
+
+  useEffect(() => {
+    if (!pendingViewDeepLinkOpen) return;
+    if (pendingViewDeepLinkOpen.projectId !== activeProjectId) return;
+
+    void openPendingViewDeepLink(pendingViewDeepLinkOpen);
+  }, [
+    activeProjectId,
+    activeSession?.id,
+    pendingViewDeepLinkOpen,
+  ]);
 
   const chromeCommands = useWorkbenchChromeCommands({
     activeSession,

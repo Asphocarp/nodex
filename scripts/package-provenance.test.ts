@@ -13,8 +13,69 @@ const temporaryRoots: string[] = [];
 const sha256 = (value: string): string =>
   createHash("sha256").update(value).digest("hex");
 
-const makePreparedManifest = (inputDigest = "1".repeat(64)): object => {
+const skillFiles = [
+  "SKILL.md",
+  "agents/openai.yaml",
+  "references/nested-markdown.md",
+  "references/page-editor.md",
+  "references/project-database-views.md",
+  "references/troubleshooting.md",
+] as const;
+
+const writeAgentSkills = (
+  resources: string,
+): { manifestSha256: string; treeSha256: string } => {
+  const root = path.join(resources, "agent-skills");
+  const files = new Map(
+    skillFiles.map((relativePath) => [
+      relativePath,
+      Buffer.from(`${relativePath}\n`, "utf8"),
+    ]),
+  );
+  const hash = createHash("sha256");
+  for (const relativePath of [...files.keys()].sort()) {
+    const contents = files.get(relativePath);
+    if (!contents) throw new Error(`Missing test Skill file: ${relativePath}`);
+    hash.update(relativePath);
+    hash.update("\0");
+    hash.update(String(contents.byteLength));
+    hash.update("\0");
+    hash.update(contents);
+    hash.update("\0");
+  }
+  const treeSha256 = hash.digest("hex");
+  for (const [relativePath, contents] of files) {
+    const destination = path.join(root, "skills/nodex", relativePath);
+    fs.mkdirSync(path.dirname(destination), { recursive: true });
+    fs.writeFileSync(destination, contents);
+  }
+  fs.writeFileSync(path.join(root, "README.md"), "README\n");
+  fs.writeFileSync(path.join(root, "LICENSE"), "LICENSE\n");
+  const manifest = `${JSON.stringify({
+    schemaVersion: 1,
+    distribution: "NodexApp/skills",
+    product: { name: "Nodex", releaseVersion: "0.1.10" },
+    source: { repository: "NodexApp/nodex", ref: "v0.1.10" },
+    agentInterface: { minimumRevision: 1, maximumRevision: 1 },
+    skills: [{
+      name: "nodex",
+      path: "skills/nodex",
+      treeSha256,
+      fileCount: files.size,
+      totalBytes: [...files.values()]
+        .reduce((total, contents) => total + contents.byteLength, 0),
+    }],
+  }, null, 2)}\n`;
+  fs.writeFileSync(path.join(root, "release-manifest.json"), manifest);
+  return { manifestSha256: sha256(manifest), treeSha256 };
+};
+
+const makePreparedManifest = (
+  agentSkills: { manifestSha256: string; treeSha256: string },
+  inputDigest = "1".repeat(64),
+): object => {
   const body = {
+    agentSkills,
     buildContext: { arch: "arm64", platform: "darwin" },
     inputDigest,
     outputs: [{
@@ -24,7 +85,7 @@ const makePreparedManifest = (inputDigest = "1".repeat(64)): object => {
       size: 10,
     }],
     product: { name: "nodex", version: "0.1.10" },
-    schemaVersion: 2,
+    schemaVersion: 3,
     source: {
       baseCommit: "3".repeat(40),
       baseTree: "4".repeat(40),
@@ -57,7 +118,8 @@ const makeApp = (): {
     path.join(resources, "app-update.yml"),
     "provider: github\nowner: junyudev\nrepo: nodex\n",
   );
-  const prepared = makePreparedManifest();
+  const agentSkills = writeAgentSkills(resources);
+  const prepared = makePreparedManifest(agentSkills);
   writeJson(path.join(resources, "prepared-electron-build.json"), prepared);
   writeJson(path.join(resources, "bin/rust-core-runtime.json"), {
     schemaVersion: 3,
@@ -128,7 +190,13 @@ describe("packaged build provenance", () => {
   test("rejects a stale prepared source generation", () => {
     const fixture = makeApp();
     writePackagedBuildProvenance(fixture.appPath);
-    writeJson(fixture.currentPreparedPath, makePreparedManifest("5".repeat(64)));
+    const agentSkills = writeAgentSkills(
+      path.join(fixture.appPath, "Contents/Resources"),
+    );
+    writeJson(
+      fixture.currentPreparedPath,
+      makePreparedManifest(agentSkills, "5".repeat(64)),
+    );
 
     expect(() => verifyPackagedBuildProvenance(fixture.appPath, {
       expectedPreparedManifestPath: fixture.currentPreparedPath,
@@ -166,6 +234,22 @@ describe("packaged build provenance", () => {
 
     expect(() => verifyPackagedBuildProvenance(fixture.appPath)).toThrow(
       "does not match the packaged provenance",
+    );
+  });
+
+  test("rejects a mutated packaged official Agent Skill", () => {
+    const fixture = makeApp();
+    writePackagedBuildProvenance(fixture.appPath);
+    fs.appendFileSync(
+      path.join(
+        fixture.appPath,
+        "Contents/Resources/agent-skills/skills/nodex/SKILL.md",
+      ),
+      "tampered\n",
+    );
+
+    expect(() => verifyPackagedBuildProvenance(fixture.appPath)).toThrow(
+      "tree does not match its release manifest",
     );
   });
 });

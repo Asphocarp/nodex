@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/dropdown";
 import { toast } from "@/components/ui/toast";
 import { writeTextToClipboardStrict } from "@/lib/clipboard";
-import { buildSessionDeepLink } from "../../../../shared/page-deeplink";
+import { buildSessionDeepLink } from "../../../../shared/nodex-deeplink";
 import { cn } from "../../../lib/utils";
 import type { ThreadStageActions, ThreadStageHeaderModel } from "../thread-stage-types";
 

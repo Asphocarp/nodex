@@ -8,9 +8,10 @@ use crate::agent::{
     AgentResourceAccessOverlay, AgentResourceAccessPlan, AgentResourceGrantSpec,
     AgentResourceIntent, AgentTurnProvenance,
 };
+use crate::database::DatabaseGroupScope;
 use crate::{CommittedModuleValue, ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const LIBRARY_CONTRACT_VERSION: u32 = 4;
+pub const LIBRARY_CONTRACT_VERSION: u32 = 6;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -147,6 +148,8 @@ pub enum LibraryPageWriteDestination {
     },
     DataSource {
         data_source_id: String,
+        view_id: Option<String>,
+        group: Option<DatabaseGroupScope>,
         at: Option<LibraryAgentSiblingAnchor>,
     },
 }
@@ -436,6 +439,13 @@ pub struct LibraryBlockTransferDocumentCommit {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryPageViewPlacementResult {
+    pub view_id: String,
+    pub group_key: Option<String>,
+    pub position_revision: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct LibraryBlockTransferResult {
     pub mode: LibraryBlockTransferMode,
     pub source_root_block_ids: Vec<String>,
@@ -447,6 +457,8 @@ pub struct LibraryBlockTransferResult {
     pub document_commits: Vec<LibraryBlockTransferDocumentCommit>,
     pub affected_database_ids: Vec<String>,
     pub page_etags: std::collections::BTreeMap<String, String>,
+    pub move_etags: std::collections::BTreeMap<String, String>,
+    pub page_view_placements: std::collections::BTreeMap<String, LibraryPageViewPlacementResult>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -532,6 +544,9 @@ pub enum LibraryRead {
     },
     CanvasTarget {
         canvas_id: String,
+    },
+    ViewLocation {
+        view_id: String,
     },
     PageLifecyclePreflight {
         page_id: String,
@@ -745,6 +760,14 @@ pub enum LibraryPageOwnershipPath {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct LibraryPageLocation {
     pub page_id: String,
+    pub project_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryViewLocation {
+    pub view_id: String,
+    pub data_source_id: String,
+    pub database_id: String,
     pub project_id: String,
 }
 
@@ -1145,12 +1168,13 @@ pub enum LibraryPageFileKind {
     MetaYaml,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum LibraryPagePrepareKind {
     TitleSet,
     DocumentReplace,
     PageDelete,
+    PageMove { view_id: Option<String> },
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -1214,6 +1238,7 @@ pub struct LibraryPageFileValidators {
     pub title_etag: Option<String>,
     pub body_etag: Option<String>,
     pub page_etag: Option<String>,
+    pub move_etag: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
@@ -1745,6 +1770,9 @@ pub enum LibraryReadValue {
     CanvasTarget {
         value: Box<LibraryCanvasTarget>,
     },
+    ViewLocation {
+        value: Option<LibraryViewLocation>,
+    },
     PageLifecyclePreflight {
         value: Box<LibraryPageLifecyclePreflight>,
     },
@@ -1843,6 +1871,7 @@ pub enum LibraryIntent {
     MovePage {
         page_id: String,
         destination: LibraryPageWriteDestination,
+        expected_etag: String,
     },
     DeletePage {
         page_id: String,

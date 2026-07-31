@@ -64,6 +64,8 @@ const coreResult = () => ({
   }],
   affected_database_ids: [],
   page_etags: {},
+  move_etags: {},
+  page_view_placements: {},
 });
 
 const preparedSnapshot = (): LibraryReadSnapshot => ({

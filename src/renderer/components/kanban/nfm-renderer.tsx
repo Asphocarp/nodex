@@ -11,7 +11,7 @@ import {
   resolveOrderedListMargin,
   resolveOrderedListPadding,
 } from "@/lib/ordered-list-groups";
-import { buildPageDeepLink } from "../../../shared/page-deeplink";
+import { buildPageDeepLink } from "../../../shared/nodex-deeplink";
 import { resolveOrderedListStarts } from "../../../shared/nfm/ordered-list";
 import type {
   NfmBlock,

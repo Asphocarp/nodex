@@ -21,6 +21,7 @@ import {
   sha256File,
   type NativeRuntimeArchitecture,
 } from "./native-runtime-manifest";
+import { verifyPackagedAgentSkills } from "./verify-packaged-agent-skills";
 
 export interface VerificationOptions {
   readonly appPath: string;
@@ -467,6 +468,7 @@ const launchAppSmoke = async (appPath: string): Promise<void> => {
 
 export async function verifyPackagedNativeRuntime(options: VerificationOptions): Promise<void> {
   const appPath = resolve(options.appPath);
+  verifyPackagedAgentSkills({ appPath });
   const contentsPath = join(appPath, "Contents");
   const manifestPath = join(contentsPath, "Resources/bin/rust-core-runtime.json");
   const manifest = readNativeRuntimeManifest(manifestPath);

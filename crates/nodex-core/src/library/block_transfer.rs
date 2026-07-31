@@ -7,7 +7,8 @@ use nodex_core_contracts::library::{
     LibraryBlockTransferPlan, LibraryBlockTransferPreparation, LibraryBlockTransferResult,
     LibraryBlockTransferSource, LibraryBlockTransferTarget, LibraryBlockTransferWriteFence,
     LibraryCommitValue, LibraryPageCopyDestination, LibraryPageCopyPositionAnchor,
-    LibraryPageCopyValue, LibraryPageCopyViewPlacement, LibraryPlacementAnchor, LibraryReceipt,
+    LibraryPageCopyValue, LibraryPageCopyViewPlacement, LibraryPageViewPlacementResult,
+    LibraryPlacementAnchor, LibraryReceipt,
 };
 use nodex_core_contracts::{BoundModuleContext, CommittedModuleValue};
 use rusqlite::{Connection, OptionalExtension, params};
@@ -529,6 +530,8 @@ fn apply_with_authority(
         document_commits: public_commits,
         affected_database_ids: Vec::new(),
         page_etags: BTreeMap::new(),
+        move_etags: BTreeMap::new(),
+        page_view_placements: BTreeMap::new(),
     };
     let now = sqlite_now(connection)?;
     let affected_page_ids = affected_page_ids(&prepared);
@@ -1087,12 +1090,6 @@ fn prepare_page_ownership_transfer(
                 PreparedPageOwnershipSource::Library,
                 PreparedPageOwnershipTarget::Library { .. }
             )
-        ) || matches!(
-            (&source, &target),
-            (
-                PreparedPageOwnershipSource::DataSource { data_source_id: source, .. },
-                PreparedPageOwnershipTarget::DataSource { destination, .. }
-            ) if source == &destination.data_source_id
         ) || matches!(
             (&source, &target),
             (
@@ -1721,6 +1718,57 @@ fn apply_page_ownership_transfer(
             .map(|etag| (page_id.clone(), etag))
         })
         .collect::<Result<BTreeMap<_, _>, _>>()?;
+    let target_view_id = match &prepared.target {
+        PreparedPageOwnershipTarget::DataSource { destination, .. } => {
+            destination.view.as_ref().map(|view| view.view_id.as_str())
+        }
+        PreparedPageOwnershipTarget::Library { .. }
+        | PreparedPageOwnershipTarget::Document { .. } => None,
+    };
+    let move_etags = if agent_authority.is_none() {
+        result_block_ids
+            .iter()
+            .map(|page_id| {
+                crate::database::mint_page_move_etag(
+                    connection,
+                    library_id,
+                    requesting_project_id,
+                    store_epoch,
+                    page_id,
+                    target_view_id,
+                )
+                .map(|etag| (page_id.clone(), etag))
+            })
+            .collect::<Result<BTreeMap<_, _>, _>>()?
+    } else {
+        BTreeMap::new()
+    };
+    let page_view_placements = target_view_id
+        .map(|view_id| {
+            result_block_ids
+                .iter()
+                .map(|page_id| {
+                    connection
+                        .query_row(
+                            "SELECT group_key, revision \
+                             FROM database_view_page_positions \
+                             WHERE view_id = ?1 AND page_block_id = ?2",
+                            params![view_id, page_id],
+                            |row| {
+                                Ok(LibraryPageViewPlacementResult {
+                                    view_id: view_id.to_owned(),
+                                    group_key: row.get(0)?,
+                                    position_revision: row.get(1)?,
+                                })
+                            },
+                        )
+                        .map(|placement| (page_id.clone(), placement))
+                        .map_err(StoreError::from)
+                })
+                .collect::<Result<BTreeMap<_, _>, _>>()
+        })
+        .transpose()?
+        .unwrap_or_default();
     let result = LibraryBlockTransferResult {
         mode: LibraryBlockTransferMode::Move,
         source_root_block_ids: intent.root_block_ids.clone(),
@@ -1735,6 +1783,8 @@ fn apply_page_ownership_transfer(
             .collect(),
         affected_database_ids: affected_database_ids.clone(),
         page_etags,
+        move_etags,
+        page_view_placements,
     };
     committed_revisions.extend(
         final_location_revisions
@@ -1950,6 +2000,8 @@ fn apply_page_ownership_copy(
         document_commits: document_commits.clone(),
         affected_database_ids: affected_database_ids.clone(),
         page_etags: BTreeMap::new(),
+        move_etags: BTreeMap::new(),
+        page_view_placements: BTreeMap::new(),
     };
     let target_project_id = target_project_id
         .ok_or_else(|| corrupt("Page copy produced no target Project authority"))?;
@@ -2506,6 +2558,8 @@ fn apply_page_parent_transfer(
             .collect(),
         affected_database_ids: affected_database_ids.clone(),
         page_etags: BTreeMap::new(),
+        move_etags: BTreeMap::new(),
+        page_view_placements: BTreeMap::new(),
     };
     let mut committed_revisions = final_location_revisions
         .iter()

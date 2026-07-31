@@ -924,6 +924,8 @@ describe("Desktop Document sync bridge", () => {
       }],
       affected_database_ids: [],
       page_etags: {},
+      move_etags: {},
+      page_view_placements: {},
     };
     projectClient.enqueueApply({
       store_epoch: "epoch:test",

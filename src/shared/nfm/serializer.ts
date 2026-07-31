@@ -4,7 +4,7 @@ import { resolveOrderedListStarts } from "./ordered-list";
 import { serializeInlineContent } from "./serializer-inline";
 import { serializeNfmTable } from "./table";
 import { escapeXmlAttr } from "./xml-attributes";
-import { buildPageDeepLink, parsePageDeepLink } from "../page-deeplink";
+import { buildPageDeepLink, parsePageDeepLink } from "../nodex-deeplink";
 
 export function serializeNfm(blocks: NfmBlock[]): string {
   return serializeBlocks(blocks, 0)

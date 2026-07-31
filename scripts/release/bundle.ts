@@ -26,7 +26,13 @@ export interface ReleaseArtifactIdentity {
   readonly sha256: string;
 }
 
+export interface AgentSkillsIdentity {
+  readonly manifestSha256: string;
+  readonly treeSha256: string;
+}
+
 export interface ArchitectureBuildManifest {
+  readonly agentSkills: AgentSkillsIdentity;
   readonly architecture: MacArchitecture;
   readonly artifacts: readonly ReleaseArtifactIdentity[];
   readonly packageProvenanceSha256: string;
@@ -48,6 +54,7 @@ export interface ArchitectureBuildManifest {
 }
 
 export interface ReleaseBundleManifest {
+  readonly agentSkills: AgentSkillsIdentity;
   readonly architectures: Readonly<Record<MacArchitecture, {
     readonly manifestSha256: string;
     readonly preparedBuildGeneration: string;
@@ -91,6 +98,29 @@ const assertSha = (value: string, label: string): string => {
   const normalized = value.trim().toLowerCase();
   if (!SHA_PATTERN.test(normalized)) throw new Error(`${label} must be a SHA-256 hex digest.`);
   return normalized;
+};
+
+const parseAgentSkillsIdentity = (
+  value: unknown,
+  label: string,
+): AgentSkillsIdentity => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${label} is invalid.`);
+  }
+  const candidate = value as Partial<AgentSkillsIdentity>;
+  if (
+    JSON.stringify(Object.keys(candidate).sort())
+    !== JSON.stringify(["manifestSha256", "treeSha256"])
+  ) {
+    throw new Error(`${label} has an unsupported shape.`);
+  }
+  return {
+    manifestSha256: assertSha(
+      candidate.manifestSha256 ?? "",
+      `${label} manifest`,
+    ),
+    treeSha256: assertSha(candidate.treeSha256 ?? "", `${label} tree`),
+  };
 };
 
 const assertRegularFile = (filePath: string): void => {
@@ -148,6 +178,7 @@ export function parseArchitectureBuildManifest(value: unknown): ArchitectureBuil
   const candidate = value as Partial<ArchitectureBuildManifest>;
   if (
     candidate.schemaVersion !== 1
+    || !candidate.agentSkills
     || (candidate.architecture !== "arm64" && candidate.architecture !== "x64")
     || typeof candidate.version !== "string"
     || typeof candidate.tag !== "string"
@@ -174,6 +205,10 @@ export function parseArchitectureBuildManifest(value: unknown): ArchitectureBuil
   assertSha(candidate.packageProvenanceSha256, "package provenance");
   return {
     ...candidate,
+    agentSkills: parseAgentSkillsIdentity(
+      candidate.agentSkills,
+      "Architecture Agent Skills identity",
+    ),
     artifacts: candidate.artifacts.map(parseArtifact),
     version,
   } as ArchitectureBuildManifest;
@@ -186,6 +221,7 @@ export function parseReleaseBundleManifest(value: unknown): ReleaseBundleManifes
   const candidate = value as Partial<ReleaseBundleManifest>;
   if (
     candidate.schemaVersion !== 1
+    || !candidate.agentSkills
     || typeof candidate.version !== "string"
     || typeof candidate.tag !== "string"
     || typeof candidate.sourceSha !== "string"
@@ -204,6 +240,10 @@ export function parseReleaseBundleManifest(value: unknown): ReleaseBundleManifes
   }
   assertSha(candidate.runtimeLocks.agentSha256, "Release Bundle Agent runtime lock");
   assertSha(candidate.runtimeLocks.browserSha256, "Release Bundle Browser runtime lock");
+  const agentSkills = parseAgentSkillsIdentity(
+    candidate.agentSkills,
+    "Release Bundle Agent Skills identity",
+  );
   for (const architecture of ["arm64", "x64"] as const) {
     assertSha(candidate.architectures[architecture].manifestSha256, `${architecture} architecture manifest`);
     assertSha(candidate.architectures[architecture].preparedBuildGeneration, `${architecture} prepared build generation`);
@@ -227,7 +267,7 @@ export function parseReleaseBundleManifest(value: unknown): ReleaseBundleManifes
   if (JSON.stringify(actualContract) !== JSON.stringify(expectedContract)) {
     throw new Error("Release Bundle assets do not match the stable application allowlist.");
   }
-  return { ...candidate, assets, version } as ReleaseBundleManifest;
+  return { ...candidate, agentSkills, assets, version } as ReleaseBundleManifest;
 }
 
 const ensureEmptyDirectory = (directory: string): void => {
@@ -302,7 +342,14 @@ export function recordArchitectureBuild(options: {
   }
   const provenancePath = join(resolve(options.appPath), "Contents/Resources/nodex-build-provenance.json");
   assertRegularFile(provenancePath);
+  const provenance = readJson(provenancePath) as {
+    readonly agentSkills?: unknown;
+  };
   const manifest: ArchitectureBuildManifest = {
+    agentSkills: parseAgentSkillsIdentity(
+      provenance.agentSkills,
+      "Packaged Agent Skills identity",
+    ),
     architecture: options.architecture,
     artifacts,
     packageProvenanceSha256: sha256File(provenancePath),
@@ -438,9 +485,12 @@ export function assembleReleaseBundle(options: {
     arm64.architecture !== "arm64"
     || x64.architecture !== "x64"
     || arm64.sourceTree !== x64.sourceTree
+    || JSON.stringify(arm64.agentSkills) !== JSON.stringify(x64.agentSkills)
     || JSON.stringify(arm64.runtimeLocks) !== JSON.stringify(x64.runtimeLocks)
   ) {
-    throw new Error("Architecture builds do not share one source tree and runtime lock identity.");
+    throw new Error(
+      "Architecture builds do not share one source tree, Agent Skills, and runtime lock identity.",
+    );
   }
 
   const armUpdate = readAndVerifyUpdateManifest(arm64Root, "arm64", version);
@@ -481,6 +531,7 @@ export function assembleReleaseBundle(options: {
     .map((entry) => artifactIdentity(entry.path, entry.role, entry.architecture))
     .sort((left, right) => left.name.localeCompare(right.name));
   const manifest: ReleaseBundleManifest = {
+    agentSkills: arm64.agentSkills,
     architectures: {
       arm64: {
         manifestSha256: sha256File(join(arm64Root, "architecture-build.json")),

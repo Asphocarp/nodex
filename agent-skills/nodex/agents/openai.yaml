@@ -1,0 +1,4 @@
+interface:
+  display_name: "Nodex"
+  short_description: "Work with Nodex Pages, Projects, and saved Views"
+  default_prompt: "Use $nodex to inspect my Nodex Project and make the requested content change safely."

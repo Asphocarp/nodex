@@ -48,14 +48,12 @@ Nodex has a stronger content representation than ordinary Markdown. Nested Markd
 
 ### Budget cost and misunderstanding independently
 
-Nodex will measure and constrain four different costs:
+Nodex will measure and constrain three different costs:
 
 1. **Catalog budget:** namespace description, tool descriptions, and published input JSON Schemas. It is divided into the always-eager catalog, each deferred tool when selected, and the complete published catalog.
 2. **Call budget:** actual arguments and results. Nested Markdown authored by the Agent is high-value payload, while duplicated metadata, default ETags, complete post-write documents, and internal receipts are low-value payload.
 3. **Workflow budget:** values that return to the model between reasoning steps. Code Mode should retain search rows, Nested Markdown, cursors, and ETags inside JavaScript and emit only a bounded final summary.
-4. **Comprehension budget:** tool-selection accuracy, first-call schema validity, semantic correctness, and correction calls on representative tasks. Fewer fields and familiar names are useful only when they improve or preserve these outcomes.
-
-Tests use UTF-8 bytes and behavior fixtures. Token estimates may be printed in a developer report but never serve as the stable CI boundary. A small Agent evaluation corpus compares v2 and v3 on tool choice, valid first call, final semantic result, and number of recovery calls.
+Tests use UTF-8 bytes and deterministic behavior fixtures. Token estimates may be printed in a developer report but never serve as the stable CI boundary. Contract tests prove the accepted inputs, outputs, loading boundaries, and semantic behavior without starting an Agent session or contacting a model provider.
 
 ### Keep intent tools; split default updates from advanced updates
 
@@ -130,7 +128,7 @@ Nodex will not turn ordinary value writes into SQL or accept raw SQL against SQL
 
 Future Database schema and View-definition tools will start with a compact, parsed configuration language rather than exposing every property/View variant as recursive JSON Schema. The parser produces a typed AST, validates names and stable identities against current authority, and renders a semantic authorization preview before compilation. Its full grammar is loaded on demand.
 
-The existing ad-hoc Database filter/sort input is only 3,518 schema bytes before tool metadata. `advanced_query_database` retains that typed input in v3. A throwaway parsed query-language prototype reduced the complete tool from 2,796 to 665 bytes and canonical corpus arguments by 51.8%, but accepted only four of ten plausible grammar variants. The prototype was deleted because schema savings alone do not prove first-call validity or correction cost; a later revision requires sampled model evidence and an on-demand grammar design.
+The existing ad-hoc Database filter/sort input is only 3,518 schema bytes before tool metadata. `advanced_query_database` retains that typed input in v3. A throwaway parsed query-language prototype reduced the complete tool from 2,796 to 665 bytes and canonical corpus arguments by 51.8%, but accepted only four of ten plausible grammar variants. The prototype was deleted because schema savings alone do not justify a brittle custom grammar; a later revision requires broader deterministic grammar coverage, concrete user demand, and an on-demand grammar design.
 
 ### Keep outputs sparse and make Code Mode the orchestration layer
 
