@@ -1094,10 +1094,13 @@ mod tests {
             &manifest,
             &store_format(CURRENT_STORE_VERSION).expect("current Store"),
         )
-        .expect_err("Workspace 1 cannot satisfy Workspace 6");
+        .expect_err("Workspace 1 cannot satisfy the current Workspace contract");
         assert_eq!(mismatches.len(), 1);
         assert_eq!(mismatches[0].axis, CompatibilityAxis::Module);
-        assert!(mismatches[0].required.contains("ProjectWorkspace=6"));
+        assert!(mismatches[0].required.contains(&format!(
+            "ProjectWorkspace={}",
+            nodex_core_contracts::PROJECT_WORKSPACE_CONTRACT_VERSION,
+        )));
     }
 
     #[test]

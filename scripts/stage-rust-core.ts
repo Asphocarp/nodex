@@ -5,6 +5,7 @@ import {
   lstatSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -90,6 +91,16 @@ const assertNotSymlink = (entry: string): void => {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
+};
+
+const readProductVersion = (repositoryRoot: string): string => {
+  const value = JSON.parse(
+    readFileSync(path.join(repositoryRoot, "package.json"), "utf8"),
+  ) as { readonly version?: unknown };
+  if (typeof value.version !== "string" || !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u.test(value.version)) {
+    throw new Error("package.json must contain a stable product version");
+  }
+  return value.version;
 };
 
 const stage = ({ targetArch, outputRoot, signIdentity }: Arguments): void => {
@@ -208,11 +219,12 @@ const stage = ({ targetArch, outputRoot, signIdentity }: Arguments): void => {
     });
 
     const manifest: NativeRuntimeManifest = {
-      schemaVersion: 2,
+      schemaVersion: 3,
       targetPlatform: "darwin",
       targetArch,
       rustTarget: target,
       minimumMacOS: "12.0",
+      productVersion: readProductVersion(repositoryRoot),
       binaries: entries,
     };
     writeFileSync(

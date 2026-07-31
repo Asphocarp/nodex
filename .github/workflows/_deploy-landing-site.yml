@@ -1,0 +1,62 @@
+name: Landing Site Deployment
+
+on:
+  workflow_call:
+    inputs:
+      source_sha:
+        description: Exact protected-main commit to deploy
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-landing-site
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: deploy landing site
+    runs-on: ubuntu-latest
+    environment: landing-production
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.source_sha }}
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build:landing
+
+      - name: Publish built site
+        env:
+          GH_TOKEN: ${{ secrets.NODEXAPP_GITHUB_IO_TOKEN }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${GH_TOKEN}" ]]; then
+            echo "Missing NODEXAPP_GITHUB_IO_TOKEN secret." >&2
+            exit 1
+          fi
+
+          target_dir="${RUNNER_TEMP}/target-site"
+          gh auth setup-git
+          git clone "https://github.com/NodexApp/NodexApp.github.io.git" "${target_dir}"
+          rsync -a --delete --exclude ".git" "packages/landing/dist/" "${target_dir}/"
+          if [[ -z "$(git -C "${target_dir}" status --porcelain)" ]]; then
+            echo "No landing-site changes to publish."
+            exit 0
+          fi
+
+          git -C "${target_dir}" config user.name "github-actions[bot]"
+          git -C "${target_dir}" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C "${target_dir}" add --all
+          git -C "${target_dir}" commit -m "deploy: refresh landing site from ${GITHUB_REPOSITORY}@${SOURCE_SHA}"
+          git -C "${target_dir}" push origin HEAD

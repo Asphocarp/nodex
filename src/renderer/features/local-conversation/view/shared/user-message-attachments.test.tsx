@@ -1,5 +1,6 @@
+import { waitFor } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
-import { render, settleAsyncRender, textContent } from "../../../../test/dom";
+import { render, settleAsyncRender } from "../../../../test/dom";
 import { installWindowApi } from "../../../../test/browser-globals";
 import { TestQueryProvider } from "../../../../test/query";
 import { UserAttachmentStrip } from "./user-message-attachments";
@@ -50,10 +51,11 @@ describe("UserAttachmentStrip", () => {
       </TestQueryProvider>,
     );
 
-    expect(textContent(view.container).includes("...")).toBe(true);
-    await settleAsyncRender();
+    expect(view.queryByLabelText("Loading user attachment")).not.toBeNull();
+    await waitFor(() => {
+      expect(view.queryByLabelText("Loading user attachment")).toBeNull();
+    });
     expect(Boolean(view.container.querySelector('[aria-label="Open image preview"]'))).toBe(false);
-    expect(textContent(view.container).includes("...")).toBe(false);
   });
 
   test("does not read arbitrary absolute local paths for previews", async () => {

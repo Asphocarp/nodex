@@ -40,7 +40,7 @@ const refreshSignedNativeRuntimeManifest = (appPath) => {
   const manifestPath = path.join(appPath, nativeManifestRelativePath);
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
 
-  if (manifest.schemaVersion !== 2 || !Array.isArray(manifest.binaries)) {
+  if (manifest.schemaVersion !== 3 || !Array.isArray(manifest.binaries)) {
     throw new Error(`Unsupported native runtime manifest: ${manifestPath}`);
   }
   if (manifest.binaries.length !== expectedBinaryPaths.size) {

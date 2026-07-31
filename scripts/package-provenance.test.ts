@@ -60,7 +60,8 @@ const makeApp = (): {
   const prepared = makePreparedManifest();
   writeJson(path.join(resources, "prepared-electron-build.json"), prepared);
   writeJson(path.join(resources, "bin/rust-core-runtime.json"), {
-    schemaVersion: 2,
+    schemaVersion: 3,
+    productVersion: "0.1.10",
     targetPlatform: "darwin",
     targetArch: "arm64",
   });
@@ -132,6 +133,22 @@ describe("packaged build provenance", () => {
     expect(() => verifyPackagedBuildProvenance(fixture.appPath, {
       expectedPreparedManifestPath: fixture.currentPreparedPath,
     })).toThrow("stale for the current prepared Electron source");
+  });
+
+  test("rejects native/app version drift before sealing provenance", () => {
+    const fixture = makeApp();
+    const nativeManifestPath = path.join(
+      fixture.appPath,
+      "Contents/Resources/bin/rust-core-runtime.json",
+    );
+    writeJson(nativeManifestPath, {
+      schemaVersion: 3,
+      productVersion: "0.2.0",
+      targetPlatform: "darwin",
+      targetArch: "arm64",
+    });
+
+    expect(() => writePackagedBuildProvenance(fixture.appPath)).toThrow("targets do not agree");
   });
 
   test.each([

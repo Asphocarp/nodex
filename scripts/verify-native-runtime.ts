@@ -22,8 +22,9 @@ import {
   type NativeRuntimeArchitecture,
 } from "./native-runtime-manifest";
 
-interface VerificationOptions {
+export interface VerificationOptions {
   readonly appPath: string;
+  readonly expectedVersion: string;
   readonly launchApp: boolean;
   readonly legacyProfileFixturePath?: string;
   readonly requireDeveloperId: boolean;
@@ -208,6 +209,7 @@ const readPackagedCoreIdentity = (
 const smokeNativeRuntime = async (
   appPath: string,
   expectedCoreSha256: string,
+  expectedVersion: string,
 ): Promise<void> => {
   const directory = mkdtempSync("/tmp/ndx-pkg-");
   const environment = restrictedEnvironment(directory);
@@ -226,8 +228,10 @@ const smokeNativeRuntime = async (
       environment,
       "Run packaged nodex through its installed symlink",
     );
-    if (!/^nodex \d+\.\d+\.\d+/mu.test(version.stdout)) {
-      throw new Error(`Packaged nodex returned an invalid version: ${version.stdout.trim()}`);
+    if (version.stdout.trim() !== `nodex ${expectedVersion}`) {
+      throw new Error(
+        `Packaged nodex version mismatch: ${version.stdout.trim()}, expected nodex ${expectedVersion}`,
+      );
     }
     const doctor = runWithEnvironment(
       linkedCli,
@@ -466,6 +470,29 @@ export async function verifyPackagedNativeRuntime(options: VerificationOptions):
   const contentsPath = join(appPath, "Contents");
   const manifestPath = join(contentsPath, "Resources/bin/rust-core-runtime.json");
   const manifest = readNativeRuntimeManifest(manifestPath);
+  const expectedVersion = options.expectedVersion;
+  if (manifest.productVersion !== expectedVersion) {
+    throw new Error(
+      `Native runtime product version is ${manifest.productVersion}, expected ${expectedVersion}`,
+    );
+  }
+  const infoPlist = join(contentsPath, "Info.plist");
+  const appVersion = run(
+    "/usr/bin/plutil",
+    ["-extract", "CFBundleShortVersionString", "raw", "-o", "-", infoPlist],
+    "Read packaged app version",
+  ).stdout.trim();
+  if (appVersion !== expectedVersion) {
+    throw new Error(`Packaged app version is ${appVersion}, expected ${expectedVersion}`);
+  }
+  const bundleVersion = run(
+    "/usr/bin/plutil",
+    ["-extract", "CFBundleVersion", "raw", "-o", "-", infoPlist],
+    "Read packaged app bundle version",
+  ).stdout.trim();
+  if (bundleVersion !== expectedVersion) {
+    throw new Error(`Packaged app bundle version is ${bundleVersion}, expected ${expectedVersion}`);
+  }
   if (manifest.targetArch !== options.targetArch) {
     throw new Error(`Native runtime manifest is ${manifest.targetArch}, expected ${options.targetArch}`);
   }
@@ -508,7 +535,7 @@ export async function verifyPackagedNativeRuntime(options: VerificationOptions):
   }
   const coreManifest = manifest.binaries.find(({ name }) => name === "nodex-core");
   if (!coreManifest) throw new Error("Native runtime manifest omits nodex-core");
-  await smokeNativeRuntime(appPath, coreManifest.sourceSha256);
+  await smokeNativeRuntime(appPath, coreManifest.sourceSha256, expectedVersion);
   await smokeLegacyProfileMigration(
     appPath,
     resolve(options.legacyProfileFixturePath ?? DEFAULT_LEGACY_PROFILE_FIXTURE),
@@ -530,10 +557,11 @@ const main = async (): Promise<void> => {
   const arguments_ = process.argv.slice(2);
   const appPath = readOption(arguments_, "--app-path");
   const targetArch = readOption(arguments_, "--target-arch");
-  if (!appPath || (targetArch !== "arm64" && targetArch !== "x64")) {
+  const expectedVersion = readOption(arguments_, "--expected-version");
+  if (!appPath || !expectedVersion || (targetArch !== "arm64" && targetArch !== "x64")) {
     throw new Error(
       "usage: verify-native-runtime --app-path <Nodex.app> --target-arch arm64|x64 "
-      + "[--legacy-profile-fixture <legacy.db>] [--verify-signatures] "
+      + "--expected-version <semver> [--legacy-profile-fixture <legacy.db>] [--verify-signatures] "
       + "[--require-developer-id] [--verify-notarization] [--launch-app]",
     );
   }
@@ -541,6 +569,7 @@ const main = async (): Promise<void> => {
   const verifyNotarization = arguments_.includes("--verify-notarization");
   await verifyPackagedNativeRuntime({
     appPath,
+    expectedVersion,
     launchApp: arguments_.includes("--launch-app"),
     legacyProfileFixturePath:
       readOption(arguments_, "--legacy-profile-fixture") ?? undefined,

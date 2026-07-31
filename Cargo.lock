@@ -866,7 +866,7 @@ dependencies = [
 
 [[package]]
 name = "nodex-browser-profile-helper"
-version = "0.1.0"
+version = "0.1.10"
 dependencies = [
  "aes",
  "cbc",
@@ -882,7 +882,7 @@ dependencies = [
 
 [[package]]
 name = "nodex-cli"
-version = "0.1.0"
+version = "0.1.10"
 dependencies = [
  "chrono",
  "chrono-tz",
@@ -905,7 +905,7 @@ dependencies = [
 
 [[package]]
 name = "nodex-core"
-version = "0.1.0"
+version = "0.1.10"
 dependencies = [
  "base64",
  "chrono",
@@ -931,7 +931,7 @@ dependencies = [
 
 [[package]]
 name = "nodex-core-contracts"
-version = "0.1.0"
+version = "0.1.10"
 dependencies = [
  "serde",
  "serde_json",
@@ -940,7 +940,7 @@ dependencies = [
 
 [[package]]
 name = "nodex-core-protocol"
-version = "0.1.0"
+version = "0.1.10"
 dependencies = [
  "getrandom",
  "hex",
@@ -955,7 +955,7 @@ dependencies = [
 
 [[package]]
 name = "nodex-core-server"
-version = "0.1.0"
+version = "0.1.10"
 dependencies = [
  "async-stream",
  "axum",

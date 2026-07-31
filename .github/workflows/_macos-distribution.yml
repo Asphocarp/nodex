@@ -1,0 +1,300 @@
+name: macOS Distribution
+
+on:
+  workflow_call:
+    inputs:
+      source_sha:
+        description: Exact protected-main commit to build
+        required: true
+        type: string
+      version:
+        description: Stable application version
+        required: true
+        type: string
+      tag:
+        description: Stable application tag
+        required: true
+        type: string
+      retention_days:
+        description: Artifact retention period
+        default: 14
+        required: false
+        type: number
+      upload_sentry_sourcemaps:
+        description: Upload source maps once from the arm64 production build
+        default: false
+        required: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  arm64:
+    name: arm64 distribution
+    runs-on: macos-26
+    environment: macos-distribution
+    env:
+      RELEASE_ARCH: arm64
+      RELEASE_OUTPUT: ${{ github.workspace }}/.generated/release-architecture/arm64
+      RELEASE_SOURCE_SHA: ${{ inputs.source_sha }}
+      RELEASE_TAG: ${{ inputs.tag }}
+      RELEASE_VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ inputs.source_sha }}
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Verify exact clean release source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${RELEASE_SOURCE_SHA}"
+          test -z "$(git status --porcelain)"
+          pnpm install --frozen-lockfile
+          pnpm release:check -- --head "${RELEASE_SOURCE_SHA}" --output "${RUNNER_TEMP}/source.json"
+          node -e '
+            const source = require(process.argv[1]);
+            if (source.version !== process.env.RELEASE_VERSION || source.tag !== process.env.RELEASE_TAG) {
+              throw new Error("Release source identity does not match workflow inputs");
+            }
+          ' "${RUNNER_TEMP}/source.json"
+
+      - name: Materialize App Store Connect API key
+        env:
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY_B64: ${{ secrets.APPLE_API_KEY_B64 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${APPLE_API_KEY_B64}" || -z "${APPLE_API_KEY_ID}" || -z "${APPLE_API_ISSUER}" || -z "${CSC_LINK}" || -z "${CSC_KEY_PASSWORD}" ]]; then
+            echo "Missing macOS signing or App Store Connect credentials." >&2
+            exit 1
+          fi
+          key_path="${RUNNER_TEMP}/AuthKey_${APPLE_API_KEY_ID}.p8"
+          node -e 'require("node:fs").writeFileSync(process.argv[1], Buffer.from(process.env.APPLE_API_KEY_B64, "base64"))' "${key_path}"
+          chmod 600 "${key_path}"
+          echo "APPLE_API_KEY=${key_path}" >> "${GITHUB_ENV}"
+
+      - name: Build and verify signed distribution
+        env:
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          NODE_OPTIONS: --max-old-space-size=6144
+          SENTRY_AUTH_TOKEN: ${{ inputs.upload_sentry_sourcemaps && secrets.SENTRY_AUTH_TOKEN || '' }}
+          SENTRY_ORG: ${{ inputs.upload_sentry_sourcemaps && secrets.SENTRY_ORG || '' }}
+          SENTRY_PROJECT: ${{ inputs.upload_sentry_sourcemaps && secrets.SENTRY_PROJECT || '' }}
+          SENTRY_RELEASE: nodex@${{ inputs.version }}
+          UPLOAD_SENTRY_SOURCEMAPS: ${{ inputs.upload_sentry_sourcemaps }}
+        run: |
+          if [[ "${UPLOAD_SENTRY_SOURCEMAPS}" == "true" && ( -z "${SENTRY_AUTH_TOKEN}" || -z "${SENTRY_ORG}" || -z "${SENTRY_PROJECT}" ) ]]; then
+            echo "Production distribution requires complete Sentry source-map credentials." >&2
+            exit 1
+          fi
+          pnpm release:build:mac -- \
+            --arch "${RELEASE_ARCH}" \
+            --source-sha "${RELEASE_SOURCE_SHA}" \
+            --version "${RELEASE_VERSION}" \
+            --output "${RELEASE_OUTPUT}"
+
+      - name: Summarize architecture identity
+        if: success()
+        shell: bash
+        run: |
+          {
+            echo "## arm64 distribution"
+            echo
+            echo '```json'
+            cat "${RELEASE_OUTPUT}/architecture-build.json"
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Remove App Store Connect API key
+        if: always()
+        shell: bash
+        run: |
+          if [[ -n "${APPLE_API_KEY:-}" && -f "${APPLE_API_KEY}" ]]; then
+            rm -f "${APPLE_API_KEY}"
+          fi
+
+      - name: Upload arm64 architecture bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nodex-macos-arm64-${{ inputs.source_sha }}
+          path: ${{ env.RELEASE_OUTPUT }}/
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: ${{ inputs.retention_days }}
+
+  x64:
+    name: x64 distribution
+    runs-on: macos-26-intel
+    environment: macos-distribution
+    env:
+      RELEASE_ARCH: x64
+      RELEASE_OUTPUT: ${{ github.workspace }}/.generated/release-architecture/x64
+      RELEASE_SOURCE_SHA: ${{ inputs.source_sha }}
+      RELEASE_TAG: ${{ inputs.tag }}
+      RELEASE_VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ inputs.source_sha }}
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Verify exact clean release source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${RELEASE_SOURCE_SHA}"
+          test -z "$(git status --porcelain)"
+          pnpm install --frozen-lockfile
+          pnpm release:check -- --head "${RELEASE_SOURCE_SHA}" --output "${RUNNER_TEMP}/source.json"
+          node -e '
+            const source = require(process.argv[1]);
+            if (source.version !== process.env.RELEASE_VERSION || source.tag !== process.env.RELEASE_TAG) {
+              throw new Error("Release source identity does not match workflow inputs");
+            }
+          ' "${RUNNER_TEMP}/source.json"
+
+      - name: Materialize App Store Connect API key
+        env:
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY_B64: ${{ secrets.APPLE_API_KEY_B64 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${APPLE_API_KEY_B64}" || -z "${APPLE_API_KEY_ID}" || -z "${APPLE_API_ISSUER}" || -z "${CSC_LINK}" || -z "${CSC_KEY_PASSWORD}" ]]; then
+            echo "Missing macOS signing or App Store Connect credentials." >&2
+            exit 1
+          fi
+          key_path="${RUNNER_TEMP}/AuthKey_${APPLE_API_KEY_ID}.p8"
+          node -e 'require("node:fs").writeFileSync(process.argv[1], Buffer.from(process.env.APPLE_API_KEY_B64, "base64"))' "${key_path}"
+          chmod 600 "${key_path}"
+          echo "APPLE_API_KEY=${key_path}" >> "${GITHUB_ENV}"
+
+      - name: Build and verify signed distribution
+        env:
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          NODE_OPTIONS: --max-old-space-size=6144
+          SENTRY_AUTH_TOKEN: ''
+          SENTRY_ORG: ''
+          SENTRY_PROJECT: ''
+          SENTRY_RELEASE: nodex@${{ inputs.version }}
+        run: |
+          pnpm release:build:mac -- \
+            --arch "${RELEASE_ARCH}" \
+            --source-sha "${RELEASE_SOURCE_SHA}" \
+            --version "${RELEASE_VERSION}" \
+            --output "${RELEASE_OUTPUT}"
+
+      - name: Summarize architecture identity
+        if: success()
+        shell: bash
+        run: |
+          {
+            echo "## x64 distribution"
+            echo
+            echo '```json'
+            cat "${RELEASE_OUTPUT}/architecture-build.json"
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Remove App Store Connect API key
+        if: always()
+        shell: bash
+        run: |
+          if [[ -n "${APPLE_API_KEY:-}" && -f "${APPLE_API_KEY}" ]]; then
+            rm -f "${APPLE_API_KEY}"
+          fi
+
+      - name: Upload x64 architecture bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nodex-macos-x64-${{ inputs.source_sha }}
+          path: ${{ env.RELEASE_OUTPUT }}/
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: ${{ inputs.retention_days }}
+
+  assemble:
+    name: assemble Release Bundle
+    needs: [arm64, x64]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.source_sha }}
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: nodex-macos-arm64-${{ inputs.source_sha }}
+          path: ${{ runner.temp }}/architectures/arm64
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: nodex-macos-x64-${{ inputs.source_sha }}
+          path: ${{ runner.temp }}/architectures/x64
+
+      - name: Assemble and verify Release Bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle="${RUNNER_TEMP}/release-bundle"
+          pnpm release:assemble -- \
+            --arm64-dir "${RUNNER_TEMP}/architectures/arm64" \
+            --x64-dir "${RUNNER_TEMP}/architectures/x64" \
+            --source-sha "${{ inputs.source_sha }}" \
+            --version "${{ inputs.version }}" \
+            --output "${bundle}"
+          pnpm release:notes -- \
+            --version "${{ inputs.version }}" \
+            --output "${bundle}/release-notes.md"
+          {
+            echo "## Verified Release Bundle"
+            echo
+            echo '```json'
+            cat "${bundle}/release-bundle.json"
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload verified Release Bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nodex-release-bundle-${{ inputs.source_sha }}
+          path: ${{ runner.temp }}/release-bundle/
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: ${{ inputs.retention_days }}

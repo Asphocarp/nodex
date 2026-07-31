@@ -1,7 +1,7 @@
 import type {
   DocumentMutationRequest,
   DocumentOperationCommandResult,
-} from "../../shared/block-documents";
+} from "../../shared/block-documents/document-operations";
 import type {
   CompleteNodexAgentPageUpdateRequest,
   CompleteNodexAgentPageUpdateResult,

@@ -1,0 +1,223 @@
+name: Release Recovery
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact protected-main release commit SHA
+        required: true
+        type: string
+      version:
+        description: Stable version encoded by that commit
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  checks: read
+  contents: read
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: validate recoverable release
+    runs-on: ubuntu-latest
+    outputs:
+      source_sha: ${{ steps.identity.outputs.source_sha }}
+      tag: ${{ steps.identity.outputs.tag }}
+      version: ${{ steps.identity.outputs.version }}
+    steps:
+      - name: Verify protected main and successful CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "${SOURCE_SHA}" =~ ^[a-f0-9]{40}$ ]]; then
+            echo "source_sha must be a full commit SHA." >&2
+            exit 1
+          fi
+          status="$(gh api --method GET \
+            "repos/${GITHUB_REPOSITORY}/compare/${SOURCE_SHA}...main" \
+            --jq .status)"
+          if [[ "${status}" != "ahead" && "${status}" != "identical" ]]; then
+            echo "Release SHA is not reachable from main." >&2
+            exit 1
+          fi
+          successful="$(gh api --method GET "repos/${GITHUB_REPOSITORY}/actions/runs" \
+            -f head_sha="${SOURCE_SHA}" -f event=push -f status=completed \
+            --jq '[.workflow_runs[] | select(.name == "CI" and .head_branch == "main" and .conclusion == "success")] | length')"
+          if [[ "${successful}" == "0" ]]; then
+            echo "Release SHA does not have a successful protected-main CI run." >&2
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ inputs.source_sha }}
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+
+      - name: Verify exact metadata-only transition
+        id: identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          parents="$(git rev-list --parents -n 1 "${SOURCE_SHA}")"
+          if [[ "$(wc -w <<< "${parents}" | tr -d ' ')" != "2" ]]; then
+            echo "Release recovery requires one linear parent." >&2
+            exit 1
+          fi
+          base_sha="${parents#* }"
+          result="${RUNNER_TEMP}/release-transition.json"
+          pnpm release:detect -- --base "${base_sha}" --head "${SOURCE_SHA}" --output "${result}"
+          # shellcheck disable=SC2016
+          node -e '
+            const fs = require("node:fs");
+            const value = require(process.argv[1]);
+            if (!value.shouldRelease || value.version !== process.env.EXPECTED_VERSION) {
+              throw new Error("Recovery inputs do not identify the exact release transition");
+            }
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `source_sha=${process.env.SOURCE_SHA}\ntag=${value.tag}\nversion=${value.version}\n`);
+          ' "${result}"
+          pnpm release:check:remote -- \
+            --repo "${GITHUB_REPOSITORY}" \
+            --source-sha "${SOURCE_SHA}" \
+            --version "${{ inputs.version }}"
+        env:
+          EXPECTED_VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+
+  restore-bundle:
+    name: restore verified Release Bundle
+    needs: validate
+    runs-on: ubuntu-latest
+    outputs:
+      restored: ${{ steps.restore.outputs.restored }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ needs.validate.outputs.source_sha }}
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+
+      - name: Restore retained production artifact or published assets
+        id: restore
+        env:
+          ARTIFACT_NAME: nodex-release-bundle-${{ needs.validate.outputs.source_sha }}
+          EXPECTED_SHA: ${{ needs.validate.outputs.source_sha }}
+          EXPECTED_TAG: ${{ needs.validate.outputs.tag }}
+          EXPECTED_VERSION: ${{ needs.validate.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle="${RUNNER_TEMP}/release-bundle"
+          artifact_id=""
+          while IFS=$'\t' read -r candidate_id run_id; do
+            IFS=$'\t' read -r run_name run_event run_branch run_sha < <(
+              gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" \
+                --jq '[.name, .event, .head_branch, .head_sha] | @tsv'
+            )
+            if [[
+              ( "${run_name}" == "Release" && "${run_event}" == "workflow_run" && "${run_sha}" == "${EXPECTED_SHA}" )
+              || ( "${run_name}" == "Release Recovery" && "${run_event}" == "workflow_dispatch" && "${run_branch}" == "main" )
+            ]]; then
+              artifact_id="${candidate_id}"
+              break
+            fi
+          done < <(gh api --method GET "repos/${GITHUB_REPOSITORY}/actions/artifacts" \
+            -f name="${ARTIFACT_NAME}" -F per_page=100 \
+            --jq '.artifacts | sort_by(.created_at) | reverse | .[] | select(.expired == false) | [.id, .workflow_run.id] | @tsv')
+
+          if [[ -n "${artifact_id}" ]]; then
+            mkdir -p "${bundle}"
+            gh api -H "Accept: application/octet-stream" \
+              "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" \
+              > "${RUNNER_TEMP}/release-bundle.zip"
+            unzip -q "${RUNNER_TEMP}/release-bundle.zip" -d "${bundle}"
+          else
+            release_state="$(gh api "repos/${GITHUB_REPOSITORY}/releases" --paginate --slurp \
+              | jq -r --arg tag "${EXPECTED_TAG}" '[.[][] | select(.tag_name == $tag)][0] | if . == null then "none" elif .draft then "draft" else "published" end')"
+            if [[ "${release_state}" == "draft" ]]; then
+              echo "A draft exists but its verified Release Bundle artifact expired; refusing a non-reproducible rebuild." >&2
+              exit 1
+            fi
+            if [[ "${release_state}" == "published" ]]; then
+              mkdir -p "${bundle}"
+              gh release download "${EXPECTED_TAG}" --repo "${GITHUB_REPOSITORY}" --dir "${bundle}"
+            else
+              echo "restored=false" >> "${GITHUB_OUTPUT}"
+              exit 0
+            fi
+          fi
+
+          node -e '
+            const value = require(process.argv[1]);
+            if (
+              value.sourceSha !== process.env.EXPECTED_SHA
+              || value.tag !== process.env.EXPECTED_TAG
+              || value.version !== process.env.EXPECTED_VERSION
+            ) throw new Error("Restored Release Bundle does not match recovery inputs");
+          ' "${bundle}/release-bundle.json"
+          pnpm release:verify:bundle -- --bundle "${bundle}/release-bundle.json"
+          pnpm release:notes -- --version "${EXPECTED_VERSION}" --output "${bundle}/release-notes.md"
+          echo "restored=true" >> "${GITHUB_OUTPUT}"
+
+      - name: Re-upload restored Release Bundle for this run
+        if: steps.restore.outputs.restored == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nodex-release-bundle-${{ needs.validate.outputs.source_sha }}
+          path: ${{ runner.temp }}/release-bundle/
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 30
+
+  distribution:
+    name: rebuild verified distribution
+    if: needs.restore-bundle.outputs.restored != 'true'
+    needs: [validate, restore-bundle]
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_macos-distribution.yml
+    with:
+      source_sha: ${{ needs.validate.outputs.source_sha }}
+      version: ${{ needs.validate.outputs.version }}
+      tag: ${{ needs.validate.outputs.tag }}
+      retention_days: 30
+      upload_sentry_sourcemaps: true
+
+  promote:
+    name: resume promotion
+    if: >-
+      always()
+      && needs.validate.result == 'success'
+      && needs.restore-bundle.result == 'success'
+      && (needs.restore-bundle.outputs.restored == 'true' || needs.distribution.result == 'success')
+    needs: [validate, restore-bundle, distribution]
+    permissions:
+      contents: write
+    uses: ./.github/workflows/_promote-release.yml
+    with:
+      source_sha: ${{ needs.validate.outputs.source_sha }}
+      version: ${{ needs.validate.outputs.version }}
+      tag: ${{ needs.validate.outputs.tag }}

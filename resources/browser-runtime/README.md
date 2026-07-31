@@ -32,10 +32,26 @@ Updating the runtime is an explicit maintainer workflow:
      --out .generated/browser-runtime-release/<asset>.tar.gz
    ```
 
-4. Publish both immutable archives under a dedicated release tag.
-5. Replace this lock atomically with the printed archive metadata and the
+4. Create and push the dedicated annotated tag at the exact reviewed Nodex
+   source commit chosen to own this runtime release. The guarded publisher
+   requires the remote tag to exist and will not infer a target from a moving
+   branch.
+5. Publish both immutable archives only through the guarded publisher:
+
+   ```sh
+   pnpm browser-runtime:publish -- \
+     --repo junyudev/nodex \
+     --tag browser-runtime-v<build> \
+     --arm64 .generated/browser-runtime-release/<arm64-asset>.tar.gz \
+     --x64 .generated/browser-runtime-release/<x64-asset>.tar.gz
+   ```
+
+   This Interface always passes `--latest=false` and verifies that GitHub
+   Latest remains the stable Nodex app release. Never use a bare
+   `gh release create` for a Browser runtime release.
+6. Replace this lock atomically with the printed archive metadata and the
    versions from both generated Browser runtime manifests.
-6. Run the Browser runtime conformance test for both release artifacts before
+7. Run the Browser runtime conformance test for both release artifacts before
    publishing a Nodex release.
 
 The vendor command accepts an application path only when it is explicitly

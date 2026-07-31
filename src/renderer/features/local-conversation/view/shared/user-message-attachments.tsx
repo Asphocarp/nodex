@@ -268,7 +268,10 @@ export function RemoteUserImageAttachment({ attachment }: { attachment: CodexUse
   if (isError) return null;
   if (isLoading || !src) {
     return (
-      <div className="size-16 rounded-md border border-token-border bg-token-bg-tertiary text-sm text-token-description-foreground">
+      <div
+        aria-label="Loading user attachment"
+        className="size-16 rounded-md border border-token-border bg-token-bg-tertiary text-sm text-token-description-foreground"
+      >
         <div className="flex size-full items-center justify-center">...</div>
       </div>
     );

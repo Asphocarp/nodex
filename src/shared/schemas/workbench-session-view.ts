@@ -12,7 +12,7 @@ import {
 } from "../workbench-session-view";
 import { WorkbenchViewSchema } from "./workbench";
 import { BrowserSidebarDeviceToolbarStateSchema } from "../browser/browser-schemas";
-import { primaryCanvasBlockId } from "../block-documents";
+import { primaryCanvasBlockId } from "../block-documents/canvas-document-identity";
 
 export const MAX_WORKBENCH_SESSION_VIEW_JSON_BYTES = 2 * 1024 * 1024;
 export const MAX_WORKBENCH_PANEL_NODE_DEPTH = 32;

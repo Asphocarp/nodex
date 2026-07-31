@@ -1,0 +1,92 @@
+name: Distribution Rehearsal
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Full protected-main commit SHA to rehearse
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  checks: read
+  contents: read
+
+concurrency:
+  group: distribution-rehearsal-${{ inputs.source_sha }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: validate rehearsal source
+    runs-on: ubuntu-latest
+    outputs:
+      source_sha: ${{ steps.identity.outputs.source_sha }}
+      tag: ${{ steps.identity.outputs.tag }}
+      version: ${{ steps.identity.outputs.version }}
+    steps:
+      - name: Verify protected main and successful CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "${SOURCE_SHA}" =~ ^[a-f0-9]{40}$ ]]; then
+            echo "source_sha must be a full commit SHA." >&2
+            exit 1
+          fi
+          status="$(gh api --method GET \
+            "repos/${GITHUB_REPOSITORY}/compare/${SOURCE_SHA}...main" \
+            --jq .status)"
+          if [[ "${status}" != "ahead" && "${status}" != "identical" ]]; then
+            echo "Source SHA is not reachable from main." >&2
+            exit 1
+          fi
+          successful="$(gh api --method GET "repos/${GITHUB_REPOSITORY}/actions/runs" \
+            -f head_sha="${SOURCE_SHA}" -f event=push -f status=completed \
+            --jq '[.workflow_runs[] | select(.name == "CI" and .head_branch == "main" and .conclusion == "success")] | length')"
+          if [[ "${successful}" == "0" ]]; then
+            echo "Source SHA does not have a successful protected-main CI run." >&2
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.source_sha }}
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - name: Resolve release identity
+        id: identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm release:check -- \
+            --head "${{ inputs.source_sha }}" \
+            --output "${RUNNER_TEMP}/source.json"
+          # shellcheck disable=SC2016
+          node -e '
+            const fs = require("node:fs");
+            const value = require(process.argv[1]);
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `source_sha=${value.sourceSha}\ntag=${value.tag}\nversion=${value.version}\n`);
+          ' "${RUNNER_TEMP}/source.json"
+
+  distribution:
+    name: rehearse verified distribution
+    needs: validate
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_macos-distribution.yml
+    with:
+      source_sha: ${{ needs.validate.outputs.source_sha }}
+      version: ${{ needs.validate.outputs.version }}
+      tag: ${{ needs.validate.outputs.tag }}
+      retention_days: 14
+      upload_sentry_sourcemaps: false

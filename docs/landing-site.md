@@ -52,24 +52,26 @@ This split matters because the root org site URL `https://nodexapp.github.io` mu
 
 ## GitHub Workflows
 
-Two workflows manage the site:
-
-- `.github/workflows/landing-site.yml`
-  - validates the landing package on pull requests and relevant pushes
-  - installs dependencies and runs `pnpm run build:landing`
-  - also runs when `CHANGELOG.md` changes because `/changelog/` is generated from that file
+The repository-wide `.github/workflows/ci.yml` validates the landing build on
+every PR and protected-main push as part of its always-run static contracts.
+There is no separate landing-only validation workflow or second required check.
 
 - `.github/workflows/deploy-landing-site.yml`
-  - runs on `main` changes affecting the landing site and on manual dispatch
-  - also runs on `CHANGELOG.md` changes
-  - builds the site in this repo
-  - clones `NodexApp/NodexApp.github.io`
+  - runs on `main` changes affecting the landing implementation and on manual dispatch
+  - calls the shared exact-SHA deployment workflow
+- `.github/workflows/_deploy-landing-site.yml`
+  - builds the site from one protected-main commit
+  - always clones the fixed `NodexApp/NodexApp.github.io` target; callers cannot
+    override the destination
   - replaces its root contents with the built artifact
   - commits only when there is a diff
+  - is also called by release promotion after the immutable app Release is
+    verified, so a version/Changelog update cannot precede its downloads
 
 ## Required Secrets
 
-The deploy workflow expects this secret in `junyudev/nodex`:
+The deploy workflow binds the `landing-production` environment, restricted to
+protected `main`, and expects this environment secret:
 
 - `NODEXAPP_GITHUB_IO_TOKEN`
   - fine-grained GitHub token

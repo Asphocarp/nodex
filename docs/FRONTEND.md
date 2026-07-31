@@ -327,7 +327,9 @@
 - Keep menu-driven stories open by default through story-only harnesses. Context menus, sidebar menus, and project manager popovers should render their open state directly instead of asking the reviewer to right-click or click to reveal the actual surface.
 - Current thread stories live under `src/renderer/features/local-conversation/view/` for composed stage scenarios and under `src/renderer/features/local-conversation/view/shared/` for focused transcript-special, tool, and request leaf stories. Keep transcript-special surfaces such as reasoning, todo lists, automatic approval review, and multi-agent activity in the transcript-special stories instead of forcing them into tool-call stories.
 - Keep tool-call stories scoped to actual Codex tool families. Transcript-special surfaces that happen to originate from tool-like raw items still belong in transcript-special stories once the projector gives them their own semantic lane.
-- Default renderer component tests to DOM-based coverage with Bun + `happy-dom` + `@testing-library/react`.
+- Default renderer component tests to the repository's pnpm-driven Vitest jsdom
+  runtime with `@testing-library/react`; use Vitest Browser Mode only when the
+  contract depends on real layout, selection, focus, or pointer behavior.
 - Assert user-visible structure, labels, and behavior through rendered DOM queries; keep `data-testid` and raw class checks as fallback tools, not the default.
 - Reserve HTML-string or server-render assertions for cases where serialized markup is the actual contract.
 - Do not add source-string tests that only verify implementation text inside a file.

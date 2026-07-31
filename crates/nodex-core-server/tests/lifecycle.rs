@@ -144,7 +144,8 @@ fn open_sse(
 
 fn response_json(response: &str) -> serde_json::Value {
     let (_, body) = response.split_once("\r\n\r\n").expect("HTTP response body");
-    serde_json::from_str(body).expect("JSON response")
+    serde_json::from_str(body)
+        .unwrap_or_else(|error| panic!("JSON response ({error}): {response:?}"))
 }
 
 fn replacement_request(descriptor: &RuntimeDescriptor) -> String {
@@ -340,7 +341,13 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
             "name": "Default",
             "description": "",
             "appearance": null,
-            "source_roots": ["/workspace/default"]
+            "source_roots": ["/workspace/default"],
+            "starter_page": {
+                "page_id": "page:getting-started",
+                "document_id": "document:getting-started",
+                "title_markdown": "Welcome to Nodex",
+                "nfm": "Welcome to Nodex."
+            }
         }
     })
     .to_string();
@@ -1113,7 +1120,13 @@ fn workspace_contract_mismatch_is_replaced_before_a_projectless_session_request(
             "name": "Default",
             "description": "",
             "appearance": null,
-            "source_roots": ["/workspace/default"]
+            "source_roots": ["/workspace/default"],
+            "starter_page": {
+                "page_id": "page:getting-started",
+                "document_id": "document:getting-started",
+                "title_markdown": "Welcome to Nodex",
+                "nfm": "Welcome to Nodex."
+            }
         }
     })
     .to_string();

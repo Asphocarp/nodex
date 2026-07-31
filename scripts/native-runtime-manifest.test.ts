@@ -3,11 +3,12 @@ import { describe, expect, test } from "vitest";
 import { parseNativeRuntimeManifest } from "./native-runtime-manifest";
 
 const manifest = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   targetPlatform: "darwin",
   targetArch: "arm64",
   rustTarget: "aarch64-apple-darwin",
   minimumMacOS: "12.0",
+  productVersion: "0.1.10",
   binaries: [
     {
       name: "nodex-core",
@@ -65,5 +66,12 @@ describe("native runtime manifest", () => {
         manifest.binaries[3],
       ],
     })).toThrow("each required binary exactly once");
+  });
+
+  test("rejects an unstable or missing product version", () => {
+    expect(() => parseNativeRuntimeManifest({ ...manifest, productVersion: "0.2.0-beta.1" }))
+      .toThrow("stable semantic version");
+    expect(() => parseNativeRuntimeManifest({ ...manifest, productVersion: undefined }))
+      .toThrow("productVersion");
   });
 });

@@ -21,8 +21,9 @@ export interface NativeRuntimeBinaryManifest {
 export interface NativeRuntimeManifest {
   readonly binaries: readonly NativeRuntimeBinaryManifest[];
   readonly minimumMacOS: "12.0";
+  readonly productVersion: string;
   readonly rustTarget: "aarch64-apple-darwin" | "x86_64-apple-darwin";
-  readonly schemaVersion: 2;
+  readonly schemaVersion: 3;
   readonly targetArch: NativeRuntimeArchitecture;
   readonly targetPlatform: "darwin";
 }
@@ -86,7 +87,7 @@ const parseBinary = (value: unknown): NativeRuntimeBinaryManifest => {
 
 export function parseNativeRuntimeManifest(value: unknown): NativeRuntimeManifest {
   if (!isObject(value)) throw new Error("Invalid native runtime manifest");
-  if (value.schemaVersion !== 2) {
+  if (value.schemaVersion !== 3) {
     throw new Error("Unsupported native runtime manifest schema");
   }
   if (value.targetPlatform !== "darwin") {
@@ -104,6 +105,10 @@ export function parseNativeRuntimeManifest(value: unknown): NativeRuntimeManifes
   if (value.minimumMacOS !== "12.0") {
     throw new Error("Native runtime minimum macOS must be 12.0");
   }
+  const productVersion = requireString(value.productVersion, "productVersion");
+  if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(productVersion)) {
+    throw new Error("Native runtime productVersion must be a stable semantic version");
+  }
   if (!Array.isArray(value.binaries)) {
     throw new Error("Invalid native runtime binary inventory");
   }
@@ -116,8 +121,9 @@ export function parseNativeRuntimeManifest(value: unknown): NativeRuntimeManifes
   return {
     binaries,
     minimumMacOS: "12.0",
+    productVersion,
     rustTarget: expectedRustTarget,
-    schemaVersion: 2,
+    schemaVersion: 3,
     targetArch: value.targetArch,
     targetPlatform: "darwin",
   };

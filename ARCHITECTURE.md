@@ -1281,6 +1281,37 @@ Workbench reopen flow:
 - Detailed logging reference: `docs/product-specs/backend-logging-spec.md`.
 - Editor subsystems include focused tests for parser, keyboard behavior, and sync edge cases.
 
+## Build and distribution boundary
+
+The repository-owned Release Module under `scripts/release/` owns Release
+Identity, release-source transition validation, per-architecture manifests,
+Release Bundle assembly, GitHub publication state, Browser-runtime Latest
+protection, and Homebrew projection. GitHub workflows are thin Adapters over
+that Interface; YAML does not independently infer versions, merge updater
+metadata, or decide which files are publishable.
+
+The prepared Electron build and packaged-provenance Modules remain deeper,
+independent implementations. Prepared build binds the clean source snapshot and
+compiled Electron outputs. Package provenance binds the final `app.asar`,
+updater configuration, and native/Agent/Browser manifests after signing. The
+Release Module consumes those identities and adds source/tree, runtime-lock,
+architecture, runner/toolchain, and public-artifact evidence. This Locality
+keeps source correctness, package correctness, and publication correctness
+separate while making their promotion seam machine-readable.
+
+Production Distribution runs on native arm64 and x64 hosted macOS runners. It
+does not cross-compile a second architecture as release evidence. Each signed,
+notarized ZIP is extracted and launched; the DMG is mounted and checked against
+the same version, bundle ID, TeamIdentifier, and package provenance. Only a
+matching pair reaches Linux assembly. The stable annotated tag is created after
+assembly, then an immutable GitHub Release is published and verified before the
+Homebrew Adapter runs.
+
+`CI / required` is the stable repository-protection Interface. Its internal
+jobs may vary by change class, but release metadata always selects the app and
+runtime gates. A protected-main successful CI `workflow_run`, not an untrusted
+PR event or a tag push, is the only normal production trigger.
+
 ## Test runtime boundaries
 
 Tests are assigned to the runtime that owns the behavior instead of sharing one

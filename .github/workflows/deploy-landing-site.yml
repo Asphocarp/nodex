@@ -7,74 +7,17 @@ on:
     paths:
       - "packages/landing/**"
       - ".github/workflows/deploy-landing-site.yml"
-      - "CHANGELOG.md"
-      - "package.json"
+      - ".github/workflows/_deploy-landing-site.yml"
       - "pnpm-lock.yaml"
   workflow_dispatch:
-    inputs:
-      target_repo:
-        description: Override the publish target repository
-        required: false
-        default: NodexApp/NodexApp.github.io
 
 permissions:
   contents: read
 
-concurrency:
-  group: deploy-landing-site
-  cancel-in-progress: false
-
 jobs:
   deploy:
-    runs-on: ubuntu-latest
-    env:
-      DEFAULT_TARGET_REPO: NodexApp/NodexApp.github.io
-      TARGET_REPO_OVERRIDE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.target_repo || '' }}
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 11.11.0
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version-file: .node-version
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Build landing site
-        run: pnpm run build:landing
-
-      - name: Publish built site
-        env:
-          NODEXAPP_GITHUB_IO_TOKEN: ${{ secrets.NODEXAPP_GITHUB_IO_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          if [[ -z "${NODEXAPP_GITHUB_IO_TOKEN}" ]]; then
-            echo "Missing NODEXAPP_GITHUB_IO_TOKEN secret." >&2
-            exit 1
-          fi
-
-          target_repo="${TARGET_REPO_OVERRIDE:-$DEFAULT_TARGET_REPO}"
-          target_dir="${RUNNER_TEMP}/target-site"
-
-          git clone "https://x-access-token:${NODEXAPP_GITHUB_IO_TOKEN}@github.com/${target_repo}.git" "${target_dir}"
-          rsync -a --delete --exclude ".git" "packages/landing/dist/" "${target_dir}/"
-
-          cd "${target_dir}"
-
-          if git diff --quiet && git diff --cached --quiet; then
-            echo "No landing-site changes to publish."
-            exit 0
-          fi
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add --all
-          git commit -m "deploy: refresh landing site from ${GITHUB_REPOSITORY}@${GITHUB_SHA}"
-          git push origin HEAD
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_deploy-landing-site.yml
+    with:
+      source_sha: ${{ github.sha }}

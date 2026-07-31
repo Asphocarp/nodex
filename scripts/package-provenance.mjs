@@ -174,6 +174,7 @@ export const writePackagedBuildProvenance = (appPath) => {
   if (
     nativeManifest.targetPlatform !== "darwin"
     || (targetArch !== "arm64" && targetArch !== "x64")
+    || nativeManifest.productVersion !== prepared.product.version
     || agentManifest.targetPlatform !== "darwin"
     || agentManifest.targetArch !== targetArch
     || (browserManifest !== null && (
@@ -393,6 +394,7 @@ export const verifyPackagedBuildProvenance = (
   if (
     nativeManifest.targetPlatform !== value.target.platform
     || nativeManifest.targetArch !== value.target.arch
+    || nativeManifest.productVersion !== value.product.version
     || agentManifest.targetPlatform !== value.target.platform
     || agentManifest.targetArch !== value.target.arch
     || (browserManifest !== null && (

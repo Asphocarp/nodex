@@ -1,0 +1,168 @@
+name: Promote Release
+
+on:
+  workflow_call:
+    inputs:
+      source_sha:
+        required: true
+        type: string
+      version:
+        required: true
+        type: string
+      tag:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: publish immutable GitHub Release
+    runs-on: ubuntu-latest
+    environment: release-publish
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ inputs.source_sha }}
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: nodex-release-bundle-${{ inputs.source_sha }}
+          path: ${{ runner.temp }}/release-bundle
+
+      - name: Revalidate promotion identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle="${RUNNER_TEMP}/release-bundle/release-bundle.json"
+          node -e '
+            const bundle = require(process.argv[1]);
+            if (
+              bundle.sourceSha !== process.env.EXPECTED_SHA
+              || bundle.version !== process.env.EXPECTED_VERSION
+              || bundle.tag !== process.env.EXPECTED_TAG
+            ) throw new Error("Release Bundle does not match promotion inputs");
+          ' "${bundle}"
+          gh release verify --help >/dev/null
+          pnpm release:check:remote -- \
+            --repo "${GITHUB_REPOSITORY}" \
+            --source-sha "${{ inputs.source_sha }}" \
+            --version "${{ inputs.version }}"
+          echo "GitHub CLI: $(gh --version | head -1)" >> "${GITHUB_STEP_SUMMARY}"
+        env:
+          EXPECTED_SHA: ${{ inputs.source_sha }}
+          EXPECTED_TAG: ${{ inputs.tag }}
+          EXPECTED_VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Create or reuse exact annotated tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pnpm release:tag -- \
+            --repo "${GITHUB_REPOSITORY}" \
+            --bundle "${RUNNER_TEMP}/release-bundle/release-bundle.json"
+
+      - name: Create, resume, or verify GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pnpm release:publish:github -- \
+            --repo "${GITHUB_REPOSITORY}" \
+            --bundle "${RUNNER_TEMP}/release-bundle/release-bundle.json" \
+            --notes "${RUNNER_TEMP}/release-bundle/release-notes.md"
+          pnpm release:verify:remote -- \
+            --repo "${GITHUB_REPOSITORY}" \
+            --bundle "${RUNNER_TEMP}/release-bundle/release-bundle.json"
+
+  homebrew:
+    name: update Homebrew tap
+    needs: publish
+    runs-on: macos-26
+    environment: homebrew-tap
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.source_sha }}
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: nodex-release-bundle-${{ inputs.source_sha }}
+          path: ${{ runner.temp }}/release-bundle
+
+      - name: Generate and publish cask
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+          HOMEBREW_TAP_REPO: junyudev/homebrew-tap
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${GH_TOKEN}" ]]; then
+            echo "Missing HOMEBREW_TAP_GITHUB_TOKEN." >&2
+            exit 1
+          fi
+          generated="${RUNNER_TEMP}/nodex.rb"
+          tap="${RUNNER_TEMP}/homebrew-tap"
+          pnpm release:cask -- \
+            --bundle "${RUNNER_TEMP}/release-bundle/release-bundle.json" \
+            --output "${generated}"
+          gh auth setup-git
+          git clone "https://github.com/${HOMEBREW_TAP_REPO}.git" "${tap}"
+          current="${tap}/Casks/nodex.rb"
+          if [[ -f "${current}" ]] && cmp -s "${generated}" "${current}"; then
+            echo "Homebrew tap already contains Nodex ${{ inputs.version }}."
+          else
+            if [[ -f "${current}" ]]; then
+              current_version="$(sed -n 's/^  version "\([^"]*\)"/\1/p' "${current}")"
+              if [[ "${current_version}" == "${{ inputs.version }}" ]]; then
+                echo "Homebrew already has version ${current_version} with different checksums." >&2
+                exit 1
+              fi
+            fi
+            cp "${generated}" "${current}"
+            brew style --cask "${current}"
+            brew audit --cask --online "${current}"
+            git -C "${tap}" config user.name "github-actions[bot]"
+            git -C "${tap}" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git -C "${tap}" add Casks/nodex.rb
+            git -C "${tap}" commit -m "chore: update nodex cask to v${{ inputs.version }}"
+            git -C "${tap}" push origin HEAD
+          fi
+
+      - name: Smoke install published cask
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install --cask --force "${RUNNER_TEMP}/homebrew-tap/Casks/nodex.rb"
+          actual="$(/Applications/Nodex.app/Contents/Resources/bin/nodex --version)"
+          if [[ "${actual}" != "nodex ${{ inputs.version }}" ]]; then
+            echo "Installed CLI reported ${actual}." >&2
+            exit 1
+          fi
+
+  landing:
+    name: deploy released landing site
+    needs: publish
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_deploy-landing-site.yml
+    with:
+      source_sha: ${{ inputs.source_sha }}

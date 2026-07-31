@@ -266,7 +266,7 @@ mod tests {
             [
                 ModuleContractVersion {
                     module: ModuleName::Library,
-                    contract_version: 3,
+                    contract_version: 4,
                 },
                 ModuleContractVersion {
                     module: ModuleName::Database,

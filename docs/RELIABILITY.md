@@ -437,6 +437,39 @@
 - Codex item hydration dedupes equivalent textual messages (`userMessage`, `assistantMessage`, `plan`, `reasoning`) across replay/live ID mismatches (for example synthetic `item-<n>` IDs from reads vs live `msg_*`/`rs_*` IDs) so follow-up text does not render twice.
 - Backend log serialization is bounded (string/object/array limits) so debugging stays available even when services encounter unexpectedly large payloads.
 
+## Release Reliability
+
+- `package.json`, the Cargo workspace and lock, packaged app metadata, native
+  runtime manifest, and CLI version form one Release Identity. A release
+  transition changes exactly `package.json`, `Cargo.toml`, `Cargo.lock`, and
+  `CHANGELOG.md`; any other parent diff fails closed.
+- CI and release are separate Modules. Untrusted PR code sees read-only tokens
+  and no environments. A stable `CI / required` aggregator records whether all
+  change-selected source/runtime gates succeeded. Production release begins
+  only from the successful CI run for a protected-main push.
+- Distribution checks out one exact clean commit independently on native arm64
+  and Intel runners. Each architecture manifest binds its source tree, runtime
+  locks, prepared-build generation, package provenance, runner/toolchain, and
+  artifact hashes. Assembly accepts only matching manifests and revalidates
+  updater ZIP SHA-512/size before producing the Release Bundle.
+- Promotion is tag-last: it creates the stable tag only after both signed and
+  notarized builds, fresh ZIP launches, mounted-DMG verification, and bundle
+  assembly succeed. Existing tags never move. Draft recovery uploads only
+  missing assets whose existing hashes agree; published immutable assets are
+  never replaced.
+- GitHub Latest is part of the updater/download contract. Stable app releases
+  use `vX.Y.Z` and become Latest. Browser runtime releases use a separate tag
+  namespace, are explicitly published with `--latest=false`, and must prove
+  that Latest did not change.
+- Homebrew and landing are downstream Adapters. Homebrew derives both checksums
+  from `release-bundle.json` and binds URLs to the immutable version tag; the
+  landing page consumes the stable Latest aliases and deploys release metadata
+  only after remote release verification. A downstream failure is retryable
+  without modifying the published app release.
+- `Distribution Rehearsal` invokes the same deep dual-architecture
+  Implementation with production signing but without release, repository-write,
+  tap, landing, or Sentry-upload authority.
+
 ## Operational Checks
 - For read-model or Core transport changes, run
   `pnpm run core:read-budget-gate -- --profile .generated/<fresh-name>` and
@@ -444,12 +477,14 @@
   plan in the handoff. An ordinary response near 16 MiB is a contract bug even
   if transport accepts it; interactive collection windows should remain below
   their 1 MiB semantic budget.
-- Before release: run `pnpm run typecheck`, `pnpm run lint`, and the full `pnpm run test:all` gate. Native SQLite/main-process suites run under Electron; browser and Electron runtime probes are separate parts of that gate.
-- Before release packaging on macOS: run `pnpm run codex:schemas:verify`, `pnpm run codex:schemas:compat`, and `pnpm run test:agent-runtime-conformance` so checked-in schemas match the pinned Open Interpreter runtime, the shared stock-Codex surface remains compatible, and deterministic Responses/Chat/Messages plus Kimi/Claude harness probes pass.
+- Before release: run `pnpm run verify:source` and, on macOS,
+  `pnpm run verify:runtime:mac`. `pnpm test:all` is only a compatibility alias
+  for the source gate; it does not replace a dual-architecture Distribution
+  rehearsal.
 - Release macOS packaging uploads hidden source maps to Sentry only when `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, and `SENTRY_PROJECT` are present; `.map` files remain excluded from packaged artifacts.
 - Before enabling CI signing secrets: do one local notarization dry run and verify `codesign --verify --deep --strict`, `spctl --assess --type open`, and `xcrun stapler validate` against the generated macOS artifacts.
 - During macOS packaging validation, extract the update ZIP into a fresh install root. Verify both runtime manifests, validate every executable native artifact with `codesign --verify --strict`, require each embedded runtime executable, the Nodex native binaries, the shared `Resources/codex-path/rg`, and the helper app to share the enclosing Developer ID team, and validate the final deep app seal. The fresh install must invoke the CLI through an external symlink, cold-start and reuse one Core, complete a real `nodex rg` search through the canonical ripgrep, migrate the frozen early-v57 fixture through the packaged migrator without launcher-injected overrides, retain its source backup, and launch Electron with Cargo/Rustup unavailable and PATH restricted to operating-system tools.
-- Release CI publishes only after both `arm64` and `x64` notarized artifacts pass verification, and it synthesizes one canonical `latest-mac.yml` plus referenced blockmaps from the two per-arch updater outputs before the GitHub Release is published; tap sync runs after GitHub Release publication and should be retried independently if the external tap push fails.
+- Release CI publishes only after both `arm64` and `x64` notarized artifacts pass verification, and it synthesizes one canonical `latest-mac.yml` plus referenced blockmaps from the two per-arch updater outputs before the tag and GitHub Release are created; tap sync runs after remote release verification and can be retried through Release Recovery if the external tap push fails.
 - The authoritative release runbook for workflow triggers, job ordering, secret requirements, artifact naming, and rerun strategy is `docs/release-macos.md`.
 - Before risky migrations/refactors: create a labeled manual backup.
 - Keep the deleted-Block retention count aligned with local storage constraints. It counts newest tombstoned roots, not immutable audit rows.

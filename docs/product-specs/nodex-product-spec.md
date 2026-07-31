@@ -725,7 +725,10 @@ nodex/
 │   └── SKILL.md                # Agent skill documentation
 ├── .github/
 │   └── workflows/
-│       └── release.yml         # CI/CD: build + publish on git tag push (v*)
+│       ├── ci.yml              # Stable CI / required source gate
+│       ├── _macos-distribution.yml # Shared native dual-architecture Distribution
+│       ├── release.yml         # Protected-main version-transition promotion
+│       └── release-recovery.yml # Exact-SHA idempotent recovery
 ├── ~/.nodex/                  # Default storage directory
 │   ├── nodex.db               # SQLite database
 │   ├── nodex.db-wal           # Write-ahead log
@@ -738,7 +741,7 @@ nodex/
 │   ├── icon.png                # PNG app icon
 │   └── entitlements.mac.plist  # macOS hardened runtime entitlements
 ├── scripts/
-│   ├── generate-homebrew-cask.ts # Generates the tap cask pushed to junyudev/homebrew-tap
+│   ├── release/               # Release Identity, Bundle, publisher, and Homebrew Module
 │   └── install-local-macos.ts  # Verifies and transactionally deploys an explicit local app bundle
 ├── src/
 │   ├── shared/
@@ -1182,17 +1185,17 @@ and complete native-runtime verification. The deprecated `install.sh` only
 forwards to this command; it no longer installs dependencies, builds, runs
 `pnpm link`, installs skills, or deletes the production app.
 
-To release a new version, use the GitHub Actions `Prepare Release` workflow:
+To release a new version, prepare an explicit metadata-only PR:
 ```bash
 # 1. Update CHANGELOG.md under ## [Unreleased]
-# 2. Trigger "Prepare Release" in GitHub Actions or from the CLI:
-gh workflow run "Prepare Release" \
-  --repo junyudev/nodex \
-  -f release_type=patch
-# 3. The workflow runs typecheck/lint/tests, prepares an unpushed release
-#    candidate, and signs/notarizes arm64 + x64 builds from that candidate.
-# 4. Only after both macOS builds pass does it commit, tag, push, publish the
-#    GitHub Release, and update junyudev/homebrew-tap.
+# 2. From a clean branch based on protected main:
+pnpm release:prepare -- 0.2.0
+# 3. Verify that only package.json, Cargo.toml, Cargo.lock, and CHANGELOG.md changed:
+pnpm release:check -- --base origin/main --worktree
+# 4. Open and merge the reviewed PR after CI / required succeeds.
+# 5. The protected-main CI completion automatically runs native arm64/x64
+#    Distribution, creates the tag last, publishes the immutable Release, and
+#    updates Homebrew from the verified Release Bundle.
 ```
 
 Detailed CI behavior, job responsibilities, secrets, artifact naming, and recovery steps live in `docs/release-macos.md`.

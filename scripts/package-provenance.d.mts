@@ -1,4 +1,8 @@
 export interface PackagedBuildProvenance {
+  readonly product: {
+    readonly name: string;
+    readonly version: string;
+  };
   readonly provenanceId: string;
   readonly target: {
     readonly arch: "arm64" | "x64";

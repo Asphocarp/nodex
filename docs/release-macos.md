@@ -1,478 +1,270 @@
-# macOS Release CI
+# macOS Release Runbook
 
-This document is the source of truth for Nodex macOS release automation, notarization, and Homebrew tap publication.
+This document is the source of truth for Nodex application releases. A normal
+release is expressed by a reviewed metadata-only commit on protected `main`;
+there is no “Prepare Release” cloud form and no tag-push build path.
 
-## Overview
+## Release model
 
-Nodex ships notarized macOS builds for both Apple Silicon and Intel:
-- `Nodex-<version>-arm64.dmg`
-- `Nodex-<version>-arm64.zip`
-- `Nodex-<version>-x64.dmg`
-- `Nodex-<version>-x64.zip`
+The release system has one deep repository-owned Release Module under
+`scripts/release/` and three thin GitHub Interfaces:
+
+- `CI` proves source quality and exposes the stable required check
+  `CI / required`.
+- `Distribution Rehearsal` invokes the production Distribution Implementation
+  without publishing anything.
+- `Release` observes a successful protected-main CI run, recognizes an exact
+  version transition, builds one verified Release Bundle, then promotes it.
+- `Release Recovery` is the only manual production recovery Interface. It
+  accepts an exact source SHA and version and applies the same validation,
+  Distribution, and promotion logic idempotently.
+
+The important seam is the Release Bundle, not a YAML artifact convention.
+Each native architecture emits an `architecture-build.json` that binds its
+source commit/tree, Release Identity, runtime locks, prepared-build generation,
+package provenance, runner/toolchain versions, and artifact hashes. The
+assembler accepts both manifests only when they describe one source and emits:
+
 - `Nodex-latest-arm64.dmg`
 - `Nodex-latest-x64.dmg`
-- canonical `latest-mac.yml`
-- per-architecture ZIP blockmaps required by `electron-updater`
+- versioned arm64/x64 ZIPs and blockmaps
+- merged `latest-mac.yml`
+- `release-bundle.json`
+- `SHA256SUMS`
+- `release-notes.md` for the publisher (not a public asset)
 
-User runtime requirement: macOS 12 Monterey or later.
+The tag is created only after this bundle passes. A published release is never
+rebuilt in place, and an existing tag is never moved.
 
-Build requirement: release packaging runs on macOS 26 runners because `electron-builder`'s Icon Composer path requires `actool >= 26`. Do not present that build-runner constraint as a user-facing OS requirement.
+## Release Identity
 
-The release pipeline uses two GitHub Actions workflows:
-- `.github/workflows/prepare-release.yml`
-- `.github/workflows/release.yml`
+`package.json` is the canonical version input. The Release Module requires the
+same stable `x.y.z` value in:
 
-`Prepare Release` is the normal entrypoint. It validates the TypeScript and Rust sources, generated Core protocol, production authority boundary, browser and Electron restart flows; prepares an unpushed release-candidate workspace; builds and notarizes both macOS artifacts from that candidate; verifies the closed native runtime from each signed app; and only then creates and pushes the release commit plus the `v<version>` tag before publishing the GitHub Release and updating the Homebrew tap.
+- root `package.json`
+- `[workspace.package].version` in `Cargo.toml`
+- every local Nodex package entry in `Cargo.lock`
+- the released Changelog heading
+- prepared Electron metadata, app `Info.plist`, native runtime manifest, and
+  the packaged `nodex --version` result
 
-`Release` is the fallback workflow for already-existing refs. It builds, signs, notarizes, verifies, publishes the GitHub Release, and updates the first-party Homebrew tap for a committed tag or ref. It does not mutate git history.
+The only valid release commit diff is exactly:
 
-Because `arm64` and `x64` packaging run in separate jobs, each macOS build uploads its own updater manifest and blockmaps as first-class artifacts. The publish job merges the two per-arch `latest-mac.yml` files into one canonical `latest-mac.yml`, creates stable DMG aliases for the landing page, and then publishes the GitHub Release.
+```text
+CHANGELOG.md
+Cargo.lock
+Cargo.toml
+package.json
+```
 
-Installer styling is checked in with the app: `electron-builder.yml` owns the DMG Finder geometry, and `resources/dmg-background.png` plus `resources/dmg-background@2x.png` provide the 1x/Retina background pair. Keep those two background assets in sync so packaged DMGs stay sharp on Retina displays.
+Any source, workflow, runtime lock, generated file, or second version change in
+that commit makes release detection fail closed.
 
-For local Linux-path debugging, Nodex also ships a committed `act` harness for the `prepare` job. That harness intentionally stops after validation and never performs the candidate-build, commit, tag, push, or publish steps locally.
+## One-time repository configuration
 
-## Installation and Update Contract
+The repository must have these environments, restricted to protected `main`:
 
-The notarized DMG is the direct-install artifact. Users drag `Nodex.app` into
-Applications or accept the first-launch native move prompt. The ZIP is an
-updater payload, not a second manual installation format. A packaged copy
-running outside an Applications folder may continue for recovery, but it does
-not initialize `electron-updater`.
+| Environment | Secrets | Authority |
+| --- | --- | --- |
+| `macos-distribution` | `CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_API_KEY_B64`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER`, `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT` | Apple signing/notarization; Sentry upload once from production arm64 |
+| `release-publish` | none | job-scoped repository `contents: write` only |
+| `homebrew-tap` | `HOMEBREW_TAP_GITHUB_TOKEN` | Contents read/write only on `junyudev/homebrew-tap` |
+| `landing-production` | `NODEXAPP_GITHUB_IO_TOKEN` | Contents read/write only on `NodexApp/NodexApp.github.io` |
 
-Homebrew Cask installs the same app bundle and exposes
-`Contents/Resources/bin/nodex` through a `binary` symlink. Direct-install users
-can create the equivalent user-owned `~/.local/bin/nodex` link through
-`Nodex -> Install Command Line Tool…`. No channel copies the native CLI away
-from its sibling Core and bundled resources.
+Migration status on 2026-07-31: the four protected environments exist, but
+their secrets cannot be copied through the GitHub API. Before rehearsal, copy
+the five Apple values from the legacy `release` environment into
+`macos-distribution`. Before production, copy its Homebrew token into
+`homebrew-tap`, configure the three Sentry values, and rotate the current
+repository-level landing token into `landing-production`; then delete the
+repository-level copy. Delete the legacy `release` environment only after the
+new scopes have been exercised successfully. If v0.2.0 must intentionally omit
+Sentry source maps, change the production workflow input to `false` in a
+reviewed foundation commit; do not silently proceed with a partial Sentry
+configuration.
 
-Installation, Cask zap, and app updates never migrate or delete Profile content.
-In particular, `~/.nodex` and Nodex Application Support state are absent from
-the generated Cask zap list. Core alone recognizes, snapshots, stages,
-validates, and publishes legacy Profile migrations.
+Repository Actions default permissions remain read-only. The `main` ruleset
+requires PRs, linear history, an up-to-date branch, and `CI / required`; it
+blocks force pushes and deletion. Repository merge settings enable squash
+merge only. A `v*` tag ruleset prevents update/deletion while allowing the
+release workflow to create a new tag. Immutable releases must be enabled after
+the current Latest release points to a stable app release.
 
-## One-Time Setup
+Every external Action is pinned to a full commit SHA. Dependabot proposes npm,
+Cargo, and GitHub Action updates; high-authority Action changes require release
+note and source review before merge.
 
-### GitHub
+## Local gates
 
-Create a GitHub Actions environment named `release` in the `junyudev/nodex` repository. The macOS build jobs, release publication job, and Homebrew tap update job all run under that environment.
-
-Add these environment secrets:
-- `CSC_LINK`: base64 of the exported `Developer ID Application` `.p12`
-- `CSC_KEY_PASSWORD`: password used when exporting the `.p12`
-- `APPLE_API_KEY_B64`: base64 of the App Store Connect API key `.p8`
-- `APPLE_API_KEY_ID`: App Store Connect API key id
-- `APPLE_API_ISSUER`: App Store Connect issuer id
-- `HOMEBREW_TAP_GITHUB_TOKEN`: fine-grained token with `Contents: Read and write` on `junyudev/homebrew-tap`
-
-Recommended environment protection:
-- required reviewers for first releases
-- secrets restricted to the `release` environment only
-
-### Apple
-
-Nodex uses:
-- bundle id `app.jyu.nodex`
-- `Developer ID Application` certificate for outside-App-Store distribution
-- App Store Connect API key authentication for notarization
-
-The certificate exported into `CSC_LINK` must contain the `Developer ID Application` identity and its private key.
-
-## Triggering a Release
-
-### Preferred path
-
-Run `Prepare Release` from GitHub Actions UI or from the CLI.
-
-For a patch bump:
+Use narrow checks while iterating. Before a release foundation or release
+metadata PR is merged, run:
 
 ```bash
-gh workflow run "Prepare Release" \
+pnpm run verify:source
+pnpm run verify:runtime:mac
+```
+
+`verify:source` is the platform-independent source gate: types, lint, generated
+contracts, authority boundaries, notices/migrator reproducibility, Rust, app
+tests, browser tests, Electron E2E, and landing build. `verify:runtime:mac`
+verifies Agent/Browser schemas and runtime conformance on macOS. Neither proves
+Apple signing or Intel behavior; the dual-architecture Distribution is that
+deeper Implementation.
+
+`pnpm test:all` remains a compatibility alias for `verify:source`.
+
+## Rehearse a candidate
+
+Rehearse the exact protected-main foundation SHA before the first release after
+release infrastructure or packaging changes:
+
+```bash
+gh workflow run release-rehearsal.yml \
   --repo junyudev/nodex \
-  -f release_type=patch
+  -f source_sha=<full-main-sha>
 ```
 
-For an explicit version:
+The guard requires that SHA to be reachable from `main` and to have a
+successful protected-main `CI` push run. Both hosted macOS architectures use
+the same source and signing environment, but rehearsal does not receive
+`contents: write`, Homebrew/landing credentials, or a Sentry upload token. It
+creates no tag, Release, tap commit, or production telemetry release.
+
+Download `nodex-release-bundle-<sha>` and inspect `release-bundle.json` and
+`SHA256SUMS`. A rehearsal is required after release workflow, native packaging,
+Apple signing, updater, Agent runtime, Browser runtime, or provenance changes.
+
+## Prepare v0.2.0 (or another stable release)
+
+Start from the latest protected `main`, use a dedicated branch, and provide the
+version explicitly:
 
 ```bash
-gh workflow run "Prepare Release" \
+git switch main
+git pull --ff-only origin main
+git switch -c codex/release-v0.2.0
+pnpm release:prepare -- 0.2.0
+```
+
+The command requires a clean worktree, advances all version sources, and rolls
+the meaningful `Unreleased` Changelog content into a dated `0.2.0` section. It
+does not commit, tag, push, or publish.
+
+Curate `CHANGELOG.md` for user impact; do not turn the commit log or internal
+refactors into release notes. Then verify the transition:
+
+```bash
+pnpm release:check -- --base origin/main --worktree
+git diff -- package.json Cargo.toml Cargo.lock CHANGELOG.md
+git diff --name-only
+pnpm run verify:source
+pnpm run verify:runtime:mac
+```
+
+The final path list must contain only the four Release Identity files. Commit
+and open a PR:
+
+```bash
+git add package.json Cargo.toml Cargo.lock CHANGELOG.md
+git commit -m "chore(release): prepare v0.2.0" \
+  -m "Synchronize the app and Rust workspace versions and roll the curated Unreleased notes into the v0.2.0 release entry."
+git push -u origin codex/release-v0.2.0
+```
+
+Merge the PR with squash after `CI / required` succeeds. Do not create a tag or
+manually dispatch the normal `Release` workflow.
+
+## Automatic production path
+
+The successful `CI` workflow for the main push wakes `Release` through
+`workflow_run`. Before repository code or secrets are used, it validates the
+triggering repository, `push` event, `main` branch, successful conclusion, and
+source reachability. It checks the commit has one parent and asks the Release
+Module to classify that parent-to-head transition.
+
+An ordinary main commit returns `shouldRelease: false` and exits successfully.
+A valid version transition runs this sequence:
+
+1. Verify the remote stable app version and reject tag/source conflicts.
+2. Build, sign, notarize, launch, and inspect arm64 on `macos-26`.
+3. Build, sign, notarize, launch, and inspect x64 on `macos-26-intel`.
+4. Assemble and hash the Release Bundle on a clean Linux runner.
+5. Revalidate source, version, tag, remote state, and bundle identity.
+6. Create or reuse an annotated tag targeting the exact source SHA.
+7. Create/resume the GitHub draft, upload only the manifest allowlist, publish
+   it as Latest, and verify immutability, asset digests, and tag target.
+8. Generate the Homebrew cask from the same bundle, audit it, push it, and
+   smoke-install the published app.
+9. Deploy the landing site from the same source SHA after release verification,
+   so its version and Changelog never lead the published downloads.
+
+Sentry source maps are uploaded only by the production arm64 build. Both builds
+use `SENTRY_RELEASE=nodex@<version>` so the generated app identity agrees.
+
+## Recovery
+
+Use recovery only for a transient Distribution/publisher/downstream failure on
+an already-reviewed release commit:
+
+```bash
+gh workflow run release-recovery.yml \
   --repo junyudev/nodex \
-  -f release_type=custom \
-  -f custom_version=0.1.3
+  -f source_sha=<full-release-main-sha> \
+  -f version=0.2.0
 ```
 
-Before triggering it:
-1. Make sure `CHANGELOG.md` has the intended release notes under `## [Unreleased]`.
-2. Make sure the `release` environment secrets are populated.
-3. Make sure the default branch is green.
+Recovery repeats protected-main and CI guards and requires that exact commit to
+be a valid metadata-only transition for the supplied version. Its behavior is
+idempotent:
 
-### Manual fallback
+- absent tag/release: rebuild, verify, tag, publish;
+- matching tag: reuse only when it resolves to the exact source SHA;
+- matching draft: verify every existing asset digest, upload only missing
+  assets, then publish;
+- matching published release: verify it, then retry Homebrew;
+- conflicting tag or asset digest: stop without mutation.
 
-If the workflow cannot be used, cut the version locally:
+Never delete or replace a published immutable asset. A product or artifact
+defect requires the next patch version. Deleting a bad draft is an explicit
+manual destructive operation and must be investigated before recovery.
+
+## Browser runtime releases and Latest
+
+The separately sealed Browser runtime currently shares this repository, but it
+must never become the app Latest release. Publish it only through:
 
 ```bash
-pnpm run release:cut -- 0.1.3
-git push origin HEAD
-git push origin v0.1.3
+pnpm browser-runtime:publish -- \
+  --repo junyudev/nodex \
+  --tag browser-runtime-v<build> \
+  --arm64 <arm64-archive> \
+  --x64 <x64-archive>
 ```
 
-This bypasses the `Prepare Release` workflow, so use it only when necessary.
+That Interface validates both archives, invokes `gh release create` with
+`--verify-tag --latest=false`, and asserts Latest is unchanged. Create and push
+the runtime tag at an exact reviewed Nodex source commit first; do not use a
+bare `gh release create` for runtime releases.
 
-### Local `act` reproduction for `prepare`
+## Post-release acceptance
 
-Use this when `Prepare Release` fails in the Ubuntu validation path and you need a local reproduction that stays aligned with the real workflow:
+For v0.2.0, run:
 
 ```bash
-brew install act
-pnpm run release:prepare:act:list
-pnpm run release:prepare:act -- --release-type patch
+gh release view v0.2.0 --repo junyudev/nodex \
+  --json tagName,targetCommitish,isDraft,isImmutable,isPrerelease,assets,url
+gh release verify v0.2.0 --repo junyudev/nodex
+gh api repos/junyudev/nodex/releases/latest --jq .tag_name
+gh release download v0.2.0 --repo junyudev/nodex \
+  --pattern release-bundle.json --pattern SHA256SUMS \
+  --dir .generated/v0.2.0-remote
+pnpm release:verify:remote -- \
+  --repo junyudev/nodex \
+  --bundle .generated/v0.2.0-remote/release-bundle.json
 ```
 
-For an explicit version:
-
-```bash
-pnpm run release:prepare:act -- --release-type custom --custom-version 0.1.3
-```
-
-Supporting files:
-- `.actrc`
-- `.github/act/prepare-release.event.json`
-- `.github/act/prepare-release.secrets.example`
-- `scripts/run-prepare-release-act.sh`
-
-Behavior:
-- runs only the `prepare` job from `.github/workflows/prepare-release.yml`
-- keeps checkout, Node/pnpm and Rust setup, install, typecheck, lint, Core fmt/clippy/tests/protocol/boundary audit, application tests, browser tests, and Electron restart E2E aligned with GitHub Actions
-- skips version bump, changelog generation, candidate artifact creation, macOS packaging, commit/tag/push, and publication when `github.event.act` is true
-
-Current known target:
-- the cloud failure on March 16, 2026 was in the macOS `electron-vite build` step, where Node hit its default old-space heap limit during renderer chunk rendering; release CI now applies a larger CI-only heap limit and delays git mutation until after both macOS builds pass
-
-Limitations:
-- no macOS runner emulation
-- no notarization validation
-- no validation for environment-scoped GitHub Actions secrets
-- requires a working Docker-compatible runtime such as Docker Desktop or OrbStack
-
-## Workflow Details
-
-### `Prepare Release`
-
-Workflow file: `.github/workflows/prepare-release.yml`
-
-Trigger:
-- `workflow_dispatch`
-
-Inputs:
-- `release_type`: `patch`, `minor`, `major`, or `custom`
-- `custom_version`: required only when `release_type=custom`
-
-Steps:
-1. Check out the repository with full history.
-2. Install the Node and pnpm versions pinned by `.node-version` and `package.json#packageManager`, then install dependencies with `pnpm install --frozen-lockfile`.
-3. Run `pnpm run typecheck`.
-4. Run `pnpm run lint`.
-5. Run Rust formatting, strict Clippy, the complete Rust workspace, generated Core protocol verification, and the production authority boundary audit.
-6. Build the debug Core integration runtime, then run the Node/main/renderer/integration, Chromium browser, and Electron restart E2E suites.
-7. When `github.event.act` is true, stop after validation and skip all candidate-build, git-mutation, and publish steps.
-8. Resolve the target version:
-   - for `patch`/`minor`/`major`, use Bun semver bumping
-   - for `custom`, use the explicit version string
-9. Run `pnpm version ... --no-git-tag-version`.
-10. Run `pnpm run release:prepare` to:
-   - roll `CHANGELOG.md` forward
-   - generate release notes
-   - generate the release commit message
-11. Archive the prepared workspace as a release-candidate source artifact, plus release notes and commit-message metadata artifacts.
-12. Build and notarize `arm64` and `x64` macOS artifacts from that unpushed release-candidate source.
-13. Verify each packaged native runtime's closed manifest, architecture, deployment target, Developer ID team, CLI/Core cold start, optional service status, and Electron startup before the existing notarization/stapling checks.
-14. Verify the release branch head is still unchanged since the workflow started.
-15. Create the release commit.
-16. Create annotated tag `v<version>`.
-17. Push the commit and tag.
-18. Publish the GitHub Release from the already-built artifacts.
-19. Update the Homebrew tap from those same verified artifacts.
-
-Output contract:
-- `tag_name`: for example `v0.1.3`
-- `version`: for example `0.1.3`
-
-### `Release`
-
-Workflow file: `.github/workflows/release.yml`
-
-Triggers:
-- `push` on tags matching `v*`
-- `workflow_call` from other workflows that already have a committed release ref
-
-Environment:
-- all jobs use the `release` environment
-
-Release jobs:
-- `build-macos-arm64`
-- `build-macos-x64`
-- `publish-release`
-- `update-homebrew-tap`
-
-#### `build-macos-arm64`
-
-Runner:
-- `macos-26`
-
-Responsibilities:
-1. Check out the release tag or passed git ref.
-2. Install the Node and pnpm versions pinned by `.node-version` and `package.json#packageManager`, then install dependencies.
-3. Resolve the release tag and semver version.
-4. Materialize `APPLE_API_KEY_B64` into `${RUNNER_TEMP}/AuthKey_<id>.p8`.
-5. Export `APPLE_API_KEY=<temp-path>` into the job environment.
-6. Run `pnpm run package:mac:arm64` with a larger CI-only `NODE_OPTIONS=--max-old-space-size=6144` heap limit to avoid the default Node old-space cap during renderer bundling.
-   - When `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, and `SENTRY_PROJECT` are configured, this build emits hidden source maps, uploads them to Sentry under `nodex@<version>`, and deletes the generated `.map` files before packaging artifacts are uploaded.
-7. Package on a macOS 26 runner so `electron-builder` can compile the checked-in `resources/icon.icon` asset with `actool >= 26`.
-8. Assert these files exist:
-   - `dist/Nodex-<version>-arm64.dmg`
-   - `dist/Nodex-<version>-arm64.zip`
-   - `dist/latest-mac.yml`
-   - `dist/Nodex-<version>-arm64.zip.blockmap`
-   - built `Nodex.app`
-9. Assert bundled Agent and Nodex runtime resources exist inside the architecture-specific app:
-   - `Contents/Resources/bin/interpreter`
-   - `Contents/Resources/bin/codex-code-mode-host`
-   - `Contents/Resources/codex-path/rg`
-   - `Contents/Resources/codex-resources/zsh/bin/zsh`
-   - `Contents/Resources/agent-runtime.json`
-   - `Contents/Resources/codex-package.json`
-   - `Contents/Resources/third-party/open-interpreter/LICENSE`
-   - `Contents/Resources/third-party/open-interpreter/NOTICE`
-   - `Contents/Resources/bin/nodex`
-   - `Contents/Resources/bin/nodex-core`
-   - `Contents/Resources/bin/rust-core-runtime.json`
-   - `Contents/Helpers/Nodex Service.app`
-10. Extract the signed ZIP into a new `${RUNNER_TEMP}` install root. All runtime and launch checks use this extracted app, not the mutable builder output.
-11. Run `scripts/verify-codex-runtime.ts` against the fresh install. It validates every declared Agent artifact against its post-signing size and SHA-256, checks declared search-path tools as regular executables, runs bundled `interpreter --version`, and verifies the pinned Open Interpreter release provenance. Every embedded runtime executable must use the same TeamIdentifier as the enclosing app.
-12. Run `scripts/verify-native-runtime.ts` for the job architecture. It validates the closed native manifest against the final Developer ID-signed bytes, exact bundle destinations, regular executable modes, thin Mach-O architecture, macOS 12 load commands, the single shared `Resources/codex-path/rg` executable, the nested ServiceManagement bundle, Developer ID team consistency, and the final deep app seal. It also requires Core's authenticated self SHA-256 to equal `rust-core-runtime.json`. With a PATH limited to `/usr/bin:/bin` and nonexistent Cargo/Rustup homes, it invokes `nodex` through an external symlink, cold-starts Core through `nodex --json doctor`, repeats the selector launch to prove compatible reuse of the same PID/start nonce, creates one disposable Page and finds it through `nodex rg`, queries optional service status, migrates the frozen early-v57 fixture through only the packaged app's self-discovered migrator and confirms its source backup, and keeps the fresh Electron app process alive through startup.
-13. Require both notarization checks from the same verifier:
-   - `spctl --assess --type execute --verbose=4`
-   - `xcrun stapler validate`
-14. Upload the DMG, ZIP, `latest-mac.yml`, and blockmaps as the `macos-arm64-release` artifact.
-
-Secrets consumed:
-- `CSC_LINK`
-- `CSC_KEY_PASSWORD`
-- `APPLE_API_KEY_ID`
-- `APPLE_API_ISSUER`
-- `APPLE_API_KEY_B64`
-- `SENTRY_AUTH_TOKEN` (optional, enables source-map upload)
-- `SENTRY_ORG` (optional, enables source-map upload)
-- `SENTRY_PROJECT` (optional, enables source-map upload)
-
-#### `build-macos-x64`
-
-Runner:
-- `macos-26-intel`
-
-Responsibilities are the same as the arm64 job, except it runs `pnpm run package:mac:x64`, verifies every native artifact and fresh launch as x86_64 on the Intel runner, expects `x64` artifacts, and uploads them as `macos-x64-release`. It also must stay on a macOS 26 image because `mac.icon` packaging now requires the Xcode 26 `actool` toolchain.
-
-#### `publish-release`
-
-Runner:
-- `ubuntu-latest`
-
-Dependencies:
-- `build-macos-arm64`
-- `build-macos-x64`
-
-Responsibilities:
-1. Check out the same release ref.
-2. Install the Node and pnpm versions pinned by `.node-version` and `package.json#packageManager`, then install dependencies.
-3. Download the `macos-arm64-release` artifact.
-4. Download the `macos-x64-release` artifact.
-5. Merge the two per-arch `latest-mac.yml` files into one canonical `latest-mac.yml`.
-6. Create stable landing-page aliases by copying the versioned DMGs to:
-   - `Nodex-latest-arm64.dmg`
-   - `Nodex-latest-x64.dmg`
-7. Extract release notes for the resolved version from `CHANGELOG.md` with `pnpm run release:notes`.
-8. Publish a non-draft GitHub Release using `softprops/action-gh-release`.
-9. Attach release assets:
-   - arm64 DMG
-   - arm64 latest alias DMG
-   - arm64 ZIP
-   - arm64 blockmaps
-   - x64 DMG
-   - x64 latest alias DMG
-   - x64 ZIP
-   - x64 blockmaps
-   - canonical `latest-mac.yml`
-
-This job does not build binaries. It only publishes artifacts produced and verified by the two macOS jobs.
-
-#### `update-homebrew-tap`
-
-Runner:
-- `ubuntu-latest`
-
-Dependencies:
-- `build-macos-arm64`
-- `build-macos-x64`
-- `publish-release`
-
-Responsibilities:
-1. Check out the same release ref.
-2. Install the Node and pnpm versions pinned by `.node-version` and `package.json#packageManager`, then install dependencies.
-3. Download the arm64 and x64 release artifacts.
-4. Locate the released DMGs for both architectures.
-5. Compute `sha256` for both DMGs with `shasum -a 256`.
-6. Clone `junyudev/homebrew-tap` using `HOMEBREW_TAP_GITHUB_TOKEN`.
-7. Run `pnpm run release:cask` to generate `Casks/nodex.rb`.
-8. Commit the cask update:
-   - `chore: update nodex cask to v<version>`
-9. Push the tap update if the generated file changed.
-
-If the tap repo already matches the generated cask, the job exits successfully without a new commit.
-
-## Artifact and Cask Contract
-
-The release job assumes these filenames:
-- `dist/Nodex-<version>-arm64.dmg`
-- `dist/Nodex-<version>-arm64.zip`
-- `dist/Nodex-<version>-x64.dmg`
-- `dist/Nodex-<version>-x64.zip`
-- `dist/latest-mac.yml` in each per-architecture build output before merge
-- `dist/Nodex-<version>-arm64.zip.blockmap`
-- `dist/Nodex-<version>-x64.zip.blockmap`
-
-The Homebrew cask generator assumes:
-- the GitHub release tag is `v<version>`
-- the app name is `Nodex`
-- `app.jyu.nodex` is the canonical macOS bundle id for zap paths
-- the cask lives at `junyudev/homebrew-tap/Casks/nodex.rb`
-- the cask declares `auto_updates true`, because packaged macOS builds now self-update through GitHub Releases
-- the cask links `#{appdir}/Nodex.app/Contents/Resources/bin/nodex` as `nodex`
-- the cask zap list removes only disposable host preferences and saved state; it never includes `~/.nodex` or Nodex Application Support content
-
-Homebrew install path:
-
-```bash
-brew install --cask junyudev/tap/nodex
-
-# equivalent two-step flow
-brew tap junyudev/tap
-brew install --cask nodex
-```
-
-## Observability and Recovery
-
-### Watching the workflows
-
-List recent runs:
-
-```bash
-gh run list --repo junyudev/nodex --workflow "Prepare Release"
-gh run list --repo junyudev/nodex --workflow "Release"
-```
-
-Watch a run:
-
-```bash
-gh run watch --repo junyudev/nodex
-```
-
-Inspect logs:
-
-```bash
-gh run view --repo junyudev/nodex --log
-```
-
-### Common failure points
-
-`Prepare Release` failure:
-- cause: typecheck, lint, or test regression
-- action: reproduce locally with `pnpm run release:prepare:act -- --release-type patch`, fix the repo state on the default branch, then rerun `Prepare Release`
-- note: if the Ubuntu suite fails while isolated renderer tests pass locally, audit top-level `mock.module()` calls in renderer tests first; under Vitest they can leak across later files and create Linux-only order-dependent failures
-
-`build-macos-*` failure before notarization:
-- cause: missing signing secrets, malformed `.p12`, wrong certificate, missing `APPLE_API_ISSUER`, packaging regression, or Node heap exhaustion during `electron-vite build`
-- action: inspect the failed packaging log first; if it is a heap exhaustion, raise or validate the CI `NODE_OPTIONS` heap limit, otherwise fix the secret or packaging issue and rerun the failed job or rerun the entire workflow
-- note: a DMG rejection like `source=no usable signature` from `spctl --assess --type open` usually means the workflow is verifying the wrong artifact. In Nodex's current electron-builder setup, the notarized target is the `.app`, not the unsigned DMG container.
-
-`build-macos-*` failure during notarization or stapling:
-- cause: Apple auth issue, notarization rejection, missing hardened runtime entitlement, or transient Apple service failure
-- action: inspect the notarization logs, correct the signing config if needed, and rerun the job
-
-`finalize-release` failure:
-- cause: the release branch advanced while the workflow was running, the tag already exists, or git push was rejected
-- action: inspect the branch/tag state, then rerun from a fresh `Prepare Release` dispatch instead of forcing the stale candidate through
-
-`publish-release` failure:
-- cause: missing release notes extraction, missing artifacts, or GitHub release API issue
-- action: rerun the job after confirming both build jobs uploaded artifacts and `finalize-release` pushed the tag
-
-`update-homebrew-tap` failure:
-- cause: invalid tap token, missing tap repo access, or push conflict in `junyudev/homebrew-tap`
-- action: fix the token or repo state, then rerun only the tap update job
-
-### Recovery guidance
-
-If `publish-release` succeeds but `update-homebrew-tap` fails:
-- do not rebuild macOS artifacts
-- rerun only `update-homebrew-tap` after fixing the token or repo issue
-
-If `Prepare Release` is failing before the version bump:
-- use the local `act` harness first
-- do not try to debug the macOS packaging jobs until the Ubuntu `prepare` path is green again
-
-If a macOS build fails in `Prepare Release`:
-- no release commit or tag has been pushed yet
-- fix the packaging issue and rerun `Prepare Release`; there is no partial git release state to clean up
-
-If `finalize-release` succeeds but `publish-release` or `update-homebrew-tap` fails:
-- do not cut a second version
-- rerun the failed job in the same workflow run when possible
-- if that run is no longer recoverable, use the committed tag with the fallback `Release` workflow instead of moving the tag silently
-
-## Local Validation Before Enabling Secrets
-
-Before trusting CI with signing secrets, do one local dry run on a Mac that has the certificate and API key available:
-
-```bash
-pnpm run package:mac:arm64
-"dist/mac-arm64/Nodex.app/Contents/Resources/bin/interpreter" --version
-codesign -dvvv "dist/mac-arm64/Nodex.app/Contents/Resources/bin/interpreter" 2>&1 | rg "TeamIdentifier="
-codesign --verify --deep --strict --verbose=2 "dist/mac-arm64/Nodex.app"
-spctl --assess --type execute --verbose=4 "dist/mac-arm64/Nodex.app"
-xcrun stapler validate "dist/mac-arm64/Nodex.app"
-```
-
-Repeat the same flow for `pnpm run package:mac:x64` if Intel packaging is being validated locally.
-
-For a local developer deployment, use the source-bound installer:
-
-```bash
-pnpm run install:local:mac -- --install-cli
-```
-
-The default path builds Electron and the native runtime, verifies the complete
-prepared source inventory, and asks electron-builder for its update-capable DMG
-target in a new unique `.generated/local-install/` directory. The deployer
-installs the resulting app bundle directly and discards the temporary DMG; using
-the DMG target ensures electron-builder also emits the supported
-`app-update.yml` without requiring the ZIP target's separately downloaded 7zip
-toolset. It never reuses a persistent `dist/` app. The package's sealed
-provenance binds that exact source generation to `app.asar`, updater metadata,
-and the final post-signing native and Agent manifests.
-
-Local deployments sign with the resolved Developer ID identity but disable the
-Apple timestamp service (`NODEX_MAC_SIGN_MODE=local`) and pin notarization off,
-so the deep sign needs no network round trips while Keychain ACLs, TCC grants,
-and launchd registrations keep their stable signing identity. Pass
-`--strict-sign` to sign through the full release pipeline (Apple timestamps)
-when validating release-equivalent behavior; notarization itself still belongs
-to the release workflow above.
-
-The deployer defaults to `/Applications/Nodex Dev.app`, refuses a running Nodex
-process, verifies the source and staged bundle, copies with `ditto`, performs a
-same-filesystem replacement with a rollback app, verifies the installed result,
-and only then removes the rollback. It will not target `/Applications/Nodex.app`
-unless `--allow-production-destination` is explicit. `--app-path` explicitly
-selects an external package and skips the fresh build, but intrinsic provenance
-and native-runtime verification remain mandatory. `install.sh` is only a
-temporary deprecated forwarding shim for this command.
+Also verify both stable DMG URLs, a clean Apple Silicon install/first launch,
+`nodex --version`, one Core-backed project operation, one Agent thread, one
+Browser operation, update from v0.1.10, Homebrew install/upgrade, and the
+landing download selector. `releases/latest` must be `v0.2.0`, never a Browser
+runtime tag.

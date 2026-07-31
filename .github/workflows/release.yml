@@ -1,454 +1,121 @@
 name: Release
 
 on:
-  push:
-    tags:
-    - "v*"
-  workflow_call:
-    inputs:
-      git_ref:
-        required: false
-        type: string
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
 
 permissions:
-  contents: write
+  actions: read
+  checks: read
+  contents: read
 
-env:
-  HOMEBREW_TAP_REPO: junyudev/homebrew-tap
-  RELEASE_GIT_REF: ${{ inputs.git_ref != '' && inputs.git_ref || github.ref }}
+concurrency:
+  group: release-main
+  cancel-in-progress: false
 
 jobs:
-  verify-legacy-profile-migrator:
+  detect:
+    name: detect protected release transition
+    if: >-
+      github.event.workflow_run.conclusion == 'success'
+      && github.event.workflow_run.event == 'push'
+      && github.event.workflow_run.head_branch == 'main'
+      && github.event.workflow_run.repository.full_name == github.repository
     runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v6
-      with:
-        fetch-depth: 0
-        ref: ${{ env.RELEASE_GIT_REF }}
-
-    - uses: pnpm/action-setup@v4
-      with:
-        version: 11.11.0
-
-    - uses: actions/setup-node@v6
-      with:
-        node-version-file: .node-version
-        cache: pnpm
-
-    - name: Install dependencies
-      run: pnpm install --frozen-lockfile
-
-    - name: Verify frozen legacy migrator reproducibility
-      run: pnpm run legacy-profile-migrator:verify-reproducible
-
-  build-macos-arm64:
-    needs: verify-legacy-profile-migrator
-    runs-on: macos-26
-    environment: release
     outputs:
-      tag: ${{ steps.release_meta.outputs.tag }}
-      version: ${{ steps.release_meta.outputs.version }}
+      should_release: ${{ steps.release.outputs.should_release }}
+      source_sha: ${{ steps.release.outputs.source_sha }}
+      tag: ${{ steps.release.outputs.tag }}
+      version: ${{ steps.release.outputs.version }}
     steps:
-    - uses: actions/checkout@v6
-      with:
-        fetch-depth: 0
-        ref: ${{ env.RELEASE_GIT_REF }}
+      - name: Verify source SHA is reachable from main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          status="$(gh api --method GET \
+            "repos/${GITHUB_REPOSITORY}/compare/${SOURCE_SHA}...main" \
+            --jq .status)"
+          if [[ "${status}" != "ahead" && "${status}" != "identical" ]]; then
+            echo "CI source ${SOURCE_SHA} is not reachable from protected main." >&2
+            exit 1
+          fi
 
-    - uses: pnpm/action-setup@v4
-      with:
-        version: 11.11.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
 
-    - uses: actions/setup-node@v6
-      with:
-        node-version-file: .node-version
-        cache: pnpm
+      - name: Detect metadata-only version transition
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          parents="$(git rev-list --parents -n 1 "${SOURCE_SHA}")"
+          if [[ "$(wc -w <<< "${parents}" | tr -d ' ')" != "2" ]]; then
+            echo "Release detection requires one linear parent." >&2
+            exit 1
+          fi
+          base_sha="${parents#* }"
+          result="${RUNNER_TEMP}/release-transition.json"
+          pnpm release:detect -- \
+            --base "${base_sha}" \
+            --head "${SOURCE_SHA}" \
+            --output "${result}"
+          # shellcheck disable=SC2016
+          node -e '
+            const fs = require("node:fs");
+            const result = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+            const output = [`should_release=${result.shouldRelease}`, `source_sha=${process.env.SOURCE_SHA}`];
+            if (result.shouldRelease) output.push(`tag=${result.tag}`, `version=${result.version}`);
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `${output.join("\n")}\n`);
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `## Release detection\n\n\`\`\`json\n${JSON.stringify(result, null, 2)}\n\`\`\`\n`);
+          ' "${result}"
+          if [[ "$(node -p "require('${result}').shouldRelease")" == "true" ]]; then
+            version="$(node -p "require('${result}').version")"
+            pnpm release:check:remote -- \
+              --repo "${GITHUB_REPOSITORY}" \
+              --source-sha "${SOURCE_SHA}" \
+              --version "${version}"
+          fi
 
-    - name: Install dependencies
-      run: pnpm install --frozen-lockfile
+  distribution:
+    name: build verified distribution
+    if: needs.detect.outputs.should_release == 'true'
+    needs: detect
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_macos-distribution.yml
+    with:
+      source_sha: ${{ needs.detect.outputs.source_sha }}
+      version: ${{ needs.detect.outputs.version }}
+      tag: ${{ needs.detect.outputs.tag }}
+      retention_days: 30
+      upload_sentry_sourcemaps: true
 
-    - name: Resolve release metadata
-      id: release_meta
-      shell: bash
-      run: |
-        release_ref="${RELEASE_GIT_REF}"
-
-        if [[ "${release_ref}" == refs/tags/* ]]; then
-          tag="${release_ref#refs/tags/}"
-        else
-          tag="${release_ref}"
-        fi
-
-        if [[ ! "${tag}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
-          echo "Expected a semver tag like v0.1.2, got ${tag}." >&2
-          exit 1
-        fi
-
-        echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
-        echo "version=${tag#v}" >> "${GITHUB_OUTPUT}"
-
-    - name: Materialize App Store Connect API key
-      env:
-        APPLE_API_KEY_B64: ${{ secrets.APPLE_API_KEY_B64 }}
-        APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-      run: |
-        key_path="${RUNNER_TEMP}/AuthKey_${APPLE_API_KEY_ID}.p8"
-        node -e "require('node:fs').writeFileSync(process.argv[1], Buffer.from(process.env.APPLE_API_KEY_B64, 'base64'))" "${key_path}"
-        chmod 600 "${key_path}"
-        echo "APPLE_API_KEY=${key_path}" >> "${GITHUB_ENV}"
-
-    - name: Verify Browser runtime conformance
-      run: pnpm run test:browser-runtime-conformance
-
-    - name: Package app
-      env:
-        NODE_OPTIONS: --max-old-space-size=6144
-        CSC_LINK: ${{ secrets.CSC_LINK }}
-        CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-        APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-        APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-        SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-        SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
-        SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
-        SENTRY_RELEASE: nodex@${{ steps.release_meta.outputs.version }}
-      run: pnpm run package:mac:arm64
-
-    - name: Resolve artifact paths
-      id: artifact_paths
-      shell: bash
-      run: |
-        version="${{ steps.release_meta.outputs.version }}"
-        dmg_path="dist/Nodex-${version}-arm64.dmg"
-        zip_path="dist/Nodex-${version}-arm64.zip"
-        latest_mac_path="dist/latest-mac.yml"
-        zip_blockmap_path="dist/Nodex-${version}-arm64.zip.blockmap"
-        app_path="$(find dist -type d -name 'Nodex.app' -print -quit)"
-
-        if [[ ! -f "${dmg_path}" || ! -f "${zip_path}" || ! -f "${latest_mac_path}" || ! -f "${zip_blockmap_path}" || -z "${app_path}" ]]; then
-          echo "Expected arm64 release and updater artifacts were not created." >&2
-          exit 1
-        fi
-
-        echo "dmg_path=${dmg_path}" >> "${GITHUB_OUTPUT}"
-        echo "zip_path=${zip_path}" >> "${GITHUB_OUTPUT}"
-        echo "latest_mac_path=${latest_mac_path}" >> "${GITHUB_OUTPUT}"
-        echo "zip_blockmap_path=${zip_blockmap_path}" >> "${GITHUB_OUTPUT}"
-        echo "app_path=${app_path}" >> "${GITHUB_OUTPUT}"
-
-    - name: Materialize fresh install
-      id: fresh_install
-      shell: bash
-      run: |
-        install_root="${RUNNER_TEMP}/nodex-fresh-install-arm64"
-        mkdir -p "${install_root}"
-        ditto -x -k "${{ steps.artifact_paths.outputs.zip_path }}" "${install_root}"
-        app_path="${install_root}/Nodex.app"
-        if [[ ! -d "${app_path}" ]]; then
-          echo "The arm64 update archive did not contain Nodex.app." >&2
-          exit 1
-        fi
-        echo "app_path=${app_path}" >> "${GITHUB_OUTPUT}"
-
-    - name: Verify bundled Agent runtime
-      run: |
-        pnpm exec tsx scripts/verify-codex-runtime.ts \
-          --resources-path "${{ steps.fresh_install.outputs.app_path }}/Contents/Resources" \
-          --require-browser-runtime \
-          --verify-macos-signatures
-
-    - name: Verify native runtime, fresh launch, signing, and notarization
-      run: |
-        pnpm exec tsx scripts/verify-native-runtime.ts \
-          --app-path "${{ steps.fresh_install.outputs.app_path }}" \
-          --target-arch arm64 \
-          --verify-signatures \
-          --require-developer-id \
-          --verify-notarization \
-          --launch-app
-
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v7
-      with:
-        name: macos-arm64-release
-        path: |
-          ${{ steps.artifact_paths.outputs.dmg_path }}
-          ${{ steps.artifact_paths.outputs.zip_path }}
-          ${{ steps.artifact_paths.outputs.latest_mac_path }}
-          ${{ steps.artifact_paths.outputs.zip_blockmap_path }}
-          dist/*.dmg.blockmap
-
-  build-macos-x64:
-    needs: verify-legacy-profile-migrator
-    runs-on: macos-26-intel
-    environment: release
-    outputs:
-      tag: ${{ steps.release_meta.outputs.tag }}
-      version: ${{ steps.release_meta.outputs.version }}
-    steps:
-    - uses: actions/checkout@v6
-      with:
-        fetch-depth: 0
-        ref: ${{ env.RELEASE_GIT_REF }}
-
-    - uses: pnpm/action-setup@v4
-      with:
-        version: 11.11.0
-
-    - uses: actions/setup-node@v6
-      with:
-        node-version-file: .node-version
-        cache: pnpm
-
-    - name: Install dependencies
-      run: pnpm install --frozen-lockfile
-
-    - name: Resolve release metadata
-      id: release_meta
-      shell: bash
-      run: |
-        release_ref="${RELEASE_GIT_REF}"
-
-        if [[ "${release_ref}" == refs/tags/* ]]; then
-          tag="${release_ref#refs/tags/}"
-        else
-          tag="${release_ref}"
-        fi
-
-        if [[ ! "${tag}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
-          echo "Expected a semver tag like v0.1.2, got ${tag}." >&2
-          exit 1
-        fi
-
-        echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
-        echo "version=${tag#v}" >> "${GITHUB_OUTPUT}"
-
-    - name: Materialize App Store Connect API key
-      env:
-        APPLE_API_KEY_B64: ${{ secrets.APPLE_API_KEY_B64 }}
-        APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-      run: |
-        key_path="${RUNNER_TEMP}/AuthKey_${APPLE_API_KEY_ID}.p8"
-        node -e "require('node:fs').writeFileSync(process.argv[1], Buffer.from(process.env.APPLE_API_KEY_B64, 'base64'))" "${key_path}"
-        chmod 600 "${key_path}"
-        echo "APPLE_API_KEY=${key_path}" >> "${GITHUB_ENV}"
-
-    - name: Verify Browser runtime conformance
-      run: pnpm run test:browser-runtime-conformance
-
-    - name: Package app
-      env:
-        NODE_OPTIONS: --max-old-space-size=6144
-        CSC_LINK: ${{ secrets.CSC_LINK }}
-        CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-        APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-        APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-        SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-        SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
-        SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
-        SENTRY_RELEASE: nodex@${{ steps.release_meta.outputs.version }}
-      run: pnpm run package:mac:x64
-
-    - name: Resolve artifact paths
-      id: artifact_paths
-      shell: bash
-      run: |
-        version="${{ steps.release_meta.outputs.version }}"
-        dmg_path="dist/Nodex-${version}-x64.dmg"
-        zip_path="dist/Nodex-${version}-x64.zip"
-        latest_mac_path="dist/latest-mac.yml"
-        zip_blockmap_path="dist/Nodex-${version}-x64.zip.blockmap"
-        app_path="$(find dist -type d -name 'Nodex.app' -print -quit)"
-
-        if [[ ! -f "${dmg_path}" || ! -f "${zip_path}" || ! -f "${latest_mac_path}" || ! -f "${zip_blockmap_path}" || -z "${app_path}" ]]; then
-          echo "Expected x64 release and updater artifacts were not created." >&2
-          exit 1
-        fi
-
-        echo "dmg_path=${dmg_path}" >> "${GITHUB_OUTPUT}"
-        echo "zip_path=${zip_path}" >> "${GITHUB_OUTPUT}"
-        echo "latest_mac_path=${latest_mac_path}" >> "${GITHUB_OUTPUT}"
-        echo "zip_blockmap_path=${zip_blockmap_path}" >> "${GITHUB_OUTPUT}"
-        echo "app_path=${app_path}" >> "${GITHUB_OUTPUT}"
-
-    - name: Materialize fresh install
-      id: fresh_install
-      shell: bash
-      run: |
-        install_root="${RUNNER_TEMP}/nodex-fresh-install-x64"
-        mkdir -p "${install_root}"
-        ditto -x -k "${{ steps.artifact_paths.outputs.zip_path }}" "${install_root}"
-        app_path="${install_root}/Nodex.app"
-        if [[ ! -d "${app_path}" ]]; then
-          echo "The x64 update archive did not contain Nodex.app." >&2
-          exit 1
-        fi
-        echo "app_path=${app_path}" >> "${GITHUB_OUTPUT}"
-
-    - name: Verify bundled Agent runtime
-      run: |
-        pnpm exec tsx scripts/verify-codex-runtime.ts \
-          --resources-path "${{ steps.fresh_install.outputs.app_path }}/Contents/Resources" \
-          --require-browser-runtime \
-          --verify-macos-signatures
-
-    - name: Verify native runtime, fresh launch, signing, and notarization
-      run: |
-        pnpm exec tsx scripts/verify-native-runtime.ts \
-          --app-path "${{ steps.fresh_install.outputs.app_path }}" \
-          --target-arch x64 \
-          --verify-signatures \
-          --require-developer-id \
-          --verify-notarization \
-          --launch-app
-
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v7
-      with:
-        name: macos-x64-release
-        path: |
-          ${{ steps.artifact_paths.outputs.dmg_path }}
-          ${{ steps.artifact_paths.outputs.zip_path }}
-          ${{ steps.artifact_paths.outputs.latest_mac_path }}
-          ${{ steps.artifact_paths.outputs.zip_blockmap_path }}
-          dist/*.dmg.blockmap
-
-  publish-release:
-    runs-on: ubuntu-latest
-    environment: release
-    needs:
-    - build-macos-arm64
-    - build-macos-x64
-    steps:
-    - uses: actions/checkout@v6
-      with:
-        fetch-depth: 0
-        ref: ${{ env.RELEASE_GIT_REF }}
-
-    - uses: pnpm/action-setup@v4
-      with:
-        version: 11.11.0
-
-    - uses: actions/setup-node@v6
-      with:
-        node-version-file: .node-version
-        cache: pnpm
-
-    - name: Install dependencies
-      run: pnpm install --frozen-lockfile
-
-    - name: Download arm64 artifacts
-      uses: actions/download-artifact@v8
-      with:
-        name: macos-arm64-release
-        path: ${{ runner.temp }}/release-artifacts/arm64
-
-    - name: Download x64 artifacts
-      uses: actions/download-artifact@v8
-      with:
-        name: macos-x64-release
-        path: ${{ runner.temp }}/release-artifacts/x64
-
-    - name: Extract release notes from CHANGELOG
-      run: pnpm run release:notes -- --version "${{ needs.build-macos-arm64.outputs.version }}" --release-notes-output "${RUNNER_TEMP}/release-notes.md"
-
-    - name: Merge macOS update manifests
-      shell: bash
-      run: |
-        mkdir -p "${RUNNER_TEMP}/release-artifacts/merged"
-        pnpm run release:merge-mac-update-manifest -- \
-          --input "${RUNNER_TEMP}/release-artifacts/arm64/latest-mac.yml" \
-          --input "${RUNNER_TEMP}/release-artifacts/x64/latest-mac.yml" \
-          --output "${RUNNER_TEMP}/release-artifacts/merged/latest-mac.yml"
-
-    - name: Create stable macOS download aliases
-      run: |
-        pnpm run release:download-aliases -- \
-          --version "${{ needs.build-macos-arm64.outputs.version }}" \
-          --arm64-dir "${RUNNER_TEMP}/release-artifacts/arm64" \
-          --x64-dir "${RUNNER_TEMP}/release-artifacts/x64"
-
-    - name: Publish GitHub release
-      uses: softprops/action-gh-release@v2
-      with:
-        body_path: ${{ runner.temp }}/release-notes.md
-        draft: false
-        files: |
-          ${{ runner.temp }}/release-artifacts/arm64/*.dmg
-          ${{ runner.temp }}/release-artifacts/arm64/*.zip
-          ${{ runner.temp }}/release-artifacts/arm64/*.blockmap
-          ${{ runner.temp }}/release-artifacts/x64/*.dmg
-          ${{ runner.temp }}/release-artifacts/x64/*.zip
-          ${{ runner.temp }}/release-artifacts/x64/*.blockmap
-          ${{ runner.temp }}/release-artifacts/merged/latest-mac.yml
-        tag_name: ${{ needs.build-macos-arm64.outputs.tag }}
-
-  update-homebrew-tap:
-    runs-on: ubuntu-latest
-    environment: release
-    needs:
-    - build-macos-arm64
-    - build-macos-x64
-    - publish-release
-    steps:
-    - uses: actions/checkout@v6
-      with:
-        fetch-depth: 0
-        ref: ${{ env.RELEASE_GIT_REF }}
-
-    - uses: pnpm/action-setup@v4
-      with:
-        version: 11.11.0
-
-    - uses: actions/setup-node@v6
-      with:
-        node-version-file: .node-version
-        cache: pnpm
-
-    - name: Install dependencies
-      run: pnpm install --frozen-lockfile
-
-    - name: Download arm64 artifacts
-      uses: actions/download-artifact@v8
-      with:
-        name: macos-arm64-release
-        path: ${{ runner.temp }}/release-artifacts/arm64
-
-    - name: Download x64 artifacts
-      uses: actions/download-artifact@v8
-      with:
-        name: macos-x64-release
-        path: ${{ runner.temp }}/release-artifacts/x64
-
-    - name: Compute checksums and generate cask
-      shell: bash
-      run: |
-        arm64_dmg="$(find "${RUNNER_TEMP}/release-artifacts/arm64" -name 'Nodex-*-arm64.dmg' -print -quit)"
-        x64_dmg="$(find "${RUNNER_TEMP}/release-artifacts/x64" -name 'Nodex-*-x64.dmg' -print -quit)"
-
-        if [[ -z "${arm64_dmg}" || -z "${x64_dmg}" ]]; then
-          echo "Expected DMG artifacts for both architectures." >&2
-          exit 1
-        fi
-
-        arm64_sha="$(shasum -a 256 "${arm64_dmg}" | awk '{print $1}')"
-        x64_sha="$(shasum -a 256 "${x64_dmg}" | awk '{print $1}')"
-        tap_workdir="${RUNNER_TEMP}/homebrew-tap"
-
-        git clone "https://x-access-token:${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}@github.com/${HOMEBREW_TAP_REPO}.git" "${tap_workdir}"
-        pnpm run release:cask -- \
-          --version "${{ needs.build-macos-arm64.outputs.version }}" \
-          --arm64-sha256 "${arm64_sha}" \
-          --x64-sha256 "${x64_sha}" \
-          --output "${tap_workdir}/Casks/nodex.rb"
-
-        cd "${tap_workdir}"
-        git config user.name "github-actions[bot]"
-        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-        if [[ -z "$(git status --short)" ]]; then
-          echo "Tap already up to date."
-          exit 0
-        fi
-
-        git add Casks/nodex.rb
-        git commit -m "chore: update nodex cask to v${{ needs.build-macos-arm64.outputs.version }}"
-        git push origin HEAD
+  promote:
+    name: promote verified distribution
+    if: needs.detect.outputs.should_release == 'true'
+    needs: [detect, distribution]
+    permissions:
+      contents: write
+    uses: ./.github/workflows/_promote-release.yml
+    with:
+      source_sha: ${{ needs.detect.outputs.source_sha }}
+      version: ${{ needs.detect.outputs.version }}
+      tag: ${{ needs.detect.outputs.tag }}

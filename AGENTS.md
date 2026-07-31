@@ -37,7 +37,9 @@ It ships as an Electron desktop app plus a CLI/HTTP API backed by SQLite.
 - Typecheck: `pnpm run typecheck`
 - Lint: `pnpm run lint`
 - Standard tests: `pnpm test`
-- Full release gate: `pnpm test:all`
+- Source gate: `pnpm run verify:source` (`pnpm test:all` is an alias)
+- macOS runtime gate: `pnpm run verify:runtime:mac`
+- Signed dual-architecture gate: GitHub `Distribution Rehearsal`
 
 ## Runtime and Tooling
 - Package manager: pnpm

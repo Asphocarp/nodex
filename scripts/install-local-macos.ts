@@ -223,6 +223,7 @@ const verify = async (
   });
   await verifyPackagedNativeRuntime({
     appPath,
+    expectedVersion: provenance.product.version,
     launchApp: false,
     requireDeveloperId: false,
     targetArch,

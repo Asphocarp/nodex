@@ -4,6 +4,33 @@
 Nodex is local-first. Main risks are malformed local inputs, accidental data loss, renderer capability abuse, and unsafe command/file-change approvals during Codex thread execution.
 
 ## Security Controls in Place
+
+### Release supply chain
+
+- Pull-request CI has only `contents: read`, does not bind a GitHub environment,
+  and cannot read Apple, Sentry, Homebrew, or landing credentials.
+- The privileged release `workflow_run` validates the originating repository,
+  protected-main push event, successful CI conclusion, and main reachability
+  before it checks out or executes the source commit. Release and recovery also
+  require the exact linear parent diff to be a metadata-only Release Identity
+  transition.
+- Apple/Sentry credentials live only in `macos-distribution`; GitHub publication
+  uses a job-scoped repository token in `release-publish`; Homebrew and landing
+  use separate repository-scoped tokens in separate environments. Secrets are
+  mapped only onto the steps that need them, and the temporary Apple API key is
+  removed in an always-run cleanup step.
+- Every external GitHub Action is pinned to a full commit SHA. Checkout does not
+  persist credentials. Repository Actions default permissions remain read-only;
+  write authority is granted only to the promotion job.
+- Release assets are selected from the verified Release Bundle allowlist. Tag
+  creation is exact-SHA and tag-last; tag conflicts, draft digest conflicts, or
+  a non-immutable published release stop promotion. Published assets are never
+  overwritten.
+- Browser runtime publishing forces `--latest=false` and verifies that the
+  stable app Latest tag remains unchanged.
+
+### Application and runtime controls
+
 - Boundary validation for typed Core Module and IPC requests.
 - No arbitrary SQL inspection route in IPC or the public CLI.
 - Electron preload bridge limits renderer access to a typed API surface.
@@ -194,7 +221,8 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
 - Dynamic-tool receipts are an idempotency and recovery ledger, not an audit-grade record of human intent. They intentionally exclude raw Nested Markdown/body content; the authorization preview is not retained as a second document history.
 
 ## Safe Operating Practices
-- Keep dependencies updated (`bun update` cadence).
+- Keep dependencies updated through reviewed pnpm, Cargo, and GitHub Actions
+  Dependabot changes.
 - Use manual backups before destructive operations.
 
 ## Hardening Backlog

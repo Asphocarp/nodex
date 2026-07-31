@@ -132,7 +132,7 @@ Run the standard checks before handing off code changes:
 ```bash
 pnpm run typecheck
 pnpm run lint
-pnpm test:all
+pnpm run verify:source
 ```
 
 The test commands follow production boundaries:
@@ -169,8 +169,17 @@ Those configs fail fast outside Electron so that host Node cannot reach an
 Electron-built native addon.
 
 During implementation, run the narrow test file or runtime suite affected by the
-change. Run the complete validation set once after the final edit set is stable;
-`test:all` is the handoff and release gate, not the inner development loop.
+change. Run `verify:source` once after a broad final edit set is stable. On
+macOS, release/runtime changes additionally run:
+
+```bash
+pnpm run verify:runtime:mac
+```
+
+`pnpm test:all` remains a compatibility alias for `verify:source`; neither
+command proves Apple signing, notarization, or native Intel behavior. Use the
+production-like `Distribution Rehearsal` described in `release-macos.md` for
+that boundary.
 
 ## Native Addon ABI Errors
 
