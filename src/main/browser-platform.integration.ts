@@ -39,21 +39,15 @@ async function closeServer(server: Server): Promise<void> {
 
 async function stopApplication(application: ElectronApplication): Promise<void> {
   const child = application.process();
-  const exited = new Promise<void>((resolve) =>
-    child.once("exit", () => resolve())
-  );
-  await Promise.race([
-    application.close().catch(() => undefined),
-    new Promise<void>((resolve) => setTimeout(resolve, 5_000)),
+  const closed = application.close();
+  const closedGracefully = await Promise.race([
+    closed.then(() => true),
+    new Promise<false>((resolve) => setTimeout(() => resolve(false), 5_000)),
   ]);
-  await Promise.race([
-    exited,
-    new Promise<void>((resolve) => setTimeout(resolve, 5_000)),
-  ]);
-  if (child.exitCode === null) {
-    child.kill("SIGKILL");
-    await exited;
-  }
+  if (closedGracefully) return;
+
+  if (child.exitCode === null) child.kill("SIGKILL");
+  await closed;
 }
 
 afterEach(() => {

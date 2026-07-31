@@ -120,13 +120,9 @@ async function launchLargeContentFixtureApplication(): Promise<ElectronApplicati
 
 async function stopApplication(application: ElectronApplication): Promise<void> {
   const child = application.process();
-  const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
-  const closed = application.close().then(
-    () => true,
-    () => true,
-  );
+  const closed = application.close();
   const closedGracefully = await Promise.race([
-    closed,
+    closed.then(() => true),
     new Promise<false>((resolve) => setTimeout(() => resolve(false), 5_000)),
   ]);
   if (closedGracefully) return;
@@ -134,11 +130,7 @@ async function stopApplication(application: ElectronApplication): Promise<void> 
   if (child.exitCode === null) {
     child.kill("SIGKILL");
   }
-  await Promise.race([
-    closed,
-    exited.then(() => true),
-    new Promise<false>((resolve) => setTimeout(() => resolve(false), 5_000)),
-  ]);
+  await closed;
 }
 
 async function buildLargeContentFixture(outDir: string): Promise<string> {
