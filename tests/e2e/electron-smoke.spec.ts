@@ -17,6 +17,7 @@ import {
   rendererViteResolve,
 } from "../../config/renderer-vite-shared";
 import { LARGE_CONTENT_FIXTURE_SIZES } from "../../src/main/performance/large-content-fixtures";
+import { LIBRARY_MODULE_CONTRACT_VERSION } from "../../src/shared/library-module";
 
 const repositoryRoot = process.cwd();
 const largeContentFixtureRoot = path.join(repositoryRoot, "tests/e2e/large-content-fixture");
@@ -606,9 +607,9 @@ test("creates and draws in an inline Canvas without taking over the Page", async
     const canvasId = await canvasBlock.getAttribute("data-canvas-block");
     if (!canvasId) throw new Error("Canvas block has no owner identity");
     const readCanvasHead = async (): Promise<number> =>
-      await page.evaluate(async (targetCanvasId) => {
+      await page.evaluate(async ({ targetCanvasId, contractVersion }) => {
         const raw = await window.api?.invoke("library-module:read", {
-          version: 3,
+          version: contractVersion,
           read: { mode: "canvas_target", canvasId: targetCanvasId },
         }) as {
           ok?: boolean;
@@ -631,7 +632,10 @@ test("creates and draws in an inline Canvas without taking over the Page", async
           return -1;
         }
         return target.value.summary?.documentHeadSeq ?? -1;
-      }, canvasId);
+      }, {
+        targetCanvasId: canvasId,
+        contractVersion: LIBRARY_MODULE_CONTRACT_VERSION,
+      });
     const initialHead = await readCanvasHead();
 
     const rectangleTool = boundary.getByRole("radio", { name: /Rectangle/ });

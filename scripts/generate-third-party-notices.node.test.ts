@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+  packageSupportsTargetOs,
   renderThirdPartyNotices,
   type ThirdPartyLegalEntry,
 } from "./generate-third-party-notices";
@@ -15,6 +16,14 @@ function entry(overrides: Partial<ThirdPartyLegalEntry>): ThirdPartyLegalEntry {
 }
 
 describe("third-party notice generation", () => {
+  test("keeps platform-neutral and macOS packages while excluding other binaries", () => {
+    expect(packageSupportsTargetOs(undefined, "darwin")).toBe(true);
+    expect(packageSupportsTargetOs(["darwin"], "darwin")).toBe(true);
+    expect(packageSupportsTargetOs(["linux"], "darwin")).toBe(false);
+    expect(packageSupportsTargetOs(["!win32"], "darwin")).toBe(true);
+    expect(packageSupportsTargetOs(["!darwin"], "darwin")).toBe(false);
+  });
+
   test("sorts packages and emits a shared legal text only once", () => {
     const output = renderThirdPartyNotices([
       entry({ identity: "zeta@1.0.0" }),

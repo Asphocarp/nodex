@@ -96,6 +96,13 @@ jobs:
           persist-credentials: false
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - name: Install ripgrep for CLI functional tests
+        shell: bash
+        run: |
+          if ! command -v rg >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install --yes ripgrep
+          fi
       - name: Test the Rust workspace
         run: >-
           cargo test --workspace --all-features --

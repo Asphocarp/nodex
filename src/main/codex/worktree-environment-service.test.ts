@@ -178,7 +178,9 @@ describe("worktree-environment-service", () => {
         environmentPath: ".codex/environments/environment.toml",
       });
       expect(definition.name).toBe("Workbench");
-      expect(definition.setupScript).toBe("bun install");
+      expect(definition.setupScript).toBe(
+        process.platform === "linux" ? "sudo apt-get update" : "bun install",
+      );
 
       const raw = fs.readFileSync(path.join(workspacePath, ".codex", "environments", "environment.toml"), "utf8");
       expect(raw.includes("[cleanup]")).toBe(true);
