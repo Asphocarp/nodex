@@ -120,17 +120,27 @@ async function launchLargeContentFixtureApplication(): Promise<ElectronApplicati
 
 async function stopApplication(application: ElectronApplication): Promise<void> {
   const child = application.process();
-  const closed = application.close();
-  const closedGracefully = await Promise.race([
-    closed.then(() => true),
+  const exited = child.exitCode === null
+    ? new Promise<void>((resolve) => child.once("exit", () => resolve()))
+    : Promise.resolve();
+  await application.evaluate(({ app }) => app.exit(0)).catch(() => undefined);
+  const exitedGracefully = await Promise.race([
+    exited.then(() => true),
     new Promise<false>((resolve) => setTimeout(() => resolve(false), 5_000)),
   ]);
-  if (closedGracefully) return;
-
-  if (child.exitCode === null) {
-    child.kill("SIGKILL");
+  if (!exitedGracefully && child.exitCode === null) {
+    if (!child.kill("SIGKILL")) {
+      throw new Error("Failed to terminate the Electron fixture process");
+    }
+    const exitedAfterKill = await Promise.race([
+      exited.then(() => true),
+      new Promise<false>((resolve) => setTimeout(() => resolve(false), 5_000)),
+    ]);
+    if (!exitedAfterKill) {
+      throw new Error("Electron fixture process survived SIGKILL");
+    }
   }
-  await closed;
+  await application.close().catch(() => undefined);
 }
 
 async function buildLargeContentFixture(outDir: string): Promise<string> {
