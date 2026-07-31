@@ -136,12 +136,19 @@ function forceStopApplicationProcess(
 
 async function stopApplication(application: ElectronApplication): Promise<void> {
   const child = application.process();
+  const applicationClosed = application.waitForEvent("close", {
+    timeout: 25_000,
+  });
   const forceExitTimer = setTimeout(() => {
     forceStopApplicationProcess(child);
   }, 15_000);
+  const quitRequested = application
+    .evaluate(({ app }) => app.quit())
+    .catch(() => undefined);
 
   try {
-    await application.close();
+    await Promise.race([quitRequested, applicationClosed]);
+    await applicationClosed;
   } finally {
     clearTimeout(forceExitTimer);
     forceStopApplicationProcess(child);
