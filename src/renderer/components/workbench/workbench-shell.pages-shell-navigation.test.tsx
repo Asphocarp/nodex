@@ -1398,7 +1398,7 @@ describe("workbench session shell / pages-shell-navigation", () => {
     })).toBe(true);
   });
 
-  test("clicking another project group header expands without switching session", async () => {
+  test("another Project's disclosure expands its chats without switching Session", async () => {
     const beta = makeProject("beta", "Beta");
     const betaSession = makeSession({
       id: "session:beta:database-view",
@@ -1427,8 +1427,16 @@ describe("workbench session shell / pages-shell-navigation", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
+    const betaRow = screen.container.querySelector(
+      '[data-app-action-sidebar-project-id="beta"]',
+    );
+    if (!(betaRow instanceof HTMLElement)) {
+      throw new Error("Expected Beta project row");
+    }
     await act(async () => {
-      fireEvent.click(screen.getByText("Beta"));
+      fireEvent.click(within(betaRow).getByRole("button", {
+        name: "Expand project",
+      }));
       await Promise.resolve();
     });
     await settleAsyncRender();

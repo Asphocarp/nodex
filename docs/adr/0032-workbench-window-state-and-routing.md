@@ -4,6 +4,10 @@
 
 Accepted
 
+The Session-only snapshot shape in this ADR is superseded by ADR 0034. Its
+single-writer, location-algebra, and Window Session authority decisions remain
+in force through owner-scoped Workbench Scenes.
+
 ## Context
 
 The current Workbench presents one selected Project Session with Window

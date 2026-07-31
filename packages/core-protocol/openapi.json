@@ -18620,7 +18620,6 @@
           "pinned",
           "archived",
           "unread",
-          "database_starter",
           "created_at",
           "updated_at"
         ],
@@ -18636,10 +18635,6 @@
           },
           "created_at": {
             "type": "string"
-          },
-          "database_starter": {
-            "type": "boolean",
-            "description": "Marks the Project's starter \"Database View\" Session. A database-starter\nSession's first window materialization presents the Project's primary\nDatabase default View; the View itself is resolved at read time and is\nnever stored on the Session."
           },
           "display_title": {
             "type": "string"

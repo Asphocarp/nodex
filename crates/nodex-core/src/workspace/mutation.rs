@@ -47,13 +47,11 @@ const MAX_SOURCE_ROOT_BYTES: usize = 4_096;
 const MAX_PROJECT_ORDER_SIZE: usize = 100_000;
 const MAX_UNARCHIVED_PROJECTS: usize = 200;
 const INITIAL_RANK_KEY: &str = "7fffffffffffffffffffffffffffffff";
-const DEFAULT_SESSION_TITLE: &str = "Database View";
 
 struct ProjectAggregateIdentities {
     database_id: String,
     data_source_id: String,
     view_id: String,
-    session_id: String,
 }
 
 struct CreatedProjectAggregate {
@@ -763,12 +761,10 @@ fn create_project(
             project_catalog_change: Some(ProjectCatalogChangeKind::Created),
             change_project_id: project_id.to_owned(),
             project_ids: vec![project_id.to_owned()],
-            session_ids: vec![created.identities.session_id.clone()],
+            session_ids: Vec::new(),
             thread_ids: Vec::new(),
-            session_summary_scopes: vec![ProjectSessionInvalidationScope::Project {
-                project_id: project_id.to_owned(),
-            }],
-            session_detail_ids: vec![created.identities.session_id],
+            session_summary_scopes: Vec::new(),
+            session_detail_ids: Vec::new(),
             block_ids,
             document_ids,
             database_ids: vec![created.identities.database_id],
@@ -1358,8 +1354,7 @@ fn create_project_records(
              OR EXISTS (SELECT 1 FROM blocks WHERE id IN (?2, ?3)) \
              OR EXISTS (SELECT 1 FROM documents WHERE id = ?4) \
              OR EXISTS (SELECT 1 FROM data_sources WHERE id = ?5) \
-             OR EXISTS (SELECT 1 FROM database_views WHERE id = ?6) \
-             OR EXISTS (SELECT 1 FROM project_sessions WHERE id = ?7)",
+             OR EXISTS (SELECT 1 FROM database_views WHERE id = ?6)",
             params![
                 project_id,
                 identities.database_id,
@@ -1367,7 +1362,6 @@ fn create_project_records(
                 canvas_document_id,
                 identities.data_source_id,
                 identities.view_id,
-                identities.session_id,
             ],
             |_| Ok(()),
         )
@@ -1468,7 +1462,6 @@ fn create_project_records(
             )
         })
         .transpose()?;
-    insert_initial_session(connection, project_id, &identities, &now)?;
     let canvas = create_primary_canvas(connection, project_id, &now, assets_root)?;
     Ok(CreatedProjectAggregate {
         identities,
@@ -1501,33 +1494,11 @@ fn insert_project_sources(
     Ok(())
 }
 
-fn insert_initial_session(
-    connection: &Connection,
-    project_id: &str,
-    identities: &ProjectAggregateIdentities,
-    now: &str,
-) -> Result<(), StoreError> {
-    connection.execute(
-        "INSERT INTO project_sessions(\
-           id, project_id, no_thread_fallback_title, \"order\", pinned, pinned_order, archived, \
-           archived_at, unread, database_starter, created_at, updated_at\
-         ) VALUES (?1, ?2, ?3, 0, 1, 0, 0, NULL, 0, 1, ?4, ?4)",
-        params![
-            identities.session_id,
-            project_id,
-            DEFAULT_SESSION_TITLE,
-            now
-        ],
-    )?;
-    Ok(())
-}
-
 fn aggregate_identities(namespace: &str, project_id: &str) -> ProjectAggregateIdentities {
     ProjectAggregateIdentities {
         database_id: stable_uuid_v7(namespace, "database", project_id),
         data_source_id: stable_uuid_v7(namespace, "data_source", project_id),
         view_id: stable_uuid_v7(namespace, "view", project_id),
-        session_id: stable_uuid_v7(namespace, "session", project_id),
     }
 }
 
@@ -2489,7 +2460,7 @@ mod tests {
             })
             .expect("read bootstrap aggregate");
         assert_eq!(bootstrap.0, bootstrap.1);
-        assert_eq!(bootstrap.2, 1);
+        assert_eq!(bootstrap.2, 0);
         assert_eq!(bootstrap.3, 1);
 
         let request = create_request("workspace-create-1", "project-native");
@@ -2500,7 +2471,7 @@ mod tests {
             outcome.committed.value.affected_project_ids,
             vec!["project-native"]
         );
-        assert_eq!(outcome.committed.value.affected_session_ids.len(), 1);
+        assert!(outcome.committed.value.affected_session_ids.is_empty());
         assert!(outcome.committed.value.affected_thread_ids.is_empty());
         assert!(!outcome.committed.receipt.mutation.duplicate);
         let Some(event) = outcome.event.as_ref() else {
@@ -2552,8 +2523,7 @@ mod tests {
                              JOIN data_sources source ON source.id = property.data_source_id \
                              WHERE source.home_database_block_id = project.database_block_id), \
                             (SELECT count(*) FROM project_sessions session \
-                             WHERE session.project_id = project.id \
-                               AND session.database_starter = 1), \
+                             WHERE session.project_id = project.id), \
                             (SELECT count(*) FROM canvas_scenes scene \
                              JOIN documents document ON document.id = scene.document_id \
                              WHERE document.project_id = project.id), \
@@ -2597,7 +2567,7 @@ mod tests {
         assert_eq!(stored.5, stored.6);
         assert_eq!(stored.7, 2);
         assert_eq!(stored.8, 8);
-        assert_eq!(stored.9, 1);
+        assert_eq!(stored.9, 0);
         assert_eq!(stored.10, 1);
         assert_eq!(stored.11, 1);
         assert_eq!(stored.12, 1);
@@ -2614,13 +2584,26 @@ mod tests {
     #[test]
     fn updates_lifecycle_order_and_pinning_with_revision_guards_and_exact_replay() {
         let (_directory, kernel, module) = seeded_module();
-        let created_native = module
+        module
             .apply(
                 &context(),
                 create_request("workspace-create-native", "project-native"),
             )
             .expect("create native Project");
-        let native_session_id = created_native.committed.value.affected_session_ids[0].clone();
+        let native_session_id = "session:native".to_owned();
+        module
+            .apply(
+                &context(),
+                request(
+                    "workspace-create-native-session",
+                    ProjectWorkspaceIntent::CreateSession {
+                        session_id: native_session_id.clone(),
+                        project_id: Some("project-native".to_owned()),
+                        title: "Native Session".to_owned(),
+                    },
+                ),
+            )
+            .expect("create native Session");
         module
             .apply(
                 &context(),
@@ -3011,13 +2994,26 @@ mod tests {
     #[test]
     fn mutates_session_state_and_existing_thread_links_with_exact_replay() {
         let (_directory, kernel, module) = seeded_module();
-        let created = module
+        module
             .apply(
                 &context(),
                 create_request("workspace-create-session-owner", "project-native"),
             )
             .expect("create Session owner Project");
-        let session_id = created.committed.value.affected_session_ids[0].clone();
+        let session_id = "session:native".to_owned();
+        module
+            .apply(
+                &context(),
+                request(
+                    "workspace-create-session",
+                    ProjectWorkspaceIntent::CreateSession {
+                        session_id: session_id.clone(),
+                        project_id: Some("project-native".to_owned()),
+                        title: "New chat".to_owned(),
+                    },
+                ),
+            )
+            .expect("create Session");
         kernel
             .writer()
             .call(|connection| {
@@ -3214,13 +3210,12 @@ mod tests {
     #[test]
     fn owns_session_lifecycle_order_move_and_delete_with_exact_replay() {
         let (_directory, kernel, module) = seeded_module();
-        let project = module
+        module
             .apply(
                 &context(),
                 create_request("workspace-session-lifecycle-project", "project-native"),
             )
             .expect("create Session lifecycle Project");
-        let initial_session_id = project.committed.value.affected_session_ids[0].clone();
 
         let create_a = request(
             "workspace-session-create-a",
@@ -3286,7 +3281,7 @@ mod tests {
                     "workspace-session-reorder-pinned",
                     ProjectWorkspaceIntent::ReorderPinnedSessions {
                         project_id: Some("project-native".to_owned()),
-                        session_ids: vec![initial_session_id.clone(), "session-b".to_owned()],
+                        session_ids: vec!["session-b".to_owned(), "session-a".to_owned()],
                     },
                 ),
             )
@@ -3485,7 +3480,7 @@ mod tests {
             .iter()
             .find(|row| row.0 == "session-a")
             .expect("first explicit Session");
-        assert_eq!((session_a.1, session_a.2, session_a.3), (2, 1, Some(2)));
+        assert_eq!((session_a.1, session_a.2, session_a.3), (2, 1, Some(1)));
         assert_eq!(session_a.6, "Lifecycle A");
         let session_b = stored
             .0
@@ -3496,24 +3491,18 @@ mod tests {
         assert_eq!(session_b.4, 0);
         assert_eq!(session_b.5, None);
         assert_eq!(stored.1, (0, 0, None));
-        let initial = stored
-            .0
-            .iter()
-            .find(|row| row.0 == initial_session_id)
-            .expect("initial Project Session");
-        assert_eq!((initial.1, initial.2, initial.3), (3, 1, Some(0)));
     }
 
     #[test]
-    fn rolls_back_the_complete_project_when_a_nested_session_write_fails() {
+    fn rolls_back_the_complete_project_when_a_nested_canvas_write_fails() {
         let (_directory, kernel, module) = seeded_module();
         kernel
             .writer()
             .call(|connection| {
                 connection.execute_batch(
-                    "CREATE TEMP TRIGGER fail_workspace_session \
-                     BEFORE INSERT ON project_sessions BEGIN \
-                       SELECT RAISE(ABORT, 'injected Project Session failure'); \
+                    "CREATE TEMP TRIGGER fail_workspace_canvas \
+                     BEFORE INSERT ON canvas_scenes BEGIN \
+                       SELECT RAISE(ABORT, 'injected Canvas failure'); \
                      END;",
                 )?;
                 Ok(())

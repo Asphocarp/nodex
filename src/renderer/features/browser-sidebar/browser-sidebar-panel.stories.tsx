@@ -674,7 +674,6 @@ function makeBrowserSession(
   return {
     id: snapshot.browserConversationId,
     projectId: "alpha",
-    databaseStarter: false,
     noThreadFallbackTitle: "Browser",
     displayTitle: "Browser",
     order: 0,
@@ -753,6 +752,7 @@ function makeBrowserUseFixture(
         browserConversationId: snapshot.browserConversationId,
         browserViewScopeId: snapshot.browserViewScopeId,
         browserTabId: snapshot.browserTabId,
+        codexSessionId: "thread-1",
         projectId: "alpha",
         title: "Browser agent",
         url: snapshot.url,

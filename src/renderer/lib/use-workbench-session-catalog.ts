@@ -17,9 +17,14 @@ import type {
   ProjectSessionSummary,
   ProjectSessionSummaryWindow,
 } from "../../shared/types";
-import type { WorkbenchLocation } from "../../shared/workbench-layout";
-import { getWorkbenchSessionReturnLocation } from "../../shared/workbench-layout";
-import type { WorkbenchSessionViewSnapshot } from "../../shared/workbench-session-view";
+import type { WorkbenchLocationV5 } from "../../shared/workbench-layout";
+import { getWorkbenchSceneReturnLocation } from "../../shared/workbench-layout";
+import {
+  makeWorkbenchSceneKey,
+  materializeInitialWorkbenchScene,
+  type WorkbenchSceneOwner,
+  type WorkbenchSceneSnapshot,
+} from "../../shared/workbench-scene";
 import { invoke } from "./api";
 import {
   getCachedProjectSessionDetail,
@@ -33,9 +38,8 @@ import {
   projectSessionSummariesQueryOptions,
 } from "./query-options";
 import { queryKeys } from "./query-keys";
-import { materializeWorkbenchViewForProjectSession } from "./window-session-view-adapter";
 import {
-  presentWorkbenchSessionForLegacyView,
+  presentWorkbenchSession,
   projectSessionSummaryToDomain,
   type WorkbenchSessionPresentation,
   type WorkbenchSessionRenderProjection,
@@ -45,37 +49,61 @@ import type { WorkbenchSessionCatalogEntry } from "./workbench-window-state";
 const PROJECTLESS_SCOPE_KEY = "__projectless__";
 
 export interface WorkbenchSessionCatalogWindowPort {
-  readonly location: WorkbenchLocation;
-  readonly sessionViewsBySessionId: Readonly<
-    Record<string, WorkbenchSessionViewSnapshot>
+  readonly location: WorkbenchLocationV5;
+  readonly scenesByOwnerKey: Readonly<
+    Record<string, WorkbenchSceneSnapshot>
   >;
-  readonly setSessionView: (
-    sessionId: string,
+  readonly setScene: (
+    owner: WorkbenchSceneOwner,
     update:
-      | WorkbenchSessionViewSnapshot
+      | WorkbenchSceneSnapshot
       | ((
-          previous: WorkbenchSessionViewSnapshot | undefined,
-        ) => WorkbenchSessionViewSnapshot),
+          previous: WorkbenchSceneSnapshot | undefined,
+        ) => WorkbenchSceneSnapshot),
   ) => void;
   readonly selectSession: (session: WorkbenchSessionCatalogEntry) => void;
   readonly selectProject: (projectId: string | null) => void;
-  readonly reconcileSelection: (
-    sessions: readonly WorkbenchSessionCatalogEntry[],
-  ) => void;
+  readonly reconcileMissingSession: (sessionId: string) => void;
 }
 
 export interface UseWorkbenchSessionCatalogInput {
   readonly projects: readonly Project[];
   readonly expandedProjectIds: ReadonlySet<string>;
   readonly window: WorkbenchSessionCatalogWindowPort;
-  readonly observeSessionViewMutation?: (
-    sessionId: string,
-    update:
-      | WorkbenchSessionViewSnapshot
-      | ((
-          previous: WorkbenchSessionViewSnapshot | undefined,
-        ) => WorkbenchSessionViewSnapshot),
-  ) => void;
+}
+
+export type WorkbenchSessionCollectionState =
+  | { readonly kind: "idle" }
+  | { readonly kind: "loading" }
+  | {
+      readonly kind: "ready";
+      readonly refreshing: boolean;
+      readonly refreshError: string | null;
+    }
+  | { readonly kind: "error"; readonly message: string };
+
+export interface WorkbenchSessionCollection {
+  readonly presentations: readonly WorkbenchSessionPresentation[];
+  readonly projections: readonly WorkbenchSessionRenderProjection[];
+  readonly state: WorkbenchSessionCollectionState;
+  readonly hasMore: boolean;
+}
+
+export function projectSessionProjectionsByProject(
+  collections: Readonly<Record<string, WorkbenchSessionCollection>>,
+): Record<string, WorkbenchSessionRenderProjection[]> {
+  return Object.fromEntries(
+    Object.entries(collections).map(([projectId, collection]) => [
+      projectId,
+      [...collection.projections],
+    ]),
+  );
+}
+
+interface WorkbenchSessionSummaryQueryState {
+  readonly data: ProjectSessionSummaryWindow | undefined;
+  readonly error: unknown;
+  readonly isFetching: boolean;
 }
 
 export interface WorkbenchSessionCatalog {
@@ -84,31 +112,18 @@ export interface WorkbenchSessionCatalog {
   readonly activeSessionId: string | null;
   readonly active: WorkbenchSessionPresentation | null;
   readonly activeProjection: WorkbenchSessionRenderProjection | null;
-  readonly byProject: Readonly<
-    Record<string, readonly WorkbenchSessionPresentation[]>
+  readonly collectionsByProject: Readonly<
+    Record<string, WorkbenchSessionCollection>
   >;
-  readonly projectless: readonly WorkbenchSessionPresentation[];
-  readonly projectionsByProject: Readonly<
-    Record<string, readonly WorkbenchSessionRenderProjection[]>
-  >;
-  readonly projectlessProjections: readonly WorkbenchSessionRenderProjection[];
-  readonly known: readonly WorkbenchSessionPresentation[];
-  readonly loading: boolean;
-  readonly ready: boolean;
-  readonly error: string | null;
-  readonly hasMoreByScope: Readonly<Record<string, boolean>>;
-  readonly resolveView: (
+  readonly projectlessCollection: WorkbenchSessionCollection;
+  readonly selectedDetailReady: boolean;
+  readonly selectedDetailError: string | null;
+  readonly resolveScene: (
     session: ProjectSession | ProjectSessionSummary,
-  ) => WorkbenchSessionViewSnapshot;
+  ) => WorkbenchSceneSnapshot;
   readonly resolveDefaultDatabaseViewId: (
     projectId: string | null,
   ) => string | null;
-  readonly mutateView: (
-    session: ProjectSession,
-    mutation: (
-      view: WorkbenchSessionViewSnapshot,
-    ) => WorkbenchSessionViewSnapshot,
-  ) => WorkbenchSessionViewSnapshot;
   readonly findById: (
     sessionId: string,
   ) => WorkbenchSessionPresentation | null;
@@ -122,6 +137,7 @@ export interface WorkbenchSessionCatalog {
   readonly refresh: (
     projectId: string | null,
   ) => Promise<readonly WorkbenchSessionPresentation[]>;
+  readonly retryCollection: (projectId: string | null) => Promise<void>;
   readonly loadMore: (projectId: string | null) => Promise<void>;
   readonly seed: (session: ProjectSession | null | undefined) => void;
   readonly prefetch: (sessionId: string) => Promise<ProjectSession | null>;
@@ -146,6 +162,9 @@ export interface WorkbenchSessionCatalog {
   readonly ensureBlank: (
     projectId: string | null,
   ) => Promise<WorkbenchSessionPresentation>;
+  readonly createBlank: (
+    projectId: string | null,
+  ) => Promise<WorkbenchSessionPresentation>;
   readonly fork: (
     session: ProjectSession,
     input: ProjectSessionForkInput & {
@@ -158,17 +177,25 @@ function scopeKey(projectId: string | null): string {
   return projectId ?? PROJECTLESS_SCOPE_KEY;
 }
 
+function sessionCollectionErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  return "Couldn’t load chats";
+}
+
 export function useWorkbenchSessionCatalog({
   projects,
   expandedProjectIds,
   window,
-  observeSessionViewMutation,
 }: UseWorkbenchSessionCatalogInput): WorkbenchSessionCatalog {
   const queryClient = useQueryClient();
-  const sessionLocation = getWorkbenchSessionReturnLocation(window.location);
-  const activeProjectId = sessionLocation.activeProjectId;
+  const sceneLocation = getWorkbenchSceneReturnLocation(window.location);
+  const activeProjectId = sceneLocation.kind === "project"
+    ? sceneLocation.projectId
+    : sceneLocation.kind === "session"
+      ? sceneLocation.projectContextId
+      : null;
   const activeSessionId =
-    sessionLocation.kind === "session" ? sessionLocation.sessionId : null;
+    sceneLocation.kind === "session" ? sceneLocation.sessionId : null;
   const projectScopeIds = useMemo(
     () => [
       ...projects
@@ -185,17 +212,16 @@ export function useWorkbenchSessionCatalog({
   const summaryState = useQueries({
     queries: projectScopeIds.map(projectSessionSummariesQueryOptions),
     combine: (results) => ({
-      windowsByScope: Object.fromEntries(results.map((result, index) => [
+      queriesByScope: Object.fromEntries(results.map((result, index) => [
         scopeKey(projectScopeIds[index] ?? null),
-        result.data ?? null,
-      ])) as Record<string, ProjectSessionSummaryWindow | null>,
-      loading: results.some((result) => result.isPending),
-      error: results.find((result) => result.error)?.error ?? null,
+        {
+          data: result.data,
+          error: result.error,
+          isFetching: result.isFetching,
+        },
+      ])) as Record<string, WorkbenchSessionSummaryQueryState>,
     }),
   });
-  const materializedViewsRef = useRef<
-    Record<string, WorkbenchSessionViewSnapshot>
-  >({});
   const loadInFlightRef = useRef<Set<string>>(new Set());
 
   const resolveProjectDefaultDatabaseViewId = useCallback(
@@ -205,24 +231,17 @@ export function useWorkbenchSessionCatalog({
         ?.defaultDatabaseViewId ?? null,
     [projects],
   );
-  const resolveView = useCallback((
+  const resolveScene = useCallback((
     session: ProjectSession | ProjectSessionSummary,
-  ): WorkbenchSessionViewSnapshot => {
-    const persisted = window.sessionViewsBySessionId[session.id];
-    if (persisted) return persisted;
-
-    const cached = materializedViewsRef.current[session.id];
-    if (cached) return cached;
-
-    const materialized = materializeWorkbenchViewForProjectSession(
-      session,
-      resolveProjectDefaultDatabaseViewId(session.projectId),
-    );
-    materializedViewsRef.current[session.id] = materialized;
-    return materialized;
+  ): WorkbenchSceneSnapshot => {
+    const owner = { kind: "session", sessionId: session.id } as const;
+    const persisted = window.scenesByOwnerKey[makeWorkbenchSceneKey({
+      kind: "session",
+      sessionId: session.id,
+    })];
+    return persisted ?? materializeInitialWorkbenchScene(owner);
   }, [
-    resolveProjectDefaultDatabaseViewId,
-    window.sessionViewsBySessionId,
+    window.scenesByOwnerKey,
   ]);
 
   const presentSummary = useCallback((
@@ -232,99 +251,117 @@ export function useWorkbenchSessionCatalog({
     const domain = projectSessionSummaryToDomain(summary, detail ?? undefined);
     return {
       domain,
-      view: resolveView(domain),
+      scene: resolveScene(domain),
     };
-  }, [queryClient, resolveView]);
+  }, [queryClient, resolveScene]);
 
-  const byProject = useMemo<
-    Record<string, readonly WorkbenchSessionPresentation[]>
+  const buildCollection = useCallback((
+    query: WorkbenchSessionSummaryQueryState | undefined,
+  ): WorkbenchSessionCollection => {
+    const presentations = (query?.data?.items ?? []).map(presentSummary);
+    const projections = presentations.map(presentWorkbenchSession);
+
+    if (!query) {
+      return {
+        presentations,
+        projections,
+        state: { kind: "idle" },
+        hasMore: false,
+      };
+    }
+
+    if (query.data !== undefined) {
+      return {
+        presentations,
+        projections,
+        state: {
+          kind: "ready",
+          refreshing: query.isFetching,
+          refreshError: query.error
+            ? sessionCollectionErrorMessage(query.error)
+            : null,
+        },
+        hasMore: query.data.hasMore,
+      };
+    }
+
+    if (query.error) {
+      return {
+        presentations,
+        projections,
+        state: {
+          kind: "error",
+          message: sessionCollectionErrorMessage(query.error),
+        },
+        hasMore: false,
+      };
+    }
+
+    return {
+      presentations,
+      projections,
+      state: { kind: "loading" },
+      hasMore: false,
+    };
+  }, [presentSummary]);
+  const collectionsByProject = useMemo<
+    Record<string, WorkbenchSessionCollection>
   >(() => Object.fromEntries(projects.map((project) => [
     project.id,
-    (summaryState.windowsByScope[project.id]?.items ?? []).map(presentSummary),
-  ])), [presentSummary, projects, summaryState.windowsByScope]);
-  const projectless = useMemo(
-    () => (
-      summaryState.windowsByScope[PROJECTLESS_SCOPE_KEY]?.items ?? []
-    ).map(presentSummary),
-    [presentSummary, summaryState.windowsByScope],
+    buildCollection(summaryState.queriesByScope[project.id]),
+  ])), [buildCollection, projects, summaryState.queriesByScope]);
+  const projectlessCollection = useMemo(
+    () => buildCollection(
+      summaryState.queriesByScope[PROJECTLESS_SCOPE_KEY],
+    ),
+    [buildCollection, summaryState.queriesByScope],
   );
   const known = useMemo(
-    () => [...Object.values(byProject).flat(), ...projectless],
-    [byProject, projectless],
+    () => [
+      ...Object.values(collectionsByProject).flatMap(
+        (collection) => collection.presentations,
+      ),
+      ...projectlessCollection.presentations,
+    ],
+    [collectionsByProject, projectlessCollection.presentations],
   );
-  const selectedSummaryPresentation =
-    known.find((candidate) => candidate.domain.id === activeSessionId)
-    ?? (activeProjectId === null ? null : byProject[activeProjectId]?.[0])
-    ?? null;
-  const selectedSummary = selectedSummaryPresentation?.domain ?? null;
+  const selectedSummaryPresentation = activeSessionId
+    ? known.find((candidate) => candidate.domain.id === activeSessionId) ?? null
+    : null;
   const selectedDetailQuery = useQuery({
-    ...projectSessionDetailQueryOptions(selectedSummary?.id ?? ""),
-    enabled: selectedSummary !== null,
+    ...projectSessionDetailQueryOptions(activeSessionId ?? ""),
+    enabled: activeSessionId !== null,
   });
   const active = useMemo<WorkbenchSessionPresentation | null>(() => {
-    if (!selectedSummaryPresentation) return null;
     const detail = selectedDetailQuery.data;
-    if (!detail) return selectedSummaryPresentation;
+    if (detail === null) return null;
+    if (detail === undefined) return selectedSummaryPresentation;
     return {
-      domain: projectSessionSummaryToDomain(
-        selectedSummaryPresentation.domain,
-        detail,
-      ),
-      view: resolveView(detail),
+      domain: selectedSummaryPresentation
+        ? projectSessionSummaryToDomain(
+            selectedSummaryPresentation.domain,
+            detail,
+          )
+        : detail,
+      scene: resolveScene(detail),
     };
-  }, [resolveView, selectedDetailQuery.data, selectedSummaryPresentation]);
+  }, [resolveScene, selectedDetailQuery.data, selectedSummaryPresentation]);
 
-  const setSessionView = useCallback((
-    sessionId: string,
-    update:
-      | WorkbenchSessionViewSnapshot
-      | ((
-          previous: WorkbenchSessionViewSnapshot | undefined,
-        ) => WorkbenchSessionViewSnapshot),
-  ) => {
-    window.setSessionView(sessionId, update);
-    observeSessionViewMutation?.(sessionId, update);
-  }, [observeSessionViewMutation, window]);
+  useEffect(() => {
+    if (!activeSessionId || selectedDetailQuery.data !== null) return;
+    window.reconcileMissingSession(activeSessionId);
+  }, [activeSessionId, selectedDetailQuery.data, window]);
 
   useEffect(() => {
     if (!active) return;
-    if (window.sessionViewsBySessionId[active.domain.id]) return;
-    setSessionView(active.domain.id, active.view);
-  }, [active, setSessionView, window.sessionViewsBySessionId]);
-
-  const catalogEntries = useMemo(
-    () => known.map(({ domain }) => ({
-      id: domain.id,
-      projectId: domain.projectId,
-    })),
-    [known],
-  );
-  useEffect(() => {
-    if (summaryState.loading) return;
-    window.reconcileSelection(catalogEntries);
-  }, [catalogEntries, summaryState.loading, window]);
-
-  const mutateView = useCallback((
-    session: ProjectSession,
-    mutation: (
-      view: WorkbenchSessionViewSnapshot,
-    ) => WorkbenchSessionViewSnapshot,
-  ): WorkbenchSessionViewSnapshot => {
-    const current = materializedViewsRef.current[session.id]
-      ?? window.sessionViewsBySessionId[session.id]
-      ?? materializeWorkbenchViewForProjectSession(
-        session,
-        resolveProjectDefaultDatabaseViewId(session.projectId),
-      );
-    const next = mutation(current);
-    materializedViewsRef.current[session.id] = next;
-    setSessionView(session.id, next);
-    return next;
-  }, [
-    resolveProjectDefaultDatabaseViewId,
-    setSessionView,
-    window.sessionViewsBySessionId,
-  ]);
+    const owner = {
+      kind: "session",
+      sessionId: active.domain.id,
+    } as const;
+    const sceneKey = makeWorkbenchSceneKey(owner);
+    if (window.scenesByOwnerKey[sceneKey]) return;
+    window.setScene(owner, materializeInitialWorkbenchScene(owner));
+  }, [active, window]);
 
   const refresh = useCallback(async (
     projectId: string | null,
@@ -338,6 +375,14 @@ export function useWorkbenchSessionCatalog({
     );
     return result.items.map(presentSummary);
   }, [presentSummary, queryClient]);
+  const retryCollection = useCallback(async (
+    projectId: string | null,
+  ): Promise<void> => {
+    await queryClient.refetchQueries({
+      queryKey: queryKeys.projectSessions.summaries(projectId),
+      exact: true,
+    });
+  }, [queryClient]);
 
   const loadMore = useCallback(async (
     projectId: string | null,
@@ -499,8 +544,8 @@ export function useWorkbenchSessionCatalog({
       );
     const scopedPresentations = cachedWindow
       ? projectId === null
-        ? projectless
-        : byProject[projectId] ?? []
+        ? projectlessCollection.presentations
+        : collectionsByProject[projectId]?.presentations ?? []
       : await refresh(projectId);
 
     for (const candidate of scopedPresentations) {
@@ -514,7 +559,7 @@ export function useWorkbenchSessionCatalog({
       if (!detail || detail.thread) continue;
       return {
         domain: detail,
-        view: resolveView(detail),
+      scene: resolveScene(detail),
       };
     }
 
@@ -526,15 +571,29 @@ export function useWorkbenchSessionCatalog({
     await refresh(projectId);
     return {
       domain,
-      view: resolveView(domain),
+      scene: resolveScene(domain),
     };
   }, [
-    byProject,
-    projectless,
+    collectionsByProject,
+    projectlessCollection.presentations,
     queryClient,
     refresh,
-    resolveView,
+    resolveScene,
   ]);
+  const createBlank = useCallback(async (
+    projectId: string | null,
+  ): Promise<WorkbenchSessionPresentation> => {
+    const domain = await invoke("project-sessions:create", {
+      projectId,
+      noThreadFallbackTitle: "New thread",
+    }) as ProjectSession;
+    seedProjectSessionDetail(queryClient, domain);
+    await refresh(projectId);
+    return {
+      domain,
+      scene: resolveScene(domain),
+    };
+  }, [queryClient, refresh, resolveScene]);
   const fork = useCallback(async (
     session: ProjectSession,
     input: ProjectSessionForkInput & {
@@ -560,14 +619,14 @@ export function useWorkbenchSessionCatalog({
       },
       {
         browserViewScopeId: input.browserViewScopeId,
-        view: resolveView(session),
+        scene: resolveScene(session),
       },
     ) as ProjectSessionForkResult;
     if ("pendingWorktreeId" in result) return result;
     seedProjectSessionDetail(queryClient, result.session);
     await refresh(result.session.projectId);
     return result;
-  }, [queryClient, refresh, resolveView]);
+  }, [queryClient, refresh, resolveScene]);
   const findById = useCallback(
     (sessionId: string) =>
       known.find((candidate) => candidate.domain.id === sessionId) ?? null,
@@ -594,37 +653,18 @@ export function useWorkbenchSessionCatalog({
     [window],
   );
 
-  const projectionsByProject = useMemo(
-    () => Object.fromEntries(
-      Object.entries(byProject).map(([projectId, presentations]) => [
-        projectId,
-        presentations.map(presentWorkbenchSessionForLegacyView),
-      ]),
-    ),
-    [byProject],
-  );
-  const projectlessProjections = useMemo(
-    () => projectless.map(presentWorkbenchSessionForLegacyView),
-    [projectless],
-  );
   const activeProjection = useMemo(
-    () => active ? presentWorkbenchSessionForLegacyView(active) : null,
+    () => active ? presentWorkbenchSession(active) : null,
     [active],
   );
-  const hasMoreByScope = useMemo(
-    () => Object.fromEntries(
-      Object.entries(summaryState.windowsByScope).map(([key, result]) => [
-        key,
-        result?.hasMore === true,
-      ]),
-    ),
-    [summaryState.windowsByScope],
-  );
-  const error = summaryState.error instanceof Error
-    ? summaryState.error.message
-    : summaryState.error
-      ? "Unable to load project sessions"
+  const selectedDetailQueryError = selectedDetailQuery.error;
+  const selectedDetailError = selectedDetailQueryError instanceof Error
+    ? selectedDetailQueryError.message
+    : selectedDetailQueryError
+      ? "Unable to load the selected session"
       : null;
+  const selectedDetailReady = activeSessionId === null
+    || !selectedDetailQuery.isPending;
 
   return {
     activeProject:
@@ -633,23 +673,18 @@ export function useWorkbenchSessionCatalog({
     activeSessionId,
     active,
     activeProjection,
-    byProject,
-    projectless,
-    projectionsByProject,
-    projectlessProjections,
-    known,
-    loading: summaryState.loading,
-    ready: !summaryState.loading,
-    error,
-    hasMoreByScope,
-    resolveView,
+    collectionsByProject,
+    projectlessCollection,
+    selectedDetailReady,
+    selectedDetailError,
+    resolveScene,
     resolveDefaultDatabaseViewId: resolveProjectDefaultDatabaseViewId,
-    mutateView,
     findById,
     findByThreadId,
     select,
     selectProject,
     refresh,
+    retryCollection,
     loadMore,
     seed,
     prefetch,
@@ -659,6 +694,7 @@ export function useWorkbenchSessionCatalog({
     archive,
     ensureThreadSession,
     ensureBlank,
+    createBlank,
     fork,
   };
 }

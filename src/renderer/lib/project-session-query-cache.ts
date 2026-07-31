@@ -8,7 +8,9 @@ import type {
 import { projectSessionDetailQueryOptions } from "./query-options";
 import { queryKeys } from "./query-keys";
 
-function sortProjectSessionSummariesForSidebar(summaries: ProjectSessionSummary[]): ProjectSessionSummary[] {
+export function sortProjectSessionSummariesForSidebar(
+  summaries: readonly ProjectSessionSummary[],
+): ProjectSessionSummary[] {
   return [...summaries].sort((left, right) => {
     if (left.pinned !== right.pinned) return left.pinned ? -1 : 1;
     if (left.pinned && right.pinned) {
@@ -33,7 +35,6 @@ export function projectSessionToSummary(session: ProjectSession): ProjectSession
     archived: session.archived,
     archivedAt: session.archivedAt,
     unread: session.unread,
-    databaseStarter: session.databaseStarter,
     thread: session.thread,
     createdAt: session.createdAt,
     updatedAt: session.updatedAt,

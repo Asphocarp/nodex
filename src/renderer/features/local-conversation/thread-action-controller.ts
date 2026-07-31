@@ -10,13 +10,19 @@ import type {
 } from "@/lib/types";
 import type { useCodexAppServerControl } from "./local-conversation-store";
 import { invoke } from "@/lib/api";
+import { captureBrowserUseRoute } from "@/lib/browser-use-route-capture";
 import { cleanupMaterializedThreadGoalDraft } from "./thread-goal-materialization";
 import type { ThreadStageActions } from "./thread-stage-types";
+import type {
+  BrowserSidebarCommandResult,
+  BrowserUsePresentationOrigin,
+} from "../../../shared/browser-sidebar";
 
 type CodexControl = ReturnType<typeof useCodexAppServerControl>;
 
 export interface ThreadActionControllerInput {
   activeThreadId: string | null;
+  browserUsePresentationOrigin?: BrowserUsePresentationOrigin | null;
   codexControl: CodexControl;
   currentSessionProjectId: string | null;
   projectId: string | null;
@@ -24,14 +30,19 @@ export interface ThreadActionControllerInput {
   setSelectedCollaborationMode: (mode: CodexCollaborationModeKind) => void;
   onOpenThread: ThreadStageActions["onOpenThread"];
   onOpenSubagentsPanel?: ThreadStageActions["onOpenSubagentsPanel"];
-  onOpenTurnDiffReview: ThreadStageActions["onOpenTurnDiffReview"];
+  onOpenTurnDiffReview?: ThreadStageActions["onOpenTurnDiffReview"];
   onOpenTurnDiffFileInSidePanel?: ThreadStageActions["onOpenTurnDiffFileInSidePanel"];
   onEnsureBlankSessionForProject: (projectId: string | null) => Promise<ProjectSession>;
+  onMaterializeProjectDraft?: (input: {
+    readonly projectId: string;
+    readonly draftId: string;
+  }) => Promise<ProjectSession>;
   cleanupThreadGoalMaterializedDraft?: (
     materialized: CodexThreadGoalMaterializedDraft | null,
   ) => Promise<void>;
   onRefreshProjectSessions: (projectId: string | null) => Promise<ProjectSession[]>;
   onOpenPendingWorktree?: (clientThreadId: string) => void;
+  newThreadStartBlockedReason?: string | null;
   onForkSessionFromTurn?: (input: {
     threadId: string;
     turnId: string;
@@ -77,6 +88,26 @@ function uniqueThreadIds(threadIds: readonly string[]): string[] {
 }
 
 export function createThreadStageActions(input: ThreadActionControllerInput): ThreadStageActions {
+  const startsInFlight = new Map<string, Promise<void>>();
+  const captureTurnOrigin = async (
+    codexSessionId: string,
+    projectId: string | null,
+  ): Promise<void> => {
+    const origin = input.browserUsePresentationOrigin;
+    if (!origin) return;
+    await captureBrowserUseRoute(
+      {
+        ...origin,
+        codexSessionId,
+        projectId,
+      },
+      (command) => invoke(
+        "browser-sidebar-command",
+        command,
+      ) as Promise<BrowserSidebarCommandResult>,
+    );
+  };
+
   const updateThreadSettingsOrDraft = (patch: {
     collaborationMode?: CodexCollaborationModeKind;
     model?: string;
@@ -139,56 +170,106 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
       await input.codexControl.setPermissionMode(input.projectId, mode);
     },
     onQueueingEnabledChange: input.onQueueingEnabledChange,
-    onStartThreadForSession: async ({
-      projectId,
-      sessionId,
-      prompt,
-      promptInput,
-      threadGoalDraft,
-      threadGoalMaterializedDraft,
-      runInTarget,
-      runInEnvironmentPath,
-      worktreeStartMode,
-      worktreeBranchPrefix,
-    }) => {
-      let targetSession: ProjectSession | null = null;
-      if (projectId !== input.currentSessionProjectId) {
+    onStartThreadForSession: (request) => {
+      if (input.newThreadStartBlockedReason) {
+        return Promise.reject(new Error(input.newThreadStartBlockedReason));
+      }
+      const startKey = request.projectDraftId
+        ? `draft:${request.projectId ?? "projectless"}:${request.projectDraftId}`
+        : `session:${request.sessionId}`;
+      const existing = startsInFlight.get(startKey);
+      if (existing) return existing;
+      const operation = (async () => {
+        const {
+          projectId,
+          sessionId,
+          projectDraftId,
+          prompt,
+          promptInput,
+          threadGoalDraft,
+          threadGoalMaterializedDraft,
+          runInTarget,
+          runInEnvironmentPath,
+          worktreeStartMode,
+          worktreeBranchPrefix,
+        } = request;
+        let targetSession: ProjectSession | null = null;
+        if (projectDraftId) {
+          if (projectId === null || !input.onMaterializeProjectDraft) {
+            throw new Error("Project draft materialization is unavailable");
+          }
+          try {
+            targetSession = await input.onMaterializeProjectDraft({
+              projectId,
+              draftId: projectDraftId,
+            });
+          } catch (error) {
+            await (input.cleanupThreadGoalMaterializedDraft
+              ?? cleanupMaterializedThreadGoalDraft)(threadGoalMaterializedDraft ?? null);
+            throw error;
+          }
+        } else if (projectId !== input.currentSessionProjectId) {
+          try {
+            targetSession = await input.onEnsureBlankSessionForProject(projectId);
+          } catch (error) {
+            await (input.cleanupThreadGoalMaterializedDraft
+              ?? cleanupMaterializedThreadGoalDraft)(threadGoalMaterializedDraft ?? null);
+            throw error;
+          }
+        }
+        const projectlessWorkspace = projectId === null
+          ? await invoke("codex:projectless-thread-cwd", {
+              prompt,
+              createSplitDirectories: true,
+            })
+          : undefined;
         try {
-          targetSession = await input.onEnsureBlankSessionForProject(projectId);
+          await captureTurnOrigin(targetSession?.id ?? sessionId, projectId);
         } catch (error) {
           await (input.cleanupThreadGoalMaterializedDraft
             ?? cleanupMaterializedThreadGoalDraft)(threadGoalMaterializedDraft ?? null);
           throw error;
         }
-      }
-      const projectlessWorkspace = projectId === null
-        ? await invoke("codex:projectless-thread-cwd", {
-            prompt,
-            createSplitDirectories: true,
-          })
-        : undefined;
-      const result = await input.codexControl.startThreadForSession({
-        projectId,
-        sessionId: targetSession?.id ?? sessionId,
-        prompt,
-        ...(projectlessWorkspace === undefined ? {} : { projectlessWorkspace }),
-        promptInput,
-        threadGoalDraft,
-        threadGoalMaterializedDraft,
-        runInTarget,
-        runInEnvironmentPath,
-        worktreeStartMode,
-        worktreeBranchPrefix: worktreeBranchPrefix ?? undefined,
-        collaborationMode: input.selectedCollaborationMode,
-      });
-      if (result.kind === "pending") {
-        if (!input.onOpenPendingWorktree) {
-          throw new Error("Pending worktree navigation is unavailable");
+        const result = await input.codexControl.startThreadForSession({
+          projectId,
+          sessionId: targetSession?.id ?? sessionId,
+          prompt,
+          ...(projectlessWorkspace === undefined ? {} : { projectlessWorkspace }),
+          promptInput,
+          threadGoalDraft,
+          threadGoalMaterializedDraft,
+          runInTarget,
+          runInEnvironmentPath,
+          worktreeStartMode,
+          worktreeBranchPrefix: worktreeBranchPrefix ?? undefined,
+          collaborationMode: input.selectedCollaborationMode,
+          ...(input.browserUsePresentationOrigin
+            ? { browserUsePresentationOrigin: input.browserUsePresentationOrigin }
+            : {}),
+        });
+        if (result.kind === "pending") {
+          if (!input.onOpenPendingWorktree) {
+            throw new Error("Pending worktree navigation is unavailable");
+          }
+          input.onOpenPendingWorktree(result.clientThreadId);
+          return;
         }
-        input.onOpenPendingWorktree(result.clientThreadId);
-        return;
-      }
-      await input.onRefreshProjectSessions(projectId);
+        await input.onRefreshProjectSessions(projectId);
+      })();
+      startsInFlight.set(startKey, operation);
+      void operation.then(
+        () => {
+          if (startsInFlight.get(startKey) === operation) {
+            startsInFlight.delete(startKey);
+          }
+        },
+        () => {
+          if (startsInFlight.get(startKey) === operation) {
+            startsInFlight.delete(startKey);
+          }
+        },
+      );
+      return operation;
     },
     onNewThreadProjectChange: input.onNewThreadProjectChange,
     onRequestNewChatProjectCreate: input.onRequestNewChatProjectCreate,
@@ -211,6 +292,7 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
     ...(input.onOpenSummaryGitReview ? { onOpenSummaryGitReview: input.onOpenSummaryGitReview } : {}),
     onStartSummaryGitAction: async ({ action }) => {
       const threadId = requireActiveThreadId(input.activeThreadId, "Starting a Git action");
+      await captureTurnOrigin(threadId, input.projectId);
       await input.codexControl.startTurn(
         threadId,
         action === "commit-or-push" ? GIT_ACTION_COMMIT_OR_PUSH_PROMPT : GIT_ACTION_CREATE_PR_PROMPT,
@@ -228,6 +310,7 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
     ...(input.onToggleThreadPin ? { onToggleThreadPin: input.onToggleThreadPin } : {}),
     onSendPrompt: async (prompt, opts) => {
       const threadId = requireActiveThreadId(input.activeThreadId, "Sending a prompt");
+      await captureTurnOrigin(threadId, input.projectId);
       await input.codexControl.startTurn(threadId, prompt, {
         ...(input.projectId === null ? {} : { projectId: input.projectId }),
         collaborationMode: opts?.collaborationMode,
@@ -344,7 +427,9 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
       await input.codexControl.unarchiveThread(threadId, projectId);
       await input.onRefreshProjectSessions(projectId);
     },
-    onOpenTurnDiffReview: input.onOpenTurnDiffReview,
+    ...(input.onOpenTurnDiffReview
+      ? { onOpenTurnDiffReview: input.onOpenTurnDiffReview }
+      : {}),
     ...(input.onOpenHooksSettings ? { onOpenHooksSettings: input.onOpenHooksSettings } : {}),
     ...(input.onOpenTurnDiffFileInSidePanel ? { onOpenTurnDiffFileInSidePanel: input.onOpenTurnDiffFileInSidePanel } : {}),
     onConsumeComposerIntent: input.codexControl.consumeComposerIntent,

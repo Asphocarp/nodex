@@ -7,21 +7,27 @@ import {
   createWorkbenchEphemeralPanelState,
   reduceWorkbenchEphemeralPanelState,
 } from "./workbench-ephemeral-panel-state";
+import { makeWorkbenchSessionPanelSlotKey } from "./workbench-panel-slot-key";
 
 describe("Workbench ephemeral panel state", () => {
   test("functional updates are committed through one aggregate", () => {
+    const slot = makeWorkbenchSessionPanelSlotKey(
+      "session:one",
+      "right",
+      "leaf:right",
+    );
     const initial = createWorkbenchEphemeralPanelState();
     const next = reduceWorkbenchEphemeralPanelState(initial, {
       type: "update",
       field: "sideChatActiveTabByPanel",
       update: (current) => ({
         ...current,
-        "session:one:right:leaf:right": "side-chat:one",
+        [slot]: "side-chat:one",
       }),
     });
 
     expect(next.sideChatActiveTabByPanel).toEqual({
-      "session:one:right:leaf:right": "side-chat:one",
+      [slot]: "side-chat:one",
     });
     expect(next.mcpAppActiveTabByPanel)
       .toBe(initial.mcpAppActiveTabByPanel);
@@ -39,6 +45,29 @@ describe("Workbench ephemeral panel state", () => {
   });
 
   test("session pruning removes every family and slot-keyed override", () => {
+    const oneRightLeaf = makeWorkbenchSessionPanelSlotKey(
+      "session:one",
+      "right",
+      "leaf:right",
+    );
+    const twoRightLeaf = makeWorkbenchSessionPanelSlotKey(
+      "session:two",
+      "right",
+      "leaf:right",
+    );
+    const oneBottomLeaf = makeWorkbenchSessionPanelSlotKey(
+      "session:one",
+      "bottom",
+      "leaf:bottom",
+    );
+    const oneRight = makeWorkbenchSessionPanelSlotKey(
+      "session:one",
+      "right",
+    );
+    const twoRight = makeWorkbenchSessionPanelSlotKey(
+      "session:two",
+      "right",
+    );
     const initial = {
       ...createWorkbenchEphemeralPanelState(),
       sideChatTabsBySession: {
@@ -46,22 +75,22 @@ describe("Workbench ephemeral panel state", () => {
         "session:two": [],
       },
       sideChatActiveTabByPanel: {
-        "session:one:right:leaf:right": "side-chat:one",
-        "session:two:right:leaf:right": "side-chat:two",
+        [oneRightLeaf]: "side-chat:one",
+        [twoRightLeaf]: "side-chat:two",
       },
       mcpAppTabsBySession: {
         "session:one": [],
       },
       planActiveTabByPanel: {
-        "session:one:bottom:leaf:bottom": "plan:one",
+        [oneBottomLeaf]: "plan:one",
       },
       activePlanKeyBySession: {
         "session:one": "plan:one",
         "session:two": "plan:two",
       },
       panelCollapsedOverrides: {
-        "session:one:right": false,
-        "session:two:right": true,
+        [oneRight]: false,
+        [twoRight]: true,
       },
     };
 
@@ -74,7 +103,7 @@ describe("Workbench ephemeral panel state", () => {
       "session:two": [],
     });
     expect(next.sideChatActiveTabByPanel).toEqual({
-      "session:two:right:leaf:right": "side-chat:two",
+      [twoRightLeaf]: "side-chat:two",
     });
     expect(next.mcpAppTabsBySession).toEqual({});
     expect(next.planActiveTabByPanel).toEqual({});
@@ -82,13 +111,20 @@ describe("Workbench ephemeral panel state", () => {
       "session:two": "plan:two",
     });
     expect(next.panelCollapsedOverrides).toEqual({
-      "session:two:right": true,
+      [twoRight]: true,
     });
   });
 
   test("selecting one family atomically clears competing slot selections", () => {
-    const slot = "session:one:right:leaf:right";
-    const fallback = "session:one:right";
+    const slot = makeWorkbenchSessionPanelSlotKey(
+      "session:one",
+      "right",
+      "leaf:right",
+    );
+    const fallback = makeWorkbenchSessionPanelSlotKey(
+      "session:one",
+      "right",
+    );
     const initial = {
       ...createWorkbenchEphemeralPanelState(),
       previewTabsByPanel: {

@@ -14,6 +14,7 @@ import type {
   PanelNewTabAction,
   PanelNewTabActionKind,
 } from "@/lib/workbench-panel-actions";
+import { WorkbenchPanelNewTabButton } from "./workbench-panel-new-tab-button";
 
 interface WorkbenchPanelHostCommands {
   readonly selectTab: (leafId: string, tabId: string) => void;
@@ -71,7 +72,6 @@ interface WorkbenchPanelHostProps {
   commandKeymapState?: CommandKeymapState | null;
   currentProjectDbViewExists: boolean;
   commands: WorkbenchPanelHostCommands;
-  renderAfterTabs: (leafId: string) => ReactNode;
   renderAfterList?: (leafId: string) => ReactNode;
   headerStartInsetPx?: number;
   headerEndInsetPx?: number;
@@ -91,7 +91,6 @@ export function WorkbenchPanelHost({
   commandKeymapState,
   currentProjectDbViewExists,
   commands,
-  renderAfterTabs,
   renderAfterList,
   headerStartInsetPx,
   headerEndInsetPx,
@@ -104,7 +103,20 @@ export function WorkbenchPanelHost({
       layout={layout}
       tabItemsByLeafId={tabItemsByLeafId}
       activeTabIdsByLeafId={activeTabIdsByLeafId}
-      renderAfterTabs={renderAfterTabs}
+      renderAfterTabs={(leafId) => (
+        <WorkbenchPanelNewTabButton
+          actions={availableActions}
+          projects={projects}
+          panelId={panelId}
+          currentProjectId={sessionProjectId}
+          currentProjectDbViewExists={currentProjectDbViewExists}
+          isMac={isMac}
+          commandKeymapState={commandKeymapState}
+          onAction={(action) => commands.openAction(action, leafId)}
+          onOpenDestination={(destination) =>
+            commands.openDestination(destination, leafId)}
+        />
+      )}
       renderAfterList={renderAfterList}
       headerStartInsetPx={headerStartInsetPx}
       headerEndInsetPx={headerEndInsetPx}

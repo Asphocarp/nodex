@@ -62,6 +62,7 @@ const makeBrowserUseTab = (
   browserConversationId: "session-1",
   browserViewScopeId,
   browserTabId,
+  codexSessionId: "thread-1",
   projectId: "project-1",
   title: "Tab",
   url: "https://example.com/",

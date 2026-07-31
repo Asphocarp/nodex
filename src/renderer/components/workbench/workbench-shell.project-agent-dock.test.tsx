@@ -1,0 +1,196 @@
+import "./workbench-testkit/workbench-shell-harness";
+import { act, fireEvent, waitFor, within } from "@testing-library/react";
+import { describe, expect, test } from "vitest";
+import { settleAsyncRender } from "../../test/dom";
+import {
+  invokeCalls,
+  makeAttachedSession,
+  makeBlankSession,
+  makeProject,
+  renderWorkbench,
+  startThreadForSessionCalls,
+} from "./workbench-testkit/workbench-shell-harness";
+import type { ProjectAgentDockPendingWorktreeEntry } from "@/lib/project-agent-dock-model";
+
+function pendingWorktree(
+  overrides: Partial<ProjectAgentDockPendingWorktreeEntry> = {},
+): ProjectAgentDockPendingWorktreeEntry {
+  return {
+    launchMode: "start-conversation",
+    id: "pending-1",
+    hostId: "host-1",
+    clientThreadId: "client-1",
+    projectSessionId: "session:alpha:pending",
+    label: "Worktree task",
+    sourceWorkspaceRoot: "/tmp/project",
+    localEnvironmentConfigPath: "/tmp/project/.nodex/environment.json",
+    prompt: "Start in a worktree",
+    startConversationParamsInput: {} as ProjectAgentDockPendingWorktreeEntry["startConversationParamsInput"],
+    sourceConversationId: null,
+    sourceCollaborationMode: null,
+    createdAt: 1,
+    attempt: 1,
+    phase: "setting-up",
+    labelEdited: false,
+    worktreeOutputText: "",
+    setupOutputText: "",
+    errorMessage: null,
+    worktreeWorkspaceRoot: "/tmp/worktree",
+    worktreeGitRoot: "/tmp/worktree",
+    needsAttention: false,
+    isPinned: false,
+    pinnedBeforeThreadId: null,
+    ...overrides,
+  };
+}
+
+describe("workbench session shell / Project Agent Dock", () => {
+  test("keeps surface creation in the Project tab strip instead of the Database toolbar", async () => {
+    const screen = renderWorkbench({
+      projects: [makeProject()],
+      sessionsByProject: { alpha: [] },
+      initialSelectedSessionId: null,
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(screen.queryByRole("button", { name: "Ask agent" })).toBeNull();
+
+    await act(async () => {
+      fireEvent.pointerDown(
+        screen.getByRole("button", { name: "Open side panel tab" }),
+        { button: 0 },
+      );
+      await Promise.resolve();
+    });
+    const menu = await screen.findByRole("menu");
+    expect(within(menu).queryByText("Side chat")).toBeNull();
+
+    await act(async () => {
+      fireEvent.click(within(menu).getByText("Canvas"));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(screen.getByRole("tab", { name: "Canvas" })).not.toBeNull();
+  });
+
+  test("renders New task immediately for an empty Project without creating a Session", async () => {
+    const screen = renderWorkbench({
+      projects: [makeProject()],
+      sessionsByProject: { alpha: [] },
+      initialSelectedSessionId: null,
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(screen.getByLabelText("Agent target: New task") !== null).toBe(true);
+    expect(screen.getByLabelText("Project Agent Dock prompt") !== null).toBe(true);
+    expect(invokeCalls.some((call) => call[0] === "project-sessions:create"))
+      .toBe(false);
+  });
+
+  test("selects a real task without leaving the Project and only navigates on Open task", async () => {
+    const session = makeAttachedSession({
+      id: "session:alpha:agent-target",
+      threadId: "thread-agent-target",
+      title: "Agent target",
+    });
+    const screen = renderWorkbench({
+      projects: [makeProject()],
+      sessionsByProject: { alpha: [session] },
+      initialSelectedSessionId: null,
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText("Agent target: New task"));
+      await Promise.resolve();
+    });
+    const picker = await screen.findByRole("listbox", { name: "Project tasks" });
+    await act(async () => {
+      fireEvent.click(within(picker).getByRole("option", { name: /Agent target/ }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(screen.queryByTestId("project-database-surface") !== null).toBe(true);
+    expect(screen.queryByTestId("session-thread-page")).toBe(null);
+    expect(screen.getByLabelText("Agent target: Agent target") !== null).toBe(true);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Open task" }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(screen.queryByTestId("session-thread-page") !== null).toBe(true);
+  });
+
+  test("materializes New task on first send and stays on the Project surface", async () => {
+    const screen = renderWorkbench({
+      projects: [makeProject()],
+      sessionsByProject: { alpha: [] },
+      initialSelectedSessionId: null,
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Send from Dock" }));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(invokeCalls.filter((call) => call[0] === "project-sessions:create"))
+        .toHaveLength(1);
+      expect(startThreadForSessionCalls).toHaveLength(1);
+    });
+    expect(startThreadForSessionCalls[0]).toMatchObject({
+      projectId: "alpha",
+      sessionId: "session:alpha:created",
+      prompt: "Start from Project Agent Dock",
+    });
+    expect(screen.queryByTestId("project-database-surface") !== null).toBe(true);
+    expect(screen.queryByTestId("session-thread-page")).toBe(null);
+  });
+
+  test("recovers an exact pending worktree from canonical state and blocks another start", async () => {
+    const session = makeBlankSession({
+      id: "session:alpha:pending",
+      displayTitle: "Worktree task",
+      noThreadFallbackTitle: "Worktree task",
+    });
+    const screen = renderWorkbench({
+      projects: [makeProject()],
+      sessionsByProject: { alpha: [session] },
+      pendingWorktrees: [pendingWorktree()],
+      initialSelectedSessionId: null,
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText("Agent target: New task"));
+      await Promise.resolve();
+    });
+    const picker = await screen.findByRole("listbox", { name: "Project tasks" });
+    await act(async () => {
+      fireEvent.click(within(picker).getByRole("option", { name: /Worktree task/ }));
+      await Promise.resolve();
+    });
+
+    expect(await screen.findByRole("button", {
+      name: "Running setup… View setup details",
+    })).not.toBeNull();
+    await waitFor(() => {
+      const props = (globalThis as {
+        __lastConnectedThreadComposerDockProps?: Record<string, unknown>;
+      }).__lastConnectedThreadComposerDockProps;
+      expect(props?.newThreadStartBlockedReason)
+        .toBe("Worktree setup is already in progress");
+    });
+  });
+});

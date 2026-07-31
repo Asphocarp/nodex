@@ -41,7 +41,6 @@ function makeSession(): ProjectSession {
   return {
     id: "session-1",
     projectId: "project-1",
-    databaseStarter: false,
     noThreadFallbackTitle: "Alpha chat",
     displayTitle: "Alpha chat",
     order: 0,

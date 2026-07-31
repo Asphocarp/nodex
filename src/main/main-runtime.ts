@@ -101,7 +101,7 @@ import type {
   WindowSessionRecord,
   WindowSessionSaveLayoutInput,
 } from "../shared/window-session";
-import { getWorkbenchSessionReturnLocation } from "../shared/workbench-layout";
+import { getWorkbenchSceneReturnLocation } from "../shared/workbench-layout";
 import { getLogger, shutdownBackendLogger } from "./logging/logger";
 import { AppUpdateService } from "./app-update-service";
 import { resolveCodexTitleBarOptions } from "./window-navigation-chrome";
@@ -2344,28 +2344,17 @@ export async function runMainAppStartup(
     policyStore: browserUsePolicyStore,
     socketPeerAuthorizer: browserUsePeerAuthorizer,
   });
-  const capturedRouteListener = (event: {
-    browserConversationId: string;
-    browserViewScopeId: string;
-    codexSessionId: string;
-    ownerWebContentsId: number;
-    projectId: string | null;
-  }) => {
+  browserSidebarService.setBrowserUseRouteCaptureHandler(async (event) => {
     const registry = browserUseSessionRegistry;
     if (!registry || registry.availableBackends().length === 0) return;
-    void registry.captureRoute({
+    await registry.captureRoute({
       browserConversationId: event.browserConversationId,
       browserViewScopeId: event.browserViewScopeId,
       codexSessionId: event.codexSessionId,
       ownerWebContentsId: event.ownerWebContentsId,
       projectId: event.projectId,
-    }).catch((error) => {
-      logger.warn("Could not capture Browser Use route", {
-        error: error instanceof Error ? error.message : String(error),
-        ownerWebContentsId: event.ownerWebContentsId,
-      });
     });
-  };
+  });
   const ownerReleasedListener = (event: { ownerWebContentsId: number }) => {
     browserCredentialService.releaseOwner(event.ownerWebContentsId);
     void browserUseSessionRegistry?.releaseOwner(event.ownerWebContentsId);
@@ -2383,11 +2372,11 @@ export async function runMainAppStartup(
       ownerWebContentsId: event.ownerWebContentsId,
     });
   };
-  browserSidebarService.on("browserUseRouteCaptured", capturedRouteListener);
   browserSidebarService.on("browserUseOwnerReleased", ownerReleasedListener);
   browserSidebarService.on("browserUseCursorArrived", cursorArrivedListener);
   disposeBrowserUseSessionRegistryBridge = () => {
-    browserSidebarService.off("browserUseRouteCaptured", capturedRouteListener);
+    browserSidebarService.setBrowserUseRouteCaptureHandler(null);
+    codexService.setBrowserUseRoutePromoter(null);
     browserSidebarService.off("browserUseOwnerReleased", ownerReleasedListener);
     browserSidebarService.off("browserUseCursorArrived", cursorArrivedListener);
   };
@@ -2395,6 +2384,11 @@ export async function runMainAppStartup(
     () => browserUseSessionRegistry?.availableBackends() ?? [],
   );
   codexService.setBrowserUseTurnLifecycle(browserUseSessionRegistry);
+  codexService.setBrowserUseRoutePromoter({
+    promote: async (input) => {
+      await browserSidebarService.promoteBrowserUseRoute(input);
+    },
+  });
   const browserDownloadService = new BrowserDownloadService({
     downloadsDirectory: app.getPath("downloads"),
     isAgentControlled: (identity) =>
@@ -2525,10 +2519,14 @@ export async function runMainAppStartup(
       const layout = windowSessionState
         ?.getSessionForWindow(event.sender.id)
         ?.layout;
-      const projectId = layout
-        ? getWorkbenchSessionReturnLocation(layout.location)
-          .activeProjectId?.trim()
+      const sceneLocation = layout
+        ? getWorkbenchSceneReturnLocation(layout.location)
         : null;
+      const projectId = sceneLocation?.kind === "project"
+        ? sceneLocation.projectId.trim()
+        : sceneLocation?.kind === "session"
+          ? sceneLocation.projectContextId?.trim()
+          : null;
       if (!projectId) return null;
       return projectId;
     },

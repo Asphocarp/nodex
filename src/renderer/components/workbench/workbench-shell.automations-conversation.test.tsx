@@ -1209,6 +1209,10 @@ describe("workbench session shell / automations-conversation", () => {
       worktreeStartMode: "detachedHead",
       worktreeBranchPrefix: "codex/",
       collaborationMode: "default",
+      browserUsePresentationOrigin: {
+        browserConversationId: "session:alpha:blank",
+        browserViewScopeId: "window-session:test",
+      },
     }));
     expect(invokeCalls.some((call) => call[0] === "workspace:tasks:list" && call[1] === "alpha")).toBe(true);
   });
@@ -1378,6 +1382,10 @@ describe("workbench session shell / automations-conversation", () => {
       worktreeStartMode: "detachedHead",
       worktreeBranchPrefix: "codex/",
       collaborationMode: "default",
+      browserUsePresentationOrigin: {
+        browserConversationId: "session:alpha:blank",
+        browserViewScopeId: "window-session:test",
+      },
     }));
     expect(invokeCalls.some((call) => call[0] === "workspace:tasks:list" && call[1] === "beta")).toBe(true);
   });
@@ -1426,6 +1434,10 @@ describe("workbench session shell / automations-conversation", () => {
       worktreeStartMode: "detachedHead",
       worktreeBranchPrefix: "codex/",
       collaborationMode: "default",
+      browserUsePresentationOrigin: {
+        browserConversationId: "session:alpha:blank",
+        browserViewScopeId: "window-session:test",
+      },
     }));
     expect(screen.getByTestId("pending-worktree-route-shell") !== null).toBe(true);
     expect(invokeCalls.filter((call) =>

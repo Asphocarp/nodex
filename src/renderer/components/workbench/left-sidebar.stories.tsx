@@ -512,7 +512,7 @@ function CodexProjectsHarness({
       >
         {revealProjectDisclosureChevrons ? (
           <style>
-            {"[data-story-project-chevron-reveal] [data-app-action-sidebar-project-toggle-chevron] svg { opacity: 1; }"}
+            {"[data-story-project-chevron-reveal] [data-app-action-sidebar-project-marker] { visibility: hidden; } [data-story-project-chevron-reveal] [data-app-action-sidebar-project-toggle-chevron] { opacity: 1; pointer-events: auto; }"}
           </style>
         ) : null}
         <div className="app-shell-left-panel w-[300px] overflow-visible py-4">
@@ -716,7 +716,6 @@ function makeStorySession(input: {
   return {
     id: input.id,
     projectId: "nodex",
-    databaseStarter: true,
     noThreadFallbackTitle: input.title,
     displayTitle: input.title,
     order: 0,
@@ -1790,6 +1789,13 @@ export const CodexProjectsExpanded: Story = {
 
 export const CodexProjectDisclosureChevronsRevealed: Story = {
   render: () => <CodexProjectsHarness expanded activeProjectId="nodex" revealProjectDisclosureChevrons />,
+  parameters: {
+    docs: {
+      description: {
+        story: "Project-row hover state: the optically inset disclosure chevron replaces the marker in the same fixed leading slot, while the Project name keeps its Session-aligned position as a separate navigation control.",
+      },
+    },
+  },
 };
 
 export const CodexProjectsCollapsed: Story = {

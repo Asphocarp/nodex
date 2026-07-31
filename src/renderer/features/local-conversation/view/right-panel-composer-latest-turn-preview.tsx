@@ -9,7 +9,10 @@ import type {
 } from "../thread-stage-types";
 import { ThreadBlockRenderer } from "./blocks/local-conversation-block-renderer";
 import { useWorkedForLabelText } from "./shared/use-worked-for-label";
-import { useRightPanelComposerPresentation } from "./right-panel-composer-presentation";
+import {
+  RIGHT_PANEL_COMPOSER_ACCESSORY_INLINE_INSET_CLASS,
+  useRightPanelComposerPresentation,
+} from "./right-panel-composer-presentation";
 
 interface RightPanelComposerLatestTurnPreviewProps {
   turn: ThreadTurnModel | null;
@@ -80,7 +83,10 @@ export function RightPanelComposerLatestTurnPreview({
           : "bg-token-input-background/70 backdrop-blur-sm",
         isCompactPresentation
           ? "absolute inset-x-10 bottom-0 z-0 mx-0 transition-[opacity,translate] duration-150 ease-out motion-reduce:transition-none"
-          : "relative mx-[13px]",
+          : cn(
+              "relative",
+              RIGHT_PANEL_COMPOSER_ACCESSORY_INLINE_INSET_CLASS,
+            ),
         isCompactPresentation && (
           floatingTrayVisible
             ? "pointer-events-auto -translate-y-11 opacity-100"

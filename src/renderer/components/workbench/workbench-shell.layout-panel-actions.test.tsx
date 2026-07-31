@@ -630,13 +630,11 @@ describe("workbench session shell / layout-panel-actions", () => {
     expect(props?.rightPanelComposerOverlayEnabled).toBe(true);
 
     await pointerActivate(screen.getByRole("button", { name: "Toggle side panel" }));
+    await settleAsyncRender();
 
-    expect(invokeCalls.some((call) =>
-      call[0] === "window-session-view:panel-patch"
-      && call[1] === "session:alpha:overlay-side-toggle"
-      && call[2] === "right"
-      && JSON.stringify(call[3]) === JSON.stringify({ collapsed: true })
-    )).toBe(true);
+    await waitFor(() => {
+      expect(screen.queryByTestId("session-right-panel")).toBe(null);
+    });
   });
 
   test("full-width overlay state keeps restore-panel-width clickable after pointerdown", async () => {
@@ -1846,9 +1844,7 @@ describe("workbench session shell / layout-panel-actions", () => {
       tabs: [],
       rightLayout: makePanelLayout([], null),
     });
-    // Ordinary sessions carry no starter marker; the action must resolve the
-    // Project's default View instead of any per-session state.
-    expect(chatSession.databaseStarter).toBe(false);
+    // The action resolves the Project's default View instead of per-session state.
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [chatSession] },
     });

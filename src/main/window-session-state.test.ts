@@ -13,12 +13,18 @@ import { join } from "node:path";
 import {
   createDefaultWorkbenchLayoutSnapshot,
   createDefaultWorkbenchLayoutSnapshotV3,
+  createDefaultWorkbenchLayoutSnapshotV4,
   type WorkbenchLayoutSnapshot,
 } from "../shared/workbench-layout";
 import {
   createWorkbenchSessionViewTab,
   materializeInitialWorkbenchSessionView,
 } from "../shared/workbench-session-view";
+import {
+  createWorkbenchSceneSurface,
+  makeWorkbenchSceneKey,
+  materializeInitialWorkbenchScene,
+} from "../shared/workbench-scene";
 import {
   WindowSessionState,
   windowSessionStateTestHelpers,
@@ -50,8 +56,8 @@ function makeLayout(
   return {
     ...createDefaultWorkbenchLayoutSnapshot(),
     location: {
-      kind: "empty",
-      activeProjectId: dbProjectId,
+      kind: "project",
+      projectId: dbProjectId,
     },
   };
 }
@@ -59,10 +65,14 @@ function makeLayout(
 function getActiveProjectId(
   layout: WorkbenchLayoutSnapshot,
 ): string | null {
-  return layout.location.kind === "session"
-    || layout.location.kind === "empty"
-    ? layout.location.activeProjectId
-    : layout.location.returnTo.activeProjectId;
+  const location = layout.location.kind === "library"
+      || layout.location.kind === "settings"
+      || layout.location.kind === "automations"
+    ? layout.location.returnTo
+    : layout.location;
+  if (location.kind === "project") return location.projectId;
+  if (location.kind === "session") return location.projectContextId;
+  return null;
 }
 
 function saveLayout(
@@ -88,7 +98,7 @@ describe("WindowSessionState", () => {
 
       expect(session.lifecycle).toEqual({ state: "open" });
       expect(session.layoutRevision).toBe(0);
-      expect(session.layout.version).toBe(4);
+      expect(session.layout.version).toBe(5);
       expect(getActiveProjectId(session.layout)).toBeNull();
       expect(catalog?.version).toBe(3);
       expect(catalog?.sessions).toHaveLength(1);
@@ -102,7 +112,6 @@ describe("WindowSessionState", () => {
       const initial = state.createFreshSession();
       const presentation = {
         projectId: "project-default",
-        starterSessionId: "session-default",
         defaultDatabaseViewId: "view-default",
         starterPageId: "page-welcome",
         starterPageTitle: "Welcome to Nodex",
@@ -112,20 +121,21 @@ describe("WindowSessionState", () => {
       const replayed = state.seedInitialProjectPresentation(presentation);
       const restarted = new WindowSessionState(userDataPath).readCatalog()
         ?.sessions.find((session) => session.id === initial.id);
-      const view = restarted?.layout.sessionViewsBySessionId[
-        presentation.starterSessionId
+      const scene = restarted?.layout.scenesByOwnerKey[
+        `project:${presentation.projectId}`
       ];
 
       expect(seeded.id).toBe(initial.id);
       expect(replayed).toEqual(seeded);
       expect(replayed.layoutRevision).toBe(1);
       expect(restarted?.layout.location).toEqual({
-        kind: "session",
-        activeProjectId: presentation.projectId,
-        sessionId: presentation.starterSessionId,
+        kind: "project",
+        projectId: presentation.projectId,
       });
-      expect(Object.values(view?.tabsById ?? {}).map((tab) => tab.kind))
-        .toEqual(["db_view", "page_stage"]);
+      expect(scene?.primary.kind).toBe("db_view");
+      expect(Object.values(scene?.panelSurfacesById ?? {}).map(
+        (surface) => surface.kind,
+      )).toEqual(["page_stage"]);
     });
   });
 
@@ -227,24 +237,47 @@ describe("WindowSessionState", () => {
       const state = new WindowSessionState(userDataPath, { now: clock.now });
       const session = state.createFreshSession();
       state.attachWindow(1, session.id);
-      const sessionView = materializeInitialWorkbenchSessionView({
-        id: "project-session-1",
-        projectId: "project-1",
-        databaseViewId: "view-1",
-      });
+      const owner = {
+        kind: "session",
+        sessionId: "project-session-1",
+      } as const;
+      const sessionScene = createWorkbenchSceneSurface(
+        materializeInitialWorkbenchScene(owner),
+        {
+          panelId: "right",
+          surface: {
+            id: "database-surface",
+            kind: "db_view",
+            titleSnapshot: "Database",
+            config: {
+              projectId: "project-1",
+              target: {
+                kind: "database-view",
+                databaseViewId: "view-1",
+              },
+              view: "kanban",
+            },
+            stateKey: 0,
+            state: null,
+          },
+        },
+      );
+      const sceneKey = makeWorkbenchSceneKey(owner);
       const layout = {
         ...makeLayout("threads", "project-1"),
         location: {
           kind: "session" as const,
-          activeProjectId: "project-1",
           sessionId: "project-session-1",
+          projectContextId: "project-1",
         },
-        sessionViewsBySessionId: {
-          "project-session-1": sessionView,
+        scenesByOwnerKey: {
+          [sceneKey]: sessionScene,
         },
       };
       saveLayout(state, 1, session.id, 1, layout);
-      const sourceTabIds = Object.keys(sessionView.tabsById);
+      const sourceSurfaceIds = Object.keys(
+        sessionScene.panelSurfacesById,
+      );
 
       clock.advance();
       const closed = state.detachWindow(1, {
@@ -267,8 +300,9 @@ describe("WindowSessionState", () => {
       expect(reopened?.session.id).toBe(session.id);
       expect(reopened?.session.lifecycle).toEqual({ state: "open" });
       expect(Object.keys(
-        reopened?.session.layout.sessionViewsBySessionId["project-session-1"]?.tabsById ?? {},
-      )).toEqual(sourceTabIds);
+        reopened?.session.layout.scenesByOwnerKey[sceneKey]
+          ?.panelSurfacesById ?? {},
+      )).toEqual(sourceSurfaceIds);
       expect(reopened?.session.bounds).toMatchObject({ x: 10, y: 20 });
       expect(state.reopenMostRecentlyClosedSession()).toBeNull();
     });
@@ -387,20 +421,41 @@ describe("WindowSessionState", () => {
       const state = new WindowSessionState(userDataPath);
       const source = state.createFreshSession();
       state.attachWindow(1, source.id);
-      const sessionView = materializeInitialWorkbenchSessionView({
-        id: "project-session-1",
-        projectId: "project-1",
-        databaseViewId: "view-1",
-      });
+      const owner = {
+        kind: "session",
+        sessionId: "project-session-1",
+      } as const;
+      const sessionScene = createWorkbenchSceneSurface(
+        materializeInitialWorkbenchScene(owner),
+        {
+          panelId: "right",
+          surface: {
+            id: "database-surface",
+            kind: "db_view",
+            titleSnapshot: "Database",
+            config: {
+              projectId: "project-1",
+              target: {
+                kind: "database-view",
+                databaseViewId: "view-1",
+              },
+              view: "kanban",
+            },
+            stateKey: 0,
+            state: null,
+          },
+        },
+      );
+      const sceneKey = makeWorkbenchSceneKey(owner);
       const sourceLayout = {
         ...makeLayout("threads", "project-1"),
         location: {
           kind: "session" as const,
-          activeProjectId: "project-1",
           sessionId: "project-session-1",
+          projectContextId: "project-1",
         },
-        sessionViewsBySessionId: {
-          "project-session-1": sessionView,
+        scenesByOwnerKey: {
+          [sceneKey]: sessionScene,
         },
       };
       saveLayout(state, 1, source.id, 1, sourceLayout);
@@ -409,22 +464,22 @@ describe("WindowSessionState", () => {
         activeProjectSessionId: "project-session-1",
         activeProjectId: "project-1",
       });
-      const sourceTabIds = Object.keys(
-        sourceLayout.sessionViewsBySessionId["project-session-1"]!.tabsById,
+      const sourceSurfaceIds = Object.keys(
+        sourceLayout.scenesByOwnerKey[sceneKey]!.panelSurfacesById,
       );
-      const cloneTabIds = Object.keys(
-        clone.layout.sessionViewsBySessionId["project-session-1"]!.tabsById,
+      const cloneSurfaceIds = Object.keys(
+        clone.layout.scenesByOwnerKey[sceneKey]!.panelSurfacesById,
       );
       expect(clone.lifecycle).toEqual({ state: "open" });
-      expect(cloneTabIds).not.toEqual(sourceTabIds);
+      expect(cloneSurfaceIds).not.toEqual(sourceSurfaceIds);
       expect(getActiveProjectId(clone.layout)).toBe("project-1");
       expect(clone.layoutRevision).toBe(0);
 
       state.attachWindow(2, clone.id);
-      const cloneView = clone.layout.sessionViewsBySessionId["project-session-1"]!;
-      const divergentView = createWorkbenchSessionViewTab(cloneView, {
+      const cloneScene = clone.layout.scenesByOwnerKey[sceneKey]!;
+      const divergentScene = createWorkbenchSceneSurface(cloneScene, {
         panelId: "bottom",
-        tab: {
+        surface: {
           id: "clone-only-tab",
           kind: "page_stage",
           titleSnapshot: "Clone only",
@@ -435,9 +490,9 @@ describe("WindowSessionState", () => {
       });
       saveLayout(state, 2, clone.id, 1, {
         ...clone.layout,
-        sessionViewsBySessionId: {
-          ...clone.layout.sessionViewsBySessionId,
-          "project-session-1": divergentView,
+        scenesByOwnerKey: {
+          ...clone.layout.scenesByOwnerKey,
+          [sceneKey]: divergentScene,
         },
       });
 
@@ -445,12 +500,12 @@ describe("WindowSessionState", () => {
       const reloadedSource = reloaded?.sessions.find((entry) => entry.id === source.id);
       const reloadedClone = reloaded?.sessions.find((entry) => entry.id === clone.id);
       expect(
-        reloadedSource?.layout.sessionViewsBySessionId["project-session-1"]
-          ?.tabsById["clone-only-tab"],
+        reloadedSource?.layout.scenesByOwnerKey[sceneKey]
+          ?.panelSurfacesById["clone-only-tab"],
       ).toBeUndefined();
       expect(
-        reloadedClone?.layout.sessionViewsBySessionId["project-session-1"]
-          ?.tabsById["clone-only-tab"],
+        reloadedClone?.layout.scenesByOwnerKey[sceneKey]
+          ?.panelSurfacesById["clone-only-tab"],
       ).toBeDefined();
     });
   });
@@ -510,10 +565,10 @@ describe("WindowSessionState", () => {
         lifecycle: { state: "open" },
         layoutRevision: 7,
         layout: {
-          version: 4,
+          version: 5,
           location: {
-            kind: "empty",
-            activeProjectId: "legacy",
+            kind: "project",
+            projectId: "legacy",
           },
         },
         bounds: { x: 10, y: 20 },
@@ -558,12 +613,12 @@ describe("WindowSessionState", () => {
         lifecycle: { state: "open" },
         layoutRevision: 0,
         layout: {
-          version: 4,
+          version: 5,
           location: {
-            kind: "empty",
-            activeProjectId: "legacy",
+            kind: "project",
+            projectId: "legacy",
           },
-          sessionViewsBySessionId: {},
+          scenesByOwnerKey: {},
         },
       });
       expect(readFileSync(legacyPath, "utf8")).toContain('"version":1');
@@ -599,7 +654,7 @@ describe("WindowSessionState", () => {
         version: 1,
       };
       const layout = {
-        ...createDefaultWorkbenchLayoutSnapshot(),
+        ...createDefaultWorkbenchLayoutSnapshotV4(),
         sessionViewsBySessionId: {
           "project-session-1": legacyView,
         },
@@ -627,11 +682,11 @@ describe("WindowSessionState", () => {
 
       const migrated = new WindowSessionState(userDataPath).readCatalog();
       const storageIds = migrated?.sessions.map((session) => {
-        const tab = session.layout.sessionViewsBySessionId[
-          "project-session-1"
-        ]?.tabsById["browser-tab"];
-        return tab?.kind === "browser"
-          ? tab.config.browserStorageId
+        const surface = session.layout.scenesByOwnerKey[
+          "session:project-session-1"
+        ]?.panelSurfacesById["browser-tab"];
+        return surface?.kind === "browser"
+          ? surface.config.browserStorageId
           : undefined;
       });
 

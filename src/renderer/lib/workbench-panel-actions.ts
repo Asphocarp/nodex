@@ -131,6 +131,16 @@ export const PANEL_NEW_TAB_ACTIONS: PanelNewTabAction[] = [
   },
 ];
 
+export function getPanelNewTabAction(
+  kind: PanelNewTabActionKind,
+): PanelNewTabAction {
+  const action = PANEL_NEW_TAB_ACTIONS.find((candidate) =>
+    candidate.kind === kind
+  );
+  if (action) return action;
+  throw new Error(`Missing panel action presentation for ${kind}`);
+}
+
 export function isPanelActionTargetAllowed(
   action: PanelNewTabAction,
   panelId: PanelId,
@@ -264,6 +274,5 @@ export function matchesPanelActionShortcut(
 export function getDefaultPanelIdForTabKind(
   kind: WorkbenchTabProjection["kind"],
 ): PanelId {
-  return PANEL_NEW_TAB_ACTIONS.find((action) => action.kind === kind)?.defaultPanelId
-    ?? "right";
+  return getPanelNewTabAction(kind).defaultPanelId;
 }

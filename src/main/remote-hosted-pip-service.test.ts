@@ -58,6 +58,7 @@ function createBrowserUseTab(overrides: Partial<BrowserUseTabState> = {}): Brows
     browserConversationId: "session-1",
     browserViewScopeId: "window-session-1",
     browserTabId: "tab-1",
+    codexSessionId: "thread-1",
     captureActive: true,
     projectId: "project-1",
     released: false,

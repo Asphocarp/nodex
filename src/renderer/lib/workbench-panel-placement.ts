@@ -1,14 +1,47 @@
 import {
   findNearestWorkbenchPanelLeafToRight,
+  findWorkbenchPanelLeaf,
   findWorkbenchPanelLeafForTab,
   getWorkbenchPanelActiveLeaf,
   listWorkbenchPanelLeaves,
+  type WorkbenchPanelLayout,
 } from "../../shared/workbench-panel-layout";
 import type {
   PanelId,
   WorkbenchTabProjection,
 } from "@/lib/types";
 import type { WorkbenchSessionRenderProjection } from "@/lib/workbench-session-presentation";
+
+export type RightNeighborPanelPlacement =
+  | { readonly kind: "fallback" }
+  | { readonly kind: "existing"; readonly leafId: string }
+  | { readonly kind: "ensure"; readonly sourceLeafId: string };
+
+export function resolveRightNeighborPanelPlacement(
+  layout: WorkbenchPanelLayout,
+  sourceLeafId: string | null,
+  options: {
+    readonly fullWidth: boolean;
+  },
+): RightNeighborPanelPlacement {
+  if (!sourceLeafId) return { kind: "fallback" };
+  if (!findWorkbenchPanelLeaf(layout, sourceLeafId)) {
+    return { kind: "fallback" };
+  }
+
+  const existingLeafId = findNearestWorkbenchPanelLeafToRight(
+    layout,
+    sourceLeafId,
+  );
+  if (existingLeafId) return { kind: "existing", leafId: existingLeafId };
+  if (!options.fullWidth) {
+    return { kind: "fallback" };
+  }
+  if (listWorkbenchPanelLeaves(layout).length !== 1) {
+    return { kind: "fallback" };
+  }
+  return { kind: "ensure", sourceLeafId };
+}
 
 export function resolveSessionPanelActiveTabId(
   session: WorkbenchSessionRenderProjection,
@@ -52,31 +85,6 @@ export function resolveDbCardSourceLeafId(
     sourceTab.id,
   )?.id;
   return sourceLeafId ?? null;
-}
-
-export function resolvePageTabTargetLeafId(
-  session: WorkbenchSessionRenderProjection,
-  sourceTabId: string | undefined,
-): string | undefined {
-  const sourceLeafId = resolveDbCardSourceLeafId(session, sourceTabId);
-  if (!sourceLeafId) return undefined;
-  return findNearestWorkbenchPanelLeafToRight(
-    session.panels.right.layout,
-    sourceLeafId,
-  ) ?? undefined;
-}
-
-export function shouldEnsureRightLeafForDbCardOpen(
-  session: WorkbenchSessionRenderProjection,
-  sourceLeafId: string | null,
-  rightPanelFullWidth: boolean,
-): sourceLeafId is string {
-  if (!sourceLeafId) return false;
-  if (!rightPanelFullWidth) return false;
-  if (findNearestWorkbenchPanelLeafToRight(session.panels.right.layout, sourceLeafId)) {
-    return false;
-  }
-  return listWorkbenchPanelLeaves(session.panels.right.layout).length === 1;
 }
 
 export function readPageStagePanelTabPageRef(

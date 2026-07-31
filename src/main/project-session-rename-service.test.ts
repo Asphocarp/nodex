@@ -6,7 +6,6 @@ function makeSession(overrides: Partial<ProjectSession> = {}): ProjectSession {
   return {
     id: "session-1",
     projectId: "project-1",
-    databaseStarter: false,
     noThreadFallbackTitle: "Current title",
     displayTitle: "Current title",
     order: 1,

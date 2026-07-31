@@ -200,6 +200,10 @@ interface BrowserUseCapturedRoute {
   projectId: string | null;
 }
 
+type BrowserUseRouteCaptureHandler = (
+  route: BrowserUseCapturedRoute,
+) => Promise<void>;
+
 interface PendingBrowserUsePresentation {
   request: BrowserUsePresentationRequest;
   expiresAt: number;
@@ -354,13 +358,6 @@ interface BrowserSidebarServiceEvents {
   openNewTab: [BrowserSidebarOpenNewTabRequest];
   webviewAttached: [BrowserSidebarWebviewAttached];
   destroyWebview: [BrowserSidebarDestroyWebviewRequest];
-  browserUseRouteCaptured: [{
-    browserConversationId: string;
-    browserViewScopeId: string;
-    codexSessionId: string;
-    ownerWebContentsId: number;
-    projectId: string | null;
-  }];
   browserUseOwnerReleased: [{
     ownerWebContentsId: number;
   }];
@@ -450,6 +447,7 @@ export class BrowserSidebarService extends EventEmitter {
   private resolveProjectIdForSession:
     | ((sessionId: string) => Promise<string | null>)
     | null;
+  private browserUseRouteCaptureHandler: BrowserUseRouteCaptureHandler | null = null;
   private teardownSequence = 0;
 
   constructor(deps: BrowserSidebarServiceDeps = {}) {
@@ -492,6 +490,39 @@ export class BrowserSidebarService extends EventEmitter {
 
   setSiteStatusPolicy(siteStatusPolicy: SiteStatusPolicyService): void {
     this.siteStatusPolicy = siteStatusPolicy;
+  }
+
+  setBrowserUseRouteCaptureHandler(
+    handler: BrowserUseRouteCaptureHandler | null,
+  ): void {
+    this.browserUseRouteCaptureHandler = handler;
+  }
+
+  async promoteBrowserUseRoute(input: {
+    browserConversationId: string;
+    browserViewScopeId: string;
+    codexSessionId: string;
+    projectId: string | null;
+  }): Promise<void> {
+    const captured = this.browserUseCapturedRoutesByViewScope.get(
+      input.browserViewScopeId,
+    );
+    if (!captured) {
+      throw new Error("Browser Use route is unavailable");
+    }
+    if (captured.browserConversationId !== input.browserConversationId) {
+      throw new Error("Browser Use route belongs to another presentation surface");
+    }
+    const promoted: BrowserUseCapturedRoute = {
+      ...captured,
+      codexSessionId: input.codexSessionId,
+      projectId: input.projectId,
+    };
+    await this.captureBrowserUseRoute(promoted);
+    this.browserUseCapturedRoutesByViewScope.set(
+      promoted.browserViewScopeId,
+      promoted,
+    );
   }
 
   async listHistory(input: {
@@ -1566,23 +1597,22 @@ export class BrowserSidebarService extends EventEmitter {
       if (context.ownerWebContentsId === undefined) {
         return { ok: false, message: "Browser route owner is unavailable" };
       }
-      this.browserUseCapturedRoutesByViewScope.set(
-        command.browserViewScopeId,
-        {
-          browserConversationId: command.browserConversationId,
-          browserViewScopeId: command.browserViewScopeId,
-          codexSessionId: command.codexSessionId,
-          ownerWebContentsId: context.ownerWebContentsId,
-          projectId: command.projectId,
-        },
-      );
-      this.emit("browserUseRouteCaptured", {
+      const route: BrowserUseCapturedRoute = {
         browserConversationId: command.browserConversationId,
         browserViewScopeId: command.browserViewScopeId,
         codexSessionId: command.codexSessionId,
         ownerWebContentsId: context.ownerWebContentsId,
         projectId: command.projectId,
-      });
+      };
+      try {
+        await this.captureBrowserUseRoute(route);
+      } catch (error) {
+        return { ok: false, message: readBoundedErrorMessage(error) };
+      }
+      this.browserUseCapturedRoutesByViewScope.set(
+        command.browserViewScopeId,
+        route,
+      );
       return { ok: true };
     }
 
@@ -1613,7 +1643,6 @@ export class BrowserSidebarService extends EventEmitter {
               : command.title?.trim() || migrated.title,
             faviconUrl: command.faviconUrl ?? migrated.faviconUrl,
           });
-          this.emitBrowserUseRouteCapture(command, context);
           return { ok: true, snapshot };
         }
         const snapshot = this.updateTab(key, {
@@ -1621,7 +1650,6 @@ export class BrowserSidebarService extends EventEmitter {
           title: existing.hasBrowserPage ? existing.title : command.title?.trim() || existing.title,
           faviconUrl: command.faviconUrl ?? existing.faviconUrl,
         });
-        this.emitBrowserUseRouteCapture(command, context);
         return { ok: true, snapshot };
       }
       const deviceToolbarVisible = command.deviceToolbarState?.toolbarState.isEnabled
@@ -1684,7 +1712,6 @@ export class BrowserSidebarService extends EventEmitter {
         updatedAt: Date.now(),
       });
       this.emitState();
-      this.emitBrowserUseRouteCapture(command, context);
       return { ok: true, snapshot };
     }
 
@@ -3171,18 +3198,10 @@ export class BrowserSidebarService extends EventEmitter {
     this.emit("browserUseState", this.getBrowserUseStateSnapshot());
   }
 
-  private emitBrowserUseRouteCapture(
-    command: Extract<BrowserSidebarCommand, { type: "register-tab" }>,
-    context: BrowserSidebarCommandContext,
-  ): void {
-    if (!command.codexSessionId || context.ownerWebContentsId === undefined) return;
-    this.emit("browserUseRouteCaptured", {
-      browserConversationId: command.browserConversationId,
-      browserViewScopeId: command.browserViewScopeId,
-      codexSessionId: command.codexSessionId,
-      ownerWebContentsId: context.ownerWebContentsId,
-      projectId: command.projectId,
-    });
+  private async captureBrowserUseRoute(
+    route: BrowserUseCapturedRoute,
+  ): Promise<void> {
+    await this.browserUseRouteCaptureHandler?.(route);
   }
 
   private handleBrowserUseCommand(command: BrowserUseCommand): void {

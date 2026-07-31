@@ -141,17 +141,6 @@ function normalizeProjectSources(project: Project): string[] {
   return project.sources.map((source) => source.root).filter((root) => root.trim().length > 0);
 }
 
-function handleProjectRowKeyboard(
-  event: KeyboardEvent<HTMLDivElement>,
-  onActivate: () => void,
-) {
-  if (event.currentTarget !== event.target) return;
-  if (event.key !== "Enter" && event.key !== " ") return;
-
-  event.preventDefault();
-  onActivate();
-}
-
 export function CodexSidebarTopAction({
   label,
   icon,
@@ -851,71 +840,69 @@ export function CodexProjectRow({
               && "bg-token-list-hover-background",
             projectDragActive && "pointer-events-none",
           )}
-          role="button"
-          tabIndex={0}
-          aria-label={project.name}
-          aria-expanded={expanded}
           onPointerEnter={prefetchProjectHoverCardMetadata}
-          onFocus={prefetchProjectHoverCardMetadata}
-          onClick={(event) => {
-            if (event.defaultPrevented) return;
-            if (!isEventWithinCurrentTarget(event)) return;
-            onActivate();
-          }}
-          onKeyDown={(event) => handleProjectRowKeyboard(event, onActivate)}
+          onFocusCapture={prefetchProjectHoverCardMetadata}
         >
-          <div className="flex min-w-0 flex-1 items-center gap-1 pl-1">
+          <div className="flex min-w-0 flex-1 items-center">
             <span
               ref={iconThreadDropTarget.setNodeRef}
               className={cn(
-                "relative flex h-6 w-6 items-center justify-center",
+                "group/project-leading-slot relative ml-1 flex h-6 w-6 shrink-0 items-center justify-center",
                 iconThreadDropTarget.isExternalThreadDropTarget
                   && iconThreadDropTarget.isOver
                   && "rounded-md bg-token-list-hover-background",
               )}
+              data-app-action-sidebar-project-leading-slot=""
             >
               <ProjectMarker
                 appearance={project.appearance}
+                className="group-hover/folder-row:invisible group-has-[:focus-visible]/project-leading-slot:invisible"
+                data-app-action-sidebar-project-marker=""
                 fallbackIcon={expanded
                   ? <CodexProjectFolderOpenIcon />
                   : <CodexProjectFolderIcon />}
               />
+              <button
+                type="button"
+                aria-expanded={expanded}
+                aria-label={expanded ? "Collapse project" : "Expand project"}
+                className="pointer-events-none absolute inset-0 flex h-6 w-6 cursor-interaction items-center justify-center rounded-md text-token-foreground opacity-0 group-hover/folder-row:pointer-events-auto group-hover/folder-row:opacity-100 hover:bg-token-list-hover-background focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px]"
+                data-app-action-sidebar-project-toggle-chevron=""
+                onPointerDown={stopCodexSidebarRowActionPropagation}
+                onMouseDown={stopCodexSidebarRowActionPropagation}
+                onKeyDown={stopCodexSidebarRowActionPropagation}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onActivate();
+                }}
+              >
+                <ChevronDownIcon
+                  className={cn(
+                    "icon-2xs shrink-0 transition-transform",
+                    !expanded && "-rotate-90",
+                  )}
+                />
+              </button>
             </span>
-            <div
+            <button
+              type="button"
               ref={setActivatorNodeRef}
-              className="flex min-w-0 flex-1 cursor-interaction items-center gap-2 whitespace-nowrap rounded-md py-1 pr-0 text-left text-base text-token-foreground"
+              className="flex min-w-0 flex-1 cursor-interaction items-center whitespace-nowrap rounded-md py-1 pl-1 pr-0 text-left text-base text-token-foreground"
+              aria-current={active ? "page" : undefined}
+              aria-label={`Open ${project.name}`}
+              data-app-action-sidebar-select-project=""
               {...(sortableEnabled ? listeners : {})}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                (onSelectProject ?? onActivate)();
+              }}
             >
-              <span className="flex min-w-0 flex-1 items-center gap-2 whitespace-nowrap">
-                <span className="flex min-w-0 flex-1 items-center gap-0.5">
-                  <span className="min-w-0 truncate pr-1" data-app-action-sidebar-project-label-text="">
-                    {project.name}
-                  </span>
-                  <button
-                    type="button"
-                    aria-expanded={expanded}
-                    aria-label={expanded ? "Collapse project" : "Expand project"}
-                    className="-ml-1 flex h-5 w-5 shrink-0 cursor-interaction items-center justify-center rounded-sm text-token-foreground opacity-0 group-hover/folder-row:opacity-100 hover:opacity-100 focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
-                    data-app-action-sidebar-project-toggle-chevron=""
-                    onPointerDown={stopCodexSidebarRowActionPropagation}
-                    onMouseDown={stopCodexSidebarRowActionPropagation}
-                    onKeyDown={stopCodexSidebarRowActionPropagation}
-                    onClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      onActivate();
-                    }}
-                  >
-                    <ChevronDownIcon
-                      className={cn(
-                        "icon-2xs shrink-0 transition-transform",
-                        !expanded && "-rotate-90",
-                      )}
-                    />
-                  </button>
-                </span>
+              <span className="min-w-0 flex-1 truncate pr-1" data-app-action-sidebar-project-label-text="">
+                {project.name}
               </span>
-            </div>
+            </button>
           </div>
           <div className="flex gap-1">
             <CodexProjectActionsMenu
@@ -943,18 +930,6 @@ export function CodexProjectRow({
               />
             ) : null}
           </div>
-          <button
-            type="button"
-            aria-hidden="true"
-            tabIndex={-1}
-            className="sr-only"
-            data-app-action-sidebar-select-project=""
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              onSelectProject?.();
-            }}
-          />
         </div>
       </NodexHoverCard>
       <div

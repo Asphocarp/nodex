@@ -42,7 +42,7 @@ import type {
 } from "@/lib/types";
 import { useKanban } from "@/lib/use-kanban";
 import type { WorkbenchView } from "@/lib/use-workbench-profile-preferences";
-import { applyWorkbenchViewTabPatch } from "@/lib/window-session-view-adapter";
+import type { WorkbenchSurfaceUpdatePatch } from "@/lib/workbench-scene-presentation";
 import { DatabaseManagementDialogController } from "./database-management-dialog-controller";
 import { DbViewToolbar } from "./db-view-toolbar";
 import { MainViewHost } from "./main-view-host";
@@ -121,7 +121,7 @@ export function DbViewSessionTab({
   targetLeafId: string;
   onUpdateTab: (
     tabId: string,
-    patch: Parameters<typeof applyWorkbenchViewTabPatch>[1],
+    patch: WorkbenchSurfaceUpdatePatch,
   ) => WorkbenchTabProjection | null;
 }) {
   if (tab.kind !== "db_view") {

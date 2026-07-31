@@ -1,14 +1,20 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { makeWorkbenchPanelLayout } from "../../shared/workbench-panel-layout";
-import { WORKBENCH_SESSION_VIEW_VERSION } from "../../shared/workbench-session-view";
 import type {
   BrowserSidebarTabSnapshot,
   BrowserUsePresentationRequest,
+  BrowserUseTabState,
 } from "../../shared/browser-sidebar";
 import type { WorkbenchSessionRenderProjection } from "./workbench-session-presentation";
 import type { WorkbenchTabCreateInput, WorkbenchTabProjection } from "./types";
 import { useBrowserUsePresentationCoordinator } from "./use-browser-use-presentation-coordinator";
+import { makeSessionSceneFixture } from "../components/workbench/workbench-testkit/session-scene-fixture";
+import {
+  createWorkbenchSceneSurface,
+  makeWorkbenchSceneKey,
+  materializeInitialWorkbenchScene,
+} from "../../shared/workbench-scene";
 
 const mocks = vi.hoisted(() => ({
   consume: vi.fn(),
@@ -20,7 +26,7 @@ const mocks = vi.hoisted(() => ({
   runtime: {
     state: { tabs: [] as BrowserSidebarTabSnapshot[] },
     browserUseState: {
-      tabs: [],
+      tabs: [] as BrowserUseTabState[],
       activeBrowserTabIdsByConversationScope: {},
       cursors: [],
     },
@@ -50,7 +56,6 @@ function makeSession(
   return {
     id,
     projectId: "project-1",
-    databaseStarter: false,
     noThreadFallbackTitle: "Thread",
     displayTitle: "Thread",
     order: 0,
@@ -111,6 +116,10 @@ function makeBrowserTab(
   };
 }
 
+function sceneForSession(session: WorkbenchSessionRenderProjection) {
+  return makeSessionSceneFixture(session);
+}
+
 describe("useBrowserUsePresentationCoordinator", () => {
   beforeEach(() => {
     mocks.consume.mockClear();
@@ -118,6 +127,7 @@ describe("useBrowserUsePresentationCoordinator", () => {
     mocks.listeners.clear();
     mocks.runtime.presentationRequests = [];
     mocks.runtime.state.tabs = [];
+    mocks.runtime.browserUseState.tabs = [];
     Object.defineProperty(window, "api", {
       configurable: true,
       value: {
@@ -175,7 +185,7 @@ describe("useBrowserUsePresentationCoordinator", () => {
       catalog: {
         findById: () => null,
         prefetch: async () => null,
-        resolveView: () => {
+        resolveScene: () => {
           throw new Error("not used");
         },
         select: () => undefined,
@@ -236,17 +246,10 @@ describe("useBrowserUsePresentationCoordinator", () => {
       catalog: {
         findById: () => ({
           domain: target,
-          view: {
-            version: WORKBENCH_SESSION_VIEW_VERSION,
-            sessionId: target.id,
-            tabsById: {},
-            panels: target.panels,
-            lastFocusedPanelId: null,
-            touchedAt: target.updatedAt,
-          },
+          scene: sceneForSession(target),
         }),
         prefetch: async () => null,
-        resolveView: () => {
+        resolveScene: () => {
           throw new Error("not used");
         },
         select,
@@ -292,6 +295,171 @@ describe("useBrowserUsePresentationCoordinator", () => {
     );
   });
 
+  test("presents a Project-owned Browser page inside its Scene without navigating to a task", async () => {
+    const owner = { kind: "project" as const, projectId: "project-1" };
+    const scene = materializeInitialWorkbenchScene(owner);
+    const browserConversationId = makeWorkbenchSceneKey(owner);
+    const request: BrowserUsePresentationRequest = {
+      browserConversationId,
+      browserViewScopeId: "window-1",
+      browserTabId: "browser-use:project",
+      requestId: "request-project",
+      codexSessionId: "thread-project",
+      projectId: "project-1",
+      visible: true,
+      transition: "default",
+      source: "browser-use",
+    };
+    mocks.runtime.presentationRequests = [request];
+    const activateSurface = vi.fn();
+    const createSurface = vi.fn((_owner, input) =>
+      createWorkbenchSceneSurface(scene, input)
+    );
+    const patchPanel = vi.fn();
+    const select = vi.fn();
+
+    renderHook(() => useBrowserUsePresentationCoordinator({
+      activeSession: null,
+      projectScene: {
+        browserConversationId,
+        commands: {
+          activateSurface,
+          createSurface,
+          patchPanel,
+        } as never,
+        owner,
+        projectId: "project-1",
+        scene,
+      },
+      catalog: {
+        findById: () => null,
+        prefetch: async () => null,
+        resolveScene: () => {
+          throw new Error("not used");
+        },
+        select,
+      },
+      controller: {
+        previewTabsByPanel: {},
+        durable: {
+          createTab: vi.fn(),
+          removeTab: vi.fn(),
+        },
+      } as never,
+      createSessionViewTab: vi.fn(),
+      pinPreviewTab: async () => undefined,
+      setActivePanelCollapsed: async () => null,
+      setActivePanelTab: async () => undefined,
+      windowSessionId: "window-1",
+    }));
+
+    await waitFor(() => expect(createSurface).toHaveBeenCalledOnce());
+    expect(createSurface).toHaveBeenCalledWith(owner, expect.objectContaining({
+      panelId: "right",
+      surface: expect.objectContaining({
+        kind: "browser",
+        config: expect.objectContaining({
+          browserTabId: "browser-use:project",
+          browserUseSource: { codexSessionId: "thread-project" },
+        }),
+      }),
+    }));
+    expect(activateSurface).toHaveBeenCalledOnce();
+    expect(patchPanel).toHaveBeenCalledWith(owner, "right", {
+      collapsed: false,
+    });
+    expect(select).not.toHaveBeenCalled();
+    expect(mocks.invoke).toHaveBeenCalledWith(
+      "browser-sidebar-command",
+      expect.objectContaining({
+        result: expect.objectContaining({
+          outcome: "accepted",
+          requestId: "request-project",
+        }),
+      }),
+    );
+  });
+
+  test("retains a released Project page with its exact source Thread", async () => {
+    const owner = { kind: "project" as const, projectId: "project-1" };
+    const scene = materializeInitialWorkbenchScene(owner);
+    const browserConversationId = makeWorkbenchSceneKey(owner);
+    const identity = {
+      browserConversationId,
+      browserViewScopeId: "window-1",
+      browserTabId: "browser-use:released-project",
+    };
+    mocks.runtime.browserUseState.tabs = [{
+      ...identity,
+      codexSessionId: "thread-released-project",
+      projectId: "project-1",
+      title: "Released",
+      url: "https://example.com/released",
+      webContentsId: 42,
+      viewport: {
+        width: 1_280,
+        height: 720,
+        presetId: "browser-use",
+        zoomPercent: 100,
+      },
+      captureActive: false,
+      released: false,
+      updatedAt: 1,
+    }];
+    const createSurface = vi.fn((_owner, input) =>
+      createWorkbenchSceneSurface(scene, input)
+    );
+
+    renderHook(() => useBrowserUsePresentationCoordinator({
+      activeSession: null,
+      projectScene: {
+        browserConversationId,
+        commands: { createSurface } as never,
+        owner,
+        projectId: "project-1",
+        scene,
+      },
+      catalog: {
+        findById: () => null,
+        prefetch: async () => null,
+        resolveScene: () => {
+          throw new Error("not used");
+        },
+        select: vi.fn(),
+      },
+      controller: {
+        previewTabsByPanel: {},
+        durable: {
+          createTab: vi.fn(),
+          removeTab: vi.fn(),
+        },
+      } as never,
+      createSessionViewTab: vi.fn(),
+      pinPreviewTab: async () => undefined,
+      setActivePanelCollapsed: async () => null,
+      setActivePanelTab: async () => undefined,
+      windowSessionId: "window-1",
+    }));
+
+    await act(async () => {
+      mocks.listeners.get(
+        "browser-sidebar-browser-use-page-released",
+      )?.(identity);
+      await Promise.resolve();
+    });
+
+    expect(createSurface).toHaveBeenCalledWith(owner, expect.objectContaining({
+      surface: expect.objectContaining({
+        kind: "browser",
+        config: expect.objectContaining({
+          browserUseSource: {
+            codexSessionId: "thread-released-project",
+          },
+        }),
+      }),
+    }));
+  });
+
   test("reuses an existing bottom Browser tab and preserves its placement", async () => {
     const request: BrowserUsePresentationRequest = {
       browserConversationId: "session-1",
@@ -319,7 +487,7 @@ describe("useBrowserUsePresentationCoordinator", () => {
       catalog: {
         findById: () => null,
         prefetch: async () => null,
-        resolveView: () => {
+        resolveScene: () => {
           throw new Error("not used");
         },
         select: () => undefined,
@@ -371,7 +539,7 @@ describe("useBrowserUsePresentationCoordinator", () => {
       catalog: {
         findById: () => null,
         prefetch: async () => null,
-        resolveView: () => {
+        resolveScene: () => {
           throw new Error("not used");
         },
         select: () => undefined,
@@ -433,7 +601,7 @@ describe("useBrowserUsePresentationCoordinator", () => {
         catalog: {
           findById: () => null,
           prefetch: async () => null,
-          resolveView: () => {
+          resolveScene: () => {
             throw new Error("not used");
           },
           select: () => undefined,
@@ -537,7 +705,7 @@ describe("useBrowserUsePresentationCoordinator", () => {
         catalog: {
           findById: () => null,
           prefetch: async () => null,
-          resolveView: () => {
+          resolveScene: () => {
             throw new Error("not used");
           },
           select: () => undefined,

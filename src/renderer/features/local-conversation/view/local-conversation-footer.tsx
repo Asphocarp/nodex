@@ -18,7 +18,10 @@ import { useLocalConversationThreadScrollController } from "./local-conversation
 import {
   RightPanelComposerLatestTurnPreview,
 } from "./right-panel-composer-latest-turn-preview";
-import { RightPanelComposerOverlay } from "./right-panel-composer-overlay";
+import {
+  RightPanelComposerOverlay,
+  type RightPanelComposerOverlayVisibility,
+} from "./right-panel-composer-overlay";
 
 interface LocalConversationFooterProps {
   model: ThreadFooterModel;
@@ -32,6 +35,8 @@ interface LocalConversationFooterProps {
     compact?: boolean;
     documentBottomKey?: string | null;
     isAtDocumentBottom?: boolean;
+    visibility?: RightPanelComposerOverlayVisibility;
+    leadingContent?: ReactNode;
   };
   planSidePanelState?: ThreadPlanSidePanelState | null;
   turnDiffHoverPreviewDisabled?: boolean;
@@ -44,6 +49,7 @@ function LocalConversationFooterChrome({
   onErrorMessage,
   catchUpControl,
   latestTurnPreview,
+  leadingContent,
   showComposer = true,
 }: {
   model: ThreadFooterModel;
@@ -52,6 +58,7 @@ function LocalConversationFooterChrome({
   onErrorMessage: (message: string | null) => void;
   catchUpControl: ReactNode;
   latestTurnPreview?: ReactNode;
+  leadingContent?: ReactNode;
   showComposer?: boolean;
 }) {
   const [hasFixedPortalContent, setHasFixedPortalContent] = useState(false);
@@ -65,6 +72,7 @@ function LocalConversationFooterChrome({
           onContentPresenceChange={setHasFixedPortalContent}
         />
         <LocalConversationAboveComposerQueuePortalHost conversationId={model.threadId} />
+        {leadingContent}
         {latestTurnPreview}
         {showComposer ? (
           <LocalConversationComposerShell
@@ -102,15 +110,16 @@ function LocalConversationFooterComponent({
   const [scrollDistanceFromBottomPx, setScrollDistanceFromBottomPx] = useState(
     () => getLastScrollDistanceFromBottomPx(),
   );
-  const [latestTurnExpanded, setLatestTurnExpanded] = useState(false);
+  const [latestTurnExpansion, setLatestTurnExpansion] = useState<{
+    readonly ownerKey: string;
+    readonly turnKey: string;
+  } | null>(null);
   const isResumingActiveThread = !model.isNewThreadTab && model.resumeState !== null && model.resumeState !== "resumed";
+  const controlledOverlay =
+    rightPanelComposerOverlay?.visibility?.kind === "controlled";
   const rightPanelOverlayEnabled =
-    variant === "thread" &&
-    rightPanelComposerOverlay?.enabled === true &&
-    !isResumingActiveThread &&
-    !model.isNewThreadTab &&
-    model.threadId !== null &&
-    model.conversation !== null;
+    rightPanelComposerOverlay?.enabled === true
+    && (!isResumingActiveThread || controlledOverlay);
   const latestTurn = useMemo(() => {
     if (!rightPanelOverlayEnabled || !model.conversation) return null;
 
@@ -128,11 +137,40 @@ function LocalConversationFooterComponent({
     });
   }, [model.conversation, rightPanelOverlayEnabled]);
   const latestTurnKey = latestTurn?.turnKey ?? null;
+  const latestTurnOwnerKey =
+    model.composerScopeIdentity?.trim() || model.threadId;
+  const latestTurnExpanded = Boolean(
+    latestTurnOwnerKey
+    && latestTurnKey
+    && latestTurnExpansion?.ownerKey === latestTurnOwnerKey
+    && latestTurnExpansion.turnKey === latestTurnKey,
+  );
+  const handleLatestTurnExpandedChange = useCallback((expanded: boolean) => {
+    if (!expanded || !latestTurnOwnerKey || !latestTurnKey) {
+      setLatestTurnExpansion(null);
+      return;
+    }
+    setLatestTurnExpansion({
+      ownerKey: latestTurnOwnerKey,
+      turnKey: latestTurnKey,
+    });
+  }, [latestTurnKey, latestTurnOwnerKey]);
   useEffect(() => {
-    if (!rightPanelOverlayEnabled || latestTurnKey === null) return;
-
-    setLatestTurnExpanded(false);
-  }, [latestTurnKey, rightPanelOverlayEnabled]);
+    if (!latestTurnExpansion) return;
+    if (
+      rightPanelOverlayEnabled
+      && latestTurnExpansion.ownerKey === latestTurnOwnerKey
+      && latestTurnExpansion.turnKey === latestTurnKey
+    ) {
+      return;
+    }
+    setLatestTurnExpansion(null);
+  }, [
+    latestTurnExpansion,
+    latestTurnKey,
+    latestTurnOwnerKey,
+    rightPanelOverlayEnabled,
+  ]);
   useEffect(
     () => addScrollListener(setScrollDistanceFromBottomPx),
     [addScrollListener],
@@ -246,11 +284,12 @@ function LocalConversationFooterComponent({
   );
   const latestTurnPreview = rightPanelOverlayEnabled ? (
     <RightPanelComposerLatestTurnPreview
+      key={latestTurnOwnerKey ?? "right-panel-latest-turn"}
       turn={latestTurn}
       expanded={latestTurnExpanded}
       projectWorkspacePath={model.projectWorkspacePath}
       threadCwd={model.cwd}
-      onExpandedChange={setLatestTurnExpanded}
+      onExpandedChange={handleLatestTurnExpandedChange}
       onEditLastUserTurn={actions.onEditLastUserTurn}
       onForkFromTurn={actions.onForkFromTurn}
       onOpenTurnDiffReview={actions.onOpenTurnDiffReview}
@@ -270,12 +309,18 @@ function LocalConversationFooterComponent({
       <RightPanelComposerOverlay
         target={rightPanelComposerOverlay?.target ?? null}
         compact={rightPanelComposerOverlay?.compact === true}
-        documentBottomKey={rightPanelComposerOverlay?.documentBottomKey}
-        isAtDocumentBottom={
-          rightPanelComposerOverlay?.isAtDocumentBottom === true
-        }
+        visibility={rightPanelComposerOverlay?.visibility
+          ?? (rightPanelComposerOverlay?.compact
+            ? {
+                kind: "browser-auto",
+                documentBottomKey:
+                  rightPanelComposerOverlay.documentBottomKey ?? null,
+                isAtDocumentBottom:
+                  rightPanelComposerOverlay.isAtDocumentBottom === true,
+              }
+            : { kind: "always" })}
         onPointerDownOutside={() => {
-          setLatestTurnExpanded(false);
+          handleLatestTurnExpandedChange(false);
         }}
       >
         <LocalConversationFooterChrome
@@ -285,6 +330,8 @@ function LocalConversationFooterComponent({
           onErrorMessage={onErrorMessage}
           catchUpControl={catchUpControl}
           latestTurnPreview={latestTurnPreview}
+          leadingContent={rightPanelComposerOverlay?.leadingContent}
+          showComposer={!isResumingActiveThread}
         />
       </RightPanelComposerOverlay>
     );

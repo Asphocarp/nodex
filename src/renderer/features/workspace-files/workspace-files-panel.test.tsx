@@ -442,7 +442,6 @@ const project: Project = {
 const activeSession: ProjectSession = {
   id: "session-1",
   projectId: project.id,
-  databaseStarter: false,
   noThreadFallbackTitle: "Session",
   displayTitle: "Session",
   order: 0,

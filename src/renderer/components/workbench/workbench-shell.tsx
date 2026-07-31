@@ -37,8 +37,8 @@ import type {
   ProjectUpdateInput,
   WindowSessionBootstrap,
 } from "@/lib/types";
-import { WorkbenchLayoutSnapshotV4Schema } from "../../../shared/schemas/workbench-layout";
-import { getWorkbenchSessionReturnLocation } from "../../../shared/workbench-layout";
+import { WorkbenchLayoutSnapshotV5Schema } from "../../../shared/schemas/workbench-layout";
+import { getWorkbenchSceneReturnLocation } from "../../../shared/workbench-layout";
 
 const WORKBENCH_V2_FLAG_KEY = "workbenchV2";
 
@@ -87,7 +87,7 @@ export function WorkbenchShell({
 }) {
   const workbenchV2Enabled = readWorkbenchV2Flag();
   const initialWindowLayoutSnapshot = useMemo(
-    () => WorkbenchLayoutSnapshotV4Schema.parse(
+    () => WorkbenchLayoutSnapshotV5Schema.parse(
       windowSessionBootstrap.session.layout,
     ),
     [windowSessionBootstrap.session.layout],
@@ -95,7 +95,7 @@ export function WorkbenchShell({
   const workbenchWindow = useWorkbenchWindowState(
     initialWindowLayoutSnapshot,
   );
-  const workbenchSessionLocation = getWorkbenchSessionReturnLocation(
+  const workbenchSceneLocation = getWorkbenchSceneReturnLocation(
     workbenchWindow.location,
   );
   const {
@@ -113,7 +113,11 @@ export function WorkbenchShell({
     setProjectPinned,
     setPinnedProjectOrder,
   } = useProjects();
-  const dbProjectId = workbenchSessionLocation.activeProjectId;
+  const dbProjectId = workbenchSceneLocation.kind === "project"
+    ? workbenchSceneLocation.projectId
+    : workbenchSceneLocation.kind === "session"
+      ? workbenchSceneLocation.projectContextId
+      : null;
   const resolvedDbProjectId = useMemo(() => {
     const project = findProjectById(projects, dbProjectId);
     return project?.id ?? null;
@@ -373,14 +377,14 @@ export function WorkbenchShell({
   useEffect(() => {
     if (!pendingSessionDeepLinkOpen) return;
     if (
-      workbenchSessionLocation.kind !== "session"
-      || workbenchSessionLocation.sessionId
+      workbenchSceneLocation.kind !== "session"
+      || workbenchSceneLocation.sessionId
         !== pendingSessionDeepLinkOpen.sessionId
     ) {
       return;
     }
     setPendingSessionDeepLinkOpen(null);
-  }, [pendingSessionDeepLinkOpen, workbenchSessionLocation]);
+  }, [pendingSessionDeepLinkOpen, workbenchSceneLocation]);
 
   const flushBeforeWindowClone = useCallback(async () => {
     await pageStagePersistRef.current?.();

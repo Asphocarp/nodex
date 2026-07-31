@@ -14,7 +14,6 @@ function makeSession(hasThread = false): ProjectSession {
   return {
     id: "session-source",
     projectId: "project-source",
-    databaseStarter: false,
     noThreadFallbackTitle: "Source",
     displayTitle: "Source",
     order: 0,
@@ -87,6 +86,7 @@ function makeBrowserUseTab(browserTabId: string): BrowserUseTabState {
     browserConversationId: "session-source",
     browserViewScopeId: SCOPE_ID,
     browserTabId,
+    codexSessionId: "thread-source",
     projectId: "project-source",
     title: browserTabId,
     url: `https://${browserTabId}.example`,

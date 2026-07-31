@@ -125,9 +125,67 @@ import type {
 import { useCodexAccountActions } from "@/lib/use-codex-account-actions";
 import { useApplyLibraryOperation } from "@/lib/use-library-navigation";
 import { cn } from "@/lib/utils";
+import {
+  projectSessionProjectionsByProject,
+  type WorkbenchSessionCollection,
+  type WorkbenchSessionCollectionState,
+} from "@/lib/use-workbench-session-catalog";
 import type { WorkbenchSessionRenderProjection } from "@/lib/workbench-session-presentation";
 
 type ProjectSession = WorkbenchSessionRenderProjection;
+const IDLE_SESSION_COLLECTION_STATE = { kind: "idle" } as const;
+
+function SidebarSessionCollectionFallback({
+  state,
+  loadingText,
+  emptyText,
+  placement,
+  onRetry,
+}: {
+  state: WorkbenchSessionCollectionState;
+  loadingText: string | null;
+  emptyText: string | null;
+  placement: "section" | "project-child";
+  onRetry: () => void | Promise<void>;
+}) {
+  const rowClassName = cn(
+    "py-row-y text-sm",
+    placement === "project-child" ? "pr-row-x pl-8" : "px-row-x",
+  );
+
+  if (state.kind === "loading") {
+    if (!loadingText) return null;
+    return (
+      <div className={cn(rowClassName, "text-token-description-foreground")} role="listitem">
+        {loadingText}
+      </div>
+    );
+  }
+
+  if (state.kind === "error") {
+    return (
+      <div className={rowClassName} role="listitem">
+        <button
+          type="button"
+          className="text-token-description-foreground hover:text-token-foreground"
+          title={state.message}
+          aria-label={`Retry chats: ${state.message}`}
+          onClick={() => void onRetry()}
+        >
+          Retry chats
+        </button>
+      </div>
+    );
+  }
+
+  if (state.kind !== "ready" || !emptyText) return null;
+
+  return (
+    <div className={cn(rowClassName, "text-token-description-foreground")} role="listitem">
+      {emptyText}
+    </div>
+  );
+}
 
 export type SidebarResizePhase = "live" | "end" | "reset";
 export type SidebarResizeSurface = "inline" | "floating";
@@ -388,9 +446,10 @@ function SidebarThreadContainerRowsContent({
   onExpandedChange,
   forcedVisibleKey,
   suppressedKeys,
-  loading,
+  collectionState,
   hasMoreAtSource,
   onLoadMore,
+  onRetry,
   onVisibleThreadOrderChange,
   renderThread,
 }: {
@@ -402,9 +461,10 @@ function SidebarThreadContainerRowsContent({
   onExpandedChange: (expanded: boolean) => void;
   forcedVisibleKey: string | null;
   suppressedKeys: ReadonlySet<string>;
-  loading: boolean;
+  collectionState: WorkbenchSessionCollectionState;
   hasMoreAtSource: boolean;
   onLoadMore: () => void | Promise<void>;
+  onRetry: () => void | Promise<void>;
   onVisibleThreadOrderChange: (change: {
     visibleThreadKeys: string[];
     nextVisibleThreadKeys: string[];
@@ -472,11 +532,17 @@ function SidebarThreadContainerRowsContent({
                   sourceProjectKind="local"
                   targetProjectKind="local"
                 />
-              ) : (
-                <div className="px-row-x py-row-y text-sm text-token-description-foreground" role="listitem">
-                  {loading ? "Loading chats..." : "No projectless chats"}
-                </div>
-              )}
+              ) : null}
+              {pagination.visibleItems.length === 0
+                || collectionState.kind === "error" ? (
+                <SidebarSessionCollectionFallback
+                  state={collectionState}
+                  loadingText="Loading chats..."
+                  emptyText="No projectless chats"
+                  placement="section"
+                  onRetry={onRetry}
+                />
+              ) : null}
               {pager}
             </div>
           </div>
@@ -494,9 +560,10 @@ function SidebarProjectThreadRowsContent({
   expanded,
   forcedVisibleKey,
   suppressedKeys,
-  loading,
+  collectionState,
   hasMoreAtSource,
   onLoadMore,
+  onRetry,
   onExpandedChange,
   onPinnedThreadOrderChange,
   onProjectThreadOrderChange,
@@ -511,9 +578,10 @@ function SidebarProjectThreadRowsContent({
   expanded: boolean;
   forcedVisibleKey: string | null;
   suppressedKeys: ReadonlySet<string>;
-  loading: boolean;
+  collectionState: WorkbenchSessionCollectionState;
   hasMoreAtSource: boolean;
   onLoadMore: () => void | Promise<void>;
+  onRetry: () => void | Promise<void>;
   onExpandedChange: (expanded: boolean) => void;
   onPinnedThreadOrderChange: (change: {
     visibleThreadKeys: string[];
@@ -673,10 +741,15 @@ function SidebarProjectThreadRowsContent({
                 targetProjectKind="local"
               />
             </SidebarThreadDropContainer>
-            {pagination.visibleItems.length === 0 ? (
-              <div className="px-row-x py-row-y text-sm text-token-description-foreground" role="listitem">
-                {loading ? "Loading chats..." : "No chats"}
-              </div>
+            {pagination.visibleItems.length === 0
+              || collectionState.kind === "error" ? (
+              <SidebarSessionCollectionFallback
+                state={collectionState}
+                loadingText={null}
+                emptyText="No chats inside"
+                placement="project-child"
+                onRetry={onRetry}
+              />
             ) : null}
             <SidebarThreadDropContainer
               containerId={regularContainerId}
@@ -698,16 +771,15 @@ function SidebarThreadOrganizerSections({
   activeSessionId,
   activePendingClientThreadId,
   contextMenuSessionId,
-  sessionsByProject,
-  projectlessSessions,
+  sessionCollectionsByProject,
+  projectlessSessionCollection,
   expandedProjectIds,
   pinnedThreadsSectionCollapsed,
   librarySectionCollapsed,
   projectsSectionCollapsed,
   chatsSectionCollapsed,
-  loadingSessions,
-  taskWindowHasMoreByScope,
   onLoadMoreTaskWindow,
+  onRetryTaskWindow,
   model,
   onHoverSurfaceOpenChange,
   onTogglePinnedThreadsSectionCollapsed,
@@ -755,16 +827,17 @@ function SidebarThreadOrganizerSections({
   activeSessionId: string | null;
   activePendingClientThreadId?: string | null;
   contextMenuSessionId?: string | null;
-  sessionsByProject: Record<string, ProjectSession[]>;
-  projectlessSessions: ProjectSession[];
+  sessionCollectionsByProject: Readonly<
+    Record<string, WorkbenchSessionCollection>
+  >;
+  projectlessSessionCollection: WorkbenchSessionCollection;
   expandedProjectIds: Set<string>;
   pinnedThreadsSectionCollapsed: boolean;
   librarySectionCollapsed: boolean;
   projectsSectionCollapsed: boolean;
   chatsSectionCollapsed: boolean;
-  loadingSessions: boolean;
-  taskWindowHasMoreByScope: Readonly<Record<string, boolean>>;
   onLoadMoreTaskWindow: (projectId: string | null) => Promise<void>;
+  onRetryTaskWindow: (projectId: string | null) => Promise<void>;
   model: CodexSidebarThreadSyncModel;
   onHoverSurfaceOpenChange?: (open: boolean) => void;
   onTogglePinnedThreadsSectionCollapsed: () => void;
@@ -814,6 +887,14 @@ function SidebarThreadOrganizerSections({
   loadingMoreProjects: boolean;
   onLoadMoreProjects?: () => Promise<void>;
 }) {
+  const sessionsByProject = useMemo<Record<string, ProjectSession[]>>(
+    () => projectSessionProjectionsByProject(sessionCollectionsByProject),
+    [sessionCollectionsByProject],
+  );
+  const projectlessSessions = useMemo(
+    () => [...projectlessSessionCollection.projections],
+    [projectlessSessionCollection.projections],
+  );
   const [pinnedProjectsExpanded, setPinnedProjectsExpanded] = useState(false);
   const [projectsExpanded, setProjectsExpanded] = useState(false);
   const [expandedProjectThreadListIds, setExpandedProjectThreadListIds] = useState<Set<string>>(new Set());
@@ -1311,7 +1392,7 @@ function SidebarThreadOrganizerSections({
           <div className="flex flex-col" role="list" aria-label={options.ariaLabel}>
             {pagination.visibleItems.length > 0 ? pagination.visibleItems.map((threadKey) => renderThreadRow(threadKey)) : (
               <div className="px-row-x py-row-y text-sm text-token-description-foreground" role="listitem">
-                {loadingSessions ? "Loading chats..." : emptyText}
+                {emptyText}
               </div>
             )}
             {pager}
@@ -1319,7 +1400,7 @@ function SidebarThreadOrganizerSections({
         </div>
       )}
     </CodexSidebarPaginatedItems>
-  ), [loadingSessions, renderThreadRow, sidebarArchivePendingKeys]);
+  ), [renderThreadRow, sidebarArchivePendingKeys]);
 
   const renderProjectGroupRows = (
     groups: typeof projectGroups,
@@ -1348,7 +1429,7 @@ function SidebarThreadOrganizerSections({
             visibleItems={pagination.visibleItems}
             pager={pager}
             emptyText={options.emptyText ?? "No projects"}
-            loading={loadingSessions || loadingMoreProjects}
+            loading={loadingMoreProjects}
             reorderGroups={(nextVisibleGroupIds) => {
               if (options.reorderScope === "pinned") {
                 return reorderVisiblePinnedProjectGroups(visibleGroupIds, nextVisibleGroupIds);
@@ -1409,11 +1490,15 @@ function SidebarThreadOrganizerSections({
                     }}
                     forcedVisibleKey={activeThreadKey}
                     suppressedKeys={sidebarArchivePendingKeys}
-                    loading={loadingSessions}
+                    collectionState={
+                      sessionCollectionsByProject[project.id]?.state
+                      ?? IDLE_SESSION_COLLECTION_STATE
+                    }
                     hasMoreAtSource={
-                      taskWindowHasMoreByScope[project.id] === true
+                      sessionCollectionsByProject[project.id]?.hasMore === true
                     }
                     onLoadMore={() => onLoadMoreTaskWindow(project.id)}
+                    onRetry={() => onRetryTaskWindow(project.id)}
                     onPinnedThreadOrderChange={reorderVisiblePinnedThreads}
                     onProjectThreadOrderChange={onReorderProjectThreads}
                     getThreadId={getSidebarRealThreadId}
@@ -1570,11 +1655,10 @@ function SidebarThreadOrganizerSections({
           onExpandedChange={setProjectlessThreadListExpanded}
           forcedVisibleKey={activeThreadKey}
           suppressedKeys={sidebarArchivePendingKeys}
-          loading={loadingSessions}
-          hasMoreAtSource={
-            taskWindowHasMoreByScope.__projectless__ === true
-          }
+          collectionState={projectlessSessionCollection.state}
+          hasMoreAtSource={projectlessSessionCollection.hasMore}
           onLoadMore={() => onLoadMoreTaskWindow(null)}
+          onRetry={() => onRetryTaskWindow(null)}
           onVisibleThreadOrderChange={reorderVisibleProjectlessThreads}
           renderThread={renderThreadRow}
         />
@@ -1593,8 +1677,10 @@ export interface ProjectSessionSidebarProps {
   activeSessionId: string | null;
   activePendingClientThreadId?: string | null;
   contextMenuSessionId?: string | null;
-  sessionsByProject: Record<string, ProjectSession[]>;
-  projectlessSessions: ProjectSession[];
+  sessionCollectionsByProject: Readonly<
+    Record<string, WorkbenchSessionCollection>
+  >;
+  projectlessSessionCollection: WorkbenchSessionCollection;
   sidebarThreadModel: CodexSidebarThreadSyncModel;
   pendingStableWorktrees: readonly StableWorktreeEntry[];
   expandedProjectIds: Set<string>;
@@ -1602,9 +1688,8 @@ export interface ProjectSessionSidebarProps {
   librarySectionCollapsed: boolean;
   projectsSectionCollapsed: boolean;
   chatsSectionCollapsed: boolean;
-  loadingSessions: boolean;
-  taskWindowHasMoreByScope: Readonly<Record<string, boolean>>;
   onLoadMoreTaskWindow: (projectId: string | null) => Promise<void>;
+  onRetryTaskWindow: (projectId: string | null) => Promise<void>;
   width: number;
   animatedWidth?: MotionValue<number>;
   contentOpacity?: MotionValue<number>;
@@ -1683,8 +1768,8 @@ export function ProjectSessionSidebar({
   activeSessionId,
   activePendingClientThreadId,
   contextMenuSessionId,
-  sessionsByProject,
-  projectlessSessions,
+  sessionCollectionsByProject,
+  projectlessSessionCollection,
   sidebarThreadModel,
   pendingStableWorktrees,
   expandedProjectIds,
@@ -1692,9 +1777,8 @@ export function ProjectSessionSidebar({
   librarySectionCollapsed,
   projectsSectionCollapsed,
   chatsSectionCollapsed,
-  loadingSessions,
-  taskWindowHasMoreByScope,
   onLoadMoreTaskWindow,
+  onRetryTaskWindow,
   width,
   animatedWidth,
   contentOpacity,
@@ -1757,6 +1841,15 @@ export function ProjectSessionSidebar({
   loadingMoreProjects,
   onLoadMoreProjects,
 }: ProjectSessionSidebarProps) {
+  const knownSessionProjections = useMemo(
+    () => [
+      ...Object.values(sessionCollectionsByProject).flatMap(
+        (collection) => collection.projections,
+      ),
+      ...projectlessSessionCollection.projections,
+    ],
+    [projectlessSessionCollection.projections, sessionCollectionsByProject],
+  );
   const [sidebarResizing, setSidebarResizing] = useState(false);
   const [pendingLibraryGrantDrop, setPendingLibraryGrantDrop] = useState<{
     readonly resource: SidebarLibraryDragResource;
@@ -1840,12 +1933,12 @@ export function ProjectSessionSidebar({
       if (item.pendingWorktreeId) continue;
       entries.push([threadKey, item.threadId]);
     }
-    for (const session of [...Object.values(sessionsByProject).flat(), ...projectlessSessions]) {
+    for (const session of knownSessionProjections) {
       if (!session.thread) continue;
       entries.push([`local:session:${session.id}`, session.thread.threadId]);
     }
     return new Map(entries);
-  }, [projectlessSessions, sessionsByProject, sidebarThreadModel.threadItemsByKey]);
+  }, [knownSessionProjections, sidebarThreadModel.threadItemsByKey]);
   const knownSidebarProjectIds = useMemo(
     () => new Set(sidebarThreadModel.projectGroups.map((group) => group.project.id)),
     [sidebarThreadModel.projectGroups],
@@ -1863,7 +1956,7 @@ export function ProjectSessionSidebar({
       });
       if (containerId) entries.push([item.threadId, containerId]);
     }
-    for (const session of [...Object.values(sessionsByProject).flat(), ...projectlessSessions]) {
+    for (const session of knownSessionProjections) {
       if (!session.thread) continue;
       const containerId = resolveCodexSidebarThreadHomeContainerId({
         kind: "local",
@@ -1881,8 +1974,7 @@ export function ProjectSessionSidebar({
     return new Map(entries);
   }, [
     knownSidebarProjectIds,
-    projectlessSessions,
-    sessionsByProject,
+    knownSessionProjections,
     sidebarThreadModel.threadItemsByKey,
   ]);
   const getSidebarThreadIdByKey = useCallback(
@@ -2044,16 +2136,15 @@ export function ProjectSessionSidebar({
                   activeSessionId={activeSessionId}
                   activePendingClientThreadId={activePendingClientThreadId}
                   contextMenuSessionId={contextMenuSessionId}
-                  sessionsByProject={sessionsByProject}
-                  projectlessSessions={projectlessSessions}
+                  sessionCollectionsByProject={sessionCollectionsByProject}
+                  projectlessSessionCollection={projectlessSessionCollection}
                   expandedProjectIds={expandedProjectIds}
                   pinnedThreadsSectionCollapsed={pinnedProjectsSectionCollapsed}
                   librarySectionCollapsed={librarySectionCollapsed}
                   projectsSectionCollapsed={projectsSectionCollapsed}
                   chatsSectionCollapsed={chatsSectionCollapsed}
-                  loadingSessions={loadingSessions}
-                  taskWindowHasMoreByScope={taskWindowHasMoreByScope}
                   onLoadMoreTaskWindow={onLoadMoreTaskWindow}
+                  onRetryTaskWindow={onRetryTaskWindow}
                   model={sidebarThreadModel}
                   onHoverSurfaceOpenChange={onHoverSurfaceOpenChange}
                   onTogglePinnedThreadsSectionCollapsed={onTogglePinnedProjectsSectionCollapsed}

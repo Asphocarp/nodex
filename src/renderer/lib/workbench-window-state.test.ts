@@ -1,31 +1,30 @@
 import { describe, expect, test } from "vitest";
+import { createDefaultWorkbenchLayoutSnapshotV5 } from "../../shared/workbench-layout";
 import {
-  createDefaultWorkbenchLayoutSnapshotV4,
-  type WorkbenchLocation,
-} from "../../shared/workbench-layout";
-import {
-  createEmptyWorkbenchSessionView,
-  patchWorkbenchSessionViewPanel,
-} from "../../shared/workbench-session-view";
+  makeWorkbenchSceneKey,
+  materializeInitialWorkbenchScene,
+  patchWorkbenchScenePanel,
+} from "../../shared/workbench-scene";
 import {
   closeWorkbenchRoute,
   createWorkbenchWindowState,
   navigateBackInWorkbenchWindow,
   navigateForwardInWorkbenchWindow,
   openWorkbenchRoute,
-  reconcileWorkbenchSessionSelection,
+  reconcileMissingWorkbenchSession,
+  selectWorkbenchProject,
   selectWorkbenchSession,
   snapshotWorkbenchWindowState,
-  updateWorkbenchSessionView,
+  updateWorkbenchScene,
 } from "./workbench-window-state";
 
 describe("WorkbenchWindowState", () => {
-  test("selecting a projectless session preserves Project context", () => {
+  test("selecting a projectless Session preserves Project context", () => {
     const state = createWorkbenchWindowState({
-      ...createDefaultWorkbenchLayoutSnapshotV4(),
+      ...createDefaultWorkbenchLayoutSnapshotV5(),
       location: {
-        kind: "empty",
-        activeProjectId: "alpha",
+        kind: "project",
+        projectId: "alpha",
       },
     });
 
@@ -36,18 +35,34 @@ describe("WorkbenchWindowState", () => {
 
     expect(selected.location).toEqual({
       kind: "session",
-      activeProjectId: "alpha",
       sessionId: "session:projectless",
+      projectContextId: "alpha",
     });
   });
 
-  test("routes retain a session return location and close atomically", () => {
-    const initial = createWorkbenchWindowState({
-      ...createDefaultWorkbenchLayoutSnapshotV4(),
+  test("selecting a Project navigates directly without selecting a Session", () => {
+    const state = createWorkbenchWindowState({
+      ...createDefaultWorkbenchLayoutSnapshotV5(),
       location: {
         kind: "session",
-        activeProjectId: "alpha",
         sessionId: "session:alpha",
+        projectContextId: "alpha",
+      },
+    });
+
+    expect(selectWorkbenchProject(state, "alpha").location).toEqual({
+      kind: "project",
+      projectId: "alpha",
+    });
+  });
+
+  test("routes retain a Scene return location and close atomically", () => {
+    const initial = createWorkbenchWindowState({
+      ...createDefaultWorkbenchLayoutSnapshotV5(),
+      location: {
+        kind: "session",
+        sessionId: "session:alpha",
+        projectContextId: "alpha",
       },
     });
     const routed = openWorkbenchRoute(initial, {
@@ -65,7 +80,7 @@ describe("WorkbenchWindowState", () => {
 
   test("back and forward apply history without recording themselves", () => {
     const initial = createWorkbenchWindowState(
-      createDefaultWorkbenchLayoutSnapshotV4(),
+      createDefaultWorkbenchLayoutSnapshotV5(),
     );
     const settings = openWorkbenchRoute(initial, {
       kind: "settings",
@@ -87,78 +102,95 @@ describe("WorkbenchWindowState", () => {
     expect(forward.history.forwardStack).toHaveLength(0);
   });
 
-  test("back and forward restore the panel view snapshot atomically", () => {
+  test("back and forward restore the Scene snapshot atomically", () => {
+    const owner = { kind: "session", sessionId: "session:alpha" } as const;
+    const scene = patchWorkbenchScenePanel(
+      materializeInitialWorkbenchScene(owner),
+      "right",
+      { collapsed: false },
+    );
+    const sceneKey = makeWorkbenchSceneKey(owner);
     const initial = createWorkbenchWindowState({
-      ...createDefaultWorkbenchLayoutSnapshotV4(),
+      ...createDefaultWorkbenchLayoutSnapshotV5(),
       location: {
         kind: "session",
-        activeProjectId: "alpha",
         sessionId: "session:alpha",
+        projectContextId: "alpha",
       },
-      sessionViewsBySessionId: {
-        "session:alpha": patchWorkbenchSessionViewPanel(
-          createEmptyWorkbenchSessionView("session:alpha"),
-          "right",
-          { collapsed: false },
-        ),
-      },
+      scenesByOwnerKey: { [sceneKey]: scene },
     });
-    const collapsed = updateWorkbenchSessionView(
-      initial,
-      "session:alpha",
-      (view) => patchWorkbenchSessionViewPanel(
-        view!,
-        "right",
-        { collapsed: true },
-      ),
-    );
+    const collapsed = updateWorkbenchScene(initial, owner, (current) =>
+      patchWorkbenchScenePanel(current!, "right", { collapsed: true }));
 
     expect(
-      collapsed.sessionViewsBySessionId["session:alpha"]?.panels.right.collapsed,
+      collapsed.scenesByOwnerKey[sceneKey]?.panels.right.collapsed,
     ).toBe(true);
     const back = navigateBackInWorkbenchWindow(collapsed);
-    expect(
-      back.sessionViewsBySessionId["session:alpha"]?.panels.right.collapsed,
-    ).toBe(false);
+    expect(back.scenesByOwnerKey[sceneKey]?.panels.right.collapsed).toBe(false);
     const forward = navigateForwardInWorkbenchWindow(back);
-    expect(
-      forward.sessionViewsBySessionId["session:alpha"]?.panels.right.collapsed,
-    ).toBe(true);
+    expect(forward.scenesByOwnerKey[sceneKey]?.panels.right.collapsed).toBe(true);
   });
 
-  test("catalog reconciliation repairs only the session return coordinate", () => {
-    const location: WorkbenchLocation = {
+  test("updates Agent Dock state without recording navigation history", () => {
+    const owner = { kind: "project", projectId: "alpha" } as const;
+    const scene = materializeInitialWorkbenchScene(owner);
+    const sceneKey = makeWorkbenchSceneKey(owner);
+    const initial = createWorkbenchWindowState({
+      ...createDefaultWorkbenchLayoutSnapshotV5(),
+      location: { kind: "project", projectId: "alpha" },
+      scenesByOwnerKey: { [sceneKey]: scene },
+    });
+
+    const hidden = updateWorkbenchScene(initial, owner, (current) => ({
+      ...current!,
+      agentDock: {
+        ...current!.agentDock!,
+        visible: false,
+      },
+    }), { recordHistory: false });
+
+    expect(hidden.scenesByOwnerKey[sceneKey]?.agentDock?.visible).toBe(false);
+    expect(hidden.history).toEqual(initial.history);
+    expect(snapshotWorkbenchWindowState(hidden).scenesByOwnerKey[sceneKey])
+      .toEqual(hidden.scenesByOwnerKey[sceneKey]);
+  });
+
+  test("only an authoritative missing Session reconciles to Project", () => {
+    const location = {
       kind: "library",
       target: { kind: "home" },
       returnTo: {
         kind: "session",
-        activeProjectId: "alpha",
         sessionId: "session:deleted",
+        projectContextId: "alpha",
       },
-    };
+    } as const;
     const state = createWorkbenchWindowState({
-      ...createDefaultWorkbenchLayoutSnapshotV4(),
+      ...createDefaultWorkbenchLayoutSnapshotV5(),
       location,
     });
 
-    const reconciled = reconcileWorkbenchSessionSelection(state, [
-      { id: "session:alpha", projectId: "alpha" },
-      { id: "session:projectless", projectId: null },
-    ]);
+    const reconciled = reconcileMissingWorkbenchSession(
+      state,
+      "session:deleted",
+    );
 
     expect(reconciled.location).toEqual({
       ...location,
       returnTo: {
-        kind: "session",
-        activeProjectId: "alpha",
-        sessionId: "session:alpha",
+        kind: "project",
+        projectId: "alpha",
       },
     });
+    expect(reconcileMissingWorkbenchSession(
+      state,
+      "session:another",
+    )).toBe(state);
   });
 
   test("persistence folds pending worktree to the return route", () => {
     const state = createWorkbenchWindowState(
-      createDefaultWorkbenchLayoutSnapshotV4(),
+      createDefaultWorkbenchLayoutSnapshotV5(),
     );
     const pending = openWorkbenchRoute(state, {
       kind: "pending-worktree",
@@ -167,7 +199,6 @@ describe("WorkbenchWindowState", () => {
 
     expect(snapshotWorkbenchWindowState(pending).location).toEqual({
       kind: "empty",
-      activeProjectId: null,
     });
   });
 });

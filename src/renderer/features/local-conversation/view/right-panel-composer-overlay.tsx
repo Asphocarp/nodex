@@ -27,11 +27,30 @@ import {
 interface RightPanelComposerOverlayProps {
   target: HTMLElement | null;
   compact?: boolean;
-  documentBottomKey?: string | null;
-  isAtDocumentBottom?: boolean;
+  visibility?: RightPanelComposerOverlayVisibility;
   children: ReactNode;
   onPointerDownOutside?: () => void;
 }
+
+export type RightPanelComposerOverlayAttention =
+  | "none"
+  | "activity"
+  | "request";
+
+export type RightPanelComposerOverlayVisibility =
+  | { readonly kind: "always" }
+  | {
+      readonly kind: "controlled";
+      readonly visible: boolean;
+      readonly attention: RightPanelComposerOverlayAttention;
+      readonly focusRequestKey?: number;
+      readonly onVisibleChange: (visible: boolean) => void;
+    }
+  | {
+      readonly kind: "browser-auto";
+      readonly documentBottomKey: string | null;
+      readonly isAtDocumentBottom: boolean;
+    };
 
 export interface RightPanelComposerPortalGeometry {
   height: number;
@@ -210,8 +229,7 @@ function useAnchoredBodyPortalGeometry(
 export function RightPanelComposerOverlay({
   target,
   compact = false,
-  documentBottomKey = null,
-  isAtDocumentBottom = false,
+  visibility = { kind: "always" },
   children,
   onPointerDownOutside,
 }: RightPanelComposerOverlayProps) {
@@ -220,15 +238,31 @@ export function RightPanelComposerOverlay({
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const interactiveRef = useRef<HTMLDivElement | null>(null);
+  const documentBottomKey = visibility.kind === "browser-auto"
+    ? visibility.documentBottomKey
+    : null;
+  const isAtDocumentBottom = visibility.kind === "browser-auto"
+    ? visibility.isAtDocumentBottom
+    : false;
   const previousDocumentBottomRef = useRef({
     key: documentBottomKey,
     value: false,
   });
-  const reservePx = compact ? 0 : RIGHT_PANEL_COMPOSER_OVERLAY_RESERVE_PX;
+  const contentVisible = visibility.kind === "controlled"
+    ? visibility.visible
+    : visibility.kind === "browser-auto"
+      ? hiddenReason === null
+      : true;
+  const canHide = visibility.kind !== "always";
+  const controlledFocusRequestKey = visibility.kind === "controlled"
+    ? visibility.focusRequestKey ?? 0
+    : 0;
+  const reservePx = contentVisible && !compact
+    ? RIGHT_PANEL_COMPOSER_OVERLAY_RESERVE_PX
+    : 0;
   const { bottomPanelHeight, geometry } =
     useAnchoredBodyPortalGeometry(target, reservePx);
 
-  const contentVisible = !compact || hiddenReason === null;
   const presentation = compact
     ? resolvePresentation({ focused, hovered })
     : "default";
@@ -253,7 +287,7 @@ export function RightPanelComposerOverlay({
   }, [target]);
 
   useLayoutEffect(() => {
-    if (!compact) {
+    if (visibility.kind !== "browser-auto") {
       previousDocumentBottomRef.current = {
         key: documentBottomKey,
         value: false,
@@ -283,7 +317,18 @@ export function RightPanelComposerOverlay({
         current === "document-bottom" ? null : current
       );
     }
-  }, [compact, documentBottomKey, isAtDocumentBottom]);
+  }, [documentBottomKey, isAtDocumentBottom, visibility.kind]);
+
+  useLayoutEffect(() => {
+    if (!contentVisible || controlledFocusRequestKey <= 0) return;
+
+    const frame = requestAnimationFrame(() => {
+      interactiveRef.current
+        ?.querySelector<HTMLElement>('[data-codex-composer="true"]')
+        ?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [contentVisible, controlledFocusRequestKey, target]);
 
   const handleBlurCapture = (event: ReactFocusEvent<HTMLDivElement>) => {
     const nextTarget = event.relatedTarget;
@@ -307,6 +352,9 @@ export function RightPanelComposerOverlay({
   };
 
   const handleReveal = () => {
+    if (visibility.kind === "controlled") {
+      visibility.onVisibleChange(true);
+    }
     setHiddenReason(null);
     setFocused(true);
     requestAnimationFrame(() => {
@@ -334,6 +382,9 @@ export function RightPanelComposerOverlay({
   const overlay = (
     <div
       data-testid="right-panel-composer-overlay-host"
+      data-overlay-attention={
+        visibility.kind === "controlled" ? visibility.attention : "none"
+      }
       className={cn(
         "pointer-events-none fixed",
         compact ? "overflow-hidden" : "overflow-visible",
@@ -355,7 +406,7 @@ export function RightPanelComposerOverlay({
           <div
             data-right-panel-composer-overlay-content="true"
             className={cn(
-              "mx-auto w-full transition-[max-width] duration-150 ease-out motion-reduce:transition-none",
+              "mx-auto w-full transition-[max-width] duration-150 ease-out motion-reduce:transition-none [--right-panel-composer-accessory-inline-inset:13px]",
               compact && presentation !== "expanded" ? "max-w-sm" : "max-w-full",
             )}
           >
@@ -387,7 +438,7 @@ export function RightPanelComposerOverlay({
                   {children}
                 </RightPanelComposerPresentationProvider>
               </div>
-              {compact ? (
+              {canHide ? (
                 <button
                   type="button"
                   aria-label="Hide floating composer"
@@ -404,7 +455,11 @@ export function RightPanelComposerOverlay({
                   onClick={(event) => {
                     event.currentTarget.blur();
                     setFocused(false);
-                    setHiddenReason("manual");
+                    if (visibility.kind === "controlled") {
+                      visibility.onVisibleChange(false);
+                    } else {
+                      setHiddenReason("manual");
+                    }
                     onPointerDownOutside?.();
                   }}
                 >
@@ -425,15 +480,15 @@ export function RightPanelComposerOverlay({
         APP_SHELL_RIGHT_PANEL_COMPOSER_OVERLAY_LAYER_CLASS,
       )}
       style={portalStyle}
-      aria-hidden={hiddenReason === null}
-      inert={hiddenReason === null}
+      aria-hidden={contentVisible}
+      inert={contentVisible}
     >
       <button
         type="button"
         aria-label="Show floating composer"
         className={cn(
           "composer-surface-chrome cursor-interaction absolute right-0 bottom-0 left-0 mx-auto h-4 w-40 rounded-t-2xl bg-token-input-background/90 text-token-description-foreground opacity-95 backdrop-blur-lg transition-[height,opacity,translate] duration-150 ease-out hover:h-5 hover:opacity-100 focus-visible:h-5 focus-visible:ring-1 focus-visible:ring-token-focus-border focus-visible:outline-none motion-reduce:transition-none",
-          hiddenReason !== null
+          !contentVisible
             ? "pointer-events-auto translate-y-0"
             : "pointer-events-none translate-y-full opacity-0",
         )}
@@ -444,10 +499,10 @@ export function RightPanelComposerOverlay({
       >
         <span
           aria-hidden="true"
-          className="pointer-events-none absolute inset-x-3 top-0 flex h-4 items-center gap-2 select-none"
+          className="pointer-events-none absolute inset-x-3 top-0 flex h-4 items-center select-none"
         >
           <PlusIcon className="ml-1 size-2.5 shrink-0 opacity-50" />
-          <span className="h-0.5 w-10 rounded-full bg-current opacity-30" />
+          <span className="absolute top-1/2 left-1/2 h-0.5 w-10 -translate-x-1/2 -translate-y-1/2 rounded-full bg-current opacity-30" />
           <ChevronDownIcon className="ml-auto size-2.5 rotate-180 opacity-60" />
         </span>
       </button>
@@ -457,7 +512,7 @@ export function RightPanelComposerOverlay({
   return (
     <>
       {createPortal(overlay, target.ownerDocument.body)}
-      {compact ? createPortal(reveal, target.ownerDocument.body) : null}
+      {canHide ? createPortal(reveal, target.ownerDocument.body) : null}
     </>
   );
 }

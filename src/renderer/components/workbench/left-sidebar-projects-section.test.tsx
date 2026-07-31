@@ -156,8 +156,17 @@ describe("SidebarProjectsSection", () => {
     expect(rows.length).toBe(2);
     expect(rows[0]?.getAttribute("data-app-action-sidebar-project-id")).toBe("beta");
     expect(rows[0]?.getAttribute("data-app-action-sidebar-project-label")).toBe("Beta");
-    expect(rows[0]?.getAttribute("role")).toBe("button");
-    expect(rows[0]?.getAttribute("tabindex")).toBe("0");
+    const betaProjectButton = rows[0]?.querySelector(
+      "[data-app-action-sidebar-select-project]",
+    );
+    const betaDisclosureButton = rows[0]?.querySelector(
+      "[data-app-action-sidebar-project-toggle-chevron]",
+    );
+    expect(betaProjectButton?.tagName).toBe("BUTTON");
+    expect(betaProjectButton?.getAttribute("aria-label")).toBe("Open Beta");
+    expect(betaProjectButton?.getAttribute("aria-current")).toBe("page");
+    expect(betaDisclosureButton?.tagName).toBe("BUTTON");
+    expect(betaDisclosureButton?.getAttribute("aria-label")).toBe("Collapse project");
   });
 
   test("opens project creation directly from the add-project button", async () => {
@@ -425,7 +434,7 @@ describe("SidebarProjectsSection", () => {
       />,
     );
 
-    fireEvent.click(getByRole("button", { name: "Beta" }));
+    fireEvent.click(getByRole("button", { name: "Open Beta" }));
     expect(onActivate).toHaveBeenCalledTimes(1);
     onActivate.mockClear();
 
@@ -562,7 +571,7 @@ describe("SidebarProjectsSection", () => {
 
     expect(
       container
-        .querySelector('[data-app-action-sidebar-project-row]')
+        .querySelector('[data-app-action-sidebar-project-toggle-chevron]')
         ?.getAttribute("aria-expanded"),
     ).toBe("true");
     expect(onActivate).not.toHaveBeenCalled();
@@ -613,18 +622,23 @@ describe("SidebarProjectsSection", () => {
     expect(getByText("Alpha session").textContent).toBe("Alpha session");
   });
 
-  test("renders the project disclosure chevron after the project label", () => {
+  test("reuses the Project marker slot for the independent disclosure control", () => {
     const { container, rerender } = renderProjectRowWithSessions();
 
     const expandedRow = container.querySelector("[data-app-action-sidebar-project-row]");
+    const leadingSlot = expandedRow?.querySelector("[data-app-action-sidebar-project-leading-slot]");
+    const projectMarker = expandedRow?.querySelector("[data-app-action-sidebar-project-marker]");
     const expandedLabel = expandedRow?.querySelector("[data-app-action-sidebar-project-label-text]");
     const expandedChevron = expandedRow?.querySelector("[data-app-action-sidebar-project-toggle-chevron]");
 
-    if (!expandedLabel || !expandedChevron) {
-      throw new Error("Expected project label and disclosure chevron");
+    if (!leadingSlot || !projectMarker || !expandedLabel || !expandedChevron) {
+      throw new Error("Expected a shared Project marker and disclosure slot before the label");
     }
 
-    expect(Boolean(expandedLabel.compareDocumentPosition(expandedChevron) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    expect(leadingSlot.contains(projectMarker)).toBe(true);
+    expect(leadingSlot.contains(expandedChevron)).toBe(true);
+    expect(Boolean(expandedChevron.compareDocumentPosition(expandedLabel) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    expect(expandedChevron.getAttribute("aria-expanded")).toBe("true");
 
     rerender(
       <TestQueryProvider>
@@ -649,6 +663,7 @@ describe("SidebarProjectsSection", () => {
 
     const collapsedChevronIcon = container.querySelector("[data-app-action-sidebar-project-toggle-chevron] svg");
     expect(collapsedChevronIcon !== null).toBe(true);
+    expect(container.querySelector("[data-app-action-sidebar-project-toggle-chevron]")?.getAttribute("aria-expanded")).toBe("false");
   });
 
   test("unmounts project session children when collapsed", () => {

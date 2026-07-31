@@ -255,6 +255,18 @@ describe("BrowserUseIabApi", () => {
     })).rejects.toThrow("unavailable");
   });
 
+  test("publishes the exact Codex owner on every runtime tab", async () => {
+    const { api, service } = makeApi();
+    await api.dispatch("createTab", {
+      session_id: "thread-1",
+      turn_id: "turn-1",
+    });
+
+    expect([...service.tabs.values()]).toEqual([
+      expect.objectContaining({ codexSessionId: "thread-1" }),
+    ]);
+  });
+
   test("checks session ownership before reporting cached-expression state", async () => {
     const { api } = makeApi();
     await expect(api.dispatch("executeCdpWithCachedExpression", {

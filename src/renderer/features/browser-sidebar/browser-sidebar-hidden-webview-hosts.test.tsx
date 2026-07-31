@@ -52,7 +52,6 @@ describe("BrowserSidebarHiddenWebviewHosts", () => {
     render(
       <BrowserSidebarHiddenWebviewHosts
         sessionId="session-1"
-        codexSessionId="thread-1"
         browserViewScopeId="window-session-1"
         tabs={[{ ...browserTab, config: { projectId: "alpha", url: "about:blank" } }]}
         mountedTabIds={new Set()}
@@ -69,7 +68,6 @@ describe("BrowserSidebarHiddenWebviewHosts", () => {
     render(
       <BrowserSidebarHiddenWebviewHosts
         sessionId="session-1"
-        codexSessionId="thread-1"
         browserViewScopeId="window-session-1"
         tabs={[browserTab]}
         mountedTabIds={new Set()}
@@ -102,7 +100,6 @@ describe("BrowserSidebarHiddenWebviewHosts", () => {
     render(
       <BrowserSidebarHiddenWebviewHosts
         sessionId="session-1"
-        codexSessionId="thread-1"
         browserViewScopeId="window-session-1"
         tabs={[browserTab]}
         mountedTabIds={new Set(["tab-browser"])}

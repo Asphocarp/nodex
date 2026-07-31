@@ -26,22 +26,22 @@ Neither may mirror Query, Thread, Browser, Terminal, or editor authority.
 
 | Field or projection | Identity and lifetime | Persistence / cross-window | Canonical owner |
 | --- | --- | --- | --- |
-| `location` | One discriminated `empty | session | settings | automations | library | pending-worktree` location per renderer window | Main-owned Window Session layout v4; no live cross-window apply | `WorkbenchWindowState` App atom |
-| `activeProjectId`, `activeSessionId` | Pure projection of the current/return location | Included through `location` only | `getWorkbenchSessionReturnLocation`; never writable mirrors |
-| `databaseSearchByProject` | Database search text per Project in one Window Session | Layout v4 | `WorkbenchWindowState` App atom |
-| `sessionViewsBySessionId` | Per-window panel trees, durable tabs, selected leaves/tabs, MRU, collapse, full-width, and stable sizes | Layout v4 with revisioned compare-and-swap persistence | `WorkbenchWindowState` App atom plus pure Session view mutation kernel |
-| Back/Forward stacks | Renderer-lifetime location and complete view checkpoints | Not cold-restored | `WorkbenchWindowState` history |
+| `location` | One discriminated `empty | project | session | settings | automations | library | pending-worktree` location per renderer window | Main-owned Window Session layout v5; no live cross-window apply | `WorkbenchWindowState` App atom |
+| `activeProjectId`, `activeSessionId` | Pure projection of the current/return Scene location | Included through `location` only | `getWorkbenchSceneReturnLocation`; never writable mirrors |
+| `databaseSearchByProject` | Database search text per Project in one Window Session | Layout v5 | `WorkbenchWindowState` App atom |
+| `scenesByOwnerKey` | Per-window Project/Session primary surface, panel trees, durable surfaces, selected leaves/surfaces, MRU, collapse, full-width, and stable sizes | Layout v5 with revisioned compare-and-swap persistence | `WorkbenchWindowState` App atom plus pure owner-scoped Scene mutation kernel |
+| Back/Forward stacks | Renderer-lifetime location and complete Scene checkpoints | Not cold-restored | `WorkbenchWindowState` history |
 | `viewsByProject`, `dbViewPrefsByProject` | Profile-level Database presentation preferences | `nodex-workbench-profile-preferences-v1` | `useWorkbenchProfilePreferences` App atom |
 | Sidebar collapsed/width/disclosure | Profile presentation; pointer samples remain mounted-interaction state | Same focused preference record | `useWorkbenchProfilePreferences`; `useWorkbenchSidebarChrome` owns gesture/motion |
 | Recent Page sessions | Bounded profile convenience history | Same focused preference record | `useWorkbenchProfilePreferences` |
 | Session summary windows and selected detail | Query cache lifetime | Query invalidation/GC | `WorkbenchSessionCatalog`; never copied into a second cache |
-| Durable panel commands | Selected Session view identity | Commits through Window State | `WorkbenchPanelController.durable` |
-| Preview and auxiliary panel surfaces | Renderer lifetime, per Session/panel leaf | Never cold-restored | `workbench-ephemeral-panel-state` reducer |
+| Durable panel commands | Explicit owner Scene identity | Commits through Window State | `WorkbenchPanelController.sceneDurable` |
+| Preview and auxiliary panel surfaces | Renderer lifetime, per Scene/panel leaf | Never cold-restored | `workbench-ephemeral-panel-state` reducer |
 | DOM geometry and resize animation | Mounted Workbench runtime | None; only settled sizes enter Window State | `useWorkbenchChromeLayout` MotionValues plus Chrome commands |
 
-Layout v1-v3 remain decode-only Window Session inputs. Canonical writers emit
-v4 and never recreate stage, sliding-window, dock, pages/threads/files tab, or
-duplicate Project/Session selection fields.
+Layout v1-v4 remain decode-only Window Session inputs. Canonical writers emit
+v5 and never recreate stage, sliding-window, dock, pages/threads/files tab,
+per-Session view maps, or duplicate Project/Session selection fields.
 
 ## Root provider inventory
 
@@ -91,7 +91,7 @@ lifecycle; it is not task state.
 | Workspace Files navigator disclosure, selection, search, and scroll | Host + hidden-file policy + canonical workspace root | Renderer memory | Maitai App atom family; directory request data remains Query-owned | Renderer shutdown or explicit root cleanup |
 | Review diff preferences | Renderer application | Renderer memory | App atoms | Renderer shutdown |
 | Review source, tree, selection, expansion, and pending file reveal | Task Route identity | Renderer memory | Route atoms; source data stays in conversation/Query authorities | Successful reveal, explicit source change, or Route eviction |
-| Window-local Project Session panels and tabs | Window Session + Project Session ID | Window Session snapshot; cloned only as a new-window starting point and never live-applied cross-window | `WorkbenchWindowState`, `WorkbenchPanelController`, and pure `WorkbenchSessionViewSnapshot` mutations | Explicit panel-tab close, hard Session reconciliation, or bounded closed-window history eviction |
+| Window-local Workbench Scenes | Window Session + canonical Project/Session owner key | Window Session snapshot; cloned only as a new-window starting point and never live-applied cross-window | `WorkbenchWindowState`, `WorkbenchPanelController`, and pure `WorkbenchSceneSnapshot` mutations | Explicit surface close, authoritative owner removal, or bounded closed-window history eviction |
 
 One mounted `ComposerScope` represents one writable form owner. The primary Thread route derives that identity from its promoted session scope so pending-to-attached transitions preserve local composer state. Background-agent and Subagents detail routes are read-only transcript surfaces and must not mount a composer beneath the same route. A writable auxiliary thread surface, such as a side chat, must provide a stable surface-specific composer identity; sharing the primary identity across simultaneous forms is an ownership violation, not a recoverable render collision.
 
@@ -144,8 +144,8 @@ renders the stack; it is presentation state, not durable data or runtime
 authority.
 Persistent Composer/worktree/summary preferences were removed from the shell and
 now live in `use-workbench-preferences.ts` App atoms with same-window storage
-Adapters. Project Session tabs/layout, including projectless exact-file Files
-and Browser/Terminal descriptors, live in the owning Window Session snapshot.
+Adapters. Project/Session Scene layout, including projectless exact-file Files
+and Browser/Terminal descriptors, lives in the owning Window Session snapshot.
 Closing a BrowserWindow detaches that renderer/runtime owner but retains its
 Window Session snapshot as bounded closed history. The next generic New Window
 request reattaches that exact snapshot; only the no-closed-history fallback and

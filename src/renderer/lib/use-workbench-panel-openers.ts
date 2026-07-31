@@ -22,10 +22,9 @@ import {
 import {
   resolveDbCardSourceLeafId,
   resolveLeafIdForPanelTab,
-  resolvePageTabTargetLeafId,
+  resolveRightNeighborPanelPlacement,
   resolveSessionPanelActiveLeafId,
   resolveSessionPanelActiveTabId,
-  shouldEnsureRightLeafForDbCardOpen,
 } from "./workbench-panel-placement";
 import {
   buildSideChatParentNavigationPath,
@@ -46,7 +45,7 @@ import {
   getRenderablePanelPreviewTab,
 } from "./workbench-panel-projection";
 import {
-  makeWorkbenchPanelSlotKey,
+  makeWorkbenchSessionPanelSlotKey,
 } from "./workbench-panel-slot-key";
 import {
   findWorkbenchPanelLeaf,
@@ -251,7 +250,7 @@ const openSideChat = useCallback(async (
       });
       panelControllerRef.current.updateSideChatActiveTabByPanel((current) => ({
         ...current,
-        [makeWorkbenchPanelSlotKey(activeSession.id, panelId, leafId)]: readyTabId,
+        [makeWorkbenchSessionPanelSlotKey(activeSession.id, panelId, leafId)]: readyTabId,
       }));
       if (draftPrompt.length > 0) {
         workbenchCodexControl.setComposerIntent(result.threadId, {
@@ -325,7 +324,7 @@ const openSideChat = useCallback(async (
     panelControllerRef.current.upsertEphemeralTab(tab);
     panelControllerRef.current.updatePanelCollapsedOverrides((current) => ({
       ...current,
-      [makeWorkbenchPanelSlotKey(activeSession.id, panelId)]: false,
+      [makeWorkbenchSessionPanelSlotKey(activeSession.id, panelId)]: false,
     }));
     await ensureActivePanelOpenWithoutRefresh(panelId);
   }, [activeSession, ensureActivePanelOpenWithoutRefresh]);
@@ -396,7 +395,7 @@ const openSideChat = useCallback(async (
     });
     panelControllerRef.current.updateSideChatActiveTabByPanel((current) => ({
       ...current,
-      [makeWorkbenchPanelSlotKey(activeSession.id, existingTab.panelId, existingTab.leafId)]: loadingTabId,
+      [makeWorkbenchSessionPanelSlotKey(activeSession.id, existingTab.panelId, existingTab.leafId)]: loadingTabId,
     }));
 
     try {
@@ -424,7 +423,7 @@ const openSideChat = useCallback(async (
       });
       panelControllerRef.current.updateSideChatActiveTabByPanel((current) => ({
         ...current,
-        [makeWorkbenchPanelSlotKey(activeSession.id, existingTab.panelId, existingTab.leafId)]: readyTabId,
+        [makeWorkbenchSessionPanelSlotKey(activeSession.id, existingTab.panelId, existingTab.leafId)]: readyTabId,
       }));
     } catch {
       panelControllerRef.current.updateSideChatTabsBySession((current) => {
@@ -444,7 +443,7 @@ const openSideChat = useCallback(async (
       });
       panelControllerRef.current.updateSideChatActiveTabByPanel((current) => ({
         ...current,
-        [makeWorkbenchPanelSlotKey(activeSession.id, existingTab.panelId, existingTab.leafId)]: existingTab.id,
+        [makeWorkbenchSessionPanelSlotKey(activeSession.id, existingTab.panelId, existingTab.leafId)]: existingTab.id,
       }));
       toast.danger("Failed to start a new side chat", { id: "side-chat-recreate-failed" });
     }
@@ -466,7 +465,7 @@ const openSideChat = useCallback(async (
 
     panelControllerRef.current.updatePreviewTabsByPanel((current) => ({
       ...current,
-      [makeWorkbenchPanelSlotKey(activeSession.id, panelId, leafId)]: makePreviewWorkbenchTabProjection(activeSession, panelId, draft),
+      [makeWorkbenchSessionPanelSlotKey(activeSession.id, panelId, leafId)]: makePreviewWorkbenchTabProjection(activeSession, panelId, draft),
     }));
     await ensureActivePanelOpenWithoutRefresh(panelId);
     await refreshProjectSessions(sessionProjectId);
@@ -604,7 +603,7 @@ const openSideChat = useCallback(async (
 
     panelControllerRef.current.updatePreviewTabsByPanel((current) => ({
       ...current,
-      [makeWorkbenchPanelSlotKey(activeSession.id, input.panelId, leafId)]: makePreviewWorkspaceFileTab(activeSession, input.panelId, {
+      [makeWorkbenchSessionPanelSlotKey(activeSession.id, input.panelId, leafId)]: makePreviewWorkspaceFileTab(activeSession, input.panelId, {
         leafId,
         path: input.path,
         title: input.title || getWorkspaceFileName(input.path),
@@ -650,14 +649,23 @@ const openSideChat = useCallback(async (
     }
 
     const sourceLeafId = resolveDbCardSourceLeafId(activeSession, options?.sourceTabId);
-    let targetLeafId = resolvePageTabTargetLeafId(activeSession, options?.sourceTabId);
-    if (!targetLeafId && shouldEnsureRightLeafForDbCardOpen(activeSession, sourceLeafId, rightPanelFullWidth)) {
+    const placement = resolveRightNeighborPanelPlacement(
+      activeSession.panels.right.layout,
+      sourceLeafId,
+      {
+        fullWidth: rightPanelFullWidth,
+      },
+    );
+    let targetLeafId = placement.kind === "existing"
+      ? placement.leafId
+      : undefined;
+    if (placement.kind === "ensure") {
       targetLeafId =
         panelControllerRef.current.durable.ensureLeafToRight(
           activeSession,
           {
-          panelId: "right",
-          leafId: sourceLeafId,
+            panelId: "right",
+            leafId: placement.sourceLeafId,
           },
         );
     }
@@ -677,7 +685,7 @@ const openSideChat = useCallback(async (
     if (options?.openMode === "preview") {
       panelControllerRef.current.updatePreviewTabsByPanel((current) => ({
         ...current,
-        [makeWorkbenchPanelSlotKey(activeSession.id, "right", previewLeafId)]: makePreviewPageStageTab(
+        [makeWorkbenchSessionPanelSlotKey(activeSession.id, "right", previewLeafId)]: makePreviewPageStageTab(
           activeSession,
           "right",
           { projectId, pageId, titleSnapshot },

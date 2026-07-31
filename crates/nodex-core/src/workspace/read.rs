@@ -40,7 +40,6 @@ struct SessionRow {
     archived: i64,
     archived_at: Option<String>,
     unread: i64,
-    database_starter: i64,
     thread_id: Option<String>,
     thread_name: Option<String>,
     thread_preview: Option<String>,
@@ -337,7 +336,7 @@ fn read_session(
         .query_row(
             "SELECT session.id, session.project_id, session.no_thread_fallback_title, \
                session.\"order\", session.pinned, session.pinned_order, session.archived, \
-               session.archived_at, session.unread, session.database_starter, \
+               session.archived_at, session.unread, \
                thread.thread_id, thread.thread_name, \
                thread.thread_preview, session.created_at, session.updated_at \
              FROM project_sessions session \
@@ -366,12 +365,11 @@ fn session_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionRow> {
         archived: row.get(6)?,
         archived_at: row.get(7)?,
         unread: row.get(8)?,
-        database_starter: row.get(9)?,
-        thread_id: row.get(10)?,
-        thread_name: row.get(11)?,
-        thread_preview: row.get(12)?,
-        created_at: row.get(13)?,
-        updated_at: row.get(14)?,
+        thread_id: row.get(9)?,
+        thread_name: row.get(10)?,
+        thread_preview: row.get(11)?,
+        created_at: row.get(12)?,
+        updated_at: row.get(13)?,
     })
 }
 
@@ -398,7 +396,6 @@ fn session_summary(row: SessionRow) -> ProjectWorkspaceSessionSummary {
         archived: row.archived == 1,
         archived_at: row.archived_at,
         unread: row.unread == 1,
-        database_starter: row.database_starter == 1,
         thread_id: row.thread_id,
         created_at: row.created_at,
         updated_at: row.updated_at,
@@ -569,22 +566,21 @@ mod tests {
                            WHERE block_id = 'database-1'; \
                          INSERT INTO project_sessions( \
                            id, project_id, no_thread_fallback_title, \"order\", pinned, \
-                           pinned_order, archived, archived_at, unread, \
-                           database_starter, created_at, updated_at \
+                           pinned_order, archived, archived_at, unread, created_at, updated_at \
                          ) VALUES \
-                           ('session-project', 'project-1', 'Fallback', 2, 1, 0, 0, NULL, 1, 0, \
+                           ('session-project', 'project-1', 'Fallback', 2, 1, 0, 0, NULL, 1, \
                             '2026-07-19T03:31:00.000Z', '2026-07-19T03:34:00.000Z'), \
                            ('session-archived', 'project-1', 'Archived session', 3, 0, NULL, 1, \
-                            '2026-07-19T03:35:00.000Z', 0, 0, \
+                            '2026-07-19T03:35:00.000Z', 0, \
                             '2026-07-19T03:32:00.000Z', '2026-07-19T03:35:00.000Z'), \
                            ('session-archived-project', 'project-2', 'Archived project', 0, 0, \
-                            NULL, 0, NULL, 0, 0, \
+                            NULL, 0, NULL, 0, \
                             '2026-07-19T03:32:00.000Z', '2026-07-19T03:35:00.000Z'), \
                            ('session-foreign', 'project-foreign', 'Foreign session', 0, 0, NULL, \
-                            0, NULL, 0, 0, \
+                            0, NULL, 0, \
                             '2026-07-19T03:33:00.000Z', '2026-07-19T03:33:00.000Z'), \
                            ('session-projectless', NULL, 'Projectless', 0, 0, NULL, 0, NULL, 0, \
-                            0, '2026-07-19T03:30:00.000Z', '2026-07-19T03:30:00.000Z'); \
+                            '2026-07-19T03:30:00.000Z', '2026-07-19T03:30:00.000Z'); \
                          INSERT INTO codex_threads( \
                            thread_id, project_id, thread_name, thread_preview, model_provider, \
                            managed_worktree_path, status_type, status_active_flags_json, archived, \
@@ -756,7 +752,6 @@ mod tests {
             panic!("session snapshot");
         };
         assert_eq!(session.display_title, "Thread preview");
-        assert!(!session.database_starter);
 
         let ProjectWorkspaceReadValue::Thread { thread } = read(
             &module,

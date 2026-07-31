@@ -253,7 +253,7 @@ import {
 import type {
   CodexForkBrowserSidePanelSnapshot,
   CodexForkBrowserTransferConsumeInput,
-  CodexForkBrowserViewContext,
+  CodexForkBrowserSceneContext,
 } from "../../shared/codex-fork-browser-transfer";
 import { parseAssetSource } from "../../shared/assets";
 import {
@@ -792,6 +792,7 @@ interface CodexDynamicDirectConversationLaunchInput {
   readonly createInput: CodexDynamicCreateThreadInput;
   readonly additionalDeveloperInstructions?: string | null;
   readonly baseInstructions?: string | null;
+  readonly beforeFirstTurn?: (threadId: string) => Promise<void>;
   readonly firstTurnAdditionalContext?: TurnStartParams["additionalContext"];
   readonly firstTurnAttachments?: readonly CodexLiveFileAttachment[];
   readonly firstTurnCommentAttachments?: readonly CodexReviewDiffCommentAttachment[];
@@ -1442,6 +1443,15 @@ export interface CodexBrowserUseTurnLifecyclePort {
     sessionId: string;
     turnId: string;
   }): Promise<void> | void;
+}
+
+export interface CodexBrowserUseRoutePromoterPort {
+  promote(input: {
+    browserConversationId: string;
+    browserViewScopeId: string;
+    codexSessionId: string;
+    projectId: string | null;
+  }): Promise<void>;
 }
 
 type CodexConversationStreamRole = "owner" | "follower" | null;
@@ -2954,6 +2964,7 @@ export class CodexService extends EventEmitter {
   private browserUseAvailableBackends: () => readonly BrowserRuntimeBackend[] =
     () => [];
   private browserUseTurnLifecycle: CodexBrowserUseTurnLifecyclePort | null = null;
+  private browserUseRoutePromoter: CodexBrowserUseRoutePromoterPort | null = null;
   private readonly projectlessHomeDirectory: () => string;
   private readonly resolveThreadGoalAttachmentsRoot: () => Promise<string>;
   private readonly pastedTextAttachmentManagersByRoot = new Map<
@@ -4428,6 +4439,33 @@ export class CodexService extends EventEmitter {
     lifecycle: CodexBrowserUseTurnLifecyclePort | null,
   ): void {
     this.browserUseTurnLifecycle = lifecycle;
+  }
+
+  setBrowserUseRoutePromoter(
+    promoter: CodexBrowserUseRoutePromoterPort | null,
+  ): void {
+    this.browserUseRoutePromoter = promoter;
+  }
+
+  private async promoteBrowserUseRouteForFirstTurn(input: {
+    origin: CodexThreadStartForSessionInput["browserUsePresentationOrigin"];
+    codexSessionId: string;
+    projectId: string | null;
+    expectedBrowserViewScopeId?: string;
+  }): Promise<void> {
+    if (!input.origin) return;
+    if (
+      input.expectedBrowserViewScopeId
+      && input.origin.browserViewScopeId !== input.expectedBrowserViewScopeId
+    ) {
+      throw new Error("Browser Use origin does not belong to this window");
+    }
+    if (!this.browserUseRoutePromoter) return;
+    await this.browserUseRoutePromoter.promote({
+      ...input.origin,
+      codexSessionId: input.codexSessionId,
+      projectId: input.projectId,
+    });
   }
 
   setNodexAgentAuthorityPort(port: NodexAgentAuthorityPort): void {
@@ -15060,6 +15098,13 @@ export class CodexService extends EventEmitter {
     readonly signal?: AbortSignal;
   }): Promise<Extract<CodexThreadStartForSessionResult, { readonly kind: "pending" }>> {
     if (input.signal?.aborted) throw new Error("Request canceled");
+    if (
+      input.request.browserUsePresentationOrigin
+      && input.request.browserUsePresentationOrigin.browserViewScopeId
+        !== input.browserViewScopeId
+    ) {
+      throw new Error("Browser Use origin does not belong to this window");
+    }
 
     const projectContext = await this.requirePrimaryWorkspaceRoot(input.request.projectId);
     const sourceWorkspaceRoot = projectContext.primaryWorkspaceRoot;
@@ -15220,6 +15265,12 @@ export class CodexService extends EventEmitter {
         threadGoalDraft,
         heartbeatAutomation: input.request.heartbeatAutomation ?? null,
         skipAutoTitleGeneration: input.request.skipAutoTitleGeneration === true,
+        ...(input.request.browserUsePresentationOrigin
+          ? {
+              browserUsePresentationOrigin:
+                input.request.browserUsePresentationOrigin,
+            }
+          : {}),
         sourceConversationId: null,
         sourceCollaborationMode: null,
       });
@@ -15586,6 +15637,12 @@ export class CodexService extends EventEmitter {
         await this.endThreadStartNotificationDeferral();
       }
       progressThreadId = link.threadId;
+      await this.promoteBrowserUseRouteForFirstTurn({
+        origin: input.browserUsePresentationOrigin,
+        codexSessionId: link.threadId,
+        projectId: input.projectId,
+        expectedBrowserViewScopeId: options.browserViewScopeId,
+      });
 
       this.logger.info("Created Codex thread for project session", {
         projectId: input.projectId,
@@ -15863,7 +15920,7 @@ export class CodexService extends EventEmitter {
   async forkProjectSessionThread(
     sessionId: string,
     input: ProjectSessionForkInput,
-    sourceViewContext?: CodexForkBrowserViewContext,
+    sourceSceneContext?: CodexForkBrowserSceneContext,
   ): Promise<ProjectSessionForkResult> {
     await this.ensureClientReady();
 
@@ -15876,10 +15933,13 @@ export class CodexService extends EventEmitter {
       throw new Error("Session has no Codex thread to fork");
     }
     if (
-      sourceViewContext
-      && sourceViewContext.view.sessionId !== sourceSession.id
+      sourceSceneContext
+      && (
+        sourceSceneContext.scene.owner.kind !== "session"
+        || sourceSceneContext.scene.owner.sessionId !== sourceSession.id
+      )
     ) {
-      throw new Error("Fork source view does not belong to the source session");
+      throw new Error("Fork source Scene does not belong to the source session");
     }
     const sourceThread = sourceSession.thread;
     const sourceWorkspaceInheritance = resolveCodexForkWorkspaceInheritance(sourceThread);
@@ -15945,7 +16005,7 @@ export class CodexService extends EventEmitter {
         pendingWorktreeId: created.pendingWorktreeId,
         sourceConversationId: sourceThreadId,
         sourceWorkspaceRoot: sourceThread.cwd,
-        ...(sourceViewContext ? { sourceViewContext } : {}),
+        ...(sourceSceneContext ? { sourceSceneContext } : {}),
       });
       if (!created.clientThreadId) {
         throw new Error("Pending fork did not allocate a client thread id");
@@ -16088,7 +16148,7 @@ export class CodexService extends EventEmitter {
     await this.ensureForkSidePanelTransferLifecycle()?.stageDirect({
       sourceConversationId: sourceThreadId,
       targetConversationId: detail.threadId,
-      ...(sourceViewContext ? { sourceViewContext } : {}),
+      ...(sourceSceneContext ? { sourceSceneContext } : {}),
     });
 
     const nextSession = nextSessionBox.value;
@@ -21559,6 +21619,17 @@ export class CodexService extends EventEmitter {
         ...(params.baseInstructions === undefined
           ? {}
           : { baseInstructions: params.baseInstructions }),
+        ...(entry.browserUsePresentationOrigin
+          ? {
+              beforeFirstTurn: async (threadId: string) => {
+                await this.promoteBrowserUseRouteForFirstTurn({
+                  origin: entry.browserUsePresentationOrigin,
+                  codexSessionId: threadId,
+                  projectId,
+                });
+              },
+            }
+          : {}),
         ...(additionalContext ? { firstTurnAdditionalContext: additionalContext } : {}),
         firstTurnAttachments,
         firstTurnCommentAttachments: [...params.commentAttachments],
@@ -22124,6 +22195,25 @@ export class CodexService extends EventEmitter {
     }
 
     const threadId = detail.threadId;
+    if (input.projectSessionId) {
+      if (!projectedThread) {
+        throw new Error("Pending thread did not retain its start payload");
+      }
+      const attachedSummary = await this.upsertWorkspaceSessionLinkFromThread(
+        projectedThread,
+        {
+          projectId: input.target.projectId,
+          sessionId: input.projectSessionId,
+        },
+        {
+          fallbackCwd: effectiveCwd,
+          managedWorktreePath: input.managedWorktreePath ?? null,
+        },
+      );
+      if (!attachedSummary) {
+        throw new Error("Pending thread could not be attached to its project session");
+      }
+    }
     if (input.initialTitle?.trim()) {
       await this.setThreadName(threadId, input.initialTitle);
     }
@@ -22189,6 +22279,7 @@ export class CodexService extends EventEmitter {
       statusType: detail.statusType,
       statusActiveFlags: [...detail.statusActiveFlags],
     };
+    await input.beforeFirstTurn?.(threadId);
     record.isStreaming = true;
     record.streamRole = "owner";
     const clientUserMessageId = randomUUID();
@@ -22311,25 +22402,6 @@ export class CodexService extends EventEmitter {
       workspaceKind: input.target.workspaceKind,
     });
     void firstTurnPromise.catch(() => undefined);
-    if (input.projectSessionId) {
-      if (!projectedThread) {
-        throw new Error("Pending thread did not retain its start payload");
-      }
-      const attachedSummary = await this.upsertWorkspaceSessionLinkFromThread(
-        projectedThread,
-        {
-          projectId: input.target.projectId,
-          sessionId: input.projectSessionId,
-        },
-        {
-          fallbackCwd: effectiveCwd,
-          managedWorktreePath: input.managedWorktreePath ?? null,
-        },
-      );
-      if (!attachedSummary) {
-        throw new Error("Pending thread could not be attached to its project session");
-      }
-    }
     input.onThreadCreated?.(threadId);
     if (options.persistClientThreadIdentity !== false) {
       this.persistClientThreadIdentity(threadId, clientThreadId);

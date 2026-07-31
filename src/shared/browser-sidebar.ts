@@ -407,6 +407,8 @@ export interface BrowserUseCursorState extends BrowserSidebarTabIdentity {
 }
 
 export interface BrowserUseTabState extends BrowserSidebarTabIdentity {
+  /** Exact Codex thread (or provisional project Session) that owns this runtime tab. */
+  codexSessionId: string;
   projectId: string | null;
   title: string;
   url: string;
@@ -415,6 +417,12 @@ export interface BrowserUseTabState extends BrowserSidebarTabIdentity {
   captureActive: boolean;
   released: boolean;
   updatedAt: number;
+}
+
+/** Stable Browser presentation surface where an agent turn originates. */
+export interface BrowserUsePresentationOrigin {
+  browserConversationId: string;
+  browserViewScopeId: string;
 }
 
 export interface BrowserSidebarBrowserUseStateSnapshot {
@@ -550,7 +558,6 @@ export type BrowserSidebarCommand =
   }>
   | BrowserSidebarTargetedCommand<{
     type: "register-tab";
-    codexSessionId?: string;
     projectId: string | null;
     initialUrl?: string;
     title?: string;

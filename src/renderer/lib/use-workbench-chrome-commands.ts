@@ -14,12 +14,7 @@ import {
 import type {
   WorkbenchPanelController,
 } from "./use-workbench-panel-controller";
-import type {
-  useWorkbenchPanelLifecycle,
-} from "./use-workbench-panel-lifecycle";
-import type {
-  WorkbenchSessionRenderProjection,
-} from "./workbench-session-presentation";
+import type { WorkbenchPanelState } from "../../shared/workbench-session-view";
 
 export const RIGHT_PANEL_DEFAULT_WIDTH = 600;
 const RIGHT_PANEL_MIN_WIDTH = 320;
@@ -94,14 +89,22 @@ function readCodexWindowZoom(root: HTMLElement | null): number {
     : 1;
 }
 
-type PanelLifecycle = Pick<
-  ReturnType<typeof useWorkbenchPanelLifecycle>,
-  "setActivePanelCollapsed" | "updateActivePanel"
->;
+interface PanelLifecycle {
+  readonly setActivePanelCollapsed: (
+    panelId: "right" | "bottom",
+    collapsed: boolean,
+  ) => Promise<unknown>;
+  readonly updateActivePanel: (
+    panelId: "right" | "bottom",
+    input: Partial<WorkbenchPanelState>,
+  ) => Promise<unknown>;
+}
 
 interface WorkbenchChromeCommandsInput {
-  readonly activeSession:
-    WorkbenchSessionRenderProjection | null;
+  readonly activePanelOwner: {
+    readonly key: string;
+    readonly panels: Readonly<Record<"right" | "bottom", WorkbenchPanelState>>;
+  } | null;
   readonly rightPanelFullWidth: boolean;
   readonly controller: WorkbenchPanelController;
   readonly lifecycle: PanelLifecycle;
@@ -124,7 +127,7 @@ interface WorkbenchChromeCommandsInput {
  * cross the durable panel command Seam.
  */
 export function useWorkbenchChromeCommands({
-  activeSession,
+  activePanelOwner,
   rightPanelFullWidth,
   controller,
   lifecycle,
@@ -146,35 +149,35 @@ export function useWorkbenchChromeCommands({
     updateActivePanel,
   } = lifecycle;
 const showActiveRightPanel = useCallback(async () => {
-    if (!activeSession) return;
+    if (!activePanelOwner) return;
     await setActivePanelCollapsed("right", false);
-  }, [activeSession, setActivePanelCollapsed]);
+  }, [activePanelOwner, setActivePanelCollapsed]);
 
   const hideActiveRightPanel = useCallback(async () => {
-    if (!activeSession) return;
+    if (!activePanelOwner) return;
     await setActivePanelCollapsed("right", true);
-  }, [activeSession, setActivePanelCollapsed]);
+  }, [activePanelOwner, setActivePanelCollapsed]);
 
   const showActiveBottomPanel = useCallback(async () => {
-    if (!activeSession) return;
+    if (!activePanelOwner) return;
     await setActivePanelCollapsed("bottom", false);
-  }, [activeSession, setActivePanelCollapsed]);
+  }, [activePanelOwner, setActivePanelCollapsed]);
 
   const hideActiveBottomPanel = useCallback(async () => {
-    if (!activeSession) return;
+    if (!activePanelOwner) return;
     await setActivePanelCollapsed("bottom", true);
-  }, [activeSession, setActivePanelCollapsed]);
+  }, [activePanelOwner, setActivePanelCollapsed]);
 
   const toggleActiveRightPanelFullWidth = useCallback(() => {
-    if (!activeSession) return;
-    const overrideKey = makeWorkbenchPanelSlotKey(activeSession.id, "right");
+    if (!activePanelOwner) return;
+    const overrideKey = makeWorkbenchPanelSlotKey(activePanelOwner.key, "right");
     panelControllerRef.current.updatePanelCollapsedOverrides((current) => ({ ...current, [overrideKey]: false }));
     void (async () => {
       try {
         await updateActivePanel("right", {
           collapsed: false,
           size: {
-            ...activeSession.panels.right.size,
+            ...activePanelOwner.panels.right.size,
             fullWidth: !rightPanelFullWidth,
           },
         });
@@ -189,7 +192,7 @@ const showActiveRightPanel = useCallback(async () => {
         });
       }
     })();
-  }, [activeSession, rightPanelFullWidth, updateActivePanel]);
+  }, [activePanelOwner, rightPanelFullWidth, updateActivePanel]);
 
   const executeShellNavigation = useCallback((direction: "back" | "forward") => {
     if (direction === "back") {
@@ -212,7 +215,7 @@ const showActiveRightPanel = useCallback(async () => {
     const startWidth = regularRightPanelWidth.get();
     const restoreRequestedWidth = () => {
       rightPanelRequestedWidth.set(clampRegularRightPanelWidth(
-        activeSession?.panels.right.size.widthPx ?? RIGHT_PANEL_DEFAULT_WIDTH,
+        activePanelOwner?.panels.right.size.widthPx ?? RIGHT_PANEL_DEFAULT_WIDTH,
         sizingWidth,
       ));
     };
@@ -254,13 +257,13 @@ const showActiveRightPanel = useCallback(async () => {
       cleanupPointerResize();
       void (async () => {
         try {
-          if (!activeSession || closedByResize) {
+          if (!activePanelOwner || closedByResize) {
             restoreRequestedWidth();
             return;
           }
           await updateActivePanel("right", {
             size: {
-              ...activeSession.panels.right.size,
+              ...activePanelOwner.panels.right.size,
               widthPx: latestWidth,
             },
           });
@@ -281,7 +284,7 @@ const showActiveRightPanel = useCallback(async () => {
     window.addEventListener("pointerup", onPointerUp);
     window.addEventListener("pointercancel", onPointerCancel);
   }, [
-    activeSession,
+    activePanelOwner,
     regularRightPanelWidth,
     rightPanelRequestedWidth,
     setActivePanelCollapsed,
@@ -357,7 +360,7 @@ const showActiveRightPanel = useCallback(async () => {
     const startHeight = bottomPanelHeight.get();
     const restoreRequestedHeight = () => {
       bottomPanelRequestedHeight.set(clampBottomPanelHeight(
-        activeSession?.panels.bottom.size.heightPx ?? BOTTOM_PANEL_DEFAULT_HEIGHT,
+        activePanelOwner?.panels.bottom.size.heightPx ?? BOTTOM_PANEL_DEFAULT_HEIGHT,
         sizingHeight,
       ));
     };
@@ -399,13 +402,13 @@ const showActiveRightPanel = useCallback(async () => {
       cleanupPointerResize();
       void (async () => {
         try {
-          if (!activeSession || closedByResize) {
+          if (!activePanelOwner || closedByResize) {
             restoreRequestedHeight();
             return;
           }
           await updateActivePanel("bottom", {
             size: {
-              ...activeSession.panels.bottom.size,
+              ...activePanelOwner.panels.bottom.size,
               heightPx: latestHeight,
             },
           });
@@ -426,7 +429,7 @@ const showActiveRightPanel = useCallback(async () => {
     window.addEventListener("pointerup", onPointerUp);
     window.addEventListener("pointercancel", onPointerCancel);
   }, [
-    activeSession,
+    activePanelOwner,
     bottomPanelHeight,
     bottomPanelRequestedHeight,
     setActivePanelCollapsed,

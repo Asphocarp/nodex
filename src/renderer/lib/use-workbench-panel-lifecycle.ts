@@ -40,7 +40,7 @@ import {
   listWorkbenchPanelLeaves,
 } from "../../shared/workbench-panel-layout";
 import {
-  makeWorkbenchPanelSlotKey,
+  makeWorkbenchSessionPanelSlotKey,
 } from "./workbench-panel-slot-key";
 import {
   resolveSameLeafInsertionIndex,
@@ -157,7 +157,7 @@ const updateSessionPanel = useCallback(async (
   const setActivePanelCollapsed = useCallback(async (panelId: PanelId, collapsed: boolean) => {
     if (!activeSession) return null;
     const sessionId = activeSession.id;
-    const overrideKey = makeWorkbenchPanelSlotKey(sessionId, panelId);
+    const overrideKey = makeWorkbenchSessionPanelSlotKey(sessionId, panelId);
     panelControllerRef.current.updatePanelCollapsedOverrides((current) => ({ ...current, [overrideKey]: collapsed }));
 
     try {
@@ -184,8 +184,8 @@ const updateSessionPanel = useCallback(async (
   const clearPanelPreviewTab = useCallback((sessionId: string, panelId: PanelId, leafId?: string | null) => {
     panelControllerRef.current.updatePreviewTabsByPanel((current) => {
       const keys = leafId
-        ? [makeWorkbenchPanelSlotKey(sessionId, panelId, leafId), makeWorkbenchPanelSlotKey(sessionId, panelId)]
-        : [makeWorkbenchPanelSlotKey(sessionId, panelId)];
+        ? [makeWorkbenchSessionPanelSlotKey(sessionId, panelId, leafId), makeWorkbenchSessionPanelSlotKey(sessionId, panelId)]
+        : [makeWorkbenchSessionPanelSlotKey(sessionId, panelId)];
       if (!keys.some((key) => key in current)) return current;
       const next = { ...current };
       for (const key of keys) delete next[key];
@@ -333,7 +333,7 @@ const updateSessionPanel = useCallback(async (
       tabs,
       activeTabId,
       closingTabId: tabId,
-      mruTabIds: panelTabMruByLeafRef.current[makeWorkbenchPanelSlotKey(activeSession.id, panelId, leafId)] ?? [],
+      mruTabIds: panelTabMruByLeafRef.current[makeWorkbenchSessionPanelSlotKey(activeSession.id, panelId, leafId)] ?? [],
     });
   }, [
     activeSession,
@@ -486,8 +486,8 @@ const updateSessionPanel = useCallback(async (
   ) => {
     if (!activeSession) return;
     const targetLeafId = leafId ?? resolveSessionPanelActiveLeafId(activeSession, panelId);
-    const previewTab = previewTabsByPanel[makeWorkbenchPanelSlotKey(activeSession.id, panelId, targetLeafId)]
-      ?? previewTabsByPanel[makeWorkbenchPanelSlotKey(activeSession.id, panelId)]
+    const previewTab = previewTabsByPanel[makeWorkbenchSessionPanelSlotKey(activeSession.id, panelId, targetLeafId)]
+      ?? previewTabsByPanel[makeWorkbenchSessionPanelSlotKey(activeSession.id, panelId)]
       ?? null;
     const closeResult = await closePreviewPanelTabWithRuntime(
       previewTab,
@@ -689,8 +689,8 @@ const updateSessionPanel = useCallback(async (
   const pinPreviewTab = useCallback(async (panelId: PanelId, tabId: string, leafId?: string) => {
     if (!activeSession) return;
     const targetLeafId = leafId ?? resolveSessionPanelActiveLeafId(activeSession, panelId);
-    const previewTab = previewTabsByPanel[makeWorkbenchPanelSlotKey(activeSession.id, panelId, targetLeafId)]
-      ?? previewTabsByPanel[makeWorkbenchPanelSlotKey(activeSession.id, panelId)];
+    const previewTab = previewTabsByPanel[makeWorkbenchSessionPanelSlotKey(activeSession.id, panelId, targetLeafId)]
+      ?? previewTabsByPanel[makeWorkbenchSessionPanelSlotKey(activeSession.id, panelId)];
     if (!previewTab || previewTab.id !== tabId) return;
     if (pinningPreviewTabIdsRef.current.has(tabId)) return;
 
@@ -754,9 +754,9 @@ const updateSessionPanel = useCallback(async (
       });
       panelControllerRef.current.updateSideChatActiveTabByPanel((current) => {
         const next = { ...current };
-        if (sideChatTab.leafId) delete next[makeWorkbenchPanelSlotKey(activeSession.id, sideChatTab.panelId, sideChatTab.leafId)];
-        delete next[makeWorkbenchPanelSlotKey(activeSession.id, sideChatTab.panelId)];
-        next[makeWorkbenchPanelSlotKey(activeSession.id, targetPanelId, nextLeafId)] = tabId;
+        if (sideChatTab.leafId) delete next[makeWorkbenchSessionPanelSlotKey(activeSession.id, sideChatTab.panelId, sideChatTab.leafId)];
+        delete next[makeWorkbenchSessionPanelSlotKey(activeSession.id, sideChatTab.panelId)];
+        next[makeWorkbenchSessionPanelSlotKey(activeSession.id, targetPanelId, nextLeafId)] = tabId;
         return next;
       });
       await updateActivePanel(targetPanelId, { collapsed: false });
@@ -778,9 +778,9 @@ const updateSessionPanel = useCallback(async (
       });
       panelControllerRef.current.updateMcpAppActiveTabByPanel((current) => {
         const next = { ...current };
-        if (mcpAppTab.leafId) delete next[makeWorkbenchPanelSlotKey(activeSession.id, mcpAppTab.panelId, mcpAppTab.leafId)];
-        delete next[makeWorkbenchPanelSlotKey(activeSession.id, mcpAppTab.panelId)];
-        next[makeWorkbenchPanelSlotKey(activeSession.id, targetPanelId, nextLeafId)] = tabId;
+        if (mcpAppTab.leafId) delete next[makeWorkbenchSessionPanelSlotKey(activeSession.id, mcpAppTab.panelId, mcpAppTab.leafId)];
+        delete next[makeWorkbenchSessionPanelSlotKey(activeSession.id, mcpAppTab.panelId)];
+        next[makeWorkbenchSessionPanelSlotKey(activeSession.id, targetPanelId, nextLeafId)] = tabId;
         return next;
       });
       await updateActivePanel(targetPanelId, { collapsed: false });

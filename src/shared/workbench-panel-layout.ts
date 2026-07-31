@@ -1,11 +1,34 @@
-import type {
-  WorkbenchPanelLayout,
-  WorkbenchPanelLayoutV2,
-  WorkbenchPanelNode,
-  WorkbenchPanelSplitSide,
-  WorkbenchPanelSplitBranch,
-  WorkbenchPanelSplitLeaf,
-} from "./workbench-session-view";
+export type WorkbenchPanelSplitSide = "left" | "right" | "up" | "down";
+
+export interface WorkbenchPanelSplitLeaf {
+  type: "leaf";
+  id: string;
+  tabIds: string[];
+  activeTabId: string | null;
+  mruTabIds: string[];
+}
+
+export interface WorkbenchPanelSplitBranch {
+  type: "split";
+  id: string;
+  direction: "horizontal" | "vertical";
+  first: WorkbenchPanelNode;
+  second: WorkbenchPanelNode;
+  ratio: number;
+}
+
+export type WorkbenchPanelNode =
+  WorkbenchPanelSplitLeaf | WorkbenchPanelSplitBranch;
+
+export interface WorkbenchPanelLayout {
+  version: 2;
+  root: WorkbenchPanelNode;
+  activeLeafId: string;
+  mruLeafIds: string[];
+  maximizedLeafId?: string | null;
+}
+
+export type WorkbenchPanelLayoutV2 = WorkbenchPanelLayout;
 
 export const WORKBENCH_PANEL_LAYOUT_VERSION = 2;
 export const WORKBENCH_PANEL_MIN_RATIO = 0.15;

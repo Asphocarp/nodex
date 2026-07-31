@@ -78,7 +78,6 @@ class FakeProjectWorkspace {
       }
       return {
         project: this.project,
-        starterSessionId: "session:starter",
       };
     },
   } as unknown as DesktopProjectWorkspacePort;
@@ -152,7 +151,6 @@ describe("InitialProjectBootstrapService", () => {
     expect(extractPlainText(input?.starterPage.nfm ?? "")).toContain(sourceRoot);
     expect(presentations).toEqual([{
       projectId: input?.projectId,
-      starterSessionId: "session:starter",
       defaultDatabaseViewId: "view:default",
       starterPageId: input?.starterPage.pageId,
       starterPageTitle: "Welcome to Nodex",

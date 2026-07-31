@@ -1,4 +1,5 @@
 import type { CodexThreadSummary } from "@/lib/types";
+import { resolveThreadStatusDisplayLabel } from "@/lib/thread-status-display";
 
 export type ThreadMentionTone = "normal" | "muted" | "error";
 
@@ -35,13 +36,7 @@ function resolveThreadStateLabel(thread: CodexThreadSummary | null, resolving: b
   if (resolving) return "Loading";
   if (missing) return "Missing";
   if (!thread) return "Thread";
-  if (thread.archived) return "Archived";
-  if (thread.statusType === "systemError") return "Error";
-  if (thread.statusActiveFlags.includes("waitingOnApproval")) return "Approval";
-  if (thread.statusActiveFlags.includes("waitingOnUserInput")) return "Waiting";
-  if (thread.statusType === "active") return "Running";
-  if (thread.statusType === "idle") return "Ready";
-  return "Thread";
+  return resolveThreadStatusDisplayLabel(thread);
 }
 
 export function resolveThreadMentionDisplay(input: ThreadMentionDisplayInput): ThreadMentionDisplay {

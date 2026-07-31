@@ -11,7 +11,7 @@ import type {
 } from "../shared/window-session";
 import {
   createDefaultWorkbenchLayoutSnapshot,
-  getWorkbenchSessionReturnLocation,
+  getWorkbenchSceneReturnLocation,
   type WorkbenchLayoutSnapshot,
 } from "../shared/workbench-layout";
 import type { InitialProjectPresentation } from "../shared/initial-project-welcome";
@@ -22,9 +22,11 @@ import {
 } from "../shared/schemas/window-session";
 import { WorkbenchLayoutSnapshotSchema } from "../shared/schemas/workbench-layout";
 import {
-  cloneWorkbenchLayoutForNewWindow,
-  materializeInitialProjectWelcomeView,
-} from "../shared/workbench-session-view";
+  cloneWorkbenchSceneLayoutForNewWindow,
+  makeWorkbenchSceneKey,
+  materializeInitialProjectWelcomeScene,
+  type WorkbenchSurfaceDescriptor,
+} from "../shared/workbench-scene";
 import { getLogger } from "./logging/logger";
 
 const WINDOW_SESSIONS_V3_FILE_NAME = "window-sessions-v3.json";
@@ -95,35 +97,46 @@ function ensureBrowserStorageIdentities(
 ): WorkbenchLayoutSnapshot {
   return {
     ...layout,
-    sessionViewsBySessionId: Object.fromEntries(
-      Object.entries(layout.sessionViewsBySessionId).map(
-        ([projectSessionId, view]) => [
-          projectSessionId,
-          {
-            ...view,
-            tabsById: Object.fromEntries(
-              Object.entries(view.tabsById).map(([tabId, tab]) => {
-                if (tab.kind !== "browser" || tab.config.browserStorageId) {
-                  return [tabId, tab];
-                }
-                return [
-                  tabId,
-                  {
-                    ...tab,
-                    config: {
-                      ...tab.config,
-                      browserStorageId: browserStorageIdForLegacyTab(
-                        windowSessionId,
-                        projectSessionId,
-                        tab.config.browserTabId,
-                      ),
-                    },
-                  },
-                ];
-              }),
-            ),
-          },
-        ],
+    scenesByOwnerKey: Object.fromEntries(
+      Object.entries(layout.scenesByOwnerKey).map(
+        ([sceneKey, scene]) => {
+          const ensureSurface = (
+            surface: WorkbenchSurfaceDescriptor,
+          ): WorkbenchSurfaceDescriptor => {
+            if (
+              surface.kind !== "browser"
+              || surface.config.browserStorageId
+            ) {
+              return surface;
+            }
+            return {
+              ...surface,
+              config: {
+                ...surface.config,
+                browserStorageId: browserStorageIdForLegacyTab(
+                  windowSessionId,
+                  sceneKey,
+                  surface.config.browserTabId,
+                ),
+              },
+            };
+          };
+          return [
+            sceneKey,
+            {
+              ...scene,
+              primary: ensureSurface(scene.primary),
+              panelSurfacesById: Object.fromEntries(
+                Object.entries(scene.panelSurfacesById).map(
+                  ([surfaceId, surface]) => [
+                    surfaceId,
+                    ensureSurface(surface),
+                  ],
+                ),
+              ),
+            },
+          ];
+        },
       ),
     ),
   };
@@ -241,23 +254,27 @@ export class WindowSessionState {
       throw new Error("The requesting window has no assigned Window Session");
     }
 
-    const layout = cloneWorkbenchLayoutForNewWindow(sourceSession.layout);
-    const returnLocation = getWorkbenchSessionReturnLocation(
+    const layout = cloneWorkbenchSceneLayoutForNewWindow(sourceSession.layout);
+    const returnLocation = getWorkbenchSceneReturnLocation(
       layout.location,
     );
+    const currentProjectContextId = returnLocation.kind === "project"
+      ? returnLocation.projectId
+      : returnLocation.kind === "session"
+        ? returnLocation.projectContextId
+        : null;
+    const overrideProjectId =
+      override.activeProjectId ?? currentProjectContextId;
     const location = override.activeProjectSessionId === undefined
       ? layout.location
       : override.activeProjectSessionId === null
-        ? {
-            kind: "empty" as const,
-            activeProjectId:
-              override.activeProjectId ?? returnLocation.activeProjectId,
-          }
+        ? overrideProjectId
+          ? { kind: "project" as const, projectId: overrideProjectId }
+          : { kind: "empty" as const }
         : {
             kind: "session" as const,
-            activeProjectId:
-              override.activeProjectId ?? returnLocation.activeProjectId,
             sessionId: override.activeProjectSessionId,
+            projectContextId: overrideProjectId,
           };
     const session = this.createSessionRecord({
       ...layout,
@@ -603,24 +620,25 @@ export class WindowSessionState {
       throw new Error("Initial Project has no Window Session presentation target");
     }
 
-    const currentLocation = getWorkbenchSessionReturnLocation(
+    const currentLocation = getWorkbenchSceneReturnLocation(
       target.layout.location,
     );
-    const currentView = target.layout.sessionViewsBySessionId[
-      presentation.starterSessionId
-    ];
-    const alreadySeeded = currentLocation.kind === "session"
-      && currentLocation.activeProjectId === presentation.projectId
-      && currentLocation.sessionId === presentation.starterSessionId
-      && Object.values(currentView?.tabsById ?? {}).some((tab) =>
-        tab.kind === "page_stage"
-        && tab.config.projectId === presentation.projectId
-        && tab.config.pageId === presentation.starterPageId
+    const sceneKey = makeWorkbenchSceneKey({
+      kind: "project",
+      projectId: presentation.projectId,
+    });
+    const currentScene = target.layout.scenesByOwnerKey[sceneKey];
+    const alreadySeeded = currentLocation.kind === "project"
+      && currentLocation.projectId === presentation.projectId
+      && Object.values(currentScene?.panelSurfacesById ?? {}).some((surface) =>
+        surface.kind === "page_stage"
+        && surface.config.projectId === presentation.projectId
+        && surface.config.pageId === presentation.starterPageId
       );
     if (alreadySeeded) return target;
 
     const timestamp = this.nowIso();
-    const view = materializeInitialProjectWelcomeView(
+    const scene = materializeInitialProjectWelcomeScene(
       presentation,
       { touchedAt: timestamp },
     );
@@ -630,13 +648,12 @@ export class WindowSessionState {
       layout: {
         ...target.layout,
         location: {
-          kind: "session",
-          activeProjectId: presentation.projectId,
-          sessionId: presentation.starterSessionId,
+          kind: "project",
+          projectId: presentation.projectId,
         },
-        sessionViewsBySessionId: {
-          ...target.layout.sessionViewsBySessionId,
-          [presentation.starterSessionId]: view,
+        scenesByOwnerKey: {
+          ...target.layout.scenesByOwnerKey,
+          [sceneKey]: scene,
         },
       },
       updatedAt: timestamp,

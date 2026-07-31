@@ -3,12 +3,35 @@ import { describe, test, expect } from "vitest";
 import { settleAsyncRender, textContent } from "../../test/dom";
 import { within, act, fireEvent, waitFor } from "@testing-library/react";
 import { type CodexSidebarSyncResult, type CodexSidebarThreadItem } from "@/lib/types";
-import { CODEX_NEW_CHAT_ICON_PREFIX, codexHostMessageListener, getSidebarProjectGroup, getSidebarSection, getThreadRow, getThreadRowTitles, invokeCalls, makeAttachedSession, makePanelLayout, makeProject, makeSession, makeSidebarSnapshotItemForSession, renderWorkbench } from "./workbench-testkit/workbench-shell-harness";
+import { CODEX_NEW_CHAT_ICON_PREFIX, codexHostMessageListener, getSidebarProjectGroup, getSidebarSection, getThreadRow, getThreadRowTitles, invokeCalls, makeAttachedSession, makePanelLayout, makeProject, makeSession, makeSidebarSnapshotItemForSession, openPanelMenu, renderWorkbench } from "./workbench-testkit/workbench-shell-harness";
+
+async function ensureProjectRowExpanded(
+  container: HTMLElement,
+  projectId = "alpha",
+): Promise<HTMLElement> {
+  const row = container.querySelector(
+    `[data-app-action-sidebar-project-id="${projectId}"]`,
+  );
+  if (!(row instanceof HTMLElement)) {
+    throw new Error(`Expected ${projectId} project row`);
+  }
+  const disclosure = within(row).queryByRole("button", {
+    name: "Expand project",
+  });
+  if (!disclosure) return row;
+  await act(async () => {
+    fireEvent.click(disclosure);
+    await Promise.resolve();
+  });
+  await settleAsyncRender();
+  return row;
+}
 
 describe("workbench session shell / sidebar-projects", () => {
   test("Projects header actions mirror Codex controls and reopen previous project folders", async () => {
     const screen = renderWorkbench({
       projects: [makeProject(), makeProject("beta", "Beta")],
+      initialSelectedSessionId: null,
       sessionsByProject: {
         alpha: [makeSession()],
         beta: [makeSession({
@@ -33,17 +56,15 @@ describe("workbench session shell / sidebar-projects", () => {
 
     expect(options.getAttribute("aria-disabled")).toBe(null);
     expect(addNewProject.getAttribute("aria-label")).toBe("Add new project");
-    expect(alphaRow.getAttribute("aria-expanded")).toBe("true");
-    expect(betaRow.getAttribute("aria-expanded")).toBe("false");
+    expect(within(alphaRow).getByRole("button", { name: "Open Alpha" }).getAttribute("aria-current")).toBe("page");
+    expect(within(alphaRow).getByRole("button", { name: "Collapse project" }).getAttribute("aria-expanded")).toBe("true");
+    expect(within(betaRow).getByRole("button", { name: "Expand project" }).getAttribute("aria-expanded")).toBe("false");
     expect(within(section).queryByRole("button", { name: "Collapse all" }) === null).toBe(true);
 
-    await act(async () => {
-      fireEvent.click(betaRow);
-      await Promise.resolve();
-    });
-    await settleAsyncRender();
+    await ensureProjectRowExpanded(screen.container, "alpha");
+    await ensureProjectRowExpanded(screen.container, "beta");
 
-    expect(betaRow.getAttribute("aria-expanded")).toBe("true");
+    expect(within(betaRow).getByRole("button", { name: "Collapse project" }).getAttribute("aria-expanded")).toBe("true");
     const collapseAll = within(section).getByRole("button", { name: "Collapse all" });
 
     await act(async () => {
@@ -52,8 +73,8 @@ describe("workbench session shell / sidebar-projects", () => {
     });
     await settleAsyncRender();
 
-    expect(alphaRow.getAttribute("aria-expanded")).toBe("false");
-    expect(betaRow.getAttribute("aria-expanded")).toBe("false");
+    expect(within(alphaRow).getByRole("button", { name: "Expand project" }).getAttribute("aria-expanded")).toBe("false");
+    expect(within(betaRow).getByRole("button", { name: "Expand project" }).getAttribute("aria-expanded")).toBe("false");
     const reopenPrevious = within(section).getByRole("button", { name: "Reopen previous" });
     expect(reopenPrevious.getAttribute("data-app-action-sidebar-projects-collapse-action")).toBe("reopen-previous");
 
@@ -63,12 +84,12 @@ describe("workbench session shell / sidebar-projects", () => {
     });
     await settleAsyncRender();
 
-    expect(alphaRow.getAttribute("aria-expanded")).toBe("true");
-    expect(betaRow.getAttribute("aria-expanded")).toBe("true");
+    expect(within(alphaRow).getByRole("button", { name: "Collapse project" }).getAttribute("aria-expanded")).toBe("true");
+    expect(within(betaRow).getByRole("button", { name: "Collapse project" }).getAttribute("aria-expanded")).toBe("true");
     expect(within(section).getByRole("button", { name: "Collapse all" }).getAttribute("data-app-action-sidebar-projects-collapse-action")).toBe("collapse-all");
   });
 
-  test("clicking an active project row while focused on its child session keeps the folder collapsed", async () => {
+  test("project navigation does not toggle its independent chat disclosure", async () => {
     const activeThread = makeAttachedSession({
       id: "session:alpha:thread",
       title: "Active thread",
@@ -85,6 +106,8 @@ describe("workbench session shell / sidebar-projects", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
+    await ensureProjectRowExpanded(screen.container);
+
     await act(async () => {
       fireEvent.click(screen.getByText("Active thread"));
       await Promise.resolve();
@@ -98,19 +121,23 @@ describe("workbench session shell / sidebar-projects", () => {
     expect(projectRow.getAttribute("data-active")).toBe(null);
     expect(getThreadRow(screen.container, "Active thread").getAttribute("data-app-action-sidebar-thread-active")).toBe("true");
     await act(async () => {
-      fireEvent.click(projectRow);
+      fireEvent.click(within(projectRow).getByRole("button", { name: "Open Alpha" }));
       await Promise.resolve();
     });
     await settleAsyncRender();
     await settleAsyncRender();
 
-    expect(projectRow.getAttribute("data-app-action-sidebar-project-collapsed")).toBe("true");
+    expect(projectRow.getAttribute("data-app-action-sidebar-project-collapsed")).toBe("false");
+    expect(screen.queryByTestId("project-database-surface") !== null).toBe(true);
     const exitingThreadRow = screen.container.querySelector('[data-app-action-sidebar-thread-title="Active thread"]');
     expect(Boolean(exitingThreadRow?.closest("[data-app-action-sidebar-project-list-motion]"))).toBe(true);
   });
 
-  test("top new-chat row reuses the Project's threadless starter Session", async () => {
-    const screen = renderWorkbench();
+  test("top new-chat row creates the Project's first ordinary Session", async () => {
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [] },
+      initialSelectedSessionId: null,
+    });
     await settleAsyncRender();
     await settleAsyncRender();
 
@@ -121,17 +148,140 @@ describe("workbench session shell / sidebar-projects", () => {
     await settleAsyncRender();
 
     const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
-    expect(invokeCalls.some((call) => call[0] === "project-sessions:create")).toBe(false);
+    expect(invokeCalls.some((call) => (
+      call[0] === "project-sessions:create"
+      && JSON.stringify(call[1]).includes('"projectId":"alpha"')
+    ))).toBe(true);
     expect(props?.isNewThreadTab).toBe(true);
-    expect(JSON.stringify(props?.newThreadTarget).includes('"sessionId":"session:alpha:database-view"')).toBe(true);
+    expect(JSON.stringify(props?.newThreadTarget).includes('"sessionId":"session:alpha:created"')).toBe(true);
     expect(screen.getByLabelText("Prompt").getAttribute("placeholder")).toBe("Write the first prompt for this new thread...");
-    expect(screen.queryByTestId("session-right-panel") !== null).toBe(true);
+    expect(screen.queryByTestId("session-right-panel")).toBe(null);
+  });
+
+  test("Project Scene keeps a fixed Database root without creating a Session", async () => {
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const projectRow = await ensureProjectRowExpanded(screen.container);
+    const projectsSection = getSidebarSection(screen.container, "Projects");
+    const projectGroup = getSidebarProjectGroup(projectsSection, "alpha");
+    expect(within(projectRow).queryByText("Loading chats...")).toBe(null);
+    expect(within(projectGroup).getByText("No chats inside") !== null).toBe(true);
+
+    expect(screen.queryByTestId("project-database-surface") !== null).toBe(true);
+    expect(
+      screen.getByTestId("project-database-surface")
+        .getAttribute("data-app-shell-main-content-layout"),
+    ).toBe("default");
+    const projectHomeTab = screen.getByRole("tab", { name: "Project Home" });
+    expect(
+      projectHomeTab.querySelector('[data-project-home-tab-marker="true"]'),
+    ).not.toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Close Project Home tab" }),
+    ).toBeNull();
+    expect(screen.queryByTestId("project-scene-header")).toBeNull();
+    expect(invokeCalls.some((call) => call[0] === "project-sessions:create")).toBe(false);
+    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Database View"]')).toBe(null);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Canvas" }));
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(screen.queryByTestId("workbench-canvas-stage-panel") !== null).toBe(true);
+    });
+    expect(invokeCalls.some((call) => call[0] === "project-sessions:create")).toBe(false);
+
+    expect(invokeCalls.filter((call) =>
+      call[0] === "project-sessions:create"
+    )).toHaveLength(0);
+    expect(screen.queryByTestId("project-right-panel") !== null).toBe(true);
+
+    expect(screen.queryByTestId("project-database-surface") !== null).toBe(true);
+    expect(invokeCalls.some((call) =>
+      call[0] === "project-sessions:archive"
+    )).toBe(false);
+  });
+
+  test("Project Home opens Database Pages in an adjacent right tab group", async () => {
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const props = (globalThis as {
+      __lastMainViewHostProps?: Record<string, unknown>;
+    }).__lastMainViewHostProps;
+    if (typeof props?.openPageStage !== "function") {
+      throw new Error("Expected Project Home Database Page opener");
+    }
+    await act(async () => {
+      await (props.openPageStage as (
+        projectId: string,
+        pageId: string,
+        title?: string,
+      ) => Promise<void> | void)("alpha", "card-1", "Card One");
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const projectHomeTab = screen.getByRole("tab", { name: "Project Home" });
+    const pageTab = screen.getByRole("tab", { name: "Card One" });
+    const projectHomeRow = projectHomeTab.closest("[data-panel-tab-row]");
+    const pageRow = pageTab.closest("[data-panel-tab-row]");
+    expect(projectHomeRow).not.toBeNull();
+    expect(pageRow).not.toBeNull();
+    expect(pageRow?.getAttribute("data-panel-tab-row")).not.toBe(
+      projectHomeRow?.getAttribute("data-panel-tab-row"),
+    );
+    expect(invokeCalls.some((call) => call[0] === "project-sessions:create")).toBe(false);
+  });
+
+  test("Project Scene presents non-root Database surfaces as standard DB View tabs", async () => {
+    const screen = renderWorkbench({
+      projects: [makeProject(), makeProject("beta", "Beta")],
+      sessionsByProject: { alpha: [], beta: [] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const menu = await openPanelMenu(screen, "Open side panel tab");
+    const dbViewItem = within(menu).getByText("DB View").closest('[role="menuitem"]');
+    if (!(dbViewItem instanceof HTMLElement)) {
+      throw new Error("Expected DB View menu item");
+    }
+    await act(async () => {
+      fireEvent.pointerMove(dbViewItem, { pointerType: "mouse" });
+      fireEvent.keyDown(dbViewItem, { key: "ArrowRight" });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: "Open DB view" }) !== null).toBe(true);
+      expect(screen.getByRole("option", { name: /Beta/ }) !== null).toBe(true);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("option", { name: /Beta/ }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(screen.getByRole("tab", { name: "Project Home" }) !== null).toBe(true);
+    expect(screen.getByRole("tab", { name: "DB View", selected: true }) !== null).toBe(true);
+    expect(screen.queryByRole("tab", { name: "Database" })).toBeNull();
   });
 
   test("Chats section creates a projectless blank-session composer", async () => {
     const screen = renderWorkbench();
     await settleAsyncRender();
     await settleAsyncRender();
+
+    await ensureProjectRowExpanded(screen.container);
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "New projectless chat" }));
@@ -187,12 +337,16 @@ describe("workbench session shell / sidebar-projects", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
+    await ensureProjectRowExpanded(screen.container);
+
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "New chat" }));
       await Promise.resolve();
     });
     await settleAsyncRender();
     await settleAsyncRender();
+
+    await ensureProjectRowExpanded(screen.container);
 
     const rowTitles = Array.from(
       screen.container.querySelectorAll<HTMLElement>("[data-app-action-sidebar-thread-title]"),
@@ -247,6 +401,8 @@ describe("workbench session shell / sidebar-projects", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
+    await ensureProjectRowExpanded(screen.container);
+
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "New chat" }));
       await Promise.resolve();
@@ -280,11 +436,14 @@ describe("workbench session shell / sidebar-projects", () => {
     }));
     const screen = renderWorkbench({
       sessionsByProject: {
-        alpha: [makeSession(), ...projectChats],
+        alpha: projectChats,
       },
+      initialSelectedSessionId: null,
     });
     await settleAsyncRender();
     await settleAsyncRender();
+
+    await ensureProjectRowExpanded(screen.container);
 
     expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 5"]') !== null).toBe(true);
     expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 6"]')).toBe(null);
@@ -342,8 +501,10 @@ describe("workbench session shell / sidebar-projects", () => {
     expect(within(chatsSection).queryByRole("button", { name: "Show less" }) !== null).toBe(true);
   });
 
-  test("Cmd+N reuses the project-scoped threadless starter Session", async () => {
-    renderWorkbench();
+  test("Cmd+N creates a project-scoped ordinary Session", async () => {
+    renderWorkbench({
+      sessionsByProject: { alpha: [] },
+    });
     await settleAsyncRender();
     await settleAsyncRender();
 
@@ -353,12 +514,12 @@ describe("workbench session shell / sidebar-projects", () => {
     });
     await settleAsyncRender();
 
-    expect(invokeCalls.some((call) => call[0] === "project-sessions:create")).toBe(false);
+    expect(invokeCalls.some((call) => call[0] === "project-sessions:create")).toBe(true);
     const props = (globalThis as {
       __lastConnectedThreadStageProps?: Record<string, unknown>;
     }).__lastConnectedThreadStageProps;
     expect(JSON.stringify(props?.newThreadTarget).includes(
-      '"sessionId":"session:alpha:database-view"',
+      '"sessionId":"session:alpha:created"',
     )).toBe(true);
   });
 

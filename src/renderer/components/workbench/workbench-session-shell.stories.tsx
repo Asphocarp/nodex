@@ -36,19 +36,27 @@ import type {
 } from "../../../shared/types";
 import { buildPageDetailStoryResult } from "../kanban/page-stage/page-stage-story-page-detail";
 import {
+  findWorkbenchPanelLeafForTab,
   makeWorkbenchPanelLayout,
 } from "../../../shared/workbench-panel-layout";
 import { WorkbenchRuntime } from "./workbench-runtime";
 import {
-  workbenchViewFromProjectSessionProjection,
-} from "@/lib/window-session-view-adapter";
-import type { WorkbenchSessionRenderProjection } from "@/lib/workbench-session-presentation";
-import type { WorkbenchSessionViewSnapshot } from "../../../shared/workbench-session-view";
+  type WorkbenchSessionRenderProjection,
+} from "@/lib/workbench-session-presentation";
+import { WorkbenchLayoutSnapshotV5Schema } from "../../../shared/schemas/workbench-layout";
+import {
+  createWorkbenchSceneSurface,
+  ensureWorkbenchSceneLeafToRight,
+  makeWorkbenchSceneKey,
+  materializeInitialWorkbenchScene,
+} from "../../../shared/workbench-scene";
+import { makeSessionSceneFixture } from "./workbench-testkit/session-scene-fixture";
 
 type ProjectSession = WorkbenchSessionRenderProjection;
 
 let activeStorySessionsByProject:
   Record<string, ProjectSession[]> = {};
+let activeStorySessionWindowErrorScopeIds: ReadonlySet<string> = new Set();
 
 type ShellStoryArgs = {
   workspace: "projects" | "projectless-only";
@@ -500,7 +508,6 @@ function makeSession(args: ShellStoryArgs): ProjectSession {
     return {
       id: "session:database-view",
       projectId: "nodex",
-      databaseStarter: true,
       noThreadFallbackTitle: title,
       displayTitle: title,
       order: 0,
@@ -545,7 +552,6 @@ function makeSession(args: ShellStoryArgs): ProjectSession {
     return {
       id: "session:database-view",
       projectId: "nodex",
-      databaseStarter: true,
       noThreadFallbackTitle: "Database View",
       displayTitle: "Database View",
       order: 0,
@@ -695,7 +701,6 @@ function makeSession(args: ShellStoryArgs): ProjectSession {
   return {
     id: "session:database-view",
     projectId: "nodex",
-    databaseStarter: true,
     noThreadFallbackTitle: title,
     displayTitle: thread?.threadName ?? title,
     order: 0,
@@ -831,38 +836,34 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
     [args],
   );
   const [sessionsByProject] = useState(initialSessionsByProject);
-  const [sessionViewsBySessionId, setSessionViewsBySessionId] = useState<
-    Record<string, WorkbenchSessionViewSnapshot>
-  >(() => Object.fromEntries(
+  const sessionScenesByOwnerKey = Object.fromEntries(
     Object.values(initialSessionsByProject).flat().map((session) => [
-      session.id,
-      workbenchViewFromProjectSessionProjection(session),
+      makeWorkbenchSceneKey({ kind: "session", sessionId: session.id }),
+      makeSessionSceneFixture(session),
     ]),
-  ));
+  );
   const [initialWindowLayoutSnapshot] = useState(() => {
     const activeSession = args.workspace === "projectless-only"
       ? initialSessionsByProject.__projectless__?.[0] ?? null
       : initialSessionsByProject.nodex?.[0] ?? null;
-    return {
-      version: 4 as const,
+    return WorkbenchLayoutSnapshotV5Schema.parse({
+      version: 5 as const,
       location: activeSession
         ? {
             kind: "session" as const,
-            activeProjectId:
+            projectContextId:
               args.workspace === "projectless-only" ? null : "nodex",
             sessionId: activeSession.id,
           }
-        : {
-            kind: "empty" as const,
-            activeProjectId:
-              args.workspace === "projectless-only" ? null : "nodex",
-          },
+        : args.workspace === "projectless-only"
+          ? { kind: "empty" as const }
+          : { kind: "project" as const, projectId: "nodex" },
       databaseSearchByProject:
         args.workspace === "projectless-only"
           ? {} as Record<string, string>
           : { nodex: "" },
-      sessionViewsBySessionId,
-    };
+      scenesByOwnerKey: sessionScenesByOwnerKey,
+    });
   });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(args.sidebar === "collapsed");
   const [sidebarWidth, setSidebarWidth] = useState<number>(args.sidebarWidth);
@@ -941,14 +942,6 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
           : args.activeTab === "welcome"
             ? [INITIAL_PROJECT]
             : PROJECTS}
-        setSessionView={(sessionId, update) => {
-          setSessionViewsBySessionId((current) => ({
-            ...current,
-            [sessionId]: typeof update === "function"
-              ? update(current[sessionId])
-              : update,
-          }));
-        }}
         activeView={"kanban" as WorkbenchView}
         activeDbViewPrefs={null}
         dbViewPrefsByProject={{}}
@@ -965,6 +958,170 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
             [sectionId]: collapsed,
           }));
         }}
+        pageStageCloseRef={{ current: null }}
+        setDbViewPrefs={() => undefined}
+        openPageStage={() => undefined}
+        onLeavePageStage={() => undefined}
+        onCreateProject={async () => null}
+        onUpdateProject={async () => null}
+        onArchiveProject={async () => ({ kind: "not-found" })}
+        onReorderProjects={async () => undefined}
+        onSetProjectPinned={async () => null}
+        onSetPinnedProjectOrder={async () => undefined}
+        onRequestProjectPickerOpen={() => undefined}
+        threadSearchOpenTick={0}
+      />
+    </div>
+  );
+}
+
+function ProjectSceneStory({
+  boundTask,
+  dockHidden = false,
+  secondaryDatabase = false,
+  splitPage = false,
+  welcome = false,
+  sessionWindowError = false,
+}: {
+  boundTask: boolean;
+  dockHidden?: boolean;
+  secondaryDatabase?: boolean;
+  splitPage?: boolean;
+  welcome?: boolean;
+  sessionWindowError?: boolean;
+}) {
+  const [sessionsByProject] = useState<Record<string, ProjectSession[]>>(() => {
+    if (!boundTask) return { nodex: [], "codex-readable": [] };
+    const session = {
+      ...makeSession({
+        ...(meta.args as ShellStoryArgs),
+        activeTab: "empty",
+        thread: "attached",
+      }),
+      id: "session:project-scene-conversation",
+      noThreadFallbackTitle: "Discuss the board",
+      displayTitle: "Discuss the board",
+      pinned: false,
+      pinnedOrder: null,
+    };
+    return { nodex: [session], "codex-readable": [] };
+  });
+  const [initialWindowLayoutSnapshot] = useState(() => {
+    const owner = { kind: "project" as const, projectId: "nodex" };
+    const initial = materializeInitialWorkbenchScene(owner);
+    const withSecondaryDatabase = secondaryDatabase
+      ? createWorkbenchSceneSurface(initial, {
+          panelId: "right",
+          surface: {
+            id: "surface:secondary-database",
+            kind: "db_view",
+            titleSnapshot: "Database",
+            config: {
+              projectId: "codex-readable",
+              target: {
+                kind: "database-view",
+                databaseViewId: "view:test:primary",
+              },
+              view: "kanban",
+            },
+            stateKey: 0,
+            state: null,
+          },
+        })
+      : initial;
+    const withWelcome = welcome
+      ? createWorkbenchSceneSurface(withSecondaryDatabase, {
+          panelId: "right",
+          surface: {
+            id: "surface:welcome",
+            kind: "page_stage",
+            titleSnapshot: INITIAL_PROJECT_WELCOME_TITLE,
+            config: {
+              projectId: "nodex",
+              pageId: WELCOME_PAGE_ID,
+              titleSnapshot: INITIAL_PROJECT_WELCOME_TITLE,
+            },
+            stateKey: 0,
+            state: null,
+          },
+        })
+      : withSecondaryDatabase;
+    const withSplitPage = splitPage
+      ? (() => {
+          const sourceLeaf = findWorkbenchPanelLeafForTab(
+            withWelcome.panels.right.layout,
+            withWelcome.primary.id,
+          );
+          if (!sourceLeaf) return withWelcome;
+          const target = ensureWorkbenchSceneLeafToRight(withWelcome, {
+            panelId: "right",
+            leafId: sourceLeaf.id,
+          });
+          return createWorkbenchSceneSurface(target.scene, {
+            panelId: "right",
+            targetLeafId: target.leafId,
+            surface: {
+              id: "surface:page-from-project-home",
+              kind: "page_stage",
+              titleSnapshot: "Workbench redesign",
+              config: {
+                projectId: "nodex",
+                pageId: "card-1",
+                titleSnapshot: "Workbench redesign",
+              },
+              stateKey: 0,
+              state: null,
+            },
+          });
+        })()
+      : withWelcome;
+    const session = sessionsByProject.nodex?.[0] ?? null;
+    const scene = withSplitPage.agentDock
+      ? {
+          ...withSplitPage,
+          agentDock: {
+            ...withSplitPage.agentDock,
+            visible: !dockHidden,
+            binding: session
+              ? { kind: "session" as const, sessionId: session.id }
+              : { kind: "new" as const },
+          },
+        }
+      : withSplitPage;
+    return WorkbenchLayoutSnapshotV5Schema.parse({
+      version: 5,
+      location: { kind: "project", projectId: "nodex" },
+      databaseSearchByProject: { nodex: "" },
+      scenesByOwnerKey: {
+        [makeWorkbenchSceneKey(owner)]: scene,
+      },
+    });
+  });
+
+  useLayoutEffect(() => {
+    activeStorySessionsByProject = sessionsByProject;
+    activeStorySessionWindowErrorScopeIds = sessionWindowError
+      ? new Set(["nodex"])
+      : new Set();
+    return () => {
+      if (activeStorySessionsByProject === sessionsByProject) {
+        activeStorySessionsByProject = {};
+      }
+      activeStorySessionWindowErrorScopeIds = new Set();
+    };
+  }, [sessionWindowError, sessionsByProject]);
+
+  return (
+    <div className="h-screen">
+      <WorkbenchRuntime
+        windowSessionId="window-session:storybook-project-scene"
+        initialWindowLayoutSnapshot={initialWindowLayoutSnapshot}
+        libraryWorkspaceEnabled={false}
+        projects={welcome ? [INITIAL_PROJECT] : PROJECTS}
+        activeView="kanban"
+        activeDbViewPrefs={null}
+        dbViewPrefsByProject={{}}
+        sidebar={{ collapsed: false, width: 300 }}
         pageStageCloseRef={{ current: null }}
         setDbViewPrefs={() => undefined}
         openPageStage={() => undefined}
@@ -1105,6 +1262,28 @@ function installStoryApi(
     configurable: true,
     value: {
       invoke: async (channel: string, ...args: unknown[]) => {
+        if (channel === "projects:get") {
+          return PROJECTS.find((project) => project.id === String(args[0]))
+            ?? null;
+        }
+        if (channel === "project-sessions:get") {
+          return Object.values(readSessionsByProject())
+            .flat()
+            .find((session) => session.id === String(args[0]))
+            ?? null;
+        }
+        if (channel === "workspace:tasks:list") {
+          const scopeKey = args[0] === null ? "__projectless__" : String(args[0]);
+          if (activeStorySessionWindowErrorScopeIds.has(scopeKey)) {
+            throw new Error("Couldn’t load chats for this Project");
+          }
+          return {
+            items: readSessionsByProject()[scopeKey] ?? [],
+            nextCursor: null,
+            hasMore: false,
+            projectionRevision: 1,
+          };
+        }
         if (channel === "codex:thread:side-chat:start") {
           return buildStorySideChatStartResult(
             args[0] as CodexSideChatStartInput,
@@ -1453,7 +1632,80 @@ export const MixedRightTabs: Story = {
   },
 };
 
+export const ProjectSceneDatabase: Story = {
+  render: () => <ProjectSceneStory boundTask={false} />,
+  parameters: {
+    docs: {
+      description: {
+        story: "A zero-task Project Scene whose non-closable Database root tab is presented as the Project marker and Project Home beside the shared trailing add-tab menu. Agent composition lives only in the footer Dock, whose task target and Project/run-target/branch accessory rows share the connected-turn tray's centered inline inset. The Dock starts at New task without creating a Session, while the sidebar settles directly to No chats inside.",
+      },
+    },
+  },
+};
+
+export const ProjectSceneWithSecondaryDatabase: Story = {
+  render: () => (
+    <ProjectSceneStory boundTask={false} secondaryDatabase />
+  ),
+  parameters: {
+    docs: {
+      description: {
+        story: "Only the protected root uses Project Home chrome. Another Database surface in the same Project Scene retains the standard table icon and DB View label used by Session tabs.",
+      },
+    },
+  },
+};
+
+export const ProjectSceneDatabasePageGroup: Story = {
+  render: () => (
+    <ProjectSceneStory boundTask={false} splitPage />
+  ),
+  parameters: {
+    docs: {
+      description: {
+        story: "Opening a Page from the full-width Project Home Database creates one adjacent right tab group. Further Pages from that Database reuse the right group instead of displacing Project Home or creating additional splits.",
+      },
+    },
+  },
+};
+
+export const ProjectSceneSessionLoadError: Story = {
+  render: () => (
+    <ProjectSceneStory boundTask={false} sessionWindowError />
+  ),
+  parameters: {
+    docs: {
+      description: {
+        story: "A Project Scene whose Session window failed its first hydration. The Project remains usable and the expanded folder shows one compact, scope-local Retry chats action instead of a fake empty state.",
+      },
+    },
+  },
+};
+
+export const ProjectSceneWithBoundTask: Story = {
+  render: () => <ProjectSceneStory boundTask />,
+  parameters: {
+    docs: {
+      description: {
+        story: "The Database remains the root surface while the footer-only Agent Dock subscribes to a real running task. Use Find a task to alternate between the bound task and New task: the latest-turn tray and Project/run-target/branch strip replace each other atomically without vertical motion. Open task is the explicit path to the full transcript.",
+      },
+    },
+  },
+};
+
+export const ProjectSceneDockHidden: Story = {
+  render: () => <ProjectSceneStory boundTask dockHidden />,
+  parameters: {
+    docs: {
+      description: {
+        story: "A running task stays bound while its controlled Agent Dock is hidden. The Database receives the released space and the restore handle carries activity attention; its grip stays geometrically centered between the independent leading and trailing controls.",
+      },
+    },
+  },
+};
+
 export const InitialProjectWelcome: Story = {
+  render: () => <ProjectSceneStory boundTask={false} welcome />,
   args: {
     activeTab: "welcome",
     thread: "empty",
@@ -1466,7 +1718,7 @@ export const InitialProjectWelcome: Story = {
   parameters: {
     docs: {
       description: {
-        story: "A fresh Profile after automatic bootstrap: My Project is selected and its editable Welcome to Nodex Page is active beside the primary Database tab in a full-width Page Stage.",
+        story: "A fresh Profile after automatic bootstrap: My Project opens as one full-width Scene, with the Welcome Page as an ordinary tab, the marker/Project Home tab retained as the protected Database root, and New task available in the Agent Dock without creating a starter task.",
       },
     },
   },

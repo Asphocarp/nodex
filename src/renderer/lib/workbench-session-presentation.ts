@@ -5,8 +5,8 @@ import type {
   WorkbenchPanelState,
   WorkbenchTabProjection,
 } from "../../shared/types";
-import type { WorkbenchSessionViewSnapshot } from "../../shared/workbench-session-view";
-import { presentWorkbenchSessionDomainWithView } from "./window-session-view-adapter";
+import type { WorkbenchSceneSnapshot } from "../../shared/workbench-scene";
+import { presentWorkbenchSessionDomainWithScene } from "./workbench-scene-presentation";
 
 /**
  * A Project Session is Core-owned domain state. Its Workbench view belongs to
@@ -15,7 +15,7 @@ import { presentWorkbenchSessionDomainWithView } from "./window-session-view-ada
  */
 export interface WorkbenchSessionPresentation {
   readonly domain: ProjectSession;
-  readonly view: WorkbenchSessionViewSnapshot;
+  readonly scene: WorkbenchSceneSnapshot;
 }
 
 /**
@@ -50,11 +50,11 @@ export function projectSessionSummaryToDomain(
   };
 }
 
-export function presentWorkbenchSessionForLegacyView(
+export function presentWorkbenchSession(
   presentation: WorkbenchSessionPresentation,
 ): WorkbenchSessionRenderProjection {
-  return presentWorkbenchSessionDomainWithView(
+  return presentWorkbenchSessionDomainWithScene(
     presentation.domain,
-    presentation.view,
+    presentation.scene,
   );
 }

@@ -101,7 +101,8 @@ export function classifyWorkspaceMarkdownPreview(value: string) {
 
 interface WorkspaceFilesPanelProps {
   tab: WorkspaceFilesTab;
-  activeSession: ProjectSession;
+  activeSession?: ProjectSession;
+  presentationOwnerId?: string;
   project: Project | null;
   onOpenFileTab: (input: {
     path: string;
@@ -373,6 +374,7 @@ function WorkspaceFilePreview({
 export function WorkspaceFilesPanel({
   tab,
   activeSession,
+  presentationOwnerId,
   project,
   onOpenFileTab,
   onUpdateTabState,
@@ -380,7 +382,9 @@ export function WorkspaceFilesPanel({
   const workspaceRoot = resolveWorkspaceRoot(tab, project);
   const hostId = tab.config.hostId ?? "local";
   const selectedPath = tab.config.path ?? null;
-  const cwd = tab.config.cwd?.trim() || activeSession.thread?.cwd?.trim() || null;
+  const cwd = tab.config.cwd?.trim()
+    || activeSession?.thread?.cwd?.trim()
+    || null;
   const selectedTreePath = selectedPath && workspaceRoot
     ? getWorkspaceRelativePath(workspaceRoot, selectedPath)
     : null;
@@ -999,7 +1003,9 @@ export function WorkspaceFilesPanel({
       ref={rootRef}
       className="flex h-full min-h-0 bg-token-main-surface-primary"
       data-workspace-files-tab-id={getWorkspaceFileDomTabId(hostId, selectedPath ?? workspaceRoot ?? undefined)}
-      data-workspace-files-session-id={activeSession.id}
+      data-workspace-files-session-id={
+        presentationOwnerId ?? activeSession?.id ?? "unassigned"
+      }
     >
       <div className="flex min-w-0 flex-1 flex-col">
         <div

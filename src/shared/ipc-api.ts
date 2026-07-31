@@ -152,7 +152,7 @@ import type {
 import type {
   CodexForkBrowserSidePanelSnapshot,
   CodexForkBrowserTransferConsumeInput,
-  CodexForkBrowserViewContext,
+  CodexForkBrowserSceneContext,
 } from "./codex-fork-browser-transfer";
 import type {
   CodexUserInputAutoResolutionChange,
@@ -923,7 +923,7 @@ export interface IpcApi {
     args: [
       sessionId: string,
       input: ProjectSessionForkInput,
-      sourceViewContext?: CodexForkBrowserViewContext,
+      sourceSceneContext?: CodexForkBrowserSceneContext,
     ];
     result: ProjectSessionForkResult;
   };

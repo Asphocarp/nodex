@@ -1,6 +1,7 @@
 import { StrictMode, useLayoutEffect } from "react";
 import { render } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
+import type { ProjectSession } from "../../shared/types";
 import {
   AppShellHeaderContentRegistrar,
   ComposerScope,
@@ -10,6 +11,8 @@ import {
   createThreadScopeIdentityRegistry,
   resolveComposerScopeIdentity,
   resolvePendingThreadScopeDescriptor,
+  resolveProjectDraftThreadScopeDescriptor,
+  resolveProjectSessionThreadScopeDescriptor,
   type ThreadScopeDescriptor,
 } from "./workbench-ui-scopes";
 import {
@@ -33,6 +36,38 @@ function descriptor(stableKey: `session:${string}`, threadId: string): ThreadSco
   };
 }
 
+function projectSession(threadId: string | null = null): ProjectSession {
+  return {
+    id: "session-1",
+    projectId: "project-1",
+    noThreadFallbackTitle: "New task",
+    displayTitle: "New task",
+    order: 0,
+    pinned: false,
+    pinnedOrder: null,
+    archived: false,
+    archivedAt: null,
+    unread: false,
+    thread: threadId
+      ? {
+          sessionId: "session-1",
+          projectId: "project-1",
+          threadId,
+          threadPreview: "Task",
+          modelProvider: "openai",
+          statusType: "idle",
+          statusActiveFlags: [],
+          archived: false,
+          createdAt: 1,
+          updatedAt: 1,
+          linkedAt: "2026-08-01T00:00:00.000Z",
+        }
+      : null,
+    createdAt: "2026-08-01T00:00:00.000Z",
+    updatedAt: "2026-08-01T00:00:00.000Z",
+  };
+}
+
 describe("Workbench Maitai scopes", () => {
   test("keeps client identity stable when a server thread attaches", () => {
     const registry = createThreadScopeIdentityRegistry();
@@ -45,6 +80,24 @@ describe("Workbench Maitai scopes", () => {
     expect(registry.resolve({ projectSessionId: "session-1" })).toBe("client:pending-1");
     expect(registry.resolve({ threadId: "thread-1", projectSessionId: "session-1" }))
       .toBe("client:pending-1");
+  });
+
+  test("promotes a Project draft through Session and Thread identities", () => {
+    const registry = createThreadScopeIdentityRegistry();
+    expect(resolveProjectDraftThreadScopeDescriptor(registry, "draft-1").stableKey)
+      .toBe("draft:draft-1");
+    registry.register("draft:draft-1", {
+      draftId: "draft-1",
+      projectSessionId: "session-1",
+    });
+    expect(registry.resolve({ projectSessionId: "session-1" }))
+      .toBe("draft:draft-1");
+    registry.register("draft:draft-1", {
+      projectSessionId: "session-1",
+      clientThreadId: "client-1",
+      threadId: "thread-1",
+    });
+    expect(registry.resolve({ threadId: "thread-1" })).toBe("draft:draft-1");
   });
 
   test("direct, duplicate, and stale attachment metadata preserve one session identity", () => {
@@ -76,6 +129,33 @@ describe("Workbench Maitai scopes", () => {
       projectSessionId: null,
       clientThreadId: "pending-1",
       threadId: null,
+    });
+  });
+
+  test("keeps a Project Session scope stable from pending worktree to attached Thread", () => {
+    const registry = createThreadScopeIdentityRegistry();
+    const pending = resolveProjectSessionThreadScopeDescriptor(
+      registry,
+      projectSession(),
+      "client-1",
+    );
+    const attached = resolveProjectSessionThreadScopeDescriptor(
+      registry,
+      projectSession("thread-1"),
+      "client-1",
+    );
+
+    expect(pending).toEqual({
+      stableKey: "client:client-1",
+      phase: "pending",
+      projectSessionId: "session-1",
+      clientThreadId: "client-1",
+      threadId: null,
+    });
+    expect(attached).toEqual({
+      ...pending,
+      phase: "attached",
+      threadId: "thread-1",
     });
   });
 

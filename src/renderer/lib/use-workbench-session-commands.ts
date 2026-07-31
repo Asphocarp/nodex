@@ -46,7 +46,7 @@ import {
   makeWorkbenchTabProjectionDraft,
 } from "./workbench-panel-preview";
 import {
-  makeWorkbenchPanelSlotKey,
+  makeWorkbenchSessionPanelSlotKey,
 } from "./workbench-panel-slot-key";
 import {
   buildProcessOutputTargetFromManagerRow,
@@ -55,7 +55,7 @@ import {
   resolveCodexSubagentDisplayName,
 } from "../../shared/codex-subagent-display";
 import {
-  presentWorkbenchSessionForLegacyView,
+  presentWorkbenchSession,
   type WorkbenchSessionRenderProjection,
 } from "./workbench-session-presentation";
 import type {
@@ -228,7 +228,7 @@ const ensureBlankSessionForProject = useCallback(async (
   ) => {
     const shouldSelect = options?.select !== false;
     const presentation = await sessionCatalog.ensureBlank(projectId);
-    const projected = presentWorkbenchSessionForLegacyView(
+    const projected = presentWorkbenchSession(
       presentation,
     );
     if (shouldSelect) selectSession(projected);
@@ -672,7 +672,7 @@ const ensureBlankSessionForProject = useCallback(async (
     panelControllerRef.current.upsertEphemeralTab(tab);
     panelControllerRef.current.updatePanelCollapsedOverrides((current) => ({
       ...current,
-      [makeWorkbenchPanelSlotKey(activeSession.id, panelId)]: false,
+      [makeWorkbenchSessionPanelSlotKey(activeSession.id, panelId)]: false,
     }));
     await ensureActivePanelOpenWithoutRefresh(panelId);
     return true;

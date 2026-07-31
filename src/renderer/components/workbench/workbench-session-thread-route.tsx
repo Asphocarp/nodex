@@ -5,6 +5,7 @@ import {
   useState,
 } from "react";
 import {
+  ConnectedThreadComposerDock,
   ConnectedThreadStage,
   useCodexAppServerControl,
   useCodexConversationValue,
@@ -12,6 +13,9 @@ import {
   type ThreadActionControllerInput,
   type ThreadStageActions,
 } from "@/features/local-conversation";
+import type {
+  RightPanelComposerOverlayVisibility,
+} from "@/features/local-conversation/view/right-panel-composer-overlay";
 import { createThreadStageActions } from "@/features/local-conversation/thread-action-controller";
 import type {
   NewChatStartInSelectorModel,
@@ -51,8 +55,9 @@ import {
   writeLocalEnvironmentSelection,
 } from "./local-environment-selection";
 import { projectSessionThreadLinkToSummary } from "./thread-summary-projection";
+import type { BrowserUsePresentationOrigin } from "../../../shared/browser-sidebar";
 
-export function SessionThreadPage({
+function ConnectedSessionThread({
   session,
   project,
   projects,
@@ -111,6 +116,13 @@ export function SessionThreadPage({
   onToggleThreadPin,
   commandKeymapState,
   isMac,
+  presentation = "primary",
+  composerDock,
+  composerScopeIdentity,
+  browserUsePresentationOrigin,
+  newThreadStartBlockedReason,
+  projectDraftId,
+  onMaterializeProjectDraft,
 }: {
   session: WorkbenchSessionRenderProjection;
   project: Project | null;
@@ -139,20 +151,13 @@ export function SessionThreadPage({
   composerEnterBehavior: ComposerEnterBehavior;
   onQueueingEnabledChange: ThreadStageActions["onQueueingEnabledChange"];
   onOpenThread: ThreadStageActions["onOpenThread"];
-  onOpenSubagentsPanel: NonNullable<
-    ThreadStageActions["onOpenSubagentsPanel"]
-  >;
+  onOpenSubagentsPanel: ThreadStageActions["onOpenSubagentsPanel"];
   onOpenTurnDiffReview: ThreadStageActions["onOpenTurnDiffReview"];
-  onOpenTurnDiffFileInSidePanel: NonNullable<
-    ThreadStageActions["onOpenTurnDiffFileInSidePanel"]
-  >;
-  onOpenSummaryGitReview: NonNullable<
-    ThreadStageActions["onOpenSummaryGitReview"]
-  >;
+  onOpenTurnDiffFileInSidePanel:
+    ThreadStageActions["onOpenTurnDiffFileInSidePanel"];
+  onOpenSummaryGitReview: ThreadStageActions["onOpenSummaryGitReview"];
   turnDiffHoverPreviewDisabled: boolean;
-  onForkSessionFromTurn: NonNullable<
-    ThreadActionControllerInput["onForkSessionFromTurn"]
-  >;
+  onForkSessionFromTurn?: ThreadActionControllerInput["onForkSessionFromTurn"];
   onForkFromTurnIntoWorktree: (input: {
     threadId: string;
     targetTurnId: string;
@@ -208,6 +213,18 @@ export function SessionThreadPage({
   >;
   commandKeymapState?: CommandKeymapState | null;
   isMac: boolean;
+  presentation?: "primary" | "panel";
+  composerDock?: {
+    readonly visible: boolean;
+    readonly target: HTMLElement | null;
+    readonly visibility: RightPanelComposerOverlayVisibility;
+    readonly leadingContent: React.ReactNode;
+  };
+  composerScopeIdentity?: string | null;
+  browserUsePresentationOrigin?: BrowserUsePresentationOrigin | null;
+  newThreadStartBlockedReason?: string | null;
+  projectDraftId?: string | null;
+  onMaterializeProjectDraft?: ThreadActionControllerInput["onMaterializeProjectDraft"];
 }) {
   const attachedSummary = session.thread
     ? projectSessionThreadLinkToSummary(session.thread)
@@ -451,10 +468,12 @@ export function SessionThreadPage({
   const actions = useMemo<ThreadStageActions>(() => ({
     ...createThreadStageActions({
       activeThreadId: summary?.threadId ?? null,
+      browserUsePresentationOrigin,
       codexControl,
       onEnsureBlankSessionForProject,
       onRefreshProjectSessions,
       onOpenPendingWorktree,
+      newThreadStartBlockedReason,
       onQueueingEnabledChange,
       onOpenThread,
       onOpenSubagentsPanel,
@@ -504,16 +523,19 @@ export function SessionThreadPage({
       onToggleThreadPin,
       selectedCollaborationMode,
       setSelectedCollaborationMode,
+      onMaterializeProjectDraft,
     }),
     ...(onConsumeNewThreadComposerIntent
       ? { onConsumeNewThreadComposerIntent }
       : {}),
   }), [
+    browserUsePresentationOrigin,
     codexControl,
     onEnsureBlankSessionForProject,
     onStartNewChatWithPrompt,
     onRefreshProjectSessions,
     onOpenPendingWorktree,
+    newThreadStartBlockedReason,
     onQueueingEnabledChange,
     onOpenThread,
     onOpenSubagentsPanel,
@@ -544,74 +566,91 @@ export function SessionThreadPage({
     refreshNewThreadEnvironments,
     effectiveProjectId,
     selectedCollaborationMode,
+    onMaterializeProjectDraft,
     summary?.threadId,
   ]);
+
+  const connectedStageProps = {
+    projectId: effectiveProjectId,
+    sessionId: session.id,
+    threadPinned: session.pinned ?? false,
+    threadActionShortcuts,
+    projectWorkspacePath: summary
+      ? projectWorkspaceRootOrNull(project)
+      : projectWorkspaceRootOrNull(selectedNewThreadProject),
+    isNewThreadTab: !summary,
+    newThreadTarget: summary
+      ? null
+      : {
+          projectId: effectiveProjectId,
+          projectName: selectedNewThreadProject?.name ?? "No project",
+          sessionId: session.id,
+          ...(projectDraftId ? { projectDraftId } : {}),
+          threadTitle: "New thread",
+          runInTarget: selectedNewThreadRunInTarget,
+          runInEnvironmentPath: selectedNewThreadEnvironmentPath,
+          worktreeStartMode,
+          worktreeBranchPrefix,
+        },
+    newThreadProjectSelector: summary
+      ? null
+      : {
+          projects: projectSelectorOptions,
+          selectedProjectId: effectiveProjectId,
+          disabled: Boolean(projectDraftId),
+          canAddProject: !projectDraftId,
+        },
+    newThreadStartInSelector: startInSelectorModel,
+    newThreadStartBlockedReason,
+    newThreadComposerIntent: summary ? null : newThreadComposerIntent ?? null,
+    threadStartProgress,
+    activeThreadId: summary?.threadId ?? null,
+    activeThreadSummary: summary,
+    availableModels: codexControl.availableModels,
+    agentProviderCatalog: codexControl.agentProviderCatalog,
+    agentProviderCatalogLoading: codexControl.agentProviderCatalogLoading,
+    selectedExecutionProfile: codexControl.executionProfile,
+    collaborationModes,
+    selectedCollaborationMode,
+    selectedModel: codexControl.threadSettings.model ?? "",
+    selectedReasoningEffort:
+      codexControl.threadSettings.reasoningEffort ?? "medium",
+    selectedPersonality: codexControl.personality,
+    reasoningEffortOptions: codexControl.reasoningEffortOptions,
+    permissionMode: codexControl.permissionMode,
+    isQueueingEnabled: threadQueueFollowUpsEnabled,
+    composerEnterBehavior,
+    searchOpenTick,
+    summarySideChatRows,
+    summaryBrowserRows,
+    summaryScheduledAutomation,
+    summaryComputerUsePip,
+    planSidePanelState,
+    actions,
+  } as const;
+
+  if (composerDock) {
+    return (
+      <ConnectedThreadComposerDock
+        {...connectedStageProps}
+        routeActive={routeActive}
+        visible={composerDock.visible}
+        overlayTarget={composerDock.target}
+        overlayVisibility={composerDock.visibility}
+        leadingContent={composerDock.leadingContent}
+        composerScopeIdentity={composerScopeIdentity}
+      />
+    );
+  }
 
   return (
     <div className="h-full min-h-0">
       <ConnectedThreadStage
-        projectId={effectiveProjectId}
-        sessionId={session.id}
-        threadPinned={session.pinned ?? false}
-        threadActionShortcuts={threadActionShortcuts}
-        projectWorkspacePath={summary
-          ? projectWorkspaceRootOrNull(project)
-          : projectWorkspaceRootOrNull(selectedNewThreadProject)}
-        isNewThreadTab={!summary}
-        newThreadTarget={summary
-          ? null
-          : {
-              projectId: effectiveProjectId,
-              projectName: selectedNewThreadProject?.name ?? "No project",
-              sessionId: session.id,
-              threadTitle: "New thread",
-              runInTarget: selectedNewThreadRunInTarget,
-              runInEnvironmentPath: selectedNewThreadEnvironmentPath,
-              worktreeStartMode,
-              worktreeBranchPrefix,
-            }}
-        newThreadProjectSelector={summary
-          ? null
-          : {
-              projects: projectSelectorOptions,
-              selectedProjectId: effectiveProjectId,
-              disabled: false,
-              canAddProject: true,
-            }}
-        newThreadStartInSelector={startInSelectorModel}
-        newThreadComposerIntent={
-          summary ? null : newThreadComposerIntent ?? null
-        }
-        threadStartProgress={threadStartProgress}
-        activeThreadId={summary?.threadId ?? null}
-        activeThreadSummary={summary}
-        availableModels={codexControl.availableModels}
-        agentProviderCatalog={codexControl.agentProviderCatalog}
-        agentProviderCatalogLoading={
-          codexControl.agentProviderCatalogLoading
-        }
-        selectedExecutionProfile={codexControl.executionProfile}
-        collaborationModes={collaborationModes}
-        selectedCollaborationMode={selectedCollaborationMode}
-        selectedModel={codexControl.threadSettings.model ?? ""}
-        selectedReasoningEffort={
-          codexControl.threadSettings.reasoningEffort ?? "medium"
-        }
-        selectedPersonality={codexControl.personality}
-        reasoningEffortOptions={codexControl.reasoningEffortOptions}
-        permissionMode={codexControl.permissionMode}
-        isQueueingEnabled={threadQueueFollowUpsEnabled}
-        composerEnterBehavior={composerEnterBehavior}
-        searchOpenTick={searchOpenTick}
+        {...connectedStageProps}
         summaryPanelMounted={summaryPanelMounted}
         summaryPanelOpen={summaryPanelOpen}
         summaryPanelHideImmediately={summaryPanelHideImmediately}
         summaryPanelContentShift={summaryPanelContentShift}
-        summarySideChatRows={summarySideChatRows}
-        summaryBrowserRows={summaryBrowserRows}
-        summaryScheduledAutomation={summaryScheduledAutomation}
-        summaryComputerUsePip={summaryComputerUsePip}
-        planSidePanelState={planSidePanelState}
         rightPanelComposerOverlayEnabled={
           rightPanelComposerOverlayEnabled
         }
@@ -630,7 +669,7 @@ export function SessionThreadPage({
         turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
         routeActive={routeActive}
         threadBodyVisible={threadBodyVisible}
-        actions={actions}
+        presentation={presentation}
         onForkFromTurnIntoWorktree={
           canForkCurrentThreadIntoWorktree
             ? onForkFromTurnIntoWorktree
@@ -638,5 +677,142 @@ export function SessionThreadPage({
         }
       />
     </div>
+  );
+}
+
+type ConnectedSessionThreadProps = Parameters<typeof ConnectedSessionThread>[0];
+
+export function SessionThreadPage(
+  props: Omit<ConnectedSessionThreadProps, "composerDock" | "composerScopeIdentity" | "projectDraftId" | "onMaterializeProjectDraft">,
+) {
+  return <ConnectedSessionThread {...props} />;
+}
+
+export function SessionThreadComposerDock(
+  props: ConnectedSessionThreadProps & {
+    readonly composerDock: NonNullable<ConnectedSessionThreadProps["composerDock"]>;
+  },
+) {
+  return <ConnectedSessionThread {...props} />;
+}
+
+export function ProjectSessionThreadComposerDock({
+  session,
+  project,
+  projects,
+  composerDock,
+  composerScopeIdentity,
+  browserUsePresentationOrigin,
+  newThreadStartBlockedReason,
+  projectDraftId = null,
+  onMaterializeProjectDraft,
+  onRefreshProjectSessions,
+  onEnsureBlankSessionForProject,
+  onOpenPendingWorktree,
+  onOpenLocalEnvironmentsSettings,
+  onOpenHooksSettings,
+  threadQueueFollowUpsEnabled,
+  composerEnterBehavior,
+  onQueueingEnabledChange,
+  onOpenThread,
+  onOpenTurnDiffReview,
+  onOpenTurnDiffFileInSidePanel,
+  onForkSessionFromTurn,
+  worktreeStartMode,
+  worktreeBranchPrefix,
+  commandKeymapState,
+  isMac,
+}: {
+  readonly session: WorkbenchSessionRenderProjection;
+  readonly project: Project;
+  readonly projects: Project[];
+  readonly composerDock: NonNullable<ConnectedSessionThreadProps["composerDock"]>;
+  readonly composerScopeIdentity: string;
+  readonly browserUsePresentationOrigin: BrowserUsePresentationOrigin;
+  readonly newThreadStartBlockedReason?: string | null;
+  readonly projectDraftId?: string | null;
+  readonly onMaterializeProjectDraft?: ThreadActionControllerInput["onMaterializeProjectDraft"];
+  readonly onRefreshProjectSessions: ConnectedSessionThreadProps["onRefreshProjectSessions"];
+  readonly onEnsureBlankSessionForProject: ConnectedSessionThreadProps["onEnsureBlankSessionForProject"];
+  readonly onOpenPendingWorktree: ConnectedSessionThreadProps["onOpenPendingWorktree"];
+  readonly onOpenLocalEnvironmentsSettings: ConnectedSessionThreadProps["onOpenLocalEnvironmentsSettings"];
+  readonly onOpenHooksSettings: ConnectedSessionThreadProps["onOpenHooksSettings"];
+  readonly threadQueueFollowUpsEnabled: boolean;
+  readonly composerEnterBehavior: ComposerEnterBehavior;
+  readonly onQueueingEnabledChange: ConnectedSessionThreadProps["onQueueingEnabledChange"];
+  readonly onOpenThread: ConnectedSessionThreadProps["onOpenThread"];
+  readonly onOpenTurnDiffReview?: ConnectedSessionThreadProps["onOpenTurnDiffReview"];
+  readonly onOpenTurnDiffFileInSidePanel?: ConnectedSessionThreadProps["onOpenTurnDiffFileInSidePanel"];
+  readonly onForkSessionFromTurn?: ConnectedSessionThreadProps["onForkSessionFromTurn"];
+  readonly worktreeStartMode: WorktreeStartMode;
+  readonly worktreeBranchPrefix: string;
+  readonly commandKeymapState?: CommandKeymapState | null;
+  readonly isMac: boolean;
+}) {
+  const noOp = () => undefined;
+  const noOpAsync = async () => undefined;
+
+  return (
+    <ConnectedSessionThread
+      session={session}
+      project={project}
+      projects={projects}
+      routeActive
+      threadBodyVisible={false}
+      onRefreshProjectSessions={onRefreshProjectSessions}
+      onEnsureBlankSessionForProject={onEnsureBlankSessionForProject}
+      onOpenPendingWorktree={onOpenPendingWorktree}
+      onRequestProjectPickerOpen={noOp}
+      onOpenLocalEnvironmentsSettings={onOpenLocalEnvironmentsSettings}
+      onOpenHooksSettings={onOpenHooksSettings}
+      threadQueueFollowUpsEnabled={threadQueueFollowUpsEnabled}
+      composerEnterBehavior={composerEnterBehavior}
+      onQueueingEnabledChange={onQueueingEnabledChange}
+      onOpenThread={onOpenThread}
+      onOpenSubagentsPanel={undefined}
+      onOpenTurnDiffReview={onOpenTurnDiffReview}
+      onOpenTurnDiffFileInSidePanel={onOpenTurnDiffFileInSidePanel}
+      onOpenSummaryGitReview={undefined}
+      turnDiffHoverPreviewDisabled
+      onForkSessionFromTurn={onForkSessionFromTurn}
+      onForkFromTurnIntoWorktree={noOpAsync}
+      worktreeStartMode={worktreeStartMode}
+      worktreeBranchPrefix={worktreeBranchPrefix}
+      searchOpenTick={0}
+      summaryPanelMounted={false}
+      summaryPanelOpen={false}
+      summaryPanelHideImmediately={false}
+      summaryPanelContentShift={0}
+      summarySideChatRows={[]}
+      summaryBrowserRows={[]}
+      summaryScheduledAutomation={null}
+      summaryComputerUsePip={null}
+      onOpenSummarySideChatRow={noOp}
+      onOpenSummaryBrowserRow={noOp}
+      onOpenSummaryScheduledAutomation={noOp}
+      onOpenSummaryOutputInSidePanel={() => false}
+      onToggleSummaryComputerUsePip={noOp}
+      rightPanelComposerOverlayEnabled={false}
+      rightPanelComposerOverlayCompact={false}
+      rightPanelComposerOverlayAtDocumentBottom={false}
+      rightPanelComposerOverlayDocumentBottomKey={null}
+      rightPanelComposerOverlayTarget={null}
+      onOpenMcpAppSidePanel={undefined}
+      onOpenPlanInSidePanel={undefined}
+      onClosePlanSidePanel={undefined}
+      planSidePanelState={null}
+      onRequestRenameThread={undefined}
+      onArchiveThread={noOpAsync}
+      onToggleThreadPin={noOpAsync}
+      commandKeymapState={commandKeymapState}
+      isMac={isMac}
+      presentation="panel"
+      composerDock={composerDock}
+      composerScopeIdentity={composerScopeIdentity}
+      browserUsePresentationOrigin={browserUsePresentationOrigin}
+      newThreadStartBlockedReason={newThreadStartBlockedReason}
+      projectDraftId={projectDraftId}
+      onMaterializeProjectDraft={onMaterializeProjectDraft}
+    />
   );
 }

@@ -25,6 +25,11 @@ import type { WorkbenchLocation } from "../../shared/workbench-layout";
 import {
   materializeInitialWorkbenchSessionView,
 } from "../../shared/workbench-session-view";
+import {
+  applyLegacySessionViewToWorkbenchScene,
+  makeWorkbenchSceneKey,
+  materializeInitialWorkbenchScene,
+} from "../../shared/workbench-scene";
 
 const { invokeMock } = vi.hoisted(() => ({
   invokeMock: vi.fn(),
@@ -68,7 +73,6 @@ function makeSummary(
   return {
     id,
     projectId,
-    databaseStarter: false,
     noThreadFallbackTitle: id,
     displayTitle: id,
     order: 0,
@@ -100,21 +104,27 @@ function makeWindow(
 function makeWindowPort(
   location: WorkbenchLocation = {
     kind: "session",
-    activeProjectId: "alpha",
     sessionId: "session:alpha",
+    projectContextId: "alpha",
   },
 ): WorkbenchSessionCatalogWindowPort {
   return {
     location,
-    sessionViewsBySessionId: {},
-    setSessionView: vi.fn(),
+    scenesByOwnerKey: {},
+    setScene: vi.fn(),
     selectSession: vi.fn(),
     selectProject: vi.fn(),
-    reconcileSelection: vi.fn(),
+    reconcileMissingSession: vi.fn(),
   };
 }
 
-function createHarness(window: WorkbenchSessionCatalogWindowPort) {
+function createHarness(
+  window: WorkbenchSessionCatalogWindowPort,
+  options: {
+    projects?: Project[];
+    expandedProjectIds?: Set<string>;
+  } = {},
+) {
   const client = new QueryClient({
     defaultOptions: {
       queries: {
@@ -130,8 +140,9 @@ function createHarness(window: WorkbenchSessionCatalogWindowPort) {
   );
   const hook = renderHook(
     () => useWorkbenchSessionCatalog({
-      projects: [makeProject("alpha")],
-      expandedProjectIds: new Set(["alpha"]),
+      projects: options.projects ?? [makeProject("alpha")],
+      expandedProjectIds:
+        options.expandedProjectIds ?? new Set(["alpha"]),
       window,
     }),
     { wrapper },
@@ -152,6 +163,11 @@ describe("useWorkbenchSessionCatalog", () => {
       channel: string,
       projectId: string | null,
     ) => {
+      if (channel === "project-sessions:get") {
+        return Promise.resolve(
+          makeSummary("session:alpha", "alpha") as ProjectSession,
+        );
+      }
       expect(channel).toBe("workspace:tasks:list");
       if (projectId === null) return Promise.resolve(makeWindow([]));
       return new Promise<ProjectSessionSummaryWindow>((resolve) => {
@@ -161,17 +177,198 @@ describe("useWorkbenchSessionCatalog", () => {
     const window = makeWindowPort();
     const { hook } = createHarness(window);
 
-    expect(hook.result.current.loading).toBe(true);
-    expect(hook.result.current.ready).toBe(false);
-    expect(window.reconcileSelection).not.toHaveBeenCalled();
+    expect(hook.result.current.collectionsByProject.alpha.state)
+      .toEqual({ kind: "loading" });
+    expect(hook.result.current.selectedDetailReady).toBe(false);
+    expect(window.reconcileMissingSession).not.toHaveBeenCalled();
 
     await act(async () => {
       resolveProject?.(makeWindow([
         makeSummary("session:alpha", "alpha"),
       ]));
     });
-    await waitFor(() => expect(hook.result.current.ready).toBe(true));
+    await waitFor(() => {
+      expect(hook.result.current.selectedDetailReady).toBe(true);
+    });
     expect(hook.result.current.active?.domain.id).toBe("session:alpha");
+  });
+
+  test("treats a Project with no Sessions as a ready empty collection", async () => {
+    invokeMock.mockImplementation((channel: string) => {
+      expect(channel).toBe("workspace:tasks:list");
+      return Promise.resolve(makeWindow([]));
+    });
+    const window = makeWindowPort({
+      kind: "project",
+      projectId: "alpha",
+    });
+    const { hook } = createHarness(window);
+
+    expect(hook.result.current.selectedDetailReady).toBe(true);
+    await waitFor(() => {
+      expect(hook.result.current.collectionsByProject.alpha.state)
+        .toEqual({
+          kind: "ready",
+          refreshing: false,
+          refreshError: null,
+        });
+    });
+    expect(hook.result.current.collectionsByProject.alpha.projections)
+      .toEqual([]);
+    expect(invokeMock.mock.calls.some(([channel]) => (
+      channel === "project-sessions:get"
+    ))).toBe(false);
+  });
+
+  test("isolates loading state between Session scopes", async () => {
+    let resolveProjectless:
+      | ((value: ProjectSessionSummaryWindow) => void)
+      | null = null;
+    invokeMock.mockImplementation((
+      channel: string,
+      projectId: string | null,
+    ) => {
+      expect(channel).toBe("workspace:tasks:list");
+      if (projectId === "alpha") return Promise.resolve(makeWindow([]));
+      return new Promise<ProjectSessionSummaryWindow>((resolve) => {
+        resolveProjectless = resolve;
+      });
+    });
+    const { hook } = createHarness(makeWindowPort({
+      kind: "project",
+      projectId: "alpha",
+    }));
+
+    await waitFor(() => {
+      expect(hook.result.current.collectionsByProject.alpha.state.kind)
+        .toBe("ready");
+    });
+    expect(hook.result.current.projectlessCollection.state.kind)
+      .toBe("loading");
+
+    await act(async () => {
+      resolveProjectless?.(makeWindow([]));
+    });
+  });
+
+  test("keeps an unrequested inactive Project scope idle", async () => {
+    invokeMock.mockImplementation((channel: string) => {
+      expect(channel).toBe("workspace:tasks:list");
+      return Promise.resolve(makeWindow([]));
+    });
+    const { hook } = createHarness(
+      makeWindowPort({ kind: "project", projectId: "alpha" }),
+      {
+        projects: [makeProject("alpha"), makeProject("beta")],
+        expandedProjectIds: new Set(),
+      },
+    );
+
+    expect(hook.result.current.collectionsByProject.beta.state)
+      .toEqual({ kind: "idle" });
+    await waitFor(() => {
+      expect(hook.result.current.collectionsByProject.alpha.state.kind)
+        .toBe("ready");
+    });
+    expect(invokeMock.mock.calls.some(([, projectId]) => (
+      projectId === "beta"
+    ))).toBe(false);
+  });
+
+  test("exposes a scope-local error that can be retried", async () => {
+    let alphaAttempt = 0;
+    invokeMock.mockImplementation((
+      channel: string,
+      projectId: string | null,
+    ) => {
+      expect(channel).toBe("workspace:tasks:list");
+      if (projectId === null) return Promise.resolve(makeWindow([]));
+      alphaAttempt += 1;
+      if (alphaAttempt === 1) {
+        return Promise.reject(new Error("Alpha is temporarily unavailable"));
+      }
+      return Promise.resolve(makeWindow([]));
+    });
+    const { hook } = createHarness(makeWindowPort({
+      kind: "project",
+      projectId: "alpha",
+    }));
+
+    await waitFor(() => {
+      expect(hook.result.current.collectionsByProject.alpha.state)
+        .toEqual({
+          kind: "error",
+          message: "Alpha is temporarily unavailable",
+        });
+    });
+
+    await act(async () => {
+      await hook.result.current.retryCollection("alpha");
+    });
+    await waitFor(() => {
+      expect(hook.result.current.collectionsByProject.alpha.state.kind)
+        .toBe("ready");
+    });
+  });
+
+  test("keeps cached rows ready through a failing background refresh", async () => {
+    let refreshAlpha = false;
+    let rejectRefresh: ((reason: Error) => void) | null = null;
+    invokeMock.mockImplementation((
+      channel: string,
+      projectId: string | null,
+    ) => {
+      expect(channel).toBe("workspace:tasks:list");
+      if (projectId === null) return Promise.resolve(makeWindow([]));
+      if (!refreshAlpha) {
+        return Promise.resolve(makeWindow([
+          makeSummary("session:alpha", "alpha"),
+        ]));
+      }
+      return new Promise<ProjectSessionSummaryWindow>((_resolve, reject) => {
+        rejectRefresh = reject;
+      });
+    });
+    const { client, hook } = createHarness(makeWindowPort({
+      kind: "project",
+      projectId: "alpha",
+    }));
+
+    await waitFor(() => {
+      expect(hook.result.current.collectionsByProject.alpha.state.kind)
+        .toBe("ready");
+    });
+    refreshAlpha = true;
+    act(() => {
+      void client.invalidateQueries({
+        queryKey: queryKeys.projectSessions.summaries("alpha"),
+        exact: true,
+      });
+    });
+    await waitFor(() => {
+      expect(hook.result.current.collectionsByProject.alpha.state)
+        .toEqual({
+          kind: "ready",
+          refreshing: true,
+          refreshError: null,
+        });
+    });
+    expect(hook.result.current.collectionsByProject.alpha.projections)
+      .toHaveLength(1);
+
+    await act(async () => {
+      rejectRefresh?.(new Error("Refresh failed"));
+    });
+    await waitFor(() => {
+      expect(hook.result.current.collectionsByProject.alpha.state)
+        .toEqual({
+          kind: "ready",
+          refreshing: false,
+          refreshError: "Refresh failed",
+        });
+    });
+    expect(hook.result.current.collectionsByProject.alpha.projections[0]?.id)
+      .toBe("session:alpha");
   });
 
   test("hydrates selected detail while preserving an explicit window view", async () => {
@@ -180,10 +377,20 @@ describe("useWorkbenchSessionCatalog", () => {
       projectId: "alpha",
       databaseViewId: null,
     });
+    const persistedScene = applyLegacySessionViewToWorkbenchScene(
+      materializeInitialWorkbenchScene({
+        kind: "session",
+        sessionId: "session:alpha",
+      }),
+      persistedView,
+    );
     const window = {
       ...makeWindowPort(),
-      sessionViewsBySessionId: {
-        "session:alpha": persistedView,
+      scenesByOwnerKey: {
+        [makeWorkbenchSceneKey({
+          kind: "session",
+          sessionId: "session:alpha",
+        })]: persistedScene,
       },
     };
     const thread = {
@@ -229,8 +436,104 @@ describe("useWorkbenchSessionCatalog", () => {
       expect(hook.result.current.active?.domain.thread?.threadId)
         .toBe("thread:alpha");
     });
-    expect(hook.result.current.active?.view).toBe(persistedView);
-    expect(window.setSessionView).not.toHaveBeenCalled();
+    expect(hook.result.current.active?.scene).toStrictEqual(persistedScene);
+    expect(window.setScene).not.toHaveBeenCalled();
+  });
+
+  test("hydrates the exact selected Session outside the bounded summary window", async () => {
+    const selected = makeSummary(
+      "session:beyond-first-window",
+      "alpha",
+    ) as ProjectSession;
+    const firstSummary = makeSummary("session:first", "alpha");
+    invokeMock.mockImplementation((
+      channel: string,
+      value: string | null,
+    ) => {
+      if (channel === "workspace:tasks:list") {
+        return Promise.resolve(makeWindow(
+          value === "alpha" ? [firstSummary] : [],
+        ));
+      }
+      if (channel === "project-sessions:get") {
+        expect(value).toBe("session:beyond-first-window");
+        return Promise.resolve(selected);
+      }
+      throw new Error(`Unexpected channel: ${channel}`);
+    });
+    const window = makeWindowPort({
+      kind: "session",
+      sessionId: "session:beyond-first-window",
+      projectContextId: "alpha",
+    });
+    const { hook } = createHarness(window);
+
+    await waitFor(() => {
+      expect(hook.result.current.active?.domain.id)
+        .toBe("session:beyond-first-window");
+    });
+    expect(hook.result.current.active?.domain.id).not.toBe("session:first");
+    expect(window.reconcileMissingSession).not.toHaveBeenCalled();
+  });
+
+  test("reconciles only an authoritative missing exact Session", async () => {
+    invokeMock.mockImplementation((
+      channel: string,
+      value: string | null,
+    ) => {
+      if (channel === "workspace:tasks:list") {
+        return Promise.resolve(makeWindow(
+          value === "alpha"
+            ? [makeSummary("session:first", "alpha")]
+            : [],
+        ));
+      }
+      if (channel === "project-sessions:get") return Promise.resolve(null);
+      throw new Error(`Unexpected channel: ${channel}`);
+    });
+    const window = makeWindowPort({
+      kind: "session",
+      sessionId: "session:missing",
+      projectContextId: "alpha",
+    });
+    const { hook } = createHarness(window);
+
+    await waitFor(() => {
+      expect(window.reconcileMissingSession)
+        .toHaveBeenCalledWith("session:missing");
+    });
+    expect(hook.result.current.active).toBeNull();
+  });
+
+  test("keeps exact location on a transient detail error", async () => {
+    invokeMock.mockImplementation((
+      channel: string,
+    ) => {
+      if (channel === "workspace:tasks:list") {
+        return Promise.resolve(makeWindow([]));
+      }
+      if (channel === "project-sessions:get") {
+        return Promise.reject(new Error("temporary outage"));
+      }
+      throw new Error(`Unexpected channel: ${channel}`);
+    });
+    const window = makeWindowPort({
+      kind: "session",
+      sessionId: "session:restore",
+      projectContextId: "alpha",
+    });
+    const { hook } = createHarness(window);
+
+    await waitFor(() => {
+      expect(hook.result.current.selectedDetailError)
+        .toBe("temporary outage");
+    });
+    expect(window.reconcileMissingSession).not.toHaveBeenCalled();
+    expect(window.location).toEqual({
+      kind: "session",
+      sessionId: "session:restore",
+      projectContextId: "alpha",
+    });
   });
 
   test("prefetches detail without fetching a full session list or board", async () => {
@@ -253,7 +556,9 @@ describe("useWorkbenchSessionCatalog", () => {
       throw new Error(`Unexpected channel: ${channel}`);
     });
     const { hook } = createHarness(makeWindowPort());
-    await waitFor(() => expect(hook.result.current.ready).toBe(true));
+    await waitFor(() => {
+      expect(hook.result.current.selectedDetailReady).toBe(true);
+    });
 
     await act(async () => {
       await hook.result.current.prefetch("session:alpha");
@@ -292,7 +597,8 @@ describe("useWorkbenchSessionCatalog", () => {
     });
     const { client, hook } = createHarness(makeWindowPort());
     await waitFor(() => {
-      expect(hook.result.current.hasMoreByScope.alpha).toBe(true);
+      expect(hook.result.current.collectionsByProject.alpha.hasMore)
+        .toBe(true);
     });
 
     await act(async () => {
@@ -330,7 +636,9 @@ describe("useWorkbenchSessionCatalog", () => {
       throw new Error(`Unexpected channel: ${channel}`);
     });
     const { client, hook } = createHarness(makeWindowPort());
-    await waitFor(() => expect(hook.result.current.ready).toBe(true));
+    await waitFor(() => {
+      expect(hook.result.current.selectedDetailReady).toBe(true);
+    });
 
     await act(async () => {
       await hook.result.current.markUnread(current, true);
@@ -359,11 +667,13 @@ describe("useWorkbenchSessionCatalog", () => {
     });
     const window = makeWindowPort();
     const { hook } = createHarness(window);
-    await waitFor(() => expect(hook.result.current.ready).toBe(true));
+    await waitFor(() => {
+      expect(hook.result.current.selectedDetailReady).toBe(true);
+    });
 
     act(() => {
       hook.result.current.select(
-        hook.result.current.projectless[0],
+        hook.result.current.projectlessCollection.presentations[0],
       );
     });
 

@@ -190,7 +190,6 @@ export interface DesktopInitialProjectCreateInput extends ProjectCreateInput {
 
 export interface DesktopInitialProjectCreateResult {
   readonly project: Project;
-  readonly starterSessionId: string;
 }
 
 export interface DesktopProjectWorkspacePort {
@@ -646,7 +645,6 @@ const fromCoreSessionSummary = (
   archived: session.archived,
   archivedAt: session.archived_at ?? null,
   unread: session.unread,
-  databaseStarter: session.database_starter === true,
   thread,
   createdAt: session.created_at,
   updatedAt: session.updated_at,
@@ -1022,7 +1020,7 @@ export function createCoreProjectWorkspaceAdapter(
       return selected;
     },
     createInitialProject: async (input) => {
-      const committed = await client.workspaceApply({
+      await client.workspaceApply({
         operationId: input.operationId,
         intent: {
           kind: "create_initial_project",
@@ -1043,11 +1041,7 @@ export function createCoreProjectWorkspaceAdapter(
       if (!project) {
         throw new Error(`Created initial Project not found: ${input.projectId}`);
       }
-      const starterSessionId = committed.value.affected_session_ids[0];
-      if (!starterSessionId) {
-        throw new Error("Created initial Project has no starter Session");
-      }
-      return { project, starterSessionId };
+      return { project };
     },
     createProject: async (input) => {
       const projectId = randomUUID();

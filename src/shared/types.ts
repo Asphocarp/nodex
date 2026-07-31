@@ -58,7 +58,10 @@ import type {
   ToolRequestUserInputOption as CodexAppServerUserInputOption,
   TurnStatus as CodexAppServerTurnStatus,
 } from "@nodex/codex-app-server-protocol/v2";
-import type { BrowserSidebarDeviceToolbarState } from "./browser-sidebar";
+import type {
+  BrowserSidebarDeviceToolbarState,
+  BrowserUsePresentationOrigin,
+} from "./browser-sidebar";
 import type {
   CollaborationMode as CodexAppServerCollaborationMode,
   ModeKind as CodexAppServerModeKind,
@@ -720,6 +723,9 @@ export interface WorkbenchProjectionFilesTabConfig {
 
 export interface WorkbenchProjectionBrowserTabConfig {
   projectId: string | null;
+  browserUseSource?: {
+    codexSessionId: string;
+  };
   browserStorageId?: string;
   url?: string;
   title?: string;
@@ -924,12 +930,6 @@ export interface ProjectSessionThreadSummary {
 export interface ProjectSession {
   id: string;
   projectId: string | null;
-  /**
-   * Marks the Project's starter "Database View" Session. Its first window
-   * materialization presents the Project's primary Database default View,
-   * resolved from the Project read model at materialization time.
-   */
-  databaseStarter: boolean;
   noThreadFallbackTitle: string;
   displayTitle: string;
   order: number;
@@ -946,7 +946,6 @@ export interface ProjectSession {
 export interface ProjectSessionSummary {
   id: string;
   projectId: string | null;
-  databaseStarter: boolean;
   noThreadFallbackTitle: string;
   displayTitle: string;
   order: number;
@@ -2047,6 +2046,8 @@ export interface CodexThreadStartForSessionInput {
   worktreeStartMode?: WorktreeStartMode;
   worktreeBranchPrefix?: string;
   heartbeatAutomation?: CodexThreadStartHeartbeatAutomationInput | null;
+  /** Surface that must own Browser Use before the first turn can start. */
+  browserUsePresentationOrigin?: BrowserUsePresentationOrigin;
 }
 
 export interface CodexFreshThreadLaunch {

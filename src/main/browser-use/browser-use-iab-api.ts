@@ -971,6 +971,7 @@ export class BrowserUseIabApi extends EventEmitter {
   ): void {
     const state: BrowserUseTabState = {
       ...toIdentity(this.route, tab.browserTabId),
+      codexSessionId: this.route.codexSessionId,
       projectId: this.route.projectId,
       title: snapshot.title,
       url: snapshot.url,

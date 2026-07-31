@@ -4,10 +4,14 @@ import {
   createDefaultWorkbenchLayoutSnapshotV3,
   createDefaultWorkbenchLayoutSnapshotV4,
 } from "../workbench-layout";
-import { createEmptyWorkbenchSessionView } from "../workbench-session-view";
+import {
+  createEmptyWorkbenchSessionView,
+  materializeInitialWorkbenchSessionView,
+} from "../workbench-session-view";
 import {
   WorkbenchLayoutSnapshotV3Schema,
   WorkbenchLayoutSnapshotV4Schema,
+  WorkbenchLayoutSnapshotV5Schema,
 } from "./workbench-layout";
 
 describe("WorkbenchLayoutSnapshotSchema", () => {
@@ -204,5 +208,141 @@ describe("WorkbenchLayoutSnapshotV4Schema", () => {
     );
 
     expect(second).toEqual(first);
+  });
+});
+
+describe("WorkbenchLayoutSnapshotV5Schema", () => {
+  test("migrates a Session view to an owner Scene without changing panel geometry", () => {
+    let next = 0;
+    const legacyView = materializeInitialWorkbenchSessionView(
+      {
+        id: "session:alpha",
+        projectId: "alpha",
+        databaseViewId: "view:alpha",
+      },
+      {
+        identityFactory: {
+          createId(kind) {
+            next += 1;
+            return `${kind}:${next}`;
+          },
+        },
+        touchedAt: "2026-07-31T00:00:00.000Z",
+      },
+    );
+    const legacy = {
+      ...createDefaultWorkbenchLayoutSnapshotV4(),
+      location: {
+        kind: "session",
+        activeProjectId: "alpha",
+        sessionId: "session:alpha",
+      },
+      databaseSearchByProject: { alpha: "status:open" },
+      sessionViewsBySessionId: {
+        "session:alpha": legacyView,
+      },
+    } as const;
+
+    const migrated = WorkbenchLayoutSnapshotV5Schema.parse(legacy);
+    const scene = migrated.scenesByOwnerKey["session:session:alpha"];
+
+    expect(migrated.location).toEqual({
+      kind: "session",
+      sessionId: "session:alpha",
+      projectContextId: "alpha",
+    });
+    expect(migrated.databaseSearchByProject).toEqual({
+      alpha: "status:open",
+    });
+    expect(scene?.primary).toMatchObject({
+      id: "primary",
+      kind: "conversation",
+      config: { sessionId: "session:alpha" },
+    });
+    expect(Object.values(scene?.panelSurfacesById ?? {})).toEqual([
+      expect.objectContaining({
+        kind: "db_view",
+        config: {
+          projectId: "alpha",
+          target: {
+            kind: "database-view",
+            databaseViewId: "view:alpha",
+          },
+          view: "kanban",
+        },
+      }),
+    ]);
+    expect(scene?.panels).toEqual(legacyView.panels);
+    expect(scene?.panels.right.size.fullWidth).toBe(true);
+    expect(WorkbenchLayoutSnapshotV5Schema.parse(migrated)).toEqual(migrated);
+  });
+
+  test("promotes selected Project context to a first-class Project location", () => {
+    const migrated = WorkbenchLayoutSnapshotV5Schema.parse({
+      ...createDefaultWorkbenchLayoutSnapshotV4(),
+      location: {
+        kind: "library",
+        target: { kind: "home" },
+        returnTo: {
+          kind: "empty",
+          activeProjectId: "alpha",
+        },
+      },
+    });
+
+    expect(migrated.location).toEqual({
+      kind: "library",
+      target: { kind: "home" },
+      returnTo: {
+        kind: "project",
+        projectId: "alpha",
+      },
+    });
+    expect(migrated.scenesByOwnerKey).toEqual({});
+  });
+
+  test("folds pending routes and rejects non-canonical Scene map keys", () => {
+    const projectScene = {
+      version: 1,
+      owner: { kind: "project", projectId: "alpha" },
+      primary: {
+        id: "primary",
+        kind: "db_view",
+        titleSnapshot: "Database",
+        config: {
+          projectId: "alpha",
+          target: { kind: "project-default" },
+          view: "kanban",
+        },
+        stateKey: 0,
+        state: null,
+      },
+      panelSurfacesById: {},
+      panels: createEmptyWorkbenchSessionView("legacy").panels,
+      lastFocusedPanelId: null,
+      touchedAt: "2026-07-31T00:00:00.000Z",
+    } as const;
+    const input = {
+      version: 5,
+      location: {
+        kind: "pending-worktree",
+        clientThreadId: "client:one",
+        returnTo: { kind: "project", projectId: "alpha" },
+      },
+      databaseSearchByProject: {},
+      scenesByOwnerKey: {
+        "project:alpha": projectScene,
+      },
+    } as const;
+
+    expect(WorkbenchLayoutSnapshotV5Schema.parse(input).location).toEqual({
+      kind: "project",
+      projectId: "alpha",
+    });
+    expect(() => WorkbenchLayoutSnapshotV5Schema.parse({
+      ...input,
+      location: input.location.returnTo,
+      scenesByOwnerKey: { wrong: projectScene },
+    })).toThrow();
   });
 });

@@ -342,6 +342,30 @@ describe("BrowserSidebarPanel chrome", () => {
     view.unmount();
   });
 
+  test("registers a Project Scene Browser without inventing a Codex Session", async () => {
+    const view = render(
+      <BrowserSidebarPanel
+        tab={loadedBrowserTab}
+        surfaceContext={{
+          browserConversationId: "project:alpha",
+          codexSessionId: null,
+        }}
+        browserViewScopeId="window-session-1"
+        isVisible
+        onRefreshSessions={async () => []}
+      />,
+    );
+    await settleAsyncRender();
+
+    const [registerCommand] = readBrowserCommandCalls("register-tab");
+    expect(registerCommand).toMatchObject({
+      browserConversationId: "project:alpha",
+      browserViewScopeId: "window-session-1",
+    });
+    expect(registerCommand).not.toHaveProperty("codexSessionId");
+    view.unmount();
+  });
+
   test("mounts an about:blank guest when Browser Use presents a tab before navigation", async () => {
     const view = render(
       <BrowserSidebarPanel
@@ -584,7 +608,6 @@ const browserTab: WorkbenchTabProjection & { preview: true } = {
 const activeSession: WorkbenchSessionRenderProjection = {
   id: "session-1",
   projectId: "alpha",
-  databaseStarter: false,
   noThreadFallbackTitle: "Session",
   displayTitle: "Session",
   order: 0,
@@ -725,6 +748,7 @@ function makeBrowserUseTab(
     browserConversationId: "session-1",
     browserViewScopeId,
     browserTabId: "tab-browser",
+    codexSessionId: "thread-1",
     projectId: "alpha",
     title: "Browser agent",
     url: "https://www.google.com/",

@@ -16,7 +16,6 @@ export interface InitialProjectWelcomePage {
 
 export interface InitialProjectPresentation {
   readonly projectId: string;
-  readonly starterSessionId: string;
   readonly defaultDatabaseViewId: string;
   readonly starterPageId: string;
   readonly starterPageTitle: string;

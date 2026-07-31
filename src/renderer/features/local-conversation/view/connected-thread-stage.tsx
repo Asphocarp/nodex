@@ -65,6 +65,12 @@ import {
   useLocalConversationAccount,
 } from "../local-conversation-store";
 import { LocalConversationFooter } from "./local-conversation-footer";
+import {
+  EnsureLocalConversationThreadScrollController,
+} from "./local-conversation-thread-scroll-controller";
+import type {
+  RightPanelComposerOverlayVisibility,
+} from "./right-panel-composer-overlay";
 import { LocalConversationNewThreadHomeScreen } from "./local-conversation-new-thread-home-screen";
 import { LocalConversationStageScreen } from "./local-conversation-stage-screen";
 import { ThreadStageHeader } from "./local-conversation-stage-header";
@@ -85,7 +91,7 @@ import {
   mcpAppsQueryOptions,
 } from "@/lib/query-options";
 
-type ConnectedThreadStageInput = Omit<
+export type ConnectedThreadStageInput = Omit<
   ThreadStageRouteInput,
   | "conversation"
   | "parentTurns"
@@ -231,6 +237,7 @@ interface ConnectedThreadStageProps extends ConnectedThreadStageInput {
   summaryPanelContentShift?: number;
   routeActive?: boolean;
   threadBodyVisible?: boolean;
+  presentation?: "primary" | "panel";
 }
 
 function resolveThreadTitle(
@@ -459,7 +466,7 @@ function ConnectedThreadStageBody({
   );
 }
 
-function ConnectedThreadStageFooter({
+export function ConnectedThreadStageFooter({
   activeThreadId,
   input,
   actions,
@@ -473,6 +480,8 @@ function ConnectedThreadStageFooter({
   rightPanelComposerOverlayDocumentBottomKey = null,
   rightPanelComposerOverlayTarget = null,
   turnDiffHoverPreviewDisabled = false,
+  rightPanelComposerOverlayVisibility,
+  rightPanelComposerLeadingContent,
 }: {
   activeThreadId: string | null;
   input: ConnectedThreadStageInput;
@@ -487,6 +496,8 @@ function ConnectedThreadStageFooter({
   rightPanelComposerOverlayDocumentBottomKey?: string | null;
   rightPanelComposerOverlayTarget?: HTMLElement | null;
   turnDiffHoverPreviewDisabled?: boolean;
+  rightPanelComposerOverlayVisibility?: RightPanelComposerOverlayVisibility;
+  rightPanelComposerLeadingContent?: ReactNode;
 }) {
   const turns = useConversationTurns(activeThreadId);
   const conversationSnapshot = useConversation(activeThreadId);
@@ -695,6 +706,7 @@ function ConnectedThreadStageFooter({
       newThreadTarget: input.newThreadTarget,
       newThreadProjectSelector: input.newThreadProjectSelector ?? null,
       newThreadStartInSelector: input.newThreadStartInSelector ?? null,
+      newThreadStartBlockedReason: input.newThreadStartBlockedReason ?? null,
       composerShell,
       body,
       collaborationModes: input.collaborationModes,
@@ -768,6 +780,7 @@ function ConnectedThreadStageFooter({
       input.isNewThreadTab,
       input.isQueueingEnabled,
       input.newThreadProjectSelector,
+      input.newThreadStartBlockedReason,
       input.newThreadStartInSelector,
       input.newThreadTarget,
       input.permissionMode,
@@ -804,10 +817,131 @@ function ConnectedThreadStageFooter({
         documentBottomKey: rightPanelComposerOverlayDocumentBottomKey,
         isAtDocumentBottom: rightPanelComposerOverlayAtDocumentBottom,
         target: rightPanelComposerOverlayTarget,
+        visibility: rightPanelComposerOverlayVisibility,
+        leadingContent: rightPanelComposerLeadingContent,
       }}
       planSidePanelState={input.planSidePanelState ?? null}
       turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
     />
+  );
+}
+
+export interface ConnectedThreadComposerDockProps
+  extends ConnectedThreadStageInput {
+  readonly actions: ThreadStageActions;
+  readonly composerScopeIdentity?: string | null;
+  readonly routeActive: boolean;
+  readonly visible: boolean;
+  readonly overlayTarget: HTMLElement | null;
+  readonly overlayVisibility: RightPanelComposerOverlayVisibility;
+  readonly leadingContent: ReactNode;
+}
+
+/**
+ * Footer-only projection of a canonical Session/Thread. It deliberately owns
+ * no transcript, virtualizer, scroll position, or app-shell header.
+ */
+export function ConnectedThreadComposerDock({
+  actions,
+  composerScopeIdentity = null,
+  routeActive,
+  visible,
+  overlayTarget,
+  overlayVisibility,
+  leadingContent,
+  ...input
+}: ConnectedThreadComposerDockProps) {
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const activeThreadId = resolveConnectedStageActiveThreadId(input);
+  const resumeState = useConversationResumeState(activeThreadId);
+  const streamRole = useConversationStreamRole(activeThreadId);
+  const statusType = useConversationStatusType(activeThreadId);
+  const statusActiveFlags = useConversationStatusActiveFlags(activeThreadId);
+  const requests = useConversationRequests(activeThreadId);
+  const primaryRequest = useConversationPrimaryRequest(activeThreadId);
+  const summaryFields = useConversationSummaryFields(activeThreadId);
+  const archived = input.activeThreadSummary?.archived === true
+    || summaryFields.archived;
+  const childMemberships = useConversationChildMemberships(activeThreadId);
+  const childThreadIds = useMemo(
+    () => resolveChildConversationIds(activeThreadId, childMemberships),
+    [activeThreadId, childMemberships],
+  );
+  const knownConversationsById = useConversationSubset(childThreadIds);
+  const visibleBackgroundRequestConversationId = useMemo(() => {
+    for (const membership of childMemberships) {
+      const conversation = knownConversationsById[membership.threadId];
+      if (selectPrimaryBackgroundConversationRequest(conversation ?? null)) {
+        return membership.threadId;
+      }
+    }
+    return null;
+  }, [childMemberships, knownConversationsById]);
+  const presentedConversationIds = useMemo(() => {
+    if (!routeActive || !visible) return [];
+    return [activeThreadId, visibleBackgroundRequestConversationId].filter(
+      (conversationId): conversationId is string => Boolean(conversationId),
+    );
+  }, [
+    activeThreadId,
+    routeActive,
+    visible,
+    visibleBackgroundRequestConversationId,
+  ]);
+  usePresentedConversationIds(presentedConversationIds);
+
+  const hasRuntimeWork = Boolean(
+    (statusType ?? input.activeThreadSummary?.statusType) === "active"
+    || statusActiveFlags.length > 0
+    || (input.activeThreadSummary?.statusActiveFlags.length ?? 0) > 0
+    || requests.length > 0
+    || primaryRequest,
+  );
+  const lifecycleActive = routeActive || hasRuntimeWork;
+
+  useEffect(() => {
+    if (!activeThreadId || !lifecycleActive) return;
+    void setLocalConversationThreadViewActive(activeThreadId, true).catch(() => {});
+    return () => {
+      void setLocalConversationThreadViewActive(activeThreadId, false).catch(() => {});
+    };
+  }, [activeThreadId, lifecycleActive]);
+
+  useEffect(() => {
+    if (!input.activeThreadId || input.isNewThreadTab || archived) return;
+    if (!lifecycleActive || resumeState === "resuming") return;
+    if (
+      resumeState === "resumed"
+      && (streamRole === "owner" || streamRole === "follower")
+    ) {
+      return;
+    }
+    void requestLocalConversationResume(input.activeThreadId).catch(() => {});
+  }, [
+    archived,
+    input.activeThreadId,
+    input.isNewThreadTab,
+    lifecycleActive,
+    resumeState,
+    streamRole,
+  ]);
+
+  return (
+    <EnsureLocalConversationThreadScrollController>
+      <ConnectedThreadStageFooter
+        activeThreadId={activeThreadId}
+        input={input}
+        actions={actions}
+        composerScopeIdentity={composerScopeIdentity}
+        errorMessage={errorMessage}
+        onErrorMessage={setErrorMessage}
+        rightPanelComposerOverlayEnabled
+        rightPanelComposerOverlayTarget={overlayTarget}
+        rightPanelComposerOverlayVisibility={overlayVisibility}
+        rightPanelComposerLeadingContent={leadingContent}
+        turnDiffHoverPreviewDisabled
+      />
+    </EnsureLocalConversationThreadScrollController>
   );
 }
 
@@ -857,6 +991,7 @@ export function ConnectedThreadStage({
   summaryPanelContentShift = 0,
   routeActive = true,
   threadBodyVisible = routeActive,
+  presentation = "primary",
   ...input
 }: ConnectedThreadStageProps) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -1116,7 +1251,9 @@ export function ConnectedThreadStage({
     );
   }
 
-  const ownsAppShellHeader = !isSideChat && !backgroundAgentDetail;
+  const ownsAppShellHeader = presentation === "primary"
+    && !isSideChat
+    && !backgroundAgentDetail;
   const threadHeaderContent = ownsAppShellHeader ? (
     <ConnectedThreadStageHeader
       activeThreadId={activeThreadId}

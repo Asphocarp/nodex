@@ -90,7 +90,11 @@ export function WorkbenchRouteHost({
     );
   }
 
-  if (location.kind === "session" || location.kind === "empty") {
+  if (
+    location.kind === "project"
+    || location.kind === "session"
+    || location.kind === "empty"
+  ) {
     return (
       <>
         {sidebar}

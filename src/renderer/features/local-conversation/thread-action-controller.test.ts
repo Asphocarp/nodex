@@ -263,6 +263,25 @@ describe("createThreadStageActions settings routing", () => {
     ]));
   });
 
+  test("rejects a second new-task start while canonical worktree setup is pending", async () => {
+    const startThreadForSession = vi.fn();
+    const actions = createThreadStageActions(buildInput({
+      activeThreadId: null,
+      newThreadStartBlockedReason: "Worktree setup is already in progress",
+      codexControl: {
+        startThreadForSession,
+      } as unknown as ThreadActionControllerInput["codexControl"],
+    }));
+
+    await expect(actions.onStartThreadForSession?.({
+      projectId: "project_1",
+      sessionId: "session_1",
+      prompt: "Start again",
+      runInTarget: "newWorktree",
+    })).rejects.toThrow("Worktree setup is already in progress");
+    expect(startThreadForSession).not.toHaveBeenCalled();
+  });
+
   test("refreshes real project sessions after a direct session thread starts", async () => {
     const calls: string[] = [];
     const startInputs: unknown[] = [];
@@ -312,6 +331,100 @@ describe("createThreadStageActions settings routing", () => {
     expect(JSON.stringify(calls)).toBe(JSON.stringify([
       "refresh:project_1",
     ]));
+  });
+
+  test("captures the visible Browser surface before an idle task turn starts", async () => {
+    const events: string[] = [];
+    invokeMock.mockReset();
+    invokeMock.mockImplementation(async (_channel, command) => {
+      events.push(`capture:${command.codexSessionId}`);
+      return { ok: true };
+    });
+    const actions = createThreadStageActions(buildInput({
+      browserUsePresentationOrigin: {
+        browserConversationId: "project:project_1",
+        browserViewScopeId: "window-session-1",
+      },
+      codexControl: {
+        startTurn: async (threadId: string) => {
+          events.push(`start:${threadId}`);
+        },
+      } as unknown as ThreadActionControllerInput["codexControl"],
+    }));
+
+    await actions.onSendPrompt?.("Continue", {});
+
+    expect(events).toEqual([
+      "capture:thread_1",
+      "start:thread_1",
+    ]);
+    expect(invokeMock).toHaveBeenCalledWith("browser-sidebar-command", {
+      type: "capture-browser-use-route",
+      browserConversationId: "project:project_1",
+      browserViewScopeId: "window-session-1",
+      codexSessionId: "thread_1",
+      projectId: "project_1",
+    });
+  });
+
+  test("materializes and starts a Project draft exactly once across duplicate submits", async () => {
+    const events: string[] = [];
+    let releaseStart: () => void = () => undefined;
+    invokeMock.mockReset();
+    invokeMock.mockImplementation(async (_channel, command) => {
+      events.push(`capture:${command.codexSessionId}`);
+      return { ok: true };
+    });
+    const input = buildInput({
+      activeThreadId: null,
+      browserUsePresentationOrigin: {
+        browserConversationId: "project:project_1",
+        browserViewScopeId: "window-session-1",
+      },
+      codexControl: {
+        startThreadForSession: async (startInput: { sessionId: string }) => {
+          events.push(`start:${startInput.sessionId}`);
+          await new Promise<void>((resolve) => {
+            releaseStart = resolve;
+          });
+          return {
+            kind: "started" as const,
+            detail: { threadId: "thread-started" },
+          };
+        },
+      } as unknown as ThreadActionControllerInput["codexControl"],
+      onMaterializeProjectDraft: async () => {
+        events.push("materialize:draft-1");
+        return { id: "session-real", projectId: "project_1" } as never;
+      },
+      onRefreshProjectSessions: async () => {
+        events.push("refresh:project_1");
+        return [];
+      },
+    });
+    const actions = createThreadStageActions(input);
+    const request = {
+      projectId: "project_1",
+      sessionId: "draft-session",
+      projectDraftId: "draft-1",
+      prompt: "Start from Home",
+      runInTarget: "localProject" as const,
+    };
+
+    const first = actions.onStartThreadForSession?.(request);
+    const duplicate = actions.onStartThreadForSession?.(request);
+    await vi.waitFor(() => {
+      expect(events).toEqual([
+        "materialize:draft-1",
+        "capture:session-real",
+        "start:session-real",
+      ]);
+    });
+    expect(first).toBe(duplicate);
+    releaseStart();
+    await Promise.all([first, duplicate]);
+    expect(events.at(-1)).toBe("refresh:project_1");
+    expect(invokeMock).toHaveBeenCalledOnce();
   });
 
   test("allocates a split workspace before starting a projectless session", async () => {

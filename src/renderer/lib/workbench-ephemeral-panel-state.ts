@@ -7,6 +7,7 @@ import type {
   ProcessOutputPanelTarget,
   SideChatPanelTab,
 } from "./workbench-panel-tab-model";
+import { makeWorkbenchSessionPanelOwnerKey } from "./workbench-panel-slot-key";
 import type { ProjectSessionPreviewTab } from "./workbench-panel-preview";
 
 export interface WorkbenchEphemeralPanelState {
@@ -124,9 +125,10 @@ function removeSessionSlotKeys<Value>(
   record: Readonly<Record<string, Value>>,
   sessionId: string,
 ): Record<string, Value> {
-  const prefix = `${sessionId}:`;
+  const ownerKey = makeWorkbenchSessionPanelOwnerKey(sessionId);
+  const prefix = `${ownerKey}:`;
   const entries = Object.entries(record).filter(
-    ([key]) => key !== sessionId && !key.startsWith(prefix),
+    ([key]) => key !== ownerKey && !key.startsWith(prefix),
   );
   if (entries.length === Object.keys(record).length) return record;
   return Object.fromEntries(entries);

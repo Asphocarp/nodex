@@ -17,6 +17,14 @@ function mountAppShellFrame(layout: string) {
 }
 
 describe("theme surface app shell layout", () => {
+  test("default frames reserve the global titlebar for surface controls", () => {
+    const { viewport } = mountAppShellFrame("default");
+
+    expect(
+      getComputedStyle(viewport).getPropertyValue("--app-shell-main-content-frame-top-offset").trim(),
+    ).toBe("46px");
+  });
+
   test("thread edge-scroll frames keep the guarded toolbar-height offset before the wide container query applies", () => {
     const { viewport } = mountAppShellFrame("thread-edge-scroll");
 

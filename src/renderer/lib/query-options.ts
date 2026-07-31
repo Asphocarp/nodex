@@ -14,6 +14,7 @@ import type {
   ProtocolExperimentalFeature,
   ProtocolListMcpServerStatusResponse,
   ProjectListOptions,
+  Project,
   ProjectActivitySummaryResult,
   ProjectWindow,
   ProjectSession,
@@ -56,6 +57,14 @@ export function projectsListQueryOptions(options: ProjectListOptions = {}) {
         first: 100,
       }) as ProjectWindow,
     getNextPageParam: (window) => window.nextCursor ?? undefined,
+  });
+}
+
+export function projectDetailQueryOptions(projectId: string) {
+  return queryOptions({
+    queryKey: queryKeys.projects.detail(projectId),
+    queryFn: () => invoke("projects:get", projectId) as Promise<Project | null>,
+    staleTime: 30_000,
   });
 }
 

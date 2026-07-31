@@ -2,6 +2,7 @@ import {
   useMutation,
   useQueryClient,
   type InfiniteData,
+  type QueryClient,
 } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { toast } from "@/components/ui/toast";
@@ -43,6 +44,27 @@ export function patchProjectAppearanceInWindow(
   return { ...data, pages };
 }
 
+function patchCachedProjectAppearance(
+  queryClient: QueryClient,
+  projectId: string,
+  appearance: ProjectAppearance,
+): void {
+  queryClient.setQueriesData<InfiniteData<ProjectWindow, string | null>>(
+    { queryKey: queryKeys.projects.lists() },
+    (current) => patchProjectAppearanceInWindow(
+      current,
+      projectId,
+      appearance,
+    ),
+  );
+  queryClient.setQueryData<Project | null>(
+    queryKeys.projects.detail(projectId),
+    (current) => current
+      ? { ...current, appearance }
+      : current,
+  );
+}
+
 export function useProjectAppearanceMutation(
   project: Project,
 ) {
@@ -76,36 +98,27 @@ export function useProjectAppearanceMutation(
     onMutate: async ({ appearance, sequence }) => {
       await queryClient.cancelQueries({ queryKey: queryKeys.projects.all() });
       if (sequence !== latestSequenceRef.current) return { sequence };
-      queryClient.setQueriesData<InfiniteData<ProjectWindow, string | null>>(
-        { queryKey: queryKeys.projects.all() },
-        (current) => patchProjectAppearanceInWindow(
-          current,
-          projectId,
-          appearance,
-        ),
+      patchCachedProjectAppearance(
+        queryClient,
+        projectId,
+        appearance,
       );
       return { sequence };
     },
     onSuccess: (project, _variables, context) => {
       if (context.sequence !== latestSequenceRef.current) return;
-      queryClient.setQueriesData<InfiniteData<ProjectWindow, string | null>>(
-        { queryKey: queryKeys.projects.all() },
-        (current) => patchProjectAppearanceInWindow(
-          current,
-          projectId,
-          project.appearance,
-        ),
+      patchCachedProjectAppearance(
+        queryClient,
+        projectId,
+        project.appearance,
       );
     },
     onError: (error, _variables, context) => {
       if (context?.sequence === latestSequenceRef.current) {
-        queryClient.setQueriesData<InfiniteData<ProjectWindow, string | null>>(
-          { queryKey: queryKeys.projects.all() },
-          (current) => patchProjectAppearanceInWindow(
-            current,
-            projectId,
-            confirmedProjectRef.current.appearance,
-          ),
+        patchCachedProjectAppearance(
+          queryClient,
+          projectId,
+          confirmedProjectRef.current.appearance,
         );
       }
       toast.danger("Could not update project marker", {

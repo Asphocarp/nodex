@@ -1,5 +1,8 @@
-import { describe, expect, test } from "vitest";
-import { buildBrowserUseRouteCaptureCommand } from "./browser-use-route-capture";
+import { describe, expect, test, vi } from "vitest";
+import {
+  buildBrowserUseRouteCaptureCommand,
+  captureBrowserUseRoute,
+} from "./browser-use-route-capture";
 
 describe("buildBrowserUseRouteCaptureCommand", () => {
   test("captures a projectless task as a valid Browser Use route", () => {
@@ -30,5 +33,38 @@ describe("buildBrowserUseRouteCaptureCommand", () => {
       codexSessionId: "codex-session-1",
       projectId: null,
     })).toBeNull();
+  });
+
+  test("does not resolve until the Browser service accepts the route", async () => {
+    let release: () => void = () => undefined;
+    const run = vi.fn(() => new Promise<{ ok: true }>((resolve) => {
+      release = () => resolve({ ok: true });
+    }));
+    let settled = false;
+    const operation = captureBrowserUseRoute({
+      browserConversationId: "project:alpha",
+      browserViewScopeId: "window-session-1",
+      codexSessionId: "session-1",
+      projectId: "alpha",
+    }, run).then(() => {
+      settled = true;
+    });
+
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    release();
+    await operation;
+    expect(run).toHaveBeenCalledOnce();
+  });
+
+  test("surfaces a rejected Browser route before a turn can start", async () => {
+    await expect(captureBrowserUseRoute({
+      browserConversationId: "project:alpha",
+      browserViewScopeId: "window-session-1",
+      codexSessionId: "session-1",
+      projectId: "alpha",
+    }, async () => ({ ok: false, message: "route is busy" }))).rejects.toThrow(
+      "route is busy",
+    );
   });
 });

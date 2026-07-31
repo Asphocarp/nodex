@@ -50,10 +50,10 @@ import {
   projectWorkspaceRootOrNull,
 } from "@/lib/workbench-workspace-context";
 import {
-  presentWorkbenchSessionDomainWithView,
-} from "@/lib/window-session-view-adapter";
+  presentWorkbenchSessionDomainWithScene,
+} from "@/lib/workbench-scene-presentation";
 import {
-  presentWorkbenchSessionForLegacyView,
+  presentWorkbenchSession,
   type WorkbenchSessionRenderProjection,
 } from "@/lib/workbench-session-presentation";
 import type {
@@ -112,7 +112,6 @@ type SidebarSync = Pick<
 
 interface WorkbenchSidebarControllerInput {
   readonly projects: Project[];
-  readonly sessionsByProject: Readonly<Record<string, ProjectSession[]>>;
   readonly projectlessSessions: readonly ProjectSession[];
   readonly knownSessions: readonly ProjectSession[];
   readonly activeProject: Project | null;
@@ -185,7 +184,6 @@ function listSessionDbViewTargets(
  */
 export function useWorkbenchSidebarController({
   projects,
-  sessionsByProject,
   projectlessSessions,
   knownSessions,
   activeProject,
@@ -226,7 +224,7 @@ export function useWorkbenchSidebarController({
   const refreshProjectSessions = useCallback(
     async (projectId: string | null) => {
       const presentations = await catalog.refresh(projectId);
-      return presentations.map(presentWorkbenchSessionForLegacyView);
+      return presentations.map(presentWorkbenchSession);
     },
     [catalog],
   );
@@ -318,9 +316,9 @@ export function useWorkbenchSidebarController({
   ) => {
     const projected = "tabs" in session
       ? session
-      : presentWorkbenchSessionDomainWithView(
+      : presentWorkbenchSessionDomainWithScene(
           session,
-          catalog.resolveView(session),
+          catalog.resolveScene(session),
         );
     for (const target of listSessionDbViewTargets(projected)) {
       void ensureFreshDatabaseViewBoard(
@@ -394,20 +392,10 @@ export function useWorkbenchSidebarController({
   }, []);
 
   const selectProject = useCallback((projectId: string) => {
-    const sessions = sessionsByProject[projectId] ?? [];
-    const fallbackSession = sessions[0] ?? null;
-    if (fallbackSession) {
-      workbenchWindow.selectSession({
-        id: fallbackSession.id,
-        projectId: fallbackSession.projectId,
-      });
-    } else {
-      workbenchWindow.selectProject(projectId);
-    }
+    workbenchWindow.selectProject(projectId);
     ensureProjectExpanded(projectId);
   }, [
     ensureProjectExpanded,
-    sessionsByProject,
     workbenchWindow,
   ]);
 
@@ -417,10 +405,10 @@ export function useWorkbenchSidebarController({
     const catalogPresentation = catalog.findById(session.id);
     const domainSession = catalogPresentation?.domain ?? session;
     const targetSession = catalogPresentation
-      ? presentWorkbenchSessionForLegacyView(catalogPresentation)
-      : presentWorkbenchSessionDomainWithView(
+      ? presentWorkbenchSession(catalogPresentation)
+      : presentWorkbenchSessionDomainWithScene(
           domainSession,
-          catalog.resolveView(domainSession),
+          catalog.resolveScene(domainSession),
         );
     warmProjectSessionDbViewBoards(targetSession);
 
@@ -671,7 +659,7 @@ export function useWorkbenchSidebarController({
         await refreshSidebarThreadSnapshot();
         if (activeSessionId === session.id) {
           const sessions = refreshedPresentations.map(
-            presentWorkbenchSessionForLegacyView,
+            presentWorkbenchSession,
           );
           const fallbackSession = sessions[0]
             ?? (session.projectId === null

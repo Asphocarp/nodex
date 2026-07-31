@@ -2074,6 +2074,22 @@ mod tests {
             .expect("create Thread");
     }
 
+    fn create_session(module: &ProjectWorkspaceModule, operation_id: &str, session_id: &str) {
+        module
+            .apply(
+                &context(),
+                request(
+                    operation_id,
+                    ProjectWorkspaceIntent::CreateSession {
+                        session_id: session_id.to_owned(),
+                        project_id: Some("project:default".to_owned()),
+                        title: "New chat".to_owned(),
+                    },
+                ),
+            )
+            .expect("create Session");
+    }
+
     #[test]
     fn owns_thread_execution_context_and_metadata_lifecycle() {
         let (_directory, kernel, module) = seeded_module();
@@ -2312,16 +2328,8 @@ mod tests {
             .expect_err("duplicate dynamic namespace must fail");
         assert_eq!(duplicate_catalog.code, CoreErrorCode::InvalidInput);
 
-        let session_id = kernel
-            .writer()
-            .call(|connection| {
-                Ok(connection.query_row(
-                    "SELECT id FROM project_sessions WHERE project_id = 'project:default' LIMIT 1",
-                    [],
-                    |row| row.get::<_, String>(0),
-                )?)
-            })
-            .expect("default Session identity");
+        let session_id = "session:thread-root".to_owned();
+        create_session(&module, "thread-create-session-root", &session_id);
         module
             .apply(
                 &context(),
@@ -2558,16 +2566,8 @@ mod tests {
             None,
             None,
         );
-        let session_id = kernel
-            .writer()
-            .call(|connection| {
-                Ok(connection.query_row(
-                    "SELECT id FROM project_sessions WHERE project_id = 'project:default' LIMIT 1",
-                    [],
-                    |row| row.get::<_, String>(0),
-                )?)
-            })
-            .expect("default Session identity");
+        let session_id = "session:thread-b".to_owned();
+        create_session(&module, "thread-create-session-b", &session_id);
         module
             .apply(
                 &context(),

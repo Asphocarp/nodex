@@ -15,7 +15,7 @@ import {
   getRenderablePanelPreviewTab,
   type SessionPanelRenderModelInput,
 } from "./workbench-panel-projection";
-import { makeWorkbenchPanelSlotKey } from "./workbench-panel-slot-key";
+import { makeWorkbenchSessionPanelSlotKey } from "./workbench-panel-slot-key";
 import {
   makeTestWorkbenchSession,
   makeTestWorkbenchTab,
@@ -105,7 +105,7 @@ function input(
     rightActiveTabId: durable.id,
   });
   const tabs = auxiliaryTabs();
-  const key = makeWorkbenchPanelSlotKey(
+  const key = makeWorkbenchSessionPanelSlotKey(
     session.id,
     "right",
     "right-leaf",
@@ -170,7 +170,7 @@ function durableOnlyInput(
 describe("workbench panel projection", () => {
   test("keeps render order independent from active priority", () => {
     const base = input();
-    const key = makeWorkbenchPanelSlotKey(
+    const key = makeWorkbenchSessionPanelSlotKey(
       base.session.id,
       "right",
       "right-leaf",
@@ -282,7 +282,7 @@ describe("workbench panel projection", () => {
       session,
       sideChatTabsBySession: { [session.id]: [side] },
       sideChatActiveTabByPanel: {
-        [makeWorkbenchPanelSlotKey(session.id, "right")]: side.id,
+        [makeWorkbenchSessionPanelSlotKey(session.id, "right")]: side.id,
       },
       mcpAppTabsBySession: {},
       mcpAppActiveTabByPanel: {},
@@ -312,7 +312,7 @@ describe("workbench panel projection", () => {
       "right",
       "right-leaf",
       {
-        [makeWorkbenchPanelSlotKey(
+        [makeWorkbenchSessionPanelSlotKey(
           session.id,
           "right",
           "right-leaf",

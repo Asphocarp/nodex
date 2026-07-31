@@ -4624,13 +4624,6 @@ export interface components {
             readonly archived: boolean;
             readonly archived_at?: string | null;
             readonly created_at: string;
-            /**
-             * @description Marks the Project's starter "Database View" Session. A database-starter
-             *     Session's first window materialization presents the Project's primary
-             *     Database default View; the View itself is resolved at read time and is
-             *     never stored on the Session.
-             */
-            readonly database_starter: boolean;
             readonly display_title: string;
             readonly id: string;
             readonly no_thread_fallback_title: string;

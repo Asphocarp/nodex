@@ -10,7 +10,7 @@ import {
   resolveSessionPanelActiveLeafId,
 } from "@/lib/workbench-panel-placement";
 import type { ProjectSessionPreviewTab } from "@/lib/workbench-panel-preview";
-import { makeWorkbenchPanelSlotKey } from "@/lib/workbench-panel-slot-key";
+import { makeWorkbenchSessionPanelSlotKey } from "@/lib/workbench-panel-slot-key";
 import {
   isProjectSessionFilesPreviewTab,
   isTransientPanelTab,
@@ -99,12 +99,12 @@ export function getRenderablePanelPreviewTab(
   const activeLeafId = resolveSessionPanelActiveLeafId(session, panelId);
   const previewTab =
     previewTabsByPanel[
-      makeWorkbenchPanelSlotKey(session.id, panelId, leafId)
+      makeWorkbenchSessionPanelSlotKey(session.id, panelId, leafId)
     ]
     ?? (
       leafId === activeLeafId
         ? previewTabsByPanel[
-            makeWorkbenchPanelSlotKey(session.id, panelId)
+            makeWorkbenchSessionPanelSlotKey(session.id, panelId)
           ]
         : null
     )
@@ -151,10 +151,10 @@ function activeEphemeralTabId(
   activeLeafId: string,
 ): string | null {
   return activeByPanel[
-    makeWorkbenchPanelSlotKey(sessionId, panelId, leafId)
+    makeWorkbenchSessionPanelSlotKey(sessionId, panelId, leafId)
   ] ?? (
     leafId === activeLeafId
-      ? activeByPanel[makeWorkbenchPanelSlotKey(sessionId, panelId)]
+      ? activeByPanel[makeWorkbenchSessionPanelSlotKey(sessionId, panelId)]
       : null
   ) ?? null;
 }
@@ -322,11 +322,11 @@ export function buildSessionPanelRenderModel(
     activeTabIdsByPanelLeaf.bottom[bottomActiveLeafId] ?? null;
   const rightPanelCollapsed =
     panelCollapsedOverrides[
-      makeWorkbenchPanelSlotKey(session.id, "right")
+      makeWorkbenchSessionPanelSlotKey(session.id, "right")
     ] ?? rightPanel.collapsed;
   const bottomPanelCollapsed =
     panelCollapsedOverrides[
-      makeWorkbenchPanelSlotKey(session.id, "bottom")
+      makeWorkbenchSessionPanelSlotKey(session.id, "bottom")
     ] ?? bottomPanel.collapsed;
   const sidePanelOpen = !rightPanelCollapsed;
   const bottomPanelOpen = !bottomPanelCollapsed;

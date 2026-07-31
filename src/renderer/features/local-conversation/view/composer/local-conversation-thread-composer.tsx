@@ -602,6 +602,7 @@ function canStartNewThreadTarget(model: ThreadFooterModel): boolean {
     model.isNewThreadTab &&
     model.newThreadTarget !== null &&
     !model.isCloudNewThreadTarget &&
+    !model.newThreadStartBlockedReason &&
     Boolean(model.newThreadTarget.sessionId),
   );
 }
@@ -2170,6 +2171,7 @@ function HydratedThreadComposer({
         await actions.onStartThreadForSession({
           projectId: target.projectId,
           sessionId: target.sessionId,
+          projectDraftId: target.projectDraftId,
           prompt,
           threadGoalDraft,
           ...(threadGoalMaterializedDraft === undefined
@@ -2344,6 +2346,7 @@ function HydratedThreadComposer({
           await actions.onStartThreadForSession({
             projectId: target.projectId,
             sessionId: target.sessionId,
+            projectDraftId: target.projectDraftId,
             prompt: nextPrompt,
             promptInput,
             runInTarget: target.runInTarget,
@@ -3274,7 +3277,14 @@ function HydratedThreadComposer({
       }
     })();
   }, [busyAction, goalReplacementConfirmation, submitThreadGoalDraft]);
-  const promptPlaceholder = goalModeActive
+  const newThreadPromptPlaceholder = model.newThreadTarget
+    ? model.isCloudNewThreadTarget
+      ? "Cloud run target is currently mock-only"
+      : "Do anything"
+    : "Select a card or session before starting a new thread";
+  const promptPlaceholder = model.newThreadStartBlockedReason
+    ? model.newThreadStartBlockedReason
+    : goalModeActive
     ? getThreadGoalMessage("composer.placeholder.goal")
     : isFloatingComposer
     ? "Do anything"
@@ -3283,11 +3293,7 @@ function HydratedThreadComposer({
     : model.conversation
     ? "Ask for follow-up changes"
     : model.isNewThreadTab
-      ? model.newThreadTarget
-        ? model.isCloudNewThreadTarget
-          ? "Cloud run target is currently mock-only"
-          : "Do anything"
-        : "Select a card or session before starting a new thread"
+      ? newThreadPromptPlaceholder
       : "Select a thread";
   const isPromptEditorDisabled = (model.conversation === null && !canStartNewThread) || busyAction !== null;
   const primaryShortcutKeys = resolveShortcutKeycapTokens({

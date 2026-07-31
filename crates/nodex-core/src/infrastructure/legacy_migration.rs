@@ -1359,14 +1359,15 @@ mod tests {
                     )
                     .expect("migrated early-v57 Page");
                 assert_eq!(block_type, "page");
-                let database_starter: i64 = connection
+                let database_starter_columns: i64 = connection
                     .query_row(
-                        "SELECT database_starter FROM project_sessions WHERE id = ?1",
-                        ["019b7e12-5c00-7000-8000-000000005701"],
+                        "SELECT count(*) FROM pragma_table_info('project_sessions') \
+                         WHERE name = 'database_starter'",
+                        [],
                         |row| row.get(0),
                     )
-                    .expect("migrated early-v57 Session");
-                assert_eq!(database_starter, 0);
+                    .expect("current Project Session schema");
+                assert_eq!(database_starter_columns, 0);
                 let thread: (String, String, String, String, String, String, String) = connection
                     .query_row(
                         "SELECT thread_name, thread_preview, model_provider, cwd, \

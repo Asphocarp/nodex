@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, test } from "vitest";
-import { act, fireEvent, waitFor } from "@testing-library/react";
+import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import { installAsyncRequestAnimationFrame } from "../../../test/browser-globals";
 import { NodexTooltipProvider as TooltipProvider } from "../../../components/ui/tooltip";
 import { renderWithMaitai as render } from "../../../test/dom";
+import { TestQueryProvider } from "../../../test/query";
 import type { ThreadFooterModel, ThreadStageActions } from "../thread-stage-types";
 import type { CodexConversationItem, CodexConversationTurn } from "../../../lib/types";
 import {
@@ -201,6 +202,46 @@ function buildModelWithRenderableLatestTurn(): ThreadFooterModel {
 describe("LocalConversationFooter", () => {
   beforeEach(() => {
     installAsyncRequestAnimationFrame();
+  });
+
+  test("keeps a pending worktree draft visible but prevents a second start", async () => {
+    const { LocalConversationFooter } = await import("./local-conversation-footer");
+    const blockedReason = "Worktree setup is already in progress";
+    const model = buildModel({
+      threadId: null,
+      conversation: null,
+      isNewThreadTab: true,
+      newThreadTarget: {
+        projectId: "project_1",
+        projectName: "Project",
+        sessionId: "session_1",
+        runInTarget: "newWorktree",
+      },
+      newThreadStartBlockedReason: blockedReason,
+    });
+    const view = render(
+      <TestQueryProvider>
+        <TooltipProvider>
+          <EnsureLocalConversationThreadScrollController>
+            <LocalConversationFooter
+              model={model}
+              actions={buildActions()}
+              errorMessage={null}
+              onErrorMessage={() => {}}
+            />
+          </EnsureLocalConversationThreadScrollController>
+        </TooltipProvider>
+      </TestQueryProvider>,
+    );
+
+    await waitFor(() => {
+      const prompt = view.container.querySelector(
+        '[data-codex-composer="true"]',
+      );
+      if (!prompt) throw new Error("Expected pending worktree composer");
+      expect(prompt.getAttribute("aria-label")).toBe(blockedReason);
+      expect(prompt.getAttribute("contenteditable")).toBe("false");
+    });
   });
 
   test("updates composer mode chrome when the selected collaboration mode changes", async () => {
@@ -444,6 +485,60 @@ describe("LocalConversationFooter", () => {
     });
   });
 
+  test("resets an expanded latest-turn tray atomically when the composer target changes", async () => {
+    const { LocalConversationFooter } = await import("./local-conversation-footer");
+    const target = document.createElement("div");
+    document.body.appendChild(target);
+    const model = buildModelWithRenderableLatestTurn();
+    const actions = buildActions();
+    const renderFooter = (composerScopeIdentity: string) => (
+      <TooltipProvider>
+        <EnsureLocalConversationThreadScrollController>
+          <LocalConversationFooter
+            model={{ ...model, composerScopeIdentity }}
+            actions={actions}
+            errorMessage={null}
+            onErrorMessage={() => {}}
+            rightPanelComposerOverlay={{ enabled: true, target }}
+          />
+        </EnsureLocalConversationThreadScrollController>
+      </TooltipProvider>
+    );
+    const view = render(renderFooter("project-dock:session-a"));
+    const preview = await waitFor(() => {
+      const element = document.body.querySelector<HTMLElement>(
+        '[data-right-panel-latest-turn-preview="true"]',
+      );
+      if (!element) throw new Error("Expected latest-turn tray");
+      return element;
+    });
+    const previewToggle = preview.querySelector("button");
+    if (!previewToggle) throw new Error("Expected latest-turn toggle");
+
+    await act(async () => {
+      fireEvent.click(previewToggle);
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(
+        document.body.querySelector('button[aria-label="Copy"]'),
+      ).not.toBeNull();
+    });
+
+    await act(async () => {
+      view.rerender(renderFooter("project-dock:session-b"));
+      await Promise.resolve();
+    });
+
+    const nextPreview = document.body.querySelector<HTMLElement>(
+      '[data-right-panel-latest-turn-preview="true"]',
+    );
+    expect(
+      nextPreview?.querySelector("button")?.getAttribute("aria-expanded"),
+    ).toBe("false");
+    expect(document.body.querySelector('button[aria-label="Copy"]')).toBeNull();
+  });
+
   test("floating multiline drafts retain the attachment tray layout", async () => {
     const { LocalConversationFooter } = await import("./local-conversation-footer");
     const target = document.createElement("div");
@@ -625,5 +720,48 @@ describe("LocalConversationFooter", () => {
     expect(container.querySelector('[data-thread-find-composer="true"]') !== null).toBe(true);
     expect(container.querySelector("#above-composer-portal") !== null).toBe(true);
     expect(container.querySelector("#above-composer-queue-portal") !== null).toBe(true);
+  });
+
+  test("controlled Docks retain target chrome in the overlay while a Thread resumes", async () => {
+    const { LocalConversationFooter } = await import("./local-conversation-footer");
+    const target = document.createElement("div");
+    document.body.appendChild(target);
+
+    render(
+      <TooltipProvider>
+        <EnsureLocalConversationThreadScrollController>
+          <LocalConversationFooter
+            model={buildModel({ resumeState: "needs_resume" })}
+            actions={buildActions()}
+            errorMessage={null}
+            onErrorMessage={() => {}}
+            rightPanelComposerOverlay={{
+              enabled: true,
+              target,
+              visibility: {
+                kind: "controlled",
+                visible: true,
+                attention: "activity",
+                onVisibleChange: () => undefined,
+              },
+              leadingContent: <button type="button">Choose task</button>,
+            }}
+          />
+        </EnsureLocalConversationThreadScrollController>
+      </TooltipProvider>,
+    );
+
+    const overlay = await waitFor(() => {
+      const element = document.body.querySelector(
+        '[data-testid="right-panel-composer-overlay"]',
+      );
+      if (!element) throw new Error("Expected controlled Dock overlay");
+      return element;
+    });
+    expect(within(overlay as HTMLElement).getByRole("button", {
+      name: "Choose task",
+    }) !== null).toBe(true);
+    expect(overlay.querySelector('[data-local-conversation-composer-shell="true"]'))
+      .toBe(null);
   });
 });
