@@ -118,21 +118,33 @@ async function launchLargeContentFixtureApplication(): Promise<ElectronApplicati
   return electron.launch({ args: [largeContentElectronMain] });
 }
 
+function forceStopApplicationProcess(
+  child: ReturnType<ElectronApplication["process"]>,
+): void {
+  if (child.exitCode !== null || child.pid === undefined) return;
+
+  try {
+    if (process.platform === "win32") {
+      child.kill("SIGKILL");
+      return;
+    }
+    process.kill(-child.pid, "SIGKILL");
+  } catch {
+    // The application may have completed its graceful exit concurrently.
+  }
+}
+
 async function stopApplication(application: ElectronApplication): Promise<void> {
   const child = application.process();
   const forceExitTimer = setTimeout(() => {
-    if (child.exitCode === null) {
-      child.kill("SIGKILL");
-    }
+    forceStopApplicationProcess(child);
   }, 15_000);
 
   try {
     await application.close();
   } finally {
     clearTimeout(forceExitTimer);
-    if (child.exitCode === null) {
-      child.kill("SIGKILL");
-    }
+    forceStopApplicationProcess(child);
   }
 }
 
