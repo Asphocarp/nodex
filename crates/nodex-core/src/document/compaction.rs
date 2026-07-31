@@ -107,44 +107,30 @@ pub(crate) fn compact_yjs_document(
             authority.head.head_seq
         ],
     )?;
-    let updated = connection.execute(
-        "UPDATE documents SET state_hash = ?1 \
-         WHERE id = ?2 AND generation = ?3 AND head_seq = ?4",
+    let current_head = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM documents \
+         WHERE id = ?1 AND generation = ?2 AND head_seq = ?3 \
+           AND state_vector = ?4 AND state_hash = '' \
+           AND readiness = 'ready' AND authority = 'ydoc_primary' AND sync_engine = 'yjs')",
         params![
-            snapshot_hash,
             authority.head.id,
             authority.head.generation,
             authority.head.head_seq,
+            authority.head.state_vector,
         ],
+        |row| row.get::<_, bool>(0),
     )?;
-    if updated != 1 {
+    if !current_head {
         return Err(StoreError::new(
             StoreErrorCode::HeadConflict,
             "Document head changed while finalizing compaction",
             true,
         ));
     }
-    connection.execute(
-        "UPDATE document_engine_fingerprints \
-         SET source_state_hash = ?1, yrs_full_state_sha256 = ?1, \
-             yrs_state_vector_sha256 = ?2, \
-             validated_at_unix_ms = CAST(strftime('%s', 'now') AS INTEGER) * 1000 \
-         WHERE document_id = ?3 AND generation = ?4 AND head_seq = ?5",
-        params![
-            snapshot_hash,
-            sha256(&authority.head.state_vector),
-            authority.head.id,
-            authority.head.generation,
-            authority.head.head_seq,
-        ],
-    )?;
-    let mut compacted_head = authority.head.clone();
-    compacted_head.state_hash = snapshot_hash;
-    let reconstructed = reconstruct_yjs_engine(connection, &compacted_head)?;
-    if reconstructed.full_state_v1() != full_state
-        || !reconstructed
-            .state_vector_equals_v1(&authority.head.state_vector)
-            .map_err(|_| corrupt("Compacted Document head vector is invalid"))?
+    let reconstructed = reconstruct_yjs_engine(connection, &authority.head)?;
+    if !reconstructed
+        .state_vector_equals_v1(&authority.head.state_vector)
+        .map_err(|_| corrupt("Compacted Document head vector is invalid"))?
     {
         return Err(corrupt(
             "Compacted Document did not round-trip from its retained snapshot",

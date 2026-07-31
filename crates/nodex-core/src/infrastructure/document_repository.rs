@@ -417,12 +417,10 @@ impl TryFrom<RawDocumentHead> for DocumentHeadRow {
         let readiness = parse_readiness(&raw.readiness)?;
         let authority = parse_authority(&raw.authority)?;
         let sync_engine = parse_sync_engine(&raw.sync_engine)?;
-        if authority == DocumentAuthority::YdocPrimary
-            && (readiness != DocumentReadiness::Ready || raw.state_hash.is_empty())
-        {
+        if authority == DocumentAuthority::YdocPrimary && readiness != DocumentReadiness::Ready {
             return Err(corrupt_row(
                 "documents",
-                "ydoc_primary authority requires ready state and a SHA-256 state hash",
+                "ydoc_primary authority requires ready state",
             ));
         }
         if let Some(revision) = raw.genesis_source_revision {

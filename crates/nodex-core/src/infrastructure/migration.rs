@@ -8,6 +8,7 @@ use rusqlite::{Connection, MAIN_DB, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use yrs::updates::decoder::Decode;
+#[cfg(test)]
 use yrs::updates::encoder::Encode;
 use yrs::{ReadTxn, StateVector, Transact, Update};
 
@@ -690,17 +691,27 @@ SET tombstone_json_bytes = COALESCE((
 ), 0);
 "#;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DocumentEngineFingerprint {
-    pub document_id: String,
-    pub generation: i64,
-    pub head_seq: i64,
-    pub source_state_hash: String,
-    pub yrs_state_vector_sha256: String,
-    pub yrs_full_state_sha256: String,
-    pub materialization_sha256: String,
-}
+const V98_YJS_INTEGRITY_SQL: &str = r#"
+UPDATE documents
+SET state_hash = ''
+WHERE sync_engine = 'yjs';
+
+DROP TABLE document_engine_fingerprints;
+
+CREATE TRIGGER yjs_documents_require_empty_state_hash_insert
+  BEFORE INSERT ON documents
+  WHEN NEW.sync_engine = 'yjs' AND NEW.state_hash <> ''
+  BEGIN
+    SELECT RAISE(ABORT, 'Yjs Document cannot persist a full-state hash');
+  END;
+
+CREATE TRIGGER yjs_documents_require_empty_state_hash_update
+  BEFORE UPDATE OF state_hash ON documents
+  WHEN NEW.sync_engine = 'yjs' AND NEW.state_hash <> ''
+  BEGIN
+    SELECT RAISE(ABORT, 'Yjs Document cannot persist a full-state hash');
+  END;
+"#;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -766,23 +777,12 @@ pub fn prepare_profile_store_with_observer(
         validate_codex_thread_timestamp_invariants(connection)?;
         validate_canonical_text_timestamp_invariants(connection)?;
         validate_database_view_kind_invariants(connection)?;
-        let validated_yjs_documents: i64 = connection.query_row(
-            "SELECT count(*) FROM document_engine_fingerprints",
-            [],
-            |row| row.get(0),
-        )?;
         return Ok(StorePreparation {
             schema_version: CORE_SCHEMA_VERSION,
             created_fresh: false,
             migrated_from_version: None,
             migration_backup_path: None,
-            validated_yjs_documents: usize::try_from(validated_yjs_documents).map_err(|_| {
-                StoreError::new(
-                    StoreErrorCode::StoreCorrupt,
-                    "Document fingerprint count is invalid",
-                    false,
-                )
-            })?,
+            validated_yjs_documents: 0,
         });
     }
 
@@ -806,7 +806,7 @@ pub fn prepare_profile_store_with_observer(
         to_version: CORE_SCHEMA_VERSION,
     });
     let backup_path = create_migration_backup(connection, profile_home, now, source_version)?;
-    let fingerprints = validate_live_yjs_documents(connection)?;
+    let validated_yjs_documents = validate_live_yjs_documents(connection)?;
     let backup_name = backup_path
         .file_name()
         .and_then(|name| name.to_str())
@@ -823,7 +823,6 @@ pub fn prepare_profile_store_with_observer(
         Some(source_version),
         Some(backup_name),
         now,
-        &fingerprints,
     )?;
     validate_store(connection)?;
     validate_core_metadata(connection, CORE_SCHEMA_VERSION)?;
@@ -835,7 +834,7 @@ pub fn prepare_profile_store_with_observer(
         created_fresh: false,
         migrated_from_version: Some(source_version),
         migration_backup_path: Some(backup_path),
-        validated_yjs_documents: fingerprints.len(),
+        validated_yjs_documents,
     })
 }
 
@@ -868,7 +867,7 @@ pub(crate) fn prepare_legacy_import_candidate(
     with_immediate_transaction(connection, |transaction| {
         rebuild_legacy_import_document_projections(transaction)
     })?;
-    let fingerprints = validate_live_yjs_documents(connection)?;
+    let validated_yjs_documents = validate_live_yjs_documents(connection)?;
     let now = unix_time_millis()?;
     publish_current_store(
         connection,
@@ -876,7 +875,6 @@ pub(crate) fn prepare_legacy_import_candidate(
         Some(TYPESCRIPT_SCHEMA_VERSION),
         Some(backup_name),
         now,
-        &fingerprints,
     )?;
     validate_store(connection)?;
     validate_core_metadata(connection, CORE_SCHEMA_VERSION)?;
@@ -889,7 +887,7 @@ pub(crate) fn prepare_legacy_import_candidate(
         created_fresh: false,
         migrated_from_version: Some(source_version),
         migration_backup_path: Some(source_backup_path.to_path_buf()),
-        validated_yjs_documents: fingerprints.len(),
+        validated_yjs_documents,
     })
 }
 
@@ -924,6 +922,7 @@ fn upgrade_owned_store(
         94 => validate_exact_v94_schema(connection)?,
         95 => validate_exact_v95_schema(connection)?,
         96 => validate_exact_v96_schema(connection)?,
+        97 => validate_exact_v97_schema(connection)?,
         _ => return Err(corrupt("Rust Core forward-migration source is unsupported")),
     }
 
@@ -934,11 +933,7 @@ fn upgrade_owned_store(
 
     let now = unix_time_millis()?;
     let backup_path = create_migration_backup(connection, profile_home, now, source_version)?;
-    let validated_yjs_documents: i64 = connection.query_row(
-        "SELECT count(*) FROM document_engine_fingerprints",
-        [],
-        |row| row.get(0),
-    )?;
+    let validated_yjs_documents = validate_live_yjs_documents(connection)?;
     with_immediate_transaction(connection, |transaction| {
         if source_version < 86 {
             ensure_v86_execution_profile_schema(transaction)?;
@@ -976,6 +971,7 @@ fn upgrade_owned_store(
         if source_version < 97 {
             ensure_v97_canvas_owners_schema(transaction)?;
         }
+        ensure_v98_yjs_integrity_schema(transaction)?;
         let updated = transaction.execute(
             "UPDATE core_store_metadata SET store_format_version = ?1 \
              WHERE id = 1 AND schema_owner = ?2 AND store_format_version = ?3",
@@ -1001,13 +997,7 @@ fn upgrade_owned_store(
         created_fresh: false,
         migrated_from_version: Some(source_version),
         migration_backup_path: Some(backup_path),
-        validated_yjs_documents: usize::try_from(validated_yjs_documents).map_err(|_| {
-            StoreError::new(
-                StoreErrorCode::StoreCorrupt,
-                "Document fingerprint count is invalid",
-                false,
-            )
-        })?,
+        validated_yjs_documents,
     })
 }
 
@@ -1063,47 +1053,36 @@ fn create_migration_backup(
     Ok(backup_path)
 }
 
-fn validate_live_yjs_documents(
-    connection: &Connection,
-) -> Result<Vec<DocumentEngineFingerprint>, StoreError> {
+fn validate_live_yjs_documents(connection: &Connection) -> Result<usize, StoreError> {
     let repository = DocumentReadRepository::new(connection);
     let heads = repository.live_yjs_heads()?;
-    heads
-        .iter()
-        .map(|head| validate_live_yjs_document(&repository, head))
-        .collect()
+    for head in &heads {
+        validate_live_yjs_document(&repository, head)?;
+    }
+    Ok(heads.len())
 }
 
 pub(crate) fn validate_v85_restore_documents(connection: &Connection) -> Result<usize, StoreError> {
     validate_core_metadata(connection, CORE_SCHEMA_VERSION)?;
-    validate_live_yjs_documents(connection).map(|fingerprints| fingerprints.len())
+    validate_live_yjs_documents(connection)
 }
 
 fn validate_live_yjs_document(
     repository: &DocumentReadRepository<'_>,
     head: &DocumentHeadRow,
-) -> Result<DocumentEngineFingerprint, StoreError> {
+) -> Result<(), StoreError> {
     let reconstructed = reconstruct_live_yjs_document(repository, head)?;
-    assert_persisted_materialization(repository, head, &reconstructed.materialization)?;
-    fingerprint_live_yjs_document(head, &reconstructed)
+    assert_persisted_materialization(repository, head, &reconstructed.materialization)
 }
 
 struct ReconstructedLiveYjsDocument {
     materialization: DocumentMaterialization,
-    state_vector_v1: Vec<u8>,
-    full_state_v1: Vec<u8>,
 }
 
 fn reconstruct_live_yjs_document(
     repository: &DocumentReadRepository<'_>,
     head: &DocumentHeadRow,
 ) -> Result<ReconstructedLiveYjsDocument, StoreError> {
-    if !is_sha256(&head.state_hash) {
-        return Err(corrupt(format!(
-            "Document {} has an invalid source state hash",
-            head.id
-        )));
-    }
     let schema = registered_schema(&head.schema_key, head.schema_version)?;
     let snapshot = repository.latest_snapshot(&head.id, head.generation, head.head_seq)?;
     let document = create_compatible_document(&head.id);
@@ -1160,7 +1139,6 @@ fn reconstruct_live_yjs_document(
             head.id
         )));
     }
-    let state_vector_v1 = actual_vector.encode_v1();
     let full_state_v1 = transaction.encode_state_as_update_v1(&StateVector::default());
     drop(transaction);
     if full_state_v1.len() > MAX_DOCUMENT_UPDATE_BYTES {
@@ -1173,34 +1151,7 @@ fn reconstruct_live_yjs_document(
         .map_err(|error| corrupt(format!("Document {} schema validation: {error}", head.id)))?;
     let materialization = materialize_decoded_document(&decoded)
         .map_err(|error| corrupt(format!("Document {} materialization: {error}", head.id)))?;
-    Ok(ReconstructedLiveYjsDocument {
-        materialization,
-        state_vector_v1,
-        full_state_v1,
-    })
-}
-
-fn fingerprint_live_yjs_document(
-    head: &DocumentHeadRow,
-    reconstructed: &ReconstructedLiveYjsDocument,
-) -> Result<DocumentEngineFingerprint, StoreError> {
-    let materialization_json =
-        serde_json::to_vec(&reconstructed.materialization).map_err(|error| {
-            StoreError::new(
-                StoreErrorCode::Internal,
-                format!("Could not serialize Document materialization: {error}"),
-                false,
-            )
-        })?;
-    Ok(DocumentEngineFingerprint {
-        document_id: head.id.clone(),
-        generation: head.generation,
-        head_seq: head.head_seq,
-        source_state_hash: head.state_hash.clone(),
-        yrs_state_vector_sha256: sha256(&reconstructed.state_vector_v1),
-        yrs_full_state_sha256: sha256(&reconstructed.full_state_v1),
-        materialization_sha256: sha256(&materialization_json),
-    })
+    Ok(ReconstructedLiveYjsDocument { materialization })
 }
 
 fn assert_persisted_materialization(
@@ -1250,7 +1201,6 @@ fn publish_current_store(
     migrated_from: Option<i64>,
     backup_name: Option<&str>,
     now: u64,
-    fingerprints: &[DocumentEngineFingerprint],
 ) -> Result<(), StoreError> {
     with_immediate_transaction(connection, |transaction| {
         transaction.execute_batch(V85_SCHEMA_SQL)?;
@@ -1259,7 +1209,7 @@ fn publish_current_store(
         ensure_automation_run_revision(transaction)?;
         ensure_v86_execution_profile_schema(transaction)?;
         ensure_v87_project_session_tabs_schema(transaction)?;
-        write_v85_metadata(transaction, migrated_from, backup_name, now, fingerprints)?;
+        write_v85_metadata(transaction, migrated_from, backup_name, now)?;
         ensure_v88_projection_impact_schema(transaction)?;
         repair_v89_codex_thread_timestamps(transaction)?;
         ensure_v90_window_owned_session_views_schema(transaction)?;
@@ -1270,6 +1220,7 @@ fn publish_current_store(
         ensure_v95_canvas_incremental_schema(transaction)?;
         ensure_v96_canvas_tombstone_bytes_schema(transaction)?;
         ensure_v97_canvas_owners_schema(transaction)?;
+        ensure_v98_yjs_integrity_schema(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
@@ -1288,7 +1239,7 @@ fn create_fresh_store(
         ensure_automation_run_revision(transaction)?;
         ensure_v86_execution_profile_schema(transaction)?;
         ensure_v87_project_session_tabs_schema(transaction)?;
-        write_v85_metadata(transaction, None, None, now, &[])?;
+        write_v85_metadata(transaction, None, None, now)?;
         ensure_v88_projection_impact_schema(transaction)?;
         repair_v89_codex_thread_timestamps(transaction)?;
         ensure_v90_window_owned_session_views_schema(transaction)?;
@@ -1299,6 +1250,7 @@ fn create_fresh_store(
         ensure_v95_canvas_incremental_schema(transaction)?;
         ensure_v96_canvas_tombstone_bytes_schema(transaction)?;
         ensure_v97_canvas_owners_schema(transaction)?;
+        ensure_v98_yjs_integrity_schema(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
@@ -1646,6 +1598,11 @@ fn ensure_v97_canvas_owners_schema(connection: &Connection) -> Result<(), StoreE
          WHERE block.type = 'canvas' AND document.sync_engine = 'canvas_scene'",
         [],
     )?;
+    Ok(())
+}
+
+fn ensure_v98_yjs_integrity_schema(connection: &Connection) -> Result<(), StoreError> {
+    connection.execute_batch(V98_YJS_INTEGRITY_SQL)?;
     Ok(())
 }
 
@@ -2710,7 +2667,6 @@ fn write_v85_metadata(
     migrated_from: Option<i64>,
     backup_name: Option<&str>,
     now: u64,
-    fingerprints: &[DocumentEngineFingerprint],
 ) -> Result<(), StoreError> {
     let now = i64::try_from(now).map_err(|_| {
         StoreError::new(
@@ -2732,25 +2688,6 @@ fn write_v85_metadata(
             now
         ],
     )?;
-    let mut insert = transaction.prepare(
-        "INSERT INTO document_engine_fingerprints (\
-           document_id, generation, head_seq, source_state_hash, yrs_state_vector_sha256, \
-           yrs_full_state_sha256, materialization_sha256, validated_at_unix_ms\
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-    )?;
-    for fingerprint in fingerprints {
-        insert.execute(params![
-            fingerprint.document_id,
-            fingerprint.generation,
-            fingerprint.head_seq,
-            fingerprint.source_state_hash,
-            fingerprint.yrs_state_vector_sha256,
-            fingerprint.yrs_full_state_sha256,
-            fingerprint.materialization_sha256,
-            now
-        ])?;
-    }
-    drop(insert);
     transaction.pragma_update(None, "user_version", CORE_SCHEMA_VERSION)?;
     Ok(())
 }
@@ -2841,6 +2778,10 @@ fn validate_exact_v96_schema(connection: &Connection) -> Result<(), StoreError> 
     validate_exact_core_schema(connection, true, true, true, true, true, true, true, 96)
 }
 
+fn validate_exact_v97_schema(connection: &Connection) -> Result<(), StoreError> {
+    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 97)
+}
+
 fn validate_exact_current_schema(connection: &Connection) -> Result<(), StoreError> {
     validate_exact_core_schema(
         connection,
@@ -2902,6 +2843,9 @@ fn validate_exact_core_schema(
     }
     if schema_version >= 97 {
         ensure_v97_canvas_owners_schema(&expected)?;
+    }
+    if schema_version >= 98 {
+        ensure_v98_yjs_integrity_schema(&expected)?;
     }
 
     let expected_inventory = read_schema_inventory(&expected)?;
@@ -2979,6 +2923,9 @@ pub fn expected_store_schema_fingerprint(version: i64) -> Result<String, StoreEr
     }
     if version >= 97 {
         ensure_v97_canvas_owners_schema(&expected)?;
+    }
+    if version >= 98 {
+        ensure_v98_yjs_integrity_schema(&expected)?;
     }
     read_schema_inventory(&expected).map(|inventory| schema_inventory_fingerprint(&inventory))
 }
@@ -3090,7 +3037,7 @@ mod tests {
 
     use crate::document::{
         BlockDocumentSchema, create_compatible_document, decode_block_document,
-        materialize_decoded_document,
+        materialize_decoded_document, reconstruct_yjs_engine,
     };
     use crate::infrastructure::schema::install_v84_schema;
     use crate::infrastructure::sqlite::{StoreErrorCode, open_writer};
@@ -3220,6 +3167,67 @@ mod tests {
             Ok(())
         })
         .expect("seed v86 store");
+    }
+
+    fn promote_v84_page_to_owned_v97(home: &Path) {
+        let mut connection = open_writer(&home.join("nodex.db")).expect("v97 writer");
+        with_immediate_transaction(&mut connection, |transaction| {
+            transaction.execute_batch(V85_SCHEMA_SQL)?;
+            transaction.execute_batch(V85_EXECUTION_SCHEMA_SQL)?;
+            ensure_automation_definition_revision(transaction)?;
+            ensure_automation_run_revision(transaction)?;
+            ensure_v86_execution_profile_schema(transaction)?;
+            ensure_v87_project_session_tabs_schema(transaction)?;
+            transaction.execute(
+                "INSERT INTO core_store_metadata(\
+                   id, schema_owner, store_format_version, migrated_from_version, \
+                   migration_backup_name, migrated_at_unix_ms\
+                 ) VALUES (1, ?1, 97, 84, 'seed-v84.db', 1)",
+                [CORE_SCHEMA_OWNER],
+            )?;
+            ensure_v88_projection_impact_schema(transaction)?;
+            repair_v89_codex_thread_timestamps(transaction)?;
+            ensure_v90_window_owned_session_views_schema(transaction)?;
+            ensure_v91_workspace_sidebar_lanes_schema(transaction)?;
+            ensure_v92_canonical_text_timestamps(transaction)?;
+            ensure_v93_database_starter_sessions_schema(transaction)?;
+            ensure_v94_project_appearance_schema(transaction)?;
+            ensure_v95_canvas_incremental_schema(transaction)?;
+            ensure_v96_canvas_tombstone_bytes_schema(transaction)?;
+            ensure_v97_canvas_owners_schema(transaction)?;
+            let (generation, head_seq, source_state_hash, state_vector) = transaction.query_row(
+                "SELECT generation, head_seq, state_hash, state_vector \
+                 FROM documents WHERE id = ?1",
+                [DOCUMENT_ID],
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, Vec<u8>>(3)?,
+                    ))
+                },
+            )?;
+            transaction.execute(
+                "INSERT INTO document_engine_fingerprints(\
+                   document_id, generation, head_seq, source_state_hash, \
+                   yrs_state_vector_sha256, yrs_full_state_sha256, \
+                   materialization_sha256, validated_at_unix_ms\
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1)",
+                params![
+                    DOCUMENT_ID,
+                    generation,
+                    head_seq,
+                    source_state_hash,
+                    sha256(&state_vector),
+                    "f".repeat(64),
+                    "e".repeat(64),
+                ],
+            )?;
+            transaction.pragma_update(None, "user_version", 97)?;
+            Ok(())
+        })
+        .expect("owned v97 Page");
     }
 
     fn seed_owned_v88_store_with_noncanonical_threads(home: &Path) {
@@ -4622,7 +4630,7 @@ mod tests {
     }
 
     #[test]
-    fn typescript_v84_migration_backs_up_validates_and_publishes_fingerprints_once() {
+    fn typescript_v84_migration_backs_up_validates_and_retires_wire_fingerprints() {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
         seed_v84_page(&home);
@@ -4648,9 +4656,11 @@ mod tests {
                 connection
                     .query_row(
                         "SELECT metadata.schema_owner, metadata.store_format_version, \
-                                fingerprint.head_seq, fingerprint.source_state_hash \
+                                document.head_seq, document.state_hash, \
+                                EXISTS(SELECT 1 FROM sqlite_schema \
+                                  WHERE type = 'table' AND name = 'document_engine_fingerprints') \
                          FROM core_store_metadata metadata \
-                         JOIN document_engine_fingerprints fingerprint ON fingerprint.document_id = ?1 \
+                         JOIN documents document ON document.id = ?1 \
                          WHERE metadata.id = 1",
                         [DOCUMENT_ID],
                         |row| {
@@ -4659,6 +4669,7 @@ mod tests {
                                 row.get::<_, i64>(1)?,
                                 row.get::<_, i64>(2)?,
                                 row.get::<_, String>(3)?,
+                                row.get::<_, bool>(4)?,
                             ))
                         },
                     )
@@ -4668,7 +4679,8 @@ mod tests {
         assert_eq!(evidence.0, CORE_SCHEMA_OWNER);
         assert_eq!(evidence.1, CORE_SCHEMA_VERSION);
         assert_eq!(evidence.2, 1);
-        assert!(is_sha256(&evidence.3));
+        assert!(evidence.3.is_empty());
+        assert!(!evidence.4);
         let retired_search_objects = kernel
             .readers()
             .read_default(|connection| {
@@ -4686,11 +4698,77 @@ mod tests {
 
         let reopened = SqliteStoreKernel::open(&home).expect("reopen migrated store");
         assert!(reopened.preparation().migration_backup_path.is_none());
-        assert_eq!(reopened.preparation().validated_yjs_documents, 1);
+        assert_eq!(reopened.preparation().validated_yjs_documents, 0);
         let backups = fs::read_dir(home.join("backups/core-migrations"))
             .expect("backup directory")
             .count();
         assert_eq!(backups, 1);
+    }
+
+    #[test]
+    fn v97_migration_accepts_semantic_reconstruction_when_wire_fingerprint_differs() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        seed_v84_page(&home);
+        promote_v84_page_to_owned_v97(&home);
+        let before = open_writer(&home.join("nodex.db"))
+            .expect("v97 reader")
+            .query_row(
+                "SELECT generation, head_seq, state_vector FROM documents WHERE id = ?1",
+                [DOCUMENT_ID],
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, Vec<u8>>(2)?,
+                    ))
+                },
+            )
+            .expect("v97 head");
+
+        let kernel = SqliteStoreKernel::open(&home).expect("v98 migration");
+        assert_eq!(kernel.preparation().migrated_from_version, Some(97));
+        assert_eq!(kernel.preparation().validated_yjs_documents, 1);
+        let backup_path = kernel
+            .preparation()
+            .migration_backup_path
+            .as_ref()
+            .expect("v97 backup");
+        let backup = open_immutable_reader(backup_path).expect("backup opens");
+        assert_eq!(
+            backup
+                .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+                .expect("backup version"),
+            97
+        );
+
+        kernel
+            .readers()
+            .read_default(|connection| {
+                let table_exists = connection.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM sqlite_schema \
+                     WHERE type = 'table' AND name = 'document_engine_fingerprints')",
+                    [],
+                    |row| row.get::<_, bool>(0),
+                )?;
+                assert!(!table_exists);
+                let head = DocumentReadRepository::new(connection)
+                    .document_head(DOCUMENT_ID)?
+                    .expect("migrated head");
+                assert_eq!(
+                    (head.generation, head.head_seq, &head.state_vector),
+                    (before.0, before.1, &before.2)
+                );
+                assert!(head.state_hash.is_empty());
+                reconstruct_yjs_engine(connection, &head)?;
+                Ok(())
+            })
+            .expect("cold v98 reconstruction");
+        drop(kernel);
+
+        let reopened = SqliteStoreKernel::open(&home).expect("reopen v98");
+        assert!(reopened.preparation().migration_backup_path.is_none());
+        assert_eq!(reopened.preparation().validated_yjs_documents, 0);
     }
 
     #[test]

@@ -3226,7 +3226,6 @@ fn persist_prepared_update(
             client_touched_block_ids: &update.write_fence_block_ids,
             update: &update.update_v1,
             state_vector: &engine.state_vector_v1(),
-            full_state: &engine.full_state_v1(),
             store_epoch,
             operation_id: update_id,
             event_kind: "document_updated",

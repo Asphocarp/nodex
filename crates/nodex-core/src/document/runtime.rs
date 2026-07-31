@@ -2,7 +2,7 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::OnceLock;
 use std::time::Instant;
 
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::Connection;
 use sha2::{Digest, Sha256};
 
 use crate::infrastructure::document_repository::{DocumentHeadRow, DocumentReadRepository};
@@ -275,24 +275,9 @@ fn reconstruct_yjs_engine_inner(
             head.id
         )));
     }
-    let full_state = engine.full_state_v1();
-    if full_state.len() > MAX_DOCUMENT_UPDATE_BYTES {
+    if engine.full_state_v1().len() > MAX_DOCUMENT_UPDATE_BYTES {
         return Err(corrupt(format!(
             "Document {} state exceeds the runtime bound",
-            head.id
-        )));
-    }
-    let fingerprint = connection
-        .query_row(
-            "SELECT yrs_full_state_sha256 FROM document_engine_fingerprints \
-             WHERE document_id = ?1 AND generation = ?2 AND head_seq = ?3",
-            params![head.id, head.generation, head.head_seq],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()?;
-    if fingerprint.is_some_and(|expected| expected != sha256(&full_state)) {
-        return Err(corrupt(format!(
-            "Document {} reconstructed state fingerprint diverged",
             head.id
         )));
     }

@@ -48,7 +48,6 @@ impl DocumentAuthorityRow {
 pub(crate) struct PersistedDocumentCommit {
     pub head_seq: i64,
     pub state_vector: Vec<u8>,
-    pub state_hash: String,
     pub derived_touched_block_ids: Vec<String>,
     /// Public event head after persistence. This is the emitted event's sequence
     /// when the owning aggregate publishes one.
@@ -66,7 +65,6 @@ pub(crate) struct PersistYjsCommit<'a> {
     pub client_touched_block_ids: &'a [String],
     pub update: &'a [u8],
     pub state_vector: &'a [u8],
-    pub full_state: &'a [u8],
     pub store_epoch: &'a str,
     pub operation_id: &'a str,
     pub event_kind: &'a str,
@@ -316,15 +314,13 @@ pub(crate) fn persist_yjs_commit(
             now,
         ],
     )?;
-    let state_hash = sha256(input.full_state);
     let changed = connection.execute(
-        "UPDATE documents SET head_seq = ?1, state_vector = ?2, state_hash = ?3, updated_at = ?4 \
-         WHERE id = ?5 AND generation = ?6 AND head_seq = ?7 \
+        "UPDATE documents SET head_seq = ?1, state_vector = ?2, state_hash = '', updated_at = ?3 \
+         WHERE id = ?4 AND generation = ?5 AND head_seq = ?6 \
            AND readiness = 'ready' AND authority = 'ydoc_primary' AND sync_engine = 'yjs'",
         params![
             next_head_seq,
             input.state_vector,
-            state_hash,
             now,
             input.authority.head.id,
             input.authority.head.generation,
@@ -362,30 +358,6 @@ pub(crate) fn persist_yjs_commit(
         next_head_seq,
         &now,
         true,
-    )?;
-    let materialization_bytes =
-        serde_json::to_vec(input.materialization).map_err(|_| internal("Materialization hash"))?;
-    connection.execute(
-        "INSERT INTO document_engine_fingerprints (\
-           document_id, generation, head_seq, source_state_hash, yrs_state_vector_sha256, \
-           yrs_full_state_sha256, materialization_sha256, validated_at_unix_ms\
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, \
-                   CAST(strftime('%s', 'now') AS INTEGER) * 1000) \
-         ON CONFLICT(document_id, generation, head_seq) DO UPDATE SET \
-           source_state_hash = excluded.source_state_hash, \
-           yrs_state_vector_sha256 = excluded.yrs_state_vector_sha256, \
-           yrs_full_state_sha256 = excluded.yrs_full_state_sha256, \
-           materialization_sha256 = excluded.materialization_sha256, \
-           validated_at_unix_ms = excluded.validated_at_unix_ms",
-        params![
-            input.authority.head.id,
-            input.authority.head.generation,
-            next_head_seq,
-            state_hash,
-            sha256(input.state_vector),
-            state_hash,
-            sha256(&materialization_bytes),
-        ],
     )?;
     let payload = json!({
         "module": "owned_document",
@@ -433,7 +405,6 @@ pub(crate) fn persist_yjs_commit(
     Ok(PersistedDocumentCommit {
         head_seq: next_head_seq,
         state_vector: input.state_vector.to_vec(),
-        state_hash,
         derived_touched_block_ids,
         event_sequence,
         committed_at: now,
@@ -520,7 +491,7 @@ pub(crate) fn persist_yjs_genesis(
             now,
         ],
     )?;
-    let state_hash = sha256(input.full_state);
+    let snapshot_hash = sha256(input.full_state);
     connection.execute(
         "INSERT INTO document_snapshots (\
            document_id, generation, snapshot_seq, state_vector, snapshot_update, \
@@ -531,20 +502,19 @@ pub(crate) fn persist_yjs_genesis(
             input.authority.head.generation,
             input.state_vector,
             input.full_state,
-            state_hash,
+            snapshot_hash,
             input.authority.head.schema_version,
             now,
         ],
     )?;
     let changed = connection.execute(
-        "UPDATE documents SET head_seq = 1, state_vector = ?1, state_hash = ?2, \
-           readiness = 'ready', authority = 'ydoc_primary', updated_at = ?3 \
-         WHERE id = ?4 AND generation = ?5 AND head_seq = 0 \
+        "UPDATE documents SET head_seq = 1, state_vector = ?1, state_hash = '', \
+           readiness = 'ready', authority = 'ydoc_primary', updated_at = ?2 \
+         WHERE id = ?3 AND generation = ?4 AND head_seq = 0 \
            AND readiness = 'pending_genesis' AND authority = 'legacy_shadow' \
            AND sync_engine = 'yjs'",
         params![
             input.state_vector,
-            state_hash,
             now,
             input.authority.head.id,
             input.authority.head.generation,
@@ -560,22 +530,6 @@ pub(crate) fn persist_yjs_genesis(
         1,
         &now,
         input.emit_event,
-    )?;
-    let materialization_bytes = serde_json::to_vec(input.materialization)
-        .map_err(|_| internal("Genesis materialization hash"))?;
-    connection.execute(
-        "INSERT INTO document_engine_fingerprints (\
-           document_id, generation, head_seq, source_state_hash, yrs_state_vector_sha256, \
-           yrs_full_state_sha256, materialization_sha256, validated_at_unix_ms\
-         ) VALUES (?1, ?2, 1, ?3, ?4, ?3, ?5, \
-                   CAST(strftime('%s', 'now') AS INTEGER) * 1000)",
-        params![
-            input.authority.head.id,
-            input.authority.head.generation,
-            state_hash,
-            sha256(input.state_vector),
-            sha256(&materialization_bytes),
-        ],
     )?;
     let event_sequence = if input.emit_event {
         let payload = json!({
@@ -624,7 +578,6 @@ pub(crate) fn persist_yjs_genesis(
     Ok(PersistedDocumentCommit {
         head_seq: 1,
         state_vector: input.state_vector.to_vec(),
-        state_hash,
         derived_touched_block_ids,
         event_sequence,
         committed_at: now,

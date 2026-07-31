@@ -1431,7 +1431,7 @@ mod tests {
                            state_vector, state_hash, readiness, authority, created_at, updated_at, sync_engine \
                          ) VALUES (?1, ?2, 1, 0, 'nodex.page', 2, X'', ?3, 'ready', \
                            'ydoc_primary', ?4, ?4, 'yjs')",
-                        params![DOCUMENT, PROJECT, HASH, LATEST],
+                        params![DOCUMENT, PROJECT, "", LATEST],
                     )?;
                     transaction.execute(
                         "INSERT INTO block_documents(block_id, document_id, project_id, created_at) \

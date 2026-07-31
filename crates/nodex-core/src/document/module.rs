@@ -1483,7 +1483,6 @@ impl OwnedDocumentModule {
                             let mut next_head = authority.head.clone();
                             next_head.head_seq = persisted.head_seq;
                             next_head.state_vector = persisted.state_vector;
-                            next_head.state_hash = persisted.state_hash;
                             next_head.readiness = DocumentReadiness::Ready;
                             next_head.authority = DocumentAuthority::YdocPrimary;
                             (committed, Some(event), next_head, prepared.engine)
@@ -1542,8 +1541,6 @@ impl OwnedDocumentModule {
                             let materialization = materialize_candidate(&candidate, schema)?;
                             let candidate_transaction = candidate.document().transact();
                             let state_vector = candidate_transaction.state_vector().encode_v1();
-                            let full_state = candidate_transaction
-                                .encode_state_as_update_v1(&yrs::StateVector::default());
                             drop(candidate_transaction);
                             let persisted = persist_yjs_commit(
                                 &transaction,
@@ -1557,7 +1554,6 @@ impl OwnedDocumentModule {
                                     client_touched_block_ids: &[],
                                     update: &prepared.update_v1,
                                     state_vector: &state_vector,
-                                    full_state: &full_state,
                                     store_epoch: &store_epoch,
                                     operation_id: &operation_id,
                                     event_kind: "document_updated",
@@ -1581,7 +1577,6 @@ impl OwnedDocumentModule {
                             let mut next_head = authority.head.clone();
                             next_head.head_seq = persisted.head_seq;
                             next_head.state_vector = persisted.state_vector;
-                            next_head.state_hash = persisted.state_hash;
                             (committed, Some(event), next_head, engine)
                         }
                         _ => {
@@ -3287,8 +3282,6 @@ impl OwnedDocumentModule {
                 }
                 let candidate_transaction = candidate.document().transact();
                 let state_vector = candidate_transaction.state_vector().encode_v1();
-                let full_state =
-                    candidate_transaction.encode_state_as_update_v1(&yrs::StateVector::default());
                 drop(candidate_transaction);
                 let revision_now = sqlite_now(&transaction)?;
                 prepare_document_revision(
@@ -3310,7 +3303,6 @@ impl OwnedDocumentModule {
                         client_touched_block_ids: &touched_block_ids,
                         update: &update,
                         state_vector: &state_vector,
-                        full_state: &full_state,
                         store_epoch: &store_epoch,
                         operation_id: &job.operation_id,
                         event_kind: match job.publication {
@@ -3328,7 +3320,6 @@ impl OwnedDocumentModule {
                     let mut committed_authority = authority.clone();
                     committed_authority.head.head_seq = persisted.head_seq;
                     committed_authority.head.state_vector = persisted.state_vector.clone();
-                    committed_authority.head.state_hash = persisted.state_hash.clone();
                     insert_document_checkpoint(
                         &transaction,
                         &committed_authority,
@@ -3421,7 +3412,6 @@ impl OwnedDocumentModule {
                 let mut next_head = authority.head.clone();
                 next_head.head_seq = persisted.head_seq;
                 next_head.state_vector = persisted.state_vector;
-                next_head.state_hash = persisted.state_hash;
                 cache
                     .lock()
                     .map_err(|_| internal("Document cache lock failed"))?
@@ -4577,7 +4567,6 @@ fn agent_authority_revisions_hash(
             &authority.head.id,
             authority.head.generation,
             authority.head.head_seq,
-            &authority.head.state_hash,
             &authority.head.project_id,
             &authority.owner_block_id,
             &authority.owner_lifecycle,
@@ -5144,10 +5133,7 @@ mod tests {
         let state_vector = engine.state_vector_v1();
         let materialization =
             materialize_engine(&engine, BlockDocumentSchema::PageV2).expect("Page materialization");
-        let state_hash = sha256(&engine.full_state_v1());
         let snapshot_hash = sha256(&full_state);
-        let materialization_hash =
-            sha256(&serde_json::to_vec(&materialization).expect("materialization JSON"));
         kernel
             .writer()
             .call({
@@ -5187,7 +5173,7 @@ mod tests {
                                state_vector, state_hash, readiness, authority, created_at, updated_at, sync_engine\
                              ) VALUES (?1, ?2, 1, 1, 'nodex.page', 2, ?3, ?4, \
                                'ready', 'ydoc_primary', ?5, ?5, 'yjs')",
-                            params![DOCUMENT_ID, PROJECT_ID, state_vector, state_hash, NOW],
+                            params![DOCUMENT_ID, PROJECT_ID, state_vector, "", NOW],
                         )?;
                         transaction.execute(
                             "INSERT INTO block_documents(block_id, document_id, project_id, created_at) \
@@ -5293,13 +5279,6 @@ mod tests {
                                 i64::from(!materialization.nfm.trim().is_empty()),
                                 NOW,
                             ],
-                        )?;
-                        transaction.execute(
-                            "INSERT INTO document_engine_fingerprints(\
-                               document_id, generation, head_seq, source_state_hash, yrs_state_vector_sha256, \
-                               yrs_full_state_sha256, materialization_sha256, validated_at_unix_ms\
-                             ) VALUES (?1, 1, 1, ?2, ?3, ?2, ?4, 0)",
-                            params![DOCUMENT_ID, state_hash, sha256(&state_vector), materialization_hash],
                         )?;
                         Ok(())
                     })
@@ -6509,7 +6488,7 @@ mod tests {
                            state_vector, state_hash, readiness, authority, created_at, updated_at, sync_engine\
                          ) VALUES (?1, ?2, 1, 0, 'nodex.page', 2, X'', ?3, \
                            'ready', 'ydoc_primary', ?4, ?4, 'yjs')",
-                        params![HOST_DOCUMENT_ID, PROJECT_ID, "0".repeat(64), NOW],
+                        params![HOST_DOCUMENT_ID, PROJECT_ID, "", NOW],
                     )?;
                     transaction.execute(
                         "INSERT INTO block_documents(block_id, document_id, project_id, created_at) \

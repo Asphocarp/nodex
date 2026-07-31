@@ -1537,7 +1537,6 @@ pub(super) fn persist_parent_operations_detailed(
         .map_err(|error| invalid(&format!("Parent Page update cannot apply: {error}")))?;
     let transaction = candidate.document().transact();
     let state_vector = transaction.state_vector().encode_v1();
-    let next_full_state = transaction.encode_state_as_update_v1(&yrs::StateVector::default());
     drop(transaction);
     if state_vector != prepared.state_vector_v1 {
         return Err(corrupt("Prepared parent state vector is inconsistent"));
@@ -1558,7 +1557,6 @@ pub(super) fn persist_parent_operations_detailed(
             client_touched_block_ids: &[],
             update: &prepared.update_v1,
             state_vector: &state_vector,
-            full_state: &next_full_state,
             store_epoch,
             operation_id: &update_id,
             event_kind: "document_updated",

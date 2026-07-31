@@ -671,7 +671,6 @@ fn persist_prepared_update(
             "Prepared Document update state vector changed before persistence",
         ));
     }
-    let full_state = next_engine.full_state_v1();
     let now = sqlite_now(connection)?;
     prepare_document_revision(
         connection,
@@ -692,7 +691,6 @@ fn persist_prepared_update(
             client_touched_block_ids: &[],
             update: &prepared.update_v1,
             state_vector: &prepared.state_vector_v1,
-            full_state: &full_state,
             store_epoch,
             operation_id,
             event_kind: "document_updated",
@@ -712,7 +710,6 @@ fn persist_prepared_update(
     let mut authority = loaded.authority;
     authority.head.head_seq = persisted.head_seq;
     authority.head.state_vector = persisted.state_vector;
-    authority.head.state_hash = persisted.state_hash;
     authority.head.updated_at = persisted.committed_at;
     Ok(PersistedPreparedUpdate {
         loaded: LoadedYjsHead {
