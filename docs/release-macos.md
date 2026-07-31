@@ -37,6 +37,12 @@ manifests only when they describe one source and one Skill artifact, then emits:
 The tag is created only after this bundle passes. A published release is never
 rebuilt in place, and an existing tag is never moved.
 
+For each architecture, Distribution executes the stateful packaged runtime
+smoke once against the extracted notarized ZIP App, including launch and the
+symlinked CLI/Core/ripgrep workflow. The mounted DMG receives structural,
+signature, notarization, and provenance verification only; matching sealed
+provenance proves it contains the same App without repeating stateful smoke.
+
 ## Release Identity
 
 `package.json` is the canonical version input. The Release Module requires the

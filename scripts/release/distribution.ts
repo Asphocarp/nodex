@@ -10,7 +10,10 @@ import { join, resolve } from "node:path";
 
 import { verifyPackagedBuildProvenance } from "../package-provenance.mjs";
 import { verifyCodexRuntime } from "../verify-codex-runtime";
-import { verifyPackagedNativeRuntime } from "../verify-native-runtime";
+import {
+  verifyPackagedNativeRuntimeSmoke,
+  verifyPackagedNativeRuntimeStructure,
+} from "../verify-native-runtime";
 import { recordArchitectureBuild, type ArchitectureBuildManifest, type MacArchitecture } from "./bundle";
 import { normalizeStableVersion } from "./model";
 import { inspectReleaseSource } from "./source";
@@ -98,8 +101,10 @@ const readAppIdentity = (appPath: string): Omit<VerifiedAppIdentity, "provenance
 const verifyApp = async (options: {
   readonly appPath: string;
   readonly architecture: MacArchitecture;
-  readonly launchApp: boolean;
   readonly preparedManifestPath: string;
+  readonly runtimeCheck:
+    | { readonly kind: "smoke"; readonly launchApp: boolean }
+    | { readonly kind: "structure" };
   readonly version: string;
 }): Promise<VerifiedAppIdentity> => {
   const provenance = verifyPackagedBuildProvenance(options.appPath, {
@@ -114,15 +119,22 @@ const verifyApp = async (options: {
     resourcesPath: join(options.appPath, "Contents/Resources"),
     verifyMacosSignatures: true,
   });
-  await verifyPackagedNativeRuntime({
+  const runtimeOptions = {
     appPath: options.appPath,
     expectedVersion: options.version,
-    launchApp: options.launchApp,
     requireDeveloperId: true,
     targetArch: options.architecture,
     verifyNotarization: true,
     verifySignatures: true,
-  });
+  } as const;
+  if (options.runtimeCheck.kind === "smoke") {
+    await verifyPackagedNativeRuntimeSmoke({
+      ...runtimeOptions,
+      launchApp: options.runtimeCheck.launchApp,
+    });
+  } else {
+    verifyPackagedNativeRuntimeStructure(runtimeOptions);
+  }
   return { ...readAppIdentity(options.appPath), provenanceId: provenance.provenanceId };
 };
 
@@ -165,8 +177,8 @@ export async function buildMacDistribution(options: {
     const zipProvenance = await verifyApp({
       appPath: zipAppPath,
       architecture: options.architecture,
-      launchApp: true,
       preparedManifestPath,
+      runtimeCheck: { kind: "smoke", launchApp: true },
       version,
     });
 
@@ -184,8 +196,8 @@ export async function buildMacDistribution(options: {
     const dmgProvenance = await verifyApp({
       appPath: dmgAppPath,
       architecture: options.architecture,
-      launchApp: false,
       preparedManifestPath,
+      runtimeCheck: { kind: "structure" },
       version,
     });
     if (JSON.stringify(zipProvenance) !== JSON.stringify(dmgProvenance)) {

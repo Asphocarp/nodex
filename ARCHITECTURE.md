@@ -1327,11 +1327,12 @@ separate while making their promotion seam machine-readable.
 
 Production Distribution runs on native arm64 and x64 hosted macOS runners. It
 does not cross-compile a second architecture as release evidence. Each signed,
-notarized ZIP is extracted and launched; the DMG is mounted and checked against
-the same version, bundle ID, TeamIdentifier, and package provenance. Only a
-matching pair reaches Linux assembly. The stable annotated tag is created after
-assembly, then an immutable GitHub Release is published and verified before the
-Homebrew Adapter runs.
+notarized ZIP is extracted, launched, and subjected once to the stateful
+packaged runtime smoke. The DMG is mounted for structural verification and
+checked against the same version, bundle ID, TeamIdentifier, and sealed package
+provenance instead of repeating that smoke. Only a matching pair reaches Linux
+assembly. The stable annotated tag is created after assembly, then an immutable
+GitHub Release is published and verified before the Homebrew Adapter runs.
 
 `CI / required` is the stable repository-protection Interface. Its internal
 jobs may vary by change class, but release metadata always selects the app and

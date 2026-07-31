@@ -1211,14 +1211,15 @@ target ensures the package contains electron-builder's supported
 7zip toolset. Every package carries a signed build-provenance record binding the
 prepared source generation, `app.asar`, updater metadata, and final signed native
 and Agent runtime manifests. The same identity is reverified on the source,
-staging, and installed copies.
+staging, and installed copies without starting a temporary Core or executing
+release smoke workflows.
 
 The deployer defaults to `/Applications/Nodex Dev.app`, uses `ditto`, preserves
 the previous destination as a rollback app until the installed copy verifies,
 and requires `--allow-production-destination` before it can target
 `/Applications/Nodex.app`. `--app-path` is an explicit external-artifact mode:
 it skips rebuilding but still requires a self-consistent package provenance
-and complete native-runtime verification. The deprecated `install.sh` only
+and complete structural native-runtime verification. The deprecated `install.sh` only
 forwards to this command; it no longer installs dependencies, builds, runs
 `pnpm link`, installs skills, or deletes the production app.
 

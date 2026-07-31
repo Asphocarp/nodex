@@ -27,15 +27,26 @@ import { resolveInitialProjectJournalPath } from "../src/main/initial-project/in
 import { CoreClient } from "../src/main/core-client/core-client";
 import { createCoreProjectWorkspaceAdapter } from "../src/main/core-client/project-workspace-adapter";
 
-export interface VerificationOptions {
+export interface PackagedNativeRuntimeStructureOptions {
   readonly appPath: string;
   readonly expectedVersion: string;
-  readonly launchApp: boolean;
-  readonly legacyProfileFixturePath?: string;
   readonly requireDeveloperId: boolean;
   readonly targetArch: NativeRuntimeArchitecture;
   readonly verifyNotarization: boolean;
   readonly verifySignatures: boolean;
+}
+
+export interface PackagedNativeRuntimeSmokeOptions
+  extends PackagedNativeRuntimeStructureOptions {
+  readonly launchApp: boolean;
+  readonly legacyProfileFixturePath?: string;
+}
+
+export interface PackagedNativeRuntimeIdentity {
+  readonly appPath: string;
+  readonly coreSha256: string;
+  readonly expectedVersion: string;
+  readonly targetArch: NativeRuntimeArchitecture;
 }
 
 interface CommandResult {
@@ -179,7 +190,7 @@ const waitForRuntimeExit = async (descriptor: string): Promise<void> => {
   const deadline = Date.now() + 5_000;
   while (existsSync(descriptor) && Date.now() < deadline) await delay(25);
   if (existsSync(descriptor)) {
-    throw new Error("Packaged Core did not idle-exit after its smoke-test client disconnected");
+    throw new Error("Packaged Core did not exit after smoke-test cleanup");
   }
 };
 
@@ -234,7 +245,10 @@ export const selectPackagedSmokeProjectId = (
 const bootstrapPackagedCliProject = async (
   environment: NodeJS.ProcessEnv,
   temporaryRoot: string,
-): Promise<string> => {
+): Promise<{
+  readonly client: CoreClient;
+  readonly projectId: string;
+}> => {
   const nodexHome = environment.NODEX_HOME;
   if (!nodexHome) {
     throw new Error("Packaged CLI smoke environment omits NODEX_HOME");
@@ -253,7 +267,21 @@ const bootstrapPackagedCliProject = async (
   await bootstrap.ensureInitialProject({
     onProvisioned: async () => undefined,
   });
-  return selectPackagedSmokeProjectId(await projectWorkspace.listProjects());
+  return {
+    client,
+    projectId: selectPackagedSmokeProjectId(await projectWorkspace.listProjects()),
+  };
+};
+
+export const shutdownPackagedCore = async (
+  client: { shutdown(): Promise<{ readonly status: string }> },
+  descriptor: string,
+): Promise<void> => {
+  const response = await client.shutdown();
+  if (response.status !== "draining") {
+    throw new Error(`Packaged Core rejected smoke-test shutdown with ${response.status}`);
+  }
+  await waitForRuntimeExit(descriptor);
 };
 
 const smokeNativeRuntime = async (
@@ -305,7 +333,7 @@ const smokeNativeRuntime = async (
     if (reusedCore.pid !== firstCore.pid || reusedCore.startNonce !== firstCore.startNonce) {
       throw new Error("Compatible packaged CLI selectors did not reuse one Core generation");
     }
-    const projectId = await bootstrapPackagedCliProject(environment, directory);
+    const bootstrap = await bootstrapPackagedCliProject(environment, directory);
     const searchSentinel = "packaged-native-cli-ripgrep-sentinel";
     const searchBodyPath = join(directory, "search-smoke.nested.md");
     writeFileSync(searchBodyPath, `${searchSentinel}\n`, { encoding: "utf8", mode: 0o600 });
@@ -314,7 +342,7 @@ const smokeNativeRuntime = async (
       [
         "--json",
         "--project",
-        projectId,
+        bootstrap.projectId,
         "page",
         "create",
         "--parent",
@@ -339,7 +367,7 @@ const smokeNativeRuntime = async (
     }
     const search = runWithEnvironment(
       linkedCli,
-      ["--project", projectId, "rg", searchSentinel, `@${pageId}`],
+      ["--project", bootstrap.projectId, "rg", searchSentinel, `@${pageId}`],
       environment,
       "Run packaged CLI ripgrep",
     );
@@ -356,7 +384,7 @@ const smokeNativeRuntime = async (
     if (serviceEnvelope.ok !== true) {
       throw new Error("Packaged ServiceManagement status did not return a successful envelope");
     }
-    await waitForRuntimeExit(descriptor);
+    await shutdownPackagedCore(bootstrap.client, descriptor);
   } finally {
     if (!existsSync(descriptor)) {
       removePrivateTemporaryDirectory(directory);
@@ -516,7 +544,9 @@ const launchAppSmoke = async (appPath: string): Promise<void> => {
   }
 };
 
-export async function verifyPackagedNativeRuntime(options: VerificationOptions): Promise<void> {
+export function verifyPackagedNativeRuntimeStructure(
+  options: PackagedNativeRuntimeStructureOptions,
+): PackagedNativeRuntimeIdentity {
   const appPath = resolve(options.appPath);
   verifyPackagedAgentSkills({ appPath });
   const contentsPath = join(appPath, "Contents");
@@ -587,14 +617,31 @@ export async function verifyPackagedNativeRuntime(options: VerificationOptions):
   }
   const coreManifest = manifest.binaries.find(({ name }) => name === "nodex-core");
   if (!coreManifest) throw new Error("Native runtime manifest omits nodex-core");
-  await smokeNativeRuntime(appPath, coreManifest.sourceSha256, expectedVersion);
-  await smokeLegacyProfileMigration(
+  process.stdout.write(`Verified packaged native runtime structure ${options.targetArch}\n`);
+  return {
     appPath,
+    coreSha256: coreManifest.sourceSha256,
+    expectedVersion,
+    targetArch: options.targetArch,
+  };
+}
+
+export async function verifyPackagedNativeRuntimeSmoke(
+  options: PackagedNativeRuntimeSmokeOptions,
+): Promise<void> {
+  const identity = verifyPackagedNativeRuntimeStructure(options);
+  await smokeNativeRuntime(
+    identity.appPath,
+    identity.coreSha256,
+    identity.expectedVersion,
+  );
+  await smokeLegacyProfileMigration(
+    identity.appPath,
     resolve(options.legacyProfileFixturePath ?? DEFAULT_LEGACY_PROFILE_FIXTURE),
   );
-  smokeBrowserProfileHelper(appPath);
-  if (options.launchApp) await launchAppSmoke(appPath);
-  process.stdout.write(`Verified packaged native runtime ${options.targetArch}\n`);
+  smokeBrowserProfileHelper(identity.appPath);
+  if (options.launchApp) await launchAppSmoke(identity.appPath);
+  process.stdout.write(`Verified packaged native runtime smoke ${identity.targetArch}\n`);
 }
 
 const readOption = (arguments_: readonly string[], option: string): string | null => {
@@ -619,7 +666,7 @@ const main = async (): Promise<void> => {
   }
   const requireDeveloperId = arguments_.includes("--require-developer-id");
   const verifyNotarization = arguments_.includes("--verify-notarization");
-  await verifyPackagedNativeRuntime({
+  await verifyPackagedNativeRuntimeSmoke({
     appPath,
     expectedVersion,
     launchApp: arguments_.includes("--launch-app"),

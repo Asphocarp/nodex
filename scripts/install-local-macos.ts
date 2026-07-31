@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url";
 
 import { verifyPackagedBuildProvenance } from "./package-provenance.mjs";
 import type { NativeRuntimeArchitecture } from "./native-runtime-manifest";
-import { verifyPackagedNativeRuntime } from "./verify-native-runtime";
+import { verifyPackagedNativeRuntimeStructure } from "./verify-native-runtime";
 import { installCliCommand } from "../src/main/cli-command-installer";
 
 export interface LocalMacInstallOptions {
@@ -212,19 +212,18 @@ const syncDirectory = (directory: string): void => {
   }
 };
 
-const verify = async (
+const verify = (
   appPath: string,
   targetArch: NativeRuntimeArchitecture,
   expectedPreparedManifestPath?: string,
-): Promise<string> => {
+): string => {
   const provenance = verifyPackagedBuildProvenance(appPath, {
     expectedArch: targetArch,
     expectedPreparedManifestPath,
   });
-  await verifyPackagedNativeRuntime({
+  verifyPackagedNativeRuntimeStructure({
     appPath,
     expectedVersion: provenance.product.version,
-    launchApp: false,
     requireDeveloperId: false,
     targetArch,
     verifyNotarization: false,
@@ -242,7 +241,7 @@ export async function installLocalMacBuild(
   assertAppBundle(options.appPath, "The source app");
   assertLocalInstallDestination(options);
   assertNodexIsNotRunning();
-  const sourceProvenanceId = await verify(
+  const sourceProvenanceId = verify(
     options.appPath,
     options.targetArch,
     options.expectedPreparedManifestPath,
@@ -278,7 +277,7 @@ export async function installLocalMacBuild(
     execFileSync("/usr/bin/ditto", [options.appPath, stagingPath], {
       stdio: "inherit",
     });
-    const stagingProvenanceId = await verify(
+    const stagingProvenanceId = verify(
       stagingPath,
       options.targetArch,
       options.expectedPreparedManifestPath,
@@ -293,7 +292,7 @@ export async function installLocalMacBuild(
     try {
       renameSync(stagingPath, options.destination);
       syncDirectory(destinationParent);
-      const installedProvenanceId = await verify(
+      const installedProvenanceId = verify(
         options.destination,
         options.targetArch,
         options.expectedPreparedManifestPath,
