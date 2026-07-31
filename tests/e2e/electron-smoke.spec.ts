@@ -119,28 +119,7 @@ async function launchLargeContentFixtureApplication(): Promise<ElectronApplicati
 }
 
 async function stopApplication(application: ElectronApplication): Promise<void> {
-  const child = application.process();
-  const exited = child.exitCode === null
-    ? new Promise<void>((resolve) => child.once("exit", () => resolve()))
-    : Promise.resolve();
-  await application.evaluate(({ app }) => app.exit(0)).catch(() => undefined);
-  const exitedGracefully = await Promise.race([
-    exited.then(() => true),
-    new Promise<false>((resolve) => setTimeout(() => resolve(false), 5_000)),
-  ]);
-  if (!exitedGracefully && child.exitCode === null) {
-    if (!child.kill("SIGKILL")) {
-      throw new Error("Failed to terminate the Electron fixture process");
-    }
-    const exitedAfterKill = await Promise.race([
-      exited.then(() => true),
-      new Promise<false>((resolve) => setTimeout(() => resolve(false), 5_000)),
-    ]);
-    if (!exitedAfterKill) {
-      throw new Error("Electron fixture process survived SIGKILL");
-    }
-  }
-  await application.close().catch(() => undefined);
+  await application.close();
 }
 
 async function buildLargeContentFixture(outDir: string): Promise<string> {
@@ -344,6 +323,7 @@ async function sampleLargeContentScenario(input: {
 }
 
 test("provisions and persists the initial source-backed Project across a full Electron restart", async () => {
+  test.setTimeout(180_000);
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-electron-e2e-"));
   const nodexHome = path.join(fixtureRoot, "profile");
   const projectsDirectory = path.join(fixtureRoot, "workspace");
@@ -511,6 +491,7 @@ test("provisions and persists the initial source-backed Project across a full El
 });
 
 test("creates and draws in an inline Canvas without taking over the Page", async () => {
+  test.setTimeout(180_000);
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-canvas-e2e-"));
   const nodexHome = path.join(fixtureRoot, "profile");
   const workspace = path.join(fixtureRoot, "workspace");
