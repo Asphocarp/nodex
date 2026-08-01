@@ -1,4 +1,5 @@
 import { AnimatePresence, motion } from "motion/react";
+import type { ReactNode } from "react";
 import { ChevronRightIcon } from "@/components/shared/icons";
 import { cn } from "@/lib/utils";
 import type { ReviewOpenIntent } from "@/features/review/model/review-view-state";
@@ -10,6 +11,7 @@ import type {
 import { ThreadBlockRenderer } from "./blocks/local-conversation-block-renderer";
 import { useWorkedForLabelText } from "./shared/use-worked-for-label";
 import {
+  RIGHT_PANEL_COMPOSER_ACCESSORY_FROSTED_SURFACE_CLASS,
   RIGHT_PANEL_COMPOSER_ACCESSORY_INLINE_INSET_CLASS,
   useRightPanelComposerPresentation,
 } from "./right-panel-composer-presentation";
@@ -17,6 +19,7 @@ import {
 interface RightPanelComposerLatestTurnPreviewProps {
   turn: ThreadTurnModel | null;
   expanded: boolean;
+  contextRailLeadingContent?: ReactNode;
   projectWorkspacePath?: string | null;
   threadCwd?: string | null;
   onExpandedChange: (expanded: boolean) => void;
@@ -36,6 +39,7 @@ interface RightPanelComposerLatestTurnPreviewProps {
 export function RightPanelComposerLatestTurnPreview({
   turn,
   expanded,
+  contextRailLeadingContent,
   projectWorkspacePath,
   threadCwd,
   onExpandedChange,
@@ -76,11 +80,12 @@ export function RightPanelComposerLatestTurnPreview({
   return (
     <div
       data-right-panel-latest-turn-preview="true"
+      data-composer-context-rail="true"
       className={cn(
-        "text-token-foreground border-token-border/80 min-w-0 overflow-clip rounded-t-2xl border-x border-t",
+        "min-w-0 overflow-clip rounded-t-2xl border-x border-t border-token-border/80 text-token-foreground",
         isCompactPresentation
           ? "bg-token-input-background"
-          : "bg-token-input-background/70 backdrop-blur-sm",
+          : RIGHT_PANEL_COMPOSER_ACCESSORY_FROSTED_SURFACE_CLASS,
         isCompactPresentation
           ? "absolute inset-x-10 bottom-0 z-0 mx-0 transition-[opacity,translate] duration-150 ease-out motion-reduce:transition-none"
           : cn(
@@ -100,24 +105,38 @@ export function RightPanelComposerLatestTurnPreview({
           && "delay-75",
       )}
     >
-      <button
-        type="button"
-        aria-expanded={expanded}
-        className="flex w-full cursor-interaction items-center justify-between gap-2 rounded-[inherit] px-3 py-row-y text-left focus:outline-none focus-visible:ring-1 focus-visible:ring-token-focus-border focus-visible:ring-inset"
-        onClick={() => onExpandedChange(!expanded)}
+      <div
+        className={cn(
+          contextRailLeadingContent
+            ? "flex min-w-0 items-center gap-1 px-1.5 py-0.5"
+            : "contents",
+        )}
       >
-        <span className="text-size-chat min-w-0 truncate leading-4 text-token-description-foreground">
-          {headerText}
-        </span>
-        <span className="no-drag flex size-6 shrink-0 items-center justify-center rounded-full text-token-description-foreground select-none electron:rounded-md">
-          <ChevronRightIcon
-            className={cn(
-              "icon-2xs transition-transform duration-300",
-              expanded && "rotate-90",
-            )}
-          />
-        </span>
-      </button>
+        {contextRailLeadingContent}
+        <button
+          type="button"
+          aria-expanded={expanded}
+          className={cn(
+            "flex cursor-interaction items-center gap-1 rounded-[inherit] text-left focus:outline-none focus-visible:ring-1 focus-visible:ring-token-focus-border focus-visible:ring-inset",
+            contextRailLeadingContent
+              ? "order-2 ml-auto h-7 min-w-0 px-2"
+              : "w-full justify-between gap-2 px-3 py-row-y",
+          )}
+          onClick={() => onExpandedChange(!expanded)}
+        >
+          <span className="text-size-chat min-w-0 truncate leading-4 text-token-description-foreground">
+            {headerText}
+          </span>
+          <span className="no-drag flex size-6 shrink-0 items-center justify-center rounded-full text-token-description-foreground select-none electron:rounded-md">
+            <ChevronRightIcon
+              className={cn(
+                "icon-2xs transition-transform duration-300",
+                expanded && "rotate-90",
+              )}
+            />
+          </span>
+        </button>
+      </div>
       <AnimatePresence initial={false}>
         {expanded ? (
           <motion.div

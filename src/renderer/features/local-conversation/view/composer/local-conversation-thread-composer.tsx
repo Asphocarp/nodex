@@ -8,6 +8,7 @@ import {
   useState,
   useSyncExternalStore,
   type DragEvent,
+  type ReactNode,
 } from "react";
 import {
   formatCodexModelLabel,
@@ -42,7 +43,11 @@ import {
   selectAgentProvider,
   selectAgentReasoningEffort,
 } from "@/lib/agent-execution-profile";
-import type { AgentModelOption, AgentProviderOption } from "../../../../../shared/agent-runtime";
+import {
+  isFastAgentServiceTierOption,
+  type AgentModelOption,
+  type AgentProviderOption,
+} from "../../../../../shared/agent-runtime";
 import {
   resolveShortcutKeycapTokens,
   resolveThreadComposerAlternateShortcutAccelerator,
@@ -109,9 +114,9 @@ import {
 } from "./local-conversation-thread-composer-deps";
 import {
   shouldShowThreadComposerStatusStrip,
-  ThreadComposerExternalFooterSlot,
   ThreadComposerStatusStrip,
 } from "./local-conversation-thread-composer-status-strip";
+import { ComposerContextRailSlot } from "../composer-context-rail";
 import {
   COMPOSER_LARGE_PASTE_CHAR_THRESHOLD,
   ComposerPromptEditor,
@@ -129,7 +134,7 @@ import {
 import {
   ComposerAdaptiveFooter,
   ComposerInput,
-  type ComposerAdaptiveLayout,
+  resolveComposerAdaptiveLayout,
 } from "./composer-adaptive-footer";
 import { useThreadComposerPromptHistoryRecall } from "./thread-composer-prompt-history";
 import { InlineSlashCommandMenu } from "./slash-command-menu/inline-slash-command-menu";
@@ -243,6 +248,7 @@ interface ThreadComposerProps {
   actions: ThreadStageActions;
   errorMessage: string | null;
   onErrorMessage: (message: string | null) => void;
+  contextRailLeadingContent?: ReactNode;
 }
 
 const SERVICE_TIER_OPTIONS = [
@@ -924,7 +930,7 @@ function renderModelMenuLabel(input: {
   return (
     <span className="flex min-w-0 items-center gap-1 tabular-nums">
       {input.showFastIndicator && input.serviceTier === "fast" ? (
-        <CodexFastModeIcon className="icon-2xs text-token-link-foreground shrink-0" />
+        <CodexFastModeIcon className="icon-2xs shrink-0 text-token-foreground" />
       ) : null}
       <span className="truncate whitespace-nowrap">
         {formatCodexModelLabel(input.modelId, input.availableModels)}
@@ -1232,6 +1238,7 @@ function AgentModelMenuItem({
 
 function AgentModelSelectorDropdown({
   model,
+  serviceTier,
   actions,
 }: {
   model: ThreadFooterModel;
@@ -1317,6 +1324,12 @@ function AgentModelSelectorDropdown({
   );
   const speedOptions = selectedModel?.supportedServiceTiers ?? [];
   const selectedSpeed = speedOptions.find((option) => option.value === profile.serviceTier);
+  const showFastIndicator = selectedSpeed
+    ? isFastAgentServiceTierOption(selectedSpeed)
+    : isFastAgentServiceTierOption({
+        value: profile.serviceTier,
+        displayName: "",
+      }) || (model.isNewThreadTab && serviceTier === "fast");
   const modelLabel = selectedModel?.displayName ?? profile.modelId;
   const reasoningLabel = selectedReasoning?.displayName
     ?? (profile.reasoningEffort
@@ -1367,7 +1380,7 @@ function AgentModelSelectorDropdown({
           labelCandidates={labelCandidates}
           modelLabel={modelLabel}
           reasoningLabel={reasoningLabel}
-          showFastIndicator={selectedSpeed?.value === "fast"}
+          showFastIndicator={showFastIndicator}
           title={[
             provider.displayName,
             modelLabel,
@@ -1847,6 +1860,7 @@ function HydratedThreadComposer({
   actions,
   errorMessage,
   onErrorMessage,
+  contextRailLeadingContent,
   prompt,
   setPrompt,
   clearSubmittedDraft,
@@ -1878,6 +1892,12 @@ function HydratedThreadComposer({
   const [planKeywordSuggestionDismissed, setPlanKeywordSuggestionDismissed] = useState(false);
   const [goalModeActive, setGoalModeActive] = useScopedAtom(composerGoalModeActiveAtom);
   const [goalReplacementConfirmation, setGoalReplacementConfirmation] = useState<ThreadGoalReplacementConfirmationState | null>(null);
+  const [promptIntrinsicWidthPx, setPromptIntrinsicWidthPx] = useState<
+    number | null
+  >(null);
+  const [compactInputWidthPx, setCompactInputWidthPx] = useState<number | null>(
+    null,
+  );
   const promptEditorRef = useRef<ComposerPromptEditorHandle>(null);
   const addContextMenuRef = useRef<ComposerAddContextMenuHandle>(null);
   const appendPromptToHistoryRef = useRef<(text: string) => void>(() => {});
@@ -3241,12 +3261,32 @@ function HydratedThreadComposer({
   const hasDraftContent = prompt.trim().length > 0 || hasSubmittableAttachments || goalModeActive;
   const hasFooterGoalChip = goalModeActive || Boolean(model.conversation?.threadGoal && actions.onClearThreadGoal);
   const hasMultilinePrompt = prompt.includes("\n");
-  const floatingComposerSingleLine =
-    isFloatingComposer
-    && !hasAttachments
-    && !hasMultilinePrompt
-    && !errorMessage
-    && !isDictating;
+  const handlePromptIntrinsicWidthChange = useCallback((widthPx: number) => {
+    setPromptIntrinsicWidthPx((current) =>
+      current !== null && Math.abs(current - widthPx) <= 0.5
+        ? current
+        : widthPx
+    );
+  }, []);
+  const handleCompactInputWidthChange = useCallback((widthPx: number | null) => {
+    setCompactInputWidthPx((current) =>
+      current !== null
+        && widthPx !== null
+        && Math.abs(current - widthPx) <= 0.5
+        ? current
+        : widthPx
+    );
+  }, []);
+  const composerLayout = resolveComposerAdaptiveLayout({
+    isFloatingComposer,
+    hasAttachments,
+    hasExplicitLineBreak: hasMultilinePrompt,
+    promptIntrinsicWidthPx,
+    compactInputWidthPx,
+    hasError: Boolean(errorMessage),
+    isDictating,
+  });
+  const floatingComposerSingleLine = composerLayout === "single-line";
   const isMacPlatform = typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC");
 
   const composerActionState = resolveStageThreadsComposerActionState({
@@ -3432,11 +3472,11 @@ function HydratedThreadComposer({
       onLargeTextPaste={handleLargeTextPaste}
       onSuggestionStateChange={handleSuggestionStateChange}
       onSuggestionAction={handleSuggestionAction}
+      onIntrinsicContentWidthChange={isFloatingComposer
+        ? handlePromptIntrinsicWidthChange
+        : undefined}
     />
   );
-  const composerLayout: ComposerAdaptiveLayout = floatingComposerSingleLine
-    ? "single-line"
-    : "multiline";
   const floatingLeadingControls = addContextControl;
   const floatingTrailingControls = (
     <div className="flex min-w-0 shrink-0 items-center gap-2">
@@ -3551,14 +3591,15 @@ function HydratedThreadComposer({
   );
   return (
     <>
-      <ThreadComposerExternalFooterSlot visible={showExternalFooter}>
+      <ComposerContextRailSlot visible={showExternalFooter}>
         <ThreadComposerStatusStrip
           model={model}
           actions={actions}
           onErrorMessage={onErrorMessage}
+          contextRailLeadingContent={contextRailLeadingContent}
           projectSelectorDisabled={busyAction !== null}
         />
-      </ThreadComposerExternalFooterSlot>
+      </ComposerContextRailSlot>
       <div
         className={cn(
           "relative",
@@ -3596,7 +3637,7 @@ function HydratedThreadComposer({
           pluginCwds={composerPluginCwds}
           projectId={model.projectId}
           projectSelector={
-            model.isNewThreadTab
+            model.isNewThreadTab && !model.newThreadProjectSelector?.disabled
               ? model.newThreadProjectSelector ?? null
               : null
           }
@@ -3893,15 +3934,18 @@ function HydratedThreadComposer({
                     </>
                   )}
                   leadingControls={
-                    isFloatingComposer
+                    isFloatingComposer && floatingComposerSingleLine
                       ? floatingLeadingControls
                       : standardLeadingControls
                   }
                   trailingControls={
-                    isFloatingComposer
+                    isFloatingComposer && floatingComposerSingleLine
                       ? floatingTrailingControls
                       : standardTrailingControls
                   }
+                  onCompactInputWidthChange={isFloatingComposer
+                    ? handleCompactInputWidthChange
+                    : undefined}
                 />
               </>
             )}

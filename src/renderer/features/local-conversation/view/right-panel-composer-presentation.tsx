@@ -9,6 +9,9 @@ export type RightPanelComposerPresentation =
 export const RIGHT_PANEL_COMPOSER_ACCESSORY_INLINE_INSET_CLASS =
   "mx-[var(--right-panel-composer-accessory-inline-inset,0px)]";
 
+export const RIGHT_PANEL_COMPOSER_ACCESSORY_FROSTED_SURFACE_CLASS =
+  "bg-token-input-background/70 backdrop-blur-sm";
+
 interface RightPanelComposerPresentationContextValue {
   floating: boolean;
   presentation: RightPanelComposerPresentation;

@@ -1,7 +1,45 @@
-import type { ReactNode } from "react";
+import {
+  useCallback,
+  useLayoutEffect,
+  useRef,
+  type ReactNode,
+} from "react";
 import { cn } from "@/lib/utils";
 
 export type ComposerAdaptiveLayout = "single-line" | "multiline";
+
+const COMPOSER_FIT_TOLERANCE_PX = 0.5;
+
+export function resolveComposerAdaptiveLayout({
+  isFloatingComposer,
+  hasAttachments,
+  hasExplicitLineBreak,
+  promptIntrinsicWidthPx,
+  compactInputWidthPx,
+  hasError,
+  isDictating,
+}: {
+  isFloatingComposer: boolean;
+  hasAttachments: boolean;
+  hasExplicitLineBreak: boolean;
+  promptIntrinsicWidthPx: number | null;
+  compactInputWidthPx: number | null;
+  hasError: boolean;
+  isDictating: boolean;
+}): ComposerAdaptiveLayout {
+  if (!isFloatingComposer) return "multiline";
+  if (hasAttachments || hasExplicitLineBreak || hasError || isDictating) {
+    return "multiline";
+  }
+  if (
+    promptIntrinsicWidthPx !== null
+    && compactInputWidthPx !== null
+    && promptIntrinsicWidthPx > compactInputWidthPx + COMPOSER_FIT_TOLERANCE_PX
+  ) {
+    return "multiline";
+  }
+  return "single-line";
+}
 
 interface ComposerInputProps {
   children: ReactNode;
@@ -31,6 +69,7 @@ interface ComposerAdaptiveFooterProps {
   layout: ComposerAdaptiveLayout;
   leadingControls: ReactNode;
   trailingControls: ReactNode;
+  onCompactInputWidthChange?: (widthPx: number | null) => void;
 }
 
 export function ComposerAdaptiveFooter({
@@ -38,12 +77,94 @@ export function ComposerAdaptiveFooter({
   layout,
   leadingControls,
   trailingControls,
+  onCompactInputWidthChange,
 }: ComposerAdaptiveFooterProps) {
   const multiline = layout === "multiline";
   const row = multiline ? "controls" : "single-line";
+  const footerRef = useRef<HTMLDivElement | null>(null);
+  const leadingRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLDivElement | null>(null);
+  const trailingRef = useRef<HTMLDivElement | null>(null);
+  const compactChromeWidthPxRef = useRef<number | null>(null);
+  const multilineControlsWidthPxRef = useRef<number | null>(null);
+
+  const measureCompactInputWidth = useCallback(() => {
+    if (!onCompactInputWidthChange) return;
+    const footer = footerRef.current;
+    const leading = leadingRef.current;
+    const inputSlot = inputRef.current;
+    const trailing = trailingRef.current;
+    if (!footer || !leading || !inputSlot || !trailing) return;
+
+    const footerWidthPx = footer.getBoundingClientRect().width;
+    const leadingWidthPx = leading.getBoundingClientRect().width;
+    const trailingWidthPx = trailing.getBoundingClientRect().width;
+    if (footerWidthPx <= 0) return;
+
+    if (!multiline) {
+      const inputWidthPx = inputSlot.getBoundingClientRect().width;
+      if (inputWidthPx <= 0) return;
+      compactChromeWidthPxRef.current = Math.max(0, footerWidthPx - inputWidthPx);
+      multilineControlsWidthPxRef.current = null;
+      onCompactInputWidthChange(inputWidthPx);
+      return;
+    }
+
+    const compactChromeWidthPx = compactChromeWidthPxRef.current;
+    if (compactChromeWidthPx === null) return;
+    const multilineControlsWidthPx = leadingWidthPx + trailingWidthPx;
+    const previousControlsWidthPx = multilineControlsWidthPxRef.current;
+    multilineControlsWidthPxRef.current = multilineControlsWidthPx;
+    if (
+      previousControlsWidthPx !== null
+      && Math.abs(previousControlsWidthPx - multilineControlsWidthPx)
+        > COMPOSER_FIT_TOLERANCE_PX
+    ) {
+      onCompactInputWidthChange(null);
+      return;
+    }
+    onCompactInputWidthChange(Math.max(
+      0,
+      footerWidthPx - compactChromeWidthPx,
+    ));
+  }, [multiline, onCompactInputWidthChange]);
+
+  useLayoutEffect(() => {
+    if (!onCompactInputWidthChange) return undefined;
+    measureCompactInputWidth();
+
+    let active = true;
+    void document.fonts?.ready.then(() => {
+      if (active) measureCompactInputWidth();
+    });
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", measureCompactInputWidth);
+      return () => {
+        active = false;
+        window.removeEventListener("resize", measureCompactInputWidth);
+      };
+    }
+
+    const observer = new ResizeObserver(measureCompactInputWidth);
+    const elements = [
+      footerRef.current,
+      leadingRef.current,
+      inputRef.current,
+      trailingRef.current,
+    ];
+    for (const element of elements) {
+      if (element) observer.observe(element);
+    }
+    return () => {
+      active = false;
+      observer.disconnect();
+    };
+  }, [measureCompactInputWidth, onCompactInputWidthChange]);
 
   return (
     <div
+      ref={footerRef}
       data-composer-form-footer="true"
       data-composer-layout={layout}
       className={cn(
@@ -54,6 +175,7 @@ export function ComposerAdaptiveFooter({
       )}
     >
       <div
+        ref={leadingRef}
         data-composer-footer-leading="true"
         data-composer-footer-row={row}
         className={cn(
@@ -64,6 +186,7 @@ export function ComposerAdaptiveFooter({
         {leadingControls}
       </div>
       <div
+        ref={inputRef}
         data-composer-input-slot="true"
         data-composer-footer-row={multiline ? "prompt" : row}
         className={cn(
@@ -74,6 +197,7 @@ export function ComposerAdaptiveFooter({
         {input}
       </div>
       <div
+        ref={trailingRef}
         data-composer-footer-trailing="true"
         data-composer-footer-row={row}
         className={cn(

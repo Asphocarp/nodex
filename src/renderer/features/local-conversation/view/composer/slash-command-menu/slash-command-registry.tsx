@@ -254,7 +254,11 @@ export function buildComposerSlashCommands(input: BuildSlashCommandsInput): Comp
       group: "Commands",
       icon: <SplitIcon className={iconClassName} />,
       requiresEmptyComposer: true,
-      isVisible: Boolean(input.model.isNewThreadTab && input.model.newThreadProjectSelector),
+      isVisible: Boolean(
+        input.model.isNewThreadTab
+        && input.model.newThreadProjectSelector
+        && !input.model.newThreadProjectSelector.disabled,
+      ),
       Content: (props) => (
         <ProjectCommandContent
           model={input.model}
@@ -428,6 +432,9 @@ function ProjectCommandContent({
 }) {
   const selector = model.newThreadProjectSelector;
   if (!selector) return <CommandMessage>No projects</CommandMessage>;
+  if (selector.disabled) {
+    return <CommandMessage>Project is fixed for this task</CommandMessage>;
+  }
 
   return (
     <CommandPanel>

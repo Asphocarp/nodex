@@ -4,6 +4,11 @@ import type {
   ProjectAgentDockModel,
   ProjectAgentDockPendingWorktreeModel,
 } from "@/lib/project-agent-dock-model";
+import {
+  ComposerContextRail,
+  ComposerContextRailSlot,
+} from "@/features/local-conversation/view/composer-context-rail";
+import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import { ProjectAgentDockLeadingRow } from "./project-agent-dock";
 
 const model: ProjectAgentDockModel = {
@@ -34,51 +39,68 @@ const model: ProjectAgentDockModel = {
   hasMore: false,
 };
 
+function pendingWorktreeFor(
+  setupState: "running" | "failed" | null,
+): ProjectAgentDockPendingWorktreeModel | null {
+  if (setupState === "failed") {
+    return {
+      clientThreadId: "client-1",
+      statusLabel: "Setup failed",
+      composerBlockedReason:
+        "Resolve the failed worktree setup before starting this task again",
+      attention: "request",
+    };
+  }
+  if (setupState === "running") {
+    return {
+      clientThreadId: "client-1",
+      statusLabel: "Running setup…",
+      composerBlockedReason: "Worktree setup is already in progress",
+      attention: "activity",
+    };
+  }
+  return null;
+}
+
 function AgentDockLeadingRowStory({
-  failed = false,
+  setupState = null,
 }: {
-  readonly failed?: boolean;
+  readonly setupState?: "running" | "failed" | null;
 }) {
   const [query, setQuery] = useState("");
-  const pendingWorktree: ProjectAgentDockPendingWorktreeModel = failed
-    ? {
-        clientThreadId: "client-1",
-        statusLabel: "Setup failed",
-        composerBlockedReason:
-          "Resolve the failed worktree setup before starting this task again",
-        attention: "request",
-      }
-    : {
-        clientThreadId: "client-1",
-        statusLabel: "Running setup…",
-        composerBlockedReason: "Worktree setup is already in progress",
-        attention: "activity",
-      };
+  const pendingWorktree = pendingWorktreeFor(setupState);
 
   return (
-    <div className="flex min-h-48 items-end bg-token-main-surface-primary p-8">
-      <div className="w-full max-w-2xl rounded-2xl border border-token-border/60 bg-token-input-background/90 p-2">
-        <ProjectAgentDockLeadingRow
-          model={model}
-          query={query}
-          onQueryChange={setQuery}
-          onSelect={() => undefined}
-          onLoadMore={() => undefined}
-          onRetry={() => undefined}
-          onOpenTask={() => undefined}
-          pendingWorktree={pendingWorktree}
-          onOpenPendingWorktreeDetails={() => undefined}
-        />
-        <div className="min-h-11 px-2 text-sm text-token-input-placeholder-foreground">
-          {pendingWorktree.composerBlockedReason}
+    <NodexTooltipProvider>
+      <div className="flex min-h-48 items-end bg-token-main-surface-primary p-8">
+        <div className="w-full max-w-2xl">
+          <ComposerContextRailSlot visible>
+            <ComposerContextRail>
+              <ProjectAgentDockLeadingRow
+                model={model}
+                query={query}
+                onQueryChange={setQuery}
+                onSelect={() => undefined}
+                onLoadMore={() => undefined}
+                onRetry={() => undefined}
+                onOpenTask={() => undefined}
+                pendingWorktree={pendingWorktree}
+                onOpenPendingWorktreeDetails={() => undefined}
+              />
+              <span aria-hidden="true" className="order-2 min-w-0 flex-1" />
+            </ComposerContextRail>
+          </ComposerContextRailSlot>
+          <div className="composer-surface-chrome relative z-10 flex min-h-11 items-center bg-token-input-background/90 px-3 text-sm text-token-input-placeholder-foreground backdrop-blur-lg electron:dark:bg-token-dropdown-background">
+            {pendingWorktree?.composerBlockedReason ?? "Do anything"}
+          </div>
         </div>
       </div>
-    </div>
+    </NodexTooltipProvider>
   );
 }
 
 const meta = {
-  title: "Workbench/Project Agent Dock/Pending Worktree",
+  title: "Workbench/Project Agent Dock/Leading Row",
   component: AgentDockLeadingRowStory,
 } satisfies Meta<typeof AgentDockLeadingRowStory>;
 
@@ -86,8 +108,12 @@ export default meta;
 
 type Story = StoryObj<typeof meta>;
 
-export const RunningSetup: Story = {};
+export const ConnectedTask: Story = {};
+
+export const RunningSetup: Story = {
+  args: { setupState: "running" },
+};
 
 export const FailedSetup: Story = {
-  args: { failed: true },
+  args: { setupState: "failed" },
 };

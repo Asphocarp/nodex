@@ -5,6 +5,7 @@ import {
   buildPromptDoc,
   classifyComposerPaste,
   ComposerPromptEditor,
+  measureComposerPromptIntrinsicWidth,
   promptTextOffsetToDocPosition,
   type ComposerPromptEditorHandle,
 } from "./composer-prompt-editor";
@@ -68,6 +69,23 @@ function createClipboardData(initial: Record<string, string> = {}) {
 }
 
 describe("ComposerPromptEditor", () => {
+  test("measures the longest unwrapped prompt width without mutating editor styles", () => {
+    const editor = document.createElement("div");
+    editor.textContent = "A prompt that may wrap";
+    editor.style.minHeight = "1.25rem";
+    const measurement = vi.spyOn(editor, "getBoundingClientRect")
+      .mockImplementation(() => {
+        expect(editor.style.position).toBe("fixed");
+        expect(editor.style.visibility).toBe("hidden");
+        expect(editor.style.width).toBe("max-content");
+        return new DOMRect(0, 0, 428, 20);
+      });
+
+    expect(measureComposerPromptIntrinsicWidth(editor)).toBe(428);
+    expect(editor.getAttribute("style")).toBe("min-height: 1.25rem;");
+    expect(measurement).toHaveBeenCalledOnce();
+  });
+
   test("keeps the compact editor in the keyboard tab order", () => {
     const { editor } = renderPromptEditor({
       value: "",

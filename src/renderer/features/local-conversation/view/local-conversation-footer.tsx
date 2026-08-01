@@ -11,6 +11,10 @@ import type {
 import { shouldShowThreadScrollToBottomControl } from "./local-conversation-turn-virtualization";
 import { LocalConversationComposerShell } from "./composer/local-conversation-composer-shell";
 import {
+  ComposerContextRail,
+  ComposerContextRailSlot,
+} from "./composer-context-rail";
+import {
   LocalConversationAboveComposerPortalHost,
   LocalConversationAboveComposerQueuePortalHost,
 } from "./local-conversation-above-composer-portal";
@@ -49,7 +53,7 @@ function LocalConversationFooterChrome({
   onErrorMessage,
   catchUpControl,
   latestTurnPreview,
-  leadingContent,
+  contextRailLeadingContent,
   showComposer = true,
 }: {
   model: ThreadFooterModel;
@@ -58,7 +62,7 @@ function LocalConversationFooterChrome({
   onErrorMessage: (message: string | null) => void;
   catchUpControl: ReactNode;
   latestTurnPreview?: ReactNode;
-  leadingContent?: ReactNode;
+  contextRailLeadingContent?: ReactNode;
   showComposer?: boolean;
 }) {
   const [hasFixedPortalContent, setHasFixedPortalContent] = useState(false);
@@ -72,7 +76,6 @@ function LocalConversationFooterChrome({
           onContentPresenceChange={setHasFixedPortalContent}
         />
         <LocalConversationAboveComposerQueuePortalHost conversationId={model.threadId} />
-        {leadingContent}
         {latestTurnPreview}
         {showComposer ? (
           <LocalConversationComposerShell
@@ -80,8 +83,16 @@ function LocalConversationFooterChrome({
             actions={actions}
             errorMessage={errorMessage}
             onErrorMessage={onErrorMessage}
+            contextRailLeadingContent={contextRailLeadingContent}
             hasFixedPortalContent={hasFixedPortalContent}
           />
+        ) : contextRailLeadingContent ? (
+          <ComposerContextRailSlot visible>
+            <ComposerContextRail>
+              {contextRailLeadingContent}
+              <span aria-hidden="true" className="order-2 min-w-0 flex-1" />
+            </ComposerContextRail>
+          </ComposerContextRailSlot>
         ) : null}
       </div>
     </div>
@@ -282,11 +293,18 @@ function LocalConversationFooterComponent({
       </AnimatePresence>
     </div>
   );
-  const latestTurnPreview = rightPanelOverlayEnabled ? (
+  const contextRailLeadingContent = rightPanelComposerOverlay?.leadingContent;
+  const showLatestTurnPreview = Boolean(
+    rightPanelOverlayEnabled
+    && latestTurn
+    && latestTurn.blocks.length > 0,
+  );
+  const latestTurnPreview = showLatestTurnPreview && latestTurn ? (
     <RightPanelComposerLatestTurnPreview
       key={latestTurnOwnerKey ?? "right-panel-latest-turn"}
       turn={latestTurn}
       expanded={latestTurnExpanded}
+      contextRailLeadingContent={contextRailLeadingContent}
       projectWorkspacePath={model.projectWorkspacePath}
       threadCwd={model.cwd}
       onExpandedChange={handleLatestTurnExpandedChange}
@@ -330,7 +348,9 @@ function LocalConversationFooterComponent({
           onErrorMessage={onErrorMessage}
           catchUpControl={catchUpControl}
           latestTurnPreview={latestTurnPreview}
-          leadingContent={rightPanelComposerOverlay?.leadingContent}
+          contextRailLeadingContent={showLatestTurnPreview
+            ? undefined
+            : contextRailLeadingContent}
           showComposer={!isResumingActiveThread}
         />
       </RightPanelComposerOverlay>

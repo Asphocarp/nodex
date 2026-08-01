@@ -3,6 +3,7 @@ import type { ProjectSessionSummary } from "../../shared/types";
 import {
   buildProjectAgentDockModel,
   buildProjectAgentDockPendingWorktreeModel,
+  resolveProjectAgentDockTriggerStatusLabel,
   resolveProjectAgentDockPendingWorktree,
   type ProjectAgentDockPendingWorktreeEntry,
 } from "./project-agent-dock-model";
@@ -156,6 +157,34 @@ describe("buildProjectAgentDockModel", () => {
     });
 
     expect(model.rows.map((row) => row.label)).toEqual(["New task", "Beta"]);
+  });
+});
+
+describe("resolveProjectAgentDockTriggerStatusLabel", () => {
+  test("keeps exceptional status visible and removes passive repetition", () => {
+    const row = {
+      id: "new",
+      kind: "new",
+      sessionId: null,
+      label: "New task",
+      statusLabel: "Draft",
+      preview: null,
+      selected: true,
+      attention: "none",
+    } as const;
+
+    expect(resolveProjectAgentDockTriggerStatusLabel(row)).toBeNull();
+    expect(resolveProjectAgentDockTriggerStatusLabel({
+      ...row,
+      kind: "session",
+      statusLabel: "Ready",
+    })).toBeNull();
+    expect(resolveProjectAgentDockTriggerStatusLabel({
+      ...row,
+      kind: "session",
+      statusLabel: "Approval",
+      attention: "request",
+    })).toBe("Approval");
   });
 });
 

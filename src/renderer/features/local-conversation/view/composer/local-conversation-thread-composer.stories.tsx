@@ -84,7 +84,7 @@ const STORY_AGENT_PROVIDER_CATALOG: AgentProviderCatalog = {
           defaultReasoningEffort: "high",
           supportedServiceTiers: [
             { value: null, displayName: "Standard", description: "Default speed, normal usage" },
-            { value: "fast", displayName: "Fast", description: "Faster responses, higher usage" },
+            { value: "priority", displayName: "Fast", description: "Faster responses, higher usage" },
           ],
           defaultServiceTier: null,
           inputCapabilities: ["text", "image"],
@@ -105,7 +105,7 @@ const STORY_AGENT_PROVIDER_CATALOG: AgentProviderCatalog = {
           defaultReasoningEffort: "medium",
           supportedServiceTiers: [
             { value: null, displayName: "Standard", description: "Default speed, normal usage" },
-            { value: "fast", displayName: "Fast", description: "Faster responses, higher usage" },
+            { value: "priority", displayName: "Fast", description: "Faster responses, higher usage" },
           ],
           defaultServiceTier: null,
           inputCapabilities: ["text", "image"],
@@ -337,7 +337,7 @@ function buildModel(args: ComposerSendButtonStoryProps): ThreadFooterModel {
                 modelId: "gpt-5.4",
                 harnessId: null,
                 reasoningEffort: "medium",
-                serviceTier: null,
+                serviceTier: args.initialServiceTier === "fast" ? "priority" : null,
               },
           executionIdentityLocked: args.threadState !== "newChat",
         }
@@ -995,6 +995,7 @@ export const FastModelIndicator: Story = {
     composerEnterBehavior: "enter",
     draftPrompt: "",
     initialServiceTier: "fast",
+    multiProviderCatalog: true,
   },
 };
 

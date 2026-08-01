@@ -3,6 +3,7 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useRef,
 } from "react";
 import { baseKeymap } from "@tiptap/pm/commands";
@@ -704,8 +705,33 @@ interface ComposerPromptEditorProps {
   onLargeTextPaste?: (text: string) => boolean;
   onSuggestionStateChange?: (state: ComposerSuggestionState) => void;
   onSuggestionAction?: (action: ComposerSuggestionAction) => boolean;
+  onIntrinsicContentWidthChange?: (widthPx: number) => void;
   "data-composer-prompt-frame"?: "true";
   className?: string;
+}
+
+export function measureComposerPromptIntrinsicWidth(element: HTMLElement): number {
+  const hasContent = Boolean(
+    element.textContent?.length
+    || element.querySelector("[data-composer-mention='true']"),
+  );
+  if (!hasContent) return 0;
+
+  const previousStyle = element.getAttribute("style");
+  try {
+    element.style.position = "fixed";
+    element.style.visibility = "hidden";
+    element.style.width = "max-content";
+    element.style.minWidth = "0";
+    element.style.maxWidth = "none";
+    return Math.max(0, element.getBoundingClientRect().width);
+  } finally {
+    if (previousStyle === null) {
+      element.removeAttribute("style");
+    } else {
+      element.setAttribute("style", previousStyle);
+    }
+  }
 }
 
 function buildPromptEditorAttributes({
@@ -1007,6 +1033,7 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
     onLargeTextPaste,
     onSuggestionStateChange,
     onSuggestionAction,
+    onIntrinsicContentWidthChange,
     "data-composer-prompt-frame": dataComposerPromptFrame,
     className,
   }, ref) {
@@ -1018,6 +1045,9 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
     const onLargeTextPasteRef = useRef(onLargeTextPaste);
     const onSuggestionStateChangeRef = useRef(onSuggestionStateChange);
     const onSuggestionActionRef = useRef(onSuggestionAction);
+    const onIntrinsicContentWidthChangeRef = useRef(
+      onIntrinsicContentWidthChange,
+    );
     const placeholderRef = useRef(placeholder);
     const singleLineRef = useRef(singleLine);
     const disabledRef = useRef(disabled);
@@ -1027,6 +1057,7 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
     onLargeTextPasteRef.current = onLargeTextPaste;
     onSuggestionStateChangeRef.current = onSuggestionStateChange;
     onSuggestionActionRef.current = onSuggestionAction;
+    onIntrinsicContentWidthChangeRef.current = onIntrinsicContentWidthChange;
     placeholderRef.current = placeholder;
     singleLineRef.current = singleLine;
     disabledRef.current = disabled;
@@ -1036,6 +1067,14 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
         view
           ? readComposerSuggestionState(view.state)
           : inactiveComposerSuggestionState(),
+      );
+    }, []);
+
+    const reportIntrinsicContentWidth = useCallback(() => {
+      const element = viewRef.current?.dom;
+      if (!(element instanceof HTMLElement)) return;
+      onIntrinsicContentWidthChangeRef.current?.(
+        measureComposerPromptIntrinsicWidth(element),
       );
     }, []);
 
@@ -1332,7 +1371,7 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
       },
     }), [dispatchSuggestionMeta, replaceTextRange, setText]);
 
-    useEffect(() => {
+    useLayoutEffect(() => {
       const mount = mountRef.current;
       if (!mount || viewRef.current) return;
 
@@ -1356,6 +1395,7 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
 
           const nextState = currentView.state.apply(transaction);
           currentView.updateState(nextState);
+          reportIntrinsicContentWidth();
           const nextValue = readPromptDocText(nextState.doc);
 
           if (nextValue !== valueRef.current) {
@@ -1367,6 +1407,7 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
 
       viewRef.current = view;
       emitSuggestionState(view);
+      reportIntrinsicContentWidth();
 
       return () => {
         view.destroy();
@@ -1376,9 +1417,10 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
       dispatchSuggestionMeta,
       emitSuggestionState,
       handleSuggestionKeyDown,
+      reportIntrinsicContentWidth,
     ]);
 
-    useEffect(() => {
+    useLayoutEffect(() => {
       const view = viewRef.current;
       if (!view) return;
       view.setProps({
@@ -1400,7 +1442,7 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
       singleLine,
     ]);
 
-    useEffect(() => {
+    useLayoutEffect(() => {
       const view = viewRef.current;
       if (!view) return;
 
@@ -1408,11 +1450,22 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
       if (currentValue !== value) {
         view.updateState(createPromptEditorState(value, placeholderRef));
         emitSuggestionState(view);
+        reportIntrinsicContentWidth();
         return;
       }
 
       view.dispatch(view.state.tr.setMeta("prompt-placeholder", placeholder));
-    }, [emitSuggestionState, placeholder, value]);
+    }, [emitSuggestionState, placeholder, reportIntrinsicContentWidth, value]);
+
+    useEffect(() => {
+      let active = true;
+      void document.fonts?.ready.then(() => {
+        if (active) reportIntrinsicContentWidth();
+      });
+      return () => {
+        active = false;
+      };
+    }, [reportIntrinsicContentWidth]);
 
     return (
       <div

@@ -43,6 +43,13 @@ export interface AgentServiceTierOption {
   readonly description: string | null;
 }
 
+export function isFastAgentServiceTierOption(
+  option: Pick<AgentServiceTierOption, "value" | "displayName">,
+): boolean {
+  return option.value?.trim().toLocaleLowerCase() === "fast"
+    || option.displayName.trim().toLocaleLowerCase() === "fast";
+}
+
 export interface AgentModelOption {
   readonly providerId: string;
   readonly modelId: string;
