@@ -16,6 +16,7 @@ import {
   rendererViteCss,
   rendererViteResolve,
 } from "../../config/renderer-vite-shared";
+import { CoreClient } from "../../src/main/core-client/core-client";
 import { LARGE_CONTENT_FIXTURE_SIZES } from "../../src/main/performance/large-content-fixtures";
 import { LIBRARY_MODULE_CONTRACT_VERSION } from "../../src/shared/library-module";
 
@@ -158,6 +159,36 @@ async function stopApplication(application: ElectronApplication): Promise<void> 
   } finally {
     clearTimeout(closeTimer);
   }
+}
+
+async function waitForPathRemoval(filePath: string, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!fs.existsSync(filePath)) return;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`Timed out waiting for ${filePath} to be removed`);
+}
+
+async function shutdownTemporaryCore(nodexHome: string): Promise<void> {
+  const socketPath = path.join(nodexHome, "run/core/core.sock");
+  if (!fs.existsSync(socketPath)) return;
+
+  try {
+    const client = await CoreClient.connect({
+      nodexHome,
+      clientKind: "test",
+      buildId: "electron-e2e-teardown",
+      requestTimeoutMs: 5_000,
+    });
+    await client.shutdown();
+  } catch (error) {
+    await waitForPathRemoval(socketPath, 5_000).catch(() => undefined);
+    if (!fs.existsSync(socketPath)) return;
+    throw error;
+  }
+
+  await waitForPathRemoval(socketPath, 15_000);
 }
 
 async function buildLargeContentFixture(outDir: string): Promise<string> {
@@ -524,6 +555,7 @@ test("provisions and persists the initial source-backed Project across a full El
     })).toHaveCount(0);
   } finally {
     if (application) await stopApplication(application);
+    await shutdownTemporaryCore(nodexHome);
     fs.rmSync(fixtureRoot, { recursive: true, force: true });
   }
 });
@@ -695,6 +727,7 @@ test("creates and draws in an inline Canvas without taking over the Page", async
     );
   } finally {
     if (application) await stopApplication(application);
+    await shutdownTemporaryCore(nodexHome);
     fs.rmSync(fixtureRoot, { recursive: true, force: true });
   }
 });
