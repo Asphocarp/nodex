@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { dump } from "js-yaml";
+import { dump, load } from "js-yaml";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import {
   assembleReleaseBundle,
@@ -26,10 +26,14 @@ const makeArchitecture = (architecture: MacArchitecture, sourceSha = "1".repeat(
     `Nodex-${version}-${architecture}.zip.blockmap`,
   ];
   for (const name of names) writeFileSync(join(root, name), `${architecture}:${name}`);
+  const dmgName = names[0];
   const zipName = names[1];
   writeFileSync(join(root, "latest-mac.yml"), dump({
     version,
-    files: [{ url: zipName, sha512: sha512(join(root, zipName)) }],
+    files: [
+      { url: zipName, sha512: sha512(join(root, zipName)) },
+      { url: dmgName, sha512: sha512(join(root, dmgName)) },
+    ],
     path: zipName,
     sha512: sha512(join(root, zipName)),
   }));
@@ -68,6 +72,21 @@ const makeArchitecture = (architecture: MacArchitecture, sourceSha = "1".repeat(
   return root;
 };
 
+const replaceUpdateManifest = (root: string, manifestValue: unknown): void => {
+  const updatePath = join(root, "latest-mac.yml");
+  writeFileSync(updatePath, dump(manifestValue));
+  const architecturePath = join(root, "architecture-build.json");
+  const manifest = JSON.parse(readFileSync(architecturePath, "utf8")) as ArchitectureBuildManifest;
+  const artifacts = manifest.artifacts.map((artifact) => artifact.name === "latest-mac.yml"
+    ? {
+        ...artifact,
+        bytes: readFileSync(updatePath).byteLength,
+        sha256: sha256File(updatePath),
+      }
+    : artifact);
+  writeFileSync(architecturePath, `${JSON.stringify({ ...manifest, artifacts }, null, 2)}\n`);
+};
+
 beforeEach(() => { fixture = mkdtempSync(join(tmpdir(), "nodex-release-bundle-")); });
 afterEach(() => rmSync(fixture, { recursive: true, force: true }));
 
@@ -87,7 +106,13 @@ test("assembleReleaseBundle binds both architectures and publishes one canonical
     "Nodex-latest-arm64.dmg",
     "Nodex-latest-x64.dmg",
   ]);
-  expect(readFileSync(join(output, "latest-mac.yml"), "utf8")).toContain("Nodex-0.2.0-x64.zip");
+  const updateManifest = load(readFileSync(join(output, "latest-mac.yml"), "utf8")) as {
+    readonly files: readonly { readonly url: string }[];
+  };
+  expect(updateManifest.files.map(({ url }) => url)).toEqual([
+    "Nodex-0.2.0-arm64.zip",
+    "Nodex-0.2.0-x64.zip",
+  ]);
   expect(bundle.agentSkills).toEqual({
     manifestSha256: "9".repeat(64),
     treeSha256: "a".repeat(64),
@@ -137,15 +162,17 @@ test("assembleReleaseBundle rejects different Agent Skills identities", () => {
 test("assembleReleaseBundle rejects updater hashes that do not match the ZIP", () => {
   const arm64 = makeArchitecture("arm64");
   const x64 = makeArchitecture("x64");
-  writeFileSync(join(arm64, "latest-mac.yml"), dump({
+  const dmgName = "Nodex-0.2.0-arm64.dmg";
+  const zipName = "Nodex-0.2.0-arm64.zip";
+  replaceUpdateManifest(arm64, {
     version: "0.2.0",
-    files: [{ url: "Nodex-0.2.0-arm64.zip", sha512: "wrong" }],
-  }));
-  const manifest = JSON.parse(readFileSync(join(arm64, "architecture-build.json"), "utf8")) as ArchitectureBuildManifest;
-  const artifacts = manifest.artifacts.map((artifact) => artifact.name === "latest-mac.yml"
-    ? { ...artifact, bytes: readFileSync(join(arm64, artifact.name)).byteLength, sha256: sha256File(join(arm64, artifact.name)) }
-    : artifact);
-  writeFileSync(join(arm64, "architecture-build.json"), `${JSON.stringify({ ...manifest, artifacts }, null, 2)}\n`);
+    files: [
+      { url: zipName, sha512: "wrong" },
+      { url: dmgName, sha512: sha512(join(arm64, dmgName)) },
+    ],
+    path: zipName,
+    sha512: "wrong",
+  });
   expect(() => assembleReleaseBundle({
     arm64Directory: arm64,
     outputDirectory: join(fixture, "output"),
@@ -158,19 +185,18 @@ test("assembleReleaseBundle rejects updater hashes that do not match the ZIP", (
 test("assembleReleaseBundle rejects updater entries outside the published ZIP closure", () => {
   const arm64 = makeArchitecture("arm64");
   const x64 = makeArchitecture("x64");
+  const dmgName = "Nodex-0.2.0-arm64.dmg";
   const zipName = "Nodex-0.2.0-arm64.zip";
-  writeFileSync(join(arm64, "latest-mac.yml"), dump({
+  replaceUpdateManifest(arm64, {
     version: "0.2.0",
     files: [
       { url: zipName, sha512: sha512(join(arm64, zipName)) },
+      { url: dmgName, sha512: sha512(join(arm64, dmgName)) },
       { url: "unpublished.zip", sha512: "unused" },
     ],
-  }));
-  const manifest = JSON.parse(readFileSync(join(arm64, "architecture-build.json"), "utf8")) as ArchitectureBuildManifest;
-  const artifacts = manifest.artifacts.map((artifact) => artifact.name === "latest-mac.yml"
-    ? { ...artifact, bytes: readFileSync(join(arm64, artifact.name)).byteLength, sha256: sha256File(join(arm64, artifact.name)) }
-    : artifact);
-  writeFileSync(join(arm64, "architecture-build.json"), `${JSON.stringify({ ...manifest, artifacts }, null, 2)}\n`);
+    path: zipName,
+    sha512: sha512(join(arm64, zipName)),
+  });
 
   expect(() => assembleReleaseBundle({
     arm64Directory: arm64,
