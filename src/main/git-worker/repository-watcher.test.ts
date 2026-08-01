@@ -5,13 +5,13 @@ import type {
   FileWatchClosed,
   FileWatchHost,
   FileWatchSession,
-} from "./file-watch-host";
+} from "../file-watch-host";
 import {
   GIT_REVIEW_REPOSITORY_CHANGE_DELAY_MS,
   NodeGitReviewRepositoryWatcher,
   type GitReviewRepositoryChangedEvent,
   type GitReviewWatchRoots,
-} from "./git-review-repository-watcher";
+} from "./repository-watcher";
 
 const ROOT = path.join(path.sep, "repo");
 const GIT_DIR = path.join(ROOT, ".git", "worktrees", "feature");

@@ -194,6 +194,9 @@ importers:
       '@tanstack/form-core':
         specifier: 1.33.0
         version: 1.33.0
+      '@tanstack/query-core':
+        specifier: ^5.101.2
+        version: 5.101.2
       '@tanstack/react-form':
         specifier: 1.33.0
         version: 1.33.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)

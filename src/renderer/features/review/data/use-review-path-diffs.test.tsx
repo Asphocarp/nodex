@@ -11,6 +11,7 @@ import type {
   ReviewDiffResult,
 } from "../../../lib/types";
 import { __resetReviewDiffBatcherForTests } from "./review-diff-batcher";
+import type { GitWorkerQueryClient } from "./git-query";
 import { useReviewPathDiffs } from "./use-review-path-diffs";
 
 function buildSummary(path: string, revision = `revision:${path}`): GitReviewFileSummary {
@@ -77,19 +78,24 @@ function buildDiffResult(input: ReviewDiffRequest): ReviewDiffResult {
 
 function ReviewPathDiffProbe({
   snapshot,
-  invoke,
+  workerRequest,
   onStaleSnapshot,
 }: {
   snapshot: GitReviewSnapshot;
-  invoke: (channel: string, input: unknown) => Promise<unknown>;
+  workerRequest: (input: ReviewDiffRequest) => Promise<ReviewDiffResult>;
   onStaleSnapshot: () => void;
 }) {
+  const workerClient = {
+    request: async (input: { params: unknown }) =>
+      await workerRequest(input.params as ReviewDiffRequest),
+    subscribe: () => () => undefined,
+  } as GitWorkerQueryClient;
   const states = useReviewPathDiffs({
     commitSha: null,
     commonDir: "/repo/.git",
     enabled: true,
     hideWhitespace: false,
-    invoke,
+    client: workerClient,
     onStaleSnapshot,
     root: "/repo",
     snapshot,
@@ -105,9 +111,8 @@ beforeEach(() => {
 describe("useReviewPathDiffs", () => {
   test("reuses a path diff when only snapshot generation changes", async () => {
     const client = createTestQueryClient();
-    const invoke = vi.fn(async (channel: string, rawInput: unknown) => {
-      if (channel === "git:review:cancel") return { cancelled: true };
-      return buildDiffResult(rawInput as ReviewDiffRequest);
+    const workerRequest = vi.fn(async (input: ReviewDiffRequest) => {
+      return buildDiffResult(input);
     });
     const onStaleSnapshot = vi.fn();
     const summary = buildSummary("src/stable.ts");
@@ -115,7 +120,7 @@ describe("useReviewPathDiffs", () => {
       <QueryClientProvider client={client}>
         <ReviewPathDiffProbe
           snapshot={buildSnapshot(1, [summary])}
-          invoke={invoke}
+          workerRequest={workerRequest}
           onStaleSnapshot={onStaleSnapshot}
         />
       </QueryClientProvider>,
@@ -124,14 +129,14 @@ describe("useReviewPathDiffs", () => {
     await waitFor(() => {
       expect(view.container.firstElementChild?.getAttribute("data-loaded-count")).toBe("1");
     });
-    expect(invoke.mock.calls.filter(([channel]) => channel === "git:review:diff")).toHaveLength(1);
+    expect(workerRequest).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       view.rerender(
         <QueryClientProvider client={client}>
           <ReviewPathDiffProbe
             snapshot={buildSnapshot(2, [{ ...summary }])}
-            invoke={invoke}
+            workerRequest={workerRequest}
             onStaleSnapshot={onStaleSnapshot}
           />
         </QueryClientProvider>,
@@ -140,15 +145,13 @@ describe("useReviewPathDiffs", () => {
     });
 
     expect(view.container.firstElementChild?.getAttribute("data-loaded-count")).toBe("1");
-    expect(invoke.mock.calls.filter(([channel]) => channel === "git:review:diff")).toHaveLength(1);
+    expect(workerRequest).toHaveBeenCalledTimes(1);
     expect(onStaleSnapshot).not.toHaveBeenCalled();
   });
 
   test("coalesces stale recovery across sibling paths once per generation", async () => {
     const client = createTestQueryClient();
-    const invoke = vi.fn(async (channel: string, rawInput: unknown) => {
-      if (channel === "git:review:cancel") return { cancelled: true };
-      const input = rawInput as ReviewDiffRequest;
+    const workerRequest = vi.fn(async (input: ReviewDiffRequest) => {
       return {
         type: "stale-snapshot",
         source: input.source,
@@ -160,21 +163,21 @@ describe("useReviewPathDiffs", () => {
       <QueryClientProvider client={client}>
         <ReviewPathDiffProbe
           snapshot={buildSnapshot(1, firstFiles)}
-          invoke={invoke}
+          workerRequest={workerRequest}
           onStaleSnapshot={onStaleSnapshot}
         />
       </QueryClientProvider>,
     );
 
     await waitFor(() => expect(onStaleSnapshot).toHaveBeenCalledTimes(1));
-    expect(invoke.mock.calls.filter(([channel]) => channel === "git:review:diff")).toHaveLength(1);
+    expect(workerRequest).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       view.rerender(
         <QueryClientProvider client={client}>
           <ReviewPathDiffProbe
             snapshot={buildSnapshot(2, firstFiles.map((file) => ({ ...file })))}
-            invoke={invoke}
+            workerRequest={workerRequest}
             onStaleSnapshot={onStaleSnapshot}
           />
         </QueryClientProvider>,
@@ -183,14 +186,13 @@ describe("useReviewPathDiffs", () => {
     });
 
     await waitFor(() => expect(onStaleSnapshot).toHaveBeenCalledTimes(2));
-    expect(invoke.mock.calls.filter(([channel]) => channel === "git:review:diff")).toHaveLength(2);
+    expect(workerRequest).toHaveBeenCalledTimes(2);
   });
 
   test("loads stable tracked and untracked initial groups separately", async () => {
     const client = createTestQueryClient();
-    const invoke = vi.fn(async (channel: string, rawInput: unknown) => {
-      if (channel === "git:review:cancel") return { cancelled: true };
-      return buildDiffResult(rawInput as ReviewDiffRequest);
+    const workerRequest = vi.fn(async (input: ReviewDiffRequest) => {
+      return buildDiffResult(input);
     });
     const tracked = buildSummary("src/tracked.ts");
     const untracked = {
@@ -201,7 +203,7 @@ describe("useReviewPathDiffs", () => {
       <QueryClientProvider client={client}>
         <ReviewPathDiffProbe
           snapshot={buildSnapshot(1, [tracked, untracked])}
-          invoke={invoke}
+          workerRequest={workerRequest}
           onStaleSnapshot={() => {}}
         />
       </QueryClientProvider>,
@@ -211,9 +213,7 @@ describe("useReviewPathDiffs", () => {
       expect(view.container.firstElementChild?.getAttribute("data-loaded-count"))
         .toBe("2");
     });
-    const requests = invoke.mock.calls.flatMap(([channel, input]) =>
-      channel === "git:review:diff" ? [input as ReviewDiffRequest] : [],
-    );
+    const requests = workerRequest.mock.calls.map(([input]) => input);
     expect(requests).toHaveLength(2);
     expect(requests.map((request) => request.files?.map((file) => file.path)))
       .toEqual([["src/tracked.ts"], ["src/untracked.ts"]]);
@@ -222,9 +222,7 @@ describe("useReviewPathDiffs", () => {
   test("falls back only for an entry missing from the initial group", async () => {
     const client = createTestQueryClient();
     let diffRequestCount = 0;
-    const invoke = vi.fn(async (channel: string, rawInput: unknown) => {
-      if (channel === "git:review:cancel") return { cancelled: true };
-      const request = rawInput as ReviewDiffRequest;
+    const workerRequest = vi.fn(async (request: ReviewDiffRequest) => {
       diffRequestCount += 1;
       const result = buildDiffResult(request);
       if (result.type !== "success" || diffRequestCount !== 1) return result;
@@ -240,7 +238,7 @@ describe("useReviewPathDiffs", () => {
             buildSummary("src/a.ts"),
             buildSummary("src/b.ts"),
           ])}
-          invoke={invoke}
+          workerRequest={workerRequest}
           onStaleSnapshot={() => {}}
         />
       </QueryClientProvider>,
@@ -250,9 +248,7 @@ describe("useReviewPathDiffs", () => {
       expect(view.container.firstElementChild?.getAttribute("data-loaded-count"))
         .toBe("2");
     });
-    const requests = invoke.mock.calls.flatMap(([channel, input]) =>
-      channel === "git:review:diff" ? [input as ReviewDiffRequest] : [],
-    );
+    const requests = workerRequest.mock.calls.map(([input]) => input);
     expect(requests.map((request) => request.files?.map((file) => file.path)))
       .toEqual([["src/a.ts", "src/b.ts"], ["src/b.ts"]]);
   });

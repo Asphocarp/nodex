@@ -375,7 +375,109 @@ export const mockCodexControl = {
   },
 };
 
-vi.mock("@/lib/api", () => ({
+vi.mock("@/lib/api", () => {
+  const gitWorkerListeners = new Set<(message: unknown) => void>();
+  const gitWorkerClient = {
+    request: async (input: { method: string; params: Record<string, unknown> }) => {
+      invokeCalls.push([input.method, input.params]);
+      const mocked = await mockInvokeImpl?.(input.method, input.params);
+      if (mocked !== null && mocked !== undefined) return mocked;
+      const cwd = typeof input.params.cwd === "string" ? input.params.cwd : "/workspace/alpha";
+      switch (input.method) {
+        case "stable-metadata":
+          return {
+            cwd,
+            root: cwd,
+            gitDir: `${cwd}/.git`,
+            commonDir: `${cwd}/.git`,
+            isGitRepository: true,
+            currentBranch: "main",
+            defaultBranch: "main",
+            errorMessage: null,
+          };
+        case "branch-metadata":
+          return {
+            currentBranch: "main",
+            defaultBranch: "main",
+            branches: ["main"],
+          };
+        case "status-summary":
+          return {
+            type: "success",
+            cwd,
+            stagedCount: 0,
+            unstagedCount: 0,
+            untrackedCount: 0,
+          };
+        case "action-status":
+          return {
+            cwd,
+            isGitRepository: true,
+            currentBranch: "main",
+            defaultBranch: "main",
+            upstreamBranch: "origin/main",
+            remotes: ["origin"],
+            hasHeadCommit: true,
+            hasStagedChanges: false,
+            hasUnstagedChanges: false,
+            hasUntrackedFiles: false,
+            hasUncommittedChanges: false,
+            commitsAhead: 0,
+            canCommit: false,
+            canPush: false,
+            pushNeedsUpstream: false,
+            errorMessage: null,
+          };
+        case "review-summary":
+          return {
+            type: "success",
+            source: input.params.source ?? "unstaged",
+            files: [],
+            snapshotGeneration: 1,
+            stageCounts: {
+              stagedFileCount: 0,
+              unstagedFileCount: 0,
+              untrackedFileCount: 0,
+            },
+            untrackedFilesOmitted: 0,
+          };
+        case "branch-diff-stats":
+          return {
+            cwd,
+            baseRef: "main",
+            files: [],
+            fileCount: 0,
+            additions: 0,
+            deletions: 0,
+            untrackedFilesOmitted: 0,
+            isGitRepository: true,
+            currentBranch: "main",
+            defaultBranch: "main",
+            errorMessage: null,
+          };
+        case "base-branch":
+          return { cwd, local: "main", remote: "origin/main", errorMessage: null };
+        case "subscribe-live-query":
+          return { subscribed: true };
+        case "unsubscribe-live-query":
+          return { unsubscribed: true };
+        case "recover-live-query":
+          return { recovered: true };
+        case "refresh-live-query":
+          return { refreshed: true };
+        case "refresh-repository":
+          return { type: "success", generation: 1 };
+        default:
+          return null;
+      }
+    },
+    subscribe: (listener: (message: unknown) => void) => {
+      gitWorkerListeners.add(listener);
+      return () => gitWorkerListeners.delete(listener);
+    },
+  };
+  return {
+  getGitWorkerClient: () => gitWorkerClient,
   invoke: async (channel: string, ...args: unknown[]) => {
     invokeCalls.push([channel, ...args]);
     return mockInvokeImpl?.(channel, ...args) ?? null;
@@ -504,7 +606,6 @@ vi.mock("@/lib/api", () => ({
     },
   }),
   subscribeCommandKeymapChanges: () => () => undefined,
-  subscribeGitBranchChanges: () => () => undefined,
   subscribeProjectChanges: () => () => undefined,
   subscribeProjectSessionChanges: () => () => undefined,
   subscribeCodexHostMessages: (listener: (message: CodexHostMessage) => void) => {
@@ -634,7 +735,8 @@ vi.mock("@/lib/api", () => ({
       reloadRequired: false,
     },
   }),
-}));
+  };
+});
 
 vi.mock(".././main-view-host", () => ({
   MainViewHost: (props: Record<string, unknown>) => {

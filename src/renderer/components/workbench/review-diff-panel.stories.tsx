@@ -417,7 +417,7 @@ function buildControlledFixtureFiles(mode: ControlledReviewFixtureMode) {
 interface ControlledReviewTransport {
   deps: Pick<
     ReviewPanelDeps,
-    "initialSummaryQuery" | "invoke" | "subscribeGitReviewLiveQueries"
+    "gitWorkerClient" | "initialSummaryQuery" | "invoke"
   >;
   files: readonly GitReviewFileSummary[];
   publishComplete: () => void;
@@ -471,6 +471,7 @@ function createControlledReviewTransport(
             (file) => file.status === "untracked",
           ).length,
         },
+        untrackedFilesOmitted: 0,
       },
     });
     setActivity(
@@ -479,7 +480,7 @@ function createControlledReviewTransport(
   };
 
   const invoke = (async (channel: string, payload?: unknown) => {
-    if (channel === "git:review:repository-metadata") {
+    if (channel === "stable-metadata") {
       return {
         cwd,
         root: cwd,
@@ -491,7 +492,7 @@ function createControlledReviewTransport(
         errorMessage: null,
       };
     }
-    if (channel === "git:review:summary") {
+    if (channel === "review-summary") {
       return {
         type: "success",
         source,
@@ -508,7 +509,7 @@ function createControlledReviewTransport(
         },
       };
     }
-    if (channel === "git:live-query:subscribe") {
+    if (channel === "subscribe-live-query") {
       const subscription = payload as GitReviewLiveSubscriptionInput | undefined;
       if (!subscription) return undefined;
       const { query, subscriptionId } = subscription;
@@ -555,12 +556,12 @@ function createControlledReviewTransport(
       return undefined;
     }
     if (
-      channel === "git:live-query:unsubscribe" ||
-      channel === "git:review:cancel"
+      channel === "unsubscribe-live-query" ||
+      channel === "worker-request-cancel"
     ) {
-      return channel === "git:review:cancel" ? { cancelled: true } : undefined;
+      return channel === "worker-request-cancel" ? { cancelled: true } : undefined;
     }
-    if (channel === "git:live-query:refresh-repository") {
+    if (channel === "refresh-live-query") {
       if (mode !== "stale-recovery") return undefined;
       generation += 1;
       publishedFiles = [
@@ -573,7 +574,7 @@ function createControlledReviewTransport(
       queueMicrotask(() => publish("complete"));
       return undefined;
     }
-    if (channel === "git:review:diff") {
+    if (channel === "review-diff") {
       if (staleNextDiff) {
         staleNextDiff = false;
         setActivity(`Discarded stale generation ${generation} path response`);
@@ -602,7 +603,7 @@ function createControlledReviewTransport(
         snapshotGeneration: request.snapshotGeneration ?? generation,
       };
     }
-    if (channel === "git:review:cat-file") {
+    if (channel === "review-cat-file") {
       const request = payload as {
         requests?: Array<{ oid: string | null; path: string }>;
         snapshotGeneration?: number;
@@ -636,22 +637,66 @@ function createControlledReviewTransport(
       };
     }
     return null;
-  }) as ReviewPanelDeps["invoke"];
+  }) as NonNullable<ReviewPanelDeps["invoke"]>;
 
-  const subscribeGitReviewLiveQueries = ((
-    nextListener: (event: GitReviewLiveEvent) => void,
-  ) => {
-    listener = nextListener;
-    return () => {
-      if (listener === nextListener) listener = null;
-    };
-  }) as ReviewPanelDeps["subscribeGitReviewLiveQueries"];
+  const gitWorkerClient = {
+    request: async (input: { method: string; params: unknown }) => {
+      const channelByMethod: Record<string, string> = {
+        "stable-metadata": "stable-metadata",
+        "review-summary": "review-summary",
+        "review-diff": "review-diff",
+        "review-cat-file": "review-cat-file",
+        "subscribe-live-query": "subscribe-live-query",
+        "unsubscribe-live-query": "unsubscribe-live-query",
+        "refresh-live-query": "refresh-live-query",
+      };
+      if (input.method === "base-branch") {
+        return {
+          cwd,
+          local: "main",
+          remote: null,
+          errorMessage: null,
+        };
+      }
+      if (input.method === "branch-commits") {
+        return { cwd, baseBranch: "main", commits: [], errorMessage: null };
+      }
+      if (input.method === "recover-live-query") return { recovered: true };
+      const channel = channelByMethod[input.method];
+      if (!channel) throw new Error(`Unsupported story Git method: ${input.method}`);
+      const value = await invoke(channel, input.params);
+      if (input.method === "review-cat-file") {
+        return { type: "success", value };
+      }
+      if (input.method === "subscribe-live-query") return { subscribed: true };
+      if (input.method === "unsubscribe-live-query") return { unsubscribed: true };
+      if (input.method === "refresh-live-query") return { refreshed: true };
+      return value;
+    },
+    subscribe: (
+      nextListener: (message: {
+        type: "git-live-query-event";
+        workerId: "git";
+        event: GitReviewLiveEvent;
+      }) => void,
+    ) => {
+      const nextEventListener = (event: GitReviewLiveEvent) => nextListener({
+        type: "git-live-query-event",
+        workerId: "git",
+        event,
+      });
+      listener = nextEventListener;
+      return () => {
+        if (listener === nextEventListener) listener = null;
+      };
+    },
+  } as NonNullable<ReviewPanelDeps["gitWorkerClient"]>;
 
   return {
     deps: {
       initialSummaryQuery: mode !== "live-publication",
       invoke,
-      subscribeGitReviewLiveQueries,
+      gitWorkerClient,
     },
     files: fixtureFiles,
     publishComplete() {

@@ -11,6 +11,7 @@ import {
   ensureFreshDatabaseViewBoard,
 } from "@/lib/kanban-store";
 import {
+  getGitWorkerClient,
   invoke,
 } from "@/lib/api";
 import {
@@ -362,11 +363,10 @@ export function useWorkbenchSidebarController({
     const cwd = session.thread?.cwd?.trim();
     if (!cwd) return false;
     try {
-      const state = await invoke("git:branch:state", cwd) as {
-        currentBranch?: string | null;
-        defaultBranch?: string | null;
-        branches?: string[];
-      };
+      const state = await getGitWorkerClient().request({
+        method: "branch-metadata",
+        params: { cwd },
+      });
       return Boolean(
         state.currentBranch
         || state.defaultBranch

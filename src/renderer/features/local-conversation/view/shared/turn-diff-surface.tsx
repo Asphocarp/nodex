@@ -33,7 +33,8 @@ import {
   getNodexDiffHostStyle,
   getNodexDiffOptions,
 } from "../../../../lib/diff-presentation";
-import { resolveInvokeTransport } from "../../../../lib/renderer-transport";
+import { getGitWorkerClient } from "../../../../lib/api";
+import type { GitWorkerQueryClient } from "@/features/review/data/git-query";
 import { useTheme } from "../../../../lib/use-theme";
 import type {
   CodexTranscriptEntry,
@@ -488,6 +489,7 @@ export function TurnDiffSurface({
   onOpenFileInSidePanel,
   disableHoverPreview = false,
   deferOffscreenRendering = false,
+  gitWorkerClient = getGitWorkerClient(),
 }: {
   item: CodexTranscriptEntry;
   isInProgress: boolean;
@@ -498,6 +500,7 @@ export function TurnDiffSurface({
   onOpenFileInSidePanel?: (target: TurnDiffFileSidePanelTarget) => void | Promise<void>;
   disableHoverPreview?: boolean;
   deferOffscreenRendering?: boolean;
+  gitWorkerClient?: Pick<GitWorkerQueryClient, "request">;
 }) {
   const payload = extractTurnDiffPayload(item);
   const model = useMemo(
@@ -533,7 +536,6 @@ export function TurnDiffSurface({
   const [patchActionInFlight, setPatchActionInFlight] = useState(false);
   const [failure, setFailure] = useState<TurnDiffPatchFailure | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
-  const patchTransport = useMemo(() => resolveInvokeTransport(), []);
 
   useEffect(() => {
     setExpanded(false);
@@ -577,13 +579,16 @@ export function TurnDiffSurface({
     setPatchActionInFlight(true);
     try {
       for (const batch of orderedBatches) {
-        const result = await patchTransport.invoke("git:apply-patch", {
-          cwd: batch.cwd,
-          diff: batch.diff,
-          target: "unstaged",
-          revert: nextPatchAction === "undo",
-          operationSource: "thread_diff",
-        }) as GitApplyPatchResult;
+        const result = await gitWorkerClient.request({
+          method: "apply-patch",
+          params: {
+            cwd: batch.cwd,
+            diff: batch.diff,
+            target: "unstaged",
+            revert: nextPatchAction === "undo",
+            operationSource: "thread_diff",
+          },
+        });
 
         if (result.status !== "success") {
           setFailure({ action: nextPatchAction, result });

@@ -12,7 +12,7 @@ import {
   parseBranchSelectorState,
   type BranchSelectorState,
 } from "@/features/local-conversation/view/shared/branch-selector-state";
-import { invoke } from "@/lib/api";
+import { getGitWorkerClient, invoke } from "@/lib/api";
 import { formatPageStageCollapsedPropertyCountLabel } from "@/lib/page-stage-collapsed-properties";
 import {
   readPageStageContentWidthPreference,
@@ -996,7 +996,10 @@ export function usePageStageController(
 
     setRunInBranchBusy(true);
     try {
-      const result = await invoke("git:branch:state", requestedCwd);
+      const result = await getGitWorkerClient().request({
+        method: "branch-metadata",
+        params: { cwd: requestedCwd },
+      });
       const parsed = parseBranchSelectorState(result);
       setRunInBranchState(parsed);
       return parsed;

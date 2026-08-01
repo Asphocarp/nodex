@@ -11,6 +11,14 @@ import type {
 } from "../../shared/projection-stream";
 
 export interface RendererTransport {
+  sendGitWorkerMessage: (
+    message: import("../../shared/git-worker-protocol").GitWorkerMessageFromView,
+  ) => Promise<void>;
+  subscribeGitWorkerMessages: (
+    callback: (
+      message: import("../../shared/git-worker-protocol").GitWorkerMessageForView,
+    ) => void,
+  ) => () => void;
   readPageLifecyclePreflight: (
     projectId: string,
     pageId: string,
@@ -160,17 +168,9 @@ export interface RendererTransport {
       },
     ) => void,
   ) => () => void;
-  subscribeGitBranchChanges: (
-    callback: (event: { cwd: string }) => void,
-  ) => () => void;
   subscribeWorkspaceFileChanges: (
     callback: (
       event: import("../../shared/types").WorkspaceFileChangedEvent,
-    ) => void,
-  ) => () => void;
-  subscribeGitReviewLiveQueries: (
-    callback: (
-      event: import("../../shared/types").GitReviewLiveEvent,
     ) => void,
   ) => () => void;
   subscribeAppUpdateStatus: (

@@ -3432,8 +3432,10 @@ export interface BranchDiffStatsResult {
   cwd: string;
   baseRef: string | null;
   files: GitReviewFileSummary[];
+  fileCount: number;
   additions: number;
   deletions: number;
+  untrackedFilesOmitted: number;
   isGitRepository: boolean;
   currentBranch: string | null;
   defaultBranch: string | null;
@@ -3464,6 +3466,7 @@ export type GitReviewSummaryResult =
       files: GitReviewFileSummary[];
       snapshotGeneration: number;
       stageCounts: GitReviewStageCounts;
+      untrackedFilesOmitted: number;
     }
   | {
       type: "error";
@@ -3499,7 +3502,30 @@ export interface GitReviewBaseBranchResult {
   errorMessage: string | null;
 }
 
+export interface GitBranchMetadataRequest {
+  cwd: string;
+}
+
+export interface GitBranchMutationInput {
+  cwd: string;
+  branch: string;
+}
+
+export interface GitBranchMetadataResult {
+  currentBranch: string | null;
+  defaultBranch: string | null;
+  branches: string[];
+}
+
 export type GitReviewLiveQuery =
+  | {
+      method: "stable-metadata";
+      params: GitReviewRepositoryMetadataRequest;
+    }
+  | {
+      method: "status-summary";
+      params: import("./git-review").GitStatusSummaryRequest;
+    }
   | {
       method: "review-summary";
       params: GitReviewSummaryRequest;
@@ -3515,6 +3541,10 @@ export type GitReviewLiveQuery =
   | {
       method: "base-branch";
       params: GitReviewBaseBranchRequest;
+    }
+  | {
+      method: "branch-metadata";
+      params: GitBranchMetadataRequest;
     };
 
 export type GitReviewLiveQueryMethod = GitReviewLiveQuery["method"];
@@ -3530,6 +3560,14 @@ export interface GitReviewLiveSubscriptionStopInput {
 
 export type GitReviewLiveQueryResult =
   | {
+      method: "stable-metadata";
+      result: GitReviewRepositoryMetadataResult;
+    }
+  | {
+      method: "status-summary";
+      result: import("./git-review").GitStatusSummaryResult;
+    }
+  | {
       method: "review-summary";
       result: GitReviewSummaryResult;
     }
@@ -3544,6 +3582,10 @@ export type GitReviewLiveQueryResult =
   | {
       method: "base-branch";
       result: GitReviewBaseBranchResult;
+    }
+  | {
+      method: "branch-metadata";
+      result: GitBranchMetadataResult;
     };
 
 export type GitReviewLiveEvent =

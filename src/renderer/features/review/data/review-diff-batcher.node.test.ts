@@ -4,7 +4,22 @@ import type { ReviewDiffRequest, ReviewDiffResult } from "@/lib/types";
 import {
   __resetReviewDiffBatcherForTests,
   requestReviewDiffPath,
+  StaleReviewSnapshot,
 } from "./review-diff-batcher";
+import type { GitWorkerQueryClient } from "./git-query";
+
+function createWorkerClient(
+  request: (input: ReviewDiffRequest) => Promise<ReviewDiffResult>,
+  onAbort: () => void = () => undefined,
+): GitWorkerQueryClient {
+  return {
+    request: async (input) => {
+      input.signal?.addEventListener("abort", onAbort, { once: true });
+      return await request(input.params as ReviewDiffRequest) as never;
+    },
+    subscribe: () => () => undefined,
+  };
+}
 
 beforeEach(() => {
   __resetReviewDiffBatcherForTests();
@@ -16,9 +31,7 @@ afterEach(() => {
 
 describe("review diff batcher", () => {
   test("double-microtask coalesces paths into separate tracked and untracked requests", async () => {
-    const invoke = vi.fn(async (channel: string, rawInput: unknown) => {
-      if (channel !== "git:review:diff") return { cancelled: false };
-      const input = rawInput as ReviewDiffRequest;
+    const workerRequest = vi.fn(async (input: ReviewDiffRequest) => {
       const result: ReviewDiffResult = {
         type: "success",
         cwd: input.cwd,
@@ -69,7 +82,7 @@ describe("review diff batcher", () => {
         untracked: false,
         status: "modified",
         revision: "tracked-a",
-        invoke,
+        client: createWorkerClient(workerRequest),
       }),
       requestReviewDiffPath({
         bucketKey: "snapshot-3",
@@ -79,7 +92,7 @@ describe("review diff batcher", () => {
         untracked: false,
         status: "modified",
         revision: "tracked-b",
-        invoke,
+        client: createWorkerClient(workerRequest),
       }),
       requestReviewDiffPath({
         bucketKey: "snapshot-3",
@@ -89,16 +102,14 @@ describe("review diff batcher", () => {
         untracked: true,
         status: "untracked",
         revision: "untracked",
-        invoke,
+        client: createWorkerClient(workerRequest),
       }),
     ]);
 
-    const diffCalls = invoke.mock.calls.filter(
-      ([channel]) => channel === "git:review:diff",
-    );
+    const diffCalls = workerRequest.mock.calls;
     expect(diffCalls).toHaveLength(2);
     expect(
-      diffCalls.map(([, input]) => (input as ReviewDiffRequest).files),
+      diffCalls.map(([input]) => input.files),
     ).toEqual([
       [
         {
@@ -132,9 +143,7 @@ describe("review diff batcher", () => {
 
   test("rejects only an aborted path and cancels main when the whole group is empty", async () => {
     let resolveDiff!: (result: ReviewDiffResult) => void;
-    const invoke = vi.fn(async (channel: string, rawInput: unknown) => {
-      if (channel === "git:review:cancel") return { cancelled: true };
-      const input = rawInput as ReviewDiffRequest;
+    const workerRequest = vi.fn(async (input: ReviewDiffRequest) => {
       return new Promise<ReviewDiffResult>((resolve) => {
         resolveDiff = resolve;
       }).then((result) => ({ ...result, source: input.source }));
@@ -146,6 +155,10 @@ describe("review diff batcher", () => {
       source: "unstaged" as const,
       snapshotGeneration: 3,
     };
+    let workerAborts = 0;
+    const workerClient = createWorkerClient(workerRequest, () => {
+      workerAborts += 1;
+    });
     const first = requestReviewDiffPath({
       bucketKey: "snapshot-3",
       request,
@@ -155,7 +168,7 @@ describe("review diff batcher", () => {
       status: "modified",
       revision: "first",
       signal: firstController.signal,
-      invoke,
+      client: workerClient,
     });
     const second = requestReviewDiffPath({
       bucketKey: "snapshot-3",
@@ -166,7 +179,7 @@ describe("review diff batcher", () => {
       status: "modified",
       revision: "second",
       signal: secondController.signal,
-      invoke,
+      client: workerClient,
     });
     await Promise.resolve();
     await Promise.resolve();
@@ -174,15 +187,11 @@ describe("review diff batcher", () => {
 
     firstController.abort();
     await expect(first).rejects.toMatchObject({ name: "AbortError" });
-    expect(
-      invoke.mock.calls.filter(([channel]) => channel === "git:review:cancel"),
-    ).toHaveLength(0);
+    expect(workerAborts).toBe(0);
 
     secondController.abort();
     await expect(second).rejects.toMatchObject({ name: "AbortError" });
-    expect(
-      invoke.mock.calls.filter(([channel]) => channel === "git:review:cancel"),
-    ).toHaveLength(1);
+    expect(workerAborts).toBe(1);
 
     resolveDiff({
       type: "success",
@@ -200,9 +209,8 @@ describe("review diff batcher", () => {
   });
 
   test("does not retry stale snapshot failures", async () => {
-    const invoke = vi.fn(async (channel: string) => {
-      if (channel === "git:review:cancel") return { cancelled: true };
-      throw new Error("Git review snapshot changed (2 -> 3).");
+    const workerRequest = vi.fn(async () => {
+      return { type: "stale-snapshot" as const, source: "unstaged" as const };
     });
 
     await expect(
@@ -218,23 +226,21 @@ describe("review diff batcher", () => {
         untracked: false,
         status: "modified",
         revision: "stale",
-        invoke,
+        client: createWorkerClient(workerRequest),
       }),
-    ).rejects.toThrow("snapshot changed");
+    ).rejects.toBeInstanceOf(StaleReviewSnapshot);
 
     expect(
-      invoke.mock.calls.filter(([channel]) => channel === "git:review:diff"),
+      workerRequest.mock.calls,
     ).toHaveLength(1);
   });
 
   test("cancels the main request when a group reaches the fifteen second timeout", async () => {
     vi.useFakeTimers();
-    const invoke = vi.fn((channel: string) => {
-      if (channel === "git:review:cancel") {
-        return Promise.resolve({ cancelled: true });
-      }
+    const workerRequest = vi.fn(() => {
       return new Promise<never>(() => {});
     });
+    let workerAborts = 0;
     const result = requestReviewDiffPath({
       bucketKey: "snapshot-timeout",
       request: {
@@ -247,7 +253,9 @@ describe("review diff batcher", () => {
       untracked: false,
       status: "modified",
       revision: "slow",
-      invoke,
+      client: createWorkerClient(workerRequest, () => {
+        workerAborts += 1;
+      }),
     });
     const rejection = expect(result).rejects.toThrow("timed out");
     await Promise.resolve();
@@ -255,11 +263,9 @@ describe("review diff batcher", () => {
     await vi.advanceTimersByTimeAsync(15_000);
 
     await rejection;
+    expect(workerAborts).toBe(1);
     expect(
-      invoke.mock.calls.filter(([channel]) => channel === "git:review:cancel"),
-    ).toHaveLength(1);
-    expect(
-      invoke.mock.calls.filter(([channel]) => channel === "git:review:diff"),
+      workerRequest.mock.calls,
     ).toHaveLength(1);
   });
 });

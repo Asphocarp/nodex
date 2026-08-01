@@ -63,6 +63,20 @@ export function createElectronRendererTransport(
   bridge: ElectronRendererBridge,
 ) {
   return {
+    sendGitWorkerMessage(
+      message: import("../../shared/git-worker-protocol").GitWorkerMessageFromView,
+    ) {
+      const send = bridge.sendGitWorkerMessage;
+      if (!send) return Promise.reject(new Error("Git worker bridge is unavailable"));
+      return send(message);
+    },
+    subscribeGitWorkerMessages(
+      callback: (
+        message: import("../../shared/git-worker-protocol").GitWorkerMessageForView,
+      ) => void,
+    ) {
+      return bridge.onGitWorkerMessage?.(callback) ?? (() => {});
+    },
     readPageLifecyclePreflight(projectId: string, pageId: string) {
       return bridge.invoke(
         "pages:lifecycle:preflight",
@@ -359,13 +373,6 @@ export function createElectronRendererTransport(
         });
       });
     },
-    subscribeGitBranchChanges(callback: (event: { cwd: string }) => void) {
-      return bridge.on("git:branch:changed", (...args: unknown[]) => {
-        const payload = args[0] as { cwd?: string } | undefined;
-        if (!payload || typeof payload.cwd !== "string") return;
-        callback({ cwd: payload.cwd });
-      });
-    },
     subscribeWorkspaceFileChanges(
       callback: (
         event: import("../../shared/types").WorkspaceFileChangedEvent,
@@ -382,19 +389,6 @@ export function createElectronRendererTransport(
         ) {
           return;
         }
-        callback(payload);
-      });
-    },
-    subscribeGitReviewLiveQueries(
-      callback: (
-        event: import("../../shared/types").GitReviewLiveEvent,
-      ) => void,
-    ) {
-      return bridge.on("git:live-query:event", (...args: unknown[]) => {
-        const payload = args[0] as
-          | import("../../shared/types").GitReviewLiveEvent
-          | undefined;
-        if (!payload || typeof payload.subscriptionId !== "string") return;
         callback(payload);
       });
     },

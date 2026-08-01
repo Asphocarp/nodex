@@ -1,10 +1,10 @@
 import type {
   GitCatFileResult,
-  GitReviewCatFileInput,
-  GitReviewCatFileOutput,
   GitReviewCatFileRequest,
 } from "@/lib/types";
 import { recordReviewRuntimeEvent } from "@/features/review/testing/review-runtime-probe";
+import type { GitWorkerQueryClient } from "./git-query";
+import { StaleReviewSnapshot } from "./review-diff-batcher";
 
 interface ReviewCatFileWaiter {
   requests: GitReviewCatFileRequest[];
@@ -15,10 +15,7 @@ interface ReviewCatFileWaiter {
 interface ReviewCatFileBucket {
   cwd: string;
   snapshotGeneration: number;
-  invoke: (
-    channel: "git:review:cat-file",
-    input: GitReviewCatFileInput,
-  ) => Promise<GitReviewCatFileOutput>;
+  client: GitWorkerQueryClient;
   waiters: ReviewCatFileWaiter[];
   timer: ReturnType<typeof setTimeout>;
 }
@@ -60,13 +57,18 @@ async function flushBucket(key: string, bucket: ReviewCatFileBucket) {
       objectCount: requests.length,
     });
     try {
-      const output = await bucket.invoke("git:review:cat-file", {
-        cwd: bucket.cwd,
-        snapshotGeneration: bucket.snapshotGeneration,
-        requests,
+      const result = await bucket.client.request({
+        method: "review-cat-file",
+        params: {
+          cwd: bucket.cwd,
+          snapshotGeneration: bucket.snapshotGeneration,
+          requests,
+        },
       });
+      if (result.type === "stale-snapshot") throw new StaleReviewSnapshot();
+      const output = result.value;
       if (output.snapshotGeneration !== bucket.snapshotGeneration) {
-        throw new Error("Git review snapshot changed during full-content load.");
+        throw new StaleReviewSnapshot();
       }
       let resultOffset = 0;
       for (const waiter of waiters) {
@@ -88,7 +90,7 @@ export function requestReviewCatFile(input: {
   cwd: string;
   snapshotGeneration: number;
   requests: GitReviewCatFileRequest[];
-  invoke: ReviewCatFileBucket["invoke"];
+  client: GitWorkerQueryClient;
 }): Promise<GitCatFileResult[]> {
   return new Promise((resolve, reject) => {
     const key = JSON.stringify([
@@ -106,7 +108,7 @@ export function requestReviewCatFile(input: {
     const bucket: ReviewCatFileBucket = {
       cwd: input.cwd,
       snapshotGeneration: input.snapshotGeneration,
-      invoke: input.invoke,
+      client: input.client,
       waiters: [waiter],
       timer: setTimeout(() => {
         void flushBucket(key, bucket);

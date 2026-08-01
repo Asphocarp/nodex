@@ -1,15 +1,11 @@
-import { execFile } from "node:child_process";
-import { realpath } from "node:fs/promises";
 import path from "node:path";
-import type { FileWatchHost, FileWatchSession } from "./file-watch-host";
-import { getLogger } from "./logging/logger";
+import type { FileWatchHost, FileWatchSession } from "../file-watch-host";
+import { getLogger } from "../logging/logger";
 
 export const GIT_REVIEW_REPOSITORY_CHANGE_DELAY_MS = 1_000;
 export const GIT_REVIEW_WATCH_RETRY_MS = 1_000;
 export const GIT_REVIEW_MAX_WORKING_TREE_PATHS = 64;
 
-const GIT_COMMAND_TIMEOUT_MS = 8_000;
-const SYNCED_BRANCH_FILE_NAME = "codex-synced-branch.json";
 const WORKTREE_TOPOLOGY_FILES = new Set([
   "HEAD",
   "commondir",
@@ -69,85 +65,6 @@ interface WatchTarget {
   retryTimer: ReturnType<typeof setTimeout> | null;
   session: FileWatchSession | null;
   sessionStartPromise: Promise<void> | null;
-}
-
-function execGitLine(cwd: string, args: readonly string[]): Promise<string | null> {
-  return new Promise((resolve) => {
-    execFile(
-      "git",
-      [...args],
-      {
-        cwd,
-        encoding: "utf8",
-        timeout: GIT_COMMAND_TIMEOUT_MS,
-        windowsHide: true,
-      },
-      (error, stdout) => {
-        if (error || typeof stdout !== "string") {
-          resolve(null);
-          return;
-        }
-        resolve(stdout.trim() || null);
-      },
-    );
-  });
-}
-
-function resolveGitOutputPath(root: string, output: string): string {
-  return path.isAbsolute(output) ? output : path.resolve(root, output);
-}
-
-async function resolveGitPath(
-  root: string,
-  gitDir: string,
-  name: string,
-): Promise<string | null> {
-  const output = await execGitLine(root, ["rev-parse", "--git-path", name]);
-  if (!output) return null;
-  if (path.isAbsolute(output)) return output;
-  if (/^\.git[\\/]/.test(output)) return path.join(root, output);
-  return path.join(gitDir, output);
-}
-
-export async function resolveGitReviewWatchRoots(
-  cwd: string,
-): Promise<GitReviewWatchRoots | null> {
-  const rootOutput = await execGitLine(cwd, ["rev-parse", "--show-toplevel"]);
-  if (!rootOutput) return null;
-  const root = await realpath(resolveGitOutputPath(cwd, rootOutput)).catch(
-    () => null,
-  );
-  if (!root) return null;
-  const [gitDirOutput, commonDirOutput] = await Promise.all([
-    execGitLine(root, ["rev-parse", "--git-dir"]),
-    execGitLine(root, ["rev-parse", "--git-common-dir"]),
-  ]);
-  if (!gitDirOutput || !commonDirOutput) return null;
-
-  const resolvedGitDir = path.isAbsolute(gitDirOutput)
-    ? gitDirOutput
-    : path.join(root, gitDirOutput);
-  const resolvedCommonDir = resolveGitOutputPath(root, commonDirOutput);
-  const [gitDir, commonDir] = await Promise.all([
-    realpath(resolvedGitDir).catch(() => null),
-    realpath(resolvedCommonDir).catch(() => null),
-  ]);
-  if (!gitDir || !commonDir) return null;
-  const [headPath, indexPath, syncedBranchPath] = await Promise.all([
-    resolveGitPath(root, gitDir, "HEAD"),
-    resolveGitPath(root, gitDir, "index"),
-    resolveGitPath(root, gitDir, SYNCED_BRANCH_FILE_NAME),
-  ]);
-  if (!headPath || !indexPath || !syncedBranchPath) return null;
-
-  return {
-    root,
-    gitDir,
-    commonDir,
-    headPath,
-    indexPath,
-    syncedBranchPath,
-  };
 }
 
 function isPathInside(directory: string, candidate: string): boolean {

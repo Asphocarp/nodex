@@ -35,7 +35,6 @@ import type {
   WorkspaceFileSearchResult,
   WorkspaceFileTextReadInput,
 } from "./types";
-import type { GitBranchState } from "../../shared/ipc-api";
 import type { GitRepositoryIdentity } from "../../shared/git-repository-identity";
 import type { LocalPathPresentationContext } from "../../shared/local-path-presentation";
 import type { CommandKeymapState } from "../../shared/command-keybindings";
@@ -249,14 +248,6 @@ export function codexHooksListQueryOptions(input: CodexHooksListInput) {
     enabled: hostId.trim().length > 0 && cwds.length > 0,
     refetchOnWindowFocus: true,
     staleTime: 5 * 60_000,
-  });
-}
-
-export function gitBranchStateQueryOptions(cwd: string) {
-  return queryOptions({
-    queryKey: queryKeys.git.branchState(cwd),
-    queryFn: () => invoke("git:branch:state", cwd) as Promise<GitBranchState>,
-    enabled: cwd.trim().length > 0,
   });
 }
 

@@ -34,7 +34,7 @@ import {
 import { NodexHoverCard } from "@/components/ui/hover-card";
 import { NodexTooltip } from "@/components/ui/tooltip";
 import { toast } from "@/components/ui/toast";
-import { invoke } from "@/lib/api";
+import { getGitWorkerClient, invoke } from "@/lib/api";
 import { CODEX_SIDEBAR_PROJECT_FOLDER_TRANSITION } from "@/lib/codex-panel-motion";
 import { formatElapsedSince } from "@/lib/elapsed-time";
 import { appScope, useScopeHandle } from "@/lib/maitai";
@@ -771,7 +771,10 @@ export function CodexProjectRow({
 
     let disposed = false;
     setCanCreateStableWorktree(false);
-    void invoke("git:branch:state", primaryWorkspaceRoot)
+    void getGitWorkerClient().request({
+      method: "branch-metadata",
+      params: { cwd: primaryWorkspaceRoot },
+    })
       .then((state) => {
         if (disposed) return;
         setCanCreateStableWorktree(Boolean(
@@ -1190,7 +1193,10 @@ export function CodexSidebarThreadRow({
     if (!resolvedHoverCardOpen || !normalizedHoverCardCwd) return;
 
     let cancelled = false;
-    void invoke("git:branch:state", normalizedHoverCardCwd)
+    void getGitWorkerClient().request({
+      method: "branch-metadata",
+      params: { cwd: normalizedHoverCardCwd },
+    })
       .then((state) => {
         if (cancelled) return;
         const branch = typeof (state as { currentBranch?: unknown }).currentBranch === "string"

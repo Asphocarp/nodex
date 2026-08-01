@@ -156,17 +156,13 @@ import {
 import { useFileLinkOpener } from "@/lib/use-file-link-opener";
 import type {
   CodexTurnDiffPatchBatch,
-  GitReviewBaseBranchResult,
   GitReviewBranchCommit,
-  GitReviewBranchCommitsResult,
   GitCatFileResult,
   GitReviewFileSummary,
   GitReviewFileStatus,
   GitReviewPatchResult,
-  GitReviewRepositoryMetadataResult,
   GitReviewSnapshot,
   GitReviewSource,
-  GitReviewSearchResult,
   ReviewDiffEntry,
   ReviewDiffLoadStatus,
   ReviewFileSafety,
@@ -220,6 +216,13 @@ import {
   type ReviewFullFileContents,
 } from "@/features/review/data/review-full-content-store";
 import { requestReviewCatFile } from "@/features/review/data/review-cat-file-batcher";
+import { getGitWorkerClient } from "@/lib/api";
+import {
+  createGitLiveWorkerQuery,
+  getGitLiveQueryCoordinator,
+  type GitQueryRepositoryIdentity,
+  type GitWorkerQueryClient,
+} from "@/features/review/data/git-query";
 import {
   useReviewPathDiffs,
   type ReviewPathDiffState,
@@ -228,7 +231,6 @@ import {
   parsePatchFiles as defaultParsePatchFiles,
   FileDiff as defaultFileDiff,
   invoke as defaultInvoke,
-  subscribeGitReviewLiveQueries as defaultSubscribeGitReviewLiveQueries,
   useTheme as defaultUseTheme,
   Virtualizer as ReviewDiffVirtualizer,
 } from "./review-diff-panel-deps";
@@ -243,7 +245,7 @@ import {
 
 type TranscriptReviewSource = "selected-turn" | "last-turn";
 type GitReviewLoadStatus =
-  "idle" | "loading" | "loaded" | "load-failed" | "timed-out";
+  "idle" | "loading" | "loaded" | "load-failed";
 
 interface ReviewDiffPanelProps {
   conversationProjection: ReviewConversationProjection;
@@ -263,7 +265,7 @@ interface ReviewDiffPanelDeps {
   invoke: typeof defaultInvoke;
   useTheme: typeof defaultUseTheme;
   FileDiff: typeof defaultFileDiff;
-  subscribeGitReviewLiveQueries: typeof defaultSubscribeGitReviewLiveQueries;
+  gitWorkerClient?: GitWorkerQueryClient;
   initialSummaryQuery?: boolean;
 }
 
@@ -376,7 +378,6 @@ const DEFAULT_REVIEW_DIFF_PANEL_DEPS: ReviewDiffPanelDeps = {
   invoke: defaultInvoke,
   useTheme: defaultUseTheme,
   FileDiff: defaultFileDiff,
-  subscribeGitReviewLiveQueries: defaultSubscribeGitReviewLiveQueries,
 };
 
 const REVIEW_RENDERABLE_FILE_SAFETY = buildReviewFileSafety();
@@ -434,13 +435,6 @@ function buildReviewContentSearchMatches(input: {
       pathMatches: matchesByPath.get(location.path) ?? [],
     } satisfies ReviewSearchMatchMeta,
   }));
-}
-
-let reviewRequestSequence = 0;
-
-function nextGitReviewRequestId(prefix: string): string {
-  reviewRequestSequence += 1;
-  return `${prefix}:${reviewRequestSequence}`;
 }
 
 function nextReviewAnimationFrame(signal?: AbortSignal): Promise<void> {
@@ -1538,44 +1532,6 @@ function isReviewDiffEntryLike(
     typeof candidate.diff === "string" &&
     typeof candidate.loadStatus === "string"
   );
-}
-
-function mergeGitSnapshotWithSummary(input: {
-  baseRef: string | null;
-  current: GitReviewSnapshot | null | undefined;
-  cwd: string;
-  source: GitReviewSource;
-  files: GitReviewFileSummary[];
-  snapshotGeneration: number;
-}): GitReviewSnapshot {
-  const reusableByPath = new Map(
-    (input.current?.files ?? []).map((file) => [file.path, file]),
-  );
-  const files = input.files.map((file) => {
-    const reusable = reusableByPath.get(file.path);
-    if (
-      !reusable ||
-      reusable.revision !== file.revision ||
-      reusable.previousPath !== file.previousPath ||
-      reusable.status !== file.status ||
-      reusable.generated !== file.generated
-    ) {
-      return file;
-    }
-    return reusable;
-  });
-  return {
-    cwd: input.cwd,
-    source: input.source,
-    patch: input.current?.patch ?? "",
-    files,
-    isGitRepository: input.current?.isGitRepository ?? true,
-    baseRef: input.baseRef,
-    currentBranch: input.current?.currentBranch ?? null,
-    defaultBranch: input.current?.defaultBranch ?? null,
-    errorMessage: null,
-    snapshotGeneration: input.snapshotGeneration,
-  };
 }
 
 interface GitReviewFilePathDiffCacheRecord {
@@ -3247,7 +3203,8 @@ export function ReviewDiffPanel({
     }),
     [deps],
   );
-  const { invoke, parsePatchFiles, subscribeGitReviewLiveQueries } = resolvedDeps;
+  const { invoke, parsePatchFiles } = resolvedDeps;
+  const gitWorkerClient = resolvedDeps.gitWorkerClient ?? getGitWorkerClient();
   const reviewConversation = conversationProjection;
   const { opener } = useFileLinkOpener();
   const reviewContentRootRef = useRef<HTMLDivElement | null>(null);
@@ -3360,9 +3317,6 @@ export function ReviewDiffPanel({
     null,
   );
   const [branchCommitsRequested, setBranchCommitsRequested] = useState(false);
-  const [branchCommitsError, setBranchCommitsError] = useState<string | null>(
-    null,
-  );
   const diffExpansionOverrides = useMemo(
     () =>
       new Map(
@@ -3373,9 +3327,6 @@ export function ReviewDiffPanel({
       ),
     [routeState.diffExpansionOverrides],
   );
-  const gitLiveGenerationsRef = useRef(new Map<string, number>());
-  const gitSummaryRequestSequenceRef = useRef(0);
-  const reviewSearchRequestSequenceRef = useRef(0);
   const rowRefs = useRef<Map<string, HTMLElement>>(new Map());
   const navigationRevealControllerRef = useRef<AbortController | null>(null);
   const reviewCommentsByPathCacheRef = useRef<{
@@ -3387,6 +3338,10 @@ export function ReviewDiffPanel({
     ReadonlyMap<string, CodexReviewDiffCommentAttachment[]>
   >(new Map());
   const queryClient = useQueryClient();
+  const gitLiveQueryCoordinator = useMemo(
+    () => getGitLiveQueryCoordinator(queryClient, gitWorkerClient),
+    [gitWorkerClient, queryClient],
+  );
   const reviewThreadId = reviewConversation.threadId ?? threadId ?? null;
   const pendingReviewCommentAttachments =
     useReviewDiffCommentAttachments(reviewThreadId);
@@ -3484,142 +3439,53 @@ export function ReviewDiffPanel({
     source,
   ]);
 
-  const loadGitSnapshot = useCallback(async (
-    nextSource: GitReviewSource,
-    nextCwd: string,
-    nextBaseBranch: string | null,
-    signal?: AbortSignal,
-  ): Promise<GitReviewSnapshot> => {
-    const requestId = `review:${nextCwd}:${nextSource}:${commitSha ?? ""}:${
-      hideWhitespace ? "ignore-whitespace" : "keep-whitespace"
-    }:${++gitSummaryRequestSequenceRef.current}`;
-    const abort = () => {
-      void invoke("git:review:cancel", { requestId });
-    };
-    signal?.addEventListener("abort", abort, { once: true });
-    if (signal?.aborted) {
-      abort();
-      throw new DOMException("Git review summary aborted", "AbortError");
-    }
-    const result = await invoke("git:review:summary", {
-        cwd: nextCwd,
-        source: nextSource,
-        baseBranch: nextSource === "branch" ? nextBaseBranch : null,
-        commitSha: nextSource === "commit" ? commitSha : null,
-        hideWhitespace,
-        requestId,
-      }).finally(() => signal?.removeEventListener("abort", abort));
-    if (result.type === "error") {
-      return {
-        cwd: nextCwd,
-        source: nextSource,
-        patch: "",
-        files: [],
-        isGitRepository: true,
-        baseRef: nextSource === "branch" ? nextBaseBranch : null,
-        currentBranch: null,
-        defaultBranch: null,
-        errorMessage: result.errorMessage,
-        snapshotGeneration: 0,
-      };
-    }
-    return {
-      cwd: nextCwd,
-      source: nextSource,
-      patch: "",
-      files: result.files,
-      isGitRepository: true,
-      baseRef: nextSource === "branch" ? nextBaseBranch : null,
-      currentBranch: null,
-      defaultBranch: null,
-      errorMessage: null,
-      snapshotGeneration: result.snapshotGeneration,
-    };
-  }, [commitSha, hideWhitespace, invoke]);
-
   const normalizedGitCwd = reviewCwd?.trim() ?? "";
   const gitQueryEnabled =
     isGitReviewSource(source) && normalizedGitCwd.length > 0;
-  const gitRepositoryMetadataQueryKey = useMemo(
-    () =>
-      ["review", "repository-metadata", normalizedGitCwd, invoke] as const,
-    [invoke, normalizedGitCwd],
+  const gitReviewSource: GitReviewSource = isGitReviewSource(source)
+    ? source
+    : "unstaged";
+  const gitRepositoryMetadataInput = useMemo(() => ({
+    method: "stable-metadata" as const,
+    params: { cwd: normalizedGitCwd },
+  }), [normalizedGitCwd]);
+  const gitRepositoryMetadataOptions = useMemo(
+    () => createGitLiveWorkerQuery(
+      gitRepositoryMetadataInput,
+      gitWorkerClient,
+    ),
+    [gitRepositoryMetadataInput, gitWorkerClient],
   );
+  const gitRepositoryMetadataQueryKey = gitRepositoryMetadataOptions.queryKey;
   const gitRepositoryMetadataQuery = useQuery({
-    queryKey: gitRepositoryMetadataQueryKey,
-    queryFn: async ({ signal }): Promise<GitReviewRepositoryMetadataResult> => {
-      const requestId = nextGitReviewRequestId(
-        `review:${normalizedGitCwd}:metadata`,
-      );
-      const abort = () => {
-        void invoke("git:review:cancel", { requestId });
-      };
-      signal.addEventListener("abort", abort, { once: true });
-      if (signal.aborted) {
-        abort();
-        throw new DOMException("Git metadata read aborted", "AbortError");
-      }
-      const result = await invoke("git:review:repository-metadata", {
-        cwd: normalizedGitCwd,
-        requestId,
-      }).finally(() => signal.removeEventListener("abort", abort));
-      if (result && typeof result.cwd === "string") return result;
-      return {
-        cwd: normalizedGitCwd,
-        root: normalizedGitCwd,
-        gitDir: null,
-        commonDir: null,
-        isGitRepository: true,
-        currentBranch: null,
-        defaultBranch: null,
-        errorMessage: null,
-      };
-    },
+    ...gitRepositoryMetadataOptions,
     enabled: gitQueryEnabled,
-    staleTime: Number.POSITIVE_INFINITY,
-    refetchOnMount: false,
-    refetchOnWindowFocus: false,
-    retry: 3,
-    retryDelay: (attempt) => Math.min(300 * 2 ** attempt, 2_000),
   });
-  const gitRepositoryIdentityKey = useMemo(
-    () => JSON.stringify([
-      "local",
-      gitRepositoryMetadataQuery.data?.commonDir ?? null,
-      gitRepositoryMetadataQuery.data?.root ?? normalizedGitCwd,
-    ]),
-    [
-      gitRepositoryMetadataQuery.data?.commonDir,
-      gitRepositoryMetadataQuery.data?.root,
-      normalizedGitCwd,
-    ],
-  );
+  const gitRepositoryIdentity = useMemo<GitQueryRepositoryIdentity | null>(() => {
+    const metadata = gitRepositoryMetadataQuery.data;
+    if (!metadata?.isGitRepository || !metadata.commonDir || !metadata.root) {
+      return null;
+    }
+    return {
+      hostId: "local",
+      commonDir: metadata.commonDir,
+      root: metadata.root,
+    };
+  }, [gitRepositoryMetadataQuery.data]);
   const gitRequestCwd =
     gitRepositoryMetadataQuery.data?.root ?? normalizedGitCwd;
-  const gitBaseBranchQueryKey = useMemo(
-    () => [
-      "review",
-      "live-base-branch",
-      gitRepositoryIdentityKey,
-      gitRequestCwd,
-      gitRepositoryMetadataQuery.data?.defaultBranch ?? null,
-    ] as const,
-    [
-      gitRepositoryIdentityKey,
-      gitRepositoryMetadataQuery.data?.defaultBranch,
-      gitRequestCwd,
-    ],
+  const gitBaseBranchInput = useMemo(() => ({
+    method: "base-branch" as const,
+    params: { cwd: gitRequestCwd },
+    repository: gitRepositoryIdentity,
+  }), [gitRepositoryIdentity, gitRequestCwd]);
+  const gitBaseBranchOptions = useMemo(
+    () => createGitLiveWorkerQuery(gitBaseBranchInput, gitWorkerClient),
+    [gitBaseBranchInput, gitWorkerClient],
   );
-  const gitBaseBranchQuery = useQuery<GitReviewBaseBranchResult>({
-    queryKey: gitBaseBranchQueryKey,
-    queryFn: async () => ({
-      cwd: gitRequestCwd,
-      local: gitRepositoryMetadataQuery.data?.defaultBranch ?? null,
-      remote: null,
-      errorMessage: null,
-    }),
-    enabled: false,
-    staleTime: Number.POSITIVE_INFINITY,
+  const gitBaseBranchQuery = useQuery({
+    ...gitBaseBranchOptions,
+    enabled: gitQueryEnabled && gitRepositoryIdentity !== null,
   });
   const resolvedBaseBranch =
     routeState.branchBaseRef
@@ -3627,100 +3493,78 @@ export function ReviewDiffPanel({
     ?? gitBaseBranchQuery.data?.local
     ?? gitRepositoryMetadataQuery.data?.defaultBranch
     ?? null;
-  const gitBaseBranchSubscriptionId = useMemo(
-    () =>
-      `review:base-branch:${hashReviewDiffSourceKey(
-        gitRepositoryIdentityKey,
-      )}`,
-    [gitRepositoryIdentityKey],
-  );
   const gitSummaryBaseBranch = source === "branch" ? resolvedBaseBranch : null;
-  const gitSummaryQueryKey = useMemo(
-    () =>
-      [
-        "review",
-        "live-summary",
-        gitRepositoryIdentityKey,
-        gitRequestCwd,
-        source,
-        gitSummaryBaseBranch,
-        commitSha ?? "",
-        hideWhitespace,
-        loadGitSnapshot,
-      ] as const,
-    [
-      commitSha,
-      gitRepositoryIdentityKey,
-      gitRequestCwd,
-      gitSummaryBaseBranch,
+  const gitSummaryInput = useMemo(() => ({
+    method: "review-summary" as const,
+    params: {
+      cwd: gitRequestCwd,
+      source: gitReviewSource,
+      baseBranch: gitSummaryBaseBranch,
+      commitSha: gitReviewSource === "commit" ? commitSha : null,
       hideWhitespace,
-      loadGitSnapshot,
-      source,
-    ],
-  );
-  const gitLiveSubscriptionId = useMemo(
-    () =>
-      `review:${hashReviewDiffSourceKey(
-        `${gitRepositoryIdentityKey}:${source}:${gitSummaryBaseBranch ?? ""}:${
-          commitSha ?? ""
-        }:${hideWhitespace}`,
-      )}`,
-    [
-      commitSha,
-      gitRepositoryIdentityKey,
-      gitSummaryBaseBranch,
-      hideWhitespace,
-      source,
-    ],
-  );
-  const gitSummaryQuery = useQuery({
-    queryKey: gitSummaryQueryKey,
-    queryFn: ({ signal }) => {
-      if (!isGitReviewSource(source) || !gitRequestCwd) {
-        throw new Error("Git review source is not active.");
-      }
-      return loadGitSnapshot(
-        source,
-        gitRequestCwd,
-        gitSummaryBaseBranch,
-        signal,
-      );
+      includeUntrackedFiles: true,
     },
+    repository: gitRepositoryIdentity,
+  }), [
+    commitSha,
+    gitRepositoryIdentity,
+    gitRequestCwd,
+    gitReviewSource,
+    gitSummaryBaseBranch,
+    hideWhitespace,
+  ]);
+  const gitSummaryOptions = useMemo(
+    () => createGitLiveWorkerQuery(gitSummaryInput, gitWorkerClient),
+    [gitSummaryInput, gitWorkerClient],
+  );
+  const gitSummaryQueryKey = gitSummaryOptions.queryKey;
+  const gitSummaryQuery = useQuery({
+    ...gitSummaryOptions,
     enabled:
       gitQueryEnabled
-      && resolvedDeps.initialSummaryQuery === true
-      && (
-        source !== "branch"
-        || gitBaseBranchQuery.data !== undefined
-        || resolvedDeps.initialSummaryQuery === true
-      ),
-    staleTime: Number.POSITIVE_INFINITY,
-    refetchOnMount: false,
-    refetchOnWindowFocus: false,
-    retry: 3,
-    retryDelay: (attempt) => Math.min(300 * 2 ** attempt, 2_000),
+      && gitRepositoryIdentity !== null
+      && (source !== "branch" || gitBaseBranchQuery.data !== undefined),
   });
   const gitSummarySnapshot = useMemo(() => {
     if (!gitQueryEnabled || !gitSummaryQuery.data) return null;
     const metadata = gitRepositoryMetadataQuery.data;
-    if (!metadata) return gitSummaryQuery.data;
+    if (!metadata) return null;
+    if (gitSummaryQuery.data.type !== "success") {
+      return {
+        cwd: metadata.root ?? metadata.cwd,
+        source: gitReviewSource,
+        patch: "",
+        files: [],
+        isGitRepository: metadata.isGitRepository,
+        baseRef: source === "branch" ? resolvedBaseBranch : null,
+        currentBranch: metadata.currentBranch,
+        defaultBranch: metadata.defaultBranch,
+        errorMessage: gitSummaryQuery.data.type === "error"
+          ? gitSummaryQuery.data.errorMessage
+          : "The repository changed while loading this review.",
+        snapshotGeneration: 0,
+      } satisfies GitReviewSnapshot;
+    }
     return {
-      ...gitSummaryQuery.data,
       cwd: metadata.root ?? metadata.cwd,
+      source: gitReviewSource,
+      patch: "",
+      files: gitSummaryQuery.data.files,
       isGitRepository: metadata.isGitRepository,
       baseRef:
         source === "branch"
-          ? (gitSummaryQuery.data.baseRef ?? resolvedBaseBranch)
-          : gitSummaryQuery.data.baseRef,
+          ? resolvedBaseBranch
+          : null,
       currentBranch: metadata.currentBranch,
       defaultBranch: metadata.defaultBranch,
-      errorMessage:
-        gitSummaryQuery.data.errorMessage ?? metadata.errorMessage,
-    };
+      errorMessage: metadata.errorMessage,
+      snapshotGeneration: gitSummaryQuery.data.snapshotGeneration,
+    } satisfies GitReviewSnapshot;
   }, [
     gitQueryEnabled,
     gitRepositoryMetadataQuery.data,
     gitSummaryQuery.data,
+    gitReviewSource,
     resolvedBaseBranch,
     source,
   ]);
@@ -3728,58 +3572,32 @@ export function ReviewDiffPanel({
     gitSummarySnapshot?.baseRef
     ?? resolvedBaseBranch
     ?? null;
-  const branchCommitsQueryKey = useMemo(
-    () => [
-      "review",
-      "live-branch-commits",
-      gitRepositoryIdentityKey,
-      gitRequestCwd,
-      branchCommitsBaseBranch ?? "",
-      invoke,
-    ] as const,
-    [
-      branchCommitsBaseBranch,
-      gitRepositoryIdentityKey,
-      gitRequestCwd,
-      invoke,
-    ],
+  const branchCommitsInput = useMemo(() => ({
+    method: "branch-commits" as const,
+    params: {
+      cwd: gitRequestCwd,
+      baseBranch: branchCommitsBaseBranch,
+      operationSource: "review_model" as const,
+    },
+    repository: gitRepositoryIdentity,
+  }), [branchCommitsBaseBranch, gitRepositoryIdentity, gitRequestCwd]);
+  const branchCommitsOptions = useMemo(
+    () => createGitLiveWorkerQuery(branchCommitsInput, gitWorkerClient),
+    [branchCommitsInput, gitWorkerClient],
   );
-  const branchCommitsSubscriptionId = useMemo(
-    () =>
-      `review:branch-commits:${hashReviewDiffSourceKey(
-        `${gitRepositoryIdentityKey}:${branchCommitsBaseBranch ?? ""}`,
-      )}`,
-    [branchCommitsBaseBranch, gitRepositoryIdentityKey],
-  );
+  const branchCommitsQueryKey = branchCommitsOptions.queryKey;
   const branchCommitsQuery = useQuery({
-    queryKey: branchCommitsQueryKey,
-    queryFn: async (): Promise<GitReviewBranchCommitsResult> =>
-      invoke("git:review:branch-commits", {
-        cwd: gitRequestCwd,
-        baseBranch: branchCommitsBaseBranch,
-        operationSource: "review_model",
-        requestId: nextGitReviewRequestId(
-          `review:${gitRequestCwd}:branch-commits:${
-            branchCommitsBaseBranch ?? ""
-          }`,
-        ),
-      }),
+    ...branchCommitsOptions,
     enabled:
       gitQueryEnabled
       && branchCommitsRequested
-      && resolvedDeps.initialSummaryQuery === true,
-    staleTime: Number.POSITIVE_INFINITY,
-    refetchOnMount: false,
-    refetchOnWindowFocus: false,
-    retry: 3,
-    retryDelay: (attempt) => Math.min(300 * 2 ** attempt, 2_000),
+      && gitRepositoryIdentity !== null,
   });
   const branchCommits =
     branchCommitsQuery.data?.commits ?? EMPTY_REVIEW_BRANCH_COMMITS;
   const branchCommitsLoadStatus = !branchCommitsRequested
     ? "idle"
-    : branchCommitsError
-        || branchCommitsQuery.isError
+    : branchCommitsQuery.isError
         || branchCommitsQuery.data?.errorMessage
       ? "error"
       : branchCommitsQuery.data
@@ -3789,24 +3607,21 @@ export function ReviewDiffPanel({
     ? "idle"
     : gitSummaryQuery.isPending || gitRepositoryMetadataQuery.isPending
       ? "loading"
-      : gitSummaryQuery.isError || gitRepositoryMetadataQuery.isError
-        ? gitSummaryQuery.error instanceof Error &&
-          gitSummaryQuery.error.message.includes("timed out")
-          ? "timed-out"
-          : "load-failed"
+      : gitSummaryQuery.isError
+          || gitRepositoryMetadataQuery.isError
+          || (gitSummaryQuery.data && gitSummaryQuery.data.type !== "success")
+        ? "load-failed"
         : "loaded";
   const gitLoading = gitLoadStatus === "loading";
   const refreshStaleReviewSnapshot = useCallback(() => {
-    void invoke("git:live-query:refresh-repository", {
-      subscriptionId: gitLiveSubscriptionId,
-    });
-  }, [gitLiveSubscriptionId, invoke]);
+    void gitLiveQueryCoordinator.refresh(gitSummaryQueryKey);
+  }, [gitLiveQueryCoordinator, gitSummaryQueryKey]);
   const reviewPathDiffs = useReviewPathDiffs({
     commitSha,
     commonDir: gitRepositoryMetadataQuery.data?.commonDir ?? null,
     enabled: gitLoadStatus === "loaded" && isGitReviewSource(source),
     hideWhitespace,
-    invoke: (channel, input) => invoke(channel, input),
+    client: gitWorkerClient,
     onStaleSnapshot: refreshStaleReviewSnapshot,
     root: gitRepositoryMetadataQuery.data?.root ?? null,
     snapshot: gitSummarySnapshot,
@@ -3894,7 +3709,7 @@ export function ReviewDiffPanel({
           fallbackToDisk: source === "unstaged",
         },
       ],
-      invoke: (channel, input) => invoke(channel, input),
+    client: gitWorkerClient,
     });
     const oldRead = buildReviewCatFileTextRead(results[0]);
     const newRead = buildReviewCatFileTextRead(results[1]);
@@ -3913,199 +3728,7 @@ export function ReviewDiffPanel({
           ? "Could not load full review file."
           : null,
     };
-  }, [commitSha, gitSnapshot?.baseRef, gitSnapshot?.cwd, gitSnapshot?.snapshotGeneration, invoke, reviewCwd, source]);
-
-  useEffect(() => {
-    if (!gitQueryEnabled) return;
-    const unsubscribe = subscribeGitReviewLiveQueries((event) => {
-      const isSummary = event.subscriptionId === gitLiveSubscriptionId;
-      const isBaseBranch =
-        event.subscriptionId === gitBaseBranchSubscriptionId;
-      const isBranchCommits =
-        branchCommitsRequested
-        && event.subscriptionId === branchCommitsSubscriptionId;
-      if (!isSummary && !isBaseBranch && !isBranchCommits) return;
-      if (event.requiresRecovery) {
-        void invoke("git:live-query:recover", {
-          subscriptionId: event.subscriptionId,
-        });
-      }
-      const currentGeneration =
-        gitLiveGenerationsRef.current.get(event.subscriptionId) ?? 0;
-      if (event.generation < currentGeneration) return;
-      gitLiveGenerationsRef.current.set(
-        event.subscriptionId,
-        event.generation,
-      );
-      if (event.type === "git-live-query-failed") {
-        if (isBranchCommits) setBranchCommitsError(event.errorMessage);
-        if (isSummary) {
-          queryClient.setQueryData<GitReviewSnapshot>(
-            gitSummaryQueryKey,
-            (current) =>
-              current ?? {
-                cwd: gitRequestCwd,
-                source,
-                patch: "",
-                files: [],
-                isGitRepository: true,
-                baseRef: null,
-                currentBranch: null,
-                defaultBranch: null,
-                errorMessage: event.errorMessage,
-                snapshotGeneration: 0,
-              },
-          );
-        }
-        return;
-      }
-      if (isBaseBranch && event.method === "base-branch") {
-        startTransition(() => {
-          queryClient.setQueryData(
-            gitBaseBranchQueryKey,
-            event.result,
-          );
-        });
-        return;
-      }
-      if (isBranchCommits && event.method === "branch-commits") {
-        setBranchCommitsError(event.result.errorMessage);
-        startTransition(() => {
-          queryClient.setQueryData(branchCommitsQueryKey, event.result);
-        });
-        return;
-      }
-      if (!isSummary || event.method !== "review-summary") return;
-      if (event.result.source !== source || event.result.type !== "success") {
-        return;
-      }
-      const summary = event.result;
-      startTransition(() => {
-        queryClient.setQueryData<GitReviewSnapshot>(
-          gitSummaryQueryKey,
-          (current) =>
-            mergeGitSnapshotWithSummary({
-              baseRef: gitSummaryBaseBranch,
-              current,
-              cwd: gitRequestCwd,
-              source,
-              files: summary.files,
-              snapshotGeneration: summary.snapshotGeneration,
-            }),
-        );
-      });
-    });
-    return unsubscribe;
-  }, [
-    branchCommitsQueryKey,
-    branchCommitsRequested,
-    branchCommitsSubscriptionId,
-    gitBaseBranchSubscriptionId,
-    gitBaseBranchQueryKey,
-    gitLiveSubscriptionId,
-    gitQueryEnabled,
-    gitRequestCwd,
-    gitSummaryQueryKey,
-    gitSummaryBaseBranch,
-    invoke,
-    normalizedGitCwd,
-    queryClient,
-    source,
-    subscribeGitReviewLiveQueries,
-  ]);
-
-  useEffect(() => {
-    if (
-      !gitQueryEnabled
-      || !gitRepositoryMetadataQuery.data
-      || (
-        source === "branch"
-        && gitBaseBranchQuery.data === undefined
-        && resolvedDeps.initialSummaryQuery !== true
-      )
-    ) return;
-    const subscriptionId = gitLiveSubscriptionId;
-    gitLiveGenerationsRef.current.delete(subscriptionId);
-    void invoke("git:live-query:subscribe", {
-      subscriptionId,
-      query: {
-        method: "review-summary",
-        params: {
-          cwd: gitRequestCwd,
-          source,
-          baseBranch: gitSummaryBaseBranch,
-          commitSha: source === "commit" ? commitSha : null,
-          hideWhitespace,
-        },
-      },
-    });
-
-    return () => {
-      void invoke("git:live-query:unsubscribe", { subscriptionId });
-    };
-  }, [
-    commitSha,
-    gitLiveSubscriptionId,
-    gitBaseBranchQuery.data,
-    gitRepositoryMetadataQuery.data,
-    gitRequestCwd,
-    gitSummaryBaseBranch,
-    hideWhitespace,
-    invoke,
-    gitQueryEnabled,
-    resolvedDeps.initialSummaryQuery,
-    source,
-  ]);
-
-  useEffect(() => {
-    if (!gitQueryEnabled || !gitRepositoryMetadataQuery.data) return;
-    const subscriptionId = gitBaseBranchSubscriptionId;
-    gitLiveGenerationsRef.current.delete(subscriptionId);
-    void invoke("git:live-query:subscribe", {
-      subscriptionId,
-      query: {
-        method: "base-branch",
-        params: { cwd: gitRequestCwd },
-      },
-    });
-    return () => {
-      void invoke("git:live-query:unsubscribe", { subscriptionId });
-    };
-  }, [
-    gitBaseBranchSubscriptionId,
-    gitQueryEnabled,
-    gitRepositoryMetadataQuery.data,
-    gitRequestCwd,
-    invoke,
-  ]);
-
-  useEffect(() => {
-    if (!gitQueryEnabled || !branchCommitsRequested) return;
-    const subscriptionId = branchCommitsSubscriptionId;
-    gitLiveGenerationsRef.current.delete(subscriptionId);
-    setBranchCommitsError(null);
-    void invoke("git:live-query:subscribe", {
-      subscriptionId,
-      query: {
-        method: "branch-commits",
-        params: {
-          cwd: gitRequestCwd,
-          baseBranch: branchCommitsBaseBranch,
-          operationSource: "review_model",
-        },
-      },
-    });
-    return () => {
-      void invoke("git:live-query:unsubscribe", { subscriptionId });
-    };
-  }, [
-    branchCommitsBaseBranch,
-    branchCommitsRequested,
-    branchCommitsSubscriptionId,
-    gitQueryEnabled,
-    gitRequestCwd,
-    invoke,
-  ]);
+  }, [commitSha, gitSnapshot?.baseRef, gitSnapshot?.cwd, gitSnapshot?.snapshotGeneration, gitWorkerClient, invoke, reviewCwd, source]);
 
   const snapshot = useMemo(() => {
     if (transcriptSnapshot) return transcriptSnapshot;
@@ -4186,7 +3809,6 @@ export function ReviewDiffPanel({
   const loadBranchCommits = () => {
     const normalizedCwd = reviewCwd?.trim() ?? "";
     if (!normalizedCwd) return;
-    setBranchCommitsError(null);
     if (!branchCommitsRequested) {
       setBranchCommitsRequested(true);
       return;
@@ -4195,9 +3817,7 @@ export function ReviewDiffPanel({
       queryKey: branchCommitsQueryKey,
       exact: true,
     });
-    void invoke("git:live-query:refresh-repository", {
-      subscriptionId: branchCommitsSubscriptionId,
-    });
+    void gitLiveQueryCoordinator.refresh(branchCommitsQueryKey);
   };
   const reviewCodeComments = reviewConversation.codeComments;
   const totalChangedLines = useMemo(
@@ -4615,67 +4235,52 @@ export function ReviewDiffPanel({
             ) ||
             snapshot.files.some((entry) => entry.loadStatus !== "loaded"));
         if (requiresServerSearch && searchCwd) {
-          reviewSearchRequestSequenceRef.current += 1;
-          const requestId = [
-            "review-search",
-            searchCwd,
-            source,
-            reviewSearchRequestSequenceRef.current,
-          ].join(":");
-          const cancel = () => {
-            void invoke("git:review:cancel", { requestId });
-          };
-          options?.signal.addEventListener("abort", cancel, { once: true });
-          try {
-            if (options?.signal.aborted) {
-              throw new DOMException("Review search aborted", "AbortError");
-            }
-            const result = (await invoke("git:review:search", {
+          if (options?.signal.aborted) {
+            throw new DOMException("Review search aborted", "AbortError");
+          }
+          const result = await gitWorkerClient.request({
+            method: "review-search",
+            params: {
               cwd: searchCwd,
               source,
               query: normalizedQuery,
               baseBranch: source === "branch" ? snapshot.baseRef : null,
               commitSha: source === "commit" ? commitSha : null,
-              requestId,
-            })) as GitReviewSearchResult;
-            if (options?.signal.aborted) {
-              throw new DOMException("Review search aborted", "AbortError");
-            }
-            if (result.type === "error") {
-              return {
-                query: normalizedQuery,
-                matches: [],
-                totalMatches: 0,
-                capped: false,
-              };
-            }
-
-            const displayPathByGitPath = new Map(
-              snapshot.files.map((entry) => [
-                stripPatchPrefix(entry.fileDiff?.name ?? entry.displayPath),
-                entry.displayPath,
-              ]),
-            );
-            const locations: ReviewSearchLocation[] = result.matches.map(
-              (location) => ({
-                ...location,
-                path:
-                  displayPathByGitPath.get(stripPatchPrefix(location.path)) ??
-                  stripPatchPrefix(location.path),
-              }),
-            );
+            },
+            signal: options?.signal,
+          });
+          if (result.type !== "success") {
             return {
-              query: result.query,
-              matches: buildReviewContentSearchMatches({
-                contextId,
-                locations,
-              }),
-              totalMatches: result.totalMatches,
-              capped: result.isCapped,
+              query: normalizedQuery,
+              matches: [],
+              totalMatches: 0,
+              capped: false,
             };
-          } finally {
-            options?.signal.removeEventListener("abort", cancel);
           }
+
+          const displayPathByGitPath = new Map(
+            snapshot.files.map((entry) => [
+              stripPatchPrefix(entry.fileDiff?.name ?? entry.displayPath),
+              entry.displayPath,
+            ]),
+          );
+          const locations: ReviewSearchLocation[] = result.matches.map(
+            (location) => ({
+              ...location,
+              path:
+                displayPathByGitPath.get(stripPatchPrefix(location.path)) ??
+                stripPatchPrefix(location.path),
+            }),
+          );
+          return {
+            query: result.query,
+            matches: buildReviewContentSearchMatches({
+              contextId,
+              locations,
+            }),
+            totalMatches: result.totalMatches,
+            capped: result.isCapped,
+          };
         }
 
         const generatedPaths = new Set(
@@ -4777,7 +4382,7 @@ export function ReviewDiffPanel({
       commitSha,
       canonicalPathByEntryKey,
       findReviewRow,
-      invoke,
+      gitWorkerClient,
       isCappedMode,
       revealReviewEntry,
       reviewCwd,
@@ -4933,9 +4538,7 @@ export function ReviewDiffPanel({
     if (!normalizedCwd) return;
 
     try {
-      await invoke("git:live-query:refresh-repository", {
-        subscriptionId: gitLiveSubscriptionId,
-      });
+      await gitLiveQueryCoordinator.refresh(gitSummaryQueryKey);
     } catch (error) {
       toast.danger(
         error instanceof Error ? error.message : "Could not refresh review.",
@@ -4951,12 +4554,9 @@ export function ReviewDiffPanel({
     if (!normalizedCwd) return;
 
     try {
-      const result = (await invoke(
-        "git:init",
-        normalizedCwd,
-      )) as GitReviewSnapshot;
-      startTransition(() => {
-        queryClient.setQueryData(gitSummaryQueryKey, result);
+      await gitWorkerClient.request({
+        method: "git-init-repo",
+        params: { cwd: normalizedCwd },
       });
       toast.success("Created a Git repository for this workspace.", {
         id: "review-diff-notice",
@@ -4965,9 +4565,6 @@ export function ReviewDiffPanel({
       void queryClient.invalidateQueries({
         queryKey: gitRepositoryMetadataQueryKey,
         exact: true,
-      });
-      void invoke("git:live-query:recover", {
-        subscriptionId: gitLiveSubscriptionId,
       });
     }
   };
@@ -5013,20 +4610,29 @@ export function ReviewDiffPanel({
     isGitReviewSource(source) && snapshot.isGitRepository && Boolean(reviewCwd);
 
   const handleCopyGitApplyCommand = async () => {
-    if (!canCopyGitApplyCommand) return;
+    if (!canCopyGitApplyCommand || !reviewCwd || !isGitReviewSource(source)) return;
 
     try {
-      const result = (await invoke("git:review:patch", {
-        cwd: reviewCwd,
-        source,
-        baseRef: snapshot.baseRef,
-        commitSha,
-        operationSource: "review_model",
-        requestId: `review:${reviewCwd}:patch:${source}:${snapshot.baseRef ?? ""}:${commitSha ?? ""}`,
-      })) as GitReviewPatchResult;
+      const result = await gitWorkerClient.request({
+        method: "review-patch",
+        params: {
+          cwd: reviewCwd,
+          source,
+          baseRef: snapshot.baseRef,
+          commitSha,
+          operationSource: "review_model",
+        },
+      });
+      if ("type" in result) {
+        toast.danger("The repository changed. Refresh Review and try again.", {
+          id: "review-diff-notice",
+        });
+        return;
+      }
+      const patchResult: GitReviewPatchResult = result;
       if (
-        result.diff.type !== "success" ||
-        result.diff.unifiedDiff.trim().length === 0
+        patchResult.diff.type !== "success" ||
+        patchResult.diff.unifiedDiff.trim().length === 0
       ) {
         toast.danger("Could not copy git apply command.", {
           id: "review-diff-notice",
@@ -5035,7 +4641,7 @@ export function ReviewDiffPanel({
       }
 
       const copied = await writeTextToClipboard(
-        buildReviewGitApplyCommand(result.diff.unifiedDiff),
+        buildReviewGitApplyCommand(patchResult.diff.unifiedDiff),
       );
       if (copied) {
         toast.success("Copied git apply command to the clipboard", {
@@ -5234,21 +4840,6 @@ export function ReviewDiffPanel({
       <div className="flex h-full w-full items-center justify-center text-sm text-token-description-foreground">
         Loading review…
       </div>
-    ) : gitLoadStatus === "timed-out" && isGitReviewSource(source) ? (
-      <ReviewPanelEmptyState
-        title="Review timed out"
-        description="The diff request took longer than 15 seconds. Try again or narrow the review target."
-        illustration={<ReviewPanelIcon />}
-        action={
-          <button
-            type="button"
-            className={REVIEW_EMPTY_STATE_ACTION_BUTTON_CLASS_NAME}
-            onClick={() => void refreshGitSnapshot()}
-          >
-            Retry
-          </button>
-        }
-      />
     ) : snapshot.errorMessage ? (
       <ReviewPanelEmptyState
         title="Could not load review"
@@ -5361,7 +4952,8 @@ export function ReviewDiffPanel({
                   ) : branchCommitsLoadStatus === "error" ? (
                     <>
                       <NodexDropdownMessage compact tone="error">
-                        {branchCommitsError ?? "Unable to load commits"}
+                        {branchCommitsQuery.data?.errorMessage
+                          ?? "Unable to load commits"}
                       </NodexDropdownMessage>
                       <NodexDropdownItem
                         onSelect={() => void loadBranchCommits()}

@@ -7,6 +7,7 @@ import {
   __resetReviewCatFileBatcherForTests,
   requestReviewCatFile,
 } from "./review-cat-file-batcher";
+import type { GitWorkerQueryClient } from "./git-query";
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -20,11 +21,8 @@ afterEach(() => {
 
 describe("review cat-file batcher", () => {
   test("waits 40ms and packs complete row requests into four-object batches", async () => {
-    const invoke = vi.fn(
-      async (
-        _channel: "git:review:cat-file",
-        input: GitReviewCatFileInput,
-      ): Promise<GitReviewCatFileOutput> => ({
+    const workerRequest = vi.fn(
+      async (input: GitReviewCatFileInput): Promise<GitReviewCatFileOutput> => ({
         snapshotGeneration: input.snapshotGeneration,
         results: input.requests.map((request) => ({
           type: "success" as const,
@@ -32,6 +30,13 @@ describe("review cat-file batcher", () => {
         })),
       }),
     );
+    const client = {
+      request: async (input: { params: GitReviewCatFileInput }) => ({
+        type: "success",
+        value: await workerRequest(input.params),
+      }),
+      subscribe: () => () => undefined,
+    } as GitWorkerQueryClient;
     const requestRow = (path: string) =>
       requestReviewCatFile({
         bucketKey: "local",
@@ -41,17 +46,17 @@ describe("review cat-file batcher", () => {
           { oid: `${path}:old`, path },
           { oid: `${path}:new`, path },
         ],
-        invoke,
+        client,
       });
 
     const rows = [requestRow("a"), requestRow("b"), requestRow("c")];
-    expect(invoke).not.toHaveBeenCalled();
+    expect(workerRequest).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(40);
     const results = await Promise.all(rows);
 
-    expect(invoke).toHaveBeenCalledTimes(2);
-    expect(invoke.mock.calls[0]?.[1].requests).toHaveLength(4);
-    expect(invoke.mock.calls[1]?.[1].requests).toHaveLength(2);
+    expect(workerRequest).toHaveBeenCalledTimes(2);
+    expect(workerRequest.mock.calls[0]?.[0].requests).toHaveLength(4);
+    expect(workerRequest.mock.calls[1]?.[0].requests).toHaveLength(2);
     expect(results[2]?.map((result) => result.type)).toEqual([
       "success",
       "success",

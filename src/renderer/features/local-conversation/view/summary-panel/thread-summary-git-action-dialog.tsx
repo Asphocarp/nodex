@@ -8,7 +8,7 @@ import {
   NodexDialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { invoke } from "@/lib/api";
+import { getGitWorkerClient, invoke } from "@/lib/api";
 import type { GitActionMutationResult, GitActionStatusResult, GitCommitMessageGenerateResult } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -149,7 +149,7 @@ export function ThreadSummaryGitActionDialog({
     let cancelled = false;
     setLoading(true);
     setInlineError(null);
-    void invoke("git:action:status", { cwd })
+    void getGitWorkerClient().request({ method: "action-status", params: { cwd } })
       .then((result) => {
         if (cancelled) return;
         setStatus(result as GitActionStatusResult);

@@ -432,7 +432,7 @@ async function renderNewThreadHome(overrides?: {
   __resetLocalConversationStoreForTests();
   installWindowApi({
     invoke: async (channel: string) => {
-      if (channel === "git:branch:state") {
+      if (channel === "branch-metadata") {
         return {
           currentBranch: "dev-redesign",
           defaultBranch: "main",
@@ -484,7 +484,7 @@ async function renderNewThreadHome(overrides?: {
           pluginDisplayNames: [],
         }];
       }
-      if (channel === "git:branch:watch:start" || channel === "git:branch:watch:stop") {
+      if (channel === "subscribe-live-query" || channel === "unsubscribe-live-query") {
         return true;
       }
       return null;

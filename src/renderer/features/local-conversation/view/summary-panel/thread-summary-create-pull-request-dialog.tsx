@@ -10,7 +10,7 @@ import {
   NodexDialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { invoke } from "@/lib/api";
+import { getGitWorkerClient, invoke } from "@/lib/api";
 import type {
   GhCliAvailability,
   GhPrMutationResult,
@@ -145,7 +145,7 @@ export function ThreadSummaryCreatePullRequestDialog({
     setReadState((current) => ({ ...current, loading: true }));
     setInlineError(null);
 
-    void invoke("git:action:status", { cwd })
+    void getGitWorkerClient().request({ method: "action-status", params: { cwd } })
       .then(async (result) => {
         if (cancelled) return;
         const status = result as GitActionStatusResult;
@@ -272,7 +272,10 @@ export function ThreadSummaryCreatePullRequestDialog({
           return;
         }
 
-        latestStatus = await invoke("git:action:status", { cwd }) as GitActionStatusResult;
+        latestStatus = await getGitWorkerClient().request({
+          method: "action-status",
+          params: { cwd },
+        });
       }
 
       if (shouldPushBeforePullRequest(latestStatus)) {
@@ -288,7 +291,10 @@ export function ThreadSummaryCreatePullRequestDialog({
           return;
         }
 
-        latestStatus = await invoke("git:action:status", { cwd }) as GitActionStatusResult;
+        latestStatus = await getGitWorkerClient().request({
+          method: "action-status",
+          params: { cwd },
+        });
       }
 
       if (!nextTitle || !nextBody) {

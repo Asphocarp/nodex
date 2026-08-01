@@ -232,14 +232,14 @@ function installComposerWindowApi(testInvoke?: TestInvoke): void {
             },
             customDescription: null,
           };
-        case "git:branch:state":
+        case "branch-metadata":
           return {
             currentBranch: "main",
             defaultBranch: "main",
             branches: ["main"],
           };
-        case "git:branch:watch:start":
-        case "git:branch:watch:stop":
+        case "subscribe-live-query":
+        case "unsubscribe-live-query":
           return true;
         case "codex:thread:goal:materialize-draft": {
           const draft = args[0] as { objective?: string };

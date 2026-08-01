@@ -18,6 +18,11 @@ import type {
   CodexTranscriptEntry,
   CodexUserInputRequest,
 } from "@/lib/types";
+import type {
+  GitWorkerMessageForView,
+  GitWorkerMessageFromView,
+  GitWorkerMethod,
+} from "../../../../shared/git-worker-protocol";
 import { buildComposerShellModel } from "../projection/build-composer-shell-model";
 import { buildThreadBodyModel } from "../projection/build-thread-body-model";
 import { selectPrimaryConversationRequest } from "../conversation-request-helpers";
@@ -105,10 +110,6 @@ export interface ThreadStageStoryScenario {
   permissionDescription: string;
   autoAction?: "openEdit" | "submitEditFailure" | "openOlderFork" | "triggerLatestFork";
   activateAutoReviewNudge?: boolean;
-}
-
-interface StorybookElectronBridgeListenerMap {
-  "git:branch:changed": Array<(payload: { cwd: string }) => void>;
 }
 
 function initializeStorybookRendererDocument(): void {
@@ -3277,9 +3278,9 @@ function createStorybookElectronBridge(input: {
   permissionMode: CodexPermissionMode;
   permissionDescription: string;
 }): StorybookBridge {
-  const listeners: StorybookElectronBridgeListenerMap = {
-    "git:branch:changed": [],
-  };
+  const gitWorkerListeners = new Set<
+    (message: GitWorkerMessageForView) => void
+  >();
 
   let branchState = {
     currentBranch: "codex/thread-storybook",
@@ -3287,10 +3288,81 @@ function createStorybookElectronBridge(input: {
     branches: ["main", "codex/thread-storybook", "codex/thread-stage-gallery"],
   };
 
-  const emit = (event: keyof StorybookElectronBridgeListenerMap, payload: { cwd: string }) => {
-    for (const listener of listeners[event]) {
-      listener(payload);
+  const readGitWorkerResult = (method: GitWorkerMethod, params: unknown) => {
+    const cwd = (params as { cwd?: string } | undefined)?.cwd ?? "/tmp/project";
+    if (method === "stable-metadata") {
+      return {
+        cwd,
+        root: cwd,
+        gitDir: `${cwd}/.git`,
+        commonDir: `${cwd}/.git`,
+        isGitRepository: true,
+        currentBranch: branchState.currentBranch,
+        defaultBranch: branchState.defaultBranch,
+        errorMessage: null,
+      };
     }
+    if (method === "branch-metadata") return branchState;
+    if (method === "status-summary") {
+      return {
+        type: "success",
+        stagedCount: 0,
+        unstagedCount: 0,
+        untrackedCount: 0,
+        snapshotGeneration: 1,
+      };
+    }
+    if (method === "branch-diff-stats") {
+      return {
+        cwd,
+        baseRef: "main",
+        files: [],
+        fileCount: 0,
+        additions: 0,
+        deletions: 0,
+        untrackedFilesOmitted: 0,
+        isGitRepository: true,
+        currentBranch: branchState.currentBranch,
+        defaultBranch: branchState.defaultBranch,
+        errorMessage: null,
+      };
+    }
+    if (method === "action-status") {
+      return {
+        cwd,
+        isGitRepository: true,
+        currentBranch: branchState.currentBranch,
+        defaultBranch: branchState.defaultBranch,
+        upstreamBranch: `origin/${branchState.currentBranch}`,
+        remotes: ["origin"],
+        hasHeadCommit: true,
+        hasStagedChanges: false,
+        hasUnstagedChanges: false,
+        hasUntrackedFiles: false,
+        hasUncommittedChanges: false,
+        commitsAhead: 0,
+        canCommit: false,
+        canPush: false,
+        pushNeedsUpstream: false,
+        errorMessage: null,
+      };
+    }
+    if (method === "checkout-branch" || method === "create-branch") {
+      const branch = (params as { branch: string }).branch;
+      branchState = {
+        ...branchState,
+        currentBranch: branch,
+        branches: branchState.branches.includes(branch)
+          ? branchState.branches
+          : [branch, ...branchState.branches],
+      };
+      return { type: "success", value: branchState };
+    }
+    if (method === "subscribe-live-query") return { subscribed: true };
+    if (method === "unsubscribe-live-query") return { unsubscribed: true };
+    if (method === "recover-live-query") return { recovered: true };
+    if (method === "refresh-live-query") return { refreshed: true };
+    throw new Error(`Story Git worker method is unsupported: ${method}`);
   };
 
   return {
@@ -3332,51 +3404,29 @@ function createStorybookElectronBridge(input: {
             },
             customDescription: input.permissionDescription,
           };
-        case "git:branch:state":
-          return branchState;
-        case "git:branch:watch:start":
-        case "git:branch:watch:stop":
-          return true;
-        case "git:branch:checkout": {
-          const [payload] = args as [{ cwd: string; branch: string }];
-          branchState = {
-            ...branchState,
-            currentBranch: payload.branch,
-            branches: branchState.branches.includes(payload.branch)
-              ? branchState.branches
-              : [payload.branch, ...branchState.branches],
-          };
-          emit("git:branch:changed", { cwd: payload.cwd });
-          return branchState;
-        }
-        case "git:branch:create": {
-          const [payload] = args as [{ cwd: string; branch: string }];
-          branchState = {
-            ...branchState,
-            currentBranch: payload.branch,
-            branches: branchState.branches.includes(payload.branch)
-              ? branchState.branches
-              : [payload.branch, ...branchState.branches],
-          };
-          emit("git:branch:changed", { cwd: payload.cwd });
-          return branchState;
-        }
         default:
           return null;
       }
     },
-    on: (event: string, callback: (...args: unknown[]) => void) => {
-      if (event === "git:branch:changed") {
-        const listener = (payload: { cwd: string }) => callback(payload);
-        listeners["git:branch:changed"].push(listener);
-        return () => {
-          listeners["git:branch:changed"] = listeners["git:branch:changed"].filter(
-            (candidate) => candidate !== listener,
-          );
-        };
-      }
-      return () => { };
+    sendGitWorkerMessage: async (message: GitWorkerMessageFromView) => {
+      if (message.type === "worker-request-cancel") return;
+      const value = readGitWorkerResult(message.request.method, message.request.params);
+      const response = {
+        type: "worker-response",
+        workerId: "git",
+        id: message.request.id,
+        method: message.request.method,
+        result: { type: "ok", value },
+      } as GitWorkerMessageForView;
+      queueMicrotask(() => {
+        for (const listener of gitWorkerListeners) listener(response);
+      });
     },
+    onGitWorkerMessage: (listener: (message: GitWorkerMessageForView) => void) => {
+      gitWorkerListeners.add(listener);
+      return () => gitWorkerListeners.delete(listener);
+    },
+    on: () => () => { },
   } as StorybookBridge;
 }
 

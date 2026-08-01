@@ -21,15 +21,16 @@ import type {
 } from "../../thread-stage-types";
 
 let invokeCalls: unknown[][] = [];
+let gitWorkerCalls: Array<{ method: string; params: unknown }> = [];
 let mockInvokeImpl:
   ((channel: string, ...args: unknown[]) => Promise<unknown>) | null = null;
 let summaryPanelPendingDefaultsEnabled = false;
 const pendingByDefaultInvokeChannels = new Set([
   "codex:mcp-resource:read",
   "codex:mcp-server-statuses:list",
-  "git:action:status",
-  "git:branch:state",
-  "git:review:snapshot",
+  "action-status",
+  "branch-metadata",
+  "review-summary",
   "gh-pr-status",
 ]);
 
@@ -59,10 +60,105 @@ vi.mock("../../../../lib/api", () => ({
   subscribeProjectChanges: () => () => undefined,
   subscribeCodexHostMessages: () => () => undefined,
   subscribeDesktopNotificationActions: () => () => undefined,
-  subscribeGitBranchChanges: () => () => undefined,
   subscribeAppUpdateStatus: () => () => undefined,
   getWindowFocusState: async () => true,
   subscribeWindowFocusChanges: () => () => undefined,
+  getGitWorkerClient: () => ({
+    request: async ({ method, params }: { method: string; params: unknown }) => {
+      gitWorkerCalls.push({ method, params });
+      const cwd = (params as { cwd?: string }).cwd ?? "/repo/project";
+      const readSnapshot = async (source: GitReviewSource) => {
+        const snapshot = await mockInvokeImpl?.("review-summary", {
+          cwd,
+          source,
+        });
+        if (
+          (snapshot === null || snapshot === undefined)
+          && summaryPanelPendingDefaultsEnabled
+        ) {
+          return await new Promise<never>(() => undefined);
+        }
+        return snapshot as GitReviewSnapshot | null | undefined;
+      };
+      if (method === "stable-metadata") {
+        const snapshot = await readSnapshot("branch");
+        return {
+          cwd,
+          root: snapshot?.isGitRepository ? cwd : null,
+          gitDir: snapshot?.isGitRepository ? `${cwd}/.git` : null,
+          commonDir: snapshot?.isGitRepository ? `${cwd}/.git` : null,
+          isGitRepository: snapshot?.isGitRepository ?? false,
+          currentBranch: snapshot?.currentBranch ?? null,
+          defaultBranch: snapshot?.defaultBranch ?? null,
+          errorMessage: snapshot?.errorMessage ?? null,
+        };
+      }
+      if (method === "status-summary") {
+        const [staged, unstaged] = await Promise.all([
+          readSnapshot("staged"),
+          readSnapshot("unstaged"),
+        ]);
+        return {
+          type: "success",
+          stagedCount: staged?.files.length ?? 0,
+          unstagedCount: unstaged?.files.length ?? 0,
+          untrackedCount: 0,
+          snapshotGeneration: 1,
+        };
+      }
+      if (method === "branch-metadata") {
+        const state = await mockInvokeImpl?.("branch-metadata", cwd);
+        return state ?? {
+          currentBranch: null,
+          defaultBranch: null,
+          branches: [],
+        };
+      }
+      if (method === "action-status") {
+        return await mockInvokeImpl?.("action-status", { cwd });
+      }
+      if (method === "checkout-branch" || method === "create-branch") {
+        const channel = method === "create-branch"
+          ? "create-branch"
+          : "checkout-branch";
+        const value = await mockInvokeImpl?.(channel, params);
+        return value instanceof Error
+          ? { type: "error", errorMessage: value.message }
+          : { type: "success", value };
+      }
+      if (method === "branch-diff-stats") {
+        const snapshot = await readSnapshot("branch");
+        const branchFiles = snapshot?.files ?? [];
+        const staged = await readSnapshot("staged");
+        const unstaged = await readSnapshot("unstaged");
+        const files = branchFiles.length > 0
+          ? branchFiles
+          : [
+            ...(staged?.files ?? []),
+            ...(unstaged?.files ?? []),
+          ];
+        return {
+          cwd,
+          baseRef: snapshot?.baseRef ?? null,
+          files,
+          fileCount: files.length,
+          additions: files.reduce((total, file) => total + (file.additions ?? 0), 0),
+          deletions: files.reduce((total, file) => total + (file.deletions ?? 0), 0),
+          untrackedFilesOmitted: 0,
+          isGitRepository: snapshot?.isGitRepository ?? false,
+          currentBranch: snapshot?.currentBranch ?? null,
+          defaultBranch: snapshot?.defaultBranch ?? null,
+          errorMessage: snapshot?.errorMessage ?? null,
+        };
+      }
+      if (method === "subscribe-live-query") return { subscribed: true };
+      if (method === "unsubscribe-live-query") return { unsubscribed: true };
+      if (method === "recover-live-query") return { recovered: true };
+      if (method === "refresh-live-query") return { refreshed: true };
+      throw new Error(`Unexpected Git worker method: ${method}`);
+    },
+    subscribe: () => () => undefined,
+  }),
 }));
 
 vi.mock("../shared/user-message-attachments", () => ({
@@ -180,7 +276,7 @@ function getBranchSetupInput(expectedValuePart: string): HTMLInputElement {
   );
   if (!input) {
     throw new Error(
-      `Expected branch setup input containing ${expectedValuePart}.`,
+      `Expected branch setup input containing ${expectedValuePart}; saw ${inputs.map((candidate) => candidate.value).join(", ") || "no inputs"}.`,
     );
   }
 
@@ -241,6 +337,7 @@ describe("ThreadFloatingSummaryPanel", () => {
 
   beforeEach(() => {
     invokeCalls = [];
+    gitWorkerCalls = [];
     mockInvokeImpl = null;
   });
 
@@ -256,6 +353,7 @@ describe("ThreadFloatingSummaryPanel", () => {
   afterAll(() => {
     summaryPanelPendingDefaultsEnabled = false;
     invokeCalls = [];
+    gitWorkerCalls = [];
     mockInvokeImpl = null;
   });
 
@@ -398,11 +496,11 @@ describe("ThreadFloatingSummaryPanel", () => {
     });
   });
 
-  test("renders git branch and combined diff stats from IPC snapshots", async () => {
+  test("renders git branch with one non-duplicated branch diff total", async () => {
     const { ThreadFloatingSummaryPanel } =
       await import("./thread-floating-summary-panel");
     mockInvokeImpl = async (channel: string, input?: unknown) => {
-      if (channel === "git:branch:state") {
+      if (channel === "branch-metadata") {
         return {
           cwd: "/repo/project",
           currentBranch: "feature/summary-panel",
@@ -412,7 +510,7 @@ describe("ThreadFloatingSummaryPanel", () => {
         };
       }
 
-      if (channel !== "git:review:snapshot") return null;
+      if (channel !== "review-summary") return null;
       const source = (input as { source: GitReviewSource }).source;
       if (source === "unstaged") return makeSnapshot(source, 2, 1);
       if (source === "staged") return makeSnapshot(source, 3, 4);
@@ -436,8 +534,8 @@ describe("ThreadFloatingSummaryPanel", () => {
       const content = textContent(view.container);
       if (
         !content.includes("feature/summary-panel") ||
-        !content.includes("+10") ||
-        !content.includes("-11")
+        !content.includes("+5") ||
+        !content.includes("-6")
       ) {
         throw new Error(
           `Expected branch and combined diff stats, saw: ${content}`,
@@ -463,11 +561,16 @@ describe("ThreadFloatingSummaryPanel", () => {
     expect(searchInput !== null).toBe(true);
 
     expect(
-      invokeCalls.some((call) => call[0] === "git:review:snapshot"),
-    ).toBe(true);
-    expect(
-      invokeCalls.some((call) => call[0] === "git:branch:state"),
-    ).toBe(true);
+      invokeCalls.some((call) => call[0] === "review-summary"),
+    ).toBe(false);
+    expect(gitWorkerCalls.some((call) => call.method === "status-summary"))
+      .toBe(true);
+    expect(gitWorkerCalls.some((call) => call.method === "branch-diff-stats"))
+      .toBe(true);
+    expect(gitWorkerCalls.some((call) => call.method === "branch-metadata"))
+      .toBe(true);
+    expect(invokeCalls.some((call) => call[0] === "branch-metadata"))
+      .toBe(false);
   });
 
   test("opens the Review surface from the Changes row using the primary git source", async () => {
@@ -475,7 +578,7 @@ describe("ThreadFloatingSummaryPanel", () => {
       await import("./thread-floating-summary-panel");
     const openedSources: GitReviewSource[] = [];
     mockInvokeImpl = async (channel: string, input?: unknown) => {
-      if (channel === "git:branch:state") {
+      if (channel === "branch-metadata") {
         return {
           cwd: "/repo/project",
           currentBranch: "feature/summary-panel",
@@ -485,7 +588,7 @@ describe("ThreadFloatingSummaryPanel", () => {
         };
       }
 
-      if (channel !== "git:review:snapshot") return null;
+      if (channel !== "review-summary") return null;
       const source = (input as { source: GitReviewSource }).source;
       if (source === "staged") return makeSnapshot(source, 4, 0);
       if (source === "unstaged") return makeSnapshot(source, 1, 0);
@@ -551,7 +654,7 @@ describe("ThreadFloatingSummaryPanel", () => {
       errorMessage: null,
     };
     mockInvokeImpl = async (channel: string, input?: unknown) => {
-      if (channel === "git:branch:state") {
+      if (channel === "branch-metadata") {
         return {
           cwd: "/repo/project",
           currentBranch: "feature/summary-panel",
@@ -561,7 +664,7 @@ describe("ThreadFloatingSummaryPanel", () => {
         };
       }
 
-      if (channel === "git:action:status") return actionStatus;
+      if (channel === "action-status") return actionStatus;
       if (channel === "git:action:commit") {
         commitInputs.push(input);
         return {
@@ -574,7 +677,7 @@ describe("ThreadFloatingSummaryPanel", () => {
         };
       }
 
-      if (channel !== "git:review:snapshot") return null;
+      if (channel !== "review-summary") return null;
       const source = (input as { source: GitReviewSource }).source;
       if (source === "staged") return makeSnapshot(source, 2, 0);
       return makeSnapshot(source, 0, 0);
@@ -691,7 +794,7 @@ describe("ThreadFloatingSummaryPanel", () => {
       errorMessage: null,
     };
     mockInvokeImpl = async (channel: string, input?: unknown) => {
-      if (channel === "git:branch:state") {
+      if (channel === "branch-metadata") {
         return {
           cwd: "/repo/project",
           currentBranch: null,
@@ -701,8 +804,8 @@ describe("ThreadFloatingSummaryPanel", () => {
         };
       }
 
-      if (channel === "git:action:status") return actionStatus;
-      if (channel !== "git:review:snapshot") return null;
+      if (channel === "action-status") return actionStatus;
+      if (channel !== "review-summary") return null;
       const source = (input as { source: GitReviewSource }).source;
       if (source === "staged") return makeDetachedSnapshot(source, 2, 0);
       return makeDetachedSnapshot(source, 0, 0);
@@ -767,7 +870,7 @@ describe("ThreadFloatingSummaryPanel", () => {
       errorMessage: null,
     });
     mockInvokeImpl = async (channel: string, input?: unknown) => {
-      if (channel === "git:branch:state") {
+      if (channel === "branch-metadata") {
         return {
           cwd: "/repo/project",
           currentBranch: branchCreated ? "codex/detached-fix" : null,
@@ -777,7 +880,7 @@ describe("ThreadFloatingSummaryPanel", () => {
         };
       }
 
-      if (channel === "git:branch:create") {
+      if (channel === "create-branch") {
         branchCreateInputs.push(input);
         branchCreated = true;
         return {
@@ -789,8 +892,8 @@ describe("ThreadFloatingSummaryPanel", () => {
         };
       }
 
-      if (channel === "git:action:status") return readStatus();
-      if (channel !== "git:review:snapshot") return null;
+      if (channel === "action-status") return readStatus();
+      if (channel !== "review-summary") return null;
       const source = (input as { source: GitReviewSource }).source;
       if (source === "staged") {
         return branchCreated
@@ -886,7 +989,7 @@ describe("ThreadFloatingSummaryPanel", () => {
       errorMessage: null,
     };
     mockInvokeImpl = async (channel: string, input?: unknown) => {
-      if (channel === "git:branch:state") {
+      if (channel === "branch-metadata") {
         return {
           cwd: "/repo/project",
           currentBranch: "main",
@@ -896,8 +999,8 @@ describe("ThreadFloatingSummaryPanel", () => {
         };
       }
 
-      if (channel === "git:action:status") return actionStatus;
-      if (channel !== "git:review:snapshot") return null;
+      if (channel === "action-status") return actionStatus;
+      if (channel !== "review-summary") return null;
       const source = (input as { source: GitReviewSource }).source;
       return makeDefaultBranchSnapshot(source, 0, 0);
     };
@@ -934,12 +1037,19 @@ describe("ThreadFloatingSummaryPanel", () => {
     expect(createBranchRows.length).toBe(1);
     expect(branchRows.length > 0).toBe(true);
 
+    await waitFor(() => {
+      expect(createBranchRows[0]?.getAttribute("aria-disabled")).not.toBe("true");
+    });
+
     await act(async () => {
       fireEvent.click(createBranchRows[0] as HTMLElement);
       await settleAsyncRender();
     });
 
-    const branchNameInput = getBranchSetupInput("default-branch-worktree");
+    let branchNameInput = undefined as unknown as HTMLInputElement;
+    await waitFor(() => {
+      branchNameInput = getBranchSetupInput("default-branch-worktree");
+    });
     expect(
       branchNameInput.value.includes("default-branch-worktree"),
     ).toBe(true);
@@ -969,7 +1079,7 @@ describe("ThreadFloatingSummaryPanel", () => {
       errorMessage: null,
     });
     mockInvokeImpl = async (channel: string, input?: unknown) => {
-      if (channel === "git:branch:state") {
+      if (channel === "branch-metadata") {
         return {
           cwd: "/repo/project",
           currentBranch: branchCreated ? "codex/default-worktree" : "main",
@@ -981,7 +1091,7 @@ describe("ThreadFloatingSummaryPanel", () => {
         };
       }
 
-      if (channel === "git:branch:create") {
+      if (channel === "create-branch") {
         branchCreateInputs.push(input);
         branchCreated = true;
         return {
@@ -993,8 +1103,8 @@ describe("ThreadFloatingSummaryPanel", () => {
         };
       }
 
-      if (channel === "git:action:status") return readStatus();
-      if (channel !== "git:review:snapshot") return null;
+      if (channel === "action-status") return readStatus();
+      if (channel !== "review-summary") return null;
       const source = (input as { source: GitReviewSource }).source;
       if (source === "branch") {
         return branchCreated
@@ -1099,7 +1209,7 @@ describe("ThreadFloatingSummaryPanel", () => {
       errorMessage: null,
     };
     mockInvokeImpl = async (channel: string, input?: unknown) => {
-      if (channel === "git:branch:state") {
+      if (channel === "branch-metadata") {
         return {
           cwd: "/repo/project",
           currentBranch: "feature/summary-panel",
@@ -1109,8 +1219,8 @@ describe("ThreadFloatingSummaryPanel", () => {
         };
       }
 
-      if (channel === "git:action:status") return actionStatus;
-      if (channel !== "git:review:snapshot") return null;
+      if (channel === "action-status") return actionStatus;
+      if (channel !== "review-summary") return null;
       const source = (input as { source: GitReviewSource }).source;
       return makeSnapshot(source, 0, 0);
     };
@@ -1162,7 +1272,7 @@ describe("ThreadFloatingSummaryPanel", () => {
       errorMessage: null,
     };
     mockInvokeImpl = async (channel: string, input?: unknown) => {
-      if (channel === "git:branch:state") {
+      if (channel === "branch-metadata") {
         return {
           cwd: "/repo/project",
           currentBranch: "feature/summary-panel",
@@ -1172,8 +1282,8 @@ describe("ThreadFloatingSummaryPanel", () => {
         };
       }
 
-      if (channel === "git:action:status") return actionStatus;
-      if (channel !== "git:review:snapshot") return null;
+      if (channel === "action-status") return actionStatus;
+      if (channel !== "review-summary") return null;
       const source = (input as { source: GitReviewSource }).source;
       if (source === "branch") return makeSnapshot(source, 2, 0);
       return makeSnapshot(source, 0, 0);
@@ -1228,7 +1338,7 @@ describe("ThreadFloatingSummaryPanel", () => {
       errorMessage: null,
     };
     mockInvokeImpl = async (channel: string, input?: unknown) => {
-      if (channel === "git:branch:state") {
+      if (channel === "branch-metadata") {
         return {
           cwd: "/repo/project",
           currentBranch: "feature/summary-panel",
@@ -1238,7 +1348,7 @@ describe("ThreadFloatingSummaryPanel", () => {
         };
       }
 
-      if (channel === "git:action:status") return actionStatus;
+      if (channel === "action-status") return actionStatus;
       if (channel === "git:action:commit-message:generate") {
         generateInputs.push(input);
         return {
@@ -1262,7 +1372,7 @@ describe("ThreadFloatingSummaryPanel", () => {
         };
       }
 
-      if (channel !== "git:review:snapshot") return null;
+      if (channel !== "review-summary") return null;
       const source = (input as { source: GitReviewSource }).source;
       if (source === "staged") return makeSnapshot(source, 2, 0);
       return makeSnapshot(source, 0, 0);
@@ -1387,7 +1497,7 @@ describe("ThreadFloatingSummaryPanel", () => {
       errorMessage: null,
     };
     mockInvokeImpl = async (channel: string, input?: unknown) => {
-      if (channel === "git:branch:state") {
+      if (channel === "branch-metadata") {
         return {
           cwd: "/repo/project",
           currentBranch: "feature/summary-panel",
@@ -1398,7 +1508,7 @@ describe("ThreadFloatingSummaryPanel", () => {
         };
       }
 
-      if (channel === "git:action:status") return actionStatus;
+      if (channel === "action-status") return actionStatus;
       if (channel === "git:action:push") {
         pushInputs.push(input);
         return {
@@ -1411,7 +1521,7 @@ describe("ThreadFloatingSummaryPanel", () => {
         };
       }
 
-      if (channel !== "git:review:snapshot") return null;
+      if (channel !== "review-summary") return null;
       const source = (input as { source: GitReviewSource }).source;
       if (source === "staged") return makeSnapshot(source, 2, 0);
       if (source === "branch") return makeSnapshot(source, 3, 0);
@@ -1431,9 +1541,9 @@ describe("ThreadFloatingSummaryPanel", () => {
     );
 
     await waitFor(() => {
-      if (!textContent(view.container).includes("+5")) {
+      if (!textContent(view.container).includes("+3")) {
         throw new Error(
-          "Expected staged and branch git summary stats to load.",
+          "Expected the branch diff summary to load once.",
         );
       }
     });
@@ -1498,7 +1608,7 @@ describe("ThreadFloatingSummaryPanel", () => {
       errorMessage: null,
     };
     mockInvokeImpl = async (channel: string, input?: unknown) => {
-      if (channel === "git:branch:state") {
+      if (channel === "branch-metadata") {
         return {
           cwd: "/repo/project",
           currentBranch: "feature/summary-panel",
@@ -1508,7 +1618,7 @@ describe("ThreadFloatingSummaryPanel", () => {
         };
       }
 
-      if (channel === "git:action:status") return actionStatus;
+      if (channel === "action-status") return actionStatus;
       if (channel === "git:action:commit-message:generate") {
         return new Promise((resolve) => {
           resolveGeneration = resolve;
@@ -1522,7 +1632,7 @@ describe("ThreadFloatingSummaryPanel", () => {
         });
       }
 
-      if (channel !== "git:review:snapshot") return null;
+      if (channel !== "review-summary") return null;
       const source = (input as { source: GitReviewSource }).source;
       if (source === "staged") return makeSnapshot(source, 2, 0);
       return makeSnapshot(source, 0, 0);
@@ -1640,7 +1750,7 @@ describe("ThreadFloatingSummaryPanel", () => {
       errorMessage: null,
     };
     mockInvokeImpl = async (channel: string, input?: unknown) => {
-      if (channel === "git:branch:state") {
+      if (channel === "branch-metadata") {
         return {
           cwd: "/repo/project",
           currentBranch: "feature/summary-panel",
@@ -1650,7 +1760,7 @@ describe("ThreadFloatingSummaryPanel", () => {
         };
       }
 
-      if (channel === "git:action:status") return actionStatus;
+      if (channel === "action-status") return actionStatus;
       if (channel === "git:action:cancel") {
         cancelInputs.push(input);
         return { canceled: true };
@@ -1663,7 +1773,7 @@ describe("ThreadFloatingSummaryPanel", () => {
         });
       }
 
-      if (channel !== "git:review:snapshot") return null;
+      if (channel !== "review-summary") return null;
       const source = (input as { source: GitReviewSource }).source;
       if (source === "staged") return makeSnapshot(source, 2, 0);
       return makeSnapshot(source, 0, 0);
@@ -1777,7 +1887,7 @@ describe("ThreadFloatingSummaryPanel", () => {
       errorMessage: null,
     };
     mockInvokeImpl = async (channel: string, input?: unknown) => {
-      if (channel === "git:branch:state") {
+      if (channel === "branch-metadata") {
         return {
           cwd: "/repo/project",
           currentBranch: "feature/summary-panel",
@@ -1788,7 +1898,7 @@ describe("ThreadFloatingSummaryPanel", () => {
         };
       }
 
-      if (channel === "git:action:status") return actionStatus;
+      if (channel === "action-status") return actionStatus;
       if (channel === "gh-pr-status") {
         return {
           cwd: "/repo/project",
@@ -1827,7 +1937,7 @@ describe("ThreadFloatingSummaryPanel", () => {
         };
       }
 
-      if (channel !== "git:review:snapshot") return null;
+      if (channel !== "review-summary") return null;
       const source = (input as { source: GitReviewSource }).source;
       return makeSnapshot(source, 0, 0);
     };
@@ -1939,7 +2049,7 @@ describe("ThreadFloatingSummaryPanel", () => {
       errorMessage: null,
     });
     mockInvokeImpl = async (channel: string, input?: unknown) => {
-      if (channel === "git:branch:state") {
+      if (channel === "branch-metadata") {
         return {
           cwd: "/repo/project",
           currentBranch: branchCreated ? "codex/default-pr-worktree" : "main",
@@ -1951,7 +2061,7 @@ describe("ThreadFloatingSummaryPanel", () => {
         };
       }
 
-      if (channel === "git:branch:create") {
+      if (channel === "create-branch") {
         branchCreateInputs.push(input);
         branchCreated = true;
         return {
@@ -1963,7 +2073,7 @@ describe("ThreadFloatingSummaryPanel", () => {
         };
       }
 
-      if (channel === "git:action:status") return readStatus();
+      if (channel === "action-status") return readStatus();
       if (channel === "gh-pr-status") {
         return {
           cwd: "/repo/project",
@@ -1978,7 +2088,7 @@ describe("ThreadFloatingSummaryPanel", () => {
           message: "no pull requests found",
         };
       }
-      if (channel !== "git:review:snapshot") return null;
+      if (channel !== "review-summary") return null;
       const source = (input as { source: GitReviewSource }).source;
       return branchCreated
         ? makeSnapshot(source, 0, 0)
@@ -2624,7 +2734,7 @@ describe("ThreadFloatingSummaryPanel", () => {
     const { ThreadFloatingSummaryPanel } =
       await import("./thread-floating-summary-panel");
     mockInvokeImpl = async (channel: string, input?: unknown) => {
-      if (channel !== "git:review:snapshot") return null;
+      if (channel !== "review-summary") return null;
       return makeSnapshot((input as { source: GitReviewSource }).source, 0, 0);
     };
     const actions = {
@@ -3127,7 +3237,7 @@ describe("ThreadFloatingSummaryPanel", () => {
     const { ThreadFloatingSummaryPanel } =
       await import("./thread-floating-summary-panel");
     mockInvokeImpl = async (channel: string, input?: unknown) => {
-      if (channel !== "git:review:snapshot") return null;
+      if (channel !== "review-summary") return null;
       return makeSnapshot((input as { source: GitReviewSource }).source, 0, 0);
     };
     const turns = [
@@ -3166,12 +3276,16 @@ describe("ThreadFloatingSummaryPanel", () => {
     });
 
     await waitFor(() => {
+      const queriedMethods = new Set(gitWorkerCalls.map((call) => call.method));
       if (
-        invokeCalls.filter((call) => call[0] === "git:review:snapshot").length <
-        3
+        !queriedMethods.has("stable-metadata")
+        || !queriedMethods.has("status-summary")
+        || !queriedMethods.has("branch-diff-stats")
       ) {
-        throw new Error("Expected git snapshots to load.");
+        throw new Error("Expected Git worker summary queries to load.");
       }
+      expect(invokeCalls.some((call) => call[0] === "review-summary"))
+        .toBe(false);
       const content = textContent(view.container);
       expect(content.includes("Clean")).toBe(false);
       expect(content.includes("Outputs")).toBe(false);
@@ -3183,7 +3297,7 @@ describe("ThreadFloatingSummaryPanel", () => {
     const { ThreadFloatingSummaryPanel } =
       await import("./thread-floating-summary-panel");
     mockInvokeImpl = async (channel: string, input?: unknown) => {
-      if (channel !== "git:review:snapshot") return null;
+      if (channel !== "review-summary") return null;
       return makeSnapshot((input as { source: GitReviewSource }).source, 0, 0);
     };
     const turns = [
@@ -3223,12 +3337,16 @@ describe("ThreadFloatingSummaryPanel", () => {
     });
 
     await waitFor(() => {
+      const queriedMethods = new Set(gitWorkerCalls.map((call) => call.method));
       if (
-        invokeCalls.filter((call) => call[0] === "git:review:snapshot").length <
-        3
+        !queriedMethods.has("stable-metadata")
+        || !queriedMethods.has("status-summary")
+        || !queriedMethods.has("branch-diff-stats")
       ) {
-        throw new Error("Expected git snapshots to load.");
+        throw new Error("Expected Git worker summary queries to load.");
       }
+      expect(invokeCalls.some((call) => call[0] === "review-summary"))
+        .toBe(false);
       const content = textContent(renderedView.container);
       expect(content.includes("Environment")).toBe(false);
       expect(content.includes("Outputs")).toBe(true);
