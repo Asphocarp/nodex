@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "version": "2.9.4",
+  "source": {
+    "repository": "https://github.com/sparkle-project/Sparkle",
+    "tag": "2.9.4",
+    "commit": "b6496a74a087257ef5e6da1c5b29a447a60f5bd7"
+  },
+  "archive": {
+    "name": "Sparkle-2.9.4.tar.xz",
+    "url": "https://github.com/sparkle-project/Sparkle/releases/download/2.9.4/Sparkle-2.9.4.tar.xz",
+    "size": 15554152,
+    "sha256": "ce89daf967db1e1893ed3ebd67575ed82d3902563e3191ca92aaec9164fbdef9"
+  },
+  "framework": {
+    "bundleVersion": "2059",
+    "shortVersion": "2.9.4",
+    "architectures": [
+      "arm64",
+      "x86_64"
+    ]
+  },
+  "license": {
+    "path": "resources/sparkle/LICENSE",
+    "sha256": "389a4e4e9a32f059775b13a06e25a591445ba229d2838d26dd3e7c0c45127cfe"
+  }
+}

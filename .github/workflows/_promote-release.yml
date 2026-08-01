@@ -240,5 +240,6 @@ jobs:
     uses: ./.github/workflows/_deploy-landing-site.yml
     with:
       source_sha: ${{ inputs.source_sha }}
+      publish_updates: true
     secrets:
       landing_github_token: ${{ secrets.landing_github_token }}

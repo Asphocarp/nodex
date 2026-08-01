@@ -16,6 +16,17 @@ const nativeManifestRelativePath = "Contents/Resources/bin/rust-core-runtime.jso
 const agentManifestRelativePath = "Contents/Resources/agent-runtime.json";
 const browserManifestRelativePath =
   "Contents/Resources/browser-runtime/browser-runtime-manifest.json";
+const sparkleManifestRelativePath = "Contents/Resources/native/sparkle-runtime.json";
+const sparkleOwnedRelativePaths = [
+  "Contents/Resources/native/nodex-sparkle.node",
+  "Contents/Frameworks/Sparkle.framework",
+];
+const sparkleCodeObjectRelativePaths = [
+  "Contents/Resources/native/nodex-sparkle.node",
+  "Contents/Frameworks/Sparkle.framework/Versions/B/Autoupdate",
+  "Contents/Frameworks/Sparkle.framework/Versions/B/Updater.app",
+  "Contents/Frameworks/Sparkle.framework",
+];
 const browserRuntimeSchemaVersion = 3;
 const expectedBinaryPaths = new Map([
   ["nodex", "Resources/bin/nodex"],
@@ -34,6 +45,106 @@ const writeManifestAtomically = (manifestPath, manifest) => {
     mode: 0o644,
   });
   renameSync(temporaryPath, manifestPath);
+};
+
+const isInside = (parentPath, candidatePath) => {
+  const relativePath = path.relative(parentPath, candidatePath);
+  return relativePath === "" || (
+    !relativePath.startsWith("..") && !path.isAbsolute(relativePath)
+  );
+};
+
+const matchesIgnore = (ignore, filePath) => {
+  if (!ignore) return false;
+  if (typeof ignore === "function") return ignore(filePath);
+  const patterns = Array.isArray(ignore) ? ignore : [ignore];
+  return patterns.some((pattern) => new RegExp(pattern).test(filePath));
+};
+
+const isSparkleOwnedCode = (appPath, filePath) => sparkleOwnedRelativePaths.some(
+  (relativePath) => isInside(path.join(appPath, relativePath), filePath),
+);
+
+export const sparkleCodeSignArguments = ({
+  identity,
+  keychain,
+  local,
+  targetPath,
+}) => [
+  "--force",
+  "--sign",
+  identity,
+  "--options",
+  "runtime",
+  local ? "--timestamp=none" : "--timestamp",
+  ...(keychain ? ["--keychain", keychain] : []),
+  targetPath,
+];
+
+const signSparkleCodeObjects = (options) => {
+  if (!options.identity) {
+    throw new Error("Sparkle code signing requires a resolved signing identity");
+  }
+  for (const relativePath of sparkleCodeObjectRelativePaths) {
+    const targetPath = path.join(options.app, relativePath);
+    const result = spawnSync("/usr/bin/codesign", sparkleCodeSignArguments({
+      identity: options.identity,
+      keychain: options.keychain,
+      local: process.env.NODEX_MAC_SIGN_MODE === "local",
+      targetPath,
+    }), { encoding: "utf8" });
+    if (result.error || result.status !== 0) {
+      throw new Error(
+        `Could not sign Sparkle code object ${relativePath}: `
+        + `${result.error?.message ?? result.stderr ?? result.stdout}`,
+      );
+    }
+  }
+};
+
+const requireSparkleArtifactPath = (entry, expectedPath, manifestPath) => {
+  if (
+    !entry
+    || entry.path !== expectedPath
+    || typeof entry.sha256 !== "string"
+    || !/^[a-f0-9]{64}$/u.test(entry.sha256)
+    || !Number.isSafeInteger(entry.size)
+    || entry.size <= 0
+  ) {
+    throw new Error(`Invalid Sparkle runtime artifact in ${manifestPath}: ${expectedPath}`);
+  }
+};
+
+export const refreshSignedSparkleRuntimeManifest = (appPath) => {
+  const manifestPath = path.join(appPath, sparkleManifestRelativePath);
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  const expectedArtifacts = {
+    autoupdate: "Frameworks/Sparkle.framework/Versions/B/Autoupdate",
+    bridge: "Resources/native/nodex-sparkle.node",
+    frameworkExecutable: "Frameworks/Sparkle.framework/Versions/B/Sparkle",
+    frameworkInfoPlist: "Frameworks/Sparkle.framework/Versions/B/Resources/Info.plist",
+    updater: "Frameworks/Sparkle.framework/Versions/B/Updater.app/Contents/MacOS/Updater",
+  };
+  if (manifest.schemaVersion !== 2 || !manifest.artifacts) {
+    throw new Error(`Unsupported Sparkle runtime manifest: ${manifestPath}`);
+  }
+  const artifacts = Object.fromEntries(Object.entries(expectedArtifacts).map(([
+    name,
+    relativePath,
+  ]) => {
+    requireSparkleArtifactPath(manifest.artifacts[name], relativePath, manifestPath);
+    const filePath = path.join(appPath, "Contents", relativePath);
+    const metadata = lstatSync(filePath);
+    if (metadata.isSymbolicLink() || !metadata.isFile()) {
+      throw new Error(`Sparkle runtime artifact is not a regular file: ${filePath}`);
+    }
+    return [name, {
+      path: relativePath,
+      sha256: sha256File(filePath),
+      size: metadata.size,
+    }];
+  }));
+  writeManifestAtomically(manifestPath, { ...manifest, artifacts });
 };
 
 const refreshSignedNativeRuntimeManifest = (appPath) => {
@@ -273,12 +384,25 @@ export const applyMacSigningMode = (
 
 export const sign = async (options) => {
   const signOptions = applyMacSigningMode(options);
-  await signWithRetry(signOptions);
-  if (signOptions.platform !== "darwin") return;
+  if (signOptions.platform !== "darwin") {
+    await signWithRetry(signOptions);
+    return;
+  }
+
+  signSparkleCodeObjects(signOptions);
+  const baseIgnore = signOptions.ignore;
+  await signWithRetry({
+    ...signOptions,
+    ignore: (filePath) => (
+      isSparkleOwnedCode(signOptions.app, filePath)
+      || matchesIgnore(baseIgnore, filePath)
+    ),
+  });
 
   refreshSignedNativeRuntimeManifest(signOptions.app);
   refreshSignedAgentRuntimeMetadata(signOptions.app);
   refreshSignedBrowserRuntimeManifest(signOptions.app);
+  refreshSignedSparkleRuntimeManifest(signOptions.app);
   writePackagedBuildProvenance(signOptions.app);
 
   await signWithRetry({

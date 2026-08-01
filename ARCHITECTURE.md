@@ -494,17 +494,16 @@ or unverified handoff falls back to process killing or stale-file deletion.
 For packaged macOS builds, artifact identity is computed after nested Developer
 ID signing; the signing boundary rewrites the closed native manifest from those
 final bytes, writes one package provenance record that binds the prepared
-source/output generation, `app.asar`, updater configuration, and final
-native/Agent manifests, then reseals the outer app before notarization. The
+source/output generation, `app.asar`, signed Sparkle runtime identity, and final
+native/Agent/Browser manifests, then reseals the outer app before notarization. The
 prepared generation inventories
 the complete Electron, Rust, resource, packaging-script, and configuration
 input closure; a Git commit is lineage metadata only, while the content digest
 remains authoritative for dirty or archive builds. Local source deployment
-packages an update-capable DMG target into a new unique `.generated` directory
-and verifies the same provenance identity before and after staging, so a
-persistent `dist/` directory can never silently supply an older same-version
-app or omit the updater configuration that electron-builder emits only for
-supported macOS artifact targets. Explicit external
+packages an unpacked, update-disabled App into a new unique `.generated`
+directory and verifies the same provenance identity before and after staging,
+so a persistent `dist/` directory can never silently supply an older
+same-version app or a production feed capability. Explicit external
 artifacts are not compared to the current checkout, but their intrinsic
 provenance and runtime closure remain mandatory. A packaged Core also
 derives the frozen legacy-migrator closure from its own enclosing app bundle:
@@ -1361,8 +1360,9 @@ metadata, or decide which files are publishable.
 
 The prepared Electron build and packaged-provenance Modules remain deeper,
 independent implementations. Prepared build binds the clean source snapshot and
-compiled Electron outputs. Package provenance binds the final `app.asar`,
-updater configuration, and native/Agent/Browser manifests after signing. The
+compiled Electron outputs. Package provenance binds the final `app.asar`, the
+signed Sparkle framework/addon/runtime configuration, and native/Agent/Browser
+manifests after signing. The
 Release Module consumes those identities and adds source/tree, runtime-lock,
 architecture, runner/toolchain, and public-artifact evidence. This Locality
 keeps source correctness, package correctness, and publication correctness
@@ -1370,12 +1370,18 @@ separate while making their promotion seam machine-readable.
 
 Production Distribution runs on native arm64 and x64 hosted macOS runners. It
 does not cross-compile a second architecture as release evidence. Each signed,
-notarized ZIP is extracted, launched, and subjected once to the stateful
+notarized App is archived as Sparkle's full-update ZIP, extracted, launched,
+and subjected once to the stateful
 packaged runtime smoke. The DMG is mounted for structural verification and
 checked against the same version, bundle ID, TeamIdentifier, and sealed package
-provenance instead of repeating that smoke. Only a matching pair reaches Linux
-assembly. The stable annotated tag is created after assembly, then an immutable
-GitHub Release is published and verified before the Homebrew Adapter runs.
+provenance instead of repeating that smoke. A protected macOS finalizer uses
+the pinned Sparkle tools to sign one architecture-specific appcast, generate
+and round-trip applicable deltas against verified historical ZIPs, and emit a
+closed update manifest. Only a matching pair reaches Linux assembly. The
+stable annotated tag is created after assembly, then an immutable GitHub
+Release is published and byte-verified before the Homebrew and Pages Adapters
+run. GitHub Release is the immutable update data plane; Pages exposes only the
+two signed stable appcast projections.
 
 `CI / required` is the stable repository-protection Interface. Its internal
 jobs may vary by change class, but release metadata always selects the app and

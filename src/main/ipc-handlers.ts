@@ -916,7 +916,7 @@ interface RegisterIpcHandlersOptions {
   desktopNotificationManager?: DesktopNotificationManager;
   onGetAppUpdateStatus?: () => AppUpdateStatus;
   onCheckForAppUpdate?: () => Promise<AppUpdateStatus>;
-  onInstallAppUpdate?: () => boolean;
+  onInstallAppUpdate?: () => boolean | Promise<boolean>;
   onAppUpdateSettingsChanged?: (settings: AppUpdateSettings) => void;
   onCommandKeybindingsChanged?: (state: CommandKeymapState) => void;
   rendererClientRouter?: RendererClientRouter;

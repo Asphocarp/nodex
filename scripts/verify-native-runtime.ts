@@ -7,13 +7,15 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readlinkSync,
+  realpathSync,
   readdirSync,
   rmSync,
   statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -32,6 +34,7 @@ export interface PackagedNativeRuntimeStructureOptions {
   readonly expectedVersion: string;
   readonly requireDeveloperId: boolean;
   readonly targetArch: NativeRuntimeArchitecture;
+  readonly expectedUpdateChannel?: "disabled" | "stable";
   readonly verifyNotarization: boolean;
   readonly verifySignatures: boolean;
 }
@@ -131,6 +134,154 @@ const verifySignatures = (appPath: string, binaryPaths: readonly string[], requi
       throw new Error("Native runtime signature is inconsistent with the enclosing Nodex.app");
     }
   }
+};
+
+const assertSymlinksStayInside = (rootPath: string, currentPath = rootPath): void => {
+  const canonicalRoot = realpathSync(rootPath);
+  for (const entry of readdirSync(currentPath, { withFileTypes: true })) {
+    const entryPath = join(currentPath, entry.name);
+    const metadata = lstatSync(entryPath);
+    if (metadata.isSymbolicLink()) {
+      const target = readlinkSync(entryPath);
+      const resolvedTarget = realpathSync(resolve(dirname(entryPath), target));
+      const relativeTarget = relative(canonicalRoot, resolvedTarget);
+      if (
+        target.startsWith("/")
+        || relativeTarget === ".."
+        || relativeTarget.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`)
+        || resolve(canonicalRoot, relativeTarget) !== resolvedTarget
+      ) {
+        throw new Error(`Sparkle framework symlink escapes its root: ${entryPath}`);
+      }
+      continue;
+    }
+    if (metadata.isDirectory()) assertSymlinksStayInside(rootPath, entryPath);
+  }
+};
+
+const verifySparkleRuntime = (
+  appPath: string,
+  options: PackagedNativeRuntimeStructureOptions,
+): readonly string[] => {
+  const contentsPath = join(appPath, "Contents");
+  const resourcesPath = join(contentsPath, "Resources");
+  const manifestPath = join(resourcesPath, "native/sparkle-runtime.json");
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+    readonly architecture?: unknown;
+    readonly artifacts?: Record<string, { readonly path?: unknown; readonly sha256?: unknown; readonly size?: unknown }>;
+    readonly channel?: unknown;
+    readonly feedUrl?: unknown;
+    readonly minimumMacOS?: unknown;
+    readonly publicKey?: unknown;
+    readonly schemaVersion?: unknown;
+    readonly sparkleVersion?: unknown;
+  };
+  const expectedPaths = {
+    autoupdate: "Frameworks/Sparkle.framework/Versions/B/Autoupdate",
+    bridge: "Resources/native/nodex-sparkle.node",
+    frameworkExecutable: "Frameworks/Sparkle.framework/Versions/B/Sparkle",
+    frameworkInfoPlist: "Frameworks/Sparkle.framework/Versions/B/Resources/Info.plist",
+    updater: "Frameworks/Sparkle.framework/Versions/B/Updater.app/Contents/MacOS/Updater",
+  };
+  if (
+    manifest.schemaVersion !== 2
+    || manifest.architecture !== options.targetArch
+    || (manifest.channel !== "disabled" && manifest.channel !== "stable")
+    || (options.expectedUpdateChannel && manifest.channel !== options.expectedUpdateChannel)
+    || manifest.minimumMacOS !== "12.0"
+    || manifest.sparkleVersion !== "2.9.4"
+    || typeof manifest.publicKey !== "string"
+    || !manifest.artifacts
+  ) {
+    throw new Error("Packaged Sparkle runtime manifest is invalid.");
+  }
+  const expectedFeed = `https://nodex.jyu.app/updates/stable/${options.targetArch}/appcast.xml`;
+  if (
+    (manifest.channel === "disabled" && manifest.feedUrl !== null)
+    || (manifest.channel === "stable" && manifest.feedUrl !== expectedFeed)
+  ) {
+    throw new Error("Packaged Sparkle feed does not match its channel.");
+  }
+  for (const [name, relativePath] of Object.entries(expectedPaths)) {
+    const identity = manifest.artifacts?.[name];
+    const filePath = join(contentsPath, ...relativePath.split("/"));
+    const metadata = lstatSync(filePath);
+    if (
+      identity?.path !== relativePath
+      || identity.sha256 !== sha256File(filePath)
+      || identity.size !== metadata.size
+      || metadata.isSymbolicLink()
+      || !metadata.isFile()
+    ) {
+      throw new Error(`Packaged Sparkle artifact identity mismatch: ${name}.`);
+    }
+  }
+  const frameworkPath = join(contentsPath, "Frameworks/Sparkle.framework");
+  assertSymlinksStayInside(frameworkPath);
+  if (
+    existsSync(join(frameworkPath, "Versions/B/XPCServices"))
+    || existsSync(join(frameworkPath, "XPCServices"))
+  ) {
+    throw new Error("Packaged non-sandboxed Sparkle framework must not contain XPC services.");
+  }
+  const bridgePath = join(resourcesPath, "native/nodex-sparkle.node");
+  assertRegularExecutable(bridgePath);
+  assertMachO(bridgePath, options.targetArch, "12.0");
+  const linkage = run("otool", ["-L", bridgePath], "Inspect Sparkle bridge linkage").stdout;
+  const loadCommands = run("otool", ["-l", bridgePath], "Inspect Sparkle bridge rpath").stdout;
+  if (
+    !linkage.includes("@rpath/Sparkle.framework/Versions/B/Sparkle")
+    || !loadCommands.includes("@loader_path/../../Frameworks")
+  ) {
+    throw new Error("Packaged Sparkle bridge linkage is invalid.");
+  }
+  for (const relativePath of [
+    expectedPaths.frameworkExecutable,
+    expectedPaths.autoupdate,
+    expectedPaths.updater,
+  ]) {
+    const architectures = run("/usr/bin/lipo", [
+      "-archs",
+      join(contentsPath, ...relativePath.split("/")),
+    ], "Inspect Sparkle universal binary").stdout.trim().split(/\s+/u).sort();
+    if (JSON.stringify(architectures) !== JSON.stringify(["arm64", "x86_64"])) {
+      throw new Error(`Packaged Sparkle framework binary is not universal: ${relativePath}.`);
+    }
+  }
+  const appInfoPlist = join(contentsPath, "Info.plist");
+  const readAppPlist = (key: string): string => run(
+    "/usr/bin/plutil",
+    ["-extract", key, "raw", "-o", "-", appInfoPlist],
+    `Read ${key}`,
+  ).stdout.trim();
+  if (
+    readAppPlist("SUPublicEDKey") !== manifest.publicKey
+    || readAppPlist("SURequireSignedFeed") !== "true"
+    || readAppPlist("SUVerifyUpdateBeforeExtraction") !== "true"
+  ) {
+    throw new Error("Packaged Sparkle Info.plist security keys are invalid.");
+  }
+  const sparkleCodeObjects = [
+    bridgePath,
+    join(frameworkPath, "Versions/B/Autoupdate"),
+    join(frameworkPath, "Versions/B/Updater.app"),
+    frameworkPath,
+  ];
+  if (options.verifySignatures) {
+    for (const codeObject of sparkleCodeObjects) {
+      const entitlements = spawnSync("codesign", ["-d", "--entitlements", ":-", codeObject], {
+        encoding: "utf8",
+      });
+      const output = `${entitlements.stdout ?? ""}\n${entitlements.stderr ?? ""}`;
+      if (
+        output.includes("com.apple.security.cs.allow-jit")
+        || output.includes("com.apple.security.cs.allow-unsigned-executable-memory")
+      ) {
+        throw new Error(`Sparkle code object carries Electron runtime entitlements: ${codeObject}`);
+      }
+    }
+  }
+  return sparkleCodeObjects;
 };
 
 const restrictedEnvironment = (home: string): NodeJS.ProcessEnv => ({
@@ -595,6 +746,7 @@ export function verifyPackagedNativeRuntimeStructure(
   assertRegularExecutable(cliRipgrep);
   assertMachOArchitecture(cliRipgrep, options.targetArch);
   binaryPaths.push(cliRipgrep);
+  binaryPaths.push(...verifySparkleRuntime(appPath, options));
   assertLegacyPackagedRuntimePathsAbsent(contentsPath);
   const resourcesService = join(contentsPath, "Resources/bin/nodex-service");
   if (existsSync(resourcesService)) {
@@ -661,11 +813,20 @@ const main = async (): Promise<void> => {
     throw new Error(
       "usage: verify-native-runtime --app-path <Nodex.app> --target-arch arm64|x64 "
       + "--expected-version <semver> [--legacy-profile-fixture <legacy.db>] [--verify-signatures] "
-      + "[--require-developer-id] [--verify-notarization] [--launch-app]",
+      + "[--require-developer-id] [--verify-notarization] [--launch-app] "
+      + "[--expected-update-channel disabled|stable]",
     );
   }
   const requireDeveloperId = arguments_.includes("--require-developer-id");
   const verifyNotarization = arguments_.includes("--verify-notarization");
+  const expectedUpdateChannel = readOption(arguments_, "--expected-update-channel");
+  if (
+    expectedUpdateChannel !== null
+    && expectedUpdateChannel !== "disabled"
+    && expectedUpdateChannel !== "stable"
+  ) {
+    throw new Error("--expected-update-channel must be disabled or stable");
+  }
   await verifyPackagedNativeRuntimeSmoke({
     appPath,
     expectedVersion,
@@ -674,6 +835,7 @@ const main = async (): Promise<void> => {
       readOption(arguments_, "--legacy-profile-fixture") ?? undefined,
     requireDeveloperId,
     targetArch,
+    expectedUpdateChannel: expectedUpdateChannel ?? undefined,
     verifyNotarization,
     verifySignatures: arguments_.includes("--verify-signatures")
       || requireDeveloperId

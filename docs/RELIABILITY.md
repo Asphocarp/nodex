@@ -435,7 +435,16 @@
 - Reminder path: the Host scheduler claims revision-fenced due leases from Core, presents OS notifications, and completes or fails the exact lease; Core owns deduplication and advancement.
 - Resume/startup catch-up replays missed reminders within the configured catch-up window and still dedupes by receipt keys.
 - The native migration path separates selection from delivery with expiring durable leases. A Host claim may be retried after expiry without writing a delivery receipt; only successful completion inserts the unique receipt and consumes the exact due snoozes in the same transaction. A crash before completion is therefore at-least-once, while a completed `(project_id, page_id, occurrence_start, offset)` cannot be delivered again. Failure records a bounded reason and retry time, and a native CLI Adapter cannot claim or settle Host work.
-- Packaged macOS builds installed in an Applications folder expose an `electron-updater`-backed app-update channel: the main process publishes updater status changes over IPC, auto-checks only start after initialization completes and at least one window exists, downloads run in the background when enabled, and installation stays explicit via `Restart to Update`. A packaged copy still running from a DMG, Downloads, or another transient location reports updates as unsupported.
+- Production macOS builds installed in an Applications folder expose a pinned
+  Sparkle app-update channel: the main process owns check scheduling and one IPC
+  status source, while Sparkle verifies the signed architecture feed, downloads
+  a matching delta or full fallback, and installs only after the update is ready.
+  The global `Restart to Update` action installs immediately through the normal
+  flush/shutdown coordinator; otherwise a ready update may install after a later
+  normal app exit.
+  Local packages carry an explicit disabled channel. A packaged copy still
+  running from a DMG, Downloads, or another transient location reports updates
+  as unsupported.
 - Codex conversation path: `codex-service` owns app-server transport and the main canonical recovery record. An active renderer owner reduces owner-routed host notifications and publishes revisioned snapshots/patches for followers; main reduces and publishes only the no-owner fallback. `codex:event` remains for shell/control compatibility rather than acting as a second transcript reducer.
 - A fresh Session start crosses the main/renderer authority boundary through one single-use launch ticket. Main completes `thread/start`, persists the Session link, and freezes the exact first-turn canonical/transport parameters plus `clientUserMessageId` for the initiating renderer. Fresh adoption seeds the accepted document and revision, reserves that renderer as owner, and buffers same-thread notifications until the renderer applies the seed. The renderer then publishes the optimistic first turn before consuming the ticket through the owner request facade. The submit boundary returns as soon as that optimistic turn is renderer-visible; `turn/start` completion, rebind, and failure projection continue in the owner transaction. This path never calls `thread/resume`; concurrent windows attach as followers to the reserved owner, and duplicate or wrong-renderer ticket use fails closed.
 - Codex sidebar path: `codex:sidebar:snapshot({ refresh:false })` reads a bounded SQLite cold-start overview. Project/projectless lanes are independent Workspace task windows; folded lanes do not read, `Show more` consumes the Core continuation, and the selected task can be recovered by exact identity without loading intervening rows. External chat discovery goes through `codex:sidebar:sync`, which requests one bounded app-server window with the interactive root-thread source default, `modelProviders:null`, and state-DB listing enabled when supported.
@@ -491,7 +500,15 @@
 - Browser native-pipe framing owns connection isolation, authorization, and frame bounds, but does not impose a second request deadline around its handler. Main owns a fixed 20-second deadline for each CDP operation and deliberately ignores plugin-provided `timeoutMs` and `preserveDebuggerOnTimeout` hints; this prevents a 2–5 second client hint from truncating host-side paint synchronization while preserving a single bounded command lifecycle.
 - A `Page.captureScreenshot` request with `captureBeyondViewport: true` and a finite positive `clip` temporarily sizes the Browser guest to the rounded-up clip through the central renderer webview manager, whether that guest is currently presented or retained. Hidden painting stays at `(0, 0)` with near-transparent opacity, no pointer events, explicit paint/size containment, and compositor promotion. Main polls `Page.getLayoutMetrics` for at most one second before issuing the screenshot, then restores the normal surface in `finally`. Metric read failure or a slow renderer does not extend the synchronization indefinitely.
 - macOS packaging re-signs every embedded Open Interpreter executable and native Nodex binary under the enclosing Nodex Developer ID identity. Because signing changes Mach-O bytes, the custom signing boundary refreshes `agent-runtime.json`, the optional `browser-runtime-manifest.json`, and `rust-core-runtime.json` from the final nested signatures and then reseals only the outer app before notarization. Structural packaged verification requires each executable's TeamIdentifier to equal the enclosing app, the Browser peer-authorization signing team to equal that identity when the optional closure is required, and every manifest digest to match the final artifact; upstream ad-hoc signatures are not treated as distribution authority. Distribution runs the stateful runtime smoke exactly once per architecture against the extracted, notarized ZIP App, while the mounted DMG is structural-only and must share its version, bundle, team, and sealed provenance. The smoke requires the manifest Core SHA-256 to equal Core's authenticated self identity, two selector launches to reuse one PID/start nonce, and a real symlinked CLI workflow. It starts from an empty Profile, provisions the first Project through the same Electron-host bootstrap boundary, passes the returned opaque Project ID into Page creation and ripgrep checks, and explicitly drains the live Core connection after the final command.
-- Local macOS source deployment asks electron-builder for its supported DMG target in a unique generated directory, even though the deployer installs the resulting app bundle directly. This preserves electron-builder's `app-update.yml` generation contract without adding the ZIP target's separately downloaded 7zip toolset to local installation. Sealed package provenance binds that updater configuration together with `app.asar` and the final native/Agent manifests, so neither a directory-only partial package nor a stale same-version app can pass installation verification. Source, staging, and installed copies receive structural verification only; byte-identical provenance makes repeated Core, migration, Browser-helper, or Page/ripgrep smoke runs redundant, so local deployment never starts a verification Profile.
+- Local macOS source deployment asks electron-builder for an unpacked App in a
+  unique generated directory and installs that verified bundle directly. Its
+  Sparkle runtime is explicitly disabled and has no feed URL. Sealed package
+  provenance binds that capability together with `app.asar`, the framework and
+  addon, and final native/Agent/Browser manifests, so neither a partial package
+  nor a stale same-version App can pass installation verification. Source,
+  staging, and installed copies receive structural verification only;
+  byte-identical provenance makes repeated Core, migration, Browser-helper, or
+  Page/ripgrep smoke runs redundant.
 - Nodex never falls back to a system `codex` or `interpreter` binary from `PATH`. The committed protocol is generated from the actual pinned runtime, while a stock Codex schema comparison rejects accidental removal of the shared request surface.
 - Credential changes invalidate the provider catalog and restart the app-server immediately when idle. If a turn is active, the restart is marked pending, new work is rejected until the active turn reaches a terminal notification, and the restart then applies the new environment before another start or turn request.
 - Permission-state reads degrade to a local fallback when the pinned Agent app-server runtime cannot start, so settings and approval fallback logic do not crash before the missing-runtime connection state can be surfaced.
@@ -522,17 +539,24 @@
 - Distribution checks out one exact clean commit independently on native arm64
   and Intel runners. Each architecture manifest binds its source tree, runtime
   locks, prepared-build generation, package provenance, runner/toolchain, and
-  artifact hashes. Assembly accepts only matching manifests and revalidates
-  updater ZIP SHA-512/size before producing the Release Bundle.
+  artifact hashes. A protected per-architecture Sparkle finalizer accepts only
+  verified schema-2 release history, uses the pinned official generator, and
+  round-trips every emitted delta before assembly. Assembly accepts only
+  matching build/update manifests and revalidates the full ZIP and every
+  appcast/delta digest before producing the Release Bundle.
 - Promotion is tag-last: it creates the stable tag only after both signed and
   notarized builds, fresh ZIP launches, mounted-DMG verification, and bundle
   assembly succeed. Existing tags never move. Draft recovery uploads only
   missing assets whose existing hashes agree; published immutable assets are
   never replaced.
-- GitHub Latest is part of the updater/download contract. Stable app releases
-  use `vX.Y.Z` and become Latest. Browser runtime releases use a separate tag
-  namespace, are explicitly published with `--latest=false`, and must prove
-  that Latest did not change.
+- GitHub Release is Sparkle's immutable data plane. Stable app releases use
+  `vX.Y.Z` and become Latest, while the two architecture-specific signed
+  appcasts are projected to stable Pages URLs only after the release has been
+  re-downloaded and verified. A projection cannot move a feed backwards or
+  replace the same version with different bytes. Ordinary landing deployments
+  preserve the target repository's `updates/` tree. Browser runtime releases
+  use a separate tag namespace, are explicitly published with
+  `--latest=false`, and must prove that Latest did not change.
 - Homebrew and landing are downstream Adapters. Homebrew derives both checksums
   from `release-bundle.json` and binds URLs to the immutable version tag; the
   landing page consumes the stable Latest aliases and deploys release metadata
@@ -540,7 +564,9 @@
   without modifying the published app release.
 - `Distribution Rehearsal` invokes the same deep dual-architecture
   Implementation with production signing but without release, repository-write,
-  tap, landing, or Sentry-upload authority.
+  tap, landing, or Sentry-upload authority. It receives only the protected
+  Sparkle finalization environment secret needed to prove signed appcast and
+  delta generation.
 
 ## Operational Checks
 - For read-model or Core transport changes, run
@@ -556,7 +582,12 @@
 - Release macOS packaging uploads hidden source maps to Sentry only when `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, and `SENTRY_PROJECT` are present; `.map` files remain excluded from packaged artifacts.
 - Before enabling CI signing secrets: do one local notarization dry run and verify `codesign --verify --deep --strict`, `spctl --assess --type open`, and `xcrun stapler validate` against the generated macOS artifacts.
 - During macOS packaging validation, extract the update ZIP into a fresh install root. Verify both runtime manifests, validate every executable native artifact with `codesign --verify --strict`, require each embedded runtime executable, the Nodex native binaries, the shared `Resources/codex-path/rg`, and the helper app to share the enclosing Developer ID team, and validate the final deep app seal. The fresh install must invoke the CLI through an external symlink, cold-start and reuse one Core, complete a real `nodex rg` search through the canonical ripgrep, migrate the frozen early-v57 fixture through the packaged migrator without launcher-injected overrides, retain its source backup, and launch Electron with Cargo/Rustup unavailable and PATH restricted to operating-system tools.
-- Release CI publishes only after both `arm64` and `x64` notarized artifacts pass verification, and it synthesizes one canonical `latest-mac.yml` plus referenced blockmaps from the two per-arch updater outputs before the tag and GitHub Release are created; tap sync runs after remote release verification and can be retried through Release Recovery if the external tap push fails.
+- Release CI publishes only after both `arm64` and `x64` notarized artifacts,
+  signed appcasts, and applicable round-tripped deltas pass verification. The
+  exact Release Bundle rejects electron-updater metadata, and GitHub assets are
+  re-downloaded before Homebrew or Pages projection. Downstream tap or feed
+  publication can be retried through Release Recovery without changing the
+  immutable release.
 - The authoritative release runbook for workflow triggers, job ordering, secret requirements, artifact naming, and rerun strategy is `docs/release-macos.md`.
 - Before risky migrations/refactors: create a labeled manual backup.
 - Keep the deleted-Block retention count aligned with local storage constraints. It counts newest tombstoned roots, not immutable audit rows.

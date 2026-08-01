@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { NodexButton, NodexSwitch } from "@/components/ui/button";
 import type { AppUpdateSettings, AppUpdateStatus } from "../../lib/types";
 import { invoke, subscribeAppUpdateStatus } from "./app-update-settings-control-deps";
+import { useAppUpdateStatus } from "../../app-providers";
 
 function isAppUpdateSettings(value: unknown): value is AppUpdateSettings {
   return typeof value === "object"
@@ -54,6 +55,8 @@ function formatStatusSummary(status: AppUpdateStatus): string {
       return status.availableVersion
         ? `Version ${status.availableVersion} is ready to install.`
         : "An update is ready to install.";
+    case "installing":
+      return "Installing update…";
     case "upToDate":
       return "You’re up to date.";
     case "error":
@@ -79,6 +82,7 @@ const FALLBACK_STATUS: AppUpdateStatus = {
 };
 
 export function AppUpdateSettingsControl({ open }: { open: boolean }) {
+  const sharedStatus = useAppUpdateStatus();
   const [settings, setSettings] = useState<AppUpdateSettings>({
     automaticChecksEnabled: true,
   });
@@ -118,10 +122,15 @@ export function AppUpdateSettingsControl({ open }: { open: boolean }) {
     }
 
     void load();
+    if (sharedStatus) return;
     return subscribeAppUpdateStatus((nextStatus) => {
       setStatus(nextStatus);
     });
-  }, [load, open]);
+  }, [load, open, sharedStatus]);
+
+  useEffect(() => {
+    if (sharedStatus) setStatus(sharedStatus);
+  }, [sharedStatus]);
 
   const handleAutomaticChecksChange = useCallback(async (automaticChecksEnabled: boolean) => {
     const previous = settings;
@@ -183,6 +192,10 @@ export function AppUpdateSettingsControl({ open }: { open: boolean }) {
     () => formatCheckedAtLabel(status.checkedAt),
     [status.checkedAt],
   );
+  const updateAlreadyActive = status.status === "checking"
+    || status.status === "downloading"
+    || status.status === "downloaded"
+    || status.status === "installing";
 
   return (
     <div className="flex max-w-80 flex-col items-end gap-2 text-right">
@@ -216,7 +229,7 @@ export function AppUpdateSettingsControl({ open }: { open: boolean }) {
         <NodexButton
           variant="outline"
           size="xs"
-          disabled={busy || !status.supported}
+          disabled={busy || !status.supported || updateAlreadyActive}
           onClick={() => {
             void handleCheckNow();
           }}

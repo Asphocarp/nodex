@@ -233,6 +233,14 @@ async function collectBundledRuntimeEntries(): Promise<ThirdPartyLegalEntry[]> {
 
   return [
     {
+      homepage: "https://sparkle-project.org/",
+      identity: "Sparkle 2.9.4",
+      legalText: await readCombinedLegalFiles([
+        join(REPOSITORY_ROOT, "resources", "sparkle", "LICENSE"),
+      ]),
+      license: "MIT and bundled third-party notices",
+    },
+    {
       homepage: "https://github.com/openinterpreter/open-interpreter",
       identity: "Open Interpreter agent runtime",
       legalText: await readCombinedLegalFiles([

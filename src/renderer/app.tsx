@@ -6,6 +6,7 @@ import { AppStartupScreen } from "@/components/app-startup-screen";
 import { CoreAuthorityStatusNotice } from "@/components/core-authority-status";
 import { NodexToastProvider } from "@/components/ui/toast";
 import { WorkbenchShell } from "@/components/workbench/workbench-shell";
+import { AppUpdateRestartNotice } from "@/components/workbench/app-update-restart-notice";
 import { LocalConversationProvider } from "@/features/local-conversation";
 import { HeartbeatAutomationController } from "@/features/local-conversation/heartbeat-automation-controller";
 import { LocalConversationViewStateCleanupController } from "@/features/local-conversation/view/local-conversation-view-state-cleanup-controller";
@@ -19,6 +20,8 @@ import {
   DEFAULT_PRODUCT_FEATURE_GATES,
   type ProductFeatureGates,
 } from "../shared/product-feature-gates";
+import { useAppUpdateStatus } from "./app-providers";
+import { invoke } from "./lib/api";
 
 const rendererBootstrapStartedAt = performance.now();
 
@@ -42,6 +45,8 @@ const READY_CORE_AUTHORITY_STATUS = { kind: "ready" } as const;
 const CORE_RECOVERY_NOTICE_DELAY_MS = 1_500;
 
 export default function App() {
+  const appUpdateStatus = useAppUpdateStatus();
+  const [dismissedUpdateVersion, setDismissedUpdateVersion] = useState<string | null>(null);
   const [bootstrapState, setBootstrapState] = useState<BootstrapState>(
     INITIAL_BOOTSTRAP_STATE,
   );
@@ -187,6 +192,22 @@ export default function App() {
           onRetry={retryCoreAuthority}
           onRelaunch={relaunchForCoreAuthority}
         />
+        {appUpdateStatus?.status === "downloaded"
+          && dismissedUpdateVersion !== appUpdateStatus.availableVersion ? (
+            <div className="pointer-events-none fixed inset-x-3 bottom-14 z-[61] flex justify-center">
+              <div className="pointer-events-auto">
+                <AppUpdateRestartNotice
+                  status={appUpdateStatus}
+                  onDismiss={() => {
+                    setDismissedUpdateVersion(appUpdateStatus.availableVersion);
+                  }}
+                  onRestart={() => {
+                    void invoke("app:update:install");
+                  }}
+                />
+              </div>
+            </div>
+          ) : null}
         <NodexModalHost />
       </LocalConversationProvider>
     </NodexToastProvider>

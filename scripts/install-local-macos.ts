@@ -224,6 +224,7 @@ const verify = (
   verifyPackagedNativeRuntimeStructure({
     appPath,
     expectedVersion: provenance.product.version,
+    expectedUpdateChannel: "disabled",
     requireDeveloperId: false,
     targetArch,
     verifyNotarization: false,
@@ -368,15 +369,11 @@ export function createFreshLocalMacPackagePlan(
       },
       {
         command: "pnpm",
-        // The DMG target stays: it is what makes electron-builder emit the
-        // app-update.yml that provenance seals and the updater reads. Local
-        // installs still never notarize, even with Apple credentials in the
-        // shell, and by default sign without Apple timestamps.
         arguments: [
           "exec",
           "electron-builder",
           "--mac",
-          "dmg",
+          "dir",
           `--${targetArch}`,
           "--publish",
           "never",

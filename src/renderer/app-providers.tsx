@@ -1,4 +1,10 @@
-import { useState, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  type ReactNode,
+} from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { NodexHoverCardProvider } from "./components/ui/hover-card";
 import { NodexTooltipProvider } from "./components/ui/tooltip";
@@ -11,6 +17,8 @@ import { CodexServiceTierSettingsProvider } from "./lib/use-codex-service-tier-s
 import { CodexThreadSettingsProvider } from "./lib/use-codex-thread-settings";
 import { NodexQueryProvider } from "./lib/query-client";
 import { ThemeProvider } from "./lib/use-theme";
+import { invoke, subscribeAppUpdateStatus } from "./lib/api";
+import type { AppUpdateStatus } from "./lib/types";
 import {
   createMaitaiStore,
   MaitaiProvider,
@@ -38,6 +46,61 @@ declare global {
 }
 
 let unsubscribeElectronOpaqueSurfaceChange: (() => void) | null = null;
+
+const AppUpdateStatusContext = createContext<AppUpdateStatus | null>(null);
+const INITIAL_APP_UPDATE_STATUS: AppUpdateStatus = {
+  availableVersion: null,
+  checkedAt: null,
+  currentVersion: "dev",
+  message: "App update status is loading.",
+  progressPercent: null,
+  releaseDate: null,
+  releaseName: null,
+  releaseNotes: null,
+  status: "unsupported",
+  supported: false,
+  totalBytes: null,
+  transferredBytes: null,
+};
+
+function isAppUpdateStatus(value: unknown): value is AppUpdateStatus {
+  return typeof value === "object"
+    && value !== null
+    && typeof (value as AppUpdateStatus).status === "string"
+    && typeof (value as AppUpdateStatus).supported === "boolean"
+    && typeof (value as AppUpdateStatus).currentVersion === "string";
+}
+
+export function AppUpdateStatusProvider({ children }: AppProvidersProps) {
+  const [status, setStatus] = useState<AppUpdateStatus>(INITIAL_APP_UPDATE_STATUS);
+
+  useEffect(() => {
+    let cancelled = false;
+    let observedPush = false;
+    const unsubscribe = subscribeAppUpdateStatus((nextStatus) => {
+      if (cancelled) return;
+      observedPush = true;
+      setStatus(nextStatus);
+    });
+    void invoke("app:update:status").then((snapshot) => {
+      if (!cancelled && !observedPush && isAppUpdateStatus(snapshot)) setStatus(snapshot);
+    }).catch(() => undefined);
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, []);
+
+  return (
+    <AppUpdateStatusContext.Provider value={status}>
+      {children}
+    </AppUpdateStatusContext.Provider>
+  );
+}
+
+export function useAppUpdateStatus(): AppUpdateStatus | null {
+  return useContext(AppUpdateStatusContext);
+}
 
 function applyElectronOpaqueSurface(root: HTMLElement, enabled: boolean): void {
   if (root.classList.contains("compact-window")) {
@@ -110,23 +173,25 @@ export function AppProviders({ children }: AppProvidersProps) {
     <NodexQueryProvider>
       <RendererStateProvider>
         <ThemeProvider>
-          <BrowserSidebarRuntimeSynchronizer />
-          <BrowserSidebarThemeSynchronizer />
-          <SansFontSizeProvider>
-            <CodeFontSizeProvider>
-              <FileLinkOpenerProvider>
-                <CodexServiceTierSettingsProvider>
-                  <CodexThreadSettingsProvider>
-                    <NodexHoverCardProvider>
-                      <NodexTooltipProvider>
-                        {children}
-                      </NodexTooltipProvider>
-                    </NodexHoverCardProvider>
-                  </CodexThreadSettingsProvider>
-                </CodexServiceTierSettingsProvider>
-              </FileLinkOpenerProvider>
-            </CodeFontSizeProvider>
-          </SansFontSizeProvider>
+          <AppUpdateStatusProvider>
+            <BrowserSidebarRuntimeSynchronizer />
+            <BrowserSidebarThemeSynchronizer />
+            <SansFontSizeProvider>
+              <CodeFontSizeProvider>
+                <FileLinkOpenerProvider>
+                  <CodexServiceTierSettingsProvider>
+                    <CodexThreadSettingsProvider>
+                      <NodexHoverCardProvider>
+                        <NodexTooltipProvider>
+                          {children}
+                        </NodexTooltipProvider>
+                      </NodexHoverCardProvider>
+                    </CodexThreadSettingsProvider>
+                  </CodexServiceTierSettingsProvider>
+                </FileLinkOpenerProvider>
+              </CodeFontSizeProvider>
+            </SansFontSizeProvider>
+          </AppUpdateStatusProvider>
         </ThemeProvider>
       </RendererStateProvider>
     </NodexQueryProvider>

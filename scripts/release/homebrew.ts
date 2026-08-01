@@ -45,10 +45,10 @@ cask "nodex" do
 
   name "Nodex"
   desc "Block-based Agent Orchestrator"
-  homepage "https://github.com/${owner}/${repo}"
+  homepage "https://nodex.jyu.app/"
 
   livecheck do
-    url :homepage
+    url "https://github.com/${owner}/${repo}"
     strategy :github_latest
   end
 

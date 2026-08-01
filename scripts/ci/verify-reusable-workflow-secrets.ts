@@ -8,6 +8,9 @@ type UnknownRecord = Readonly<Record<string, unknown>>;
 const repositoryRoot = path.resolve(import.meta.dirname, "../..");
 const workflowsDirectory = path.join(repositoryRoot, ".github/workflows");
 const secretReferencePattern = /secrets\.([A-Za-z_][A-Za-z0-9_]*)/gu;
+const environmentSecretContracts = new Map<string, ReadonlySet<string>>([
+  ["sparkle-feed-finalization", new Set(["SPARKLE_ED25519_PRIVATE_KEY"])],
+]);
 
 const isRecord = (value: unknown): value is UnknownRecord =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -65,16 +68,34 @@ const resolveLocalWorkflow = (callerPath: string, uses: string): string => {
   return target;
 };
 
-const verifyDeclaredReferences = (filePath: string, workflow: UnknownRecord): void => {
+export const verifyDeclaredReferences = (filePath: string, workflow: UnknownRecord): void => {
   const declared = workflowCallSecrets(workflow);
   if (Object.keys(declared).length === 0) return;
-  const undeclared = [...referencedSecrets(workflow)]
+  const jobs = requireRecord(workflow.jobs, `${path.relative(repositoryRoot, filePath)}.jobs`);
+  const workflowWithoutJobs = { ...workflow };
+  delete workflowWithoutJobs.jobs;
+  const topLevelUndeclared = [...referencedSecrets(workflowWithoutJobs)]
     .filter((name) => !Object.hasOwn(declared, name))
     .sort();
-  if (undeclared.length === 0) return;
-  throw new Error(
-    `${path.relative(repositoryRoot, filePath)} references undeclared workflow-call secrets: ${undeclared.join(", ")}`,
-  );
+  if (topLevelUndeclared.length > 0) {
+    throw new Error(
+      `${path.relative(repositoryRoot, filePath)} references undeclared workflow-call secrets outside a job: ${topLevelUndeclared.join(", ")}`,
+    );
+  }
+  for (const [jobName, rawJob] of Object.entries(jobs)) {
+    const job = requireRecord(rawJob, `${jobName} job`);
+    const allowed = typeof job.environment === "string"
+      ? environmentSecretContracts.get(job.environment) ?? new Set<string>()
+      : new Set<string>();
+    const undeclared = [...referencedSecrets(job)]
+      .filter((name) => !Object.hasOwn(declared, name) && !allowed.has(name))
+      .sort();
+    if (undeclared.length > 0) {
+      throw new Error(
+        `${path.relative(repositoryRoot, filePath)}:${jobName} references undeclared workflow-call secrets: ${undeclared.join(", ")}`,
+      );
+    }
+  }
 };
 
 const verifyCall = (
@@ -122,4 +143,6 @@ const main = (): void => {
   process.stdout.write(`Verified reusable-workflow secret contracts across ${workflows.size} workflows.\n`);
 };
 
-main();
+if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.meta.filename)) {
+  main();
+}

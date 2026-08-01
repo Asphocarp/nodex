@@ -30,12 +30,50 @@ const run = (
   stdio: ["ignore", "pipe", "inherit"],
 }).trim();
 
-const runTask = (cwd: string, command: string, args: readonly string[]): void => {
+const runTask = (
+  cwd: string,
+  command: string,
+  args: readonly string[],
+  environment: NodeJS.ProcessEnv = process.env,
+): void => {
   execFileSync(command, [...args], {
     cwd,
-    env: process.env,
+    env: environment,
     stdio: "inherit",
   });
+};
+
+const notarizeDmg = (cwd: string, dmgPath: string): void => {
+  const key = process.env.APPLE_API_KEY;
+  const keyId = process.env.APPLE_API_KEY_ID;
+  const issuer = process.env.APPLE_API_ISSUER;
+  if (!key || !keyId || !issuer) {
+    throw new Error("DMG notarization requires App Store Connect API credentials.");
+  }
+  runTask(cwd, "xcrun", [
+    "notarytool",
+    "submit",
+    dmgPath,
+    "--key",
+    key,
+    "--key-id",
+    keyId,
+    "--issuer",
+    issuer,
+    "--wait",
+  ]);
+  runTask(cwd, "xcrun", ["stapler", "staple", dmgPath]);
+  runTask(cwd, "xcrun", ["stapler", "validate", dmgPath]);
+  runTask(cwd, "/usr/sbin/spctl", [
+    "--assess",
+    "--type",
+    "open",
+    "--context",
+    "context:primary-signature",
+    "--verbose=4",
+    dmgPath,
+  ]);
+  runTask(cwd, "/usr/bin/codesign", ["--verify", "--verbose=2", dmgPath]);
 };
 
 const requireNativeMac = (architecture: MacArchitecture): void => {
@@ -122,6 +160,7 @@ const verifyApp = async (options: {
   const runtimeOptions = {
     appPath: options.appPath,
     expectedVersion: options.version,
+    expectedUpdateChannel: "stable",
     requireDeveloperId: true,
     targetArch: options.architecture,
     verifyNotarization: true,
@@ -160,12 +199,30 @@ export async function buildMacDistribution(options: {
     "test:browser-runtime-conformance",
   ] as const;
   for (const script of prerequisiteScripts) runTask(cwd, "pnpm", ["run", script]);
-  runTask(cwd, "pnpm", ["run", `package:mac:${options.architecture}`]);
+  runTask(cwd, "pnpm", ["run", `package:mac:${options.architecture}`], {
+    ...process.env,
+    NODEX_SPARKLE_CHANNEL: "stable",
+  });
   assertSourceIdentity(cwd, sourceSha, version);
 
   const distDirectory = join(cwd, "dist");
   const zipPath = join(distDirectory, `Nodex-${version}-${options.architecture}.zip`);
   const dmgPath = join(distDirectory, `Nodex-${version}-${options.architecture}.dmg`);
+  const packagedAppDirectory = join(
+    distDirectory,
+    options.architecture === "arm64" ? "mac-arm64" : "mac",
+  );
+  const packagedAppPath = appAtRoot(packagedAppDirectory);
+  rmSync(zipPath, { force: true });
+  runTask(cwd, "/usr/bin/ditto", [
+    "-c",
+    "-k",
+    "--sequesterRsrc",
+    "--keepParent",
+    packagedAppPath,
+    zipPath,
+  ]);
+  notarizeDmg(cwd, dmgPath);
   const preparedManifestPath = join(cwd, ".generated/prepared-electron-build.json");
   const temporaryRoot = mkdtempSync(join(tmpdir(), `nodex-distribution-${options.architecture}-`));
   const zipRoot = join(temporaryRoot, "zip");

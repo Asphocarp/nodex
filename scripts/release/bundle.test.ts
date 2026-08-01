@@ -1,57 +1,53 @@
-import { createHash } from "node:crypto";
 import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { dump, load } from "js-yaml";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, expect, test } from "vitest";
+
 import {
   assembleReleaseBundle,
   type ArchitectureBuildManifest,
   type MacArchitecture,
 } from "./bundle";
-import { sha256File } from "./model";
 import { releaseAssetPaths } from "./github-release";
+import { sha256File } from "./model";
+import { projectReleaseAppcasts } from "./pages";
+import {
+  NODEX_MACOS_TEAM_IDENTIFIER,
+  type SparkleArchitectureUpdateManifest,
+} from "./sparkle-manifest";
 
 let fixture = "";
+const VERSION = "0.2.2";
+const PREVIOUS_VERSION = "0.2.1";
+const SOURCE_SHA = "1".repeat(40);
+const SIGNATURE = `${"A".repeat(86)}==`;
 
-const sha512 = (path: string): string => createHash("sha512").update(readFileSync(path)).digest("base64");
+const appcastFor = (version: string): string => `<?xml version="1.0"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel><item><sparkle:shortVersionString>${version}</sparkle:shortVersionString></item></channel>
+</rss>
+`;
 
-const makeArchitecture = (architecture: MacArchitecture, sourceSha = "1".repeat(40)): string => {
-  const root = join(fixture, architecture);
+const makeArchitecture = (architecture: MacArchitecture, sourceSha = SOURCE_SHA): string => {
+  const root = join(fixture, `architecture-${architecture}`);
   mkdirSync(root);
-  const version = "0.2.0";
-  const names = [
-    `Nodex-${version}-${architecture}.dmg`,
-    `Nodex-${version}-${architecture}.zip`,
-    `Nodex-${version}-${architecture}.zip.blockmap`,
-  ];
-  for (const name of names) writeFileSync(join(root, name), `${architecture}:${name}`);
-  const dmgName = names[0];
-  const zipName = names[1];
-  writeFileSync(join(root, "latest-mac.yml"), dump({
-    version,
-    files: [
-      { url: zipName, sha512: sha512(join(root, zipName)) },
-      { url: dmgName, sha512: sha512(join(root, dmgName)) },
-    ],
-    path: zipName,
-    sha512: sha512(join(root, zipName)),
-  }));
-  const artifacts = [...names, "latest-mac.yml"].map((name) => ({
-    architecture,
-    bytes: readFileSync(join(root, name)).byteLength,
-    name,
-    role: name.endsWith(".dmg") ? "dmg" as const
-      : name.endsWith(".zip") ? "zip" as const
-      : name.endsWith(".blockmap") ? "blockmap" as const
-      : "update-manifest" as const,
-    sha256: sha256File(join(root, name)),
-  }));
+  const artifactSpecs = [
+    [`Nodex-${VERSION}-${architecture}.dmg`, "dmg"],
+    [`Nodex-${VERSION}-${architecture}.zip`, "sparkle-full"],
+  ] as const;
+  const artifacts = artifactSpecs.map(([name, role]) => {
+    const filePath = join(root, name);
+    writeFileSync(filePath, `${architecture}:${name}`);
+    return {
+      architecture,
+      bytes: readFileSync(filePath).byteLength,
+      name,
+      role,
+      sha256: sha256File(filePath),
+    };
+  });
   const manifest: ArchitectureBuildManifest = {
-    agentSkills: {
-      manifestSha256: "9".repeat(64),
-      treeSha256: "a".repeat(64),
-    },
+    agentSkills: { manifestSha256: "9".repeat(64), treeSha256: "a".repeat(64) },
     architecture,
     artifacts,
     packageProvenanceSha256: "2".repeat(64),
@@ -61,177 +57,270 @@ const makeArchitecture = (architecture: MacArchitecture, sourceSha = "1".repeat(
       state: "clean",
     },
     runner: { image: "test" },
-    runtimeLocks: { agentSha256: "4".repeat(64), browserSha256: "5".repeat(64) },
-    schemaVersion: 1,
+    runtimeLocks: {
+      agentSha256: "4".repeat(64),
+      browserSha256: "5".repeat(64),
+      sparkleSha256: "b".repeat(64),
+    },
+    schemaVersion: 2,
     sourceSha,
     sourceTree: "6".repeat(40),
-    tag: "v0.2.0",
-    version,
+    tag: `v${VERSION}`,
+    version: VERSION,
   };
   writeFileSync(join(root, "architecture-build.json"), `${JSON.stringify(manifest, null, 2)}\n`);
   return root;
 };
 
-const replaceUpdateManifest = (root: string, manifestValue: unknown): void => {
-  const updatePath = join(root, "latest-mac.yml");
-  writeFileSync(updatePath, dump(manifestValue));
-  const architecturePath = join(root, "architecture-build.json");
-  const manifest = JSON.parse(readFileSync(architecturePath, "utf8")) as ArchitectureBuildManifest;
-  const artifacts = manifest.artifacts.map((artifact) => artifact.name === "latest-mac.yml"
-    ? {
-        ...artifact,
-        bytes: readFileSync(updatePath).byteLength,
-        sha256: sha256File(updatePath),
-      }
-    : artifact);
-  writeFileSync(architecturePath, `${JSON.stringify({ ...manifest, artifacts }, null, 2)}\n`);
+const makeUpdate = (
+  architecture: MacArchitecture,
+  architectureRoot: string,
+  sourceSha = SOURCE_SHA,
+  includeDelta = true,
+): string => {
+  const root = join(fixture, `update-${architecture}`);
+  rmSync(root, { force: true, recursive: true });
+  mkdirSync(root);
+  const fullName = `Nodex-${VERSION}-${architecture}.zip`;
+  const fullPath = join(architectureRoot, fullName);
+  const fullUrl = `https://github.com/junyudev/nodex/releases/download/v${VERSION}/${fullName}`;
+  const deltaName = `Nodex-${PREVIOUS_VERSION}-to-${VERSION}-${architecture}.delta`;
+  const deltaPath = join(root, deltaName);
+  if (includeDelta) writeFileSync(deltaPath, `${architecture}:delta`);
+  const deltas = includeDelta ? [{
+    bytes: readFileSync(deltaPath).byteLength,
+    edSignature: SIGNATURE,
+    fromBuildVersion: PREVIOUS_VERSION,
+    fromVersion: PREVIOUS_VERSION,
+    name: deltaName,
+    sha256: sha256File(deltaPath),
+    toBuildVersion: VERSION,
+    toVersion: VERSION,
+    url: `https://github.com/junyudev/nodex/releases/download/v${VERSION}/${deltaName}`,
+  }] : [];
+  const appcastName = `Nodex-${VERSION}-appcast-${architecture}.xml`;
+  const appcastPath = join(root, appcastName);
+  const deltaXml = deltas.map((delta) => `
+      <sparkle:deltas><enclosure url="${delta.url}" length="${delta.bytes}" sparkle:edSignature="${delta.edSignature}" sparkle:deltaFrom="${delta.fromBuildVersion}" /></sparkle:deltas>`).join("");
+  writeFileSync(appcastPath, `<?xml version="1.0"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"><channel><item>
+  <sparkle:version>${VERSION}</sparkle:version>
+  <sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>
+  <enclosure url="${fullUrl}" length="${readFileSync(fullPath).byteLength}" sparkle:edSignature="${SIGNATURE}" />${deltaXml}
+</item></channel></rss>
+`);
+  const manifest: SparkleArchitectureUpdateManifest = {
+    architecture,
+    appcast: {
+      bytes: readFileSync(appcastPath).byteLength,
+      feedPath: `updates/stable/${architecture}/appcast.xml`,
+      name: appcastName,
+      sha256: sha256File(appcastPath),
+    },
+    deltas,
+    full: {
+      bytes: readFileSync(fullPath).byteLength,
+      edSignature: SIGNATURE,
+      name: fullName,
+      sha256: sha256File(fullPath),
+      url: fullUrl,
+    },
+    schemaVersion: 1,
+    sourceSha,
+    tag: `v${VERSION}`,
+    target: {
+      buildVersion: VERSION,
+      bundleId: "app.jyu.nodex",
+      packageProvenanceSchema: 4,
+      teamIdentifier: NODEX_MACOS_TEAM_IDENTIFIER,
+      version: VERSION,
+    },
+  };
+  writeFileSync(
+    join(root, `Nodex-${VERSION}-update-${architecture}.json`),
+    `${JSON.stringify(manifest, null, 2)}\n`,
+  );
+  return root;
 };
 
-beforeEach(() => { fixture = mkdtempSync(join(tmpdir(), "nodex-release-bundle-")); });
-afterEach(() => rmSync(fixture, { recursive: true, force: true }));
+beforeEach(() => {
+  fixture = mkdtempSync(join(tmpdir(), "nodex-release-bundle-"));
+});
 
-test("assembleReleaseBundle binds both architectures and publishes one canonical DMG each", () => {
+afterEach(() => {
+  rmSync(fixture, { recursive: true, force: true });
+});
+
+test("assembles the exact dual-architecture Sparkle asset closure", () => {
   const arm64 = makeArchitecture("arm64");
   const x64 = makeArchitecture("x64");
   const output = join(fixture, "output");
   const bundle = assembleReleaseBundle({
     arm64Directory: arm64,
+    arm64UpdateDirectory: makeUpdate("arm64", arm64),
     outputDirectory: output,
-    sourceSha: "1".repeat(40),
-    version: "0.2.0",
+    sourceSha: SOURCE_SHA,
+    version: VERSION,
     x64Directory: x64,
+    x64UpdateDirectory: makeUpdate("x64", x64),
   });
 
-  expect(bundle.assets.filter((asset) => asset.role === "dmg").map((asset) => asset.name).sort()).toEqual([
+  expect(bundle.schemaVersion).toBe(2);
+  expect(bundle.assets.map(({ name }) => name).sort()).toEqual([
+    `Nodex-${VERSION}-appcast-arm64.xml`,
+    `Nodex-${VERSION}-appcast-x64.xml`,
+    `Nodex-${VERSION}-arm64.zip`,
+    `Nodex-${VERSION}-update-arm64.json`,
+    `Nodex-${VERSION}-update-x64.json`,
+    `Nodex-${VERSION}-x64.zip`,
+    `Nodex-${PREVIOUS_VERSION}-to-${VERSION}-arm64.delta`,
+    `Nodex-${PREVIOUS_VERSION}-to-${VERSION}-x64.delta`,
     "Nodex-latest-arm64.dmg",
     "Nodex-latest-x64.dmg",
-  ]);
-  const updateManifest = load(readFileSync(join(output, "latest-mac.yml"), "utf8")) as {
-    readonly files: readonly { readonly url: string }[];
-  };
-  expect(updateManifest.files.map(({ url }) => url)).toEqual([
-    "Nodex-0.2.0-arm64.zip",
-    "Nodex-0.2.0-x64.zip",
-  ]);
-  expect(bundle.agentSkills).toEqual({
-    manifestSha256: "9".repeat(64),
-    treeSha256: "a".repeat(64),
-  });
-  expect(readFileSync(join(output, "SHA256SUMS"), "utf8")).toContain("release-bundle.json");
+  ].sort());
+  expect(bundle.assets.some(({ name }) => name.endsWith(".blockmap"))).toBe(false);
+  expect(bundle.assets.some(({ name }) => name === "latest-mac.yml")).toBe(false);
   expect(releaseAssetPaths(join(output, "release-bundle.json"))).toHaveLength(bundle.assets.length + 2);
+  const site = join(fixture, "site");
+  const currentSite = join(fixture, "current-site");
+  for (const architecture of ["arm64", "x64"] as const) {
+    const feed = join(currentSite, `updates/stable/${architecture}/appcast.xml`);
+    mkdirSync(dirname(feed), { recursive: true });
+    writeFileSync(feed, appcastFor("0.2.0"));
+  }
+  projectReleaseAppcasts({
+    bundlePath: join(output, "release-bundle.json"),
+    existingSiteDirectory: currentSite,
+    siteDirectory: site,
+  });
+  expect(readFileSync(join(site, "updates/stable/arm64/appcast.xml"), "utf8"))
+    .toBe(readFileSync(join(output, `Nodex-${VERSION}-appcast-arm64.xml`), "utf8"));
+  expect(readFileSync(join(site, "updates/stable/x64/appcast.xml"), "utf8"))
+    .toBe(readFileSync(join(output, `Nodex-${VERSION}-appcast-x64.xml`), "utf8"));
+  writeFileSync(join(currentSite, "updates/stable/arm64/appcast.xml"), appcastFor("0.2.3"));
+  expect(() => projectReleaseAppcasts({
+    bundlePath: join(output, "release-bundle.json"),
+    existingSiteDirectory: currentSite,
+    siteDirectory: join(fixture, "rollback-site"),
+  })).toThrow("cannot move");
   appendFileSync(join(output, "Nodex-latest-arm64.dmg"), "tampered");
   expect(() => releaseAssetPaths(join(output, "release-bundle.json"))).toThrow("does not match");
 });
 
-test("assembleReleaseBundle rejects different source identities", () => {
-  const arm64 = makeArchitecture("arm64");
-  const x64 = makeArchitecture("x64", "7".repeat(40));
-  expect(() => assembleReleaseBundle({
-    arm64Directory: arm64,
-    outputDirectory: join(fixture, "output"),
-    sourceSha: "1".repeat(40),
-    version: "0.2.0",
-    x64Directory: x64,
-  })).toThrow("release identity");
-});
-
-test("assembleReleaseBundle rejects different Agent Skills identities", () => {
+test("rejects a Sparkle full update that does not match the architecture ZIP", () => {
   const arm64 = makeArchitecture("arm64");
   const x64 = makeArchitecture("x64");
-  const manifestPath = join(x64, "architecture-build.json");
-  const manifest = JSON.parse(
-    readFileSync(manifestPath, "utf8"),
-  ) as ArchitectureBuildManifest;
+  const armUpdate = makeUpdate("arm64", arm64);
+  appendFileSync(join(arm64, `Nodex-${VERSION}-arm64.zip`), "tampered");
+
+  expect(() => assembleReleaseBundle({
+    arm64Directory: arm64,
+    arm64UpdateDirectory: armUpdate,
+    outputDirectory: join(fixture, "output"),
+    sourceSha: SOURCE_SHA,
+    version: VERSION,
+    x64Directory: x64,
+    x64UpdateDirectory: makeUpdate("x64", x64),
+  })).toThrow("does not match its manifest");
+});
+
+test("rejects a missing or tampered Sparkle delta from the dynamic asset closure", () => {
+  const arm64 = makeArchitecture("arm64");
+  const x64 = makeArchitecture("x64");
+  const armUpdate = makeUpdate("arm64", arm64);
+  const deltaPath = join(armUpdate, `Nodex-${PREVIOUS_VERSION}-to-${VERSION}-arm64.delta`);
+  rmSync(deltaPath);
+  expect(() => assembleReleaseBundle({
+    arm64Directory: arm64,
+    arm64UpdateDirectory: armUpdate,
+    outputDirectory: join(fixture, "missing-output"),
+    sourceSha: SOURCE_SHA,
+    version: VERSION,
+    x64Directory: x64,
+    x64UpdateDirectory: makeUpdate("x64", x64),
+  })).toThrow();
+
+  const replacementUpdate = makeUpdate("arm64", arm64);
+  appendFileSync(
+    join(replacementUpdate, `Nodex-${PREVIOUS_VERSION}-to-${VERSION}-arm64.delta`),
+    "tampered",
+  );
+  expect(() => assembleReleaseBundle({
+    arm64Directory: arm64,
+    arm64UpdateDirectory: replacementUpdate,
+    outputDirectory: join(fixture, "tampered-output"),
+    sourceSha: SOURCE_SHA,
+    version: VERSION,
+    x64Directory: x64,
+    x64UpdateDirectory: makeUpdate("x64", x64),
+  })).toThrow("does not match");
+});
+
+test("rejects appcast enclosure metadata that diverges from the update manifest", () => {
+  const arm64 = makeArchitecture("arm64");
+  const x64 = makeArchitecture("x64");
+  const armUpdate = makeUpdate("arm64", arm64);
+  const appcastPath = join(armUpdate, `Nodex-${VERSION}-appcast-arm64.xml`);
+  const appcast = readFileSync(appcastPath, "utf8");
+  const expectedLength = readFileSync(join(arm64, `Nodex-${VERSION}-arm64.zip`)).byteLength;
+  writeFileSync(appcastPath, appcast.replace(
+    `length="${expectedLength}"`,
+    `length="${expectedLength + 1}"`,
+  ));
+  const manifestPath = join(armUpdate, `Nodex-${VERSION}-update-arm64.json`);
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as SparkleArchitectureUpdateManifest;
   writeFileSync(manifestPath, `${JSON.stringify({
     ...manifest,
-    agentSkills: {
-      ...manifest.agentSkills,
-      treeSha256: "b".repeat(64),
+    appcast: {
+      ...manifest.appcast,
+      bytes: readFileSync(appcastPath).byteLength,
+      sha256: sha256File(appcastPath),
     },
   }, null, 2)}\n`);
 
   expect(() => assembleReleaseBundle({
     arm64Directory: arm64,
-    outputDirectory: join(fixture, "output"),
-    sourceSha: "1".repeat(40),
-    version: "0.2.0",
+    arm64UpdateDirectory: armUpdate,
+    outputDirectory: join(fixture, "mismatched-appcast-output"),
+    sourceSha: SOURCE_SHA,
+    version: VERSION,
     x64Directory: x64,
-  })).toThrow("Agent Skills");
+    x64UpdateDirectory: makeUpdate("x64", x64),
+  })).toThrow("full enclosure");
 });
 
-test("assembleReleaseBundle rejects updater hashes that do not match the ZIP", () => {
+test("rejects architecture and update manifests from different source commits", () => {
   const arm64 = makeArchitecture("arm64");
   const x64 = makeArchitecture("x64");
-  const dmgName = "Nodex-0.2.0-arm64.dmg";
-  const zipName = "Nodex-0.2.0-arm64.zip";
-  replaceUpdateManifest(arm64, {
-    version: "0.2.0",
-    files: [
-      { url: zipName, sha512: "wrong" },
-      { url: dmgName, sha512: sha512(join(arm64, dmgName)) },
-    ],
-    path: zipName,
-    sha512: "wrong",
-  });
-  expect(() => assembleReleaseBundle({
-    arm64Directory: arm64,
-    outputDirectory: join(fixture, "output"),
-    sourceSha: "1".repeat(40),
-    version: "0.2.0",
-    x64Directory: x64,
-  })).toThrow("SHA512");
-});
-
-test("assembleReleaseBundle rejects updater entries outside the published ZIP closure", () => {
-  const arm64 = makeArchitecture("arm64");
-  const x64 = makeArchitecture("x64");
-  const dmgName = "Nodex-0.2.0-arm64.dmg";
-  const zipName = "Nodex-0.2.0-arm64.zip";
-  replaceUpdateManifest(arm64, {
-    version: "0.2.0",
-    files: [
-      { url: zipName, sha512: sha512(join(arm64, zipName)) },
-      { url: dmgName, sha512: sha512(join(arm64, dmgName)) },
-      { url: "unpublished.zip", sha512: "unused" },
-    ],
-    path: zipName,
-    sha512: sha512(join(arm64, zipName)),
-  });
 
   expect(() => assembleReleaseBundle({
     arm64Directory: arm64,
+    arm64UpdateDirectory: makeUpdate("arm64", arm64, "f".repeat(40)),
     outputDirectory: join(fixture, "output"),
-    sourceSha: "1".repeat(40),
-    version: "0.2.0",
+    sourceSha: SOURCE_SHA,
+    version: VERSION,
     x64Directory: x64,
-  })).toThrow("must contain exactly");
+    x64UpdateDirectory: makeUpdate("x64", x64),
+  })).toThrow("one release identity");
 });
 
-test("assembleReleaseBundle rejects architecture artifacts outside the release allowlist", () => {
+test("rejects unlisted architecture artifacts", () => {
   const arm64 = makeArchitecture("arm64");
   const x64 = makeArchitecture("x64");
   const manifestPath = join(arm64, "architecture-build.json");
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as ArchitectureBuildManifest;
-  writeFileSync(join(arm64, "debug-symbols.zip"), "not a public release artifact");
   writeFileSync(manifestPath, `${JSON.stringify({
     ...manifest,
-    artifacts: [
-      ...manifest.artifacts,
-      {
-        architecture: "arm64",
-        bytes: readFileSync(join(arm64, "debug-symbols.zip")).byteLength,
-        name: "debug-symbols.zip",
-        role: "zip",
-        sha256: sha256File(join(arm64, "debug-symbols.zip")),
-      },
-    ],
+    artifacts: [...manifest.artifacts, manifest.artifacts[0]],
   }, null, 2)}\n`);
 
   expect(() => assembleReleaseBundle({
     arm64Directory: arm64,
+    arm64UpdateDirectory: makeUpdate("arm64", arm64),
     outputDirectory: join(fixture, "output"),
-    sourceSha: "1".repeat(40),
-    version: "0.2.0",
+    sourceSha: SOURCE_SHA,
+    version: VERSION,
     x64Directory: x64,
+    x64UpdateDirectory: makeUpdate("x64", x64),
   })).toThrow("architecture artifacts do not match");
 });

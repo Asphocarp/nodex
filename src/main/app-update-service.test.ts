@@ -1,30 +1,47 @@
 import { describe, expect, test } from "vitest";
-import { EventEmitter } from "node:events";
 import type { AppUpdateSettings } from "../shared/types";
-import { AppUpdateService } from "./app-update-service";
+import type {
+  MacAppUpdater,
+  MacAppUpdaterCheckKind,
+  MacAppUpdaterEvent,
+} from "./mac-app-updater";
+import { AppUpdateService, reduceAppUpdateStatus } from "./app-update-service";
 
-class FakeUpdater extends EventEmitter {
-  autoDownload = false;
-  autoInstallOnAppQuit = true;
-  allowPrerelease = true;
-  checkCount = 0;
+class FakeUpdater implements MacAppUpdater {
+  checkKinds: MacAppUpdaterCheckKind[] = [];
+  disposeCount = 0;
   installCount = 0;
+  startCount = 0;
+  private listener: ((event: MacAppUpdaterEvent) => void) | null = null;
 
-  async checkForUpdates(): Promise<null> {
-    this.checkCount += 1;
-    return null;
+  async start(listener: (event: MacAppUpdaterEvent) => void): Promise<void> {
+    this.startCount += 1;
+    this.listener = listener;
   }
 
-  quitAndInstall(): void {
+  async check(kind: MacAppUpdaterCheckKind): Promise<void> {
+    this.checkKinds.push(kind);
+    this.emit({ kind, type: "check-started" });
+  }
+
+  async installDownloadedUpdate(): Promise<void> {
     this.installCount += 1;
+  }
+
+  async dispose(): Promise<void> {
+    this.disposeCount += 1;
+  }
+
+  emit(event: MacAppUpdaterEvent): void {
+    this.listener?.(event);
   }
 }
 
 function createLogger() {
   return {
+    error: () => undefined,
     info: () => undefined,
     warn: () => undefined,
-    error: () => undefined,
   };
 }
 
@@ -33,16 +50,18 @@ function createService(overrides?: Partial<{
   isInApplicationsFolder: boolean;
   isPackaged: boolean;
   platform: NodeJS.Platform;
-  updater: FakeUpdater;
+  updater: FakeUpdater | null;
 }>) {
-  const updater = overrides?.updater ?? new FakeUpdater();
+  const updater = overrides && "updater" in overrides
+    ? overrides.updater ?? null
+    : new FakeUpdater();
   const service = new AppUpdateService({
-    currentVersion: overrides?.currentVersion ?? "0.1.5",
+    currentVersion: overrides?.currentVersion ?? "0.2.1",
     isInApplicationsFolder: overrides?.isInApplicationsFolder ?? true,
     isPackaged: overrides?.isPackaged ?? true,
-    platform: overrides?.platform ?? "darwin",
     logger: createLogger(),
-    createUpdater: () => updater,
+    platform: overrides?.platform ?? "darwin",
+    updater,
   });
   return { service, updater };
 }
@@ -53,120 +72,121 @@ const automaticChecksEnabled: AppUpdateSettings = {
 
 describe("AppUpdateService", () => {
   test("reports unsupported outside packaged macOS builds", () => {
-    const { service } = createService({
-      isPackaged: false,
-      platform: "linux",
-    });
+    const { service } = createService({ isPackaged: false, platform: "linux" });
 
-    const status = service.initialize();
-
-    expect(status.supported).toBe(false);
-    expect(status.status).toBe("unsupported");
-    expect(status.currentVersion).toBe("0.1.5");
-  });
-
-  test("requires a packaged macOS app to be installed in Applications", () => {
-    const { service, updater } = createService({
-      isInApplicationsFolder: false,
-    });
-
-    const status = service.initialize();
-
-    expect(status).toMatchObject({
-      message: "Move Nodex to Applications to enable app updates.",
+    expect(service.initialize()).toMatchObject({
+      currentVersion: "0.2.1",
       status: "unsupported",
       supported: false,
     });
-    expect(updater.listenerCount("checking-for-update")).toBe(0);
   });
 
-  test("starts exactly one automatic check when enabled", () => {
+  test("keeps disabled builds offline without starting the native updater", () => {
+    const { service } = createService({ updater: null });
+
+    expect(service.initialize()).toMatchObject({
+      message: "App updates are disabled in this build.",
+      status: "unsupported",
+    });
+  });
+
+  test("requires installation in Applications", () => {
+    const { service, updater } = createService({ isInApplicationsFolder: false });
+
+    expect(service.initialize()).toMatchObject({
+      message: "Move Nodex to Applications to enable app updates.",
+      status: "unsupported",
+    });
+    expect(updater?.startCount).toBe(0);
+  });
+
+  test("starts exactly one background check when enabled", async () => {
     const { service, updater } = createService();
 
     service.maybeStartAutomaticChecks(automaticChecksEnabled);
     service.maybeStartAutomaticChecks(automaticChecksEnabled);
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(updater.checkCount).toBe(1);
-    expect(updater.autoDownload).toBe(true);
-    expect(updater.autoInstallOnAppQuit).toBe(false);
-    expect(updater.allowPrerelease).toBe(false);
+    expect(updater?.startCount).toBe(1);
+    expect(updater?.checkKinds).toEqual(["background"]);
   });
 
   test("tracks no-update checks", async () => {
     const { service, updater } = createService();
 
     await service.checkForUpdates("manual");
-    updater.emit("checking-for-update");
-    updater.emit("update-not-available", {
-      version: "0.1.5",
-      releaseDate: "2026-03-18T00:00:00.000Z",
-      files: [],
-      path: "Nodex-0.1.5-arm64.zip",
-      sha512: "sha",
-    });
+    updater?.emit({ type: "up-to-date", version: "0.2.1" });
 
-    const status = service.getStatus();
-    expect(status.status).toBe("upToDate");
-    expect(status.supported).toBe(true);
-    expect(status.message).toBe("You’re up to date.");
-    expect(status.releaseDate).toBe("2026-03-18T00:00:00.000Z");
+    expect(service.getStatus()).toMatchObject({
+      message: "You’re up to date.",
+      status: "upToDate",
+      supported: true,
+    });
+    expect(updater?.checkKinds).toEqual(["user"]);
   });
 
   test("tracks download progress and installs only after download completes", async () => {
     const { service, updater } = createService();
-
     await service.checkForUpdates("manual");
-    updater.emit("update-available", {
-      version: "0.1.6",
-      releaseName: "0.1.6",
-      releaseDate: "2026-03-19T00:00:00.000Z",
+    updater?.emit({
+      buildVersion: "202",
+      releaseDate: "2026-08-02T00:00:00.000Z",
+      releaseName: "Nodex 0.2.2",
       releaseNotes: "Bug fixes",
-      files: [],
-      path: "Nodex-0.1.6-arm64.zip",
-      sha512: "sha",
+      type: "update-found",
+      version: "0.2.2",
     });
-    updater.emit("download-progress", {
-      percent: 50.125,
-      transferred: 512,
-      total: 1024,
-      bytesPerSecond: 128,
-      delta: 0,
+    updater?.emit({ expectedBytes: 1_024, type: "download-started" });
+    updater?.emit({ expectedBytes: 1_024, receivedBytes: 513, type: "download-progress" });
+
+    expect(service.getStatus()).toMatchObject({
+      availableVersion: "0.2.2",
+      progressPercent: 50.1,
+      status: "downloading",
+      totalBytes: 1_024,
+      transferredBytes: 513,
     });
+    expect(await service.installUpdateAndRestart()).toBe(false);
 
-    let status = service.getStatus();
-    expect(status.status).toBe("downloading");
-    expect(status.availableVersion).toBe("0.1.6");
-    expect(status.progressPercent).toBe(50.13);
-    expect(status.transferredBytes).toBe(512);
-    expect(status.totalBytes).toBe(1024);
-
-    expect(service.installUpdateAndRestart()).toBe(false);
-    expect(updater.installCount).toBe(0);
-
-    updater.emit("update-downloaded", {
-      version: "0.1.6",
-      releaseName: "0.1.6",
-      releaseDate: "2026-03-19T00:00:00.000Z",
-      releaseNotes: "Bug fixes",
-      files: [{ size: 1024 }],
+    updater?.emit({ buildVersion: "202", type: "update-ready", version: "0.2.2" });
+    expect(service.getStatus()).toMatchObject({
+      message: "Update ready. Restart Nodex to install it.",
+      progressPercent: 100,
+      status: "downloaded",
     });
-
-    status = service.getStatus();
-    expect(status.status).toBe("downloaded");
-    expect(status.progressPercent).toBe(100);
-    expect(status.message).toBe("Update ready. Restart Nodex to install it.");
-    expect(service.installUpdateAndRestart()).toBe(true);
-    expect(updater.installCount).toBe(1);
+    await service.checkForUpdates("manual");
+    expect(updater?.checkKinds).toEqual(["user"]);
+    expect(await service.installUpdateAndRestart()).toBe(true);
+    expect(updater?.installCount).toBe(1);
   });
 
-  test("surfaces updater errors", async () => {
+  test("does not let late progress move a ready update backwards", () => {
+    const initial = createService().service.initialize();
+    const ready = reduceAppUpdateStatus(initial, {
+      buildVersion: "202",
+      type: "update-ready",
+      version: "0.2.2",
+    });
+
+    expect(reduceAppUpdateStatus(ready, {
+      expectedBytes: 100,
+      receivedBytes: 50,
+      type: "download-progress",
+    })).toBe(ready);
+  });
+
+  test("surfaces structured updater errors and disposes the adapter", async () => {
     const { service, updater } = createService();
-
     await service.checkForUpdates("manual");
-    updater.emit("error", new Error("network failed"));
+    updater?.emit({
+      code: "NSURLErrorDomain:-1009",
+      message: "network failed",
+      recoverable: true,
+      type: "error",
+    });
 
-    const status = service.getStatus();
-    expect(status.status).toBe("error");
-    expect(status.message).toBe("network failed");
+    expect(service.getStatus()).toMatchObject({ message: "network failed", status: "error" });
+    await service.dispose();
+    expect(updater?.disposeCount).toBe(1);
   });
 });

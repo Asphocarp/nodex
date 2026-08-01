@@ -63,10 +63,14 @@ There is no separate landing-only validation workflow or second required check.
   - builds the site from one protected-main commit
   - always clones the fixed `NodexApp/NodexApp.github.io` target; callers cannot
     override the destination
-  - replaces its root contents with the built artifact
+  - ordinary deploys replace the built site while preserving the target
+    `updates/` tree
   - commits only when there is a diff
   - is also called by release promotion after the immutable app Release is
-    verified, so a version/Changelog update cannot precede its downloads
+    verified; that mode projects the Release Bundle's exact signed arm64/x64
+    appcast snapshots into `/updates/stable/<arch>/appcast.xml`, rejects feed
+    rollback or same-version byte drift, and verifies the public bytes and
+    immutable enclosures after push
 
 ## Required Secrets
 
@@ -83,8 +87,19 @@ the reusable deployment workflow:
 
 In `NodexApp/NodexApp.github.io`, configure GitHub Pages to publish from the default branch root.
 
-No SPA fallback is needed.
-No CNAME file is needed for the default `nodexapp.github.io` hostname.
+The stable application-update endpoints are:
+
+- `https://nodex.jyu.app/updates/stable/arm64/appcast.xml`
+- `https://nodex.jyu.app/updates/stable/x64/appcast.xml`
+
+The Pages repository stores only the signed feed control plane. Full ZIPs and
+deltas remain immutable assets of the corresponding `junyudev/nodex` GitHub
+Release. Feed recovery replays a verified release snapshot; it does not
+regenerate or re-sign an existing release.
+
+No SPA fallback is needed. `packages/landing/public/CNAME` is part of the
+production custom-domain contract and must remain in the generated Pages tree;
+`nodexapp.github.io` is only the underlying Pages host.
 
 ## Content Notes
 

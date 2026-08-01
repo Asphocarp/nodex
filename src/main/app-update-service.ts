@@ -1,5 +1,8 @@
-import { autoUpdater, type AppUpdater, type ProgressInfo, type UpdateDownloadedEvent, type UpdateInfo } from "electron-updater";
 import type { AppUpdateSettings, AppUpdateStatus } from "../shared/types";
+import type {
+  MacAppUpdater,
+  MacAppUpdaterEvent,
+} from "./mac-app-updater";
 
 type StatusListener = (status: AppUpdateStatus) => void;
 
@@ -9,41 +12,110 @@ interface LoggerLike {
   error: (message: string, fields?: Record<string, unknown>) => void;
 }
 
-type UpdaterLike = Pick<
-  AppUpdater,
-  "checkForUpdates" | "quitAndInstall"
-> & {
-  autoDownload: boolean;
-  autoInstallOnAppQuit: boolean;
-  allowPrerelease: boolean;
-  on: (event: string, listener: (...args: unknown[]) => void) => unknown;
-};
-
 interface AppUpdateServiceOptions {
   currentVersion: string;
   isInApplicationsFolder: boolean;
   isPackaged: boolean;
   logger: LoggerLike;
   platform: NodeJS.Platform;
-  createUpdater?: () => UpdaterLike;
+  updater: MacAppUpdater | null;
 }
 
-function normalizeReleaseNotes(releaseNotes: UpdateInfo["releaseNotes"] | UpdateDownloadedEvent["releaseNotes"]): string | null {
-  if (typeof releaseNotes === "string") {
-    const normalized = releaseNotes.trim();
-    return normalized.length > 0 ? normalized : null;
+const checkedNow = (): string => new Date().toISOString();
+
+const roundProgressPercent = (received: number, total: number | null): number | null => {
+  if (total === null || total <= 0) return null;
+  return Math.max(0, Math.min(100, Math.round((received / total) * 10_000) / 100));
+};
+
+export function reduceAppUpdateStatus(
+  status: AppUpdateStatus,
+  event: MacAppUpdaterEvent,
+): AppUpdateStatus {
+  if (!status.supported) return status;
+  switch (event.type) {
+    case "check-started":
+      if (status.status === "downloading" || status.status === "downloaded" || status.status === "installing") {
+        return status;
+      }
+      return {
+        ...status,
+        message: "Checking for updates…",
+        progressPercent: null,
+        status: "checking",
+        totalBytes: null,
+        transferredBytes: null,
+      };
+    case "update-found":
+      return {
+        ...status,
+        availableVersion: event.version,
+        checkedAt: checkedNow(),
+        message: "Update found. Downloading in the background…",
+        releaseDate: event.releaseDate ?? null,
+        releaseName: event.releaseName ?? null,
+        releaseNotes: event.releaseNotes?.trim() || null,
+        status: "available",
+      };
+    case "download-started":
+      return {
+        ...status,
+        message: "Downloading update…",
+        progressPercent: 0,
+        status: "downloading",
+        totalBytes: event.expectedBytes,
+        transferredBytes: 0,
+      };
+    case "download-progress":
+      if (status.status !== "downloading" && status.status !== "available") return status;
+      return {
+        ...status,
+        message: "Downloading update…",
+        progressPercent: roundProgressPercent(event.receivedBytes, event.expectedBytes),
+        status: "downloading",
+        totalBytes: event.expectedBytes,
+        transferredBytes: event.receivedBytes,
+      };
+    case "update-ready": {
+      const totalBytes = status.totalBytes;
+      return {
+        ...status,
+        availableVersion: event.version || status.availableVersion,
+        checkedAt: checkedNow(),
+        message: "Update ready. Restart Nodex to install it.",
+        progressPercent: 100,
+        releaseDate: event.releaseDate ?? status.releaseDate,
+        releaseName: event.releaseName ?? status.releaseName,
+        releaseNotes: event.releaseNotes?.trim() || status.releaseNotes,
+        status: "downloaded",
+        transferredBytes: totalBytes ?? status.transferredBytes,
+      };
+    }
+    case "installing":
+      if (status.status !== "downloaded" && status.status !== "installing") return status;
+      return { ...status, message: "Installing update…", status: "installing" };
+    case "up-to-date":
+      return {
+        ...status,
+        availableVersion: null,
+        checkedAt: checkedNow(),
+        message: "You’re up to date.",
+        progressPercent: null,
+        releaseDate: null,
+        releaseName: null,
+        releaseNotes: null,
+        status: "upToDate",
+        totalBytes: null,
+        transferredBytes: null,
+      };
+    case "error":
+      return {
+        ...status,
+        checkedAt: checkedNow(),
+        message: event.message,
+        status: "error",
+      };
   }
-
-  if (!Array.isArray(releaseNotes) || releaseNotes.length === 0) {
-    return null;
-  }
-
-  const latestNote = releaseNotes[0]?.note?.trim();
-  return latestNote && latestNote.length > 0 ? latestNote : null;
-}
-
-function roundProgressPercent(value: number): number {
-  return Math.max(0, Math.min(100, Math.round(value * 100) / 100));
 }
 
 export class AppUpdateService {
@@ -52,12 +124,11 @@ export class AppUpdateService {
   private readonly isPackaged: boolean;
   private readonly logger: LoggerLike;
   private readonly platform: NodeJS.Platform;
-  private readonly createUpdater: () => UpdaterLike;
+  private readonly updater: MacAppUpdater | null;
   private readonly listeners = new Set<StatusListener>();
 
-  private updater: UpdaterLike | null = null;
-  private initialized = false;
   private automaticCheckStarted = false;
+  private initializePromise: Promise<void> | null = null;
   private status: AppUpdateStatus;
 
   constructor(options: AppUpdateServiceOptions) {
@@ -66,7 +137,7 @@ export class AppUpdateService {
     this.isPackaged = options.isPackaged;
     this.logger = options.logger;
     this.platform = options.platform;
-    this.createUpdater = options.createUpdater ?? (() => autoUpdater as unknown as UpdaterLike);
+    this.updater = options.updater;
     this.status = this.buildInitialStatus();
   }
 
@@ -82,70 +153,53 @@ export class AppUpdateService {
   }
 
   initialize(): AppUpdateStatus {
-    if (this.initialized) {
-      return this.status;
-    }
-
-    this.initialized = true;
-
-    if (!this.isSupportedRuntime()) {
-      this.status = this.buildInitialStatus();
-      return this.status;
-    }
-
-    const updater = this.createUpdater();
-    updater.autoDownload = true;
-    updater.autoInstallOnAppQuit = false;
-    updater.allowPrerelease = false;
-    this.updater = updater;
-    this.bindUpdaterEvents(updater);
-
-    this.setStatus({
-      status: "idle",
-      supported: true,
-      currentVersion: this.currentVersion,
-      availableVersion: null,
-      releaseName: null,
-      releaseDate: null,
-      releaseNotes: null,
-      progressPercent: null,
-      transferredBytes: null,
-      totalBytes: null,
-      checkedAt: null,
-      message: null,
+    if (this.initializePromise || !this.status.supported || !this.updater) return this.status;
+    this.initializePromise = this.updater.start((event) => {
+      if (event.type === "error") {
+        this.logger.error("App updater emitted an error", {
+          code: event.code,
+          message: event.message,
+          recoverable: event.recoverable,
+        });
+      }
+      this.setStatus(reduceAppUpdateStatus(this.status, event));
+    }).then(() => {
+      this.logger.info("App updater initialized", {
+        currentVersion: this.currentVersion,
+        platform: this.platform,
+      });
+    }).catch((error: unknown) => {
+      this.logger.error("App updater initialization failed", { error });
+      this.setStatus({
+        ...this.status,
+        checkedAt: checkedNow(),
+        message: error instanceof Error ? error.message : String(error),
+        status: "error",
+      });
+      throw error;
     });
-
-    this.logger.info("App updater initialized", {
-      currentVersion: this.currentVersion,
-      platform: this.platform,
-    });
-
+    void this.initializePromise.catch(() => undefined);
     return this.status;
   }
 
   maybeStartAutomaticChecks(settings: AppUpdateSettings): void {
     this.initialize();
-
-    if (!this.status.supported) {
+    if (!this.status.supported || !settings.automaticChecksEnabled || this.automaticCheckStarted) {
       return;
     }
-
-    if (!settings.automaticChecksEnabled || this.automaticCheckStarted) {
-      return;
-    }
-
     this.automaticCheckStarted = true;
     void this.checkForUpdates("startup");
   }
 
   async checkForUpdates(reason: "startup" | "manual" = "manual"): Promise<AppUpdateStatus> {
     this.initialize();
-
-    if (!this.status.supported || !this.updater) {
-      return this.status;
-    }
-
-    if (this.status.status === "checking" || this.status.status === "downloading") {
+    if (!this.status.supported || !this.updater) return this.status;
+    if (
+      this.status.status === "checking"
+      || this.status.status === "downloading"
+      || this.status.status === "downloaded"
+      || this.status.status === "installing"
+    ) {
       return this.status;
     }
 
@@ -153,171 +207,83 @@ export class AppUpdateService {
       currentVersion: this.currentVersion,
       reason,
     });
-
     try {
-      await this.updater.checkForUpdates();
+      await this.initializePromise;
+      await this.updater.check(reason === "startup" ? "background" : "user");
     } catch (error) {
-      this.logger.error("App update check failed", {
-        error,
-        reason,
-      });
+      this.logger.error("App update check failed", { error, reason });
       this.setStatus({
         ...this.status,
-        status: "error",
-        checkedAt: new Date().toISOString(),
+        checkedAt: checkedNow(),
         message: error instanceof Error ? error.message : String(error),
+        status: "error",
       });
     }
-
     return this.status;
   }
 
-  installUpdateAndRestart(): boolean {
+  async installUpdateAndRestart(): Promise<boolean> {
     this.initialize();
-
-    if (!this.updater || this.status.status !== "downloaded") {
-      return false;
-    }
-
+    if (!this.updater || this.status.status !== "downloaded") return false;
     this.logger.info("Installing downloaded app update", {
       version: this.status.availableVersion,
     });
-    this.updater.quitAndInstall(false, true);
-    return true;
+    try {
+      await this.updater.installDownloadedUpdate();
+      return true;
+    } catch (error) {
+      this.logger.error("Could not install downloaded app update", { error });
+      this.setStatus({
+        ...this.status,
+        checkedAt: checkedNow(),
+        message: error instanceof Error ? error.message : String(error),
+        status: "error",
+      });
+      return false;
+    }
   }
 
-  private bindUpdaterEvents(updater: UpdaterLike): void {
-    updater.on("checking-for-update", () => {
-      this.setStatus({
-        ...this.status,
-        status: "checking",
-        progressPercent: null,
-        transferredBytes: null,
-        totalBytes: null,
-        message: "Checking for updates…",
-      });
-    });
-
-    updater.on("update-available", (info) => {
-      const updateInfo = info as UpdateInfo;
-      this.logger.info("App update available", {
-        currentVersion: this.currentVersion,
-        version: updateInfo.version,
-      });
-      this.setStatus({
-        ...this.status,
-        status: "available",
-        availableVersion: updateInfo.version ?? null,
-        releaseName: updateInfo.releaseName ?? null,
-        releaseDate: updateInfo.releaseDate ?? null,
-        releaseNotes: normalizeReleaseNotes(updateInfo.releaseNotes),
-        checkedAt: new Date().toISOString(),
-        message: "Update found. Downloading in the background…",
-      });
-    });
-
-    updater.on("update-not-available", (info) => {
-      const updateInfo = info as UpdateInfo;
-      this.logger.info("App is already up to date", {
-        currentVersion: this.currentVersion,
-        version: updateInfo.version ?? this.currentVersion,
-      });
-      this.setStatus({
-        ...this.status,
-        status: "upToDate",
-        availableVersion: null,
-        releaseName: updateInfo.releaseName ?? null,
-        releaseDate: updateInfo.releaseDate ?? null,
-        releaseNotes: normalizeReleaseNotes(updateInfo.releaseNotes),
-        progressPercent: null,
-        transferredBytes: null,
-        totalBytes: null,
-        checkedAt: new Date().toISOString(),
-        message: "You’re up to date.",
-      });
-    });
-
-    updater.on("download-progress", (progress) => {
-      const progressInfo = progress as ProgressInfo;
-      this.setStatus({
-        ...this.status,
-        status: "downloading",
-        progressPercent: roundProgressPercent(progressInfo.percent),
-        transferredBytes: progressInfo.transferred,
-        totalBytes: progressInfo.total,
-        message: "Downloading update…",
-      });
-    });
-
-    updater.on("update-downloaded", (info) => {
-      const downloadedInfo = info as UpdateDownloadedEvent;
-      this.logger.info("App update downloaded", {
-        currentVersion: this.currentVersion,
-        version: downloadedInfo.version,
-      });
-      this.setStatus({
-        ...this.status,
-        status: "downloaded",
-        availableVersion: downloadedInfo.version ?? this.status.availableVersion,
-        releaseName: downloadedInfo.releaseName ?? null,
-        releaseDate: downloadedInfo.releaseDate ?? null,
-        releaseNotes: normalizeReleaseNotes(downloadedInfo.releaseNotes),
-        progressPercent: 100,
-        transferredBytes: downloadedInfo.files.reduce((sum, file) => sum + (file.size ?? 0), 0),
-        totalBytes: downloadedInfo.files.reduce((sum, file) => sum + (file.size ?? 0), 0),
-        checkedAt: new Date().toISOString(),
-        message: "Update ready. Restart Nodex to install it.",
-      });
-    });
-
-    updater.on("error", (error) => {
-      const resolvedError = error as Error;
-      this.logger.error("App updater emitted an error", { error: resolvedError });
-      this.setStatus({
-        ...this.status,
-        status: "error",
-        checkedAt: new Date().toISOString(),
-        message: resolvedError.message,
-      });
-    });
+  async dispose(): Promise<void> {
+    await this.updater?.dispose();
   }
 
   private buildInitialStatus(): AppUpdateStatus {
     const supported = this.isSupportedRuntime();
-
     return {
+      availableVersion: null,
+      checkedAt: null,
+      currentVersion: this.currentVersion,
+      message: supported ? null : this.unsupportedRuntimeMessage(),
+      progressPercent: null,
+      releaseDate: null,
+      releaseName: null,
+      releaseNotes: null,
       status: supported ? "idle" : "unsupported",
       supported,
-      currentVersion: this.currentVersion,
-      availableVersion: null,
-      releaseName: null,
-      releaseDate: null,
-      releaseNotes: null,
-      progressPercent: null,
-      transferredBytes: null,
       totalBytes: null,
-      checkedAt: null,
-      message: supported ? null : this.unsupportedRuntimeMessage(),
+      transferredBytes: null,
     };
   }
 
   private isSupportedRuntime(): boolean {
     return this.isPackaged
       && this.platform === "darwin"
-      && this.isInApplicationsFolder;
+      && this.isInApplicationsFolder
+      && this.updater !== null;
   }
 
   private unsupportedRuntimeMessage(): string {
     if (this.isPackaged && this.platform === "darwin" && !this.isInApplicationsFolder) {
       return "Move Nodex to Applications to enable app updates.";
     }
+    if (this.isPackaged && this.platform === "darwin" && this.updater === null) {
+      return "App updates are disabled in this build.";
+    }
     return "App updates are only available in packaged macOS builds.";
   }
 
   private setStatus(nextStatus: AppUpdateStatus): void {
     this.status = nextStatus;
-    for (const listener of this.listeners) {
-      listener(this.status);
-    }
+    for (const listener of this.listeners) listener(this.status);
   }
 }

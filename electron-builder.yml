@@ -57,6 +57,10 @@ extraResources:
   to: .
   filter:
   - "**/*"
+- from: .generated/sparkle-runtime/${arch}/nodex-sparkle.node
+  to: native/nodex-sparkle.node
+- from: .generated/sparkle-runtime/${arch}/sparkle-runtime.json
+  to: native/sparkle-runtime.json
 extraFiles:
 - from: resources/macos/app.jyu.nodex.background-service.core.plist
   to: Helpers/Nodex Service.app/Contents/Library/LaunchAgents/app.jyu.nodex.background-service.core.plist
@@ -64,6 +68,10 @@ extraFiles:
   to: Helpers/Nodex Service.app/Contents/Info.plist
 - from: .generated/codex-runtime/bin/nodex-service
   to: Helpers/Nodex Service.app/Contents/MacOS/nodex-service
+- from: .generated/sparkle-runtime/${arch}/Sparkle.framework
+  to: Frameworks/Sparkle.framework
+  filter:
+  - "**/*"
 extraMetadata:
   main: out/main/bootstrap.js
 protocols:
@@ -78,7 +86,6 @@ mac:
   minimumSystemVersion: 12.0.0
   target:
   - dmg
-  - zip
   artifactName: "${productName}-${version}-${arch}.${ext}"
   category: public.app-category.productivity
   hardenedRuntime: true
@@ -99,9 +106,17 @@ mac:
   entitlementsInherit: resources/entitlements.mac.plist
   extendInfo:
     NSMicrophoneUsageDescription: Nodex uses your microphone for thread composer dictation.
+    SUPublicEDKey: YNySLZ74gjVAOpEdMo9OOEPvuTEMZf8fMnI+oQD7Ifs=
+    SURequireSignedFeed: true
+    SUVerifyUpdateBeforeExtraction: true
+    SUAllowsAutomaticUpdates: true
+    SUEnableAutomaticChecks: false
+    SUAutomaticallyUpdate: true
   notarize: true
 
 dmg:
+  sign: true
+  writeUpdateInfo: false
   title: "${productName}"
   background: dmg-background.png
   iconSize: 128
@@ -114,12 +129,6 @@ dmg:
     y: 135
     type: link
     path: /Applications
-
-# --- Auto-update / Release hosting ---
-publish:
-  provider: github
-  owner: junyudev
-  repo: nodex
 
 # --- Windows (uncomment to enable) ---
 # win:
