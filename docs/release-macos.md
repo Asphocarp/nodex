@@ -29,7 +29,7 @@ manifests only when they describe one source and one Skill artifact, then emits:
 - `Nodex-latest-arm64.dmg`
 - `Nodex-latest-x64.dmg`
 - versioned arm64/x64 ZIPs and blockmaps
-- merged `latest-mac.yml`
+- merged `latest-mac.yml` containing only the two published versioned ZIPs
 - `release-bundle.json`
 - `SHA256SUMS`
 - `release-notes.md` for the publisher (not a public asset)

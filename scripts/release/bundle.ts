@@ -86,6 +86,11 @@ interface MacUpdateManifest {
   readonly [key: string]: unknown;
 }
 
+interface VerifiedMacUpdateManifest {
+  readonly manifest: MacUpdateManifest;
+  readonly updaterFile: UpdateFileInfo;
+}
+
 const SHA_PATTERN = /^[a-f0-9]{64}$/;
 const ARTIFACT_ROLES = new Set<ReleaseArtifactIdentity["role"]>([
   "blockmap",
@@ -436,7 +441,7 @@ const readAndVerifyUpdateManifest = (
   directory: string,
   architecture: MacArchitecture,
   version: string,
-): MacUpdateManifest => {
+): VerifiedMacUpdateManifest => {
   const manifestPath = join(directory, "latest-mac.yml");
   const value = load(readFileSync(manifestPath, "utf8"));
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -444,20 +449,38 @@ const readAndVerifyUpdateManifest = (
   }
   const manifest = value as MacUpdateManifest;
   if (manifest.version !== version) throw new Error(`${architecture} update manifest version mismatch.`);
-  const expectedName = `Nodex-${version}-${architecture}.zip`;
-  const expectedPath = join(directory, expectedName);
   const files = normalizeUpdateFiles(manifest);
-  if (files.length !== 1 || files[0].url !== expectedName) {
-    throw new Error(`${architecture} update manifest must contain exactly ${expectedName}.`);
+  const expectedNames = [
+    `Nodex-${version}-${architecture}.zip`,
+    `Nodex-${version}-${architecture}.dmg`,
+  ];
+  const filesByUrl = new Map(files.map((file) => [file.url, file]));
+  if (
+    files.length !== expectedNames.length
+    || filesByUrl.size !== expectedNames.length
+    || expectedNames.some((name) => !filesByUrl.has(name))
+  ) {
+    throw new Error(
+      `${architecture} update manifest must contain exactly ${expectedNames.join(" and ")}.`,
+    );
   }
-  const expected = files[0];
-  if (expected.sha512 !== sha512Base64(expectedPath)) {
-    throw new Error(`${architecture} update manifest SHA512 does not match ${expectedName}.`);
+  for (const expectedName of expectedNames) {
+    const expected = filesByUrl.get(expectedName);
+    if (!expected) throw new Error(`${architecture} update manifest is incomplete.`);
+    const expectedPath = join(directory, expectedName);
+    if (expected.sha512 !== sha512Base64(expectedPath)) {
+      throw new Error(`${architecture} update manifest SHA512 does not match ${expectedName}.`);
+    }
+    if (expected.size !== undefined && expected.size !== lstatSync(expectedPath).size) {
+      throw new Error(`${architecture} update manifest size does not match ${expectedName}.`);
+    }
   }
-  if (expected.size !== undefined && expected.size !== lstatSync(expectedPath).size) {
-    throw new Error(`${architecture} update manifest size does not match ${expectedName}.`);
+  const updaterFile = filesByUrl.get(expectedNames[0]);
+  if (!updaterFile) throw new Error(`${architecture} update manifest has no updater ZIP.`);
+  if (manifest.path !== updaterFile.url || manifest.sha512 !== updaterFile.sha512) {
+    throw new Error(`${architecture} update manifest legacy identity does not match its updater ZIP.`);
   }
-  return manifest;
+  return { manifest, updaterFile };
 };
 
 export function assembleReleaseBundle(options: {
@@ -509,15 +532,15 @@ export function assembleReleaseBundle(options: {
     { architecture: "x64", path: copy(x64Root, `Nodex-${version}-x64.zip.blockmap`), role: "blockmap" },
   ];
   const mergedFiles = [
-    ...normalizeUpdateFiles(armUpdate),
-    ...normalizeUpdateFiles(x64Update),
+    armUpdate.updaterFile,
+    x64Update.updaterFile,
   ];
   if (new Set(mergedFiles.map((entry) => entry.url)).size !== mergedFiles.length) {
     throw new Error("Merged macOS update manifest contains duplicate URLs.");
   }
-  const legacy = mergedFiles.find((entry) => entry.url.endsWith(".zip")) ?? mergedFiles[0];
+  const legacy = armUpdate.updaterFile;
   const mergedUpdate: MacUpdateManifest = {
-    ...armUpdate,
+    ...armUpdate.manifest,
     version,
     files: mergedFiles,
     path: legacy.url,
