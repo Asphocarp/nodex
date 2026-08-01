@@ -15,6 +15,7 @@ import path from "node:path";
 import {
   NATIVE_RUNTIME_BINARY_PATHS,
   sha256File,
+  swiftTargetForNativeRuntime,
   type NativeRuntimeArchitecture,
   type NativeRuntimeBinaryName,
   type NativeRuntimeManifest,
@@ -36,9 +37,6 @@ const TARGETS = {
 
 const expectedFileArchitecture = (architecture: TargetArchitecture): string =>
   architecture === "arm64" ? "arm64" : "x86_64";
-
-const swiftTarget = (architecture: TargetArchitecture): string =>
-  `${architecture === "arm64" ? "arm64" : "x86_64"}-apple-macos12.0`;
 
 const parseArguments = (argv: readonly string[]): Arguments => {
   let targetArch: TargetArchitecture | null = null;
@@ -121,7 +119,7 @@ const stage = ({ targetArch, outputRoot, signIdentity }: Arguments): void => {
       "-O",
       "-parse-as-library",
       "-target",
-      swiftTarget(targetArch),
+      swiftTargetForNativeRuntime(targetArch),
       serviceSource,
       "-o",
       serviceBuild,
@@ -141,7 +139,7 @@ const stage = ({ targetArch, outputRoot, signIdentity }: Arguments): void => {
       "-O",
       "-parse-as-library",
       "-target",
-      swiftTarget(targetArch),
+      swiftTargetForNativeRuntime(targetArch),
       appshotHelperSource,
       "-o",
       appshotHelperBuild,
