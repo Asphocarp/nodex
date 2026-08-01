@@ -102,10 +102,12 @@ environment after rehearsal succeeds.
 
 Distribution imports the Developer ID certificate into a per-job local
 keychain using a random keychain password, grants non-interactive Apple tool
-access with that keychain password, and removes both the keychain and decoded
-credentials in an `always()` cleanup step. Electron Builder discovers the
-installed identity but does not own credential import or temporary-keychain
-creation.
+access with that keychain password, masks the generated password before any
+security command can log it, and removes both the keychain and decoded
+credentials in an `always()` cleanup step. Command failures report only the
+failed Security.framework operation, never its arguments. Electron Builder
+discovers the installed identity but does not own credential import or
+temporary-keychain creation.
 
 If a release must intentionally omit Sentry source maps, change the production
 workflow input to `false` in a reviewed foundation commit; do not silently
