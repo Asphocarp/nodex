@@ -10,6 +10,7 @@ import { inspectOfficialAgentSkillsArtifact } from "./official-agent-skills-arti
 import {
   githubGitAuthorizationConfiguration,
   publishOfficialAgentSkills,
+  resolveGithubToken,
 } from "./publish-official-agent-skills";
 
 const temporaryRoots: string[] = [];
@@ -157,6 +158,13 @@ describe("official Agent Skills publisher", () => {
     expect(authorization.value).not.toContain(secret);
     expect(Buffer.from(encodedCredentials, "base64").toString("utf8")).toBe(
       `x-access-token:${secret}`,
+    );
+  });
+
+  test("falls back to the GitHub CLI token when the legacy token is blank", () => {
+    expect(resolveGithubToken(" \n", " github-cli-token ")).toBe("github-cli-token");
+    expect(resolveGithubToken(" legacy-token ", "github-cli-token")).toBe(
+      "legacy-token",
     );
   });
 

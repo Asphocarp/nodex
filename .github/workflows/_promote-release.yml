@@ -133,7 +133,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -z "${GH_TOKEN}" ]]; then
-            echo "Missing NODEX_SKILLS_GITHUB_TOKEN." >&2
+            echo "Missing GH_TOKEN." >&2
             exit 1
           fi
           # Recovery checks out the immutable release source, whose publisher may

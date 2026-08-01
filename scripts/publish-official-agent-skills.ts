@@ -70,6 +70,11 @@ export const githubGitAuthorizationConfiguration = (token: string): {
   value: `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`,
 });
 
+export const resolveGithubToken = (
+  legacyToken: string | undefined,
+  githubCliToken: string | undefined,
+): string | undefined => legacyToken?.trim() || githubCliToken?.trim() || undefined;
+
 const gitEnvironment = (token: string | undefined): NodeJS.ProcessEnv => {
   const authorization = token
     ? githubGitAuthorizationConfiguration(token)
@@ -443,7 +448,10 @@ const main = (): void => {
     expectedTreeSha256: requiredOption(arguments_, "--tree-sha256"),
     expectedVersion: requiredOption(arguments_, "--version"),
     remoteUrl: readOption(arguments_, "--remote") ?? undefined,
-    token: process.env.NODEX_SKILLS_GITHUB_TOKEN ?? process.env.GH_TOKEN,
+    token: resolveGithubToken(
+      process.env.NODEX_SKILLS_GITHUB_TOKEN,
+      process.env.GH_TOKEN,
+    ),
   });
   process.stdout.write(`${JSON.stringify(result)}\n`);
 };
