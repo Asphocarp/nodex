@@ -3,6 +3,13 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { AppInitializationStep } from "../shared/app-startup";
 import {
+  CORE_AUTHORITY_STATUS_CHANNEL,
+  GET_CORE_AUTHORITY_STATUS_CHANNEL,
+  RELAUNCH_FOR_CORE_AUTHORITY_CHANNEL,
+  RETRY_CORE_AUTHORITY_CHANNEL,
+  type CoreAuthorityStatus,
+} from "../shared/core-authority-status";
+import {
   CLOSE_PANEL_TAB_HOST_CHANNEL,
   CYCLE_PANEL_TAB_NEXT_HOST_CHANNEL,
   CYCLE_PANEL_TAB_PREVIOUS_HOST_CHANNEL,
@@ -63,6 +70,23 @@ contextBridge.exposeInMainWorld("api", {
     };
   },
   awaitInitialization: () => ipcRenderer.invoke("app:await-initialization"),
+  getCoreAuthorityStatus: () =>
+    ipcRenderer.invoke(GET_CORE_AUTHORITY_STATUS_CHANNEL) as Promise<CoreAuthorityStatus>,
+  onCoreAuthorityStatus: (
+    callback: (status: CoreAuthorityStatus) => void,
+  ) => {
+    const listener = (
+      _event: Electron.IpcRendererEvent,
+      status: CoreAuthorityStatus,
+    ) => callback(status);
+    ipcRenderer.on(CORE_AUTHORITY_STATUS_CHANNEL, listener);
+    return () => {
+      ipcRenderer.removeListener(CORE_AUTHORITY_STATUS_CHANNEL, listener);
+    };
+  },
+  retryCoreAuthority: () => ipcRenderer.invoke(RETRY_CORE_AUTHORITY_CHANNEL),
+  relaunchForCoreAuthority: () =>
+    ipcRenderer.invoke(RELAUNCH_FOR_CORE_AUTHORITY_CHANNEL),
   onInitializationStep: (callback: (step: AppInitializationStep) => void) => {
     const listener = (
       _event: Electron.IpcRendererEvent,

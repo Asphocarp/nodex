@@ -155,7 +155,10 @@ pub(super) fn apply(
             }
             validate_id("operation_id", &request.operation_id)?;
             let fingerprint = serde_json::to_vec(&(
-                &context,
+                &context.profile_id,
+                &context.library_id,
+                &context.project_id,
+                &context.adapter,
                 request.contract_version,
                 &request.store_epoch,
                 &request.intent,
@@ -2129,8 +2132,10 @@ mod tests {
         let committed = module
             .apply(&bootstrap_context(), initial.clone())
             .expect("create initial Project");
+        let mut rebound_context = bootstrap_context();
+        rebound_context.connection_id = "connection:rebound-generation".to_owned();
         let replay = module
-            .apply(&bootstrap_context(), initial)
+            .apply(&rebound_context, initial)
             .expect("replay initial Project");
 
         assert_eq!(

@@ -16,6 +16,7 @@ use nodex_core_contracts::{
 use rusqlite::OptionalExtension;
 
 use crate::infrastructure::agent_operations::PreparedAgentOperationRegistry;
+use crate::infrastructure::module_receipts::DurableModuleContext;
 use crate::infrastructure::projection_impact::impact_for_payload;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 use crate::infrastructure::store::SqliteStoreKernel;
@@ -596,7 +597,7 @@ impl LibraryModule {
             }
         };
         let fingerprint = serde_json::to_vec(&(
-            context,
+            DurableModuleContext::from(context),
             request.contract_version,
             &request.store_epoch,
             &request.intent,
@@ -884,7 +885,7 @@ mod tests {
     }
 
     #[test]
-    fn tracer_mints_receipt_and_event_once_for_an_exact_retry() {
+    fn tracer_replays_an_exact_retry_after_reconnecting() {
         let module = LibraryModule::tracer(
             "profile-1".to_owned(),
             "library-1".to_owned(),
@@ -892,7 +893,9 @@ mod tests {
         );
 
         let first = module.apply(&context(), request("operation-1", "page-1"));
-        let replay = module.apply(&context(), request("operation-1", "page-1"));
+        let mut reconnected = context();
+        reconnected.connection_id = "connection-2".to_owned();
+        let replay = module.apply(&reconnected, request("operation-1", "page-1"));
 
         let first = first.expect("first apply succeeds");
         let replay = replay.expect("exact retry succeeds");

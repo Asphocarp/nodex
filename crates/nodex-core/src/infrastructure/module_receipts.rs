@@ -1,5 +1,6 @@
 use nodex_core_contracts::{AdapterKind, BoundModuleContext};
 use rusqlite::{Connection, OptionalExtension, params};
+use serde::Serialize;
 use serde_json::Value;
 
 use super::sqlite::{StoreError, StoreErrorCode};
@@ -24,6 +25,29 @@ pub struct NewModuleReceipt<'a> {
     pub result: &'a Value,
     pub event_sequence: Option<i64>,
     pub committed_at: &'a str,
+}
+
+/// The authority fields that may participate in a durable idempotency
+/// fingerprint. A physical connection authenticates a request, but it is not
+/// part of the request's semantic identity and must never make a committed
+/// operation unreplayable after reconnecting.
+#[derive(Serialize)]
+pub struct DurableModuleContext<'a> {
+    profile_id: &'a str,
+    library_id: &'a str,
+    project_id: Option<&'a str>,
+    adapter: &'static str,
+}
+
+impl<'a> From<&'a BoundModuleContext> for DurableModuleContext<'a> {
+    fn from(context: &'a BoundModuleContext) -> Self {
+        Self {
+            profile_id: &context.profile_id.0,
+            library_id: &context.library_id.0,
+            project_id: context.project_id.as_ref().map(|id| id.0.as_str()),
+            adapter: adapter_kind(&context.adapter),
+        }
+    }
 }
 
 pub fn read_module_receipt(
@@ -103,7 +127,7 @@ pub fn insert_module_receipt(
             receipt.operation_id,
             receipt.context.profile_id.0.as_str(),
             receipt.context.project_id.as_ref().map(|id| id.0.as_str()),
-            adapter_kind(receipt.context.adapter.clone()),
+            adapter_kind(&receipt.context.adapter),
             receipt.operation_kind,
             receipt.store_epoch,
             receipt.request_hash,
@@ -115,7 +139,7 @@ pub fn insert_module_receipt(
     Ok(())
 }
 
-fn adapter_kind(kind: AdapterKind) -> &'static str {
+fn adapter_kind(kind: &AdapterKind) -> &'static str {
     match kind {
         AdapterKind::ElectronHost => "electron_host",
         AdapterKind::LoopbackHttp => "loopback_http",
@@ -135,4 +159,43 @@ fn is_sha256(value: &str) -> bool {
 
 fn corrupt(message: &str) -> StoreError {
     StoreError::new(StoreErrorCode::StoreCorrupt, message, false)
+}
+
+#[cfg(test)]
+mod tests {
+    use nodex_core_contracts::{LibraryId, ProfileId, ProjectId};
+
+    use super::*;
+
+    fn context(connection_id: &str, adapter: AdapterKind) -> BoundModuleContext {
+        BoundModuleContext {
+            profile_id: ProfileId("profile-1".to_owned()),
+            library_id: LibraryId("library-1".to_owned()),
+            project_id: Some(ProjectId("project-1".to_owned())),
+            connection_id: connection_id.to_owned(),
+            adapter,
+        }
+    }
+
+    #[test]
+    fn durable_context_ignores_physical_connections_but_retains_authority() {
+        let first = serde_json::to_vec(&DurableModuleContext::from(&context(
+            "connection-1",
+            AdapterKind::ElectronHost,
+        )))
+        .expect("durable context");
+        let reconnected = serde_json::to_vec(&DurableModuleContext::from(&context(
+            "connection-2",
+            AdapterKind::ElectronHost,
+        )))
+        .expect("reconnected durable context");
+        let another_adapter = serde_json::to_vec(&DurableModuleContext::from(&context(
+            "connection-2",
+            AdapterKind::NativeCli,
+        )))
+        .expect("other adapter durable context");
+
+        assert_eq!(first, reconnected);
+        assert_ne!(first, another_adapter);
+    }
 }

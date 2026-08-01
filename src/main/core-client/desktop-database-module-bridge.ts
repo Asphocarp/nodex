@@ -295,8 +295,8 @@ export const createDesktopDatabaseModuleBridge = (
     const adapter = createCoreDatabaseModuleAdapter({
       client: runtime.clientForProject(projectId),
       projectId,
-      libraryId: runtime.rootClient.handshake.library_id,
-      storeEpoch: runtime.rootClient.handshake.store_epoch,
+      libraryId: runtime.identity.libraryId,
+      storeEpoch: runtime.identity.storeEpoch,
     });
     coreAdapters.set(projectId, adapter);
     return adapter;
@@ -307,8 +307,8 @@ export const createDesktopDatabaseModuleBridge = (
   ): CoreLibraryDatabaseModuleAdapter => {
     libraryCoreAdapter ??= createCoreLibraryDatabaseModuleAdapter({
       client: runtime.rootClient,
-      libraryId: runtime.rootClient.handshake.library_id,
-      storeEpoch: runtime.rootClient.handshake.store_epoch,
+      libraryId: runtime.identity.libraryId,
+      storeEpoch: runtime.identity.storeEpoch,
     });
     return libraryCoreAdapter;
   };
@@ -335,7 +335,7 @@ export const createDesktopDatabaseModuleBridge = (
       const adapter = coreAdapterFor(runtime, projectId);
       return await readBoundedDatabaseViewWindow({
         projectId,
-        libraryId: runtime.rootClient.handshake.library_id,
+        libraryId: runtime.identity.libraryId,
         windowInput,
         readCore: adapter.readCore,
         readDescriptor: async (read) => await adapter.read({
@@ -350,7 +350,7 @@ export const createDesktopDatabaseModuleBridge = (
       const adapter = coreAdapterFor(runtime, projectId);
       return await readBoundedDatabaseViewGroups({
         projectId,
-        libraryId: runtime.rootClient.handshake.library_id,
+        libraryId: runtime.identity.libraryId,
         groupsInput,
         readCore: adapter.readCore,
       });
@@ -360,7 +360,7 @@ export const createDesktopDatabaseModuleBridge = (
       const adapter = libraryAdapterFor(runtime);
       return await readBoundedDatabaseViewWindow({
         projectId: null,
-        libraryId: runtime.rootClient.handshake.library_id,
+        libraryId: runtime.identity.libraryId,
         windowInput,
         readCore: adapter.readCore,
         readDescriptor: async (read) => await adapter.read({
@@ -374,7 +374,7 @@ export const createDesktopDatabaseModuleBridge = (
       const adapter = libraryAdapterFor(runtime);
       return await readBoundedDatabaseViewGroups({
         projectId: null,
-        libraryId: runtime.rootClient.handshake.library_id,
+        libraryId: runtime.identity.libraryId,
         groupsInput,
         readCore: adapter.readCore,
       });

@@ -121,6 +121,12 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
   only after acquiring the lifetime lock and proving the existing entry is the
   current user's Unix socket. Runtime cleanup similarly removes only the exact
   start-nonce generation after validating every target.
+- Core lifecycle diagnostics use the same private runtime ancestry and atomic
+  regular-file publication rules. The fixed-size `lifecycle.json` breadcrumb
+  contains only bounded generation identity, phase, typed drain reason, and
+  stop outcome. It never contains the bearer capability, socket path, request
+  payload, SQL, Document bytes, or user content; a symlink, unsafe mode, or
+  malformed prior file disables only the breadcrumb.
 - Optional background registration uses a signed nested application and its bundled macOS 13+ `SMAppService` LaunchAgent; it never installs a root helper or writes a launchd plist outside the signed bundle. The selected absolute Profile path is the only persisted input, stored as a private regular file below the current user's Application Support directory. The controller rejects symlinked configuration and executable entries, bounds configuration and control output, and executes the fixed sibling Core without a shell.
 - Every native-Core HTTP request is authenticated by a fresh per-start
   capability and same-UID Unix peer credentials. Handshake registers the

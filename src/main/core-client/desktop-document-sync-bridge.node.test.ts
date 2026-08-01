@@ -167,6 +167,11 @@ const rustRuntime = (
   });
   return {
     backend: "rust",
+    identity: {
+      libraryId: "library:test",
+      profileId: "profile:test",
+      storeEpoch: "epoch:test",
+    },
     rootClient,
     clientForProject: () => projectClient,
   } as unknown as RustDataAuthorityRuntime;

@@ -77,6 +77,7 @@ export interface StartCodexScheduledAutomationSchedulerOptions {
   intervalMs?: number;
   maxPerTick?: number;
   now?: () => number;
+  isAuthorityAvailable?: () => boolean;
   runAutomation: (
     automation: CodexScheduledAutomation,
     context: CodexScheduledAutomationRunContext,
@@ -112,6 +113,7 @@ export function startCodexScheduledAutomationScheduler(
   const logger = options.logger ?? getLogger({ subsystem: "codex-scheduled-automations" });
   const setIntervalImpl = options.setIntervalImpl ?? ((callback, ms) => setInterval(callback, ms));
   const clearIntervalImpl = options.clearIntervalImpl ?? ((timer) => clearInterval(timer));
+  const isAuthorityAvailable = options.isAuthorityAvailable ?? (() => true);
   let disposed = false;
   let running = false;
   let heartbeatAutomationsEnabled = false;
@@ -131,12 +133,38 @@ export function startCodexScheduledAutomationScheduler(
       logger.warn("Failed to settle interrupted scheduled automation runs", { error });
     }
   };
-  const initialized = initialize();
+  let initialization: Promise<void> | null = null;
+  const ensureInitialized = (): Promise<void> => {
+    initialization ??= initialize();
+    return initialization;
+  };
+
+  const canStartCoreWork = (): boolean => !disposed && isAuthorityAvailable();
+
+  const deferClaim = async (
+    claim: CodexScheduledAutomationClaim,
+    reasonCode: "core_authority_unavailable" | "scheduler_stopped",
+  ): Promise<void> => {
+    await options.failClaim(claim.leaseId, intervalMs, reasonCode).catch((error) => {
+      logger.warn("Scheduled automation lease deferral failed", {
+        automationId: claim.definition.id,
+        error,
+        reasonCode,
+      });
+    });
+  };
 
   const runClaim = async (
     claim: CodexScheduledAutomationClaim,
     tickNow: number,
   ): Promise<void> => {
+    if (!canStartCoreWork()) {
+      await deferClaim(
+        claim,
+        disposed ? "scheduler_stopped" : "core_authority_unavailable",
+      );
+      return;
+    }
     try {
       await options.runAutomation(claim.definition, {
         now: tickNow,
@@ -186,12 +214,21 @@ export function startCodexScheduledAutomationScheduler(
   const tick = async (): Promise<void> => {
     if (disposed) return;
     if (running) return;
+    if (!isAuthorityAvailable()) return;
 
     running = true;
     const tickNow = now();
     try {
-      await initialized;
+      await ensureInitialized();
+      if (!canStartCoreWork()) return;
       const claims = await options.claimDueAutomations(maxPerTick);
+      if (!canStartCoreWork()) {
+        await Promise.all(claims.map((claim) => deferClaim(
+          claim,
+          disposed ? "scheduler_stopped" : "core_authority_unavailable",
+        )));
+        return;
+      }
       await Promise.all(claims.map((claim) => runClaim(claim, tickNow)));
     } catch (error) {
       logger.debug("Scheduled automation scheduler tick failed", { error });

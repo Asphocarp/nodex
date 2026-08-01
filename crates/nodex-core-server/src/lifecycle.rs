@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use serde::{Deserialize, Serialize};
 use tokio::sync::{Notify, watch};
 
 const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(15 * 60);
@@ -12,9 +13,19 @@ const MAX_IDLE_POLL_INTERVAL: Duration = Duration::from_secs(1);
 const MIN_IDLE_POLL_INTERVAL: Duration = Duration::from_millis(10);
 const IDLE_TIMEOUT_ENV: &str = "NODEX_CORE_IDLE_TIMEOUT_MS";
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum DrainReason {
+    ExplicitShutdown,
+    IdleTimeout,
+    OperatingSystemSignal,
+    Replacement,
+}
+
 struct LifecycleInner {
     draining: AtomicBool,
     activity_generation: Mutex<u64>,
+    drain_observer: Arc<dyn Fn(DrainReason) + Send + Sync>,
     shutdown: Notify,
     stream_shutdown: watch::Sender<bool>,
 }
@@ -25,12 +36,20 @@ pub(crate) struct LifecycleCoordinator {
 }
 
 impl LifecycleCoordinator {
+    #[cfg(test)]
     pub(crate) fn new() -> Self {
+        Self::with_drain_observer(|_| {})
+    }
+
+    pub(crate) fn with_drain_observer(
+        observer: impl Fn(DrainReason) + Send + Sync + 'static,
+    ) -> Self {
         let (stream_shutdown, _) = watch::channel(false);
         Self {
             inner: Arc::new(LifecycleInner {
                 draining: AtomicBool::new(false),
                 activity_generation: Mutex::new(0),
+                drain_observer: Arc::new(observer),
                 shutdown: Notify::new(),
                 stream_shutdown,
             }),
@@ -41,11 +60,14 @@ impl LifecycleCoordinator {
         self.inner.draining.load(Ordering::Acquire)
     }
 
-    pub(crate) fn begin_drain(&self) -> bool {
-        let Ok(_generation) = self.inner.activity_generation.lock() else {
+    pub(crate) fn begin_drain(&self, reason: DrainReason) -> bool {
+        let Ok(generation) = self.inner.activity_generation.lock() else {
             return false;
         };
-        self.begin_drain_locked()
+        let began = self.begin_drain_locked();
+        drop(generation);
+        self.publish_drain(began, reason);
+        began
     }
 
     pub(crate) fn record_activity(&self) -> bool {
@@ -77,17 +99,27 @@ impl LifecycleCoordinator {
         if *generation != expected_generation {
             return false;
         }
-        self.begin_drain_locked()
+        let began = self.begin_drain_locked();
+        drop(generation);
+        self.publish_drain(began, DrainReason::IdleTimeout);
+        began
     }
 
-    pub(crate) fn try_begin_idle_drain_if(&self, is_idle: impl FnOnce() -> bool) -> bool {
-        let Ok(_generation) = self.inner.activity_generation.lock() else {
+    pub(crate) fn try_begin_idle_drain_if(
+        &self,
+        reason: DrainReason,
+        is_idle: impl FnOnce() -> bool,
+    ) -> bool {
+        let Ok(generation) = self.inner.activity_generation.lock() else {
             return false;
         };
         if self.is_draining() || !is_idle() {
             return false;
         }
-        self.begin_drain_locked()
+        let began = self.begin_drain_locked();
+        drop(generation);
+        self.publish_drain(began, reason);
+        began
     }
 
     fn begin_drain_locked(&self) -> bool {
@@ -102,6 +134,13 @@ impl LifecycleCoordinator {
         self.inner.stream_shutdown.send_replace(true);
         self.inner.shutdown.notify_one();
         true
+    }
+
+    fn publish_drain(&self, began: bool, reason: DrainReason) {
+        if !began {
+            return;
+        }
+        (self.inner.drain_observer)(reason);
     }
 
     pub(crate) fn subscribe_stream_shutdown(&self) -> watch::Receiver<bool> {
@@ -220,7 +259,7 @@ mod tests {
     #[tokio::test]
     async fn stream_subscriber_created_after_drain_observes_shutdown() {
         let coordinator = LifecycleCoordinator::new();
-        assert!(coordinator.begin_drain());
+        assert!(coordinator.begin_drain(DrainReason::ExplicitShutdown));
         let mut receiver = coordinator.subscribe_stream_shutdown();
 
         tokio::time::timeout(

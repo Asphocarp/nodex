@@ -114,6 +114,7 @@ describe("native Core launcher", () => {
     const nodexHome = mkdtempSync(path.join(tmpdir(), "nodex-core-launcher-"));
     const input = {
       buildId: "core-launcher-integration-test",
+      connectionId: "desktop-host:core-launcher-integration-test",
       environment: { NODEX_CORE_EXECUTABLE: CORE_BINARY },
       isPackaged: false,
       nodexHome,
@@ -141,6 +142,9 @@ describe("native Core launcher", () => {
       expect(reusedEvents).toEqual(["candidate_checked"]);
       expect(reused.timings.disposition).toBe("reused");
       expect(reused.client.handshake.generation.pid).toBe(first.client.handshake.generation.pid);
+      await expect(reused.client.health()).resolves.toMatchObject({
+        metrics: { active_clients: 1 },
+      });
 
       await first.client.shutdown();
       const socketPath = path.join(nodexHome, "run/core/core.sock");

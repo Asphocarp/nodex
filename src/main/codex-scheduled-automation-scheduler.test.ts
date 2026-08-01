@@ -182,10 +182,12 @@ describe("codex scheduled automation scheduler", () => {
 
   test("skips overlapping ticks while a run is active", async () => {
     let listCalls = 0;
+    let authorityAvailable = false;
     let resolveRun: () => void = () => undefined;
     let blockRun = true;
     const scheduler = startCodexScheduledAutomationScheduler({
       logger: logger(),
+      isAuthorityAvailable: () => authorityAvailable,
       now: () => 500,
       setIntervalImpl: () => ({ unref: () => undefined }) as unknown as ReturnType<typeof setInterval>,
       clearIntervalImpl: () => undefined,
@@ -211,14 +213,99 @@ describe("codex scheduled automation scheduler", () => {
     });
 
     await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(listCalls).toBe(0);
+    authorityAvailable = true;
+    const activeTick = scheduler.tick();
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(listCalls).toBe(1);
     await scheduler.tick();
     expect(listCalls).toBe(1);
 
     resolveRun();
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await activeTick;
     await scheduler.tick();
     expect(listCalls).toBe(2);
+    scheduler.dispose();
+  });
+
+  test("rechecks authority after initialization before claiming work", async () => {
+    let authorityAvailable = true;
+    let resolveInitialization: () => void = () => undefined;
+    let claimCalls = 0;
+    const claimDueAutomations = async () => {
+      claimCalls += 1;
+      return [];
+    };
+    const scheduler = startCodexScheduledAutomationScheduler({
+      logger: logger(),
+      isAuthorityAvailable: () => authorityAvailable,
+      setIntervalImpl: () => ({ unref: () => undefined }) as unknown as ReturnType<typeof setInterval>,
+      clearIntervalImpl: () => undefined,
+      settleInterruptedRuns: async () => await new Promise((resolve) => {
+        resolveInitialization = () => resolve({
+          archivedPendingCount: 0,
+          pendingReviewCount: 0,
+        });
+      }),
+      claimDueAutomations,
+      completeClaim: async () => undefined,
+      failClaim: async () => undefined,
+      runAutomation: async () => undefined,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    authorityAvailable = false;
+    resolveInitialization();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(claimCalls).toBe(0);
+    scheduler.dispose();
+  });
+
+  test("defers claims when authority is lost while claiming", async () => {
+    let authorityAvailable = true;
+    let resolveClaims: (
+      claims: readonly { leaseId: string; definition: CodexScheduledAutomation }[],
+    ) => void = () => undefined;
+    const runIds: string[] = [];
+    const failed: Array<{
+      leaseId: string;
+      retryDelayMs: number | null;
+      reasonCode: string;
+    }> = [];
+    const scheduler = startCodexScheduledAutomationScheduler({
+      logger: logger(),
+      intervalMs: 5_000,
+      isAuthorityAvailable: () => authorityAvailable,
+      setIntervalImpl: () => ({ unref: () => undefined }) as unknown as ReturnType<typeof setInterval>,
+      clearIntervalImpl: () => undefined,
+      settleInterruptedRuns: async () => ({
+        archivedPendingCount: 0,
+        pendingReviewCount: 0,
+      }),
+      claimDueAutomations: async () => await new Promise((resolve) => {
+        resolveClaims = resolve;
+      }),
+      completeClaim: async () => undefined,
+      failClaim: async (leaseId, retryDelayMs, reasonCode) => {
+        failed.push({ leaseId, retryDelayMs, reasonCode });
+      },
+      runAutomation: async (item) => {
+        runIds.push(item.id);
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    authorityAvailable = false;
+    resolveClaims([{ leaseId: "lease:deferred", definition: automation("deferred") }]);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(runIds).toEqual([]);
+    expect(failed).toEqual([{
+      leaseId: "lease:deferred",
+      retryDelayMs: 5_000,
+      reasonCode: "core_authority_unavailable",
+    }]);
     scheduler.dispose();
   });
 

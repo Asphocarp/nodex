@@ -180,7 +180,7 @@ export class NativeNodexAgentPageMoveRuntime {
         operation_id: operationId,
         store_epoch: request.authority.storeEpoch,
         authorization: toCoreAgentExecutionAuthorization(
-          this.runtime.rootClient.handshake.generation.profile_id,
+          this.runtime.identity.profileId,
           request.authority,
           request.callId,
           request.resourceAccess,
@@ -274,7 +274,7 @@ export class NativeNodexAgentPageMoveRuntime {
             kind: "execute_prepared_agent_move_pages",
             authorization: {
               authorization: toCoreAgentExecutionAuthorization(
-                this.runtime.rootClient.handshake.generation.profile_id,
+                this.runtime.identity.profileId,
                 authority,
                 pending.request.callId,
                 pending.request.resourceAccess,

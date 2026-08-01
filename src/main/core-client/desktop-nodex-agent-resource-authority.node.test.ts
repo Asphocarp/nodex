@@ -20,6 +20,11 @@ const authority = {
 
 const runtimeFor = (client: FakeCoreClient): RustDataAuthorityRuntime => ({
   backend: "rust",
+  identity: {
+    libraryId: "library:test",
+    profileId: "profile:test",
+    storeEpoch: "epoch:test",
+  },
   rootClient: Object.assign(client, {
     handshake: createFakeCoreHandshake({
       libraryId: "library:test",

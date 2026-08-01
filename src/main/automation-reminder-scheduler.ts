@@ -39,6 +39,7 @@ export interface StartAutomationReminderSchedulerOptions {
   readonly maxPerTick?: number;
   readonly leaseDurationMs?: number;
   readonly retryDelayMs?: number;
+  readonly isAuthorityAvailable?: () => boolean;
   readonly setIntervalImpl?: (
     callback: () => void,
     milliseconds: number,
@@ -97,10 +98,37 @@ export function startAutomationReminderScheduler(
     ?? ((callback, milliseconds) => setInterval(callback, milliseconds));
   const clearIntervalImpl = options.clearIntervalImpl
     ?? ((timer) => clearInterval(timer));
+  const isAuthorityAvailable = options.isAuthorityAvailable ?? (() => true);
   let disposed = false;
   let running = false;
 
+  const canStartDelivery = (): boolean => !disposed && isAuthorityAvailable();
+
+  const defer = async (
+    claim: DesktopReminderClaim,
+    reasonCode: "core_authority_unavailable" | "scheduler_stopped",
+  ): Promise<void> => {
+    await options.automation.failReminderLease(
+      claim.leaseId,
+      retryDelayMs,
+      reasonCode,
+    ).catch((error) => {
+      logger.warn("Reminder lease deferral failed", {
+        leaseId: claim.leaseId,
+        error,
+        reasonCode,
+      });
+    });
+  };
+
   const deliver = async (claim: DesktopReminderClaim): Promise<void> => {
+    if (!canStartDelivery()) {
+      await defer(
+        claim,
+        disposed ? "scheduler_stopped" : "core_authority_unavailable",
+      );
+      return;
+    }
     try {
       await options.onReminder(toNotification(claim));
       await options.automation.completeReminderLease(claim.leaseId);
@@ -125,13 +153,20 @@ export function startAutomationReminderScheduler(
   };
 
   const runNow = async (): Promise<void> => {
-    if (disposed || running) return;
+    if (disposed || running || !isAuthorityAvailable()) return;
     running = true;
     try {
       const claims = await options.automation.claimDueReminders(
         maxPerTick,
         leaseDurationMs,
       );
+      if (!canStartDelivery()) {
+        await Promise.all(claims.map((claim) => defer(
+          claim,
+          disposed ? "scheduler_stopped" : "core_authority_unavailable",
+        )));
+        return;
+      }
       await Promise.all(claims.map(deliver));
     } catch (error) {
       logger.debug("Reminder scheduler tick failed", { error });

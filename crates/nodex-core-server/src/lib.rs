@@ -3,6 +3,7 @@
 mod connections;
 mod document_wire;
 mod lifecycle;
+mod lifecycle_summary;
 mod logging;
 mod metrics;
 mod runtime_files;
@@ -77,7 +78,8 @@ use connections::{
     ConnectionRegistryErrorKind, EventSubscriptionKey, PeerIdentity,
 };
 use document_wire::{ApplyFrame, CONTENT_TYPE as DOCUMENT_CONTENT_TYPE, CanvasSyncKind, SyncFrame};
-use lifecycle::{LifecycleCoordinator, configured_idle_timeout, monitor_idle};
+use lifecycle::{DrainReason, LifecycleCoordinator, configured_idle_timeout, monitor_idle};
+use lifecycle_summary::LifecycleSummaryWriter;
 use metrics::ServerMetrics;
 use runtime_files::{
     CandidateRuntime, ExistingCore, PRIVATE_FILE_MODE, RuntimePaths, current_artifact_identity,
@@ -1361,7 +1363,7 @@ async fn shutdown(
     let connection_id = log_identity(&bound.id);
     tracing::Span::current().record("connectionId", connection_id.as_str());
     tracing::Span::current().record("adapter", adapter_name(&bound.adapter));
-    if state.lifecycle.begin_drain() {
+    if state.lifecycle.begin_drain(DrainReason::ExplicitShutdown) {
         tracing::info!(reason = "explicit", "Core drain began");
     }
     Ok(Json(ShutdownResponse {
@@ -1418,9 +1420,12 @@ fn replacement_handoff(
             retry_after_ms: None,
         }));
     }
-    if state.lifecycle.try_begin_idle_drain_if(|| {
-        descriptor_snapshot(state) == descriptor && server_is_idle(state)
-    }) {
+    if state
+        .lifecycle
+        .try_begin_idle_drain_if(DrainReason::Replacement, || {
+            descriptor_snapshot(state) == descriptor && server_is_idle(state)
+        })
+    {
         tracing::info!(
             reason = "replacement",
             status = "accepted",
@@ -2371,6 +2376,7 @@ pub async fn run_with_selection(
         &paths.descriptor,
         format!("{}\n", serde_json::to_string(&descriptor)?).as_bytes(),
     )?;
+    let lifecycle_summary = LifecycleSummaryWriter::start(paths.clone(), &descriptor);
     println!(
         "{}",
         serde_json::to_string(&CoreSelectionResult {
@@ -2405,6 +2411,7 @@ pub async fn run_with_selection(
     let replacement_realtime = document_realtime.clone();
     let replacement_descriptor = Arc::clone(&descriptor);
     let replacement_paths = paths.clone();
+    let replacement_lifecycle_summary = lifecycle_summary.clone();
     let administration =
         StoreAdministrationModule::new(&identity.profile_id, &identity.library_id, &store)
             .with_store_replacement_hook(move |store_epoch| {
@@ -2454,10 +2461,14 @@ pub async fn run_with_selection(
                             false,
                         )
                     })?;
+                replacement_lifecycle_summary.replace_generation(&next);
                 *descriptor = next;
                 Ok(())
             });
-    let lifecycle = LifecycleCoordinator::new();
+    let drain_lifecycle_summary = lifecycle_summary.clone();
+    let lifecycle = LifecycleCoordinator::with_drain_observer(move |reason| {
+        drain_lifecycle_summary.mark_draining(reason);
+    });
     let state = Arc::new(ServerState {
         auth_header: format!("Bearer {auth}"),
         owner_uid,
@@ -2507,6 +2518,7 @@ pub async fn run_with_selection(
     // `core.lock` is released, so dropping these in the opposite order creates
     // a window where it owns the runtime but cannot open the Profile Store.
     drop(state);
+    lifecycle_summary.mark_stopped(result.is_ok());
     logging_guard.shutdown();
     paths.cleanup(&start_nonce);
     drop(lock);
@@ -2566,7 +2578,7 @@ async fn shutdown_signal(lifecycle: LifecycleCoordinator) {
     tokio::select! {
         () = lifecycle.wait_for_drain() => {}
         () = operating_system_shutdown_signal() => {
-            if lifecycle.begin_drain() {
+            if lifecycle.begin_drain(DrainReason::OperatingSystemSignal) {
                 tracing::info!(reason = "operating_system_signal", "Core drain began");
             }
         }

@@ -22,6 +22,7 @@ interface MaintenanceSchedulerLogger {
 export interface StartStoreAdministrationMaintenanceSchedulerOptions {
   readonly administration: DesktopStoreAdministrationPort;
   readonly readBlockRetentionCount: () => number;
+  readonly isAuthorityAvailable?: () => boolean;
   readonly setTimeoutImpl?: (
     callback: () => void,
     milliseconds: number,
@@ -71,6 +72,7 @@ export function startStoreAdministrationMaintenanceScheduler(
     ?? ((callback, milliseconds) => setTimeout(callback, milliseconds));
   const clearTimeoutImpl = options.clearTimeoutImpl
     ?? ((timer) => clearTimeout(timer));
+  const isAuthorityAvailable = options.isAuthorityAvailable ?? (() => true);
   const schedules: Record<MaintenanceLane, { initial: number; interval: number }> = {
     revision: options.delays?.revision ?? {
       initial: REVISION_INITIAL_DELAY_MS,
@@ -90,7 +92,7 @@ export function startStoreAdministrationMaintenanceScheduler(
   let disposed = false;
 
   const runNow = async (lane: MaintenanceLane): Promise<void> => {
-    if (disposed || running.has(lane)) return;
+    if (disposed || running.has(lane) || !isAuthorityAvailable()) return;
     running.add(lane);
     try {
       await options.administration.runMaintenance(

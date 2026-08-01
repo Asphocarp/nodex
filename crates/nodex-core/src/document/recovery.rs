@@ -1,6 +1,5 @@
 use std::collections::HashSet;
 
-use nodex_core_contracts::BoundModuleContext;
 use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
@@ -9,7 +8,7 @@ use super::persistence::{DocumentAuthorityRow, sha256};
 
 pub(crate) struct StaleYjsUpdate<'a> {
     pub(crate) store_epoch: &'a str,
-    pub(crate) context: &'a BoundModuleContext,
+    pub(crate) client_session_id: &'a str,
     pub(crate) generation: i64,
     pub(crate) base_head_seq: i64,
     pub(crate) update_id: &'a str,
@@ -126,7 +125,7 @@ pub(crate) fn persist_recovery_if_barrier_crossed(
             authority.head.id,
             input.generation,
             input.update_id,
-            input.context.connection_id,
+            input.client_session_id,
             input.base_head_seq,
             touched_json,
             derived_touched_json,
@@ -172,7 +171,7 @@ fn read_artifact(
     let touched = serde_json::from_str::<Vec<String>>(&stored.4)
         .map_err(|_| corrupt("Stored recovery artifact touched Block IDs are invalid"))?;
     let exact = stored.1 == input.store_epoch
-        && stored.2 == input.context.connection_id
+        && stored.2 == input.client_session_id
         && stored.3 == input.base_head_seq
         && touched == input.touched_block_ids
         && stored.5 == input.update

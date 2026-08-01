@@ -105,6 +105,23 @@ IPC pair, Project/Library Page Detail, Project-scoped Page references and
 ownership paths, trusted-root Page deep-link location, and the Project catalog
 boundary. Page lifecycle and mixed Page Property writes also cross the native
 Library aggregate boundary through Core.
+Electron keeps the Profile/Library/Store epoch authority identity stable for
+its whole process lifetime, but treats a Core process generation as a
+replaceable transport session. Every long-lived Desktop adapter targets one
+`DesktopCoreAuthoritySupervisor` facade rather than the first raw UDS client.
+Definitive socket loss or a draining response re-enters the same safe selector
+and exact handshake, coalesces concurrent callers behind one recovery, and
+atomically adopts only a ready generation with the same Profile, Library, and
+Store epoch. Store-epoch or authority drift fails closed and remains an App
+relaunch boundary. Existing global and Document logical stream supervisors
+then reopen their physical streams through that facade from their retained
+cursors; they are not recreated per generation. The Desktop authority reuses
+one logical Core connection ID across those handshakes, while a monotonic
+lifecycle epoch fences candidate adoption and replay after Main closes. Durable
+receipt identity excludes that physical connection; Yjs durability binds the
+renderer's stable logical client session instead. Background producers repeat
+authority admission after asynchronous claim boundaries and return leases for a
+bounded retry if authority changes before external work starts.
 Library reads use the Library connection, writes derive the actor Project from
 the trusted invoking window,
 and committed Core events become renderer Library or Workspace invalidations.
@@ -450,6 +467,14 @@ shutdown, SIGINT, and SIGTERM all enter the same drain state. Axum stops
 accepting sockets and waits for ordinary in-flight requests/transactions, while
 Core signals long-lived SSE streams to finish so graceful shutdown cannot wait
 forever on a subscription.
+Every accepted drain records its typed reason (`idle_timeout`,
+`explicit_shutdown`, `replacement`, or `operating_system_signal`) in a private,
+fixed-size `${NODEX_HOME}/run/core/lifecycle.json` summary and records the final
+stop outcome before exit. A later start preserves the prior summary and marks a
+previously running generation as unclean-observed. The summary contains only
+generation/lifecycle metadata and never capabilities, socket paths, SQL, or
+user content; unsafe summary storage disables this diagnostic without weakening
+Core authority.
 
 The shared compatibility evaluator compares an explicit client requirement with
 the incumbent offer across transport, committed event, each of the six Module

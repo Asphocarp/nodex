@@ -1,4 +1,5 @@
 import type { AppInitializationStep } from "../shared/app-startup";
+import type { CoreAuthorityStatus } from "../shared/core-authority-status";
 import type {
   AppUpdateStatus,
   ClipboardPastePayload,
@@ -32,6 +33,12 @@ declare global {
       on: (event: string, callback: (...args: unknown[]) => void) => () => void;
       onAppUpdateStatus?: (callback: (status: AppUpdateStatus) => void) => () => void;
       awaitInitialization?: () => Promise<void>;
+      getCoreAuthorityStatus?: () => Promise<CoreAuthorityStatus>;
+      onCoreAuthorityStatus?: (
+        callback: (status: CoreAuthorityStatus) => void,
+      ) => () => void;
+      retryCoreAuthority?: () => Promise<void>;
+      relaunchForCoreAuthority?: () => Promise<void>;
       onInitializationStep?: (
         callback: (step: AppInitializationStep) => void,
       ) => () => void;
