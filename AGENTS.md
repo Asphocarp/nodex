@@ -1,7 +1,7 @@
 # AGENTS.md
 
 ## **IMPORTANT Global Instructions for Agents:**
-- Always commit changes after all edits are done. Use a conventional commit subject and, for non-trivial changes, a short explanatory body. Do not leave uncommitted changes at the end of a task.
+- Always commit changes after all edits are done. Do not leave uncommitted changes at the end of a task.
 - This app has no real users or real data yet. Prefer long-term architectural correctness over short-term compatibility. Breaking changes, schema migrations, and large refactors are acceptable when they make the product model simpler and more coherent.
 - For frontend design, prioritize an elegant, information-dense layout with minimal logical/visual redundancy and shallow nesting.
 - Keep implementation notes, docs, changelog entries, commit messages, and handoff summaries product-native: describe what Nodex does and why, without surfacing private provenance, comparative targets, or reconstruction details unless the user explicitly asks for research notes.
@@ -154,9 +154,13 @@ Treat `CHANGELOG.md` as a required deliverable only for **release-note-worthy** 
 
 ## Commit and PR Expectations
 - Keep changes scoped and atomic.
-- Do not make subject-only commits for non-trivial changes.
-- Use a conventional commit subject plus a short body that explains the behavior or contract change, why it matters if not obvious, and notable implementation/test/doc updates.
-- Use multiple `-m` flags when committing so the body is included.
+- For ordinary commits, use `<area>: <precise imperative summary>`. Do not default to Conventional Commits or type prefixes such as `feat:`, `fix:`, `chore:`, or `refactor:`.
+- Choose `area` from stable repository terminology: a subsystem, package, component, or code region rather than a change type. If it is unclear, inspect `git log --oneline -- path/to/file`.
+- Make the summary state the concrete behavior change in imperative mood, omit a terminal period, and aim for at most 72 characters without sacrificing precision. Example: `editor: preserve selection across remote updates`.
+- Separate the subject and body with a blank line. An obvious change may omit the body; otherwise explain why the change is needed, including prior behavior, constraints, rationale, or non-obvious trade-offs as relevant. Do not narrate the diff.
+- Hard-wrap ordinary body prose at 72 characters. URLs, commands, file paths, identifiers, code, and indivisible machine-readable content are exempt.
+- Place issue references and other trailers after the body, following existing repository conventions.
+- Merge, revert, release, and generated commits may follow their tool or established repository format.
 - Update related docs in the same change when contracts or workflows change.
 - Include commands run and validation outcomes in your PR notes.
 
