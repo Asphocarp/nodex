@@ -25,6 +25,23 @@ on:
         default: false
         required: false
         type: boolean
+    secrets:
+      apple_api_issuer:
+        required: true
+      apple_api_key_b64:
+        required: true
+      apple_api_key_id:
+        required: true
+      csc_key_password:
+        required: true
+      csc_link:
+        required: true
+      sentry_auth_token:
+        required: false
+      sentry_org:
+        required: false
+      sentry_project:
+        required: false
 
 permissions:
   contents: read
@@ -70,11 +87,11 @@ jobs:
 
       - name: Materialize App Store Connect API key
         env:
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          APPLE_API_KEY_B64: ${{ secrets.APPLE_API_KEY_B64 }}
-          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          CSC_LINK: ${{ secrets.CSC_LINK }}
+          APPLE_API_ISSUER: ${{ secrets.apple_api_issuer }}
+          APPLE_API_KEY_B64: ${{ secrets.apple_api_key_b64 }}
+          APPLE_API_KEY_ID: ${{ secrets.apple_api_key_id }}
+          CSC_KEY_PASSWORD: ${{ secrets.csc_key_password }}
+          CSC_LINK: ${{ secrets.csc_link }}
         shell: bash
         run: |
           set -euo pipefail
@@ -89,14 +106,14 @@ jobs:
 
       - name: Build and verify signed distribution
         env:
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          CSC_LINK: ${{ secrets.CSC_LINK }}
+          APPLE_API_ISSUER: ${{ secrets.apple_api_issuer }}
+          APPLE_API_KEY_ID: ${{ secrets.apple_api_key_id }}
+          CSC_KEY_PASSWORD: ${{ secrets.csc_key_password }}
+          CSC_LINK: ${{ secrets.csc_link }}
           NODE_OPTIONS: --max-old-space-size=6144
-          SENTRY_AUTH_TOKEN: ${{ inputs.upload_sentry_sourcemaps && secrets.SENTRY_AUTH_TOKEN || '' }}
-          SENTRY_ORG: ${{ inputs.upload_sentry_sourcemaps && secrets.SENTRY_ORG || '' }}
-          SENTRY_PROJECT: ${{ inputs.upload_sentry_sourcemaps && secrets.SENTRY_PROJECT || '' }}
+          SENTRY_AUTH_TOKEN: ${{ inputs.upload_sentry_sourcemaps && secrets.sentry_auth_token || '' }}
+          SENTRY_ORG: ${{ inputs.upload_sentry_sourcemaps && secrets.sentry_org || '' }}
+          SENTRY_PROJECT: ${{ inputs.upload_sentry_sourcemaps && secrets.sentry_project || '' }}
           SENTRY_RELEASE: nodex@${{ inputs.version }}
           UPLOAD_SENTRY_SOURCEMAPS: ${{ inputs.upload_sentry_sourcemaps }}
         run: |
@@ -179,11 +196,11 @@ jobs:
 
       - name: Materialize App Store Connect API key
         env:
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          APPLE_API_KEY_B64: ${{ secrets.APPLE_API_KEY_B64 }}
-          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          CSC_LINK: ${{ secrets.CSC_LINK }}
+          APPLE_API_ISSUER: ${{ secrets.apple_api_issuer }}
+          APPLE_API_KEY_B64: ${{ secrets.apple_api_key_b64 }}
+          APPLE_API_KEY_ID: ${{ secrets.apple_api_key_id }}
+          CSC_KEY_PASSWORD: ${{ secrets.csc_key_password }}
+          CSC_LINK: ${{ secrets.csc_link }}
         shell: bash
         run: |
           set -euo pipefail
@@ -198,10 +215,10 @@ jobs:
 
       - name: Build and verify signed distribution
         env:
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          CSC_LINK: ${{ secrets.CSC_LINK }}
+          APPLE_API_ISSUER: ${{ secrets.apple_api_issuer }}
+          APPLE_API_KEY_ID: ${{ secrets.apple_api_key_id }}
+          CSC_KEY_PASSWORD: ${{ secrets.csc_key_password }}
+          CSC_LINK: ${{ secrets.csc_link }}
           NODE_OPTIONS: --max-old-space-size=6144
           SENTRY_AUTH_TOKEN: ''
           SENTRY_ORG: ''

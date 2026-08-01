@@ -12,6 +12,13 @@ on:
       tag:
         required: true
         type: string
+    secrets:
+      homebrew_github_token:
+        required: true
+      landing_github_token:
+        required: true
+      skills_github_token:
+        required: true
 
 permissions:
   contents: read
@@ -121,7 +128,7 @@ jobs:
 
       - name: Publish the verified NodexApp/skills release
         env:
-          NODEX_SKILLS_GITHUB_TOKEN: ${{ secrets.NODEX_SKILLS_GITHUB_TOKEN }}
+          NODEX_SKILLS_GITHUB_TOKEN: ${{ secrets.skills_github_token }}
         shell: bash
         run: |
           set -euo pipefail
@@ -164,7 +171,7 @@ jobs:
 
       - name: Generate and publish cask
         env:
-          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.homebrew_github_token }}
           HOMEBREW_TAP_REPO: junyudev/homebrew-tap
         shell: bash
         run: |
@@ -220,3 +227,5 @@ jobs:
     uses: ./.github/workflows/_deploy-landing-site.yml
     with:
       source_sha: ${{ inputs.source_sha }}
+    secrets:
+      landing_github_token: ${{ secrets.landing_github_token }}

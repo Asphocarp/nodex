@@ -90,3 +90,9 @@ jobs:
       tag: ${{ needs.validate.outputs.tag }}
       retention_days: 14
       upload_sentry_sourcemaps: false
+    secrets:
+      apple_api_issuer: ${{ secrets.APPLE_API_ISSUER }}
+      apple_api_key_b64: ${{ secrets.APPLE_API_KEY_B64 }}
+      apple_api_key_id: ${{ secrets.APPLE_API_KEY_ID }}
+      csc_key_password: ${{ secrets.CSC_KEY_PASSWORD }}
+      csc_link: ${{ secrets.CSC_LINK }}

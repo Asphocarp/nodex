@@ -8,15 +8,20 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
 ### Release supply chain
 
 - Pull-request CI has only `contents: read`, does not bind a GitHub environment,
-  and cannot read Apple, Sentry, Homebrew, or landing credentials.
+  and never maps Apple, Sentry, Homebrew, Skills, or landing credentials. Fork
+  pull requests do not receive repository secrets; changes to same-repository
+  workflow files therefore require the same security review as application
+  code with a release capability.
 - The privileged release `workflow_run` validates the originating repository,
   protected-main push event, successful CI conclusion, and main reachability
   before it checks out or executes the source commit. Release and recovery also
   require the exact linear parent diff to be a metadata-only Release Identity
   transition.
-- Apple/Sentry credentials live only in `macos-distribution`; GitHub publication
-  uses a job-scoped repository token in `release-publish`; Homebrew and landing
-  use separate repository-scoped tokens in separate environments. Secrets are
+- Release credentials use dedicated repository Action secrets and explicit,
+  named `workflow_call.secrets` mappings. Lowercase reusable-workflow aliases
+  prevent environment-secret precedence from changing the transport contract;
+  broad `secrets: inherit` is not used. Secret-consuming jobs remain separated
+  by protected environments for deployment policy and audit. Credentials are
   mapped only onto the steps that need them, and the temporary Apple API key is
   removed in an always-run cleanup step.
 - Every external GitHub Action is pinned to a full commit SHA. Checkout does not
