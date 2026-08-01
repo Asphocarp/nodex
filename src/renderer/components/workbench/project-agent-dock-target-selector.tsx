@@ -1,6 +1,5 @@
 import {
   Check,
-  ChevronDown,
   Plus,
   Search,
 } from "lucide-react";
@@ -11,14 +10,16 @@ import {
   useState,
   type KeyboardEvent,
 } from "react";
+import { NodexDropdownButtonTrigger } from "@/components/ui/dropdown";
 import {
   NodexPopover,
   NodexPopoverContent,
   NodexPopoverTrigger,
 } from "@/components/ui/popover";
-import type {
-  ProjectAgentDockModel,
-  ProjectAgentDockTargetRow,
+import {
+  resolveProjectAgentDockTriggerStatusLabel,
+  type ProjectAgentDockModel,
+  type ProjectAgentDockTargetRow,
 } from "@/lib/project-agent-dock-model";
 import { cn } from "@/lib/utils";
 
@@ -57,6 +58,9 @@ export function ProjectAgentDockTargetSelector({
   const activeDescendantId = activeRow
     ? `${listboxId}-option-${activeIndex}`
     : undefined;
+  const triggerStatusLabel = resolveProjectAgentDockTriggerStatusLabel(
+    model.trigger,
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -112,27 +116,38 @@ export function ProjectAgentDockTargetSelector({
       }}
     >
       <NodexPopoverTrigger asChild>
-        <button
+        <NodexDropdownButtonTrigger
           ref={triggerRef}
-          type="button"
           aria-label={`Agent target: ${model.trigger.label}`}
-          className="group/agent-target flex h-7 min-w-0 max-w-72 cursor-interaction items-center gap-1.5 rounded-lg px-1.5 text-left hover:bg-token-foreground/5 focus-visible:bg-token-foreground/5 focus-visible:outline-none"
+          size="sm"
+          shape="pill"
+          chrome="transparent"
+          muted
+          className="group/agent-target max-w-72 px-1.5 text-token-text-tertiary hover:text-token-foreground"
         >
-          <span
-            aria-hidden="true"
-            className={cn(
-              "size-1.5 shrink-0 rounded-full bg-current",
-              statusTone(model.trigger),
-            )}
-          />
-          <span className="min-w-0 truncate text-xs font-medium text-token-foreground">
+          {model.trigger.kind === "new" ? (
+            <Plus
+              aria-hidden="true"
+              className="size-3.5 shrink-0 text-token-description-foreground"
+            />
+          ) : (
+            <span
+              aria-hidden="true"
+              className={cn(
+                "size-1.5 shrink-0 rounded-full bg-current",
+                statusTone(model.trigger),
+              )}
+            />
+          )}
+          <span className="min-w-0 truncate font-normal">
             {model.trigger.label}
           </span>
-          <span className={cn("shrink-0 text-[11px]", statusTone(model.trigger))}>
-            {model.trigger.statusLabel}
-          </span>
-          <ChevronDown className="size-3 shrink-0 text-token-description-foreground" aria-hidden="true" />
-        </button>
+          {triggerStatusLabel ? (
+            <span className={cn("shrink-0 text-[11px]", statusTone(model.trigger))}>
+              {triggerStatusLabel}
+            </span>
+          ) : null}
+        </NodexDropdownButtonTrigger>
       </NodexPopoverTrigger>
       <NodexPopoverContent
         align="start"

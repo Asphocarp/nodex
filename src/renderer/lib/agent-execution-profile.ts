@@ -1,8 +1,9 @@
-import type {
-  AgentExecutionProfile,
-  AgentModelOption,
-  AgentProviderCatalog,
-  AgentProviderOption,
+import {
+  isFastAgentServiceTierOption,
+  type AgentExecutionProfile,
+  type AgentModelOption,
+  type AgentProviderCatalog,
+  type AgentProviderOption,
 } from "../../shared/agent-runtime";
 
 export const AGENT_EXECUTION_PROFILE_STORAGE_KEY = "nodex-agent-execution-profile-v1";
@@ -95,10 +96,21 @@ function resolveServiceTier(
   model: AgentModelOption,
   requested: string | null | undefined,
 ): string | null {
-  const tiers = model.supportedServiceTiers.map((option) => option.value);
-  if (requested !== undefined && tiers.includes(requested)) return requested;
-  if (tiers.includes(model.defaultServiceTier)) return model.defaultServiceTier;
-  return tiers[0] ?? null;
+  const resolveOption = (value: string | null | undefined) => {
+    const exactOption = value === undefined
+      ? null
+      : model.supportedServiceTiers.find((option) => option.value === value);
+    if (exactOption) return exactOption;
+    if (value?.trim().toLocaleLowerCase() !== "fast") return null;
+    return model.supportedServiceTiers.find(isFastAgentServiceTierOption) ?? null;
+  };
+
+  const requestedOption = resolveOption(requested);
+  if (requestedOption) return requestedOption.value;
+
+  const defaultOption = resolveOption(model.defaultServiceTier);
+  if (defaultOption) return defaultOption.value;
+  return model.supportedServiceTiers[0]?.value ?? null;
 }
 
 export function buildAgentExecutionProfile(input: {

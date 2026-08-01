@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChevronDownIcon, LocalStatusIcon } from "@/components/shared/icons";
-import { cn } from "../../../../lib/utils";
 import type { ThreadFooterModel, ThreadStageActions } from "../../thread-stage-types";
 import {
   EMPTY_BRANCH_SELECTOR_STATE,
@@ -15,7 +14,7 @@ import {
   invoke,
 } from "./local-conversation-thread-composer-deps";
 import { useGitBranchState } from "@/lib/use-git-branch-state";
-import { RIGHT_PANEL_COMPOSER_ACCESSORY_INLINE_INSET_CLASS } from "../right-panel-composer-presentation";
+import { ComposerContextRail } from "../composer-context-rail";
 import { NewChatProjectSelector } from "./new-chat-project-selector";
 import { NewChatStartInSelector } from "./new-chat-start-in-selector";
 
@@ -23,35 +22,16 @@ interface ThreadComposerStatusStripProps {
   model: ThreadFooterModel;
   actions: ThreadStageActions;
   onErrorMessage: (message: string | null) => void;
+  contextRailLeadingContent?: ReactNode;
   projectSelectorDisabled?: boolean;
   className?: string;
-}
-
-interface ThreadComposerExternalFooterSlotProps {
-  visible: boolean;
-  children: ReactNode;
-}
-
-export function ThreadComposerExternalFooterSlot({
-  visible,
-  children,
-}: ThreadComposerExternalFooterSlotProps) {
-  if (!visible) return null;
-
-  return (
-    <div
-      data-composer-external-footer-slot="true"
-      className="relative z-0 -mb-2"
-    >
-      {children}
-    </div>
-  );
 }
 
 export function ThreadComposerStatusStrip({
   model,
   actions,
   onErrorMessage,
+  contextRailLeadingContent,
   projectSelectorDisabled = false,
   className,
 }: ThreadComposerStatusStripProps) {
@@ -62,6 +42,7 @@ export function ThreadComposerStatusStrip({
       model={model}
       actions={actions}
       onErrorMessage={onErrorMessage}
+      contextRailLeadingContent={contextRailLeadingContent}
       projectSelectorDisabled={projectSelectorDisabled}
       className={className}
     />
@@ -76,6 +57,7 @@ function ThreadComposerStatusStripContent({
   model,
   actions,
   onErrorMessage,
+  contextRailLeadingContent,
   projectSelectorDisabled = false,
   className,
 }: ThreadComposerStatusStripProps) {
@@ -102,7 +84,8 @@ function ThreadComposerStatusStripContent({
     && model.conversation === null
     && model.newThreadTarget?.sessionId
     && !model.isCloudNewThreadTarget
-    && model.newThreadProjectSelector,
+    && model.newThreadProjectSelector
+    && !model.newThreadProjectSelector.disabled,
   );
   const showNewChatStartInSelector = Boolean(
     model.isNewThreadTab
@@ -209,15 +192,9 @@ function ThreadComposerStatusStripContent({
   }, [branchCwd, onErrorMessage]);
 
   return (
-    <div
-      data-composer-lower-status-row="true"
-      className={cn(
-        RIGHT_PANEL_COMPOSER_ACCESSORY_INLINE_INSET_CLASS,
-        "-mb-4.5 flex flex-nowrap items-center gap-2 overflow-hidden rounded-t-2xl bg-token-side-bar-background px-2 pt-2 pb-[27px] select-none dark:bg-token-bg-fog electron:relative electron:top-1 electron:px-1.5 electron:pt-1.5",
-        className,
-      )}
-    >
-      <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-1">
+    <ComposerContextRail className={className}>
+      {contextRailLeadingContent}
+      <div className="order-2 flex min-w-0 flex-1 flex-nowrap items-center gap-1">
         {showNewChatProjectSelector && model.newThreadProjectSelector ? (
           <NewChatProjectSelector
             model={model.newThreadProjectSelector}
@@ -271,6 +248,6 @@ function ThreadComposerStatusStripContent({
           onCreate={handleCreateBranch}
         />
       </div>
-    </div>
+    </ComposerContextRail>
   );
 }

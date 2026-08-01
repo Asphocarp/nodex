@@ -13,7 +13,7 @@ import {
 interface RightPanelComposerOverlayStoryProps {
   tabKind: "review" | "browser";
   visibilityPolicy: "always" | "controlled" | "browser-auto";
-  draft: "empty" | "multiline";
+  draft: "empty" | "long-line" | "multiline";
   bottomPanelOpen: boolean;
   atDocumentBottom: boolean;
   running: boolean;
@@ -75,14 +75,19 @@ function RightPanelComposerOverlayStory({
   const [overlayHost, setOverlayHost] = useState<HTMLElement | null>(null);
   const [controlledVisible, setControlledVisible] = useState(true);
   const baseFooterModel = buildStoryFooterModel(running);
-  const footerModel = draft === "multiline"
+  const draftPrompt = draft === "long-line"
+    ? "This single logical line is deliberately long enough to exceed the compact overlay row, so the shared composer promotes it into the normal prompt-above-controls layout without requiring an explicit newline."
+    : draft === "multiline"
+      ? Array.from(
+          { length: 24 },
+          (_, index) => `Multiline composer regression line ${index + 1}`,
+        ).join("\n")
+      : null;
+  const footerModel = draftPrompt
     ? {
         ...baseFooterModel,
         composerIntent: {
-          prompt: Array.from(
-            { length: 24 },
-            (_, index) => `Multiline composer regression line ${index + 1}`,
-          ).join("\n"),
+          prompt: draftPrompt,
           focusNonce: 1,
         },
       }
@@ -177,7 +182,7 @@ const meta = {
     },
     draft: {
       control: "inline-radio",
-      options: ["empty", "multiline"],
+      options: ["empty", "long-line", "multiline"],
     },
   },
 } satisfies Meta<typeof RightPanelComposerOverlayStory>;
@@ -223,7 +228,20 @@ export const FullWidthMultilineDraft: Story = {
   parameters: {
     docs: {
       description: {
-        story: "A long draft uses the prompt row as the only overflowing region while the control row stays fixed inside the composer surface.",
+        story: "A draft with explicit line breaks uses the prompt row as the only overflowing region while the control row stays fixed inside the composer surface.",
+      },
+    },
+  },
+};
+
+export const FullWidthVisuallyWrappedDraft: Story = {
+  args: {
+    draft: "long-line",
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "A single logical line that no longer fits beside the compact controls promotes into the same normal multiline composer used by a Session.",
       },
     },
   },

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import { installAsyncRequestAnimationFrame } from "../../../test/browser-globals";
 import { NodexTooltipProvider as TooltipProvider } from "../../../components/ui/tooltip";
@@ -485,6 +485,164 @@ describe("LocalConversationFooter", () => {
     });
   });
 
+  test("unifies a connected Project Dock target and latest turn in one context rail", async () => {
+    const { LocalConversationFooter } = await import("./local-conversation-footer");
+    const target = document.createElement("div");
+    document.body.appendChild(target);
+
+    render(
+      <TooltipProvider>
+        <EnsureLocalConversationThreadScrollController>
+          <LocalConversationFooter
+            model={buildModelWithRenderableLatestTurn()}
+            actions={buildActions()}
+            errorMessage={null}
+            onErrorMessage={() => {}}
+            rightPanelComposerOverlay={{
+              enabled: true,
+              target,
+              leadingContent: (
+                <div className="contents">
+                  <button type="button" className="order-1">Greet user</button>
+                  <button type="button" className="order-3">Open task</button>
+                </div>
+              ),
+            }}
+          />
+        </EnsureLocalConversationThreadScrollController>
+      </TooltipProvider>,
+    );
+
+    const overlay = await waitFor(() => {
+      const element = document.body.querySelector<HTMLElement>(
+        '[data-testid="right-panel-composer-overlay"]',
+      );
+      if (!element) throw new Error("Expected right-panel overlay");
+      return element;
+    });
+    const rails = overlay.querySelectorAll('[data-composer-context-rail="true"]');
+    expect(rails).toHaveLength(1);
+    const rail = rails[0];
+    if (!(rail instanceof HTMLElement)) throw new Error("Expected context rail");
+    expect(within(rail).getByRole("button", { name: "Greet user" })).not.toBeNull();
+    expect(within(rail).getByRole("button", { name: "Open task" })).not.toBeNull();
+    expect(rail.querySelector('button[aria-expanded="false"]')).not.toBeNull();
+  });
+
+  test("keeps the Project Dock target when the latest turn has no renderable blocks", async () => {
+    const { LocalConversationFooter } = await import("./local-conversation-footer");
+    const target = document.createElement("div");
+    document.body.appendChild(target);
+
+    render(
+      <TooltipProvider>
+        <EnsureLocalConversationThreadScrollController>
+          <LocalConversationFooter
+            model={buildModel()}
+            actions={buildActions()}
+            errorMessage={null}
+            onErrorMessage={() => {}}
+            rightPanelComposerOverlay={{
+              enabled: true,
+              target,
+              leadingContent: <button type="button">Greet user</button>,
+            }}
+          />
+        </EnsureLocalConversationThreadScrollController>
+      </TooltipProvider>,
+    );
+
+    const overlay = await waitFor(() => {
+      const element = document.body.querySelector<HTMLElement>(
+        '[data-testid="right-panel-composer-overlay"]',
+      );
+      if (!element) throw new Error("Expected right-panel overlay");
+      return element;
+    });
+    const rails = overlay.querySelectorAll('[data-composer-context-rail="true"]');
+    expect(rails).toHaveLength(1);
+    expect(within(rails[0] as HTMLElement).getByRole("button", {
+      name: "Greet user",
+    })).not.toBeNull();
+    expect(overlay.querySelector('[data-right-panel-latest-turn-preview="true"]')).toBeNull();
+  });
+
+  test("unifies a Project-scoped new task without repeating its fixed Project", async () => {
+    const { LocalConversationFooter } = await import("./local-conversation-footer");
+    const target = document.createElement("div");
+    document.body.appendChild(target);
+    const baseModel = buildModel();
+    const model = buildModel({
+      threadId: null,
+      conversation: null,
+      isNewThreadTab: true,
+      newThreadTarget: {
+        projectId: "project_1",
+        projectName: "Project",
+        sessionId: "session_1",
+        projectDraftId: "draft_1",
+        runInTarget: "localProject",
+      },
+      newThreadProjectSelector: {
+        projects: [{
+          id: "project_1",
+          label: "Project",
+          appearance: {
+            color: "blue",
+            marker: { kind: "icon", icon: "folder" },
+          },
+          description: "/tmp/project",
+          primaryWorkspaceRoot: "/tmp/project",
+          searchText: "project /tmp/project",
+        }],
+        selectedProjectId: "project_1",
+        disabled: true,
+        canAddProject: false,
+      },
+      body: {
+        ...baseModel.body,
+        threadId: null,
+        turnCount: 0,
+        latestTurnId: null,
+      },
+    });
+
+    render(
+      <TestQueryProvider>
+        <TooltipProvider>
+          <EnsureLocalConversationThreadScrollController>
+            <LocalConversationFooter
+              model={model}
+              actions={buildActions()}
+              errorMessage={null}
+              onErrorMessage={() => {}}
+              rightPanelComposerOverlay={{
+                enabled: true,
+                target,
+                leadingContent: <button type="button">New task</button>,
+              }}
+            />
+          </EnsureLocalConversationThreadScrollController>
+        </TooltipProvider>
+      </TestQueryProvider>,
+    );
+
+    const overlay = await waitFor(() => {
+      const element = document.body.querySelector<HTMLElement>(
+        '[data-testid="right-panel-composer-overlay"]',
+      );
+      if (!element) throw new Error("Expected right-panel overlay");
+      return element;
+    });
+    const rails = overlay.querySelectorAll('[data-composer-context-rail="true"]');
+    expect(rails).toHaveLength(1);
+    const rail = rails[0];
+    if (!(rail instanceof HTMLElement)) throw new Error("Expected context rail");
+    expect(within(rail).getByRole("button", { name: "New task" })).not.toBeNull();
+    expect(within(rail).getByRole("button", { name: "Run target" })).not.toBeNull();
+    expect(within(rail).queryByRole("button", { name: "Select project" })).toBeNull();
+  });
+
   test("resets an expanded latest-turn tray atomically when the composer target changes", async () => {
     const { LocalConversationFooter } = await import("./local-conversation-footer");
     const target = document.createElement("div");
@@ -592,6 +750,94 @@ describe("LocalConversationFooter", () => {
       expect(leadingSlot?.getAttribute("data-composer-footer-row")).toBe("controls");
       expect(trailingSlot?.getAttribute("data-composer-footer-row")).toBe("controls");
     });
+  });
+
+  test("promotes a visually wrapped one-line overlay draft to the normal composer layout", async () => {
+    const { LocalConversationFooter } = await import("./local-conversation-footer");
+    const target = document.createElement("div");
+    document.body.appendChild(target);
+    const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect;
+    const measurement = vi.spyOn(
+      HTMLElement.prototype,
+      "getBoundingClientRect",
+    ).mockImplementation(function measuredComposerRect(this: HTMLElement) {
+      if (this.dataset.codexComposer === "true" && this.style.position === "fixed") {
+        return new DOMRect(0, 0, 520, 20);
+      }
+      if (this.dataset.composerFormFooter === "true") {
+        return new DOMRect(0, 0, 736, 44);
+      }
+      if (this.dataset.composerFooterLeading === "true") {
+        return new DOMRect(0, 0, 28, 28);
+      }
+      if (this.dataset.composerInputSlot === "true") {
+        return new DOMRect(0, 0, 400, 20);
+      }
+      if (this.dataset.composerFooterTrailing === "true") {
+        return new DOMRect(0, 0, 280, 28);
+      }
+      return originalGetBoundingClientRect.call(this);
+    });
+    let view: ReturnType<typeof render> | null = null;
+
+    try {
+      view = render(
+        <TooltipProvider>
+          <EnsureLocalConversationThreadScrollController>
+            <LocalConversationFooter
+              model={{
+                ...buildModelWithRenderableLatestTurn(),
+                composerIntent: {
+                  prompt: "This prompt contains no newline but is wider than the compact composer input.",
+                  focusNonce: 1,
+                },
+              }}
+              actions={buildActions()}
+              errorMessage={null}
+              onErrorMessage={() => {}}
+              rightPanelComposerOverlay={{ enabled: true, target }}
+            />
+          </EnsureLocalConversationThreadScrollController>
+        </TooltipProvider>,
+      );
+
+      await waitFor(() => {
+        const overlay = document.body.querySelector(
+          '[data-testid="right-panel-composer-overlay"]',
+        );
+        const formFooter = overlay?.querySelector(
+          '[data-composer-form-footer="true"]',
+        );
+        const inputSlot = formFooter?.querySelector(
+          '[data-composer-input-slot="true"]',
+        );
+        const leadingSlot = formFooter?.querySelector(
+          '[data-composer-footer-leading="true"]',
+        );
+        const trailingSlot = formFooter?.querySelector(
+          '[data-composer-footer-trailing="true"]',
+        );
+        const permissionTrigger = formFooter?.querySelector(
+          'button[aria-label="Permission mode"]',
+        );
+        const modelTrigger = formFooter?.querySelector(
+          'button[data-intelligence-selector-trigger="true"]',
+        );
+        const sendButton = formFooter?.querySelector(
+          'button[aria-label="Send prompt"]',
+        );
+        expect(formFooter?.getAttribute("data-composer-layout")).toBe("multiline");
+        expect(inputSlot?.getAttribute("data-composer-footer-row")).toBe("prompt");
+        expect(leadingSlot?.contains(permissionTrigger ?? null)).toBe(true);
+        expect(trailingSlot?.contains(modelTrigger ?? null)).toBe(true);
+        expect(trailingSlot?.contains(sendButton ?? null)).toBe(true);
+        expect(leadingSlot?.contains(modelTrigger ?? null)).toBe(false);
+      });
+    } finally {
+      view?.unmount();
+      measurement.mockRestore();
+      target.remove();
+    }
   });
 
   test("keeps queued follow-ups in the queue portal outside the fixed pill", async () => {

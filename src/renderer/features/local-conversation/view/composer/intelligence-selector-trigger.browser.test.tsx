@@ -76,4 +76,53 @@ describe("IntelligenceSelectorTrigger layout", () => {
       expect(controlRow.scrollHeight).toBe(controlRow.clientHeight);
     });
   });
+
+  test("keeps the Fast icon and selected label centered while expanded", async () => {
+    const view = render(
+      <IntelligenceSelectorTrigger
+        geometry={{
+          alignOffset: -1,
+          expandedContentWidth: 170,
+          measurementRef: createRef<HTMLSpanElement>(),
+          triggerRef: createRef<HTMLButtonElement>(),
+          wrapperRef: createRef<HTMLSpanElement>(),
+        }}
+        isOpen
+        labelCandidates={[{
+          id: "openai:gpt-5.6-sol:xhigh",
+          modelLabel: "GPT-5.6-Sol",
+          reasoningLabel: "Extra High",
+        }]}
+        modelLabel="GPT-5.6-Sol"
+        reasoningLabel="Extra High"
+        showFastIndicator
+        title="OpenAI · GPT-5.6-Sol · Extra High"
+      />,
+    );
+
+    await waitFor(() => {
+      const wrapper = view.container.querySelector<HTMLElement>(
+        "[data-intelligence-selector-trigger-wrapper=true]",
+      );
+      const label = view.container.querySelector<HTMLElement>(
+        "[data-fast-mode-indicator=true]",
+      );
+      const icon = label?.querySelector<SVGSVGElement>("svg");
+      const slot = view.container.querySelector<HTMLElement>(
+        "[data-fast-mode-slot=true]",
+      );
+      if (!wrapper || !label || !icon || !slot) {
+        throw new Error("Expected the expanded Fast selector geometry.");
+      }
+
+      const wrapperRect = wrapper.getBoundingClientRect();
+      const labelRect = label.getBoundingClientRect();
+      const iconRect = icon.getBoundingClientRect();
+      const compositionCenter = (iconRect.left + labelRect.right) / 2;
+      const wrapperCenter = (wrapperRect.left + wrapperRect.right) / 2;
+
+      expect(slot.getBoundingClientRect().width).toBeCloseTo(18, 1);
+      expect(compositionCenter).toBeCloseTo(wrapperCenter, 1);
+    });
+  });
 });

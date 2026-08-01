@@ -141,6 +141,38 @@ describe("agent execution profile selection", () => {
       .toBe("priority");
   });
 
+  test("maps the semantic Fast preference to the model-advertised wire tier", () => {
+    const catalog: AgentProviderCatalog = {
+      providers: CATALOG.providers.map((provider) => provider.id !== "openai"
+        ? provider
+        : {
+            ...provider,
+            models: provider.models.map((model) => ({
+              ...model,
+              supportedServiceTiers: [
+                { value: null, displayName: "Standard", description: null },
+                { value: "priority", displayName: "Fast", description: null },
+              ],
+              defaultServiceTier: "fast",
+            })),
+          }),
+    };
+
+    const profile = resolveAgentExecutionProfile({
+      catalog,
+      legacyModelId: "gpt-5.5",
+      legacyReasoningEffort: "high",
+      serviceTier: "fast",
+    });
+
+    expect(profile?.serviceTier).toBe("priority");
+    expect(resolveAgentExecutionProfile({
+      catalog,
+      legacyModelId: "gpt-5.5",
+      legacyReasoningEffort: "high",
+    })?.serviceTier).toBe("priority");
+  });
+
   test("preserves the task harness when changing intelligence within one provider", () => {
     const kimiModel = CATALOG.providers[1]?.models[0];
     const current = {

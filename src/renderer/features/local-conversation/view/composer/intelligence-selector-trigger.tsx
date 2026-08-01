@@ -169,13 +169,21 @@ function IntelligenceSelectorLabel({
   modelLabel,
   reasoningLabel,
   reserveModelLabelWidth = false,
+  showFastIndicator = false,
 }: {
   modelLabel: string;
   reasoningLabel: string | null;
   reserveModelLabelWidth?: boolean;
+  showFastIndicator?: boolean;
 }) {
   return (
-    <span className="relative inline-flex w-max items-center gap-1 tabular-nums">
+    <span
+      className="relative inline-flex w-max items-center gap-1 tabular-nums"
+      data-fast-mode-indicator={showFastIndicator ? "true" : undefined}
+    >
+      {showFastIndicator ? (
+        <CodexFastModeIcon className="absolute end-full top-1/2 me-1 icon-2xs shrink-0 -translate-y-1/2 text-token-foreground" />
+      ) : null}
       <span
         className={cn(
           "min-w-0 shrink truncate whitespace-nowrap text-token-foreground",
@@ -287,17 +295,15 @@ export const IntelligenceSelectorTrigger = forwardRef<
       <span
         ref={geometry.wrapperRef}
         className="flex min-w-0 items-center"
+        data-intelligence-selector-trigger-wrapper="true"
       >
         <span
           aria-hidden="true"
           className="flex shrink-0 items-center overflow-hidden"
-          data-fast-mode-indicator={showFastIndicator ? "true" : undefined}
+          data-fast-mode-slot="true"
+          data-reserved={reserveFastSlot ? "true" : undefined}
           style={fastSlotStyle}
-        >
-          {showFastIndicator ? (
-            <CodexFastModeIcon className="icon-2xs text-token-link-foreground shrink-0" />
-          ) : null}
-        </span>
+        />
         <span
           className="block min-w-0 text-center"
           data-intelligence-selector-trigger-content="true"
@@ -306,6 +312,7 @@ export const IntelligenceSelectorTrigger = forwardRef<
           <IntelligenceSelectorLabel
             modelLabel={modelLabel}
             reasoningLabel={reasoningLabel}
+            showFastIndicator={showFastIndicator}
           />
         </span>
       </span>

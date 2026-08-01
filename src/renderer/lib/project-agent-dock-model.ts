@@ -25,6 +25,20 @@ export interface ProjectAgentDockModel {
   readonly hasMore: boolean;
 }
 
+const PASSIVE_TRIGGER_STATUS_LABELS = new Set([
+  "Draft",
+  "Idle",
+  "Ready",
+  "Thread",
+]);
+
+export function resolveProjectAgentDockTriggerStatusLabel(
+  row: ProjectAgentDockTargetRow,
+): string | null {
+  if (PASSIVE_TRIGGER_STATUS_LABELS.has(row.statusLabel)) return null;
+  return row.statusLabel;
+}
+
 export interface ProjectAgentDockPendingWorktreeModel {
   readonly clientThreadId: string;
   readonly statusLabel: string;

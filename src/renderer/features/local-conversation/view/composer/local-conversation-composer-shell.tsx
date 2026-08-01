@@ -53,9 +53,12 @@ import { getThreadGoalMessage } from "../../thread-goal-copy";
 import { ThreadComposer } from "./local-conversation-thread-composer";
 import {
   shouldShowThreadComposerStatusStrip,
-  ThreadComposerExternalFooterSlot,
   ThreadComposerStatusStrip,
 } from "./local-conversation-thread-composer-status-strip";
+import {
+  ComposerContextRail,
+  ComposerContextRailSlot,
+} from "../composer-context-rail";
 import { CodexPendingRequestCard } from "./request-cards/codex-pending-request-card";
 import { CODEX_THREAD_ACCORDION_TRANSITION } from "../shared/thread-motion";
 import {
@@ -94,6 +97,7 @@ interface LocalConversationComposerShellProps {
   actions: ThreadStageActions;
   errorMessage: string | null;
   onErrorMessage: (message: string | null) => void;
+  contextRailLeadingContent?: ReactNode;
   hasFixedPortalContent?: boolean;
 }
 
@@ -989,6 +993,7 @@ function ScopedLocalConversationComposerShell({
   actions,
   errorMessage,
   onErrorMessage,
+  contextRailLeadingContent,
   hasFixedPortalContent = false,
 }: LocalConversationComposerShellProps) {
   const permissionState = model.permissionState;
@@ -1084,10 +1089,23 @@ function ScopedLocalConversationComposerShell({
     >
       <ThreadGoalResumeConfirmationDialog model={model} actions={actions} />
       {queuePortalHost && auxiliaryLaneStack ? createPortal(auxiliaryLaneStack, queuePortalHost) : null}
+      {!showStatusStrip && contextRailLeadingContent ? (
+        <ComposerContextRailSlot visible>
+          <ComposerContextRail>
+            {contextRailLeadingContent}
+            <span aria-hidden="true" className="order-2 min-w-0 flex-1" />
+          </ComposerContextRail>
+        </ComposerContextRailSlot>
+      ) : null}
       {replacementOwner !== "normal" ? (
-        <ThreadComposerExternalFooterSlot visible={showStatusStrip}>
-          <ThreadComposerStatusStrip model={model} actions={actions} onErrorMessage={onErrorMessage} />
-        </ThreadComposerExternalFooterSlot>
+        <ComposerContextRailSlot visible={showStatusStrip}>
+          <ThreadComposerStatusStrip
+            model={model}
+            actions={actions}
+            onErrorMessage={onErrorMessage}
+            contextRailLeadingContent={contextRailLeadingContent}
+          />
+        </ComposerContextRailSlot>
       ) : null}
       {replacementOwner === "autoReviewNudge" && model.threadId ? (
         <AutoReviewApprovalNudge threadId={model.threadId} actions={actions} />
@@ -1105,6 +1123,7 @@ function ScopedLocalConversationComposerShell({
           actions={actions}
           errorMessage={errorMessage}
           onErrorMessage={onErrorMessage}
+          contextRailLeadingContent={contextRailLeadingContent}
         />
       )}
     </div>

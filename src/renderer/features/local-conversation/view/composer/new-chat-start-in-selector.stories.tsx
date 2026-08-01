@@ -3,7 +3,10 @@ import { useState } from "react";
 import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip";
 import type { NewChatStartInTarget } from "@/lib/new-chat-start-in-selector";
 import type { NewChatStartInSelectorModel, ThreadStageActions } from "../../thread-stage-types";
-import { ThreadComposerExternalFooterSlot } from "./local-conversation-thread-composer-status-strip";
+import {
+  ComposerContextRail,
+  ComposerContextRailSlot,
+} from "../composer-context-rail";
 import { NewChatStartInSelector } from "./new-chat-start-in-selector";
 
 interface StoryArgs {
@@ -75,17 +78,8 @@ function NewChatStartInSelectorStory(args: StoryArgs) {
     <TooltipProvider>
       <div className="min-h-[360px] bg-token-main-surface-primary p-8" data-codex-window-type="electron">
         <div className="max-w-3xl">
-          <div className="composer-surface-chrome relative z-10 flex flex-col bg-token-input-background/90 backdrop-blur-lg electron:dark:bg-token-dropdown-background _multilineSurface_1u8sk_2">
-            <div className="relative z-10 flex min-h-0 flex-1 flex-col">
-              <div className="mb-1 min-h-16 px-3 pt-3 text-sm text-token-input-placeholder-foreground">Do anything</div>
-              <div className="mb-2 flex items-center gap-1 px-2">
-                <span className="inline-flex size-7 rounded-full bg-token-foreground/5" />
-                <span className="inline-flex h-7 w-28 rounded-full bg-token-foreground/5" />
-              </div>
-            </div>
-          </div>
-          <ThreadComposerExternalFooterSlot visible>
-            <div className="-mx-px -mt-4.5 flex flex-nowrap items-center gap-1 overflow-hidden rounded-b-2xl bg-token-side-bar-background px-2 pt-[25px] pb-2 select-none dark:bg-token-bg-fog">
+          <ComposerContextRailSlot visible>
+            <ComposerContextRail>
               <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-1">
                 <span className="inline-flex h-7 max-w-40 items-center rounded-full px-1.5 text-sm text-token-text-tertiary">
                   nodex
@@ -100,8 +94,17 @@ function NewChatStartInSelectorStory(args: StoryArgs) {
                   main
                 </span>
               </div>
+            </ComposerContextRail>
+          </ComposerContextRailSlot>
+          <div className="composer-surface-chrome relative z-10 flex flex-col bg-token-input-background/90 backdrop-blur-lg electron:dark:bg-token-dropdown-background _multilineSurface_1u8sk_2">
+            <div className="relative z-10 flex min-h-0 flex-1 flex-col">
+              <div className="mb-1 min-h-16 px-3 pt-3 text-sm text-token-input-placeholder-foreground">Do anything</div>
+              <div className="mb-2 flex items-center gap-1 px-2">
+                <span className="inline-flex size-7 rounded-full bg-token-foreground/5" />
+                <span className="inline-flex h-7 w-28 rounded-full bg-token-foreground/5" />
+              </div>
             </div>
-          </ThreadComposerExternalFooterSlot>
+          </div>
         </div>
       </div>
     </TooltipProvider>
