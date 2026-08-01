@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+## [0.2.0] - 2026-08-01
+
+### Added
 - Added automatic fresh-Profile setup with one source-backed `My Project`, an editable source-aware `Welcome to Nodex` Page opened in the normal Workbench, atomic single-winner creation, and exact-payload crash recovery.
 - Added recoverable Project removal with active-work protection, a lazy `Removed projects` restore manager, preserved chats/files/Library content, and an explicit projectless Workbench state after the final Project is removed.
 - Projectless chats with an attached thread can now open temporary Side chats and cwd-bound Terminals alongside Browser; exact Output files remain pinnable without enabling the generic Project Files tree.
