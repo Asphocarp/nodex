@@ -75,7 +75,7 @@ describe("workbench session shell / Project Agent Dock", () => {
     expect(screen.getByRole("tab", { name: "Canvas" })).not.toBeNull();
   });
 
-  test("renders New task immediately for an empty Project without creating a Session", async () => {
+  test("renders New chat immediately for an empty Project without creating a Session", async () => {
     const screen = renderWorkbench({
       projects: [makeProject()],
       sessionsByProject: { alpha: [] },
@@ -84,13 +84,13 @@ describe("workbench session shell / Project Agent Dock", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    expect(screen.getByLabelText("Agent target: New task") !== null).toBe(true);
+    expect(screen.getByLabelText("Connected chat: New chat") !== null).toBe(true);
     expect(screen.getByLabelText("Project Agent Dock prompt") !== null).toBe(true);
     expect(invokeCalls.some((call) => call[0] === "project-sessions:create"))
       .toBe(false);
   });
 
-  test("selects a real task without leaving the Project and only navigates on Open task", async () => {
+  test("selects a real chat without leaving the Project and only navigates on Open chat", async () => {
     const session = makeAttachedSession({
       id: "session:alpha:agent-target",
       threadId: "thread-agent-target",
@@ -105,10 +105,10 @@ describe("workbench session shell / Project Agent Dock", () => {
     await settleAsyncRender();
 
     await act(async () => {
-      fireEvent.click(screen.getByLabelText("Agent target: New task"));
+      fireEvent.click(screen.getByLabelText("Connected chat: New chat"));
       await Promise.resolve();
     });
-    const picker = await screen.findByRole("listbox", { name: "Project tasks" });
+    const picker = await screen.findByRole("listbox", { name: "Project chats" });
     await act(async () => {
       fireEvent.click(within(picker).getByRole("option", { name: /Agent target/ }));
       await Promise.resolve();
@@ -118,10 +118,10 @@ describe("workbench session shell / Project Agent Dock", () => {
 
     expect(screen.queryByTestId("project-database-surface") !== null).toBe(true);
     expect(screen.queryByTestId("session-thread-page")).toBe(null);
-    expect(screen.getByLabelText("Agent target: Agent target") !== null).toBe(true);
+    expect(screen.getByLabelText("Connected chat: Agent target") !== null).toBe(true);
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Open task" }));
+      fireEvent.click(screen.getByRole("button", { name: "Open chat" }));
       await Promise.resolve();
     });
     await settleAsyncRender();
@@ -129,7 +129,7 @@ describe("workbench session shell / Project Agent Dock", () => {
     expect(screen.queryByTestId("session-thread-page") !== null).toBe(true);
   });
 
-  test("materializes New task on first send and stays on the Project surface", async () => {
+  test("materializes New chat on first send and stays on the Project surface", async () => {
     const screen = renderWorkbench({
       projects: [makeProject()],
       sessionsByProject: { alpha: [] },
@@ -187,10 +187,10 @@ describe("workbench session shell / Project Agent Dock", () => {
     await settleAsyncRender();
 
     await act(async () => {
-      fireEvent.click(screen.getByLabelText("Agent target: New task"));
+      fireEvent.click(screen.getByLabelText("Connected chat: New chat"));
       await Promise.resolve();
     });
-    const picker = await screen.findByRole("listbox", { name: "Project tasks" });
+    const picker = await screen.findByRole("listbox", { name: "Project chats" });
     await act(async () => {
       fireEvent.click(within(picker).getByRole("option", { name: /Worktree task/ }));
       await Promise.resolve();

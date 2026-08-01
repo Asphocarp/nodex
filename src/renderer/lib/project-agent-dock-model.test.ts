@@ -3,7 +3,6 @@ import type { ProjectSessionSummary } from "../../shared/types";
 import {
   buildProjectAgentDockModel,
   buildProjectAgentDockPendingWorktreeModel,
-  resolveProjectAgentDockTriggerStatusLabel,
   resolveProjectAgentDockPendingWorktree,
   type ProjectAgentDockPendingWorktreeEntry,
 } from "./project-agent-dock-model";
@@ -15,7 +14,7 @@ function session(
   return {
     id,
     projectId: "project-1",
-    noThreadFallbackTitle: "New task",
+    noThreadFallbackTitle: "New chat",
     displayTitle: id,
     order: 0,
     pinned: false,
@@ -63,7 +62,7 @@ function pendingWorktree(
 }
 
 describe("buildProjectAgentDockModel", () => {
-  test("keeps New task immediately available while the collection loads", () => {
+  test("keeps New chat immediately available while the collection loads", () => {
     const model = buildProjectAgentDockModel({
       projectId: "project-1",
       dock: {
@@ -78,13 +77,13 @@ describe("buildProjectAgentDockModel", () => {
       query: "",
     });
 
-    expect(model.trigger.label).toBe("New task");
-    expect(model.rows.map((row) => row.label)).toEqual(["New task"]);
+    expect(model.trigger.label).toBe("New chat");
+    expect(model.rows.map((row) => row.label)).toEqual(["New chat"]);
     expect(model.canSend).toBe(true);
-    expect(model.collectionMessage).toBe("Loading tasks…");
+    expect(model.collectionMessage).toBe("Loading chats…");
   });
 
-  test("uses sidebar ordering and status precedence", () => {
+  test("uses sidebar ordering and compact indicator precedence", () => {
     const model = buildProjectAgentDockModel({
       projectId: "project-1",
       dock: {
@@ -132,16 +131,36 @@ describe("buildProjectAgentDockModel", () => {
     });
 
     expect(model.rows.map((row) => row.label)).toEqual([
-      "New task",
+      "New chat",
       "approval",
       "running",
     ]);
-    expect(model.trigger.statusLabel).toBe("Approval");
     expect(model.trigger.attention).toBe("request");
+    expect(model.trigger.indicator).toBe("needs-attention");
+    expect(model.rows[2]?.indicator).toBe("running");
     expect(model.hasMore).toBe(true);
   });
 
-  test("filters loaded tasks without hiding the New task row", () => {
+  test("projects unread state into the same compact indicator language as the sidebar", () => {
+    const model = buildProjectAgentDockModel({
+      projectId: "project-1",
+      dock: {
+        visible: true,
+        binding: { kind: "session", sessionId: "unread" },
+        newDraftId: "draft-1",
+      },
+      summaries: [session("unread", { unread: true })],
+      exactSelectedSession: session("unread", { unread: true }),
+      collectionState: { kind: "ready", refreshError: null },
+      hasMore: false,
+      query: "",
+    });
+
+    expect(model.trigger.indicator).toBe("unread");
+    expect(model.trigger.attention).toBe("activity");
+  });
+
+  test("filters loaded chats without hiding the New chat row", () => {
     const model = buildProjectAgentDockModel({
       projectId: "project-1",
       dock: {
@@ -156,35 +175,7 @@ describe("buildProjectAgentDockModel", () => {
       query: "beta",
     });
 
-    expect(model.rows.map((row) => row.label)).toEqual(["New task", "Beta"]);
-  });
-});
-
-describe("resolveProjectAgentDockTriggerStatusLabel", () => {
-  test("keeps exceptional status visible and removes passive repetition", () => {
-    const row = {
-      id: "new",
-      kind: "new",
-      sessionId: null,
-      label: "New task",
-      statusLabel: "Draft",
-      preview: null,
-      selected: true,
-      attention: "none",
-    } as const;
-
-    expect(resolveProjectAgentDockTriggerStatusLabel(row)).toBeNull();
-    expect(resolveProjectAgentDockTriggerStatusLabel({
-      ...row,
-      kind: "session",
-      statusLabel: "Ready",
-    })).toBeNull();
-    expect(resolveProjectAgentDockTriggerStatusLabel({
-      ...row,
-      kind: "session",
-      statusLabel: "Approval",
-      attention: "request",
-    })).toBe("Approval");
+    expect(model.rows.map((row) => row.label)).toEqual(["New chat", "Beta"]);
   });
 });
 
@@ -229,7 +220,7 @@ describe("Project Agent Dock pending worktree projection", () => {
       clientThreadId: "client-1",
       statusLabel: "Setup failed",
       composerBlockedReason:
-        "Resolve the failed worktree setup before starting this task again",
+        "Resolve the failed worktree setup before starting this chat again",
       attention: "request",
     });
   });

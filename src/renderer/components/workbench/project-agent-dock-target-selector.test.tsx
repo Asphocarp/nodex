@@ -8,21 +8,31 @@ const newRow = {
   id: "new",
   kind: "new",
   sessionId: null,
-  label: "New task",
-  statusLabel: "Draft",
+  label: "New chat",
   preview: null,
   selected: true,
   attention: "none",
+  indicator: "idle",
 } as const;
 const runningRow = {
   id: "session:running",
   kind: "session",
   sessionId: "running",
   label: "Refine board",
-  statusLabel: "Running",
   preview: "Updating the project database",
   selected: false,
   attention: "activity",
+  indicator: "running",
+} as const;
+const unreadRow = {
+  id: "session:unread",
+  kind: "session",
+  sessionId: "unread",
+  label: "Review notes",
+  preview: "A new response is ready",
+  selected: false,
+  attention: "none",
+  indicator: "unread",
 } as const;
 
 function makeModel(
@@ -30,7 +40,7 @@ function makeModel(
 ): ProjectAgentDockModel {
   return {
     trigger: newRow,
-    rows: [newRow, runningRow],
+    rows: [newRow, runningRow, unreadRow],
     canSend: true,
     collectionMessage: null,
     hasMore: false,
@@ -51,12 +61,12 @@ describe("ProjectAgentDockTargetSelector", () => {
         onRetry={() => undefined}
       />,
     );
-    const trigger = view.getByLabelText("Agent target: New task");
+    const trigger = view.getByLabelText("Connected chat: New chat");
     await act(async () => {
       fireEvent.click(trigger);
     });
     const input = await view.findByRole("combobox", {
-      name: "Choose agent target",
+      name: "Choose connected chat",
     });
     await waitFor(() => expect(document.activeElement).toBe(input));
 
@@ -72,13 +82,43 @@ describe("ProjectAgentDockTargetSelector", () => {
     await waitFor(() => expect(document.activeElement).toBe(trigger));
   });
 
+  test("uses the leading indicator for running and unread state without status copy", async () => {
+    const view = render(
+      <ProjectAgentDockTargetSelector
+        model={makeModel()}
+        query=""
+        onQueryChange={() => undefined}
+        onSelect={() => undefined}
+        onLoadMore={() => undefined}
+        onRetry={() => undefined}
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.click(view.getByLabelText("Connected chat: New chat"));
+    });
+    const listbox = await view.findByRole("listbox", { name: "Project chats" });
+    const runningOption = within(listbox).getByRole("option", {
+      name: /Running, Refine board/,
+    });
+    const unreadOption = within(listbox).getByRole("option", {
+      name: /Unread, Review notes/,
+    });
+
+    expect(within(runningOption).getByLabelText("Running")).not.toBeNull();
+    expect(within(unreadOption).getByLabelText("Unread")).not.toBeNull();
+    expect(within(listbox).queryByText("Draft")).toBeNull();
+    expect(within(listbox).queryByText("Running")).toBeNull();
+    expect(view.getByPlaceholderText("Find a chat")).not.toBeNull();
+  });
+
   test("keeps loading, retry, and pagination actions inside the picker", async () => {
     const onRetry = vi.fn();
     const onLoadMore = vi.fn();
     const view = render(
       <ProjectAgentDockTargetSelector
         model={makeModel({
-          collectionMessage: "Couldn’t load tasks",
+          collectionMessage: "Couldn’t load chats",
           hasMore: true,
         })}
         query=""
@@ -89,10 +129,10 @@ describe("ProjectAgentDockTargetSelector", () => {
       />,
     );
     await act(async () => {
-      fireEvent.click(view.getByLabelText("Agent target: New task"));
+      fireEvent.click(view.getByLabelText("Connected chat: New chat"));
     });
     const listbox = await view.findByRole("listbox", {
-      name: "Project tasks",
+      name: "Project chats",
     });
     await act(async () => {
       fireEvent.click(within(listbox).getByRole("button", { name: "Retry" }));

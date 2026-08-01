@@ -2,19 +2,23 @@ import type { ProjectSessionSummary } from "../../shared/types";
 import type { CodexPendingWorktreeEntry } from "../../shared/codex-pending-worktree";
 import type { WorkbenchAgentDockState } from "../../shared/workbench-scene";
 import { sortProjectSessionSummariesForSidebar } from "./project-session-query-cache";
-import { resolveThreadStatusDisplayLabel } from "./thread-status-display";
 
 export type ProjectAgentDockAttention = "none" | "activity" | "request";
+export type ProjectAgentDockChatIndicator =
+  | "idle"
+  | "running"
+  | "unread"
+  | "needs-attention";
 
 export interface ProjectAgentDockTargetRow {
   readonly id: string;
   readonly kind: "new" | "session";
   readonly sessionId: string | null;
   readonly label: string;
-  readonly statusLabel: string;
   readonly preview: string | null;
   readonly selected: boolean;
   readonly attention: ProjectAgentDockAttention;
+  readonly indicator: ProjectAgentDockChatIndicator;
 }
 
 export interface ProjectAgentDockModel {
@@ -23,20 +27,6 @@ export interface ProjectAgentDockModel {
   readonly canSend: boolean;
   readonly collectionMessage: string | null;
   readonly hasMore: boolean;
-}
-
-const PASSIVE_TRIGGER_STATUS_LABELS = new Set([
-  "Draft",
-  "Idle",
-  "Ready",
-  "Thread",
-]);
-
-export function resolveProjectAgentDockTriggerStatusLabel(
-  row: ProjectAgentDockTargetRow,
-): string | null {
-  if (PASSIVE_TRIGGER_STATUS_LABELS.has(row.statusLabel)) return null;
-  return row.statusLabel;
 }
 
 export interface ProjectAgentDockPendingWorktreeModel {
@@ -100,13 +90,13 @@ export function buildProjectAgentDockPendingWorktreeModel(
       : entry.phase === "setting-up"
         ? "Running setup…"
         : entry.phase === "worktree-ready"
-          ? "Starting task…"
+          ? "Starting chat…"
           : "Setup failed";
   return {
     clientThreadId: entry.clientThreadId,
     statusLabel,
     composerBlockedReason: entry.phase === "failed"
-      ? "Resolve the failed worktree setup before starting this task again"
+      ? "Resolve the failed worktree setup before starting this chat again"
       : "Worktree setup is already in progress",
     attention: entry.phase === "failed" || entry.needsAttention
       ? "request"
@@ -114,47 +104,57 @@ export function buildProjectAgentDockPendingWorktreeModel(
   };
 }
 
-function attentionForSession(
+function indicatorForSession(
   session: ProjectSessionSummary,
-): ProjectAgentDockAttention {
+): ProjectAgentDockChatIndicator {
   const flags = session.thread?.statusActiveFlags ?? [];
   if (
-    flags.includes("waitingOnApproval")
+    session.thread?.statusType === "systemError"
+    || flags.includes("waitingOnApproval")
     || flags.includes("waitingOnUserInput")
   ) {
-    return "request";
+    return "needs-attention";
   }
-  return session.thread?.statusType === "active" ? "activity" : "none";
+  if (session.thread?.statusType === "active") return "running";
+  if (session.unread) return "unread";
+  return "idle";
+}
+
+function attentionForIndicator(
+  indicator: ProjectAgentDockChatIndicator,
+): ProjectAgentDockAttention {
+  if (indicator === "needs-attention") return "request";
+  if (indicator === "running" || indicator === "unread") return "activity";
+  return "none";
 }
 
 function sessionRow(
   session: ProjectSessionSummary,
   selectedSessionId: string | null,
 ): ProjectAgentDockTargetRow {
+  const indicator = indicatorForSession(session);
   return {
     id: `session:${session.id}`,
     kind: "session",
     sessionId: session.id,
-    label: session.displayTitle || session.noThreadFallbackTitle || "New task",
-    statusLabel: session.thread
-      ? resolveThreadStatusDisplayLabel(session.thread)
-      : "Draft",
+    label: session.displayTitle || session.noThreadFallbackTitle || "New chat",
     preview: session.thread?.threadPreview.trim() || null,
     selected: session.id === selectedSessionId,
-    attention: attentionForSession(session),
+    attention: attentionForIndicator(indicator),
+    indicator,
   };
 }
 
-function newTaskRow(selected: boolean): ProjectAgentDockTargetRow {
+function newChatRow(selected: boolean): ProjectAgentDockTargetRow {
   return {
     id: "new",
     kind: "new",
     sessionId: null,
-    label: "New task",
-    statusLabel: "Draft",
+    label: "New chat",
     preview: null,
     selected,
     attention: "none",
+    indicator: "idle",
   };
 }
 
@@ -196,11 +196,10 @@ export function buildProjectAgentDockModel({
       if (!normalizedQuery) return true;
       return normalizeSearch([
         row.label,
-        row.statusLabel,
         row.preview ?? "",
       ].join(" ")).includes(normalizedQuery);
     });
-  const newRow = newTaskRow(dock.binding.kind === "new");
+  const newRow = newChatRow(dock.binding.kind === "new");
   const trigger = dock.binding.kind === "new"
     ? newRow
     : sessionRows.find((row) => row.sessionId === selectedSessionId)
@@ -208,8 +207,8 @@ export function buildProjectAgentDockModel({
         ...sessionRow({
           id: selectedSessionId ?? "unavailable",
           projectId,
-          noThreadFallbackTitle: "Task unavailable",
-          displayTitle: "Task unavailable",
+          noThreadFallbackTitle: "Chat unavailable",
+          displayTitle: "Chat unavailable",
           order: Number.MAX_SAFE_INTEGER,
           pinned: false,
           pinnedOrder: null,
@@ -220,10 +219,11 @@ export function buildProjectAgentDockModel({
           createdAt: "",
           updatedAt: "",
         }, selectedSessionId),
-        statusLabel: "Unavailable",
+        indicator: "needs-attention",
+        attention: "request",
       };
   const collectionMessage = collectionState.kind === "loading"
-    ? "Loading tasks…"
+    ? "Loading chats…"
     : collectionState.kind === "error"
       ? collectionState.message
       : collectionState.kind === "ready"

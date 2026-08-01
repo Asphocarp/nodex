@@ -58,18 +58,18 @@ Sessions.
 ### Project collaboration is a Session-bound Agent Dock
 
 Every Project Scene owns Window Session-local Agent Dock presentation state:
-visibility, one binding to either `New task` or an exact Project Session, and a
+visibility, one binding to either `New chat` or an exact Project Session, and a
 stable identity for the unbound draft. Binding and visibility are persisted but
 do not create Back/Forward checkpoints.
 
 The Dock mounts the shared conversation footer, latest-turn projection,
 blocking requests, and composer. It does not mount a transcript body, a second
 conversation store, or a second Browser host. Selecting a task changes only the
-Dock binding. `Open task` uses ordinary Session navigation. Hiding the Dock
+Dock binding. `Open chat` uses ordinary Session navigation. Hiding the Dock
 removes its layout reserve and presented-view claim but does not stop the turn
 or release Main-owned runtimes.
 
-`New task` is lazy. Opening a Project or selecting the target creates no Core
+`New chat` is lazy. Opening a Project or selecting the target creates no Core
 Session. The first send creates one Project Session, promotes the Scene-local
 draft identity to that Session, persists the binding, and then starts the real
 Codex Thread without navigating away. Creation is coalesced per draft. If Core
@@ -89,7 +89,7 @@ Main authority rather than renderer memory.
 
 The selector uses bounded Project Session windows plus exact selected-Session
 hydration. An absent summary row is never deletion evidence. A Project with no
-Sessions presents `New task` immediately rather than a synthetic loading child.
+Sessions presents `New chat` immediately rather than a synthetic loading child.
 
 ### Browser presentation follows the owning Session
 
@@ -98,11 +98,11 @@ a task page is mounted. Each Browser Use runtime tab carries its exact Codex
 Session/Thread id; renderer hosts must not infer one id from the currently
 selected task and apply it to every tab. Agent-created Browser surfaces belong
 to the Project Session that owns that Thread. Manually opened Project Browser
-surfaces remain Project-owned and are not implicitly exposed to a Dock task.
+surfaces remain Project-owned and are not implicitly exposed to a Dock chat.
 
 Selecting a Dock target is subscription only and never captures Browser
 presentation. Immediately before an idle turn starts, the renderer submits the
-exact owning Session namespace and Window Session view scope. `New task`
+exact owning Session namespace and Window Session view scope. `New chat`
 materializes its real Session before capture, so neither its Scene-local draft
 identity nor the Project Scene becomes a Browser namespace. A newly created
 Thread promotes that Session route to the canonical Codex Thread route before

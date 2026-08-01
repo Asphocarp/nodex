@@ -44,7 +44,7 @@ export function createProjectAgentDockMaterializer(): ProjectAgentDockMaterializ
       const materialization = port.createBlank(input.projectId)
         .then((session) => {
           if (session.projectId !== input.projectId) {
-            throw new Error("Created task does not belong to the Project Agent Dock");
+            throw new Error("Created chat does not belong to the Project Agent Dock");
           }
           port.promoteDraftIdentity({
             draftId: input.draftId,
@@ -75,8 +75,8 @@ export function createProjectAgentDockDraftSession(
   return {
     id: `project-draft:${draftId}`,
     projectId,
-    noThreadFallbackTitle: "New task",
-    displayTitle: "New task",
+    noThreadFallbackTitle: "New chat",
+    displayTitle: "New chat",
     order: Number.MAX_SAFE_INTEGER,
     pinned: false,
     pinnedOrder: null,
