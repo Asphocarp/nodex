@@ -223,7 +223,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Turn-complete notifications may include inline reply, use the thread title or `Turn complete` as the title, and summarize code-review outputs as `Code review finished. No findings.`, `1 finding.`, or `N findings.` when the final assistant message contains inline review findings. Approval and question notifications are open-only; approvals expose `Approve`, `Approve for session`, and `Decline` actions, while question notifications do not expose reply or approval buttons.
 - Opening a desktop notification focuses the origin window and opens the matching thread tab. Reply sends a new turn into that thread. Approval actions route back through the existing approval-response flow. Navigating to a real thread tab dismisses all desktop notifications for that conversation.
 - User-interrupted turns must never produce a turn-complete desktop notification, even if later terminal updates arrive for that turn through the local stream.
-- Packaged macOS builds can check for stable app updates on launch in the background, download them automatically when found, expose a manual `Check now` action in Settings -> General -> `App updates`, expose `Check for Updates…` in the macOS app menu, and require an explicit `Restart to Update` action before installation.
+- Packaged macOS builds can check for stable app updates on launch in the background, download them automatically when found, expose a manual `Check now` action in Settings -> General -> `App updates`, and expose `Check for Updates…` in the macOS app menu. Once an update is ready, `Restart to Update` installs it immediately through the normal flush/shutdown path; if the user keeps working, Sparkle may install the ready update after a later normal app exit.
 - Diff stage is a review panel bound to the active thread cwd or project primary source:
   - review sources include `Unstaged`, `Staged`, `Commit`, `Branch`, and `Last turn`; the selector only switches the visible diff source and never starts a review prompt
   - the panel can initialize Git for a workspace that is not yet a repository
@@ -1196,15 +1196,18 @@ electron .               # runs package main: out/main/bootstrap.js
 
 ### Packaging & Release
 ```bash
-pnpm run package          # Build + create macOS DMG + ZIP in dist/
+pnpm run package          # Build + create the macOS DMG in dist/
 ```
 
 The notarized DMG is the direct-install artifact. A first launch outside an
 Applications folder can move the app through Electron's native installation
 gate; replacement is rejected while the installed Nodex copy is running.
 Homebrew installs the same DMG-backed `Nodex.app` and links its bundled CLI.
-Both channels retain Profile data on uninstall, and normal upgrades are owned
-by the installed app's signed ZIP updater. Installers and updaters never
+Both channels retain Profile data on uninstall. A production app uses its
+architecture-specific signed Sparkle appcast, downloads a binary delta when a
+verified compatible predecessor exists, and automatically falls back to the
+signed full ZIP otherwise. Local/dev packages carry a disabled update channel
+and never contact the production feed. Installers and updaters never
 inspect, copy, or migrate `~/.nodex`; Core performs any recognized Profile
 migration behind its snapshot, staging, validation, and rollback boundary.
 
@@ -1216,14 +1219,11 @@ pnpm run install:local:mac -- --install-cli
 
 Without `--app-path`, the deployer rebuilds the Electron output and native
 runtime, verifies the prepared source closure, packages into a new unique
-`.generated/local-install/` directory through electron-builder's
-update-capable DMG target, and never reads a persistent `dist/` bundle. The app
-is installed directly while the temporary DMG is discarded; selecting that
-target ensures the package contains electron-builder's supported
-`app-update.yml` without introducing the ZIP target's separately downloaded
-7zip toolset. Every package carries a signed build-provenance record binding the
-prepared source generation, `app.asar`, updater metadata, and final signed native
-and Agent runtime manifests. The same identity is reverified on the source,
+`.generated/local-install/` directory through electron-builder's unpacked-app
+target, and never reads a persistent `dist/` bundle. Every package carries a
+signed build-provenance record binding the prepared source generation,
+`app.asar`, the disabled Sparkle runtime metadata, and final signed native,
+Agent, Browser, and Sparkle artifacts. The same identity is reverified on the source,
 staging, and installed copies without starting a temporary Core or executing
 release smoke workflows.
 
@@ -1240,13 +1240,14 @@ To release a new version, prepare an explicit metadata-only PR:
 ```bash
 # 1. Update CHANGELOG.md under ## [Unreleased]
 # 2. From a clean branch based on protected main:
-pnpm release:prepare -- 0.2.0
+pnpm release:prepare -- 0.2.1
 # 3. Verify that only package.json, Cargo.toml, Cargo.lock, and CHANGELOG.md changed:
 pnpm release:check -- --base origin/main --worktree
 # 4. Open and merge the reviewed PR after CI / required succeeds.
 # 5. The protected-main CI completion automatically runs native arm64/x64
-#    Distribution, creates the tag last, publishes the immutable Release, and
-#    updates Homebrew from the verified Release Bundle.
+#    Distribution, finalizes signed appcasts, creates the tag last, publishes
+#    the immutable Release, and updates Homebrew and the stable Pages feeds from
+#    the verified Release Bundle.
 ```
 
 Detailed CI behavior, job responsibilities, secrets, artifact naming, and recovery steps live in `docs/release-macos.md`.

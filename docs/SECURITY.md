@@ -24,6 +24,18 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
   by protected environments for deployment policy and audit. Credentials are
   mapped only onto the steps that need them, and the temporary Apple API key is
   removed in an always-run cleanup step.
+- Sparkle 2.9.4 is pinned by official archive URL, byte size, SHA-256, source
+  revision, framework identity, architectures, and license digest. Production
+  packages remove its sandbox-only XPC services, sign the addon and remaining
+  nested code inside-out without Electron JIT entitlements, and bind their
+  identities into package provenance. The Ed25519 public key is reviewed source;
+  the private key is available only to protected
+  `sparkle-feed-finalization` jobs and is streamed to official tools over
+  standard input. It is never written to an Action artifact, cache, manifest,
+  Pages repository, or log. Before signing release assets, the finalizer signs
+  a local sentinel and independently verifies it with the reviewed public key;
+  the extracted App's `SUPublicEDKey` and sealed runtime manifest must carry
+  that same key.
 - Every external GitHub Action is pinned to a full commit SHA. Checkout does not
   persist credentials. Repository Actions default permissions remain read-only;
   write authority is granted only to the promotion job.
@@ -31,6 +43,14 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
   creation is exact-SHA and tag-last; tag conflicts, draft digest conflicts, or
   a non-immutable published release stop promotion. Published assets are never
   overwritten.
+- Signed appcasts use immutable version-tag enclosure URLs and are published to
+  Pages only after every GitHub Release asset has been re-downloaded and
+  byte-verified. Pages publication rejects version rollback and same-version
+  byte drift; ordinary site deployments preserve existing feeds. Delta history
+  accepts only immutable GitHub Releases whose tag resolves to the Release
+  Bundle source SHA. The App Team ID is pinned to `8HGUT3HC4Z`, and appcast XML
+  enclosure URLs, sizes, signatures, versions, and delta sources must exactly
+  match each architecture update manifest.
 - Browser runtime publishing forces `--latest=false` and verifies that the
   stable app Latest tag remains unchanged.
 
@@ -262,6 +282,9 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
 - Keep dependencies updated through reviewed pnpm, Cargo, and GitHub Actions
   Dependabot changes.
 - Use manual backups before destructive operations.
+- Keep Sparkle and Developer ID private keys in separate encrypted offline
+  backups. A gitignored local note is only a convenience copy, not an encrypted
+  disaster-recovery backup.
 
 ## Hardening Backlog
 - Basic security smoke checks in CI for IPC/body limits and absence of SQL inspection routes.

@@ -14,18 +14,25 @@ import path from "node:path";
 
 import { inspectOfficialAgentSkillsArtifact } from "./official-agent-skills-artifact.mjs";
 
-const PROVENANCE_SCHEMA_VERSION = 3;
+const PROVENANCE_SCHEMA_VERSION = 4;
 const PREPARED_SCHEMA_VERSION = 3;
 const resourcesRelativePath = "Contents/Resources";
 const provenanceRelativePath = `${resourcesRelativePath}/nodex-build-provenance.json`;
 const preparedRelativePath = `${resourcesRelativePath}/prepared-electron-build.json`;
 const appAsarRelativePath = `${resourcesRelativePath}/app.asar`;
-const appUpdateRelativePath = `${resourcesRelativePath}/app-update.yml`;
 const nativeManifestRelativePath = `${resourcesRelativePath}/bin/rust-core-runtime.json`;
 const agentManifestRelativePath = `${resourcesRelativePath}/agent-runtime.json`;
 const browserManifestRelativePath =
   `${resourcesRelativePath}/browser-runtime/browser-runtime-manifest.json`;
 const agentSkillsRelativePath = `${resourcesRelativePath}/agent-skills`;
+const sparkleManifestRelativePath = `${resourcesRelativePath}/native/sparkle-runtime.json`;
+const sparkleArtifactRelativePaths = {
+  autoupdate: "Frameworks/Sparkle.framework/Versions/B/Autoupdate",
+  bridge: "Resources/native/nodex-sparkle.node",
+  frameworkExecutable: "Frameworks/Sparkle.framework/Versions/B/Sparkle",
+  frameworkInfoPlist: "Frameworks/Sparkle.framework/Versions/B/Resources/Info.plist",
+  updater: "Frameworks/Sparkle.framework/Versions/B/Updater.app/Contents/MacOS/Updater",
+};
 
 const isObject = (value) =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -144,6 +151,19 @@ const optionalFileIdentity = (appPath, relativePath) => (
     : null
 );
 
+const contentsFileIdentity = (appPath, relativePath) => {
+  const filePath = path.join(appPath, "Contents", ...relativePath.split("/"));
+  const metadata = lstatSync(filePath);
+  if (metadata.isSymbolicLink() || !metadata.isFile()) {
+    throw new Error(`Packaged provenance payload must be a regular file: ${relativePath}`);
+  }
+  return {
+    path: relativePath,
+    sha256: sha256File(filePath),
+    size: metadata.size,
+  };
+};
+
 const parseFileIdentity = (value, expectedPath, label) => {
   assertExactKeys(value, ["path", "sha256", "size"], label);
   if (value.path !== expectedPath) throw new Error(`${label} path is invalid`);
@@ -163,6 +183,56 @@ const verifyFileIdentity = (appPath, actual, relativePath, label) => {
   ) {
     throw new Error(`${label} does not match the packaged provenance`);
   }
+};
+
+const verifyContentsFileIdentity = (appPath, actual, relativePath, label) => {
+  const expected = contentsFileIdentity(appPath, relativePath);
+  if (
+    actual.path !== expected.path
+    || actual.sha256 !== expected.sha256
+    || actual.size !== expected.size
+  ) {
+    throw new Error(`${label} does not match the packaged provenance`);
+  }
+};
+
+const parseSparkleRuntimeManifest = (value) => {
+  if (!isObject(value) || value.schemaVersion !== 2 || !isObject(value.artifacts)) {
+    throw new Error("Packaged Sparkle runtime manifest is unsupported");
+  }
+  if (value.architecture !== "arm64" && value.architecture !== "x64") {
+    throw new Error("Packaged Sparkle runtime architecture is invalid");
+  }
+  if (value.channel !== "disabled" && value.channel !== "stable") {
+    throw new Error("Packaged Sparkle runtime channel is invalid");
+  }
+  if (
+    (value.channel === "disabled" && value.feedUrl !== null)
+    || (value.channel === "stable" && (
+      typeof value.feedUrl !== "string"
+      || value.feedUrl !== `https://nodex.jyu.app/updates/stable/${value.architecture}/appcast.xml`
+    ))
+  ) {
+    throw new Error("Packaged Sparkle runtime feed is invalid");
+  }
+  if (
+    typeof value.publicKey !== "string"
+    || !/^[A-Za-z0-9+/]{43}=$/u.test(value.publicKey)
+    || Buffer.from(value.publicKey, "base64").length !== 32
+    || value.minimumMacOS !== "12.0"
+    || typeof value.sparkleVersion !== "string"
+    || !/^[a-f0-9]{64}$/u.test(value.sparkleArchiveSha256)
+  ) {
+    throw new Error("Packaged Sparkle runtime identity is invalid");
+  }
+  for (const [name, relativePath] of Object.entries(sparkleArtifactRelativePaths)) {
+    parseFileIdentity(
+      value.artifacts[name],
+      relativePath,
+      `Packaged Sparkle ${name}`,
+    );
+  }
+  return value;
 };
 
 export const writePackagedBuildProvenance = (appPath) => {
@@ -186,9 +256,31 @@ export const writePackagedBuildProvenance = (appPath) => {
   const browserManifest = existsSync(browserManifestPath)
     ? readJson(browserManifestPath, "Packaged Browser runtime manifest")
     : null;
+  const sparkleManifestPath = path.join(
+    resolvedAppPath,
+    ...sparkleManifestRelativePath.split("/"),
+  );
+  const sparkleManifest = parseSparkleRuntimeManifest(
+    readJson(sparkleManifestPath, "Packaged Sparkle runtime manifest"),
+  );
+  const sparkleArtifacts = Object.fromEntries(Object.entries(
+    sparkleArtifactRelativePaths,
+  ).map(([name, relativePath]) => [
+    name,
+    contentsFileIdentity(resolvedAppPath, relativePath),
+  ]));
   const agentSkills = inspectOfficialAgentSkillsArtifact(
     path.join(resolvedAppPath, ...agentSkillsRelativePath.split("/")),
   );
+  for (const name of Object.keys(sparkleArtifactRelativePaths)) {
+    if (
+      sparkleManifest.artifacts[name].path !== sparkleArtifacts[name].path
+      || sparkleManifest.artifacts[name].sha256 !== sparkleArtifacts[name].sha256
+      || sparkleManifest.artifacts[name].size !== sparkleArtifacts[name].size
+    ) {
+      throw new Error(`Packaged Sparkle ${name} manifest identity does not match its artifact`);
+    }
+  }
   if (
     agentSkills.manifestSha256 !== prepared.agentSkills.manifestSha256
     || agentSkills.treeSha256 !== prepared.agentSkills.treeSha256
@@ -203,6 +295,7 @@ export const writePackagedBuildProvenance = (appPath) => {
     || nativeManifest.productVersion !== prepared.product.version
     || agentManifest.targetPlatform !== "darwin"
     || agentManifest.targetArch !== targetArch
+    || sparkleManifest.architecture !== targetArch
     || (browserManifest !== null && (
       browserManifest.targetPlatform !== "darwin"
       || browserManifest.targetArch !== targetArch
@@ -232,13 +325,20 @@ export const writePackagedBuildProvenance = (appPath) => {
     },
     payload: {
       appAsar: fileIdentity(resolvedAppPath, appAsarRelativePath),
-      appUpdate: fileIdentity(resolvedAppPath, appUpdateRelativePath),
       nativeRuntimeManifest: fileIdentity(resolvedAppPath, nativeManifestRelativePath),
       agentRuntimeManifest: fileIdentity(resolvedAppPath, agentManifestRelativePath),
       browserRuntimeManifest: optionalFileIdentity(
         resolvedAppPath,
         browserManifestRelativePath,
       ),
+      sparkle: {
+        artifacts: sparkleArtifacts,
+        channel: sparkleManifest.channel,
+        feedUrl: sparkleManifest.feedUrl,
+        publicKey: sparkleManifest.publicKey,
+        runtimeManifest: fileIdentity(resolvedAppPath, sparkleManifestRelativePath),
+        sparkleVersion: sparkleManifest.sparkleVersion,
+      },
     },
   };
   const manifest = {
@@ -336,19 +436,14 @@ export const verifyPackagedBuildProvenance = (
     value.payload,
     [
       "appAsar",
-      "appUpdate",
       "nativeRuntimeManifest",
       "agentRuntimeManifest",
       "browserRuntimeManifest",
+      "sparkle",
     ],
     "Packaged payload",
   );
   const appAsar = parseFileIdentity(value.payload.appAsar, "app.asar", "Packaged app.asar");
-  const appUpdate = parseFileIdentity(
-    value.payload.appUpdate,
-    "app-update.yml",
-    "Packaged app update metadata",
-  );
   const nativeRuntimeManifest = parseFileIdentity(
     value.payload.nativeRuntimeManifest,
     "bin/rust-core-runtime.json",
@@ -366,6 +461,28 @@ export const verifyPackagedBuildProvenance = (
         "browser-runtime/browser-runtime-manifest.json",
         "Packaged Browser runtime manifest",
       );
+  assertExactKeys(
+    value.payload.sparkle,
+    ["artifacts", "channel", "feedUrl", "publicKey", "runtimeManifest", "sparkleVersion"],
+    "Packaged Sparkle identity",
+  );
+  const sparkleRuntimeManifest = parseFileIdentity(
+    value.payload.sparkle.runtimeManifest,
+    "native/sparkle-runtime.json",
+    "Packaged Sparkle runtime manifest",
+  );
+  assertExactKeys(
+    value.payload.sparkle.artifacts,
+    Object.keys(sparkleArtifactRelativePaths),
+    "Packaged Sparkle artifacts",
+  );
+  const sparkleArtifacts = Object.fromEntries(Object.entries(
+    sparkleArtifactRelativePaths,
+  ).map(([name, relativePath]) => [name, parseFileIdentity(
+    value.payload.sparkle.artifacts[name],
+    relativePath,
+    `Packaged Sparkle ${name}`,
+  )]));
 
   const preparedPath = path.join(resolvedAppPath, ...preparedRelativePath.split("/"));
   const prepared = parsePreparedManifest(
@@ -403,12 +520,6 @@ export const verifyPackagedBuildProvenance = (
   verifyFileIdentity(resolvedAppPath, appAsar, appAsarRelativePath, "Packaged app.asar");
   verifyFileIdentity(
     resolvedAppPath,
-    appUpdate,
-    appUpdateRelativePath,
-    "Packaged app update metadata",
-  );
-  verifyFileIdentity(
-    resolvedAppPath,
     nativeRuntimeManifest,
     nativeManifestRelativePath,
     "Packaged native runtime manifest",
@@ -429,6 +540,20 @@ export const verifyPackagedBuildProvenance = (
   } else if (existsSync(path.join(resolvedAppPath, ...browserManifestRelativePath.split("/")))) {
     throw new Error("Packaged Browser runtime manifest is not bound by provenance");
   }
+  verifyFileIdentity(
+    resolvedAppPath,
+    sparkleRuntimeManifest,
+    sparkleManifestRelativePath,
+    "Packaged Sparkle runtime manifest",
+  );
+  for (const [name, relativePath] of Object.entries(sparkleArtifactRelativePaths)) {
+    verifyContentsFileIdentity(
+      resolvedAppPath,
+      sparkleArtifacts[name],
+      relativePath,
+      `Packaged Sparkle ${name}`,
+    );
+  }
   const nativeManifest = readJson(
     path.join(resolvedAppPath, ...nativeManifestRelativePath.split("/")),
     "Packaged native runtime manifest",
@@ -443,12 +568,32 @@ export const verifyPackagedBuildProvenance = (
         "Packaged Browser runtime manifest",
       )
     : null;
+  const sparkleManifest = parseSparkleRuntimeManifest(
+    readJson(
+      path.join(resolvedAppPath, ...sparkleManifestRelativePath.split("/")),
+      "Packaged Sparkle runtime manifest",
+    ),
+  );
+  for (const name of Object.keys(sparkleArtifactRelativePaths)) {
+    if (
+      sparkleManifest.artifacts[name].path !== sparkleArtifacts[name].path
+      || sparkleManifest.artifacts[name].sha256 !== sparkleArtifacts[name].sha256
+      || sparkleManifest.artifacts[name].size !== sparkleArtifacts[name].size
+    ) {
+      throw new Error(`Packaged Sparkle ${name} manifest identity does not match provenance`);
+    }
+  }
   if (
     nativeManifest.targetPlatform !== value.target.platform
     || nativeManifest.targetArch !== value.target.arch
     || nativeManifest.productVersion !== value.product.version
     || agentManifest.targetPlatform !== value.target.platform
     || agentManifest.targetArch !== value.target.arch
+    || sparkleManifest.architecture !== value.target.arch
+    || sparkleManifest.channel !== value.payload.sparkle.channel
+    || sparkleManifest.feedUrl !== value.payload.sparkle.feedUrl
+    || sparkleManifest.publicKey !== value.payload.sparkle.publicKey
+    || sparkleManifest.sparkleVersion !== value.payload.sparkle.sparkleVersion
     || (browserManifest !== null && (
       browserManifest.targetPlatform !== value.target.platform
       || browserManifest.targetArch !== value.target.arch

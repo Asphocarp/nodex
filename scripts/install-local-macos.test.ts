@@ -82,7 +82,7 @@ describe("local macOS app installer", () => {
         "exec",
         "electron-builder",
         "--mac",
-        "dmg",
+        "dir",
         "--x64",
         "--publish",
         "never",

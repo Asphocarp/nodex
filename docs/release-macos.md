@@ -28,8 +28,9 @@ manifests only when they describe one source and one Skill artifact, then emits:
 
 - `Nodex-latest-arm64.dmg`
 - `Nodex-latest-x64.dmg`
-- versioned arm64/x64 ZIPs and blockmaps
-- merged `latest-mac.yml` containing only the two published versioned ZIPs
+- versioned arm64/x64 full-update ZIPs
+- signed arm64/x64 appcast snapshots and closed update manifests
+- any architecture-qualified deltas the official Sparkle generator retained
 - `release-bundle.json`
 - `SHA256SUMS`
 - `release-notes.md` for the publisher (not a public asset)
@@ -78,6 +79,7 @@ explicit secret contract declared by their caller.
 | Environment | Authority |
 | --- | --- |
 | `macos-distribution` | Apple signing/notarization; Sentry upload once from production arm64 |
+| `sparkle-feed-finalization` | Sign appcasts and full/delta enclosures after both native builds pass |
 | `release-publish` | Job-scoped repository `contents: write` only |
 | `official-skills-publish` | Publish the verified artifact to `NodexApp/skills` |
 | `homebrew-tap` | Update and smoke-install `junyudev/homebrew-tap` |
@@ -94,9 +96,16 @@ Configure these repository Action secrets:
 | `HOMEBREW_TAP_GITHUB_TOKEN` | Fine-grained Contents read/write on `junyudev/homebrew-tap` only |
 | `NODEXAPP_GITHUB_IO_TOKEN` | Fine-grained Contents read/write on `NodexApp/NodexApp.github.io` only |
 
-Each caller maps these names to lowercase `workflow_call.secrets` aliases. Do
+Configure `SPARKLE_ED25519_PRIVATE_KEY` as an environment secret on
+`sparkle-feed-finalization`, not as a repository-wide secret and not as a
+`workflow_call` input. The finalizer is the only job that receives it.
+
+Each caller maps the repository secrets above to lowercase
+`workflow_call.secrets` aliases. Do
 not replace the mappings with broad `secrets: inherit`, and do not reference a
-repository secret from PR CI. The alias boundary also avoids relying on
+repository secret from PR CI. The Sparkle key is the deliberate exception: it
+is resolved directly from its protected job environment and has no caller
+transport. The alias boundary otherwise avoids relying on
 implicit environment-secret resolution or same-name precedence inside nested
 reusable workflows. Record PAT expiry dates in release operations and rotate
 them before expiry. Remove duplicate credentials from the legacy `release`
@@ -141,6 +150,62 @@ Every external Action is pinned to a full commit SHA. Dependabot proposes npm,
 Cargo, and GitHub Action updates; high-authority Action changes require release
 note and source review before merge.
 
+## Sparkle update signing and feeds
+
+Sparkle 2.9.4 and its command-line tools are pinned by
+`resources/sparkle/sparkle.lock.json`. Production apps carry the public key in
+both their signed runtime identity and `Info.plist`. The stable feeds are:
+
+```text
+https://nodex.jyu.app/updates/stable/arm64/appcast.xml
+https://nodex.jyu.app/updates/stable/x64/appcast.xml
+```
+
+GitHub Release is the immutable data plane for full ZIPs, deltas, update
+manifests, and signed appcast snapshots. Pages contains only the two stable
+appcast projections. Every enclosure URL uses its exact `vX.Y.Z` tag; no feed
+uses `/latest/download`. The finalizer accepts history only from an immutable
+Release whose tag resolves to the Release Bundle source SHA. Before it signs a
+release, it proves the protected private key matches the reviewed public key
+and that the extracted App plist/runtime carry that key; both architectures
+must also use the pinned Developer ID Team ID `8HGUT3HC4Z`.
+
+The key was created with the official tool under Keychain account `NodexApp`.
+These commands recover or inspect it without generating a second identity:
+
+```bash
+pnpm run materialize:sparkle:mac
+.generated/sparkle-toolchain/2.9.4/bin/generate_keys --account NodexApp -p
+.generated/sparkle-toolchain/2.9.4/bin/generate_keys --account NodexApp \
+  -x /absolute/path/outside-the-repository/nodex-sparkle-private-key
+```
+
+Import an exported backup on a replacement release Mac with:
+
+```bash
+.generated/sparkle-toolchain/2.9.4/bin/generate_keys --account NodexApp \
+  -f /absolute/path/to/nodex-sparkle-private-key
+```
+
+The repository owner may retain a mode-`0600`, gitignored convenience copy in
+`secrets.local/secrets.md`; it is plaintext and does not replace the required
+independent encrypted offline backup. To restore CI, pipe the key into the
+environment secret without echoing it:
+
+```bash
+security find-generic-password \
+  -a NodexApp -s https://sparkle-project.org -w \
+  | gh secret set SPARKLE_ED25519_PRIVATE_KEY \
+      --repo junyudev/nodex --env sparkle-feed-finalization
+```
+
+Never paste the private key into a workflow file, release artifact, command
+argument, cache, appcast, issue, or log. If both Keychain and offline copies are
+lost, stop ordinary feed publication and follow Sparkle's signed-feed recovery
+procedure with a higher-version Developer ID signed and notarized recovery
+image; do not upload an unsigned replacement ZIP or rewrite an immutable
+release.
+
 ## Local gates
 
 Use narrow checks while iterating. Before a release foundation or release
@@ -155,8 +220,8 @@ pnpm run verify:runtime:mac
 contracts, authority boundaries, notices/migrator reproducibility, Rust, app
 tests, browser tests, Electron E2E, and landing build. `verify:runtime:mac`
 verifies Agent/Browser schemas and runtime conformance on macOS. Neither proves
-Apple signing or Intel behavior; the dual-architecture Distribution is that
-deeper Implementation.
+Apple signing, Sparkle finalization, or Intel behavior; the dual-architecture
+Distribution is that deeper Implementation.
 
 `pnpm test:all` remains a compatibility alias for `verify:source`.
 
@@ -173,15 +238,16 @@ gh workflow run release-rehearsal.yml \
 
 The guard requires that SHA to be reachable from `main` and to have a
 successful protected-main `CI` push run. Both hosted macOS architectures use
-the same source and signing environment, but rehearsal does not receive
-`contents: write`, Homebrew/landing credentials, or a Sentry upload token. It
-creates no tag, Release, tap commit, or production telemetry release.
+the same source and signing environment. Rehearsal also uses the protected
+Sparkle finalization environment, but it does not receive `contents: write`,
+Homebrew/landing credentials, or a Sentry upload token. It creates no tag,
+Release, tap commit, feed commit, or production telemetry release.
 
 Download `nodex-release-bundle-<sha>` and inspect `release-bundle.json` and
 `SHA256SUMS`. A rehearsal is required after release workflow, native packaging,
 Apple signing, updater, Agent runtime, Browser runtime, or provenance changes.
 
-## Prepare v0.2.0 (or another stable release)
+## Prepare v0.2.1 (or another stable release)
 
 Start from the latest protected `main`, use a dedicated branch, and provide the
 version explicitly:
@@ -189,12 +255,12 @@ version explicitly:
 ```bash
 git switch main
 git pull --ff-only origin main
-git switch -c codex/release-v0.2.0
-pnpm release:prepare -- 0.2.0
+git switch -c codex/release-v0.2.1
+pnpm release:prepare -- 0.2.1
 ```
 
 The command requires a clean worktree, advances all version sources, and rolls
-the meaningful `Unreleased` Changelog content into a dated `0.2.0` section. It
+the meaningful `Unreleased` Changelog content into a dated `0.2.1` section. It
 does not commit, tag, push, or publish.
 
 Curate `CHANGELOG.md` for user impact; do not turn the commit log or internal
@@ -213,9 +279,9 @@ and open a PR:
 
 ```bash
 git add package.json Cargo.toml Cargo.lock CHANGELOG.md
-git commit -m "chore(release): prepare v0.2.0" \
-  -m "Synchronize the app and Rust workspace versions and roll the curated Unreleased notes into the v0.2.0 release entry."
-git push -u origin codex/release-v0.2.0
+git commit -m "release: prepare v0.2.1" \
+  -m "Synchronize the app and Rust workspace versions and roll the curated Unreleased notes into the v0.2.1 release entry."
+git push -u origin codex/release-v0.2.1
 ```
 
 Merge the PR with squash after `CI / required` succeeds. Do not create a tag or
@@ -235,20 +301,26 @@ A valid version transition runs this sequence:
 1. Verify the remote stable app version and reject tag/source conflicts.
 2. Build, sign, notarize, launch, and inspect arm64 on `macos-26`.
 3. Build, sign, notarize, launch, and inspect x64 on `macos-26-intel`.
-4. Assemble and hash the Release Bundle on a clean Linux runner.
-5. Revalidate source, version, tag, remote state, and bundle identity.
-6. Create or reuse an annotated tag targeting the exact source SHA.
-7. Create/resume the GitHub draft, upload only the manifest allowlist, publish
+4. On native macOS runners, fetch only compatible schema-2 release history,
+   generate and round-trip deltas, normalize their architecture-qualified
+   names, and sign the final appcasts and enclosures with the protected key.
+5. Assemble and hash the exact Release Bundle on a clean Linux runner; obsolete
+   blockmaps, `latest-mac.yml`, and `app-update.yml` are rejected.
+6. Revalidate source, version, tag, remote state, and bundle identity.
+7. Create or reuse an annotated tag targeting the exact source SHA.
+8. Create/resume the GitHub draft, upload only the manifest allowlist, publish
    it as Latest, and verify immutability, asset digests, and tag target.
-8. Regenerate the official Agent Skills from the exact source, require their
+9. Regenerate the official Agent Skills from the exact source, require their
    manifest/tree hashes to match the Release Bundle, and atomically publish the
    same version to `NodexApp/skills` with an annotated tag.
-9. Generate the Homebrew cask from the same bundle, audit it, push it, and
+10. Generate the Homebrew cask from the same bundle, audit it, push it, and
    smoke-install the published app. The generated DSL follows Homebrew's
    canonical stanza grouping and order and expresses the Monterey minimum as
    `depends_on macos: :monterey`.
-10. Deploy the landing site from the same source SHA after release verification,
-   so its version and Changelog never lead the published downloads.
+11. Deploy the landing site from the same source SHA after release verification,
+    preserving existing feeds on ordinary site deploys and atomically projecting
+    the two signed snapshots on release deploys. Public feed bytes and every
+    enclosure are checked after push.
 
 Sentry source maps are uploaded only by the production arm64 build. Both builds
 use `SENTRY_RELEASE=nodex@<version>` so the generated app identity agrees.
@@ -262,7 +334,7 @@ an already-reviewed release commit:
 gh workflow run release-recovery.yml \
   --repo junyudev/nodex \
   -f source_sha=<full-release-main-sha> \
-  -f version=0.2.0
+  -f version=0.2.1
 ```
 
 Recovery repeats protected-main and CI guards and requires that exact commit to
@@ -274,12 +346,17 @@ idempotent:
 - matching draft: verify every existing asset digest, upload only missing
   assets, then publish;
 - matching published release: verify it, then retry the independently
-  idempotent Agent Skills, Homebrew, and landing promotion jobs;
+  idempotent Agent Skills, Homebrew, and landing/feed promotion jobs;
 - retained cross-run artifacts are restored with `gh run download`, which owns
   GitHub's archive redirect and extraction behavior before bundle verification;
 - matching Agent Skills tag and tree: reuse it; a conflicting tree or version
   rollback stops without moving the tag;
 - conflicting tag or asset digest: stop without mutation.
+
+Pages recovery always replays the signed snapshot already bound by the verified
+Release Bundle. It never regenerates a delta or requires the signing key. The
+projection refuses to move a newer feed backwards or replace the same version
+with different bytes.
 
 Never delete or replace a published immutable asset. A product or artifact
 defect requires the next patch version. Deleting a bad draft is an explicit
@@ -305,25 +382,39 @@ bare `gh release create` for runtime releases.
 
 ## Post-release acceptance
 
-For v0.2.0, run:
+For v0.2.1, run:
 
 ```bash
-gh release view v0.2.0 --repo junyudev/nodex \
+gh release view v0.2.1 --repo junyudev/nodex \
   --json tagName,targetCommitish,isDraft,isImmutable,isPrerelease,assets,url
-gh release verify v0.2.0 --repo junyudev/nodex
+gh release verify v0.2.1 --repo junyudev/nodex
 gh api repos/junyudev/nodex/releases/latest --jq .tag_name
-gh release download v0.2.0 --repo junyudev/nodex \
+gh release download v0.2.1 --repo junyudev/nodex \
   --pattern release-bundle.json --pattern SHA256SUMS \
-  --dir .generated/v0.2.0-remote
+  --dir .generated/v0.2.1-remote
 pnpm release:verify:remote -- \
   --repo junyudev/nodex \
-  --bundle .generated/v0.2.0-remote/release-bundle.json
-gh api repos/NodexApp/skills/git/ref/tags/v0.2.0 --jq .object.sha
+  --bundle .generated/v0.2.1-remote/release-bundle.json
+gh api repos/NodexApp/skills/git/ref/tags/v0.2.1 --jq .object.sha
+curl --fail --silent https://nodex.jyu.app/updates/stable/arm64/appcast.xml \
+  --output .generated/v0.2.1-remote/appcast-arm64.xml
+curl --fail --silent https://nodex.jyu.app/updates/stable/x64/appcast.xml \
+  --output .generated/v0.2.1-remote/appcast-x64.xml
 ```
 
-Also verify both stable DMG URLs, a clean Apple Silicon install/first launch,
+The 0.2.1 baseline must contain zero deltas because 0.2.0 and earlier are not
+compatible history. Also verify both stable DMG URLs, a clean Apple Silicon
+install/first launch,
 `nodex --version`, one Core-backed project operation, one Agent thread, one
-Browser operation, update from v0.1.10, Homebrew install/upgrade, and the
+Browser operation, a full-only update check from the 0.2.1 baseline,
+Homebrew install/upgrade, and the
 landing download selector. Confirm `npx skills@latest add NodexApp/skills`
-discovers exactly the `nodex` Skill. `releases/latest` must be `v0.2.0`, never
+discovers exactly the `nodex` Skill. `releases/latest` must be `v0.2.1`, never
 a Browser runtime tag.
+
+The next 0.2.2 rehearsal is the first incremental acceptance gate. It must use
+the public 0.2.1 full ZIP for each architecture, record the emitted delta size,
+prove `BinaryDelta apply` produces the exact 0.2.2 app, and exercise one real
+installed update. Corrupt-delta/full-ZIP fallback and Intel installation remain
+release-candidate/manual checks; a unit fixture alone is not sufficient
+evidence.

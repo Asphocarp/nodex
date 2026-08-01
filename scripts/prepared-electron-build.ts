@@ -39,6 +39,7 @@ const REQUIRED_INPUT_PATHS = [
   "agent-skills",
   "config",
   "crates",
+  "native",
   "packages/codex-app-server-protocol",
   "packages/core-protocol",
   "resources",

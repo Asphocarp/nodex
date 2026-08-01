@@ -12,10 +12,18 @@ interface ElectronBuilderFileSet {
 
 interface ElectronBuilderConfig {
   readonly afterPack?: string;
+  readonly dmg?: {
+    readonly sign?: boolean;
+    readonly writeUpdateInfo?: boolean;
+  };
+  readonly extraFiles?: readonly ElectronBuilderFileSet[];
   readonly extraResources?: readonly ElectronBuilderFileSet[];
   readonly mac?: {
     readonly binaries?: readonly string[];
+    readonly extendInfo?: Record<string, unknown>;
+    readonly target?: readonly string[];
   };
+  readonly publish?: unknown;
 }
 
 describe("electron-builder runtime resources", () => {
@@ -34,10 +42,27 @@ describe("electron-builder runtime resources", () => {
       to: "agent-skills",
       filter: ["**/*"],
     });
+    expect(config.extraResources).toContainEqual({
+      from: ".generated/sparkle-runtime/${arch}/nodex-sparkle.node",
+      to: "native/nodex-sparkle.node",
+    });
+    expect(config.extraFiles).toContainEqual({
+      from: ".generated/sparkle-runtime/${arch}/Sparkle.framework",
+      to: "Frameworks/Sparkle.framework",
+      filter: ["**/*"],
+    });
     expect(config.mac?.binaries).toContain("Contents/Resources/codex-path/rg");
     expect(config.mac?.binaries).not.toContain("Contents/Resources/bin/rg");
     expect(config.mac?.binaries?.some((entry) => (
       entry.startsWith("Contents/Resources/agent-runtime/")
     ))).toBe(false);
+    expect(config.mac?.target).toEqual(["dmg"]);
+    expect(config.mac?.extendInfo).toMatchObject({
+      SUPublicEDKey: "YNySLZ74gjVAOpEdMo9OOEPvuTEMZf8fMnI+oQD7Ifs=",
+      SURequireSignedFeed: true,
+      SUVerifyUpdateBeforeExtraction: true,
+    });
+    expect(config.dmg).toMatchObject({ sign: true, writeUpdateInfo: false });
+    expect(config.publish).toBeUndefined();
   });
 });

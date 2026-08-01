@@ -8,6 +8,8 @@ import {
   applyMacSigningMode,
   refreshSignedAgentRuntimeMetadata,
   refreshSignedBrowserRuntimeManifest,
+  refreshSignedSparkleRuntimeManifest,
+  sparkleCodeSignArguments,
 } from "./sign-macos-runtime.mjs";
 
 const temporaryRoots: string[] = [];
@@ -53,6 +55,64 @@ describe("applyMacSigningMode", () => {
   test("rejects unknown signing modes instead of silently signing differently", () => {
     expect(() => applyMacSigningMode(releaseOptions, "adhoc"))
       .toThrow("Unknown NODEX_MAC_SIGN_MODE: adhoc");
+  });
+});
+
+describe("Sparkle code signing", () => {
+  test("uses hardened runtime without an entitlement file", () => {
+    expect(sparkleCodeSignArguments({
+      identity: "DEVELOPER-ID-HASH",
+      keychain: "/tmp/nodex.keychain-db",
+      local: false,
+      targetPath: "/tmp/Nodex.app/Contents/Frameworks/Sparkle.framework",
+    })).toEqual([
+      "--force",
+      "--sign",
+      "DEVELOPER-ID-HASH",
+      "--options",
+      "runtime",
+      "--timestamp",
+      "--keychain",
+      "/tmp/nodex.keychain-db",
+      "/tmp/Nodex.app/Contents/Frameworks/Sparkle.framework",
+    ]);
+  });
+
+  test("reseals Sparkle artifacts after code signing changes their bytes", () => {
+    const appPath = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-sparkle-signing-"));
+    temporaryRoots.push(appPath);
+    const artifactPaths = {
+      autoupdate: "Frameworks/Sparkle.framework/Versions/B/Autoupdate",
+      bridge: "Resources/native/nodex-sparkle.node",
+      frameworkExecutable: "Frameworks/Sparkle.framework/Versions/B/Sparkle",
+      frameworkInfoPlist: "Frameworks/Sparkle.framework/Versions/B/Resources/Info.plist",
+      updater: "Frameworks/Sparkle.framework/Versions/B/Updater.app/Contents/MacOS/Updater",
+    };
+    const artifacts = Object.fromEntries(Object.entries(artifactPaths).map(([
+      name,
+      relativePath,
+    ]) => {
+      const filePath = path.join(appPath, "Contents", relativePath);
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      fs.writeFileSync(filePath, `signed-${name}\n`);
+      return [name, { path: relativePath, sha256: "0".repeat(64), size: 1 }];
+    }));
+    const manifestPath = path.join(
+      appPath,
+      "Contents/Resources/native/sparkle-runtime.json",
+    );
+    fs.writeFileSync(manifestPath, JSON.stringify({ artifacts, schemaVersion: 2 }));
+
+    refreshSignedSparkleRuntimeManifest(appPath);
+
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8")) as {
+      artifacts: Record<string, { path: string; sha256: string; size: number }>;
+    };
+    expect(manifest.artifacts.bridge).toMatchObject({
+      path: artifactPaths.bridge,
+      sha256: createHash("sha256").update("signed-bridge\n").digest("hex"),
+      size: Buffer.byteLength("signed-bridge\n"),
+    });
   });
 });
 

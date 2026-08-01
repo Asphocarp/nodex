@@ -7,6 +7,11 @@ on:
         description: Exact protected-main commit to deploy
         required: true
         type: string
+      publish_updates:
+        description: Project the verified Release Bundle appcasts with the site
+        default: false
+        required: false
+        type: boolean
     secrets:
       landing_github_token:
         required: true
@@ -36,11 +41,15 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build:landing
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        if: inputs.publish_updates
+        with:
+          name: nodex-release-bundle-${{ inputs.source_sha }}
+          path: ${{ runner.temp }}/release-bundle
 
-      - name: Publish built site
+      - name: Check out the current published site
         env:
           GH_TOKEN: ${{ secrets.landing_github_token }}
-          SOURCE_SHA: ${{ inputs.source_sha }}
         shell: bash
         run: |
           set -euo pipefail
@@ -48,11 +57,46 @@ jobs:
             echo "Missing NODEXAPP_GITHUB_IO_TOKEN secret." >&2
             exit 1
           fi
-
-          target_dir="${RUNNER_TEMP}/target-site"
           gh auth setup-git
-          git clone "https://github.com/NodexApp/NodexApp.github.io.git" "${target_dir}"
-          rsync -a --delete --exclude ".git" "packages/landing/dist/" "${target_dir}/"
+          git clone "https://github.com/NodexApp/NodexApp.github.io.git" "${RUNNER_TEMP}/target-site"
+
+      - name: Project verified appcasts into the release site
+        if: inputs.publish_updates
+        run: |
+          pnpm release:project:pages -- \
+            --bundle "${RUNNER_TEMP}/release-bundle/release-bundle.json" \
+            --existing-site-dir "${RUNNER_TEMP}/target-site" \
+            --site-dir packages/landing/dist \
+            --output "${RUNNER_TEMP}/appcast-projection.json"
+
+      - name: Summarize appcast projection
+        if: inputs.publish_updates
+        shell: bash
+        run: |
+          {
+            echo "## Sparkle Pages projection"
+            echo
+            echo "Target: NodexApp/NodexApp.github.io@$(git -C "${RUNNER_TEMP}/target-site" branch --show-current)"
+            echo
+            echo '```json'
+            cat "${RUNNER_TEMP}/appcast-projection.json"
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Publish built site
+        env:
+          GH_TOKEN: ${{ secrets.landing_github_token }}
+          PUBLISH_UPDATES: ${{ inputs.publish_updates }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          target_dir="${RUNNER_TEMP}/target-site"
+          if [[ "${PUBLISH_UPDATES}" == "true" ]]; then
+            rsync -a --delete --exclude ".git" "packages/landing/dist/" "${target_dir}/"
+          else
+            rsync -a --delete --exclude ".git" --exclude "updates/" "packages/landing/dist/" "${target_dir}/"
+          fi
           if [[ -z "$(git -C "${target_dir}" status --porcelain)" ]]; then
             echo "No landing-site changes to publish."
             exit 0
@@ -63,3 +107,8 @@ jobs:
           git -C "${target_dir}" add --all
           git -C "${target_dir}" commit -m "deploy: refresh landing site from ${GITHUB_REPOSITORY}@${SOURCE_SHA}"
           git -C "${target_dir}" push origin HEAD
+      - name: Verify published appcast bytes and enclosures
+        if: inputs.publish_updates
+        run: |
+          pnpm release:verify:pages -- \
+            --bundle "${RUNNER_TEMP}/release-bundle/release-bundle.json"

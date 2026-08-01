@@ -104,6 +104,41 @@ const writeJson = (filePath: string, value: unknown): void => {
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 };
 
+const writeSparkleRuntime = (appPath: string): void => {
+  const artifactPaths = {
+    autoupdate: "Frameworks/Sparkle.framework/Versions/B/Autoupdate",
+    bridge: "Resources/native/nodex-sparkle.node",
+    frameworkExecutable: "Frameworks/Sparkle.framework/Versions/B/Sparkle",
+    frameworkInfoPlist: "Frameworks/Sparkle.framework/Versions/B/Resources/Info.plist",
+    updater: "Frameworks/Sparkle.framework/Versions/B/Updater.app/Contents/MacOS/Updater",
+  };
+  const artifacts = Object.fromEntries(Object.entries(artifactPaths).map(([
+    name,
+    relativePath,
+  ]) => {
+    const filePath = path.join(appPath, "Contents", relativePath);
+    const contents = Buffer.from(`${name}\n`, "utf8");
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, contents, { mode: name === "frameworkInfoPlist" ? 0o644 : 0o755 });
+    return [name, {
+      path: relativePath,
+      sha256: createHash("sha256").update(contents).digest("hex"),
+      size: contents.length,
+    }];
+  }));
+  writeJson(path.join(appPath, "Contents/Resources/native/sparkle-runtime.json"), {
+    artifacts,
+    architecture: "arm64",
+    channel: "stable",
+    feedUrl: "https://nodex.jyu.app/updates/stable/arm64/appcast.xml",
+    minimumMacOS: "12.0",
+    publicKey: "YNySLZ74gjVAOpEdMo9OOEPvuTEMZf8fMnI+oQD7Ifs=",
+    schemaVersion: 2,
+    sparkleArchiveSha256: "6".repeat(64),
+    sparkleVersion: "2.9.4",
+  });
+};
+
 const makeApp = (): {
   appPath: string;
   currentPreparedPath: string;
@@ -114,10 +149,7 @@ const makeApp = (): {
   const resources = path.join(appPath, "Contents/Resources");
   fs.mkdirSync(path.join(resources, "bin"), { recursive: true });
   fs.writeFileSync(path.join(resources, "app.asar"), "current app payload\n");
-  fs.writeFileSync(
-    path.join(resources, "app-update.yml"),
-    "provider: github\nowner: junyudev\nrepo: nodex\n",
-  );
+  writeSparkleRuntime(appPath);
   const agentSkills = writeAgentSkills(resources);
   const prepared = makePreparedManifest(agentSkills);
   writeJson(path.join(resources, "prepared-electron-build.json"), prepared);
@@ -221,9 +253,9 @@ describe("packaged build provenance", () => {
 
   test.each([
     "app.asar",
-    "app-update.yml",
     "bin/rust-core-runtime.json",
     "agent-runtime.json",
+    "native/nodex-sparkle.node",
   ])("rejects a packaged payload mutation in %s", (relativePath) => {
     const fixture = makeApp();
     writePackagedBuildProvenance(fixture.appPath);

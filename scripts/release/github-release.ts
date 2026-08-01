@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, lstatSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { parseReleaseBundleManifest } from "./bundle";
 import {
@@ -279,4 +280,22 @@ export function verifyRemoteRelease(options: {
   const latest = JSON.parse(gh(["api", `repos/${options.repo}/releases/latest`])) as { readonly tag_name?: unknown };
   if (latest.tag_name !== bundle.tag) throw new Error(`GitHub Latest is ${String(latest.tag_name)}, expected ${bundle.tag}.`);
   gh(["release", "verify", bundle.tag, "--repo", options.repo]);
+
+  const downloadRoot = mkdtempSync(join(tmpdir(), "nodex-release-redownload-"));
+  try {
+    gh(["release", "download", bundle.tag, "--repo", options.repo, "--dir", downloadRoot]);
+    const expected = expectedAssets(bundlePath);
+    for (const [name, identity] of expected) {
+      const downloaded = join(downloadRoot, name);
+      if (
+        !existsSync(downloaded)
+        || lstatSync(downloaded).size !== identity.bytes
+        || sha256File(downloaded) !== identity.sha256
+      ) {
+        throw new Error(`Re-downloaded GitHub release asset ${name} failed byte verification.`);
+      }
+    }
+  } finally {
+    rmSync(downloadRoot, { force: true, recursive: true });
+  }
 }

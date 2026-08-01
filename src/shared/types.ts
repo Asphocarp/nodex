@@ -1503,6 +1503,7 @@ export type AppUpdateStatusKind =
   | "available"
   | "downloading"
   | "downloaded"
+  | "installing"
   | "upToDate"
   | "error";
 

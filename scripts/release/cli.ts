@@ -25,6 +25,8 @@ import {
   prepareReleaseSource,
 } from "./source";
 import { tagForVersion } from "./model";
+import { runSparkleFinalizeCli, runSparkleHistoryCli } from "./sparkle";
+import { projectReleaseAppcasts, verifyPublishedAppcasts } from "./pages";
 
 const projectRoot = resolve(import.meta.dirname, "../..");
 
@@ -139,11 +141,33 @@ const main = async (): Promise<void> => {
   if (command === "assemble") {
     assembleReleaseBundle({
       arm64Directory: required(flags, "arm64-dir"),
+      arm64UpdateDirectory: required(flags, "arm64-update-dir"),
       outputDirectory: required(flags, "output"),
       sourceSha: required(flags, "source-sha"),
       version: required(flags, "version"),
       x64Directory: required(flags, "x64-dir"),
+      x64UpdateDirectory: required(flags, "x64-update-dir"),
     });
+    return;
+  }
+  if (command === "finalize-sparkle") {
+    await runSparkleFinalizeCli(flags);
+    return;
+  }
+  if (command === "fetch-sparkle-history") {
+    runSparkleHistoryCli(flags);
+    return;
+  }
+  if (command === "project-pages") {
+    writeJson(flags.get("output"), projectReleaseAppcasts({
+      bundlePath: required(flags, "bundle"),
+      existingSiteDirectory: flags.get("existing-site-dir"),
+      siteDirectory: required(flags, "site-dir"),
+    }));
+    return;
+  }
+  if (command === "verify-pages") {
+    await verifyPublishedAppcasts({ bundlePath: required(flags, "bundle") });
     return;
   }
   if (command === "extract-notes") {

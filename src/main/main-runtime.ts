@@ -104,6 +104,8 @@ import type {
 import { getWorkbenchSceneReturnLocation } from "../shared/workbench-layout";
 import { getLogger, shutdownBackendLogger } from "./logging/logger";
 import { AppUpdateService } from "./app-update-service";
+import { createPackagedMacAppUpdater } from "./sparkle-mac-app-updater";
+import { closeWindowsBeforeRuntimeShutdown } from "./runtime-quit-coordinator";
 import { resolveCodexTitleBarOptions } from "./window-navigation-chrome";
 import {
   CLOSE_PANEL_TAB_HOST_CHANNEL,
@@ -2100,6 +2102,14 @@ function shutdownMainRuntime(): Promise<void> {
     disposeManagedAssetProtocol?.();
     disposeManagedAssetProtocol = null;
     await settleRuntimeShutdownStep(
+      "App updater",
+      async () => {
+        await appUpdateService?.dispose();
+        appUpdateService = null;
+      },
+      RUNTIME_SHUTDOWN_STEP_TIMEOUT_MS,
+    );
+    await settleRuntimeShutdownStep(
       "Codex service",
       () => codexService.shutdown(),
       RUNTIME_SHUTDOWN_STEP_TIMEOUT_MS,
@@ -2135,18 +2145,32 @@ function registerRuntimeLifecycleHandlers(): void {
   if (runtimeLifecycleHandlersRegistered) return;
   runtimeLifecycleHandlersRegistered = true;
 
-  app.on("before-quit", () => {
-    beginMainRuntimeShutdown();
+  app.on("before-quit", (event) => {
+    if (runtimeShutdownCompleted) return;
+    event.preventDefault();
+    if (runtimeQuitContinuationStarted) return;
+    runtimeQuitContinuationStarted = true;
+    appQuitRequested = true;
+    rendererHostReadyForWindows = false;
+    void closeWindowsBeforeRuntimeShutdown(BrowserWindow.getAllWindows())
+      .then(() => shutdownMainRuntime())
+      .catch((error: unknown) => {
+        logger.error("Runtime quit coordination failed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        captureMainException(error, {
+          tags: { phase: "runtime-shutdown", component: "quit-coordinator" },
+        });
+      })
+      .finally(() => {
+        runtimeShutdownCompleted = true;
+        app.quit();
+      });
   });
 
   app.on("will-quit", (event) => {
     if (runtimeShutdownCompleted) return;
     event.preventDefault();
-    if (runtimeQuitContinuationStarted) return;
-    runtimeQuitContinuationStarted = true;
-    void shutdownMainRuntime().finally(() => {
-      app.quit();
-    });
   });
 
   app.on("window-all-closed", () => {
@@ -2435,6 +2459,22 @@ export async function runMainAppStartup(
       error: error instanceof Error ? error.message : String(error),
     });
   });
+  const packagedMacAppUpdater = (() => {
+    if (!app.isPackaged || process.platform !== "darwin") return null;
+    if (process.arch !== "arm64" && process.arch !== "x64") return null;
+    try {
+      return createPackagedMacAppUpdater({
+        applicationBundlePath: resolve(process.resourcesPath, "..", ".."),
+        architecture: process.arch,
+        resourcesPath: process.resourcesPath,
+      });
+    } catch (error) {
+      logger.error("Packaged Sparkle runtime is invalid", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  })();
   appUpdateService = new AppUpdateService({
     currentVersion: app.getVersion(),
     isInApplicationsFolder: process.platform !== "darwin"
@@ -2443,6 +2483,7 @@ export async function runMainAppStartup(
     isPackaged: app.isPackaged,
     logger,
     platform: process.platform,
+    updater: packagedMacAppUpdater,
   });
   appUpdateService.onStatusChange((status) => {
     broadcastAppUpdateStatus(status);
@@ -2642,7 +2683,9 @@ export async function runMainAppStartup(
     onCheckForAppUpdate: async () =>
       await (appUpdateService?.checkForUpdates("manual")
         ?? Promise.resolve(resolveUnsupportedAppUpdateStatus())),
-    onInstallAppUpdate: () => appUpdateService?.installUpdateAndRestart() ?? false,
+    onInstallAppUpdate: async () => await (
+      appUpdateService?.installUpdateAndRestart() ?? Promise.resolve(false)
+    ),
     onAppUpdateSettingsChanged: () => {
       maybeStartAutomaticAppUpdateChecks();
     },

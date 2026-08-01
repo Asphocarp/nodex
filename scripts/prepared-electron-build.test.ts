@@ -79,6 +79,7 @@ const makeFixture = (): {
   const requiredInputs = [
     "agent-skills/nodex/SKILL.md",
     "config/value.ts",
+    "native/macos-sparkle/binding.gyp",
     "packages/codex-app-server-protocol/value.ts",
     "packages/core-protocol/value.ts",
     "resources/THIRD_PARTY_NOTICES.txt",

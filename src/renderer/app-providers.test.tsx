@@ -1,9 +1,51 @@
 import { useLayoutEffect } from "react";
-import { render } from "@testing-library/react";
-import { describe, expect, test } from "vitest";
+import { act, render, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import { TestQueryProvider } from "@/test/query";
 import { useMaitaiStore, type MaitaiStore } from "./lib/maitai";
-import { RendererStateProvider } from "./app-providers";
+import type { AppUpdateStatus } from "./lib/types";
+import {
+  AppUpdateStatusProvider,
+  RendererStateProvider,
+  useAppUpdateStatus,
+} from "./app-providers";
+
+const updateMocks = vi.hoisted(() => ({
+  listener: null as ((status: AppUpdateStatus) => void) | null,
+  resolveSnapshot: null as ((status: AppUpdateStatus) => void) | null,
+  unsubscribe: vi.fn(),
+}));
+
+vi.mock("./lib/api", () => ({
+  invoke: vi.fn(() => new Promise<AppUpdateStatus>((resolve) => {
+    updateMocks.resolveSnapshot = resolve;
+  })),
+  subscribeAppUpdateStatus: vi.fn((listener: (status: AppUpdateStatus) => void) => {
+    updateMocks.listener = listener;
+    return updateMocks.unsubscribe;
+  }),
+}));
+
+const updateStatus = (status: AppUpdateStatus["status"], message: string): AppUpdateStatus => ({
+  availableVersion: status === "downloaded" ? "0.2.2" : null,
+  checkedAt: null,
+  currentVersion: "0.2.1",
+  message,
+  progressPercent: null,
+  releaseDate: null,
+  releaseName: null,
+  releaseNotes: null,
+  status,
+  supported: true,
+  totalBytes: null,
+  transferredBytes: null,
+});
+
+beforeEach(() => {
+  updateMocks.listener = null;
+  updateMocks.resolveSnapshot = null;
+  updateMocks.unsubscribe.mockClear();
+});
 
 describe("renderer state provider", () => {
   test("keeps one Maitai store across parent rerenders", () => {
@@ -27,5 +69,29 @@ describe("renderer state provider", () => {
 
     expect(stores).toHaveLength(2);
     expect(stores[0]).toBe(stores[1]);
+  });
+});
+
+describe("app update status provider", () => {
+  test("does not let a delayed initial snapshot replace a newer pushed status", async () => {
+    function Probe() {
+      return <span>{useAppUpdateStatus()?.message}</span>;
+    }
+    const view = render(
+      <AppUpdateStatusProvider>
+        <Probe />
+      </AppUpdateStatusProvider>,
+    );
+    await waitFor(() => expect(updateMocks.listener).not.toBeNull());
+
+    await act(async () => {
+      updateMocks.listener?.(updateStatus("downloaded", "Update ready."));
+      updateMocks.resolveSnapshot?.(updateStatus("checking", "Checking…"));
+      await Promise.resolve();
+    });
+
+    expect(view.getByText("Update ready.")).toBeTruthy();
+    view.unmount();
+    expect(updateMocks.unsubscribe).toHaveBeenCalledOnce();
   });
 });
