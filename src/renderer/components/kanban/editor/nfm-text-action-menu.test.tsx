@@ -958,6 +958,34 @@ describe("nfm text action menu surface", () => {
     expect(view.getAllByText("Improve writing").length).toBe(1);
   });
 
+  test("shows the action pane fade only while content remains below the viewport", async () => {
+    const { view } = renderTextActionMenu({ showReferenceMocks: false });
+    const viewport = view.getByTestId("nfm-text-action-ai-scroll");
+
+    expect(view.queryByTestId("nfm-text-action-ai-scroll-mask")).toBe(null);
+
+    Object.defineProperties(viewport, {
+      clientHeight: { configurable: true, value: 134 },
+      scrollHeight: { configurable: true, value: 220 },
+      scrollTop: { configurable: true, writable: true, value: 0 },
+    });
+
+    await act(async () => {
+      fireEvent.scroll(viewport);
+      await settleAsyncRender();
+    });
+
+    expect(view.getByTestId("nfm-text-action-ai-scroll-mask")).not.toBe(null);
+
+    viewport.scrollTop = 86;
+    await act(async () => {
+      fireEvent.scroll(viewport);
+      await settleAsyncRender();
+    });
+
+    expect(view.queryByTestId("nfm-text-action-ai-scroll-mask")).toBe(null);
+  });
+
   test("shows action row tooltips only when labels overflow", async () => {
     const longLabel = "Move selected blocks into another card";
     const { view } = renderTextActionMenu({
