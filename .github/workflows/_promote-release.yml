@@ -193,18 +193,26 @@ jobs:
           brew tap "${HOMEBREW_TAP}" "https://github.com/${HOMEBREW_TAP_REPO}.git"
           tap="$(brew --repository "${HOMEBREW_TAP}")"
           current="${tap}/Casks/nodex.rb"
-          if [[ -f "${current}" ]] && cmp -s "${generated}" "${current}"; then
+          previous="${RUNNER_TEMP}/previous-nodex.rb"
+          if [[ -f "${current}" ]]; then
+            cp "${current}" "${previous}"
+          fi
+          # Recovery may execute an immutable release source whose generator
+          # predates Homebrew's current canonical DSL. Normalize inside the
+          # registered tap before comparing or validating the derived cask.
+          cp "${generated}" "${current}"
+          brew style --fix --cask "${current}"
+          brew style --cask "${current}"
+          if [[ -f "${previous}" ]] && cmp -s "${current}" "${previous}"; then
             echo "Homebrew tap already contains Nodex ${{ inputs.version }}."
           else
-            if [[ -f "${current}" ]]; then
-              current_version="$(sed -n 's/^  version "\([^"]*\)"/\1/p' "${current}")"
+            if [[ -f "${previous}" ]]; then
+              current_version="$(sed -n 's/^  version "\([^"]*\)"/\1/p' "${previous}")"
               if [[ "${current_version}" == "${{ inputs.version }}" ]]; then
                 echo "Homebrew already has version ${current_version} with different checksums." >&2
                 exit 1
               fi
             fi
-            cp "${generated}" "${current}"
-            brew style --cask "${current}"
             brew audit --cask --online "${current}"
             git -C "${tap}" config user.name "github-actions[bot]"
             git -C "${tap}" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
