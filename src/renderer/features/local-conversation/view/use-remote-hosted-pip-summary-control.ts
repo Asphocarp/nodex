@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   CodexDesktopMessageFromView,
+  RemoteHostedPipHiddenThreadIdsRequestedMessage,
   RemoteHostedPipStreamStateChangedMessage,
-  RemoteHostedPipVisibilityRequestedMessage,
 } from "../../../../shared/remote-hosted-pip";
 import type {
   ThreadStageActions,
@@ -28,14 +28,15 @@ function isRemoteHostedPipStreamStateChangedMessage(
     && typeof message.isAnyActive === "boolean";
 }
 
-function isRemoteHostedPipVisibilityRequestedMessage(
+function isRemoteHostedPipHiddenThreadIdsRequestedMessage(
   value: unknown,
-): value is RemoteHostedPipVisibilityRequestedMessage {
+): value is RemoteHostedPipHiddenThreadIdsRequestedMessage {
   if (typeof value !== "object" || value === null) return false;
 
-  const message = value as Partial<RemoteHostedPipVisibilityRequestedMessage>;
-  return message.type === "remote-hosted-pip-visibility-requested"
-    && typeof message.isVisible === "boolean";
+  const message = value as Partial<RemoteHostedPipHiddenThreadIdsRequestedMessage>;
+  return message.type === "remote-hosted-pip-hidden-thread-ids-requested"
+    && Array.isArray(message.hiddenThreadIds)
+    && message.hiddenThreadIds.every((threadId) => typeof threadId === "string");
 }
 
 function publishRemoteHostedPipMessageFromView(message: CodexDesktopMessageFromView): void {
@@ -45,7 +46,9 @@ function publishRemoteHostedPipMessageFromView(message: CodexDesktopMessageFromV
 export function useRemoteHostedPipSummaryControl(
   activeThreadId: string | null,
 ): RemoteHostedPipSummaryControl {
-  const [visible, setVisible] = useState(true);
+  const [hiddenThreadIds, setHiddenThreadIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
   const [activeByConversationId, setActiveByConversationId] = useState<ActiveConversationMap>(() => new Map());
 
   useEffect(() => {
@@ -78,14 +81,14 @@ export function useRemoteHostedPipSummaryControl(
       });
     });
 
-    const unsubscribeVisibility = window.api?.on("remote-hosted-pip-visibility-requested", (payload) => {
-      if (!isRemoteHostedPipVisibilityRequestedMessage(payload)) return;
-      setVisible(payload.isVisible);
+    const unsubscribeHiddenThreadIds = window.api?.on("remote-hosted-pip-hidden-thread-ids-requested", (payload) => {
+      if (!isRemoteHostedPipHiddenThreadIdsRequestedMessage(payload)) return;
+      setHiddenThreadIds(new Set(payload.hiddenThreadIds));
     });
 
     return () => {
       unsubscribeStreamState?.();
-      unsubscribeVisibility?.();
+      unsubscribeHiddenThreadIds?.();
     };
   }, []);
 
@@ -93,16 +96,23 @@ export function useRemoteHostedPipSummaryControl(
     if (!activeThreadId) return null;
     if (activeByConversationId.get(activeThreadId) !== true) return null;
 
-    return { visible };
-  }, [activeByConversationId, activeThreadId, visible]);
+    return { visible: !hiddenThreadIds.has(activeThreadId) };
+  }, [activeByConversationId, activeThreadId, hiddenThreadIds]);
 
   const onToggleSummaryComputerUsePip = useCallback((nextVisible: boolean) => {
-    setVisible(nextVisible);
+    if (!activeThreadId) return;
+    const nextHiddenThreadIds = new Set(hiddenThreadIds);
+    if (nextVisible) {
+      nextHiddenThreadIds.delete(activeThreadId);
+    } else {
+      nextHiddenThreadIds.add(activeThreadId);
+    }
+    setHiddenThreadIds(nextHiddenThreadIds);
     publishRemoteHostedPipMessageFromView({
-      type: "remote-hosted-pip-visibility-changed",
-      isVisible: nextVisible,
+      type: "remote-hosted-pip-hidden-thread-ids-changed",
+      hiddenThreadIds: [...nextHiddenThreadIds].sort(),
     });
-  }, []);
+  }, [activeThreadId, hiddenThreadIds]);
 
   return {
     onToggleSummaryComputerUsePip,

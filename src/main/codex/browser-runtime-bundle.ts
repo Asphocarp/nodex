@@ -33,9 +33,14 @@ export type VerifiedBrowserRuntimeBundle = {
     browserPluginDocs: string;
     browserPluginManifest: string;
     codexCli: string;
+    computerUseApp: string | null;
+    computerUseClient: string | null;
+    computerUsePluginRoot: string | null;
+    computerUseService: string | null;
     node: string;
     nodeRepl: string;
     peerAuthorization: string;
+    skyNativeAddon: string;
   };
   rootPath: string;
 };
@@ -237,6 +242,15 @@ export function resolveBrowserRuntimeBundle(
       );
     }
   }
+  if (manifest.capabilities.computerUse.status === "available") {
+    for (const nodeModuleDir of manifest.capabilities.computerUse.plugin.nodeModuleDirs) {
+      if (validateDirectoryPath(rootPath, nodeModuleDir)) continue;
+      return unavailable(
+        "module-directory-invalid",
+        `Computer Use runtime Node module directory is invalid: ${nodeModuleDir}`,
+      );
+    }
+  }
 
   const artifactByPath = new Map(
     manifest.artifacts.map((artifact) => [artifact.path, artifact]),
@@ -250,15 +264,33 @@ export function resolveBrowserRuntimeBundle(
       browserPluginRoot: resolve(manifest.browserPlugin.root),
       manifest,
       manifestPath,
-      nodeModuleDirs: manifest.browserPlugin.nodeModuleDirs.map(resolve),
+      nodeModuleDirs: [...new Set([
+        ...manifest.browserPlugin.nodeModuleDirs,
+        ...(manifest.capabilities.computerUse.status === "available"
+          ? manifest.capabilities.computerUse.plugin.nodeModuleDirs
+          : []),
+      ])].map(resolve),
       paths: {
         browserPluginClient: resolve(manifest.browserPlugin.client),
         browserPluginDocs: resolve(manifest.browserPlugin.docs),
         browserPluginManifest: resolve(manifest.browserPlugin.manifest),
         codexCli: resolve(manifest.entrypoints.codexCli),
+        computerUseApp: manifest.capabilities.computerUse.status === "available"
+          ? resolve(manifest.capabilities.computerUse.appBundle)
+          : null,
+        computerUseClient: manifest.capabilities.computerUse.status === "available"
+          ? resolve(manifest.capabilities.computerUse.client)
+          : null,
+        computerUsePluginRoot: manifest.capabilities.computerUse.status === "available"
+          ? resolve(manifest.capabilities.computerUse.plugin.root)
+          : null,
+        computerUseService: manifest.capabilities.computerUse.status === "available"
+          ? resolve(manifest.capabilities.computerUse.serviceExecutable)
+          : null,
         node: resolve(manifest.entrypoints.node),
         nodeRepl: resolve(manifest.entrypoints.nodeRepl),
         peerAuthorization: resolve(manifest.entrypoints.peerAuthorization),
+        skyNativeAddon: resolve(manifest.capabilities.nativePip.addon),
       },
       rootPath,
     },

@@ -431,8 +431,8 @@ import type {
 } from "./codex-pending-worktree";
 import type {
   CodexDesktopMessageFromView,
+  RemoteHostedPipHiddenThreadIdsRequestedMessage,
   RemoteHostedPipStreamStateChangedMessage,
-  RemoteHostedPipVisibilityRequestedMessage,
 } from "./remote-hosted-pip";
 import type {
   WindowSessionBootstrap,
@@ -2187,7 +2187,7 @@ export interface IpcEvents {
   "browser-annotation-anchor-update": BrowserAnnotationRoutedAnchorUpdateEvent;
   "browser-local-server-preferences-changed": BrowserLocalServerPreferences;
   "remote-hosted-pip-stream-state-changed": RemoteHostedPipStreamStateChangedMessage;
-  "remote-hosted-pip-visibility-requested": RemoteHostedPipVisibilityRequestedMessage;
+  "remote-hosted-pip-hidden-thread-ids-requested": RemoteHostedPipHiddenThreadIdsRequestedMessage;
   "desktop-notification:action": DesktopNotificationActionPayload & {
     conversationId: string | null;
     requestId: CodexProtocolRequestId | null;

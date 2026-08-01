@@ -1,15 +1,7 @@
 import { describe, expect, test } from "vitest";
-import type {
-  BrowserSidebarBrowserUseStateSnapshot,
-  BrowserUseTabState,
-} from "../shared/browser-sidebar";
-import { RemoteHostedPipService, type RemoteHostedPipWebContentsLike } from "./remote-hosted-pip-service";
-
-interface CapturedMessage {
-  channel: string;
-  payload: unknown;
-  senderId?: number;
-}
+import type { RemoteHostedPipHostLayout } from "../shared/remote-hosted-pip";
+import { RemoteHostedPipService, type RemoteHostedPipWebContentsLike, type RemoteHostedPipWindowLike } from "./remote-hosted-pip-service";
+import type { SkyNativeAddon, SkyRemoteHostedPipHostRegistration } from "./sky-native";
 
 class FakeSender implements RemoteHostedPipWebContentsLike {
   private readonly destroyedListeners: Array<() => void> = [];
@@ -17,258 +9,283 @@ class FakeSender implements RemoteHostedPipWebContentsLike {
   constructor(readonly id: number) {}
 
   once(eventName: "destroyed", listener: () => void): void {
-    if (eventName !== "destroyed") return;
-    this.destroyedListeners.push(listener);
+    if (eventName === "destroyed") this.destroyedListeners.push(listener);
   }
 
   destroy(): void {
-    for (const listener of this.destroyedListeners) {
-      listener();
-    }
+    for (const listener of this.destroyedListeners) listener();
   }
 }
 
+class FakeWindow implements RemoteHostedPipWindowLike {
+  private readonly closedListeners: Array<() => void> = [];
+  private readonly focusListeners: Array<() => void> = [];
+  destroyed = false;
+  focused = true;
+
+  constructor(readonly id: number, readonly webContents = new FakeSender(id * 10)) {}
+
+  getContentBounds() {
+    return { height: 800, width: 1200, x: 10, y: 20 };
+  }
+
+  getNativeWindowHandle(): Buffer {
+    return Buffer.from([1, 2, 3]);
+  }
+
+  getTitle(): string {
+    return `Window ${this.id}`;
+  }
+
+  isDestroyed(): boolean {
+    return this.destroyed;
+  }
+
+  isFocused(): boolean {
+    return this.focused;
+  }
+
+  on(eventName: "focus", listener: () => void): void {
+    if (eventName === "focus") this.focusListeners.push(listener);
+  }
+
+  once(eventName: "closed", listener: () => void): void {
+    if (eventName === "closed") this.closedListeners.push(listener);
+  }
+
+  focus(): void {
+    this.focused = true;
+    for (const listener of this.focusListeners) listener();
+  }
+
+  close(): void {
+    this.destroyed = true;
+    for (const listener of this.closedListeners) listener();
+  }
+}
+
+class FakeSkyAddon implements SkyNativeAddon {
+  activePresentation = false;
+  anyPresentation = false;
+  activeThreadIds: Array<string | null> = [];
+  completedThreads: string[] = [];
+  invalidatedPresentations: string[] = [];
+  invalidatedTurns: Array<[string, string]> = [];
+  registrations: SkyRemoteHostedPipHostRegistration[] = [];
+  suppressedThreadIds: string[][] = [];
+  upserts: Array<[string, string, string, string | null]> = [];
+  unregisteredHostIds: string[] = [];
+  visibilityHandler: ((isVisible: boolean, threadIds: string[]) => void) | null = null;
+
+  completeRemoteHostedPIPContentThread(threadId: string): boolean {
+    this.completedThreads.push(threadId);
+    return true;
+  }
+
+  computerUseServiceProcessMatchesExecutablePath(): boolean { return true; }
+  hasRemoteHostedPIPContentActivePresentation(): boolean { return this.activePresentation; }
+  hasRemoteHostedPIPContentAnyPresentation(): boolean { return this.anyPresentation; }
+  invalidateBrowserUsePIPContent(id: string): boolean {
+    this.invalidatedPresentations.push(id);
+    return true;
+  }
+  invalidateRemoteHostedPIPContentTurn(threadId: string, turnId: string): boolean {
+    this.invalidatedTurns.push([threadId, turnId]);
+    return true;
+  }
+  isPrivacySettingsTerminationRequest(): boolean { return false; }
+  registerRemoteHostedPIPContentHost(input: SkyRemoteHostedPipHostRegistration): boolean {
+    this.registrations.push(input);
+    return true;
+  }
+  setRemoteHostedPIPContentActiveThreadID(threadId: string | null): boolean {
+    this.activeThreadIds.push(threadId);
+    return true;
+  }
+  setRemoteHostedPIPContentComputerUseCursorLocationHandler(): boolean { return true; }
+  setRemoteHostedPIPContentMaxDisplaySize(): boolean { return true; }
+  setRemoteHostedPIPContentMaxDisplaySizeChangedHandler(): boolean { return true; }
+  setRemoteHostedPIPContentPetWakeRequestHandler(): boolean { return true; }
+  setRemoteHostedPIPContentSuppressedThreadIDs(threadIds: string[]): boolean {
+    this.suppressedThreadIds.push(threadIds);
+    return true;
+  }
+  setRemoteHostedPIPContentVisibilityRequestHandler(
+    handler: ((isVisible: boolean, threadIds: string[]) => void) | null,
+  ): boolean {
+    this.visibilityHandler = handler;
+    return true;
+  }
+  setRemoteHostedPIPContentVisible(): boolean { return true; }
+  spawnComputerUseService(): number | null { return 123; }
+  startRemoteHostedPIPContentHost(): boolean { return true; }
+  stopRemoteHostedPIPContentHost(): boolean { return true; }
+  unregisterRemoteHostedPIPContentHost(hostId: string): boolean {
+    this.unregisteredHostIds.push(hostId);
+    return true;
+  }
+  upsertBrowserUsePIPContent(
+    id: string,
+    threadId: string,
+    imageDataUrl: string,
+    appIconPath: string | null,
+  ): boolean {
+    this.upserts.push([id, threadId, imageDataUrl, appIconPath]);
+    this.anyPresentation = true;
+    return true;
+  }
+}
+
+const layout: RemoteHostedPipHostLayout = {
+  anchorRect: { height: 700, width: 900, x: 0, y: 0 },
+  anchors: [{ alignment: "bottom-right", point: { x: 860, y: 660 } }],
+  animated: false,
+  hostId: "codex-main-thread",
+  presentationScope: "thread",
+};
+
 function createHarness() {
-  const broadcasts: CapturedMessage[] = [];
-  const sentMessages: CapturedMessage[] = [];
-  const sessionThreads = new Map([
-    ["session-1", "thread-1"],
-    ["session-2", "thread-2"],
-  ]);
+  const addon = new FakeSkyAddon();
+  const broadcasts: Array<{ channel: string; payload: unknown }> = [];
+  const sent: Array<{ channel: string; payload: unknown }> = [];
+  const window = new FakeWindow(1);
+  let surfacePresented = false;
   const service = new RemoteHostedPipService({
-    broadcast: (channel, payload) => {
-      broadcasts.push({ channel, payload });
-    },
-    resolveThreadIdForSession: async (sessionId) => sessionThreads.get(sessionId) ?? null,
-    sendToSender: (sender, channel, payload) => {
-      sentMessages.push({ channel, payload, senderId: sender.id });
-    },
+    addon,
+    broadcast: (channel, payload) => broadcasts.push({ channel, payload }),
+    getFocusedWindow: () => window.focused && !window.destroyed ? window : null,
+    getWindowForSender: (sender) => sender.id === window.webContents.id ? window : null,
+    isThreadSurfacePresented: () => surfacePresented,
+    sendToSender: (_sender, channel, payload) => sent.push({ channel, payload }),
   });
-
   return {
+    addon,
     broadcasts,
-    sentMessages,
+    sent,
     service,
-    sessionThreads,
+    setSurfacePresented(value: boolean) { surfacePresented = value; },
+    window,
   };
 }
 
-function createBrowserUseTab(overrides: Partial<BrowserUseTabState> = {}): BrowserUseTabState {
+function attachThread(service: RemoteHostedPipService, window: FakeWindow): void {
+  service.handleDesktopMessageFromView(window.webContents, {
+    layout,
+    type: "remote-hosted-pip-host-layout-changed",
+  });
+  service.handleDesktopMessageFromView(window.webContents, {
+    conversationId: "thread-1",
+    type: "remote-hosted-pip-active-thread-changed",
+  });
+}
+
+function browserNotification(surface: Record<string, unknown>): unknown {
   return {
-    browserConversationId: "session-1",
-    browserViewScopeId: "window-session-1",
-    browserTabId: "tab-1",
-    codexSessionId: "thread-1",
-    captureActive: true,
-    projectId: "project-1",
-    released: false,
-    title: "Example",
-    updatedAt: 1,
-    url: "https://example.com",
-    viewport: {
-      height: 768,
-      presetId: "responsive",
-      width: 1024,
-      zoomPercent: 100,
+    method: "item/completed",
+    params: {
+      item: {
+        result: { _meta: { "codex/toolSurface": { backend: "iab", browserId: "browser-1", kind: "browserUse", ...surface } } },
+        server: "node_repl",
+        type: "mcpToolCall",
+      },
+      threadId: "thread-1",
     },
-    webContentsId: 101,
-    ...overrides,
-  };
-}
-
-function createBrowserUseSnapshot(
-  tabs: BrowserUseTabState[],
-): BrowserSidebarBrowserUseStateSnapshot {
-  return {
-    activeBrowserTabIdsByConversationScope: Object.fromEntries(
-      tabs.map((tab) => [
-        `${tab.browserConversationId}\0${tab.browserViewScopeId}`,
-        tab.browserTabId,
-      ]),
-    ),
-    cursors: [],
-    tabs,
   };
 }
 
 describe("RemoteHostedPipService", () => {
-  test("derives stream state from active BrowserUse capture tabs", async () => {
-    const { broadcasts, sentMessages, service } = createHarness();
-    const sender = new FakeSender(7);
-
-    service.handleDesktopMessageFromView(sender, {
-      type: "remote-hosted-pip-active-thread-changed",
-      conversationId: "thread-1",
+  test("registers the focused BrowserWindow as a native host and publishes real native state", () => {
+    const { addon, broadcasts, service, window } = createHarness();
+    attachThread(service, window);
+    expect(addon.registrations.at(-1)).toMatchObject({
+      contentBounds: { height: 800, width: 1200, x: 10, y: 20 },
+      id: "codex-main-thread",
+      presentationScope: "thread",
+      title: "Window 1",
     });
+    expect(addon.activeThreadIds.at(-1)).toBe("thread-1");
 
-    expect(JSON.stringify(sentMessages)).toBe(JSON.stringify([
-      {
-        channel: "remote-hosted-pip-visibility-requested",
-        payload: {
-          type: "remote-hosted-pip-visibility-requested",
-          isVisible: true,
-        },
-        senderId: 7,
-      },
-      {
-        channel: "remote-hosted-pip-stream-state-changed",
-        payload: {
-          type: "remote-hosted-pip-stream-state-changed",
-          conversationId: "thread-1",
-          isActive: false,
-          isAnyActive: false,
-        },
-        senderId: 7,
-      },
-    ]));
-
-    await service.handleBrowserUseStateSnapshot(createBrowserUseSnapshot([
-      createBrowserUseTab(),
-    ]));
-
-    expect(JSON.stringify(service.getBrowserUsePipConversationIds())).toBe(JSON.stringify(["thread-1"]));
-    expect(JSON.stringify(broadcasts)).toBe(JSON.stringify([
-      {
-        channel: "remote-hosted-pip-stream-state-changed",
-        payload: {
-          type: "remote-hosted-pip-stream-state-changed",
-          conversationId: "thread-1",
-          isActive: true,
-          isAnyActive: true,
-        },
-      },
-    ]));
-
-    await service.handleBrowserUseStateSnapshot(createBrowserUseSnapshot([
-      createBrowserUseTab({ title: "Same stream, new metadata" }),
-    ]));
-    expect(broadcasts.length).toBe(1);
-
-    await service.handleBrowserUseStateSnapshot(createBrowserUseSnapshot([
-      createBrowserUseTab({ released: true }),
-    ]));
-
-    expect(JSON.stringify(service.getBrowserUsePipConversationIds())).toBe(JSON.stringify([]));
-    expect(JSON.stringify(broadcasts[1])).toBe(JSON.stringify({
+    addon.activePresentation = true;
+    addon.anyPresentation = true;
+    service.handleCodexNotification(browserNotification({
+      screenshot: { tabId: "tab-1", url: "data:image/png;base64,YQ==" },
+    }));
+    expect(broadcasts.at(-1)).toEqual({
       channel: "remote-hosted-pip-stream-state-changed",
       payload: {
-        type: "remote-hosted-pip-stream-state-changed",
         conversationId: "thread-1",
-        isActive: false,
-        isAnyActive: false,
+        isActive: true,
+        isAnyActive: true,
+        type: "remote-hosted-pip-stream-state-changed",
       },
+    });
+    service.dispose();
+  });
+
+  test("ingests completed Browser metadata and prunes or ends exact presentations", () => {
+    const { addon, service, window } = createHarness();
+    attachThread(service, window);
+    service.handleCodexNotification(browserNotification({
+      screenshot: { tabId: "tab-1", url: "data:image/png;base64,YQ==" },
     }));
-  });
+    service.handleCodexNotification(browserNotification({
+      screenshot: { tabId: "tab-2", url: "data:image/png;base64,Yg==" },
+    }));
+    expect(addon.upserts.map(([id]) => id)).toEqual([
+      'browser:["thread-1","browser-1","tab-1"]',
+      'browser:["thread-1","browser-1","tab-2"]',
+    ]);
 
-  test("ignores BrowserUse tabs that cannot back a real PiP stream", async () => {
-    const { broadcasts, service } = createHarness();
-
-    await service.handleBrowserUseStateSnapshot(createBrowserUseSnapshot([
-      createBrowserUseTab({ captureActive: false, browserTabId: "tab-inactive" }),
-      createBrowserUseTab({ released: true, browserTabId: "tab-released" }),
-      createBrowserUseTab({ browserTabId: "tab-detached", webContentsId: null }),
-      createBrowserUseTab({ browserConversationId: "session-unmapped", browserTabId: "tab-unmapped" }),
-    ]));
-
-    expect(JSON.stringify(service.getBrowserUsePipConversationIds())).toBe(JSON.stringify([]));
-    expect(broadcasts.length).toBe(0);
-  });
-
-  test("publishes any-active changes for the renderer's active thread", async () => {
-    const { broadcasts, service } = createHarness();
-    const sender = new FakeSender(9);
-
-    service.handleDesktopMessageFromView(sender, {
-      type: "remote-hosted-pip-active-thread-changed",
-      conversationId: "thread-2",
-    });
-    await service.handleBrowserUseStateSnapshot(createBrowserUseSnapshot([
-      createBrowserUseTab({ browserConversationId: "session-1" }),
-    ]));
-
-    expect(JSON.stringify(broadcasts)).toBe(JSON.stringify([
-      {
-        channel: "remote-hosted-pip-stream-state-changed",
-        payload: {
-          type: "remote-hosted-pip-stream-state-changed",
-          conversationId: "thread-1",
-          isActive: true,
-          isAnyActive: true,
-        },
-      },
-      {
-        channel: "remote-hosted-pip-stream-state-changed",
-        payload: {
-          type: "remote-hosted-pip-stream-state-changed",
-          conversationId: "thread-2",
-          isActive: false,
-          isAnyActive: true,
-        },
-      },
-    ]));
-  });
-
-  test("tracks equal browser tab ids as distinct conversation-scoped PiP sources", async () => {
-    const { service } = createHarness();
-
-    await service.handleBrowserUseStateSnapshot(createBrowserUseSnapshot([
-      createBrowserUseTab({ browserConversationId: "session-1", browserTabId: "shared" }),
-      createBrowserUseTab({ browserConversationId: "session-2", browserTabId: "shared", webContentsId: 202 }),
-    ]));
-
-    expect(JSON.stringify(service.getBrowserUsePipConversationIds())).toBe(
-      JSON.stringify(["thread-1", "thread-2"]),
+    service.handleCodexNotification(browserNotification({ openTabIds: ["tab-2"] }));
+    expect(addon.invalidatedPresentations).toEqual([
+      'browser:["thread-1","browser-1","tab-1"]',
+    ]);
+    service.handleCodexNotification(browserNotification({ sessionEnded: true }));
+    expect(addon.invalidatedPresentations.at(-1)).toBe(
+      'browser:["thread-1","browser-1","tab-2"]',
     );
-
-    await service.handleBrowserUseStateSnapshot(createBrowserUseSnapshot([
-      createBrowserUseTab({ browserConversationId: "session-2", browserTabId: "shared", webContentsId: 202 }),
-    ]));
-
-    expect(JSON.stringify(service.getBrowserUsePipConversationIds())).toBe(
-      JSON.stringify(["thread-2"]),
-    );
+    service.dispose();
   });
 
-  test("does not let an older async Session snapshot replace a newer one", async () => {
-    let resolveOlder: ((threadId: string) => void) | undefined;
-    const olderThread = new Promise<string>((resolve) => {
-      resolveOlder = resolve;
+  test("keeps user-hidden threads separate from Browser surface suppression", async () => {
+    const { addon, broadcasts, service, setSurfacePresented, window } = createHarness();
+    attachThread(service, window);
+    service.handleDesktopMessageFromView(window.webContents, {
+      hiddenThreadIds: ["thread-hidden"],
+      type: "remote-hosted-pip-hidden-thread-ids-changed",
     });
-    const service = new RemoteHostedPipService({
-      broadcast: () => undefined,
-      resolveThreadIdForSession: async (sessionId) =>
-        sessionId === "session-1" ? await olderThread : "thread-2",
-      sendToSender: () => undefined,
-    });
+    expect(addon.suppressedThreadIds.at(-1)).toEqual(["thread-hidden"]);
 
-    const older = service.handleBrowserUseStateSnapshot(createBrowserUseSnapshot([
-      createBrowserUseTab({ browserConversationId: "session-1" }),
-    ]));
-    await service.handleBrowserUseStateSnapshot(createBrowserUseSnapshot([
-      createBrowserUseTab({ browserConversationId: "session-2" }),
-    ]));
-    resolveOlder?.("thread-1");
-    await older;
+    setSurfacePresented(true);
+    await service.handleBrowserUseStateSnapshot();
+    expect(addon.suppressedThreadIds.at(-1)).toEqual(["thread-1", "thread-hidden"]);
+    expect(addon.activeThreadIds.at(-1)).toBe(null);
 
-    expect(service.getBrowserUsePipConversationIds()).toEqual(["thread-2"]);
-  });
-
-  test("broadcasts visibility requests from renderer messages", () => {
-    const { broadcasts, service } = createHarness();
-
-    service.handleDesktopMessageFromView(new FakeSender(11), {
-      type: "remote-hosted-pip-visibility-changed",
-      isVisible: false,
-    });
-
-    expect(JSON.stringify(broadcasts)).toBe(JSON.stringify([
-      {
-        channel: "remote-hosted-pip-visibility-requested",
-        payload: {
-          type: "remote-hosted-pip-visibility-requested",
-          isVisible: false,
-        },
+    addon.visibilityHandler?.(false, ["thread-1"]);
+    expect(service.getHiddenThreadIds()).toEqual(["thread-1", "thread-hidden"]);
+    expect(broadcasts.at(-1)).toEqual({
+      channel: "remote-hosted-pip-hidden-thread-ids-requested",
+      payload: {
+        hiddenThreadIds: ["thread-1", "thread-hidden"],
+        type: "remote-hosted-pip-hidden-thread-ids-requested",
       },
-    ]));
+    });
+    service.dispose();
+  });
+
+  test("maps terminal turn lifecycle to complete versus invalidate", () => {
+    const { addon, service, window } = createHarness();
+    attachThread(service, window);
+    service.handleCodexNotification({
+      method: "turn/completed",
+      params: { threadId: "thread-1", turn: { id: "turn-1", status: "completed" } },
+    });
+    service.handleCodexNotification({
+      method: "turn/completed",
+      params: { threadId: "thread-1", turn: { id: "turn-2", status: "failed" } },
+    });
+    expect(addon.completedThreads).toEqual(["thread-1"]);
+    expect(addon.invalidatedTurns).toEqual([["thread-1", "turn-2"]]);
+    service.dispose();
   });
 });

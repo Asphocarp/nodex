@@ -1207,6 +1207,15 @@ export class BrowserSidebarService extends EventEmitter {
     };
   }
 
+  hasPresentedBrowserUseSurfaceForThread(threadId: string): boolean {
+    for (const browserUseTab of this.browserUseTabs.values()) {
+      if (browserUseTab.codexSessionId !== threadId) continue;
+      const snapshot = this.tabs.get(browserTabKey(browserUseTab));
+      if (snapshot?.presented === true && snapshot.visible === true) return true;
+    }
+    return false;
+  }
+
   getLocalServersSnapshot(projectId: string): BrowserSidebarLocalServersSnapshot {
     return this.toLocalServersSnapshot(this.getLocalServerProjectState(projectId));
   }

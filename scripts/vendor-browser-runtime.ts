@@ -233,7 +233,10 @@ function listArtifacts(
   return artifacts.sort((left, right) => left.path.localeCompare(right.path));
 }
 
-function writeBrowserMarketplaceManifest(destinationPath: string): void {
+function writeBrowserMarketplaceManifest(
+  destinationPath: string,
+  includeComputerUse: boolean,
+): void {
   const manifest = {
     name: "openai-bundled",
     interface: {
@@ -252,6 +255,20 @@ function writeBrowserMarketplaceManifest(destinationPath: string): void {
         },
         category: "Engineering",
       },
+      ...(includeComputerUse
+        ? [{
+          name: "computer-use",
+          source: {
+            source: "local",
+            path: "./plugins/computer-use",
+          },
+          policy: {
+            installation: "AVAILABLE",
+            authentication: "ON_INSTALL",
+          },
+          category: "Productivity",
+        }]
+        : []),
     ],
   };
   fs.mkdirSync(path.dirname(destinationPath), { recursive: true });
@@ -333,6 +350,8 @@ export function vendorBrowserRuntime(
     "native",
     "browser-use-peer-authorization.node",
   );
+  const skyAddonPath = path.join(resourcesPath, "native", "sky.node");
+  const remoteHostedPipAssetsPath = path.join(resourcesPath, "native", "remote-hosted-pip");
   const pluginRoot = path.join(
     resourcesPath,
     "plugins",
@@ -340,14 +359,38 @@ export function vendorBrowserRuntime(
     "plugins",
     PLUGIN_NAME,
   );
+  const computerUsePluginRoot = path.join(
+    resourcesPath,
+    "plugins",
+    "openai-bundled",
+    "plugins",
+    "computer-use",
+  );
+  const computerUseAvailable = options.targetArch === "arm64"
+    && fs.existsSync(computerUsePluginRoot);
+  const computerUseAppPath = path.join(
+    cuaRoot,
+    "lib",
+    "node_modules",
+    "@oai",
+    "sky",
+    "Codex Computer Use.app",
+  );
+  const computerUseServicePath = path.join(
+    computerUseAppPath,
+    "Contents",
+    "MacOS",
+    "SkyComputerUseService",
+  );
   const cuaManifest = readJsonFile(path.join(cuaRoot, "manifest.json"));
   const pluginManifest = readJsonFile(
     path.join(pluginRoot, ".codex-plugin", "plugin.json"),
   );
 
-  for (const binaryPath of [codexPath, nodePath, nodeReplPath, peerAddonPath]) {
+  for (const binaryPath of [codexPath, nodePath, nodeReplPath, peerAddonPath, skyAddonPath]) {
     assertArchitecture(binaryPath, options.targetArch);
   }
+  if (computerUseAvailable) assertArchitecture(computerUseServicePath, options.targetArch);
   assertPeerAddonLoads(nodePath, peerAddonPath);
 
   const outputPath = path.resolve(options.outputPath);
@@ -401,10 +444,21 @@ export function vendorBrowserRuntime(
       peerAddonPath,
       path.join(preparedRoot, "native", "browser-use-peer-authorization.node"),
     );
+    copyTree(skyAddonPath, path.join(preparedRoot, "native", "sky.node"));
+    copyTree(
+      remoteHostedPipAssetsPath,
+      path.join(preparedRoot, "native", "remote-hosted-pip"),
+    );
     copyTree(
       pluginRoot,
       path.join(preparedRoot, "marketplace", "plugins", PLUGIN_NAME),
     );
+    if (computerUseAvailable) {
+      copyTree(
+        computerUsePluginRoot,
+        path.join(preparedRoot, "marketplace", "plugins", "computer-use"),
+      );
+    }
     copyTree(
       path.join(cuaRoot, "lib", "node_modules"),
       path.join(preparedRoot, "runtime", "lib", "node_modules"),
@@ -412,6 +466,7 @@ export function vendorBrowserRuntime(
     pruneForeignNativeArtifacts(preparedRoot, options.targetArch);
     writeBrowserMarketplaceManifest(
       path.join(preparedRoot, "marketplace", ".agents", "plugins", "marketplace.json"),
+      computerUseAvailable,
     );
 
     const artifacts = listArtifacts(preparedRoot, options.targetArch);
@@ -432,6 +487,49 @@ export function vendorBrowserRuntime(
         version: pluginVersion,
       },
       buildFlavor: "production",
+      capabilities: {
+        computerUse: computerUseAvailable
+          ? {
+            appBundle: "runtime/lib/node_modules/@oai/sky/Codex Computer Use.app",
+            appBundleIdentifier: readPlistValue(
+              path.join(computerUseAppPath, "Contents", "Info.plist"),
+              "CFBundleIdentifier",
+            ),
+            client: "marketplace/plugins/computer-use/scripts/computer-use-client.mjs",
+            ipcProtocol: "CodexComputerUseIPC-2",
+            minimumMacOSVersion: "14.4",
+            plugin: {
+              docs: "marketplace/plugins/computer-use/skills/computer-use/SKILL.md",
+              id: "computer-use@openai-bundled",
+              manifest: "marketplace/plugins/computer-use/.codex-plugin/plugin.json",
+              marketplaceManifest: "marketplace/.agents/plugins/marketplace.json",
+              marketplaceRoot: "marketplace",
+              nodeModuleDirs: ["runtime/lib/node_modules"],
+              root: "marketplace/plugins/computer-use",
+              version: readNonEmptyString(
+                readJsonFile(
+                  path.join(computerUsePluginRoot, ".codex-plugin", "plugin.json"),
+                ).version,
+                "Computer Use plugin version",
+              ),
+            },
+            serviceExecutable: "runtime/lib/node_modules/@oai/sky/Codex Computer Use.app/Contents/MacOS/SkyComputerUseService",
+            signingTeamId: readSigningTeamId(computerUseServicePath),
+            status: "available",
+          }
+          : {
+            reason: "architecture-unsupported",
+            status: "unavailable",
+          },
+        nativePip: {
+          addon: "native/sky.node",
+          controlAssets: [
+            "native/remote-hosted-pip/pop-in-window-egg@3x.png",
+            "native/remote-hosted-pip/pop-out-window-egg@3x.png",
+          ],
+          minimumMacOSVersion: "13.0",
+        },
+      },
       codexCompatibilityVersion: options.codexCompatibilityVersion,
       contractVersion: BROWSER_RUNTIME_CONTRACT_VERSION,
       desktopBuild,

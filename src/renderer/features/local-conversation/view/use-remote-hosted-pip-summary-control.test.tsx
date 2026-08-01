@@ -142,9 +142,9 @@ describe("useRemoteHostedPipSummaryControl", () => {
 
     expect(readLatest().summaryComputerUsePip?.visible).toBe(true);
 
-    await emitIpcEvent(listenersByChannel, "remote-hosted-pip-visibility-requested", {
-      type: "remote-hosted-pip-visibility-requested",
-      isVisible: true,
+    await emitIpcEvent(listenersByChannel, "remote-hosted-pip-hidden-thread-ids-requested", {
+      type: "remote-hosted-pip-hidden-thread-ids-requested",
+      hiddenThreadIds: [],
     });
 
     expect(readLatest().summaryComputerUsePip?.visible).toBe(true);
@@ -156,9 +156,9 @@ describe("useRemoteHostedPipSummaryControl", () => {
 
     expect(readLatest().summaryComputerUsePip?.visible).toBe(false);
     const lastMessage = sentMessages[sentMessages.length - 1];
-    expect(lastMessage?.type).toBe("remote-hosted-pip-visibility-changed");
-    if (lastMessage?.type === "remote-hosted-pip-visibility-changed") {
-      expect(lastMessage.isVisible).toBe(false);
+    expect(lastMessage?.type).toBe("remote-hosted-pip-hidden-thread-ids-changed");
+    if (lastMessage?.type === "remote-hosted-pip-hidden-thread-ids-changed") {
+      expect(lastMessage.hiddenThreadIds).toEqual(["thread-1"]);
     }
 
     await emitIpcEvent(listenersByChannel, "remote-hosted-pip-stream-state-changed", {
