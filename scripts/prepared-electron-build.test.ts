@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { afterEach, describe, expect, test } from "vitest";
 import {
@@ -140,6 +141,36 @@ const makeFixture = (): {
   };
 };
 
+const initializeGitFixture = (repositoryRoot: string): {
+  commit: string;
+  tree: string;
+} => {
+  fs.writeFileSync(
+    path.join(repositoryRoot, ".gitignore"),
+    ".generated/prepared.json\n",
+    "utf8",
+  );
+  execFileSync("git", ["init"], { cwd: repositoryRoot });
+  execFileSync("git", ["config", "user.email", "prepared-build@example.invalid"], {
+    cwd: repositoryRoot,
+  });
+  execFileSync("git", ["config", "user.name", "Prepared Build Test"], {
+    cwd: repositoryRoot,
+  });
+  execFileSync("git", ["add", "."], { cwd: repositoryRoot });
+  execFileSync("git", ["commit", "-m", "test fixture"], { cwd: repositoryRoot });
+  return {
+    commit: execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: repositoryRoot,
+      encoding: "utf8",
+    }).trim(),
+    tree: execFileSync("git", ["rev-parse", "HEAD^{tree}"], {
+      cwd: repositoryRoot,
+      encoding: "utf8",
+    }).trim(),
+  };
+};
+
 afterEach(() => {
   for (const root of temporaryRoots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
@@ -147,6 +178,21 @@ afterEach(() => {
 });
 
 describe("prepared Electron build", () => {
+  test("records clean and dirty Git source state without conflating empty status output with failure", () => {
+    const fixture = makeFixture();
+    const source = initializeGitFixture(fixture.repositoryRoot);
+
+    const clean = recordPreparedElectronBuild(fixture);
+    expect(clean.source).toMatchObject({
+      baseCommit: source.commit,
+      baseTree: source.tree,
+      state: "clean",
+    });
+
+    fs.appendFileSync(path.join(fixture.repositoryRoot, "src/value.ts"), "changed\n");
+    expect(recordPreparedElectronBuild(fixture).source.state).toBe("dirty");
+  });
+
   test("reuses only the exact recorded inputs and output closure", () => {
     const fixture = makeFixture();
     const recorded = recordPreparedElectronBuild(fixture);

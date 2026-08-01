@@ -265,12 +265,20 @@ const readSource = (root: string, snapshotDigest: string): PreparedBuildSource =
       state: "snapshot",
     };
   }
-  const status = readGitValue(root, ["status", "--porcelain", "--untracked-files=normal"]);
+  const status = spawnSync(
+    "git",
+    ["status", "--porcelain", "--untracked-files=normal"],
+    {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    },
+  );
   return {
     baseCommit,
     baseTree,
     snapshotDigest,
-    state: status === null || status.length > 0 ? "dirty" : "clean",
+    state: status.status === 0 && status.stdout.trim().length === 0 ? "clean" : "dirty",
   };
 };
 
