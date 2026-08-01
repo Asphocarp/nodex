@@ -20,6 +20,7 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -1300,6 +1301,30 @@ function TextActionAiPane({
   onActionPopoverOpenChange?: (open: boolean) => void;
 }) {
   const [activePopover, setActivePopover] = useState<TextActionActionPopoverKey | null>(null);
+  const scrollViewportRef = useRef<HTMLDivElement>(null);
+  const [hasContentBelow, setHasContentBelow] = useState(false);
+
+  const syncContentBelow = useCallback(() => {
+    const viewport = scrollViewportRef.current;
+    if (!viewport) return;
+
+    const remainingScroll = viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop;
+    setHasContentBelow(remainingScroll > 1);
+  }, []);
+
+  useLayoutEffect(() => {
+    const viewport = scrollViewportRef.current;
+    if (!viewport) return undefined;
+
+    syncContentBelow();
+
+    if (typeof ResizeObserver === "undefined") return undefined;
+
+    const resizeObserver = new ResizeObserver(syncContentBelow);
+    resizeObserver.observe(viewport);
+    Array.from(viewport.children).forEach((child) => resizeObserver.observe(child));
+    return () => resizeObserver.disconnect();
+  }, [nodexRows, showReferenceMocks, syncContentBelow]);
 
   useEffect(() => {
     onActionPopoverOpenChange?.(activePopover !== null);
@@ -1322,7 +1347,12 @@ function TextActionAiPane({
 
   return (
     <div className="relative">
-      <div className="max-h-[134px] overflow-y-auto py-1">
+      <div
+        ref={scrollViewportRef}
+        className="max-h-[134px] overflow-y-auto py-1"
+        data-testid="nfm-text-action-ai-scroll"
+        onScroll={syncContentBelow}
+      >
         {nodexRows.length > 0 ? (
           <>
             <div className="flex h-7 items-center px-2 text-[12px] text-token-text-secondary">
@@ -1390,7 +1420,12 @@ function TextActionAiPane({
           </>
         ) : null}
       </div>
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-linear-to-b from-transparent to-token-dropdown-background" />
+      {hasContentBelow ? (
+        <div
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-linear-to-b from-transparent to-token-dropdown-background"
+          data-testid="nfm-text-action-ai-scroll-mask"
+        />
+      ) : null}
     </div>
   );
 }
