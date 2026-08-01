@@ -7,6 +7,7 @@ import {
   getWorkbenchPanelActiveLeaf,
   getWorkbenchPanelTopLeftLeafId,
   getWorkbenchPanelTopRightLeafId,
+  insertWorkbenchPanelTabInBackground,
   insertWorkbenchPanelLeaf,
   listWorkbenchPanelLeaves,
   makeWorkbenchPanelLayout,
@@ -18,6 +19,7 @@ import {
   removeWorkbenchPanelTab,
   reorderWorkbenchPanelLeafTabs,
   setWorkbenchPanelBranchRatio,
+  setWorkbenchPanelMaximizedLeaf,
   splitWorkbenchPanelLeaf,
 } from "./workbench-panel-layout";
 
@@ -130,6 +132,67 @@ describe("project session panel layout", () => {
     expect(JSON.stringify(main?.tabIds ?? [])).toBe(JSON.stringify(["two"]));
     expect(JSON.stringify(right?.tabIds ?? [])).toBe(JSON.stringify(["one", "three"]));
     expect(JSON.stringify(flattenWorkbenchPanelTabIds(moved))).toBe(JSON.stringify(["two", "one", "three"]));
+  });
+
+  test("inserts a background tab without changing active, MRU, or maximize state", () => {
+    const split = splitWorkbenchPanelLeaf(
+      makeWorkbenchPanelLayout(["one", "two"], "one"),
+      {
+        leafId: "main",
+        side: "right",
+        tabId: "two",
+        newLeafId: "leaf:right",
+        newBranchId: "branch:root",
+      },
+    );
+    const activeLeft = activateWorkbenchPanelLeaf(split, "main", "one");
+    const maximizedLeft = setWorkbenchPanelMaximizedLeaf(activeLeft, "main");
+    const before = structuredClone(maximizedLeft);
+
+    const inserted = insertWorkbenchPanelTabInBackground(maximizedLeft, {
+      tabId: "three",
+      targetLeafId: "leaf:right",
+    });
+
+    expect(inserted.activeLeafId).toBe(before.activeLeafId);
+    expect(inserted.mruLeafIds).toEqual(before.mruLeafIds);
+    expect(inserted.maximizedLeafId).toBe(before.maximizedLeafId);
+    const beforeLeft = listWorkbenchPanelLeaves(before).find((leaf) => leaf.id === "main");
+    const insertedLeft = listWorkbenchPanelLeaves(inserted).find((leaf) => leaf.id === "main");
+    const insertedRight = listWorkbenchPanelLeaves(inserted).find((leaf) => leaf.id === "leaf:right");
+    expect(insertedLeft).toEqual(beforeLeft);
+    expect(insertedRight).toMatchObject({
+      tabIds: ["two", "three"],
+      activeTabId: "two",
+      mruTabIds: ["two", "three"],
+    });
+  });
+
+  test("gives an empty target leaf local activity without changing the global active leaf", () => {
+    const withEmptyRight = insertWorkbenchPanelLeaf(
+      makeWorkbenchPanelLayout(["one"], "one"),
+      {
+        leafId: "main",
+        side: "right",
+        newLeafId: "leaf:right",
+        newBranchId: "branch:root",
+      },
+    );
+    const activeLeft = activateWorkbenchPanelLeaf(withEmptyRight, "main", "one");
+
+    const inserted = insertWorkbenchPanelTabInBackground(activeLeft, {
+      tabId: "two",
+      targetLeafId: "leaf:right",
+    });
+
+    expect(inserted.activeLeafId).toBe("main");
+    expect(getWorkbenchPanelActiveLeaf(inserted).activeTabId).toBe("one");
+    expect(listWorkbenchPanelLeaves(inserted).find((leaf) => leaf.id === "leaf:right"))
+      .toMatchObject({
+        tabIds: ["two"],
+        activeTabId: "two",
+        mruTabIds: ["two"],
+      });
   });
 
   test("reorders one leaf without changing sibling leaf order", () => {

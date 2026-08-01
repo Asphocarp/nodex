@@ -1042,6 +1042,7 @@ export type ProjectSessionForkResult =
 interface WorkbenchTabProjectionCreateBase {
   sessionId: string;
   panelId: PanelId;
+  presentation?: "activate" | "background";
   targetLeafId?: string;
   clientTabId?: string;
   title: string;

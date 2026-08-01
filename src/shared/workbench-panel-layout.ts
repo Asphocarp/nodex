@@ -60,6 +60,12 @@ interface MovePanelTabInput {
   targetIndex?: number;
 }
 
+interface InsertPanelTabInBackgroundInput {
+  tabId: string;
+  targetLeafId?: string | null;
+  targetIndex?: number;
+}
+
 interface RemovePanelTabOptions {
   preferredActiveLeafId?: string | null;
   preferredActiveTabId?: string | null;
@@ -593,6 +599,47 @@ export function moveWorkbenchPanelTab(
     {
       preferredActiveLeafId: targetLeaf.id,
       preferredActiveTabId: input.tabId,
+    },
+  );
+}
+
+export function insertWorkbenchPanelTabInBackground(
+  layout: WorkbenchPanelLayout,
+  input: InsertPanelTabInBackgroundInput,
+): WorkbenchPanelLayoutV2 {
+  const existingTabIds = flattenWorkbenchPanelTabIds(layout);
+  const activeLeaf = getWorkbenchPanelActiveLeaf(layout);
+  const normalized = normalizeWorkbenchPanelLayout(layout, existingTabIds, {
+    preferredActiveLeafId: layout.activeLeafId,
+    preferredActiveTabId: activeLeaf.activeTabId,
+  });
+  if (existingTabIds.includes(input.tabId)) return normalized;
+
+  const targetLeaf = findWorkbenchPanelLeaf(normalized, input.targetLeafId)
+    ?? getWorkbenchPanelActiveLeaf(normalized);
+  const normalizedActiveLeaf = getWorkbenchPanelActiveLeaf(normalized);
+  const root = updateLeafTabs(normalized.root, targetLeaf.id, (leaf) => {
+    const targetIndex = Math.min(
+      Math.max(input.targetIndex ?? leaf.tabIds.length, 0),
+      leaf.tabIds.length,
+    );
+    const tabIds = [...leaf.tabIds];
+    tabIds.splice(targetIndex, 0, input.tabId);
+    const activeTabId = leaf.activeTabId ?? input.tabId;
+    return makeLeaf(
+      leaf.id,
+      tabIds,
+      activeTabId,
+      [...leaf.mruTabIds, input.tabId],
+    );
+  });
+
+  return normalizeWorkbenchPanelLayout(
+    { ...normalized, root },
+    [...existingTabIds, input.tabId],
+    {
+      preferredActiveLeafId: normalized.activeLeafId,
+      preferredActiveTabId: normalizedActiveLeaf.activeTabId,
     },
   );
 }
