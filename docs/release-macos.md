@@ -85,7 +85,7 @@ Configure these repository Action secrets:
 
 | Secret | Required authority |
 | --- | --- |
-| `CSC_LINK`, `CSC_KEY_PASSWORD` | Developer ID Application certificate and its password |
+| `CSC_LINK`, `CSC_KEY_PASSWORD` | Base64 Developer ID Application `.p12` certificate and its export password |
 | `APPLE_API_KEY_B64`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER` | App Store Connect notarization key |
 | `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT` | Release/source-map upload for the Nodex project |
 | `NODEX_SKILLS_GITHUB_TOKEN` | Fine-grained Contents read/write on `NodexApp/skills` only |
@@ -99,6 +99,13 @@ implicit environment-secret resolution or same-name precedence inside nested
 reusable workflows. Record PAT expiry dates in release operations and rotate
 them before expiry. Remove duplicate credentials from the legacy `release`
 environment after rehearsal succeeds.
+
+Distribution imports the Developer ID certificate into a per-job local
+keychain using a random keychain password, grants non-interactive Apple tool
+access with that keychain password, and removes both the keychain and decoded
+credentials in an `always()` cleanup step. Electron Builder discovers the
+installed identity but does not own credential import or temporary-keychain
+creation.
 
 If a release must intentionally omit Sentry source maps, change the production
 workflow input to `false` in a reviewed foundation commit; do not silently

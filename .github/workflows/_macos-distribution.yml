@@ -85,7 +85,7 @@ jobs:
             }
           ' "${RUNNER_TEMP}/source.json"
 
-      - name: Materialize App Store Connect API key
+      - name: Materialize macOS signing credentials
         env:
           APPLE_API_ISSUER: ${{ secrets.apple_api_issuer }}
           APPLE_API_KEY_B64: ${{ secrets.apple_api_key_b64 }}
@@ -99,17 +99,12 @@ jobs:
             echo "Missing macOS signing or App Store Connect credentials." >&2
             exit 1
           fi
-          key_path="${RUNNER_TEMP}/AuthKey_${APPLE_API_KEY_ID}.p8"
-          node -e 'require("node:fs").writeFileSync(process.argv[1], Buffer.from(process.env.APPLE_API_KEY_B64, "base64"))' "${key_path}"
-          chmod 600 "${key_path}"
-          echo "APPLE_API_KEY=${key_path}" >> "${GITHUB_ENV}"
+          pnpm exec tsx scripts/ci/macos-signing-keychain.ts prepare
 
       - name: Build and verify signed distribution
         env:
           APPLE_API_ISSUER: ${{ secrets.apple_api_issuer }}
           APPLE_API_KEY_ID: ${{ secrets.apple_api_key_id }}
-          CSC_KEY_PASSWORD: ${{ secrets.csc_key_password }}
-          CSC_LINK: ${{ secrets.csc_link }}
           NODE_OPTIONS: --max-old-space-size=6144
           SENTRY_AUTH_TOKEN: ${{ inputs.upload_sentry_sourcemaps && secrets.sentry_auth_token || '' }}
           SENTRY_ORG: ${{ inputs.upload_sentry_sourcemaps && secrets.sentry_org || '' }}
@@ -139,12 +134,19 @@ jobs:
             echo '```'
           } >> "${GITHUB_STEP_SUMMARY}"
 
-      - name: Remove App Store Connect API key
+      - name: Remove macOS signing credentials
         if: always()
         shell: bash
         run: |
-          if [[ -n "${APPLE_API_KEY:-}" && -f "${APPLE_API_KEY}" ]]; then
+          if [[ -n "${NODEX_SIGNING_KEYCHAIN:-}" ]]; then
+            security delete-keychain "${NODEX_SIGNING_KEYCHAIN}" >/dev/null 2>&1 || true
+            rm -f "${NODEX_SIGNING_KEYCHAIN}"
+          fi
+          if [[ -n "${APPLE_API_KEY:-}" ]]; then
             rm -f "${APPLE_API_KEY}"
+          fi
+          if [[ -n "${NODEX_SIGNING_CERTIFICATE:-}" ]]; then
+            rm -f "${NODEX_SIGNING_CERTIFICATE}"
           fi
 
       - name: Upload arm64 architecture bundle
@@ -194,7 +196,7 @@ jobs:
             }
           ' "${RUNNER_TEMP}/source.json"
 
-      - name: Materialize App Store Connect API key
+      - name: Materialize macOS signing credentials
         env:
           APPLE_API_ISSUER: ${{ secrets.apple_api_issuer }}
           APPLE_API_KEY_B64: ${{ secrets.apple_api_key_b64 }}
@@ -208,17 +210,12 @@ jobs:
             echo "Missing macOS signing or App Store Connect credentials." >&2
             exit 1
           fi
-          key_path="${RUNNER_TEMP}/AuthKey_${APPLE_API_KEY_ID}.p8"
-          node -e 'require("node:fs").writeFileSync(process.argv[1], Buffer.from(process.env.APPLE_API_KEY_B64, "base64"))' "${key_path}"
-          chmod 600 "${key_path}"
-          echo "APPLE_API_KEY=${key_path}" >> "${GITHUB_ENV}"
+          pnpm exec tsx scripts/ci/macos-signing-keychain.ts prepare
 
       - name: Build and verify signed distribution
         env:
           APPLE_API_ISSUER: ${{ secrets.apple_api_issuer }}
           APPLE_API_KEY_ID: ${{ secrets.apple_api_key_id }}
-          CSC_KEY_PASSWORD: ${{ secrets.csc_key_password }}
-          CSC_LINK: ${{ secrets.csc_link }}
           NODE_OPTIONS: --max-old-space-size=6144
           SENTRY_AUTH_TOKEN: ''
           SENTRY_ORG: ''
@@ -243,12 +240,19 @@ jobs:
             echo '```'
           } >> "${GITHUB_STEP_SUMMARY}"
 
-      - name: Remove App Store Connect API key
+      - name: Remove macOS signing credentials
         if: always()
         shell: bash
         run: |
-          if [[ -n "${APPLE_API_KEY:-}" && -f "${APPLE_API_KEY}" ]]; then
+          if [[ -n "${NODEX_SIGNING_KEYCHAIN:-}" ]]; then
+            security delete-keychain "${NODEX_SIGNING_KEYCHAIN}" >/dev/null 2>&1 || true
+            rm -f "${NODEX_SIGNING_KEYCHAIN}"
+          fi
+          if [[ -n "${APPLE_API_KEY:-}" ]]; then
             rm -f "${APPLE_API_KEY}"
+          fi
+          if [[ -n "${NODEX_SIGNING_CERTIFICATE:-}" ]]; then
+            rm -f "${NODEX_SIGNING_CERTIFICATE}"
           fi
 
       - name: Upload x64 architecture bundle
