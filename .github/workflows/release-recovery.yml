@@ -131,8 +131,8 @@ jobs:
         run: |
           set -euo pipefail
           bundle="${RUNNER_TEMP}/release-bundle"
-          artifact_id=""
-          while IFS=$'\t' read -r candidate_id run_id; do
+          artifact_run_id=""
+          while IFS= read -r run_id; do
             IFS=$'\t' read -r run_name run_event run_branch run_sha < <(
               gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" \
                 --jq '[.name, .event, .head_branch, .head_sha] | @tsv'
@@ -141,19 +141,19 @@ jobs:
               ( "${run_name}" == "Release" && "${run_event}" == "workflow_run" && "${run_sha}" == "${EXPECTED_SHA}" )
               || ( "${run_name}" == "Release Recovery" && "${run_event}" == "workflow_dispatch" && "${run_branch}" == "main" )
             ]]; then
-              artifact_id="${candidate_id}"
+              artifact_run_id="${run_id}"
               break
             fi
           done < <(gh api --method GET "repos/${GITHUB_REPOSITORY}/actions/artifacts" \
             -f name="${ARTIFACT_NAME}" -F per_page=100 \
-            --jq '.artifacts | sort_by(.created_at) | reverse | .[] | select(.expired == false) | [.id, .workflow_run.id] | @tsv')
+            --jq '.artifacts | sort_by(.created_at) | reverse | .[] | select(.expired == false) | .workflow_run.id')
 
-          if [[ -n "${artifact_id}" ]]; then
+          if [[ -n "${artifact_run_id}" ]]; then
             mkdir -p "${bundle}"
-            gh api -H "Accept: application/octet-stream" \
-              "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" \
-              > "${RUNNER_TEMP}/release-bundle.zip"
-            unzip -q "${RUNNER_TEMP}/release-bundle.zip" -d "${bundle}"
+            gh run download "${artifact_run_id}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --name "${ARTIFACT_NAME}" \
+              --dir "${bundle}"
           else
             release_state="$(gh api "repos/${GITHUB_REPOSITORY}/releases" --paginate --slurp \
               | jq -r --arg tag "${EXPECTED_TAG}" '[.[][] | select(.tag_name == $tag)][0] | if . == null then "none" elif .draft then "draft" else "published" end')"

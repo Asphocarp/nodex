@@ -268,6 +268,8 @@ idempotent:
   assets, then publish;
 - matching published release: verify it, then retry the independently
   idempotent Agent Skills, Homebrew, and landing promotion jobs;
+- retained cross-run artifacts are restored with `gh run download`, which owns
+  GitHub's archive redirect and extraction behavior before bundle verification;
 - matching Agent Skills tag and tree: reuse it; a conflicting tree or version
   rollback stops without moving the tag;
 - conflicting tag or asset digest: stop without mutation.
