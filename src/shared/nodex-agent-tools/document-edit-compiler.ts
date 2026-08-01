@@ -3,7 +3,10 @@ import type {
   BlockTreeValue,
   PageDocumentMaterialization,
 } from "../block-documents/block-document-codec";
-import { createDetachedPageDocumentFromBlockTree } from "../block-documents/block-document-codec";
+import {
+  createDetachedPageDocumentFromBlockTree,
+  semanticEmptyDocumentRoot,
+} from "../block-documents/block-document-codec";
 import {
   prepareDocumentOperationUpdate,
 } from "../block-documents/document-operation-engine";
@@ -141,7 +144,14 @@ function parseNfmFragment(
   allocateBlockId: () => string,
 ): readonly BlockTreeNode[] {
   try {
-    const blocks = nfmToBlockNoteWithIds(parseNfm(content), allocateBlockId)
+    const parsed = parseNfm(content);
+    if (parsed.length === 0) {
+      throw new AgentDocumentEditCompilerError(
+        "invalid_arguments",
+        "NFM insertion must contain at least one Block; use <empty-block/> to insert an intentional empty Block",
+      );
+    }
+    const blocks = nfmToBlockNoteWithIds(parsed, allocateBlockId)
       .map(toBlockTreeNode);
     assertBoundedBlockCount(blocks);
     if (flattenCoordinates(blocks).some(({ block }) => block.type === "page")) {
@@ -158,6 +168,81 @@ function parseNfmFragment(
       error instanceof Error ? error.message : "NFM content is invalid",
     );
   }
+}
+
+function promoteEmptySeed(
+  seedId: string,
+  blocks: readonly BlockTreeNode[],
+): readonly DocumentBlockOperation[] {
+  const [first, ...remaining] = blocks;
+  if (!first) {
+    throw new AgentDocumentEditCompilerError(
+      "invalid_arguments",
+      "NFM insertion must contain at least one Block; use <empty-block/> to insert an intentional empty Block",
+    );
+  }
+  return [
+    {
+      kind: "update_block",
+      blockId: seedId,
+      patch: {
+        type: first.type,
+        props: first.props,
+        ...(first.content === undefined
+          ? { unsetContent: true as const }
+          : { content: first.content }),
+      },
+    },
+    ...first.children.map((block): DocumentBlockOperation => ({
+      kind: "insert_block",
+      block,
+      parentBlockId: seedId,
+    })),
+    ...remaining.map((block): DocumentBlockOperation => ({
+      kind: "insert_block",
+      block,
+    })),
+  ];
+}
+
+type NfmInsertion = Extract<
+  NonNullable<EditDocumentInput["body"]>,
+  { readonly kind: "nfm.insert" }
+>;
+
+function seedFirstAllocator(
+  seedId: string,
+  allocateBlockId: () => string,
+): () => string {
+  let reusableSeedId: string | undefined = seedId;
+  return () => {
+    if (reusableSeedId === undefined) return allocateBlockId();
+    const blockId = reusableSeedId;
+    reusableSeedId = undefined;
+    return blockId;
+  };
+}
+
+function compileNfmInsertion(
+  current: readonly BlockTreeNode[],
+  insertion: NfmInsertion,
+  allocateBlockId: () => string,
+): readonly DocumentBlockOperation[] {
+  const seed = semanticEmptyDocumentRoot(current);
+  const isRootEdge = (insertion.at.kind === "start" || insertion.at.kind === "end")
+    && insertion.at.parentBlockId === undefined;
+  if (!seed || !isRootEdge) {
+    const blocks = parseNfmFragment(insertion.content, allocateBlockId);
+    const anchor = resolveDocumentAnchor(current, insertion.at);
+    return blocks.map((block) => ({ kind: "insert_block", block, ...anchor }));
+  }
+
+  const blocks = parseNfmFragment(
+    insertion.content,
+    seedFirstAllocator(seed.id, allocateBlockId),
+  );
+  if (semanticEmptyDocumentRoot(blocks)) return [];
+  return promoteEmptySeed(seed.id, blocks);
 }
 
 function childrenOf(
@@ -395,12 +480,11 @@ export function compileAgentDocumentEdit(input: {
       : [];
     let bodyOperations: readonly DocumentBlockOperation[] = [];
     if (input.edit.body?.kind === "nfm.insert") {
-      const blocks = parseNfmFragment(input.edit.body.content, input.allocateBlockId);
-      const anchor = resolveDocumentAnchor(
+      bodyOperations = compileNfmInsertion(
         input.current.blockTree,
-        input.edit.body.at,
+        input.edit.body,
+        input.allocateBlockId,
       );
-      bodyOperations = blocks.map((block) => ({ kind: "insert_block", block, ...anchor }));
     } else if (input.edit.body?.kind === "blocks") {
       bodyOperations = compileStableEdits(
         input.current.blockTree,

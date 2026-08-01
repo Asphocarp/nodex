@@ -12,14 +12,16 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 use crate::domain::block_materialization::MaterializedBlockNode;
-use crate::domain::nfm::{NfmBlock, NfmInlineContent, NfmStyleSet};
-use crate::domain::nfm_parser::{parse_nfm, parse_nfm_with_ids};
+use crate::domain::nfm::{NfmBlock, NfmInlineContent, NfmStyleSet, semantic_empty_document_root};
+use crate::domain::nfm_parser::parse_nfm;
 use crate::domain::rich_text::{RichTextItem, RichTextStyles, canonicalize_rich_text};
 
+use super::nfm_input::materialize_nfm_fragment;
 use super::{
-    BlockDocumentSchema, DocumentBlockOperation, DocumentMaterialization, DocumentOperationError,
-    DocumentOperationErrorCode, ExactNfmPatch, prepare_document_operation_update,
-    prepare_exact_nfm_patch_update, prepare_nfm_replacement_update,
+    BlockDocumentSchema, DocumentBlockOperation, DocumentBlockUpdatePatch, DocumentMaterialization,
+    DocumentOperationError, DocumentOperationErrorCode, ExactNfmPatch,
+    prepare_document_operation_update, prepare_exact_nfm_patch_update,
+    prepare_nfm_replacement_update,
 };
 
 const ETAG_PREFIX: &str = "nxe1";
@@ -109,6 +111,9 @@ pub(crate) fn prepare_semantic_mutation(
     let mut patches = Vec::<ExactNfmPatch>::new();
     let mut structural = Vec::<DocumentBlockOperation>::new();
     let mut local_block_ids = BTreeMap::<String, String>::new();
+    let mut promotable_empty_seed_id =
+        semantic_empty_document_root(&context.materialization.block_tree)
+            .map(|root| root.id.clone());
     for command in commands {
         match command {
             DocumentSemanticCommand::SetTitle {
@@ -137,9 +142,40 @@ pub(crate) fn prepare_semantic_mutation(
                 anchor,
                 nested_markdown,
             } => {
+                let can_promote_seed = promotable_empty_seed_id.is_some()
+                    && matches!(
+                        anchor,
+                        DocumentSemanticAnchor::Start {
+                            parent_block_id: None
+                        } | DocumentSemanticAnchor::End {
+                            parent_block_id: None
+                        }
+                    );
+                if can_promote_seed {
+                    let seed_id = promotable_empty_seed_id
+                        .as_ref()
+                        .expect("promotion eligibility includes a seed identity")
+                        .clone();
+                    let blocks = {
+                        let mut reusable_seed_id = Some(seed_id.clone());
+                        let mut promotion_allocator = || match reusable_seed_id.take() {
+                            Some(seed_id) => seed_id,
+                            None => allocate_block_id(),
+                        };
+                        materialize_nfm_fragment(nested_markdown, &mut promotion_allocator)
+                            .map_err(|error| SemanticMutationError::Invalid(error.to_string()))?
+                    };
+                    if semantic_empty_document_root(&blocks).is_some() {
+                        continue;
+                    }
+                    structural.extend(promote_empty_seed(seed_id, blocks));
+                    promotable_empty_seed_id = None;
+                    continue;
+                }
+
                 let (parent_block_id, before_block_id) =
                     resolve_semantic_anchor(&context.materialization.block_tree, anchor)?;
-                let blocks = parse_nfm_with_ids(nested_markdown, allocate_block_id)
+                let blocks = materialize_nfm_fragment(nested_markdown, allocate_block_id)
                     .map_err(|error| SemanticMutationError::Invalid(error.to_string()))?;
                 structural.extend(blocks.into_iter().map(|block| {
                     DocumentBlockOperation::InsertBlock {
@@ -148,6 +184,7 @@ pub(crate) fn prepare_semantic_mutation(
                         before_block_id: before_block_id.clone(),
                     }
                 }));
+                promotable_empty_seed_id = None;
             }
             DocumentSemanticCommand::ReplaceBody {
                 nested_markdown,
@@ -171,6 +208,7 @@ pub(crate) fn prepare_semantic_mutation(
                     parent_block_id,
                     before_block_id,
                 });
+                promotable_empty_seed_id = None;
             }
             DocumentSemanticCommand::UpdateBlock {
                 block_id,
@@ -203,6 +241,7 @@ pub(crate) fn prepare_semantic_mutation(
                         unset_content: patch.unset_content,
                     },
                 });
+                promotable_empty_seed_id = None;
             }
             DocumentSemanticCommand::DeleteBlock {
                 block_id,
@@ -225,6 +264,7 @@ pub(crate) fn prepare_semantic_mutation(
                 structural.push(DocumentBlockOperation::DeleteBlock {
                     block_id: block_id.clone(),
                 });
+                promotable_empty_seed_id = None;
             }
             DocumentSemanticCommand::MoveBlock { block_id, anchor } => {
                 let (parent_block_id, before_block_id) =
@@ -234,6 +274,7 @@ pub(crate) fn prepare_semantic_mutation(
                     parent_block_id,
                     before_block_id,
                 });
+                promotable_empty_seed_id = None;
             }
         }
     }
@@ -275,6 +316,9 @@ pub(crate) fn prepare_semantic_mutation(
                 DocumentBlockOperation::SetRichTitle { rich_title: title },
             );
         }
+        if structural.is_empty() {
+            return Err(SemanticMutationError::NoChange);
+        }
         prepare_document_operation_update(
             context.document_id,
             context.schema,
@@ -298,6 +342,48 @@ pub(crate) fn prepare_semantic_mutation(
         title_write_fence_required: prepared.title_write_fence_required,
         local_block_ids,
     })
+}
+
+fn promote_empty_seed(
+    seed_id: String,
+    blocks: Vec<MaterializedBlockNode>,
+) -> Vec<DocumentBlockOperation> {
+    let mut roots = blocks.into_iter();
+    let first = roots
+        .next()
+        .expect("Fragment boundary always materializes at least one Block");
+    debug_assert_eq!(first.id, seed_id);
+    let MaterializedBlockNode {
+        block_type,
+        props,
+        content,
+        children,
+        ..
+    } = first;
+    let mut operations = vec![DocumentBlockOperation::UpdateBlock {
+        block_id: seed_id.clone(),
+        patch: DocumentBlockUpdatePatch {
+            block_type: Some(block_type),
+            props: Some(props),
+            unset_content: content.is_none(),
+            content,
+        },
+    }];
+    operations.extend(
+        children
+            .into_iter()
+            .map(|block| DocumentBlockOperation::InsertBlock {
+                block,
+                parent_block_id: Some(seed_id.clone()),
+                before_block_id: None,
+            }),
+    );
+    operations.extend(roots.map(|block| DocumentBlockOperation::InsertBlock {
+        block,
+        parent_block_id: None,
+        before_block_id: None,
+    }));
+    operations
 }
 
 fn allocate_semantic_block_draft(

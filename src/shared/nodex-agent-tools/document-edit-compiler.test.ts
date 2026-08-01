@@ -40,6 +40,64 @@ function allocator(prefix: string): () => string {
 }
 
 describe("Nodex Agent Document edit compiler", () => {
+  test("promotes an empty Document seed for the first root insertion", () => {
+    const current = materialization("");
+    const seed = current.blockTree[0];
+    if (!seed) throw new Error("Empty Document fixture has no editable seed");
+    let allocations = 0;
+    const compiled = compileAgentDocumentEdit({
+      documentId: "document-1",
+      current,
+      edit: edit({
+        documentId: "document-1",
+        body: { kind: "nfm.insert", at: { kind: "end" }, content: "Hello" },
+      }),
+      allocateBlockId: () => `created-${++allocations}`,
+    });
+
+    expect(compiled.mutation).toEqual({
+      kind: "operations",
+      operations: [{
+        kind: "update_block",
+        blockId: seed.id,
+        patch: expect.objectContaining({ content: expect.any(Array) }),
+      }],
+    });
+    expect(compiled.materialization.nfm).toBe("Hello");
+    expect(compiled.materialization.blockTree[0]?.id).toBe(seed.id);
+    expect(compiled.effects.createdBlockIds).toEqual([]);
+    expect(compiled.effects.updatedBlockIds).toEqual([seed.id]);
+    expect(compiled.destructive).toBe(false);
+    expect(allocations).toBe(0);
+  });
+
+  test("preserves an explicit empty first Block while promoting its seed identity", () => {
+    const current = materialization("");
+    const seed = current.blockTree[0];
+    if (!seed) throw new Error("Empty Document fixture has no editable seed");
+    const compiled = compileAgentDocumentEdit({
+      documentId: "document-1",
+      current,
+      edit: edit({
+        documentId: "document-1",
+        body: {
+          kind: "nfm.insert",
+          at: { kind: "start" },
+          content: "<empty-block/>\nHello",
+        },
+      }),
+      allocateBlockId: allocator("created"),
+    });
+
+    expect(compiled.materialization.nfm).toBe("<empty-block/>\nHello");
+    expect(compiled.materialization.blockTree.map((block) => block.id)).toEqual([
+      seed.id,
+      "created-1",
+    ]);
+    expect(compiled.effects.createdBlockIds).toEqual(["created-1"]);
+    expect(compiled.effects.deletedBlockIds).toEqual([]);
+  });
+
   test("inserts a nested multi-Block NFM fragment at one structural anchor", () => {
     const compiled = compileAgentDocumentEdit({
       documentId: "document-1",

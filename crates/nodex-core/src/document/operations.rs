@@ -18,7 +18,6 @@ use crate::domain::block_tree::{
     BLOCK_GROUP_NODE_NAME, BLOCK_ID_ATTRIBUTE, BlockNode, BlockTree, BlockTreeError,
     encode_block_tree, insert_block_nodes, replace_block_content_element, replace_text_delta,
 };
-use crate::domain::nfm_parser::{NfmParseError, parse_nfm_with_ids};
 use crate::domain::rich_text::{
     RichTextError, RichTextItem, RichTextStyles, canonicalize_rich_text, rich_text_to_delta,
 };
@@ -28,6 +27,7 @@ use crate::domain::subtree::{
     move_block_subtree_forest, remap_block_subtree_forest, remove_block_subtree_forest,
 };
 
+use super::nfm_input::materialize_document_nfm;
 use super::{
     BlockDocumentError, BlockDocumentSchema, DocumentMaterialization, DocumentMaterializationError,
     MAX_DOCUMENT_UPDATE_BYTES, create_compatible_document, decode_block_document,
@@ -183,8 +183,6 @@ pub enum DocumentOperationError {
     RichText(#[from] RichTextError),
     #[error(transparent)]
     Materialization(#[from] DocumentMaterializationError),
-    #[error(transparent)]
-    NfmParse(#[from] NfmParseError),
 }
 
 impl DocumentOperationError {
@@ -193,7 +191,6 @@ impl DocumentOperationError {
             Self::Operation { code, .. } => *code,
             Self::BlockMaterialization(_) => DocumentOperationErrorCode::InvalidBlock,
             Self::RichText(_) => DocumentOperationErrorCode::InvalidOperation,
-            Self::NfmParse(_) => DocumentOperationErrorCode::InvalidNfm,
             Self::Yrs(_)
             | Self::BlockDocument(_)
             | Self::BlockTree(_)
@@ -444,7 +441,14 @@ pub fn prepare_nfm_replacement_update(
             None,
         ));
     }
-    let target_blocks = parse_nfm_with_ids(nfm, allocate_block_id)?;
+    let target_blocks = materialize_document_nfm(nfm, allocate_block_id).map_err(|error| {
+        operation_error(
+            DocumentOperationErrorCode::InvalidNfm,
+            error.to_string(),
+            None,
+            None,
+        )
+    })?;
     let target_tree = dematerialize_block_tree(&target_blocks)?;
     prepare_document_body_replacement_update(
         document_id,
@@ -1890,6 +1894,51 @@ mod tests {
         .expect("canonical body patch");
 
         assert_eq!(prepared.materialization.nfm, "Replacement paragraph");
+    }
+
+    #[test]
+    fn empty_replacement_and_exact_patch_keep_one_editable_authority_block() {
+        let (state, vector) = matrix_state();
+        let source = load_document("operations-matrix", &state).unwrap();
+        let source = materialize_decoded_document(
+            &decode_block_document(&source, BlockDocumentSchema::PageV2).unwrap(),
+        )
+        .unwrap();
+
+        for prepared in [
+            prepare_nfm_replacement_update(
+                "operations-matrix",
+                BlockDocumentSchema::PageV2,
+                &state,
+                &vector,
+                "",
+                None,
+                &mut || "empty-replacement".to_owned(),
+            )
+            .expect("empty replacement"),
+            prepare_exact_nfm_patch_update(
+                "operations-matrix",
+                BlockDocumentSchema::PageV2,
+                &state,
+                &vector,
+                &[ExactNfmPatch {
+                    old_nfm: source.nfm,
+                    new_nfm: String::new(),
+                    expected_matches: Some(1),
+                }],
+                None,
+                &mut || "empty-patch".to_owned(),
+            )
+            .expect("exact patch to empty Document"),
+        ] {
+            assert_eq!(prepared.materialization.nfm, "");
+            assert_eq!(prepared.materialization.plain_text, "");
+            assert_eq!(prepared.materialization.block_tree.len(), 1);
+            assert_eq!(
+                prepared.materialization.block_tree[0].block_type,
+                "paragraph"
+            );
+        }
     }
 
     #[test]

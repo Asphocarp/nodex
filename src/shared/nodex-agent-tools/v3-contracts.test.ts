@@ -213,6 +213,42 @@ describe("nodex_app@4 contracts", () => {
     );
   });
 
+  test("allows empty Page bodies but rejects empty insertion Fragments", () => {
+    expect(CreatePagesV3InputSchema.safeParse({
+      destination: { kind: "library" },
+      pages: [{ title: "Empty", markdown: "" }],
+    }).success).toBe(true);
+    expect(UpdatePageV3InputSchema.safeParse({
+      pageId: "page-1",
+      body: { kind: "replace", markdown: "", ifMatch: ETAG },
+    }).success).toBe(true);
+    expect(UpdatePageV3InputSchema.safeParse({
+      pageId: "page-1",
+      body: {
+        kind: "patch",
+        patches: [{ oldMarkdown: "Only Block", newMarkdown: "" }],
+      },
+    }).success).toBe(true);
+    for (const markdown of ["", "\n \t\n"]) {
+      const result = UpdatePageV3InputSchema.safeParse({
+        pageId: "page-1",
+        body: { kind: "insert", at: { kind: "end" }, markdown },
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.issues[0]?.message).toContain("<empty-block/>");
+      }
+    }
+    expect(UpdatePageV3InputSchema.safeParse({
+      pageId: "page-1",
+      body: {
+        kind: "insert",
+        at: { kind: "end" },
+        markdown: "<empty-block/>",
+      },
+    }).success).toBe(true);
+  });
+
   test("uses Page-only move and duplicate intents without generic transfer fields", () => {
     expect(MovePagesV3InputSchema.safeParse({
       pageIds: ["page-1", "page-2"],

@@ -1,15 +1,14 @@
 use std::collections::BTreeMap;
 
-use serde_json::{Value, json};
 use yrs::updates::encoder::Encode;
 use yrs::{ReadTxn, Transact};
 
 use crate::domain::block_materialization::{MaterializedBlockNode, dematerialize_block_tree};
 use crate::domain::block_tree::TextDelta;
-use crate::domain::nfm_parser::parse_nfm_with_ids;
 use crate::domain::rich_text::{RichTextItem, rich_text_to_delta};
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
+use super::nfm_input::materialize_document_nfm;
 use super::operations::{DocumentBlockOperation, PreparedDocumentOperationUpdate};
 use super::{
     BlockDocumentSchema, DocumentMaterialization, YrsDocumentEngine, decode_block_document,
@@ -29,7 +28,8 @@ pub(crate) fn prepare_yjs_genesis(
     schema: BlockDocumentSchema,
     root_block_id: &str,
 ) -> Result<PreparedYjsGenesis, StoreError> {
-    let tree = dematerialize_block_tree(&[empty_paragraph(root_block_id)])
+    let blocks = empty_document(root_block_id)?;
+    let tree = dematerialize_block_tree(&blocks)
         .map_err(|error| invalid(format!("Document genesis Block is invalid: {error}")))?;
     let document = encode_block_document(document_id, schema, None, &tree)
         .map_err(|error| invalid(format!("Document genesis is invalid: {error}")))?;
@@ -63,7 +63,8 @@ pub(crate) fn prepare_page_yjs_genesis(
     title: &str,
     root_block_id: &str,
 ) -> Result<PreparedYjsGenesis, StoreError> {
-    let tree = dematerialize_block_tree(&[empty_paragraph(root_block_id)])
+    let blocks = empty_document(root_block_id)?;
+    let tree = dematerialize_block_tree(&blocks)
         .map_err(|error| invalid(format!("Page genesis Block is invalid: {error}")))?;
     let title = (!title.is_empty()).then(|| {
         vec![TextDelta {
@@ -87,7 +88,7 @@ pub(crate) fn prepare_page_yjs_genesis_with_content(
     nfm: &str,
     allocate_block_id: &mut impl FnMut() -> String,
 ) -> Result<PreparedYjsGenesis, StoreError> {
-    let blocks = parse_nfm_with_ids(nfm, allocate_block_id)
+    let blocks = materialize_document_nfm(nfm, allocate_block_id)
         .map_err(|error| invalid(format!("Page genesis Nested Markdown is invalid: {error}")))?;
     let tree = dematerialize_block_tree(&blocks)
         .map_err(|error| invalid(format!("Page genesis Blocks are invalid: {error}")))?;
@@ -184,7 +185,10 @@ pub(crate) fn prepare_editable_root(
         &engine.full_state_v1(),
         &engine.state_vector_v1(),
         &[DocumentBlockOperation::InsertBlock {
-            block: empty_paragraph(root_block_id),
+            block: empty_document(root_block_id)?
+                .into_iter()
+                .next()
+                .expect("empty Document boundary always materializes one Block"),
             parent_block_id: None,
             before_block_id: None,
         }],
@@ -198,18 +202,9 @@ pub(crate) fn prepare_editable_root(
     })
 }
 
-fn empty_paragraph(block_id: &str) -> MaterializedBlockNode {
-    MaterializedBlockNode {
-        id: block_id.to_owned(),
-        block_type: "paragraph".to_owned(),
-        props: BTreeMap::from([
-            ("backgroundColor".to_owned(), json!("default")),
-            ("textColor".to_owned(), json!("default")),
-            ("textAlignment".to_owned(), json!("left")),
-        ]),
-        content: Some(Value::Array(Vec::new())),
-        children: Vec::new(),
-    }
+fn empty_document(block_id: &str) -> Result<Vec<MaterializedBlockNode>, StoreError> {
+    materialize_document_nfm("", &mut || block_id.to_owned())
+        .map_err(|error| invalid(format!("Empty Document boundary is invalid: {error}")))
 }
 
 fn invalid(message: String) -> StoreError {
