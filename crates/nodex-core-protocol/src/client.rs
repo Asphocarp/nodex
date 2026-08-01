@@ -41,7 +41,9 @@ const MAX_DESCRIPTOR_BYTES: u64 = 64 * 1024;
 const MAX_AUTH_BYTES: u64 = 128;
 const MAX_HTTP_RESPONSE_HEADER_BYTES: usize = 64 * 1024;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
-const STARTUP_TIMEOUT: Duration = Duration::from_secs(10);
+// Cold selection includes one-time Store backup and migration before Core can
+// publish its runtime descriptor, which can exceed ten seconds on Intel Macs.
+const STARTUP_TIMEOUT: Duration = Duration::from_secs(60);
 
 const CONNECTION_HEADER: &str = "x-nodex-connection-id";
 const CONNECTION_BINDING_HEADER: &str = "x-nodex-connection-binding";
