@@ -1,6 +1,9 @@
 import { describe, expect, test } from "vitest";
 
-import { parseNativeRuntimeManifest } from "./native-runtime-manifest";
+import {
+  parseNativeRuntimeManifest,
+  swiftTargetForNativeRuntime,
+} from "./native-runtime-manifest";
 
 const manifest = {
   schemaVersion: 3,
@@ -49,6 +52,11 @@ const manifest = {
 };
 
 describe("native runtime manifest", () => {
+  test("maps package architectures to valid Swift target triples", () => {
+    expect(swiftTargetForNativeRuntime("arm64")).toBe("arm64-apple-macos12.0");
+    expect(swiftTargetForNativeRuntime("x64")).toBe("x86_64-apple-macos12.0");
+  });
+
   test("accepts the complete architecture-bound package inventory", () => {
     expect(parseNativeRuntimeManifest(manifest)).toEqual(manifest);
   });

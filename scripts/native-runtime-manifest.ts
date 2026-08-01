@@ -3,6 +3,13 @@ import { readFileSync } from "node:fs";
 
 export type NativeRuntimeArchitecture = "arm64" | "x64";
 
+export const swiftTargetForNativeRuntime = (
+  architecture: NativeRuntimeArchitecture,
+): "arm64-apple-macos12.0" | "x86_64-apple-macos12.0" =>
+  architecture === "arm64"
+    ? "arm64-apple-macos12.0"
+    : "x86_64-apple-macos12.0";
+
 export type NativeRuntimeBinaryName =
   | "nodex"
   | "nodex-appshot-helper"

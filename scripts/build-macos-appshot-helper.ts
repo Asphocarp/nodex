@@ -12,8 +12,13 @@ import {
 } from "node:fs";
 import path from "node:path";
 
+import {
+  swiftTargetForNativeRuntime,
+  type NativeRuntimeArchitecture,
+} from "./native-runtime-manifest";
+
 interface BuildStamp {
-  readonly architecture: "arm64" | "x64";
+  readonly architecture: NativeRuntimeArchitecture;
   readonly minimumMacOS: "12.0";
   readonly sourceSha256: string;
 }
@@ -90,7 +95,7 @@ function main(): void {
       "-O",
       "-parse-as-library",
       "-target",
-      `${architecture}-apple-macos12.0`,
+      swiftTargetForNativeRuntime(architecture),
       sourcePath,
       "-o",
       temporaryBinary,
