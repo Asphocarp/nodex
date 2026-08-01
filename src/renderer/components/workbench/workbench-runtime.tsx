@@ -3275,7 +3275,7 @@ export function WorkbenchRuntime({
           void projectAgentDockSessionQuery.refetch();
         }
       }}
-      onOpenTask={() => {
+      onOpenChat={() => {
         const sessionId = projectAgentDockModel.trigger.sessionId;
         if (!sessionId) return;
         workbenchWindow.selectSession({
@@ -3369,8 +3369,8 @@ export function WorkbenchRuntime({
       onVisibleChange={setProjectAgentDockVisible}
       leadingContent={projectAgentDockLeadingContent}
       message={projectAgentDockSessionQuery.isError
-        ? "This task couldn’t be loaded. Retry or choose another target."
-        : "Loading task…"}
+        ? "This chat couldn’t be loaded. Retry or choose another chat."
+        : "Loading chat…"}
     />
   ) : null;
   const projectSceneRoute = (

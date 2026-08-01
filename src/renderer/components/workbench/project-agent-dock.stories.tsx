@@ -17,21 +17,21 @@ const model: ProjectAgentDockModel = {
     kind: "session",
     sessionId: "session:worktree",
     label: "Refine the project board",
-    statusLabel: "Draft",
     preview: null,
     selected: true,
     attention: "none",
+    indicator: "idle",
   },
   rows: [
     {
       id: "new",
       kind: "new",
       sessionId: null,
-      label: "New task",
-      statusLabel: "Draft",
+      label: "New chat",
       preview: null,
       selected: false,
       attention: "none",
+      indicator: "idle",
     },
   ],
   canSend: true,
@@ -47,7 +47,7 @@ function pendingWorktreeFor(
       clientThreadId: "client-1",
       statusLabel: "Setup failed",
       composerBlockedReason:
-        "Resolve the failed worktree setup before starting this task again",
+        "Resolve the failed worktree setup before starting this chat again",
       attention: "request",
     };
   }
@@ -83,7 +83,7 @@ function AgentDockLeadingRowStory({
                 onSelect={() => undefined}
                 onLoadMore={() => undefined}
                 onRetry={() => undefined}
-                onOpenTask={() => undefined}
+                onOpenChat={() => undefined}
                 pendingWorktree={pendingWorktree}
                 onOpenPendingWorktreeDetails={() => undefined}
               />
@@ -108,7 +108,7 @@ export default meta;
 
 type Story = StoryObj<typeof meta>;
 
-export const ConnectedTask: Story = {};
+export const ConnectedChat: Story = {};
 
 export const RunningSetup: Story = {
   args: { setupState: "running" },

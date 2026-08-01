@@ -1637,7 +1637,7 @@ export const ProjectSceneDatabase: Story = {
   parameters: {
     docs: {
       description: {
-        story: "A zero-task Project Scene whose non-closable Database root tab is presented as the Project marker and Project Home beside the shared trailing add-tab menu. Agent composition lives only in the footer Dock. Its single context rail starts with New task, omits the fixed Project, and continues with mutable run-target and branch controls without creating a Session. The sidebar settles directly to No chats inside.",
+        story: "A zero-chat Project Scene whose non-closable Database root tab is presented as the Project marker and Project Home beside the shared trailing add-tab menu. Agent composition lives only in the footer Dock. Its single context rail starts with New chat, omits the fixed Project, and continues with mutable run-target and branch controls without creating a Session. The sidebar settles directly to No chats inside.",
       },
     },
   },
@@ -1687,7 +1687,7 @@ export const ProjectSceneWithBoundTask: Story = {
   parameters: {
     docs: {
       description: {
-        story: "The Database remains the root surface while the footer-only Agent Dock subscribes to a real running task. Use Find a task to alternate between the bound task and New task: one stable context rail projects either the connected latest turn or the mutable new-task run context without vertical motion. Open task is the explicit path to the full transcript.",
+        story: "The Database remains the root surface while the footer-only Agent Dock subscribes to a real running chat. Use Find a chat to alternate between the bound chat and New chat: one stable context rail projects either the connected latest turn or the mutable new-chat run context without vertical motion. Open chat is the explicit path to the full transcript.",
       },
     },
   },
@@ -1718,7 +1718,7 @@ export const InitialProjectWelcome: Story = {
   parameters: {
     docs: {
       description: {
-        story: "A fresh Profile after automatic bootstrap: My Project opens as one full-width Scene, with the Welcome Page as an ordinary tab, the marker/Project Home tab retained as the protected Database root, and New task available in the Agent Dock without creating a starter task.",
+        story: "A fresh Profile after automatic bootstrap: My Project opens as one full-width Scene, with the Welcome Page as an ordinary tab, the marker/Project Home tab retained as the protected Database root, and New chat available in the Agent Dock without creating a starter chat.",
       },
     },
   },

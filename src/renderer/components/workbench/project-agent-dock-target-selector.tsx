@@ -10,6 +10,7 @@ import {
   useState,
   type KeyboardEvent,
 } from "react";
+import { CodexSpinnerIcon } from "@/components/shared/icons";
 import { NodexDropdownButtonTrigger } from "@/components/ui/dropdown";
 import {
   NodexPopover,
@@ -17,7 +18,7 @@ import {
   NodexPopoverTrigger,
 } from "@/components/ui/popover";
 import {
-  resolveProjectAgentDockTriggerStatusLabel,
+  type ProjectAgentDockChatIndicator,
   type ProjectAgentDockModel,
   type ProjectAgentDockTargetRow,
 } from "@/lib/project-agent-dock-model";
@@ -32,13 +33,54 @@ export interface ProjectAgentDockTargetSelectorProps {
   readonly onRetry: () => void;
 }
 
-function statusTone(row: ProjectAgentDockTargetRow): string {
-  if (row.statusLabel === "Error" || row.statusLabel === "Unavailable") {
-    return "text-token-error-foreground";
-  }
-  if (row.attention === "request") return "text-token-warning-foreground";
-  if (row.attention === "activity") return "text-token-foreground";
-  return "text-token-description-foreground";
+function indicatorLabel(indicator: ProjectAgentDockChatIndicator): string | null {
+  if (indicator === "running") return "Running";
+  if (indicator === "unread") return "Unread";
+  if (indicator === "needs-attention") return "Needs attention";
+  return null;
+}
+
+function targetRowAccessibleLabel(row: ProjectAgentDockTargetRow): string {
+  const status = row.kind === "session"
+    ? indicatorLabel(row.indicator)
+    : null;
+  return [status, row.label, row.preview]
+    .filter((value): value is string => Boolean(value))
+    .join(", ");
+}
+
+function ProjectAgentDockChatIndicatorView({
+  indicator,
+}: {
+  readonly indicator: ProjectAgentDockChatIndicator;
+}) {
+  const label = indicatorLabel(indicator);
+
+  return (
+    <span
+      className="flex size-3.5 shrink-0 items-center justify-center"
+      data-project-agent-dock-chat-indicator={indicator}
+      aria-label={label ?? undefined}
+      aria-hidden={label ? undefined : true}
+    >
+      {indicator === "running" ? (
+        <CodexSpinnerIcon
+          className="icon-2xs shrink-0"
+          animationDurationMs={2_000}
+        />
+      ) : (
+        <span
+          className={cn(
+            "size-1.5 rounded-full",
+            indicator === "unread" || indicator === "needs-attention"
+              ? "bg-token-charts-blue"
+              : "bg-current text-token-description-foreground",
+          )}
+          aria-hidden="true"
+        />
+      )}
+    </span>
+  );
 }
 
 export function ProjectAgentDockTargetSelector({
@@ -58,9 +100,9 @@ export function ProjectAgentDockTargetSelector({
   const activeDescendantId = activeRow
     ? `${listboxId}-option-${activeIndex}`
     : undefined;
-  const triggerStatusLabel = resolveProjectAgentDockTriggerStatusLabel(
-    model.trigger,
-  );
+  const triggerIndicatorLabel = model.trigger.kind === "session"
+    ? indicatorLabel(model.trigger.indicator)
+    : null;
 
   useEffect(() => {
     if (!open) return;
@@ -118,7 +160,9 @@ export function ProjectAgentDockTargetSelector({
       <NodexPopoverTrigger asChild>
         <NodexDropdownButtonTrigger
           ref={triggerRef}
-          aria-label={`Agent target: ${model.trigger.label}`}
+          aria-label={`Connected chat: ${model.trigger.label}${
+            triggerIndicatorLabel ? `, ${triggerIndicatorLabel}` : ""
+          }`}
           size="sm"
           shape="pill"
           chrome="transparent"
@@ -131,22 +175,13 @@ export function ProjectAgentDockTargetSelector({
               className="size-3.5 shrink-0 text-token-description-foreground"
             />
           ) : (
-            <span
-              aria-hidden="true"
-              className={cn(
-                "size-1.5 shrink-0 rounded-full bg-current",
-                statusTone(model.trigger),
-              )}
+            <ProjectAgentDockChatIndicatorView
+              indicator={model.trigger.indicator}
             />
           )}
           <span className="min-w-0 truncate font-normal">
             {model.trigger.label}
           </span>
-          {triggerStatusLabel ? (
-            <span className={cn("shrink-0 text-[11px]", statusTone(model.trigger))}>
-              {triggerStatusLabel}
-            </span>
-          ) : null}
         </NodexDropdownButtonTrigger>
       </NodexPopoverTrigger>
       <NodexPopoverContent
@@ -162,13 +197,13 @@ export function ProjectAgentDockTargetSelector({
           <input
             ref={inputRef}
             role="combobox"
-            aria-label="Choose agent target"
+            aria-label="Choose connected chat"
             aria-autocomplete="list"
             aria-controls={listboxId}
             aria-expanded="true"
             aria-activedescendant={activeDescendantId}
             value={query}
-            placeholder="Find a task"
+            placeholder="Find a chat"
             className="h-7 min-w-0 flex-1 bg-transparent px-1 text-sm text-token-foreground outline-none placeholder:text-token-description-foreground"
             onChange={(event) => {
               onQueryChange(event.target.value);
@@ -180,7 +215,7 @@ export function ProjectAgentDockTargetSelector({
         <div
           id={listboxId}
           role="listbox"
-          aria-label="Project tasks"
+          aria-label="Project chats"
           className="notion-scroller vertical max-h-72 overflow-y-auto py-0.5"
         >
           {model.rows.map((row, index) => (
@@ -189,6 +224,7 @@ export function ProjectAgentDockTargetSelector({
               id={`${listboxId}-option-${index}`}
               type="button"
               role="option"
+              aria-label={targetRowAccessibleLabel(row)}
               aria-selected={row.selected}
               className={cn(
                 "flex min-h-8 w-full cursor-interaction items-center gap-2 rounded-lg px-2 py-1 text-left",
@@ -200,21 +236,14 @@ export function ProjectAgentDockTargetSelector({
               {row.kind === "new" ? (
                 <Plus className="size-3.5 shrink-0 text-token-description-foreground" aria-hidden="true" />
               ) : (
-                <span
-                  aria-hidden="true"
-                  className={cn(
-                    "size-1.5 shrink-0 rounded-full bg-current",
-                    statusTone(row),
-                  )}
+                <ProjectAgentDockChatIndicatorView
+                  indicator={row.indicator}
                 />
               )}
               <span className="min-w-0 flex-1">
-                <span className="flex min-w-0 items-center gap-1.5">
+                <span className="flex min-w-0 items-center">
                   <span className="min-w-0 flex-1 truncate text-sm text-token-foreground">
                     {row.label}
-                  </span>
-                  <span className={cn("shrink-0 text-[11px]", statusTone(row))}>
-                    {row.statusLabel}
                   </span>
                 </span>
                 {row.preview ? (
@@ -235,7 +264,7 @@ export function ProjectAgentDockTargetSelector({
           {model.collectionMessage ? (
             <div className="flex min-h-8 items-center justify-between gap-2 px-2 text-xs text-token-description-foreground">
               <span className="truncate">{model.collectionMessage}</span>
-              {model.collectionMessage !== "Loading tasks…" ? (
+              {model.collectionMessage !== "Loading chats…" ? (
                 <button
                   type="button"
                   className="shrink-0 cursor-interaction rounded-md px-1.5 py-1 text-token-foreground hover:bg-token-foreground/5"

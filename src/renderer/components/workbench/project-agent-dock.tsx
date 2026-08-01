@@ -22,7 +22,7 @@ export interface ProjectAgentDockLeadingRowProps {
   readonly onSelect: (row: ProjectAgentDockTargetRow) => void;
   readonly onLoadMore: () => void;
   readonly onRetry: () => void;
-  readonly onOpenTask: () => void;
+  readonly onOpenChat: () => void;
   readonly pendingWorktree?: ProjectAgentDockPendingWorktreeModel | null;
   readonly onOpenPendingWorktreeDetails?: () => void;
 }
@@ -34,11 +34,11 @@ export function ProjectAgentDockLeadingRow({
   onSelect,
   onLoadMore,
   onRetry,
-  onOpenTask,
+  onOpenChat,
   pendingWorktree = null,
   onOpenPendingWorktreeDetails,
 }: ProjectAgentDockLeadingRowProps) {
-  const canOpenTask = model.trigger.kind === "session";
+  const canOpenChat = model.trigger.kind === "session";
 
   return (
     <div
@@ -66,13 +66,13 @@ export function ProjectAgentDockLeadingRow({
           {pendingWorktree.statusLabel}
           <ArrowUpRight className="size-3" aria-hidden="true" />
         </button>
-      ) : canOpenTask ? (
-        <NodexTooltip tooltipContent="Open task" side="bottom" delayOpen>
+      ) : canOpenChat ? (
+        <NodexTooltip tooltipContent="Open chat" side="bottom" delayOpen>
           <button
             type="button"
-            aria-label="Open task"
+            aria-label="Open chat"
             className="inline-flex size-7 shrink-0 cursor-interaction items-center justify-center rounded-full text-token-description-foreground hover:bg-token-foreground/5 hover:text-token-foreground focus-visible:bg-token-foreground/5 focus-visible:text-token-foreground focus-visible:outline-none"
-            onClick={onOpenTask}
+            onClick={onOpenChat}
           >
             <ArrowUpRight className="icon-2xs shrink-0" aria-hidden="true" />
           </button>
