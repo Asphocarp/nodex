@@ -213,7 +213,7 @@ jobs:
                 exit 1
               fi
             fi
-            brew audit --cask --online "${current}"
+            brew audit --cask --online "${HOMEBREW_TAP}/nodex"
             git -C "${tap}" config user.name "github-actions[bot]"
             git -C "${tap}" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git -C "${tap}" add Casks/nodex.rb
