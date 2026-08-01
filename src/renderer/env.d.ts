@@ -64,6 +64,14 @@ declare global {
       readPasteClipboard?: () => ClipboardPastePayload;
       getPathInfoForFile?: (file: File) => ClipboardPasteInspectionItem | null;
       getPathForFile?: (file: File) => string;
+      sendGitWorkerMessage?: (
+        message: import("../shared/git-worker-protocol").GitWorkerMessageFromView,
+      ) => Promise<void>;
+      onGitWorkerMessage?: (
+        callback: (
+          message: import("../shared/git-worker-protocol").GitWorkerMessageForView,
+        ) => void,
+      ) => () => void;
     };
     electronBridge?: {
       sendMessageFromView?: (message: CodexDesktopMessageFromView) => Promise<void>;

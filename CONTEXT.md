@@ -509,6 +509,14 @@ Session Scenes use their Conversation. Per-Project view presentation, sidebar
 disclosure/width, and recent Pages are profile preferences, not Session domain
 state or alternate location owners.
 
+The **Git Review read plane** is rebuildable process state derived from a local
+Git repository, not durable Nodex domain state. One dedicated worker owns each
+canonical repository's command lane, observation generation, live-query
+sharing, watcher lease, and bounded untracked cache. Main and renderer are
+Adapters over that authority and never retain a competing repository snapshot.
+Stale and canceled reads are normal generation outcomes; local mutations
+explicitly invalidate the same worker-owned read plane.
+
 ## Naming rules
 
 - Say **Page** for the durable document-like content object.
@@ -536,6 +544,11 @@ in `src/main`; renderer transport remains behind `src/renderer/lib/api.ts`.
 Page Stage, Canvas Stage, and owned-Document surfaces live under
 `src/renderer/components/block-documents/` with runtime/descriptor validation
 under `src/renderer/lib/`.
+The Git Review worker protocol lives in `src/shared/git-worker-protocol.ts`;
+`src/main/git-worker-host.ts` is its Electron lifecycle Adapter,
+`src/main/git-worker/` owns repository observation and query execution, and
+`src/renderer/features/review/data/git-query.ts` projects active queries into
+each renderer window's TanStack Query cache.
 
 Legacy Card/Project-content readers are allowed only in shipped-schema staging
 import code. Production Page read models are assembled from Block/Document/Data
@@ -545,6 +558,9 @@ idempotency, projections, and post-commit events behind `read` and `apply`.
 
 ## Decision index
 
+- `docs/adr/0036-dedicated-git-read-worker.md`: one rebuildable,
+  generation-bound Git repository read plane in a dedicated worker, with Main
+  and renderer Adapters and mutation-driven invalidation.
 - `docs/adr/0017-library-pages-data-sources-and-project-resource-grants.md`:
   Library ownership, Page rename/exclusive parent, Database/Data Source/View,
   Project binding, resource grants, and Database Module depth.

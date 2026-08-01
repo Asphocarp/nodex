@@ -12,8 +12,9 @@ import type {
   GitPullRequestMessageGenerateInput,
   GitPullRequestMessageGenerateResult,
   GitPushInput,
+  GitReviewPatchRequest,
+  GitReviewPatchResult,
 } from "../shared/types";
-import { readGitBranchState } from "./git-branch-service";
 
 interface GitCommandResult {
   stdout: string;
@@ -36,12 +37,6 @@ const COMMIT_MESSAGE_TESTING_NOTE =
 const COMMIT_MESSAGE_UNTRACKED_NOTE = "Untracked changes are not included.";
 const activeGitActionOperations = new Map<string, AbortController>();
 
-interface StagedNameStatusChange {
-  status: "added" | "copied" | "deleted" | "modified" | "renamed" | "other";
-  path: string;
-  previousPath: string | null;
-}
-
 interface CommitMessageDiffSummary {
   filesChanged: number;
   linesAdded: number;
@@ -52,6 +47,7 @@ interface CommitMessagePromptInput {
   commitInstructions?: string | null;
   diffError?: { type: "diff-too-large" } | null;
   draftMessage: string;
+  includesUntrackedChanges: boolean;
   oversizedDiffSummary?: CommitMessageDiffSummary | null;
   uncommittedDiff: string | null;
 }
@@ -74,10 +70,28 @@ export interface GitPullRequestMessageGenerationResponse {
 }
 
 export interface CommitGitChangesOptions {
+  gitWorker: GitActionWorkerPort;
   generateCommitMessage?: (input: GitCommitMessageGenerationRequest) => Promise<string | null>;
   generatePullRequestMessage?: (
     input: GitPullRequestMessageGenerationRequest
   ) => Promise<GitPullRequestMessageGenerationResponse | null>;
+}
+
+export interface GitActionWorkerPort {
+  readStatus(cwd: string, signal?: AbortSignal): Promise<GitActionStatusResult>;
+  readReviewPatch(
+    input: Omit<GitReviewPatchRequest, "requestId">,
+    signal?: AbortSignal,
+  ): Promise<GitReviewPatchResult>;
+  commit(input: GitCommitInput, signal?: AbortSignal): Promise<GitActionMutationResult>;
+  refreshRepository(cwd: string): Promise<void>;
+}
+
+interface PushGitState {
+  currentBranch: string | null;
+  isGitRepository: boolean;
+  remotes: string[];
+  upstreamBranch: string | null;
 }
 
 async function ensureDirectory(cwd: string, signal?: AbortSignal): Promise<string> {
@@ -109,6 +123,14 @@ function runGitCommand(
       {
         cwd,
         encoding: "utf8",
+        env: {
+          ...process.env,
+          GIT_OPTIONAL_LOCKS: "0",
+          GIT_TERMINAL_PROMPT: "0",
+          LANG: "C",
+          LANGUAGE: "C",
+          LC_MESSAGES: "C",
+        },
         timeout: GIT_ACTION_COMMAND_TIMEOUT_MS,
         windowsHide: true,
         maxBuffer: 8 * 1024 * 1024,
@@ -196,74 +218,10 @@ function gitErrorStderr(error: unknown): string {
   return "stderr" in error && typeof error.stderr === "string" ? error.stderr : "";
 }
 
-function isNotGitRepositoryError(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-
-  const stderr = "stderr" in error && typeof error.stderr === "string" ? error.stderr : "";
-  const message = `${error.message}\n${stderr}`.toLowerCase();
-  return message.includes("not a git repository");
-}
-
 async function isGitRepository(cwd: string, signal?: AbortSignal): Promise<boolean> {
   const result = await runGitCommand(["rev-parse", "--is-inside-work-tree"], cwd, [0], signal)
     .catch(ignoreGitCommandErrorUnlessAborted);
   return result?.stdout.trim() === "true";
-}
-
-async function hasHeadCommit(cwd: string, signal?: AbortSignal): Promise<boolean> {
-  const result = await runGitCommand(["rev-parse", "--verify", "HEAD"], cwd, [0, 128], signal)
-    .catch(ignoreGitCommandErrorUnlessAborted);
-  return result?.exitCode === 0;
-}
-
-async function hasDiff(cwd: string, args: string[], signal?: AbortSignal): Promise<boolean> {
-  const result = await runGitCommand(["diff", "--quiet", ...args], cwd, [0, 1], signal);
-  return result.exitCode === 1;
-}
-
-function resolveNameStatus(statusCode: string): StagedNameStatusChange["status"] {
-  if (statusCode === "A") return "added";
-  if (statusCode === "D") return "deleted";
-  if (statusCode === "M") return "modified";
-  return "other";
-}
-
-function parseGitNameStatus(stdout: string): StagedNameStatusChange[] {
-  const tokens = stdout.split("\0").filter((token) => token.length > 0);
-  const changes: StagedNameStatusChange[] = [];
-  let index = 0;
-
-  while (index < tokens.length) {
-    const statusToken = tokens[index] ?? "";
-    index += 1;
-    const statusCode = statusToken[0] ?? "";
-
-    if (statusCode === "R" || statusCode === "C") {
-      const previousPath = tokens[index] ?? "";
-      const nextPath = tokens[index + 1] ?? "";
-      index += 2;
-      if (!nextPath) continue;
-
-      changes.push({
-        status: statusCode === "R" ? "renamed" : "copied",
-        path: nextPath,
-        previousPath: previousPath || null,
-      });
-      continue;
-    }
-
-    const changedPath = tokens[index] ?? "";
-    index += 1;
-    if (!changedPath) continue;
-
-    changes.push({
-      status: resolveNameStatus(statusCode),
-      path: changedPath,
-      previousPath: null,
-    });
-  }
-
-  return changes;
 }
 
 function fileBasename(filePath: string): string {
@@ -283,38 +241,6 @@ function throwIfAborted(signal?: AbortSignal): void {
   const error = new Error("Git action was canceled.");
   error.name = "AbortError";
   throw error;
-}
-
-function summarizeSingleStagedChange(change: StagedNameStatusChange): string {
-  if (change.status === "added") return `Add ${fileBasename(change.path)}`;
-  if (change.status === "copied") return `Copy ${fileBasename(change.path)}`;
-  if (change.status === "deleted") return `Remove ${fileBasename(change.path)}`;
-  if (change.status === "renamed" && change.previousPath) {
-    return `Rename ${fileBasename(change.previousPath)} to ${fileBasename(change.path)}`;
-  }
-
-  return `Update ${fileBasename(change.path)}`;
-}
-
-function summarizeStagedChanges(changes: StagedNameStatusChange[]): string {
-  if (changes.length === 0) return "Update working tree";
-  const firstChange = changes[0];
-  if (changes.length === 1 && firstChange) return truncateCommitSubject(summarizeSingleStagedChange(firstChange));
-
-  const changedCount = changes.length;
-  const allAdded = changes.every((change) => change.status === "added" || change.status === "copied");
-  const allDeleted = changes.every((change) => change.status === "deleted");
-  const allRenamed = changes.every((change) => change.status === "renamed");
-
-  if (allAdded) return `Add ${changedCount} files`;
-  if (allDeleted) return `Remove ${changedCount} files`;
-  if (allRenamed) return `Rename ${changedCount} files`;
-  return `Update ${changedCount} files`;
-}
-
-async function generateCommitMessageFromStagedChanges(cwd: string, signal?: AbortSignal): Promise<string> {
-  const result = await runGitCommand(["diff", "--cached", "--name-status", "-z"], cwd, [0], signal);
-  return summarizeStagedChanges(parseGitNameStatus(result.stdout));
 }
 
 function summarizeUnifiedDiff(diff: string | null): CommitMessageDiffSummary | null {
@@ -350,74 +276,28 @@ function summarizeUnifiedDiff(diff: string | null): CommitMessageDiffSummary | n
   return { filesChanged, linesAdded, linesRemoved };
 }
 
-function parseGitNumstat(stdout: string): CommitMessageDiffSummary {
-  const summary: CommitMessageDiffSummary = {
-    filesChanged: 0,
-    linesAdded: 0,
-    linesRemoved: 0,
-  };
-
-  for (const line of stdout.split(/\r?\n/)) {
-    const trimmedLine = line.trim();
-    if (!trimmedLine) continue;
-
-    const [addedText, removedText] = trimmedLine.split(/\t/u);
-    summary.filesChanged += 1;
-
-    const added = Number.parseInt(addedText ?? "", 10);
-    const removed = Number.parseInt(removedText ?? "", 10);
-    if (Number.isFinite(added)) summary.linesAdded += added;
-    if (Number.isFinite(removed)) summary.linesRemoved += removed;
-  }
-
-  return summary;
-}
-
-async function readStagedDiffSummary(cwd: string, signal?: AbortSignal): Promise<CommitMessageDiffSummary | null> {
-  const result = await runGitCommand(["diff", "--cached", "--numstat"], cwd, [0], signal).catch(() => null);
-  return result ? parseGitNumstat(result.stdout) : null;
-}
-
-async function readStagedUnifiedDiff(cwd: string, signal?: AbortSignal): Promise<{
-  diff: string | null;
-  diffError: CommitMessagePromptInput["diffError"];
-  fallbackSummary: CommitMessageDiffSummary | null;
-}> {
-  try {
-    const result = await runGitCommand(["diff", "--cached", "--no-ext-diff", "--unified=3"], cwd, [0], signal);
-    return {
-      diff: result.stdout,
-      diffError: null,
-      fallbackSummary: null,
-    };
-  } catch (error) {
-    if (isAbortError(error)) throw error;
-
-    return {
-      diff: null,
-      diffError: { type: "diff-too-large" },
-      fallbackSummary: await readStagedDiffSummary(cwd, signal),
-    };
-  }
-}
-
-function formatCommitMessageChanges(input: Pick<CommitMessagePromptInput, "diffError" | "oversizedDiffSummary" | "uncommittedDiff">): string | null {
+function formatCommitMessageChanges(input: Pick<
+  CommitMessagePromptInput,
+  "diffError" | "includesUntrackedChanges" | "oversizedDiffSummary" | "uncommittedDiff"
+>): string | null {
+  const untrackedNote = input.includesUntrackedChanges
+    ? []
+    : ["", COMMIT_MESSAGE_UNTRACKED_NOTE];
   if (input.oversizedDiffSummary) {
     return [
       "Changes:",
       "Diff too large to include inline.",
       `Summary: ${input.oversizedDiffSummary.filesChanged} changed files, +${input.oversizedDiffSummary.linesAdded}/-${input.oversizedDiffSummary.linesRemoved} lines.`,
-      "",
-      COMMIT_MESSAGE_UNTRACKED_NOTE,
+      ...untrackedNote,
     ].join("\n");
   }
 
   if (input.diffError?.type === "diff-too-large") {
-    return ["Changes:", "Diff too large to include inline.", "", COMMIT_MESSAGE_UNTRACKED_NOTE].join("\n");
+    return ["Changes:", "Diff too large to include inline.", ...untrackedNote].join("\n");
   }
 
   if (!input.uncommittedDiff || input.uncommittedDiff.trim().length === 0) return null;
-  return ["Changes:", input.uncommittedDiff, COMMIT_MESSAGE_UNTRACKED_NOTE].join("\n");
+  return ["Changes:", input.uncommittedDiff, ...untrackedNote].join("\n");
 }
 
 function buildCommitMessagePrompt(input: CommitMessagePromptInput): string {
@@ -429,6 +309,7 @@ function buildCommitMessagePrompt(input: CommitMessagePromptInput): string {
 
   const changes = formatCommitMessageChanges({
     diffError: input.diffError ?? null,
+    includesUntrackedChanges: input.includesUntrackedChanges,
     oversizedDiffSummary: input.oversizedDiffSummary ?? null,
     uncommittedDiff: input.uncommittedDiff,
   });
@@ -445,43 +326,25 @@ function buildCommitMessagePrompt(input: CommitMessagePromptInput): string {
   return sections.join("\n\n");
 }
 
-async function buildStagedCommitMessagePrompt(cwd: string, draftMessage: string, signal?: AbortSignal): Promise<string> {
-  const { diff, diffError, fallbackSummary } = await readStagedUnifiedDiff(cwd, signal);
-  const diffSummary = fallbackSummary ?? summarizeUnifiedDiff(diff);
+function buildCommitMessagePromptFromDiff(input: {
+  diff: string | null;
+  diffError: CommitMessagePromptInput["diffError"];
+  draftMessage: string;
+  includesUntrackedChanges: boolean;
+}): string {
+  const diffSummary = summarizeUnifiedDiff(input.diff);
   const changedLines = (diffSummary?.linesAdded ?? 0) + (diffSummary?.linesRemoved ?? 0);
   const oversizedDiffSummary = changedLines > COMMIT_MESSAGE_DIFF_INLINE_LINE_THRESHOLD
     ? diffSummary
     : null;
 
   return buildCommitMessagePrompt({
-    diffError,
-    draftMessage,
+    diffError: input.diffError,
+    draftMessage: input.draftMessage,
+    includesUntrackedChanges: input.includesUntrackedChanges,
     oversizedDiffSummary,
-    uncommittedDiff: oversizedDiffSummary === null ? diff : null,
+    uncommittedDiff: oversizedDiffSummary === null ? input.diff : null,
   });
-}
-
-async function readPullRequestUnifiedDiff(cwd: string, baseBranch: string, signal?: AbortSignal): Promise<string | null> {
-  try {
-    const result = await runGitCommand(["diff", "--no-ext-diff", "--unified=3", `${baseBranch}...HEAD`], cwd, [0], signal);
-    return result.stdout;
-  } catch (error) {
-    if (isAbortError(error)) throw error;
-    return null;
-  }
-}
-
-async function readPullRequestFilePaths(cwd: string, baseBranch: string, signal?: AbortSignal): Promise<string[]> {
-  const result = await runGitCommand(["diff", "--name-only", `${baseBranch}...HEAD`], cwd, [0], signal).catch((error) => {
-    if (isAbortError(error)) throw error;
-    return null;
-  });
-  if (!result) return [];
-
-  return result.stdout
-    .split(/\r?\n/)
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.length > 0);
 }
 
 function formatPullRequestFilePaths(filePaths: readonly string[]): string {
@@ -504,21 +367,19 @@ function formatPullRequestChanges(diff: string | null, filePaths: readonly strin
   return ["Changes:", normalizedDiff].join("\n");
 }
 
-async function buildPullRequestMessagePrompt({
-  cwd,
+function buildPullRequestMessagePrompt({
   title,
   body,
   headBranch,
   baseBranch,
-  signal,
+  unifiedDiff,
 }: {
-  cwd: string;
   title: string;
   body: string;
   headBranch: string | null;
   baseBranch: string | null;
-  signal?: AbortSignal;
-}): Promise<string> {
+  unifiedDiff: string | null;
+}): string {
   const sections: string[] = [];
   if (headBranch || baseBranch) {
     sections.push([
@@ -541,12 +402,21 @@ async function buildPullRequestMessagePrompt({
     return sections.join("\n\n");
   }
 
-  const [diff, filePaths] = await Promise.all([
-    readPullRequestUnifiedDiff(cwd, baseBranch, signal),
-    readPullRequestFilePaths(cwd, baseBranch, signal),
-  ]);
-  sections.push(formatPullRequestChanges(diff, filePaths));
+  const filePaths = readUnifiedDiffFilePaths(unifiedDiff);
+  sections.push(formatPullRequestChanges(unifiedDiff, filePaths));
   return sections.join("\n\n");
+}
+
+function readUnifiedDiffFilePaths(diff: string | null): string[] {
+  if (!diff) return [];
+  const paths = new Set<string>();
+  for (const line of diff.split(/\r?\n/u)) {
+    if (!line.startsWith("diff --git a/")) continue;
+    const match = /^diff --git a\/(.+) b\/(.+)$/u.exec(line);
+    const filePath = match?.[2]?.trim();
+    if (filePath) paths.add(filePath);
+  }
+  return [...paths];
 }
 
 function fallbackPullRequestTitle(branch: string | null): string {
@@ -569,6 +439,7 @@ async function generatePullRequestMessage(
     body: string;
     headBranch: string | null;
     baseBranch: string | null;
+    unifiedDiff: string | null;
   },
   options: CommitGitChangesOptions,
   signal?: AbortSignal,
@@ -581,13 +452,12 @@ async function generatePullRequestMessage(
     };
   }
 
-  const prompt = await buildPullRequestMessagePrompt({
-    cwd,
+  const prompt = buildPullRequestMessagePrompt({
     title: input.title,
     body: input.body,
     headBranch: input.headBranch,
     baseBranch: input.baseBranch,
-    signal,
+    unifiedDiff: input.unifiedDiff,
   });
 
   if (!options.generatePullRequestMessage) {
@@ -611,13 +481,21 @@ async function generatePullRequestMessage(
 async function generateCommitMessage(
   cwd: string,
   draftMessage: string,
+  unifiedDiff: string | null,
+  includesUntrackedChanges: boolean,
+  diffError: CommitMessagePromptInput["diffError"],
   options: CommitGitChangesOptions,
   signal?: AbortSignal,
 ): Promise<string> {
   throwIfAborted(signal);
-  const prompt = await buildStagedCommitMessagePrompt(cwd, draftMessage, signal);
+  const prompt = buildCommitMessagePromptFromDiff({
+    diff: unifiedDiff,
+    diffError,
+    draftMessage,
+    includesUntrackedChanges,
+  });
   if (!options.generateCommitMessage) {
-    return generateCommitMessageFromStagedChanges(cwd, signal);
+    return summarizeUnifiedDiffPaths(unifiedDiff);
   }
 
   const generatedMessage = await options.generateCommitMessage({ cwd, prompt, signal });
@@ -629,22 +507,76 @@ async function generateCommitMessage(
   throw new Error("Couldn't generate a commit message");
 }
 
+async function readCommitMessageContext(
+  cwd: string,
+  includeUnstaged: boolean,
+  gitWorker: GitActionWorkerPort,
+  signal?: AbortSignal,
+): Promise<{
+  unifiedDiff: string | null;
+  diffError: CommitMessagePromptInput["diffError"];
+}> {
+  const sources = includeUnstaged
+    ? (["staged", "unstaged"] as const)
+    : (["staged"] as const);
+  const patches = await Promise.all(sources.map(async (source) =>
+    await gitWorker.readReviewPatch({ cwd, source }, signal)));
+  throwIfAborted(signal);
+
+  const repositoryFailure = patches.find((patch) => !patch.isGitRepository);
+  if (repositoryFailure) {
+    throw new Error("Git repository is required before generating a commit message.");
+  }
+  const patchFailure = patches.find((patch) => patch.diff.type === "error");
+  if (patchFailure?.diff.type === "error") {
+    return {
+      unifiedDiff: null,
+      diffError: { type: "diff-too-large" },
+    };
+  }
+
+  const unifiedDiff = patches
+    .flatMap((patch) => patch.diff.type === "success" ? [patch.diff.unifiedDiff] : [])
+    .filter((diff) => diff.trim().length > 0)
+    .join("\n");
+  return {
+    unifiedDiff: unifiedDiff || null,
+    diffError: null,
+  };
+}
+
 async function resolveCommitMessage(
   cwd: string,
   requestedMessage: string,
+  includeUnstaged: boolean,
   options: CommitGitChangesOptions,
   signal?: AbortSignal,
 ): Promise<string> {
   if (requestedMessage) return requestedMessage;
-  return generateCommitMessage(cwd, requestedMessage, options, signal);
+  const context = await readCommitMessageContext(
+    cwd,
+    includeUnstaged,
+    options.gitWorker,
+    signal,
+  );
+  return await generateCommitMessage(
+    cwd,
+    requestedMessage,
+    context.unifiedDiff,
+    includeUnstaged,
+    context.diffError,
+    options,
+    signal,
+  );
 }
 
-async function listUntrackedFiles(cwd: string, signal?: AbortSignal): Promise<string[]> {
-  const result = await runGitCommand(["ls-files", "--others", "--exclude-standard", "-z"], cwd, [0], signal);
-  return result.stdout
-    .split("\0")
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.length > 0);
+function summarizeUnifiedDiffPaths(diff: string | null): string {
+  const filePaths = readUnifiedDiffFilePaths(diff);
+  if (filePaths.length === 0) return "Update working tree";
+  if (filePaths.length === 1 && filePaths[0]) {
+    return truncateCommitSubject(`Update ${fileBasename(filePaths[0])}`);
+  }
+  return `Update ${filePaths.length} files`;
 }
 
 async function readRemotes(cwd: string, signal?: AbortSignal): Promise<string[]> {
@@ -668,107 +600,29 @@ async function readUpstreamBranch(cwd: string, signal?: AbortSignal): Promise<st
   return upstream || null;
 }
 
-async function readCommitsAhead(
+async function readPushGitState(
   cwd: string,
-  upstreamBranch: string | null,
   signal?: AbortSignal,
-): Promise<number> {
-  if (!upstreamBranch) return 0;
-
-  const result = await runGitCommand(
-    ["rev-list", "--count", `${upstreamBranch}..HEAD`],
-    cwd,
-    [0, 128],
-    signal,
-  ).catch(ignoreGitCommandErrorUnlessAborted);
-  const count = Number.parseInt(result?.stdout.trim() ?? "0", 10);
-  return Number.isFinite(count) ? count : 0;
-}
-
-function emptyStatus(cwd: string): GitActionStatusResult {
-  return {
-    cwd,
-    isGitRepository: false,
-    currentBranch: null,
-    defaultBranch: null,
-    upstreamBranch: null,
-    remotes: [],
-    hasHeadCommit: false,
-    hasStagedChanges: false,
-    hasUnstagedChanges: false,
-    hasUntrackedFiles: false,
-    hasUncommittedChanges: false,
-    commitsAhead: 0,
-    canCommit: false,
-    canPush: false,
-    pushNeedsUpstream: false,
-    errorMessage: null,
-  };
-}
-
-export async function readGitActionStatus(
-  input: { cwd: string },
-  signal?: AbortSignal,
-): Promise<GitActionStatusResult> {
-  const cwd = await ensureDirectory(input.cwd, signal);
-
-  try {
-    const repository = await isGitRepository(cwd, signal);
-    if (!repository) return emptyStatus(cwd);
-
-    const [
-      branchState,
-      headCommit,
-      stagedChanges,
-      unstagedTrackedChanges,
-      untrackedFiles,
-      remotes,
-      upstreamBranch,
-    ] = await Promise.all([
-      readGitBranchState(cwd, signal),
-      hasHeadCommit(cwd, signal),
-      hasDiff(cwd, ["--cached"], signal),
-      hasDiff(cwd, [], signal),
-      listUntrackedFiles(cwd, signal),
-      readRemotes(cwd, signal),
-      readUpstreamBranch(cwd, signal),
-    ]);
-    const commitsAhead = await readCommitsAhead(cwd, upstreamBranch, signal);
-    const hasUntrackedFiles = untrackedFiles.length > 0;
-    const hasUnstagedChanges = unstagedTrackedChanges || hasUntrackedFiles;
-    const hasUncommittedChanges = stagedChanges || hasUnstagedChanges;
-    const pushNeedsUpstream = headCommit && branchState.currentBranch !== null && upstreamBranch === null;
-    const canPush = headCommit
-      && branchState.currentBranch !== null
-      && (upstreamBranch !== null ? commitsAhead > 0 : remotes.includes("origin"));
-
+): Promise<PushGitState> {
+  if (!(await isGitRepository(cwd, signal))) {
     return {
-      cwd,
-      isGitRepository: true,
-      currentBranch: branchState.currentBranch,
-      defaultBranch: branchState.defaultBranch,
-      upstreamBranch,
-      remotes,
-      hasHeadCommit: headCommit,
-      hasStagedChanges: stagedChanges,
-      hasUnstagedChanges,
-      hasUntrackedFiles,
-      hasUncommittedChanges,
-      commitsAhead,
-      canCommit: hasUncommittedChanges,
-      canPush,
-      pushNeedsUpstream,
-      errorMessage: null,
-    };
-  } catch (error) {
-    if (isAbortError(error)) throw error;
-    if (isNotGitRepositoryError(error)) return emptyStatus(cwd);
-
-    return {
-      ...emptyStatus(cwd),
-      errorMessage: gitErrorMessage(error, "Could not read Git action status."),
+      currentBranch: null,
+      isGitRepository: false,
+      remotes: [],
+      upstreamBranch: null,
     };
   }
+  const [current, remotes, upstreamBranch] = await Promise.all([
+    runGitCommand(["branch", "--show-current"], cwd, [0], signal),
+    readRemotes(cwd, signal),
+    readUpstreamBranch(cwd, signal),
+  ]);
+  return {
+    currentBranch: current.stdout.trim() || null,
+    isGitRepository: true,
+    remotes,
+    upstreamBranch,
+  };
 }
 
 function mutationError(cwd: string, branch: string | null, error: unknown, fallback: string): GitActionMutationResult {
@@ -813,19 +667,19 @@ function pullRequestMessageGenerationError(
 
 async function pushGitBranch(
   cwd: string,
+  state: PushGitState,
   force: boolean | undefined,
   signal?: AbortSignal,
 ): Promise<GitCommandResult> {
-  const status = await readGitActionStatus({ cwd }, signal);
-  if (!status.currentBranch) {
+  if (!state.currentBranch) {
     throw new Error("Current branch is required before pushing.");
   }
 
-  if (status.upstreamBranch) {
+  if (state.upstreamBranch) {
     return runGitCommand(["push", ...(force ? ["--force-with-lease"] : [])], cwd, [0], signal);
   }
 
-  if (!status.remotes.includes("origin")) {
+  if (!state.remotes.includes("origin")) {
     throw new Error("No upstream branch or origin remote is configured.");
   }
 
@@ -834,13 +688,13 @@ async function pushGitBranch(
     ...(force ? ["--force-with-lease"] : []),
     "-u",
     "origin",
-    status.currentBranch,
+    state.currentBranch,
   ], cwd, [0], signal);
 }
 
 export function commitGitChanges(
   input: GitCommitInput,
-  options: CommitGitChangesOptions = {},
+  options: CommitGitChangesOptions,
 ): Promise<GitActionMutationResult> {
   const requestedMessage = input.message.trim();
   return runGitActionOperation(input.operationId, async (signal) => {
@@ -849,7 +703,7 @@ export function commitGitChanges(
 
     try {
       cwd = await ensureDirectory(input.cwd, signal);
-      const status = await readGitActionStatus({ cwd }, signal);
+      const status = await options.gitWorker.readStatus(cwd, signal);
       branch = status.currentBranch;
       if (!status.isGitRepository) {
         return {
@@ -862,12 +716,11 @@ export function commitGitChanges(
         };
       }
 
-      if (input.includeUnstaged !== false) {
-        await runGitCommand(["add", "-A"], cwd, [0], signal);
-      }
-
-      const hasStagedChanges = await hasDiff(cwd, ["--cached"], signal);
-      if (!hasStagedChanges) {
+      const includeUnstaged = input.includeUnstaged !== false;
+      const hasCommitChanges = includeUnstaged
+        ? status.hasUncommittedChanges
+        : status.hasStagedChanges;
+      if (!hasCommitChanges) {
         return {
           cwd,
           status: "error",
@@ -878,28 +731,37 @@ export function commitGitChanges(
         };
       }
 
-      const message = await resolveCommitMessage(cwd, requestedMessage, options, signal);
-      const commitResult = await runGitCommand(["commit", "-m", message], cwd, [0], signal);
-      if (input.nextStep === "commit-and-push") {
-        const pushResult = await pushGitBranch(cwd, false, signal);
+      const message = await resolveCommitMessage(
+        cwd,
+        requestedMessage,
+        includeUnstaged,
+        options,
+        signal,
+      );
+      const committed = await options.gitWorker.commit({
+        ...input,
+        cwd,
+        message,
+        nextStep: "commit",
+      }, signal);
+      if (committed.status !== "success" || input.nextStep !== "commit-and-push") {
+        return committed;
+      }
+
+      try {
+        const pushState = await readPushGitState(cwd, signal);
+        const pushed = await pushGitBranch(cwd, pushState, false, signal);
         return {
           cwd,
           status: "success",
-          branch,
-          stdout: [commitResult.stdout, pushResult.stdout].filter(Boolean).join("\n"),
-          stderr: [commitResult.stderr, pushResult.stderr].filter(Boolean).join("\n"),
+          branch: committed.branch,
+          stdout: [committed.stdout, pushed.stdout].filter(Boolean).join("\n"),
+          stderr: [committed.stderr, pushed.stderr].filter(Boolean).join("\n"),
           errorMessage: null,
         };
+      } finally {
+        await options.gitWorker.refreshRepository(cwd).catch(() => undefined);
       }
-
-      return {
-        cwd,
-        status: "success",
-        branch,
-        stdout: commitResult.stdout,
-        stderr: commitResult.stderr,
-        errorMessage: null,
-      };
     } catch (error) {
       return mutationError(cwd, branch, error, "Could not commit changes.");
     }
@@ -908,7 +770,7 @@ export function commitGitChanges(
 
 export function generateGitCommitMessage(
   input: GitCommitMessageGenerateInput,
-  options: CommitGitChangesOptions = {},
+  options: CommitGitChangesOptions,
 ): Promise<GitCommitMessageGenerateResult> {
   const draftMessage = input.draftMessage?.trim() ?? "";
   return runGitActionOperation(input.operationId, async (signal) => {
@@ -916,7 +778,7 @@ export function generateGitCommitMessage(
 
     try {
       cwd = await ensureDirectory(input.cwd, signal);
-      const status = await readGitActionStatus({ cwd }, signal);
+      const status = await options.gitWorker.readStatus(cwd, signal);
       if (!status.isGitRepository) {
         return {
           cwd,
@@ -927,12 +789,11 @@ export function generateGitCommitMessage(
         };
       }
 
-      if (input.includeUnstaged !== false) {
-        await runGitCommand(["add", "-A"], cwd, [0], signal);
-      }
-
-      const hasStagedChanges = await hasDiff(cwd, ["--cached"], signal);
-      if (!hasStagedChanges) {
+      const includeUnstaged = input.includeUnstaged !== false;
+      const hasCommitChanges = includeUnstaged
+        ? status.hasUncommittedChanges
+        : status.hasStagedChanges;
+      if (!hasCommitChanges) {
         return {
           cwd,
           status: "error",
@@ -942,7 +803,21 @@ export function generateGitCommitMessage(
         };
       }
 
-      const message = await generateCommitMessage(cwd, draftMessage, options, signal);
+      const context = await readCommitMessageContext(
+        cwd,
+        includeUnstaged,
+        options.gitWorker,
+        signal,
+      );
+      const message = await generateCommitMessage(
+        cwd,
+        draftMessage,
+        context.unifiedDiff,
+        includeUnstaged,
+        context.diffError,
+        options,
+        signal,
+      );
       return {
         cwd,
         status: "success",
@@ -958,7 +833,7 @@ export function generateGitCommitMessage(
 
 export function generateGitPullRequestMessage(
   input: GitPullRequestMessageGenerateInput,
-  options: CommitGitChangesOptions = {},
+  options: CommitGitChangesOptions,
 ): Promise<GitPullRequestMessageGenerateResult> {
   const title = input.title?.trim() ?? "";
   const body = input.body?.trim() ?? "";
@@ -967,7 +842,7 @@ export function generateGitPullRequestMessage(
 
     try {
       cwd = await ensureDirectory(input.cwd, signal);
-      const status = await readGitActionStatus({ cwd }, signal);
+      const status = await options.gitWorker.readStatus(cwd, signal);
       if (!status.isGitRepository) {
         return {
           cwd,
@@ -981,6 +856,16 @@ export function generateGitPullRequestMessage(
 
       const headBranch = input.headBranch?.trim() || status.currentBranch;
       const baseBranch = input.baseBranch?.trim() || status.defaultBranch;
+      const patch = baseBranch
+        ? await options.gitWorker.readReviewPatch({
+          cwd,
+          source: "branch",
+          baseBranch,
+        }, signal)
+        : null;
+      const unifiedDiff = patch?.diff.type === "success"
+        ? patch.diff.unifiedDiff
+        : null;
       const generated = await generatePullRequestMessage(
         cwd,
         {
@@ -988,6 +873,7 @@ export function generateGitPullRequestMessage(
           body,
           headBranch,
           baseBranch,
+          unifiedDiff,
         },
         options,
         signal,
@@ -1014,9 +900,9 @@ export function pushGitChanges(input: GitPushInput): Promise<GitActionMutationRe
 
     try {
       cwd = await ensureDirectory(input.cwd, signal);
-      const status = await readGitActionStatus({ cwd }, signal);
-      branch = status.currentBranch;
-      if (!status.isGitRepository) {
+      const state = await readPushGitState(cwd, signal);
+      branch = state.currentBranch;
+      if (!state.isGitRepository) {
         return {
           cwd,
           status: "error",
@@ -1027,7 +913,7 @@ export function pushGitChanges(input: GitPushInput): Promise<GitActionMutationRe
         };
       }
 
-      const result = await pushGitBranch(cwd, input.force, signal);
+      const result = await pushGitBranch(cwd, state, input.force, signal);
       return {
         cwd,
         status: "success",

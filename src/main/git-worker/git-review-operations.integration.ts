@@ -20,14 +20,12 @@ import {
   readGitReviewSummary,
   resolveGitMergeBase,
   searchGitReview,
-} from "./git-review-service";
-import { subscribeGitReviewSummary } from "./git-review-live-service";
+} from "./git-review-operations";
 import type {
-  GitReviewLiveEvent,
   GitReviewSearchResult,
   ReviewDiffResult,
   ReviewDiffSuccessResult,
-} from "../shared/types";
+} from "../../shared/types";
 
 type GitReviewSearchSuccess = Extract<GitReviewSearchResult, { type: "success" }>;
 
@@ -570,64 +568,6 @@ describe("git review service", () => {
     expect(summary.files[0]?.deletions).toBe(0);
   });
 
-  test("publishes a debounced complete live summary with a new snapshot generation", async () => {
-    const cwd = createTempDir("nodex-git-review-live-");
-    initializeRepository(cwd);
-    writeFileSync(path.join(cwd, "README.md"), "alpha\n", "utf8");
-    commitAll(cwd, "initial");
-    const initial = await readGitReviewSummary({ cwd, source: "unstaged" });
-    if (initial.type !== "success") throw new Error("Expected summary.");
-
-    let resolveEvent: ((event: GitReviewLiveEvent) => void) | null = null;
-    let rejectEvent: ((error: Error) => void) | null = null;
-    const eventPromise = new Promise<GitReviewLiveEvent>(
-      (resolve, reject) => {
-        resolveEvent = resolve;
-        rejectEvent = reject;
-      },
-    );
-    const timeout = setTimeout(() => {
-      rejectEvent?.(new Error("Timed out waiting for live review summary."));
-    }, 5_000);
-    const subscription = subscribeGitReviewSummary({
-      subscriptionId: "integration-live",
-      request: { cwd, source: "unstaged" },
-      publish: (event) => {
-        if (
-          event.type !== "git-live-query-updated" ||
-          event.method !== "review-summary" ||
-          event.phase !== "complete" ||
-          event.result.type !== "success" ||
-          event.result.snapshotGeneration <= initial.snapshotGeneration
-        )
-          return;
-        clearTimeout(timeout);
-        resolveEvent?.(event);
-      },
-    });
-    try {
-      writeFileSync(path.join(cwd, "README.md"), "alpha\nbeta\n", "utf8");
-      await subscription.refresh();
-      const event = await eventPromise;
-
-      expect(event.type).toBe("git-live-query-updated");
-      if (
-        event.type !== "git-live-query-updated"
-        || event.method !== "review-summary"
-      ) {
-        throw new Error("Expected update event.");
-      }
-      if (event.result.type !== "success") throw new Error("Expected summary.");
-      expect(event.result.snapshotGeneration).toBeGreaterThan(
-        initial.snapshotGeneration,
-      );
-      expect(event.result.files[0]?.path).toBe("README.md");
-    } finally {
-      clearTimeout(timeout);
-      subscription.dispose();
-    }
-  });
-
   test("reads a full review patch separately from the metadata snapshot", async () => {
     const cwd = createTempDir("nodex-git-review-full-patch-");
     initializeRepository(cwd);
@@ -853,6 +793,7 @@ describe("git review service", () => {
     const snapshot = await readGitReviewSnapshot({ cwd, source: "unstaged" });
 
     writeFileSync(path.join(cwd, "README.md"), "alpha\nbeta\ngamma\n", "utf8");
+    invalidateGitReviewSnapshot(cwd);
     const catFile = await readGitReviewCatFile({
       cwd,
       snapshotGeneration: snapshot.snapshotGeneration,

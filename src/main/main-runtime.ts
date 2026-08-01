@@ -38,6 +38,8 @@ import {
   isRemoteHostedPipPrivacySettingsTerminationRequest,
   registerIpcHandlers,
 } from "./ipc-handlers";
+import { GitWorkerHost } from "./git-worker-host";
+import { registerGitWorkerIpc } from "./git-worker-ipc";
 import { dbNotifier } from "./local-store/notifier";
 import { getAssetsPathPrefix } from "./local-store/assets";
 import {
@@ -267,6 +269,8 @@ let appInitializationStepChangedAt = performance.now();
 let appInitializationPromise: Promise<void> = Promise.resolve();
 const rendererInitializationReports = new Set<number>();
 let appUpdateService: AppUpdateService | null = null;
+let gitWorkerHost: GitWorkerHost | null = null;
+let disposeGitWorkerIpc: (() => void) | null = null;
 let browserUseSessionRegistry: BrowserUseSessionRegistry | null = null;
 let disposeBrowserUseSessionRegistryBridge: (() => void) | null = null;
 let scheduledAutomationScheduler: CodexScheduledAutomationScheduler | null = null;
@@ -2138,6 +2142,16 @@ function shutdownMainRuntime(): Promise<void> {
       RUNTIME_SHUTDOWN_STEP_TIMEOUT_MS,
     );
     await settleRuntimeShutdownStep(
+      "Git worker",
+      async () => {
+        disposeGitWorkerIpc?.();
+        disposeGitWorkerIpc = null;
+        await gitWorkerHost?.shutdown();
+        gitWorkerHost = null;
+      },
+      RUNTIME_SHUTDOWN_STEP_TIMEOUT_MS,
+    );
+    await settleRuntimeShutdownStep(
       "Main diagnostics",
       () => shutdownMainSentry(),
       RUNTIME_SHUTDOWN_STEP_TIMEOUT_MS,
@@ -2623,6 +2637,29 @@ export async function runMainAppStartup(
   configureApplicationMenus();
   registerInitializationIpcHandlers();
   registerProjectionStreamIpcHandlers();
+  gitWorkerHost = new GitWorkerHost({
+    workerPath: join(__dirname, "git-worker.js"),
+    onInfrastructureError: (error, context) => {
+      logger.error("Git worker infrastructure failed", {
+        epoch: context.epoch,
+        error: error.message,
+        phase: context.phase,
+      });
+      captureMainException(error, {
+        tags: {
+          component: "git-worker",
+          phase: context.phase,
+        },
+        extra: {
+          epoch: context.epoch,
+        },
+      });
+    },
+    onPerformanceOperation: (metric) => {
+      logger.debug("Git worker operation", metric);
+    },
+  });
+  disposeGitWorkerIpc = registerGitWorkerIpc(gitWorkerHost);
   rendererClientRouter = new RendererClientRouter();
   codexService.setNodexAgentAuthorizationBroker(new NodexAgentAuthorizationBroker({
     rendererClientRouter,
@@ -2636,6 +2673,7 @@ export async function runMainAppStartup(
   }));
   registerIpcHandlers({
     automationModule,
+    gitWorkerHost,
     storeAdministration,
     onBackupSettingsChanged: configureRuntimeBackupScheduler,
     onStoreRestored,

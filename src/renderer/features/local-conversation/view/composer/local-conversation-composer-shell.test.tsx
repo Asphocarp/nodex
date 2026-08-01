@@ -135,14 +135,14 @@ function installComposerShellWindowApi(testInvoke?: (channel: string, ...args: u
         if (result !== undefined) return result;
       }
       switch (channel) {
-        case "git:branch:state":
+        case "branch-metadata":
           return {
             currentBranch: "main",
             defaultBranch: "main",
             branches: ["main"],
           };
-        case "git:branch:watch:start":
-        case "git:branch:watch:stop":
+        case "subscribe-live-query":
+        case "unsubscribe-live-query":
           return true;
         case "persisted-atom:sync-request":
           return { revision: persistedRevision, values: persistedValues };

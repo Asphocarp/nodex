@@ -27,6 +27,12 @@ import {
 import { inspectClipboardPasteItems, readClipboardPastePayload } from "../main/clipboard-paste-inspector";
 import type { CodexDesktopMessageFromView } from "../shared/remote-hosted-pip";
 import { parseAssetSource } from "../shared/assets";
+import {
+  GIT_WORKER_MESSAGE_FOR_VIEW_CHANNEL,
+  GIT_WORKER_MESSAGE_FROM_VIEW_CHANNEL,
+  type GitWorkerMessageForView,
+  type GitWorkerMessageFromView,
+} from "../shared/git-worker-protocol";
 
 const ASSET_PATH_PREFIX_ARG_PREFIX = "--nodex-asset-path-prefix=";
 
@@ -202,6 +208,18 @@ contextBridge.exposeInMainWorld("api", {
     } catch {
       return "";
     }
+  },
+  sendGitWorkerMessage: (message: GitWorkerMessageFromView) =>
+    ipcRenderer.invoke(GIT_WORKER_MESSAGE_FROM_VIEW_CHANNEL, message).then(() => undefined),
+  onGitWorkerMessage: (callback: (message: GitWorkerMessageForView) => void) => {
+    const listener = (
+      _event: Electron.IpcRendererEvent,
+      message: GitWorkerMessageForView,
+    ) => callback(message);
+    ipcRenderer.on(GIT_WORKER_MESSAGE_FOR_VIEW_CHANNEL, listener);
+    return () => {
+      ipcRenderer.removeListener(GIT_WORKER_MESSAGE_FOR_VIEW_CHANNEL, listener);
+    };
   },
 });
 

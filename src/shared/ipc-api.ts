@@ -229,43 +229,15 @@ import type {
   CodexSidebarRefreshReason,
   CodexSidebarSnapshot,
   CodexSidebarSyncResult,
-  BranchDiffStatsRequest,
-  BranchDiffStatsResult,
   GitActionCancelInput,
   GitActionCancelResult,
   GitActionMutationResult,
-  GitActionStatusRequest,
-  GitActionStatusResult,
-  GitApplyPatchInput,
-  GitApplyPatchResult,
   GitCommitMessageGenerateInput,
   GitCommitMessageGenerateResult,
   GitCommitInput,
   GitPullRequestMessageGenerateInput,
   GitPullRequestMessageGenerateResult,
   GitPushInput,
-  GitReviewBranchCommitsRequest,
-  GitReviewBranchCommitsResult,
-  GitMergeBaseRequest,
-  GitMergeBaseResult,
-  GitReviewBlameInput,
-  GitReviewBlameResult,
-  GitReviewCancelInput,
-  GitReviewCatFileInput,
-  GitReviewCatFileOutput,
-  GitReviewLiveSubscriptionInput,
-  GitReviewLiveSubscriptionStopInput,
-  GitReviewLiveEvent,
-  GitReviewRepositoryMetadataRequest,
-  GitReviewRepositoryMetadataResult,
-  GitReviewPatchRequest,
-  GitReviewPatchResult,
-  GitReviewSearchInput,
-  GitReviewSearchResult,
-  GitReviewSnapshot,
-  GitReviewSnapshotRequest,
-  GitReviewSummaryRequest,
-  GitReviewSummaryResult,
   GhCliStatusResult,
   GhPrChecksRequest,
   GhPrChecksResult,
@@ -281,8 +253,6 @@ import type {
   GhPrStatusRequest,
   GhPrStatusResult,
   GhPrUpdateInput,
-  ReviewDiffRequest,
-  ReviewDiffResult,
   CodexComposerAppshotCaptureInput,
   CodexComposerAppshotContext,
   CodexComposerAppshotTargetResult,
@@ -609,17 +579,6 @@ export interface PersistedAtomMutation extends PersistedAtomUpdate {
 export interface PersistedAtomEvent extends PersistedAtomMutation {
   revision: number;
   originRendererId: string | null;
-}
-
-export interface GitBranchState {
-  currentBranch: string | null;
-  defaultBranch: string | null;
-  branches: string[];
-}
-
-export interface GitBranchInput {
-  cwd: string;
-  branch: string;
 }
 
 export interface WorkspacePickDirectoryInput {
@@ -1359,105 +1318,10 @@ export interface IpcApi {
     result: BrowserLocalServerPreferences;
   };
 
-  // Git branch state
-  "git:branch:state": {
-    args: [cwd: string];
-    result: GitBranchState;
-  };
+  // Git repository identity and orchestrated actions
   "git:repository:identity": {
     args: [cwd: string];
     result: GitRepositoryIdentity | null;
-  };
-  "git:branch:checkout": {
-    args: [input: GitBranchInput];
-    result: GitBranchState;
-  };
-  "git:branch:create": {
-    args: [input: GitBranchInput];
-    result: GitBranchState;
-  };
-  "git:branch:watch:start": {
-    args: [cwd: string];
-    result: void;
-  };
-  "git:branch:watch:stop": {
-    args: [];
-    result: void;
-  };
-
-  // Git review
-  "git:review:snapshot": {
-    args: [input: GitReviewSnapshotRequest];
-    result: GitReviewSnapshot;
-  };
-  "git:review:summary": {
-    args: [input: GitReviewSummaryRequest];
-    result: GitReviewSummaryResult;
-  };
-  "git:review:repository-metadata": {
-    args: [input: GitReviewRepositoryMetadataRequest];
-    result: GitReviewRepositoryMetadataResult;
-  };
-  "git:live-query:subscribe": {
-    args: [input: GitReviewLiveSubscriptionInput];
-    result: void;
-  };
-  "git:live-query:unsubscribe": {
-    args: [input: GitReviewLiveSubscriptionStopInput];
-    result: void;
-  };
-  "git:live-query:recover": {
-    args: [input: GitReviewLiveSubscriptionStopInput];
-    result: void;
-  };
-  "git:live-query:refresh-repository": {
-    args: [input: GitReviewLiveSubscriptionStopInput];
-    result: void;
-  };
-  "git:review:diff": {
-    args: [input: ReviewDiffRequest];
-    result: ReviewDiffResult;
-  };
-  "git:review:cancel": {
-    args: [input: GitReviewCancelInput];
-    result: { cancelled: boolean };
-  };
-  "git:review:branch-diff-stats": {
-    args: [input: BranchDiffStatsRequest];
-    result: BranchDiffStatsResult;
-  };
-  "git:review:branch-commits": {
-    args: [input: GitReviewBranchCommitsRequest];
-    result: GitReviewBranchCommitsResult;
-  };
-  "git:merge-base": {
-    args: [input: GitMergeBaseRequest];
-    result: GitMergeBaseResult;
-  };
-  "git:review:cat-file": {
-    args: [input: GitReviewCatFileInput];
-    result: GitReviewCatFileOutput;
-  };
-  "git:review:search": {
-    args: [input: GitReviewSearchInput];
-    result: GitReviewSearchResult;
-  };
-  "git:review:patch": {
-    args: [input: GitReviewPatchRequest];
-    result: GitReviewPatchResult;
-  };
-  "git:review:blame-file": {
-    args: [input: GitReviewBlameInput];
-    result: GitReviewBlameResult;
-  };
-  "git:apply-patch": {
-    args: [input: GitApplyPatchInput];
-    result: GitApplyPatchResult;
-  };
-  "git:init": { args: [cwd: string]; result: GitReviewSnapshot };
-  "git:action:status": {
-    args: [input: GitActionStatusRequest];
-    result: GitActionStatusResult;
   };
   "git:action:commit-message:generate": {
     args: [input: GitCommitMessageGenerateInput];
@@ -2164,7 +2028,6 @@ export interface IpcApi {
 
 export interface IpcEvents {
   "agent-import:progress": AgentImportProgress;
-  "git:live-query:event": GitReviewLiveEvent;
   "workspace-file:changed": import("./types").WorkspaceFileChangedEvent;
   "document-sync:event": DocumentSyncRealtimeEvent;
   "persisted-atom:updated": PersistedAtomEvent;

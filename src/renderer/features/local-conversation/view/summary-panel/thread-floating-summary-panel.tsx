@@ -39,7 +39,7 @@ import {
   CodexGlobeIcon,
   CodexPluginCubeIcon,
 } from "../shared/tools/codex-tool-icons";
-import { invoke } from "../../../../lib/api";
+import { getGitWorkerClient, invoke } from "../../../../lib/api";
 import {
   CODEX_SUMMARY_PANEL_TRANSITION,
   CODEX_SUMMARY_PANEL_WIDTH,
@@ -48,6 +48,7 @@ import { buildFileUrl } from "../../../../../shared/file-link-openers";
 import { useMcpResource, useMcpServerStatuses } from "../../../../lib/use-mcp-queries";
 import { useCodexMcpApps } from "../../use-codex-mcp-apps";
 import { useGitBranchState } from "../../../../lib/use-git-branch-state";
+import { useSummaryGitState } from "../../data/use-summary-git-state";
 import { cn } from "../../../../lib/utils";
 import type {
   CodexBackgroundTerminalRow,
@@ -56,7 +57,6 @@ import type {
   CodexConversationTurn,
   GitActionStatusResult,
   GhPrStatusResult,
-  GitReviewSnapshot,
   GitReviewSource,
   ProtocolListMcpServerStatusResponse,
 } from "../../../../lib/types";
@@ -151,12 +151,6 @@ interface ThreadFloatingSummaryPanelProps extends ThreadSummaryPanelContentProps
   open: boolean;
 }
 
-interface GitSummaryState {
-  loading: boolean;
-  cwd: string | null;
-  snapshots: Partial<Record<GitReviewSource, GitReviewSnapshot>>;
-}
-
 interface SummaryGitActionStatusState {
   loading: boolean;
   cwd: string | null;
@@ -171,12 +165,6 @@ interface SummaryPullRequestStatusState {
 
 type SummaryCommitBlockerReason = "changes-loading" | "changes-unavailable" | "no-changes";
 type SummaryPushBlockerReason = "branch-missing" | "nothing-to-push" | "push-status-loading";
-
-const EMPTY_GIT_SUMMARY: GitSummaryState = {
-  loading: false,
-  cwd: null,
-  snapshots: {},
-};
 
 const EMPTY_GIT_ACTION_STATUS: SummaryGitActionStatusState = {
   loading: false,
@@ -202,28 +190,6 @@ function resolveSummaryOutputImagePreviewSrc(row: ThreadSummaryPanelOutputRow): 
   }
 
   return null;
-}
-
-function sumSnapshotFiles(snapshot: GitReviewSnapshot | undefined): { additions: number; deletions: number } {
-  if (!snapshot?.isGitRepository) return { additions: 0, deletions: 0 };
-
-  return snapshot.files.reduce(
-    (summary, file) => ({
-      additions: summary.additions + (file.additions ?? 0),
-      deletions: summary.deletions + (file.deletions ?? 0),
-    }),
-    { additions: 0, deletions: 0 },
-  );
-}
-
-function resolvePrimaryGitSource(snapshots: Partial<Record<GitReviewSource, GitReviewSnapshot>>): GitReviewSource {
-  const staged = sumSnapshotFiles(snapshots.staged);
-  if (staged.additions > 0 || staged.deletions > 0) return "staged";
-
-  const unstaged = sumSnapshotFiles(snapshots.unstaged);
-  if (unstaged.additions > 0 || unstaged.deletions > 0) return "unstaged";
-
-  return "branch";
 }
 
 type SummaryCommitOrPushMode = "commit" | "push";
@@ -670,48 +636,6 @@ function BackgroundSubagentCompactStrip({
   );
 }
 
-function useGitSummary(cwd: string | null, open: boolean, refreshKey = 0): GitSummaryState {
-  const [state, setState] = useState<GitSummaryState>(EMPTY_GIT_SUMMARY);
-  const stateRef = useRef(state);
-  stateRef.current = state;
-
-  useEffect(() => {
-    if (!open || !cwd) {
-      if (stateRef.current !== EMPTY_GIT_SUMMARY) {
-        setState(EMPTY_GIT_SUMMARY);
-      }
-      return;
-    }
-
-    let cancelled = false;
-    setState({ loading: true, cwd, snapshots: {} });
-    const sources: GitReviewSource[] = ["unstaged", "staged", "branch"];
-
-    void Promise.all(
-      sources.map(async (source) => {
-        try {
-          return [source, await invoke("git:review:snapshot", { cwd, source })] as const;
-        } catch {
-          return [source, null] as const;
-        }
-      }),
-    ).then((results) => {
-      if (cancelled) return;
-      const snapshots: Partial<Record<GitReviewSource, GitReviewSnapshot>> = {};
-      for (const [source, snapshot] of results) {
-        if (snapshot) snapshots[source] = snapshot as GitReviewSnapshot;
-      }
-      setState({ loading: false, cwd, snapshots });
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [cwd, open, refreshKey]);
-
-  return state;
-}
-
 function useSummaryGitActionStatus(
   cwd: string | null,
   open: boolean,
@@ -731,7 +655,7 @@ function useSummaryGitActionStatus(
 
     let cancelled = false;
     setState({ loading: true, cwd, status: null });
-    void invoke("git:action:status", { cwd })
+    void getGitWorkerClient().request({ method: "action-status", params: { cwd } })
       .then((result) => {
         if (cancelled) return;
         setState({ loading: false, cwd, status: result as GitActionStatusResult });
@@ -808,6 +732,7 @@ function useSummaryPanelBranchState({
     refetch: refetchBranchState,
   } = useGitBranchState(cwd, {
     enabled,
+    watch: true,
   });
   branchStateRef.current = branchState;
   branchCwdRef.current = cwd;
@@ -867,9 +792,13 @@ function useSummaryPanelBranchState({
     setBusy(true);
     onErrorMessage(null);
     try {
-      const result = await invoke("git:branch:checkout", { cwd: requestedCwd, branch });
+      const result = await getGitWorkerClient().request({
+        method: "checkout-branch",
+        params: { cwd: requestedCwd, branch },
+      });
       if (!isCurrentRequest()) return false;
-      setBranchState(parseBranchSelectorState(result));
+      if (result.type === "error") throw new Error(result.errorMessage);
+      setBranchState(parseBranchSelectorState(result.value));
       return true;
     } catch (error) {
       if (isCurrentRequest()) {
@@ -896,9 +825,13 @@ function useSummaryPanelBranchState({
     setBusy(true);
     onErrorMessage(null);
     try {
-      const result = await invoke("git:branch:create", { cwd: requestedCwd, branch });
+      const result = await getGitWorkerClient().request({
+        method: "create-branch",
+        params: { cwd: requestedCwd, branch },
+      });
       if (!isCurrentRequest()) return false;
-      setBranchState(parseBranchSelectorState(result));
+      if (result.type === "error") throw new Error(result.errorMessage);
+      setBranchState(parseBranchSelectorState(result.value));
       return true;
     } catch (error) {
       if (isCurrentRequest()) {
@@ -956,10 +889,10 @@ export function ThreadSummaryPanelSurface({
   const [gitActionWorkflow, setGitActionWorkflow] = useState<SummaryGitActionWorkflowState | null>(null);
   const [branchSetupOpen, setBranchSetupOpen] = useState(false);
   const [branchSetupNextAction, setBranchSetupNextAction] = useState<SummaryBranchSetupNextAction | null>(null);
-  const [gitSummaryRefreshKey, setGitSummaryRefreshKey] = useState(0);
+  const [gitActionRefreshKey, setGitActionRefreshKey] = useState(0);
   const previewReturnFocusRef = useRef<HTMLDivElement | null>(null);
-  const gitSummary = useGitSummary(branchCwd, isVisible, gitSummaryRefreshKey);
-  const gitActionStatus = useSummaryGitActionStatus(branchCwd, isVisible, gitSummaryRefreshKey);
+  const gitSummary = useSummaryGitState(branchCwd, isVisible);
+  const gitActionStatus = useSummaryGitActionStatus(branchCwd, isVisible, gitActionRefreshKey);
   const {
     branchState,
     busy: branchBusy,
@@ -1006,23 +939,19 @@ export function ThreadSummaryPanelSurface({
     () => getBackgroundSubagentListRows(backgroundSubagentRows),
     [backgroundSubagentRows],
   );
-  const snapshots = gitSummary.snapshots;
-  const unstaged = sumSnapshotFiles(snapshots.unstaged);
-  const staged = sumSnapshotFiles(snapshots.staged);
-  const branchDiff = sumSnapshotFiles(snapshots.branch);
-  const hasRepository = Object.values(snapshots).some((snapshot) => snapshot?.isGitRepository);
+  const hasRepository = gitSummary.hasRepository;
   const currentBranch = branchState.currentBranch
     ?? gitActionStatus.status?.currentBranch
-    ?? snapshots.branch?.currentBranch
+    ?? gitSummary.currentBranch
     ?? null;
   const defaultBranch = branchState.defaultBranch
     ?? gitActionStatus.status?.defaultBranch
-    ?? snapshots.branch?.defaultBranch
+    ?? gitSummary.defaultBranch
     ?? null;
   const pullRequestStatus = useSummaryPullRequestStatus(
     branchCwd,
     Boolean(isVisible && hasRepository && currentBranch),
-    gitSummaryRefreshKey,
+    gitActionRefreshKey,
   );
   const isDetachedHead = Boolean(
     hasRepository
@@ -1036,15 +965,12 @@ export function ThreadSummaryPanelSurface({
     && currentBranch === defaultBranch,
   );
   const changes = {
-    additions: unstaged.additions + staged.additions + branchDiff.additions,
-    deletions: unstaged.deletions + staged.deletions + branchDiff.deletions,
+    additions: gitSummary.additions,
+    deletions: gitSummary.deletions,
   };
-  const hasUncommittedChanges = unstaged.additions > 0
-    || unstaged.deletions > 0
-    || staged.additions > 0
-    || staged.deletions > 0;
-  const hasBranchChanges = branchDiff.additions > 0 || branchDiff.deletions > 0;
-  const hasChangesSnapshotError = Object.values(snapshots).some((snapshot) => snapshot?.errorMessage);
+  const hasUncommittedChanges = gitSummary.hasUncommittedChanges;
+  const hasBranchChanges = gitSummary.hasBranchChanges;
+  const hasChangesSnapshotError = gitSummary.error;
   const commitBlockerReason = resolveSummaryCommitBlockerReason({
     hasUncommittedChanges,
     isChangesLoading: gitSummary.loading,
@@ -1149,7 +1075,7 @@ export function ThreadSummaryPanelSurface({
       hasGitEnvironmentSummary,
     ],
   );
-  const primaryGitSource = resolvePrimaryGitSource(snapshots);
+  const primaryGitSource = gitSummary.primarySource;
   const runTargetLabel = newThreadStartInSelector?.target.runInTarget === "newWorktree" ? "New worktree" : "Local";
   const worktreeAvailable = Boolean(
     branchCwd
@@ -1178,7 +1104,8 @@ export function ThreadSummaryPanelSurface({
     setCreatePullRequestDialogOpen(true);
   }, [gitSummary.loading, hasRepository]);
   const handleBranchSetupCreated = useCallback(() => {
-    setGitSummaryRefreshKey((current) => current + 1);
+    setGitActionRefreshKey((current) => current + 1);
+    void gitSummary.refresh();
     void refreshBranchState();
     if (branchSetupNextAction === "create-pull-request") {
       setCreatePullRequestDialogOpen(true);
@@ -1186,7 +1113,7 @@ export function ThreadSummaryPanelSurface({
       setGitActionDialogMode(branchSetupNextAction);
     }
     setBranchSetupNextAction(null);
-  }, [branchSetupNextAction, refreshBranchState]);
+  }, [branchSetupNextAction, gitSummary, refreshBranchState]);
   const handleGitActionDialogOpenChange = useCallback((nextOpen: boolean) => {
     if (nextOpen) return;
     setGitActionDialogMode(null);
@@ -1195,13 +1122,15 @@ export function ThreadSummaryPanelSurface({
     setCreatePullRequestDialogOpen(nextOpen);
   }, []);
   const handleGitActionCompleted = useCallback(() => {
-    setGitSummaryRefreshKey((current) => current + 1);
+    setGitActionRefreshKey((current) => current + 1);
+    void gitSummary.refresh();
     void refreshBranchState();
-  }, [refreshBranchState]);
+  }, [gitSummary, refreshBranchState]);
   const handleCreatePullRequestCompleted = useCallback(() => {
-    setGitSummaryRefreshKey((current) => current + 1);
+    setGitActionRefreshKey((current) => current + 1);
+    void gitSummary.refresh();
     void refreshBranchState();
-  }, [refreshBranchState]);
+  }, [gitSummary, refreshBranchState]);
   const handleCancelGitAction = useCallback((operationId: string) => {
     void invoke("git:action:cancel", { operationId })
       .finally(() => {

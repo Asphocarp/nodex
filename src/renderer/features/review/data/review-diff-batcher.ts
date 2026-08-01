@@ -1,10 +1,10 @@
 import type {
-  GitReviewCancelInput,
   ReviewDiffEntry,
   ReviewDiffRequest,
   ReviewDiffResult,
 } from "@/lib/types";
 import { recordReviewRuntimeEvent } from "@/features/review/testing/review-runtime-probe";
+import type { GitWorkerQueryClient } from "./git-query";
 
 interface ReviewDiffWaiter {
   path: string;
@@ -19,13 +19,19 @@ interface ReviewDiffWaiter {
 
 interface ReviewDiffBucket {
   request: Omit<ReviewDiffRequest, "files" | "requestId">;
-  invoke: (channel: string, input: unknown) => Promise<unknown>;
+  client: GitWorkerQueryClient;
   waiters: ReviewDiffWaiter[];
 }
 
 const REVIEW_DIFF_TIMEOUT_MS = 15_000;
 const buckets = new Map<string, ReviewDiffBucket>();
-let requestSequence = 0;
+
+export class StaleReviewSnapshot extends Error {
+  constructor() {
+    super("The Git review snapshot is stale");
+    this.name = "StaleReviewSnapshot";
+  }
+}
 
 function buildAbortError(): DOMException {
   return new DOMException("Review diff request aborted", "AbortError");
@@ -36,7 +42,7 @@ function findReviewDiffEntry(
   waiter: ReviewDiffWaiter,
 ): ReviewDiffEntry | null {
   if (result.type === "stale-snapshot") {
-    throw new Error("Git review snapshot changed.");
+    throw new StaleReviewSnapshot();
   }
   return (
     result.files.find(
@@ -58,21 +64,20 @@ async function invokeReviewDiffGroup(
   }
   if (activeWaiters.length === 0) return;
 
-  const requestId = `review-diff-batch:${++requestSequence}`;
   recordReviewRuntimeEvent({
     type: "diff-batch",
     pathCount: activeWaiters.length,
     untracked: activeWaiters.every((waiter) => waiter.untracked),
   });
   let timeout: ReturnType<typeof setTimeout> | null = null;
+  const controller = new AbortController();
   const settledWaiters = new Set<ReviewDiffWaiter>();
   let groupCancelled = false;
   const cancelGroup = () => {
     if (groupCancelled) return;
     groupCancelled = true;
     recordReviewRuntimeEvent({ type: "abort", operation: "diff" });
-    const cancelInput: GitReviewCancelInput = { requestId };
-    void bucket.invoke("git:review:cancel", cancelInput).catch(() => {});
+    controller.abort();
   };
   const rejectWaiter = (waiter: ReviewDiffWaiter, error: unknown) => {
     if (settledWaiters.has(waiter)) return;
@@ -99,15 +104,18 @@ async function invokeReviewDiffGroup(
   });
   try {
     const result = (await Promise.race([
-      bucket.invoke("git:review:diff", {
-        ...bucket.request,
-        files: activeWaiters.map((waiter) => ({
-          path: waiter.path,
-          previousPath: waiter.previousPath,
-          status: waiter.status,
-          revision: waiter.revision,
-        })),
-        requestId,
+      bucket.client.request({
+        method: "review-diff",
+        signal: controller.signal,
+        params: {
+          ...bucket.request,
+          files: activeWaiters.map((waiter) => ({
+            path: waiter.path,
+            previousPath: waiter.previousPath,
+            status: waiter.status,
+            revision: waiter.revision,
+          })),
+        },
       }),
       new Promise<never>((_, reject) => {
         timeout = setTimeout(() => {
@@ -118,7 +126,7 @@ async function invokeReviewDiffGroup(
     ])) as ReviewDiffResult;
     if (result.type === "stale-snapshot") {
       recordReviewRuntimeEvent({ type: "stale-discard", operation: "diff" });
-      throw new Error("Git review snapshot changed.");
+      throw new StaleReviewSnapshot();
     }
     if (
       bucket.request.snapshotGeneration !== undefined &&
@@ -126,7 +134,7 @@ async function invokeReviewDiffGroup(
       result.snapshotGeneration !== bucket.request.snapshotGeneration
     ) {
       recordReviewRuntimeEvent({ type: "stale-discard", operation: "diff" });
-      throw new Error("Git review snapshot changed.");
+      throw new StaleReviewSnapshot();
     }
     for (const waiter of activeWaiters) {
       if (waiter.signal?.aborted) {
@@ -173,7 +181,7 @@ export function requestReviewDiffPath(input: {
   status: ReviewDiffEntry["status"];
   revision: string | null;
   signal?: AbortSignal;
-  invoke: ReviewDiffBucket["invoke"];
+  client: GitWorkerQueryClient;
 }): Promise<ReviewDiffEntry | null> {
   if (input.signal?.aborted) return Promise.reject(buildAbortError());
 
@@ -197,7 +205,7 @@ export function requestReviewDiffPath(input: {
 
     const bucket: ReviewDiffBucket = {
       request: input.request,
-      invoke: input.invoke,
+      client: input.client,
       waiters: [waiter],
     };
     buckets.set(key, bucket);

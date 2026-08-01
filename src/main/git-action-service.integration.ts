@@ -1,16 +1,23 @@
 import { execFile } from "node:child_process";
-import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test } from "vitest";
 import {
   cancelGitAction,
   commitGitChanges,
   generateGitCommitMessage,
   generateGitPullRequestMessage,
   pushGitChanges,
-  readGitActionStatus,
+  type CommitGitChangesOptions,
+  type GitActionWorkerPort,
 } from "./git-action-service";
+import type {
+  GitWorkerMethod,
+  GitWorkerMethodMap,
+  GitWorkerRequest,
+} from "../shared/git-worker-protocol";
+import { GitWorkerModule } from "./git-worker/git-worker-module";
 
 interface CommandResult {
   stdout: string;
@@ -18,6 +25,72 @@ interface CommandResult {
 }
 
 const tempRoots: string[] = [];
+const gitWorkerModules: GitWorkerModule[] = [];
+let workerRequestSequence = 0;
+
+async function executeWorkerRequest<Method extends GitWorkerMethod>(
+  module: GitWorkerModule,
+  method: Method,
+  params: GitWorkerMethodMap[Method]["params"],
+  signal?: AbortSignal,
+): Promise<GitWorkerMethodMap[Method]["result"]> {
+  workerRequestSequence += 1;
+  return await module.execute({
+    id: `git-action-test-${workerRequestSequence}`,
+    method,
+    params,
+    enqueuedAtMs: Date.now(),
+  } as GitWorkerRequest["request"], signal ?? new AbortController().signal) as GitWorkerMethodMap[Method]["result"];
+}
+
+function createGitActionWorkerPort(): GitActionWorkerPort {
+  const module = new GitWorkerModule();
+  gitWorkerModules.push(module);
+  return {
+    readStatus: async (cwd, signal) => await executeWorkerRequest(
+      module,
+      "action-status",
+      { cwd },
+      signal,
+    ),
+    readReviewPatch: async (input, signal) => {
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const result = await executeWorkerRequest(
+          module,
+          "review-patch",
+          input,
+          signal,
+        );
+        if (!("type" in result) || result.type !== "stale-snapshot") {
+          return result as import("../shared/types").GitReviewPatchResult;
+        }
+      }
+      throw new Error("Git repository changed while preparing the message.");
+    },
+    commit: async (input, signal) => await executeWorkerRequest(
+      module,
+      "commit",
+      input,
+      signal,
+    ),
+    refreshRepository: async (cwd) => {
+      await executeWorkerRequest(module, "refresh-repository", { cwd });
+    },
+  };
+}
+
+function createGitActionOptions(
+  overrides: Omit<CommitGitChangesOptions, "gitWorker"> = {},
+): CommitGitChangesOptions {
+  return {
+    gitWorker: createGitActionWorkerPort(),
+    ...overrides,
+  };
+}
+
+async function readActionStatus(cwd: string) {
+  return await createGitActionWorkerPort().readStatus(cwd);
+}
 
 function runCommand(command: string, args: string[], cwd: string): Promise<CommandResult> {
   return new Promise((resolve, reject) => {
@@ -60,6 +133,7 @@ async function createRepo(root: string): Promise<string> {
 }
 
 afterEach(async () => {
+  for (const module of gitWorkerModules.splice(0)) module.dispose();
   await Promise.all(tempRoots.splice(0).map((root) => rm(root, { force: true, recursive: true })));
 });
 
@@ -69,7 +143,7 @@ describe("git-action-service", () => {
     const repo = await createRepo(root);
     await writeFile(path.join(repo, "feature.txt"), "hello\n");
 
-    const before = await readGitActionStatus({ cwd: repo });
+    const before = await readActionStatus(repo);
     expect(before.isGitRepository).toBe(true);
     expect(before.hasUncommittedChanges).toBe(true);
     expect(before.canCommit).toBe(true);
@@ -78,12 +152,12 @@ describe("git-action-service", () => {
       cwd: repo,
       message: "feat: add feature file",
       includeUnstaged: true,
-    });
+    }, createGitActionOptions());
 
     expect(result.status).toBe("success");
     const log = await runCommand("git", ["log", "-1", "--pretty=%s"], repo);
     expect(log.stdout.trim()).toBe("feat: add feature file");
-    const after = await readGitActionStatus({ cwd: repo });
+    const after = await readActionStatus(repo);
     expect(after.hasUncommittedChanges).toBe(false);
   });
 
@@ -97,12 +171,12 @@ describe("git-action-service", () => {
       cwd: repo,
       message: "",
       includeUnstaged: true,
-    }, {
+    }, createGitActionOptions({
       generateCommitMessage: async ({ prompt }) => {
         capturedPrompt = prompt;
         return "feat: generated feature";
       },
-    });
+    }));
 
     expect(result.status).toBe("success");
     const log = await runCommand("git", ["log", "-1", "--pretty=%s"], repo);
@@ -122,11 +196,11 @@ describe("git-action-service", () => {
       cwd: repo,
       message: "",
       includeUnstaged: true,
-    });
+    }, createGitActionOptions());
 
     expect(result.status).toBe("success");
     const log = await runCommand("git", ["log", "-1", "--pretty=%s"], repo);
-    expect(log.stdout.trim()).toBe("Add feature.txt");
+    expect(log.stdout.trim()).toBe("Update feature.txt");
   });
 
   test("generates a commit message without committing", async () => {
@@ -139,20 +213,20 @@ describe("git-action-service", () => {
       cwd: repo,
       draftMessage: "",
       includeUnstaged: true,
-    }, {
+    }, createGitActionOptions({
       generateCommitMessage: async ({ prompt }) => {
         capturedPrompt = prompt;
         return "feat: generated feature";
       },
-    });
+    }));
 
     expect(result.status).toBe("success");
     expect(result.message).toBe("feat: generated feature");
     expect(capturedPrompt.includes("Changes:")).toBe(true);
     expect(capturedPrompt.includes("feature.txt")).toBe(true);
 
-    const after = await readGitActionStatus({ cwd: repo });
-    expect(after.hasStagedChanges).toBe(true);
+    const after = await readActionStatus(repo);
+    expect(after.hasStagedChanges).toBe(false);
     expect(after.hasUncommittedChanges).toBe(true);
   });
 
@@ -164,7 +238,7 @@ describe("git-action-service", () => {
       cwd: repo,
       message: "chore: initial commit",
       includeUnstaged: true,
-    });
+    }, createGitActionOptions());
     await runCommand("git", ["branch", "-M", "main"], repo);
     await runCommand("git", ["checkout", "-b", "feature/summary-panel"], repo);
     await writeFile(path.join(repo, "feature.txt"), "hello\n");
@@ -172,7 +246,7 @@ describe("git-action-service", () => {
       cwd: repo,
       message: "feat: add feature file",
       includeUnstaged: true,
-    });
+    }, createGitActionOptions());
 
     let capturedPrompt = "";
     const result = await generateGitPullRequestMessage({
@@ -181,7 +255,7 @@ describe("git-action-service", () => {
       body: "",
       headBranch: "feature/summary-panel",
       baseBranch: "main",
-    }, {
+    }, createGitActionOptions({
       generatePullRequestMessage: async ({ prompt }) => {
         capturedPrompt = prompt;
         return {
@@ -189,7 +263,7 @@ describe("git-action-service", () => {
           body: "Generated PR body",
         };
       },
-    });
+    }));
 
     expect(result.status).toBe("success");
     expect(result.title).toBe("Generated PR title");
@@ -210,25 +284,44 @@ describe("git-action-service", () => {
       cwd: repo,
       message: "",
       includeUnstaged: true,
-    }, {
+    }, createGitActionOptions({
       generateCommitMessage: async () => "",
-    });
+    }));
 
     expect(result.status).toBe("error");
     expect(result.errorMessage).toBe("Couldn't generate a commit message");
 
-    const after = await readGitActionStatus({ cwd: repo });
+    const after = await readActionStatus(repo);
     expect(after.hasUncommittedChanges).toBe(true);
   });
 
   test("cancels the active Git commit process by operation id", async () => {
     const root = await createTempRoot();
     const repo = await createRepo(root);
-    const hookPath = path.join(repo, ".git", "hooks", "pre-commit");
-    const readinessPath = path.join(repo, ".git", "nodex-pre-commit-ready");
-    await writeFile(hookPath, "#!/bin/sh\nprintf 'ready\\n' > .git/nodex-pre-commit-ready\nsleep 10\n");
-    await chmod(hookPath, 0o755);
     await writeFile(path.join(repo, "feature.txt"), "hello\n");
+    let markCommitStarted: (() => void) | undefined;
+    const commitStarted = new Promise<void>((resolve) => {
+      markCommitStarted = resolve;
+    });
+    const gitWorker = createGitActionWorkerPort();
+    const cancelableGitWorker: GitActionWorkerPort = {
+      ...gitWorker,
+      commit: async (_input, signal) => {
+        markCommitStarted?.();
+        return await new Promise<never>((_resolve, reject) => {
+          const rejectCanceled = () => {
+            const error = new Error("Git action was canceled.");
+            error.name = "AbortError";
+            reject(error);
+          };
+          if (signal?.aborted) {
+            rejectCanceled();
+            return;
+          }
+          signal?.addEventListener("abort", rejectCanceled, { once: true });
+        });
+      },
+    };
 
     const operationId = "cancel-commit";
     const pendingCommit = commitGitChanges({
@@ -236,15 +329,10 @@ describe("git-action-service", () => {
       message: "feat: add feature file",
       includeUnstaged: true,
       operationId,
-    });
+    }, { gitWorker: cancelableGitWorker });
 
     try {
-      await vi.waitFor(async () => {
-        await expect(readFile(readinessPath, "utf8")).resolves.toBe("ready\n");
-      }, {
-        interval: 10,
-        timeout: 10_000,
-      });
+      await commitStarted;
 
       const cancelResult = cancelGitAction({ operationId });
       const result = await pendingCommit;
@@ -270,16 +358,16 @@ describe("git-action-service", () => {
       cwd: repo,
       message: "feat: add feature file",
       includeUnstaged: true,
-    });
+    }, createGitActionOptions());
 
-    const before = await readGitActionStatus({ cwd: repo });
+    const before = await readActionStatus(repo);
     expect(before.canPush).toBe(true);
     expect(before.pushNeedsUpstream).toBe(true);
 
     const result = await pushGitChanges({ cwd: repo });
 
     expect(result.status).toBe("success");
-    const after = await readGitActionStatus({ cwd: repo });
+    const after = await readActionStatus(repo);
     expect(after.pushNeedsUpstream).toBe(false);
     expect(Boolean(after.upstreamBranch)).toBe(true);
     expect(after.commitsAhead).toBe(0);

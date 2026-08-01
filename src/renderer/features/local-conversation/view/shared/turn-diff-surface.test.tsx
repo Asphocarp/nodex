@@ -9,6 +9,7 @@ import { installAsyncRequestAnimationFrame, installWindowApi } from "../../../..
 import { renderWithMaitai as render, settleAsyncRender } from "../../../../test/dom";
 import type { CodexTranscriptEntry } from "../../../../lib/types";
 import type { ReviewOpenIntent } from "@/features/review/model/review-view-state";
+import type { GitWorkerQueryClient } from "@/features/review/data/git-query";
 import {
   TurnDiffInProgressInlineSummary,
   TurnDiffSurface,
@@ -62,6 +63,19 @@ function buildTurnDiffEntry(input?: {
 function findButtonByText(container: HTMLElement, text: string): HTMLButtonElement | null {
   return Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
     .find((button) => button.textContent?.includes(text)) ?? null;
+}
+
+function createApplyPatchTestClient(
+  apply: (params: unknown) => Promise<unknown> | unknown,
+): Pick<GitWorkerQueryClient, "request"> {
+  return {
+    request: async (input) => {
+      if (input.method !== "apply-patch") {
+        throw new Error(`Unexpected Git worker method: ${input.method}`);
+      }
+      return await apply(input.params) as never;
+    },
+  };
 }
 
 describe("TurnDiffSurface", () => {
@@ -419,22 +433,16 @@ describe("TurnDiffSurface", () => {
 
   test("uses undo reverse order, reapply forward order, and thread_diff operation source", async () => {
     const invokePayloads: unknown[] = [];
-    installWindowApi({
-      invoke: async (channel: string, payload: unknown) => {
-        if (channel === "git:apply-patch") {
-          invokePayloads.push(payload);
-          return {
-            status: "success",
-            appliedPaths: ["src/one.ts"],
-            skippedPaths: [],
-            conflictedPaths: [],
-            errorCode: null,
-            errorMessage: null,
-          };
-        }
-        return true;
-      },
-      on: () => () => { },
+    const gitWorkerClient = createApplyPatchTestClient((payload) => {
+      invokePayloads.push(payload);
+      return {
+        status: "success",
+        appliedPaths: ["src/one.ts"],
+        skippedPaths: [],
+        conflictedPaths: [],
+        errorCode: null,
+        errorMessage: null,
+      };
     });
 
     const { container, baseElement } = render(
@@ -452,6 +460,7 @@ describe("TurnDiffSurface", () => {
             })}
             isInProgress={false}
             threadCwd="/tmp/project"
+            gitWorkerClient={gitWorkerClient}
           />
         </TooltipProvider>
       </NodexToastProvider>,
@@ -474,22 +483,14 @@ describe("TurnDiffSurface", () => {
   });
 
   test("opens a patch failure dialog with applied skipped and conflicted paths", async () => {
-    installWindowApi({
-      invoke: async (channel: string) => {
-        if (channel === "git:apply-patch") {
-          return {
-            status: "error",
-            appliedPaths: ["src/applied.ts"],
-            skippedPaths: ["src/skipped.ts"],
-            conflictedPaths: ["src/conflict.ts"],
-            errorCode: "applyFailed",
-            errorMessage: "patch failed",
-          };
-        }
-        return true;
-      },
-      on: () => () => { },
-    });
+    const gitWorkerClient = createApplyPatchTestClient(() => ({
+      status: "error",
+      appliedPaths: ["src/applied.ts"],
+      skippedPaths: ["src/skipped.ts"],
+      conflictedPaths: ["src/conflict.ts"],
+      errorCode: "applyFailed",
+      errorMessage: "patch failed",
+    }));
 
     const { container, baseElement } = render(
       <TooltipProvider>
@@ -501,6 +502,7 @@ describe("TurnDiffSurface", () => {
           })}
           isInProgress={false}
           threadCwd="/tmp/project"
+          gitWorkerClient={gitWorkerClient}
         />
       </TooltipProvider>,
     );

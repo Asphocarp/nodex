@@ -94,6 +94,19 @@ import type {
   ReadPastedTextAttachmentInput,
   RemovePastedTextAttachmentInput,
 } from "../../shared/pasted-text-attachments";
+import { GitWorkerClient } from "./git-worker-client";
+
+let gitWorkerClient: GitWorkerClient | null = null;
+
+export function getGitWorkerClient(): GitWorkerClient {
+  if (gitWorkerClient) return gitWorkerClient;
+  const transport = resolveRendererTransport();
+  gitWorkerClient = new GitWorkerClient({
+    send: async (message) => await transport.sendGitWorkerMessage(message),
+    subscribe: (listener) => transport.subscribeGitWorkerMessages(listener),
+  });
+  return gitWorkerClient;
+}
 
 export async function invoke<Channel extends keyof IpcApi>(
   channel: Channel,
@@ -522,26 +535,12 @@ export function subscribeDesktopNotificationActions(
   );
 }
 
-export function subscribeGitBranchChanges(
-  callback: (event: { cwd: string }) => void,
-): () => void {
-  return resolveRendererTransport().subscribeGitBranchChanges(callback);
-}
-
 export function subscribeWorkspaceFileChanges(
   callback: (
     event: import("../../shared/types").WorkspaceFileChangedEvent,
   ) => void,
 ): () => void {
   return resolveRendererTransport().subscribeWorkspaceFileChanges(callback);
-}
-
-export function subscribeGitReviewLiveQueries(
-  callback: (
-    event: import("../../shared/types").GitReviewLiveEvent,
-  ) => void,
-): () => void {
-  return resolveRendererTransport().subscribeGitReviewLiveQueries(callback);
 }
 
 export function subscribeAppUpdateStatus(

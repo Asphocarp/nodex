@@ -5,17 +5,16 @@ import type {
   GitReviewSnapshot,
   ReviewDiffEntry,
 } from "@/lib/types";
-import { requestReviewDiffPath } from "./review-diff-batcher";
+import {
+  requestReviewDiffPath,
+  StaleReviewSnapshot,
+} from "./review-diff-batcher";
+import type { GitWorkerQueryClient } from "./git-query";
 
 const REVIEW_PATH_DIFF_STALE_TIME_MS = 5_000;
 const REVIEW_PATH_DIFF_RETRY_COUNT = 3;
 const REVIEW_PATH_DIFF_RETRY_BASE_DELAY_MS = 300;
 const REVIEW_PATH_DIFF_RETRY_MAX_DELAY_MS = 2_000;
-
-type ReviewDiffInvoke = (
-  channel: string,
-  input: unknown,
-) => Promise<unknown>;
 
 export interface ReviewPathDiffState {
   data: ReviewDiffEntry | null;
@@ -34,7 +33,7 @@ interface ReviewPathDiffQueryInput {
   commonDir: string | null;
   enabled: boolean;
   hideWhitespace: boolean;
-  invoke: ReviewDiffInvoke;
+  client: GitWorkerQueryClient;
   onStaleSnapshot: () => void;
   root: string | null;
   snapshot: GitReviewSnapshot | null;
@@ -55,10 +54,7 @@ function isAbortError(error: unknown): boolean {
 }
 
 function isStaleSnapshotError(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    error.message.includes("Git review snapshot changed")
-  );
+  return error instanceof StaleReviewSnapshot;
 }
 
 function shouldRetryReviewPathDiff(
@@ -171,9 +167,9 @@ function toReviewPathDiffError(error: unknown): Error | null {
 export function useReviewPathDiffs(
   input: ReviewPathDiffQueryInput,
 ): ReadonlyMap<string, ReviewPathDiffState> {
-  const invokeRef = useRef(input.invoke);
+  const clientRef = useRef(input.client);
   const onStaleSnapshotRef = useRef(input.onStaleSnapshot);
-  invokeRef.current = input.invoke;
+  clientRef.current = input.client;
   onStaleSnapshotRef.current = input.onStaleSnapshot;
 
   const snapshot = input.snapshot;
@@ -273,8 +269,7 @@ export function useReviewPathDiffs(
         status: inputFile.file.status,
         revision: inputFile.file.revision,
         signal: inputFile.signal,
-        invoke: (channel, requestInput) =>
-          invokeRef.current(channel, requestInput),
+        client: clientRef.current,
       });
       if (!entry) {
         throw new Error(

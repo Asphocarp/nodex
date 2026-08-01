@@ -26,7 +26,7 @@ import type {
   ThreadSummaryPanelComputerUsePipState,
   ThreadSummaryPanelScheduledAutomationRow,
 } from "@/features/local-conversation/thread-stage-types";
-import { invoke } from "@/lib/api";
+import { getGitWorkerClient, invoke } from "@/lib/api";
 import {
   createCommandKeymapState,
   formatCommandShortcutLabel,
@@ -368,7 +368,10 @@ function ConnectedSessionThread({
 
     let disposed = false;
     setCanForkCurrentThreadIntoWorktree(false);
-    void invoke("git:branch:state", cwd)
+    void getGitWorkerClient().request({
+      method: "branch-metadata",
+      params: { cwd },
+    })
       .then((state) => {
         if (disposed) return;
         setCanForkCurrentThreadIntoWorktree(Boolean(

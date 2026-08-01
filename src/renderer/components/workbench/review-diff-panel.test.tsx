@@ -44,6 +44,7 @@ import {
   type ReviewOpenIntent,
 } from "@/features/review/model/review-view-state";
 import { canonicalizeReviewPath } from "@/features/review/model/review-path";
+import type { GitWorkerQueryClient } from "@/features/review/data/git-query";
 
 const invokeCalls: unknown[][] = [];
 const startThreadPromptCalls: Array<{ threadId: string; prompt: string }> = [];
@@ -310,16 +311,13 @@ function testDiffOptionValue(options: unknown, key: string): string {
   return "";
 }
 
-const reviewDiffPanelTestDeps = {
-  initialSummaryQuery: true,
-  parsePatchFiles: parsePatchFilesForTest,
-  invoke: async (...args: unknown[]) => {
+const reviewDiffPanelTestInvoke = async (...args: unknown[]) => {
     invokeCalls.push(args);
     if (!mockInvokeImpl) return null;
     const result = await mockInvokeImpl(...args);
     if (result !== null) {
       if (
-        args[0] !== "git:review:diff" ||
+        args[0] !== "review-diff" ||
         typeof result !== "object" ||
         result === null
       ) {
@@ -346,12 +344,12 @@ const reviewDiffPanelTestDeps = {
     }
 
     if (
-      args[0] !== "git:review:summary" &&
-      args[0] !== "git:review:snapshot"
+      args[0] !== "review-summary" &&
+      args[0] !== "review-summary"
     ) {
       return result;
     }
-    const legacyResult = await mockInvokeImpl("git:review:diff", args[1]);
+    const legacyResult = await mockInvokeImpl("review-diff", args[1]);
     if (typeof legacyResult !== "object" || legacyResult === null)
       return result;
 
@@ -388,7 +386,150 @@ const reviewDiffPanelTestDeps = {
         untrackedFileCount: 0,
       },
     };
-  },
+};
+
+function createReviewGitWorkerTestClient(): GitWorkerQueryClient {
+  return {
+    request: async (input) => {
+      switch (input.method) {
+        case "stable-metadata": {
+          const params = input.params as { cwd: string };
+          const result = await reviewDiffPanelTestInvoke(
+            "stable-metadata",
+            input.params,
+          );
+          if (typeof result === "object" && result !== null && "cwd" in result) {
+            const metadata = result as Record<string, unknown> & { cwd: string };
+            if (metadata.isGitRepository === false) return result as never;
+            return {
+              ...metadata,
+              root: metadata.root ?? metadata.cwd,
+              gitDir: metadata.gitDir ?? `${metadata.cwd}/.git`,
+              commonDir: metadata.commonDir ?? `${metadata.cwd}/.git`,
+              errorMessage: metadata.errorMessage ?? null,
+            } as never;
+          }
+          return {
+            cwd: params.cwd,
+            root: params.cwd,
+            gitDir: `${params.cwd}/.git`,
+            commonDir: `${params.cwd}/.git`,
+            isGitRepository: true,
+            currentBranch: "feature",
+            defaultBranch: "main",
+            errorMessage: null,
+          } as never;
+        }
+        case "base-branch": {
+          const params = input.params as { cwd: string };
+          return {
+            cwd: params.cwd,
+            local: null,
+            remote: null,
+            errorMessage: null,
+          } as never;
+        }
+        case "review-summary": {
+          const params = input.params as { source: string };
+          const result = await reviewDiffPanelTestInvoke(
+            "review-summary",
+            input.params,
+          );
+          if (typeof result === "object" && result !== null && "type" in result) {
+            return result as never;
+          }
+          const snapshot = result as {
+            files?: unknown[];
+            snapshotGeneration?: number;
+          } | null;
+          return {
+            type: "success",
+            source: params.source,
+            files: snapshot?.files ?? [],
+            snapshotGeneration: snapshot?.snapshotGeneration ?? 1,
+            stageCounts: {
+              stagedFileCount: 0,
+              unstagedFileCount: 0,
+              untrackedFileCount: 0,
+            },
+          } as never;
+        }
+        case "branch-commits":
+          return await reviewDiffPanelTestInvoke(
+            "branch-commits",
+            input.params,
+          ) as never;
+        case "review-diff":
+          return await reviewDiffPanelTestInvoke(
+            "review-diff",
+            input.params,
+          ) as never;
+        case "review-cat-file": {
+          const value = await reviewDiffPanelTestInvoke(
+            "review-cat-file",
+            input.params,
+          );
+          return { type: "success", value } as never;
+        }
+        case "review-search":
+          return await reviewDiffPanelTestInvoke(
+            "review-search",
+            input.params,
+          ) as never;
+        case "review-patch":
+          return await reviewDiffPanelTestInvoke(
+            "review-patch",
+            input.params,
+          ) as never;
+        case "subscribe-live-query":
+          await reviewDiffPanelTestInvoke("subscribe-live-query", input.params);
+          return { subscribed: true } as never;
+        case "unsubscribe-live-query":
+          await reviewDiffPanelTestInvoke("unsubscribe-live-query", input.params);
+          return { unsubscribed: true } as never;
+        case "recover-live-query":
+          await reviewDiffPanelTestInvoke("recover-live-query", input.params);
+          return { recovered: true } as never;
+        case "refresh-live-query":
+          await reviewDiffPanelTestInvoke(
+            "refresh-live-query",
+            input.params,
+          );
+          return { refreshed: true } as never;
+        case "git-init-repo": {
+          const params = input.params as { cwd: string };
+          return await reviewDiffPanelTestInvoke("git-init-repo", params.cwd) as never;
+        }
+        default:
+          throw new Error(`Unsupported test Git worker method: ${input.method}`);
+      }
+    },
+    subscribe: () => () => undefined,
+  };
+}
+
+function createReviewGitWorkerTestClientWithLiveEvents(
+  setPublish: (publish: ((event: GitReviewLiveEvent) => void) | null) => void,
+): GitWorkerQueryClient {
+  const client = createReviewGitWorkerTestClient();
+  return {
+    ...client,
+    subscribe: (listener) => {
+      setPublish((event) => listener({
+        type: "git-live-query-event",
+        workerId: "git",
+        event,
+      }));
+      return () => setPublish(null);
+    },
+  };
+}
+
+const reviewDiffPanelTestDeps = {
+  initialSummaryQuery: true,
+  parsePatchFiles: parsePatchFilesForTest,
+  invoke: reviewDiffPanelTestInvoke,
+  gitWorkerClient: createReviewGitWorkerTestClient(),
   useTheme: () => ({
     theme: "light" as const,
     resolved: "light" as const,
@@ -753,7 +894,7 @@ async function unmountReviewView(view: RenderResult): Promise<void> {
 
 async function waitForGitReviewDiffCall(): Promise<void> {
   await waitFor(() => {
-    if (!invokeCalls.some((call) => call[0] === "git:review:diff")) {
+    if (!invokeCalls.some((call) => call[0] === "review-diff")) {
       throw new Error("Expected git review diff call.");
     }
   });
@@ -762,7 +903,7 @@ async function waitForGitReviewDiffCall(): Promise<void> {
 
 async function waitForGitReviewSnapshotCall(): Promise<void> {
   await waitFor(() => {
-    if (!invokeCalls.some((call) => call[0] === "git:review:summary")) {
+    if (!invokeCalls.some((call) => call[0] === "review-summary")) {
       throw new Error("Expected git review snapshot call.");
     }
   });
@@ -771,7 +912,7 @@ async function waitForGitReviewSnapshotCall(): Promise<void> {
 
 async function waitForGitReviewPatchCall(): Promise<void> {
   await waitFor(() => {
-    if (!invokeCalls.some((call) => call[0] === "git:review:patch")) {
+    if (!invokeCalls.some((call) => call[0] === "review-patch")) {
       throw new Error("Expected git review patch call.");
     }
   });
@@ -1146,7 +1287,7 @@ describe("review diff panel", () => {
   test("virtualizes the review file tree with codex-style host attrs", async () => {
     const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
     mockInvokeImpl = async (channel: unknown) => {
-      if (channel !== "git:review:diff") return null;
+      if (channel !== "review-diff") return null;
       return {
         cwd: "/tmp/storybook/virtualized-tree",
         source: "unstaged",
@@ -1306,7 +1447,7 @@ describe("review diff panel", () => {
   test("keeps folder change metadata without rendering modified status markers", async () => {
     const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
     mockInvokeImpl = async (channel: unknown) => {
-      if (channel !== "git:review:diff") return null;
+      if (channel !== "review-diff") return null;
       return {
         cwd: "/tmp/storybook/status-tree",
         source: "unstaged",
@@ -1351,7 +1492,7 @@ describe("review diff panel", () => {
   test("renders binary metadata rows without invoking textual diff renderers", async () => {
     const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
     mockInvokeImpl = async (channel: unknown) => {
-      if (channel !== "git:review:diff") return null;
+      if (channel !== "review-diff") return null;
       return {
         cwd: "/tmp/storybook/binary",
         source: "unstaged",
@@ -1410,7 +1551,7 @@ describe("review diff panel", () => {
   test("renders A/D markers for added and deleted files", async () => {
     const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
     mockInvokeImpl = async (channel: unknown) => {
-      if (channel !== "git:review:diff") return null;
+      if (channel !== "review-diff") return null;
       return {
         cwd: "/tmp/storybook/status-tree",
         source: "unstaged",
@@ -1475,7 +1616,7 @@ describe("review diff panel", () => {
   test("switches review source without starting a protocol review", async () => {
     const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
     mockInvokeImpl = async (channel: unknown) => {
-      if (channel !== "git:review:diff") return null;
+      if (channel !== "review-diff") return null;
       return {
         cwd: "/tmp/codex",
         source: "unstaged",
@@ -1523,7 +1664,7 @@ describe("review diff panel", () => {
 
     await waitForGitReviewSnapshotCall();
     expect(
-      invokeCalls.some((call) => call[0] === "git:review:diff"),
+      invokeCalls.some((call) => call[0] === "review-diff"),
     ).toBe(true);
     expect(
       invokeCalls.some((call) => call[0] === "codex:review:start"),
@@ -1534,7 +1675,7 @@ describe("review diff panel", () => {
   test("renders Codex staged empty state and switches to branch diff from its action", async () => {
     const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
     mockInvokeImpl = async (channel: unknown, input: unknown) => {
-      if (channel !== "git:review:diff") return null;
+      if (channel !== "review-diff") return null;
       const source =
         typeof input === "object" && input !== null && "source" in input
           ? (input as { source?: string }).source
@@ -1585,7 +1726,7 @@ describe("review diff panel", () => {
     });
     await waitFor(() => {
       const hasBranchDiffRequest = invokeCalls.some((call) => {
-        if (call[0] !== "git:review:summary") return false;
+        if (call[0] !== "review-summary") return false;
         const input = call[1];
         return (
           typeof input === "object" &&
@@ -1607,7 +1748,7 @@ describe("review diff panel", () => {
   test("renders Codex unstaged empty state copy", async () => {
     const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
     mockInvokeImpl = async (channel: unknown, input: unknown) => {
-      if (channel !== "git:review:diff") return null;
+      if (channel !== "review-diff") return null;
       const source =
         typeof input === "object" && input !== null && "source" in input
           ? (input as { source?: string }).source
@@ -1732,7 +1873,7 @@ describe("review diff panel", () => {
   test("prefers the explicit project workspace path for git-backed review sources", async () => {
     const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
     mockInvokeImpl = async (channel: unknown, payload: unknown) => {
-      if (channel !== "git:review:diff") return null;
+      if (channel !== "review-diff") return null;
       const cwd =
         typeof payload === "object" && payload !== null && "cwd" in payload
           ? (payload as { cwd: string }).cwd
@@ -1764,7 +1905,7 @@ describe("review diff panel", () => {
     await waitForGitReviewSnapshotCall();
 
     const snapshotCall = invokeCalls.find(
-      (call) => call[0] === "git:review:summary",
+      (call) => call[0] === "review-summary",
     );
     if (!snapshotCall) {
       throw new Error("Expected git-backed review to request a snapshot.");
@@ -1781,7 +1922,7 @@ describe("review diff panel", () => {
     const intersectionObserver = installControlledIntersectionObserver();
     const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
     mockInvokeImpl = async (channel: unknown) => {
-      if (channel === "git:review:diff") {
+      if (channel === "review-diff") {
         return {
           cwd: "/tmp/codex",
           source: "unstaged",
@@ -1795,7 +1936,7 @@ describe("review diff panel", () => {
           errorMessage: null,
         };
       }
-      if (channel === "git:review:cat-file") {
+      if (channel === "review-cat-file") {
         return {
           snapshotGeneration: 1,
           results: [
@@ -1848,7 +1989,7 @@ describe("review diff panel", () => {
       expect(lastFileDiffProps?.fileDiff.isPartial).toBe(true);
 
       expect(
-        invokeCalls.some((call) => call[0] === "git:review:cat-file"),
+        invokeCalls.some((call) => call[0] === "review-cat-file"),
       ).toBe(false);
       await waitFor(() => {
         expect(intersectionObserver.isObserved(row)).toBe(true);
@@ -1862,7 +2003,7 @@ describe("review diff panel", () => {
       await waitFor(() => {
         if (
           !invokeCalls.some(
-            (call) => call[0] === "git:review:cat-file",
+            (call) => call[0] === "review-cat-file",
           )
         ) {
           throw new Error("Expected visible row contents to load.");
@@ -1913,7 +2054,7 @@ describe("review diff panel", () => {
     const failedSummary = buildGitSummary("src/failed.ts");
 
     mockInvokeImpl = async (channel: unknown) => {
-      if (channel === "git:review:summary") {
+      if (channel === "review-summary") {
         return {
           cwd: "/tmp/codex",
           source: "unstaged",
@@ -1927,7 +2068,7 @@ describe("review diff panel", () => {
           snapshotGeneration: 1,
         };
       }
-      if (channel !== "git:review:diff") return null;
+      if (channel !== "review-diff") return null;
 
       const result = buildGitDiffResultForTest({
         patch: `${loadedPatch}\n${failedPatch}`,
@@ -1975,7 +2116,7 @@ describe("review diff panel", () => {
     });
 
     const diffCalls = invokeCalls.filter(
-      (call) => call[0] === "git:review:diff",
+      (call) => call[0] === "review-diff",
     );
     expect(diffCalls).toHaveLength(1);
     expect(
@@ -1994,7 +2135,7 @@ describe("review diff panel", () => {
       query: { method: string; params: { cwd: string } };
     }> = [];
     mockInvokeImpl = async (channel: unknown, payload: unknown) => {
-      if (channel === "git:review:repository-metadata") {
+      if (channel === "stable-metadata") {
         return {
           cwd: "/tmp/codex",
           root: "/tmp/codex",
@@ -2007,7 +2148,7 @@ describe("review diff panel", () => {
         };
       }
       if (
-        channel === "git:live-query:subscribe"
+        channel === "subscribe-live-query"
         && typeof payload === "object"
         && payload !== null
         && "subscriptionId" in payload
@@ -2033,6 +2174,7 @@ describe("review diff panel", () => {
       expect(subscriptions.map(({ query }) => query.method).sort()).toEqual([
         "base-branch",
         "review-summary",
+        "stable-metadata",
       ]);
     });
     expect(subscriptions.every(({ query }) => query.params.cwd === "/tmp/codex"))
@@ -2051,7 +2193,7 @@ describe("review diff panel", () => {
     }> = [];
     let publish: ((event: GitReviewLiveEvent) => void) | null = null;
     mockInvokeImpl = async (channel: unknown, payload: unknown) => {
-      if (channel === "git:review:repository-metadata") {
+      if (channel === "stable-metadata") {
         return {
           cwd: "/tmp/codex/alias",
           root: "/tmp/codex",
@@ -2064,7 +2206,7 @@ describe("review diff panel", () => {
         };
       }
       if (
-        channel === "git:live-query:subscribe"
+        channel === "subscribe-live-query"
         && typeof payload === "object"
         && payload !== null
         && "subscriptionId" in payload
@@ -2083,12 +2225,11 @@ describe("review diff panel", () => {
           initialSource="branch"
           deps={{
             initialSummaryQuery: false,
-            subscribeGitReviewLiveQueries: (listener) => {
-              publish = listener;
-              return () => {
-                publish = null;
-              };
-            },
+            gitWorkerClient: createReviewGitWorkerTestClientWithLiveEvents(
+              (listener) => {
+                publish = listener;
+              },
+            ),
           }}
         />
       </NodexTooltipProvider>,
@@ -2179,7 +2320,7 @@ describe("review diff panel", () => {
 
     mockInvokeImpl = async (channel: unknown, payload: unknown) => {
       if (
-        channel === "git:live-query:subscribe" &&
+        channel === "subscribe-live-query" &&
         typeof payload === "object" &&
         payload !== null &&
         "subscriptionId" in payload &&
@@ -2192,7 +2333,7 @@ describe("review diff panel", () => {
         subscriptionId = String(payload.subscriptionId);
         return null;
       }
-      if (channel !== "git:review:diff") return null;
+      if (channel !== "review-diff") return null;
       const requestedPaths =
         typeof payload === "object" && payload !== null && "files" in payload
           ? (payload as { files: Array<{ path: string }> }).files.map(
@@ -2215,12 +2356,11 @@ describe("review diff panel", () => {
           initialSource="unstaged"
           deps={{
             initialSummaryQuery: false,
-            subscribeGitReviewLiveQueries: (listener) => {
-              publish = listener;
-              return () => {
-                publish = null;
-              };
-            },
+            gitWorkerClient: createReviewGitWorkerTestClientWithLiveEvents(
+              (listener) => {
+                publish = listener;
+              },
+            ),
           }}
         />
       </NodexTooltipProvider>,
@@ -2249,6 +2389,7 @@ describe("review diff panel", () => {
             unstagedFileCount: 1,
             untrackedFileCount: 1,
           },
+          untrackedFilesOmitted: 0,
         },
       });
       await Promise.resolve();
@@ -2277,13 +2418,14 @@ describe("review diff panel", () => {
             unstagedFileCount: 1,
             untrackedFileCount: 1,
           },
+          untrackedFilesOmitted: 0,
         },
       });
       await Promise.resolve();
     });
     await waitFor(() => {
       const diffCalls = invokeCalls.filter(
-        (call) => call[0] === "git:review:diff",
+        (call) => call[0] === "review-diff",
       );
       if (diffCalls.length < 2) {
         throw new Error("Expected the complete-phase untracked request.");
@@ -2291,14 +2433,14 @@ describe("review diff panel", () => {
     });
 
     const trackedRequests = invokeCalls.filter((call) => {
-      if (call[0] !== "git:review:diff") return false;
+      if (call[0] !== "review-diff") return false;
       return (
         call[1] as { files?: Array<{ path: string }> }
       ).files?.some((file) => file.path === trackedSummary.path);
     });
     expect(trackedRequests).toHaveLength(1);
     expect(
-      invokeCalls.filter((call) => call[0] === "git:review:cancel"),
+      invokeCalls.filter((call) => call[0] === "worker-request-cancel"),
     ).toHaveLength(0);
 
     await act(async () => {
@@ -2363,7 +2505,7 @@ describe("review diff panel", () => {
 
     mockInvokeImpl = async (channel: unknown, payload: unknown) => {
       if (
-        channel === "git:live-query:subscribe" &&
+        channel === "subscribe-live-query" &&
         typeof payload === "object" &&
         payload !== null &&
         "subscriptionId" in payload &&
@@ -2376,7 +2518,7 @@ describe("review diff panel", () => {
         subscriptionId = String(payload.subscriptionId);
         return null;
       }
-      if (channel !== "git:review:diff") return null;
+      if (channel !== "review-diff") return null;
       const requestedPaths =
         typeof payload === "object" && payload !== null && "files" in payload
           ? (payload as { files: Array<{ path: string }> }).files.map(
@@ -2409,12 +2551,11 @@ describe("review diff panel", () => {
             initialSource="unstaged"
             deps={{
               initialSummaryQuery: false,
-              subscribeGitReviewLiveQueries: (listener) => {
-                publish = listener;
-                return () => {
-                  publish = null;
-                };
-              },
+              gitWorkerClient: createReviewGitWorkerTestClientWithLiveEvents(
+                (listener) => {
+                  publish = listener;
+                },
+              ),
             }}
           />
         </NodexTooltipProvider>,
@@ -2443,6 +2584,7 @@ describe("review diff panel", () => {
               unstagedFileCount: 1,
               untrackedFileCount: 1,
             },
+            untrackedFilesOmitted: 0,
           },
         });
         await Promise.resolve();
@@ -2481,6 +2623,7 @@ describe("review diff panel", () => {
               unstagedFileCount: 1,
               untrackedFileCount: 1,
             },
+            untrackedFilesOmitted: 0,
           },
         });
         await Promise.resolve();
@@ -2508,7 +2651,7 @@ describe("review diff panel", () => {
       expect(trackedParseCount).toBe(1);
 
       const diffCallCount = invokeCalls.filter(
-        ([channel]) => channel === "git:review:diff",
+        ([channel]) => channel === "review-diff",
       ).length;
       const totalParseCount = events.filter(
         (event) => event.type === "partial-parse",
@@ -2531,6 +2674,7 @@ describe("review diff panel", () => {
               unstagedFileCount: 1,
               untrackedFileCount: 1,
             },
+            untrackedFilesOmitted: 0,
           },
         });
         await Promise.resolve();
@@ -2538,7 +2682,7 @@ describe("review diff panel", () => {
       await settleAsyncRender();
 
       expect(
-        invokeCalls.filter(([channel]) => channel === "git:review:diff"),
+        invokeCalls.filter(([channel]) => channel === "review-diff"),
       ).toHaveLength(diffCallCount);
       expect(
         events.filter((event) => event.type === "partial-parse"),
@@ -2647,14 +2791,16 @@ describe("review diff panel", () => {
     expect(fileDiff.getAttribute("data-file-deletions")).toBe("0");
     expect(invokeCalls.some((call) => call[0] === "read-file")).toBe(false);
     expect(
-      invokeCalls.some((call) => call[0] === "git:review:cat-file"),
+      invokeCalls.some((call) => call[0] === "review-cat-file"),
     ).toBe(false);
   });
 
   test("cancels an in-flight Git review summary after unmount", async () => {
     const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
+    const baseClient = createReviewGitWorkerTestClient();
+    let summarySignal: AbortSignal | undefined;
     mockInvokeImpl = async (channel: unknown) => {
-      if (channel === "git:review:repository-metadata") {
+      if (channel === "stable-metadata") {
         return {
           cwd: "/tmp/codex",
           isGitRepository: true,
@@ -2662,8 +2808,6 @@ describe("review diff panel", () => {
           defaultBranch: "main",
         };
       }
-      if (channel === "git:review:summary") return new Promise(() => {});
-      if (channel === "git:review:cancel") return { cancelled: true };
       return null;
     };
 
@@ -2673,26 +2817,33 @@ describe("review diff panel", () => {
           conversation={buildConversation()}
           projectWorkspacePath="/tmp/codex"
           initialSource="unstaged"
+          deps={{
+            gitWorkerClient: {
+              ...baseClient,
+              request: async (input) => {
+                if (input.method !== "review-summary") {
+                  return await baseClient.request(input as never) as never;
+                }
+                summarySignal = input.signal;
+                return await new Promise<never>(() => {});
+              },
+            },
+          }}
         />
       </NodexTooltipProvider>,
     );
 
-    await waitForGitReviewSnapshotCall();
+    await waitFor(() => expect(summarySignal).toBeDefined());
     await unmountReviewView(view);
     await settleAsyncRender();
 
-    expect(
-      invokeCalls.some((call) => call[0] === "git:review:summary"),
-    ).toBe(true);
-    expect(
-      invokeCalls.some((call) => call[0] === "git:review:cancel"),
-    ).toBe(true);
+    expect(summarySignal?.aborted).toBe(true);
   });
 
   test("starts commit and pull-request prompts from the parity action buttons", async () => {
     const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
     mockInvokeImpl = async (channel: unknown) => {
-      if (channel === "git:review:diff") {
+      if (channel === "review-diff") {
         return {
           cwd: "/tmp/codex",
           source: "unstaged",
@@ -2762,7 +2913,7 @@ describe("review diff panel", () => {
   test("renders codex-style review options with icons and diff toggle labels", async () => {
     const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
     mockInvokeImpl = async (channel: unknown) => {
-      if (channel !== "git:review:diff") return null;
+      if (channel !== "review-diff") return null;
       return {
         cwd: "/tmp/codex",
         source: "unstaged",
@@ -2923,7 +3074,7 @@ describe("review diff panel", () => {
     const patch =
       "diff --git a/src/git.ts b/src/git.ts\nindex 1111111..2222222 100644\n--- a/src/git.ts\n+++ b/src/git.ts\n@@ -1 +1,2 @@\n export const git = 1;\n+export const diff = true;\n";
     mockInvokeImpl = async (channel: unknown) => {
-      if (channel === "git:review:patch") {
+      if (channel === "review-patch") {
         return {
           cwd: "/tmp/codex",
           source: "unstaged",
@@ -2939,7 +3090,7 @@ describe("review diff panel", () => {
           errorMessage: null,
         };
       }
-      if (channel !== "git:review:diff") return null;
+      if (channel !== "review-diff") return null;
       return {
         cwd: "/tmp/codex",
         source: "unstaged",
@@ -2990,7 +3141,7 @@ describe("review diff panel", () => {
   test("jump-to-file filters and selects a diff row", async () => {
     const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
     mockInvokeImpl = async (channel: unknown) => {
-      if (channel === "git:review:diff") {
+      if (channel === "review-diff") {
         return {
           cwd: "/tmp/codex",
           source: "unstaged",

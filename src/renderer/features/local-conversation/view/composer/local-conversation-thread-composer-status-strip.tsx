@@ -11,7 +11,7 @@ import {
 import {
   BranchSelectorPopover,
   EnvironmentSelectorPopover,
-  invoke,
+  getGitWorkerClient,
 } from "./local-conversation-thread-composer-deps";
 import { useGitBranchState } from "@/lib/use-git-branch-state";
 import { ComposerContextRail } from "../composer-context-rail";
@@ -148,9 +148,13 @@ function ThreadComposerStatusStripContent({
     setIsBranchBusy(true);
     onErrorMessage(null);
     try {
-      const result = await invoke("git:branch:checkout", { cwd: requestedCwd, branch });
+      const result = await getGitWorkerClient().request({
+        method: "checkout-branch",
+        params: { cwd: requestedCwd, branch },
+      });
       if (!isCurrentRequest()) return false;
-      setBranchState(parseBranchSelectorState(result));
+      if (result.type === "error") throw new Error(result.errorMessage);
+      setBranchState(parseBranchSelectorState(result.value));
       return true;
     } catch (error) {
       if (isCurrentRequest()) {
@@ -177,9 +181,13 @@ function ThreadComposerStatusStripContent({
     setIsBranchBusy(true);
     onErrorMessage(null);
     try {
-      const result = await invoke("git:branch:create", { cwd: requestedCwd, branch });
+      const result = await getGitWorkerClient().request({
+        method: "create-branch",
+        params: { cwd: requestedCwd, branch },
+      });
       if (!isCurrentRequest()) return false;
-      setBranchState(parseBranchSelectorState(result));
+      if (result.type === "error") throw new Error(result.errorMessage);
+      setBranchState(parseBranchSelectorState(result.value));
       return true;
     } catch (error) {
       if (isCurrentRequest()) {

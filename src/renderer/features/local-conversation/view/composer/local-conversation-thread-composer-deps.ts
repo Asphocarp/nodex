@@ -1,4 +1,4 @@
-export { invoke, subscribeGitBranchChanges } from "@/lib/api";
+export { getGitWorkerClient, invoke } from "@/lib/api";
 export { NodexTooltip } from "@/components/ui/tooltip";
 export {
   NodexDropdownButtonTrigger,

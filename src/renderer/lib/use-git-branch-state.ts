@@ -1,8 +1,11 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
-import { invoke, subscribeGitBranchChanges } from "./api";
-import { gitBranchStateQueryOptions } from "./query-options";
-import { queryKeys } from "./query-keys";
+import { useMemo } from "react";
+import {
+  createGitLiveWorkerQuery,
+  createGitWorkerQuery,
+  getGitLiveQueryCoordinator,
+  type GitQueryRepositoryIdentity,
+} from "@/features/review/data/git-query";
 
 interface UseGitBranchStateOptions {
   enabled?: boolean;
@@ -16,30 +19,40 @@ export function useGitBranchState(
   const queryClient = useQueryClient();
   const normalizedCwd = cwd?.trim() ?? "";
   const enabled = options.enabled !== false && normalizedCwd.length > 0;
-  const watch = options.watch === true;
-
-  const query = useQuery({
-    ...gitBranchStateQueryOptions(normalizedCwd),
+  const metadata = useQuery({
+    ...(options.watch === true ? createGitLiveWorkerQuery({
+      method: "stable-metadata",
+      params: { cwd: normalizedCwd },
+    }) : createGitWorkerQuery({
+      method: "stable-metadata",
+      params: { cwd: normalizedCwd },
+    })),
     enabled,
   });
-
-  useEffect(() => {
-    if (!enabled || !watch) return;
-
-    void invoke("git:branch:watch:start", normalizedCwd).catch(() => {});
-    const unsubscribe = subscribeGitBranchChanges((event) => {
-      if (event.cwd !== normalizedCwd) return;
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.git.branchState(normalizedCwd),
-        exact: true,
-      });
-    });
-
-    return () => {
-      unsubscribe();
-      void invoke("git:branch:watch:stop").catch(() => {});
+  const repository = useMemo<GitQueryRepositoryIdentity | null>(() => {
+    if (
+      !metadata.data?.isGitRepository
+      || !metadata.data.commonDir
+      || !metadata.data.root
+    ) return null;
+    return {
+      hostId: "local",
+      commonDir: metadata.data.commonDir,
+      root: metadata.data.root,
     };
-  }, [enabled, normalizedCwd, queryClient, watch]);
-
-  return query;
+  }, [metadata.data]);
+  const branchInput = useMemo(() => ({
+    method: "branch-metadata" as const,
+    params: { cwd: repository?.root ?? normalizedCwd },
+    repository,
+  }), [normalizedCwd, repository]);
+  const branchOptions = options.watch === true
+    ? createGitLiveWorkerQuery(branchInput)
+    : createGitWorkerQuery(branchInput);
+  const branch = useQuery({
+    ...branchOptions,
+    enabled: enabled && repository !== null,
+  });
+  getGitLiveQueryCoordinator(queryClient);
+  return branch;
 }

@@ -581,7 +581,7 @@ describe("workbench session shell / sidebar-core", () => {
     const renderInvoke = mockInvokeImpl;
     if (!renderInvoke) throw new Error("Expected the workbench invoke mock");
     setMockInvokeImpl(async (channel, ...args) => {
-      if (channel === "git:branch:state") {
+      if (channel === "branch-metadata") {
         return { currentBranch: "main", defaultBranch: "main", branches: ["main"] };
       }
       if (channel === "worktrees:environments:configs:list-for-workspace") {

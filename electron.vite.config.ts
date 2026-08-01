@@ -60,6 +60,7 @@ export default defineConfig({
       rollupOptions: {
         input: {
           bootstrap: resolve(__dirname, "src/main/bootstrap.ts"),
+          "git-worker": resolve(__dirname, "src/main/git-worker/entry.ts"),
         },
         onwarn(warning, defaultHandler) {
           if (isKnownYProsemirrorAwarenessTypeImportWarning(warning)) return;

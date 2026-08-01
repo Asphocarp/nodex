@@ -186,12 +186,7 @@ import type { CoreReadResult } from "../shared/core-read-result";
 import type { DesktopAutomationModulePort } from "./core-client/desktop-automation-module-bridge";
 import type { DesktopStoreAdministrationPort } from "./core-client/desktop-store-administration-bridge";
 import type { DesktopNotificationManager } from "./desktop-notification-manager";
-import {
-  checkoutGitBranch,
-  createAndCheckoutGitBranch,
-  readGitBranchState,
-  watchGitBranch,
-} from "./git-branch-service";
+import type { GitWorkerHost } from "./git-worker-host";
 import { readGitRepositoryIdentity } from "./git-repository-identity-service";
 import {
   cancelGitAction,
@@ -199,28 +194,8 @@ import {
   generateGitCommitMessage,
   generateGitPullRequestMessage,
   pushGitChanges,
-  readGitActionStatus,
+  type GitActionWorkerPort,
 } from "./git-action-service";
-import {
-  applyGitReviewPatch,
-  cancelGitReviewRequest,
-  initializeGitRepositoryAndReadReviewSnapshot,
-  readBranchDiffStats,
-  readGitReviewBlameFile,
-  readGitReviewBranchCommits,
-  readGitReviewCatFile,
-  readGitReviewDiff,
-  readGitReviewPatch,
-  readGitReviewRepositoryMetadata,
-  readGitReviewSnapshot,
-  readGitReviewSummary,
-  resolveGitMergeBase,
-  searchGitReview,
-} from "./git-review-service";
-import {
-  subscribeGitReviewLiveQuery,
-  type GitReviewLiveSubscription,
-} from "./git-review-live-service";
 import {
   createGhPr,
   createGhPrComment,
@@ -946,6 +921,7 @@ function refreshBrowserSidebarCommandAccelerators(): void {
 }
 
 interface RegisterIpcHandlersOptions {
+  gitWorkerHost?: Pick<GitWorkerHost, "requestFromMain">;
   resolveWindowSessionId?: (webContentsId: number) => string | null;
   onCreateWindow?: (
     sourceWebContentsId: number,
@@ -1143,10 +1119,52 @@ function parseComposerChatGptConversationQuery(input: unknown): string {
   return input.query.trim();
 }
 
+function createGitActionWorkerPort(
+  host: Pick<GitWorkerHost, "requestFromMain"> | undefined,
+): GitActionWorkerPort {
+  const requireHost = (): Pick<GitWorkerHost, "requestFromMain"> => {
+    if (host) return host;
+    throw new Error("Git worker is unavailable.");
+  };
+
+  return {
+    readStatus: async (cwd, signal) => await requireHost().requestFromMain({
+      method: "action-status",
+      params: { cwd },
+      signal,
+    }),
+    readReviewPatch: async (input, signal) => {
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const result = await requireHost().requestFromMain({
+          method: "review-patch",
+          params: input,
+          signal,
+        });
+        if (!("type" in result) || result.type !== "stale-snapshot") {
+          return result as import("../shared/types").GitReviewPatchResult;
+        }
+      }
+      throw new Error("Git repository changed while preparing the message.");
+    },
+    commit: async (input, signal) => await requireHost().requestFromMain({
+      method: "commit",
+      params: { ...input, nextStep: "commit" },
+      signal,
+    }),
+    refreshRepository: async (cwd) => {
+      await requireHost().requestFromMain({
+        method: "refresh-repository",
+        params: { cwd },
+      });
+    },
+  };
+}
+
 export function registerIpcHandlers(
   options: RegisterIpcHandlersOptions = {},
 ): void {
   ensureBrowserGuestBridge();
+  const gitActionWorker = createGitActionWorkerPort(options.gitWorkerHost);
   interface SharedWorkspaceFileWatch {
     session: FileWatchSession;
     subscriptionIds: Set<string>;
@@ -1276,13 +1294,6 @@ export function registerIpcHandlers(
     },
   });
 
-  const gitBranchWatches = new Map<
-    number,
-    { cwd: string; dispose: () => void }
-  >();
-  const gitBranchWatchCleanupBound = new Set<number>();
-  const gitReviewWatches = new Map<string, GitReviewLiveSubscription>();
-  const gitReviewWatchCleanupBound = new Set<number>();
   const terminalLeaseCleanupBound = new Set<number>();
   const bindTerminalLeaseCleanup = (sender: Electron.WebContents): void => {
     if (terminalLeaseCleanupBound.has(sender.id)) return;
@@ -1304,31 +1315,6 @@ export function registerIpcHandlers(
     }
     window.show();
     window.focus();
-  };
-
-  const stopGitBranchWatch = (webContentsId: number) => {
-    const activeWatch = gitBranchWatches.get(webContentsId);
-    if (!activeWatch) return;
-    activeWatch.dispose();
-    gitBranchWatches.delete(webContentsId);
-  };
-
-  const stopGitReviewWatch = (
-    webContentsId: number,
-    subscriptionId: string,
-  ) => {
-    const key = `${webContentsId}:${subscriptionId}`;
-    gitReviewWatches.get(key)?.dispose();
-    gitReviewWatches.delete(key);
-  };
-
-  const stopAllGitReviewWatches = (webContentsId: number) => {
-    const prefix = `${webContentsId}:`;
-    for (const [key, subscription] of gitReviewWatches) {
-      if (!key.startsWith(prefix)) continue;
-      subscription.dispose();
-      gitReviewWatches.delete(key);
-    }
   };
 
   const resolveRendererClientId = (event: IpcMainInvokeEvent): string | null =>
@@ -2769,165 +2755,40 @@ export function registerIpcHandlers(
     },
   );
 
-  registerHandle("git:branch:state", (_, cwd: string) => {
-    return readGitBranchState(cwd);
-  });
   registerHandle("git:repository:identity", (_, cwd: string) => {
     return readGitRepositoryIdentity(cwd);
   });
 
-  registerHandle(
-    "git:branch:checkout",
-    (_, input: { cwd: string; branch: string }) => {
-      return checkoutGitBranch(input);
-    },
-  );
-
-  registerHandle(
-    "git:branch:create",
-    (_, input: { cwd: string; branch: string }) => {
-      return createAndCheckoutGitBranch(input);
-    },
-  );
-
-  registerHandle(
-    "git:review:snapshot",
-    (
-      _,
-      input: {
-        cwd: string;
-        source: "unstaged" | "staged" | "branch" | "commit";
-        baseRef?: string | null;
-        commitSha?: string | null;
-        hideWhitespace?: boolean;
-      },
-    ) => {
-      return readGitReviewSnapshot(input);
-    },
-  );
-
-  registerHandle("git:review:summary", (_, input) => {
-    return readGitReviewSummary(input);
-  });
-
-  registerHandle("git:review:repository-metadata", (_, input) => {
-    return readGitReviewRepositoryMetadata(input);
-  });
-
-  registerHandle("git:live-query:subscribe", (event, input) => {
-    const sender = event.sender;
-    const webContentsId = sender.id;
-    stopGitReviewWatch(webContentsId, input.subscriptionId);
-
-    if (!gitReviewWatchCleanupBound.has(webContentsId)) {
-      gitReviewWatchCleanupBound.add(webContentsId);
-      sender.once("destroyed", () => {
-        stopAllGitReviewWatches(webContentsId);
-        gitReviewWatchCleanupBound.delete(webContentsId);
-      });
-    }
-
-    const subscription = subscribeGitReviewLiveQuery({
-      subscriptionId: input.subscriptionId,
-      query: input.query,
-      publish: (payload) => {
-        if (sender.isDestroyed()) {
-          stopGitReviewWatch(webContentsId, input.subscriptionId);
-          return;
-        }
-        safeSendToWebContents(sender, "git:live-query:event", [payload]);
-      },
-    });
-    gitReviewWatches.set(
-      `${webContentsId}:${input.subscriptionId}`,
-      subscription,
-    );
-  });
-
-  registerHandle("git:live-query:unsubscribe", (event, input) => {
-    stopGitReviewWatch(event.sender.id, input.subscriptionId);
-  });
-
-  registerHandle("git:live-query:recover", (event, input) => {
-    const key = `${event.sender.id}:${input.subscriptionId}`;
-    return gitReviewWatches.get(key)?.recover();
-  });
-
-  registerHandle("git:live-query:refresh-repository", (event, input) => {
-    const key = `${event.sender.id}:${input.subscriptionId}`;
-    return gitReviewWatches.get(key)?.refresh();
-  });
-
-  registerHandle("git:review:diff", (_, input) => {
-    return readGitReviewDiff(input);
-  });
-
-  registerHandle("git:review:cancel", (_, input) => {
-    return cancelGitReviewRequest(input);
-  });
-
-  registerHandle("git:review:branch-diff-stats", (_, input) => {
-    return readBranchDiffStats(input);
-  });
-
-  registerHandle("git:review:branch-commits", (_, input) => {
-    return readGitReviewBranchCommits(input);
-  });
-
-  registerHandle("git:merge-base", (_, input) => {
-    return resolveGitMergeBase(input);
-  });
-
-  registerHandle("git:review:cat-file", (_, input) => {
-    return readGitReviewCatFile(input);
-  });
-
-  registerHandle("git:review:search", (_, input) => {
-    return searchGitReview(input);
-  });
-
-  registerHandle("git:review:patch", (_, input) => {
-    return readGitReviewPatch(input);
-  });
-
-  registerHandle("git:review:blame-file", (_, input) => {
-    return readGitReviewBlameFile(input);
-  });
-
-  registerHandle("git:apply-patch", (_, input) => {
-    return applyGitReviewPatch(input);
-  });
-
-  registerHandle("git:init", (_, cwd: string) => {
-    return initializeGitRepositoryAndReadReviewSnapshot(cwd);
-  });
-
-  registerHandle("git:action:status", (_, input) => {
-    return readGitActionStatus(input);
-  });
-
   registerHandle("git:action:commit-message:generate", (_, input) => {
     return generateGitCommitMessage(input, {
+      gitWorker: gitActionWorker,
       generateCommitMessage: createGitCommitMessageGenerator(input.hostId),
     });
   });
 
   registerHandle("git:action:pull-request-message:generate", (_, input) => {
     return generateGitPullRequestMessage(input, {
+      gitWorker: gitActionWorker,
       generatePullRequestMessage: createGitPullRequestMessageGenerator(
         input.hostId,
       ),
     });
   });
 
-  registerHandle("git:action:commit", (_, input) => {
-    return commitGitChanges(input, {
+  registerHandle("git:action:commit", async (_, input) => {
+    return await commitGitChanges(input, {
+      gitWorker: gitActionWorker,
       generateCommitMessage: createGitCommitMessageGenerator(input.hostId),
     });
   });
 
-  registerHandle("git:action:push", (_, input) => {
-    return pushGitChanges(input);
+  registerHandle("git:action:push", async (_, input) => {
+    const result = await pushGitChanges(input);
+    await options.gitWorkerHost?.requestFromMain({
+      method: "refresh-repository",
+      params: { cwd: input.cwd },
+    }).catch(() => undefined);
+    return result;
   });
 
   registerHandle("git:action:cancel", (_, input) => {
@@ -2968,57 +2829,6 @@ export function registerIpcHandlers(
 
   registerHandle("gh-pr-create", (_, input) => {
     return createGhPr(input);
-  });
-
-  registerHandle("git:branch:watch:start", async (event, cwd: string) => {
-    const sender = event.sender;
-    const webContentsId = sender.id;
-    const normalizedCwd = typeof cwd === "string" ? cwd.trim() : "";
-
-    if (!normalizedCwd) {
-      stopGitBranchWatch(webContentsId);
-      return;
-    }
-
-    const existingWatch = gitBranchWatches.get(webContentsId);
-    if (existingWatch?.cwd === normalizedCwd) {
-      return;
-    }
-
-    stopGitBranchWatch(webContentsId);
-
-    if (!gitBranchWatchCleanupBound.has(webContentsId)) {
-      gitBranchWatchCleanupBound.add(webContentsId);
-      sender.once("destroyed", () => {
-        stopGitBranchWatch(webContentsId);
-        gitBranchWatchCleanupBound.delete(webContentsId);
-      });
-    }
-
-    const dispose = await watchGitBranch(normalizedCwd, () => {
-      if (sender.isDestroyed()) {
-        stopGitBranchWatch(webContentsId);
-        return;
-      }
-      safeSendToWebContents(sender, "git:branch:changed", [
-        { cwd: normalizedCwd },
-      ]);
-    });
-
-    if (sender.isDestroyed()) {
-      dispose();
-      stopGitBranchWatch(webContentsId);
-      return;
-    }
-
-    gitBranchWatches.set(webContentsId, {
-      cwd: normalizedCwd,
-      dispose,
-    });
-  });
-
-  registerHandle("git:branch:watch:stop", (event) => {
-    stopGitBranchWatch(event.sender.id);
   });
 
   // Assets
