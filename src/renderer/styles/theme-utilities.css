@@ -135,7 +135,9 @@
 }
 
 .sidebar-scroll-fade-mask {
-  --sidebar-scroll-footer-edge: calc(100% - var(--sidebar-footer-height));
+  --sidebar-scroll-footer-edge: calc(
+    100% - var(--sidebar-footer-height) + var(--sidebar-scroll-footer-edge-offset, 0px)
+  );
   --sidebar-scroll-footer-fade-distance: calc(var(--spacing) * 10);
   --sidebar-scroll-footer-fade-start: calc(
     var(--sidebar-scroll-footer-edge) - var(--sidebar-scroll-footer-fade-distance)

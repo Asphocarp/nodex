@@ -12,10 +12,10 @@ import { LeftSidebar, type StageSidebarGroup } from "./left-sidebar";
 import { LeftSidebarFooter } from "./left-sidebar-footer";
 import { SidebarProjectsSection } from "./left-sidebar-projects-section";
 import {
-  getSidebarScrollChromeStyle,
   SIDEBAR_SCROLL_AREA_CLASS,
   SidebarExpandedHeader,
   SidebarProjectNewChatButton,
+  useSidebarScrollChrome,
 } from "./sidebar-new-chat-controls";
 import {
   CodexProjectRow,
@@ -379,29 +379,29 @@ function StatusGroupOrderHarness() {
 }
 
 function SidebarNewChatControlsHarness() {
-  const [scrolledContentUnderHeader, setScrolledContentUnderHeader] = useState(false);
+  const sidebarScrollChrome = useSidebarScrollChrome();
 
   return (
     <NodexTooltipProvider>
       <div className="min-h-screen bg-(--background) p-8">
         <div
           className="flex h-[260px] w-[280px] flex-col bg-(--background-secondary) py-1 [--height-token-nav-row:30px] [--padding-row-cell-x:8px] [--padding-row-x:8px] [--radius-token-row:10px]"
-          style={getSidebarScrollChromeStyle(scrolledContentUnderHeader)}
+          style={sidebarScrollChrome.scrollChromeStyle}
         >
           <SidebarExpandedHeader
             productName="Nodex"
             searchShortcutLabel={resolveCodexPageSearchShortcutLabel()}
             newChatShortcutLabel="⌘N"
-            scrolledContentUnderHeader={scrolledContentUnderHeader}
+            scrolledContentUnderHeader={sidebarScrollChrome.scrolledContentUnderHeader}
             onSearch={() => {}}
             onNewChat={() => {}}
           />
           <div
+            ref={sidebarScrollChrome.scrollAreaRef}
             data-app-action-sidebar-scroll=""
+            data-content-below={sidebarScrollChrome.hasContentBelow ? "true" : "false"}
             className={SIDEBAR_SCROLL_AREA_CLASS}
-            onScroll={(event) => {
-              setScrolledContentUnderHeader(event.currentTarget.scrollTop > 0);
-            }}
+            onScroll={sidebarScrollChrome.syncScrollChrome}
           >
             <div className="flex shrink-0 flex-col gap-2" data-app-action-sidebar-scroll-top-actions="">
               <div className="shrink-0 px-row-x">
@@ -1781,6 +1781,13 @@ export const StatusGroupsReversed: Story = {
 
 export const NewChatControls: Story = {
   render: () => <SidebarNewChatControlsHarness />,
+  parameters: {
+    docs: {
+      description: {
+        story: "The fixed sidebar header keeps its top-edge treatment while the bottom fade appears only when additional rows remain below the scroll viewport.",
+      },
+    },
+  },
 };
 
 export const CodexProjectsExpanded: Story = {
