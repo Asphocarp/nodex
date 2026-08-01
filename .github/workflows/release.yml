@@ -107,6 +107,15 @@ jobs:
       tag: ${{ needs.detect.outputs.tag }}
       retention_days: 30
       upload_sentry_sourcemaps: true
+    secrets:
+      apple_api_issuer: ${{ secrets.APPLE_API_ISSUER }}
+      apple_api_key_b64: ${{ secrets.APPLE_API_KEY_B64 }}
+      apple_api_key_id: ${{ secrets.APPLE_API_KEY_ID }}
+      csc_key_password: ${{ secrets.CSC_KEY_PASSWORD }}
+      csc_link: ${{ secrets.CSC_LINK }}
+      sentry_auth_token: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      sentry_org: ${{ secrets.SENTRY_ORG }}
+      sentry_project: ${{ secrets.SENTRY_PROJECT }}
 
   promote:
     name: promote verified distribution
@@ -119,3 +128,7 @@ jobs:
       source_sha: ${{ needs.detect.outputs.source_sha }}
       version: ${{ needs.detect.outputs.version }}
       tag: ${{ needs.detect.outputs.tag }}
+    secrets:
+      homebrew_github_token: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+      landing_github_token: ${{ secrets.NODEXAPP_GITHUB_IO_TOKEN }}
+      skills_github_token: ${{ secrets.NODEX_SKILLS_GITHUB_TOKEN }}

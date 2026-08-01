@@ -7,6 +7,9 @@ on:
         description: Exact protected-main commit to deploy
         required: true
         type: string
+    secrets:
+      landing_github_token:
+        required: true
 
 permissions:
   contents: read
@@ -36,7 +39,7 @@ jobs:
 
       - name: Publish built site
         env:
-          GH_TOKEN: ${{ secrets.NODEXAPP_GITHUB_IO_TOKEN }}
+          GH_TOKEN: ${{ secrets.landing_github_token }}
           SOURCE_SHA: ${{ inputs.source_sha }}
         shell: bash
         run: |

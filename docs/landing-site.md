@@ -71,7 +71,8 @@ There is no separate landing-only validation workflow or second required check.
 ## Required Secrets
 
 The deploy workflow binds the `landing-production` environment, restricted to
-protected `main`, and expects this environment secret:
+protected `main`. Its callers explicitly map this repository Action secret to
+the reusable deployment workflow:
 
 - `NODEXAPP_GITHUB_IO_TOKEN`
   - fine-grained GitHub token

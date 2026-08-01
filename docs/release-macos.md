@@ -69,32 +69,40 @@ that commit makes release detection fail closed.
 
 ## One-time repository configuration
 
-The repository must have these environments, restricted to protected `main`:
+The repository must have these environments, restricted to protected `main`.
+They separate deployment policy and audit; reusable workflows receive only the
+explicit secret contract declared by their caller.
 
-| Environment | Secrets | Authority |
-| --- | --- | --- |
-| `macos-distribution` | `CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_API_KEY_B64`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER`, `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT` | Apple signing/notarization; Sentry upload once from production arm64 |
-| `release-publish` | none | job-scoped repository `contents: write` only |
-| `official-skills-publish` | `NODEX_SKILLS_GITHUB_TOKEN` | Fine-grained PAT with Contents read/write access to `NodexApp/skills` only |
-| `homebrew-tap` | `HOMEBREW_TAP_GITHUB_TOKEN` | Contents read/write only on `junyudev/homebrew-tap` |
-| `landing-production` | `NODEXAPP_GITHUB_IO_TOKEN` | Contents read/write only on `NodexApp/NodexApp.github.io` |
+| Environment | Authority |
+| --- | --- |
+| `macos-distribution` | Apple signing/notarization; Sentry upload once from production arm64 |
+| `release-publish` | Job-scoped repository `contents: write` only |
+| `official-skills-publish` | Publish the verified artifact to `NodexApp/skills` |
+| `homebrew-tap` | Update and smoke-install `junyudev/homebrew-tap` |
+| `landing-production` | Deploy `NodexApp/NodexApp.github.io` |
 
-Migration status on 2026-07-31: the original four protected environments exist, but
-their secrets cannot be copied through the GitHub API. Before rehearsal, copy
-the five Apple values from the legacy `release` environment into
-`macos-distribution`. Before production, copy its Homebrew token into
-`homebrew-tap`, configure the three Sentry values, and rotate the current
-repository-level landing token into `landing-production`; then delete the
-repository-level copy. Create `official-skills-publish` and store a dedicated
-fine-grained PAT as `NODEX_SKILLS_GITHUB_TOKEN`; its resource owner must be
-`NodexApp`, repository access must contain only `skills`, and repository
-permissions must contain only `Contents: Read and write`. Record its expiry in
-release operations and rotate it before expiry. Delete the legacy `release`
-environment only after the new scopes have been exercised successfully. If
-v0.2.0 must intentionally omit
-Sentry source maps, change the production workflow input to `false` in a
-reviewed foundation commit; do not silently proceed with a partial Sentry
-configuration.
+Configure these repository Action secrets:
+
+| Secret | Required authority |
+| --- | --- |
+| `CSC_LINK`, `CSC_KEY_PASSWORD` | Developer ID Application certificate and its password |
+| `APPLE_API_KEY_B64`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER` | App Store Connect notarization key |
+| `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT` | Release/source-map upload for the Nodex project |
+| `NODEX_SKILLS_GITHUB_TOKEN` | Fine-grained Contents read/write on `NodexApp/skills` only |
+| `HOMEBREW_TAP_GITHUB_TOKEN` | Fine-grained Contents read/write on `junyudev/homebrew-tap` only |
+| `NODEXAPP_GITHUB_IO_TOKEN` | Fine-grained Contents read/write on `NodexApp/NodexApp.github.io` only |
+
+Each caller maps these names to lowercase `workflow_call.secrets` aliases. Do
+not replace the mappings with broad `secrets: inherit`, and do not reference a
+repository secret from PR CI. The alias boundary also avoids relying on
+implicit environment-secret resolution or same-name precedence inside nested
+reusable workflows. Record PAT expiry dates in release operations and rotate
+them before expiry. Remove duplicate credentials from the legacy `release`
+environment after rehearsal succeeds.
+
+If a release must intentionally omit Sentry source maps, change the production
+workflow input to `false` in a reviewed foundation commit; do not silently
+proceed with a partial Sentry configuration.
 
 Repository Actions default permissions remain read-only. The `main` ruleset
 requires PRs, linear history, an up-to-date branch, and `CI / required`; it

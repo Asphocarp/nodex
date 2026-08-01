@@ -21,3 +21,5 @@ jobs:
     uses: ./.github/workflows/_deploy-landing-site.yml
     with:
       source_sha: ${{ github.sha }}
+    secrets:
+      landing_github_token: ${{ secrets.NODEXAPP_GITHUB_IO_TOKEN }}
