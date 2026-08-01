@@ -16,6 +16,11 @@ interface MacosSigningSecurityOptions {
   readonly paths: MacosSigningPaths;
 }
 
+interface MacosSigningSecurityDependencies {
+  readonly maskValue: (value: string) => void;
+  readonly runCommand: (command: readonly string[]) => void;
+}
+
 const scriptPath = fileURLToPath(import.meta.url);
 
 export const macosSigningSecurityCommands = (
@@ -51,6 +56,31 @@ export const macosSigningSecurityCommands = (
   ],
   ["list-keychains", "-d", "user", "-s", options.paths.keychain],
 ];
+
+export const githubActionsMaskCommand = (value: string): string => {
+  if (!value) throw new Error("Cannot mask an empty GitHub Actions value.");
+  const escaped = value
+    .replaceAll("%", "%25")
+    .replaceAll("\r", "%0D")
+    .replaceAll("\n", "%0A");
+  return `::add-mask::${escaped}\n`;
+};
+
+export const configureMacosSigningKeychain = (
+  options: MacosSigningSecurityOptions,
+  dependencies: MacosSigningSecurityDependencies,
+): void => {
+  dependencies.maskValue(options.keychainPassword);
+  for (const command of macosSigningSecurityCommands(options)) {
+    try {
+      dependencies.runCommand(command);
+    } catch {
+      throw new Error(
+        `Failed to configure the macOS signing keychain during security ${command[0]}.`,
+      );
+    }
+  }
+};
 
 const requiredEnvironmentValue = (name: string): string => {
   const value = process.env[name]?.trim();
@@ -136,13 +166,14 @@ const prepare = (): void => {
   chmodSync(paths.certificate, 0o600);
 
   try {
-    for (const command of macosSigningSecurityCommands({
-      certificatePassword,
-      keychainPassword,
-      paths,
-    })) {
-      execFileSync("/usr/bin/security", [...command], { stdio: "inherit" });
-    }
+    configureMacosSigningKeychain(
+      { certificatePassword, keychainPassword, paths },
+      {
+        maskValue: (value) => process.stdout.write(githubActionsMaskCommand(value)),
+        runCommand: (command) =>
+          execFileSync("/usr/bin/security", [...command], { stdio: "inherit" }),
+      },
+    );
   } catch (error) {
     cleanupPaths(paths);
     throw error;
