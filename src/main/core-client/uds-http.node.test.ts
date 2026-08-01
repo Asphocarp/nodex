@@ -10,7 +10,9 @@ import {
   CoreEventCompatibilityError,
   CoreEventReplayError,
   CoreResponseTooLargeError,
+  CoreTransportError,
   UdsHttpTransport,
+  isDefinitiveCoreGenerationLoss,
 } from "./uds-http";
 
 const servers: Server[] = [];
@@ -189,6 +191,41 @@ afterEach(async () => {
 });
 
 describe("UDS Core event replay boundaries", () => {
+  test("classifies a missing Core socket as definitive generation loss", async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), "nodex-core-uds-missing-"));
+    directories.push(directory);
+    const transport = new UdsHttpTransport(
+      path.join(directory, "core.sock"),
+      "test-capability",
+    );
+
+    const error = await transport.requestJson("GET", "/core/v1/health")
+      .catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      code: "ENOENT",
+      kind: "unreachable",
+      name: "CoreTransportError",
+      phase: "connect",
+    });
+    expect(isDefinitiveCoreGenerationLoss(error)).toBe(true);
+  });
+
+  test("keeps response timeouts distinct from generation loss", async () => {
+    const transport = new UdsHttpTransport(
+      await servePendingResponse(),
+      "test-capability",
+      { requestTimeoutMs: 10 },
+    );
+
+    const error = await transport.requestJson("GET", "/core/v1/health")
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(CoreTransportError);
+    expect(error).toMatchObject({ kind: "timeout", phase: "response" });
+    expect(isDefinitiveCoreGenerationLoss(error)).toBe(false);
+  });
+
   test("bounds caller-specific response and timeout budgets", () => {
     expect(() => new UdsHttpTransport("/tmp/core.sock", "capability", {
       maximumJsonResponseBytes:

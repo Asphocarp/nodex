@@ -46,7 +46,7 @@ use crate::infrastructure::event_log::{
 };
 use crate::infrastructure::metrics::DurationMetricSnapshot;
 use crate::infrastructure::module_receipts::{
-    NewModuleReceipt, insert_module_receipt, read_module_receipt,
+    DurableModuleContext, NewModuleReceipt, insert_module_receipt, read_module_receipt,
 };
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 use crate::infrastructure::store::SqliteStoreKernel;
@@ -100,6 +100,7 @@ const MAX_AGENT_FOOTPRINT_ROOTS: usize = 2_048;
 
 struct DocumentUpdateJob {
     context: BoundModuleContext,
+    client_session_id: String,
     operation_id: String,
     expected_store_epoch: StoreEpoch,
     document_id: String,
@@ -469,6 +470,15 @@ impl OwnedDocumentModule {
         context: &BoundModuleContext,
         request: ModuleApplyRequest<OwnedDocumentIntent>,
     ) -> Result<OwnedDocumentApplyOutcome, CoreError> {
+        self.apply_with_client_session(context, &context.connection_id, request)
+    }
+
+    pub(crate) fn apply_with_client_session(
+        &self,
+        context: &BoundModuleContext,
+        client_session_id: &str,
+        request: ModuleApplyRequest<OwnedDocumentIntent>,
+    ) -> Result<OwnedDocumentApplyOutcome, CoreError> {
         self.validate_context(context)?;
         if request.contract_version != OWNED_DOCUMENT_CONTRACT_VERSION {
             return Err(invalid("Unsupported Owned Document contract version"));
@@ -489,6 +499,7 @@ impl OwnedDocumentModule {
                 update,
             } => self.apply_yjs_update(
                 context,
+                client_session_id,
                 request.operation_id,
                 request.store_epoch,
                 document_id,
@@ -1326,9 +1337,12 @@ impl OwnedDocumentModule {
         expected_store_epoch: StoreEpoch,
         owner_block_id: String,
     ) -> Result<OwnedDocumentApplyOutcome, CoreError> {
-        let fingerprint =
-            serde_json::to_vec(&(context, expected_store_epoch.clone(), &owner_block_id))
-                .map_err(|_| invalid("Owned Document preparation cannot be fingerprinted"))?;
+        let fingerprint = serde_json::to_vec(&(
+            DurableModuleContext::from(context),
+            expected_store_epoch.clone(),
+            &owner_block_id,
+        ))
+        .map_err(|_| invalid("Owned Document preparation cannot be fingerprinted"))?;
         let request_hash = sha256(&fingerprint);
         let context = context.clone();
         let cache = Arc::clone(&self.cache);
@@ -2054,6 +2068,7 @@ impl OwnedDocumentModule {
     fn apply_yjs_update(
         &self,
         context: &BoundModuleContext,
+        client_session_id: &str,
         operation_id: String,
         expected_store_epoch: StoreEpoch,
         document_id: String,
@@ -2070,7 +2085,8 @@ impl OwnedDocumentModule {
         }
         validate_touched_block_ids(&touched_block_ids)?;
         let fingerprint = serde_json::to_vec(&(
-            context,
+            DurableModuleContext::from(context),
+            client_session_id,
             expected_store_epoch.clone(),
             generation,
             base_head_seq,
@@ -2083,10 +2099,11 @@ impl OwnedDocumentModule {
         let request_hash = sha256(&fingerprint);
         let receipt_document_id = document_id.clone();
         let receipt_update_id = update_id.clone();
-        let receipt_context = context.clone();
+        let receipt_client_session_id = client_session_id.to_owned();
         self.apply_document_update(
             DocumentUpdateJob {
                 context: context.clone(),
+                client_session_id: client_session_id.to_owned(),
                 operation_id,
                 expected_store_epoch,
                 document_id,
@@ -2113,7 +2130,7 @@ impl OwnedDocumentModule {
                     .update_receipt(&receipt_document_id, &receipt_update_id)?
                     .is_some_and(|receipt| {
                         receipt.generation != generation
-                            || receipt.client_session_id != receipt_context.connection_id
+                            || receipt.client_session_id != receipt_client_session_id
                             || receipt.base_head_seq != base_head_seq
                             || receipt.client_touched_block_ids != touched_block_ids
                             || receipt.update_hash != sha256(&update)
@@ -2158,7 +2175,7 @@ impl OwnedDocumentModule {
                     authority,
                     StaleYjsUpdate {
                         store_epoch,
-                        context: &receipt_context,
+                        client_session_id: &receipt_client_session_id,
                         generation,
                         base_head_seq,
                         update_id: &receipt_update_id,
@@ -2260,6 +2277,7 @@ impl OwnedDocumentModule {
         self.apply_document_update(
             DocumentUpdateJob {
                 context: mutation_context,
+                client_session_id: context.connection_id.clone(),
                 operation_id: operation_id.clone(),
                 expected_store_epoch,
                 document_id,
@@ -2326,6 +2344,7 @@ impl OwnedDocumentModule {
         self.apply_document_update(
             DocumentUpdateJob {
                 context: context.clone(),
+                client_session_id: context.connection_id.clone(),
                 operation_id,
                 expected_store_epoch,
                 document_id,
@@ -2423,6 +2442,7 @@ impl OwnedDocumentModule {
         self.apply_document_update(
             DocumentUpdateJob {
                 context: context.clone(),
+                client_session_id: context.connection_id.clone(),
                 operation_id,
                 expected_store_epoch,
                 document_id,
@@ -2737,6 +2757,7 @@ impl OwnedDocumentModule {
         self.apply_document_update(
             DocumentUpdateJob {
                 context: context.clone(),
+                client_session_id: context.connection_id.clone(),
                 operation_id: operation_id.clone(),
                 expected_store_epoch,
                 document_id,
@@ -3298,7 +3319,7 @@ impl OwnedDocumentModule {
                         base_materialization: &base_materialization,
                         materialization: &materialization,
                         update_id: &update_id,
-                        client_session_id: &job.context.connection_id,
+                        client_session_id: &job.client_session_id,
                         base_head_seq,
                         client_touched_block_ids: &touched_block_ids,
                         update: &update,
@@ -3356,7 +3377,7 @@ impl OwnedDocumentModule {
                         &authority.head.id,
                         authority.head.generation,
                         persisted.head_seq,
-                        &job.context.connection_id,
+                        &job.client_session_id,
                         &persisted.committed_at,
                     )?;
                 }
@@ -8016,18 +8037,39 @@ mod tests {
             .apply(&first_context, "client:faulted", request.clone())
             .expect_err("injected post-commit publication failure");
 
+        let reconnected_context = context_for("renderer:reconnected");
+        adapter
+            .subscribe(
+                &reconnected_context,
+                DOCUMENT_ID.to_owned(),
+                "client:faulted".to_owned(),
+            )
+            .expect("reconnected subscription");
         let retry = adapter
-            .apply(&first_context, "client:faulted", request)
+            .apply(&reconnected_context, "client:faulted", request)
             .expect("exact retry recovers receipt");
         assert!(retry.committed.receipt.mutation.duplicate);
         let replay = adapter
-            .replay("renderer:faulted", "client:faulted", 0, None)
+            .replay("renderer:reconnected", "client:faulted", 0, None)
             .expect("reconnect replay");
         assert!(matches!(
             replay.events.as_slice(),
             [DocumentRealtimeEvent::Committed(event)]
                 if event.sequence == retry.committed.event_sequence
         ));
+        seeded
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                let client_session_id = connection.query_row(
+                    "SELECT client_session_id FROM document_update_receipts WHERE update_id = ?1",
+                    ["update:lost-publication"],
+                    |row| row.get::<_, String>(0),
+                )?;
+                assert_eq!(client_session_id, "client:faulted");
+                Ok::<_, StoreError>(())
+            })
+            .expect("durable logical client session");
     }
 
     #[test]

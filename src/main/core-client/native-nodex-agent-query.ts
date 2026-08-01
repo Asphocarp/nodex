@@ -39,7 +39,7 @@ export async function readNativeDatabaseQuery(
   try {
     const authority = request.authority;
     const authorization = toCoreAgentExecutionAuthorization(
-      runtime.rootClient.handshake.generation.profile_id,
+      runtime.identity.profileId,
       authority,
       request.callId ?? `nodex-agent:${request.tool}`,
       request.resourceAccess,

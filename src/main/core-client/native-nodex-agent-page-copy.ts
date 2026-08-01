@@ -167,7 +167,7 @@ export class NativeNodexAgentPageCopyRuntime {
         operation_id: operationId,
         store_epoch: request.authority.storeEpoch,
         authorization: toCoreAgentExecutionAuthorization(
-          this.runtime.rootClient.handshake.generation.profile_id,
+          this.runtime.identity.profileId,
           request.authority,
           request.callId,
           request.resourceAccess,
@@ -282,7 +282,7 @@ export class NativeNodexAgentPageCopyRuntime {
             kind: "execute_prepared_agent_page_copy",
             authorization: {
               authorization: toCoreAgentExecutionAuthorization(
-                this.runtime.rootClient.handshake.generation.profile_id,
+                this.runtime.identity.profileId,
                 authority,
                 pending.request.callId,
                 pending.request.resourceAccess,

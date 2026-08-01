@@ -74,6 +74,86 @@ export class CoreEventCompatibilityError extends Error {
   }
 }
 
+export type CoreTransportErrorKind =
+  | "aborted"
+  | "connection_lost"
+  | "timeout"
+  | "unreachable"
+  | "unknown";
+
+export type CoreTransportPhase = "connect" | "open" | "response";
+
+export class CoreTransportError extends Error {
+  constructor(
+    readonly kind: CoreTransportErrorKind,
+    readonly phase: CoreTransportPhase,
+    readonly code: string | null,
+    cause: unknown,
+  ) {
+    super(coreTransportMessage(kind, code), { cause });
+    this.name = "CoreTransportError";
+  }
+}
+
+export const isDefinitiveCoreGenerationLoss = (error: unknown): boolean =>
+  error instanceof CoreTransportError
+  && (error.kind === "connection_lost" || error.kind === "unreachable");
+
+const coreTransportMessage = (
+  kind: CoreTransportErrorKind,
+  code: string | null,
+): string => {
+  const suffix = code ? ` (${code})` : "";
+  switch (kind) {
+    case "aborted":
+      return `Core request was aborted${suffix}`;
+    case "connection_lost":
+      return `Core connection was lost${suffix}`;
+    case "timeout":
+      return `Core request timed out${suffix}`;
+    case "unreachable":
+      return `Core is unreachable${suffix}`;
+    case "unknown":
+      return `Core transport failed${suffix}`;
+  }
+};
+
+const transportCode = (error: unknown): string | null => {
+  if (typeof error !== "object" || error === null || !("code" in error)) {
+    return null;
+  }
+  return typeof error.code === "string" ? error.code : null;
+};
+
+const normalizeTransportError = (
+  error: unknown,
+  phase: CoreTransportPhase,
+): unknown => {
+  if (
+    error instanceof CoreTransportError
+    || error instanceof CoreHttpError
+    || error instanceof CoreResponseTooLargeError
+    || error instanceof CoreEventCompatibilityError
+    || error instanceof CoreEventReplayError
+  ) {
+    return error;
+  }
+  const code = transportCode(error);
+  if (code === "ABORT_ERR" || (error instanceof Error && error.name === "AbortError")) {
+    return new CoreTransportError("aborted", phase, code, error);
+  }
+  if (code === "ENOENT" || code === "ECONNREFUSED") {
+    return new CoreTransportError("unreachable", phase, code, error);
+  }
+  if (code === "ECONNRESET" || code === "EPIPE") {
+    return new CoreTransportError("connection_lost", phase, code, error);
+  }
+  if (code === "ETIMEDOUT") {
+    return new CoreTransportError("timeout", phase, code, error);
+  }
+  return new CoreTransportError("unknown", phase, code, error);
+};
+
 interface CoreEventContract {
   readonly transportVersion: number;
   readonly eventVersion: number;
@@ -173,13 +253,17 @@ export class UdsHttpTransport {
               }
               settle(() => reject(new CoreHttpError(status, errorMessage(value))));
             })
-            .catch((error: unknown) => settle(() => reject(error)));
+            .catch((error: unknown) =>
+              settle(() => reject(normalizeTransportError(error, "response")))
+            );
         },
       );
       request.setTimeout(this.#requestTimeoutMs, () => {
-        request.destroy(new Error("Core request timed out"));
+        request.destroy(new CoreTransportError("timeout", "response", "ETIMEDOUT", null));
       });
-      request.on("error", (error) => settle(() => reject(error)));
+      request.on("error", (error) =>
+        settle(() => reject(normalizeTransportError(error, "connect")))
+      );
       if (encodedBody) request.write(encodedBody);
       request.end();
     });
@@ -241,13 +325,17 @@ export class UdsHttpTransport {
               );
               settle(() => resolve({ kind: "json", value }));
             })
-            .catch((error: unknown) => settle(() => reject(error)));
+            .catch((error: unknown) =>
+              settle(() => reject(normalizeTransportError(error, "response")))
+            );
         },
       );
       request.setTimeout(this.#requestTimeoutMs, () => {
-        request.destroy(new Error("Core Document request timed out"));
+        request.destroy(new CoreTransportError("timeout", "response", "ETIMEDOUT", null));
       });
-      request.on("error", (error) => settle(() => reject(error)));
+      request.on("error", (error) =>
+        settle(() => reject(normalizeTransportError(error, "connect")))
+      );
       request.write(body);
       request.end();
     });
@@ -307,7 +395,7 @@ export class UdsHttpTransport {
                 );
                 reject(new CoreHttpError(status, errorMessage(value)));
               })
-              .catch(reject);
+              .catch((error: unknown) => reject(normalizeTransportError(error, "response")));
             return;
           }
 
@@ -317,7 +405,7 @@ export class UdsHttpTransport {
             if (closed) return;
             closed = true;
             response.destroy();
-            rejectDone?.(error);
+            rejectDone?.(normalizeTransportError(error, "response"));
           };
           const processFrame = (frame: { readonly event: string; readonly data: string }): void => {
             if (frame.event === "module") {
@@ -375,13 +463,13 @@ export class UdsHttpTransport {
       );
       request.on("error", (error) => {
         if (!opened) {
-          reject(error);
+          reject(normalizeTransportError(error, "open"));
           return;
         }
-        if (!closed) rejectDone?.(error);
+        if (!closed) rejectDone?.(normalizeTransportError(error, "response"));
       });
       request.setTimeout(this.#requestTimeoutMs, () => {
-        request.destroy(new Error("Core event stream timed out before opening"));
+        request.destroy(new CoreTransportError("timeout", "open", "ETIMEDOUT", null));
       });
       request.end();
     });

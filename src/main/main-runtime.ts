@@ -21,6 +21,13 @@ import {
 import { join, resolve } from "path";
 import { performance } from "node:perf_hooks";
 import type { AppInitializationStep } from "../shared/app-startup";
+import {
+  CORE_AUTHORITY_STATUS_CHANNEL,
+  GET_CORE_AUTHORITY_STATUS_CHANNEL,
+  RELAUNCH_FOR_CORE_AUTHORITY_CHANNEL,
+  RETRY_CORE_AUTHORITY_CHANNEL,
+  type CoreAuthorityStatus,
+} from "../shared/core-authority-status";
 import type { AppUpdateStatus } from "../shared/types";
 import {
   projectionScopeKey,
@@ -187,6 +194,7 @@ import {
   mapCoreStoreAdministrationEvent,
   type CoreEventEnvelope,
   type CoreEventSubscription,
+  type CoreAuthorityState,
   type DesktopAutomationModulePort,
   type DesktopDataAuthorityRuntime,
   type DesktopLibraryModuleBridge,
@@ -264,12 +272,17 @@ let desktopAutomationModule: DesktopAutomationModulePort | null = null;
 let desktopLibraryModule: DesktopLibraryModuleBridge | null = null;
 let desktopStoreAdministration: DesktopStoreAdministrationPort | null = null;
 let coreEventSubscription: CoreEventSubscription | null = null;
+let coreAuthorityStatus: CoreAuthorityStatus = { kind: "ready" };
+let releaseCoreAuthorityStatus: (() => void) | null = null;
 let storeAdministrationBackupScheduler: StoreAdministrationBackupScheduler | null = null;
 let storeAdministrationMaintenanceScheduler:
   StoreAdministrationMaintenanceScheduler | null = null;
 let reminderResumeHandlerRegistered = false;
 const desktopNotificationManager = new DesktopNotificationManager();
 const logger = getLogger({ subsystem: "app" });
+
+const isCoreAuthorityReady = (): boolean => coreAuthorityStatus.kind === "ready";
+
 function showReminderNotification(
   payload: ReminderNotificationPayload,
 ): void {
@@ -320,6 +333,7 @@ function startRuntimeReminderDelivery(): void {
   }
   const scheduler = startAutomationReminderScheduler({
     automation,
+    isAuthorityAvailable: isCoreAuthorityReady,
     onReminder: showReminderNotification,
   });
   runtimeReminderTick = scheduler.runNow;
@@ -767,6 +781,66 @@ function broadcastAppUpdateStatus(status: AppUpdateStatus): void {
   broadcastToWindows("app:update-status", status);
 }
 
+function toRendererCoreAuthorityStatus(
+  state: CoreAuthorityState,
+): CoreAuthorityStatus {
+  if (state.kind === "ready") return { kind: "ready" };
+  if (state.kind === "recovering") {
+    return { attempt: state.attempt, kind: "recovering" };
+  }
+  if (state.kind === "stopped") {
+    return {
+      circuitOpen: false,
+      kind: "unavailable",
+      message: "Nodex Core has stopped.",
+    };
+  }
+  return {
+    circuitOpen: state.circuitOpen,
+    kind: "unavailable",
+    message: state.circuitOpen
+      ? "Nodex Core stopped repeatedly, so automatic recovery was paused."
+      : "Nodex Core could not reconnect.",
+  };
+}
+
+function publishCoreAuthorityStatus(state: CoreAuthorityState): void {
+  const next = toRendererCoreAuthorityStatus(state);
+  const previous = coreAuthorityStatus;
+  if (
+    previous.kind === next.kind
+    && (
+      next.kind === "ready"
+      || (
+        previous.kind === "recovering"
+        && next.kind === "recovering"
+        && previous.attempt === next.attempt
+      )
+      || (
+        previous.kind === "unavailable"
+        && next.kind === "unavailable"
+        && previous.circuitOpen === next.circuitOpen
+        && previous.message === next.message
+      )
+    )
+  ) return;
+  coreAuthorityStatus = next;
+  if (next.kind === "recovering") {
+    logger.warn("Native Core generation recovery started", {
+      attempt: next.attempt,
+    });
+  } else if (next.kind === "unavailable") {
+    logger.error("Native Core authority is unavailable", {
+      circuitOpen: next.circuitOpen,
+    });
+  } else if (previous.kind !== "ready") {
+    logger.info("Native Core authority recovered");
+    void runtimeReminderTick?.();
+    void scheduledAutomationScheduler?.tick();
+  }
+  broadcastToWindows(CORE_AUTHORITY_STATUS_CHANNEL, next);
+}
+
 function maybeStartAutomaticAppUpdateChecks(): void {
   if (!appUpdateService) {
     return;
@@ -784,6 +858,27 @@ function registerInitializationIpcHandlers(): void {
   ipcMain.handle("app:await-initialization", (event) => {
     safeSendToWebContents(event.sender, "app:init-step", [appInitializationStep]);
     return appInitializationPromise;
+  });
+  ipcMain.removeHandler(GET_CORE_AUTHORITY_STATUS_CHANNEL);
+  ipcMain.handle(GET_CORE_AUTHORITY_STATUS_CHANNEL, () => coreAuthorityStatus);
+  ipcMain.removeHandler(RETRY_CORE_AUTHORITY_CHANNEL);
+  ipcMain.handle(RETRY_CORE_AUTHORITY_CHANNEL, async (event) => {
+    if (!openWindows.has(event.sender.id)) {
+      throw new Error("Core recovery requires an active Nodex window");
+    }
+    const runtime = desktopDataAuthorityRuntime;
+    if (!runtime) throw new Error("Native Core authority is not initialized");
+    await runtime.retryCoreNow();
+  });
+  ipcMain.removeHandler(RELAUNCH_FOR_CORE_AUTHORITY_CHANNEL);
+  ipcMain.handle(RELAUNCH_FOR_CORE_AUTHORITY_CHANNEL, (event) => {
+    if (!openWindows.has(event.sender.id)) {
+      throw new Error("Core relaunch requires an active Nodex window");
+    }
+    setTimeout(() => {
+      app.relaunch();
+      app.quit();
+    }, 0);
   });
   ipcMain.removeAllListeners("app:renderer-initialization-finished");
   ipcMain.on("app:renderer-initialization-finished", (event, input: unknown) => {
@@ -1578,14 +1673,14 @@ async function publishCoreResync(eventHead: number): Promise<void> {
   const runtime = desktopDataAuthorityRuntime;
   if (runtime) {
     await requireProjectionRouter().resync({
-      storeEpoch: runtime.rootClient.handshake.store_epoch,
+      storeEpoch: runtime.identity.storeEpoch,
       changeLogSeq: eventHead,
     }, "event_gap");
   }
   dbNotifier.notifyLibraryNavigationChanged({
     version: 1,
-    libraryId: runtime?.rootClient.handshake.library_id ?? "",
-    storeEpoch: runtime?.rootClient.handshake.store_epoch ?? null,
+    libraryId: runtime?.identity.libraryId ?? "",
+    storeEpoch: runtime?.identity.storeEpoch ?? null,
     changeLogSeq: eventHead,
     changeKind: "content",
     affectedParentKeys: ["library", "catalog"],
@@ -1605,6 +1700,11 @@ async function initializeDesktopApp(
 ): Promise<void> {
   const initializationStartedAt = performance.now();
   desktopDataAuthorityRuntime = await authority;
+  releaseCoreAuthorityStatus?.();
+  releaseCoreAuthorityStatus =
+    desktopDataAuthorityRuntime.subscribeToCoreAuthority(
+      publishCoreAuthorityStatus,
+    );
   const servicesStartedAt = performance.now();
   logger.info("Native Core authority ready", {
     ...desktopDataAuthorityRuntime.launch.timings,
@@ -1617,10 +1717,12 @@ async function initializeDesktopApp(
   });
   registerDatabaseNotifierBridges();
   const coreClient = desktopDataAuthorityRuntime.rootClient;
+  const coreIdentity = desktopDataAuthorityRuntime.identity;
+  let coreStreamInterruptionPublished = false;
   setProjectionInvalidationRouter(new ProjectionInvalidationRouter({
-    libraryId: coreClient.handshake.library_id,
+    libraryId: coreIdentity.libraryId,
     initialCursor: {
-      storeEpoch: coreClient.handshake.store_epoch,
+      storeEpoch: coreIdentity.storeEpoch,
       changeLogSeq: coreClient.handshake.event_head,
     },
     filterForProject: async (projectId, impact) =>
@@ -1660,8 +1762,10 @@ async function initializeDesktopApp(
         });
         return;
       }
+      if (coreStreamInterruptionPublished) return;
+      coreStreamInterruptionPublished = true;
       void requireProjectionRouter().resync({
-        storeEpoch: coreClient.handshake.store_epoch,
+        storeEpoch: coreIdentity.storeEpoch,
         changeLogSeq: requireProjectionRouter().cursor.changeLogSeq,
       }, "reconnect");
       logger.warn("Native Core event stream interrupted; reconnecting", {
@@ -1671,6 +1775,9 @@ async function initializeDesktopApp(
             ? "stream ended"
             : String(error),
       });
+    },
+    onConnectionStateChanged: (state) => {
+      if (state === "connected") coreStreamInterruptionPublished = false;
     },
   });
   void coreEventSubscription.done.catch((error) => {
@@ -1715,7 +1822,7 @@ async function publishCoreModuleEvent(envelope: CoreEventEnvelope): Promise<void
   await requireProjectionRouter().accept(envelope);
   publishCoreModuleEventToNotifiers(
     envelope,
-    desktopDataAuthorityRuntime.rootClient.handshake.library_id,
+    desktopDataAuthorityRuntime.identity.libraryId,
   );
 }
 
@@ -1813,6 +1920,7 @@ function configureRuntimeBackupScheduler(settings: {
   storeAdministrationBackupScheduler = startStoreAdministrationBackupScheduler({
     administration,
     enabled: settings.autoEnabled,
+    isAuthorityAvailable: isCoreAuthorityReady,
     intervalHours: settings.intervalHours,
     retentionCount: settings.retentionCount,
   });
@@ -1828,6 +1936,7 @@ function startRuntimeStoreMaintenanceScheduler(): void {
   storeAdministrationMaintenanceScheduler =
     startStoreAdministrationMaintenanceScheduler({
       administration: desktopStoreAdministration,
+      isAuthorityAvailable: isCoreAuthorityReady,
       readBlockRetentionCount: () => getHistorySettings().retentionCount,
     });
 }
@@ -1852,6 +1961,7 @@ function startRuntimeScheduledAutomationScheduler(): void {
   }
 
   scheduledAutomationScheduler = startCodexScheduledAutomationScheduler({
+    isAuthorityAvailable: isCoreAuthorityReady,
     claimDueAutomations: async (limit) =>
       await automationModule.claimDueDefinitions(limit, 15 * 60_000),
     completeClaim: async (leaseId) => {
@@ -1924,6 +2034,9 @@ function beginMainRuntimeShutdown(): void {
   logger.info("Nodex before-quit");
   coreEventSubscription?.close();
   coreEventSubscription = null;
+  releaseCoreAuthorityStatus?.();
+  releaseCoreAuthorityStatus = null;
+  desktopDataAuthorityRuntime?.close();
   for (const state of projectionIpcSubscriptions.values()) {
     state.sender.removeListener("destroyed", state.onDestroyed);
     for (const release of state.releases.values()) release();
@@ -2462,7 +2575,7 @@ export async function runMainAppStartup(
     readStoreEpoch: () => {
       const runtime = desktopDataAuthorityRuntime;
       if (!runtime) return null;
-      return runtime.rootClient.handshake.store_epoch;
+      return runtime.identity.storeEpoch;
     },
     persistProjectGrants: async (input) =>
       await nodexAgentResourceAuthority.persistProjectGrants(input),

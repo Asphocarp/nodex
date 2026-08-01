@@ -148,6 +148,38 @@ fn response_json(response: &str) -> serde_json::Value {
         .unwrap_or_else(|error| panic!("JSON response ({error}): {response:?}"))
 }
 
+fn bind_test_client(descriptor: &RuntimeDescriptor, auth: &str, connection_id: &str) -> String {
+    let handshake = serde_json::to_string(&HandshakeRequest {
+        requirements: core_client_requirements(),
+        client: ClientIdentity {
+            kind: ClientKind::ElectronHost,
+            build_id: "lifecycle-active-host-test".to_owned(),
+        },
+        connection_id: connection_id.to_owned(),
+        expected_generation: RuntimeGenerationIdentity::from(descriptor),
+    })
+    .expect("handshake JSON");
+    let response = request(
+        &descriptor.socket_path,
+        auth,
+        "POST",
+        "/core/v1/handshake",
+        &handshake,
+    );
+    assert!(response.starts_with("HTTP/1.1 200"), "{response:?}");
+    response_json(&response)["connection_binding"]
+        .as_str()
+        .expect("connection binding")
+        .to_owned()
+}
+
+fn lifecycle_summary(home: &std::path::Path) -> serde_json::Value {
+    serde_json::from_slice(
+        &fs::read(home.join("run/core/lifecycle.json")).expect("lifecycle summary"),
+    )
+    .expect("lifecycle summary JSON")
+}
+
 fn replacement_request(descriptor: &RuntimeDescriptor) -> String {
     replacement_request_for(descriptor, descriptor.manifest.clone())
 }
@@ -201,7 +233,13 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
     }));
 
     let runtime = home.join("run/core");
-    for name in ["core.lock", "core.sock", "core.json", "core.auth"] {
+    for name in [
+        "core.lock",
+        "core.sock",
+        "core.json",
+        "core.auth",
+        "lifecycle.json",
+    ] {
         let mode = fs::symlink_metadata(runtime.join(name))
             .expect("runtime entry")
             .permissions()
@@ -697,6 +735,10 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
     assert!(!runtime.join("core.sock").exists());
     assert!(!runtime.join("core.json").exists());
     assert!(!runtime.join("core.auth").exists());
+    let lifecycle = lifecycle_summary(&home);
+    assert_eq!(lifecycle["current"]["phase"], "stopped");
+    assert_eq!(lifecycle["current"]["drain_reason"], "explicit_shutdown");
+    assert_eq!(lifecycle["current"]["stop_outcome"], "success");
 
     let log_directory = home.join("logs");
     assert_eq!(
@@ -821,6 +863,69 @@ fn core_idle_exits_after_startup_clients_are_gone() {
     assert!(!runtime.join("core.sock").exists());
     assert!(!runtime.join("core.json").exists());
     assert!(!runtime.join("core.auth").exists());
+    let lifecycle = lifecycle_summary(&home);
+    assert_eq!(lifecycle["current"]["phase"], "stopped");
+    assert_eq!(lifecycle["current"]["drain_reason"], "idle_timeout");
+    assert_eq!(lifecycle["current"]["stop_outcome"], "success");
+}
+
+#[test]
+fn live_electron_host_and_event_stream_prevent_idle_exit() {
+    let directory = tempdir().expect("disposable Core home");
+    let home = directory.path().canonicalize().expect("absolute home");
+    let executable = env!("CARGO_BIN_EXE_nodex-core");
+    let mut core = Command::new(executable)
+        .args(["--home", home.to_str().expect("UTF-8 home")])
+        .env("NODEX_CORE_IDLE_TIMEOUT_MS", "250")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn Core");
+    let descriptor = read_ready_descriptor(&mut core);
+    let auth = fs::read_to_string(home.join("run/core/core.auth"))
+        .expect("auth capability")
+        .trim()
+        .to_owned();
+    let connection_id = "connection:active-electron-host";
+    let binding = bind_test_client(&descriptor, &auth, connection_id);
+    let headers = [
+        ("x-nodex-connection-id", connection_id),
+        ("x-nodex-connection-binding", binding.as_str()),
+    ];
+    let mut event_stream = open_sse(
+        &descriptor.socket_path,
+        &auth,
+        "/core/v1/events?after=0",
+        &headers,
+    );
+
+    std::thread::sleep(Duration::from_millis(800));
+    assert_eq!(core.try_wait().expect("poll active Core"), None);
+    let health = response_json(&request(
+        &descriptor.socket_path,
+        &auth,
+        "GET",
+        "/core/v1/health",
+        "",
+    ));
+    assert_eq!(health["status"], "ready");
+    assert!(health["metrics"]["active_clients"].as_u64().unwrap() >= 1);
+    assert_eq!(health["metrics"]["active_event_subscriptions"], 1);
+
+    let shutdown = request_with_headers(
+        &descriptor.socket_path,
+        &auth,
+        "POST",
+        "/core/v1/admin/shutdown",
+        r#"{"kind":"shutdown"}"#,
+        &headers,
+    );
+    assert!(shutdown.starts_with("HTTP/1.1 200"), "{shutdown:?}");
+    let mut tail = Vec::new();
+    event_stream
+        .read_to_end(&mut tail)
+        .expect("drain closes stream");
+    assert!(core.wait().expect("wait for Core").success());
 }
 
 #[test]

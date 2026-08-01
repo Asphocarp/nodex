@@ -139,6 +139,7 @@ pub(crate) struct RuntimePaths {
     pub(crate) socket: PathBuf,
     pub(crate) descriptor: PathBuf,
     pub(crate) auth: PathBuf,
+    pub(crate) lifecycle: PathBuf,
 }
 
 impl RuntimePaths {
@@ -153,6 +154,7 @@ impl RuntimePaths {
             socket: directory.join("core.sock"),
             descriptor: directory.join("core.json"),
             auth: directory.join("core.auth"),
+            lifecycle: directory.join("lifecycle.json"),
             directory,
         })
     }
@@ -238,6 +240,24 @@ impl RuntimePaths {
             let _ = fs::remove_file(&temporary);
         }
         write_result
+    }
+
+    pub(crate) fn read_private_bounded(
+        &self,
+        path: &Path,
+        maximum_bytes: u64,
+        label: &str,
+    ) -> io::Result<Vec<u8>> {
+        let metadata = checked_owned_entry(
+            path,
+            self.owner_uid()?,
+            EntryKind::File,
+            Some(PRIVATE_FILE_MODE),
+        )?;
+        if metadata.len() > maximum_bytes {
+            return Err(invalid_data(&format!("{label} is oversized")));
+        }
+        fs::read(path)
     }
 
     pub(crate) fn read_descriptor(&self) -> io::Result<RuntimeDescriptor> {

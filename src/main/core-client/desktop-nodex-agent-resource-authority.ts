@@ -283,7 +283,7 @@ const createCorePort = (
       .libraryRead({
         kind: "plan_agent_resource_access",
         provenance: toCoreAgentTurnProvenance(
-          runtime.rootClient.handshake.generation.profile_id,
+          runtime.identity.profileId,
           input.authority,
         ),
         call_id: input.callId,
@@ -311,7 +311,7 @@ const createCorePort = (
         intent: {
           kind: "persist_agent_project_resource_grants",
           provenance: toCoreAgentTurnProvenance(
-            runtime.rootClient.handshake.generation.profile_id,
+            runtime.identity.profileId,
             input.authority,
           ),
           grants: canonicalizeNodexAgentResourceGrantSpecs(input.grants)

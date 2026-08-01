@@ -39,8 +39,10 @@ describe("Automation reminder scheduler", () => {
     >;
     let intervalMs = 0;
     let cleared = false;
+    let authorityAvailable = false;
     const scheduler = startAutomationReminderScheduler({
       automation,
+      isAuthorityAvailable: () => authorityAvailable,
       onReminder,
       intervalMs: 10_000,
       maxPerTick: 7,
@@ -59,6 +61,10 @@ describe("Automation reminder scheduler", () => {
       },
     });
 
+    await Promise.resolve();
+    expect(automation.claimDueReminders).not.toHaveBeenCalled();
+    authorityAvailable = true;
+    await scheduler.runNow();
     await vi.waitFor(() => {
       expect(automation.completeReminderLease).toHaveBeenCalledWith(
         "reminder-lease:1",
@@ -108,6 +114,47 @@ describe("Automation reminder scheduler", () => {
       );
     });
     expect(automation.completeReminderLease).not.toHaveBeenCalled();
+    scheduler.dispose();
+  });
+
+  test("defers claimed reminders if Core authority is lost before delivery", async () => {
+    let authorityAvailable = true;
+    let resolveClaims: (claims: typeof claim[]) => void = () => undefined;
+    const automation: ReminderAuthority = {
+      ...authority(),
+      claimDueReminders: vi.fn(async () => await new Promise<typeof claim[]>((resolve) => {
+        resolveClaims = resolve;
+      })),
+    };
+    const onReminder = vi.fn();
+    const scheduler = startAutomationReminderScheduler({
+      automation,
+      isAuthorityAvailable: () => authorityAvailable,
+      onReminder,
+      retryDelayMs: 9_000,
+      setIntervalImpl: () => (
+        { unref: vi.fn() } as unknown as ReturnType<typeof setInterval>
+      ),
+      clearIntervalImpl: vi.fn(),
+      logger: {
+        debug: vi.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+      },
+    });
+
+    await vi.waitFor(() => expect(automation.claimDueReminders).toHaveBeenCalledTimes(1));
+    authorityAvailable = false;
+    resolveClaims([claim]);
+
+    await vi.waitFor(() => {
+      expect(automation.failReminderLease).toHaveBeenCalledWith(
+        "reminder-lease:1",
+        9_000,
+        "core_authority_unavailable",
+      );
+    });
+    expect(onReminder).not.toHaveBeenCalled();
     scheduler.dispose();
   });
 });

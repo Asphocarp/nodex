@@ -549,9 +549,9 @@ export function createDesktopDocumentSyncBridge(
     if (adapter) return adapter;
     adapter = createCoreBlockTransferAdapter({
       client: runtime.clientForProject(projectId),
-      libraryId: runtime.rootClient.handshake.library_id,
+      libraryId: runtime.identity.libraryId,
       projectId,
-      storeEpoch: runtime.rootClient.handshake.store_epoch,
+      storeEpoch: runtime.identity.storeEpoch,
     });
     blockTransferAdapters.set(projectId, adapter);
     return adapter;
@@ -980,8 +980,7 @@ export function createDesktopDocumentSyncBridge(
           .update(request.mutationId)
           .digest("hex")
           .slice(0, 16)}`;
-      const storeEpoch = runtime.clientForProject(request.projectId)
-        .handshake.store_epoch;
+      const storeEpoch = runtime.identity.storeEpoch;
       const boundary: NativeWriteLeaseBoundary = {
         leaseId,
         projectId: request.projectId,
@@ -1416,7 +1415,7 @@ export function createDesktopDocumentSyncBridge(
           ...ownerCommandIdentity(
             scope,
             ownerBlockId,
-            runtime.rootClient.handshake.store_epoch,
+            runtime.identity.storeEpoch,
             runtime.rootClient.handshake.connection_binding,
           ),
         });
@@ -1431,7 +1430,7 @@ export function createDesktopDocumentSyncBridge(
           ...ownerCommandIdentity(
             scope,
             ownerBlockId,
-            runtime.rootClient.handshake.store_epoch,
+            runtime.identity.storeEpoch,
             runtime.rootClient.handshake.connection_binding,
           ),
         });

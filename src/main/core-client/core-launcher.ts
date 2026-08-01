@@ -23,6 +23,7 @@ export interface ResolveCoreExecutableInput {
 
 export interface ConnectOrStartCoreInput extends ResolveCoreExecutableInput {
   readonly buildId: string;
+  readonly connectionId?: string;
   readonly maximumJsonResponseBytes?: number;
   readonly nodexHome: string;
   readonly onStartupEvent?: (event: CoreStartupEvent) => void;
@@ -266,6 +267,7 @@ const connect = (input: ConnectOrStartCoreInput): Promise<CoreClient> =>
     nodexHome: input.nodexHome,
     clientKind: "electron_host",
     buildId: input.buildId,
+    connectionId: input.connectionId,
     maximumJsonResponseBytes: input.maximumJsonResponseBytes,
     requestTimeoutMs: input.requestTimeoutMs,
   });

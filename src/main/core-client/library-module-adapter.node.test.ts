@@ -368,6 +368,7 @@ describe("Core Library Module Adapter", () => {
     const requestedProjects: string[] = [];
     const runtime = {
       backend: "rust",
+      identity,
       rootClient: Object.assign(rootClient, {
         handshake: fakeHandshake(),
       }),
@@ -956,6 +957,7 @@ describe("Core Library Module Adapter", () => {
     const requestedProjects: string[] = [];
     const runtime = {
       backend: "rust",
+      identity,
       rootClient: Object.assign(rootClient, {
         handshake: fakeHandshake(),
       }),
@@ -1295,6 +1297,7 @@ describe("Core Library Module Adapter", () => {
     });
     const runtime = {
       backend: "rust",
+      identity,
       rootClient: { handshake: fakeHandshake() },
       clientForProject: () => projectClient,
     } as unknown as RustDataAuthorityRuntime;
@@ -1408,6 +1411,7 @@ describe("Core Library Module Adapter", () => {
   test("fails closed before a Rust write without a trusted window Project", async () => {
     const runtime = {
       backend: "rust",
+      identity,
       rootClient: { handshake: fakeHandshake() },
       clientForProject: () => {
         throw new Error("Project client must not be resolved");
@@ -1463,6 +1467,7 @@ describe("Core Library Module Adapter", () => {
     });
     const runtime = {
       backend: "rust",
+      identity,
       rootClient: Object.assign(rootClient, {
         handshake: fakeHandshake(),
       }),

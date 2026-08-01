@@ -123,9 +123,9 @@ export function createDesktopLibraryModuleBridge(
     client: projectId
       ? runtime.clientForProject(projectId)
       : runtime.rootClient,
-    libraryId: runtime.rootClient.handshake.library_id,
-    profileId: runtime.rootClient.handshake.generation.profile_id,
-    storeEpoch: runtime.rootClient.handshake.store_epoch,
+    libraryId: runtime.identity.libraryId,
+    profileId: runtime.identity.profileId,
+    storeEpoch: runtime.identity.storeEpoch,
   });
   const projectCoreAdapter = (
     runtime: DesktopDataAuthorityRuntime,

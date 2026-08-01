@@ -138,7 +138,10 @@ pub(super) fn apply(
                 ));
             }
             let fingerprint = serde_json::to_vec(&(
-                &context,
+                &context.profile_id,
+                &context.library_id,
+                &context.project_id,
+                &context.adapter,
                 request.contract_version,
                 &request.store_epoch,
                 &request.intent,

@@ -97,7 +97,7 @@ const createCoreNodexAgentAuthorityPort = (
       throw new Error("Core returned the wrong Project authority read variant");
     }
     const project = projectSnapshot.value.project;
-    if (project.library_id !== runtime.rootClient.handshake.library_id) {
+    if (project.library_id !== runtime.identity.libraryId) {
       return null;
     }
 
@@ -105,7 +105,7 @@ const createCoreNodexAgentAuthorityPort = (
     const inheritsLibraryAuthority = inherited?.scope === "library"
       && inherited.actorProjectId === actorProjectId
       && inherited.libraryId === project.library_id
-      && inherited.storeEpoch === runtime.rootClient.handshake.store_epoch;
+      && inherited.storeEpoch === runtime.identity.storeEpoch;
     const scope = input.builtinFullAccess || inheritsLibraryAuthority
       ? "library"
       : "project";
@@ -121,8 +121,8 @@ const createCoreNodexAgentAuthorityPort = (
         rootThreadId,
         actorProjectId,
         libraryId: project.library_id,
-        profileId: runtime.rootClient.handshake.generation.profile_id,
-        storeEpoch: runtime.rootClient.handshake.store_epoch,
+        profileId: runtime.identity.profileId,
+        storeEpoch: runtime.identity.storeEpoch,
         scope,
         source,
         permissionProfileId: scope === "library"

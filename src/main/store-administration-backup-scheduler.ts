@@ -14,6 +14,7 @@ export interface StartStoreAdministrationBackupSchedulerOptions {
   readonly enabled: boolean;
   readonly intervalHours: number;
   readonly retentionCount: number;
+  readonly isAuthorityAvailable?: () => boolean;
   readonly setIntervalImpl?: (
     callback: () => void,
     milliseconds: number,
@@ -37,14 +38,16 @@ export function startStoreAdministrationBackupScheduler(
     ?? ((callback, milliseconds) => setInterval(callback, milliseconds));
   const clearIntervalImpl = options.clearIntervalImpl
     ?? ((timer) => clearInterval(timer));
+  const isAuthorityAvailable = options.isAuthorityAvailable ?? (() => true);
   let disposed = false;
   let running = false;
 
   const runNow = async (): Promise<void> => {
-    if (disposed || running) return;
+    if (disposed || running || !isAuthorityAvailable()) return;
     running = true;
     try {
       await options.administration.createBackup({ trigger: "auto" });
+      if (disposed || !isAuthorityAvailable()) return;
       await options.administration.pruneBackups(retentionCount);
     } catch (error) {
       logger.error("Automatic backup run failed", {

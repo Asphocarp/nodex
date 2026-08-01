@@ -101,7 +101,7 @@ export async function readNativeFetch(
   try {
     const client = runtime.clientForProject(request.projectId);
     const authorization = toCoreAgentExecutionAuthorization(
-      runtime.rootClient.handshake.generation.profile_id,
+      runtime.identity.profileId,
       request.authority,
       request.callId ?? `nodex-agent:${request.tool}`,
       request.resourceAccess,

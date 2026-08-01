@@ -109,6 +109,7 @@ export interface ConnectCoreClientInput {
   readonly nodexHome: string;
   readonly clientKind: ClientKind;
   readonly buildId: string;
+  readonly connectionId?: string;
   readonly projectId?: string;
   readonly maximumJsonResponseBytes?: number;
   readonly requestTimeoutMs?: number;
@@ -140,7 +141,14 @@ export class CoreClient implements CoreClientPort {
   }
 
   static async connect(input: ConnectCoreClientInput): Promise<CoreClient> {
-    const connectionId = randomUUID();
+    const connectionId = input.connectionId ?? randomUUID();
+    if (
+      !connectionId
+      || connectionId !== connectionId.trim()
+      || connectionId.length > 512
+    ) {
+      throw new Error("Core connection identity is invalid");
+    }
     const runtime = readCoreRuntimeConnection(input.nodexHome);
     const transport = new UdsHttpTransport(
       runtime.descriptor.socket_path,

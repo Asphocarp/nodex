@@ -3,6 +3,7 @@ import {
   useState,
 } from "react";
 import { AppStartupScreen } from "@/components/app-startup-screen";
+import { CoreAuthorityStatusNotice } from "@/components/core-authority-status";
 import { NodexToastProvider } from "@/components/ui/toast";
 import { WorkbenchShell } from "@/components/workbench/workbench-shell";
 import { LocalConversationProvider } from "@/features/local-conversation";
@@ -13,6 +14,7 @@ import { loadProductFeatureGates } from "@/lib/product-feature-gates";
 import type { WindowSessionBootstrap } from "@/lib/types";
 import { bootstrapWindowSession } from "@/lib/window-sessions";
 import type { AppInitializationStep } from "../shared/app-startup";
+import type { CoreAuthorityStatus } from "../shared/core-authority-status";
 import {
   DEFAULT_PRODUCT_FEATURE_GATES,
   type ProductFeatureGates,
@@ -36,10 +38,17 @@ const INITIAL_BOOTSTRAP_STATE: BootstrapState = {
   step: { phase: "opening" },
 };
 
+const READY_CORE_AUTHORITY_STATUS = { kind: "ready" } as const;
+const CORE_RECOVERY_NOTICE_DELAY_MS = 1_500;
+
 export default function App() {
   const [bootstrapState, setBootstrapState] = useState<BootstrapState>(
     INITIAL_BOOTSTRAP_STATE,
   );
+  const [coreAuthorityStatus, setCoreAuthorityStatus] =
+    useState<CoreAuthorityStatus>(READY_CORE_AUTHORITY_STATUS);
+  const [showRecoveringCoreAuthority, setShowRecoveringCoreAuthority] =
+    useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -99,6 +108,48 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (coreAuthorityStatus.kind !== "recovering") {
+      setShowRecoveringCoreAuthority(false);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setShowRecoveringCoreAuthority(true);
+    }, CORE_RECOVERY_NOTICE_DELAY_MS);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [coreAuthorityStatus.kind]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let observedPush = false;
+    const unsubscribe = window.api?.onCoreAuthorityStatus?.((status) => {
+      if (cancelled) return;
+      observedPush = true;
+      setCoreAuthorityStatus(status);
+    });
+    const statusSnapshot = window.api?.getCoreAuthorityStatus?.();
+    if (statusSnapshot) {
+      void statusSnapshot.then((status) => {
+        if (cancelled || observedPush) return;
+        setCoreAuthorityStatus(status);
+      }).catch(() => undefined);
+    }
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+    };
+  }, []);
+
+  const retryCoreAuthority = (): void => {
+    void window.api?.retryCoreAuthority?.().catch(() => undefined);
+  };
+
+  const relaunchForCoreAuthority = (): void => {
+    void window.api?.relaunchForCoreAuthority?.().catch(() => undefined);
+  };
+
   if (!bootstrapState.ready || bootstrapState.failed) {
     return (
       <NodexToastProvider>
@@ -125,6 +176,16 @@ export default function App() {
           libraryWorkspaceEnabled={
             bootstrapState.productFeatureGates.libraryWorkspace
           }
+        />
+        <CoreAuthorityStatusNotice
+          status={
+            coreAuthorityStatus.kind === "recovering"
+              && !showRecoveringCoreAuthority
+              ? READY_CORE_AUTHORITY_STATUS
+              : coreAuthorityStatus
+          }
+          onRetry={retryCoreAuthority}
+          onRelaunch={relaunchForCoreAuthority}
         />
         <NodexModalHost />
       </LocalConversationProvider>

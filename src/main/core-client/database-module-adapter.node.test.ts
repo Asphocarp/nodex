@@ -26,6 +26,7 @@ import {
 const identity = {
   projectId: "project:test",
   libraryId: "library:test",
+  profileId: "profile:test",
   storeEpoch: "epoch:test",
 } as const;
 
@@ -615,6 +616,7 @@ describe("Core Database Module Adapter", () => {
     const requestedProjects: string[] = [];
     const runtime = {
       backend: "rust",
+      identity,
       rootClient: {
         handshake: createFakeCoreHandshake({
           libraryId: identity.libraryId,
@@ -668,6 +670,7 @@ describe("Core Database Module Adapter", () => {
     });
     const runtime = {
       backend: "rust",
+      identity,
       rootClient: {
         handshake: createFakeCoreHandshake({
           libraryId: identity.libraryId,
@@ -710,6 +713,7 @@ describe("Core Database Module Adapter", () => {
     client.enqueueDatabaseRead(databaseSnapshot());
     const runtime = {
       backend: "rust",
+      identity,
       rootClient: {
         handshake: createFakeCoreHandshake({
           libraryId: identity.libraryId,

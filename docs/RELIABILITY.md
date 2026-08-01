@@ -18,9 +18,64 @@
   Compatibility covers transport, committed event, every semantic Module,
   exact Store format, and the launcher's artifact-freshness policy. Electron
   waits for an authenticated full-generation handshake before Adapter
-  initialization. The authority cannot
-  change inside a process, and launch/readiness
-  failure is terminal rather than an implicit fallback or second writer.
+  initialization. The Profile/Library/Store epoch authority cannot change
+  inside an Electron process. Its Core process generation may change: Desktop
+  adapters retain a stable authority facade which re-runs the single-winner
+  selector after definitive transport loss and adopts only a ready generation
+  with the same authority identity. Initial launch/readiness failure remains
+  terminal rather than an implicit fallback or second writer.
+- A live Electron Host connection and its authenticated global event stream are
+  explicit Core demand and prevent idle exit. Core can still drain after the
+  Host and all other clients, streams, prepared operations, Store work, and due
+  Automation demand disappear. Electron sends no heartbeat and does not disable
+  the bounded idle policy.
+- Electron allocates one logical Core connection ID at Desktop authority
+  initialization and reuses it for every handshake during that Main-process
+  lifetime. Rebinding to the same Core generation refreshes one authenticated
+  registry record instead of consuming another client slot; independent CLI and
+  test clients continue to mint independent identities. The logical connection
+  is transient authentication state and never participates in durable receipt
+  identity.
+- Cross-generation recovery is single-flight. Stable root and Project facades,
+  the Projection router, global event cursor, Document/Canvas logical
+  subscriptions, and background schedulers survive the swap. Reads and writes
+  carrying stable idempotency identities are retried exactly once with the
+  original input; ephemeral Awareness publications trigger recovery but are
+  not replayed. Core receipt fingerprints exclude transient connection IDs and
+  retain Profile, Library, Project, adapter, contract, Store epoch, and intent
+  identity, so a committed operation replays after reconnect without allowing a
+  different operation to reuse its key. Durable Yjs update and recovery evidence
+  records the renderer's logical client-session ID rather than its physical Core
+  connection, so response loss followed by reauthentication remains an exact
+  retry while another logical editor cannot reuse that update ID.
+- While authority is recovering or circuit-open, Host backup, maintenance,
+  reminder, and scheduled-Automation producers retain their timers and local
+  state but do not claim or start new Core work. Admission is checked again
+  after every asynchronous initialization or claim step. If a reminder or
+  scheduled-Automation claim arrives after authority changes, its lease is
+  settled for a bounded retry without delivering a notification or starting a
+  Codex run; backup retention likewise does not begin after backup creation
+  loses authority. Producers resume from the same scheduler instances after
+  authority is ready. One physical global-stream interruption publishes one
+  reconnect resync and one warning until a new authenticated stream actually
+  connects.
+- `ENOENT`, `ECONNREFUSED`, `ECONNRESET`, `EPIPE`, and authenticated draining
+  responses can initiate generation recovery. A request timeout alone is
+  ambiguous and never proves that the SQLite writer disappeared. Three losses
+  from three independently authenticated sessions inside one minute open a local
+  circuit, even when every rebound reached the same process generation;
+  concurrent errors from one session count once. The renderer shows one app-wide
+  unavailable state with explicit Retry and Restart actions instead of letting
+  each Module emit an independent error loop.
+- Desktop recovery is lifecycle-epoch fenced. `close()` invalidates a selector
+  or health check already in flight, preventing it from publishing `ready` or
+  replaying after shutdown. A late failure from an older session joins an active
+  recovery of the current session before choosing its replay target.
+- Core writes a private, bounded lifecycle summary at
+  `${NODEX_HOME}/run/core/lifecycle.json`. It distinguishes typed graceful drain
+  reasons and completed stop outcomes from a generation later observed without
+  a completed stop. The breadcrumb is diagnostic-only, contains no user content
+  or transport secret, and fails independently from authority startup.
 - The cutover gate runs inside the Electron runtime, opens a disposable Profile
   through Core, exercises a Project-bound Module client, and inspects Electron's
   file-descriptor table to prove it holds no `nodex.db`, `nodex.db-wal`, or

@@ -17,9 +17,11 @@ describe("Store Administration maintenance scheduler", () => {
     const administration = createPort();
     const callbacks: Array<() => void> = [];
     const cleared: unknown[] = [];
+    let authorityAvailable = false;
     let retentionCount = 17;
     const scheduler = startStoreAdministrationMaintenanceScheduler({
       administration,
+      isAuthorityAvailable: () => authorityAvailable,
       readBlockRetentionCount: () => retentionCount,
       delays: {
         revision: { initial: 1, interval: 11 },
@@ -36,6 +38,9 @@ describe("Store Administration maintenance scheduler", () => {
       logger: { warn: vi.fn() },
     });
 
+    await scheduler.runNow("revision");
+    expect(administration.runMaintenance).not.toHaveBeenCalled();
+    authorityAvailable = true;
     await scheduler.runNow("revision");
     await scheduler.runNow("document");
     await scheduler.runNow("block");
