@@ -108,7 +108,10 @@ configures `gh auth setup-git` as a workflow-owned recovery seam, so an
 immutable older release source can still be republished without changing its
 tag or checkout. Homebrew promotion registers `junyudev/tap` with `brew tap`
 before style, audit, commit, and smoke-install; a plain clone outside Homebrew's
-tap root is not a valid audit target.
+tap root is not a valid audit target. Promotion runs Homebrew's own cask
+autocorrect inside that registered tap before its exact idempotency comparison,
+so recovery can safely normalize derived output from an immutable older release
+source without weakening version or checksum conflict rejection.
 
 Distribution imports the Developer ID certificate into a per-job local
 keychain using a random keychain password, grants non-interactive Apple tool
