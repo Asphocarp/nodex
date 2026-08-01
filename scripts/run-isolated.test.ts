@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { afterEach, describe, expect, test } from "vitest";
+import { parse as parseToml, TomlDate } from "smol-toml";
 
 const createdSandboxes: string[] = [];
 
@@ -19,20 +20,29 @@ const createSandbox = (): {
   readonly invocationLog: string;
   readonly runRoot: string;
   readonly sandbox: string;
+  readonly sourceCodexHome: string;
 } => {
   const sandbox = mkdtempSync(path.join(tmpdir(), "nodex-run-script-test-"));
   const fakeBin = path.join(sandbox, "bin");
   const invocationLog = path.join(sandbox, "pnpm-argv.json");
   const runRoot = path.join(sandbox, "run-root");
+  const sourceCodexHome = path.join(sandbox, "source-codex-home");
   mkdirSync(fakeBin);
+  mkdirSync(sourceCodexHome);
   const fakePnpm = path.join(fakeBin, "pnpm");
   const fakeNode = path.join(fakeBin, "node");
   const fakeExecutable = `#!${process.execPath}
 const fs = require("node:fs");
 const path = require("node:path");
+const childProcess = require("node:child_process");
+const args = process.argv.slice(2);
+if (args.some((argument) => argument.endsWith("/scripts/copy-isolated-codex-config.ts"))) {
+  const result = childProcess.spawnSync(process.execPath, args, { stdio: "inherit" });
+  process.exit(result.status ?? 1);
+}
 fs.writeFileSync(process.env.FAKE_PNPM_LOG, JSON.stringify({
   command: path.basename(process.argv[1]),
-  args: process.argv.slice(2),
+  args,
 }));
 if (process.env.FAKE_PNPM_MODE === "leave-lease") {
   fs.mkdirSync(
@@ -49,7 +59,7 @@ process.exit(process.env.FAKE_PNPM_EXIT_CODE
   chmodSync(fakePnpm, 0o700);
   chmodSync(fakeNode, 0o700);
   createdSandboxes.push(sandbox);
-  return { fakeBin, invocationLog, runRoot, sandbox };
+  return { fakeBin, invocationLog, runRoot, sandbox, sourceCodexHome };
 };
 
 const runIsolatedScript = (
@@ -76,6 +86,7 @@ const runIsolatedScript = (
         FAKE_PNPM_EXIT_CODE: options.exitCode?.toString(),
         FAKE_PNPM_LOG: input.invocationLog,
         FAKE_PNPM_MODE: options.mode,
+        CODEX_HOME: input.sourceCodexHome,
         PATH: `${input.fakeBin}:${process.env.PATH ?? ""}`,
       },
     },
@@ -135,5 +146,63 @@ describe("isolated run shell integration", () => {
       args: ["--silent", "run", "build:run"],
     });
     expect(existsSync(sandbox.runRoot)).toBe(false);
+  });
+
+  test("copies portable config without host-owned Browser runtime settings", () => {
+    const sandbox = createSandbox();
+    writeFileSync(path.join(sandbox.sourceCodexHome, "config.toml"), [
+      "model = \"gpt-test\"",
+      "integer_setting = 1",
+      "float_setting = 1.0",
+      "local_date_setting = 1979-05-27",
+      "",
+      "[features]",
+      "unified_exec = false",
+      "custom_feature = false",
+      "",
+      "[mcp_servers.node_repl]",
+      "command = \"/Applications/ChatGPT.app/node_repl\"",
+      "",
+      "[mcp_servers.docs]",
+      "command = \"docs-server\"",
+      "",
+      "[shell_environment_policy.set]",
+      "BROWSER_USE_AVAILABLE_BACKENDS = \"chrome\"",
+      "NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S = \"foreign-hash\"",
+      "NODE_REPL_TRUSTED_CODE_PATHS = \"/foreign/codex/home\"",
+      "USER_SETTING = \"preserved\"",
+      "",
+    ].join("\n"));
+
+    const result = runIsolatedScript(sandbox, { args: ["--config", "--keep"] });
+
+    expect(result.status).toBe(0);
+    const copied = parseToml(readFileSync(
+      path.join(sandbox.runRoot, ".nodex", "agent", "config.toml"),
+      "utf8",
+    ), { integersAsBigInt: true });
+    expect(copied).toMatchObject({
+      model: "gpt-test",
+      integer_setting: 1n,
+      float_setting: 1,
+      mcp_servers: {
+        docs: { command: "docs-server" },
+      },
+      shell_environment_policy: {
+        set: { USER_SETTING: "preserved" },
+      },
+      features: {
+        unified_exec: false,
+        shell_snapshot: true,
+        multi_agent: true,
+        prevent_idle_sleep: true,
+        respect_system_proxy: true,
+        custom_feature: false,
+      },
+    });
+    expect(typeof copied.float_setting).toBe("number");
+    expect(copied.local_date_setting).toBeInstanceOf(TomlDate);
+    expect((copied.local_date_setting as TomlDate).isDate()).toBe(true);
+    expect((copied.local_date_setting as TomlDate).isLocal()).toBe(true);
   });
 });

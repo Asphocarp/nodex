@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { CodexService } from "./codex-service";
 import type { ResolvedCodexRuntime } from "./codex-runtime";
+import { parse as parseToml } from "smol-toml";
 
 describe("codex-service runtime bootstrap", () => {
   test("passes the resolved runtime into the Codex app-server client", async () => {
@@ -102,6 +103,58 @@ describe("codex-service runtime bootstrap", () => {
       if (previousNodexHome === undefined) delete process.env.NODEX_HOME;
       else process.env.NODEX_HOME = previousNodexHome;
       fs.rmSync(nodexHome, { recursive: true, force: true });
+    }
+  });
+
+  test("materializes Agent feature defaults before resolving the runtime environment", async () => {
+    const runtimeStateHome = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-agent-defaults-"));
+    fs.writeFileSync(
+      path.join(runtimeStateHome, "config.toml"),
+      "[features]\nprevent_idle_sleep = false\n",
+    );
+    const runtime: ResolvedCodexRuntime = {
+      source: "bundled",
+      binaryPath: "/tmp/nodex/codex",
+      browserRuntime: {
+        message: "Browser runtime is not installed",
+        reason: "manifest-missing",
+        status: "unavailable",
+      },
+      additionalSearchPaths: ["/tmp/nodex/path"],
+      codexCompatibilityVersion: "0.144.5",
+      metadataPath: "/tmp/nodex/agent-runtime.json",
+      missingBinaryMessage: "Bundled agent runtime is missing or corrupted. Reinstall Nodex.",
+      runtimeFamily: "open-interpreter",
+      rootPath: "/tmp/nodex",
+      version: "0.115.0",
+    };
+    const service = new CodexService({ runtime, runtimeStateHome }) as unknown as {
+      client: {
+        resolveEnv: () => Promise<NodeJS.ProcessEnv>;
+      };
+      shutdown: () => Promise<void>;
+    };
+
+    try {
+      const environment = await service.client.resolveEnv();
+      const parsed = parseToml(fs.readFileSync(
+        path.join(runtimeStateHome, "config.toml"),
+        "utf8",
+      ));
+
+      expect(environment.INTERPRETER_HOME).toBe(runtimeStateHome);
+      expect(parsed).toMatchObject({
+        features: {
+          unified_exec: true,
+          shell_snapshot: true,
+          multi_agent: true,
+          prevent_idle_sleep: false,
+          respect_system_proxy: true,
+        },
+      });
+    } finally {
+      await service.shutdown();
+      fs.rmSync(runtimeStateHome, { recursive: true, force: true });
     }
   });
 });

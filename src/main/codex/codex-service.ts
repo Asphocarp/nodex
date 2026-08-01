@@ -534,6 +534,7 @@ import {
   convertImmerPatchesToCodexConversationStateUpdates,
 } from "../../shared/codex-conversation-patches";
 import { resolveCodexRuntime, type ResolvedCodexRuntime } from "./codex-runtime";
+import { materializeCodexFeatureDefaults } from "./codex-feature-defaults";
 import { BrowserUseThreadConfigBuilder } from "./browser-use-thread-config";
 import { BrowserPluginReconciler } from "./browser-plugin-reconciler";
 import type { BrowserRuntimeBackend } from "../../shared/browser-runtime-metadata";
@@ -3245,11 +3246,14 @@ export class CodexService extends EventEmitter {
     this.client = new CodexAppServerClient({
       binaryPath: runtime.binaryPath,
       additionalSearchPaths: runtime.additionalSearchPaths,
-      resolveEnv: async () => ({
-        ...process.env,
-        ...await this.providerCredentialStore.buildRuntimeEnvOverlay(),
-        INTERPRETER_HOME: this.runtimeStateHome,
-      }),
+      resolveEnv: async () => {
+        await materializeCodexFeatureDefaults(this.runtimeStateHome);
+        return {
+          ...process.env,
+          ...await this.providerCredentialStore.buildRuntimeEnvOverlay(),
+          INTERPRETER_HOME: this.runtimeStateHome,
+        };
+      },
       expectedCodexHome: this.runtimeStateHome,
       missingBinaryMessage: runtime.missingBinaryMessage,
       clientInfo: {

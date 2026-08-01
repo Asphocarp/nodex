@@ -29,7 +29,8 @@ NODEX_HOME point into a new temporary directory that is deleted on exit.
 
 Options:
   -a, --auth        Copy auth.json from the current Codex home.
-  -c, --config      Copy config.toml from the current Codex home.
+  -c, --config      Copy portable config.toml settings from the current Codex
+                    home. Nodex-owned Browser runtime settings are omitted.
       --global-codex
                     Use the inherited or default global CODEX_HOME.
       --global-nodex
@@ -247,7 +248,10 @@ if [[ "${use_codex_home}" == "true" ]]; then
     if [[ "${copy_codex_config}" == "true" ]]; then
       config_source="${source_codex_home}/config.toml"
       [[ -f "${config_source}" ]] || fail "Codex config file not found: ${config_source}"
-      cp -p "${config_source}" "${isolated_codex_home}/config.toml"
+      node --import tsx \
+        "${SCRIPT_DIR}/copy-isolated-codex-config.ts" \
+        "${config_source}" \
+        "${isolated_codex_home}/config.toml"
       chmod 600 "${isolated_codex_home}/config.toml"
     fi
   fi
