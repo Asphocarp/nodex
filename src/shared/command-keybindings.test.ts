@@ -11,6 +11,7 @@ import {
   matchesKeyboardEventToCommand,
   matchesMouseEventToCommand,
   normalizeAccelerator,
+  resolveRuntimePlatform,
   toElectronAccelerator,
   type KeyboardShortcutEventLike,
 } from "./command-keybindings";
@@ -44,9 +45,10 @@ describe("command keybindings", () => {
 
   test("does not restore fallback labels for explicitly unassigned commands", () => {
     const state = createCommandKeymapState({ toggleBottomPanel: [] }, "macOS");
+    const runtimeFallback = resolveRuntimePlatform() === "macOS" ? "⌘J" : "Ctrl+J";
 
     expect(formatCommandShortcutLabel(state, "toggleBottomPanel", "CmdOrCtrl+J")).toBeUndefined();
-    expect(formatCommandShortcutLabel(undefined, "toggleBottomPanel", "CmdOrCtrl+J")).toBe("⌘J");
+    expect(formatCommandShortcutLabel(undefined, "toggleBottomPanel", "CmdOrCtrl+J")).toBe(runtimeFallback);
   });
 
   test("keeps close-tab and close-window defaults distinct", () => {

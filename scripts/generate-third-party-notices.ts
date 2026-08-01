@@ -16,6 +16,16 @@ const REPOSITORY_ROOT = resolve(import.meta.dirname, "..");
 const DEFAULT_OUTPUT_FILE = join(REPOSITORY_ROOT, "resources", "THIRD_PARTY_NOTICES.txt");
 const LEGAL_FILENAME_PATTERN = /^(?:licen[cs]e|copying|notice)(?:[._-].*)?$/i;
 const DIVIDER = "=".repeat(80);
+const TARGET_RUNTIME_PACKAGE_ALIASES = [
+  {
+    alias: "@openai/codex-darwin-arm64",
+    homepage: "https://github.com/openai/codex#readme",
+  },
+  {
+    alias: "@openai/codex-darwin-x64",
+    homepage: "https://github.com/openai/codex#readme",
+  },
+] as const;
 
 interface PnpmLicensePackage {
   author?: string;
@@ -27,6 +37,14 @@ interface PnpmLicensePackage {
 }
 
 type PnpmLicenseReport = Record<string, PnpmLicensePackage[]>;
+
+interface PackageManifest {
+  homepage?: string;
+  license?: string;
+  name: string;
+  os?: string[];
+  version: string;
+}
 
 interface CargoMetadata {
   packages: Array<{
@@ -72,6 +90,33 @@ async function readLegalDocuments(directory: string): Promise<string | null> {
   return documents.join("\n\n");
 }
 
+export function packageSupportsTargetOs(
+  supportedOs: readonly string[] | undefined,
+  targetOs: string,
+): boolean {
+  if (!supportedOs || supportedOs.length === 0) return true;
+
+  const excluded = new Set(
+    supportedOs
+      .filter((value) => value.startsWith("!"))
+      .map((value) => value.slice(1)),
+  );
+  if (excluded.has(targetOs)) return false;
+
+  const included = supportedOs.filter((value) => !value.startsWith("!"));
+  return included.length === 0 || included.includes(targetOs);
+}
+
+async function packageDirectorySupportsTargetOs(
+  packageDirectory: string,
+  targetOs: string,
+): Promise<boolean> {
+  const manifest = JSON.parse(
+    await readFile(join(packageDirectory, "package.json"), "utf8"),
+  ) as PackageManifest;
+  return packageSupportsTargetOs(manifest.os, targetOs);
+}
+
 async function collectPnpmEntries(): Promise<ThirdPartyLegalEntry[]> {
   const pnpmExecutable = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
   const { stdout } = await execFileAsync(
@@ -88,17 +133,23 @@ async function collectPnpmEntries(): Promise<ThirdPartyLegalEntry[]> {
 
   for (const [licenseGroup, packages] of Object.entries(report)) {
     for (const packageRecord of packages) {
-      const packageEntries = await Promise.all(packageRecord.paths.map(async (
+      const packageEntries = (await Promise.all(packageRecord.paths.map(async (
         packageDirectory,
         index,
-      ): Promise<ThirdPartyLegalEntry> => ({
-        homepage: packageRecord.homepage?.trim() || null,
-        identity: `${packageRecord.name}@${packageRecord.versions[index] ?? "unknown"}`,
-        legalText: await readLegalDocuments(packageDirectory),
-        license: packageRecord.license?.trim() || licenseGroup,
-      })));
+      ): Promise<ThirdPartyLegalEntry | null> => {
+        if (!await packageDirectorySupportsTargetOs(packageDirectory, "darwin")) {
+          return null;
+        }
 
-      if (packageEntries.length > 0) {
+        return {
+          homepage: packageRecord.homepage?.trim() || null,
+          identity: `${packageRecord.name}@${packageRecord.versions[index] ?? "unknown"}`,
+          legalText: await readLegalDocuments(packageDirectory),
+          license: packageRecord.license?.trim() || licenseGroup,
+        };
+      }))).filter((entry): entry is ThirdPartyLegalEntry => entry !== null);
+
+      if (packageRecord.paths.length > 0) {
         entries.push(...packageEntries);
         continue;
       }
@@ -113,6 +164,25 @@ async function collectPnpmEntries(): Promise<ThirdPartyLegalEntry[]> {
   }
 
   return entries;
+}
+
+async function collectAliasedRuntimeEntries(): Promise<ThirdPartyLegalEntry[]> {
+  return await Promise.all(TARGET_RUNTIME_PACKAGE_ALIASES.map(async (targetPackage) => {
+    const packageDirectory = join(
+      REPOSITORY_ROOT,
+      "node_modules",
+      ...targetPackage.alias.split("/"),
+    );
+    const manifest = JSON.parse(
+      await readFile(join(packageDirectory, "package.json"), "utf8"),
+    ) as PackageManifest;
+    return {
+      homepage: manifest.homepage?.trim() || targetPackage.homepage,
+      identity: `${manifest.name}@${manifest.version}`,
+      legalText: await readLegalDocuments(packageDirectory),
+      license: manifest.license?.trim() || "Not declared",
+    };
+  }));
 }
 
 async function collectCargoEntries(): Promise<ThirdPartyLegalEntry[]> {
@@ -227,13 +297,15 @@ export function renderThirdPartyNotices(entries: ThirdPartyLegalEntry[]): string
 }
 
 export async function generateThirdPartyNotices(): Promise<string> {
-  const [pnpmEntries, cargoEntries, runtimeEntries] = await Promise.all([
+  const [pnpmEntries, aliasedRuntimeEntries, cargoEntries, runtimeEntries] = await Promise.all([
     collectPnpmEntries(),
+    collectAliasedRuntimeEntries(),
     collectCargoEntries(),
     collectBundledRuntimeEntries(),
   ]);
   return renderThirdPartyNotices([
     ...pnpmEntries,
+    ...aliasedRuntimeEntries,
     ...cargoEntries,
     ...runtimeEntries,
   ]);

@@ -161,6 +161,6 @@ describe("SettingsRouteShell open source licenses", () => {
     );
     await settleAsyncRender();
 
-    view.getByText("No third-party notices were found.");
+    await view.findByText("No third-party notices were found.");
   });
 });

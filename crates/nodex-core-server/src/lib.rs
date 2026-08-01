@@ -2502,6 +2502,11 @@ pub async fn run_with_selection(
         Ok(()) => tracing::info!(subsystem = "lifecycle", "Core server stopped"),
         Err(_) => tracing::error!(subsystem = "lifecycle", "Core server stopped with an error"),
     }
+    // Keep the runtime ownership fence held until the Store has released its
+    // independent writer lock. A replacement Core may start as soon as
+    // `core.lock` is released, so dropping these in the opposite order creates
+    // a window where it owns the runtime but cannot open the Profile Store.
+    drop(state);
     logging_guard.shutdown();
     paths.cleanup(&start_nonce);
     drop(lock);

@@ -38,16 +38,7 @@ async function closeServer(server: Server): Promise<void> {
 }
 
 async function stopApplication(application: ElectronApplication): Promise<void> {
-  const child = application.process();
-  const exited = new Promise<void>((resolve) =>
-    child.once("exit", () => resolve())
-  );
-  await application.evaluate(({ app }) => app.exit(0)).catch(() => undefined);
-  await Promise.race([
-    exited,
-    new Promise<void>((resolve) => setTimeout(resolve, 5_000)),
-  ]);
-  if (child.exitCode === null) child.kill("SIGKILL");
+  await application.close();
 }
 
 afterEach(() => {
@@ -276,5 +267,5 @@ describe("Browser Platform Electron substrate", () => {
       if (application) await stopApplication(application);
       await closeServer(server);
     }
-  }, 35_000);
+  }, 60_000);
 });

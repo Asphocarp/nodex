@@ -2,6 +2,14 @@ packages:
   - "packages/*"
   - "third_party/blocknote/packages/*"
 
+supportedArchitectures:
+  os:
+    - current
+    - darwin
+  cpu:
+    - arm64
+    - x64
+
 overrides:
   "@babel/core": 7.29.7
   "@xmldom/xmldom": 0.8.13

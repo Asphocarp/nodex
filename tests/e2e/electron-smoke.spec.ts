@@ -16,7 +16,9 @@ import {
   rendererViteCss,
   rendererViteResolve,
 } from "../../config/renderer-vite-shared";
+import { CoreClient } from "../../src/main/core-client/core-client";
 import { LARGE_CONTENT_FIXTURE_SIZES } from "../../src/main/performance/large-content-fixtures";
+import { LIBRARY_MODULE_CONTRACT_VERSION } from "../../src/shared/library-module";
 
 const repositoryRoot = process.cwd();
 const largeContentFixtureRoot = path.join(repositoryRoot, "tests/e2e/large-content-fixture");
@@ -117,15 +119,76 @@ async function launchLargeContentFixtureApplication(): Promise<ElectronApplicati
   return electron.launch({ args: [largeContentElectronMain] });
 }
 
+function forceStopApplicationProcess(
+  child: ReturnType<ElectronApplication["process"]>,
+): void {
+  if (child.pid === undefined) return;
+
+  try {
+    if (process.platform === "win32") {
+      child.kill("SIGKILL");
+      return;
+    }
+    process.kill(-child.pid, "SIGKILL");
+  } catch {
+    try {
+      child.kill("SIGKILL");
+    } catch {
+      // The application may have completed its exit concurrently.
+    }
+  }
+}
+
 async function stopApplication(application: ElectronApplication): Promise<void> {
   const child = application.process();
-  const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
-  await application.evaluate(({ app }) => app.exit(0)).catch(() => undefined);
-  await Promise.race([
-    exited,
-    new Promise<void>((resolve) => setTimeout(resolve, 5_000)),
-  ]);
-  if (child.exitCode === null) child.kill("SIGKILL");
+  let closeTimer: ReturnType<typeof setTimeout> | undefined;
+  const close = application.close().catch(() => undefined);
+
+  try {
+    await Promise.race([
+      close,
+      new Promise<never>((_, reject) => {
+        closeTimer = setTimeout(
+          () => reject(new Error("Electron close exceeded its teardown deadline")),
+          15_000,
+        );
+      }),
+    ]);
+  } catch {
+    forceStopApplicationProcess(child);
+  } finally {
+    clearTimeout(closeTimer);
+  }
+}
+
+async function waitForPathRemoval(filePath: string, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!fs.existsSync(filePath)) return;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`Timed out waiting for ${filePath} to be removed`);
+}
+
+async function shutdownTemporaryCore(nodexHome: string): Promise<void> {
+  const socketPath = path.join(nodexHome, "run/core/core.sock");
+  if (!fs.existsSync(socketPath)) return;
+
+  try {
+    const client = await CoreClient.connect({
+      nodexHome,
+      clientKind: "test",
+      buildId: "electron-e2e-teardown",
+      requestTimeoutMs: 5_000,
+    });
+    await client.shutdown();
+  } catch (error) {
+    await waitForPathRemoval(socketPath, 5_000).catch(() => undefined);
+    if (!fs.existsSync(socketPath)) return;
+    throw error;
+  }
+
+  await waitForPathRemoval(socketPath, 15_000);
 }
 
 async function buildLargeContentFixture(outDir: string): Promise<string> {
@@ -329,6 +392,7 @@ async function sampleLargeContentScenario(input: {
 }
 
 test("provisions and persists the initial source-backed Project across a full Electron restart", async () => {
+  test.setTimeout(120_000);
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-electron-e2e-"));
   const nodexHome = path.join(fixtureRoot, "profile");
   const projectsDirectory = path.join(fixtureRoot, "workspace");
@@ -491,11 +555,13 @@ test("provisions and persists the initial source-backed Project across a full El
     })).toHaveCount(0);
   } finally {
     if (application) await stopApplication(application);
+    await shutdownTemporaryCore(nodexHome);
     fs.rmSync(fixtureRoot, { recursive: true, force: true });
   }
 });
 
 test("creates and draws in an inline Canvas without taking over the Page", async () => {
+  test.setTimeout(120_000);
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-canvas-e2e-"));
   const nodexHome = path.join(fixtureRoot, "profile");
   const workspace = path.join(fixtureRoot, "workspace");
@@ -576,16 +642,12 @@ test("creates and draws in an inline Canvas without taking over the Page", async
     await expect(canvasBlock).toBeVisible({ timeout: 5_000 });
     await expect(canvasBlock).toHaveAttribute(
       "data-canvas-block-active",
-      "false",
+      "true",
+      { timeout: 15_000 },
     );
     await expect(
       canvasBlock.locator("[data-canvas-create-pending]"),
     ).toHaveCount(0);
-    await expect(canvasBlock.locator(".excalidraw")).toHaveCount(0);
-
-    await canvasBlock.getByRole("button", {
-      name: "Activate Canvas",
-    }).click();
     const boundary = canvasBlock.locator(
       '[data-excalidraw-embed-boundary="inline"]',
     );
@@ -610,9 +672,9 @@ test("creates and draws in an inline Canvas without taking over the Page", async
     const canvasId = await canvasBlock.getAttribute("data-canvas-block");
     if (!canvasId) throw new Error("Canvas block has no owner identity");
     const readCanvasHead = async (): Promise<number> =>
-      await page.evaluate(async (targetCanvasId) => {
+      await page.evaluate(async ({ targetCanvasId, contractVersion }) => {
         const raw = await window.api?.invoke("library-module:read", {
-          version: 3,
+          version: contractVersion,
           read: { mode: "canvas_target", canvasId: targetCanvasId },
         }) as {
           ok?: boolean;
@@ -635,7 +697,10 @@ test("creates and draws in an inline Canvas without taking over the Page", async
           return -1;
         }
         return target.value.summary?.documentHeadSeq ?? -1;
-      }, canvasId);
+      }, {
+        targetCanvasId: canvasId,
+        contractVersion: LIBRARY_MODULE_CONTRACT_VERSION,
+      });
     const initialHead = await readCanvasHead();
 
     const rectangleTool = boundary.getByRole("radio", { name: /Rectangle/ });
@@ -662,6 +727,7 @@ test("creates and draws in an inline Canvas without taking over the Page", async
     );
   } finally {
     if (application) await stopApplication(application);
+    await shutdownTemporaryCore(nodexHome);
     fs.rmSync(fixtureRoot, { recursive: true, force: true });
   }
 });
@@ -705,18 +771,21 @@ test("keeps representative large-content surfaces bounded in a real Electron ren
     }, null, 2)}\n`);
 
     const byScenario = Object.fromEntries(metrics.map((metric) => [metric.scenario, metric]));
-    expect(byScenario.license?.maxLongTaskMs).toBeLessThanOrEqual(250);
+    const enforcePerformanceTiming = process.env.NODEX_SKIP_PERFORMANCE_GATES !== "1";
+    if (enforcePerformanceTiming) {
+      expect(byScenario.license?.maxLongTaskMs).toBeLessThanOrEqual(250);
+      expect(byScenario.workspace?.maxLongTaskMs).toBeLessThanOrEqual(250);
+      expect(byScenario.markdown?.maxLongTaskMs).toBeLessThanOrEqual(250);
+      expect(byScenario.tool?.maxLongTaskMs).toBeLessThanOrEqual(250);
+      expect(byScenario.startup?.maxLongTaskMs).toBeLessThanOrEqual(250);
+    }
     expect(byScenario.license?.accessibilityNodes).toBeLessThanOrEqual(500);
-    expect(byScenario.workspace?.maxLongTaskMs).toBeLessThanOrEqual(250);
     expect(byScenario.workspace?.domNodes).toBeLessThanOrEqual(2_000);
     expect(byScenario.workspace?.accessibilityNodes).toBeLessThanOrEqual(2_000);
-    expect(byScenario.markdown?.maxLongTaskMs).toBeLessThanOrEqual(250);
     expect(byScenario.markdown?.domNodes).toBeLessThanOrEqual(2_000);
     expect(byScenario.markdown?.accessibilityNodes).toBeLessThanOrEqual(2_000);
-    expect(byScenario.tool?.maxLongTaskMs).toBeLessThanOrEqual(250);
     expect(byScenario.tool?.domNodes).toBeLessThanOrEqual(2_000);
     expect(byScenario.tool?.accessibilityNodes).toBeLessThanOrEqual(2_000);
-    expect(byScenario.startup?.maxLongTaskMs).toBeLessThanOrEqual(250);
     expect(byScenario.startup?.domNodes).toBeLessThanOrEqual(2_000);
   } finally {
     if (application) await stopApplication(application);

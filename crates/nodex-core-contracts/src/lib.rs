@@ -266,11 +266,11 @@ mod tests {
             [
                 ModuleContractVersion {
                     module: ModuleName::Library,
-                    contract_version: 4,
+                    contract_version: 6,
                 },
                 ModuleContractVersion {
                     module: ModuleName::Database,
-                    contract_version: 4,
+                    contract_version: 5,
                 },
                 ModuleContractVersion {
                     module: ModuleName::OwnedDocument,
