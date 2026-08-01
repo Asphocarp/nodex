@@ -55,7 +55,6 @@ import {
   writeLocalEnvironmentSelection,
 } from "./local-environment-selection";
 import { projectSessionThreadLinkToSummary } from "./thread-summary-projection";
-import type { BrowserUsePresentationOrigin } from "../../../shared/browser-sidebar";
 
 function ConnectedSessionThread({
   session,
@@ -119,7 +118,7 @@ function ConnectedSessionThread({
   presentation = "primary",
   composerDock,
   composerScopeIdentity,
-  browserUsePresentationOrigin,
+  browserUseViewScopeId,
   newThreadStartBlockedReason,
   projectDraftId,
   onMaterializeProjectDraft,
@@ -221,7 +220,7 @@ function ConnectedSessionThread({
     readonly leadingContent: React.ReactNode;
   };
   composerScopeIdentity?: string | null;
-  browserUsePresentationOrigin?: BrowserUsePresentationOrigin | null;
+  browserUseViewScopeId?: string | null;
   newThreadStartBlockedReason?: string | null;
   projectDraftId?: string | null;
   onMaterializeProjectDraft?: ThreadActionControllerInput["onMaterializeProjectDraft"];
@@ -468,8 +467,9 @@ function ConnectedSessionThread({
   const actions = useMemo<ThreadStageActions>(() => ({
     ...createThreadStageActions({
       activeThreadId: summary?.threadId ?? null,
-      browserUsePresentationOrigin,
+      browserUseViewScopeId,
       codexControl,
+      currentSessionId: session.id,
       onEnsureBlankSessionForProject,
       onRefreshProjectSessions,
       onOpenPendingWorktree,
@@ -529,7 +529,7 @@ function ConnectedSessionThread({
       ? { onConsumeNewThreadComposerIntent }
       : {}),
   }), [
-    browserUsePresentationOrigin,
+    browserUseViewScopeId,
     codexControl,
     onEnsureBlankSessionForProject,
     onStartNewChatWithPrompt,
@@ -561,6 +561,7 @@ function ConnectedSessionThread({
     onRequestRenameThread,
     onArchiveThread,
     onToggleThreadPin,
+    session.id,
     session.projectId,
     changeNewThreadEnvironment,
     refreshNewThreadEnvironments,
@@ -702,7 +703,7 @@ export function ProjectSessionThreadComposerDock({
   projects,
   composerDock,
   composerScopeIdentity,
-  browserUsePresentationOrigin,
+  browserUseViewScopeId,
   newThreadStartBlockedReason,
   projectDraftId = null,
   onMaterializeProjectDraft,
@@ -728,7 +729,7 @@ export function ProjectSessionThreadComposerDock({
   readonly projects: Project[];
   readonly composerDock: NonNullable<ConnectedSessionThreadProps["composerDock"]>;
   readonly composerScopeIdentity: string;
-  readonly browserUsePresentationOrigin: BrowserUsePresentationOrigin;
+  readonly browserUseViewScopeId: string;
   readonly newThreadStartBlockedReason?: string | null;
   readonly projectDraftId?: string | null;
   readonly onMaterializeProjectDraft?: ThreadActionControllerInput["onMaterializeProjectDraft"];
@@ -809,7 +810,7 @@ export function ProjectSessionThreadComposerDock({
       presentation="panel"
       composerDock={composerDock}
       composerScopeIdentity={composerScopeIdentity}
-      browserUsePresentationOrigin={browserUsePresentationOrigin}
+      browserUseViewScopeId={browserUseViewScopeId}
       newThreadStartBlockedReason={newThreadStartBlockedReason}
       projectDraftId={projectDraftId}
       onMaterializeProjectDraft={onMaterializeProjectDraft}

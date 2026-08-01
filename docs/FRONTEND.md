@@ -119,15 +119,17 @@
   webview methods during the attach interval. Device layout comes from
   `browser-viewport-layout.ts`; the same logical viewport and scale drive fixed
   bounds, CDP metrics, cursor, capture, and annotation coordinates.
-- Browser Use origin is a turn-boundary contract, not a selection effect. Before
-  dispatching an idle turn, await capture of the current Scene namespace and
-  Window Session view scope; do not capture when an Agent Dock target changes,
-  and do not rebind an active steer/queued follow-up. Every runtime tab reads
-  its exact `codexSessionId` from the Main Browser projection. Hidden hosts and
-  panel hosts must never apply the currently selected Session id to all tabs.
-  A Project-origin presentation request mutates only the matching Project Scene
-  surface tree, retains bounded source metadata, and must not navigate or change
-  the Dock binding. Manual Project Browser tabs remain unbound.
+- Browser Use routing is a turn-boundary contract, not a selection effect.
+  Before dispatching an idle turn, await capture of the exact owning Session
+  namespace and Window Session view scope; `New task` must materialize its real
+  Session first. Do not capture when an Agent Dock target changes, and do not
+  rebind an active steer/queued follow-up. Every runtime tab reads its exact
+  `codexSessionId` from the Main Browser projection. Hidden hosts and panel hosts
+  must never apply the currently selected Session id to all tabs. A visible
+  request materializes the Browser surface in the owning Session Scene before
+  selecting that Session; a background or hide request updates the Session
+  without navigation. Manual Project Browser tabs remain Project-owned and
+  unbound to Dock tasks.
 - Browser chrome stays one dense toolbar composition. Use production components
   for blank/loaded/loading/failure, find, options, site info, device, annotation,
   cursor, download, right/bottom, narrow, light/dark, import, and unavailable

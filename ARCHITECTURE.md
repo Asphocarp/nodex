@@ -878,21 +878,21 @@ the hidden retention host is eligible only after the panel host unmounts.
 Browser Use activity and Browser presentation are separate state dimensions.
 Main owns the active controlled page, each runtime tab's exact Codex
 Session/Thread identity, and any generation-bound presentation intent. The
-selected Workbench Scene owner determines whether an intent is current; a
-renderer-local coordinator owns right/bottom-panel placement and materializes
-the exact Main-owned `browserTabId` plus `browserStorageId` into the owning
-Window Session Scene. A Session intent opens its target Scene before selection
-so the panel snaps with the Session route rather than animating later. A Project
-intent creates or reuses a Browser surface in the already matching Project
-Scene, records bounded source-Thread metadata, and activates it without changing
-the Project Agent Dock binding or navigating to a Session. Renderer host bounds
-remain the only acknowledgement that a page is actually presented and visible.
-Hiding a Browser presentation or Agent Dock never releases Browser Use control.
-Release transfers the existing page into an ordinary durable Browser shell,
-while close removes both runtime and shell. A renderer-wide immutable Browser
-projection bootstraps from a scoped Main snapshot and feeds hidden hosts,
-Browser Use presentation, and thread summary; it is a cache of Main state, not
-a second runtime authority.
+owning Project Session determines durable agent-created surface placement; the
+Scene where its turn was sent is only navigation origin. A renderer-local
+coordinator materializes the exact Main-owned `browserTabId` plus
+`browserStorageId` into that Session's right/bottom-panel tree. A visible intent
+updates the target Scene before selecting the Session so the panel snaps with
+the route rather than animating later. A background or hide intent updates an
+inactive Session Scene without navigation. Manually opened Project Browser
+surfaces stay Project-owned and are not implicit Browser Use inputs. Renderer
+host bounds remain the only acknowledgement that a page is actually presented
+and visible. Hiding a Browser presentation or Agent Dock never releases Browser
+Use control. Release transfers the existing page into an ordinary durable
+Session Browser shell, while close removes both runtime and shell. A
+renderer-wide immutable Browser projection bootstraps from a scoped Main
+snapshot and feeds hidden hosts, Browser Use presentation, and thread summary;
+it is a cache of Main state, not a second runtime authority.
 
 Browser automation remains a separate low-level Adapter over that aggregate.
 One verified Browser Runtime Bundle supplies the matching Codex CLI, Node,
@@ -931,15 +931,16 @@ requires native code-signing verification, while unpackaged development uses
 the user-owned private socket unless native development verification is
 explicitly enabled.
 Browser presentation capture is an awaited command, not a renderer selection
-side effect. An idle turn supplies its exact Scene namespace and Window Session
-view scope before dispatch; steering or queueing an active turn preserves its
-existing origin. Before a new Codex Thread exists, that route may use its
-Project Session identity provisionally. Once the canonical Codex session is
-linked, Main promotes the provisional route before dispatching the first turn,
-including pending-worktree starts. Promotion failure retains the Session/Thread
-link but prevents first-turn dispatch so the user can retry without ambiguous
-Browser ownership. `projectId: null` is a valid projectless route and is not an
-availability failure.
+side effect. An idle turn supplies its exact owning Session namespace and Window
+Session view scope before dispatch; steering or queueing an active turn
+preserves its existing route. A Project Agent Dock draft materializes its real
+Project Session before capture. Before a new Codex Thread exists, that route
+uses the Project Session identity provisionally. Once the canonical Codex
+session is linked, Main promotes the provisional route before dispatching the
+first turn, including pending-worktree starts. Promotion failure retains the
+Session/Thread link but prevents first-turn dispatch so the user can retry
+without ambiguous Browser ownership. `projectId: null` is a valid projectless
+route and is not an availability failure.
 The Codex app-server initialize handshake advertises OpenAI form elicitation.
 Browser origin approval therefore travels through the normal
 `mcpServer/elicitation/request` request/response path; loading the plugin and
@@ -1179,7 +1180,7 @@ Project sessions and sidebar flow:
 8. Window Session UI state owns the active Project/Session/empty location, focus/history, every owner-keyed Scene panel tree, and local surface descriptors. Selecting a Project opens its Project Scene independently of sidebar disclosure. Selecting a Project-bound Session records its Project navigation context; selecting a projectless Session uses a null context rather than retaining an unrelated Project fallback.
 9. Project creation creates no Session. Materializing a Project Scene gives it the Project's current primary Database default View as the semantic primary, places it exactly once at the front of the fixed-open/full-width right stack, and creates one Scene-local Agent Dock draft. Initial-Project bootstrap may additionally present the Welcome Page in that stack. The Project root cannot close, move, or split away; closing every other surface consumes no Core state and does not change it.
 10. The Project Agent Dock is a footer-only view of a normal Project Session and its canonical Codex conversation. Selecting a target never navigates or captures Browser ownership. `New task` creates no Session until first send; creation, binding, and Thread start advance forward so a failed start retains one retryable blank Session. Dock binding and visibility persist without entering Back/Forward history, and hiding the Dock removes only its presentation claim and composer reserve.
-11. Local `db_view` descriptors are unique per durable target within one Scene, while `review` remains the singleton right-panel kind. Browser descriptors use Window Session-scoped Browser runtime identities and may exist without a Codex Session; Browser Use surfaces retain exact source-Thread metadata without replacing Main runtime ownership. Terminal and Review descriptors carry an explicit Project or Session context; Terminal descriptors also carry a PTY resource ID and acquire one interactive lease at a time. Files, Page Stage, Review, and Database View descriptors retain explicit target authorization context where required.
+11. Local `db_view` descriptors are unique per durable target within one Scene, while `review` remains the singleton right-panel kind. Browser descriptors use Window Session-scoped Browser runtime identities and may exist without a Codex Session. Manual Project Browser descriptors remain Project-owned; agent-created Browser Use descriptors belong to the owning Session Scene and retain exact source-Thread metadata without replacing Main runtime ownership. Terminal and Review descriptors carry an explicit Project or Session context; Terminal descriptors also carry a PTY resource ID and acquire one interactive lease at a time. Files, Page Stage, Review, and Database View descriptors retain explicit target authorization context where required.
 12. `WorkbenchSceneSnapshot` is the strict owner-scoped surface contract. The primary surface is fixed by owner kind; panel descriptors carry stable resource targets but no owner, panel, or order because the containing Scene and its two panel trees provide those coordinates. Project primary placement and Agent Dock invariants are normalized at this boundary; malformed owner/primary or kind/config combinations fail closed.
 13. Panel previews remain renderer-memory state. Files and Browser previews occupy one preview slot per Scene panel leaf, replace each other within that leaf, and enter the Window Session snapshot only when pinned.
 14. Renderer-local side-chat tabs are also outside SQLite but use a separate leaf-scoped lifecycle from previews. The renderer creates `sidechat-loading:<parentThreadId>:<index>` tabs, asks main to start an ephemeral fork, replaces the loading tab with `sidechat:<threadId>`, and discards the backing temporary thread when the tab closes.

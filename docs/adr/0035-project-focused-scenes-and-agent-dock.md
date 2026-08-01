@@ -15,9 +15,11 @@ That composition exposed implementation boundaries as product concepts. A
 Project Database appeared to sit behind a side panel even when it was the
 Project's main workspace; full-width panel chrome could hide Project identity;
 and a Project Conversation surface mounted a second task-shaped page without
-owning that task's navigation or complete lifecycle. It also made Browser Use
-presentation depend on whichever Session happened to be selected instead of
-the presentation that started a turn.
+owning that task's navigation or complete lifecycle. An initial Agent Dock
+implementation then used the Scene that started a turn as the durable owner of
+Browser Use output. That kept the user in the Project Scene, but left a
+task-created Browser tab beside Project resources after the Dock switched to a
+different task and separated its visible location from its Session lifecycle.
 
 The product needs one Project workspace where users can switch among Database,
 Page, Browser, Files, Review, and other surfaces while retaining lightweight
@@ -89,28 +91,31 @@ The selector uses bounded Project Session windows plus exact selected-Session
 hydration. An absent summary row is never deletion evidence. A Project with no
 Sessions presents `New task` immediately rather than a synthetic loading child.
 
-### Browser presentation has an explicit turn origin
+### Browser presentation follows the owning Session
 
 Browser execution remains Main-owned and independent from whether the Dock or
 a task page is mounted. Each Browser Use runtime tab carries its exact Codex
 Session/Thread id; renderer hosts must not infer one id from the currently
-selected task and apply it to every tab. Durable Project Browser surfaces may
-retain bounded source metadata for restoration and explanation, but the Main
-runtime projection remains ownership authority.
+selected task and apply it to every tab. Agent-created Browser surfaces belong
+to the Project Session that owns that Thread. Manually opened Project Browser
+surfaces remain Project-owned and are not implicitly exposed to a Dock task.
 
 Selecting a Dock target is subscription only and never captures Browser
-presentation. Immediately before an idle turn starts, the renderer submits an
-explicit presentation origin containing the Window Session view scope and the
-owning Scene namespace. Main awaits route capture. A newly materialized Thread
-promotes the provisional Project Session route to the canonical Thread route
-before its first turn is dispatched, including pending-worktree starts. Capture
-or promotion failure prevents that turn from starting and remains retryable.
-Steering or queueing into an already active turn does not rebind its origin.
+presentation. Immediately before an idle turn starts, the renderer submits the
+exact owning Session namespace and Window Session view scope. `New task`
+materializes its real Session before capture, so neither its Scene-local draft
+identity nor the Project Scene becomes a Browser namespace. A newly created
+Thread promotes that Session route to the canonical Codex Thread route before
+its first turn is dispatched, including pending-worktree starts. Capture or
+promotion failure prevents that turn from starting and remains retryable.
+Steering or queueing into an already active turn does not rebind its route.
 
-A Browser Use request whose namespace is the active Project Scene materializes
-or reuses a Browser surface in that Scene, records its exact source Thread, and
-activates the surface without navigating to the task or changing the Dock
-binding. Hiding the Dock does not close, transfer, or rebind that page.
+A visible Browser Use request first materializes or reuses the exact Browser
+surface in its Session Scene, then selects that Session so host presentation is
+truthful. The Window Session navigation checkpoint preserves the originating
+Project Scene for Back navigation. A background or hide request updates the
+owning Session Scene without selecting it. Hiding the Dock does not stop,
+transfer, or rebind the Browser runtime.
 
 ## Authority boundaries
 
@@ -132,7 +137,8 @@ binding. Hiding the Dock does not close, transfer, or rebind that page.
 - A task page and a Project Dock can observe the same canonical Thread in
   different windows without creating duplicate execution state.
 - Background turns and Browser guests outlive Dock visibility and target
-  changes, while new idle turns have a deterministic presentation origin.
+  changes, while each agent-created Browser surface has one deterministic
+  Session owner.
 - Scene migration and panel operations have stronger root invariants, and the
   Project right-panel toggle/restore actions are intentionally unavailable.
 - The Dock adds a small cross-authority materialization adapter, but failed
@@ -165,6 +171,13 @@ The explicit target is stable until the user changes it.
 
 Selection is observation, not execution. Capturing on selection can steal live
 presentation from another window and still races the first turn.
+
+### Keep task-created Browser surfaces in the Project Scene
+
+This makes the Project Scene appear to own output whose execution, cleanup, and
+continuation belong to one task. Switching the Dock target then leaves durable
+task artifacts beside unrelated Project resources and obscures which Session
+will continue controlling them.
 
 ### Move Browser ownership into the Dock
 

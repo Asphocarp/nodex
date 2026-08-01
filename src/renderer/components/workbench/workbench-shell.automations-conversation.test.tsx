@@ -1383,7 +1383,7 @@ describe("workbench session shell / automations-conversation", () => {
       worktreeBranchPrefix: "codex/",
       collaborationMode: "default",
       browserUsePresentationOrigin: {
-        browserConversationId: "session:alpha:blank",
+        browserConversationId: "session:beta:created",
         browserViewScopeId: "window-session:test",
       },
     }));
