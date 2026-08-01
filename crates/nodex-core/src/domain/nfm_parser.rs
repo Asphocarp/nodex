@@ -16,6 +16,10 @@ const TOGGLE_LIST_PROPERTIES: &[&str] = &["priority", "estimate", "status", "tag
 pub enum NfmParseError {
     #[error("invalid NFM at line {line}: {message}")]
     InvalidSyntax { line: usize, message: String },
+}
+
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum NfmBlockMaterializationError {
     #[error("Block ID allocator returned an invalid or duplicate identity")]
     InvalidBlockId,
 }
@@ -49,18 +53,10 @@ pub fn parse_nfm(input: &str) -> Result<Vec<NfmBlock>, NfmParseError> {
     Ok(nest_blocks(&mut flat, &mut cursor, None))
 }
 
-pub fn parse_nfm_with_ids(
-    input: &str,
+pub fn materialize_nfm_blocks_with_ids(
+    blocks: &[NfmBlock],
     allocate_block_id: &mut impl FnMut() -> String,
-) -> Result<Vec<MaterializedBlockNode>, NfmParseError> {
-    let blocks = parse_nfm(input)?;
-    let blocks = if blocks.is_empty() {
-        vec![NfmBlock::EmptyBlock {
-            children: Vec::new(),
-        }]
-    } else {
-        blocks
-    };
+) -> Result<Vec<MaterializedBlockNode>, NfmBlockMaterializationError> {
     let mut allocated = BTreeSet::new();
     blocks
         .iter()
@@ -677,14 +673,14 @@ fn materialize_parsed_block(
     block: &NfmBlock,
     allocate_block_id: &mut impl FnMut() -> String,
     allocated: &mut BTreeSet<String>,
-) -> Result<MaterializedBlockNode, NfmParseError> {
+) -> Result<MaterializedBlockNode, NfmBlockMaterializationError> {
     let id = allocate_block_id();
     if id.is_empty()
         || id.trim() != id
         || id.len() > MAX_BLOCK_ID_LENGTH
         || !allocated.insert(id.clone())
     {
-        return Err(NfmParseError::InvalidBlockId);
+        return Err(NfmBlockMaterializationError::InvalidBlockId);
     }
     let (block_type, props, content, source_children): (
         &str,
@@ -1515,7 +1511,7 @@ mod tests {
         assert_eq!(serialize_nfm(&parsed), nfm);
 
         let mut next_id = 0usize;
-        let materialized = parse_nfm_with_ids(nfm, &mut || {
+        let materialized = materialize_nfm_blocks_with_ids(&parsed, &mut || {
             next_id += 1;
             format!("parsed-{next_id}")
         })
@@ -1533,11 +1529,12 @@ mod tests {
         )
         .expect("valid oracle");
         let mut next_id = 0usize;
-        let actual = parse_nfm_with_ids(oracle["input"].as_str().expect("input NFM"), &mut || {
+        let parsed = parse_nfm(oracle["input"].as_str().expect("input NFM")).expect("parse NFM");
+        let actual = materialize_nfm_blocks_with_ids(&parsed, &mut || {
             next_id += 1;
             format!("oracle-nfm-{next_id}")
         })
-        .expect("parse NFM");
+        .expect("materialize NFM");
 
         assert_eq!(
             serde_json::to_value(&actual).expect("serialize blocks"),
@@ -1550,14 +1547,22 @@ mod tests {
     }
 
     #[test]
-    fn normalizes_empty_input_and_rejects_duplicate_allocations() {
-        let blocks = parse_nfm_with_ids("", &mut || "empty-root".to_owned()).expect("empty Page");
-        assert_eq!(blocks.len(), 1);
-        assert_eq!(materialize_nfm(&blocks).expect("NFM").nfm, "");
+    fn empty_input_is_an_empty_forest_and_materialization_rejects_duplicate_ids() {
+        let parsed = parse_nfm("\n \t\n").expect("empty NFM forest");
+        assert!(parsed.is_empty());
+        let allocation_calls = std::cell::Cell::new(0);
+        let materialized = materialize_nfm_blocks_with_ids(&parsed, &mut || {
+            allocation_calls.set(allocation_calls.get() + 1);
+            "unused".to_owned()
+        })
+        .expect("empty materialized forest");
+        assert!(materialized.is_empty());
+        assert_eq!(allocation_calls.get(), 0);
 
-        let error = parse_nfm_with_ids("One\nTwo", &mut || "duplicate".to_owned())
+        let parsed = parse_nfm("One\nTwo").expect("NFM forest");
+        let error = materialize_nfm_blocks_with_ids(&parsed, &mut || "duplicate".to_owned())
             .expect_err("duplicate IDs");
-        assert_eq!(error, NfmParseError::InvalidBlockId);
+        assert_eq!(error, NfmBlockMaterializationError::InvalidBlockId);
     }
 
     #[test]

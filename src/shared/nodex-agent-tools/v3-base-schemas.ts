@@ -33,6 +33,11 @@ export const NestedMarkdownSchema = z.string()
     `Nested Markdown must be at most ${MAX_PAGE_WRITE_BODY_BYTES} UTF-8 bytes`,
   );
 
+export const NestedMarkdownFragmentSchema = NestedMarkdownSchema.refine(
+  (markdown) => markdown.trim().length > 0,
+  "Nested Markdown insertion must contain at least one Block; use <empty-block/> to insert an intentional empty Block",
+);
+
 export const DatabaseValueDraftV3Schema = z.strictObject({
   propertyId: PropertyIdSchema,
   value: JsonValueSchema,

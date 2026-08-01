@@ -19,6 +19,11 @@ const NfmContentSchema = z.string().max(MAX_PAGE_WRITE_BODY_BYTES).refine(
   `NFM content must be at most ${MAX_PAGE_WRITE_BODY_BYTES} UTF-8 bytes`,
 );
 
+const NfmFragmentSchema = NfmContentSchema.refine(
+  (content) => content.trim().length > 0,
+  "NFM insertion must contain at least one Block; use <empty-block/> to insert an intentional empty Block",
+);
+
 export const DatabaseValueDraftSchema = z.strictObject({
   propertyId: PropertyIdSchema,
   value: JsonValueSchema,
@@ -149,7 +154,7 @@ export const DocumentBodyEditSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("nfm.insert"),
     at: DocumentAnchorSchema,
-    content: NfmContentSchema,
+    content: NfmFragmentSchema,
   }),
   z.strictObject({
     kind: z.literal("nfm.patch"),

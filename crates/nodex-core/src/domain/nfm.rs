@@ -258,7 +258,7 @@ pub fn materialize_nfm(
         .iter()
         .map(materialize_block)
         .collect::<Result<Vec<_>, _>>()?;
-    let nfm = if is_semantic_empty_document(block_tree) {
+    let nfm = if semantic_empty_document_root(block_tree).is_some() {
         String::new()
     } else {
         serialize_nfm(&blocks)
@@ -304,13 +304,16 @@ pub fn build_preview(plain_text: &str) -> String {
     format!("{}...", plain_text[..boundary].trim_end())
 }
 
-fn is_semantic_empty_document(blocks: &[MaterializedBlockNode]) -> bool {
+pub fn semantic_empty_document_root(
+    blocks: &[MaterializedBlockNode],
+) -> Option<&MaterializedBlockNode> {
     let [root] = blocks else {
-        return false;
+        return None;
     };
-    root.block_type == "paragraph"
+    (root.block_type == "paragraph"
         && root.children.is_empty()
-        && matches!(&root.content, Some(Value::Array(content)) if content.is_empty())
+        && matches!(&root.content, Some(Value::Array(content)) if content.is_empty()))
+    .then_some(root)
 }
 
 fn materialize_block(block: &MaterializedBlockNode) -> Result<NfmBlock, NfmMaterializationError> {

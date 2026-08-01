@@ -17,6 +17,7 @@ import {
   DatabaseDestinationViewV3Schema,
   DatabaseValueDraftV3Schema,
   InlineMarkdownTitleSchema,
+  NestedMarkdownFragmentSchema,
   NestedMarkdownSchema,
   uniqueSelectorList,
 } from "./v3-base-schemas";
@@ -84,7 +85,7 @@ export const PageBodyUpdateV3Schema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("insert"),
     at: DocumentAnchorSchema,
-    markdown: NestedMarkdownSchema,
+    markdown: NestedMarkdownFragmentSchema,
   }),
   z.strictObject({
     kind: z.literal("patch"),

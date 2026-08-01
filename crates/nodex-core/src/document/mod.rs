@@ -8,6 +8,7 @@ mod history;
 mod maintenance;
 mod materialization;
 mod module;
+mod nfm_input;
 mod operations;
 mod owners;
 mod persistence;

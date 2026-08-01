@@ -139,6 +139,46 @@ describe("Nodex Agent tool contracts", () => {
     expect(NODEX_AGENT_TOOL_CONTRACTS.edit_document.classifyEffect(patch)).toBe("write");
   });
 
+  test("separates empty Document inputs from empty insertion Fragments", () => {
+    expect(CreateInputSchema.safeParse({
+      resource: {
+        kind: "page",
+        title: { kind: "plain", text: "Empty" },
+        body: { format: "nfm", content: "" },
+      },
+      destination: { kind: "space" },
+    }).success).toBe(true);
+    expect(EditDocumentInputSchema.safeParse({
+      documentId: "document-1",
+      body: { kind: "nfm.replace", content: "", ifMatch: ETAG },
+    }).success).toBe(true);
+    expect(EditDocumentInputSchema.safeParse({
+      documentId: "document-1",
+      body: {
+        kind: "nfm.patch",
+        patches: [{ oldNfm: "Only Block", newNfm: "" }],
+      },
+    }).success).toBe(true);
+    for (const content of ["", "\n \t\n"]) {
+      const result = EditDocumentInputSchema.safeParse({
+        documentId: "document-1",
+        body: { kind: "nfm.insert", at: { kind: "end" }, content },
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.issues[0]?.message).toContain("<empty-block/>");
+      }
+    }
+    expect(EditDocumentInputSchema.safeParse({
+      documentId: "document-1",
+      body: {
+        kind: "nfm.insert",
+        at: { kind: "end" },
+        content: "<empty-block/>",
+      },
+    }).success).toBe(true);
+  });
+
   test("requires narrow ETags only for overwrite operations", () => {
     expect(EditDocumentInputSchema.safeParse({
       documentId: "document-1",

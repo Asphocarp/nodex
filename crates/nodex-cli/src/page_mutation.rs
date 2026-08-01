@@ -93,17 +93,11 @@ pub(crate) fn insert_page_content(
     json_output: bool,
 ) -> Result<CommandOutput, CliError> {
     validate_return_fields(&arguments.mutation.r#return)?;
-    let fragment = read_content_input(
+    let fragment = validate_nfm_fragment(read_content_input(
         arguments.file.as_deref(),
         MAX_BODY_INPUT_BYTES,
         "Page insertion",
-    )?;
-    if fragment.is_empty() {
-        return Err(CliError::new(
-            CliErrorCode::InvalidInput,
-            "Page insertion must contain Nested Markdown",
-        ));
-    }
+    )?)?;
     let anchor = parse_anchor(&arguments.at)?;
     apply_selected_semantic_write(
         client,
@@ -115,6 +109,16 @@ pub(crate) fn insert_page_content(
         SemanticWrite::Insert { fragment, anchor },
         &arguments.mutation.r#return,
     )
+}
+
+fn validate_nfm_fragment(fragment: String) -> Result<String, CliError> {
+    if fragment.trim().is_empty() {
+        return Err(CliError::new(
+            CliErrorCode::InvalidInput,
+            "Page insertion must contain at least one Nested Markdown Block; use <empty-block/> to insert an intentional empty Block",
+        ));
+    }
+    Ok(fragment)
 }
 
 pub(crate) fn set_page_title(
@@ -846,5 +850,17 @@ mod tests {
         assert!(validate_block_id("parent/block".to_owned()).is_err());
         assert!(validate_block_id(" block".to_owned()).is_err());
         assert!(validate_block_id("x".repeat(513)).is_err());
+    }
+
+    #[test]
+    fn nfm_fragment_validation_rejects_whitespace_and_accepts_explicit_empty_blocks() {
+        let error =
+            validate_nfm_fragment("\n \t\n".to_owned()).expect_err("whitespace-only Fragment");
+        assert_eq!(error.code, CliErrorCode::InvalidInput);
+        assert!(error.message.contains("<empty-block/>"));
+        assert_eq!(
+            validate_nfm_fragment("<empty-block/>".to_owned()).unwrap(),
+            "<empty-block/>"
+        );
     }
 }

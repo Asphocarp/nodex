@@ -374,15 +374,17 @@ const buildPreview = (plainText: string): string => {
   return `${plainText.slice(0, 240).trimEnd()}...`;
 };
 
-const isSemanticEmptyDocument = (
+export const semanticEmptyDocumentRoot = (
   blockTree: readonly BlockTreeNode[],
-): boolean => {
-  if (blockTree.length !== 1) return false;
+): BlockTreeNode | undefined => {
+  if (blockTree.length !== 1) return undefined;
   const root = blockTree[0];
   if (!root || root.type !== "paragraph" || root.children.length > 0) {
-    return false;
+    return undefined;
   }
-  return Array.isArray(root.content) && root.content.length === 0;
+  return Array.isArray(root.content) && root.content.length === 0
+    ? root
+    : undefined;
 };
 
 export interface MaterializeBlockDocumentBodyInput {
@@ -419,7 +421,7 @@ export const materializeBlockDocumentBody = ({
   const blockTree = toBlockTree(blockNoteBlocks);
   assertMaterializationMatchesScan(blockTree, scannedBlocks);
   const nfmBlocks = blockNoteToNfm(blockNoteBlocks);
-  const nfm = isSemanticEmptyDocument(blockTree) ? "" : serializeNfm(nfmBlocks);
+  const nfm = semanticEmptyDocumentRoot(blockTree) ? "" : serializeNfm(nfmBlocks);
   const { references, assetRefs } = deriveBlockDocumentRecords(
     blockTree,
     nfmBlocks,

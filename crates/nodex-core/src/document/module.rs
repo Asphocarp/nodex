@@ -5331,6 +5331,23 @@ mod tests {
         .update_v1
     }
 
+    fn persisted_body(seeded: &SeededModule) -> (String, Vec<MaterializedBlockNode>) {
+        seeded
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                let (nfm, block_tree_json): (String, String) = connection.query_row(
+                    "SELECT nfm, block_tree_json FROM document_materializations WHERE document_id = ?1",
+                    [DOCUMENT_ID],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )?;
+                let block_tree = serde_json::from_str(&block_tree_json)
+                    .map_err(|_| internal("persisted body Block tree JSON"))?;
+                Ok::<_, StoreError>((nfm, block_tree))
+            })
+            .expect("persisted Document body")
+    }
+
     fn move_seeded_page_under_database(seeded: &SeededModule) {
         seeded
             .kernel
@@ -9337,8 +9354,14 @@ mod tests {
     }
 
     #[test]
-    fn prepared_agent_body_insertion_returns_canonical_preview_and_created_roots() {
+    fn prepared_agent_body_insertion_promotes_the_empty_seed_with_a_write_fence() {
         let seeded = seeded_module();
+        let initial = materialize_engine(
+            &YrsDocumentEngine::from_full_state_v1(DOCUMENT_ID, &seeded.full_state).unwrap(),
+            BlockDocumentSchema::PageV2,
+        )
+        .unwrap();
+        let seed_id = initial.block_tree[0].id.clone();
         let connection_id = "electron:agent-insert";
         let provenance = seed_agent_turn(&seeded, connection_id);
         let operation_id = "agent:semantic-insert";
@@ -9377,13 +9400,14 @@ mod tests {
             panic!("expected prepared body insertion")
         };
         assert_eq!(preparation.footprint.effect_class, AgentEffectClass::Write);
-        assert_eq!(preparation.footprint.created_roots.len(), 1);
+        assert!(preparation.footprint.created_roots.is_empty());
+        assert!(preparation.footprint.updated_roots.contains(&seed_id));
         assert!(preparation.footprint.deleted_roots.is_empty());
         let preview = preparation
             .preview_markdown
             .as_deref()
             .expect("insertion preflight returns canonical preview");
-        assert!(preview.contains("Inserted by Agent"));
+        assert_eq!(preview, "Inserted by Agent");
         let committed = seeded
             .module
             .apply(
@@ -9407,12 +9431,362 @@ mod tests {
             .value
             .mutation_effect
             .expect("insertion returns exact effect");
+        assert!(effect.created_block_ids.is_empty());
         assert_eq!(
-            effect.created_block_ids,
-            preparation.footprint.created_roots
+            effect.updated_block_ids.as_slice(),
+            std::slice::from_ref(&seed_id)
         );
         assert!(effect.deleted_block_ids.is_empty());
+        assert_eq!(
+            effect.write_fence_block_ids.as_slice(),
+            std::slice::from_ref(&seed_id)
+        );
+        assert_eq!(
+            effect.coordination,
+            DocumentMutationCoordination::WriteFence
+        );
         assert!(!effect.title_changed);
+        seeded
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                let (nfm, block_tree_json): (String, String) = connection.query_row(
+                    "SELECT nfm, block_tree_json FROM document_materializations WHERE document_id = ?1",
+                    [DOCUMENT_ID],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )?;
+                let block_tree: Vec<MaterializedBlockNode> =
+                    serde_json::from_str(&block_tree_json)
+                        .map_err(|_| internal("seed promotion Block tree JSON"))?;
+                assert_eq!(nfm, "Inserted by Agent");
+                assert_eq!(block_tree[0].id, seed_id);
+                Ok::<_, StoreError>(())
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn prepared_empty_seed_promotion_rejects_missing_or_stale_fence_authority() {
+        let seeded = seeded_module();
+        let initial = materialize_engine(
+            &YrsDocumentEngine::from_full_state_v1(DOCUMENT_ID, &seeded.full_state).unwrap(),
+            BlockDocumentSchema::PageV2,
+        )
+        .unwrap();
+        let seed_id = initial.block_tree[0].id.clone();
+        let connection_id = "electron:agent-seed-fence";
+        let provenance = seed_agent_turn(&seeded, connection_id);
+        let mutation = AgentDocumentSemanticMutation {
+            document_id: DOCUMENT_ID.to_owned(),
+            generation: 1,
+            expected_head_seq: 1,
+            allow_deleting_owned_blocks: false,
+            commands: vec![DocumentSemanticCommand::InsertBody {
+                anchor: DocumentSemanticAnchor::End {
+                    parent_block_id: None,
+                },
+                nested_markdown: "Agent content".to_owned(),
+            }],
+        };
+        let prepare = |operation_id: &str| {
+            seeded.module.read(
+                &context_for(connection_id),
+                ModuleReadRequest {
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
+                    read: OwnedDocumentRead::PrepareAgentSemanticMutation {
+                        operation_id: operation_id.to_owned(),
+                        store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                        authorization: Box::new(agent_execution_authorization(provenance.clone())),
+                        mutation: Box::new(mutation.clone()),
+                    },
+                },
+            )
+        };
+        let missing_fence = prepare("agent:seed-fence-missing").expect("prepare promotion");
+        let OwnedDocumentReadValue::AgentSemanticMutationPreparation {
+            preparation: missing_fence,
+            committed: None,
+        } = missing_fence.value
+        else {
+            panic!("expected prepared promotion")
+        };
+        let error = seeded
+            .module
+            .apply(
+                &context_for(connection_id),
+                ModuleApplyRequest {
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
+                    operation_id: "agent:seed-fence-missing".to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::ExecutePreparedAgentSemanticMutation {
+                        authorization: Box::new(AgentPreparedExecution {
+                            authorization: agent_execution_authorization(provenance.clone()),
+                            token: None,
+                        }),
+                        mutation: Box::new(mutation.clone()),
+                    },
+                },
+            )
+            .expect_err("promotion execution requires its prepared fence token");
+        assert_eq!(error.code, CoreErrorCode::RevisionConflict);
+        assert!(missing_fence.token.is_some());
+
+        let stale = prepare("agent:seed-fence-stale").expect("prepare stale promotion");
+        let OwnedDocumentReadValue::AgentSemanticMutationPreparation {
+            preparation: stale,
+            committed: None,
+        } = stale.value
+        else {
+            panic!("expected prepared stale promotion")
+        };
+        seeded
+            .module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
+                    operation_id: "renderer:edit-seed-before-agent".to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::ApplyOperationBatch {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        generation: 1,
+                        expected_head_seq: 1,
+                        operations: vec![ContractDocumentBlockOperation::UpdateBlock {
+                            block_id: seed_id,
+                            patch: ContractDocumentBlockUpdatePatch {
+                                block_type: None,
+                                props: None,
+                                content: DocumentOptionalValue::Value {
+                                    value: json!([{
+                                        "type": "text",
+                                        "text": "Renderer content",
+                                        "styles": {},
+                                    }]),
+                                },
+                                unset_content: false,
+                            },
+                        }],
+                        actor: json!({ "kind": "electron_renderer" }),
+                        write_fence_prepared: true,
+                    },
+                },
+            )
+            .expect("renderer updates seed under a current fence");
+        let error = seeded
+            .module
+            .apply(
+                &context_for(connection_id),
+                ModuleApplyRequest {
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
+                    operation_id: "agent:seed-fence-stale".to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::ExecutePreparedAgentSemanticMutation {
+                        authorization: Box::new(AgentPreparedExecution {
+                            authorization: agent_execution_authorization(provenance),
+                            token: stale.token,
+                        }),
+                        mutation: Box::new(mutation),
+                    },
+                },
+            )
+            .expect_err("stale promotion must not overwrite renderer content");
+        assert_eq!(error.code, CoreErrorCode::RevisionConflict);
+        seeded
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                let nfm: String = connection.query_row(
+                    "SELECT nfm FROM document_materializations WHERE document_id = ?1",
+                    [DOCUMENT_ID],
+                    |row| row.get(0),
+                )?;
+                assert_eq!(nfm, "Renderer content");
+                Ok::<_, StoreError>(())
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn whitespace_fragment_is_rejected_without_a_document_commit() {
+        let seeded = seeded_module();
+        let operation_id = "semantic:whitespace-fragment";
+        let error = seeded
+            .module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
+                    operation_id: operation_id.to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::ApplySemanticMutation {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        generation: 1,
+                        expected_head_seq: 1,
+                        commands: vec![DocumentSemanticCommand::InsertBody {
+                            anchor: DocumentSemanticAnchor::End {
+                                parent_block_id: None,
+                            },
+                            nested_markdown: "\n \t\n".to_owned(),
+                        }],
+                    },
+                },
+            )
+            .expect_err("whitespace-only Fragment");
+        assert_eq!(error.code, CoreErrorCode::InvalidInput);
+        assert!(error.message.contains("<empty-block/>"));
+        seeded
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                let evidence: (i64, String, i64, i64) = connection.query_row(
+                    "SELECT document.head_seq, materialization.nfm, \
+                       (SELECT count(*) FROM core_module_receipts WHERE operation_id = ?2), \
+                       (SELECT count(*) FROM change_log WHERE operation_id = ?2) \
+                     FROM documents document \
+                     JOIN document_materializations materialization ON materialization.document_id = document.id \
+                     WHERE document.id = ?1",
+                    params![DOCUMENT_ID, operation_id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                )?;
+                assert_eq!(evidence, (1, String::new(), 0, 0));
+                Ok::<_, StoreError>(())
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn explicit_empty_fragment_and_multiple_insertions_preserve_seed_claim_rules() {
+        let seeded = seeded_module();
+        let initial = materialize_engine(
+            &YrsDocumentEngine::from_full_state_v1(DOCUMENT_ID, &seeded.full_state).unwrap(),
+            BlockDocumentSchema::PageV2,
+        )
+        .unwrap();
+        let seed_id = initial.block_tree[0].id.clone();
+        let committed = seeded
+            .module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
+                    operation_id: "semantic:multiple-insertions".to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::ApplySemanticMutation {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        generation: 1,
+                        expected_head_seq: 1,
+                        commands: vec![
+                            DocumentSemanticCommand::InsertBody {
+                                anchor: DocumentSemanticAnchor::End {
+                                    parent_block_id: None,
+                                },
+                                nested_markdown: "<empty-block/>".to_owned(),
+                            },
+                            DocumentSemanticCommand::InsertBody {
+                                anchor: DocumentSemanticAnchor::End {
+                                    parent_block_id: None,
+                                },
+                                nested_markdown: "First".to_owned(),
+                            },
+                            DocumentSemanticCommand::InsertBody {
+                                anchor: DocumentSemanticAnchor::End {
+                                    parent_block_id: None,
+                                },
+                                nested_markdown: "Second".to_owned(),
+                            },
+                        ],
+                    },
+                },
+            )
+            .expect("multiple InsertBody commands");
+        let effect = committed
+            .committed
+            .value
+            .mutation_effect
+            .expect("multiple insertion effect");
+        assert_eq!(
+            effect.updated_block_ids.as_slice(),
+            std::slice::from_ref(&seed_id)
+        );
+        assert_eq!(effect.created_block_ids.len(), 1);
+        assert!(effect.deleted_block_ids.is_empty());
+        assert_eq!(
+            effect.coordination,
+            DocumentMutationCoordination::WriteFence
+        );
+        let (nfm, block_tree) = persisted_body(&seeded);
+        assert_eq!(nfm, "First\nSecond");
+        assert_eq!(block_tree[0].id, seed_id);
+
+        let explicit = seeded_module();
+        let initial = materialize_engine(
+            &YrsDocumentEngine::from_full_state_v1(DOCUMENT_ID, &explicit.full_state).unwrap(),
+            BlockDocumentSchema::PageV2,
+        )
+        .unwrap();
+        let explicit_seed_id = initial.block_tree[0].id.clone();
+        let committed = explicit
+            .module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
+                    operation_id: "semantic:explicit-empty-first".to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::ApplySemanticMutation {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        generation: 1,
+                        expected_head_seq: 1,
+                        commands: vec![DocumentSemanticCommand::InsertBody {
+                            anchor: DocumentSemanticAnchor::End {
+                                parent_block_id: None,
+                            },
+                            nested_markdown: "<empty-block/>\nHello".to_owned(),
+                        }],
+                    },
+                },
+            )
+            .expect("explicit empty Block Fragment");
+        assert_eq!(committed.committed.value.head_seq, 2);
+        let (nfm, block_tree) = persisted_body(&explicit);
+        assert_eq!(nfm, "<empty-block/>\nHello");
+        assert_eq!(block_tree[0].id, explicit_seed_id);
+        assert_eq!(block_tree.len(), 2);
+    }
+
+    #[test]
+    fn singleton_explicit_empty_fragment_is_a_no_change() {
+        let seeded = seeded_module();
+        let committed = seeded
+            .module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
+                    operation_id: "semantic:explicit-empty-no-change".to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::ApplySemanticMutation {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        generation: 1,
+                        expected_head_seq: 1,
+                        commands: vec![DocumentSemanticCommand::InsertBody {
+                            anchor: DocumentSemanticAnchor::End {
+                                parent_block_id: None,
+                            },
+                            nested_markdown: "<empty-block/>".to_owned(),
+                        }],
+                    },
+                },
+            )
+            .expect("explicit empty Block no-op");
+
+        assert_eq!(
+            committed.committed.value.outcome,
+            DocumentCommitOutcome::NoChange
+        );
+        assert_eq!(committed.committed.value.head_seq, 1);
+        assert!(committed.committed.value.mutation_effect.is_none());
+        assert!(committed.events.is_empty());
     }
 
     #[test]
