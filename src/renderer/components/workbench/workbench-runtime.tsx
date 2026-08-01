@@ -1854,19 +1854,6 @@ export function WorkbenchRuntime({
   const browserUsePresentation =
     useBrowserUsePresentationCoordinator({
       activeSession,
-      projectScene: (
-        activeProjectScene
-        && projectSceneKey
-        && projectSceneOwner
-        && panelController.sceneDurable
-        && selectedProjectSceneId
-      ) ? {
-        browserConversationId: projectSceneKey,
-        commands: panelController.sceneDurable,
-        owner: projectSceneOwner,
-        projectId: selectedProjectSceneId,
-        scene: activeProjectScene,
-      } : null,
       catalog: sessionCatalog,
       controller: panelController,
       createSessionViewTab,
@@ -3340,10 +3327,7 @@ export function WorkbenchRuntime({
           leadingContent: projectAgentDockLeadingContent,
         }}
         composerScopeIdentity={projectAgentDockThreadScope.stableKey}
-        browserUsePresentationOrigin={{
-          browserConversationId: projectSceneKey,
-          browserViewScopeId: windowSessionId,
-        }}
+        browserUseViewScopeId={windowSessionId}
         newThreadStartBlockedReason={
           projectAgentDockPendingWorktreeModel?.composerBlockedReason ?? null
         }
@@ -3465,10 +3449,7 @@ export function WorkbenchRuntime({
         }}
         threadPageProps={{
           session: activeRenderSession,
-          browserUsePresentationOrigin: {
-            browserConversationId: activeRenderSession.id,
-            browserViewScopeId: windowSessionId,
-          },
+          browserUseViewScopeId: windowSessionId,
           project: activeSessionProject,
           projects,
           routeActive: true,

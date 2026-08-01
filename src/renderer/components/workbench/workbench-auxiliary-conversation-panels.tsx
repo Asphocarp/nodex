@@ -115,6 +115,7 @@ export function BackgroundAgentSessionTab({
     onOpenThread,
     onOpenTurnDiffReview,
     onOpenTurnDiffFileInSidePanel,
+    currentSessionId: activeSession.id,
     currentSessionProjectId:
       activeSession.projectId ?? tab.projectId,
     projectId: tab.projectId,
@@ -426,6 +427,7 @@ export function SideChatSessionTab({
     onOpenThread,
     onOpenTurnDiffReview,
     onOpenTurnDiffFileInSidePanel,
+    currentSessionId: activeSession.id,
     currentSessionProjectId: activeSession.projectId,
     projectId,
     onNewThreadProjectChange: () => undefined,

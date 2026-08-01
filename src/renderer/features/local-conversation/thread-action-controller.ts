@@ -13,17 +13,15 @@ import { invoke } from "@/lib/api";
 import { captureBrowserUseRoute } from "@/lib/browser-use-route-capture";
 import { cleanupMaterializedThreadGoalDraft } from "./thread-goal-materialization";
 import type { ThreadStageActions } from "./thread-stage-types";
-import type {
-  BrowserSidebarCommandResult,
-  BrowserUsePresentationOrigin,
-} from "../../../shared/browser-sidebar";
+import type { BrowserSidebarCommandResult } from "../../../shared/browser-sidebar";
 
 type CodexControl = ReturnType<typeof useCodexAppServerControl>;
 
 export interface ThreadActionControllerInput {
   activeThreadId: string | null;
-  browserUsePresentationOrigin?: BrowserUsePresentationOrigin | null;
+  browserUseViewScopeId?: string | null;
   codexControl: CodexControl;
+  currentSessionId: string;
   currentSessionProjectId: string | null;
   projectId: string | null;
   selectedCollaborationMode: CodexCollaborationModeKind;
@@ -89,11 +87,17 @@ function uniqueThreadIds(threadIds: readonly string[]): string[] {
 
 export function createThreadStageActions(input: ThreadActionControllerInput): ThreadStageActions {
   const startsInFlight = new Map<string, Promise<void>>();
+  const resolveBrowserUsePresentationOrigin = (browserConversationId: string) => {
+    const browserViewScopeId = input.browserUseViewScopeId?.trim();
+    if (!browserViewScopeId) return null;
+    return { browserConversationId, browserViewScopeId };
+  };
   const captureTurnOrigin = async (
+    browserConversationId: string,
     codexSessionId: string,
     projectId: string | null,
   ): Promise<void> => {
-    const origin = input.browserUsePresentationOrigin;
+    const origin = resolveBrowserUsePresentationOrigin(browserConversationId);
     if (!origin) return;
     await captureBrowserUseRoute(
       {
@@ -223,8 +227,10 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
               createSplitDirectories: true,
             })
           : undefined;
+        const targetSessionId = targetSession?.id ?? sessionId;
+        const presentationOrigin = resolveBrowserUsePresentationOrigin(targetSessionId);
         try {
-          await captureTurnOrigin(targetSession?.id ?? sessionId, projectId);
+          await captureTurnOrigin(targetSessionId, targetSessionId, projectId);
         } catch (error) {
           await (input.cleanupThreadGoalMaterializedDraft
             ?? cleanupMaterializedThreadGoalDraft)(threadGoalMaterializedDraft ?? null);
@@ -232,7 +238,7 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
         }
         const result = await input.codexControl.startThreadForSession({
           projectId,
-          sessionId: targetSession?.id ?? sessionId,
+          sessionId: targetSessionId,
           prompt,
           ...(projectlessWorkspace === undefined ? {} : { projectlessWorkspace }),
           promptInput,
@@ -243,8 +249,8 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
           worktreeStartMode,
           worktreeBranchPrefix: worktreeBranchPrefix ?? undefined,
           collaborationMode: input.selectedCollaborationMode,
-          ...(input.browserUsePresentationOrigin
-            ? { browserUsePresentationOrigin: input.browserUsePresentationOrigin }
+          ...(presentationOrigin
+            ? { browserUsePresentationOrigin: presentationOrigin }
             : {}),
         });
         if (result.kind === "pending") {
@@ -292,7 +298,7 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
     ...(input.onOpenSummaryGitReview ? { onOpenSummaryGitReview: input.onOpenSummaryGitReview } : {}),
     onStartSummaryGitAction: async ({ action }) => {
       const threadId = requireActiveThreadId(input.activeThreadId, "Starting a Git action");
-      await captureTurnOrigin(threadId, input.projectId);
+      await captureTurnOrigin(input.currentSessionId, threadId, input.projectId);
       await input.codexControl.startTurn(
         threadId,
         action === "commit-or-push" ? GIT_ACTION_COMMIT_OR_PUSH_PROMPT : GIT_ACTION_CREATE_PR_PROMPT,
@@ -310,7 +316,7 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
     ...(input.onToggleThreadPin ? { onToggleThreadPin: input.onToggleThreadPin } : {}),
     onSendPrompt: async (prompt, opts) => {
       const threadId = requireActiveThreadId(input.activeThreadId, "Sending a prompt");
-      await captureTurnOrigin(threadId, input.projectId);
+      await captureTurnOrigin(input.currentSessionId, threadId, input.projectId);
       await input.codexControl.startTurn(threadId, prompt, {
         ...(input.projectId === null ? {} : { projectId: input.projectId }),
         collaborationMode: opts?.collaborationMode,

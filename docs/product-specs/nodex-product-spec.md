@@ -76,19 +76,20 @@ When working with coding agents like Claude Code, there's no streamlined way to:
   the background retention host take over, and stale presentation updates are
   rejected by renderer, host, and mount generation.
 - Browser Use controls its presentation explicitly. Starting an idle turn first
-  awaits capture of the initiating Session or Project Scene namespace and exact
-  Window Session view scope; merely selecting a Session or Agent Dock target
-  does not capture. A newly created Codex Thread promotes its provisional
-  Project-Session route before the first turn dispatches, including worktree
-  starts, while steering or queueing an active turn preserves its origin. When
-  the agent requests a visible Browser, Nodex materializes the exact controlled
-  page as a Browser tab if no shell exists. Session-origin requests select the
-  owning task when necessary; Project-origin requests activate a surface in the
-  matching Project Scene without navigating or changing the Agent Dock target.
-  Hiding the Browser or Dock does not stop Browser Use or destroy the page.
-  Browser activity, a pending presentation request, and actual
-  renderer-confirmed visibility are distinct states; every runtime tab keeps
-  its exact source `codexSessionId`, even when other Dock targets are selected.
+  awaits capture of the exact owning Session namespace and Window Session view
+  scope; merely selecting a Session or Agent Dock target does not capture.
+  `New task` materializes its real Session before capture. A newly created Codex
+  Thread promotes that Session route before the first turn dispatches,
+  including worktree starts, while steering or queueing an active turn
+  preserves its route. When the agent requests a visible Browser, Nodex first
+  materializes the exact controlled page in the owning Session Scene and then
+  selects that task. Background and hide requests update the Session Scene
+  without navigating. Manually opened Project Browser tabs remain Project-owned
+  and are not implicitly attached to a Dock task. Hiding the Browser or Dock
+  does not stop Browser Use or destroy the page. Browser activity, a pending
+  presentation request, and actual renderer-confirmed visibility are distinct
+  states; every runtime tab keeps its exact source `codexSessionId`, even when
+  other Dock targets are selected.
 - A controlled Browser page keeps one body-level guest host for its complete
   live lifetime. Moving between retained, background, and visible panel
   presentation updates only that host's layout and presentation metadata; it
@@ -1175,7 +1176,7 @@ In the desktop app, Settings -> General -> `App updates` updates the user-level 
 
 In the desktop app, Settings -> General -> `Diagnostics` updates user-level `[server]` fields for `diagnostics_enabled`, `diagnostics_dsn`, `diagnostics_environment`, `diagnostics_traces_sample_rate`, `diagnostics_replay_enabled`, `diagnostics_replays_session_sample_rate`, and `diagnostics_replays_on_error_sample_rate`. Diagnostics and Session Replay are disabled by default; Replay is a separate renderer-only opt-in that only runs when crash diagnostics are also enabled. When diagnostics are enabled without an explicit DSN, Nodex uses its bundled Sentry project DSN. Env overrides win and the UI disables overridden controls.
 
-In the desktop app, Settings -> General -> `Telemetry` updates user-level `[server]` fields for `telemetry_enabled`, `telemetry_client_key`, `telemetry_environment`, and `telemetry_auto_capture_enabled`. Product telemetry and web analytics are disabled by default, and settings changes apply after restart. When telemetry is enabled without an explicit client key, Nodex uses its bundled Statsig client key. The renderer dynamically loads Statsig only when telemetry is enabled, passes no `userID` or account data, and relies on Statsig's anonymous Stable ID plus safe app/runtime metadata. `Share web analytics` is a separate opt-in that only runs when product telemetry is enabled; it disables console-log capture, copy-text capture, and current-page URL attachment, then filters AutoCapture to low-risk technical signals such as web vitals, performance, and session start. Click, copy, form, dead-click, rage-click, error, and page-view AutoCapture events remain blocked by default. Nodex does not use Statsig Session Replay in v1; renderer replay remains the separate Sentry diagnostic opt-in.
+In the desktop app, Settings -> General -> `Telemetry` updates user-level `[server]` fields for `telemetry_enabled`, `telemetry_client_key`, `telemetry_environment`, and `telemetry_auto_capture_enabled`. Product telemetry and web analytics are disabled by default, and settings changes apply after restart. When telemetry is enabled without an explicit client key, Nodex uses its bundled Statsig client key. The renderer dynamically loads Statsig only when telemetry is enabled, passes no `userID` or account data, and relies on Statsig's anonymous Stable ID plus safe app/runtime metadata. `Share web analytics` is a separate opt-in that only runs when product telemetry is enabled; it disables console-log capture, copy-text capture, and current-page URL attachment, then filters AutoCapture to low-risk technical signals such as web vitals, performance, and session start. Click, copy, form, dead-click, rage-click, error, and page-view AutoCapture events remain blocked by default. Nodex does not use Statsig Session Replay in v1; renderer replay remains the separate Sentry diagnostic opt-in. The bundled Browser automation runtime independently disables its own ambient analytics and diagnostics network; enabling Nodex telemetry does not enable that runtime traffic or affect page navigation and browser control.
 
 In the desktop app, Settings -> General -> `Open source licenses` opens a nested, read-only page containing the generated legal notices for third-party JavaScript, Rust, and bundled runtime dependencies. Packaged builds read the immutable `THIRD_PARTY_NOTICES.txt` resource through the typed main-process boundary; development builds also recognize the desktop source asset locations before falling back to the repository resource. The route is loaded on demand, and the notice document participates in the page's single scroll area instead of creating a second, document-sized scroll container. The visual text is represented to assistive technology as one read-only document rather than tens of thousands of wrapped inline accessibility nodes. The page reports loading and unavailable-resource states without exposing filesystem access to the renderer.
 

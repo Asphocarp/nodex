@@ -46,6 +46,7 @@ function buildInput(overrides?: Partial<ThreadActionControllerInput>): ThreadAct
       },
       setPersonality: async () => undefined,
     } as unknown as ThreadActionControllerInput["codexControl"],
+    currentSessionId: "session_1",
     currentSessionProjectId: "project_1",
     projectId: "project_1",
     selectedCollaborationMode: "default",
@@ -333,7 +334,7 @@ describe("createThreadStageActions settings routing", () => {
     ]));
   });
 
-  test("captures the visible Browser surface before an idle task turn starts", async () => {
+  test("captures the owning Session Browser before an idle task turn starts", async () => {
     const events: string[] = [];
     invokeMock.mockReset();
     invokeMock.mockImplementation(async (_channel, command) => {
@@ -341,10 +342,7 @@ describe("createThreadStageActions settings routing", () => {
       return { ok: true };
     });
     const actions = createThreadStageActions(buildInput({
-      browserUsePresentationOrigin: {
-        browserConversationId: "project:project_1",
-        browserViewScopeId: "window-session-1",
-      },
+      browserUseViewScopeId: "window-session-1",
       codexControl: {
         startTurn: async (threadId: string) => {
           events.push(`start:${threadId}`);
@@ -360,7 +358,7 @@ describe("createThreadStageActions settings routing", () => {
     ]);
     expect(invokeMock).toHaveBeenCalledWith("browser-sidebar-command", {
       type: "capture-browser-use-route",
-      browserConversationId: "project:project_1",
+      browserConversationId: "session_1",
       browserViewScopeId: "window-session-1",
       codexSessionId: "thread_1",
       projectId: "project_1",
@@ -377,10 +375,7 @@ describe("createThreadStageActions settings routing", () => {
     });
     const input = buildInput({
       activeThreadId: null,
-      browserUsePresentationOrigin: {
-        browserConversationId: "project:project_1",
-        browserViewScopeId: "window-session-1",
-      },
+      browserUseViewScopeId: "window-session-1",
       codexControl: {
         startThreadForSession: async (startInput: { sessionId: string }) => {
           events.push(`start:${startInput.sessionId}`);
@@ -424,7 +419,13 @@ describe("createThreadStageActions settings routing", () => {
     releaseStart();
     await Promise.all([first, duplicate]);
     expect(events.at(-1)).toBe("refresh:project_1");
-    expect(invokeMock).toHaveBeenCalledOnce();
+    expect(invokeMock).toHaveBeenCalledWith("browser-sidebar-command", {
+      type: "capture-browser-use-route",
+      browserConversationId: "session-real",
+      browserViewScopeId: "window-session-1",
+      codexSessionId: "session-real",
+      projectId: "project_1",
+    });
   });
 
   test("allocates a split workspace before starting a projectless session", async () => {

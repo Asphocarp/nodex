@@ -31,7 +31,6 @@ import {
 import { resolveWorkbenchPanelSlotLeafId } from "./workbench-panel-slot-key";
 import type {
   WorkbenchPanelController,
-  WorkbenchSceneDurablePanelCommands,
 } from "./use-workbench-panel-controller";
 import type {
   WorkbenchSessionCatalog,
@@ -44,23 +43,8 @@ import type {
   WorkbenchTabCreateInput,
   WorkbenchTabProjection,
 } from "./types";
-import type {
-  WorkbenchSceneOwner,
-  WorkbenchSceneSnapshot,
-  WorkbenchSurfaceDescriptor,
-} from "../../shared/workbench-scene";
-
-export interface BrowserUseProjectScenePresentation {
-  readonly browserConversationId: string;
-  readonly commands: WorkbenchSceneDurablePanelCommands;
-  readonly owner: WorkbenchSceneOwner;
-  readonly projectId: string;
-  readonly scene: WorkbenchSceneSnapshot;
-}
-
 interface BrowserUsePresentationCoordinatorInput {
   readonly activeSession: WorkbenchSessionRenderProjection | null;
-  readonly projectScene?: BrowserUseProjectScenePresentation | null;
   readonly catalog: Pick<
     WorkbenchSessionCatalog,
     "findById" | "prefetch" | "resolveScene" | "select"
@@ -95,7 +79,6 @@ export interface BrowserUsePresentationCoordinator {
 
 export function useBrowserUsePresentationCoordinator({
   activeSession,
-  projectScene = null,
   catalog,
   controller,
   createSessionViewTab,
@@ -247,149 +230,36 @@ export function useBrowserUsePresentationCoordinator({
     setActivePanelTab,
   ]);
 
-  const ensureProjectBrowserSurface = useCallback((
-    request: BrowserUsePresentationRequest,
-    activate: boolean,
-  ): WorkbenchSurfaceDescriptor | null => {
-    if (
-      !projectScene
-      || projectScene.browserConversationId !== request.browserConversationId
-    ) {
-      return null;
-    }
-    const existing = Object.values(projectScene.scene.panelSurfacesById).find(
-      (surface) => surface.kind === "browser"
-        && surface.config.browserTabId === request.browserTabId,
-    ) ?? null;
-    if (existing) {
-      if (!activate) return existing;
-      const panelId = (["right", "bottom"] as const).find((candidate) =>
-        findWorkbenchPanelLeafForTab(
-          projectScene.scene.panels[candidate].layout,
-          existing.id,
-        )
-      ) ?? null;
-      if (!panelId) return null;
-      const leaf = findWorkbenchPanelLeafForTab(
-        projectScene.scene.panels[panelId].layout,
-        existing.id,
-      );
-      if (!leaf) return null;
-      projectScene.commands.activateSurface(
-        projectScene.owner,
-        panelId,
-        leaf.id,
-        existing.id,
-      );
-      projectScene.commands.patchPanel(
-        projectScene.owner,
-        panelId,
-        { collapsed: false },
-      );
-      return existing;
-    }
-
-    const snapshot = runtime.state.tabs.find((tab) =>
-      matchesBrowserSidebarTabIdentity(tab, request)
-    ) ?? null;
-    const rootLeaf = findWorkbenchPanelLeafForTab(
-      projectScene.scene.panels.right.layout,
-      projectScene.scene.primary.id,
-    );
-    const createInput = buildBrowserUseWorkbenchTabCreateInput({
-      request,
-      sessionId: projectScene.browserConversationId,
-      snapshot,
-      targetLeafId:
-        rootLeaf?.id
-        ?? projectScene.scene.panels.right.layout.activeLeafId
-        ?? undefined,
-    });
-    const surface = workbenchSurfaceFromCreateInput(createInput);
-    const nextScene = projectScene.commands.createSurface(
-      projectScene.owner,
-      {
-        panelId: "right",
-        targetLeafId: createInput.targetLeafId,
-        surface,
-      },
-    );
-    if (!activate) return surface;
-    const leaf = findWorkbenchPanelLeafForTab(
-      nextScene.panels.right.layout,
-      surface.id,
-    );
-    if (!leaf) return null;
-    projectScene.commands.activateSurface(
-      projectScene.owner,
-      "right",
-      leaf.id,
-      surface.id,
-    );
-    projectScene.commands.patchPanel(
-      projectScene.owner,
-      "right",
-      { collapsed: false },
-    );
-    return surface;
-  }, [projectScene, runtime.state.tabs]);
-
-  const presentInProjectScene = useCallback(async (
-    request: BrowserUsePresentationRequest,
-  ) => {
-    if (!projectScene) return false;
-    if (projectScene.browserConversationId !== request.browserConversationId) {
-      return false;
-    }
-    if (!request.visible) {
-      const existing = Object.values(
-        projectScene.scene.panelSurfacesById,
-      ).find((surface) => surface.kind === "browser"
-        && surface.config.browserTabId === request.browserTabId) ?? null;
-      if (existing) {
-        const leaf = findWorkbenchPanelLeafForTab(
-          projectScene.scene.panels.right.layout,
-          existing.id,
-        );
-        const rootLeaf = findWorkbenchPanelLeafForTab(
-          projectScene.scene.panels.right.layout,
-          projectScene.scene.primary.id,
-        );
-        if (
-          leaf
-          && rootLeaf
-          && leaf.id === rootLeaf.id
-          && leaf.activeTabId === existing.id
-        ) {
-          projectScene.commands.activateSurface(
-            projectScene.owner,
-            "right",
-            leaf.id,
-            projectScene.scene.primary.id,
-          );
-        }
-      }
-      await respond(request, "accepted");
-      return true;
-    }
-    const presented = ensureProjectBrowserSurface(request, true);
-    if (!presented) {
-      await respond(request, "unavailable", "Browser tab could not be created");
-      return true;
-    }
-    await respond(request, "accepted");
-    return true;
-  }, [ensureProjectBrowserSurface, projectScene, respond]);
-
-  const prepareInactiveSession = useEffectEvent((
+  const updateInactiveSession = useEffectEvent((
     request: BrowserUsePresentationRequest,
     presentation: ReturnType<WorkbenchSessionCatalog["findById"]>,
   ) => {
-    if (!request.visible || !presentation) return;
+    if (!presentation) return;
     const existing = Object.values(presentation.scene.panelSurfacesById).find((tab) =>
       tab.kind === "browser"
       && tab.config.browserTabId === request.browserTabId
     ) ?? null;
+    if (!request.visible) {
+      if (!existing) return;
+      const panelId = (["right", "bottom"] as const).find((candidate) =>
+        findWorkbenchPanelLeafForTab(
+          presentation.scene.panels[candidate].layout,
+          existing.id,
+        )
+      ) ?? null;
+      if (!panelId) return;
+      const leaf = findWorkbenchPanelLeafForTab(
+        presentation.scene.panels[panelId].layout,
+        existing.id,
+      );
+      if (leaf?.activeTabId !== existing.id) return;
+      controller.durable.patchPanel(
+        presentation.domain,
+        panelId,
+        { collapsed: true },
+      );
+      return;
+    }
     if (existing) {
       const panelId = (["right", "bottom"] as const).find((candidate) =>
         findWorkbenchPanelLeafForTab(
@@ -449,24 +319,32 @@ export function useBrowserUsePresentationCoordinator({
     if (resolvingRequestsRef.current.has(request.requestId)) return;
     resolvingRequestsRef.current.add(request.requestId);
 
-    if (
-      !request.visible
-      && projectScene?.browserConversationId !== request.browserConversationId
-      && activeSession?.id !== request.browserConversationId
-    ) {
-      await respond(request, "accepted");
-      return;
-    }
-    if (await presentInProjectScene(request)) return;
     if (activeSession?.id === request.browserConversationId) {
       await presentInActiveSession(request);
       return;
     }
 
-    pendingRequestsRef.current.set(request.requestId, request);
     const known = catalog.findById(request.browserConversationId);
+    if (!request.visible) {
+      if (known) {
+        updateInactiveSession(request, known);
+        await respond(request, "accepted");
+        return;
+      }
+      const session = await catalog.prefetch(request.browserConversationId);
+      if (session) {
+        updateInactiveSession(request, {
+          domain: session,
+          scene: catalog.resolveScene(session),
+        });
+      }
+      await respond(request, "accepted");
+      return;
+    }
+
+    pendingRequestsRef.current.set(request.requestId, request);
     if (known) {
-      prepareInactiveSession(request, known);
+      updateInactiveSession(request, known);
       catalog.select(known);
       return;
     }
@@ -475,7 +353,7 @@ export function useBrowserUsePresentationCoordinator({
       await respond(request, "unavailable", "Owning Browser task is unavailable");
       return;
     }
-    prepareInactiveSession(request, {
+    updateInactiveSession(request, {
       domain: session,
       scene: catalog.resolveScene(session),
     });
@@ -500,16 +378,6 @@ export function useBrowserUsePresentationCoordinator({
 
   const removeClosedPage = useEffectEvent((event: BrowserUsePageClosedEvent) => {
     if (event.browserViewScopeId !== windowSessionId) return;
-    if (projectScene?.browserConversationId === event.browserConversationId) {
-      const surface = Object.values(projectScene.scene.panelSurfacesById).find(
-        (candidate) => candidate.kind === "browser"
-          && candidate.config.browserTabId === event.browserTabId,
-      );
-      if (surface) {
-        projectScene.commands.removeSurface(projectScene.owner, surface.id);
-      }
-      return;
-    }
     if (activeSession?.id === event.browserConversationId) {
       const tab = findWorkbenchBrowserTabByRuntimeId(
         activeSession.tabs,
@@ -541,22 +409,6 @@ export function useBrowserUsePresentationCoordinator({
     const snapshot = runtime.state.tabs.find((tab) =>
       matchesBrowserSidebarTabIdentity(tab, identity)
     ) ?? null;
-    if (projectScene?.browserConversationId === identity.browserConversationId) {
-      const runtimeTab = runtime.browserUseState.tabs.find((tab) =>
-        matchesBrowserSidebarTabIdentity(tab, identity)
-      ) ?? null;
-      if (!runtimeTab) return;
-      ensureProjectBrowserSurface({
-        ...identity,
-        requestId: `release:${identity.browserTabId}`,
-        codexSessionId: runtimeTab.codexSessionId,
-        projectId: projectScene.projectId,
-        visible: false,
-        transition: "default",
-        source: "browser-use",
-      }, false);
-      return;
-    }
     if (activeSession?.id === identity.browserConversationId) {
       if (
         findWorkbenchBrowserTabByRuntimeId(

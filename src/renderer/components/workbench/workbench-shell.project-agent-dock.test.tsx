@@ -152,7 +152,21 @@ describe("workbench session shell / Project Agent Dock", () => {
       projectId: "alpha",
       sessionId: "session:alpha:created",
       prompt: "Start from Project Agent Dock",
+      browserUsePresentationOrigin: {
+        browserConversationId: "session:alpha:created",
+        browserViewScopeId: "window-session:test",
+      },
     });
+    expect(invokeCalls).toContainEqual([
+      "browser-sidebar-command",
+      {
+        type: "capture-browser-use-route",
+        browserConversationId: "session:alpha:created",
+        browserViewScopeId: "window-session:test",
+        codexSessionId: "session:alpha:created",
+        projectId: "alpha",
+      },
+    ]);
     expect(screen.queryByTestId("project-database-surface") !== null).toBe(true);
     expect(screen.queryByTestId("session-thread-page")).toBe(null);
   });

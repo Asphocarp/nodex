@@ -419,7 +419,7 @@ export interface BrowserUseTabState extends BrowserSidebarTabIdentity {
   updatedAt: number;
 }
 
-/** Stable Browser presentation surface where an agent turn originates. */
+/** Stable Session presentation namespace that owns an agent turn's Browser output. */
 export interface BrowserUsePresentationOrigin {
   browserConversationId: string;
   browserViewScopeId: string;

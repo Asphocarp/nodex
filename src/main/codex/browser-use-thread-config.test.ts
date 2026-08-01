@@ -69,8 +69,10 @@ describe("BrowserUseThreadConfigBuilder", () => {
       startup_timeout_sec: 120,
       env: {
         BROWSER_USE_AVAILABLE_BACKENDS: "iab",
+        BROWSER_USE_DISABLE_AMBIENT_NETWORK: "1",
         CODEX_CLI_PATH: path.join(bundleRoot, "bin", "codex"),
         CODEX_HOME: path.resolve(runtimeStateHome),
+        NODE_REPL_DISABLE_ANALYTICS: "1",
         NODE_REPL_NODE_MODULE_DIRS: path.join(
           bundleRoot,
           "marketplace",
@@ -89,6 +91,12 @@ describe("BrowserUseThreadConfigBuilder", () => {
         ),
       },
     });
+    expect(config?.[
+      "shell_environment_policy.set.BROWSER_USE_DISABLE_AMBIENT_NETWORK"
+    ]).toBeUndefined();
+    expect(config?.[
+      "shell_environment_policy.set.NODE_REPL_DISABLE_ANALYTICS"
+    ]).toBeUndefined();
     expect(JSON.stringify(config)).not.toContain("NODE_REPL_TRUST_ALL_CODE");
     expect(JSON.stringify(config)).not.toContain("experimental_thread_config_endpoint");
   });

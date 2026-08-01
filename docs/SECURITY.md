@@ -248,6 +248,7 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
   required. New or colliding operations cannot use that exception.
 - Optional Sentry diagnostics are disabled by default, use `sendDefaultPii: false`, and scrub local paths, auth/cookie/token fields, prompt text, card descriptions, transcript content, SQL/query strings, and raw request bodies before upload. Session Replay is a separate off-by-default renderer opt-in that requires diagnostics to be enabled, masks all text and inputs, blocks media, and keeps screenshots and broad remote log shipping disabled.
 - Optional Statsig telemetry is disabled by default, sends no `userID` or account data, and relies on Statsig's anonymous Stable ID plus safe app/runtime metadata. Statsig web analytics is a separate off-by-default opt-in that disables console-log capture, copy-text capture, and current-page URL attachment, then filters AutoCapture to low-risk technical events such as web vitals, performance, and session start. Click, copy, form, dead-click, rage-click, error, and page-view AutoCapture events are blocked by default. Nodex does not enable Statsig Session Replay.
+- The bundled Browser automation runtime always starts with its own ambient analytics and diagnostics network disabled. Nodex's telemetry setting never enables that runtime traffic, while page navigation and agent browser control remain available.
 
 ## Current Gaps
 - No role-based access control model (single-user/local trust assumption).

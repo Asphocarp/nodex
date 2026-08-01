@@ -8,7 +8,7 @@ All notable changes to this project will be documented in this file.
 - Added Window Session-owned Project and Session Scenes with one fixed owner-root primary and shared right/bottom panel surfaces. Projects can open with zero chats, while Database, Page, Canvas, Files, Browser, Review, and Terminal surfaces no longer need a chat as their panel host.
 
 ### Changed
-- Replaced the automatically seeded `Database View` chat with Project Home: the Project's current Database is the protected root surface, and its footer Agent Dock can work with a new or existing task without navigating away.
+- Replaced the automatically seeded `Database View` chat with Project Home: the Project's current Database is the protected root surface, its footer Agent Dock can work with a new or existing task without navigating away, and Browser Use opens controlled pages in the task that owns them.
 - Window restore and new-window cloning now persist one owner-scoped Scene layout for both Projects and Sessions instead of parallel Project Session panel-view models.
 
 ### Fixed
