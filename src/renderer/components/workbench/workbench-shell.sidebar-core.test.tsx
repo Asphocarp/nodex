@@ -406,6 +406,10 @@ describe("workbench session shell / sidebar-core", () => {
     await settleAsyncRender();
 
     const nav = screen.getByRole("navigation", { name: "Automation folders" });
+    const scrollChrome = nav.parentElement;
+    if (!(scrollChrome instanceof HTMLElement)) {
+      throw new Error("Expected sidebar scroll chrome owner");
+    }
     const fixedHeader = nav.children.item(0);
     if (!(fixedHeader instanceof HTMLElement)) {
       throw new Error("Expected fixed sidebar header");
@@ -432,16 +436,36 @@ describe("workbench session shell / sidebar-core", () => {
     expect(scrollArea.firstElementChild === routeActions).toBe(true);
     expect(within(routeActions).getByRole("button", { name: "Scheduled" }) !== null).toBe(true);
     expect(within(routeActions).getByRole("button", { name: "Plugins" }) !== null).toBe(true);
+    expect(scrollArea.getAttribute("data-content-below")).toBe("false");
+    expect(scrollChrome.style.getPropertyValue("--sidebar-scroll-footer-edge-offset"))
+      .toBe("calc(var(--spacing) * 10)");
 
     const routeActionsText = textContent(routeActions);
     expect(routeActionsText.indexOf("Scheduled") < routeActionsText.indexOf("Plugins")).toBe(true);
 
+    Object.defineProperties(scrollArea, {
+      clientHeight: { configurable: true, value: 100 },
+      scrollHeight: { configurable: true, value: 220 },
+    });
+
     await act(async () => {
-      scrollArea.scrollTop = 12;
+      scrollArea.scrollTop = 0;
+      fireEvent.scroll(scrollArea);
+      await Promise.resolve();
+    });
+    expect(scrollArea.getAttribute("data-content-below")).toBe("true");
+    expect(scrollChrome.style.getPropertyValue("--sidebar-scroll-footer-edge-offset"))
+      .toBe("0px");
+
+    await act(async () => {
+      scrollArea.scrollTop = 120;
       fireEvent.scroll(scrollArea);
       await Promise.resolve();
     });
     expect(fixedHeader.getAttribute("data-scrolled-content-under-header")).toBe("true");
+    expect(scrollArea.getAttribute("data-content-below")).toBe("false");
+    expect(scrollChrome.style.getPropertyValue("--sidebar-scroll-footer-edge-offset"))
+      .toBe("calc(var(--spacing) * 10)");
   });
 
   test("renders the Codex sidebar navigation landmark", async () => {

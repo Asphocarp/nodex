@@ -1,4 +1,14 @@
-import type { CSSProperties, KeyboardEvent, MouseEvent, PointerEvent, ReactNode } from "react";
+import {
+  useCallback,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+  type MouseEvent,
+  type PointerEvent,
+  type ReactNode,
+} from "react";
 import { CodexNewChatIcon, CodexSettingsSearchIcon, CodexTitlebarNewChatIcon } from "@/components/shared/icons";
 import { NodexTooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -10,9 +20,25 @@ export const SIDEBAR_SCROLL_AREA_CLASS = "sidebar-scroll-fade-mask relative isol
 
 const SIDEBAR_HEADER_SEARCH_BUTTON_CLASS = "border-token-border no-drag cursor-interaction ml-auto flex items-center justify-center gap-1 whitespace-nowrap rounded-md border border-transparent p-1 text-token-foreground select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background";
 
-export function getSidebarScrollChromeStyle(scrolledContentUnderHeader: boolean): CSSProperties {
+interface SidebarScrollChromeState {
+  scrolledContentUnderHeader: boolean;
+  hasContentBelow: boolean;
+}
+
+const INITIAL_SIDEBAR_SCROLL_CHROME_STATE: SidebarScrollChromeState = {
+  scrolledContentUnderHeader: false,
+  hasContentBelow: false,
+};
+
+function getSidebarScrollChromeStyle({
+  scrolledContentUnderHeader,
+  hasContentBelow,
+}: SidebarScrollChromeState): CSSProperties {
   return {
     "--sidebar-footer-height": "0px",
+    "--sidebar-scroll-footer-edge-offset": hasContentBelow
+      ? "0px"
+      : "calc(var(--spacing) * 10)",
     "--sidebar-scroll-content-top-padding": "1px",
     "--sidebar-scroll-header-fade-distance": scrolledContentUnderHeader
       ? "calc(var(--spacing) * 4)"
@@ -20,6 +46,53 @@ export function getSidebarScrollChromeStyle(scrolledContentUnderHeader: boolean)
     "--sidebar-scroll-header-fade-start": scrolledContentUnderHeader ? "var(--spacing)" : "0px",
     "--sidebar-scroll-header-spacing": scrolledContentUnderHeader ? "var(--spacing)" : "1px",
   } as CSSProperties;
+}
+
+export function useSidebarScrollChrome() {
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const [state, setState] = useState(INITIAL_SIDEBAR_SCROLL_CHROME_STATE);
+
+  const syncScrollChrome = useCallback(() => {
+    const scrollArea = scrollAreaRef.current;
+    if (!scrollArea) return;
+
+    const nextState = {
+      scrolledContentUnderHeader: scrollArea.scrollTop > 0,
+      hasContentBelow:
+        scrollArea.scrollHeight - scrollArea.clientHeight - scrollArea.scrollTop > 1,
+    };
+    setState((currentState) => (
+      currentState.scrolledContentUnderHeader === nextState.scrolledContentUnderHeader
+      && currentState.hasContentBelow === nextState.hasContentBelow
+        ? currentState
+        : nextState
+    ));
+  }, []);
+
+  useLayoutEffect(() => {
+    const scrollArea = scrollAreaRef.current;
+    if (!scrollArea) return undefined;
+
+    syncScrollChrome();
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", syncScrollChrome);
+      return () => window.removeEventListener("resize", syncScrollChrome);
+    }
+
+    const resizeObserver = new ResizeObserver(syncScrollChrome);
+    resizeObserver.observe(scrollArea);
+    Array.from(scrollArea.children).forEach((child) => resizeObserver.observe(child));
+    return () => resizeObserver.disconnect();
+  }, [syncScrollChrome]);
+
+  return {
+    scrollAreaRef,
+    scrollChromeStyle: getSidebarScrollChromeStyle(state),
+    scrolledContentUnderHeader: state.scrolledContentUnderHeader,
+    hasContentBelow: state.hasContentBelow,
+    syncScrollChrome,
+  };
 }
 
 export function SidebarExpandedHeader({

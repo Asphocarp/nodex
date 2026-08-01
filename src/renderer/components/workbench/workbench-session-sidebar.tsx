@@ -34,7 +34,7 @@ import { SidebarLibrarySection } from "./sidebar-library-section";
 import {
   SIDEBAR_SCROLL_AREA_CLASS,
   SidebarExpandedHeader,
-  getSidebarScrollChromeStyle,
+  useSidebarScrollChrome,
 } from "./sidebar-new-chat-controls";
 import {
   SidebarProjectSortableContext,
@@ -1859,7 +1859,7 @@ export function ProjectSessionSidebar({
   const { mutation: libraryMutation } = useApplyLibraryOperation(
     libraryWorkspaceEnabled,
   );
-  const [scrolledContentUnderHeader, setScrolledContentUnderHeader] = useState(false);
+  const sidebarScrollChrome = useSidebarScrollChrome();
   const sidebarResizeDisabled = resizeDisabled;
   const sidebarResizeSurface: SidebarResizeSurface = floating ? "floating" : "inline";
   const setSidebarResizeActive = (active: boolean) => {
@@ -2078,7 +2078,7 @@ export function ProjectSessionSidebar({
       >
         <div
           className="flex h-full min-h-0 flex-col overflow-hidden [--height-token-nav-row:30px] [--padding-row-cell-x:8px] [--padding-row-x:8px] [--radius-token-row:10px]"
-          style={getSidebarScrollChromeStyle(scrolledContentUnderHeader)}
+          style={sidebarScrollChrome.scrollChromeStyle}
         >
           <nav
             className="sidebar-foreground-muted flex min-h-0 flex-1 flex-col"
@@ -2089,17 +2089,17 @@ export function ProjectSessionSidebar({
               productName="Nodex"
               searchShortcutLabel={resolveCodexPageSearchShortcutLabel()}
               newChatShortcutLabel={resolveCodexNewChatShortcutLabel()}
-              scrolledContentUnderHeader={scrolledContentUnderHeader}
+              scrolledContentUnderHeader={sidebarScrollChrome.scrolledContentUnderHeader}
               onSearch={onOpenCommandPalette}
               onNewChat={() => void onStartNewChatInProject(activeProjectId)}
             />
 
             <div
+              ref={sidebarScrollChrome.scrollAreaRef}
               data-app-action-sidebar-scroll=""
+              data-content-below={sidebarScrollChrome.hasContentBelow ? "true" : "false"}
               className={SIDEBAR_SCROLL_AREA_CLASS}
-              onScroll={(event) => {
-                setScrolledContentUnderHeader(event.currentTarget.scrollTop > 0);
-              }}
+              onScroll={sidebarScrollChrome.syncScrollChrome}
             >
               <div className="flex shrink-0 flex-col gap-2" data-app-action-sidebar-scroll-top-actions="">
                 <div className="shrink-0 px-row-x">
