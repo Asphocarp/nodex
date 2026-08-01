@@ -138,7 +138,6 @@ All notable changes to this project will be documented in this file.
 - Removed snapshot-based Kanban/editor body drops and whole-Page conflict overwrite recovery; Block movement now requires the stable-ID Document mutation boundary.
 
 ### Fixed
-- Fixed the desktop app hanging during quit while its detached Rust Core remained active; Electron now releases Core startup pipes after authority selection and can exit independently as designed.
 - Fixed edited Pages intermittently failing to reopen during idle history finalization, restart, or compaction when equivalent Yjs state produced different full-state bytes; Store v98 now validates stable replay and materialization evidence and retires non-canonical reconstruction fingerprints.
 - Fixed Codex Thread ownership so cwd is used only for first materialization; later sidebar and app-server reconciliation preserves the durable Project or projectless owner unless an explicit move is requested.
 - Fixed large Profiles failing to open once sidebar, Thread, or Database JSON crossed a client-only 512 KiB ceiling: Core transport budgets now agree, growing read models load through compact resumable windows, and Page bodies stay on explicit detail/Document paths. Board columns load and page independently with true per-column totals and an in-column `Show more`, and paging keeps working while edits or background sync change the data instead of failing with a collection-changed error.

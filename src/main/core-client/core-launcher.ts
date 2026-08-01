@@ -330,10 +330,6 @@ export async function connectOrStartCore(
     startupTimeoutMs,
     input.onStartupEvent,
   );
-  const stdout = child.stdout as (NonNullable<typeof child.stdout> & {
-    unref?: () => void;
-  }) | null;
-  stdout?.unref?.();
   const selectionMs = performance.now() - selectionStartedAt;
   if (selection.descriptor.artifact.sha256 !== expectedArtifactDigest) {
     throw new Error("Selected Core artifact does not match the launched candidate");

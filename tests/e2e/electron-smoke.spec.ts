@@ -121,7 +121,7 @@ async function launchLargeContentFixtureApplication(): Promise<ElectronApplicati
 function forceStopApplicationProcess(
   child: ReturnType<ElectronApplication["process"]>,
 ): void {
-  if (child.exitCode !== null || child.pid === undefined) return;
+  if (child.pid === undefined) return;
 
   try {
     if (process.platform === "win32") {
@@ -130,21 +130,33 @@ function forceStopApplicationProcess(
     }
     process.kill(-child.pid, "SIGKILL");
   } catch {
-    // The application may have completed its graceful exit concurrently.
+    try {
+      child.kill("SIGKILL");
+    } catch {
+      // The application may have completed its exit concurrently.
+    }
   }
 }
 
 async function stopApplication(application: ElectronApplication): Promise<void> {
   const child = application.process();
-  const forceExitTimer = setTimeout(() => {
-    forceStopApplicationProcess(child);
-  }, 15_000);
+  let closeTimer: ReturnType<typeof setTimeout> | undefined;
+  const close = application.close().catch(() => undefined);
 
   try {
-    await application.close();
-  } finally {
-    clearTimeout(forceExitTimer);
+    await Promise.race([
+      close,
+      new Promise<never>((_, reject) => {
+        closeTimer = setTimeout(
+          () => reject(new Error("Electron close exceeded its teardown deadline")),
+          15_000,
+        );
+      }),
+    ]);
+  } catch {
     forceStopApplicationProcess(child);
+  } finally {
+    clearTimeout(closeTimer);
   }
 }
 
