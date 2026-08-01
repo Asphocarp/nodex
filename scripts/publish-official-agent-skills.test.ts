@@ -7,7 +7,11 @@ import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 
 import { inspectOfficialAgentSkillsArtifact } from "./official-agent-skills-artifact.mjs";
-import { publishOfficialAgentSkills } from "./publish-official-agent-skills";
+import {
+  githubGitAuthorizationConfiguration,
+  publishOfficialAgentSkills,
+  resolveGithubToken,
+} from "./publish-official-agent-skills";
 
 const temporaryRoots: string[] = [];
 const sourceRepository = "NodexApp/nodex";
@@ -145,6 +149,25 @@ afterEach(() => {
 });
 
 describe("official Agent Skills publisher", () => {
+  test("uses GitHub-scoped password authentication without embedding the token", () => {
+    const secret = "github_pat_secret-sentinel";
+    const authorization = githubGitAuthorizationConfiguration(secret);
+    const encodedCredentials = authorization.value.slice("AUTHORIZATION: basic ".length);
+
+    expect(authorization.key).toBe("http.https://github.com/.extraheader");
+    expect(authorization.value).not.toContain(secret);
+    expect(Buffer.from(encodedCredentials, "base64").toString("utf8")).toBe(
+      `x-access-token:${secret}`,
+    );
+  });
+
+  test("falls back to the GitHub CLI token when the legacy token is blank", () => {
+    expect(resolveGithubToken(" \n", " github-cli-token ")).toBe("github-cli-token");
+    expect(resolveGithubToken(" legacy-token ", "github-cli-token")).toBe(
+      "legacy-token",
+    );
+  });
+
   test("publishes managed paths atomically and preserves mirror automation", () => {
     const root = makeRoot();
     const remote = makeRemote(root);

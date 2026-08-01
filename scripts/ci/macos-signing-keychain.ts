@@ -152,20 +152,20 @@ const prepare = (): void => {
   const keychainPassword = randomBytes(32).toString("hex");
 
   cleanupPaths(paths);
-  writeFileSync(
-    paths.apiKey,
-    decodeBase64Secret(requiredEnvironmentValue("APPLE_API_KEY_B64"), "APPLE_API_KEY_B64"),
-    { mode: 0o600 },
-  );
-  writeFileSync(
-    paths.certificate,
-    decodeBase64Secret(requiredEnvironmentValue("CSC_LINK"), "CSC_LINK"),
-    { mode: 0o600 },
-  );
-  chmodSync(paths.apiKey, 0o600);
-  chmodSync(paths.certificate, 0o600);
-
   try {
+    writeFileSync(
+      paths.apiKey,
+      decodeBase64Secret(requiredEnvironmentValue("APPLE_API_KEY_B64"), "APPLE_API_KEY_B64"),
+      { mode: 0o600 },
+    );
+    writeFileSync(
+      paths.certificate,
+      decodeBase64Secret(requiredEnvironmentValue("CSC_LINK"), "CSC_LINK"),
+      { mode: 0o600 },
+    );
+    chmodSync(paths.apiKey, 0o600);
+    chmodSync(paths.certificate, 0o600);
+
     configureMacosSigningKeychain(
       { certificatePassword, keychainPassword, paths },
       {
@@ -174,17 +174,17 @@ const prepare = (): void => {
           execFileSync("/usr/bin/security", [...command], { stdio: "inherit" }),
       },
     );
+
+    appendJobEnvironment(environmentFile, {
+      APPLE_API_KEY: paths.apiKey,
+      CSC_IDENTITY_AUTO_DISCOVERY: "true",
+      NODEX_SIGNING_CERTIFICATE: paths.certificate,
+      NODEX_SIGNING_KEYCHAIN: paths.keychain,
+    });
   } catch (error) {
     cleanupPaths(paths);
     throw error;
   }
-
-  appendJobEnvironment(environmentFile, {
-    APPLE_API_KEY: paths.apiKey,
-    CSC_IDENTITY_AUTO_DISCOVERY: "true",
-    NODEX_SIGNING_CERTIFICATE: paths.certificate,
-    NODEX_SIGNING_KEYCHAIN: paths.keychain,
-  });
 };
 
 const main = (): void => {

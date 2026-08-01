@@ -30,6 +30,36 @@ type BrowserRuntimeProbeReport = {
   targetPlatform: string;
 };
 
+interface BrowserRuntimeCleanupDependencies {
+  readonly closeNativePipeServer: () => Promise<void>;
+  readonly removeStateHome: () => void;
+  readonly stopClient: () => Promise<void>;
+}
+
+export async function cleanupBrowserRuntime(
+  dependencies: BrowserRuntimeCleanupDependencies,
+): Promise<void> {
+  let firstError: unknown;
+  let hasError = false;
+  const operations = [
+    dependencies.stopClient,
+    dependencies.closeNativePipeServer,
+    dependencies.removeStateHome,
+  ];
+
+  for (const operation of operations) {
+    try {
+      await operation();
+    } catch (error) {
+      if (hasError) continue;
+      firstError = error;
+      hasError = true;
+    }
+  }
+
+  if (hasError) throw firstError;
+}
+
 function textFromToolResponse(response: McpServerToolCallResponse): string {
   return response.content.flatMap((entry) => {
     if (
@@ -261,9 +291,16 @@ export async function probeBrowserRuntime(projectRoot: string): Promise<BrowserR
       targetPlatform: bundle.manifest.targetPlatform,
     };
   } finally {
-    await client.stop();
-    await nativePipeServer.close();
-    fs.rmSync(stateHome, { force: true, recursive: true });
+    await cleanupBrowserRuntime({
+      closeNativePipeServer: () => nativePipeServer.close(),
+      removeStateHome: () => fs.rmSync(stateHome, {
+        force: true,
+        maxRetries: 10,
+        recursive: true,
+        retryDelay: 100,
+      }),
+      stopClient: () => client.stop(),
+    });
   }
 }
 

@@ -42,6 +42,8 @@ smoke once against the extracted notarized ZIP App, including launch and the
 symlinked CLI/Core/ripgrep workflow. The mounted DMG receives structural,
 signature, notarization, and provenance verification only; matching sealed
 provenance proves it contains the same App without repeating stateful smoke.
+Runtime-probe teardown uses bounded filesystem retries because a stopped macOS
+Browser helper can briefly race recursive removal of its temporary Profile.
 
 ## Release Identity
 
@@ -100,12 +102,22 @@ reusable workflows. Record PAT expiry dates in release operations and rotate
 them before expiry. Remove duplicate credentials from the legacy `release`
 environment after rehearsal succeeds.
 
+The official Skills publisher authenticates Git through a GitHub-scoped Basic
+extra header and keeps credentials out of remote URLs. Promotion additionally
+configures `gh auth setup-git` as a workflow-owned recovery seam, so an
+immutable older release source can still be republished without changing its
+tag or checkout. Homebrew promotion registers `junyudev/tap` with `brew tap`
+before style, audit, commit, and smoke-install; a plain clone outside Homebrew's
+tap root is not a valid audit target.
+
 Distribution imports the Developer ID certificate into a per-job local
 keychain using a random keychain password, grants non-interactive Apple tool
 access with that keychain password, masks the generated password before any
 security command can log it, and removes both the keychain and decoded
-credentials in an `always()` cleanup step. Command failures report only the
-failed Security.framework operation, never its arguments. Electron Builder
+credentials in an `always()` cleanup step. Partial credential-file or job
+environment setup failures use the same immediate cleanup boundary as
+keychain failures. Command failures report only the failed Security.framework
+operation, never its arguments. Electron Builder
 discovers the installed identity but does not own credential import or
 temporary-keychain creation.
 
@@ -254,7 +266,8 @@ idempotent:
 - matching tag: reuse only when it resolves to the exact source SHA;
 - matching draft: verify every existing asset digest, upload only missing
   assets, then publish;
-- matching published release: verify it, then retry Homebrew;
+- matching published release: verify it, then retry the independently
+  idempotent Agent Skills, Homebrew, and landing promotion jobs;
 - matching Agent Skills tag and tree: reuse it; a conflicting tree or version
   rollback stops without moving the tag;
 - conflicting tag or asset digest: stop without mutation.
