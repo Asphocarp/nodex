@@ -239,7 +239,9 @@ A valid version transition runs this sequence:
    manifest/tree hashes to match the Release Bundle, and atomically publish the
    same version to `NodexApp/skills` with an annotated tag.
 9. Generate the Homebrew cask from the same bundle, audit it, push it, and
-   smoke-install the published app.
+   smoke-install the published app. The generated DSL follows Homebrew's
+   canonical stanza grouping and order and expresses the Monterey minimum as
+   `depends_on macos: :monterey`.
 10. Deploy the landing site from the same source SHA after release verification,
    so its version and Changelog never lead the published downloads.
 

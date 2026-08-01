@@ -36,7 +36,6 @@ cask "nodex" do
     url "${releaseBase}/Nodex-latest-arm64.dmg",
         verified: "github.com/${owner}/${repo}/"
   end
-
   on_intel do
     sha256 "${x64}"
 
@@ -53,8 +52,8 @@ cask "nodex" do
     strategy :github_latest
   end
 
-  depends_on macos: ">= :monterey"
   auto_updates true
+  depends_on macos: :monterey
 
   app "Nodex.app"
   binary "#{appdir}/Nodex.app/Contents/Resources/bin/nodex", target: "nodex"
