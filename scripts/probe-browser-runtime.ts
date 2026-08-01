@@ -263,7 +263,12 @@ export async function probeBrowserRuntime(projectRoot: string): Promise<BrowserR
   } finally {
     await client.stop();
     await nativePipeServer.close();
-    fs.rmSync(stateHome, { force: true, recursive: true });
+    fs.rmSync(stateHome, {
+      force: true,
+      maxRetries: 10,
+      recursive: true,
+      retryDelay: 100,
+    });
   }
 }
 

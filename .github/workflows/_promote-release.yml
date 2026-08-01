@@ -128,14 +128,18 @@ jobs:
 
       - name: Publish the verified NodexApp/skills release
         env:
-          NODEX_SKILLS_GITHUB_TOKEN: ${{ secrets.skills_github_token }}
+          GH_TOKEN: ${{ secrets.skills_github_token }}
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "${NODEX_SKILLS_GITHUB_TOKEN}" ]]; then
+          if [[ -z "${GH_TOKEN}" ]]; then
             echo "Missing NODEX_SKILLS_GITHUB_TOKEN." >&2
             exit 1
           fi
+          # Recovery checks out the immutable release source, whose publisher may
+          # predate the current authentication implementation. Keep the GitHub
+          # credential helper as the stable workflow-owned compatibility seam.
+          gh auth setup-git
           bundle="${RUNNER_TEMP}/release-bundle/release-bundle.json"
           manifest_sha="$(node -p "require('${bundle}').agentSkills.manifestSha256")"
           tree_sha="$(node -p "require('${bundle}').agentSkills.treeSha256")"
@@ -172,6 +176,7 @@ jobs:
       - name: Generate and publish cask
         env:
           GH_TOKEN: ${{ secrets.homebrew_github_token }}
+          HOMEBREW_TAP: junyudev/tap
           HOMEBREW_TAP_REPO: junyudev/homebrew-tap
         shell: bash
         run: |
@@ -181,12 +186,12 @@ jobs:
             exit 1
           fi
           generated="${RUNNER_TEMP}/nodex.rb"
-          tap="${RUNNER_TEMP}/homebrew-tap"
           pnpm release:cask -- \
             --bundle "${RUNNER_TEMP}/release-bundle/release-bundle.json" \
             --output "${generated}"
           gh auth setup-git
-          git clone "https://github.com/${HOMEBREW_TAP_REPO}.git" "${tap}"
+          brew tap "${HOMEBREW_TAP}" "https://github.com/${HOMEBREW_TAP_REPO}.git"
+          tap="$(brew --repository "${HOMEBREW_TAP}")"
           current="${tap}/Casks/nodex.rb"
           if [[ -f "${current}" ]] && cmp -s "${generated}" "${current}"; then
             echo "Homebrew tap already contains Nodex ${{ inputs.version }}."
@@ -212,7 +217,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          brew install --cask --force "${RUNNER_TEMP}/homebrew-tap/Casks/nodex.rb"
+          brew install --cask --force junyudev/tap/nodex
           actual="$(/Applications/Nodex.app/Contents/Resources/bin/nodex --version)"
           if [[ "${actual}" != "nodex ${{ inputs.version }}" ]]; then
             echo "Installed CLI reported ${actual}." >&2

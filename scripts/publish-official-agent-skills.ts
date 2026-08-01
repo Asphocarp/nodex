@@ -54,24 +54,42 @@ interface GitResult {
   readonly stdout: string;
 }
 
-const redact = (value: string, secret: string | undefined): string =>
-  secret ? value.replaceAll(secret, "[REDACTED]") : value;
+const redact = (value: string, secret: string | undefined): string => {
+  if (!secret) return value;
+  const encodedCredentials = Buffer.from(`x-access-token:${secret}`).toString("base64");
+  return value
+    .replaceAll(secret, "[REDACTED]")
+    .replaceAll(encodedCredentials, "[REDACTED]");
+};
 
-const gitEnvironment = (token: string | undefined): NodeJS.ProcessEnv => ({
-  ...process.env,
-  GIT_AUTHOR_EMAIL: "release@nodex.app",
-  GIT_AUTHOR_NAME: "Nodex Release Bot",
-  GIT_COMMITTER_EMAIL: "release@nodex.app",
-  GIT_COMMITTER_NAME: "Nodex Release Bot",
-  GIT_CONFIG_COUNT: token ? "1" : "0",
-  ...(token
-    ? {
-        GIT_CONFIG_KEY_0: "http.extraHeader",
-        GIT_CONFIG_VALUE_0: `Authorization: Bearer ${token}`,
-      }
-    : {}),
-  GIT_TERMINAL_PROMPT: "0",
+export const githubGitAuthorizationConfiguration = (token: string): {
+  readonly key: string;
+  readonly value: string;
+} => ({
+  key: "http.https://github.com/.extraheader",
+  value: `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`,
 });
+
+const gitEnvironment = (token: string | undefined): NodeJS.ProcessEnv => {
+  const authorization = token
+    ? githubGitAuthorizationConfiguration(token)
+    : null;
+  return {
+    ...process.env,
+    GIT_AUTHOR_EMAIL: "release@nodex.app",
+    GIT_AUTHOR_NAME: "Nodex Release Bot",
+    GIT_COMMITTER_EMAIL: "release@nodex.app",
+    GIT_COMMITTER_NAME: "Nodex Release Bot",
+    GIT_CONFIG_COUNT: authorization ? "1" : "0",
+    ...(authorization
+      ? {
+          GIT_CONFIG_KEY_0: authorization.key,
+          GIT_CONFIG_VALUE_0: authorization.value,
+        }
+      : {}),
+    GIT_TERMINAL_PROMPT: "0",
+  };
+};
 
 const git = (
   cwd: string,
@@ -425,7 +443,7 @@ const main = (): void => {
     expectedTreeSha256: requiredOption(arguments_, "--tree-sha256"),
     expectedVersion: requiredOption(arguments_, "--version"),
     remoteUrl: readOption(arguments_, "--remote") ?? undefined,
-    token: process.env.NODEX_SKILLS_GITHUB_TOKEN,
+    token: process.env.NODEX_SKILLS_GITHUB_TOKEN ?? process.env.GH_TOKEN,
   });
   process.stdout.write(`${JSON.stringify(result)}\n`);
 };

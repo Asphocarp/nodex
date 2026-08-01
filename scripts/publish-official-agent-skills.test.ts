@@ -7,7 +7,10 @@ import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 
 import { inspectOfficialAgentSkillsArtifact } from "./official-agent-skills-artifact.mjs";
-import { publishOfficialAgentSkills } from "./publish-official-agent-skills";
+import {
+  githubGitAuthorizationConfiguration,
+  publishOfficialAgentSkills,
+} from "./publish-official-agent-skills";
 
 const temporaryRoots: string[] = [];
 const sourceRepository = "NodexApp/nodex";
@@ -145,6 +148,18 @@ afterEach(() => {
 });
 
 describe("official Agent Skills publisher", () => {
+  test("uses GitHub-scoped password authentication without embedding the token", () => {
+    const secret = "github_pat_secret-sentinel";
+    const authorization = githubGitAuthorizationConfiguration(secret);
+    const encodedCredentials = authorization.value.slice("AUTHORIZATION: basic ".length);
+
+    expect(authorization.key).toBe("http.https://github.com/.extraheader");
+    expect(authorization.value).not.toContain(secret);
+    expect(Buffer.from(encodedCredentials, "base64").toString("utf8")).toBe(
+      `x-access-token:${secret}`,
+    );
+  });
+
   test("publishes managed paths atomically and preserves mirror automation", () => {
     const root = makeRoot();
     const remote = makeRemote(root);
