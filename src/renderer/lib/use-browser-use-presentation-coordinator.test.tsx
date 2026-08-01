@@ -645,6 +645,7 @@ describe("useBrowserUsePresentationCoordinator", () => {
     expect(createSessionViewTab).toHaveBeenCalledWith(
       expect.objectContaining({
         browserTabId: "browser-use:lifecycle",
+        presentation: "background",
         title: "Example Domain",
       }),
     );
@@ -659,6 +660,56 @@ describe("useBrowserUsePresentationCoordinator", () => {
     expect(removeTab).toHaveBeenCalledWith(
       expect.objectContaining({ id: "session-1" }),
       "tab-browser",
+    );
+  });
+
+  test("retains a released page in an inactive Session without foreground presentation", async () => {
+    const target = makeSession();
+    const createTab = vi.fn();
+    renderHook(() => useBrowserUsePresentationCoordinator({
+      activeSession: null,
+      catalog: {
+        findById: () => ({
+          domain: target,
+          scene: sceneForSession(target),
+        }),
+        prefetch: async () => null,
+        resolveScene: () => {
+          throw new Error("not used");
+        },
+        select: () => undefined,
+      },
+      controller: {
+        previewTabsByPanel: {},
+        durable: {
+          createTab,
+          removeTab: vi.fn(),
+        },
+      } as never,
+      createSessionViewTab: vi.fn(),
+      pinPreviewTab: async () => undefined,
+      setActivePanelCollapsed: async () => null,
+      setActivePanelTab: async () => undefined,
+      windowSessionId: "window-1",
+    }));
+
+    await act(async () => {
+      mocks.listeners.get(
+        "browser-sidebar-browser-use-page-released",
+      )?.({
+        browserConversationId: target.id,
+        browserViewScopeId: "window-1",
+        browserTabId: "browser-use:inactive-release",
+      });
+      await Promise.resolve();
+    });
+
+    expect(createTab).toHaveBeenCalledWith(
+      target,
+      expect.objectContaining({
+        panelId: "right",
+        presentation: "background",
+      }),
     );
   });
 });

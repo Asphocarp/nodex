@@ -418,20 +418,23 @@ export function useBrowserUsePresentationCoordinator({
       ) {
         return;
       }
-      createSessionViewTab(buildBrowserUseWorkbenchTabCreateInput({
-        request: {
-          ...identity,
-          requestId: `release:${identity.browserTabId}`,
-          codexSessionId:
-            activeSession.thread?.threadId ?? activeSession.id,
-          projectId: activeSession.projectId,
-          visible: false,
-          transition: "default",
-          source: "browser-use",
-        },
-        sessionId: activeSession.id,
-        snapshot,
-      }));
+      createSessionViewTab({
+        ...buildBrowserUseWorkbenchTabCreateInput({
+          request: {
+            ...identity,
+            requestId: `release:${identity.browserTabId}`,
+            codexSessionId:
+              activeSession.thread?.threadId ?? activeSession.id,
+            projectId: activeSession.projectId,
+            visible: false,
+            transition: "default",
+            source: "browser-use",
+          },
+          sessionId: activeSession.id,
+          snapshot,
+        }),
+        presentation: "background",
+      });
       return;
     }
 
@@ -459,6 +462,7 @@ export function useBrowserUsePresentationCoordinator({
     });
     controller.durable.createTab(presentation.domain, {
       panelId: "right",
+      presentation: "background",
       targetLeafId: createInput.targetLeafId,
       tab: workbenchSurfaceFromCreateInput(createInput),
     });

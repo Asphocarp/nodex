@@ -154,6 +154,7 @@ export interface WorkbenchDurablePanelCommands {
     session: ProjectSession,
     input: {
       readonly panelId: PanelId;
+      readonly presentation?: Parameters<typeof createWorkbenchSceneSurface>[1]["presentation"];
       readonly targetLeafId?: string;
       readonly tab: WorkbenchSurfaceDescriptor;
     },
@@ -292,6 +293,7 @@ export function useWorkbenchPanelController({
         sessionSceneOwner(session),
         (scene) => createWorkbenchSceneSurface(scene, {
           panelId: input.panelId,
+          presentation: input.presentation,
           targetLeafId: input.targetLeafId,
           surface: input.tab,
         }),

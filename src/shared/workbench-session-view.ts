@@ -3,6 +3,7 @@ import {
   findWorkbenchPanelLeaf,
   findWorkbenchPanelLeafForTab,
   flattenWorkbenchPanelTabIds,
+  insertWorkbenchPanelTabInBackground,
   insertWorkbenchPanelLeaf,
   listWorkbenchPanelLeaves,
   makeWorkbenchPanelLayout,
@@ -139,9 +140,12 @@ export interface WorkbenchSessionViewIdentityFactory {
 
 export interface WorkbenchSessionViewTabCreateInput {
   panelId: WorkbenchPanelId;
+  presentation?: WorkbenchSurfacePresentation;
   targetLeafId?: string;
   tab: WorkbenchSessionViewTab;
 }
+
+export type WorkbenchSurfacePresentation = "activate" | "background";
 
 export interface WorkbenchSessionViewTabRemoveOptions {
   preserveEmptyLeafIds?: string[];
@@ -426,10 +430,16 @@ export function createWorkbenchSessionViewTab(
   if (Object.keys(view.tabsById).length >= WORKBENCH_SESSION_VIEW_MAX_TABS) return view;
 
   const panel = view.panels[input.panelId];
-  const layout = moveWorkbenchPanelTab(panel.layout, {
-    tabId: input.tab.id,
-    targetLeafId: input.targetLeafId,
-  });
+  const presentation = input.presentation ?? "activate";
+  const layout = presentation === "background"
+    ? insertWorkbenchPanelTabInBackground(panel.layout, {
+        tabId: input.tab.id,
+        targetLeafId: input.targetLeafId,
+      })
+    : moveWorkbenchPanelTab(panel.layout, {
+        tabId: input.tab.id,
+        targetLeafId: input.targetLeafId,
+      });
   return normalizeWorkbenchSessionView(touch({
     ...view,
     tabsById: {
@@ -440,11 +450,13 @@ export function createWorkbenchSessionViewTab(
       ...view.panels,
       [input.panelId]: {
         ...panel,
-        collapsed: false,
+        collapsed: presentation === "background" ? panel.collapsed : false,
         layout,
       },
     },
-    lastFocusedPanelId: input.panelId,
+    lastFocusedPanelId: presentation === "background"
+      ? view.lastFocusedPanelId
+      : input.panelId,
   }));
 }
 

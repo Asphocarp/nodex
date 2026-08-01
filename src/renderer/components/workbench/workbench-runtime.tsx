@@ -1100,6 +1100,7 @@ export function WorkbenchRuntime({
       activeSession,
       {
         panelId: input.panelId,
+        presentation: input.presentation,
         targetLeafId: input.targetLeafId,
         tab,
       },

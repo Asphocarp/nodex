@@ -23,6 +23,7 @@ import {
   type WorkbenchSessionViewIdentityFactory,
   type WorkbenchSessionViewSnapshot,
   type WorkbenchSessionViewTab,
+  type WorkbenchSurfacePresentation,
 } from "./workbench-session-view";
 import {
   activateWorkbenchPanelLeaf,
@@ -204,6 +205,7 @@ export interface WorkbenchSceneIdentityFactory {
 
 export interface WorkbenchSceneSurfaceCreateInput {
   readonly panelId: WorkbenchPanelId;
+  readonly presentation?: WorkbenchSurfacePresentation;
   readonly targetLeafId?: string;
   readonly surface: WorkbenchSurfaceDescriptor;
 }
@@ -726,6 +728,7 @@ export function createWorkbenchSceneSurface(
   }
   const view = createWorkbenchSessionViewTab(toLegacyPanelView(scene), {
     panelId: input.panelId,
+    presentation: input.presentation,
     targetLeafId: input.targetLeafId,
     tab: input.surface as WorkbenchSessionViewTab,
   });

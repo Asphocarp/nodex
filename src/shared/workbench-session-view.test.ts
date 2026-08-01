@@ -6,6 +6,7 @@ import {
   cloneWorkbenchLayoutForNewWindow,
   createWorkbenchSessionViewTab,
   materializeInitialWorkbenchSessionView,
+  maximizeWorkbenchSessionViewLeaf,
   moveWorkbenchSessionViewTab,
   normalizeWorkbenchSessionView,
   removeWorkbenchSessionViewTab,
@@ -244,6 +245,48 @@ describe("WorkbenchSessionView", () => {
     expect(JSON.stringify(view.panels.bottom.layout)).toContain("page-1");
     expect(view.tabsById[dbTabId]).toBeUndefined();
     expect(WorkbenchSessionViewSnapshotSchema.parse(view)).toEqual(view);
+  });
+
+  test("creates a background tab without opening or focusing its panel", () => {
+    let view = materializedView();
+    const existingRightTabId = Object.keys(view.tabsById)[0]!;
+    view = maximizeWorkbenchSessionViewLeaf(view, {
+      panelId: "right",
+      leafId: view.panels.right.layout.activeLeafId,
+    });
+    view = createWorkbenchSessionViewTab(view, {
+      panelId: "bottom",
+      tab: pageTab("bottom-tab", "bottom-page"),
+    });
+    view = {
+      ...view,
+      panels: {
+        ...view.panels,
+        right: {
+          ...view.panels.right,
+          collapsed: true,
+        },
+      },
+    };
+    const beforeRightLayout = structuredClone(view.panels.right.layout);
+
+    const created = createWorkbenchSessionViewTab(view, {
+      panelId: "right",
+      presentation: "background",
+      tab: pageTab("background-tab", "background-page"),
+    });
+
+    expect(created.panels.right.collapsed).toBe(true);
+    expect(created.lastFocusedPanelId).toBe("bottom");
+    expect(created.panels.right.layout.activeLeafId).toBe(beforeRightLayout.activeLeafId);
+    expect(created.panels.right.layout.mruLeafIds).toEqual(beforeRightLayout.mruLeafIds);
+    expect(created.panels.right.layout.maximizedLeafId).toBe(beforeRightLayout.maximizedLeafId);
+    const activeLeaf = created.panels.right.layout.root;
+    expect(activeLeaf.type).toBe("leaf");
+    if (activeLeaf.type !== "leaf") throw new Error("Expected right root leaf");
+    expect(activeLeaf.activeTabId).toBe(existingRightTabId);
+    expect(activeLeaf.tabIds).toEqual([existingRightTabId, "background-tab"]);
+    expect(WorkbenchSessionViewSnapshotSchema.parse(created)).toEqual(created);
   });
 
   test("clones local identities while retaining resource targets and Terminal resources", () => {
