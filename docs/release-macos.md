@@ -111,7 +111,9 @@ before style, audit, commit, and smoke-install; a plain clone outside Homebrew's
 tap root is not a valid audit target. Promotion runs Homebrew's own cask
 autocorrect inside that registered tap before its exact idempotency comparison,
 so recovery can safely normalize derived output from an immutable older release
-source without weakening version or checksum conflict rejection.
+source without weakening version or checksum conflict rejection. It audits the
+registered cask by its fully qualified tap name because current Homebrew rejects
+file-path arguments to `brew audit`.
 
 Distribution imports the Developer ID certificate into a per-job local
 keychain using a random keychain password, grants non-interactive Apple tool
