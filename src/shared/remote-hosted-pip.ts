@@ -47,9 +47,9 @@ export interface RemoteHostedPipActiveThreadChangedMessage {
   conversationId: string | null;
 }
 
-export interface RemoteHostedPipVisibilityChangedMessage {
-  type: "remote-hosted-pip-visibility-changed";
-  isVisible: boolean;
+export interface RemoteHostedPipHiddenThreadIdsChangedMessage {
+  type: "remote-hosted-pip-hidden-thread-ids-changed";
+  hiddenThreadIds: string[];
 }
 
 export interface RemoteHostedPipStreamStateChangedMessage {
@@ -59,19 +59,19 @@ export interface RemoteHostedPipStreamStateChangedMessage {
   isAnyActive: boolean;
 }
 
-export interface RemoteHostedPipVisibilityRequestedMessage {
-  type: "remote-hosted-pip-visibility-requested";
-  isVisible: boolean;
+export interface RemoteHostedPipHiddenThreadIdsRequestedMessage {
+  type: "remote-hosted-pip-hidden-thread-ids-requested";
+  hiddenThreadIds: string[];
 }
 
 export type CodexDesktopMessageFromView =
   | RemoteHostedPipActiveThreadChangedMessage
   | RemoteHostedPipHostLayoutChangedMessage
-  | RemoteHostedPipVisibilityChangedMessage;
+  | RemoteHostedPipHiddenThreadIdsChangedMessage;
 
 export type CodexDesktopMessageForView =
   | RemoteHostedPipStreamStateChangedMessage
-  | RemoteHostedPipVisibilityRequestedMessage;
+  | RemoteHostedPipHiddenThreadIdsRequestedMessage;
 
 interface RemoteHostedPipRelativeRect {
   bottom: number;

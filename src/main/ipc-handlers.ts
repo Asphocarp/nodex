@@ -266,6 +266,7 @@ import {
 } from "../shared/command-keybindings";
 import { safeBroadcastToWindows, safeSendToWebContents } from "./ipc-safe-send";
 import { RemoteHostedPipService } from "./remote-hosted-pip-service";
+import { isMacOSVersionAtLeast, loadSkyNativeAddon } from "./sky-native";
 import {
   approximateJsonPayloadBytes,
   getDevRuntimeMetricDurationMs,
@@ -467,25 +468,28 @@ function sendIpcEvent<Channel extends keyof IpcEvents>(
   safeSendToWebContents(sender, channel, [payload]);
 }
 
-let resolveRemoteHostedPipThreadId: (
-  sessionId: string,
-) => Promise<string | null> = async () => null;
-
 const remoteHostedPipService = new RemoteHostedPipService({
+  addon: loadSkyNativeAddon(),
   broadcast: (channel, payload) => {
     broadcastIpcEvent(channel, payload);
   },
-  resolveThreadIdForSession: async (sessionId) =>
-    await resolveRemoteHostedPipThreadId(sessionId),
+  getFocusedWindow: () => BrowserWindow.getFocusedWindow(),
+  getWindowForSender: (sender) =>
+    BrowserWindow.fromWebContents(sender as Electron.WebContents),
+  isEnabled: () => process.platform === "darwin" && isMacOSVersionAtLeast("13.0"),
+  isThreadSurfacePresented: (threadId) =>
+    browserSidebarService.hasPresentedBrowserUseSurfaceForThread(threadId),
   sendToSender: (sender, channel, payload) => {
     sendIpcEvent(sender as Electron.WebContents, channel, payload);
   },
 });
 
-function refreshRemoteHostedPipState(
-  snapshot: BrowserSidebarBrowserUseStateSnapshot,
-): void {
-  void remoteHostedPipService.handleBrowserUseStateSnapshot(snapshot).catch(
+codexService.observeAppServerNotifications((notification) => {
+  remoteHostedPipService.handleCodexNotification(notification);
+});
+
+function refreshRemoteHostedPipState(): void {
+  void remoteHostedPipService.handleBrowserUseStateSnapshot().catch(
     (error) => {
       ipcPayloadLogger.warn("Could not resolve remote hosted PIP Thread state", {
         error: error instanceof Error ? error.message : String(error),
@@ -669,7 +673,7 @@ function ensureBrowserSidebarEventBridge(): void {
     broadcastIpcEvent("browser-sidebar-local-servers", snapshot),
   );
   browserSidebarService.on("browserUseState", (snapshot) => {
-    refreshRemoteHostedPipState(snapshot);
+    refreshRemoteHostedPipState();
     sendFilteredBrowserUseStateToWindows(snapshot);
   });
   browserSidebarService.on("browserUseViewport", (event) =>
@@ -749,7 +753,7 @@ function ensureBrowserSidebarEventBridge(): void {
       event,
     ),
   );
-  refreshRemoteHostedPipState(browserSidebarService.getBrowserUseStateSnapshot());
+  refreshRemoteHostedPipState();
 }
 
 function ensureBrowserGuestBridge(): void {
@@ -1205,8 +1209,6 @@ export function registerIpcHandlers(
     ?? createUnconfiguredIpcAuthority<
       NonNullable<RegisterIpcHandlersOptions["databaseModule"]>
     >("Database authority");
-  resolveRemoteHostedPipThreadId = async (sessionId) =>
-    (await projectWorkspace.getProjectSession(sessionId))?.thread?.threadId ?? null;
   resolveBrowserSidebarViewScope = (webContentsId) =>
     options.resolveWindowSessionId?.(webContentsId) ?? null;
   ensureBrowserSidebarEventBridge();

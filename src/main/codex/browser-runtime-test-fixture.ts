@@ -24,6 +24,14 @@ const FIXTURE_FILES = [
     path: "peer/authorize.node",
   },
   {
+    architecture: "arm64",
+    executable: false,
+    kind: "native-addon",
+    path: "native/sky.node",
+  },
+  { architecture: "any", executable: false, kind: "data", path: "native/remote-hosted-pip/pop-in-window-egg@3x.png" },
+  { architecture: "any", executable: false, kind: "data", path: "native/remote-hosted-pip/pop-out-window-egg@3x.png" },
+  {
     architecture: "any",
     executable: false,
     kind: "data",
@@ -49,6 +57,18 @@ const FIXTURE_FILES = [
   },
 ] as const;
 
+const COMPUTER_USE_FIXTURE_FILES = [
+  { architecture: "any", executable: false, kind: "data", path: "marketplace/plugins/computer-use/manifest.json" },
+  { architecture: "any", executable: false, kind: "data", path: "marketplace/plugins/computer-use/client.mjs" },
+  { architecture: "any", executable: false, kind: "data", path: "marketplace/plugins/computer-use/docs/SKILL.md" },
+  {
+    architecture: "arm64",
+    executable: true,
+    kind: "executable",
+    path: "runtime/lib/node_modules/@oai/sky/Codex Computer Use.app/Contents/MacOS/SkyComputerUseService",
+  },
+] as const;
+
 function sha256(content: string): string {
   return createHash("sha256").update(content).digest("hex");
 }
@@ -58,7 +78,10 @@ export function writeBrowserRuntimeFixture(
   options: BrowserRuntimeFixtureOptions = {},
 ): BrowserRuntimeManifest {
   const targetArch = options.targetArch ?? "arm64";
-  const artifacts: BrowserRuntimeArtifact[] = FIXTURE_FILES.map((definition) => {
+  const definitions = targetArch === "arm64"
+    ? [...FIXTURE_FILES, ...COMPUTER_USE_FIXTURE_FILES]
+    : FIXTURE_FILES;
+  const artifacts: BrowserRuntimeArtifact[] = definitions.map((definition) => {
     const content = `fixture:${definition.path}\n`;
     const artifactPath = path.join(bundleRoot, ...definition.path.split("/"));
     fs.mkdirSync(path.dirname(artifactPath), { recursive: true });
@@ -74,6 +97,11 @@ export function writeBrowserRuntimeFixture(
   fs.mkdirSync(path.join(bundleRoot, "marketplace", "plugins", "browser", "node_modules"), {
     recursive: true,
   });
+  if (targetArch === "arm64") {
+    fs.mkdirSync(path.join(bundleRoot, "marketplace", "plugins", "computer-use", "node_modules"), {
+      recursive: true,
+    });
+  }
 
   const manifest = {
     artifacts,
@@ -89,6 +117,38 @@ export function writeBrowserRuntimeFixture(
       version: "1.0.0-test",
     },
     buildFlavor: "test",
+    capabilities: {
+      computerUse: targetArch === "arm64"
+        ? {
+          appBundle: "runtime/lib/node_modules/@oai/sky/Codex Computer Use.app",
+          appBundleIdentifier: "com.openai.CodexComputerUse",
+          client: "marketplace/plugins/computer-use/client.mjs",
+          ipcProtocol: "CodexComputerUseIPC-2",
+          minimumMacOSVersion: "14.4",
+          plugin: {
+            docs: "marketplace/plugins/computer-use/docs/SKILL.md",
+            id: "computer-use@openai-bundled",
+            manifest: "marketplace/plugins/computer-use/manifest.json",
+            marketplaceManifest: "marketplace/.agents/plugins/marketplace.json",
+            marketplaceRoot: "marketplace",
+            nodeModuleDirs: ["runtime/lib/node_modules"],
+            root: "marketplace/plugins/computer-use",
+            version: "1.0.0-test",
+          },
+          serviceExecutable: "runtime/lib/node_modules/@oai/sky/Codex Computer Use.app/Contents/MacOS/SkyComputerUseService",
+          signingTeamId: "TESTTEAM",
+          status: "available",
+        }
+        : { reason: "architecture-unsupported", status: "unavailable" },
+      nativePip: {
+        addon: "native/sky.node",
+        controlAssets: [
+          "native/remote-hosted-pip/pop-in-window-egg@3x.png",
+          "native/remote-hosted-pip/pop-out-window-egg@3x.png",
+        ],
+        minimumMacOSVersion: "13.0",
+      },
+    },
     codexCompatibilityVersion: options.codexCompatibilityVersion ?? "0.144.6",
     contractVersion: 1,
     desktopBuild: "test-build",
@@ -109,7 +169,7 @@ export function writeBrowserRuntimeFixture(
       node: "24.0.0",
       peerAuthorization: "test",
     },
-    schemaVersion: 3,
+    schemaVersion: 4,
     supportedBackends: ["iab", "chrome"],
     targetArch,
     targetPlatform: options.targetPlatform ?? "darwin",

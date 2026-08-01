@@ -167,7 +167,13 @@ export function stageBrowserRuntime(
         artifact.executable ? EXECUTABLE_RUNTIME_MODE : REGULAR_RUNTIME_MODE,
       );
     }
-    for (const nodeModuleDir of manifest.browserPlugin.nodeModuleDirs) {
+    const nodeModuleDirs = new Set([
+      ...manifest.browserPlugin.nodeModuleDirs,
+      ...(manifest.capabilities.computerUse.status === "available"
+        ? manifest.capabilities.computerUse.plugin.nodeModuleDirs
+        : []),
+    ]);
+    for (const nodeModuleDir of nodeModuleDirs) {
       fs.mkdirSync(path.join(stagedRoot, ...nodeModuleDir.split("/")), { recursive: true });
     }
     const manifestPath = path.join(stagedRoot, BROWSER_RUNTIME_MANIFEST_FILENAME);

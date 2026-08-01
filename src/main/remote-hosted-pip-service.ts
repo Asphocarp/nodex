@@ -1,30 +1,46 @@
-import type {
-  BrowserSidebarBrowserUseStateSnapshot,
-  BrowserUseTabState,
-} from "../shared/browser-sidebar";
-import { makeBrowserSidebarTabKey } from "../shared/browser-sidebar";
 import type { IpcEvents } from "../shared/ipc-api";
 import type {
   CodexDesktopMessageFromView,
   RemoteHostedPipHostLayout,
   RemoteHostedPipStreamStateChangedMessage,
+  RemoteHostedPipViewportRect,
 } from "../shared/remote-hosted-pip";
+import { parseRemoteHostedPipNotification } from "./browser-use/browser-use-pip-metadata";
+import type { SkyNativeAddon } from "./sky-native";
 
 export interface RemoteHostedPipWebContentsLike {
   id: number;
   once(eventName: "destroyed", listener: () => void): void;
 }
 
+export interface RemoteHostedPipWindowLike {
+  readonly id: number;
+  readonly webContents: RemoteHostedPipWebContentsLike;
+  getContentBounds(): RemoteHostedPipViewportRect;
+  getNativeWindowHandle?(): Buffer;
+  getTitle(): string;
+  isDestroyed(): boolean;
+  isFocused(): boolean;
+  on(eventName: "focus", listener: () => void): void;
+  once(eventName: "closed", listener: () => void): void;
+}
+
 type RemoteHostedPipMessageChannel =
-  | "remote-hosted-pip-stream-state-changed"
-  | "remote-hosted-pip-visibility-requested";
+  | "remote-hosted-pip-hidden-thread-ids-requested"
+  | "remote-hosted-pip-stream-state-changed";
 
 interface RemoteHostedPipServiceDeps {
+  addon: SkyNativeAddon | null;
   broadcast: <Channel extends RemoteHostedPipMessageChannel>(
     channel: Channel,
     payload: IpcEvents[Channel],
   ) => void;
-  resolveThreadIdForSession: (sessionId: string) => Promise<string | null>;
+  getFocusedWindow: () => RemoteHostedPipWindowLike | null;
+  getWindowForSender: (
+    sender: RemoteHostedPipWebContentsLike,
+  ) => RemoteHostedPipWindowLike | null;
+  isEnabled?: () => boolean;
+  isThreadSurfacePresented?: (threadId: string) => boolean;
   sendToSender: <Channel extends RemoteHostedPipMessageChannel>(
     sender: RemoteHostedPipWebContentsLike,
     channel: Channel,
@@ -32,9 +48,9 @@ interface RemoteHostedPipServiceDeps {
   ) => void;
 }
 
-interface BrowserUsePipSource {
-  conversationId: string;
-  sourceId: string;
+interface BrowserUsePipSession {
+  presentationIdsByTabId: Map<string, string>;
+  threadId: string;
 }
 
 interface PublishedStreamState {
@@ -42,14 +58,21 @@ interface PublishedStreamState {
   isAnyActive: boolean;
 }
 
+const REMOTE_HOSTED_PIP_POLL_INTERVAL_MS = 500;
+
 export class RemoteHostedPipService {
-  private readonly activeSourceConversationIdBySourceId = new Map<string, string>();
-  private readonly activeThreadBySender = new Map<number, string | null>();
-  private readonly hostLayoutsBySender = new Map<number, RemoteHostedPipHostLayout>();
+  private readonly activeThreadByWindowId = new Map<number, string>();
+  private readonly browserUsePipSessions = new Map<string, BrowserUsePipSession>();
+  private readonly hiddenThreadIds = new Set<string>();
+  private readonly hostIdByWindowId = new Map<number, string>();
+  private readonly hostLayoutByWindowId = new Map<number, RemoteHostedPipHostLayout>();
+  private readonly hostOwnerWindowIdByHostId = new Map<string, number>();
   private readonly publishedStreamStateByConversationId = new Map<string, PublishedStreamState>();
-  private readonly trackedSenderIds = new Set<number>();
-  private browserUseSnapshotGeneration = 0;
-  private isVisible = true;
+  private readonly trackedWindowIds = new Set<number>();
+  private contentHostStarted = false;
+  private disposed = false;
+  private pollTimer: ReturnType<typeof setInterval> | null = null;
+  private selectedThreadId: string | null = null;
 
   constructor(private readonly deps: RemoteHostedPipServiceDeps) {}
 
@@ -57,196 +80,352 @@ export class RemoteHostedPipService {
     sender: RemoteHostedPipWebContentsLike,
     message: CodexDesktopMessageFromView,
   ): void {
-    this.trackSender(sender);
+    const window = this.trackSender(sender);
+    if (!window) return;
 
     switch (message.type) {
       case "remote-hosted-pip-active-thread-changed": {
-        this.setActiveThreadForSender(sender, message.conversationId);
+        if (message.conversationId === null) {
+          this.activeThreadByWindowId.delete(window.id);
+        } else {
+          this.activeThreadByWindowId.set(window.id, message.conversationId);
+        }
+        this.reconcileNativeState();
+        return;
+      }
+      case "remote-hosted-pip-hidden-thread-ids-changed": {
+        this.setHiddenThreadIds(message.hiddenThreadIds);
         return;
       }
       case "remote-hosted-pip-host-layout-changed": {
-        this.setHostLayoutForSender(sender, message.layout);
-        return;
-      }
-      case "remote-hosted-pip-visibility-changed": {
-        this.setVisible(message.isVisible);
+        this.setHostLayout(window, message.layout);
         return;
       }
     }
   }
 
-  async handleBrowserUseStateSnapshot(
-    snapshot: BrowserSidebarBrowserUseStateSnapshot,
-  ): Promise<void> {
-    const generation = ++this.browserUseSnapshotGeneration;
-    const previousConversationIds = new Set(this.activeSourceConversationIdBySourceId.values());
-    const previousAnyActive = this.hasAnyActiveSource();
-    const nextSources = await this.resolveBrowserUsePipSources(snapshot);
-    if (generation !== this.browserUseSnapshotGeneration) return;
+  handleBrowserUseStateSnapshot(): Promise<void> {
+    this.reconcileNativeState();
+    return Promise.resolve();
+  }
 
-    this.activeSourceConversationIdBySourceId.clear();
-    for (const source of nextSources) {
-      this.activeSourceConversationIdBySourceId.set(source.sourceId, source.conversationId);
+  handleCodexNotification(notification: unknown): void {
+    const event = parseRemoteHostedPipNotification(notification);
+    if (!event || !this.ensureContentHostStarted()) return;
+
+    if (event.kind === "thread-ended") {
+      this.invalidateBrowserUseThread(event.threadId);
+      return;
     }
-
-    const nextConversationIds = new Set(this.activeSourceConversationIdBySourceId.values());
-    const nextAnyActive = this.hasAnyActiveSource();
-    const conversationIdsToPublish = new Set([
-      ...previousConversationIds,
-      ...nextConversationIds,
-    ]);
-    if (previousAnyActive !== nextAnyActive) {
-      for (const conversationId of this.publishedStreamStateByConversationId.keys()) {
-        conversationIdsToPublish.add(conversationId);
+    if (event.kind === "turn-ended") {
+      if (event.completed) {
+        this.deps.addon?.completeRemoteHostedPIPContentThread(event.threadId);
+      } else {
+        this.deps.addon?.invalidateRemoteHostedPIPContentTurn(event.threadId, event.turnId);
       }
-      for (const conversationId of this.activeThreadBySender.values()) {
-        if (conversationId) conversationIdsToPublish.add(conversationId);
-      }
-    }
-
-    for (const conversationId of conversationIdsToPublish) {
-      this.broadcastStreamState(conversationId);
-    }
-  }
-
-  getBrowserUsePipConversationIds(): string[] {
-    return [...new Set(this.activeSourceConversationIdBySourceId.values())].sort();
-  }
-
-  private trackSender(sender: RemoteHostedPipWebContentsLike): void {
-    const senderId = sender.id;
-    if (this.trackedSenderIds.has(senderId)) return;
-
-    this.trackedSenderIds.add(senderId);
-    this.sendVisibilityRequested(sender);
-    sender.once("destroyed", () => {
-      this.activeThreadBySender.delete(senderId);
-      this.hostLayoutsBySender.delete(senderId);
-      this.trackedSenderIds.delete(senderId);
-    });
-  }
-
-  private setActiveThreadForSender(
-    sender: RemoteHostedPipWebContentsLike,
-    conversationId: string | null,
-  ): void {
-    if (conversationId === null) {
-      this.activeThreadBySender.delete(sender.id);
+      this.pollNativePresentationState();
       return;
     }
 
-    this.activeThreadBySender.set(sender.id, conversationId);
-    this.sendStreamState(sender, conversationId);
+    const sessionId = JSON.stringify([event.threadId, event.surface.browserId]);
+    if (event.surface.sessionEnded === true) {
+      this.invalidateBrowserUseSession(sessionId);
+      return;
+    }
+
+    let session = this.browserUsePipSessions.get(sessionId);
+    if (event.surface.screenshot) {
+      const { screenshot } = event.surface;
+      const presentationId = `browser:${JSON.stringify([
+        event.threadId,
+        event.surface.browserId,
+        screenshot.tabId,
+      ])}`;
+      const inserted = this.deps.addon?.upsertBrowserUsePIPContent(
+        presentationId,
+        event.threadId,
+        screenshot.url,
+        null,
+      ) === true;
+      if (inserted) {
+        session ??= {
+          presentationIdsByTabId: new Map(),
+          threadId: event.threadId,
+        };
+        session.presentationIdsByTabId.set(screenshot.tabId, presentationId);
+        this.browserUsePipSessions.set(sessionId, session);
+      }
+    }
+
+    if (event.surface.openTabIds && session) {
+      const openTabIds = new Set(event.surface.openTabIds);
+      for (const [tabId, presentationId] of session.presentationIdsByTabId) {
+        if (openTabIds.has(tabId)) continue;
+        this.deps.addon?.invalidateBrowserUsePIPContent(presentationId);
+        session.presentationIdsByTabId.delete(tabId);
+      }
+      if (session.presentationIdsByTabId.size === 0) {
+        this.browserUsePipSessions.delete(sessionId);
+      }
+    }
+    this.reconcileNativeState();
+    this.pollNativePresentationState();
   }
 
-  private setHostLayoutForSender(
+  getHiddenThreadIds(): string[] {
+    return [...this.hiddenThreadIds].sort();
+  }
+
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    if (this.pollTimer) clearInterval(this.pollTimer);
+    this.pollTimer = null;
+    for (const sessionId of [...this.browserUsePipSessions.keys()]) {
+      this.invalidateBrowserUseSession(sessionId);
+    }
+    for (const hostId of new Set(this.hostIdByWindowId.values())) {
+      this.deps.addon?.unregisterRemoteHostedPIPContentHost(hostId);
+    }
+    this.hostIdByWindowId.clear();
+    this.hostOwnerWindowIdByHostId.clear();
+    this.deps.addon?.setRemoteHostedPIPContentVisibilityRequestHandler(null);
+    this.deps.addon?.setRemoteHostedPIPContentMaxDisplaySizeChangedHandler(null);
+    if (this.contentHostStarted) this.deps.addon?.stopRemoteHostedPIPContentHost();
+    this.contentHostStarted = false;
+  }
+
+  private trackSender(
     sender: RemoteHostedPipWebContentsLike,
+  ): RemoteHostedPipWindowLike | null {
+    const window = this.deps.getWindowForSender(sender);
+    if (!window || window.isDestroyed()) return null;
+    if (!this.trackedWindowIds.has(window.id)) {
+      this.trackedWindowIds.add(window.id);
+      window.on("focus", () => this.reconcileNativeState());
+      window.once("closed", () => this.removeWindow(window.id));
+      sender.once("destroyed", () => this.removeWindow(window.id));
+    }
+    this.sendHiddenThreadIdsRequested(sender);
+    return window;
+  }
+
+  private removeWindow(windowId: number): void {
+    if (!this.trackedWindowIds.delete(windowId)) return;
+    this.activeThreadByWindowId.delete(windowId);
+    this.hostLayoutByWindowId.delete(windowId);
+    this.unregisterWindowHost(windowId);
+    this.reconcileNativeState();
+  }
+
+  private setHostLayout(
+    window: RemoteHostedPipWindowLike,
     layout: RemoteHostedPipHostLayout,
   ): void {
     if (layout.anchorRect === null || layout.anchors === null) {
-      this.hostLayoutsBySender.delete(sender.id);
+      this.hostLayoutByWindowId.delete(window.id);
+      this.unregisterWindowHost(window.id);
+      this.reconcileNativeState();
       return;
     }
-
-    this.hostLayoutsBySender.set(sender.id, layout);
+    this.hostLayoutByWindowId.set(window.id, layout);
+    if (window.isFocused()) this.registerWindowHost(window, layout);
+    this.reconcileNativeState();
   }
 
-  private setVisible(isVisible: boolean): void {
-    this.isVisible = isVisible;
-    this.deps.broadcast("remote-hosted-pip-visibility-requested", {
-      type: "remote-hosted-pip-visibility-requested",
-      isVisible,
+  private registerWindowHost(
+    window: RemoteHostedPipWindowLike,
+    layout: RemoteHostedPipHostLayout,
+  ): boolean {
+    if (!this.ensureContentHostStarted()) return false;
+    const existingOwnerWindowId = this.hostOwnerWindowIdByHostId.get(layout.hostId);
+    if (existingOwnerWindowId !== undefined && existingOwnerWindowId !== window.id) {
+      this.unregisterWindowHost(existingOwnerWindowId);
+    }
+    const registered = this.deps.addon?.registerRemoteHostedPIPContentHost({
+      anchors: layout.anchors,
+      anchorRect: layout.anchorRect,
+      animated: layout.animated && this.deps.addon.hasRemoteHostedPIPContentAnyPresentation(),
+      contentBounds: window.getContentBounds(),
+      id: layout.hostId,
+      nativeWindowHandle: window.getNativeWindowHandle?.() ?? null,
+      presentationScope: layout.presentationScope,
+      title: window.getTitle(),
+    }) === true;
+    if (!registered) return false;
+    this.hostIdByWindowId.set(window.id, layout.hostId);
+    this.hostOwnerWindowIdByHostId.set(layout.hostId, window.id);
+    return true;
+  }
+
+  private unregisterWindowHost(windowId: number): void {
+    const hostId = this.hostIdByWindowId.get(windowId);
+    if (!hostId) return;
+    this.hostIdByWindowId.delete(windowId);
+    if (this.hostOwnerWindowIdByHostId.get(hostId) !== windowId) return;
+    this.hostOwnerWindowIdByHostId.delete(hostId);
+    this.deps.addon?.unregisterRemoteHostedPIPContentHost(hostId);
+  }
+
+  private ensureContentHostStarted(): boolean {
+    if (this.disposed || this.deps.isEnabled?.() === false || !this.deps.addon) return false;
+    if (this.contentHostStarted) return true;
+    this.contentHostStarted = this.deps.addon.startRemoteHostedPIPContentHost({
+      hide: "Hide",
+      placement: "Send Picture-in-Picture to Pet",
     });
+    if (!this.contentHostStarted) return false;
+    this.deps.addon.setRemoteHostedPIPContentVisibilityRequestHandler(
+      (isVisible, threadIds) => this.handleNativeVisibilityRequest(isVisible, threadIds),
+    );
+    this.deps.addon.setRemoteHostedPIPContentVisible(true);
+    this.pollTimer = setInterval(
+      () => this.pollNativePresentationState(),
+      REMOTE_HOSTED_PIP_POLL_INTERVAL_MS,
+    );
+    this.pollTimer.unref?.();
+    return true;
   }
 
-  private async resolveBrowserUsePipSources(
-    snapshot: BrowserSidebarBrowserUseStateSnapshot,
-  ): Promise<BrowserUsePipSource[]> {
-    const sources = await Promise.all(
-      snapshot.tabs.map(async (tab) => await this.resolveBrowserUsePipSource(tab)),
+  private reconcileNativeState(): void {
+    if (!this.ensureContentHostStarted()) return;
+    const focusedWindow = this.deps.getFocusedWindow();
+    if (focusedWindow && !focusedWindow.isDestroyed()) {
+      const layout = this.hostLayoutByWindowId.get(focusedWindow.id);
+      if (layout && this.hostIdByWindowId.get(focusedWindow.id) !== layout.hostId) {
+        this.registerWindowHost(focusedWindow, layout);
+      }
+    }
+
+    const surfaceSuppressedThreadIds = new Set<string>();
+    for (const threadId of this.activeThreadByWindowId.values()) {
+      if (this.deps.isThreadSurfacePresented?.(threadId) === true) {
+        surfaceSuppressedThreadIds.add(threadId);
+      }
+    }
+    const suppressedThreadIds = new Set([
+      ...this.hiddenThreadIds,
+      ...surfaceSuppressedThreadIds,
+    ]);
+    this.deps.addon?.setRemoteHostedPIPContentSuppressedThreadIDs(
+      [...suppressedThreadIds].sort(),
     );
-    return sources.filter((source): source is BrowserUsePipSource => source !== null);
+
+    const focusedThreadId = focusedWindow
+      ? this.activeThreadByWindowId.get(focusedWindow.id) ?? null
+      : null;
+    const hostRegistered = focusedWindow
+      ? this.hostIdByWindowId.has(focusedWindow.id)
+      : false;
+    const nextSelectedThreadId = hostRegistered
+      && focusedThreadId
+      && !surfaceSuppressedThreadIds.has(focusedThreadId)
+      ? focusedThreadId
+      : null;
+    const previousSelectedThreadId = this.selectedThreadId;
+    if (previousSelectedThreadId !== nextSelectedThreadId) {
+      this.selectedThreadId = nextSelectedThreadId;
+      this.deps.addon?.setRemoteHostedPIPContentActiveThreadID(nextSelectedThreadId);
+      if (previousSelectedThreadId) this.publishStreamState(previousSelectedThreadId, false);
+    }
+    this.pollNativePresentationState();
   }
 
-  private async resolveBrowserUsePipSource(
-    tab: BrowserUseTabState,
-  ): Promise<BrowserUsePipSource | null> {
-    if (tab.released) return null;
-    if (!tab.captureActive) return null;
-    if (tab.webContentsId === null) return null;
-    const conversationId = await this.deps.resolveThreadIdForSession(
-      tab.browserConversationId,
+  private pollNativePresentationState(): void {
+    if (!this.contentHostStarted || !this.deps.addon) return;
+    const selectedThreadId = this.selectedThreadId;
+    if (!selectedThreadId) return;
+    this.publishStreamState(
+      selectedThreadId,
+      this.deps.addon.hasRemoteHostedPIPContentActivePresentation(),
     );
-    if (!conversationId) return null;
+  }
 
-    return {
-      conversationId,
-      sourceId: `browser-use:${makeBrowserSidebarTabKey(tab)}`,
+  private publishStreamState(conversationId: string, isActive: boolean): void {
+    const state = {
+      isActive,
+      isAnyActive: this.deps.addon?.hasRemoteHostedPIPContentAnyPresentation() === true,
     };
-  }
-
-  private sendVisibilityRequested(sender: RemoteHostedPipWebContentsLike): void {
-    this.deps.sendToSender(sender, "remote-hosted-pip-visibility-requested", {
-      type: "remote-hosted-pip-visibility-requested",
-      isVisible: this.isVisible,
-    });
-  }
-
-  private sendStreamState(
-    sender: RemoteHostedPipWebContentsLike,
-    conversationId: string,
-  ): void {
-    this.deps.sendToSender(
-      sender,
-      "remote-hosted-pip-stream-state-changed",
-      this.buildStreamStateMessage(conversationId),
-    );
-  }
-
-  private broadcastStreamState(conversationId: string): void {
-    const nextState = this.buildPublishedStreamState(conversationId);
     const previousState = this.publishedStreamStateByConversationId.get(conversationId);
     if (
-      previousState?.isActive === nextState.isActive
-      && previousState.isAnyActive === nextState.isAnyActive
+      previousState?.isActive === state.isActive
+      && previousState.isAnyActive === state.isAnyActive
     ) {
       return;
     }
-
-    this.publishedStreamStateByConversationId.set(conversationId, nextState);
+    this.publishedStreamStateByConversationId.set(conversationId, state);
     this.deps.broadcast(
       "remote-hosted-pip-stream-state-changed",
-      this.buildStreamStateMessage(conversationId, nextState),
+      this.buildStreamStateMessage(conversationId, state),
     );
   }
 
   private buildStreamStateMessage(
     conversationId: string,
-    state = this.buildPublishedStreamState(conversationId),
+    state: PublishedStreamState,
   ): RemoteHostedPipStreamStateChangedMessage {
     return {
-      type: "remote-hosted-pip-stream-state-changed",
       conversationId,
       isActive: state.isActive,
       isAnyActive: state.isAnyActive,
+      type: "remote-hosted-pip-stream-state-changed",
     };
   }
 
-  private buildPublishedStreamState(conversationId: string): PublishedStreamState {
-    return {
-      isActive: this.isConversationActive(conversationId),
-      isAnyActive: this.hasAnyActiveSource(),
-    };
-  }
-
-  private isConversationActive(conversationId: string): boolean {
-    for (const activeConversationId of this.activeSourceConversationIdBySourceId.values()) {
-      if (activeConversationId === conversationId) return true;
+  private setHiddenThreadIds(threadIds: readonly string[]): void {
+    this.hiddenThreadIds.clear();
+    for (const threadId of threadIds) {
+      const normalized = threadId.trim();
+      if (normalized) this.hiddenThreadIds.add(normalized);
     }
-    return false;
+    this.broadcastHiddenThreadIdsRequested();
+    this.reconcileNativeState();
   }
 
-  private hasAnyActiveSource(): boolean {
-    return this.activeSourceConversationIdBySourceId.size > 0;
+  private handleNativeVisibilityRequest(
+    isVisible: boolean,
+    threadIds: readonly string[],
+  ): void {
+    for (const threadId of threadIds) {
+      if (isVisible) {
+        this.hiddenThreadIds.delete(threadId);
+      } else {
+        this.hiddenThreadIds.add(threadId);
+      }
+    }
+    this.broadcastHiddenThreadIdsRequested();
+    this.reconcileNativeState();
+  }
+
+  private sendHiddenThreadIdsRequested(sender: RemoteHostedPipWebContentsLike): void {
+    this.deps.sendToSender(sender, "remote-hosted-pip-hidden-thread-ids-requested", {
+      hiddenThreadIds: this.getHiddenThreadIds(),
+      type: "remote-hosted-pip-hidden-thread-ids-requested",
+    });
+  }
+
+  private broadcastHiddenThreadIdsRequested(): void {
+    this.deps.broadcast("remote-hosted-pip-hidden-thread-ids-requested", {
+      hiddenThreadIds: this.getHiddenThreadIds(),
+      type: "remote-hosted-pip-hidden-thread-ids-requested",
+    });
+  }
+
+  private invalidateBrowserUseThread(threadId: string): void {
+    for (const [sessionId, session] of this.browserUsePipSessions) {
+      if (session.threadId === threadId) this.invalidateBrowserUseSession(sessionId);
+    }
+    this.deps.addon?.completeRemoteHostedPIPContentThread(threadId);
+    this.pollNativePresentationState();
+  }
+
+  private invalidateBrowserUseSession(sessionId: string): void {
+    const session = this.browserUsePipSessions.get(sessionId);
+    if (!session) return;
+    for (const presentationId of session.presentationIdsByTabId.values()) {
+      this.deps.addon?.invalidateBrowserUsePIPContent(presentationId);
+    }
+    this.browserUsePipSessions.delete(sessionId);
+    this.pollNativePresentationState();
   }
 }

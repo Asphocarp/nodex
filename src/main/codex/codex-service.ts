@@ -3381,6 +3381,10 @@ export class CodexService extends EventEmitter {
     this.emitEvent({ type: "scheduledAutomationChanged", event });
   }
 
+  observeAppServerNotifications(handler: InternalNotificationHandler): () => void {
+    return this.registerInternalNotificationHandler(handler);
+  }
+
   private notifyAutomationRunThreadUpdated(
     threadId: string,
     reason: CodexAutomationRunsUpdatedEvent["reason"],

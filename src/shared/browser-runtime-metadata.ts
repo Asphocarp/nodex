@@ -1,11 +1,45 @@
 export const BROWSER_RUNTIME_CONTRACT_VERSION = 1;
 export const BROWSER_RUNTIME_BUNDLE_DIRECTORY = "browser-runtime";
 export const BROWSER_RUNTIME_MANIFEST_FILENAME = "browser-runtime-manifest.json";
-export const BROWSER_RUNTIME_SCHEMA_VERSION = 3;
+export const BROWSER_RUNTIME_SCHEMA_VERSION = 4;
 
 export type BrowserRuntimeArtifactArchitecture = "any" | "arm64" | "universal" | "x64";
 export type BrowserRuntimeArtifactKind = "data" | "executable" | "native-addon";
 export type BrowserRuntimeBackend = "chrome" | "iab";
+
+export type BrowserRuntimeBundledPlugin = {
+  docs: string;
+  id: "computer-use@openai-bundled";
+  manifest: string;
+  marketplaceManifest: string;
+  marketplaceRoot: string;
+  nodeModuleDirs: string[];
+  root: string;
+  version: string;
+};
+
+export type BrowserRuntimeComputerUseCapability =
+  | {
+    reason: "architecture-unsupported";
+    status: "unavailable";
+  }
+  | {
+    appBundle: string;
+    appBundleIdentifier: string;
+    client: string;
+    ipcProtocol: "CodexComputerUseIPC-2";
+    minimumMacOSVersion: "14.4";
+    plugin: BrowserRuntimeBundledPlugin;
+    serviceExecutable: string;
+    signingTeamId: string;
+    status: "available";
+  };
+
+export type BrowserRuntimeNativePipCapability = {
+  addon: string;
+  controlAssets: string[];
+  minimumMacOSVersion: "13.0";
+};
 
 export type BrowserRuntimeArtifact = {
   architecture: BrowserRuntimeArtifactArchitecture;
@@ -28,6 +62,10 @@ export type BrowserRuntimeManifest = {
     nodeModuleDirs: string[];
     root: string;
     version: string;
+  };
+  capabilities: {
+    computerUse: BrowserRuntimeComputerUseCapability;
+    nativePip: BrowserRuntimeNativePipCapability;
   };
   buildFlavor: string;
   codexCompatibilityVersion: string;
@@ -168,6 +206,107 @@ function parseBrowserPlugin(value: unknown): BrowserRuntimeManifest["browserPlug
   };
 }
 
+function parseComputerUsePlugin(value: unknown): BrowserRuntimeBundledPlugin | null {
+  if (!isObject(value) || value.id !== "computer-use@openai-bundled") return null;
+  const version = parseNonEmptyString(value.version);
+  const root = parseNonEmptyString(value.root);
+  const manifest = parseNonEmptyString(value.manifest);
+  const docs = parseNonEmptyString(value.docs);
+  const marketplaceRoot = parseNonEmptyString(value.marketplaceRoot);
+  const marketplaceManifest = parseNonEmptyString(value.marketplaceManifest);
+  if (!version || !root || !manifest || !docs || !marketplaceRoot || !marketplaceManifest) {
+    return null;
+  }
+  const pluginPaths = [root, manifest, docs, marketplaceRoot, marketplaceManifest];
+  if (!pluginPaths.every(isSafeBrowserRuntimeRelativePath)) return null;
+  const rootPrefix = `${root}/`;
+  if (![manifest, docs].every((entry) => entry.startsWith(rootPrefix))) return null;
+  const marketplaceRootPrefix = `${marketplaceRoot}/`;
+  if (!root.startsWith(marketplaceRootPrefix)) return null;
+  if (!marketplaceManifest.startsWith(marketplaceRootPrefix)) return null;
+  if (!Array.isArray(value.nodeModuleDirs)) return null;
+  const nodeModuleDirs = value.nodeModuleDirs.map(parseNonEmptyString);
+  if (nodeModuleDirs.some((entry) => entry === null)) return null;
+  const parsedNodeModuleDirs = nodeModuleDirs as string[];
+  if (
+    parsedNodeModuleDirs.length === 0
+    || new Set(parsedNodeModuleDirs).size !== parsedNodeModuleDirs.length
+    || !parsedNodeModuleDirs.every(isSafeBrowserRuntimeRelativePath)
+  ) {
+    return null;
+  }
+  return {
+    docs,
+    id: value.id,
+    manifest,
+    marketplaceManifest,
+    marketplaceRoot,
+    nodeModuleDirs: parsedNodeModuleDirs,
+    root,
+    version,
+  };
+}
+
+function parseNativePipCapability(
+  value: unknown,
+): BrowserRuntimeNativePipCapability | null {
+  if (!isObject(value) || value.minimumMacOSVersion !== "13.0") return null;
+  const addon = parseNonEmptyString(value.addon);
+  if (!addon || !isSafeBrowserRuntimeRelativePath(addon)) return null;
+  if (!Array.isArray(value.controlAssets) || value.controlAssets.length !== 2) return null;
+  const controlAssets = value.controlAssets.map(parseNonEmptyString);
+  if (controlAssets.some((entry) => entry === null)) return null;
+  const parsedControlAssets = controlAssets as string[];
+  if (
+    new Set(parsedControlAssets).size !== parsedControlAssets.length
+    || !parsedControlAssets.every(isSafeBrowserRuntimeRelativePath)
+  ) {
+    return null;
+  }
+  return { addon, controlAssets: parsedControlAssets, minimumMacOSVersion: "13.0" };
+}
+
+function parseComputerUseCapability(
+  value: unknown,
+): BrowserRuntimeComputerUseCapability | null {
+  if (!isObject(value)) return null;
+  if (value.status === "unavailable") {
+    return value.reason === "architecture-unsupported"
+      ? { reason: value.reason, status: value.status }
+      : null;
+  }
+  if (
+    value.status !== "available"
+    || value.minimumMacOSVersion !== "14.4"
+    || value.ipcProtocol !== "CodexComputerUseIPC-2"
+  ) {
+    return null;
+  }
+  const appBundle = parseNonEmptyString(value.appBundle);
+  const appBundleIdentifier = parseNonEmptyString(value.appBundleIdentifier);
+  const client = parseNonEmptyString(value.client);
+  const serviceExecutable = parseNonEmptyString(value.serviceExecutable);
+  const signingTeamId = parseNonEmptyString(value.signingTeamId);
+  const plugin = parseComputerUsePlugin(value.plugin);
+  if (!appBundle || !appBundleIdentifier || !client || !serviceExecutable || !signingTeamId || !plugin) {
+    return null;
+  }
+  if (![appBundle, client, serviceExecutable].every(isSafeBrowserRuntimeRelativePath)) return null;
+  if (!serviceExecutable.startsWith(`${appBundle}/`)) return null;
+  if (!client.startsWith(`${plugin.root}/`)) return null;
+  return {
+    appBundle,
+    appBundleIdentifier,
+    client,
+    ipcProtocol: value.ipcProtocol,
+    minimumMacOSVersion: value.minimumMacOSVersion,
+    plugin,
+    serviceExecutable,
+    signingTeamId,
+    status: value.status,
+  };
+}
+
 function parseRuntimeVersions(
   value: unknown,
 ): BrowserRuntimeManifest["runtimeVersions"] | null {
@@ -225,12 +364,20 @@ export function parseBrowserRuntimeManifest(value: unknown): BrowserRuntimeManif
 
   const entrypoints = parseEntrypoints(value.entrypoints);
   const browserPlugin = parseBrowserPlugin(value.browserPlugin);
+  const capabilities = isObject(value.capabilities)
+    ? {
+      computerUse: parseComputerUseCapability(value.capabilities.computerUse),
+      nativePip: parseNativePipCapability(value.capabilities.nativePip),
+    }
+    : null;
   const peerAuthorization = parsePeerAuthorization(value.peerAuthorization);
   const runtimeVersions = parseRuntimeVersions(value.runtimeVersions);
   const supportedBackends = parseSupportedBackends(value.supportedBackends);
   if (
     !entrypoints
     || !browserPlugin
+    || !capabilities?.computerUse
+    || !capabilities.nativePip
     || !peerAuthorization
     || !runtimeVersions
     || !supportedBackends
@@ -270,10 +417,39 @@ export function parseBrowserRuntimeManifest(value: unknown): BrowserRuntimeManif
   ];
   if (pluginArtifacts.some((artifact) => artifact?.kind !== "data")) return null;
 
+  const nativePipAddon = artifactsByPath.get(capabilities.nativePip.addon);
+  if (!isCompatibleBinary(nativePipAddon) || nativePipAddon?.kind !== "native-addon") return null;
+  if (
+    capabilities.nativePip.controlAssets.some(
+      (assetPath) => artifactsByPath.get(assetPath)?.kind !== "data",
+    )
+  ) {
+    return null;
+  }
+
+  if (capabilities.computerUse.status === "available") {
+    if (targetArch !== "arm64" || value.targetPlatform !== "darwin") return null;
+    const computerUseArtifacts = [
+      artifactsByPath.get(capabilities.computerUse.plugin.manifest),
+      artifactsByPath.get(capabilities.computerUse.plugin.docs),
+      artifactsByPath.get(capabilities.computerUse.plugin.marketplaceManifest),
+      artifactsByPath.get(capabilities.computerUse.client),
+      artifactsByPath.get(capabilities.computerUse.serviceExecutable),
+    ];
+    if (computerUseArtifacts.some((artifact) => artifact === undefined)) return null;
+    if (computerUseArtifacts.slice(0, 4).some((artifact) => artifact?.kind !== "data")) return null;
+    if (computerUseArtifacts[4]?.kind !== "executable") return null;
+  }
+  if (targetArch === "x64" && capabilities.computerUse.status !== "unavailable") return null;
+
   return {
     artifacts: parsedArtifacts,
     browserPlugin,
     buildFlavor,
+    capabilities: {
+      computerUse: capabilities.computerUse,
+      nativePip: capabilities.nativePip,
+    },
     codexCompatibilityVersion,
     contractVersion: value.contractVersion,
     desktopBuild,
