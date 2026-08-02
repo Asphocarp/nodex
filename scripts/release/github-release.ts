@@ -26,10 +26,50 @@ interface GitHubRelease {
   readonly tag_name: string;
 }
 
+interface ReleaseAssetIdentity {
+  readonly bytes: number;
+  readonly sha256: string;
+}
+
 export type PublicationPlan =
   | { readonly kind: "create" }
   | { readonly kind: "resume-draft"; readonly missingAssetNames: readonly string[] }
   | { readonly kind: "verify-published" };
+
+const assertRegularFile = (filePath: string): void => {
+  if (!existsSync(filePath)) throw new Error(`Release asset is missing: ${filePath}`);
+  const metadata = lstatSync(filePath);
+  if (!metadata.isFile() || metadata.isSymbolicLink()) {
+    throw new Error(`Release asset must be a regular file: ${filePath}`);
+  }
+};
+
+const readBundle = (bundlePath: string) => {
+  const resolvedBundle = resolve(bundlePath);
+  assertRegularFile(resolvedBundle);
+  return {
+    bundle: parseReleaseBundleManifest(JSON.parse(readFileSync(resolvedBundle, "utf8"))),
+    resolvedBundle,
+    root: dirname(resolvedBundle),
+  };
+};
+
+const verifyChecksumAllowlist = (
+  resolvedBundle: string,
+  bundle: ReturnType<typeof parseReleaseBundleManifest>,
+): string => {
+  const checksumPath = join(dirname(resolvedBundle), "SHA256SUMS");
+  assertRegularFile(checksumPath);
+  const checksumEntries = [
+    ...bundle.assets.map(({ name, sha256 }) => ({ name, sha256 })),
+    { name: basename(resolvedBundle), sha256: sha256File(resolvedBundle) },
+  ].sort((left, right) => left.name.localeCompare(right.name));
+  const expectedChecksums = `${checksumEntries.map(({ name, sha256 }) => `${sha256}  ${name}`).join("\n")}\n`;
+  if (readFileSync(checksumPath, "utf8") !== expectedChecksums) {
+    throw new Error("SHA256SUMS does not match the Release Bundle allowlist.");
+  }
+  return checksumPath;
+};
 
 const gh = (args: readonly string[], options?: { readonly allowFailure?: boolean }): string => {
   try {
@@ -44,47 +84,54 @@ const gh = (args: readonly string[], options?: { readonly allowFailure?: boolean
 };
 
 export const releaseAssetPaths = (bundlePath: string): readonly string[] => {
-  const resolvedBundle = resolve(bundlePath);
-  const root = dirname(resolvedBundle);
-  const bundle = parseReleaseBundleManifest(JSON.parse(readFileSync(resolvedBundle, "utf8")));
+  const { bundle, resolvedBundle, root } = readBundle(bundlePath);
+  const checksumPath = join(root, "SHA256SUMS");
   const paths = [
     ...bundle.assets.map((asset) => join(root, asset.name)),
     resolvedBundle,
-    join(root, "SHA256SUMS"),
+    checksumPath,
   ];
-  for (const filePath of paths) {
-    if (!existsSync(filePath)) throw new Error(`Release asset is missing: ${filePath}`);
-    const metadata = lstatSync(filePath);
-    if (!metadata.isFile() || metadata.isSymbolicLink()) {
-      throw new Error(`Release asset must be a regular file: ${filePath}`);
-    }
-  }
+  for (const filePath of paths) assertRegularFile(filePath);
   for (const artifact of bundle.assets) {
     const filePath = join(root, artifact.name);
     if (lstatSync(filePath).size !== artifact.bytes || sha256File(filePath) !== artifact.sha256) {
       throw new Error(`Release asset ${artifact.name} does not match release-bundle.json.`);
     }
   }
-  const checksumEntries = [
-    ...bundle.assets.map(({ name, sha256 }) => ({ name, sha256 })),
-    { name: basename(resolvedBundle), sha256: sha256File(resolvedBundle) },
-  ].sort((left, right) => left.name.localeCompare(right.name));
-  const expectedChecksums = `${checksumEntries.map(({ name, sha256 }) => `${sha256}  ${name}`).join("\n")}\n`;
-  if (readFileSync(join(root, "SHA256SUMS"), "utf8") !== expectedChecksums) {
-    throw new Error("SHA256SUMS does not match the Release Bundle allowlist.");
-  }
+  verifyChecksumAllowlist(resolvedBundle, bundle);
   return paths;
 };
 
-const expectedAssets = (bundlePath: string): ReadonlyMap<string, { readonly bytes: number; readonly sha256: string }> =>
+const expectedLocalAssets = (bundlePath: string): ReadonlyMap<string, ReleaseAssetIdentity> =>
   new Map(releaseAssetPaths(bundlePath).map((filePath) => [
     basename(filePath),
     { bytes: lstatSync(filePath).size, sha256: sha256File(filePath) },
   ]));
 
+export const remoteReleaseAssetIdentities = (
+  bundlePath: string,
+): ReadonlyMap<string, ReleaseAssetIdentity> => {
+  const { bundle, resolvedBundle } = readBundle(bundlePath);
+  const checksumPath = verifyChecksumAllowlist(resolvedBundle, bundle);
+  return new Map([
+    ...bundle.assets.map((asset) => [
+      asset.name,
+      { bytes: asset.bytes, sha256: asset.sha256 },
+    ] as const),
+    [
+      basename(resolvedBundle),
+      { bytes: lstatSync(resolvedBundle).size, sha256: sha256File(resolvedBundle) },
+    ],
+    [
+      basename(checksumPath),
+      { bytes: lstatSync(checksumPath).size, sha256: sha256File(checksumPath) },
+    ],
+  ]);
+};
+
 export function planPublication(
   release: GitHubRelease | null,
-  expected: ReadonlyMap<string, { readonly bytes: number; readonly sha256: string }>,
+  expected: ReadonlyMap<string, ReleaseAssetIdentity>,
 ): PublicationPlan {
   if (!release) return { kind: "create" };
   if (release.prerelease) throw new Error("Stable app release cannot be a prerelease.");
@@ -221,7 +268,7 @@ export function publishGitHubRelease(options: {
 }): PublicationPlan {
   const bundlePath = resolve(options.bundlePath);
   const bundle = parseReleaseBundleManifest(JSON.parse(readFileSync(bundlePath, "utf8")));
-  const expected = expectedAssets(bundlePath);
+  const expected = expectedLocalAssets(bundlePath);
   const release = readRelease(options.repo, bundle.tag);
   const plan = planPublication(release, expected);
   const filesByName = new Map(releaseAssetPaths(bundlePath).map((filePath) => [basename(filePath), filePath]));
@@ -268,7 +315,8 @@ export function verifyRemoteRelease(options: {
   const bundle = parseReleaseBundleManifest(JSON.parse(readFileSync(bundlePath, "utf8")));
   if (!stableVersionFromAppTag(bundle.tag)) throw new Error("Release Bundle tag is not a stable app tag.");
   const release = readRelease(options.repo, bundle.tag);
-  const plan = planPublication(release, expectedAssets(bundlePath));
+  const expected = remoteReleaseAssetIdentities(bundlePath);
+  const plan = planPublication(release, expected);
   if (plan.kind !== "verify-published" || !release) throw new Error("GitHub release is not fully published.");
   if (options.requireImmutable !== false && release.immutable !== true) {
     throw new Error("GitHub release is not immutable.");
@@ -284,7 +332,6 @@ export function verifyRemoteRelease(options: {
   const downloadRoot = mkdtempSync(join(tmpdir(), "nodex-release-redownload-"));
   try {
     gh(["release", "download", bundle.tag, "--repo", options.repo, "--dir", downloadRoot]);
-    const expected = expectedAssets(bundlePath);
     for (const [name, identity] of expected) {
       const downloaded = join(downloadRoot, name);
       if (

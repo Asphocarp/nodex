@@ -8,7 +8,7 @@ import {
   type ArchitectureBuildManifest,
   type MacArchitecture,
 } from "./bundle";
-import { releaseAssetPaths } from "./github-release";
+import { releaseAssetPaths, remoteReleaseAssetIdentities } from "./github-release";
 import { sha256File } from "./model";
 import { projectReleaseAppcasts } from "./pages";
 import {
@@ -205,6 +205,36 @@ test("assembles the exact dual-architecture Sparkle asset closure", () => {
   })).toThrow("cannot move");
   appendFileSync(join(output, "Nodex-latest-arm64.dmg"), "tampered");
   expect(() => releaseAssetPaths(join(output, "release-bundle.json"))).toThrow("does not match");
+});
+
+test("derives remote release identities without local copies of the full assets", () => {
+  const arm64 = makeArchitecture("arm64");
+  const x64 = makeArchitecture("x64");
+  const output = join(fixture, "output");
+  const bundle = assembleReleaseBundle({
+    arm64Directory: arm64,
+    arm64UpdateDirectory: makeUpdate("arm64", arm64),
+    outputDirectory: output,
+    sourceSha: SOURCE_SHA,
+    version: VERSION,
+    x64Directory: x64,
+    x64UpdateDirectory: makeUpdate("x64", x64),
+  });
+  for (const asset of bundle.assets) rmSync(join(output, asset.name));
+
+  const identities = remoteReleaseAssetIdentities(join(output, "release-bundle.json"));
+  expect([...identities.keys()].sort()).toEqual([
+    ...bundle.assets.map(({ name }) => name),
+    "release-bundle.json",
+    "SHA256SUMS",
+  ].sort());
+  for (const asset of bundle.assets) {
+    expect(identities.get(asset.name)).toEqual({ bytes: asset.bytes, sha256: asset.sha256 });
+  }
+
+  appendFileSync(join(output, "SHA256SUMS"), "tampered\n");
+  expect(() => remoteReleaseAssetIdentities(join(output, "release-bundle.json")))
+    .toThrow("SHA256SUMS does not match");
 });
 
 test("rejects a Sparkle full update that does not match the architecture ZIP", () => {
