@@ -3,23 +3,23 @@ import { useDeferredValue, useEffect, useEffectEvent, useLayoutEffect, useMemo, 
 import { createPortal } from "react-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  CodexAutomationActiveStatusIcon,
-  CodexAutomationArchiveIcon,
-  CodexAutomationEditIcon,
-  CodexAutomationLoadingIcon,
-  CodexAutomationMoreIcon,
-  CodexAutomationPauseIcon,
-  CodexAutomationResumeIcon,
-  CodexAutomationRunNowIcon,
-  CodexAutomationTemplateColorIcon,
-  CodexAutomationTrashIcon,
-  CodexAutomationsIcon,
-  CodexChevronDownIcon,
-  CodexPanelRightVisibleIcon,
-  CodexSettingsSearchIcon,
-  CodexSidePanelPlusIcon,
-  CodexSidePanelSideChatIcon,
-  CodexSidebarSortClockIcon,
+  AutomationActiveStatusIcon,
+  AutomationArchiveIcon,
+  AutomationEditIcon,
+  AutomationLoadingIcon,
+  AutomationMoreIcon,
+  AutomationPauseIcon,
+  AutomationResumeIcon,
+  AutomationRunNowIcon,
+  AutomationTemplateColorIcon,
+  AutomationTrashIcon,
+  AutomationsIcon,
+  CompactChevronDownIcon,
+  PanelRightVisibleIcon,
+  SettingsSearchIcon,
+  SidePanelPlusIcon,
+  SidePanelSideChatIcon,
+  SidebarSortClockIcon,
 } from "@/components/shared/icons";
 import { NodexButton } from "@/components/ui/button";
 import {
@@ -330,7 +330,7 @@ function AutomationDropdownField({
           className={cn(AUTOMATION_FIELD_TRIGGER_CLASS, "inline-flex max-w-full justify-end", triggerClassName)}
         >
           <span className="min-w-0 truncate text-token-foreground">{selectedLabel}</span>
-          <CodexChevronDownIcon className="icon-2xs shrink-0 text-token-text-tertiary" />
+          <CompactChevronDownIcon className="icon-2xs shrink-0 text-token-text-tertiary" />
         </button>
       )}
     />
@@ -437,7 +437,7 @@ function AutomationSchedulePopover({
           className={cn(AUTOMATION_FIELD_TRIGGER_CLASS, "inline-flex max-w-full justify-end")}
         >
           <span className="min-w-0 truncate text-token-foreground">{selectedLabel}</span>
-          <CodexChevronDownIcon className="icon-2xs shrink-0 text-token-text-tertiary" />
+          <CompactChevronDownIcon className="icon-2xs shrink-0 text-token-text-tertiary" />
         </button>
       </NodexPopoverTrigger>
       {disabled ? null : (
@@ -470,7 +470,7 @@ function AutomationSchedulePopover({
                       intervalStyle,
                     })}
                   </span>
-                  <CodexChevronDownIcon className="icon-2xs shrink-0 text-token-text-tertiary" />
+                  <CompactChevronDownIcon className="icon-2xs shrink-0 text-token-text-tertiary" />
                 </button>
               )}
             />
@@ -525,7 +525,7 @@ function AutomationSchedulePopover({
                     <span className="min-w-0 truncate text-token-foreground">
                       {AUTOMATION_WEEKDAY_LABELS[resolvedConfig.weekdays[0] ?? "MO"]}
                     </span>
-                    <CodexChevronDownIcon className="icon-2xs shrink-0 text-token-text-tertiary" />
+                    <CompactChevronDownIcon className="icon-2xs shrink-0 text-token-text-tertiary" />
                   </button>
                 )}
               />
@@ -554,7 +554,7 @@ function AutomationSchedulePopover({
                     )}
                     onClick={() => setTimePickerOpen((open) => !open)}
                   >
-                    <CodexSidebarSortClockIcon className="icon-2xs" />
+                    <SidebarSortClockIcon className="icon-2xs" />
                   </NodexButton>
                 </div>
                 {timePickerOpen ? (
@@ -647,7 +647,7 @@ function AutomationProjectDropdown({
           )}
         >
           <span className="min-w-0 truncate text-token-foreground">{triggerLabel}</span>
-          <CodexChevronDownIcon className="icon-2xs shrink-0 text-token-text-tertiary" />
+          <CompactChevronDownIcon className="icon-2xs shrink-0 text-token-text-tertiary" />
         </button>
       )}
     >
@@ -778,9 +778,9 @@ function AutomationEnvironmentDropdown({
         >
           <span className="min-w-0 truncate text-token-foreground">{triggerLabel}</span>
           {isLoading ? (
-            <CodexAutomationLoadingIcon className="icon-2xs shrink-0 text-token-text-tertiary" />
+            <AutomationLoadingIcon className="icon-2xs shrink-0 text-token-text-tertiary" />
           ) : (
-            <CodexChevronDownIcon className="icon-2xs shrink-0 text-token-text-tertiary" />
+            <CompactChevronDownIcon className="icon-2xs shrink-0 text-token-text-tertiary" />
           )}
         </button>
       )}
@@ -799,7 +799,7 @@ function AutomationEnvironmentDropdown({
           <NodexDropdownItem
             leftSlot={(
               <span title="Default environment">
-                <CodexAutomationTemplateColorIcon iconName="star-app" className="icon-xxs shrink-0" />
+                <AutomationTemplateColorIcon iconName="star-app" className="icon-xxs shrink-0" />
               </span>
             )}
             rightSlot={
@@ -834,7 +834,7 @@ function AutomationEnvironmentDropdown({
         ) : null}
         {isLoading ? (
           <div className="flex items-center justify-center py-4">
-            <CodexAutomationLoadingIcon className="icon-xxs text-token-description-foreground" />
+            <AutomationLoadingIcon className="icon-xxs text-token-description-foreground" />
           </div>
         ) : hasError ? (
           <NodexDropdownMessage compact tone="error">Error loading environments</NodexDropdownMessage>
@@ -845,7 +845,7 @@ function AutomationEnvironmentDropdown({
       <NodexDropdownSeparator />
       <div className="flex flex-col pb-1">
         <NodexDropdownItem
-          leftSlot={<CodexSidePanelPlusIcon className="icon-2xs shrink-0" />}
+          leftSlot={<SidePanelPlusIcon className="icon-2xs shrink-0" />}
           onSelect={openSettings}
         >
           Create local environment
@@ -972,9 +972,9 @@ function LegacyAutomationModelReasoningDropdown({
             ) : null}
           </span>
           {modelsLoading ? (
-            <CodexAutomationLoadingIcon className="icon-2xs shrink-0 text-token-text-tertiary" />
+            <AutomationLoadingIcon className="icon-2xs shrink-0 text-token-text-tertiary" />
           ) : (
-            <CodexChevronDownIcon className="icon-2xs shrink-0 text-token-text-tertiary" />
+            <CompactChevronDownIcon className="icon-2xs shrink-0 text-token-text-tertiary" />
           )}
         </button>
       )}
@@ -1102,7 +1102,7 @@ function AgentAutomationModelReasoningDropdown({
               {formatCodexReasoningEffortLabel(profile.reasoningEffort ?? undefined)}
             </span>
           </span>
-          <CodexChevronDownIcon className="icon-2xs shrink-0 text-token-text-tertiary" />
+          <CompactChevronDownIcon className="icon-2xs shrink-0 text-token-text-tertiary" />
         </button>
       )}
     >
@@ -1321,7 +1321,7 @@ function AutomationPreviousRunStatusIcon({
   row: WorkbenchAutomationPreviousRunRowModel;
 }) {
   if (row.isInProgress) {
-    return <CodexAutomationLoadingIcon className="icon-xs" />;
+    return <AutomationLoadingIcon className="icon-xs" />;
   }
 
   if (row.isUnread) {
@@ -1337,7 +1337,7 @@ function AutomationPreviousRunStatusIcon({
   }
 
   if (row.isArchived) {
-    return <CodexAutomationArchiveIcon className="icon-xs text-token-text-tertiary" />;
+    return <AutomationArchiveIcon className="icon-xs text-token-text-tertiary" />;
   }
 
   return <span aria-hidden="true" className="size-2 rounded-full bg-token-description-foreground" />;
@@ -1555,7 +1555,7 @@ function AutomationPreviousRunsSection({
           aria-label="Previous runs actions"
           className="flex size-7 cursor-interaction items-center justify-center rounded-md text-token-description-foreground outline-none hover:bg-token-list-hover-background hover:text-token-foreground focus-visible:ring-token-focus focus-visible:ring-2"
         >
-          <CodexAutomationMoreIcon className="icon-xs" />
+          <AutomationMoreIcon className="icon-xs" />
         </button>
       )}
     >
@@ -1567,7 +1567,7 @@ function AutomationPreviousRunsSection({
         Mark all as read
       </NodexDropdownItem>
       <NodexDropdownItem
-        leftSlot={<CodexAutomationArchiveIcon className="icon-xs" />}
+        leftSlot={<AutomationArchiveIcon className="icon-xs" />}
         disabled={actionBusy || archiveableRows.length === 0}
         onSelect={() => openArchiveDialog(archiveableRows, { showSuccessToast: true })}
       >
@@ -1581,7 +1581,7 @@ function AutomationPreviousRunsSection({
       <AutomationDetailSection title="Previous runs" action={headerMenu}>
         {loading && rows.length === 0 ? (
           <div className="flex min-h-11 items-center justify-start px-1 py-2 text-token-description-foreground">
-            <CodexAutomationLoadingIcon className="icon-sm" />
+            <AutomationLoadingIcon className="icon-sm" />
           </div>
         ) : rows.length === 0 ? (
           <div className="px-1 py-2 text-base text-token-text-tertiary opacity-70">
@@ -1628,7 +1628,7 @@ function AutomationStatusControl({
   if (row.isInProgress) {
     return (
       <span className="relative inline-flex size-5 shrink-0 items-center justify-center text-token-description-foreground">
-        <CodexAutomationLoadingIcon className="icon-sm" />
+        <AutomationLoadingIcon className="icon-sm" />
         {row.hasUnreadRuns ? (
           <span className="pointer-events-none absolute -top-0.5 -right-0.5 size-2 rounded-full bg-token-charts-blue ring-2 ring-token-main-surface-primary" />
         ) : null}
@@ -1649,11 +1649,11 @@ function AutomationStatusControl({
     >
       <span className="group/status-toggle relative inline-flex size-5 items-center justify-center">
         {row.isPaused ? (
-          <CodexAutomationResumeIcon className="icon-sm" />
+          <AutomationResumeIcon className="icon-sm" />
         ) : (
           <>
-            <CodexAutomationActiveStatusIcon className="icon-sm group-focus-within/status-toggle:opacity-0 group-hover/status-toggle:opacity-0" />
-            <CodexAutomationPauseIcon className="icon-sm absolute inset-0 opacity-0 group-focus-within/status-toggle:opacity-100 group-hover/status-toggle:opacity-100" />
+            <AutomationActiveStatusIcon className="icon-sm group-focus-within/status-toggle:opacity-0 group-hover/status-toggle:opacity-0" />
+            <AutomationPauseIcon className="icon-sm absolute inset-0 opacity-0 group-focus-within/status-toggle:opacity-100 group-hover/status-toggle:opacity-100" />
           </>
         )}
         {row.hasUnreadRuns ? (
@@ -1744,7 +1744,7 @@ function AutomationListRow({
               onRunAutomationNow(row.automation);
             }}
           >
-            {isRunNowPending ? <CodexAutomationLoadingIcon className="icon-sm" /> : <CodexAutomationRunNowIcon className="icon-sm" />}
+            {isRunNowPending ? <AutomationLoadingIcon className="icon-sm" /> : <AutomationRunNowIcon className="icon-sm" />}
           </AutomationRowAction>
           <AutomationRowAction
             label="Edit scheduled task"
@@ -1754,7 +1754,7 @@ function AutomationListRow({
               onSelect(row.automation);
             }}
           >
-            <CodexAutomationEditIcon className="icon-sm" />
+            <AutomationEditIcon className="icon-sm" />
           </AutomationRowAction>
           <AutomationRowAction
             label="Delete"
@@ -1765,7 +1765,7 @@ function AutomationListRow({
               onDeleteAutomation(row.automation);
             }}
           >
-            <CodexAutomationTrashIcon className="icon-sm" />
+            <AutomationTrashIcon className="icon-sm" />
           </AutomationRowAction>
         </span>
       </span>
@@ -1849,19 +1849,19 @@ function CreateAutomationSplitControl({
               "aspect-square justify-center rounded-l-none !px-0",
             )}
           >
-            <CodexChevronDownIcon className="icon-xs text-token-text-tertiary" />
+            <CompactChevronDownIcon className="icon-xs text-token-text-tertiary" />
           </button>
         )}
       >
         <NodexDropdownItem
-          leftSlot={<CodexSidePanelSideChatIcon className="icon-xs" />}
+          leftSlot={<SidePanelSideChatIcon className="icon-xs" />}
           disabled={chatDisabled}
           onSelect={onCreateWithChat}
         >
           Create via chat
         </NodexDropdownItem>
         <NodexDropdownItem
-          leftSlot={<CodexSidePanelPlusIcon className="icon-xs" />}
+          leftSlot={<SidePanelPlusIcon className="icon-xs" />}
           onSelect={onCreateManually}
         >
           Create manually
@@ -1959,7 +1959,7 @@ function AutomationDetailRunNowButton({
       onClick={onClick}
       className={cn(AUTOMATION_TOOLBAR_BUTTON_BASE_CLASS, AUTOMATION_TOOLBAR_BUTTON_PRIMARY_CLASS)}
     >
-      {pending ? <CodexAutomationLoadingIcon className="icon-xs" /> : <CodexAutomationRunNowIcon className="icon-xs" />}
+      {pending ? <AutomationLoadingIcon className="icon-xs" /> : <AutomationRunNowIcon className="icon-xs" />}
       Run now
     </button>
   );
@@ -2020,7 +2020,7 @@ function AutomationsSearchablePageLayout({
           <div className="mx-auto w-full max-w-[var(--thread-content-max-width)] px-panel pb-2">
             <label className="relative block w-full min-w-0">
               <span className="sr-only">{searchLabel}</span>
-              <CodexSettingsSearchIcon className="icon-xs pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-token-text-tertiary" />
+              <SettingsSearchIcon className="icon-xs pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-token-text-tertiary" />
               <Input
                 aria-label={searchLabel}
                 value={searchValue}
@@ -2112,7 +2112,7 @@ function AutomationFirstRunSuggestionIcon({
       ? "radar"
       : "star-app";
 
-  return <CodexAutomationTemplateColorIcon iconName={templateIconName} className="icon-sm" />;
+  return <AutomationTemplateColorIcon iconName={templateIconName} className="icon-sm" />;
 }
 
 function AutomationsFirstRunEmptyState({
@@ -2139,7 +2139,7 @@ function AutomationsFirstRunEmptyState({
         </p>
       </div>
       <AutomationsEmptyState
-        icon={<CodexAutomationsIcon className="icon-sm" />}
+        icon={<AutomationsIcon className="icon-sm" />}
         title="Create your first scheduled task"
         action={(
           <div className="flex flex-wrap items-center justify-center gap-2">
@@ -2157,7 +2157,7 @@ function AutomationsFirstRunEmptyState({
               ))
             ) : (
               <NodexButton variant="outline" size="default" onClick={onCreateManually}>
-                <CodexSidePanelPlusIcon className="icon-sm" />
+                <SidePanelPlusIcon className="icon-sm" />
                 Create manually
               </NodexButton>
             )}
@@ -2171,7 +2171,7 @@ function AutomationsFirstRunEmptyState({
 function AutomationsFirstRunLoadingState() {
   return (
     <div className="flex items-center gap-2 rounded-md px-2 py-2 text-sm text-token-description-foreground">
-      <CodexAutomationLoadingIcon className="icon-sm" />
+      <AutomationLoadingIcon className="icon-sm" />
       Loading…
     </div>
   );
@@ -2241,13 +2241,13 @@ function AutomationsTasksPanel({
       >
       {loading ? (
         <AutomationsEmptyState
-          icon={<CodexAutomationsIcon className="icon-sm" />}
+          icon={<AutomationsIcon className="icon-sm" />}
           title="Loading scheduled tasks"
           description="Reading local automation metadata."
         />
       ) : visibleRowCount === 0 ? (
         <AutomationsEmptyState
-          icon={<CodexSettingsSearchIcon className="icon-sm" />}
+          icon={<SettingsSearchIcon className="icon-sm" />}
           title="No scheduled tasks found"
           description="Try another search"
         />
@@ -2288,7 +2288,7 @@ function AutomationTemplateIcon({
 }: {
   iconName: string;
 }) {
-  return <CodexAutomationTemplateColorIcon iconName={iconName} className="icon-sm" />;
+  return <AutomationTemplateColorIcon iconName={iconName} className="icon-sm" />;
 }
 
 function AutomationTemplateCard({
@@ -2339,7 +2339,7 @@ function AutomationsTemplatesPanel({
       >
       {templates.length === 0 ? (
         <AutomationsEmptyState
-          icon={<CodexSettingsSearchIcon className="icon-sm" />}
+          icon={<SettingsSearchIcon className="icon-sm" />}
           title="No templates found"
           description="Try another search"
         />
@@ -2426,7 +2426,7 @@ function AutomationDetailSurface({
   if (mode === "loading" || loading) {
     return (
       <AutomationsEmptyState
-        icon={<CodexAutomationsIcon className="icon-sm" />}
+        icon={<AutomationsIcon className="icon-sm" />}
         title="Loading scheduled task"
         description="Reading the latest automation metadata for this workspace."
       />
@@ -2438,7 +2438,7 @@ function AutomationDetailSurface({
       <div className="flex h-full min-h-0 flex-1 items-center justify-center px-6 py-8 text-center">
         <div className="flex max-w-md flex-col items-center gap-3">
           <div className="flex size-10 items-center justify-center rounded-lg bg-token-bg-secondary text-token-text-secondary">
-            <CodexAutomationTemplateColorIcon iconName="exclamationmark-bubble" className="icon-sm" />
+            <AutomationTemplateColorIcon iconName="exclamationmark-bubble" className="icon-sm" />
           </div>
           <div className="text-lg text-token-foreground">Scheduled task not found</div>
           <div className="text-sm leading-5 text-token-text-secondary">
@@ -2455,7 +2455,7 @@ function AutomationDetailSurface({
   if (mode !== "create" && !automation) {
     return (
       <AutomationsEmptyState
-        icon={<CodexAutomationsIcon className="icon-sm" />}
+        icon={<AutomationsIcon className="icon-sm" />}
         title={selectedAutomationId ? "Scheduled task not found" : "Select a scheduled task"}
         description={selectedAutomationId ? "No local automation matches the selected id." : "Choose a scheduled task to inspect its target and next run."}
       />
@@ -2687,9 +2687,9 @@ function AutomationDraftEditor({
                   onClick={() => void personalizeTemplate()}
                 >
                   {isTemplatePersonalizationPending ? (
-                    <CodexAutomationLoadingIcon className="icon-xs" />
+                    <AutomationLoadingIcon className="icon-xs" />
                   ) : (
-                    <CodexSidePanelSideChatIcon className="icon-xs" />
+                    <SidePanelSideChatIcon className="icon-xs" />
                   )}
                   Personalize with Codex
                 </NodexButton>
@@ -2707,7 +2707,7 @@ function AutomationDraftEditor({
                       disabled={!canCreate}
                       className={canCreate ? undefined : "pointer-events-none"}
                     >
-                      <CodexSidePanelPlusIcon className="icon-xs" />
+                      <SidePanelPlusIcon className="icon-xs" />
                       Create scheduled task
                     </NodexButton>
                   </span>
@@ -3031,7 +3031,7 @@ export function WorkbenchAutomationSidePanelTab({
   if (isSuggestedUpdate && targetAutomationId !== null && targetAutomation === null && automationsQuery.isLoading) {
     return (
       <AutomationsEmptyState
-        icon={<CodexAutomationLoadingIcon className="icon-sm" />}
+        icon={<AutomationLoadingIcon className="icon-sm" />}
         title="Loading scheduled task"
         description="Reading the latest automation metadata for this workspace."
       />
@@ -3044,7 +3044,7 @@ export function WorkbenchAutomationSidePanelTab({
         <div className="flex min-h-0 flex-1 items-center justify-center">
           <div className="flex max-w-sm flex-col items-center gap-3 text-center">
             <span className="flex size-10 items-center justify-center rounded-lg bg-token-bg-secondary text-token-text-secondary">
-              <CodexAutomationTemplateColorIcon iconName="exclamationmark-bubble" className="icon-sm" />
+              <AutomationTemplateColorIcon iconName="exclamationmark-bubble" className="icon-sm" />
             </span>
             <div className="text-lg text-token-foreground">Scheduled task unavailable</div>
             <div className="text-sm text-token-description-foreground">
@@ -3062,7 +3062,7 @@ export function WorkbenchAutomationSidePanelTab({
         <div className="flex min-h-0 flex-1 items-center justify-center">
           <div className="flex max-w-sm flex-col items-center gap-3 text-center">
             <span className="flex size-10 items-center justify-center rounded-lg bg-token-bg-secondary text-token-text-secondary">
-              <CodexAutomationTemplateColorIcon iconName="exclamationmark-bubble" className="icon-sm" />
+              <AutomationTemplateColorIcon iconName="exclamationmark-bubble" className="icon-sm" />
             </span>
             <div className="text-lg text-token-foreground">Scheduled task unavailable</div>
             <div className="text-sm text-token-description-foreground">
@@ -3141,7 +3141,7 @@ export function WorkbenchAutomationSidePanelTab({
                   disabled={!canSubmit}
                   className={canSubmit ? undefined : "pointer-events-none"}
                 >
-                  {mutating ? <CodexAutomationLoadingIcon className="icon-xs" /> : null}
+                  {mutating ? <AutomationLoadingIcon className="icon-xs" /> : null}
                   {acceptLabel}
                 </NodexButton>
               </span>
@@ -3918,7 +3918,7 @@ export function WorkbenchAutomationsRouteShell({
                     disabled={mutatingAutomationId !== null}
                     onClick={() => requestUpdateAutomationStatus(selectedAutomation, "ACTIVE")}
                   >
-                    <CodexAutomationResumeIcon className="icon-sm" />
+                    <AutomationResumeIcon className="icon-sm" />
                   </AutomationDetailToolbarButton>
                 ) : (
                   <AutomationDetailToolbarButton
@@ -3926,7 +3926,7 @@ export function WorkbenchAutomationsRouteShell({
                     disabled={mutatingAutomationId !== null}
                     onClick={() => requestUpdateAutomationStatus(selectedAutomation, "PAUSED")}
                   >
-                    <CodexAutomationPauseIcon className="icon-sm" />
+                    <AutomationPauseIcon className="icon-sm" />
                   </AutomationDetailToolbarButton>
                 )}
                 <AutomationDetailToolbarButton
@@ -3935,7 +3935,7 @@ export function WorkbenchAutomationsRouteShell({
                   danger
                   onClick={() => requestDeleteAutomationFromRow(selectedAutomation)}
                 >
-                  <CodexAutomationTrashIcon className="icon-sm" />
+                  <AutomationTrashIcon className="icon-sm" />
                 </AutomationDetailToolbarButton>
               </>
             ) : null}
@@ -3944,7 +3944,7 @@ export function WorkbenchAutomationsRouteShell({
               active
               onClick={backToList}
             >
-              <CodexPanelRightVisibleIcon className="icon-sm" />
+              <PanelRightVisibleIcon className="icon-sm" />
             </AutomationDetailToolbarButton>
           </div>
         </div>
@@ -4067,7 +4067,7 @@ export function WorkbenchAutomationsRouteShell({
                 onClick={() => void confirmDeleteDialog()}
               >
                 {deleteDialogAutomation && mutatingAutomationId === deleteDialogAutomation.id ? (
-                  <CodexAutomationLoadingIcon className="icon-xs" />
+                  <AutomationLoadingIcon className="icon-xs" />
                 ) : null}
                 Delete scheduled task
               </NodexDialogAction>

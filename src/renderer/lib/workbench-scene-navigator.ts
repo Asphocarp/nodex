@@ -10,14 +10,17 @@ import {
   patchWorkbenchScenePanel,
   resolveWorkbenchSceneSurface,
   type WorkbenchBrowserSurfaceConfig,
+  type WorkbenchCanvasStageSurfaceConfig,
   type WorkbenchDbViewSurfaceConfig,
   type WorkbenchFilesSurfaceConfig,
+  type WorkbenchPageStageSurfaceConfig,
   type WorkbenchReviewSurfaceConfig,
   type WorkbenchSceneOwner,
   type WorkbenchSceneSnapshot,
   type WorkbenchSurfaceDescriptor,
   type WorkbenchTerminalSurfaceConfig,
 } from "../../shared/workbench-scene";
+import type { WorkbenchSceneLocation } from "../../shared/workbench-layout";
 import type { WorkbenchPanelId } from "../../shared/workbench-session-view";
 import { resolveRightNeighborPanelPlacement } from "./workbench-panel-placement";
 
@@ -34,14 +37,12 @@ export type WorkbenchSurfaceOpenRequest =
     }
   | {
       readonly kind: "page_stage";
-      readonly projectId: string;
-      readonly pageId: string;
+      readonly config: WorkbenchPageStageSurfaceConfig;
       readonly titleSnapshot?: string;
     }
   | {
       readonly kind: "canvas_stage";
-      readonly projectId: string;
-      readonly canvasBlockId: string;
+      readonly config: WorkbenchCanvasStageSurfaceConfig;
       readonly titleSnapshot?: string;
     }
   | {
@@ -94,22 +95,39 @@ function resolvePanelSurfaceTarget(
   target: PresentWorkbenchPanelSurfaceInput["target"],
 ): {
   readonly scene: WorkbenchSceneSnapshot;
+  readonly panelId: WorkbenchPanelId;
   readonly leafId: string | undefined;
 } {
-  if (!target.placement || target.panelId !== "right") {
-    return { scene, leafId: target.leafId };
+  if (!target.placement) {
+    return { scene, panelId: target.panelId, leafId: target.leafId };
   }
   const sourceSurface = resolveWorkbenchSceneSurface(
     scene,
     target.placement.sourceSurfaceId,
   );
-  if (!sourceSurface) return { scene, leafId: target.leafId };
+  if (!sourceSurface) {
+    return { scene, panelId: target.panelId, leafId: target.leafId };
+  }
 
+  const sourcePanelId = (["right", "bottom"] as const).find((panelId) =>
+    findWorkbenchPanelLeafForTab(
+      scene.panels[panelId].layout,
+      sourceSurface.id,
+    )
+  );
+  if (!sourcePanelId) {
+    return { scene, panelId: target.panelId, leafId: target.leafId };
+  }
   const sourceLeaf = findWorkbenchPanelLeafForTab(
-    scene.panels.right.layout,
+    scene.panels[sourcePanelId].layout,
     sourceSurface.id,
   );
-  if (!sourceLeaf) return { scene, leafId: target.leafId };
+  if (!sourceLeaf) {
+    return { scene, panelId: target.panelId, leafId: target.leafId };
+  }
+  if (sourcePanelId === "bottom") {
+    return { scene, panelId: "bottom", leafId: sourceLeaf.id };
+  }
 
   const placement = resolveRightNeighborPanelPlacement(
     scene.panels.right.layout,
@@ -119,17 +137,17 @@ function resolvePanelSurfaceTarget(
     },
   );
   if (placement.kind === "fallback") {
-    return { scene, leafId: target.leafId };
+    return { scene, panelId: "right", leafId: sourceLeaf.id };
   }
   if (placement.kind === "existing") {
-    return { scene, leafId: placement.leafId };
+    return { scene, panelId: "right", leafId: placement.leafId };
   }
 
   const ensured = ensureWorkbenchSceneLeafToRight(scene, {
     panelId: "right",
     leafId: placement.sourceLeafId,
   });
-  return { scene: ensured.scene, leafId: ensured.leafId };
+  return { scene: ensured.scene, panelId: "right", leafId: ensured.leafId };
 }
 
 export type PresentWorkbenchPanelSurfaceResult =
@@ -154,9 +172,13 @@ export interface WorkbenchSceneNavigatorPort {
       previous: WorkbenchSceneSnapshot | undefined,
     ) => WorkbenchSceneSnapshot,
   ) => void;
-  readonly selectOwner: (
+  readonly selectLocation: (location: WorkbenchSceneLocation) => void;
+  readonly setSceneAndSelect: (
     owner: WorkbenchSceneOwner,
-    projectContextId?: string | null,
+    update: (
+      previous: WorkbenchSceneSnapshot | undefined,
+    ) => WorkbenchSceneSnapshot,
+    location: WorkbenchSceneLocation,
   ) => void;
   readonly presentPreview?: (
     input: PresentWorkbenchPanelSurfaceInput,
@@ -169,6 +191,7 @@ export interface WorkbenchSceneNavigator {
     readonly id: string;
     readonly projectId: string | null;
   }) => void;
+  readonly openPages: () => void;
   readonly presentPanelSurface: (
     input: PresentWorkbenchPanelSurfaceInput,
   ) => Promise<PresentWorkbenchPanelSurfaceResult>;
@@ -214,26 +237,14 @@ function makeSurfaceDescriptor(
         ...common,
         kind: request.kind,
         titleSnapshot: request.titleSnapshot ?? "Page",
-        config: {
-          projectId: request.projectId,
-          pageId: request.pageId,
-          ...(request.titleSnapshot
-            ? { titleSnapshot: request.titleSnapshot }
-            : {}),
-        },
+        config: request.config,
       };
     case "canvas_stage":
       return {
         ...common,
         kind: request.kind,
         titleSnapshot: request.titleSnapshot ?? "Canvas",
-        config: {
-          projectId: request.projectId,
-          canvasBlockId: request.canvasBlockId,
-          ...(request.titleSnapshot
-            ? { titleSnapshot: request.titleSnapshot }
-            : {}),
-        },
+        config: request.config,
       };
     case "terminal":
       return {
@@ -294,11 +305,12 @@ function presentDurableSurface(
     reused: false,
   };
 
-  port.setScene(input.owner, (stored) => {
+  const updateScene = (stored: WorkbenchSceneSnapshot | undefined) => {
     const scene = stored ?? materializeInitialWorkbenchScene(input.owner);
     const reuseKey = getWorkbenchSurfaceReuseKey(candidate);
     if (
       reuseKey !== null
+      && scene.primary
       && getWorkbenchSurfaceReuseKey(scene.primary) === reuseKey
     ) {
       result = {
@@ -341,17 +353,20 @@ function presentDurableSurface(
     const target = resolvePanelSurfaceTarget(scene, input.target);
     return patchWorkbenchScenePanel(
       createWorkbenchSceneSurface(target.scene, {
-        panelId: input.target.panelId,
+        panelId: target.panelId,
         targetLeafId: target.leafId,
         surface: candidate,
       }),
-      input.target.panelId,
+      target.panelId,
       { collapsed: false },
     );
-  });
+  };
 
   if (input.navigation === "select-owner") {
-    port.selectOwner(input.owner);
+    const location = sceneLocationForOwner(input.owner);
+    port.setSceneAndSelect(input.owner, updateScene, location);
+  } else {
+    port.setScene(input.owner, updateScene);
   }
   return result;
 }
@@ -376,6 +391,21 @@ export function createWorkbenchSceneNavigator(
         reason: "Project conversations belong to Agent Dock",
       };
     }
+    if (input.owner.kind === "pages") {
+      const requestAllowed = input.request.kind === "page_stage"
+        || input.request.kind === "canvas_stage"
+        || input.request.kind === "db_view";
+      const libraryAuthorized = requestAllowed
+        && input.request.config.accessContext.kind === "library"
+        && (input.request.kind !== "db_view"
+          || input.request.config.target.kind !== "project-default");
+      if (!libraryAuthorized) {
+        return {
+          status: "unavailable",
+          reason: "Pages only accepts Library content surfaces",
+        };
+      }
+    }
     return presentDurableSurface(port, identities, {
       ...input,
       request: input.request,
@@ -384,14 +414,32 @@ export function createWorkbenchSceneNavigator(
 
   return {
     openProject(projectId) {
-      port.selectOwner({ kind: "project", projectId });
+      port.selectLocation({ kind: "project", projectId });
     },
     openSession(session) {
-      port.selectOwner(
-        { kind: "session", sessionId: session.id },
-        session.projectId,
-      );
+      port.selectLocation({
+        kind: "session",
+        sessionId: session.id,
+        projectContextId: session.projectId,
+      });
+    },
+    openPages() {
+      port.selectLocation({ kind: "pages" });
     },
     presentPanelSurface,
   };
+}
+
+function sceneLocationForOwner(owner: WorkbenchSceneOwner): WorkbenchSceneLocation {
+  if (owner.kind === "project") {
+    return { kind: "project", projectId: owner.projectId };
+  }
+  if (owner.kind === "session") {
+    return {
+      kind: "session",
+      sessionId: owner.sessionId,
+      projectContextId: null,
+    };
+  }
+  return { kind: "pages" };
 }

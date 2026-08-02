@@ -1,12 +1,14 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-import type {
-  LibraryCanvasSummary,
-  LibraryModuleApplyRequest,
-  LibraryModuleApplyResult,
+import {
+  LIBRARY_MODULE_CONTRACT_VERSION,
+  type LibraryCanvasSummary,
+  type LibraryModuleApplyRequest,
+  type LibraryModuleApplyResult,
 } from "../../shared/library-module";
 import { bindLibraryModuleApply } from "../../shared/library-module-transport";
 import { createUuidV7FromTimestamp } from "../../shared/uuid-v7";
+import { projectContentAccess } from "../../shared/content-access-context";
 import {
   applyLibraryModule,
   readLibraryModule,
@@ -33,6 +35,7 @@ vi.mock("./api", () => ({
 
 const uuidV7 = (sequence: number): string =>
   createUuidV7FromTimestamp(1_785_491_085_000, sequence);
+const accessContext = projectContentAccess("project-1");
 
 function makeRuntime(input: {
   readonly storeEpoch?: string;
@@ -101,7 +104,7 @@ const receiptFor = (
 ): Extract<LibraryModuleApplyResult, { readonly ok: true }> => ({
   ok: true,
   value: {
-    version: 4,
+    version: LIBRARY_MODULE_CONTRACT_VERSION,
     operationId: request.operationId,
     storeEpoch: request.storeEpoch,
     libraryId: "library-1",
@@ -123,28 +126,38 @@ const receiptFor = (
 describe("Canvas host operations", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(readLibraryModule).mockImplementation(async (request) => ({
-      ok: true,
-      value: {
-        version: 4,
-        profileId: "profile-1",
-        libraryId: "library-1",
-        storeEpoch: "epoch-1",
-        changeLogSeq: 9,
+    vi.mocked(readLibraryModule).mockImplementation(async (
+      receivedAccessContext,
+      request,
+    ) => {
+      expect(receivedAccessContext).toEqual(accessContext);
+      return {
+        ok: true,
         value: {
-          kind: "canvas_target",
+          version: LIBRARY_MODULE_CONTRACT_VERSION,
+          profileId: "profile-1",
+          libraryId: "library-1",
+          storeEpoch: "epoch-1",
+          changeLogSeq: 9,
           value: {
-            status: "available",
-            summary: canvasSummary(
-              request.read.mode === "canvas_target"
-                ? request.read.canvasId
-                : uuidV7(90),
-            ),
+            kind: "canvas_target",
+            value: {
+              status: "available",
+              summary: canvasSummary(
+                request.read.mode === "canvas_target"
+                  ? request.read.canvasId
+                  : uuidV7(90),
+              ),
+            },
           },
         },
-      },
-    }));
-    vi.mocked(applyLibraryModule).mockImplementation(async (request) => {
+      };
+    });
+    vi.mocked(applyLibraryModule).mockImplementation(async (
+      receivedAccessContext,
+      request,
+    ) => {
+      expect(receivedAccessContext).toEqual(accessContext);
       bindLibraryModuleApply(request);
       return receiptFor(request);
     });
@@ -193,6 +206,7 @@ describe("Canvas host operations", () => {
     const runtime = makeRuntime();
 
     await createCanvasInHostPage({
+      accessContext,
       hostPageId: pageId,
       replacementBlockId,
       runtime,
@@ -203,6 +217,7 @@ describe("Canvas host operations", () => {
       },
     });
     await duplicateCanvasInHostPage({
+      accessContext,
       sourceCanvasBlockId: canvasId,
       hostPageId: pageId,
       insertion: { kind: "append" },
@@ -214,6 +229,7 @@ describe("Canvas host operations", () => {
       },
     });
     await moveCanvasOwnerBetweenHostPages({
+      accessContext,
       canvasBlockId: canvasId,
       targetPageId: pageId,
       insertion: {
@@ -226,7 +242,10 @@ describe("Canvas host operations", () => {
     });
 
     expect(applyLibraryModule).toHaveBeenCalledTimes(3);
-    for (const [request] of vi.mocked(applyLibraryModule).mock.calls) {
+    for (const [receivedAccessContext, request] of vi.mocked(
+      applyLibraryModule,
+    ).mock.calls) {
+      expect(receivedAccessContext).toEqual(accessContext);
       const operation = request.operation;
       if (
         operation.kind !== "create_canvas"
@@ -251,6 +270,7 @@ describe("Canvas host operations", () => {
     const targetPageId = uuidV7(2);
 
     await moveCanvasOwnerBetweenHostPages({
+      accessContext,
       canvasBlockId: canvasId,
       targetPageId,
       insertion: { kind: "append" },
@@ -265,7 +285,7 @@ describe("Canvas host operations", () => {
       operationId: uuidV7(3),
     });
 
-    const request = vi.mocked(applyLibraryModule).mock.calls[0]?.[0];
+    const request = vi.mocked(applyLibraryModule).mock.calls[0]?.[1];
     expect(request?.operation).toMatchObject({
       kind: "move_canvas",
       canvasId,
@@ -284,7 +304,7 @@ describe("Canvas host operations", () => {
     vi.mocked(readLibraryModule).mockResolvedValueOnce({
       ok: true,
       value: {
-        version: 4,
+        version: LIBRARY_MODULE_CONTRACT_VERSION,
         profileId: "profile-1",
         libraryId: "library-1",
         storeEpoch: "epoch-2",
@@ -300,6 +320,7 @@ describe("Canvas host operations", () => {
     });
 
     await expect(moveCanvasOwnerBetweenHostPages({
+      accessContext,
       canvasBlockId: canvasId,
       targetPageId: uuidV7(2),
       insertion: { kind: "append" },
@@ -312,7 +333,7 @@ describe("Canvas host operations", () => {
 
   test("retries transport ambiguity with the exact same operation request", async () => {
     const request = {
-      version: 4,
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
       operationId: "operation-1",
       storeEpoch: "epoch-1",
       operation: {
@@ -337,7 +358,7 @@ describe("Canvas host operations", () => {
       .mockResolvedValueOnce({
         ok: true,
         value: {
-          version: 4,
+          version: LIBRARY_MODULE_CONTRACT_VERSION,
           operationId: "operation-1",
           storeEpoch: "epoch-1",
           libraryId: "library-1",
@@ -356,71 +377,79 @@ describe("Canvas host operations", () => {
         },
       });
 
-    await applyLibraryRequestWithExactRetry(request, apply);
+    await applyLibraryRequestWithExactRetry(accessContext, request, apply);
 
     expect(apply).toHaveBeenCalledTimes(2);
-    expect(apply.mock.calls[0]?.[0]).toBe(request);
-    expect(apply.mock.calls[1]?.[0]).toBe(request);
+    expect(apply.mock.calls[0]).toEqual([accessContext, request]);
+    expect(apply.mock.calls[1]).toEqual([accessContext, request]);
   });
 
   test("deletes from owner coordinates without any scene runtime barrier", async () => {
     const apply = vi.fn(async (
+      receivedAccessContext: typeof accessContext,
       request: LibraryModuleApplyRequest,
-    ): Promise<LibraryModuleApplyResult> => ({
-      ok: true,
-      value: {
-        version: 4,
-        operationId: request.operationId,
-        storeEpoch: request.storeEpoch,
-        libraryId: "library-1",
-        operationKind: "delete_canvas",
-        duplicate: false,
-        didMutate: true,
-        createdTarget: null,
-        canvasMutation: null,
-        affectedParentKeys: ["page:page-1"],
-        affectedPageIds: ["page-1"],
-        affectedDatabaseIds: [],
-        affectedViewIds: [],
-        committedRevisions: {},
-        changeLogSeq: 10,
-        committedAt: "2026-07-30T00:00:00.000Z",
-      },
-    }));
+    ): Promise<LibraryModuleApplyResult> => {
+      expect(receivedAccessContext).toEqual(accessContext);
+      return {
+        ok: true,
+        value: {
+          version: LIBRARY_MODULE_CONTRACT_VERSION,
+          operationId: request.operationId,
+          storeEpoch: request.storeEpoch,
+          libraryId: "library-1",
+          operationKind: "delete_canvas",
+          duplicate: false,
+          didMutate: true,
+          createdTarget: null,
+          canvasMutation: null,
+          affectedParentKeys: ["page:page-1"],
+          affectedPageIds: ["page-1"],
+          affectedDatabaseIds: [],
+          affectedViewIds: [],
+          committedRevisions: {},
+          changeLogSeq: 10,
+          committedAt: "2026-07-30T00:00:00.000Z",
+        },
+      };
+    });
     const retireOwner = vi.fn(async () => {
       throw new Error("Canvas scene provider is already closed");
     });
 
     await deleteCanvasOwner({
+      accessContext,
       canvasBlockId: "canvas-1",
       operationId: "delete-1",
     }, {
-      readTarget: async () => ({
-        storeEpoch: "epoch-1",
-        summary: {
-          canvasId: "canvas-1",
-          projectId: "project-1",
-          title: "Canvas",
-          lifecycle: "active",
-          isPrimary: false,
-          location: {
-            kind: "page",
-            pageId: "page-1",
-            documentId: "page-document-1",
+      readTarget: async (receivedAccessContext) => {
+        expect(receivedAccessContext).toEqual(accessContext);
+        return {
+          storeEpoch: "epoch-1",
+          summary: {
+            canvasId: "canvas-1",
+            projectId: "project-1",
+            title: "Canvas",
+            lifecycle: "active",
+            isPrimary: false,
+            location: {
+              kind: "page",
+              pageId: "page-1",
+              documentId: "page-document-1",
+            },
+            locationRevision: 3,
+            metadataRevision: 5,
+            documentGeneration: 9,
+            documentHeadSeq: 99,
+            updatedAt: "2026-07-30T00:00:00.000Z",
           },
-          locationRevision: 3,
-          metadataRevision: 5,
-          documentGeneration: 9,
-          documentHeadSeq: 99,
-          updatedAt: "2026-07-30T00:00:00.000Z",
-        },
-      } as const),
+        } as const;
+      },
       apply,
       retireOwner,
     });
 
-    expect(apply).toHaveBeenCalledWith({
-      version: 4,
+    expect(apply).toHaveBeenCalledWith(accessContext, {
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
       operationId: "delete-1",
       storeEpoch: "epoch-1",
       operation: {

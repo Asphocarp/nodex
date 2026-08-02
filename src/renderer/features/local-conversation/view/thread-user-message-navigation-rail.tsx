@@ -4,10 +4,10 @@ import {
 } from "react";
 import { useReducedMotion } from "motion/react";
 import {
-  CodexSidePanelReviewIcon,
+  SidePanelReviewIcon,
   ReviewCommitOrPushIcon,
   ReviewCreatePrIcon,
-  ReviewFileDocumentIcon,
+  FileIcon,
 } from "@/components/shared/icons";
 import {
   collectMarkerNavigationObservationTargets,
@@ -29,11 +29,11 @@ import type {
 import { getThreadUserMessageNavigationVisibleOutputs } from "../projection/thread-user-message-navigation-items";
 import { useLocalConversationThreadScrollController } from "./local-conversation-thread-scroll-controller";
 import {
-  CodexConnectorFallbackIcon,
-  CodexEditFilesIcon,
-  CodexGlobeIcon,
-  CodexPluginCubeIcon,
-} from "./shared/tools/codex-tool-icons";
+  ConnectorFallbackIcon,
+  EditFilesIcon,
+  ConnectorGlobeIcon,
+  PluginCubeIcon,
+} from "@/components/shared/icons";
 
 export type ThreadUserMessageNavigationRevealMode = MarkerNavigationRevealMode;
 
@@ -130,14 +130,14 @@ export function hasEnoughThreadUserMessageNavigationLeftSpace({
 function resolveOutputIcon(
   type: ThreadUserMessageNavigationOutputType,
 ): ComponentType<{ className?: string; "aria-hidden"?: boolean }> {
-  if (type === "app") return CodexPluginCubeIcon;
-  if (type === "website") return CodexGlobeIcon;
-  if (type === "google-drive") return CodexConnectorFallbackIcon;
-  if (type === "image") return CodexEditFilesIcon;
+  if (type === "app") return PluginCubeIcon;
+  if (type === "website") return ConnectorGlobeIcon;
+  if (type === "google-drive") return ConnectorFallbackIcon;
+  if (type === "image") return EditFilesIcon;
   if (type === "commit") return ReviewCommitOrPushIcon;
   if (type === "pull-request") return ReviewCreatePrIcon;
-  if (type === "review") return CodexSidePanelReviewIcon;
-  return ReviewFileDocumentIcon;
+  if (type === "review") return SidePanelReviewIcon;
+  return FileIcon;
 }
 
 function NavigationOutputPill({ output }: { output: ThreadUserMessageNavigationOutput }) {

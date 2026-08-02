@@ -194,11 +194,28 @@ export function WorkbenchTabProjectionPanel({
   }
 
   if (tab.kind === "canvas_stage") {
+    const surface = {
+      id: tab.id,
+      kind: "canvas_stage" as const,
+      titleSnapshot: tab.title,
+      config: {
+        accessContext: {
+          kind: "project" as const,
+          projectId: tab.config.projectId,
+        },
+        canvasBlockId: tab.config.canvasBlockId,
+        ...(tab.config.titleSnapshot
+          ? { titleSnapshot: tab.config.titleSnapshot }
+          : {}),
+      },
+      stateKey: tab.stateKey,
+      state: tab.state,
+    };
     return (
       <WorkbenchCanvasStagePanel
-        tab={tab}
+        surface={surface}
         windowSessionId={windowSessionId}
-        projectSessionId={activeSession.id}
+        presentationOwnerId={activeSession.id}
         isActivePanelTab={isActivePanelTab}
         onClose={() => void onCloseTab(tab.id)}
         onTitleChange={(title) => {

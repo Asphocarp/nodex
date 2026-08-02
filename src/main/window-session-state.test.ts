@@ -65,8 +65,7 @@ function makeLayout(
 function getActiveProjectId(
   layout: WorkbenchLayoutSnapshot,
 ): string | null {
-  const location = layout.location.kind === "library"
-      || layout.location.kind === "settings"
+  const location = layout.location.kind === "settings"
       || layout.location.kind === "automations"
     ? layout.location.returnTo
     : layout.location;
@@ -98,7 +97,7 @@ describe("WindowSessionState", () => {
 
       expect(session.lifecycle).toEqual({ state: "open" });
       expect(session.layoutRevision).toBe(0);
-      expect(session.layout.version).toBe(5);
+      expect(session.layout.version).toBe(7);
       expect(getActiveProjectId(session.layout)).toBeNull();
       expect(catalog?.version).toBe(3);
       expect(catalog?.sessions).toHaveLength(1);
@@ -132,7 +131,7 @@ describe("WindowSessionState", () => {
         kind: "project",
         projectId: presentation.projectId,
       });
-      expect(scene?.primary.kind).toBe("db_view");
+      expect(scene?.primary?.kind).toBe("db_view");
       expect(Object.values(scene?.panelSurfacesById ?? {}).map(
         (surface) => surface.kind,
       )).toEqual(["page_stage"]);
@@ -250,7 +249,7 @@ describe("WindowSessionState", () => {
             kind: "db_view",
             titleSnapshot: "Database",
             config: {
-              projectId: "project-1",
+              accessContext: { kind: "project", projectId: "project-1" },
               target: {
                 kind: "database-view",
                 databaseViewId: "view-1",
@@ -434,7 +433,7 @@ describe("WindowSessionState", () => {
             kind: "db_view",
             titleSnapshot: "Database",
             config: {
-              projectId: "project-1",
+              accessContext: { kind: "project", projectId: "project-1" },
               target: {
                 kind: "database-view",
                 databaseViewId: "view-1",
@@ -483,7 +482,10 @@ describe("WindowSessionState", () => {
           id: "clone-only-tab",
           kind: "page_stage",
           titleSnapshot: "Clone only",
-          config: { projectId: "project-1", pageId: "page-1" },
+          config: {
+            accessContext: { kind: "project", projectId: "project-1" },
+            pageId: "page-1",
+          },
           stateKey: 0,
           state: null,
         },
@@ -565,7 +567,7 @@ describe("WindowSessionState", () => {
         lifecycle: { state: "open" },
         layoutRevision: 7,
         layout: {
-          version: 5,
+          version: 7,
           location: {
             kind: "project",
             projectId: "legacy",
@@ -613,7 +615,7 @@ describe("WindowSessionState", () => {
         lifecycle: { state: "open" },
         layoutRevision: 0,
         layout: {
-          version: 5,
+          version: 7,
           location: {
             kind: "project",
             projectId: "legacy",

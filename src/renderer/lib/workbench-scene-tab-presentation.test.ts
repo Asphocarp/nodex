@@ -1,5 +1,6 @@
+import { DatabaseIcon } from "@/components/shared/icons";
 import { describe, expect, test } from "vitest";
-import { Table2 } from "lucide-react";
+
 import type { WorkbenchSurfaceDescriptor } from "../../shared/workbench-scene";
 import { resolveWorkbenchSceneTabPresentation } from "./workbench-scene-tab-presentation";
 
@@ -8,7 +9,7 @@ const databaseSurface: WorkbenchSurfaceDescriptor = {
   kind: "db_view",
   titleSnapshot: "Database",
   config: {
-    projectId: "alpha",
+    accessContext: { kind: "project", projectId: "alpha" },
     target: { kind: "project-default" },
     view: "kanban",
   },
@@ -26,7 +27,7 @@ describe("resolveWorkbenchSceneTabPresentation", () => {
   test("presents every other DB surface like a standard Session DB View tab", () => {
     expect(resolveWorkbenchSceneTabPresentation(databaseSurface, false)).toEqual({
       title: "DB View",
-      icon: Table2,
+      icon: DatabaseIcon,
     });
   });
 });

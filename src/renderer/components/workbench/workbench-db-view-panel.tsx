@@ -1,19 +1,20 @@
 import {
+  CalendarIcon,
+  CanvasIcon,
+  BoardIcon,
+  DatabaseIcon,
+} from "@/components/shared/icons";
+import {
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
   type ComponentType,
+  type ReactNode,
   type RefObject,
 } from "react";
-import {
-  CalendarDays,
-  Database,
-  Shapes,
-  SquareKanban,
-  Table2,
-} from "lucide-react";
+
 import {
   CalendarToolbarControls,
   CalendarToolbarMonthLabel,
@@ -43,8 +44,14 @@ import type {
 import { useKanban } from "@/lib/use-kanban";
 import type { WorkbenchView } from "@/lib/use-workbench-profile-preferences";
 import type { WorkbenchSurfaceUpdatePatch } from "@/lib/workbench-scene-presentation";
+import type { DatabaseViewRenderModel } from "@/lib/database-view-render-model";
+import type { ColumnPaginationState } from "@/lib/kanban-store";
 import { DatabaseManagementDialogController } from "./database-management-dialog-controller";
-import { DbViewToolbar } from "./db-view-toolbar";
+import {
+  DbViewToolbar,
+  type DbViewToolbarItem,
+} from "./db-view-toolbar";
+import { DatabaseViewSurface } from "./database-view-surface";
 import { MainViewHost } from "./main-view-host";
 import { ToggleListIcon } from "./toggle-list-icon";
 import type { OpenPageTabHandler } from "./workbench-page-stage-panel";
@@ -56,11 +63,95 @@ const DB_VIEW_TABS: Array<{
   label: string;
   icon: ComponentType<{ className?: string }>;
 }> = [
-  { id: "kanban", label: "Board", icon: SquareKanban },
-  { id: "list", label: "Table", icon: Table2 },
+  { id: "kanban", label: "Board", icon: BoardIcon },
+  { id: "list", label: "Table", icon: DatabaseIcon },
   { id: "toggle-list", label: "List", icon: ToggleListIcon },
-  { id: "calendar", label: "Calendar", icon: CalendarDays },
+  { id: "calendar", label: "Calendar", icon: CalendarIcon },
 ];
+
+const durableDatabaseToolbarItem = (
+  model: DatabaseViewRenderModel,
+): DbViewToolbarItem => {
+  const item = DB_VIEW_TABS.find((candidate) =>
+    candidate.id === model.query.view.kind
+  );
+  return {
+    id: model.query.view.kind,
+    label: item?.label ?? model.viewName,
+    icon: item?.icon ?? DatabaseIcon,
+    active: true,
+    onSelect: () => undefined,
+  };
+};
+
+export function DatabaseViewTabSurface({
+  model,
+  toolbarItems = [durableDatabaseToolbarItem(model)],
+  destinationItems,
+  groupPagination,
+  onLoadMoreGroup,
+  activeSearchQuery,
+  taskSearchOpen,
+  searchShortcutLabel,
+  taskSearchInputRef,
+  managementControl,
+  overlay,
+  onSearchQueryChange,
+  onOpenTaskSearch,
+  onCloseTaskSearch,
+  onOpenPage,
+  onCommitted,
+}: {
+  readonly model: DatabaseViewRenderModel;
+  readonly toolbarItems?: DbViewToolbarItem[];
+  readonly destinationItems?: DbViewToolbarItem[];
+  readonly groupPagination?: ReadonlyMap<string, ColumnPaginationState>;
+  readonly onLoadMoreGroup?: (scopeKey: string) => Promise<void> | void;
+  readonly activeSearchQuery: string;
+  readonly taskSearchOpen: boolean;
+  readonly searchShortcutLabel: string;
+  readonly taskSearchInputRef: RefObject<HTMLInputElement | null>;
+  readonly managementControl?: ReactNode;
+  readonly overlay?: ReactNode;
+  readonly onSearchQueryChange: (value: string) => void;
+  readonly onOpenTaskSearch: (selectQuery?: boolean) => void;
+  readonly onCloseTaskSearch: () => void;
+  readonly onOpenPage: (pageId: string, titleSnapshot: string) => void;
+  readonly onCommitted?: () => void | Promise<void>;
+}) {
+  return (
+    <div className="flex h-full min-h-0 flex-col bg-token-main-surface-primary">
+      <DbViewToolbar
+        items={toolbarItems}
+        destinationItems={destinationItems}
+        activeSearchQuery={activeSearchQuery}
+        taskSearchOpen={taskSearchOpen}
+        showSearchControls
+        searchShortcutLabel={searchShortcutLabel}
+        taskSearchInputRef={taskSearchInputRef}
+        rulesView={null}
+        dbViewPrefs={null}
+        availableTags={[]}
+        managementControl={managementControl}
+        onUpdateDbViewPrefs={null}
+        onSearchQueryChange={onSearchQueryChange}
+        onOpenTaskSearch={onOpenTaskSearch}
+        onCloseTaskSearch={onCloseTaskSearch}
+      />
+      {overlay}
+      <div className="min-h-0 flex-1 overflow-hidden">
+        <DatabaseViewSurface
+          model={model}
+          groupPagination={groupPagination}
+          onLoadMoreGroup={onLoadMoreGroup}
+          searchQuery={activeSearchQuery}
+          onOpenPage={onOpenPage}
+          onCommitted={onCommitted}
+        />
+      </div>
+    </div>
+  );
+}
 
 export function DbViewSessionTab({
   sessionId,
@@ -314,6 +405,65 @@ export function DbViewSessionTab({
       ? "⌘F"
       : "Ctrl+F";
 
+  if (selectedGeneralView && databaseView) {
+    return (
+      <DatabaseViewTabSurface
+        model={databaseView}
+        toolbarItems={toolbarItems}
+        destinationItems={[{
+          id: "primary-canvas",
+          label: "Canvas",
+          icon: CanvasIcon,
+          onSelect: () => {
+            void onOpenCanvasStage(
+              projectId,
+              primaryCanvasBlockId(projectId),
+              "Canvas",
+              {
+                targetPanelId: tab.panelId,
+                targetLeafId,
+              },
+            );
+          },
+        }]}
+        groupPagination={selectedDatabaseView.groupPagination}
+        onLoadMoreGroup={selectedDatabaseView.loadMoreGroup}
+        activeSearchQuery={searchQuery}
+        taskSearchOpen={taskSearchOpen}
+        searchShortcutLabel={searchShortcutLabel}
+        taskSearchInputRef={taskSearchInputRef}
+        managementControl={(
+          <NodexIconButton
+            icon={DatabaseIcon}
+            size="sm"
+            active={databaseManagerOpen}
+            ariaLabel="Manage Databases"
+            title="Manage Databases"
+            onClick={() => setDatabaseManagerOpen(true)}
+          />
+        )}
+        overlay={(
+          <DatabaseManagementDialogController
+            projectId={projectId}
+            initialDatabaseId={databaseView.databaseId}
+            open={databaseManagerOpen}
+            onOpenChange={setDatabaseManagerOpen}
+          />
+        )}
+        onSearchQueryChange={(value) => setSearchQuery(projectId, value)}
+        onOpenTaskSearch={openTaskSearch}
+        onCloseTaskSearch={closeTaskSearch}
+        onOpenPage={(pageId, titleSnapshot) => {
+          void onOpenPageTab(projectId, pageId, titleSnapshot, {
+            sourceTabId: tab.id,
+            openMode: "preview",
+          });
+        }}
+        onCommitted={selectedDatabaseView.refresh}
+      />
+    );
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-token-main-surface-primary">
       <DbViewToolbar
@@ -321,7 +471,7 @@ export function DbViewSessionTab({
         destinationItems={[{
           id: "primary-canvas",
           label: "Canvas",
-          icon: Shapes,
+          icon: CanvasIcon,
           onSelect: () => {
             void onOpenCanvasStage(
               projectId,
@@ -348,7 +498,7 @@ export function DbViewSessionTab({
         calendarControls={calendarToolbarControls}
         managementControl={(
           <NodexIconButton
-            icon={Database}
+            icon={DatabaseIcon}
             size="sm"
             active={databaseManagerOpen}
             ariaLabel="Manage Databases"
@@ -371,10 +521,6 @@ export function DbViewSessionTab({
         <MainViewHost
           projectId={projectId}
           databaseViewId={selectedDatabaseViewId}
-          databaseView={databaseView}
-          databaseViewPagination={selectedDatabaseView.groupPagination}
-          onLoadMoreDatabaseViewGroup={selectedDatabaseView.loadMoreGroup}
-          refreshDatabaseView={selectedDatabaseView.refresh}
           projects={projects}
           view={view}
           searchQuery={searchQuery}

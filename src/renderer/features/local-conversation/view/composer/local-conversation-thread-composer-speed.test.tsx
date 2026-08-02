@@ -19,7 +19,7 @@ import type { ThreadFooterModel, ThreadStageActions } from "../../thread-stage-t
 import { ThreadComposer, __composerAddContextTestUtils } from "./local-conversation-thread-composer";
 import { TestComposerScopePath } from "@/test/maitai-scope-harness";
 
-const CODEX_FAST_MODE_ICON_PATH =
+const FAST_MODE_ICON_PATH =
   "M11.9125 21.4125C11.5292 21.8625 11.0292 22.0958 10.4125 22.1125C9.79586 22.1291 9.29586 21.9208 8.91252 21.4875C8.53752 21.0541 8.45836 20.4541 8.67503 19.6875L9.68752 16H4.57502C4.00836 16 3.56669 15.8375 3.25002 15.5125C2.93336 15.1791 2.77502 14.7791 2.77502 14.3125C2.77502 13.8375 2.92919 13.4125 3.23752 13.0375L12.1375 2.47497C12.5209 2.02497 13.0209 1.79164 13.6375 1.77497C14.2542 1.75831 14.75 1.96664 15.125 2.39997C15.5084 2.83331 15.5917 3.43331 15.375 4.19997L14.3125 7.99998H19.425C19.9917 7.99998 20.4334 8.16664 20.75 8.49997C21.075 8.83331 21.2375 9.23748 21.2375 9.71247C21.2375 10.1791 21.0792 10.5958 20.7625 10.9625L11.9125 21.4125Z";
 
 const TEST_AGENT_PROVIDER_CATALOG: AgentProviderCatalog = {
@@ -1116,7 +1116,7 @@ describe("ThreadComposer speed menu", () => {
     if (!(fastIconPath instanceof SVGPathElement)) {
       throw new Error("Expected the Fast indicator SVG to include a path.");
     }
-    expect(fastIconPath.getAttribute("d")).toBe(CODEX_FAST_MODE_ICON_PATH);
+    expect(fastIconPath.getAttribute("d")).toBe(FAST_MODE_ICON_PATH);
     expect(fastIconPath.getAttribute("fill")).toBe("currentColor");
   });
 

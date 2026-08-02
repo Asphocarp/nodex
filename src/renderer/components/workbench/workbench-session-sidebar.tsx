@@ -15,8 +15,10 @@ import type {
   CodexSidebarChatsThreadOrderInput,
 } from "../../../shared/codex-sidebar-thread-move";
 import { codexSidebarProjectThreadContainerId } from "../../../shared/codex-sidebar-thread-move";
-import type { LibraryRouteTarget } from "../../../shared/library-module";
-import type { LibraryResourceTarget } from "../library/library-resource-actions";
+import type { LibraryResourceTarget } from "../../../shared/library-module";
+import type {
+  LibraryResourceTarget as ActionableLibraryResourceTarget,
+} from "../library/library-resource-actions";
 import {
   CodexProjectRow,
   CodexProjectSessionList,
@@ -30,7 +32,7 @@ import {
 import { LeftSidebarFooter } from "./left-sidebar-footer";
 import { SidebarDropIndicator } from "./sidebar-drop-indicator";
 import type { SidebarLibraryDragResource } from "./sidebar-library-dnd";
-import { SidebarLibrarySection } from "./sidebar-library-section";
+import { SidebarPagesSection } from "./sidebar-pages-section";
 import {
   SIDEBAR_SCROLL_AREA_CLASS,
   SidebarExpandedHeader,
@@ -57,9 +59,9 @@ import {
 import type { StableWorktreeEntry } from "./stable-worktree-production";
 import { StableWorktreeSidebarRows } from "./stable-worktree-sidebar-row";
 import {
-  CodexAutomationsIcon,
-  CodexNewChatIcon,
-  CodexThreadIcon,
+  AutomationsIcon,
+  NewChatIcon,
+  ThreadIcon,
   ComposerPluginsIcon,
 } from "@/components/shared/icons";
 import {
@@ -80,14 +82,10 @@ import {
   CODEX_SIDEBAR_WIDTH_DEFAULT_PX,
 } from "@/lib/codex-sidebar-auto-reveal";
 import {
-  CODEX_SIDEBAR_DEFAULT_PAGER_ROW_CLASS,
-  CODEX_SIDEBAR_PAGER_BUTTON_CLASS,
   CODEX_SIDEBAR_PROJECTLESS_THREAD_MAX_ITEMS,
   CODEX_SIDEBAR_PROJECT_GROUP_MAX_GROUPS,
   CODEX_SIDEBAR_PROJECT_THREAD_MAX_ITEMS,
   CODEX_SIDEBAR_PROJECT_THREAD_PAGER_ROW_CLASS,
-  paginateCodexSidebarItems,
-  type CodexSidebarPaginationResult,
 } from "@/lib/codex-sidebar-pagination";
 import {
   buildCodexSidebarPinnedReorderMutation,
@@ -132,6 +130,7 @@ import {
   type WorkbenchSessionCollectionState,
 } from "@/lib/use-workbench-session-catalog";
 import type { WorkbenchSessionRenderProjection } from "@/lib/workbench-session-presentation";
+import { SidebarPaginatedItems } from "./sidebar-paginated-items";
 
 type ProjectSession = WorkbenchSessionRenderProjection;
 const IDLE_SESSION_COLLECTION_STATE = { kind: "idle" } as const;
@@ -197,129 +196,6 @@ function reportSidebarThreadReorderError(): void {
 
 function reportSidebarProjectReorderError(): void {
   toast.danger("Couldn’t reorder project");
-}
-
-interface CodexSidebarPaginatedItemsProps<T> {
-  items: T[];
-  getKey: (item: T) => string;
-  maxItems?: number | null;
-  expanded: boolean;
-  onExpandedChange?: (expanded: boolean) => void;
-  forcedVisibleKey?: string | null;
-  suppressedKeys?: ReadonlySet<string>;
-  pagerClassName?: string;
-  hasMoreAtSource?: boolean;
-  onLoadMore?: () => void | Promise<void>;
-  children: (
-    pagination: CodexSidebarPaginationResult<T>,
-    pager: ReactNode,
-  ) => ReactNode;
-}
-
-function CodexSidebarPaginatedItems<T>({
-  items,
-  getKey,
-  maxItems = null,
-  expanded,
-  onExpandedChange,
-  forcedVisibleKey = null,
-  suppressedKeys,
-  pagerClassName = CODEX_SIDEBAR_DEFAULT_PAGER_ROW_CLASS,
-  hasMoreAtSource = false,
-  onLoadMore,
-  children,
-}: CodexSidebarPaginatedItemsProps<T>) {
-  const [extraPageCount, setExtraPageCount] = useState(1);
-  const focusRestoreTargetRef = useRef<HTMLButtonElement | null>(null);
-
-  useEffect(() => {
-    if (expanded) return;
-    setExtraPageCount(1);
-  }, [expanded]);
-
-  const pagination = useMemo(() => paginateCodexSidebarItems({
-    items,
-    getKey,
-    maxItems,
-    expanded,
-    extraPageCount,
-    forcedVisibleKey,
-    suppressedKeys,
-    pagerEnabled: Boolean(onExpandedChange),
-  }), [
-    expanded,
-    extraPageCount,
-    forcedVisibleKey,
-    getKey,
-    items,
-    maxItems,
-    onExpandedChange,
-    suppressedKeys,
-  ]);
-
-  const restorePagerFocus = useCallback(() => {
-    queueMicrotask(() => {
-      focusRestoreTargetRef.current?.focus();
-    });
-  }, []);
-
-  const showMore = useCallback(() => {
-    if (!expanded) {
-      if (hasMoreAtSource) {
-        void onLoadMore?.();
-      }
-      setExtraPageCount(1);
-      onExpandedChange?.(true);
-      restorePagerFocus();
-      return;
-    }
-
-    if (hasMoreAtSource) {
-      void onLoadMore?.();
-    }
-    setExtraPageCount((current) => current + 1);
-    restorePagerFocus();
-  }, [
-    expanded,
-    hasMoreAtSource,
-    onExpandedChange,
-    onLoadMore,
-    restorePagerFocus,
-  ]);
-
-  const showLess = useCallback(() => {
-    setExtraPageCount(1);
-    onExpandedChange?.(false);
-    restorePagerFocus();
-  }, [onExpandedChange, restorePagerFocus]);
-
-  const hasOverflow = pagination.hasOverflow || hasMoreAtSource;
-  const pager = pagination.showPager || hasMoreAtSource ? (
-    <div className={pagerClassName} role="listitem">
-      {hasOverflow ? (
-        <button
-          ref={focusRestoreTargetRef}
-          type="button"
-          className={CODEX_SIDEBAR_PAGER_BUTTON_CLASS}
-          onClick={showMore}
-        >
-          Show more
-        </button>
-      ) : null}
-      {expanded ? (
-        <button
-          ref={hasOverflow ? undefined : focusRestoreTargetRef}
-          type="button"
-          className={CODEX_SIDEBAR_PAGER_BUTTON_CLASS}
-          onClick={showLess}
-        >
-          Show less
-        </button>
-      ) : null}
-    </div>
-  ) : null;
-
-  return <>{children(pagination, pager)}</>;
 }
 
 function SidebarProjectGroupRowsContent({
@@ -424,7 +300,7 @@ function SidebarPinnedThreadRowsContent({
             return (
               <div className="flex h-[var(--height-token-nav-row)] max-w-80 items-center gap-2 px-2 text-base text-token-foreground">
                 <span className="flex size-5 shrink-0 items-center justify-center">
-                  <CodexThreadIcon className="icon-xs" />
+                  <ThreadIcon className="icon-xs" />
                 </span>
                 <span className="min-w-0 truncate">{item.title}</span>
               </div>
@@ -495,7 +371,7 @@ function SidebarThreadContainerRowsContent({
 
   return (
     <SidebarThreadDropContainer containerId={containerId} targetProjectKind="local">
-      <CodexSidebarPaginatedItems
+      <SidebarPaginatedItems
         items={displayedThreadKeys}
         getKey={(threadKey) => threadKey}
         maxItems={CODEX_SIDEBAR_PROJECTLESS_THREAD_MAX_ITEMS}
@@ -524,7 +400,7 @@ function SidebarThreadContainerRowsContent({
                     return (
                       <div className="flex h-[var(--height-token-nav-row)] max-w-80 items-center gap-2 px-2 text-base text-token-foreground">
                         <span className="flex size-5 shrink-0 items-center justify-center">
-                          <CodexThreadIcon className="icon-xs" />
+                          <ThreadIcon className="icon-xs" />
                         </span>
                         <span className="min-w-0 truncate">{item.title}</span>
                       </div>
@@ -548,7 +424,7 @@ function SidebarThreadContainerRowsContent({
             </div>
           </div>
         )}
-      </CodexSidebarPaginatedItems>
+      </SidebarPaginatedItems>
     </SidebarThreadDropContainer>
   );
 }
@@ -677,7 +553,7 @@ function SidebarProjectThreadRowsContent({
     return (
       <div className="flex h-[var(--height-token-nav-row)] max-w-80 items-center gap-2 px-2 text-base text-token-foreground">
         <span className="flex size-5 shrink-0 items-center justify-center">
-          <CodexThreadIcon className="icon-xs" />
+          <ThreadIcon className="icon-xs" />
         </span>
         <span className="min-w-0 truncate">{item.title}</span>
       </div>
@@ -685,7 +561,7 @@ function SidebarProjectThreadRowsContent({
   };
 
   return (
-    <CodexSidebarPaginatedItems
+    <SidebarPaginatedItems
       items={displayedThreadKeys}
       getKey={(threadKey) => threadKey}
       maxItems={CODEX_SIDEBAR_PROJECT_THREAD_MAX_ITEMS}
@@ -762,12 +638,11 @@ function SidebarProjectThreadRowsContent({
           </CodexProjectSessionList>
         );
       }}
-    </CodexSidebarPaginatedItems>
+    </SidebarPaginatedItems>
   );
 }
 
 function SidebarThreadOrganizerSections({
-  libraryWorkspaceEnabled,
   activeProjectId,
   activeSessionId,
   activePendingClientThreadId,
@@ -776,7 +651,7 @@ function SidebarThreadOrganizerSections({
   projectlessSessionCollection,
   expandedProjectIds,
   pinnedThreadsSectionCollapsed,
-  librarySectionCollapsed,
+  pagesSectionCollapsed,
   projectsSectionCollapsed,
   chatsSectionCollapsed,
   onLoadMoreTaskWindow,
@@ -784,7 +659,7 @@ function SidebarThreadOrganizerSections({
   model,
   onHoverSurfaceOpenChange,
   onTogglePinnedThreadsSectionCollapsed,
-  onToggleLibrarySectionCollapsed,
+  onTogglePagesSectionCollapsed,
   onToggleProjectsSectionCollapsed,
   onToggleChatsSectionCollapsed,
   onToggleProjectExpanded,
@@ -815,15 +690,13 @@ function SidebarThreadOrganizerSections({
   onReorderChatsThreads,
   onReorderPinnedThreads,
   sidebarArchivePendingKeys,
-  onOpenLibrary,
-  onOpenLibraryTarget,
-  onOpenLibraryTargetInProject,
-  activeLibraryTarget,
+  onOpenResourceTarget,
+  onOpenResourceTargetInProject,
+  activeResourceTarget,
   hasMoreProjects,
   loadingMoreProjects,
   onLoadMoreProjects,
 }: {
-  libraryWorkspaceEnabled: boolean;
   activeProjectId: string | null;
   activeSessionId: string | null;
   activePendingClientThreadId?: string | null;
@@ -834,7 +707,7 @@ function SidebarThreadOrganizerSections({
   projectlessSessionCollection: WorkbenchSessionCollection;
   expandedProjectIds: Set<string>;
   pinnedThreadsSectionCollapsed: boolean;
-  librarySectionCollapsed: boolean;
+  pagesSectionCollapsed: boolean;
   projectsSectionCollapsed: boolean;
   chatsSectionCollapsed: boolean;
   onLoadMoreTaskWindow: (projectId: string | null) => Promise<void>;
@@ -842,7 +715,7 @@ function SidebarThreadOrganizerSections({
   model: CodexSidebarThreadSyncModel;
   onHoverSurfaceOpenChange?: (open: boolean) => void;
   onTogglePinnedThreadsSectionCollapsed: () => void;
-  onToggleLibrarySectionCollapsed: () => void;
+  onTogglePagesSectionCollapsed: () => void;
   onToggleProjectsSectionCollapsed: () => void;
   onToggleChatsSectionCollapsed: () => void;
   onToggleProjectExpanded: (projectId: string) => void;
@@ -876,14 +749,13 @@ function SidebarThreadOrganizerSections({
   onReorderChatsThreads: (input: CodexSidebarChatsThreadOrderInput) => Promise<void>;
   onReorderPinnedThreads: (orderedThreadIds: readonly string[]) => Promise<unknown>;
   sidebarArchivePendingKeys: ReadonlySet<string>;
-  onOpenLibrary: () => void;
-  onOpenLibraryTarget: (target: LibraryRouteTarget) => void;
-  onOpenLibraryTargetInProject?: (
+  onOpenResourceTarget: (target: LibraryResourceTarget) => void;
+  onOpenResourceTargetInProject?: (
     projectId: string,
-    target: LibraryResourceTarget,
+    target: ActionableLibraryResourceTarget,
     title: string,
   ) => void | Promise<void>;
-  activeLibraryTarget: LibraryRouteTarget | null;
+  activeResourceTarget: LibraryResourceTarget | null;
   hasMoreProjects: boolean;
   loadingMoreProjects: boolean;
   onLoadMoreProjects?: () => Promise<void>;
@@ -1388,7 +1260,7 @@ function SidebarThreadOrganizerSections({
       forcedVisibleKey?: string | null;
     } = {},
   ) => (
-    <CodexSidebarPaginatedItems
+    <SidebarPaginatedItems
       items={threadKeys}
       getKey={(threadKey) => threadKey}
       maxItems={options.maxItems}
@@ -1409,7 +1281,7 @@ function SidebarThreadOrganizerSections({
           </div>
         </div>
       )}
-    </CodexSidebarPaginatedItems>
+    </SidebarPaginatedItems>
   ), [renderThreadRow, sidebarArchivePendingKeys]);
 
   const renderProjectGroupRows = (
@@ -1422,7 +1294,7 @@ function SidebarThreadOrganizerSections({
       readsProjectWindow?: boolean;
     },
   ) => (
-    <CodexSidebarPaginatedItems
+    <SidebarPaginatedItems
       items={groups}
       getKey={(group) => group.project.id}
       maxItems={CODEX_SIDEBAR_PROJECT_GROUP_MAX_GROUPS}
@@ -1523,7 +1395,7 @@ function SidebarThreadOrganizerSections({
           />
         );
       }}
-    </CodexSidebarPaginatedItems>
+    </SidebarPaginatedItems>
   );
 
   const renderPinnedSection = () => {
@@ -1604,20 +1476,17 @@ function SidebarThreadOrganizerSections({
   const renderProjectGroups = () => (
     <>
       {renderPinnedSection()}
-      {libraryWorkspaceEnabled ? (
-        <SidebarLibrarySection
-          collapsed={librarySectionCollapsed}
-          activeTarget={activeLibraryTarget}
-          onToggle={onToggleLibrarySectionCollapsed}
-          onOpenLibrary={onOpenLibrary}
-          onOpenTarget={onOpenLibraryTarget}
-          projects={projectGroups.map(({ project }) => ({
-            id: project.id,
-            name: project.name,
-          }))}
-          onOpenInProject={onOpenLibraryTargetInProject}
-        />
-      ) : null}
+      <SidebarPagesSection
+        collapsed={pagesSectionCollapsed}
+        activeRoot={activeResourceTarget}
+        onToggle={onTogglePagesSectionCollapsed}
+        onOpenRoot={onOpenResourceTarget}
+        projects={projectGroups.map(({ project }) => ({
+          id: project.id,
+          name: project.name,
+        }))}
+        onOpenInProject={onOpenResourceTargetInProject}
+      />
       <CodexSidebarSection
         heading="Projects"
         collapsed={projectsSectionCollapsed}
@@ -1652,7 +1521,7 @@ function SidebarThreadOrganizerSections({
             data-app-action-sidebar-projectless-new-chat=""
             onClick={() => void onStartNewChatInProject(null)}
           >
-            <CodexNewChatIcon />
+            <NewChatIcon />
           </CodexSidebarActionButton>
         )}
       >
@@ -1680,7 +1549,6 @@ function SidebarThreadOrganizerSections({
 }
 
 export interface ProjectSessionSidebarProps {
-  libraryWorkspaceEnabled: boolean;
   floating?: boolean;
   header?: ReactNode;
   activeProjectId: string | null;
@@ -1695,7 +1563,7 @@ export interface ProjectSessionSidebarProps {
   pendingStableWorktrees: readonly StableWorktreeEntry[];
   expandedProjectIds: Set<string>;
   pinnedProjectsSectionCollapsed: boolean;
-  librarySectionCollapsed: boolean;
+  pagesSectionCollapsed: boolean;
   projectsSectionCollapsed: boolean;
   chatsSectionCollapsed: boolean;
   onLoadMoreTaskWindow: (projectId: string | null) => Promise<void>;
@@ -1709,7 +1577,7 @@ export interface ProjectSessionSidebarProps {
   onResizeActiveChange?: (active: boolean) => void;
   onHoverSurfaceOpenChange?: (open: boolean) => void;
   onTogglePinnedProjectsSectionCollapsed: () => void;
-  onToggleLibrarySectionCollapsed: () => void;
+  onTogglePagesSectionCollapsed: () => void;
   onToggleProjectsSectionCollapsed: () => void;
   onToggleChatsSectionCollapsed: () => void;
   onToggleProjectExpanded: (projectId: string) => void;
@@ -1734,14 +1602,13 @@ export interface ProjectSessionSidebarProps {
   onOpenCommandPalette: () => void;
   onShowUnavailableProduct: (label: string) => void;
   onOpenAutomations: () => void;
-  onOpenLibrary: () => void;
-  onOpenLibraryTarget: (target: LibraryRouteTarget) => void;
-  onOpenLibraryTargetInProject?: (
+  onOpenResourceTarget: (target: LibraryResourceTarget) => void;
+  onOpenResourceTargetInProject?: (
     projectId: string,
-    target: LibraryResourceTarget,
+    target: ActionableLibraryResourceTarget,
     title: string,
   ) => void | Promise<void>;
-  activeLibraryTarget: LibraryRouteTarget | null;
+  activeResourceTarget: LibraryResourceTarget | null;
   automationsActive: boolean;
   projectPickerOpenTick?: number;
   onCreateProject: (input: ProjectCreateInput) => Promise<Project | null>;
@@ -1771,7 +1638,6 @@ export interface ProjectSessionSidebarProps {
 }
 
 export function ProjectSessionSidebar({
-  libraryWorkspaceEnabled,
   floating = false,
   header,
   activeProjectId,
@@ -1784,7 +1650,7 @@ export function ProjectSessionSidebar({
   pendingStableWorktrees,
   expandedProjectIds,
   pinnedProjectsSectionCollapsed,
-  librarySectionCollapsed,
+  pagesSectionCollapsed,
   projectsSectionCollapsed,
   chatsSectionCollapsed,
   onLoadMoreTaskWindow,
@@ -1798,7 +1664,7 @@ export function ProjectSessionSidebar({
   onResizeActiveChange,
   onHoverSurfaceOpenChange,
   onTogglePinnedProjectsSectionCollapsed,
-  onToggleLibrarySectionCollapsed,
+  onTogglePagesSectionCollapsed,
   onToggleProjectsSectionCollapsed,
   onToggleChatsSectionCollapsed,
   onToggleProjectExpanded,
@@ -1820,10 +1686,9 @@ export function ProjectSessionSidebar({
   onOpenCommandPalette,
   onShowUnavailableProduct,
   onOpenAutomations,
-  onOpenLibrary,
-  onOpenLibraryTarget,
-  onOpenLibraryTargetInProject,
-  activeLibraryTarget,
+  onOpenResourceTarget,
+  onOpenResourceTargetInProject,
+  activeResourceTarget,
   automationsActive,
   projectPickerOpenTick = 0,
   onCreateProject,
@@ -1866,9 +1731,7 @@ export function ProjectSessionSidebar({
     readonly projectId: string;
   } | null>(null);
   const [libraryGrantAccess, setLibraryGrantAccess] = useState<"read" | "read_write">("read_write");
-  const { mutation: libraryMutation } = useApplyLibraryOperation(
-    libraryWorkspaceEnabled,
-  );
+  const { mutation: libraryMutation } = useApplyLibraryOperation();
   const sidebarScrollChrome = useSidebarScrollChrome();
   const sidebarResizeDisabled = resizeDisabled;
   const sidebarResizeSurface: SidebarResizeSurface = floating ? "floating" : "inline";
@@ -1892,7 +1755,6 @@ export function ProjectSessionSidebar({
     resource: SidebarLibraryDragResource;
     parent: import("../../../shared/library-module").LibraryWriteParent;
   }) => {
-    if (!libraryWorkspaceEnabled) return;
     try {
       await libraryMutation.mutateAsync(buildLibraryMoveOperation({
         target: resource.target,
@@ -1902,9 +1764,8 @@ export function ProjectSessionSidebar({
     } catch (error) {
       toast.danger(error instanceof Error ? error.message : "Could not move Library item");
     }
-  }, [libraryMutation, libraryWorkspaceEnabled]);
+  }, [libraryMutation]);
   const confirmLibraryGrantDrop = useCallback(async () => {
-    if (!libraryWorkspaceEnabled) return;
     if (!pendingLibraryGrantDrop) return;
     const project = sidebarThreadModel.projectGroups.find(
       (group) => group.project.id === pendingLibraryGrantDrop.projectId,
@@ -1928,7 +1789,6 @@ export function ProjectSessionSidebar({
   }, [
     libraryGrantAccess,
     libraryMutation,
-    libraryWorkspaceEnabled,
     pendingLibraryGrantDrop,
     sidebarThreadModel.projectGroups,
   ]);
@@ -2117,7 +1977,7 @@ export function ProjectSessionSidebar({
                     <div className="flex flex-col gap-px">
                       <CodexSidebarTopActionButton
                         label="Scheduled"
-                        icon={<CodexAutomationsIcon />}
+                        icon={<AutomationsIcon />}
                         active={automationsActive}
                         onClick={() => onOpenAutomations()}
                       />
@@ -2137,11 +1997,10 @@ export function ProjectSessionSidebar({
                 onProjectDrop={handleProjectDrop}
                 onThreadError={reportSidebarThreadReorderError}
                 onThreadDrop={onMoveSidebarThread}
-                onLibraryMove={libraryWorkspaceEnabled ? handleLibraryMove : undefined}
-                onLibraryGrant={libraryWorkspaceEnabled ? setPendingLibraryGrantDrop : undefined}
+                onLibraryMove={handleLibraryMove}
+                onLibraryGrant={setPendingLibraryGrantDrop}
               >
                 <SidebarThreadOrganizerSections
-                  libraryWorkspaceEnabled={libraryWorkspaceEnabled}
                   activeProjectId={activeProjectId}
                   activeSessionId={activeSessionId}
                   activePendingClientThreadId={activePendingClientThreadId}
@@ -2150,7 +2009,7 @@ export function ProjectSessionSidebar({
                   projectlessSessionCollection={projectlessSessionCollection}
                   expandedProjectIds={expandedProjectIds}
                   pinnedThreadsSectionCollapsed={pinnedProjectsSectionCollapsed}
-                  librarySectionCollapsed={librarySectionCollapsed}
+                  pagesSectionCollapsed={pagesSectionCollapsed}
                   projectsSectionCollapsed={projectsSectionCollapsed}
                   chatsSectionCollapsed={chatsSectionCollapsed}
                   onLoadMoreTaskWindow={onLoadMoreTaskWindow}
@@ -2158,7 +2017,7 @@ export function ProjectSessionSidebar({
                   model={sidebarThreadModel}
                   onHoverSurfaceOpenChange={onHoverSurfaceOpenChange}
                   onTogglePinnedThreadsSectionCollapsed={onTogglePinnedProjectsSectionCollapsed}
-                  onToggleLibrarySectionCollapsed={onToggleLibrarySectionCollapsed}
+                  onTogglePagesSectionCollapsed={onTogglePagesSectionCollapsed}
                   onToggleProjectsSectionCollapsed={onToggleProjectsSectionCollapsed}
                   onToggleChatsSectionCollapsed={onToggleChatsSectionCollapsed}
                   onToggleProjectExpanded={onToggleProjectExpanded}
@@ -2189,17 +2048,15 @@ export function ProjectSessionSidebar({
                   onReorderChatsThreads={onReorderChatsThreads}
                   onReorderPinnedThreads={onReorderPinnedThreads}
                   sidebarArchivePendingKeys={sidebarArchivePendingKeys}
-                  onOpenLibrary={onOpenLibrary}
-                  onOpenLibraryTarget={onOpenLibraryTarget}
-                  onOpenLibraryTargetInProject={onOpenLibraryTargetInProject}
-                  activeLibraryTarget={activeLibraryTarget}
+                  onOpenResourceTarget={onOpenResourceTarget}
+                  onOpenResourceTargetInProject={onOpenResourceTargetInProject}
+                  activeResourceTarget={activeResourceTarget}
                   hasMoreProjects={hasMoreProjects}
                   loadingMoreProjects={loadingMoreProjects}
                   onLoadMoreProjects={onLoadMoreProjects}
                 />
               </SidebarReorderDndProvider>
-              {libraryWorkspaceEnabled ? (
-                <NodexDialog
+              <NodexDialog
                   open={pendingLibraryGrantDrop !== null}
                   onOpenChange={(open) => {
                     if (!open) setPendingLibraryGrantDrop(null);
@@ -2251,7 +2108,6 @@ export function ProjectSessionSidebar({
                     </NodexDialogFrame>
                   </NodexDialogContent>
                 </NodexDialog>
-              ) : null}
             </div>
 
             <LeftSidebarFooter

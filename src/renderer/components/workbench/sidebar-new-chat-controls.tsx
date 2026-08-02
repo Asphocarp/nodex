@@ -9,7 +9,7 @@ import {
   type PointerEvent,
   type ReactNode,
 } from "react";
-import { CodexNewChatIcon, CodexSettingsSearchIcon, CodexTitlebarNewChatIcon } from "@/components/shared/icons";
+import { NewChatIcon, SettingsSearchIcon, TitlebarNewChatIcon } from "@/components/shared/icons";
 import { NodexTooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
@@ -131,7 +131,7 @@ export function SidebarExpandedHeader({
             aria-label="Search"
             onClick={onSearch}
           >
-            <CodexSettingsSearchIcon className="icon-xs" />
+            <SettingsSearchIcon className="icon-xs" />
           </button>
         </NodexTooltip>
       </div>
@@ -163,7 +163,7 @@ export function SidebarNewChatButton({
             onClick={onClick}
           >
             <div className="flex min-w-0 items-center text-base gap-2 flex-1 text-token-foreground">
-              <CodexTitlebarNewChatIcon className="icon-xs" />
+              <TitlebarNewChatIcon className="icon-xs" />
               <span className="truncate">New chat</span>
             </div>
             <span
@@ -215,7 +215,7 @@ export function SidebarProjectNewChatButton({
               onClick();
             }}
           >
-            <CodexNewChatIcon />
+            <NewChatIcon />
           </button>
         </span>
       </NodexTooltip>
@@ -248,7 +248,7 @@ export function SidebarCompactNewChatButton({
         disabled={disabled}
         onClick={onClick}
       >
-        <CodexTitlebarNewChatIcon className="icon-sm" />
+        <TitlebarNewChatIcon className="icon-sm" />
       </button>
     </NodexTooltip>
   );

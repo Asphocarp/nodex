@@ -21,12 +21,47 @@ function surfaceFromProjection(
       ...common,
       kind: "db_view",
       config: {
-        projectId: tab.config.projectId,
+        accessContext: {
+          kind: "project",
+          projectId: tab.config.projectId,
+        },
         target: {
           kind: "database-view",
           databaseViewId: tab.config.databaseViewId,
         },
         view: tab.config.view,
+      },
+    };
+  }
+  if (tab.kind === "page_stage") {
+    return {
+      ...common,
+      kind: "page_stage",
+      config: {
+        accessContext: {
+          kind: "project",
+          projectId: tab.config.projectId,
+        },
+        pageId: tab.config.pageId,
+        ...(tab.config.titleSnapshot
+          ? { titleSnapshot: tab.config.titleSnapshot }
+          : {}),
+      },
+    };
+  }
+  if (tab.kind === "canvas_stage") {
+    return {
+      ...common,
+      kind: "canvas_stage",
+      config: {
+        accessContext: {
+          kind: "project",
+          projectId: tab.config.projectId,
+        },
+        canvasBlockId: tab.config.canvasBlockId,
+        ...(tab.config.titleSnapshot
+          ? { titleSnapshot: tab.config.titleSnapshot }
+          : {}),
       },
     };
   }

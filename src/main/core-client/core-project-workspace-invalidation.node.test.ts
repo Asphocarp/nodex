@@ -6,7 +6,7 @@ import {
 
 describe("Core Workspace notification planning", () => {
   test("preserves every old and new Session scope across a move", () => {
-    expect(planCoreWorkspaceNotifications({
+    const plan = planCoreWorkspaceNotifications({
       projectIds: ["project:a", "project:b"],
       sessionIds: ["session:one"],
       threadIds: ["thread:one"],
@@ -15,7 +15,8 @@ describe("Core Workspace notification planning", () => {
         { kind: "project", projectId: "project:b" },
       ],
       sessionDetailIds: ["session:one"],
-    }).sessions).toEqual({
+    });
+    expect(plan.sessions).toEqual({
       summaryScopes: [
         { kind: "project", projectId: "project:a" },
         { kind: "project", projectId: "project:b" },
@@ -26,21 +27,40 @@ describe("Core Workspace notification planning", () => {
       },
       changeType: "update",
     });
+    expect(plan.invalidateStandaloneRoots).toBe(false);
   });
 
   test("maps catalog semantics without collapsing them to a generic update", () => {
-    expect(planCoreWorkspaceNotifications({
+    const plan = planCoreWorkspaceNotifications({
       projectCatalogChange: "sources_updated",
       projectIds: ["project:a"],
       sessionIds: [],
       threadIds: [],
       sessionSummaryScopes: [],
       sessionDetailIds: [],
-    }).project).toEqual({
+    });
+    expect(plan.project).toEqual({
       projectId: "project:a",
       changeType: "sources",
     });
+    expect(plan.invalidateStandaloneRoots).toBe(false);
   });
+
+  test.each(["created", "lifecycle_updated"] as const)(
+    "invalidates standalone roots for %s Project catalog changes",
+    (projectCatalogChange) => {
+      const plan = planCoreWorkspaceNotifications({
+        projectCatalogChange,
+        projectIds: ["project:a"],
+        sessionIds: [],
+        threadIds: [],
+        sessionSummaryScopes: [],
+        sessionDetailIds: [],
+      });
+
+      expect(plan.invalidateStandaloneRoots).toBe(true);
+    },
+  );
 
   test("uses a global summary scope when durable history must be resynced", () => {
     expect(allProjectSessionInvalidation()).toEqual({

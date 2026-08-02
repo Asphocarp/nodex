@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FileText, XIcon } from "lucide-react";
+import { XIcon } from "@/components/shared/icons/generic-icons";
+import { PageIcon } from "@/components/shared/icons";
 import { PageStage } from "./page-stage-dev-story-deps";
 import { ReadonlyNfmBlockNotePreview } from "../editor/readonly-nfm-blocknote-preview";
 import { usePageStageCollapsedProperties } from "../../../lib/use-page-stage-collapsed-properties";
@@ -14,6 +15,7 @@ import {
   type PageStageStoryControls,
 } from "./page-stage-dev-story-data";
 import { createPageStageStoryDocument } from "./page-stage-story-document";
+import { projectContentAccess } from "../../../../shared/content-access-context";
 
 export interface PageStageDevStoryPageProps extends PageStageStoryControls {
   renderPreview?: boolean;
@@ -244,10 +246,11 @@ export function PageStageDevStoryPage({
         <section className="min-h-0 flex-1 overflow-hidden rounded-[20px] border border-(--border) bg-(--background) shadow-[0_24px_64px_rgba(0,0,0,0.28)]">
           {renderPreview ? (
             <PageStage
+              contentAccessContext={projectContentAccess(PAGE_STAGE_STORY_PROJECT_ID)}
               key={descriptionVariant}
               onClose={() => undefined}
               page={stagePage}
-              projectId={PAGE_STAGE_STORY_PROJECT_ID}
+              documentScopeId={PAGE_STAGE_STORY_PROJECT_ID}
               documentAuthority={storyDocument.authority}
               projectWorkspacePath={PAGE_STAGE_STORY_WORKSPACE_PATH}
               availableTags={["ui", "threads", "page-stage", "spacing", "review"]}
@@ -289,7 +292,7 @@ export function PageStageDevStoryPage({
           >
             <div className="flex min-h-0 min-w-0 flex-col bg-token-main-surface-primary">
               <header className="flex h-12 shrink-0 items-center gap-2 border-b border-[0.5px] border-token-border px-3">
-                <FileText className="icon-2xs shrink-0 text-token-description-foreground" />
+                <PageIcon className="icon-2xs shrink-0 text-token-description-foreground" />
                 <div className="min-w-0 flex-1 truncate text-sm font-medium text-token-text-secondary">
                   {page.title}
                 </div>

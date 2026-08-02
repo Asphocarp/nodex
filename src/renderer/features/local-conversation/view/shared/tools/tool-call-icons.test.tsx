@@ -17,7 +17,7 @@ import {
   semanticToolIcon,
   toolCallIconTestHelpers,
 } from "./tool-call-icons";
-import { CodexConnectorFallbackIcon } from "./codex-tool-icons";
+import { ConnectorFallbackIcon } from "@/components/shared/icons";
 
 function buildEntry(overrides: Partial<CodexTranscriptEntry>): CodexTranscriptEntry {
   return {
@@ -104,7 +104,7 @@ describe("tool-call icon helpers", () => {
         className="icon-xs object-contain"
         logoUrl="https://example.com/light.svg"
         logoDarkUrl={null}
-        fallback={<CodexConnectorFallbackIcon aria-hidden className="icon-xs" />}
+        fallback={<ConnectorFallbackIcon aria-hidden className="icon-xs" />}
       />,
     );
 

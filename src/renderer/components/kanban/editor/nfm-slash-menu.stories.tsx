@@ -1,8 +1,20 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { DefaultReactSuggestionItem, SuggestionMenuProps } from "@blocknote/react";
-import { Bell, CalendarDays, Clock, FileText, Heading1, Link2, ListTree, SendHorizontal, Settings2 } from "lucide-react";
+import {
+  Heading1,
+  Link2,
+  ListTree,
+  SendHorizontal,
+  Settings2,
+} from "@/components/shared/icons/generic-icons";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
-import { CodexThreadIcon } from "@/components/shared/icons";
+import {
+  ThreadIcon,
+  BellIcon,
+  CalendarIcon,
+  ClockIcon,
+  PageIcon,
+} from "@/components/shared/icons";
 import { NfmSuggestionMenuSurface, type NfmSuggestionItem } from "./nfm-slash-menu";
 
 const SLASH_ITEMS: DefaultReactSuggestionItem[] = [
@@ -12,7 +24,7 @@ const SLASH_ITEMS: DefaultReactSuggestionItem[] = [
     aliases: [],
     group: "Basic blocks",
     badge: "text",
-    icon: <FileText size={16} />,
+    icon: <PageIcon />,
     onItemClick: () => undefined,
   },
   {
@@ -70,7 +82,7 @@ const MENTION_ITEMS: NfmSuggestionItem[] = [
     aliases: [],
     group: "Current project",
     hint: null,
-    icon: <CodexThreadIcon className="size-4" />,
+    icon: <ThreadIcon className="size-4" />,
     onItemClick: () => undefined,
   },
   {
@@ -80,7 +92,7 @@ const MENTION_ITEMS: NfmSuggestionItem[] = [
     aliases: [],
     group: "Current project",
     hint: null,
-    icon: <FileText className="size-4" aria-hidden="true" />,
+    icon: <PageIcon className="size-4" aria-hidden="true" />,
     onItemClick: () => undefined,
   },
   {
@@ -90,7 +102,7 @@ const MENTION_ITEMS: NfmSuggestionItem[] = [
     aliases: [],
     group: "Chats",
     hint: null,
-    icon: <CodexThreadIcon className="size-4" />,
+    icon: <ThreadIcon className="size-4" />,
     onItemClick: () => undefined,
   },
   {
@@ -100,7 +112,7 @@ const MENTION_ITEMS: NfmSuggestionItem[] = [
     aliases: [],
     group: "Pages",
     hint: null,
-    icon: <FileText className="size-4" aria-hidden="true" />,
+    icon: <PageIcon className="size-4" aria-hidden="true" />,
     onItemClick: () => undefined,
   },
 ];
@@ -113,7 +125,7 @@ const DATE_MENTION_ITEMS: NfmSuggestionItem[] = [
     aliases: ["today"],
     group: "Dates",
     hint: "@today",
-    icon: <CalendarDays className="size-4" aria-hidden="true" />,
+    icon: <CalendarIcon className="size-4" aria-hidden="true" />,
     onItemClick: () => undefined,
   },
   {
@@ -123,7 +135,7 @@ const DATE_MENTION_ITEMS: NfmSuggestionItem[] = [
     aliases: ["now"],
     group: "Dates",
     hint: "@now",
-    icon: <Clock className="size-4" aria-hidden="true" />,
+    icon: <ClockIcon className="size-4" aria-hidden="true" />,
     onItemClick: () => undefined,
   },
   {
@@ -133,7 +145,7 @@ const DATE_MENTION_ITEMS: NfmSuggestionItem[] = [
     aliases: ["remind today"],
     group: "Reminders",
     hint: "@remind today",
-    icon: <Bell className="size-4" aria-hidden="true" />,
+    icon: <BellIcon className="size-4" aria-hidden="true" />,
     onItemClick: () => undefined,
   },
   ...MENTION_ITEMS.slice(0, 2),

@@ -7,7 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import { motion } from "motion/react";
-import { ChevronRightIcon, CodexGoalTargetIcon, CodexHooksIcon } from "@/components/shared/icons";
+import { ChevronRightIcon, GoalTargetIcon, HooksIcon } from "@/components/shared/icons";
 import { BudgetedMarkdownRenderer } from "../shared/markdown/budgeted-markdown-renderer";
 import { AutomaticApprovalReviewSurface } from "../shared/automatic-approval-review-surface";
 import { MultiAgentActionSurface } from "../shared/multi-agent-action-surface";
@@ -143,7 +143,7 @@ function resolveSteeringStatusLabel(status: CodexConversationItem["steeringStatu
 function UserMessageGoalStatus() {
   return (
     <div className="ms-1 mr-1 flex items-center gap-2">
-      <CodexGoalTargetIcon className="icon-2xs shrink-0 text-token-description-foreground" />
+      <GoalTargetIcon className="icon-2xs shrink-0 text-token-description-foreground" />
       <span className="text-token-description-foreground text-xs">Sent as goal</span>
     </div>
   );
@@ -167,7 +167,7 @@ function UserMessageHookFeedbackStatus({
         onOpen();
       }}
     >
-      <CodexHooksIcon aria-hidden className="icon-2xs shrink-0" />
+      <HooksIcon aria-hidden className="icon-2xs shrink-0" />
       <span>Hook feedback</span>
     </a>
   );

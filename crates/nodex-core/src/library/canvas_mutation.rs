@@ -20,7 +20,7 @@ use super::LibraryApplyOutcome;
 use super::mutation::{
     MutationEffects, ResolvedWriteParent, append_rank, embedded_resource_block, finish_mutation,
     insert_library_placement, persist_parent_operations_detailed, require_project_in_library,
-    resolve_write_parent, sqlite_now,
+    resolve_library_mutation_authority, resolve_write_parent_for_context, sqlite_now,
 };
 
 struct ResolvedCanvasDestination {
@@ -120,8 +120,7 @@ fn create_internal(
     validate_uuid_v7("canvas_id", canvas_id)?;
     validate_uuid_v7("document_id", document_id)?;
     let display_name = validate_display_name(display_name)?;
-    let requesting_project_id = bound_project_id(context)?;
-    let resolved = resolve_destination(connection, library_id, requesting_project_id, destination)?;
+    let resolved = resolve_destination(connection, context, library_id, destination)?;
     let project_id = resolved.parent.project_id.clone();
     let containing_document_id = resolved
         .parent
@@ -352,13 +351,8 @@ pub(super) fn move_canvas(
     if canvas.location_revision != expected_location_revision {
         return Err(conflict("Canvas location changed"));
     }
-    let resolved = resolve_destination(
-        connection,
-        library_id,
-        bound_project_id(context)?,
-        destination,
-    )?;
-    if resolved.parent.project_id != canvas.project_id {
+    let resolved = resolve_destination(connection, context, library_id, destination)?;
+    if resolved.parent.document.is_some() && resolved.parent.project_id != canvas.project_id {
         return Err(invalid(
             "Cross-Project Canvas rehome is not available in this mutation",
         ));
@@ -662,7 +656,10 @@ fn require_canvas_access(
     canvas: &CanvasAuthority,
     write: bool,
 ) -> Result<(), StoreError> {
-    let requesting_project_id = bound_project_id(context)?;
+    let authority = resolve_library_mutation_authority(connection, context, library_id)?;
+    let Some(requesting_project_id) = authority.requesting_project_id.as_deref() else {
+        return Ok(());
+    };
     if requesting_project_id == canvas.project_id {
         return require_project_in_library(connection, requesting_project_id, library_id);
     }
@@ -691,16 +688,16 @@ fn require_canvas_access(
 
 fn resolve_destination(
     connection: &Connection,
+    context: &BoundModuleContext,
     library_id: &str,
-    requesting_project_id: &str,
     destination: &LibraryCanvasDestination,
 ) -> Result<ResolvedCanvasDestination, StoreError> {
     match destination {
         LibraryCanvasDestination::Library { before } => {
-            let parent = resolve_write_parent(
+            let parent = resolve_write_parent_for_context(
                 connection,
+                context,
                 library_id,
-                requesting_project_id,
                 &LibraryWriteParent::Library {
                     before: before.clone(),
                 },
@@ -717,10 +714,10 @@ fn resolve_destination(
             expected_document_head_seq,
             insertion,
         } => {
-            let parent = resolve_write_parent(
+            let parent = resolve_write_parent_for_context(
                 connection,
+                context,
                 library_id,
-                requesting_project_id,
                 &LibraryWriteParent::Page {
                     page_id: page_id.clone(),
                     expected_document_generation: *expected_document_generation,
@@ -969,14 +966,6 @@ fn finish_canvas_mutation(
             committed_at: now,
         },
     )
-}
-
-fn bound_project_id(context: &BoundModuleContext) -> Result<&str, StoreError> {
-    context
-        .project_id
-        .as_ref()
-        .map(|project_id| project_id.0.as_str())
-        .ok_or_else(|| unauthorized("Canvas mutation requires a bound Project"))
 }
 
 fn validate_display_name(value: &str) -> Result<&str, StoreError> {

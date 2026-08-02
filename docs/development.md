@@ -70,7 +70,7 @@ when they are needed:
 ```bash
 scripts/run.sh -ac
 scripts/run.sh -da
-NODEX_LIBRARY_WORKSPACE_ENABLED=true scripts/run.sh -ack -r /tmp/nodex-library
+scripts/run.sh -ack -r /tmp/nodex-library
 ```
 
 Run `scripts/run.sh --help` for options that use either global home.

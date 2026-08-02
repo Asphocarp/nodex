@@ -14,8 +14,10 @@ import {
   type LibraryModuleReadRequest,
   type LibraryNavigationParent,
   type LibraryReadValue,
+  type LibraryResourceTarget,
   type LibraryRouteTarget,
 } from "../../shared/library-module";
+import { libraryContentAccess } from "../../shared/content-access-context";
 import {
   applyLibraryModule,
   readLibraryModule,
@@ -34,7 +36,7 @@ export const libraryModuleQueryKey = queryKeys.library.all();
 export const libraryMetadataQueryOptions = () => queryOptions({
   queryKey: queryKeys.library.metadata(),
   queryFn: async () => {
-    const result = await readLibraryModule({
+    const result = await readLibraryModule(libraryContentAccess, {
       version: LIBRARY_MODULE_CONTRACT_VERSION,
       read: { mode: "metadata" },
     });
@@ -52,7 +54,7 @@ const requireReadValue = async <Kind extends LibraryReadValue["kind"]>(
   readonly storeEpoch: string;
   readonly changeLogSeq: number;
 }> => {
-  const result = await readLibraryModule(request);
+  const result = await readLibraryModule(libraryContentAccess, request);
   if (!result.ok) throw new Error(result.error.message);
   if (result.value.value.kind !== kind) {
     throw new Error(`Library read returned ${result.value.value.kind}, expected ${kind}`);
@@ -98,6 +100,20 @@ export const libraryChildrenQueryOptions = (
   staleTime: 30_000,
 });
 
+export const libraryStandaloneRootsQueryOptions = (
+  input: Omit<
+    Extract<LibraryModuleReadRequest["read"], { mode: "standalone_roots" }>,
+    "mode"
+  > = {},
+) => queryOptions({
+  queryKey: queryKeys.library.standaloneRoots(input),
+  queryFn: () => requireReadValue({
+    version: LIBRARY_MODULE_CONTRACT_VERSION,
+    read: { mode: "standalone_roots", ...input },
+  }, "standalone_roots"),
+  staleTime: 30_000,
+});
+
 export const libraryCatalogQueryOptions = (
   input: Omit<
     Extract<LibraryModuleReadRequest["read"], { mode: "catalog" }>,
@@ -132,6 +148,25 @@ export const libraryCanvasTargetQueryOptions = (canvasId: string) =>
     staleTime: 30_000,
   });
 
+export const libraryResourceProjectAccessQueryOptions = (
+  target: Exclude<LibraryResourceTarget, { readonly kind: "canvas" }>,
+) => queryOptions({
+  queryKey: queryKeys.library.resourceProjectAccess(target),
+  queryFn: () => requireReadValue({
+    version: LIBRARY_MODULE_CONTRACT_VERSION,
+    read: { mode: "resource_project_access", target },
+  }, "resource_project_access"),
+  staleTime: 30_000,
+});
+
+export const useLibraryResourceProjectAccess = (
+  target: Exclude<LibraryResourceTarget, { readonly kind: "canvas" }>,
+  enabled = true,
+) => useQuery({
+  ...libraryResourceProjectAccessQueryOptions(target),
+  enabled,
+});
+
 export const useLibraryNavigationInvalidation = (): void => {
   const queryClient = useQueryClient();
   const registry = useProjectionInvalidationRegistry();
@@ -163,14 +198,13 @@ export const useLibraryMetadata = (enabled = true) => useQuery({
   enabled,
 });
 
-export const useApplyLibraryOperation = (enabled = true) => {
+export const useApplyLibraryOperation = () => {
   const queryClient = useQueryClient();
-  const metadata = useLibraryMetadata(enabled);
+  const metadata = useLibraryMetadata();
   const mutation = useMutation({
     mutationFn: async (operation: LibraryApplyOperation) => {
-      if (!enabled) throw new Error("Library workspace is unavailable");
       if (!metadata.data) throw new Error("Library identity is not ready");
-      const result = await applyLibraryModule({
+      const result = await applyLibraryModule(libraryContentAccess, {
         version: LIBRARY_MODULE_CONTRACT_VERSION,
         operationId: createUuidV7(),
         storeEpoch: metadata.data.storeEpoch,
@@ -214,6 +248,28 @@ export const useInfiniteLibraryChildren = (
       ...(pageParam ? { cursor: pageParam } : {}),
     },
   }, "children"),
+  getNextPageParam: (page) => page.nextCursor ?? undefined,
+  staleTime: 30_000,
+  enabled,
+});
+
+export const useInfiniteLibraryStandaloneRoots = (
+  input: Omit<
+    Parameters<typeof libraryStandaloneRootsQueryOptions>[0],
+    "cursor"
+  > = {},
+  enabled = true,
+) => useInfiniteQuery({
+  queryKey: queryKeys.library.standaloneRootPages(input),
+  initialPageParam: undefined as string | undefined,
+  queryFn: ({ pageParam }) => requireReadValue({
+    version: LIBRARY_MODULE_CONTRACT_VERSION,
+    read: {
+      mode: "standalone_roots",
+      ...input,
+      ...(pageParam ? { cursor: pageParam } : {}),
+    },
+  }, "standalone_roots"),
   getNextPageParam: (page) => page.nextCursor ?? undefined,
   staleTime: 30_000,
   enabled,

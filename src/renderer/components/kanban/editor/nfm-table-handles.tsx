@@ -34,9 +34,8 @@ import {
   ArrowUp,
   ChevronDown,
   CircleX,
-  Plus,
   Scissors,
-} from "lucide-react";
+} from "@/components/shared/icons/generic-icons";
 import type { ReactNode } from "react";
 import {
   CheckmarkIcon,
@@ -45,6 +44,7 @@ import {
   NfmSideMenuDragHandleIcon,
   NfmSideMenuDuplicateIcon,
   NfmSideMenuTableHeaderIcon,
+  PlusIcon,
 } from "@/components/shared/icons";
 import {
   clearNfmTableTarget,
@@ -653,7 +653,7 @@ function NfmTableCellHandle(props: TableCellButtonProps) {
 function NfmTableExtendButton(props: ExtendButtonProps) {
   return (
     <ExtendButton {...props}>
-      <Plus className="size-3.5" aria-hidden="true" />
+      <PlusIcon className="size-3.5" aria-hidden="true" />
     </ExtendButton>
   );
 }

@@ -1,4 +1,4 @@
-import { Info, Plus, Search } from "lucide-react";
+import { Info } from "@/components/shared/icons/generic-icons";
 import {
   useCallback,
   useDeferredValue,
@@ -10,7 +10,12 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { CodexThreadIcon, SpinnerIcon } from "@/components/shared/icons";
+import {
+  ThreadIcon,
+  SpinnerIcon,
+  PlusIcon,
+  SearchIcon,
+} from "@/components/shared/icons";
 import { NodexTooltip } from "@/components/ui/tooltip";
 import {
   selectCommandPaletteChatResults,
@@ -205,9 +210,9 @@ function SendToThreadRow({
         hasPreview && "mt-0.5",
       )}>
         {row.kind === "new-thread" ? (
-          <Plus className="size-4" aria-hidden="true" />
+          <PlusIcon className="size-4" aria-hidden="true" />
         ) : (
-          <CodexThreadIcon className="size-4" aria-hidden="true" />
+          <ThreadIcon className="size-4" aria-hidden="true" />
         )}
       </span>
       <span className="min-w-0 flex-1">
@@ -495,7 +500,7 @@ export function NfmSendToThreadMenuSurface({
       contentEditable={false}
     >
       <div className="flex h-[38px] shrink-0 items-center gap-1.5 px-2 py-[5px]">
-        <Search className="size-4 shrink-0 text-token-description-foreground" aria-hidden="true" />
+        <SearchIcon className="size-4 shrink-0 text-token-description-foreground" aria-hidden="true" />
         <input
           id={comboboxId}
           role="combobox"

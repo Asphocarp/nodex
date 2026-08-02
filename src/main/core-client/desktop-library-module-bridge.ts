@@ -1,4 +1,5 @@
 import { parseDatabaseId } from "../../shared/database-identities";
+import type { ContentAccessContext } from "../../shared/content-access-context";
 import {
   LIBRARY_NAVIGATION_EVENT_VERSION,
   type LibraryNavigationChangedEvent,
@@ -45,7 +46,6 @@ import {
 
 export interface DesktopLibraryModuleBridgeInput {
   readonly authority: Promise<DesktopDataAuthorityRuntime>;
-  readonly resolveProjectId: (event: unknown) => string | null;
   readonly publishLibraryDocumentCommits?: (input: {
     readonly storeEpoch: string;
     readonly commits: readonly RelocationDocumentCommit[];
@@ -54,12 +54,12 @@ export interface DesktopLibraryModuleBridgeInput {
 }
 
 export interface DesktopLibraryModuleBridge {
-  read(request: LibraryModuleReadRequest): Promise<LibraryModuleReadResult>;
+  read(
+    accessContext: ContentAccessContext,
+    request: LibraryModuleReadRequest,
+  ): Promise<LibraryModuleReadResult>;
   apply(
-    request: LibraryModuleApplyRequest,
-    event: unknown,
-  ): Promise<LibraryModuleApplyResult>;
-  applyTrustedLibrary(
+    accessContext: ContentAccessContext,
     request: LibraryModuleApplyRequest,
   ): Promise<LibraryModuleApplyResult>;
   readProjectPageDetail(
@@ -134,6 +134,19 @@ export function createDesktopLibraryModuleBridge(
     projectCoreAdapters.set(projectId, adapter);
     return adapter;
   };
+  const rootAdapter = (
+    runtime: DesktopDataAuthorityRuntime,
+  ): CoreLibraryModuleAdapter => {
+    rootCoreAdapter ??= coreAdapter(runtime);
+    return rootCoreAdapter;
+  };
+  const adapterForAccess = (
+    runtime: DesktopDataAuthorityRuntime,
+    accessContext: ContentAccessContext,
+  ): CoreLibraryModuleAdapter => {
+    if (accessContext.kind === "library") return rootAdapter(runtime);
+    return projectCoreAdapter(runtime, accessContext.projectId);
+  };
   const publishCanvasDocumentCommits = (
     result: LibraryModuleApplyResult,
   ): void => {
@@ -148,32 +161,14 @@ export function createDesktopLibraryModuleBridge(
   };
 
   return {
-    read: async (request) => {
+    read: async (accessContext, request) => {
       const runtime = await input.authority;
-      rootCoreAdapter ??= coreAdapter(runtime);
-      return await rootCoreAdapter.read(request);
+      return await adapterForAccess(runtime, accessContext).read(request);
     },
-    apply: async (request, event) => {
+    apply: async (accessContext, request) => {
       const runtime = await input.authority;
-      const projectId = input.resolveProjectId(event);
-      if (!projectId) {
-        return {
-          ok: false,
-          error: {
-            code: "invalid_request",
-            message: "Library writes require an active Project window",
-            retryable: false,
-          },
-        };
-      }
-      const result = await projectCoreAdapter(runtime, projectId).apply(request);
-      publishCanvasDocumentCommits(result);
-      return result;
-    },
-    applyTrustedLibrary: async (request) => {
-      const runtime = await input.authority;
-      rootCoreAdapter ??= coreAdapter(runtime);
-      const result = await rootCoreAdapter.apply(request);
+      const result = await adapterForAccess(runtime, accessContext)
+        .apply(request);
       publishCanvasDocumentCommits(result);
       return result;
     },
@@ -184,8 +179,7 @@ export function createDesktopLibraryModuleBridge(
     },
     readLibraryPageDetail: async (pageId) => {
       const runtime = await input.authority;
-      rootCoreAdapter ??= coreAdapter(runtime);
-      return await rootCoreAdapter.readLibraryPageDetail(pageId);
+      return await rootAdapter(runtime).readLibraryPageDetail(pageId);
     },
     listPageHistory: async (request) => {
       const runtime = await input.authority;
@@ -194,28 +188,25 @@ export function createDesktopLibraryModuleBridge(
     },
     searchPages: async (searchInput) => {
       const runtime = await input.authority;
-      rootCoreAdapter ??= coreAdapter(runtime);
-      return await rootCoreAdapter.searchPages(searchInput);
+      return await rootAdapter(runtime).searchPages(searchInput);
     },
     resolvePageTarget: async (request) => {
       const runtime = await input.authority;
-      return await projectCoreAdapter(runtime, request.requestingProjectId)
+      return await adapterForAccess(runtime, request.accessContext)
         .resolvePageTarget(request);
     },
     resolvePageOwnershipPath: async (request) => {
       const runtime = await input.authority;
-      return await projectCoreAdapter(runtime, request.requestingProjectId)
+      return await adapterForAccess(runtime, request.accessContext)
         .resolvePageOwnershipPath(request);
     },
     findPageLocation: async (pageId) => {
       const runtime = await input.authority;
-      rootCoreAdapter ??= coreAdapter(runtime);
-      return await rootCoreAdapter.findPageLocation(pageId);
+      return await rootAdapter(runtime).findPageLocation(pageId);
     },
     findViewLocation: async (viewId) => {
       const runtime = await input.authority;
-      rootCoreAdapter ??= coreAdapter(runtime);
-      return await rootCoreAdapter.findViewLocation(viewId);
+      return await rootAdapter(runtime).findViewLocation(viewId);
     },
     readPageLifecyclePreflight: async (projectId, pageId) => {
       const runtime = await input.authority;

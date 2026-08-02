@@ -1,3 +1,4 @@
+import { TagIcon, CalendarIcon } from "@/components/shared/icons";
 import { useState, useMemo, useCallback, useRef, useEffect, useDeferredValue } from "react";
 import { useKanban } from "@/lib/use-kanban";
 import {
@@ -16,12 +17,10 @@ import { buildSortKeyWithEmptyPlacement } from "@/lib/sort-empty-placement";
 import {
   ChevronUp,
   ChevronDown,
-  Tag,
   Type,
   CircleArrowDown,
   Users,
-  Calendar,
-} from "lucide-react";
+} from "@/components/shared/icons/generic-icons";
 import type { ReactNode } from "react";
 import { StatusChip } from "@/lib/status-chip";
 import { useRetainedScrollPosition } from "@/lib/retained-scroll-position";
@@ -64,13 +63,13 @@ function BurstIcon({ className }: { className?: string }) {
 // Header icons per column (matching Notion property-type icons)
 const iconCls = "size-4 shrink-0 text-[var(--gray-text)]";
 const COLUMN_ICONS: Record<SortField, ReactNode> = {
-  tags: <Tag className={iconCls} />,
+  tags: <TagIcon className={iconCls} />,
   title: <Type className={iconCls} />,
   status: <BurstIcon className={iconCls} />,
   priority: <CircleArrowDown className={iconCls} />,
   estimate: <CircleArrowDown className={iconCls} />,
   assignee: <Users className={iconCls} />,
-  created: <Calendar className={iconCls} />,
+  created: <CalendarIcon className={iconCls} />,
 };
 
 // Format relative date

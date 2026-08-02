@@ -1,4 +1,4 @@
-import { RefreshCw } from "lucide-react";
+import { RefreshCw } from "@/components/shared/icons/generic-icons";
 import { createReactBlockSpec } from "@blocknote/react";
 import { syncedBlockRefBlockConfig } from "../../../../shared/block-documents/blocknote-schema-config";
 import { DocumentBearingShellBlock } from "./document-bearing-shell-block";

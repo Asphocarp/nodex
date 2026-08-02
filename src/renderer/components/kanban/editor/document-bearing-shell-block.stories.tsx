@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { LayoutTemplate, RefreshCw } from "lucide-react";
+import { LayoutTemplate, RefreshCw } from "@/components/shared/icons/generic-icons";
 import { useState } from "react";
 import { DocumentBearingShellVisual } from "./document-bearing-shell-block";
 import {

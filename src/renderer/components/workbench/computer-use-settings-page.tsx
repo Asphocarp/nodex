@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { LockKeyhole, MonitorCog, Trash2, Volume2 } from "lucide-react";
+import { LockKeyhole, MonitorCog, Trash2, Volume2 } from "@/components/shared/icons/generic-icons";
 import { CheckmarkIcon } from "@/components/shared/icons";
 import { NodexButton, NodexSwitch } from "@/components/ui/button";
 import {

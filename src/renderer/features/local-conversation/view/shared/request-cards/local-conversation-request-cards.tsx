@@ -12,7 +12,7 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   ChevronDownIcon,
   ChevronRightIcon,
-  CodexCloseIcon,
+  CloseIcon,
 } from "@/components/shared/icons";
 import { NodexTooltip } from "./local-conversation-request-cards-deps";
 import {
@@ -1157,7 +1157,7 @@ function RequestComposerViewInstance({
                   disabled={isBusy}
                   onClick={() => void handleEscapeDismiss()}
                 >
-                  <CodexCloseIcon className="icon-2xs shrink-0" />
+                  <CloseIcon className="icon-2xs shrink-0" />
                   <span className="sr-only">Dismiss</span>
                 </button>
               ) : null}

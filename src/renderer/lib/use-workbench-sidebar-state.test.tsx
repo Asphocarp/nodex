@@ -49,7 +49,7 @@ describe("useWorkbenchSidebarState", () => {
       activeProjectId: null,
       collapsibleSections: {
         pinned: false,
-        library: false,
+        pages: false,
         projects: true,
         chats: false,
       },

@@ -8,7 +8,7 @@ import { type Project } from "@/lib/types";
 import { __getNodexToastSnapshotForTests } from "@/components/ui/toast";
 import { THREAD_QUEUE_FOLLOW_UPS_STORAGE_KEY } from "@/lib/thread-composer-follow-up-mode";
 import { COMPOSER_ENTER_BEHAVIOR_STORAGE_KEY } from "@/lib/composer-enter-behavior";
-import { CODEX_BOTTOM_PANEL_HIDDEN_ICON_PREFIX, CODEX_EXPAND_PANEL_ICON_PREFIX, CODEX_PANEL_VISIBLE_ICON_PREFIX, CODEX_RESTORE_PANEL_ICON_PREFIX, clickMenuItem, discardSideChatCalls, executeCommandPaletteCommand, getBottomPanelContentSizer, getConnectedThreadStagePropsByThreadId, getFilesPreviewInteractionTarget, getHeaderShellSlot, getLastTerminalPanelProps, getLastThreadStageActions, getPanelTabById, getThreadRow, getWorkbenchTabProjectionDeleteTabIds, hydrateBackgroundSubagentThreadsCalls, hydrateSubagentPanelCalls, installTerminalEventApiMock, invokeCalls, makeAttachedSession, makeBottomPanelTerminalSession, makePanelLayout, makePanels, makeProject, makeSession, makeSessionTab, moveSidebarPointer, openBottomPanel, openPanelMenu, pointerActivate, pointerDownAndSettle, releasePointerDrag, renderWorkbench, requestThreadStreamSnapshotCalls, setComposerIntentCalls, setWindowInnerWidthForTest, sideChatConversations, startSideChatCalls, setInvokeCalls, setRequestThreadStreamSnapshotImpl, setSideChatConversationProjectId } from "./workbench-testkit/workbench-shell-harness";
+import { BOTTOM_PANEL_HIDDEN_ICON_PREFIX, EXPAND_PANEL_ICON_PREFIX, PANEL_VISIBLE_ICON_PREFIX, RESTORE_PANEL_ICON_PREFIX, clickMenuItem, discardSideChatCalls, executeCommandPaletteCommand, getBottomPanelContentSizer, getConnectedThreadStagePropsByThreadId, getFilesPreviewInteractionTarget, getHeaderShellSlot, getLastTerminalPanelProps, getLastThreadStageActions, getPanelTabById, getThreadRow, getWorkbenchTabProjectionDeleteTabIds, hydrateBackgroundSubagentThreadsCalls, hydrateSubagentPanelCalls, installTerminalEventApiMock, invokeCalls, makeAttachedSession, makeBottomPanelTerminalSession, makePanelLayout, makePanels, makeProject, makeSession, makeSessionTab, moveSidebarPointer, openBottomPanel, openPanelMenu, pointerActivate, pointerDownAndSettle, releasePointerDrag, renderWorkbench, requestThreadStreamSnapshotCalls, setComposerIntentCalls, setWindowInnerWidthForTest, sideChatConversations, startSideChatCalls, setInvokeCalls, setRequestThreadStreamSnapshotImpl, setSideChatConversationProjectId } from "./workbench-testkit/workbench-shell-harness";
 
 describe("workbench session shell / layout-panel-actions", () => {
   test("collapsed right panel opens from the global side-panel toggle", async () => {
@@ -25,7 +25,7 @@ describe("workbench session shell / layout-panel-actions", () => {
     expect(globalHeader?.contains(toggleButton)).toBe(true);
     expect(toggleButton.getAttribute("aria-pressed")).toBe("false");
     expect(toggleButton.className.includes("no-drag")).toBe(true);
-    expect(toggleIconPath.startsWith(CODEX_PANEL_VISIBLE_ICON_PREFIX)).toBe(true);
+    expect(toggleIconPath.startsWith(PANEL_VISIBLE_ICON_PREFIX)).toBe(true);
     expect(screen.queryByRole("button", { name: "Attach thread" })).toBe(null);
     expect(screen.queryByRole("button", { name: "Detach thread" })).toBe(null);
 
@@ -59,7 +59,7 @@ describe("workbench session shell / layout-panel-actions", () => {
     expect((bottomPanelToggle.compareDocumentPosition(sidePanelToggle) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBe(true);
     expect(bottomPanelToggle.getAttribute("aria-pressed")).toBe("false");
     expect(bottomPanelToggle.className.includes("no-drag")).toBe(true);
-    expect(toggleIconPath.startsWith(CODEX_BOTTOM_PANEL_HIDDEN_ICON_PREFIX)).toBe(true);
+    expect(toggleIconPath.startsWith(BOTTOM_PANEL_HIDDEN_ICON_PREFIX)).toBe(true);
     expect(screen.queryByTestId("session-bottom-panel")).toBe(null);
 
     await act(async () => {
@@ -715,6 +715,9 @@ describe("workbench session shell / layout-panel-actions", () => {
     const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
     expect(props?.rightPanelComposerOverlayEnabled).toBe(true);
     expect(screen.getByTestId("session-right-panel").getAttribute("data-right-panel-width-mode")).toBe("full");
+    expect(
+      screen.getByRole("tab", { name: "Card One" }).querySelector("[data-file-page-icon]"),
+    ).not.toBeNull();
 
     await pointerActivate(screen.getByRole("button", { name: "History" }));
     await pointerActivate(screen.getByRole("button", { name: "Delete" }));
@@ -911,7 +914,7 @@ describe("workbench session shell / layout-panel-actions", () => {
     expect(rightPanelHeaderSpacer?.parentElement?.className.includes("no-drag")).toBe(true);
     expect(rightPanelHeaderSpacer?.parentElement?.getAttribute("role")).toBe("presentation");
     expect(expandButton.className.includes("no-drag")).toBe(true);
-    expect(expandIconPath.startsWith(CODEX_EXPAND_PANEL_ICON_PREFIX)).toBe(true);
+    expect(expandIconPath.startsWith(EXPAND_PANEL_ICON_PREFIX)).toBe(true);
     expect(rightPanelHeaderSpacer?.getAttribute("style")?.includes("width: calc(70px)")).toBe(true);
     expect(screen.container.querySelector('[data-testid="right-panel-global-header-actions"]') === null).toBe(true);
 
@@ -939,7 +942,7 @@ describe("workbench session shell / layout-panel-actions", () => {
     expect(globalHeader?.contains(restoreButton)).toBe(false);
     expect(fullWidthTabHeader?.contains(restoreButton)).toBe(true);
     expect(restoreButton.getAttribute("aria-pressed")).toBe("true");
-    expect(restoreButton.querySelector("path")?.getAttribute("d")?.startsWith(CODEX_RESTORE_PANEL_ICON_PREFIX)).toBe(true);
+    expect(restoreButton.querySelector("path")?.getAttribute("d")?.startsWith(RESTORE_PANEL_ICON_PREFIX)).toBe(true);
   });
 
   test("right panel resize previews the dragged width before persistence", async () => {
@@ -1640,7 +1643,7 @@ describe("workbench session shell / layout-panel-actions", () => {
 
     const actionGrid = screen.container.querySelector('[data-thread-side-panel-new-tab-action-grid="true"]');
     expect(actionGrid !== null).toBe(true);
-    if (!actionGrid) throw new Error("Expected right-panel action grid");
+    if (!(actionGrid instanceof HTMLElement)) throw new Error("Expected right-panel action grid");
     const actionText = textContent(actionGrid);
     expect(actionText.indexOf("Review") < actionText.indexOf("Terminal")).toBe(true);
     expect(actionText.indexOf("Terminal") < actionText.indexOf("Browser")).toBe(true);
@@ -1651,7 +1654,7 @@ describe("workbench session shell / layout-panel-actions", () => {
     expect(screen.getByRole("button", { name: /Files/ }) !== null).toBe(true);
     expect(screen.queryByRole("button", { name: /Side chat/ })).toBe(null);
     expect(screen.getByRole("button", { name: /DB View/ }) !== null).toBe(true);
-    expect(screen.getByRole("button", { name: /Page/ }) !== null).toBe(true);
+    expect(within(actionGrid).getByRole("button", { name: "Page" }) !== null).toBe(true);
     expect(actionText.indexOf("Files") < actionText.indexOf("DB View")).toBe(true);
     expect(actionText.indexOf("DB View") < actionText.indexOf("Page")).toBe(true);
     expect(textContent(actionGrid).includes("⌃⇧G")).toBe(true);
@@ -2078,7 +2081,9 @@ describe("workbench session shell / layout-panel-actions", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    await pointerActivate(screen.getByRole("button", { name: /Page/ }));
+    const actionGrid = screen.container.querySelector('[data-thread-side-panel-new-tab-action-grid="true"]');
+    if (!(actionGrid instanceof HTMLElement)) throw new Error("Expected right-panel action grid");
+    await pointerActivate(within(actionGrid).getByRole("button", { name: "Page" }));
     await waitFor(() => {
       expect(screen.getByRole("dialog", { name: "Open Page" }) !== null).toBe(true);
     });

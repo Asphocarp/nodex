@@ -5,12 +5,14 @@ import type {
 } from "./database-identities";
 import type { DatabaseViewKind } from "./database-kernel";
 import type { RelocationDocumentCommit } from "./block-documents/contracts";
+import type { ProjectAppearance } from "./project-appearance";
 
-export const LIBRARY_MODULE_CONTRACT_VERSION = 4 as const;
+export const LIBRARY_MODULE_CONTRACT_VERSION = 6 as const;
 export const DEFAULT_LIBRARY_READ_LIMIT = 20 as const;
 export const MAX_LIBRARY_READ_LIMIT = 100 as const;
 export const MAX_LIBRARY_CURSOR_LENGTH = 2_048 as const;
 export const MAX_LIBRARY_QUERY_LENGTH = 256 as const;
+export const MAX_LIBRARY_PROJECT_ACCESS_CHANGES = 100_000 as const;
 
 export type LibraryRouteTarget =
   | { readonly kind: "page"; readonly pageId: string }
@@ -93,6 +95,10 @@ export interface LibraryCatalogEntry {
 
 export type LibraryRead =
   | { readonly mode: "metadata" }
+  | {
+      readonly mode: "resource_project_access";
+      readonly target: Exclude<LibraryResourceTarget, { readonly kind: "canvas" }>;
+    }
   | { readonly mode: "canvas_target"; readonly canvasId: string }
   | {
       readonly mode: "children";
@@ -100,6 +106,12 @@ export type LibraryRead =
       readonly cursor?: string;
       readonly limit?: number;
       readonly forceIncludeTarget?: LibraryRouteTarget;
+    }
+  | {
+      readonly mode: "standalone_roots";
+      readonly cursor?: string;
+      readonly limit?: number;
+      readonly forceIncludeTarget?: LibraryResourceTarget;
     }
   | { readonly mode: "path"; readonly target: LibraryRouteTarget }
   | {
@@ -149,11 +161,25 @@ export type LibraryCanvasTarget =
 
 export type LibraryReadValue =
   | { readonly kind: "metadata" }
+  | {
+      readonly kind: "resource_project_access";
+      readonly value: LibraryResourceProjectAccess;
+    }
   | { readonly kind: "canvas_target"; readonly value: LibraryCanvasTarget }
   | {
       readonly kind: "children";
       readonly parent: LibraryNavigationParent;
       readonly items: readonly LibraryNavigationNode[];
+      readonly nextCursor: string | null;
+      readonly hasMore: boolean;
+      readonly total: number;
+    }
+  | {
+      readonly kind: "standalone_roots";
+      readonly items: readonly Exclude<
+        LibraryNavigationNode,
+        LibraryViewNavigationNode
+      >[];
       readonly nextCursor: string | null;
       readonly hasMore: boolean;
       readonly total: number;
@@ -338,6 +364,56 @@ export interface GrantLibraryResourceToProjectOperation {
   readonly access: "read" | "read_write";
 }
 
+export type LibraryAccess = "read" | "read_write";
+
+export type LibraryInheritedProjectAccessSource =
+  | {
+      readonly kind: "primary_database";
+      readonly databaseId: DatabaseId;
+      readonly databaseName: string;
+      readonly access: LibraryAccess;
+    }
+  | {
+      readonly kind: "ancestor_page";
+      readonly pageId: string;
+      readonly pageTitle: string;
+      readonly access: LibraryAccess;
+    }
+  | {
+      readonly kind: "database_grant";
+      readonly databaseId: DatabaseId;
+      readonly databaseName: string;
+      readonly access: LibraryAccess;
+    };
+
+export interface LibraryProjectAccessRow {
+  readonly projectId: string;
+  readonly projectName: string;
+  readonly appearance: ProjectAppearance;
+  readonly lifecycle: "active" | "inactive" | "archived";
+  readonly directGrant: {
+    readonly access: LibraryAccess;
+    readonly revision: number;
+  } | null;
+  readonly inheritedSources: readonly LibraryInheritedProjectAccessSource[];
+  readonly effectiveAccess: LibraryAccess | null;
+}
+
+export interface LibraryResourceProjectAccess {
+  readonly target: Exclude<LibraryResourceTarget, { readonly kind: "canvas" }>;
+  readonly projects: readonly LibraryProjectAccessRow[];
+}
+
+export interface SetLibraryProjectAccessOperation {
+  readonly kind: "set_project_access";
+  readonly target: Exclude<LibraryResourceTarget, { readonly kind: "canvas" }>;
+  readonly changes: readonly {
+    readonly projectId: string;
+    readonly access: LibraryAccess | null;
+    readonly expectedRevision: number | null;
+  }[];
+}
+
 export type LibraryApplyOperation =
   | CreateLibraryPageOperation
   | CreateLibraryDatabaseOperation
@@ -349,7 +425,8 @@ export type LibraryApplyOperation =
   | MoveLibraryBlockOperation
   | ArchiveLibraryResourceOperation
   | RestoreLibraryResourceOperation
-  | GrantLibraryResourceToProjectOperation;
+  | GrantLibraryResourceToProjectOperation
+  | SetLibraryProjectAccessOperation;
 
 export interface LibraryModuleApplyRequest {
   readonly version: typeof LIBRARY_MODULE_CONTRACT_VERSION;

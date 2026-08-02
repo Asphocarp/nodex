@@ -1009,7 +1009,7 @@ function AppShellTab({
               closeCurrentTabFromDirectInteraction();
             }}
           >
-            <CodexTabCloseIcon className="icon-xs relative" />
+            <TabCloseIcon className="icon-xs relative" />
           </button>
         ) : null}
       </div>
@@ -1216,7 +1216,7 @@ function encodeTabId(tabId: string): string {
   return tabId.replace(/[^a-zA-Z0-9_-]/g, "_");
 }
 
-function CodexTabCloseIcon({ className }: { className?: string }) {
+function TabCloseIcon({ className }: { className?: string }) {
   return (
     <svg
       width="21"

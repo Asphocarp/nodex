@@ -18,8 +18,8 @@ The editable settings tab covers Nodex-supported command ids only. Editor-native
 | `⌘/Ctrl+K` | Search commands and chats | Opens the global command palette in root mode; chat metadata joins at two query characters and chat history at three; works from editable surfaces too |
 | `⌘/Ctrl+G` | Search chats | Opens the global palette in chat-search mode |
 | `⌘/Ctrl+P` | Search Pages | Opens the global palette in Page-search mode, including Page filter controls |
-| `⌘/Ctrl+[` | Back | Restores the previous shell-owned project/session/panel context; works from editable surfaces too |
-| `⌘/Ctrl+]` | Forward | Restores the next shell-owned project/session/panel context; works from editable surfaces too |
+| `⌘/Ctrl+[` | Back | Restores the previous shell-owned Project/Session/Library target and its route-local presentation; works from editable surfaces too |
+| `⌘/Ctrl+]` | Forward | Restores the next shell-owned Project/Session/Library target and its route-local presentation; works from editable surfaces too |
 | `⌘/Ctrl+Shift+A` | Archive chat | Archives the active project or projectless session |
 | `⌘/Ctrl+N` | New chat | Starts a new chat in the active project |
 | `⌘/Ctrl+Alt+S` | Open side chat | Opens a side chat for the active attached thread |

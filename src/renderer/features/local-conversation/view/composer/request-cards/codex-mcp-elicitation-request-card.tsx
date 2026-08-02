@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import {
   ChevronDownIcon,
-  CodexCloseIcon,
+  CloseIcon,
 } from "@/components/shared/icons";
 import type {
   CodexMcpServerElicitationRequest,
@@ -389,7 +389,7 @@ function McpFormRequestCard({
             aria-label="Cancel"
             onClick={cancel}
           >
-            <CodexCloseIcon className="icon-xs" />
+            <CloseIcon className="icon-xs" />
           </button>
         </div>
         <div className={cn(

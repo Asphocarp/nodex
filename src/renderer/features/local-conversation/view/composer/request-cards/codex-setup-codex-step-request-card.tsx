@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronDownIcon, CodexCloseIcon } from "@/components/shared/icons";
+import { ChevronDownIcon, CloseIcon } from "@/components/shared/icons";
 import {
   NodexPopover,
   NodexPopoverContent,
@@ -265,7 +265,7 @@ export function CodexSetupContextRequestCardView({
           className="inline-flex h-token-button-composer aspect-square items-center justify-center rounded-lg text-token-text-tertiary hover:bg-token-list-hover-background hover:text-token-foreground"
           onClick={() => void respond("dismiss")}
         >
-          <CodexCloseIcon className="icon-2xs" />
+          <CloseIcon className="icon-2xs" />
         </button>
       </div>
 

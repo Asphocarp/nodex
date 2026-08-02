@@ -7,17 +7,10 @@ import type { DbViewPrefs } from "../../lib/db-view-prefs";
 import type { CalendarViewState } from "@/lib/calendar-view-state";
 import type { Project } from "@/lib/types";
 import type { WorkbenchView } from "@/lib/use-workbench-profile-preferences";
-import type { DatabaseViewRenderModel } from "@/lib/database-view-render-model";
-import type { ColumnPaginationState } from "@/lib/kanban-store";
-import { DatabaseViewSurface } from "./read-only-database-view";
 
 interface MainViewHostProps {
   projectId: string;
   databaseViewId: string;
-  databaseView: DatabaseViewRenderModel | null;
-  databaseViewPagination?: ReadonlyMap<string, ColumnPaginationState>;
-  onLoadMoreDatabaseViewGroup?: (scopeKey: string) => Promise<void> | void;
-  refreshDatabaseView?: () => void | Promise<void>;
   projects: Project[];
   view: WorkbenchView;
   searchQuery: string;
@@ -52,10 +45,6 @@ interface MainViewHostProps {
 export function MainViewHost({
   projectId,
   databaseViewId,
-  databaseView,
-  databaseViewPagination,
-  onLoadMoreDatabaseViewGroup,
-  refreshDatabaseView,
   projects,
   view,
   searchQuery,
@@ -73,19 +62,6 @@ export function MainViewHost({
   openPageStage,
   scrollStateKey,
 }: MainViewHostProps) {
-  if (databaseView && !databaseView.primaryWriteCompatible) {
-    return (
-      <DatabaseViewSurface
-        model={databaseView}
-        groupPagination={databaseViewPagination}
-        onLoadMoreGroup={onLoadMoreDatabaseViewGroup}
-        searchQuery={searchQuery}
-        openPageStage={openPageStage}
-        onCommitted={refreshDatabaseView}
-      />
-    );
-  }
-
   if (view === "kanban") {
     return (
       <KanbanBoard

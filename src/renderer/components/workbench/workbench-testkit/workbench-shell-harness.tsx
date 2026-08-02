@@ -14,7 +14,7 @@ import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import {
   PAGE_DOCUMENT_SCHEMA_VERSION,
 } from "../../../../shared/block-documents";
-import { WorkbenchLayoutSnapshotV5Schema } from "../../../../shared/schemas/workbench-layout";
+import { WorkbenchLayoutSnapshotSchema } from "../../../../shared/schemas/workbench-layout";
 import type {
   CodexAutomationInboxItem,
   CodexAutomationRunsInboxResponse,
@@ -39,6 +39,7 @@ import type {
   WorkbenchTabUpdateInput,
   WorktreeEnvironmentOption,
 } from "@/lib/types";
+import type { LibraryNavigationNode } from "../../../../shared/library-module";
 import type { WorkbenchSessionRenderProjection } from "@/lib/workbench-session-presentation";
 
 export type ProjectSession = WorkbenchSessionRenderProjection;
@@ -137,18 +138,18 @@ export let mockThreadStartProgress: unknown = null;
 export let mockConversationHasVisibleTurn = true;
 export let codexHostMessageListener: ((message: CodexHostMessage) => void) | null = null;
 export let pendingWorktreeWarningListener: ((event: CodexPendingWorktreeWarningEvent) => void) | null = null;
-export const CODEX_PANEL_VISIBLE_ICON_PREFIX = "M16.835 8.66301";
-export const CODEX_BOTTOM_PANEL_HIDDEN_ICON_PREFIX = "M13.334 12.2529";
-export const CODEX_EXPAND_PANEL_ICON_PREFIX = "M16.0299 3.0293";
-export const CODEX_RESTORE_PANEL_ICON_PREFIX = "M4.33496 11";
-export const CODEX_NEW_CHAT_ICON_PREFIX = "M2.6687 11.333";
-export const CODEX_TITLEBAR_NEW_CHAT_ICON_PREFIX = "M6.33325 1.88379";
+export const PANEL_VISIBLE_ICON_PREFIX = "M16.835 8.66301";
+export const BOTTOM_PANEL_HIDDEN_ICON_PREFIX = "M13.334 12.2529";
+export const EXPAND_PANEL_ICON_PREFIX = "M16.0299 3.0293";
+export const RESTORE_PANEL_ICON_PREFIX = "M4.33496 11";
+export const NEW_CHAT_ICON_PREFIX = "M2.6687 11.333";
+export const TITLEBAR_NEW_CHAT_ICON_PREFIX = "M6.33325 1.88379";
 
 export type TerminalEventListenerMap = Record<string, (payload: unknown) => void>;
 
 export const DEFAULT_SIDEBAR_COLLAPSIBLE_SECTIONS: SidebarCollapsibleSectionsState = {
   pinned: false,
-  library: false,
+  pages: false,
   projects: false,
   chats: false,
 };
@@ -532,6 +533,17 @@ vi.mock("@/lib/api", () => {
       },
     };
   },
+  applyLibraryDatabaseModule: async (request: unknown) => {
+    invokeCalls.push(["library-database-module:apply", request]);
+    return mockInvokeImpl?.("library-database-module:apply", request) ?? {
+      ok: false,
+      error: {
+        code: "unknown",
+        message: "Not configured in this test.",
+        retryable: false,
+      },
+    };
+  },
   mutateBlockProperties: async (projectId: string, request: unknown) => {
     invokeCalls.push(["block-properties:mutate", projectId, request]);
     return mockInvokeImpl?.("block-properties:mutate", projectId, request) ?? {
@@ -544,7 +556,7 @@ vi.mock("@/lib/api", () => {
     };
   },
   resolvePageTarget: async (input: {
-    requestingProjectId: string;
+    accessContext: { kind: "library" } | { kind: "project"; projectId: string };
     targetPageId: string;
   }) => {
     invokeCalls.push(["page-target:resolve", input]);
@@ -554,7 +566,7 @@ vi.mock("@/lib/api", () => {
     };
   },
   resolvePageOwnershipPath: async (input: {
-    requestingProjectId: string;
+    accessContext: { kind: "library" } | { kind: "project"; projectId: string };
     targetPageId: string;
   }) => {
     invokeCalls.push(["page-ownership-path:resolve", input]);
@@ -567,24 +579,44 @@ vi.mock("@/lib/api", () => {
   subscribeBoardChanges: () => () => undefined,
   subscribeDatabaseChanges: () => () => undefined,
   subscribeLibraryChanges: () => () => undefined,
-  readLibraryModule: async (request: unknown) => {
-    invokeCalls.push(["library-module:read", request]);
-    return mockInvokeImpl?.("library-module:read", request) ?? {
+  readLibraryModule: async (accessContext: unknown, request: unknown) => {
+    invokeCalls.push(["library-module:read", accessContext, request]);
+    const configured = await mockInvokeImpl?.(
+      "library-module:read",
+      accessContext,
+      request,
+    );
+    if (configured !== undefined && configured !== null) return configured;
+    const mode = (
+      request as { readonly read?: { readonly mode?: string } }
+    ).read?.mode;
+    const value = mode === "metadata"
+      ? { kind: "metadata" as const }
+      : mode === "standalone_roots"
+        ? {
+            kind: "standalone_roots" as const,
+            items: [],
+            nextCursor: null,
+            hasMore: false,
+            total: 0,
+          }
+        : {
+            kind: "children" as const,
+            parent: { kind: "library" as const },
+            items: [],
+            nextCursor: null,
+            hasMore: false,
+            total: 0,
+          };
+    return {
       ok: true,
       value: {
-        version: 1,
+        version: 5,
         profileId: "profile:test",
         libraryId: "library:test",
         storeEpoch: "epoch:test",
         changeLogSeq: 0,
-        value: {
-          kind: "children",
-          parent: { kind: "library" },
-          items: [],
-          nextCursor: null,
-          hasMore: false,
-          total: 0,
-        },
+        value,
       },
     };
   },
@@ -779,6 +811,24 @@ vi.mock("../workbench-canvas-stage-panel", () => ({
     }).__lastWorkbenchCanvasStagePanelProps = props;
     return createElement("div", {
       "data-testid": "workbench-canvas-stage-panel",
+    });
+  },
+}));
+
+vi.mock("../workbench-database-view-surface", () => ({
+  WorkbenchDatabaseViewSurface: (props: Record<string, unknown>) => {
+    (globalThis as {
+      __lastWorkbenchDatabaseViewSurfaceProps?: Record<string, unknown>;
+    }).__lastWorkbenchDatabaseViewSurfaceProps = props;
+    useEffect(() => {
+      const publish = props.onPresentationChange as ((value: {
+        databaseName: string;
+        viewName: string;
+      }) => void) | undefined;
+      publish?.({ databaseName: "Tasks", viewName: "Board" });
+    }, [props.onPresentationChange]);
+    return createElement("div", {
+      "data-testid": "workbench-database-view-surface",
     });
   },
 }));
@@ -2175,7 +2225,6 @@ export function renderWorkbench({
   initialSelectedSessionId,
   workbenchCommandRequest = null,
   pendingViewDeepLinkOpen = null,
-  libraryWorkspaceEnabled = false,
   onNavigationStateChange,
   cardGetOverride = null,
   ownershipPathsByPage = {},
@@ -2184,6 +2233,7 @@ export function renderWorkbench({
   worktreeEnvironmentOptionsByProject = {},
   codexModels = DEFAULT_TEST_CODEX_MODELS,
   pendingWorktrees = [],
+  libraryRoots = [],
 }: {
   projects?: Project[];
   sessionsByProject?: Record<string, ProjectSession[]>;
@@ -2205,7 +2255,6 @@ export function renderWorkbench({
   pendingViewDeepLinkOpen?: ComponentProps<
     typeof WorkbenchShell
   >["pendingViewDeepLinkOpen"];
-  libraryWorkspaceEnabled?: boolean;
   onNavigationStateChange?: ComponentProps<typeof WorkbenchShell>["onNavigationStateChange"];
   cardGetOverride?: ((projectId: string, pageId: string) => Promise<unknown> | unknown) | null;
   ownershipPathsByPage?: Record<string, ReadonlyArray<{
@@ -2218,6 +2267,7 @@ export function renderWorkbench({
   worktreeEnvironmentOptionsByProject?: Record<string, WorktreeEnvironmentOption[]>;
   codexModels?: CodexModelOption[];
   pendingWorktrees?: readonly CodexPendingWorktreeEntry[];
+  libraryRoots?: readonly LibraryNavigationNode[];
 } = {}) {
   const resolvedInitialSelectedSessionId = initialSelectedSessionId === undefined
     ? Object.values(sessionsByProject).flat()[0]?.id
@@ -2321,6 +2371,64 @@ export function renderWorkbench({
     generatedAt: 1,
   });
   mockInvokeImpl = async (channel, ...args) => {
+    if (channel === "library-module:read") {
+      const request = args[1] as {
+        readonly read?: {
+          readonly mode?: string;
+          readonly target?: {
+            readonly kind?: string;
+            readonly pageId?: string;
+            readonly databaseId?: string;
+            readonly canvasId?: string;
+            readonly viewId?: string;
+          };
+        };
+      };
+      const target = request.read?.target;
+      const pathNode = target
+        ? libraryRoots.find((node) => {
+            if (target.kind === "page" && node.kind === "page") {
+              return node.pageId === target.pageId;
+            }
+            if (target.kind === "database" && node.kind === "database") {
+              return node.databaseId === target.databaseId;
+            }
+            if (target.kind === "canvas" && node.kind === "canvas") {
+              return node.canvasId === target.canvasId;
+            }
+            if (target.kind === "view" && node.kind === "database") {
+              return node.defaultViewId === target.viewId;
+            }
+            return false;
+          })
+        : undefined;
+      const value = request.read?.mode === "metadata"
+        ? { kind: "metadata" as const }
+        : request.read?.mode === "path"
+          ? {
+              kind: "path" as const,
+              target,
+              nodes: pathNode ? [pathNode] : [],
+            }
+          : {
+              kind: "standalone_roots" as const,
+              items: libraryRoots.filter((node) => node.kind !== "view"),
+              nextCursor: null,
+              hasMore: false,
+              total: libraryRoots.length,
+            };
+      return {
+        ok: true,
+        value: {
+          version: 5,
+          profileId: "profile:test",
+          libraryId: "library:test",
+          storeEpoch: "epoch:test",
+          changeLogSeq: 1,
+          value,
+        },
+      };
+    }
     if (channel === "projects:get") {
       const projectId = String(args[0] ?? "");
       return projectState.find((project) => project.id === projectId) ?? null;
@@ -3313,7 +3421,7 @@ export function renderWorkbench({
       setRenderedProjects(nextProjects);
     };
     const initialWindowLayoutSnapshotRef = useRef(
-      WorkbenchLayoutSnapshotV5Schema.parse({
+      WorkbenchLayoutSnapshotSchema.parse({
         version: 4 as const,
         location: resolvedInitialSelectedSessionId
           ? {
@@ -3335,7 +3443,6 @@ export function renderWorkbench({
         initialWindowLayoutSnapshot={
           initialWindowLayoutSnapshotRef.current
         }
-        libraryWorkspaceEnabled={libraryWorkspaceEnabled}
         projects={renderedProjects}
         onSceneMutation={(owner, previous, next) => {
           if (owner.kind !== "session") return;
@@ -3514,6 +3621,9 @@ beforeEach(() => {
   delete (globalThis as { __lastTerminalPanelProps?: Record<string, unknown> }).__lastTerminalPanelProps;
   delete (globalThis as { __lastHistoryPanelProps?: Record<string, unknown> }).__lastHistoryPanelProps;
   delete (globalThis as { __lastPageStageProps?: Record<string, unknown> }).__lastPageStageProps;
+  delete (globalThis as {
+    __lastWorkbenchDatabaseViewSurfaceProps?: Record<string, unknown>;
+  }).__lastWorkbenchDatabaseViewSurfaceProps;
   delete (globalThis as { __mockPageStagePropsByPageId?: Record<string, Record<string, unknown>> }).__mockPageStagePropsByPageId;
   delete (globalThis as { __mockPageStageHistoryClicks?: number }).__mockPageStageHistoryClicks;
   delete (globalThis as { __mockPageStageDeleteClicks?: number }).__mockPageStageDeleteClicks;

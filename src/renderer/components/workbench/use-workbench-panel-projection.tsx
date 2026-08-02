@@ -9,9 +9,9 @@ import {
 } from "react";
 import { type MotionValue } from "motion/react";
 import {
-  CodexAutomationsIcon,
-  CodexSidePanelSideChatIcon,
-  CodexSidePanelTerminalIcon,
+  AutomationsIcon,
+  SidePanelSideChatIcon,
+  SidePanelTerminalIcon,
   ComposerPlanModeIcon,
   ComposerPluginsIcon,
 } from "@/components/shared/icons";
@@ -433,19 +433,19 @@ export function useWorkbenchPanelProjection({
         titleSource: pageStageTitleSource,
         ...chromeContext,
         icon: isSideChatPanelTab(tab)
-          ? CodexSidePanelSideChatIcon
+          ? SidePanelSideChatIcon
           : isMcpAppPanelTab(tab)
             ? ComposerPluginsIcon
             : isPlanPanelTab(tab)
               ? ComposerPlanModeIcon
               : isAutomationPanelTab(tab)
-                ? CodexAutomationsIcon
+                ? AutomationsIcon
                 : isBackgroundAgentPanelTab(tab)
                   ? createBackgroundAgentTabIcon(tab.threadId)
                   : isSubagentsPanelTab(tab)
                     ? SubagentGlyphIcon
                     : isProcessOutputPanelTab(tab)
-                      ? CodexSidePanelTerminalIcon
+                      ? SidePanelTerminalIcon
                       : filesIcon
                         ?? (isProjectSessionFilesPreviewTab(tab)
                           ? getTabIcon(tab.kind)

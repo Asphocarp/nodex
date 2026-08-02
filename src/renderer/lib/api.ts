@@ -3,6 +3,7 @@ import {
   resolveRendererTransport,
 } from "./renderer-transport";
 import type { IpcApi } from "../../shared/ipc-api";
+import type { ContentAccessContext } from "../../shared/content-access-context";
 import {
   isCursorRejectionCode,
   type CoreReadError,
@@ -418,15 +419,17 @@ export function applyDatabaseModule(
 }
 
 export function readLibraryModule(
+  accessContext: ContentAccessContext,
   request: LibraryModuleReadRequest,
 ): Promise<LibraryModuleReadResult> {
-  return invoke("library-module:read", request);
+  return invoke("library-module:read", accessContext, request);
 }
 
 export function applyLibraryModule(
+  accessContext: ContentAccessContext,
   request: LibraryModuleApplyRequest,
 ): Promise<LibraryModuleApplyResult> {
-  return invoke("library-module:apply", request);
+  return invoke("library-module:apply", accessContext, request);
 }
 
 export function readLibraryDatabaseModule(

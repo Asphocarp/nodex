@@ -1,5 +1,5 @@
 import {
-  CodexSettingsGeneralIcon,
+  SettingsGeneralIcon,
 } from "@/components/shared/icons";
 import {
   cloneElement,
@@ -19,23 +19,23 @@ import { useTheme } from "../../../../../lib/use-theme";
 import { cn } from "../../../../../lib/utils";
 import type { ThreadBlockModel } from "../../../thread-stage-types";
 import {
-  CodexAutomaticApprovalReviewIcon,
-  CodexActivityListFilesIcon,
-  CodexActivitySearchIcon,
-  CodexBrowserUseIcon,
-  CodexCheckCircleIcon,
-  CodexComputerUseIcon,
-  CodexConnectorFallbackIcon,
-  CodexEditFilesIcon,
-  CodexGlobeIcon,
-  CodexHooksIcon,
-  CodexPluginCubeIcon,
-  CodexReadFilesIcon,
-  CodexSkillIcon,
-  CodexTerminalIcon,
-  CodexXCircleIcon,
-  withCodexIconClass,
-} from "./codex-tool-icons";
+  AutomaticApprovalReviewIcon,
+  ActivityListFilesIcon,
+  ActivitySearchIcon,
+  BrowserUseIcon,
+  SuccessCircleIcon,
+  ComputerUseIcon,
+  ConnectorFallbackIcon,
+  EditFilesIcon,
+  ConnectorGlobeIcon,
+  HooksIcon,
+  PluginCubeIcon,
+  ReadFilesIcon,
+  SkillIcon,
+  TerminalActivityIcon,
+  DeniedCircleIcon,
+  withActivityIconClass,
+} from "@/components/shared/icons";
 
 export type ToolActivityIconId =
   | "approved"
@@ -93,42 +93,42 @@ function SemanticToolIcon({
   icon: ToolActivityIconId;
   className?: string;
 }) {
-  const iconClassName = withCodexIconClass(ACTIVITY_ICON_CLASS_NAME, className);
+  const iconClassName = withActivityIconClass(ACTIVITY_ICON_CLASS_NAME, className);
   switch (icon) {
     case "approved":
-      return <CodexCheckCircleIcon aria-hidden className={iconClassName} />;
+      return <SuccessCircleIcon aria-hidden className={iconClassName} />;
     case "automatic-review":
-      return <CodexAutomaticApprovalReviewIcon aria-hidden className={iconClassName} />;
+      return <AutomaticApprovalReviewIcon aria-hidden className={iconClassName} />;
     case "browser-use":
-      return <CodexBrowserUseIcon aria-hidden className={iconClassName} />;
+      return <BrowserUseIcon aria-hidden className={iconClassName} />;
     case "computer-use":
-      return <CodexComputerUseIcon aria-hidden className={iconClassName} />;
+      return <ComputerUseIcon aria-hidden className={iconClassName} />;
     case "connector":
-      return <CodexConnectorFallbackIcon aria-hidden className={iconClassName} />;
+      return <ConnectorFallbackIcon aria-hidden className={iconClassName} />;
     case "code-searching":
-      return <CodexActivitySearchIcon aria-hidden className={iconClassName} />;
+      return <ActivitySearchIcon aria-hidden className={iconClassName} />;
     case "denied":
-      return <CodexXCircleIcon aria-hidden className={iconClassName} />;
+      return <DeniedCircleIcon aria-hidden className={iconClassName} />;
     case "edit-files":
-      return <CodexEditFilesIcon aria-hidden className={iconClassName} />;
+      return <EditFilesIcon aria-hidden className={iconClassName} />;
     case "hooks":
-      return <CodexHooksIcon aria-hidden className={iconClassName} />;
+      return <HooksIcon aria-hidden className={iconClassName} />;
     case "list-files":
-      return <CodexActivityListFilesIcon aria-hidden className={iconClassName} />;
+      return <ActivityListFilesIcon aria-hidden className={iconClassName} />;
     case "node-repl":
-      return <CodexTerminalIcon aria-hidden className={iconClassName} />;
+      return <TerminalActivityIcon aria-hidden className={iconClassName} />;
     case "plugin":
-      return <CodexPluginCubeIcon aria-hidden className={iconClassName} />;
+      return <PluginCubeIcon aria-hidden className={iconClassName} />;
     case "read-files":
-      return <CodexReadFilesIcon aria-hidden className={iconClassName} />;
+      return <ReadFilesIcon aria-hidden className={iconClassName} />;
     case "settings":
-      return <CodexSettingsGeneralIcon className={iconClassName} />;
+      return <SettingsGeneralIcon className={iconClassName} />;
     case "skill":
-      return <CodexSkillIcon aria-hidden className={iconClassName} />;
+      return <SkillIcon aria-hidden className={iconClassName} />;
     case "web-search":
-      return <CodexGlobeIcon aria-hidden className={iconClassName} />;
+      return <ConnectorGlobeIcon aria-hidden className={iconClassName} />;
     case "run-command":
-      return <CodexTerminalIcon aria-hidden className={iconClassName} />;
+      return <TerminalActivityIcon aria-hidden className={iconClassName} />;
   }
 }
 
@@ -232,7 +232,7 @@ export function ToolActivityIcon({
     <span data-tool-activity-icon="logo" data-tool-source-icon={descriptor.alt} className="inline-flex shrink-0">
       <ConnectorLogo
         alt={descriptor.alt}
-        className={withCodexIconClass(SOURCE_ICON_CLASS_NAME, className)}
+        className={withActivityIconClass(SOURCE_ICON_CLASS_NAME, className)}
         logoUrl={descriptor.logoUrl}
         logoDarkUrl={descriptor.logoDarkUrl}
         fallback={<SemanticToolIcon icon={descriptor.fallbackIcon} className={className} />}

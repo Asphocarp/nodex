@@ -9,7 +9,7 @@ import {
   type ReactNode,
   type RefCallback,
 } from "react";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink } from "@/components/shared/icons/generic-icons";
 import {
   BlockDisclosureStateStore,
   blockDisclosureStateStore,

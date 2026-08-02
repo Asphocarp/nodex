@@ -1,14 +1,13 @@
 import { useEffect, useMemo } from "react";
 import { hashKey, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { PageStage } from "../workbench/workbench-page-stage";
+import { PageStage } from "./workbench-page-stage";
 import {
-  createLibraryDocumentSyncAdapter,
   prepareLibraryOwnedBlockDocument,
   readLibraryPageDetail,
 } from "../../lib/api";
+import { libraryBlockDocumentSurfaceDependencies } from "../../lib/content-access-document-dependencies";
 import {
-  LIBRARY_DOCUMENT_SURFACE_SCOPE_ID,
   type ReadyPageBlockDocumentDescriptor,
   toLibraryDocumentSurfaceDescriptor,
   unwrapLibraryOwnedBlockDocumentPreparationResult,
@@ -20,19 +19,32 @@ import type { DatabaseId } from "../../../shared/database-identities";
 import { queryKeys } from "../../lib/query-keys";
 import { invalidateExactQuery } from "../../lib/query-invalidation";
 import { useProjectionInvalidationRegistry } from "../../lib/projection-invalidation-context";
+import { libraryContentAccess } from "../../../shared/content-access-context";
 
-const libraryDocumentSurfaceDependencies = {
-  createAdapter: () => createLibraryDocumentSyncAdapter(),
-} as const;
-
-export function LibraryPageRoute({
+export function WorkbenchLibraryPageSurface({
   pageId,
-  onBack,
+  surfaceId = pageId,
+  isActivePanelTab = true,
+  onClose = () => undefined,
   onOpenDatabase,
+  onOpenPage,
+  onOpenCanvas,
+  onTitleChange,
 }: {
-  pageId: string;
-  onBack: () => void;
-  onOpenDatabase: (databaseId: DatabaseId) => void;
+  readonly pageId: string;
+  readonly surfaceId?: string;
+  readonly isActivePanelTab?: boolean;
+  readonly onClose?: () => void;
+  readonly onOpenDatabase: (databaseId: DatabaseId) => void;
+  readonly onOpenPage?: (
+    pageId: string,
+    titleSnapshot?: string,
+  ) => void;
+  readonly onOpenCanvas?: (
+    canvasBlockId: string,
+    titleSnapshot?: string,
+  ) => void;
+  readonly onTitleChange?: (title: string) => void;
 }) {
   const queryClient = useQueryClient();
   const projectionRegistry = useProjectionInvalidationRegistry();
@@ -68,6 +80,11 @@ export function LibraryPageRoute({
     return projectPageDetailToStageModel(detail.data);
   }, [detail.data]);
 
+  useEffect(() => {
+    const title = stagePage?.page.title.trim();
+    if (!title) return;
+    onTitleChange?.(title);
+  }, [onTitleChange, stagePage?.page.title]);
   useEffect(() => {
     const authority = detail.data;
     if (!authority) return;
@@ -129,17 +146,19 @@ export function LibraryPageRoute({
   if (detail.isError || document.isError || !stagePage) {
     const error = detail.error ?? document.error;
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 bg-token-main-surface-primary px-6 text-center">
+      <div className="flex h-full flex-col items-center justify-center gap-2 bg-token-main-surface-primary px-6 text-center">
         <p className="text-sm text-token-text-primary">Could not open Page</p>
         <p className="max-w-lg text-sm text-token-description-foreground">
           {error instanceof Error ? error.message : "The Page is unavailable."}
         </p>
         <button
           type="button"
-          className="rounded-md bg-token-button-secondary-background px-3 py-1.5 text-sm text-token-text-primary hover:bg-token-button-secondary-background-hover"
-          onClick={onBack}
+          className="mt-1 rounded-md bg-token-foreground/5 px-2.5 py-1.5 text-sm text-token-text-secondary hover:bg-token-foreground/10 hover:text-token-text-primary"
+          onClick={() => {
+            void Promise.all([detail.refetch(), document.refetch()]);
+          }}
         >
-          Back to Library
+          Retry
         </button>
       </div>
     );
@@ -147,10 +166,13 @@ export function LibraryPageRoute({
 
   return (
     <PageStage
+      contentAccessContext={libraryContentAccess}
+      editorSessionKey={`library-page:${surfaceId}`}
+      retainEditorSession
       page={stagePage}
       autoFocusTitle={stagePage.page.title.trim() === "Untitled"}
-      projectId={LIBRARY_DOCUMENT_SURFACE_SCOPE_ID}
-      projectName="Library"
+      documentScopeId={document.data.projectId}
+      projectName={null}
       availableTags={[]}
       documentAuthority={{
         kind: "yjs",
@@ -158,11 +180,23 @@ export function LibraryPageRoute({
         reload: async () => {
           await queryClient.resetQueries({ queryKey: documentQueryKey, exact: true });
         },
-        surfaceDependencies: libraryDocumentSurfaceDependencies,
+        surfaceDependencies: libraryBlockDocumentSurfaceDependencies,
       }}
-      onNavigateBack={onBack}
+      onTitleChange={onTitleChange}
       onOpenDatabase={onOpenDatabase}
-      onClose={onBack}
+      onOpenPage={onOpenPage
+        ? ({ pageId: nextPageId, titleSnapshot }) => {
+            onOpenPage(nextPageId, titleSnapshot);
+          }
+        : undefined}
+      onOpenCanvas={onOpenCanvas
+        ? ({ canvasBlockId, titleSnapshot }) => {
+            onOpenCanvas(canvasBlockId, titleSnapshot);
+          }
+        : undefined}
+      toolbarPlacement={{ kind: "surface" }}
+      onClose={onClose}
+      isActivePanelTab={isActivePanelTab}
       onUpdate={async (targetPageId, patch) => {
         const result = await commitLibraryPageDetailMetadataPatch({
           pageId: targetPageId,

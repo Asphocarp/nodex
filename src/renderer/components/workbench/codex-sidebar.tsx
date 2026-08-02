@@ -4,6 +4,7 @@ import type {
   KeyboardEvent,
   MouseEvent,
   PointerEvent,
+  Ref,
   ReactNode,
 } from "react";
 import { forwardRef, useEffect, useMemo, useRef, useState } from "react";
@@ -14,16 +15,16 @@ import { CSS, useCombinedRefs, type Transform } from "@dnd-kit/utilities";
 import {
   BranchStatusIcon,
   CheckmarkIcon,
-  CodexArchiveIcon,
-  CodexCloseIcon,
-  CodexPinOffIcon,
-  CodexProjectFolderIcon,
-  CodexProjectFolderOpenIcon,
-  CodexProjectActionsIcon,
-  CodexSessionPinFilledIcon,
-  CodexSessionPinIcon,
-  CodexSettingsGeneralIcon,
-  CodexSpinnerIcon,
+  ArchiveIcon,
+  CloseIcon,
+  PinOffIcon,
+  ProjectFolderIcon,
+  ProjectFolderOpenIcon,
+  ProjectActionsIcon,
+  SessionPinFilledIcon,
+  SessionPinIcon,
+  SettingsGeneralIcon,
+  ActivitySpinnerIcon,
   ChevronDownIcon,
   WorktreeStatusIcon,
 } from "@/components/shared/icons";
@@ -37,6 +38,7 @@ import { toast } from "@/components/ui/toast";
 import { getGitWorkerClient, invoke } from "@/lib/api";
 import { CODEX_SIDEBAR_PROJECT_FOLDER_TRANSITION } from "@/lib/codex-panel-motion";
 import { formatElapsedSince } from "@/lib/elapsed-time";
+import { CODEX_SIDEBAR_PAGER_BUTTON_CLASS } from "@/lib/codex-sidebar-pagination";
 import { appScope, useScopeHandle } from "@/lib/maitai";
 import { openModal } from "@/lib/modal-registry";
 import { waitForProjectCatalogUpdates } from "@/lib/project-update-queue";
@@ -85,17 +87,101 @@ type SidebarRowActionEvent =
   | PointerEvent<HTMLElement>
   | KeyboardEvent<HTMLElement>;
 
-export const CODEX_SIDEBAR_PROJECT_ROW_CLASS = "group/folder-row group relative flex h-token-nav-row cursor-interaction items-center justify-between overflow-x-hidden rounded-lg text-sm text-token-foreground hover:bg-token-list-hover-background focus-visible:outline focus-visible:outline-offset-2";
+export const CODEX_SIDEBAR_GROUP_ROW_CLASS = "group/folder-row group relative flex h-token-nav-row cursor-interaction items-center justify-between overflow-x-hidden rounded-lg text-sm text-token-foreground hover:bg-token-list-hover-background focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px]";
 export const CODEX_SIDEBAR_DISCLOSURE_CHEVRON_CLASS = "icon-2xs shrink-0 opacity-0 transition-transform";
 export const CODEX_SIDEBAR_SECTION_ACTIONS_CLASS = "flex items-center gap-1 pointer-events-none opacity-0 group-focus-within/projects-section-header:pointer-events-auto group-focus-within/projects-section-header:opacity-100 group-hover/projects-section-header:pointer-events-auto group-hover/projects-section-header:opacity-100 has-[[data-state=open]]:pointer-events-auto has-[[data-state=open]]:opacity-100";
 export const CODEX_SIDEBAR_SECTION_ACTION_BUTTON_CLASS = "border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-full electron:rounded-md text-token-foreground enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent electron:p-1 electron:[&>svg]:icon-sm flex items-center justify-center p-0.5 h-6 w-6 rounded-md !p-1 text-token-foreground opacity-75 hover:opacity-100";
-export const CODEX_SIDEBAR_PROJECT_ACTIONS_BUTTON_CLASS = SIDEBAR_PROJECT_NEW_CHAT_BUTTON_CLASS;
+export const CODEX_SIDEBAR_GROUP_ACTION_BUTTON_CLASS = SIDEBAR_PROJECT_NEW_CHAT_BUTTON_CLASS;
 export const CODEX_SIDEBAR_THREAD_ROW_CLASS = "group relative h-token-nav-row cursor-interaction rounded-lg py-row-y text-sm hover:bg-token-list-hover-background focus-visible:outline-offset-[-2px]";
 export const CODEX_SIDEBAR_THREAD_ACTION_RAIL_CLASS = "pointer-events-none absolute right-0 top-0 z-10 mr-0.5 flex h-full w-[52px] items-center justify-end gap-2 pr-0.5 opacity-0 group-hover:opacity-100 [&:has(:focus-visible)]:opacity-100";
 export const CODEX_SIDEBAR_THREAD_ARCHIVE_BUTTON_CLASS = "!h-5 !w-5 !p-0 opacity-50 hover:opacity-100 focus-visible:opacity-100 [&>svg]:!h-4 [&>svg]:!w-4 pointer-events-auto";
+export const CODEX_SIDEBAR_ROW_LABEL_CLASS = "flex min-w-0 flex-1 cursor-interaction items-center whitespace-nowrap rounded-md py-1 pl-1 pr-0 text-left text-base text-token-foreground";
 const CODEX_SIDEBAR_THREAD_ELAPSED_REFRESH_MS = 30_000;
 const CODEX_SIDEBAR_THREAD_PIN_BUTTON_CLASS = "pointer-events-auto flex h-5 w-5 items-center justify-center leading-none text-token-foreground/70 hover:text-token-foreground [&>svg]:!h-4 [&>svg]:!w-4";
 const CODEX_SIDEBAR_THREAD_HOVER_CARD_FALLBACK_PROJECT_LABEL = "Chat";
+
+export const CodexSidebarTreeRow = forwardRef<
+  HTMLDivElement,
+  ComponentPropsWithoutRef<"div"> & {
+    readonly active?: boolean;
+    readonly depth?: number;
+  }
+>(function CodexSidebarTreeRow({
+  active = false,
+  depth,
+  className,
+  style,
+  ...props
+}, ref) {
+  return (
+    <div
+      {...props}
+      ref={ref}
+      data-active={active ? "true" : undefined}
+      className={cn(
+        CODEX_SIDEBAR_GROUP_ROW_CLASS,
+        active && "bg-token-list-hover-background text-token-text-primary",
+        className,
+      )}
+      style={depth === undefined
+        ? style
+        : {
+            ...style,
+            paddingInlineStart: `${Math.max(0, depth - 1) * 14}px`,
+          }}
+    />
+  );
+});
+
+export function CodexSidebarRowLayout({
+  leadingRef,
+  leadingSlot,
+  leadingSlotData,
+  leadingSlotProps,
+  actions,
+  children,
+}: {
+  readonly leadingRef?: Ref<HTMLSpanElement>;
+  readonly leadingSlot: ReactNode;
+  readonly leadingSlotData?: Readonly<Record<string, string>>;
+  readonly leadingSlotProps?: ComponentPropsWithoutRef<"span">;
+  readonly actions?: ReactNode;
+  readonly children: ReactNode;
+}) {
+  return (
+    <>
+      <div className="flex min-w-0 flex-1 items-center">
+        <span
+          {...leadingSlotProps}
+          {...leadingSlotData}
+          ref={leadingRef}
+          className={cn(
+            "relative ml-1 flex h-6 w-6 shrink-0 items-center justify-center",
+            leadingSlotProps?.className,
+          )}
+        >
+          {leadingSlot}
+        </span>
+        {children}
+      </div>
+      {actions ? <div className="flex gap-1">{actions}</div> : null}
+    </>
+  );
+}
+
+export const CodexSidebarPagerButton = forwardRef<
+  HTMLButtonElement,
+  ComponentPropsWithoutRef<"button">
+>(function CodexSidebarPagerButton({ className, type = "button", ...props }, ref) {
+  return (
+    <button
+      {...props}
+      ref={ref}
+      type={type}
+      className={cn(CODEX_SIDEBAR_PAGER_BUTTON_CLASS, className)}
+    />
+  );
+});
 
 const NOOP_SIDEBAR_GROUP_DND_CONTROLLER: SidebarGroupDndController = {
   handleDragEnd: () => undefined,
@@ -396,17 +482,17 @@ export function CodexProjectActionsMenu({
         triggerButton={(
           <button
             type="button"
-            className={CODEX_SIDEBAR_PROJECT_ACTIONS_BUTTON_CLASS}
+            className={CODEX_SIDEBAR_GROUP_ACTION_BUTTON_CLASS}
             aria-label={`Project actions for ${project.name}`}
             data-app-action-sidebar-project-actions-menu=""
           >
-            <CodexProjectActionsIcon />
+            <ProjectActionsIcon />
           </button>
         )}
       >
           {onSetProjectPinned ? (
             <NodexDropdownItem
-              leftSlot={project.pinned ? <CodexPinOffIcon className="icon-xs" /> : <CodexSessionPinIcon className="icon-xs" />}
+              leftSlot={project.pinned ? <PinOffIcon className="icon-xs" /> : <SessionPinIcon className="icon-xs" />}
               onSelect={() => {
                 void onSetProjectPinned(project.id, { pinned: !project.pinned });
               }}
@@ -416,7 +502,7 @@ export function CodexProjectActionsMenu({
           ) : null}
           {primaryWorkspaceRoot && sourceRoots.length === 1 ? (
             <NodexDropdownItem
-              leftSlot={<CodexProjectFolderOpenIcon className="icon-xs" />}
+              leftSlot={<ProjectFolderOpenIcon className="icon-xs" />}
               onSelect={() => {
                 void openProjectFolder();
               }}
@@ -436,7 +522,7 @@ export function CodexProjectActionsMenu({
             </NodexDropdownItem>
           ) : null}
           <NodexDropdownItem
-            leftSlot={<CodexSettingsGeneralIcon className="icon-xs" />}
+            leftSlot={<SettingsGeneralIcon className="icon-xs" />}
             onSelect={() => {
               openEditAfterMenuCloseRef.current = true;
             }}
@@ -455,7 +541,7 @@ export function CodexProjectActionsMenu({
             </NodexDropdownItem>
           ) : null}
           <NodexDropdownItem
-            leftSlot={<CodexArchiveIcon className="icon-xs" />}
+            leftSlot={<ArchiveIcon className="icon-xs" />}
             disabled={!onArchiveThreadItem || archiveableItems.length === 0}
             onSelect={() => {
               setMenuOpen(false);
@@ -465,7 +551,7 @@ export function CodexProjectActionsMenu({
             Archive chats
           </NodexDropdownItem>
           <NodexDropdownItem
-            leftSlot={<CodexCloseIcon className="icon-xs" />}
+            leftSlot={<CloseIcon className="icon-xs" />}
             onSelect={() => {
               setMenuOpen(false);
               setRemoveOpen(true);
@@ -700,7 +786,7 @@ export function CodexProjectRow({
     <div className="flex h-[var(--height-token-row)] max-w-80 items-center gap-2 px-2 text-base text-token-foreground">
       <ProjectMarker
         appearance={project.appearance}
-        fallbackIcon={<CodexProjectFolderIcon />}
+        fallbackIcon={<ProjectFolderIcon />}
       />
       <span className="min-w-0 truncate">{project.name}</span>
     </div>
@@ -827,17 +913,15 @@ export function CodexProjectRow({
           />
         )}
       >
-        <div
+        <CodexSidebarTreeRow
           ref={rowThreadDropTarget.setNodeRef}
           {...(sortableEnabled ? attributes : {})}
           data-app-action-sidebar-project-collapsed={String(!expanded)}
           data-app-action-sidebar-project-id={project.id}
           data-app-action-sidebar-project-label={project.name}
           data-app-action-sidebar-project-row=""
-          data-active={active ? "true" : undefined}
+          active={active}
           className={cn(
-            CODEX_SIDEBAR_PROJECT_ROW_CLASS,
-            active && "bg-token-list-hover-background",
             rowThreadDropTarget.isExternalThreadDropTarget
               && rowThreadDropTarget.isOver
               && "bg-token-list-hover-background",
@@ -846,52 +930,86 @@ export function CodexProjectRow({
           onPointerEnter={prefetchProjectHoverCardMetadata}
           onFocusCapture={prefetchProjectHoverCardMetadata}
         >
-          <div className="flex min-w-0 flex-1 items-center">
-            <span
-              ref={iconThreadDropTarget.setNodeRef}
-              className={cn(
-                "group/project-leading-slot relative ml-1 flex h-6 w-6 shrink-0 items-center justify-center",
+          <CodexSidebarRowLayout
+            leadingRef={iconThreadDropTarget.setNodeRef}
+            leadingSlotProps={{
+              className: cn(
+                "group/project-leading-slot",
                 iconThreadDropTarget.isExternalThreadDropTarget
                   && iconThreadDropTarget.isOver
                   && "rounded-md bg-token-list-hover-background",
-              )}
-              data-app-action-sidebar-project-leading-slot=""
-            >
-              <ProjectMarker
-                appearance={project.appearance}
-                className="group-hover/folder-row:invisible group-has-[:focus-visible]/project-leading-slot:invisible"
-                data-app-action-sidebar-project-marker=""
-                fallbackIcon={expanded
-                  ? <CodexProjectFolderOpenIcon />
-                  : <CodexProjectFolderIcon />}
-              />
-              <button
-                type="button"
-                aria-expanded={expanded}
-                aria-label={expanded ? "Collapse project" : "Expand project"}
-                className="pointer-events-none absolute inset-0 flex h-6 w-6 cursor-interaction items-center justify-center rounded-md text-token-foreground opacity-0 group-hover/folder-row:pointer-events-auto group-hover/folder-row:opacity-100 hover:bg-token-list-hover-background focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px]"
-                data-app-action-sidebar-project-toggle-chevron=""
-                onPointerDown={stopCodexSidebarRowActionPropagation}
-                onMouseDown={stopCodexSidebarRowActionPropagation}
-                onKeyDown={stopCodexSidebarRowActionPropagation}
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  onActivate();
-                }}
-              >
-                <ChevronDownIcon
-                  className={cn(
-                    "icon-2xs shrink-0 transition-transform",
-                    !expanded && "-rotate-90",
-                  )}
+              ),
+            }}
+            leadingSlotData={{
+              "data-app-action-sidebar-project-leading-slot": "",
+            }}
+            leadingSlot={(
+              <>
+                <ProjectMarker
+                  appearance={project.appearance}
+                  className="group-hover/folder-row:invisible group-has-[:focus-visible]/project-leading-slot:invisible"
+                  data-app-action-sidebar-project-marker=""
+                  fallbackIcon={expanded
+                    ? <ProjectFolderOpenIcon />
+                    : <ProjectFolderIcon />}
                 />
-              </button>
-            </span>
+                <button
+                  type="button"
+                  aria-expanded={expanded}
+                  aria-label={expanded ? "Collapse project" : "Expand project"}
+                  className="pointer-events-none absolute inset-0 flex h-6 w-6 cursor-interaction items-center justify-center rounded-md text-token-foreground opacity-0 group-hover/folder-row:pointer-events-auto group-hover/folder-row:opacity-100 hover:bg-token-list-hover-background focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px]"
+                  data-app-action-sidebar-project-toggle-chevron=""
+                  onPointerDown={stopCodexSidebarRowActionPropagation}
+                  onMouseDown={stopCodexSidebarRowActionPropagation}
+                  onKeyDown={stopCodexSidebarRowActionPropagation}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onActivate();
+                  }}
+                >
+                  <ChevronDownIcon
+                    className={cn(
+                      "icon-2xs shrink-0 transition-transform",
+                      !expanded && "-rotate-90",
+                    )}
+                  />
+                </button>
+              </>
+            )}
+            actions={(
+              <>
+                <CodexProjectActionsMenu
+                  project={project}
+                  threadItems={threadItems}
+                  onUpdateProject={onUpdateProject}
+                  onArchiveProject={onArchiveProject}
+                  onSetProjectPinned={onSetProjectPinned}
+                  onCreateStableWorktree={onCreateStableWorktree}
+                  canCreateStableWorktree={canCreateStableWorktree}
+                  stableWorktreeWorkspaceRootOptions={stableWorktreeWorkspaceRootOptions}
+                  stableWorktreeWorkspaceRootLabels={stableWorktreeWorkspaceRootLabels}
+                  onArchiveThreadItem={onArchiveThreadItem}
+                  onMarkThreadItemRead={onMarkThreadItemRead}
+                  onThreadsChanged={onThreadsChanged}
+                  onOpenChange={(open) => {
+                    setProjectActionsMenuOpen(open);
+                    if (open) setProjectHoverCardOpen(false);
+                  }}
+                />
+                {onStartNewChat ? (
+                  <SidebarProjectNewChatButton
+                    label={`Start new chat in ${project.name}`}
+                    onClick={onStartNewChat}
+                  />
+                ) : null}
+              </>
+            )}
+          >
             <button
               type="button"
               ref={setActivatorNodeRef}
-              className="flex min-w-0 flex-1 cursor-interaction items-center whitespace-nowrap rounded-md py-1 pl-1 pr-0 text-left text-base text-token-foreground"
+              className={CODEX_SIDEBAR_ROW_LABEL_CLASS}
               aria-current={active ? "page" : undefined}
               aria-label={`Open ${project.name}`}
               data-app-action-sidebar-select-project=""
@@ -906,34 +1024,8 @@ export function CodexProjectRow({
                 {project.name}
               </span>
             </button>
-          </div>
-          <div className="flex gap-1">
-            <CodexProjectActionsMenu
-              project={project}
-              threadItems={threadItems}
-              onUpdateProject={onUpdateProject}
-              onArchiveProject={onArchiveProject}
-              onSetProjectPinned={onSetProjectPinned}
-              onCreateStableWorktree={onCreateStableWorktree}
-              canCreateStableWorktree={canCreateStableWorktree}
-              stableWorktreeWorkspaceRootOptions={stableWorktreeWorkspaceRootOptions}
-              stableWorktreeWorkspaceRootLabels={stableWorktreeWorkspaceRootLabels}
-              onArchiveThreadItem={onArchiveThreadItem}
-              onMarkThreadItemRead={onMarkThreadItemRead}
-              onThreadsChanged={onThreadsChanged}
-              onOpenChange={(open) => {
-                setProjectActionsMenuOpen(open);
-                if (open) setProjectHoverCardOpen(false);
-              }}
-            />
-            {onStartNewChat ? (
-              <SidebarProjectNewChatButton
-                label={`Start new chat in ${project.name}`}
-                onClick={onStartNewChat}
-              />
-            ) : null}
-          </div>
-        </div>
+          </CodexSidebarRowLayout>
+        </CodexSidebarTreeRow>
       </NodexHoverCard>
       <div
         ref={gutterThreadDropTarget.setNodeRef}
@@ -1119,7 +1211,7 @@ function CodexSidebarThreadHoverCard({
         ) : null}
       </div>
       <CodexSidebarThreadHoverCardMetadataRow
-        icon={<CodexProjectFolderIcon className="icon-xs" />}
+        icon={<ProjectFolderIcon className="icon-xs" />}
         label={resolvedProjectLabel}
       />
       {resolvedBranchName ? (
@@ -1341,7 +1433,7 @@ export function CodexSidebarThreadRow({
                       onKeyDown={stopCodexSidebarRowActionPropagation}
                       onClick={handleTogglePinnedClick}
                     >
-                      <CodexSessionPinFilledIcon />
+                      <SessionPinFilledIcon />
                     </button>
                   ) : null}
                   {running ? (
@@ -1353,7 +1445,7 @@ export function CodexSidebarThreadRow({
                       )}
                       data-app-action-sidebar-thread-running-indicator=""
                     >
-                      <CodexSpinnerIcon className="icon-xs shrink-0" animationDurationMs={2_000} />
+                      <ActivitySpinnerIcon className="icon-xs shrink-0" animationDurationMs={2_000} />
                     </span>
                   ) : null}
                 </div>
@@ -1391,7 +1483,7 @@ export function CodexSidebarThreadRow({
                       onKeyDown={stopCodexSidebarRowActionPropagation}
                       onClick={handleTogglePinnedClick}
                     >
-                      {item.pinned ? <CodexSessionPinFilledIcon /> : <CodexSessionPinIcon />}
+                      {item.pinned ? <SessionPinFilledIcon /> : <SessionPinIcon />}
                     </button>
                   )}
                 </div>
@@ -1402,7 +1494,7 @@ export function CodexSidebarThreadRow({
                   aria-label="Archive chat"
                   disabled={archiveDisabled}
                   className={cn(
-                    CODEX_SIDEBAR_PROJECT_ACTIONS_BUTTON_CLASS,
+                    CODEX_SIDEBAR_GROUP_ACTION_BUTTON_CLASS,
                     CODEX_SIDEBAR_THREAD_ARCHIVE_BUTTON_CLASS,
                   )}
                   data-app-action-sidebar-thread-archive=""
@@ -1415,7 +1507,7 @@ export function CodexSidebarThreadRow({
                     void onArchive?.(item);
                   }}
                 >
-                  <CodexArchiveIcon />
+                  <ArchiveIcon />
                 </button>
               ) : null}
             </div>

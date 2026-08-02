@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { useRef, useState } from "react";
 import type { DatabaseViewRenderModel } from "@/lib/database-view-render-model";
 import { plainTextToPortableRichText } from "../../../shared/block-documents";
 import {
@@ -7,7 +8,8 @@ import {
   parseDataSourceId,
   parseDataSourcePropertyId,
 } from "../../../shared/database-identities";
-import { DatabaseViewSurface } from "./read-only-database-view";
+import { DatabaseViewSurface } from "./database-view-surface";
+import { DatabaseViewTabSurface } from "./workbench-db-view-panel";
 
 const timestamp = "2026-07-12T00:00:00.000Z";
 const libraryId = "library:nodex";
@@ -19,7 +21,7 @@ const tagsPropertyId = parseDataSourcePropertyId("tags");
 
 const model: DatabaseViewRenderModel = {
   libraryId,
-  projectId: "nodex",
+  accessContext: { kind: "project", projectId: "nodex" },
   databaseViewId: viewId,
   databaseId,
   dataSourceId,
@@ -160,7 +162,7 @@ const meta = {
   args: {
     model,
     searchQuery: "",
-    openPageStage: () => undefined,
+    onOpenPage: () => undefined,
     commitOperations: async () => null,
   },
   decorators: [(Story) => <div className="h-[640px]"><Story /></div>],
@@ -193,3 +195,30 @@ const withKind = (
 
 export const ListView: Story = { args: { model: withKind("list") } };
 export const CalendarAgenda: Story = { args: { model: withKind("calendar") } };
+
+function FullDatabaseViewTab({
+  viewModel,
+}: {
+  readonly viewModel: DatabaseViewRenderModel;
+}) {
+  const [query, setQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  return (
+    <DatabaseViewTabSurface
+      model={viewModel}
+      activeSearchQuery={query}
+      taskSearchOpen={searchOpen}
+      searchShortcutLabel="Ctrl+F"
+      taskSearchInputRef={searchInputRef}
+      onSearchQueryChange={setQuery}
+      onOpenTaskSearch={() => setSearchOpen(true)}
+      onCloseTaskSearch={() => setSearchOpen(false)}
+      onOpenPage={() => undefined}
+    />
+  );
+}
+
+export const FullTabSurface: Story = {
+  render: (args) => <FullDatabaseViewTab viewModel={args.model} />,
+};

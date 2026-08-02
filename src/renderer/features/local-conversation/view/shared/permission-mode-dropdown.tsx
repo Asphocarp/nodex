@@ -2,8 +2,8 @@ import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import type { CodexPermissionMode } from "../../../../lib/types";
 import {
   ChevronDownIcon,
-  CodexSettingsAgentIcon,
-  CodexSettingsGeneralIcon,
+  SettingsAgentIcon,
+  SettingsGeneralIcon,
   PermissionAskForApprovalIcon,
   PermissionFullAccessIcon,
 } from "@/components/shared/icons";
@@ -87,9 +87,9 @@ function PermissionModeMenuIcon({
   className?: string;
 }) {
   if (mode === "auto") return <PermissionAskForApprovalIcon className={className} />;
-  if (mode === "guardian-approvals") return <CodexSettingsAgentIcon className={className} />;
+  if (mode === "guardian-approvals") return <SettingsAgentIcon className={className} />;
   if (mode === "full-access") return <PermissionFullAccessIcon className={className} />;
-  return <CodexSettingsGeneralIcon className={className} />;
+  return <SettingsGeneralIcon className={className} />;
 }
 
 function PermissionModeCheckIcon({ className }: { className?: string }) {

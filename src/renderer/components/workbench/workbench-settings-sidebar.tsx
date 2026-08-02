@@ -6,9 +6,9 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import {
-  CodexBrowserBackIcon,
-  CodexCloseIcon,
-  CodexSettingsSearchIcon,
+  BrowserBackIcon,
+  CloseIcon,
+  SettingsSearchIcon,
 } from "@/components/shared/icons";
 import {
   buildSettingsSearchResults,
@@ -123,7 +123,7 @@ function SettingsSearchInput({
 
   return (
     <div className="mb-4 flex h-token-button-composer w-full shrink-0 items-center rounded-lg border border-token-border-heavy bg-token-input-background/50 text-base leading-[18px] shadow-sm backdrop-blur-sm [.electron-dark_&]:border-token-border [.electron-dark_&]:bg-token-bg-fog [.electron-dark_&]:shadow-none [.electron-dark_&]:backdrop-blur-none">
-      <CodexSettingsSearchIcon className="icon-xs ms-2 shrink-0 text-token-input-placeholder-foreground" />
+      <SettingsSearchIcon className="icon-xs ms-2 shrink-0 text-token-input-placeholder-foreground" />
       <input
         ref={inputRef}
         role="searchbox"
@@ -146,7 +146,7 @@ function SettingsSearchInput({
           }}
           className="flex size-7 shrink-0 cursor-interaction items-center justify-center rounded-md text-token-input-placeholder-foreground hover:text-token-foreground"
         >
-          <CodexCloseIcon className="icon-2xs" />
+          <CloseIcon className="icon-2xs" />
         </button>
       ) : null}
     </div>
@@ -272,7 +272,7 @@ export function SettingsSidebar({
             onKeyDown={handleBackKeyDown}
             className="group relative mb-2 flex w-full items-center rounded-lg px-row-x py-row-y text-base outline-none gap-2 cursor-interaction text-token-text-secondary hover:bg-token-list-hover-background focus-visible:ring-token-focus focus-visible:ring-1 electron:opacity-75 shrink-0"
           >
-            <CodexBrowserBackIcon />
+            <BrowserBackIcon />
             Back to app
           </div>
 

@@ -4,7 +4,7 @@ import {
   useEffect,
   useSyncExternalStore,
 } from "react";
-import { AlertCircle, AlertTriangle, CheckCircle2, Info, X } from "lucide-react";
+import { AlertCircle, AlertTriangle, CheckCircle2, Info, X } from "@/components/shared/icons/generic-icons";
 import { motion } from "motion/react";
 import { cn } from "@/lib/utils";
 

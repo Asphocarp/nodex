@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Settings } from "lucide-react";
+import { Settings } from "@/components/shared/icons/generic-icons";
 import { AccountRateLimitRing } from "@/features/local-conversation/view/shared/account-rate-limit-ring";
 import { AuthPopover } from "@/features/local-conversation/view/shared/auth-controls";
 import type {

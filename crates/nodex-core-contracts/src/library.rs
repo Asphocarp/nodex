@@ -9,9 +9,10 @@ use crate::agent::{
     AgentResourceIntent, AgentTurnProvenance,
 };
 use crate::database::DatabaseGroupScope;
+use crate::workspace::{ProjectAppearance, ProjectLifecycle};
 use crate::{CommittedModuleValue, ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const LIBRARY_CONTRACT_VERSION: u32 = 6;
+pub const LIBRARY_CONTRACT_VERSION: u32 = 8;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -478,6 +479,9 @@ pub enum LibraryBlockTransferPlan {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum LibraryRead {
     Metadata,
+    ResourceProjectAccess {
+        target: LibraryResourceTarget,
+    },
     FilterProjectionImpactForProject {
         project_id: String,
         impact: crate::ProjectionImpact,
@@ -487,6 +491,11 @@ pub enum LibraryRead {
         cursor: Option<String>,
         limit: Option<u32>,
         force_include_target: Option<LibraryRouteTarget>,
+    },
+    StandaloneRoots {
+        cursor: Option<String>,
+        limit: Option<u32>,
+        force_include_target: Option<LibraryResourceTarget>,
     },
     Path {
         target: LibraryRouteTarget,
@@ -1712,11 +1721,20 @@ pub enum LibraryReadValue {
         library_id: String,
         change_log_seq: i64,
     },
+    ResourceProjectAccess {
+        value: Box<LibraryResourceProjectAccess>,
+    },
     ProjectionImpact {
         impact: crate::ProjectionImpact,
     },
     Children {
         parent: LibraryNavigationParent,
+        items: Vec<LibraryNavigationNode>,
+        next_cursor: Option<String>,
+        has_more: bool,
+        total: u64,
+    },
+    StandaloneRoots {
         items: Vec<LibraryNavigationNode>,
         next_cursor: Option<String>,
         has_more: bool,
@@ -1901,6 +1919,10 @@ pub enum LibraryIntent {
         target: LibraryResourceTarget,
         access: LibraryAccess,
     },
+    SetProjectAccess {
+        target: LibraryResourceTarget,
+        changes: Vec<LibraryProjectAccessChange>,
+    },
     PersistAgentProjectResourceGrants {
         provenance: Box<AgentTurnProvenance>,
         grants: Vec<AgentResourceGrantSpec>,
@@ -1928,6 +1950,56 @@ pub enum LibraryIntent {
 pub enum LibraryAccess {
     Read,
     ReadWrite,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryProjectDirectGrant {
+    pub access: LibraryAccess,
+    pub revision: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LibraryInheritedProjectAccessSource {
+    PrimaryDatabase {
+        database_id: String,
+        database_name: String,
+        access: LibraryAccess,
+    },
+    AncestorPage {
+        page_id: String,
+        page_title: String,
+        access: LibraryAccess,
+    },
+    DatabaseGrant {
+        database_id: String,
+        database_name: String,
+        access: LibraryAccess,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryProjectAccessRow {
+    pub project_id: String,
+    pub project_name: String,
+    pub appearance: ProjectAppearance,
+    pub lifecycle: ProjectLifecycle,
+    pub direct_grant: Option<LibraryProjectDirectGrant>,
+    pub inherited_sources: Vec<LibraryInheritedProjectAccessSource>,
+    pub effective_access: Option<LibraryAccess>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryResourceProjectAccess {
+    pub target: LibraryResourceTarget,
+    pub projects: Vec<LibraryProjectAccessRow>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryProjectAccessChange {
+    pub project_id: String,
+    pub access: Option<LibraryAccess>,
+    pub expected_revision: Option<i64>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]

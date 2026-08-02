@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
-import { Filter, Rows3, ArrowUpDown } from "lucide-react";
+import { Filter, Rows3, ArrowUpDown } from "@/components/shared/icons/generic-icons";
 import {
   DbViewDisplayPopover,
   DbViewFilterPopover,

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronLeftIcon, ChevronRightIcon, ImagesIcon } from "lucide-react";
+import { ChevronLeftIcon, ChevronRightIcon, ImagesIcon } from "@/components/shared/icons/generic-icons";
 import { motion, useReducedMotion } from "motion/react";
 import { cn } from "../../../../lib/utils";
 import { useTheme } from "../../../../lib/use-theme";

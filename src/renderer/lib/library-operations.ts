@@ -3,6 +3,7 @@ import type {
   LibraryResourceTarget as AnyLibraryResourceTarget,
   LibraryWriteParent,
   MoveLibraryBlockOperation,
+  SetLibraryProjectAccessOperation,
 } from "../../shared/library-module";
 
 type LibraryMoveableResourceTarget = Exclude<
@@ -39,4 +40,13 @@ export const buildLibraryProjectGrantOperation = (input: Readonly<{
   projectId: input.projectId,
   target: input.target,
   access: input.access,
+});
+
+export const buildLibraryProjectAccessOperation = (input: Readonly<{
+  target: LibraryMoveableResourceTarget;
+  changes: SetLibraryProjectAccessOperation["changes"];
+}>): SetLibraryProjectAccessOperation => ({
+  kind: "set_project_access",
+  target: input.target,
+  changes: input.changes,
 });

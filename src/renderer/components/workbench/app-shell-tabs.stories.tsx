@@ -1,6 +1,7 @@
+import { BoardIcon } from "@/components/shared/icons";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
-import { History, SquareKanban, X } from "lucide-react";
+import { History, X } from "@/components/shared/icons/generic-icons";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import { resolveWorkspaceFileTabIcon } from "@/features/workspace-files";
 import {
@@ -50,7 +51,7 @@ function AppShellTabsStory({ showInsertionPreview = false }: { showInsertionPrev
       title: historyOpen && tab.id === activeTabId ? "History" : tab.title,
       contextLabel: tab.contextLabel,
       titleLabel: tab.contextLabel ? `${tab.contextLabel} project, ${tab.title}` : undefined,
-      icon: historyOpen && tab.id === activeTabId ? History : SquareKanban,
+      icon: historyOpen && tab.id === activeTabId ? History : BoardIcon,
       closable: true,
       reorderable: true,
       splittable: true,
@@ -150,7 +151,7 @@ function LiveCardTitleStory() {
         </div>
       </div>
     ),
-    icon: SquareKanban,
+    icon: BoardIcon,
     closable: true,
     renderPanel: () => (
       <div className="flex h-full items-center justify-center text-sm text-token-description-foreground">
@@ -340,7 +341,7 @@ function RapidCloseEqualWidthsStory() {
 function makeRapidCloseStoryTab(tab: StorySessionTab): AppShellTabItem {
   return {
     ...tab,
-    icon: SquareKanban,
+    icon: BoardIcon,
     closable: true,
     reorderable: true,
     splittable: true,
@@ -358,7 +359,7 @@ export const PageStagePreviewTab: Story = {
       {
         id: "db-view",
         title: "DB View",
-        icon: SquareKanban,
+        icon: BoardIcon,
         closable: true,
         reorderable: true,
         splittable: true,
@@ -371,7 +372,7 @@ export const PageStagePreviewTab: Story = {
       {
         id: "tab:page-stage-preview-story",
         title: "Workbench tab preview polish",
-        icon: SquareKanban,
+        icon: BoardIcon,
         closable: true,
         preview: true,
         reorderable: false,
@@ -477,7 +478,7 @@ function makeRetainedPageStageStoryTab({
   return {
     id,
     title,
-    icon: SquareKanban,
+    icon: BoardIcon,
     closable: true,
     reorderable: true,
     splittable: true,
@@ -520,7 +521,7 @@ export const ContextMenuTabStates: Story = {
       {
         id: "browser",
         title: "Browser",
-        icon: SquareKanban,
+        icon: BoardIcon,
         closable: true,
         reorderable: true,
         splittable: true,
@@ -563,7 +564,7 @@ export const ContextMenuTabStates: Story = {
       {
         id: "review",
         title: "Review",
-        icon: SquareKanban,
+        icon: BoardIcon,
         closable: true,
         reorderable: true,
         splittable: true,

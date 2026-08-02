@@ -43,7 +43,7 @@ import { WorkbenchRuntime } from "./workbench-runtime";
 import {
   type WorkbenchSessionRenderProjection,
 } from "@/lib/workbench-session-presentation";
-import { WorkbenchLayoutSnapshotV5Schema } from "../../../shared/schemas/workbench-layout";
+import { WorkbenchLayoutSnapshotSchema } from "../../../shared/schemas/workbench-layout";
 import {
   createWorkbenchSceneSurface,
   ensureWorkbenchSceneLeafToRight,
@@ -68,7 +68,6 @@ type ShellStoryArgs = {
   sidebar: "expanded" | "collapsed";
   sidebarReveal: "idle" | "edge" | "focus";
   sidebarWidth: 240 | 300 | 520;
-  libraryWorkspace: boolean;
   longNames: boolean;
 };
 
@@ -92,7 +91,6 @@ const meta = {
     sidebar: "expanded",
     sidebarReveal: "idle",
     sidebarWidth: 300,
-    libraryWorkspace: false,
     longNames: false,
   },
   argTypes: {
@@ -131,9 +129,6 @@ const meta = {
     sidebarWidth: {
       control: "inline-radio",
       options: [240, 300, 520],
-    },
-    libraryWorkspace: {
-      control: "boolean",
     },
     longNames: {
       control: "boolean",
@@ -846,8 +841,8 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
     const activeSession = args.workspace === "projectless-only"
       ? initialSessionsByProject.__projectless__?.[0] ?? null
       : initialSessionsByProject.nodex?.[0] ?? null;
-    return WorkbenchLayoutSnapshotV5Schema.parse({
-      version: 5 as const,
+    return WorkbenchLayoutSnapshotSchema.parse({
+      version: 6 as const,
       location: activeSession
         ? {
             kind: "session" as const,
@@ -869,7 +864,7 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
   const [sidebarWidth, setSidebarWidth] = useState<number>(args.sidebarWidth);
   const [sidebarCollapsibleSections, setSidebarCollapsibleSections] = useState({
     pinned: false,
-    library: false,
+    pages: false,
     projects: false,
     chats: false,
   });
@@ -936,7 +931,6 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
       <WorkbenchRuntime
         windowSessionId="window-session:storybook"
         initialWindowLayoutSnapshot={initialWindowLayoutSnapshot}
-        libraryWorkspaceEnabled={args.libraryWorkspace}
         projects={args.workspace === "projectless-only"
           ? []
           : args.activeTab === "welcome"
@@ -1017,7 +1011,10 @@ function ProjectSceneStory({
             kind: "db_view",
             titleSnapshot: "Database",
             config: {
-              projectId: "codex-readable",
+              accessContext: {
+                kind: "project",
+                projectId: "codex-readable",
+              },
               target: {
                 kind: "database-view",
                 databaseViewId: "view:test:primary",
@@ -1037,7 +1034,7 @@ function ProjectSceneStory({
             kind: "page_stage",
             titleSnapshot: INITIAL_PROJECT_WELCOME_TITLE,
             config: {
-              projectId: "nodex",
+              accessContext: { kind: "project", projectId: "nodex" },
               pageId: WELCOME_PAGE_ID,
               titleSnapshot: INITIAL_PROJECT_WELCOME_TITLE,
             },
@@ -1050,7 +1047,7 @@ function ProjectSceneStory({
       ? (() => {
           const sourceLeaf = findWorkbenchPanelLeafForTab(
             withWelcome.panels.right.layout,
-            withWelcome.primary.id,
+            withWelcome.primary?.id ?? "",
           );
           if (!sourceLeaf) return withWelcome;
           const target = ensureWorkbenchSceneLeafToRight(withWelcome, {
@@ -1065,7 +1062,7 @@ function ProjectSceneStory({
               kind: "page_stage",
               titleSnapshot: "Workbench redesign",
               config: {
-                projectId: "nodex",
+                accessContext: { kind: "project", projectId: "nodex" },
                 pageId: "card-1",
                 titleSnapshot: "Workbench redesign",
               },
@@ -1088,8 +1085,8 @@ function ProjectSceneStory({
           },
         }
       : withSplitPage;
-    return WorkbenchLayoutSnapshotV5Schema.parse({
-      version: 5,
+    return WorkbenchLayoutSnapshotSchema.parse({
+      version: 6,
       location: { kind: "project", projectId: "nodex" },
       databaseSearchByProject: { nodex: "" },
       scenesByOwnerKey: {
@@ -1116,7 +1113,6 @@ function ProjectSceneStory({
       <WorkbenchRuntime
         windowSessionId="window-session:storybook-project-scene"
         initialWindowLayoutSnapshot={initialWindowLayoutSnapshot}
-        libraryWorkspaceEnabled={false}
         projects={welcome ? [INITIAL_PROJECT] : PROJECTS}
         activeView="kanban"
         activeDbViewPrefs={null}
@@ -1180,19 +1176,6 @@ function ScheduledRouteProjectSessionShellStory(args: ShellStoryArgs) {
   useEffect(() => {
     const timeout = window.setTimeout(() => {
       document.querySelector<HTMLButtonElement>('[aria-label="Scheduled"]')?.click();
-    }, 0);
-    return () => {
-      window.clearTimeout(timeout);
-    };
-  }, []);
-
-  return <ProjectSessionShellStory {...args} />;
-}
-
-function LibraryRouteProjectSessionShellStory(args: ShellStoryArgs) {
-  useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      document.querySelector<HTMLButtonElement>('[aria-label="Open Library"]')?.click();
     }, 0);
     return () => {
       window.clearTimeout(timeout);
@@ -1421,11 +1404,26 @@ function installStoryApi(
                 value: { status: "missing", canvasId: read.canvasId },
               };
             }
+            if (read.mode === "resource_project_access") {
+              return {
+                kind: "resource_project_access",
+                value: { target: read.target, projects: [] },
+              };
+            }
             if (read.mode === "path") {
               return { kind: "path", target: read.target, nodes: [] };
             }
             if (read.mode === "catalog") {
               return { kind: "catalog", items: [], nextCursor: null, hasMore: false, total: 0 };
+            }
+            if (read.mode === "standalone_roots") {
+              return {
+                kind: "standalone_roots",
+                items: [],
+                nextCursor: null,
+                hasMore: false,
+                total: 0,
+              };
             }
             return {
               kind: "children",
@@ -1923,25 +1921,6 @@ export const ScheduledRouteShellHeader: Story = {
     docs: {
       description: {
         story: "Scheduled route opened inside the normal Workbench shell: left titlebar chrome stays mounted while the Scheduled tabs and create controls occupy the global header center.",
-      },
-    },
-  },
-};
-
-export const LibraryRouteShellHeader: Story = {
-  args: {
-    thread: "attached",
-    rightPanel: "regular",
-    bottomPanel: "terminal",
-    sidebar: "expanded",
-    sidebarWidth: 300,
-    libraryWorkspace: true,
-  },
-  render: (args) => <LibraryRouteProjectSessionShellStory {...args} />,
-  parameters: {
-    docs: {
-      description: {
-        story: "Library route opened inside the normal Workbench shell: window navigation and Sidebar controls remain, while Project-session right and bottom panel toggles are absent.",
       },
     },
   },

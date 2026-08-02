@@ -1,4 +1,5 @@
-import { FileCode2, FileText, Folder, Link2 } from "lucide-react";
+import { FileIcon, FolderIcon, PageIcon } from "@/components/shared/icons";
+import { Link2 } from "@/components/shared/icons/generic-icons";
 import { useRef } from "react";
 import { cn } from "@/lib/utils";
 import { canMaterializePasteResourceItems, type PasteResourceDialogState } from "./paste-resource";
@@ -30,9 +31,9 @@ const textCountFormatter = new Intl.NumberFormat("en-US");
 
 function getItemIcon(kind: string, allowLink: boolean) {
   if (allowLink) return Link2;
-  if (kind === "folder") return Folder;
-  if (kind === "file") return FileCode2;
-  return FileText;
+  if (kind === "folder") return FolderIcon;
+  if (kind === "file") return FileIcon;
+  return PageIcon;
 }
 
 function getTextPreview(text: string) {

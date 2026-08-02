@@ -974,7 +974,7 @@ export const LastTurnWithFileTree: Story = {
   },
 };
 
-export const CodexParityLineInfoAndIcons: Story = {
+export const LineInfoAndIcons: Story = {
   args: {
     conversation: buildReviewParityConversation(),
     initialFileTreeOpen: true,

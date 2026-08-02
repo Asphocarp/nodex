@@ -9,13 +9,13 @@ import {
   type ReactNode,
 } from "react";
 import {
-  CodexProjectFolderIcon,
-  CodexProjectOpenActionIcon,
-  CodexProjectPinnedIcon,
-  CodexProjectPinIcon,
-  CodexProjectRepositoryIcon,
-  CodexProjectTaskIcon,
-  CodexSettingsGeneralIcon,
+  ProjectFolderIcon,
+  ProjectOpenActionIcon,
+  ProjectPinnedIcon,
+  ProjectPinIcon,
+  ProjectRepositoryIcon,
+  ProjectTaskIcon,
+  SettingsGeneralIcon,
 } from "@/components/shared/icons";
 import { toast } from "@/components/ui/toast";
 import type { GitRepositoryIdentity } from "../../../shared/git-repository-identity";
@@ -91,7 +91,7 @@ function ProjectHoverCardRow({
       </span>
       {resolvedShowActionIndicator ? (
         <span className="flex h-5 w-5 shrink-0 items-center justify-center text-token-description-foreground opacity-0 group-hover/project-hover-card-row:opacity-100 group-focus-visible/project-hover-card-row:opacity-100">
-          <CodexProjectOpenActionIcon aria-hidden="true" />
+          <ProjectOpenActionIcon aria-hidden="true" />
         </span>
       ) : null}
     </>
@@ -272,13 +272,13 @@ export function ProjectHoverCard({
                 onClick={() => void onSetPinned(!project.pinned)}
               >
                 {project.pinned
-                  ? <CodexProjectPinnedIcon />
-                  : <CodexProjectPinIcon />}
+                  ? <ProjectPinnedIcon />
+                  : <ProjectPinIcon />}
               </button>
             ) : null}
           </span>
         </ProjectHoverCardRow>
-        <ProjectHoverCardRow icon={<CodexProjectTaskIcon />}>
+        <ProjectHoverCardRow icon={<ProjectTaskIcon />}>
           <span className="flex min-w-0 flex-1 flex-wrap text-sm leading-5 text-token-foreground">
             {formatProjectActivitySummary(activity)}
           </span>
@@ -291,8 +291,8 @@ export function ProjectHoverCard({
             <ProjectHoverCardRow
               key={`${row.kind}:${row.label}`}
               icon={row.kind === "repository"
-                ? <CodexProjectRepositoryIcon />
-                : <CodexProjectFolderIcon />}
+                ? <ProjectRepositoryIcon />
+                : <ProjectFolderIcon />}
               onClick={row.path
                 ? () => onOpenSource(row.path as string)
                 : undefined}
@@ -312,7 +312,7 @@ export function ProjectHoverCard({
 
       <div className="flex min-w-0 shrink-0 flex-col gap-1 border-t border-token-border pt-1.5">
         <ProjectHoverCardRow
-          icon={<CodexSettingsGeneralIcon className="icon-xs shrink-0" />}
+          icon={<SettingsGeneralIcon className="icon-xs shrink-0" />}
           onClick={onEdit}
           showActionIndicator={false}
         >

@@ -1,4 +1,5 @@
-import { Database, ExternalLink } from "lucide-react";
+import { DatabaseIcon } from "@/components/shared/icons";
+import { ExternalLink } from "@/components/shared/icons/generic-icons";
 import { createReactBlockSpec } from "@blocknote/react";
 
 import { useBlockReferenceHostRuntime } from "@/components/block-documents/block-reference-runtime-context";
@@ -25,7 +26,7 @@ export function DatabaseBlockSurface({
       disabled={!onOpen}
       onClick={onOpen}
     >
-      <Database className="size-4 shrink-0 text-token-description-foreground" />
+      <DatabaseIcon className="size-4 shrink-0 text-token-description-foreground" />
       <span className="min-w-0 flex-1 truncate font-medium">
         {loading ? "Opening database…" : title}
       </span>

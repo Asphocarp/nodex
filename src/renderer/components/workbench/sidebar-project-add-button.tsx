@@ -2,7 +2,7 @@ import { useEffect, useEffectEvent, useRef } from "react";
 import { appScope, useScopeHandle } from "@/lib/maitai";
 import { openModal } from "@/lib/modal-registry";
 import type { Project, ProjectCreateInput } from "@/lib/types";
-import { CodexSidePanelPlusIcon } from "@/components/shared/icons";
+import { SidePanelPlusIcon } from "@/components/shared/icons";
 import { CodexSidebarActionButton } from "./codex-sidebar";
 import { ProjectCreateDialog } from "./project-edit-dialog";
 
@@ -49,7 +49,7 @@ export function SidebarProjectAddButton({
       className={CODEX_PROJECT_ADD_BUTTON_CLASS}
       onClick={openProjectCreateDialog}
     >
-      <CodexSidePanelPlusIcon />
+      <SidePanelPlusIcon />
     </CodexSidebarActionButton>
   );
 }

@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { CodexAccountSnapshot, CodexSidebarThreadItem, Project, ProjectSession } from "@/lib/types";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
-import { CodexAutomationsIcon, ComposerPluginsIcon } from "@/components/shared/icons";
+import { AutomationsIcon, ComposerPluginsIcon } from "@/components/shared/icons";
 import {
   codexSidebarProjectThreadContainerId,
   isCodexSidebarThreadContainerId,
@@ -412,7 +412,7 @@ function SidebarNewChatControlsHarness() {
                   <div className="flex flex-col gap-px">
                     <CodexSidebarTopActionButton
                       label="Scheduled"
-                      icon={<CodexAutomationsIcon />}
+                      icon={<AutomationsIcon />}
                       active
                       onClick={() => {}}
                     />

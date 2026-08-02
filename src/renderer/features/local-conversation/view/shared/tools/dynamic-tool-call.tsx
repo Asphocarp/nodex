@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { CalendarClock, Check, Circle, CircleX, LoaderCircle } from "lucide-react";
+import { CalendarClock, Check, Circle, CircleX, LoaderCircle } from "@/components/shared/icons/generic-icons";
 import type { CodexDynamicToolCallView } from "../../../../../lib/types";
 import { cn } from "../../../../../lib/utils";
 import {
@@ -11,7 +11,7 @@ import type { ToolComponentProps } from "./get-tool-component";
 import { ThreadActivityDisclosure } from "./tool-primitives";
 import { DynamicToolCallInspector } from "./dynamic-tool-call-inspector";
 import { ToolActivityIcon, semanticToolIcon } from "./tool-call-icons";
-import { CodexAppActivityIcon, CodexCreatedTaskIcon } from "./codex-tool-icons";
+import { AppActivityIcon, CreatedTaskIcon } from "@/components/shared/icons";
 import {
   type CodexAppHandoffStatus,
   type CodexAppHandoffStep,
@@ -58,7 +58,7 @@ function CodexAppCreatedThreadCard({
       >
         <span className="flex min-w-0 items-center gap-2.5 px-[var(--thread-resource-card-row-padding-x)] py-3 text-left">
           <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-token-bg-secondary text-token-text-secondary">
-            <CodexCreatedTaskIcon className="icon-sm" aria-hidden />
+            <CreatedTaskIcon className="icon-sm" aria-hidden />
           </span>
           <span className="flex min-w-0 flex-1 flex-col">
             <span className="text-size-chat truncate font-medium text-token-foreground">
@@ -321,7 +321,7 @@ function CodexAppHandoffToolCall({
   if (!resolveDynamicToolRegistryLabel(call)) return null;
   const state = resolveCodexAppHandoffRenderState(call);
   const icon = (
-    <CodexAppActivityIcon className="icon-xs shrink-0 text-token-conversation-body" aria-hidden />
+    <AppActivityIcon className="icon-xs shrink-0 text-token-conversation-body" aria-hidden />
   );
 
   if (variant !== "row") {
@@ -398,7 +398,7 @@ function CodexAppThreadToolCall({
     <DynamicToolRegistryLabelRow
       active={!call.completed}
       icon={variant === "summary-text" ? null : (
-        <CodexAppActivityIcon className={iconClassName} aria-hidden />
+        <AppActivityIcon className={iconClassName} aria-hidden />
       )}
       label={label}
       onClick={navigationThreadId && onOpenThread ? () => {
@@ -640,7 +640,7 @@ function DynamicToolFallbackLabel({
       )}
     >
       {showIcon ? (
-        <CodexAppActivityIcon className="icon-xs shrink-0 text-token-text-secondary" aria-hidden />
+        <AppActivityIcon className="icon-xs shrink-0 text-token-text-secondary" aria-hidden />
       ) : null}
       <CodexShimmerText active={!call.completed} className={cn(showIcon && "min-w-0 truncate")}>
         {label}

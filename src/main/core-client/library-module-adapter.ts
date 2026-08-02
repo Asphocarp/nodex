@@ -16,6 +16,7 @@ import type {
   LibraryNavigationNode,
   LibraryNavigationParent,
   LibraryReadValue,
+  LibraryResourceTarget,
   LibraryRouteTarget,
   LibraryWriteParent,
 } from "../../shared/library-module";
@@ -134,6 +135,14 @@ const toCoreRouteTarget = (target: LibraryRouteTarget) => {
   return { kind: target.kind, view_id: target.viewId } as const;
 };
 
+const toCoreResourceTarget = (target: LibraryResourceTarget) => {
+  if (target.kind === "page") return { kind: target.kind, page_id: target.pageId } as const;
+  if (target.kind === "database") {
+    return { kind: target.kind, database_id: target.databaseId } as const;
+  }
+  return { kind: target.kind, canvas_id: target.canvasId } as const;
+};
+
 const toCoreParent = (parent: LibraryNavigationParent) => {
   if (parent.kind === "library") return parent;
   if (parent.kind === "page") return { kind: parent.kind, page_id: parent.pageId } as const;
@@ -203,6 +212,11 @@ const toCoreRead = (request: LibraryModuleReadRequest): LibraryRead => {
   switch (read.mode) {
     case "metadata":
       return { kind: "metadata" };
+    case "resource_project_access":
+      return {
+        kind: "resource_project_access",
+        target: toCoreResourceTarget(read.target),
+      };
     case "canvas_target":
       return { kind: "canvas_target", canvas_id: read.canvasId };
     case "children":
@@ -213,6 +227,15 @@ const toCoreRead = (request: LibraryModuleReadRequest): LibraryRead => {
         limit: read.limit,
         force_include_target: read.forceIncludeTarget
           ? toCoreRouteTarget(read.forceIncludeTarget)
+          : null,
+      };
+    case "standalone_roots":
+      return {
+        kind: "standalone_roots",
+        cursor: read.cursor ?? null,
+        limit: read.limit,
+        force_include_target: read.forceIncludeTarget
+          ? toCoreResourceTarget(read.forceIncludeTarget)
           : null,
       };
     case "path":
@@ -318,6 +341,16 @@ const toCoreIntent = (operation: LibraryApplyOperation): LibraryIntent => {
             : { kind: "database", database_id: operation.target.databaseId },
         access: operation.access,
       };
+    case "set_project_access":
+      return {
+        kind: operation.kind,
+        target: toCoreResourceTarget(operation.target),
+        changes: operation.changes.map((change) => ({
+          project_id: change.projectId,
+          access: change.access,
+          expected_revision: change.expectedRevision,
+        })),
+      };
   }
 };
 
@@ -420,6 +453,10 @@ type CoreNavigationParent = Extract<
   LibraryReadSnapshot["value"],
   { kind: "children" }
 >["parent"];
+type CoreNavigationNode = Extract<
+  LibraryReadSnapshot["value"],
+  { kind: "children" | "standalone_roots" }
+>["items"][number];
 type CorePageDetail = Extract<
   LibraryReadSnapshot["value"],
   { kind: "page_detail" }
@@ -472,7 +509,7 @@ const parseViewKind = (value: string): DatabaseViewKind => {
 };
 
 const fromCoreNode = (
-  node: Extract<LibraryReadSnapshot["value"], { kind: "children" }>["items"][number],
+  node: CoreNavigationNode,
 ): LibraryNavigationNode => {
   if (node.kind === "page") {
     return {
@@ -529,6 +566,51 @@ const mapReadValue = (snapshot: LibraryReadSnapshot): LibraryReadValue => {
   switch (value.kind) {
     case "metadata":
       return { kind: value.kind } as const;
+    case "resource_project_access":
+      return {
+        kind: value.kind,
+        value: {
+          target: value.value.target.kind === "page"
+            ? { kind: "page" as const, pageId: value.value.target.page_id }
+            : value.value.target.kind === "database"
+              ? {
+                kind: "database" as const,
+                databaseId: parseDatabaseId(value.value.target.database_id),
+              }
+              : (() => {
+                throw new Error("Canvas access is inherited and cannot be managed directly");
+              })(),
+          projects: value.value.projects.map((project) => ({
+            projectId: project.project_id,
+            projectName: project.project_name,
+            appearance: project.appearance,
+            lifecycle: project.lifecycle,
+            directGrant: project.direct_grant
+              ? {
+                access: project.direct_grant.access,
+                revision: project.direct_grant.revision,
+              }
+              : null,
+            inheritedSources: project.inherited_sources.map((source) => {
+              if (source.kind === "ancestor_page") {
+                return {
+                  kind: source.kind,
+                  pageId: source.page_id,
+                  pageTitle: source.page_title,
+                  access: source.access,
+                } as const;
+              }
+              return {
+                kind: source.kind,
+                databaseId: parseDatabaseId(source.database_id),
+                databaseName: source.database_name,
+                access: source.access,
+              } as const;
+            }),
+            effectiveAccess: project.effective_access ?? null,
+          })),
+        },
+      } as const;
     case "canvas_target":
       return {
         kind: value.kind,
@@ -571,6 +653,16 @@ const mapReadValue = (snapshot: LibraryReadSnapshot): LibraryReadValue => {
         kind: value.kind,
         parent: fromCoreParent(value.parent),
         items: value.items.map(fromCoreNode),
+        nextCursor: value.next_cursor ?? null,
+        hasMore: value.has_more,
+        total: value.total,
+      } as const;
+    case "standalone_roots":
+      return {
+        kind: value.kind,
+        items: value.items.map(fromCoreNode).filter(
+          (node) => node.kind !== "view",
+        ),
         nextCursor: value.next_cursor ?? null,
         hasMore: value.has_more,
         total: value.total,

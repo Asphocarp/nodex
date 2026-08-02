@@ -1,4 +1,4 @@
-import { GitBranch, GitCommitHorizontal, UploadCloud } from "lucide-react";
+import { GitBranch, GitCommitHorizontal, UploadCloud } from "@/components/shared/icons/generic-icons";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import {

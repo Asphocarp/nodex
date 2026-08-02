@@ -1,16 +1,16 @@
 import { useState } from "react";
-import { FolderMinus } from "lucide-react";
 import type { Project, ProjectCreateInput } from "@/lib/types";
 import {
-  CodexArchiveIcon,
-  CodexProjectActionsIcon,
-  CodexProjectCollapseAllIcon,
-  CodexProjectFolderIcon,
-  CodexProjectReopenPreviousIcon,
-  CodexSidebarCreatedIcon,
-  CodexSidebarManualOrderIcon,
-  CodexSidebarSortClockIcon,
-  CodexSidebarUpdatedIcon,
+  ArchiveIcon,
+  ProjectActionsIcon,
+  ProjectCollapseAllIcon,
+  ProjectFolderIcon,
+  ProjectRemovedIcon,
+  ProjectReopenPreviousIcon,
+  SidebarCreatedIcon,
+  SidebarManualOrderIcon,
+  SidebarSortClockIcon,
+  SidebarUpdatedIcon,
 } from "@/components/shared/icons";
 import {
   NodexDropdownFlyoutSubmenuItem,
@@ -24,9 +24,8 @@ import { CodexSidebarActionButton } from "./codex-sidebar";
 import { SidebarProjectAddButton } from "./sidebar-project-add-button";
 import { RemovedProjectsDialog } from "./removed-projects-dialog";
 
-const PROJECT_SIDEBAR_OPTIONS_CONTENT_CLASS = "min-w-[172px] max-w-[240px]";
 const PROJECT_SIDEBAR_OPTIONS_SUBMENU_CLASS = "min-w-[180px]";
-const PROJECT_SIDEBAR_MENU_ICON_CLASS = "icon-xs opacity-75 group-focus:opacity-100 group-hover:opacity-100";
+const PROJECT_SIDEBAR_MENU_ICON_CLASS = "icon-xs";
 export function SidebarProjectsSectionActions({
   projectGroupCollapseAction,
   onProjectGroupCollapseAction,
@@ -54,8 +53,8 @@ export function SidebarProjectsSectionActions({
           onClick={() => onProjectGroupCollapseAction?.(projectGroupCollapseAction)}
         >
           {projectGroupCollapseAction === "collapse-all"
-            ? <CodexProjectCollapseAllIcon />
-            : <CodexProjectReopenPreviousIcon />}
+            ? <ProjectCollapseAllIcon />
+            : <ProjectReopenPreviousIcon />}
         </CodexSidebarActionButton>
       ) : null}
       <SidebarProjectOptionsMenu
@@ -86,25 +85,24 @@ function SidebarProjectOptionsMenu({
       onOpenChange={setOpen}
       side="bottom"
       align="end"
-      contentClassName={PROJECT_SIDEBAR_OPTIONS_CONTENT_CLASS}
       triggerButton={(
         <CodexSidebarActionButton
           label="Project sidebar options"
           data-app-action-sidebar-project-options-menu=""
         >
-          <CodexProjectActionsIcon />
+          <ProjectActionsIcon />
         </CodexSidebarActionButton>
       )}
     >
       <NodexDropdownItem
         disabled
-        leftSlot={<CodexArchiveIcon className={PROJECT_SIDEBAR_MENU_ICON_CLASS} />}
+        leftSlot={<ArchiveIcon className={PROJECT_SIDEBAR_MENU_ICON_CLASS} />}
         data-app-action-sidebar-project-options-archive-all=""
       >
         Archive all chats
       </NodexDropdownItem>
       <NodexDropdownItem
-        leftSlot={<FolderMinus className={PROJECT_SIDEBAR_MENU_ICON_CLASS} />}
+        leftSlot={<ProjectRemovedIcon className={PROJECT_SIDEBAR_MENU_ICON_CLASS} />}
         onSelect={() => {
           setOpen(false);
           onOpenRemovedProjects();
@@ -116,18 +114,18 @@ function SidebarProjectOptionsMenu({
       <NodexDropdownFlyoutSubmenuItem
         label="Organize sidebar"
         contentClassName={PROJECT_SIDEBAR_OPTIONS_SUBMENU_CLASS}
-        leftSlot={<CodexProjectFolderIcon className={PROJECT_SIDEBAR_MENU_ICON_CLASS} />}
+        leftSlot={<ProjectFolderIcon className={PROJECT_SIDEBAR_MENU_ICON_CLASS} />}
       >
         <NodexDropdownItem
           disabled
-          leftSlot={<CodexProjectFolderIcon className={PROJECT_SIDEBAR_MENU_ICON_CLASS} />}
+          leftSlot={<ProjectFolderIcon className={PROJECT_SIDEBAR_MENU_ICON_CLASS} />}
           rightSlot={<NodexDropdownSelectedIcon />}
         >
           By project
         </NodexDropdownItem>
         <NodexDropdownItem
           disabled
-          leftSlot={<CodexSidebarSortClockIcon className={PROJECT_SIDEBAR_MENU_ICON_CLASS} />}
+          leftSlot={<SidebarSortClockIcon className={PROJECT_SIDEBAR_MENU_ICON_CLASS} />}
         >
           Chronological list
         </NodexDropdownItem>
@@ -135,23 +133,23 @@ function SidebarProjectOptionsMenu({
       <NodexDropdownFlyoutSubmenuItem
         label="Sort by"
         contentClassName={PROJECT_SIDEBAR_OPTIONS_SUBMENU_CLASS}
-        leftSlot={<CodexSidebarSortClockIcon className={PROJECT_SIDEBAR_MENU_ICON_CLASS} />}
+        leftSlot={<SidebarSortClockIcon className={PROJECT_SIDEBAR_MENU_ICON_CLASS} />}
       >
         <NodexDropdownItem
-          leftSlot={<CodexSidebarManualOrderIcon className={PROJECT_SIDEBAR_MENU_ICON_CLASS} />}
+          leftSlot={<SidebarManualOrderIcon className={PROJECT_SIDEBAR_MENU_ICON_CLASS} />}
           rightSlot={<NodexDropdownSelectedIcon />}
         >
           Manual order
         </NodexDropdownItem>
         <NodexDropdownItem
           disabled
-          leftSlot={<CodexSidebarCreatedIcon className={PROJECT_SIDEBAR_MENU_ICON_CLASS} />}
+          leftSlot={<SidebarCreatedIcon className={PROJECT_SIDEBAR_MENU_ICON_CLASS} />}
         >
           Created
         </NodexDropdownItem>
         <NodexDropdownItem
           disabled
-          leftSlot={<CodexSidebarUpdatedIcon className={PROJECT_SIDEBAR_MENU_ICON_CLASS} />}
+          leftSlot={<SidebarUpdatedIcon className={PROJECT_SIDEBAR_MENU_ICON_CLASS} />}
         >
           Updated
         </NodexDropdownItem>

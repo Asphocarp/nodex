@@ -1,3 +1,4 @@
+import { BellIcon, SearchIcon } from "@/components/shared/icons";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { NodexButton as Button } from "@/components/ui/button";
@@ -30,15 +31,13 @@ import { cn } from "@/lib/utils";
 import type { CodexPermissionMode } from "@/lib/types";
 import {
   ArrowUpRight,
-  Bell,
   Filter,
   Layers3,
   LayoutGrid,
   PanelTopOpen,
-  Search,
   Sparkles,
   WandSparkles,
-} from "lucide-react";
+} from "@/components/shared/icons/generic-icons";
 
 type StorySectionId = "primitives" | "feedback" | "patterns";
 export type GeneralDevStoryDensity = "compact" | "balanced" | "comfortable";
@@ -416,7 +415,7 @@ export function GeneralDevStoryPage({
                 </div>
                 <NodexTooltip tooltipContent="Keeps controls quiet until intent is clear." side="top">
                   <Button variant="outline">
-                    <Bell className="size-4" />
+                    <BellIcon className="size-4" />
                     Hover for tooltip
                   </Button>
                 </NodexTooltip>
@@ -553,7 +552,7 @@ export function GeneralDevStoryPage({
               <PreviewSurface className="flex flex-col gap-3">
                 <div className="flex flex-wrap items-center gap-2 rounded-2xl border-[0.5px] border-[color-mix(in_srgb,var(--border)_72%,transparent)] bg-[color-mix(in_srgb,var(--foreground)_3%,transparent)] p-2">
                   <Button variant="ghost" size="icon-sm" aria-label="Search">
-                    <Search className="size-4" />
+                    <SearchIcon className="size-4" />
                   </Button>
                   <Input className="max-w-sm border-none bg-transparent px-0 focus:border-transparent" placeholder="Search stories, controls, or tokens" />
                   <div className="ml-auto flex items-center gap-2">

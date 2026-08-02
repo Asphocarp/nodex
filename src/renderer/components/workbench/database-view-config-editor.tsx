@@ -1,10 +1,10 @@
+import { PlusIcon } from "@/components/shared/icons";
 import {
   ArrowDown,
   ArrowUp,
   ListFilter,
-  Plus,
   Trash2,
-} from "lucide-react";
+} from "@/components/shared/icons/generic-icons";
 import type { ReactNode } from "react";
 import type {
   DatabaseJsonValue,
@@ -293,7 +293,7 @@ function FilterNodeEditor({
               disabled={disabled}
               onClick={() => onAppend(path, createDatabaseViewFilterClause(properties[0]!))}
             >
-              <Plus /> Rule
+              <PlusIcon /> Rule
             </NodexButton>
           ) : null}
           {depth < 7 ? (
@@ -304,7 +304,7 @@ function FilterNodeEditor({
               disabled={disabled}
               onClick={() => onAppend(path, { kind: "group", operator: "and", children: [] })}
             >
-              <Plus /> Group
+              <PlusIcon /> Group
             </NodexButton>
           ) : null}
           {depth > 0 ? (
@@ -445,7 +445,7 @@ function SortEditor({
         disabled={disabled}
         onClick={() => onChange([...sorts, createDatabaseViewSort()])}
       >
-        <Plus /> Sort
+        <PlusIcon /> Sort
       </NodexButton>
     </div>
   );
@@ -541,7 +541,7 @@ export function DatabaseViewConfigEditor({
                       },
                     })}
                   >
-                    <Plus /> Rule
+                    <PlusIcon /> Rule
                   </NodexButton>
                 ) : null}
               </div>

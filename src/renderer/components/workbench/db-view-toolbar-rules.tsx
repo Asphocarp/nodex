@@ -1,3 +1,4 @@
+import { PlusIcon } from "@/components/shared/icons";
 import { useMemo } from "react";
 import {
   NodexDropdownButtonTrigger,
@@ -9,7 +10,15 @@ import {
   NodexPopoverContent,
   NodexPopoverTrigger,
 } from "@/components/ui/popover";
-import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, Eye, EyeOff, Plus, X } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  ChevronDown,
+  Eye,
+  EyeOff,
+  X,
+} from "@/components/shared/icons/generic-icons";
 import {
   DB_VIEW_DISPLAY_PROPERTY_LABELS,
   DB_VIEW_SORT_FIELD_LABELS,
@@ -326,7 +335,7 @@ export function DbViewFilterPopover({
               },
             }))}
           >
-            <Plus className="size-3" />
+            <PlusIcon className="size-3" />
             Group
           </button>
         </div>
@@ -427,7 +436,7 @@ export function DbViewSortPopover({
               },
             }))}
           >
-            <Plus className="size-3" />
+            <PlusIcon className="size-3" />
             Sort
           </button>
         </div>

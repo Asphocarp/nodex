@@ -2336,6 +2336,25 @@ export interface components {
         };
         /** @enum {string} */
         readonly LibraryEventKind: "library_changed";
+        readonly LibraryInheritedProjectAccessSource: {
+            readonly access: components["schemas"]["LibraryAccess"];
+            readonly database_id: string;
+            readonly database_name: string;
+            /** @enum {string} */
+            readonly kind: "primary_database";
+        } | {
+            readonly access: components["schemas"]["LibraryAccess"];
+            /** @enum {string} */
+            readonly kind: "ancestor_page";
+            readonly page_id: string;
+            readonly page_title: string;
+        } | {
+            readonly access: components["schemas"]["LibraryAccess"];
+            readonly database_id: string;
+            readonly database_name: string;
+            /** @enum {string} */
+            readonly kind: "database_grant";
+        };
         /** @enum {string} */
         readonly LibraryLifecycle: "active" | "archived";
         readonly LibraryNavigationNode: {
@@ -2975,6 +2994,26 @@ export interface components {
             /** Format: int64 */
             readonly expected_location_revision: number;
         };
+        readonly LibraryProjectAccessChange: {
+            readonly access?: null | components["schemas"]["LibraryAccess"];
+            /** Format: int64 */
+            readonly expected_revision?: number | null;
+            readonly project_id: string;
+        };
+        readonly LibraryProjectAccessRow: {
+            readonly appearance: components["schemas"]["ProjectAppearance"];
+            readonly direct_grant?: null | components["schemas"]["LibraryProjectDirectGrant"];
+            readonly effective_access?: null | components["schemas"]["LibraryAccess"];
+            readonly inherited_sources: readonly components["schemas"]["LibraryInheritedProjectAccessSource"][];
+            readonly lifecycle: components["schemas"]["ProjectLifecycle"];
+            readonly project_id: string;
+            readonly project_name: string;
+        };
+        readonly LibraryProjectDirectGrant: {
+            readonly access: components["schemas"]["LibraryAccess"];
+            /** Format: int64 */
+            readonly revision: number;
+        };
         readonly LibraryProjectPageSearchHit: {
             readonly excerpt: string;
             readonly page_id: string;
@@ -2986,6 +3025,10 @@ export interface components {
         };
         readonly LibraryReadRequest: components["schemas"]["ModuleReadRequest_LibraryRead"];
         readonly LibraryReadResponse: components["schemas"]["ResponseEnvelope_ModuleReadSnapshot_LibraryReadValue"];
+        readonly LibraryResourceProjectAccess: {
+            readonly projects: readonly components["schemas"]["LibraryProjectAccessRow"][];
+            readonly target: components["schemas"]["LibraryResourceTarget"];
+        };
         readonly LibraryResourceTarget: {
             /** @enum {string} */
             readonly kind: "page";
@@ -3452,6 +3495,11 @@ export interface components {
                 /** @enum {string} */
                 readonly kind: "grant_project_access";
                 readonly project_id: string;
+                readonly target: components["schemas"]["LibraryResourceTarget"];
+            } | {
+                readonly changes: readonly components["schemas"]["LibraryProjectAccessChange"][];
+                /** @enum {string} */
+                readonly kind: "set_project_access";
                 readonly target: components["schemas"]["LibraryResourceTarget"];
             } | {
                 readonly grants: readonly components["schemas"]["AgentResourceGrantSpec"][];
@@ -4007,6 +4055,10 @@ export interface components {
                 /** @enum {string} */
                 readonly kind: "metadata";
             } | {
+                /** @enum {string} */
+                readonly kind: "resource_project_access";
+                readonly target: components["schemas"]["LibraryResourceTarget"];
+            } | {
                 readonly impact: components["schemas"]["ProjectionImpact"];
                 /** @enum {string} */
                 readonly kind: "filter_projection_impact_for_project";
@@ -4019,6 +4071,13 @@ export interface components {
                 /** Format: int32 */
                 readonly limit?: number | null;
                 readonly parent: components["schemas"]["LibraryNavigationParent"];
+            } | {
+                readonly cursor?: string | null;
+                readonly force_include_target?: null | components["schemas"]["LibraryResourceTarget"];
+                /** @enum {string} */
+                readonly kind: "standalone_roots";
+                /** Format: int32 */
+                readonly limit?: number | null;
             } | {
                 /** @enum {string} */
                 readonly kind: "path";
@@ -5154,6 +5213,10 @@ export interface components {
                     readonly library_id: string;
                     readonly profile_id: string;
                 } | {
+                    /** @enum {string} */
+                    readonly kind: "resource_project_access";
+                    readonly value: components["schemas"]["LibraryResourceProjectAccess"];
+                } | {
                     readonly impact: components["schemas"]["ProjectionImpact"];
                     /** @enum {string} */
                     readonly kind: "projection_impact";
@@ -5164,6 +5227,14 @@ export interface components {
                     readonly kind: "children";
                     readonly next_cursor?: string | null;
                     readonly parent: components["schemas"]["LibraryNavigationParent"];
+                    /** Format: int64 */
+                    readonly total: number;
+                } | {
+                    readonly has_more: boolean;
+                    readonly items: readonly components["schemas"]["LibraryNavigationNode"][];
+                    /** @enum {string} */
+                    readonly kind: "standalone_roots";
+                    readonly next_cursor?: string | null;
                     /** Format: int64 */
                     readonly total: number;
                 } | {

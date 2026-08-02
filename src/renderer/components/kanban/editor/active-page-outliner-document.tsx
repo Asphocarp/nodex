@@ -28,6 +28,11 @@ import {
 } from "@/lib/rich-title-editor-dom";
 import { useProjects } from "@/lib/use-projects";
 import { resolveReferencedProjectContext } from "@/lib/referenced-project-context";
+import {
+  blockDocumentSurfaceDependenciesForContentAccess,
+  ownedBlockDocumentQueryDependenciesForContentAccess,
+} from "@/lib/content-access-document-dependencies";
+import { projectIdFromContentAccessContext } from "../../../../shared/content-access-context";
 import type { VerticalArrowDirection } from "./embedded-surface-arrow-navigation";
 import { NfmEditor, type NfmEditorBoundaryHandle } from "./nfm-editor";
 
@@ -246,7 +251,8 @@ function ActivePageOutlinerContent({
           className="w-full min-w-0"
         >
           <NfmEditor
-            projectId={target.requestingProjectId}
+            contentAccessContext={hostRuntime.contentAccessContext}
+            documentScopeId={target.documentScopeId}
             projectName={targetProject.projectName}
             projectWorkspacePath={targetProject.projectWorkspacePath}
             source={{
@@ -301,10 +307,21 @@ export function ActivePageOutlinerDocument({
   onEscapeToHostShell,
 }: ActivePageOutlinerDocumentProps) {
   const { projects } = useProjects();
+  const executionProjectId = projectIdFromContentAccessContext(
+    target.contentAccessContext,
+  );
   const targetProject = resolveReferencedProjectContext(
-    target.requestingProjectId,
+    executionProjectId ?? "",
     projects,
   );
+  const queryDependencies =
+    ownedBlockDocumentQueryDependenciesForContentAccess(
+      target.contentAccessContext,
+    );
+  const surfaceDependencies =
+    blockDocumentSurfaceDependenciesForContentAccess(
+      target.contentAccessContext,
+    );
   const pending = (
     <ProjectedRow target={target} rowProps={rowProps}>
       <PageOutlinerBodySkeleton />
@@ -313,8 +330,9 @@ export function ActivePageOutlinerDocument({
 
   return (
     <OwnedBlockDocumentBoundary
-      projectId={target.requestingProjectId}
+      projectId={target.documentScopeId}
       ownerBlockId={target.page.pageId}
+      dependencies={queryDependencies}
     >
       {(model, controls) => {
         if (model.status === "loading") return pending;
@@ -331,8 +349,9 @@ export function ActivePageOutlinerDocument({
         }
         return (
           <BlockDocumentSurface
-            projectId={target.requestingProjectId}
+            projectId={target.documentScopeId}
             descriptor={model.descriptor}
+            dependencies={surfaceDependencies}
             isActive={hostRuntime.isActiveSurface}
             onReload={controls.reload}
             pendingFallback={pending}

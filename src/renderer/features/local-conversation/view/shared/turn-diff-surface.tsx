@@ -9,8 +9,8 @@ import {
 } from "react";
 import {
   ChevronDownIcon,
-  CodexContentSearchDiffIcon,
-  CodexShortcutResetIcon,
+  ContentSearchDiffIcon,
+  ShortcutResetIcon,
   ReviewRefreshIcon,
 } from "@/components/shared/icons";
 import {
@@ -119,7 +119,7 @@ function TurnDiffToolbarButton({
   onClick: () => void;
 }) {
   const Icon = icon === "undo"
-    ? CodexShortcutResetIcon
+    ? ShortcutResetIcon
     : icon === "reapply"
       ? ReviewRefreshIcon
       : null;
@@ -641,7 +641,7 @@ export function TurnDiffSurface({
           ) : null}
           <div className="relative z-10 flex w-full min-w-0 items-center gap-3 px-[var(--thread-resource-card-row-padding-x)] py-1.5 pointer-events-none">
             <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-token-bg-secondary text-token-text-secondary">
-              <CodexContentSearchDiffIcon className="icon-sm" />
+              <ContentSearchDiffIcon className="icon-sm" />
             </div>
             <div className="flex min-w-0 flex-1 flex-col justify-center">
               <div className="text-size-chat min-w-0 truncate text-token-text-primary">

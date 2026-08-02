@@ -4,15 +4,14 @@ import type { HookMetadata } from "@nodex/codex-app-server-protocol/v2/HookMetad
 import type { HooksListEntry } from "@nodex/codex-app-server-protocol/v2/HooksListEntry";
 import {
   ChevronDown,
-  FileCode2,
   FolderGit2,
   Plug,
   RefreshCw,
   ShieldCheck,
   TriangleAlert,
   UserRound,
-} from "lucide-react";
-import { CodexHooksIcon } from "@/components/shared/icons";
+} from "@/components/shared/icons/generic-icons";
+import { FileIcon, HooksIcon } from "@/components/shared/icons";
 import { NodexButton, NodexSwitch } from "@/components/ui/button";
 import {
   NodexDialog,
@@ -96,8 +95,8 @@ const HOOK_SOURCE_ICONS: Record<CodexHooksSettingsSource, ComponentType<{ classN
   user: UserRound,
   admin: ShieldCheck,
   project: FolderGit2,
-  sessionFlags: CodexHooksIcon,
-  unknown: CodexHooksIcon,
+  sessionFlags: HooksIcon,
+  unknown: HooksIcon,
 };
 
 function formatPluginName(pluginId: string | null | undefined): string {
@@ -348,7 +347,7 @@ function HookRow({
                   .catch(() => toast.danger("Could not open config file"));
               }}
             >
-              <FileCode2 className="icon-xxs" aria-hidden="true" />
+              <FileIcon className="icon-xxs" aria-hidden="true" />
             </button>
           ) : null}
           <ChevronDown
@@ -494,7 +493,7 @@ function HooksDetailDialog({
                   {summaries.map((summary) => (
                     <div key={summary.eventName}>
                       <div className="flex items-center gap-3 p-3">
-                        <CodexHooksIcon className="icon-xs text-token-text-secondary" />
+                        <HooksIcon className="icon-xs text-token-text-secondary" />
                         <div className="min-w-0 flex-1">
                           <div className="text-sm font-medium text-token-text-primary">{HOOK_EVENT_LABELS[summary.eventName]}</div>
                           <div className="text-sm text-token-text-secondary">{HOOK_EVENT_DESCRIPTIONS[summary.eventName]}</div>

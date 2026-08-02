@@ -68,3 +68,20 @@ export const projectContentAccess = (
 export const libraryContentAccess: ContentAccessContext = {
   kind: "library",
 };
+
+/**
+ * Resolve the real Project selected by a content authority boundary.
+ *
+ * Library content can use renderer-local document scope identifiers, but
+ * those identifiers are never valid Project credentials. Project-only
+ * capabilities must stay unavailable when this function returns null.
+ */
+export const projectIdFromContentAccessContext = (
+  context: ContentAccessContext,
+): string | null => context.kind === "project" ? context.projectId : null;
+
+export const contentAccessContextKey = (
+  context: ContentAccessContext,
+): string => context.kind === "project"
+  ? `project:${context.projectId}`
+  : "library";

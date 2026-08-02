@@ -9149,6 +9149,88 @@
           "library_changed"
         ]
       },
+      "LibraryInheritedProjectAccessSource": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "database_id",
+              "database_name",
+              "access",
+              "kind"
+            ],
+            "properties": {
+              "access": {
+                "$ref": "#/components/schemas/LibraryAccess"
+              },
+              "database_id": {
+                "type": "string"
+              },
+              "database_name": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "primary_database"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "page_id",
+              "page_title",
+              "access",
+              "kind"
+            ],
+            "properties": {
+              "access": {
+                "$ref": "#/components/schemas/LibraryAccess"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "ancestor_page"
+                ]
+              },
+              "page_id": {
+                "type": "string"
+              },
+              "page_title": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "database_id",
+              "database_name",
+              "access",
+              "kind"
+            ],
+            "properties": {
+              "access": {
+                "$ref": "#/components/schemas/LibraryAccess"
+              },
+              "database_id": {
+                "type": "string"
+              },
+              "database_name": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "database_grant"
+                ]
+              }
+            }
+          }
+        ]
+      },
       "LibraryLifecycle": {
         "type": "string",
         "enum": [
@@ -11808,6 +11890,100 @@
           }
         }
       },
+      "LibraryProjectAccessChange": {
+        "type": "object",
+        "required": [
+          "project_id"
+        ],
+        "properties": {
+          "access": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LibraryAccess"
+              }
+            ]
+          },
+          "expected_revision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "project_id": {
+            "type": "string"
+          }
+        }
+      },
+      "LibraryProjectAccessRow": {
+        "type": "object",
+        "required": [
+          "project_id",
+          "project_name",
+          "appearance",
+          "lifecycle",
+          "inherited_sources"
+        ],
+        "properties": {
+          "appearance": {
+            "$ref": "#/components/schemas/ProjectAppearance"
+          },
+          "direct_grant": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LibraryProjectDirectGrant"
+              }
+            ]
+          },
+          "effective_access": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LibraryAccess"
+              }
+            ]
+          },
+          "inherited_sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibraryInheritedProjectAccessSource"
+            }
+          },
+          "lifecycle": {
+            "$ref": "#/components/schemas/ProjectLifecycle"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "project_name": {
+            "type": "string"
+          }
+        }
+      },
+      "LibraryProjectDirectGrant": {
+        "type": "object",
+        "required": [
+          "access",
+          "revision"
+        ],
+        "properties": {
+          "access": {
+            "$ref": "#/components/schemas/LibraryAccess"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "LibraryProjectPageSearchHit": {
         "type": "object",
         "required": [
@@ -11845,6 +12021,24 @@
       },
       "LibraryReadResponse": {
         "$ref": "#/components/schemas/ResponseEnvelope_ModuleReadSnapshot_LibraryReadValue"
+      },
+      "LibraryResourceProjectAccess": {
+        "type": "object",
+        "required": [
+          "target",
+          "projects"
+        ],
+        "properties": {
+          "projects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibraryProjectAccessRow"
+            }
+          },
+          "target": {
+            "$ref": "#/components/schemas/LibraryResourceTarget"
+          }
+        }
       },
       "LibraryResourceTarget": {
         "oneOf": [
@@ -13729,6 +13923,31 @@
                   },
                   "project_id": {
                     "type": "string"
+                  },
+                  "target": {
+                    "$ref": "#/components/schemas/LibraryResourceTarget"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "target",
+                  "changes",
+                  "kind"
+                ],
+                "properties": {
+                  "changes": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/LibraryProjectAccessChange"
+                    }
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "set_project_access"
+                    ]
                   },
                   "target": {
                     "$ref": "#/components/schemas/LibraryResourceTarget"
@@ -16167,6 +16386,24 @@
               {
                 "type": "object",
                 "required": [
+                  "target",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "resource_project_access"
+                    ]
+                  },
+                  "target": {
+                    "$ref": "#/components/schemas/LibraryResourceTarget"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
                   "project_id",
                   "impact",
                   "kind"
@@ -16225,6 +16462,44 @@
                   },
                   "parent": {
                     "$ref": "#/components/schemas/LibraryNavigationParent"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "cursor": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "force_include_target": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/LibraryResourceTarget"
+                      }
+                    ]
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "standalone_roots"
+                    ]
+                  },
+                  "limit": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "format": "int32",
+                    "minimum": 0
                   }
                 }
               },
@@ -21412,6 +21687,24 @@
                       {
                         "type": "object",
                         "required": [
+                          "value",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "resource_project_access"
+                            ]
+                          },
+                          "value": {
+                            "$ref": "#/components/schemas/LibraryResourceProjectAccess"
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
                           "impact",
                           "kind"
                         ],
@@ -21460,6 +21753,43 @@
                           },
                           "parent": {
                             "$ref": "#/components/schemas/LibraryNavigationParent"
+                          },
+                          "total": {
+                            "type": "integer",
+                            "format": "int64",
+                            "minimum": 0
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "items",
+                          "has_more",
+                          "total",
+                          "kind"
+                        ],
+                        "properties": {
+                          "has_more": {
+                            "type": "boolean"
+                          },
+                          "items": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/LibraryNavigationNode"
+                            }
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "standalone_roots"
+                            ]
+                          },
+                          "next_cursor": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
                           },
                           "total": {
                             "type": "integer",

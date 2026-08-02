@@ -4,17 +4,12 @@ import {
   Check,
   Copy,
   ExternalLink,
-  FileText,
-  MoreHorizontal,
   PanelRightClose,
   PanelRightOpen,
   RefreshCw,
-} from "lucide-react";
+} from "@/components/shared/icons/generic-icons";
 import { MarkdownRenderer } from "@/features/local-conversation/view/shared/markdown/markdown-renderer";
-import {
-  CodexSidePanelFilesIcon,
-  SearchIcon,
-} from "@/components/shared/icons";
+import { FileIcon, SidePanelFilesIcon, SearchIcon, ProjectActionsIcon } from "@/components/shared/icons";
 import { NodexTooltip } from "@/components/ui/tooltip";
 import { toast } from "@/components/ui/toast";
 import {
@@ -194,7 +189,7 @@ function WorkspaceFilePreview({
     return (
       <div className="flex h-full items-center justify-center px-6 text-center">
         <div className="flex max-w-72 flex-col items-center gap-3">
-          <CodexSidePanelFilesIcon className="size-8 text-token-description-foreground" />
+          <SidePanelFilesIcon className="size-8 text-token-description-foreground" />
           <div className="space-y-1">
             <div className="text-lg/6 font-medium text-token-text-primary">Open file</div>
             <div className="text-sm text-token-text-secondary">
@@ -217,7 +212,7 @@ function WorkspaceFilePreview({
   if (state.status === "error") {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-sm text-token-text-secondary">
-        <FileText className="icon-md" />
+        <FileIcon className="icon-md" />
         <div>{state.message ?? "Unable to read file."}</div>
       </div>
     );
@@ -230,7 +225,7 @@ function WorkspaceFilePreview({
   ) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-sm text-token-text-secondary">
-        <CodexSidePanelFilesIcon className="icon-md" />
+        <SidePanelFilesIcon className="icon-md" />
         <div>{state.message ?? "Preview is not available for this file."}</div>
         <button
           type="button"
@@ -992,7 +987,7 @@ export function WorkspaceFilesPanel({
   if (!workspaceRoot && !selectedPath) {
     return (
       <div className="flex h-full min-h-0 flex-col items-center justify-center gap-3 bg-token-main-surface-primary text-center text-sm text-token-text-secondary">
-        <CodexSidePanelFilesIcon className="icon-md" />
+        <SidePanelFilesIcon className="icon-md" />
         <div>No file or workspace folder is available.</div>
       </div>
     );
@@ -1025,14 +1020,13 @@ export function WorkspaceFilesPanel({
             </button>
             <NodexDropdownMenu
               align="end"
-              contentWidth="menuNarrow"
               triggerButton={(
                 <button
                   type="button"
                   aria-label="File options"
                   className="flex aspect-square h-token-button-composer items-center justify-center rounded-lg text-token-text-tertiary hover:bg-token-list-hover-background hover:text-token-text-primary"
                 >
-                  <MoreHorizontal className="icon-2xs" />
+                  <ProjectActionsIcon className="icon-2xs" />
                 </button>
               )}
             >

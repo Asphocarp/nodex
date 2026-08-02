@@ -1,5 +1,5 @@
 import { useCallback, useState, type KeyboardEvent } from "react";
-import { ImageIcon } from "lucide-react";
+import { ImageIcon } from "@/components/shared/icons/generic-icons";
 import { buildFileUrl } from "../../../../../shared/file-link-openers";
 import { ImagePreviewDialog } from "./user-message-attachments";
 import { ThreadActivityShell, ThreadRichActivityHeader } from "./tools/tool-primitives";

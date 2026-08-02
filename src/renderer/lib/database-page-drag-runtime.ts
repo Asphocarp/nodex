@@ -33,14 +33,19 @@ const defaultDependencies: DatabasePageDragRuntimeDependencies = {
 
 export const databaseViewRenderModelToDragSnapshot = (
   view: DatabaseViewRenderModel,
-): DatabaseModuleReadSnapshotV2 => ({
+): DatabaseModuleReadSnapshotV2 => {
+  if (view.accessContext.kind !== "project") {
+    throw new Error("Project Page drag requires Project Database authority");
+  }
+  return {
     version: DATABASE_MODULE_V2_CONTRACT_VERSION,
-    projectId: view.projectId,
+    projectId: view.accessContext.projectId,
     libraryId: view.libraryId,
     storeEpoch: view.storeEpoch,
     changeLogSeq: view.changeLogSeq,
     value: { kind: "query", value: view.query },
-  });
+  };
+};
 
 const commitCompiledDrag = async (input: {
   readonly projectId: string;

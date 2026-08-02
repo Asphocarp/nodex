@@ -1,11 +1,11 @@
 import { memo, useCallback, useState } from "react";
 import {
-  CodexArchiveIcon,
-  CodexGoalEditIcon,
-  CodexProjectActionsIcon,
-  CodexSessionPinFilledIcon,
-  CodexSessionPinIcon,
-  CodexSidePanelSideChatIcon,
+  ArchiveIcon,
+  GoalEditIcon,
+  ProjectActionsIcon,
+  SessionPinFilledIcon,
+  SessionPinIcon,
+  SidePanelSideChatIcon,
   LinkToolbarCopyIcon,
 } from "@/components/shared/icons";
 import {
@@ -26,7 +26,7 @@ interface ThreadStageHeaderProps {
   onErrorMessage: (message: string | null) => void;
 }
 
-const menuIconClassName = "icon-xs shrink-0 opacity-75 group-focus:opacity-100 group-hover:opacity-100";
+const menuIconClassName = "icon-xs shrink-0";
 
 function ThreadStageHeaderComponent({ model, actions, onErrorMessage }: ThreadStageHeaderProps) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -97,15 +97,15 @@ function ThreadStageHeaderComponent({ model, actions, onErrorMessage }: ThreadSt
                   aria-label="Task actions"
                   title="Task actions"
                 >
-                  <CodexProjectActionsIcon className="icon-sm" />
+                  <ProjectActionsIcon className="icon-sm" />
                 </button>
               )}
             >
               {canTogglePin ? (
                 <NodexDropdownItem
                   leftSlot={model.pinned
-                    ? <CodexSessionPinFilledIcon className={menuIconClassName} />
-                    : <CodexSessionPinIcon className={menuIconClassName} />}
+                    ? <SessionPinFilledIcon className={menuIconClassName} />
+                    : <SessionPinIcon className={menuIconClassName} />}
                   keyboardShortcut={model.shortcuts?.togglePin}
                   onSelect={() => void handleAction(actions.onToggleThreadPin, "Failed to update task pin")}
                 >
@@ -114,7 +114,7 @@ function ThreadStageHeaderComponent({ model, actions, onErrorMessage }: ThreadSt
               ) : null}
               {canRenameThread ? (
                 <NodexDropdownItem
-                  leftSlot={<CodexGoalEditIcon className={menuIconClassName} />}
+                  leftSlot={<GoalEditIcon className={menuIconClassName} />}
                   keyboardShortcut={model.shortcuts?.rename}
                   onSelect={() => actions.onRequestRenameThread?.()}
                 >
@@ -123,7 +123,7 @@ function ThreadStageHeaderComponent({ model, actions, onErrorMessage }: ThreadSt
               ) : null}
               {canArchiveThread ? (
                 <NodexDropdownItem
-                  leftSlot={<CodexArchiveIcon className={menuIconClassName} />}
+                  leftSlot={<ArchiveIcon className={menuIconClassName} />}
                   keyboardShortcut={model.shortcuts?.archive}
                   onSelect={() => void handleAction(actions.onArchiveThread, "Failed to archive task")}
                 >
@@ -133,7 +133,7 @@ function ThreadStageHeaderComponent({ model, actions, onErrorMessage }: ThreadSt
               {hasTopActions ? <NodexDropdownSeparator /> : null}
               {model.showSideChatAction ? (
                 <NodexDropdownItem
-                  leftSlot={<CodexSidePanelSideChatIcon className={menuIconClassName} />}
+                  leftSlot={<SidePanelSideChatIcon className={menuIconClassName} />}
                   keyboardShortcut={model.shortcuts?.openSideTask}
                   onSelect={() => void handleAction(actions.onOpenSideChat, "Failed to open side task")}
                 >
