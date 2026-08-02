@@ -2600,7 +2600,7 @@ export async function runMainAppStartup(
       if (!projectId) return null;
       return projectId;
     },
-    publishDocumentCommits: documentSync.publishDocumentCommits,
+    publishLibraryDocumentCommits: documentSync.publishLibraryDocumentCommits,
   });
   desktopLibraryModule = libraryModule;
   const databaseModule = createDesktopDatabaseModuleBridge({

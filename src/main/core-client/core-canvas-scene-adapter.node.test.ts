@@ -264,6 +264,56 @@ describe("Core Canvas scene adapter", () => {
     });
   });
 
+  test("projects a granted Canvas response into its access Project", async () => {
+    const client = new FakeCoreClient();
+    const adapter = createCoreCanvasSceneAdapter(client);
+    const subscription = {
+      version: CANVAS_SCENE_SYNC_VERSION,
+      projectId: PROJECT_ID,
+      documentId: DOCUMENT_ID,
+      clientSessionId: CLIENT_SESSION_ID,
+    } as const;
+    const close = adapter.subscribe(subscription, () => undefined);
+    client.enqueueDocumentCanvasSync({
+      ...syncSnapshot("sync:granted"),
+      projectId: "project:compatibility-storage",
+    });
+
+    await expect(adapter.sync({
+      ...subscription,
+      syncRequestId: "sync:granted",
+    })).resolves.toMatchObject({
+      ok: true,
+      value: { projectId: PROJECT_ID, documentId: DOCUMENT_ID },
+    });
+
+    const physicalMutation = committedMutation();
+    client.enqueueDocumentApply({
+      ...physicalMutation,
+      value: {
+        ...physicalMutation.value,
+        canvas: {
+          ...mutationResult,
+          projectId: "project:compatibility-storage",
+        },
+      },
+    });
+    await expect(adapter.applyMutation({
+      ...subscription,
+      mutationId: mutationResult.mutationId,
+      storeEpoch: STORE_EPOCH,
+      generation: 1,
+      baseHeadSeq: 0,
+      elementCandidates: [],
+      appStateIntents: {},
+      fileAdditions: {},
+    })).resolves.toMatchObject({
+      ok: true,
+      value: { projectId: PROJECT_ID, documentId: DOCUMENT_ID },
+    });
+    close();
+  });
+
   test("reads compaction evidence, applies generation rollover, and maps its reset event", async () => {
     const client = new FakeCoreClient();
     const adapter = createCoreCanvasSceneAdapter(client);
@@ -338,7 +388,10 @@ describe("Core Canvas scene adapter", () => {
         generation: 2,
         head_seq: 1,
         outcome: "committed",
-        canvas: compactionResult,
+        canvas: {
+          ...compactionResult,
+          projectId: "project:compatibility-storage",
+        },
       },
       receipt: {
         operation_id: request.mutationId,

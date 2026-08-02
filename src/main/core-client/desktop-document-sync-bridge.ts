@@ -108,6 +108,14 @@ export type DesktopDocumentSyncScope =
   | { readonly kind: "project"; readonly projectId: string }
   | { readonly kind: "library" };
 
+const toProjectAccessDocumentDescriptor = (
+  projectId: string,
+  descriptor: OwnedDocumentDescriptor,
+): OwnedDocumentDescriptor => ({
+  ...descriptor,
+  projectId,
+});
+
 type NativeNodexAgentLeasedMutationResult =
   | ExecuteNodexAgentCreatePagesResult
   | ExecuteNodexAgentDuplicatePageResult
@@ -230,6 +238,11 @@ export interface DesktopDocumentSyncPort {
     readonly commits: readonly RelocationDocumentCommit[];
     readonly clientSessionId: string;
     readonly resyncOnly?: boolean;
+  }): void;
+  publishLibraryDocumentCommits(input: {
+    readonly storeEpoch: string;
+    readonly commits: readonly RelocationDocumentCommit[];
+    readonly clientSessionId: string;
   }): void;
   coordinateNodexAgentLeasedMutation<
     Result extends NativeNodexAgentLeasedMutationResult,
@@ -1108,7 +1121,7 @@ export function createDesktopDocumentSyncBridge(
   };
 
   const fanoutDocumentCommits = (
-    scope: DesktopDocumentSyncScope,
+    matchesSubscription: (subscription: NativeSubscription) => boolean,
     storeEpoch: string,
     commits: readonly RelocationDocumentCommit[],
     resyncOnly: boolean,
@@ -1119,7 +1132,7 @@ export function createDesktopDocumentSyncBridge(
       for (const [key, subscription] of subscriptions) {
         if (
           subscription.engine !== "yjs"
-          || !scopesMatch(subscription.scope, scope)
+          || !matchesSubscription(subscription)
           || subscription.documentId !== commit.documentId
         ) {
           continue;
@@ -1158,11 +1171,25 @@ export function createDesktopDocumentSyncBridge(
     }
   };
 
+  const fanoutScopedDocumentCommits = (
+    scope: DesktopDocumentSyncScope,
+    storeEpoch: string,
+    commits: readonly RelocationDocumentCommit[],
+    resyncOnly: boolean,
+    clientSessionId: string,
+  ): void => fanoutDocumentCommits(
+    (subscription) => scopesMatch(subscription.scope, scope),
+    storeEpoch,
+    commits,
+    resyncOnly,
+    clientSessionId,
+  );
+
   const fanoutBlockTransfer = (
     projectId: string,
     receipt: BlockTransferReceipt,
     resyncOnly: boolean,
-  ): void => fanoutDocumentCommits(
+  ): void => fanoutScopedDocumentCommits(
     { kind: "project", projectId },
     receipt.storeEpoch,
     receipt.documentCommits,
@@ -1349,7 +1376,7 @@ export function createDesktopDocumentSyncBridge(
     }
 
     const success = result as Result & SuccessfulNativeNodexAgentLeasedMutation;
-    fanoutDocumentCommits(
+    fanoutScopedDocumentCommits(
       { kind: "project", projectId: options.projectId },
       options.storeEpoch,
       success.value.documentCommits,
@@ -1384,7 +1411,7 @@ export function createDesktopDocumentSyncBridge(
         leaseDocuments,
         success.value.documentCommits,
       );
-      fanoutDocumentCommits(
+      fanoutScopedDocumentCommits(
         { kind: "project", projectId: options.projectId },
         options.storeEpoch,
         success.value.documentCommits,
@@ -1404,8 +1431,7 @@ export function createDesktopDocumentSyncBridge(
           ownerBlockId,
           clientSessionId: "electron:owned-document:descriptor",
         });
-      if (descriptor.projectId === projectId) return descriptor;
-      throw new Error("Core Owned Document descriptor escaped its Project boundary");
+      return toProjectAccessDocumentDescriptor(projectId, descriptor);
     },
     prepareOwnedBlockDocument: async (projectId, ownerBlockId) =>
       await withRuntime(async (runtime) => {
@@ -1419,8 +1445,14 @@ export function createDesktopDocumentSyncBridge(
             runtime.rootClient.handshake.connection_binding,
           ),
         });
-        if (!prepared.ok || prepared.value.projectId === projectId) return prepared;
-        return documentSyncUnauthorized();
+        if (!prepared.ok) return prepared;
+        return {
+          ok: true,
+          value: toProjectAccessDocumentDescriptor(
+            projectId,
+            prepared.value,
+          ),
+        };
       }),
     prepareLibraryOwnedBlockDocument: async (ownerBlockId) =>
       await withRuntime(async (runtime) => {
@@ -1861,11 +1893,24 @@ export function createDesktopDocumentSyncBridge(
       clientSessionId,
       resyncOnly = false,
     }) => {
-      fanoutDocumentCommits(
+      fanoutScopedDocumentCommits(
         scope,
         storeEpoch,
         commits,
         resyncOnly,
+        clientSessionId,
+      );
+    },
+    publishLibraryDocumentCommits: ({
+      storeEpoch,
+      commits,
+      clientSessionId,
+    }) => {
+      fanoutDocumentCommits(
+        () => true,
+        storeEpoch,
+        commits,
+        false,
         clientSessionId,
       );
     },

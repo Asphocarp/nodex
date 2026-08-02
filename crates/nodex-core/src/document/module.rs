@@ -4696,7 +4696,7 @@ fn authorize_document_access(
             }
             return Ok(());
         }
-        if context.adapter == AdapterKind::NativeCli && authority.owner_type == "page" {
+        if authority.owner_type == "page" {
             match access {
                 DocumentAccessKind::Read => crate::library::require_page_read_access(
                     connection,
@@ -5128,6 +5128,13 @@ mod tests {
     fn native_cli_context_for(connection_id: &str, project_id: &str) -> BoundModuleContext {
         BoundModuleContext {
             adapter: AdapterKind::NativeCli,
+            ..context_for_project(connection_id, project_id)
+        }
+    }
+
+    fn electron_context_for(connection_id: &str, project_id: &str) -> BoundModuleContext {
+        BoundModuleContext {
+            adapter: AdapterKind::ElectronHost,
             ..context_for_project(connection_id, project_id)
         }
     }
@@ -7909,6 +7916,79 @@ mod tests {
     }
 
     #[test]
+    fn electron_realtime_page_access_uses_recursive_project_grants() {
+        const GRANTED_PROJECT_ID: &str = "project:electron-grantee";
+        let seeded = seeded_module();
+        seeded
+            .kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    transaction.execute(
+                        "INSERT INTO projects(id, library_id, name, created, updated) \
+                         VALUES (?1, ?2, 'Electron grantee', ?3, ?3)",
+                        params![GRANTED_PROJECT_ID, LIBRARY_ID, NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO project_resource_grants(\
+                           id, project_id, library_id, root_kind, root_id, access, recursive, \
+                           revision, lifecycle, created_at, updated_at\
+                         ) VALUES ('grant:electron-page', ?1, ?2, 'page', ?3, 'read', 1, 1, \
+                           'active', ?4, ?4)",
+                        params![GRANTED_PROJECT_ID, LIBRARY_ID, OWNER_BLOCK_ID, NOW],
+                    )?;
+                    Ok(())
+                })
+            })
+            .expect("seed Electron Page grant");
+
+        let adapter = OwnedDocumentRealtimeAdapter::new(seeded.module.clone());
+        let granted = electron_context_for("renderer:grantee", GRANTED_PROJECT_ID);
+        adapter
+            .subscribe(
+                &granted,
+                DOCUMENT_ID.to_owned(),
+                "client:grantee".to_owned(),
+            )
+            .expect("read grant subscribes to the foreign Page");
+        adapter
+            .sync_yjs(
+                &granted,
+                "client:grantee",
+                DOCUMENT_ID.to_owned(),
+                Vec::new(),
+            )
+            .expect("read grant syncs the foreign Page");
+
+        let request = apply_request(
+            "update:electron-grantee",
+            1,
+            title_update(&seeded.full_state, &seeded.state_vector, "Electron grant"),
+        );
+        let denied = adapter
+            .apply(&granted, "client:grantee", request.clone())
+            .expect_err("read grant cannot mutate the foreign Page");
+        assert_eq!(denied.code, CoreErrorCode::NotFound);
+
+        seeded
+            .kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "UPDATE project_resource_grants SET access = 'read_write', revision = 2 \
+                     WHERE id = 'grant:electron-page'",
+                    [],
+                )?;
+                Ok(())
+            })
+            .expect("upgrade Electron Page grant");
+        let committed = adapter
+            .apply(&granted, "client:grantee", request)
+            .expect("read-write grant mutates the foreign Page");
+        assert_eq!(committed.committed.value.head_seq, 2);
+    }
+
+    #[test]
     fn trusted_library_realtime_scope_crosses_document_storage_projects() {
         let seeded = seeded_module();
         let adapter = OwnedDocumentRealtimeAdapter::new(seeded.module.clone());
@@ -7944,8 +8024,8 @@ mod tests {
                 DOCUMENT_ID.to_owned(),
                 "client:wrong".to_owned(),
             )
-            .expect_err("another Project cannot impersonate the storage Project");
-        assert_eq!(unauthorized_project.code, CoreErrorCode::Unauthorized);
+            .expect_err("another Project cannot discover the foreign Page");
+        assert_eq!(unauthorized_project.code, CoreErrorCode::NotFound);
 
         adapter
             .subscribe(
