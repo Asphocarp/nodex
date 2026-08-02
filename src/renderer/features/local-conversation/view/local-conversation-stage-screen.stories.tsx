@@ -53,6 +53,14 @@ export const NewThread: Story = {
   args: {
     isQueueingEnabled: false,
   },
+  parameters: {
+    docs: {
+      description: {
+        story:
+          "New-chat heading presents the selected Project as sentence text; identity markers remain in the footer selector and Project menu.",
+      },
+    },
+  },
 };
 
 export const NewThreadNarrow: Story = {
