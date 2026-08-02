@@ -458,6 +458,11 @@ curl --fail --silent https://nodex.jyu.app/updates/stable/x64/appcast.xml \
   --output .generated/v0.2.1-remote/appcast-x64.xml
 ```
 
+The remote verifier needs only `release-bundle.json` and `SHA256SUMS` locally.
+It reconstructs the exact asset allowlist from those files, then downloads every
+published asset once into a temporary directory and verifies its byte length and
+SHA-256 digest before removing the temporary copy.
+
 The 0.2.1 baseline must contain zero deltas because 0.2.0 and earlier are not
 compatible history. Also verify both stable DMG URLs, a clean Apple Silicon
 install/first launch,
