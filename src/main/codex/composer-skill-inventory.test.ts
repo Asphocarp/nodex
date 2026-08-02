@@ -18,6 +18,8 @@ describe("buildComposerSkillInventory", () => {
             displayName: "Browser Use",
             shortDescription: "Control a browser",
             iconSmall: "/skills/browser/icon.svg",
+            iconSmallUrl: null,
+            iconLargeUrl: null,
             brandColor: "#4b8df8",
           },
           path: "/skills/browser/SKILL.md",
@@ -79,6 +81,8 @@ describe("buildComposerSkillInventory", () => {
           description: "Control a browser",
           interface: {
             iconSmall: "/skills/browser/icon.svg",
+            iconSmallUrl: null,
+            iconLargeUrl: null,
             brandColor: "#4b8df8",
           },
           path: "/skills/browser/SKILL.md",

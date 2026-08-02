@@ -232,7 +232,7 @@ const readMacosTeamIdentifier = (artifactPath) => {
 export const refreshSignedAgentRuntimeMetadata = (appPath) => {
   const manifestPath = path.join(appPath, agentManifestRelativePath);
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-  if (manifest.layoutVersion !== 2 || !Array.isArray(manifest.artifacts)) {
+  if (manifest.layoutVersion !== 3 || !Array.isArray(manifest.artifacts)) {
     throw new Error(`Unsupported Agent runtime manifest: ${manifestPath}`);
   }
 

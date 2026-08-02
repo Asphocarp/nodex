@@ -103,10 +103,16 @@ function makeFakeOpenInterpreterRelease(input?: {
     ])
     .sort((left, right) => left.path.localeCompare(right.path));
   const expectedMetadata: BundledAgentRuntimeMetadata = {
+    artifactRelease: {
+      archiveSha256: "2".repeat(64),
+      assetName: "runtime-arm64.tar.gz",
+      repository: "example/nodex",
+      tag: "agent-runtime-v0.0.34-aaaaaaaa",
+    },
     artifacts,
     codexCompatibilityVersion: "0.144.5",
     entrypoint: "bin/interpreter",
-    layoutVersion: 2,
+    layoutVersion: 3,
     packageManifest: {
       layoutVersion: 1,
       version: "0.0.34",
@@ -119,11 +125,10 @@ function makeFakeOpenInterpreterRelease(input?: {
     runtimeFamily: "open-interpreter",
     runtimeVersion: "0.0.34",
     searchPaths: ["codex-path"],
-    sourceRelease: {
-      archiveSha256: "2".repeat(64),
-      assetName: "runtime-arm64.tar.gz",
+    sourceRevision: {
+      commit: "a".repeat(40),
+      patches: [],
       repository: "openinterpreter/openinterpreter",
-      tag: "rust-v0.0.34",
     },
     targetArch: "arm64",
     targetPlatform: "darwin",
@@ -133,10 +138,17 @@ function makeFakeOpenInterpreterRelease(input?: {
   const lockPath = path.join(projectRoot, "resources", "agent-runtime", "openinterpreter.lock.json");
   fs.mkdirSync(path.dirname(lockPath), { recursive: true });
   fs.writeFileSync(lockPath, JSON.stringify({
-    schemaVersion: 1,
+    schemaVersion: 2,
     runtimeFamily: "open-interpreter",
-    repository: "openinterpreter/openinterpreter",
-    tag: "rust-v0.0.34",
+    source: {
+      repository: "openinterpreter/openinterpreter",
+      commit: "a".repeat(40),
+      patches: [],
+    },
+    release: {
+      repository: "example/nodex",
+      tag: "agent-runtime-v0.0.34-aaaaaaaa",
+    },
     runtimeVersion: "0.0.34",
     codexCompatibilityVersion: "0.144.5",
     protocolSchemaSha256: "1".repeat(64),
@@ -153,7 +165,7 @@ function makeFakeOpenInterpreterRelease(input?: {
       "darwin-arm64": {
         targetTriple: "aarch64-apple-darwin",
         assetName: "runtime-arm64.tar.gz",
-        url: "https://example.invalid/runtime-arm64.tar.gz",
+        url: "https://github.com/example/nodex/releases/download/agent-runtime-v0.0.34-aaaaaaaa/runtime-arm64.tar.gz",
         archiveSha256: "2".repeat(64),
         archiveSize: 1,
         runtimeMetadataSha256: input?.omitCodeModeHost
@@ -163,7 +175,7 @@ function makeFakeOpenInterpreterRelease(input?: {
       "darwin-x64": {
         targetTriple: "x86_64-apple-darwin",
         assetName: "runtime-x64.tar.gz",
-        url: "https://example.invalid/runtime-x64.tar.gz",
+        url: "https://github.com/example/nodex/releases/download/agent-runtime-v0.0.34-aaaaaaaa/runtime-x64.tar.gz",
         archiveSha256: "3".repeat(64),
         archiveSize: 1,
         runtimeMetadataSha256: "4".repeat(64),
@@ -236,10 +248,12 @@ describe("stage-codex-runtime", () => {
         artifacts?: Array<{ executable?: boolean; path?: string; sha256?: string; size?: number }>;
         layoutVersion?: number;
         searchPaths?: string[];
-        sourceRelease?: { tag?: string };
+        artifactRelease?: { tag?: string };
+        sourceRevision?: { commit?: string };
       };
-      expect(writtenMetadata.layoutVersion).toBe(2);
-      expect(writtenMetadata.sourceRelease?.tag).toBe("rust-v0.0.34");
+      expect(writtenMetadata.layoutVersion).toBe(3);
+      expect(writtenMetadata.artifactRelease?.tag).toBe("agent-runtime-v0.0.34-aaaaaaaa");
+      expect(writtenMetadata.sourceRevision?.commit).toBe("a".repeat(40));
       expect(writtenMetadata.searchPaths).toEqual(["codex-path"]);
       expect(writtenMetadata.artifacts?.map((artifact) => artifact.path)).toEqual([
         "bin/codex-code-mode-host",

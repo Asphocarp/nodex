@@ -62,7 +62,7 @@ export interface AgentModelOption {
   readonly defaultReasoningEffort: string | null;
   readonly supportedServiceTiers: readonly AgentServiceTierOption[];
   readonly defaultServiceTier: string | null;
-  readonly inputCapabilities: readonly ("text" | "image")[];
+  readonly inputCapabilities: readonly ("text" | "image" | "audio")[];
   readonly switchPolicy: "same-thread" | "new-thread";
 }
 

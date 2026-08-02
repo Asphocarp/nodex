@@ -12,6 +12,7 @@ export type AgentImportItemKind =
   | "subagents"
   | "hooks"
   | "commands"
+  | "memory"
   | "sessions";
 
 export interface AgentImportScanInput {

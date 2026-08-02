@@ -1,0 +1,15 @@
+diff --git a/codex-rs/tui/src/update_prompt.rs b/codex-rs/tui/src/update_prompt.rs
+index df2868096..d38dbb8c8 100644
+--- a/codex-rs/tui/src/update_prompt.rs
++++ b/codex-rs/tui/src/update_prompt.rs
+@@ -3,3 +3,2 @@
+-use crate::history_cell::padded_emoji;
+ use crate::key_hint;
+ use crate::legacy_core::config::Config;
+@@ -192,5 +191,5 @@ impl WidgetRef for &UpdatePromptScreen {
+         column.push(Line::from(vec![
+-            padded_emoji("  ✨").bold().cyan(),
++            "  ✨\u{200A}".bold().cyan(),
+             "Update available!".bold(),
+             " ".into(),
+             format!(

@@ -32,15 +32,28 @@ export type OpenInterpreterReleaseLock = {
     version: string;
   };
   protocolSchemaSha256: string;
-  repository: string;
+  release: {
+    repository: string;
+    tag: string;
+  };
   requiredArtifacts: string[];
   runtimeFamily: "open-interpreter";
   runtimeVersion: string;
-  schemaVersion: 1;
-  tag: string;
+  schemaVersion: 2;
+  source: {
+    commit: string;
+    patches: Array<{
+      artifactPath: string;
+      sha256: string;
+      sourcePath: string;
+    }>;
+    repository: string;
+  };
 };
 
 const SHA256_PATTERN = /^[a-f0-9]{64}$/u;
+const GIT_COMMIT_PATTERN = /^[a-f0-9]{40}$/u;
+const GITHUB_REPOSITORY_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u;
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -57,6 +70,18 @@ function requireSha256(value: unknown, label: string): string {
   throw new Error(`Invalid Open Interpreter release lock ${label}`);
 }
 
+function requireGitCommit(value: unknown, label: string): string {
+  const parsed = requireString(value, label);
+  if (GIT_COMMIT_PATTERN.test(parsed)) return parsed;
+  throw new Error(`Invalid Open Interpreter release lock ${label}`);
+}
+
+function requireGitHubRepository(value: unknown, label: string): string {
+  const parsed = requireString(value, label);
+  if (GITHUB_REPOSITORY_PATTERN.test(parsed)) return parsed;
+  throw new Error(`Invalid Open Interpreter release lock ${label}`);
+}
+
 function isSafeRelativePath(value: string): boolean {
   if (value.startsWith("/") || value.includes("\\")) return false;
   return value.split("/").every((segment) => segment.length > 0 && segment !== "." && segment !== "..");
@@ -68,7 +93,11 @@ function requireRelativePath(value: unknown, label: string): string {
   throw new Error(`Invalid Open Interpreter release lock ${label}`);
 }
 
-function parseAsset(value: unknown, label: string): AgentRuntimeReleaseAsset {
+function parseAsset(
+  value: unknown,
+  label: string,
+  release: OpenInterpreterReleaseLock["release"],
+): AgentRuntimeReleaseAsset {
   if (!isObject(value)) throw new Error(`Invalid Open Interpreter release lock ${label}`);
   if (!Number.isSafeInteger(value.archiveSize) || (value.archiveSize as number) <= 0) {
     throw new Error(`Invalid Open Interpreter release lock ${label}.archiveSize`);
@@ -78,10 +107,18 @@ function parseAsset(value: unknown, label: string): AgentRuntimeReleaseAsset {
   if (parsedUrl.protocol !== "https:") {
     throw new Error(`Invalid Open Interpreter release lock ${label}.url`);
   }
+  const assetName = requireString(value.assetName, `${label}.assetName`);
+  if (assetName.includes("/") || assetName.includes("\\")) {
+    throw new Error(`Invalid Open Interpreter release lock ${label}.assetName`);
+  }
+  const expectedUrl = `https://github.com/${release.repository}/releases/download/${release.tag}/${assetName}`;
+  if (url !== expectedUrl) {
+    throw new Error(`Open Interpreter release lock ${label}.url does not match its artifact release`);
+  }
   return {
     archiveSha256: requireSha256(value.archiveSha256, `${label}.archiveSha256`),
     archiveSize: value.archiveSize as number,
-    assetName: requireString(value.assetName, `${label}.assetName`),
+    assetName,
     runtimeMetadataSha256: requireSha256(
       value.runtimeMetadataSha256,
       `${label}.runtimeMetadataSha256`,
@@ -92,7 +129,7 @@ function parseAsset(value: unknown, label: string): AgentRuntimeReleaseAsset {
 }
 
 export function parseOpenInterpreterReleaseLock(value: unknown): OpenInterpreterReleaseLock {
-  if (!isObject(value) || value.schemaVersion !== 1 || value.runtimeFamily !== "open-interpreter") {
+  if (!isObject(value) || value.schemaVersion !== 2 || value.runtimeFamily !== "open-interpreter") {
     throw new Error("Invalid Open Interpreter release lock header");
   }
   if (!isObject(value.packageManifest) || value.packageManifest.variant !== "open-interpreter") {
@@ -116,6 +153,43 @@ export function parseOpenInterpreterReleaseLock(value: unknown): OpenInterpreter
   if (!isObject(value.notices)) {
     throw new Error("Invalid Open Interpreter release lock notices");
   }
+  if (!isObject(value.source)) {
+    throw new Error("Invalid Open Interpreter release lock source");
+  }
+  if (!isObject(value.release)) {
+    throw new Error("Invalid Open Interpreter release lock release");
+  }
+
+  const release = {
+    repository: requireGitHubRepository(value.release.repository, "release.repository"),
+    tag: requireString(value.release.tag, "release.tag"),
+  };
+  if (!Array.isArray(value.source.patches)) {
+    throw new Error("Invalid Open Interpreter release lock source.patches");
+  }
+  const patches = value.source.patches.map((entry, index) => {
+    if (!isObject(entry)) {
+      throw new Error(`Invalid Open Interpreter release lock source.patches[${index}]`);
+    }
+    const artifactPath = requireRelativePath(
+      entry.artifactPath,
+      `source.patches[${index}].artifactPath`,
+    );
+    if (!artifactPath.startsWith("third-party/open-interpreter/patches/")) {
+      throw new Error(`Invalid Open Interpreter release lock source.patches[${index}].artifactPath`);
+    }
+    return {
+      artifactPath,
+      sha256: requireSha256(entry.sha256, `source.patches[${index}].sha256`),
+      sourcePath: requireRelativePath(entry.sourcePath, `source.patches[${index}].sourcePath`),
+    };
+  });
+  if (
+    new Set(patches.map((entry) => entry.artifactPath)).size !== patches.length
+    || new Set(patches.map((entry) => entry.sourcePath)).size !== patches.length
+  ) {
+    throw new Error("Open Interpreter release lock contains duplicate source patches");
+  }
 
   const runtimeVersion = requireString(value.runtimeVersion, "runtimeVersion");
   const packageVersion = requireString(value.packageManifest.version, "packageManifest.version");
@@ -129,8 +203,8 @@ export function parseOpenInterpreterReleaseLock(value: unknown): OpenInterpreter
 
   return {
     assets: {
-      "darwin-arm64": parseAsset(value.assets["darwin-arm64"], "assets.darwin-arm64"),
-      "darwin-x64": parseAsset(value.assets["darwin-x64"], "assets.darwin-x64"),
+      "darwin-arm64": parseAsset(value.assets["darwin-arm64"], "assets.darwin-arm64", release),
+      "darwin-x64": parseAsset(value.assets["darwin-x64"], "assets.darwin-x64", release),
     },
     codexCompatibilityVersion: requireString(value.codexCompatibilityVersion, "codexCompatibilityVersion"),
     notices: {
@@ -148,12 +222,16 @@ export function parseOpenInterpreterReleaseLock(value: unknown): OpenInterpreter
       version: packageVersion,
     },
     protocolSchemaSha256: requireSha256(value.protocolSchemaSha256, "protocolSchemaSha256"),
-    repository: requireString(value.repository, "repository"),
+    release,
     requiredArtifacts,
     runtimeFamily: value.runtimeFamily,
     runtimeVersion,
     schemaVersion: value.schemaVersion,
-    tag: requireString(value.tag, "tag"),
+    source: {
+      commit: requireGitCommit(value.source.commit, "source.commit"),
+      patches,
+      repository: requireGitHubRepository(value.source.repository, "source.repository"),
+    },
   };
 }
 

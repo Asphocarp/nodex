@@ -202,10 +202,15 @@ const metadataMatchesLock = (input: {
     && metadata.runtimeFamily === lock.runtimeFamily
     && metadata.runtimeVersion === lock.runtimeVersion
     && JSON.stringify(metadata.searchPaths) === JSON.stringify([lock.packageManifest.pathDir])
-    && metadata.sourceRelease.archiveSha256 === asset.archiveSha256
-    && metadata.sourceRelease.assetName === asset.assetName
-    && metadata.sourceRelease.repository === lock.repository
-    && metadata.sourceRelease.tag === lock.tag
+    && metadata.artifactRelease.archiveSha256 === asset.archiveSha256
+    && metadata.artifactRelease.assetName === asset.assetName
+    && metadata.artifactRelease.repository === lock.release.repository
+    && metadata.artifactRelease.tag === lock.release.tag
+    && metadata.sourceRevision.commit === lock.source.commit
+    && JSON.stringify(metadata.sourceRevision.patches) === JSON.stringify(
+      lock.source.patches.map((patch) => ({ path: patch.artifactPath, sha256: patch.sha256 })),
+    )
+    && metadata.sourceRevision.repository === lock.source.repository
     && metadata.targetArch === target.targetArch
     && metadata.targetPlatform === target.targetPlatform
     && metadata.targetTriple === target.targetTriple;
@@ -373,7 +378,9 @@ async function resolveSourceRoot(input: {
   }
 
   const asset = input.lock.assets[input.target.targetKey];
-  const archivePath = resolve(input.archivePath ?? join(input.cachePath, input.lock.tag, asset.assetName));
+  const archivePath = resolve(
+    input.archivePath ?? join(input.cachePath, input.lock.release.tag, asset.assetName),
+  );
   if (!existsSync(archivePath)) {
     await downloadArchive(asset.url, archivePath);
   }
@@ -489,6 +496,14 @@ export async function stageCodexRuntime(
       expectedSha256: lock.notices.noticeSha256,
       label: "Open Interpreter NOTICE",
     });
+    for (const patch of lock.source.patches) {
+      validateNotice({
+        sourcePath: join(repositoryRoot, ...patch.sourcePath.split("/")),
+        destinationPath: join(tempRuntimeRoot, ...patch.artifactPath.split("/")),
+        expectedSha256: patch.sha256,
+        label: `Open Interpreter source patch ${patch.sourcePath}`,
+      });
+    }
 
     const artifacts = listRuntimeArtifacts(tempRuntimeRoot);
     for (const artifact of artifacts) {
@@ -510,6 +525,12 @@ export async function stageCodexRuntime(
     }
 
     const metadata: BundledAgentRuntimeMetadata = {
+      artifactRelease: {
+        archiveSha256: asset.archiveSha256,
+        assetName: asset.assetName,
+        repository: lock.release.repository,
+        tag: lock.release.tag,
+      },
       artifacts,
       codexCompatibilityVersion: lock.codexCompatibilityVersion,
       entrypoint: packageManifest.entrypoint,
@@ -518,11 +539,13 @@ export async function stageCodexRuntime(
       runtimeFamily: lock.runtimeFamily,
       runtimeVersion: lock.runtimeVersion,
       searchPaths: [packageManifest.pathDir],
-      sourceRelease: {
-        archiveSha256: asset.archiveSha256,
-        assetName: asset.assetName,
-        repository: lock.repository,
-        tag: lock.tag,
+      sourceRevision: {
+        commit: lock.source.commit,
+        patches: lock.source.patches.map((patch) => ({
+          path: patch.artifactPath,
+          sha256: patch.sha256,
+        })),
+        repository: lock.source.repository,
       },
       targetArch: target.targetArch,
       targetPlatform: target.targetPlatform,

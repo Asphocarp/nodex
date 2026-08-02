@@ -23,6 +23,7 @@ function hook(key: string, currentHash: string): HookMetadata {
     isManaged: false,
     currentHash,
     trustStatus: "untrusted",
+    additionalContextLimit: null,
   };
 }
 

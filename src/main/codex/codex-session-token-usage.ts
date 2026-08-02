@@ -26,6 +26,7 @@ export function parsePersistedCodexThreadTokenUsage(value: unknown): CodexThread
     totalTokens: breakdown.total_tokens,
     inputTokens: breakdown.input_tokens,
     cachedInputTokens: breakdown.cached_input_tokens,
+    cacheWriteInputTokens: 0,
     outputTokens: breakdown.output_tokens,
     reasoningOutputTokens: breakdown.reasoning_output_tokens,
   });

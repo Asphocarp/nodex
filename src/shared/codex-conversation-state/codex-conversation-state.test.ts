@@ -314,6 +314,8 @@ describe("protocol-backed canonical conversation state", () => {
       command: "pwd",
       cwd: "/workspace/project",
       processId: null,
+      pluginId: null,
+      scriptPath: null,
       source: "agent",
       status: "inProgress",
       commandActions: [],

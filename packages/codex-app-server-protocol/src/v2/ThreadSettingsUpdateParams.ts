@@ -37,10 +37,6 @@ permissions?: string | null,
  */
 model?: string | null,
 /**
- * Override the model provider for subsequent turns.
- */
-modelProvider?: string | null,
-/**
  * Override the service tier for subsequent turns. `null` clears the
  * current service tier; omission leaves it unchanged.
  */

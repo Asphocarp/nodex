@@ -40,6 +40,10 @@ preview: string,
  */
 ephemeral: boolean,
 /**
+ * Whether the thread has been pinned by the user.
+ */
+isPinned: boolean,
+/**
  * Persisted thread history contract selected when this thread was created.
  */
 historyMode: ThreadHistoryMode,
@@ -79,6 +83,11 @@ cliVersion: string,
  * Origin of the thread (CLI, VSCode, codex exec, codex app-server, etc.).
  */
 source: SessionSource,
+/**
+ * Whether the app server accepts direct turn input for this loaded thread.
+ * `None` means the capability is unavailable, such as for an unloaded stored thread.
+ */
+canAcceptDirectInput: boolean | null,
 /**
  * Optional analytics source classification for this thread.
  */

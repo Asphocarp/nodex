@@ -78,6 +78,8 @@ function buildCommand(
     command: `printf ${id}`,
     cwd: "/workspace/project",
     processId: null,
+    pluginId: null,
+    scriptPath: null,
     source: "agent",
     status,
     commandActions: [],
@@ -861,6 +863,7 @@ describe("scoped canonical lifecycle projection diff", () => {
       id: "web-last",
       query: "projection dependency",
       action: null,
+      results: null,
     } satisfies Extract<ThreadItem, { type: "webSearch" }>;
     const command = buildCommand("new-last-work");
     const currentWeb = project(webSearch);
