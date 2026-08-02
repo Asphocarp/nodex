@@ -11,6 +11,9 @@ const secretReferencePattern = /secrets\.([A-Za-z_][A-Za-z0-9_]*)/gu;
 const environmentSecretContracts = new Map<string, ReadonlySet<string>>([
   ["sparkle-feed-finalization", new Set(["SPARKLE_ED25519_PRIVATE_KEY"])],
 ]);
+const environmentSecretNames = new Set(
+  [...environmentSecretContracts.values()].flatMap((names) => [...names]),
+);
 
 const isRecord = (value: unknown): value is UnknownRecord =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -74,7 +77,16 @@ export const verifyDeclaredReferences = (filePath: string, workflow: UnknownReco
   const jobs = requireRecord(workflow.jobs, `${path.relative(repositoryRoot, filePath)}.jobs`);
   const workflowWithoutJobs = { ...workflow };
   delete workflowWithoutJobs.jobs;
-  const topLevelUndeclared = [...referencedSecrets(workflowWithoutJobs)]
+  const topLevelReferences = [...referencedSecrets(workflowWithoutJobs)];
+  const topLevelEnvironmentSecrets = topLevelReferences
+    .filter((name) => environmentSecretNames.has(name))
+    .sort();
+  if (topLevelEnvironmentSecrets.length > 0) {
+    throw new Error(
+      `${path.relative(repositoryRoot, filePath)} references protected environment secrets outside a job: ${topLevelEnvironmentSecrets.join(", ")}`,
+    );
+  }
+  const topLevelUndeclared = topLevelReferences
     .filter((name) => !Object.hasOwn(declared, name))
     .sort();
   if (topLevelUndeclared.length > 0) {
@@ -87,7 +99,16 @@ export const verifyDeclaredReferences = (filePath: string, workflow: UnknownReco
     const allowed = typeof job.environment === "string"
       ? environmentSecretContracts.get(job.environment) ?? new Set<string>()
       : new Set<string>();
-    const undeclared = [...referencedSecrets(job)]
+    const references = [...referencedSecrets(job)];
+    const misplacedEnvironmentSecrets = references
+      .filter((name) => environmentSecretNames.has(name) && !allowed.has(name))
+      .sort();
+    if (misplacedEnvironmentSecrets.length > 0) {
+      throw new Error(
+        `${path.relative(repositoryRoot, filePath)}:${jobName} references protected environment secrets outside their environment: ${misplacedEnvironmentSecrets.join(", ")}`,
+      );
+    }
+    const undeclared = references
       .filter((name) => !Object.hasOwn(declared, name) && !allowed.has(name))
       .sort();
     if (undeclared.length > 0) {
@@ -98,7 +119,7 @@ export const verifyDeclaredReferences = (filePath: string, workflow: UnknownReco
   }
 };
 
-const verifyCall = (
+export const verifyCall = (
   callerPath: string,
   jobName: string,
   job: UnknownRecord,
@@ -116,6 +137,14 @@ const verifyCall = (
   const provided = job.secrets === undefined
     ? {}
     : requireRecord(job.secrets, `${path.relative(repositoryRoot, callerPath)}:${jobName}.secrets`);
+  const transportedEnvironmentSecrets = Object.keys(provided)
+    .filter((name) => environmentSecretNames.has(name))
+    .sort();
+  if (transportedEnvironmentSecrets.length > 0) {
+    throw new Error(
+      `${path.relative(repositoryRoot, callerPath)}:${jobName} must resolve protected environment secrets in the called job: ${transportedEnvironmentSecrets.join(", ")}`,
+    );
+  }
   const declared = workflowCallSecrets(target);
   const unknown = Object.keys(provided).filter((name) => !Object.hasOwn(declared, name)).sort();
   if (unknown.length > 0) {

@@ -26,6 +26,9 @@ on:
         required: false
         type: boolean
     secrets:
+      SPARKLE_ED25519_PRIVATE_KEY:
+        description: Resolved only from the protected Sparkle finalization environment
+        required: false
       apple_api_issuer:
         required: true
       apple_api_key_b64:

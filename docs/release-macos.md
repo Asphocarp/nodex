@@ -108,14 +108,18 @@ Configure these repository Action secrets:
 
 Configure `SPARKLE_ED25519_PRIVATE_KEY` as an environment secret on
 `sparkle-feed-finalization`, not as a repository-wide secret and not as a
-`workflow_call` input. The finalizer is the only job that receives it.
+caller-supplied `workflow_call` secret. The reusable distribution workflow
+declares the name as optional so GitHub resolves the expression, but repository
+guards reject any caller mapping; the finalizer's protected environment is the
+only source and the only job that receives it.
 
 Each caller maps the repository secrets above to lowercase
 `workflow_call.secrets` aliases. Do
 not replace the mappings with broad `secrets: inherit`, and do not reference a
-repository secret from PR CI. The Sparkle key is the deliberate exception: it
-is resolved directly from its protected job environment and has no caller
-transport. The alias boundary otherwise avoids relying on
+repository secret from PR CI. The Sparkle key is the deliberate exception: its
+name is declared by the reusable workflow but its value is resolved directly
+from the protected job environment and has no caller transport. The alias
+boundary otherwise avoids relying on
 implicit environment-secret resolution or same-name precedence inside nested
 reusable workflows. Record PAT expiry dates in release operations and rotate
 them before expiry. Remove duplicate credentials from the legacy `release`

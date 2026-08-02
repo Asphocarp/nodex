@@ -31,8 +31,11 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
   identities into package provenance. The Ed25519 public key is reviewed source;
   the private key is available only to protected
   `sparkle-feed-finalization` jobs and is streamed to official tools over
-  standard input. It is never written to an Action artifact, cache, manifest,
-  Pages repository, or log. Before signing release assets, the finalizer signs
+  standard input. The reusable workflow declares that environment-secret name
+  for expression resolution, while repository guards reject caller transport
+  or references outside the protected finalizer. The key is never written to
+  an Action artifact, cache, manifest, Pages repository, or log. Before signing
+  release assets, the finalizer signs
   a local sentinel and independently verifies it with the reviewed public key;
   the extracted App's `SUPublicEDKey` and sealed runtime manifest must carry
   that same key.
