@@ -19906,6 +19906,11 @@ var init_ThreadTokenUsage_schema = __esm({
               format: "int64",
               type: "integer"
             },
+            cacheWriteInputTokens: {
+              default: 0,
+              format: "int64",
+              type: "integer"
+            },
             inputTokens: {
               format: "int64",
               type: "integer"
@@ -19967,6 +19972,11 @@ var init_TokenUsageBreakdown_schema = __esm({
       definitions: {},
       properties: {
         cachedInputTokens: {
+          format: "int64",
+          type: "integer"
+        },
+        cacheWriteInputTokens: {
+          default: 0,
           format: "int64",
           type: "integer"
         },

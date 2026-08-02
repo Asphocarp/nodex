@@ -11,8 +11,8 @@
   "targetSchemaVersion": 84,
   "bundle": {
     "path": "resources/legacy-profile-migrator.mjs",
-    "sha256": "921d70c61f6c00a7ef96fe00c7a86af9d2bfd961060947fe649f78d30c914773",
-    "size": 4071952
+    "sha256": "fbc94163daaa7c538db7dcf62e826dc8a6c9dac22bb48365323c3e8f4703c1c2",
+    "size": 4072210
   },
   "legalNotices": {
     "path": "resources/legacy-profile-migrator.mjs.LEGAL.txt",
