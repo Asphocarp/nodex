@@ -5,7 +5,10 @@ import { afterEach, describe, expect, test } from "vitest";
 import { BROWSER_RUNTIME_BUNDLE_DIRECTORY } from "../../shared/browser-runtime-metadata";
 import { resolveBrowserRuntimeBundle } from "./browser-runtime-bundle";
 import { writeBrowserRuntimeFixture } from "./browser-runtime-test-fixture";
-import { BrowserUseThreadConfigBuilder } from "./browser-use-thread-config";
+import {
+  BrowserUseThreadConfigBuilder,
+  SIGNED_NODE_REPL_LAUNCHER_SOURCE,
+} from "./browser-use-thread-config";
 
 const temporaryRoots: string[] = [];
 
@@ -64,8 +67,17 @@ describe("BrowserUseThreadConfigBuilder", () => {
     expect(config).not.toBeNull();
     expect(config?.["features.js_repl"]).toBe(false);
     expect(config?.["mcp_servers.node_repl"]).toMatchObject({
-      args: [],
-      command: path.join(bundleRoot, "bin", "node_repl"),
+      args: [
+        "-e",
+        SIGNED_NODE_REPL_LAUNCHER_SOURCE,
+        path.join(bundleRoot, "bin", "codex"),
+        "sandbox",
+        "-P",
+        ":danger-full-access",
+        "--",
+        path.join(bundleRoot, "bin", "node_repl"),
+      ],
+      command: path.join(bundleRoot, "bin", "node"),
       startup_timeout_sec: 120,
       env: {
         BROWSER_USE_AVAILABLE_BACKENDS: "iab",
@@ -73,19 +85,24 @@ describe("BrowserUseThreadConfigBuilder", () => {
         CODEX_CLI_PATH: path.join(bundleRoot, "bin", "codex"),
         CODEX_HOME: path.resolve(runtimeStateHome),
         NODE_REPL_DISABLE_ANALYTICS: "1",
-        NODE_REPL_NODE_MODULE_DIRS: path.join(
-          bundleRoot,
-          "marketplace",
-          "plugins",
-          "browser",
-          "node_modules",
-        ),
+        NODE_REPL_NODE_MODULE_DIRS: [
+          path.join(
+            bundleRoot,
+            "marketplace",
+            "plugins",
+            "browser",
+            "node_modules",
+          ),
+          path.join(bundleRoot, "runtime", "lib", "node_modules"),
+        ].join(path.delimiter),
         NODE_REPL_NODE_PATH: path.join(bundleRoot, "bin", "node"),
         NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S:
           browserRuntime.bundle.browserPluginClientSha256,
         NODE_REPL_TRUSTED_CODE_PATHS: path.join(
-          bundleRoot,
-          "marketplace",
+          path.resolve(runtimeStateHome),
+          ".tmp",
+          "bundled-marketplaces",
+          "openai-bundled",
           "plugins",
           "browser",
         ),
@@ -116,5 +133,62 @@ describe("BrowserUseThreadConfigBuilder", () => {
 
     expect(nodeRepl.env?.BROWSER_USE_AVAILABLE_BACKENDS).toBe("iab,chrome");
     expect(nodeRepl.env?.NODE_REPL_INSTRUCTIONS_USE_CASE_CHROME).toContain("Chrome browser");
+  });
+
+  test("builds Computer Use config independently of Browser backend availability", async () => {
+    const { browserRuntime } = makeVerifiedRuntime();
+    const runtimeStateHome = "/tmp/nodex-agent";
+    const builder = new BrowserUseThreadConfigBuilder({
+      availableBackends: () => [],
+      browserRuntime,
+      computerUsePluginReady: () => true,
+      computerUseRuntime: () => ({
+        appPath: "/tmp/nodex-agent/computer-use/Codex Computer Use.app",
+        hostServicesPipePath: "/tmp/nodex-host-services/runtime.sock",
+        serviceExecutablePath:
+          "/tmp/nodex-agent/computer-use/Codex Computer Use.app/Contents/MacOS/SkyComputerUseService",
+        status: "available",
+      }),
+      runtimeStateHome,
+    });
+
+    const config = await builder.build();
+    const nodeRepl = config?.["mcp_servers.node_repl"] as {
+      args?: string[];
+      command?: string;
+      env?: Record<string, string>;
+    };
+
+    expect(nodeRepl).toMatchObject({
+      args: [
+        "-e",
+        SIGNED_NODE_REPL_LAUNCHER_SOURCE,
+        browserRuntime.bundle.paths.codexCli,
+        "sandbox",
+        "-P",
+        ":danger-full-access",
+        "--",
+        browserRuntime.bundle.paths.nodeRepl,
+      ],
+      command: browserRuntime.bundle.paths.node,
+    });
+    expect(nodeRepl.env).toMatchObject({
+      NODE_REPL_HOST_SERVICES_PIPE_PATH:
+        "/tmp/nodex-host-services/runtime.sock",
+      NODE_REPL_INSTRUCTIONS_USE_CASE_COMPUTER:
+        "Control desktop apps on macOS through Computer Use.",
+      NODE_REPL_TRUSTED_CODE_PATHS: path.join(
+        runtimeStateHome,
+        ".tmp",
+        "bundled-marketplaces",
+        "openai-bundled",
+        "plugins",
+        "computer-use",
+      ),
+      SKY_CUA_SERVICE_PATH:
+        "/tmp/nodex-agent/computer-use/Codex Computer Use.app",
+    });
+    expect(nodeRepl.env?.BROWSER_USE_AVAILABLE_BACKENDS).toBeUndefined();
+    expect(nodeRepl.env?.NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S).toBeUndefined();
   });
 });

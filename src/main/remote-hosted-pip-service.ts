@@ -41,11 +41,15 @@ interface RemoteHostedPipServiceDeps {
   ) => RemoteHostedPipWindowLike | null;
   isEnabled?: () => boolean;
   isThreadSurfacePresented?: (threadId: string) => boolean;
+  readAlwaysHide?: () => boolean;
+  readMaxDisplaySize?: () => number | null;
   sendToSender: <Channel extends RemoteHostedPipMessageChannel>(
     sender: RemoteHostedPipWebContentsLike,
     channel: Channel,
     payload: IpcEvents[Channel],
   ) => void;
+  writeAlwaysHide?: (alwaysHide: boolean) => void;
+  writeMaxDisplaySize?: (size: number) => void;
 }
 
 interface BrowserUsePipSession {
@@ -69,12 +73,15 @@ export class RemoteHostedPipService {
   private readonly hostOwnerWindowIdByHostId = new Map<string, number>();
   private readonly publishedStreamStateByConversationId = new Map<string, PublishedStreamState>();
   private readonly trackedWindowIds = new Set<number>();
+  private alwaysHide = false;
   private contentHostStarted = false;
   private disposed = false;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private selectedThreadId: string | null = null;
 
-  constructor(private readonly deps: RemoteHostedPipServiceDeps) {}
+  constructor(private readonly deps: RemoteHostedPipServiceDeps) {
+    this.alwaysHide = deps.readAlwaysHide?.() ?? false;
+  }
 
   handleDesktopMessageFromView(
     sender: RemoteHostedPipWebContentsLike,
@@ -176,6 +183,27 @@ export class RemoteHostedPipService {
     return [...this.hiddenThreadIds].sort();
   }
 
+  getAlwaysHide(): boolean {
+    return this.alwaysHide;
+  }
+
+  setAlwaysHide(alwaysHide: boolean): void {
+    this.alwaysHide = alwaysHide;
+    this.deps.writeAlwaysHide?.(alwaysHide);
+    if (this.contentHostStarted) {
+      this.deps.addon?.setRemoteHostedPIPContentVisible(!alwaysHide);
+    }
+    this.reconcileNativeState();
+  }
+
+  isPrivacySettingsTerminationRequest(): boolean {
+    try {
+      return this.deps.addon?.isPrivacySettingsTerminationRequest() === true;
+    } catch {
+      return false;
+    }
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
@@ -191,6 +219,8 @@ export class RemoteHostedPipService {
     this.hostOwnerWindowIdByHostId.clear();
     this.deps.addon?.setRemoteHostedPIPContentVisibilityRequestHandler(null);
     this.deps.addon?.setRemoteHostedPIPContentMaxDisplaySizeChangedHandler(null);
+    this.deps.addon?.setRemoteHostedPIPContentComputerUseCursorLocationHandler(null);
+    this.deps.addon?.setRemoteHostedPIPContentPetWakeRequestHandler(null);
     if (this.contentHostStarted) this.deps.addon?.stopRemoteHostedPIPContentHost();
     this.contentHostStarted = false;
   }
@@ -278,7 +308,21 @@ export class RemoteHostedPipService {
     this.deps.addon.setRemoteHostedPIPContentVisibilityRequestHandler(
       (isVisible, threadIds) => this.handleNativeVisibilityRequest(isVisible, threadIds),
     );
-    this.deps.addon.setRemoteHostedPIPContentVisible(true);
+    this.deps.addon.setRemoteHostedPIPContentMaxDisplaySizeChangedHandler(
+      (size) => {
+        if (Number.isFinite(size) && size > 0) {
+          this.deps.writeMaxDisplaySize?.(size);
+        }
+      },
+    );
+    const maxDisplaySize = this.deps.readMaxDisplaySize?.() ?? null;
+    if (maxDisplaySize !== null && Number.isFinite(maxDisplaySize) && maxDisplaySize > 0) {
+      this.deps.addon.setRemoteHostedPIPContentMaxDisplaySize(maxDisplaySize);
+    }
+    this.deps.addon.setRemoteHostedPIPContentComputerUseCursorLocationHandler(null);
+    this.deps.addon.setRemoteHostedPIPContentPetWakeRequestHandler(null);
+    this.alwaysHide = this.deps.readAlwaysHide?.() ?? false;
+    this.deps.addon.setRemoteHostedPIPContentVisible(!this.alwaysHide);
     this.pollTimer = setInterval(
       () => this.pollNativePresentationState(),
       REMOTE_HOSTED_PIP_POLL_INTERVAL_MS,

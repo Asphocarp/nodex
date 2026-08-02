@@ -661,6 +661,18 @@ export const SETTINGS_SEARCH_CATALOG = {
       "Shared Browser Profile",
     ],
   },
+  "computer-use": {
+    messages: [
+      "Computer use",
+      "Any app",
+      "Always-allowed apps",
+      "Always allowed to send",
+      "Click sounds",
+      "Locked use",
+      "Picture in picture",
+      "Always hide picture in picture",
+    ],
+  },
   agent: {
     messages: materializePanelSearchMessages(SETTINGS_SEARCH_PANELS.agent),
     searchTerms: ({ activeProjectName }: SettingsSearchContext) =>

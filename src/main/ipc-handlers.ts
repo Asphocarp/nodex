@@ -12,7 +12,7 @@ import {
 import { performance } from "node:perf_hooks";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { writeImageToClipboard } from "./clipboard-image-writer";
 import { inspectClipboardPasteItems } from "./clipboard-paste-inspector";
 import { prepareComposerPickedFiles } from "./composer-picked-files";
@@ -266,7 +266,9 @@ import {
 } from "../shared/command-keybindings";
 import { safeBroadcastToWindows, safeSendToWebContents } from "./ipc-safe-send";
 import { RemoteHostedPipService } from "./remote-hosted-pip-service";
+import { RemoteHostedPipPreferenceStore } from "./remote-hosted-pip-preference-store";
 import { isMacOSVersionAtLeast, loadSkyNativeAddon } from "./sky-native";
+import { ComputerUseSettingsService } from "./codex/computer-use-settings-service";
 import {
   approximateJsonPayloadBytes,
   getDevRuntimeMetricDurationMs,
@@ -468,6 +470,15 @@ function sendIpcEvent<Channel extends keyof IpcEvents>(
   safeSendToWebContents(sender, channel, [payload]);
 }
 
+let remoteHostedPipPreferenceStore: RemoteHostedPipPreferenceStore | null = null;
+
+function getRemoteHostedPipPreferenceStore(): RemoteHostedPipPreferenceStore {
+  remoteHostedPipPreferenceStore ??= new RemoteHostedPipPreferenceStore(
+    join(app.getPath("userData"), "remote-hosted-pip-preferences.json"),
+  );
+  return remoteHostedPipPreferenceStore;
+}
+
 const remoteHostedPipService = new RemoteHostedPipService({
   addon: loadSkyNativeAddon(),
   broadcast: (channel, payload) => {
@@ -479,14 +490,46 @@ const remoteHostedPipService = new RemoteHostedPipService({
   isEnabled: () => process.platform === "darwin" && isMacOSVersionAtLeast("13.0"),
   isThreadSurfacePresented: (threadId) =>
     browserSidebarService.hasPresentedBrowserUseSurfaceForThread(threadId),
+  readAlwaysHide: () =>
+    getRemoteHostedPipPreferenceStore().readAlwaysHide(),
+  readMaxDisplaySize: () =>
+    getRemoteHostedPipPreferenceStore().readMaxDisplaySize(),
   sendToSender: (sender, channel, payload) => {
     sendIpcEvent(sender as Electron.WebContents, channel, payload);
   },
+  writeAlwaysHide: (alwaysHide) => {
+    getRemoteHostedPipPreferenceStore().writeAlwaysHide(alwaysHide);
+  },
+  writeMaxDisplaySize: (size) => {
+    getRemoteHostedPipPreferenceStore().writeMaxDisplaySize(size);
+  },
 });
 
-codexService.observeAppServerNotifications((notification) => {
-  remoteHostedPipService.handleCodexNotification(notification);
+const computerUseSettingsService = new ComputerUseSettingsService({
+  alwaysHidePictureInPicture: {
+    get: () => remoteHostedPipService.getAlwaysHide(),
+    set: (value) => remoteHostedPipService.setAlwaysHide(value),
+  },
+  getRuntimeResult: async () => await codexService.ensureComputerUseRuntimeReady(),
+  readConfigRequirements: async () => await codexService.readConfigRequirements(),
 });
+
+const disposeRemoteHostedPipCodexObserver =
+  codexService.observeAppServerNotifications((notification) => {
+    remoteHostedPipService.handleCodexNotification(notification);
+  });
+let remoteHostedPipRuntimeDisposed = false;
+
+export function isRemoteHostedPipPrivacySettingsTerminationRequest(): boolean {
+  return remoteHostedPipService.isPrivacySettingsTerminationRequest();
+}
+
+export function disposeRemoteHostedPipRuntime(): void {
+  if (remoteHostedPipRuntimeDisposed) return;
+  remoteHostedPipRuntimeDisposed = true;
+  disposeRemoteHostedPipCodexObserver();
+  remoteHostedPipService.dispose();
+}
 
 function refreshRemoteHostedPipState(): void {
   void remoteHostedPipService.handleBrowserUseStateSnapshot().catch(
@@ -3294,6 +3337,52 @@ export function registerIpcHandlers(
       requireTrustedAppRendererSender(event, "Browser Use origin policy update");
       return await getBrowserProfileServices().usePolicyStore
         .updateOriginRule(input);
+    },
+  );
+  registerHandle("computer-use-settings-get", async (event) => {
+    requireTrustedAppRendererSender(event, "Computer Use settings");
+    return await computerUseSettingsService.getSnapshot();
+  });
+  registerHandle(
+    "computer-use-settings-remove-app-approval",
+    async (event, bundleIdentifier) => {
+      requireTrustedAppRendererSender(event, "Computer Use app approval update");
+      return await computerUseSettingsService.removeAppApproval(bundleIdentifier);
+    },
+  );
+  registerHandle(
+    "computer-use-settings-remove-message-approval",
+    async (event, chatGuid) => {
+      requireTrustedAppRendererSender(event, "Computer Use message approval update");
+      return await computerUseSettingsService.removeMessageApproval(chatGuid);
+    },
+  );
+  registerHandle(
+    "computer-use-settings-set-always-hide-pip",
+    async (event, alwaysHide) => {
+      requireTrustedAppRendererSender(event, "Computer Use picture-in-picture setting");
+      if (typeof alwaysHide !== "boolean") {
+        throw new Error("Computer Use picture-in-picture setting is invalid");
+      }
+      return await computerUseSettingsService
+        .setAlwaysHidePictureInPicture(alwaysHide);
+    },
+  );
+  registerHandle(
+    "computer-use-settings-set-locked-use",
+    async (event, enabled) => {
+      requireTrustedAppRendererSender(event, "Computer Use Locked Use setting");
+      if (typeof enabled !== "boolean") {
+        throw new Error("Computer Use Locked Use setting is invalid");
+      }
+      return await computerUseSettingsService.setLockedUseEnabled(enabled);
+    },
+  );
+  registerHandle(
+    "computer-use-settings-set-sound-mode",
+    async (event, soundMode) => {
+      requireTrustedAppRendererSender(event, "Computer Use sound setting");
+      return await computerUseSettingsService.setSoundMode(soundMode);
     },
   );
   registerHandle(

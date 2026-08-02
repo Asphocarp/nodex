@@ -45,6 +45,16 @@ signature, notarization, and provenance verification only; matching sealed
 provenance proves it contains the same App without repeating stateful smoke.
 Runtime-probe teardown uses bounded filesystem retries because a stopped macOS
 Browser helper can briefly race recursive removal of its temporary Profile.
+On arm64 macOS 14.4 or later, that probe must also complete a real Computer Use
+tool call through the vendor-signed `Node -> Codex -> node_repl` ancestry, plus
+the materialized plugin, private host-services socket, `sky.node`, and canonical
+helper app. The primary app-server remains the pinned Open Interpreter runtime.
+The probe runner uses a temporary LaunchServices background app so helper stdio
+matches an ordinary desktop launch instead of inheriting CI pipe fd guards.
+The x64 probe must prove Computer Use is absent while Browser Use remains
+available. Distribution runs this probe again against the extracted notarized
+ZIP App's exact `Contents/Resources` closure with packaged native peer
+authorization enabled; a successful staging probe cannot substitute for it.
 
 ## Release Identity
 
@@ -219,9 +229,17 @@ pnpm run verify:runtime:mac
 `verify:source` is the platform-independent source gate: types, lint, generated
 contracts, authority boundaries, notices/migrator reproducibility, Rust, app
 tests, browser tests, Electron E2E, and landing build. `verify:runtime:mac`
-verifies Agent/Browser schemas and runtime conformance on macOS. Neither proves
-Apple signing, Sparkle finalization, or Intel behavior; the dual-architecture
-Distribution is that deeper Implementation.
+verifies Agent/Desktop Tool schemas and runtime conformance on macOS. Neither
+proves Apple signing, Sparkle finalization, or Intel behavior; the
+dual-architecture Distribution is that deeper Implementation.
+
+The signed package gate must preserve the complete vendor signature closure
+under `Contents/Resources/browser-runtime`, including the signed Codex CLI,
+Node, Node REPL native dependencies, native PiP bridge, `sky.node`, and nested
+Computer Use helper. Run deep strict `codesign` verification after restoring
+that closure and resealing Nodex, then require Gatekeeper assessment,
+notarization, stapling, and the architecture-specific runtime probe from the
+extracted final ZIP. Do not replace the vendor teams with the outer Nodex team.
 
 `pnpm test:all` remains a compatibility alias for `verify:source`.
 
@@ -362,10 +380,12 @@ Never delete or replace a published immutable asset. A product or artifact
 defect requires the next patch version. Deleting a bad draft is an explicit
 manual destructive operation and must be investigated before recovery.
 
-## Browser runtime releases and Latest
+## Desktop Tool runtime releases and Latest
 
-The separately sealed Browser runtime currently shares this repository, but it
-must never become the app Latest release. Publish it only through:
+The separately sealed Desktop Tool runtime currently retains the
+`browser-runtime` tag and command names for release compatibility, but it
+contains Browser, native PiP, and architecture-optional Computer Use artifacts.
+It must never become the app Latest release. Publish it only through:
 
 ```bash
 pnpm browser-runtime:publish -- \

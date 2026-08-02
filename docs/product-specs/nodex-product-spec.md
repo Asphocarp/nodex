@@ -85,9 +85,13 @@ When working with coding agents like Claude Code, there's no streamlined way to:
   including worktree starts, while steering or queueing an active turn
   preserves its route. When the agent requests a visible Browser, Nodex first
   materializes the exact controlled page in the owning Session Scene and then
-  selects that task. Background and hide requests update the Session Scene
-  without navigating. Manually opened Project Browser tabs remain Project-owned
-  and are not implicitly attached to a Dock chat. Hiding the Browser or Dock
+  selects that task. A background request may materialize a retained Browser
+  shell in an empty target leaf, but it must not expand a panel, select that
+  Browser tab, replace another active tab, change split or maximized state, or
+  perturb global MRU ordering. The shell becomes the leaf's local active surface
+  only when the leaf had no active surface. Hide requests likewise update the
+  Session Scene without navigating. Manually opened Project Browser tabs remain
+  Project-owned and are not implicitly attached to a Dock chat. Hiding the Browser or Dock
   does not stop Browser Use or destroy the page. Browser activity, a pending
   presentation request, and actual renderer-confirmed visibility are distinct
   states; every runtime tab keeps its exact source `codexSessionId`, even when
@@ -109,8 +113,8 @@ When working with coding agents like Claude Code, there's no streamlined way to:
   the same materialization path as an agent visibility request. The current
   Browser Use page shows its live title, host, favicon, spinner, and working
   shimmer. Releasing a handoff or deliverable page retains it as an ordinary
-  Browser tab, while closing an agent-only page removes its shell and summary
-  row.
+  Browser tab in the background, while closing an agent-only page removes its
+  shell and summary row.
 - Browser settings expose searchable history, durable download history,
   password/contact summaries, Profile import, and extension capability through
   product-owned providers. Password material is encrypted with the platform
@@ -164,7 +168,20 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - When the Agent provider catalog is available, Scheduled's Model and reasoning control replaces the legacy OpenAI-only list with provider-scoped models from OpenAI, Anthropic, Kimi For Coding, Moonshot, and OpenRouter. Core preserves the exact provider/model/recommended-harness/reasoning tuple, including case-sensitive values such as Kimi `Thinking`; unavailable credentials disable that provider for scheduled-task creation. The old `codex:model:list` behavior remains only as a compatibility fallback when the provider catalog is unavailable.
 - Run lifecycle changes broadcast an automation-run update event so Scheduled rows, the automation-run inbox, and the sidebar/recent thread snapshot stay synchronized after scheduled execution, run-now, archive/delete/read actions, and tool-driven deletion.
 - Process Manager is a Workbench-owned dialog opened from the command palette `Process Manager`, `Ctrl+Alt+M`, and the floating summary panel `Tasks` section action. It lists Nodex's registered background-process rows for known attached chats, joins currently live app-server background terminal snapshots and terminal-action sessions for status/output data, polls only while open, freezes the visible snapshot while a row action menu is open, sorts live rows by CPU then memory, and keeps previously registered but currently missing processes visible as `not-found` rows. App-server terminal rows use app-server CPU/memory/pid data; local terminal-action rows use the terminal session OS pid and leave CPU/memory unavailable rather than inventing metrics. `Open output` focuses the owning chat when needed and opens a right-panel `Process output` tab that follows the matching command item's live output or the registered terminal-action session buffer. Floating summary `Tasks` rows open the same output tab directly. `Start` and `Restart` are available for registered rows with a command and working directory, create or refresh a terminal-action session, and refresh the row's start time. Restarting a live app-server process stops that process before starting the terminal action. `Stop` handles either a live app-server process id or a terminal-action session.
-- When the desktop host reports an active Computer Use PiP stream for the attached thread, the floating summary panel shows a headerless `Computer Use` row between `Tasks` and `Browser`. Nodex derives that active stream state from BrowserUse capture tabs that are unreleased, capture-active, attached to a live webContents, and associated with the attached thread's session. The row's accessible label and native title are `Show PiP` or `Hide PiP` based on the current visibility request from the host, and activation publishes a visibility change back to the desktop host. Attached thread scroll layouts publish the remote-hosted PiP host layout through the desktop bridge, using the thread viewport as `codex-main-thread` and treating the sticky footer and floating summary panel as PiP obstacles. Host layout publication is placement metadata only; threads without an active toggleable PiP stream do not show a placeholder row.
+- Native remote-hosted presentation is owned by the desktop host. A completed
+  Browser `node_repl` item may publish a static screenshot PiP, while the
+  Computer Use service may publish a live native layer during an app action.
+  Either may remain visible while its corresponding Browser right-panel tab is
+  retained and collapsed. PiP is suppressed while that Browser surface is
+  visibly presented, follows the owning window between workspaces, avoids the
+  thread viewport's registered obstacles, and is dismissed at turn completion,
+  privacy termination, Browser release, window teardown, or app shutdown. Its
+  maximum display size is Profile-local persisted preference; transient
+  placement, visibility, cursor, and pet state are not transcript or Scene
+  authority. The floating summary panel exposes a headerless `Computer Use` row
+  only while the host reports an active toggleable PiP stream, and its `Show
+  PiP` / `Hide PiP` action changes the host request rather than opening the
+  Browser panel.
 - The session thread page is a live Codex workspace in Electron. Without an attached thread, it shows a centered new-chat home headed `What should we build in <project>?`, with the inline project selector sharing state with the lower composer project selector. The sticky composer exposes add-context, Plan mode, permissions, model/reasoning, dictation, send controls, a project selector, and a `Start in` selector in the attached lower status strip. The `Start in` selector supports `Work locally` and `New worktree`; cloud, connected-app, and suggestion rows stay hidden until those backend paths are intentionally added. Submitting the first prompt starts a session-owned Codex thread and stores the link in `project_session_threads`; if the selected Project differs from the current blank session's Project, Nodex first reuses or creates a blank session owned by that Project, then starts the thread there so session/Project ownership remains valid. The `Chats` section header exposes `New projectless chat`, which creates a blank session with `project_id = null`; its project selectors show `No project`, and its only run target is `Work locally`. Projectless chats remain available after Profile bootstrap even when every Project is archived, while a truly empty catalog is resolved by automatic source-backed initial Project bootstrap before Workbench mounts. Nodex does not allocate a filesystem directory until that blank session's first prompt is submitted. While a first prompt is starting, the session owns a runtime `threadStartProgress` state so navigation away and back still shows startup or failure instead of `No messages yet`. For a direct local start, the initiating window keeps the blank composer surface mounted after the durable Session link is written, adopts the new thread without issuing `thread/resume`, and synchronously commits the first optimistic user turn before revealing the attached transcript. The submit action returns at that optimistic-visible boundary instead of waiting for `turn/start`; the exact prepared input, attachments, model/settings, and `clientUserMessageId` are reused for the one real background request, whose response rebinds or fails the same optimistic turn. Once that visible turn exists, the normal transcript takes over. Project `Work locally` uses the selected Project's primary source when one exists, otherwise a generated per-thread local workspace, and relies on the composer send-button pending state until the first turn is visible. `New worktree` requires a Project primary source, creates a managed Git worktree, runs the selected local-environment setup script when configured, starts `thread/start` and `turn/start` in that worktree cwd, streams setup/log progress until the first turn takes over, and links the resulting thread to the owning session with both its cwd and managed worktree path. Thread-id attachment storage remains available at the transport layer, but the workbench header does not expose an attach/detach thread button.
 - Fresh projectless chats receive a host-allocated workspace at `~/Documents/Nodex/YYYY-MM-DD/<ascii-slug>/`. The thread directory is the process cwd; `work/` holds scratch analysis, scripts, drafts, and temporary assets, while `outputs/` holds user-facing deliverables. The collection root `~/Documents/Nodex` is the task's persisted workspace/browser root and runtime writable root, and the persisted output hint is `<cwd>/outputs`. The initial `My Project` source may be a descendant of this same collection root; Nodex does not carve it out of Projectless writable authority, and path containment never determines an existing Thread's Project owner. Slugs use only lowercase ASCII letter/digit runs, keep at most six prompt words, truncate to 80 characters, and fall back to `new-chat` when no ASCII token exists. Directory collisions use deterministic numeric suffixes before unique suffixes. If child-directory creation fails after the thread directory exists, Nodex keeps the thread directory and uses it as both cwd and output directory rather than rolling back the allocation.
 - Projectless identity is `project_id = null` plus its persisted cwd, output-directory, and workspace-browser-root hints; no separate provenance flag is required. Cold resume reuses a valid generated cwd, then the newest retained generated writable root, then a saved concrete browser root, and finally allocates an unsplit replacement workspace where cwd equals output directory. A persistent fork and a side chat inherit the source task's workspace hints without allocating a new directory. When a persisted projectless task references the old Nodex-generated `~/Documents/Codex/YYYY-MM-DD/<slug>` shape, Nodex moves only that referenced task directory to a collision-safe path under `~/Documents/Nodex` and updates its hints; it never scans or moves the shared legacy root, and arbitrary external cwd values remain untouched.
@@ -564,9 +581,11 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - File-change projection keeps ordinary files in a path-keyed patch map and tracks Codex visualization HTML as separate create/update activities; visualization files are not rendered as ordinary patch files. In-progress and completed visualization activity is retained, while failed/declined activity is omitted. A non-failed patch also contributes to the turn-level diff batch using the latest preceding exec cwd. The patch activity and turn-diff row coexist; explicit turn diffs win after visualization-only diff blocks are removed.
 - File-change activity renders visualization status before insertion-ordered file rows. Patch lifecycle comes from its nullable success plus approval/cancellation state. Detailed mode gives each path an independently expandable diff with line stats, review details, copy action, and semantic add/update/delete fallback; prose detail mode keeps the same status/path rows static without diff disclosure. File links prefer the granted root, open in the side panel normally, and use the configured external opener for modified clicks.
 - Special tool projection preserves family-specific protocol state instead of wrapping everything as a generic tool call. MCP retains app/resource/source/result/error metadata and becomes complete when its item or turn is terminal. Its visible source identity is resolved late from stable projected source/invocation metadata: browser/computer/native tool surfaces take precedence, then a trimmed server name supplies the fallback. The projection can consume normalized app metadata once Nodex supports ChatGPT Apps/Connectors, but that capability is currently disabled and production must not send `app/list`; existing and imported tool calls therefore degrade to source/server fallback identity. Chrome browser-use uses its bundled Chrome asset, while native Chrome remains a host-native app reference. Grouped facts, standalone icons, and summary sources consume that same identity; incidental raw item/app/logo fields never override it. Successful item-level app URIs still participate in the rendered resource scope. Ordinary dynamic calls omit result/success except for create-thread and handoff-thread; dependency loading is hidden, and successful automation updates route to the scheduled-task model while failed/invalid updates stay hidden. Registered Codex-app task controls, settings reads/writes, and Chrome tab-context calls select their renderer by the exact `(namespace, tool)` pair. Their labels use task terminology, task reads/messages can navigate to their target, successful task creation becomes an openable resource card, and only registered activity flags may affect grouping or continuation. Collaboration `wait` is hidden, other collaboration activity respects the background-subagent gate, and web search retains its generated action and stays active only when it is the final non-user work item of an in-progress turn.
-- Built-in Browser Use is supplied as one verified runtime closure containing the
-  matching Codex CLI, Node, Node REPL, Browser plugin/client, and native peer
-  authorizer. Nodex development and release builds materialize that closure from
+- Built-in Desktop Tools are supplied as one verified runtime closure containing
+  the matching signed Codex CLI, Node, Node REPL, Browser plugin/client, native
+  Browser PiP bridge, Computer Use plugin, `sky.node`, and signed Computer Use
+  helper app when supported by the target architecture. Nodex development and
+  release builds materialize that closure from
   one repository-controlled, dual-architecture release lock; ordinary startup
   never reads another installed desktop application. Thread start, resume, and
   fork receive the same trusted paths,
@@ -593,6 +612,30 @@ When working with coding agents like Claude Code, there's no streamlined way to:
   that turn from starting but retains its Session/Thread link for retry.
   Projectless tasks use the same flow with `projectId: null`; a Project is not
   required for Browser discovery.
+- On supported Apple silicon macOS hosts, startup verifies and atomically
+  materializes `Codex Computer Use.app` beneath the active Codex home, exposes a
+  private authenticated host-services socket, and enables the bundled Computer
+  Use skill only after both the native host and materialized marketplace are
+  ready. The host socket accepts only `ensureService` for `computer-use`; its
+  manager reuses only a live non-zombie PID whose executable resolves to the
+  canonical helper, respawns invalid state, and leaves the shared helper alive
+  during ordinary runtime disposal. Nodex atomically maintains the helper's
+  locale, direction, accent, and overlay text in the canonical Computer Use
+  config. Nodex retains its pinned Open Interpreter app-server, while every
+  Desktop Tool thread launches the shared `node_repl` through vendor-signed
+  Node and Codex processes. This preserves Browser's peer ancestry and keeps
+  Codex as the helper's immediate sender parent. Intel macOS and unsupported
+  macOS versions omit Computer Use entirely while retaining Browser Use. Action
+  approval and denial continue through app-server elicitation and native
+  Computer Use errors remain typed tool failures.
+- Settings -> Computer use shows the verified runtime state, global PiP
+  always-hide control, approved applications, approved Messages threads, click
+  sound mode, and Locked Use only when app-server config requirements allow it.
+  Removing an approval updates the helper's App Group files; Locked Use invokes
+  the nested verified installer and accepts only its exact installed status.
+  Accessibility, Screen Recording, Automation, Escape cancellation, and user
+  intervention remain native helper/plugin action-time behavior rather than a
+  second renderer-maintained permission model.
 - Browser origin approval uses the app-server's negotiated form-elicitation
   channel. Selecting Browser from the composer therefore supports the complete
   first-use flow—tool discovery, per-origin confirmation, native Browser

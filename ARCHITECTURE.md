@@ -1,7 +1,7 @@
 # Architecture
 
 ## Overview
-Nodex is a local-first, block-based agent orchestrator for coordinating coding-agent work. One detached native Rust Core is the exclusive SQLite and collaborative-document authority for each Profile. Electron is the Desktop Host for windows, typed renderer IPC, operating-system integration, and the pinned Open Interpreter Codex-compatible app-server runtime; the native CLI and desktop renderer reach product state through Core-backed semantic adapters.
+Nodex is a local-first, block-based agent orchestrator for coordinating coding-agent work. One detached native Rust Core is the exclusive SQLite and collaborative-document authority for each Profile. Electron is the Desktop Host for windows, typed renderer IPC, operating-system integration, and the pinned Codex-compatible app-server runtime; supported macOS Desktop Tool threads retain that app-server while launching their shared REPL through the vendor-signed Node and Codex ancestry required by native Browser and Computer Use authentication. The native CLI and desktop renderer reach product state through Core-backed semantic adapters.
 
 Each local Profile owns one Library. Library is the durable content scope for
 Blocks, Pages, Documents, Database Containers, Data Sources, Views, assets,
@@ -894,8 +894,9 @@ snapshot and feeds hidden hosts, Browser Use presentation, and thread summary;
 it is a cache of Main state, not a second runtime authority.
 
 Browser automation remains a separate low-level Adapter over that aggregate.
-One verified Browser Runtime Bundle supplies the matching Codex CLI, Node,
-Node REPL, Browser plugin/client, and peer-authorizer closure. The public
+One verified Desktop Tool Runtime bundle supplies the matching signed Codex CLI,
+Node, Node REPL, Browser and Computer Use plugins/clients, native PiP addon,
+Computer Use service application, and peer-authorizer closure. The public
 app-server config seam supplies the same exact trusted paths and hashes to
 start, resume, and fork. A per-Codex-session authenticated native pipe owns IAB
 session/turn routing, low-level tab/CDP/cursor/viewport/capture/download
@@ -909,7 +910,47 @@ desktop build, Codex compatibility version, plugin version, and component
 versions. Development, CI, and packaging materialize that lock into the
 generated source closure before atomic staging. Reading an installed desktop
 application exists only in the explicit maintainer vendor workflow and is
-never part of application startup or a normal build.
+never part of application startup or a normal build. The primary app-server
+remains Nodex's pinned Open Interpreter runtime. Every Desktop Tool thread
+launches the shared `node_repl` through a persistent vendor-signed Node process
+and the signed Codex CLI (`node -> codex sandbox -> node_repl`). The Browser
+peer authorizer can therefore validate the REPL plus its two nearest ancestors,
+and the Computer Use sender sees Codex as the immediate parent, without
+replacing Nodex's app-server protocol or provider/model extensions.
+
+The Desktop Host owns one native remote-hosted PiP coordinator. It loads the
+verified `sky.node`, starts the native host, registers each eligible
+`BrowserWindow` with its native handle and placement anchors, and derives the
+active thread only from the focused registered window. Browser tool results
+contribute bounded data-URL screenshots from completed `node_repl` calls;
+Computer Use contributes a live native layer directly from its service. The
+coordinator keeps user-hidden threads, Browser-panel suppression, and the
+global always-hide preference as separate state. Per-thread hiding, placement,
+active content, cursor, and turn ownership remain ephemeral; maximum display
+size and global always-hide are atomically persisted. Completed turns use native
+thread completion, unsuccessful terminal turns invalidate the exact turn, and
+thread close/archive removes all associated Browser presentations. No PiP
+frame is stored in Core, Yjs, the transcript, or renderer state.
+
+On Apple Silicon macOS 14.4+, Main atomically materializes the verified Computer
+Use application at `$CODEX_HOME/computer-use/Codex Computer Use.app`, preserving
+its original signature and App Group identity. Main also serializes atomic
+writes of `$CODEX_HOME/computer-use/config.json` with the active locale, text
+direction, product accent, and overlay copy. A private framed host-services
+socket provides only `ensureService("computer-use")`; the service manager
+serializes spawn/reuse, rejects stale or mismatched PIDs, and leaves the shared
+canonical service alive during ordinary Host disposal. Browser and Computer Use
+share one `node_repl` configuration and one materialized bundled marketplace.
+Intel builds deliberately omit the Computer Use plugin and helper while keeping
+Browser native PiP available.
+
+Computer Use Settings is a typed Main-owned OS adapter. It reads and revokes
+App and Messages approvals from the helper App Group container, reads and writes
+the helper click-sound mode through its defaults domain, gates Locked Use with
+app-server config requirements, and invokes only the verified nested installer
+for status/install/uninstall. Renderer IPC exposes snapshots and bounded
+mutations; it never receives filesystem authority for the Group Container or an
+arbitrary command surface.
 Each live renderer Browser host is appended to `document.body` exactly once and
 owns both the Electron webview and a sibling cursor overlay for its whole guest
 lifetime. `retained`, `background`, and `panel` are layout/presentation states,

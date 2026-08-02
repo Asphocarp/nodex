@@ -109,6 +109,36 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
   route, navigation, permission, upload/download, and conditional full-CDP
   checks. Site-status blocks only an explicit positive policy result; transport
   failure does not authorize a forbidden scheme or capability.
+- The Desktop Tool runtime is one signed third-party closure. Packaging restores
+  its complete vendor signature graph after signing the outer Nodex app rather
+  than applying the Nodex identity to nested Codex, Node, native addons, or
+  Computer Use artifacts. Verification binds every declared artifact and checks
+  the Browser peer authorizer and Computer Use helper against their manifest
+  signing teams, not the outer app's team.
+- Computer Use is fail-closed and architecture-gated. On supported Apple
+  silicon macOS, Main copies the verified helper with `ditto --noqtn` into a
+  canonical Codex-home location, verifies its deep strict signature, bundle ID,
+  signing team, regular executable, and materialization key before atomic swap,
+  and rolls back a failed post-swap verification. Unsupported targets never
+  install or configure its plugin.
+- Desktop Tool `node_repl` runs through a persistent vendor-signed Node process
+  and the signed Desktop Tool Codex CLI while Nodex retains its pinned Open
+  Interpreter app-server. The resulting `node_repl -> codex -> node` ancestry
+  satisfies Browser's three-generation peer check, while Codex remains the
+  immediate parent required by Computer Use sender authentication. The private
+  host-services UDS accepts only `ensureService` for `computer-use`, uses the
+  same packaged peer-authorization boundary as Browser Use, and never returns a
+  service PID to the plugin. Main reuses a helper only when the PID is live,
+  non-zombie, and its native-resolved executable equals the canonical helper.
+  Action confirmation remains an app-server elicitation decision; denial and
+  native failures are delivered as typed tool errors rather than weakening the
+  host boundary.
+- Computer Use settings are a typed Main-only capability. Renderer code cannot
+  read arbitrary App Group files or invoke `defaults`/the nested installer.
+  Main validates bounded approval identifiers and declared sound modes, writes
+  approvals atomically with private file permissions, fails Locked Use closed
+  when config requirements disallow it, and resolves the installer only below
+  the verified canonical helper app.
 - Workspace-file IPC is available only to the top-level renderer frame of an owned app window. Directory browsing accepts canonical root-relative coordinates, verifies lexical and resolved-realpath containment, and omits directory symlinks that escape the selected root. Exact-file metadata/text/binary operations intentionally accept an absolute local path without a Project-root grant so user-visible agent outputs and patches remain openable outside the active source; this relies on the trusted-renderer boundary rather than path sandboxing. Write requests use an expected-modification-time CAS guard and never create missing parent directories implicitly.
 - Managed-asset mutation, byte reads, bounded previews, path resolution, and dictation IPC are likewise available only to the top-level frame of an owned app window and validate payload types and byte budgets again in Main. Persisted `nodex://assets/<safe-name>` identities do not expose filesystem roots. Raster display uses `nodex-asset://managed/<safe-name>` through a handler installed only on `session.defaultSession`; it accepts `GET`/`HEAD`, allowlisted raster extensions, and regular non-symlink files. SVG, text/script content, directories, traversal, and the Browser-sidebar partition are excluded.
 - Electron bootstrap fixes Rust Core as the only production authority before

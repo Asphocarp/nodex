@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - Added Window Session-owned Project and Session Scenes with one fixed owner-root primary and shared right/bottom panel surfaces. Projects can open with zero chats, while Database, Page, Canvas, Files, Browser, Review, and Terminal surfaces no longer need a chat as their panel host.
+- Added native macOS Picture-in-Picture for background Browser work and Apple Silicon Computer Use, including live desktop-app presentation, native per-task visibility, and turn-scoped cleanup.
 
 ### Changed
 - Replaced the automatically seeded `Database View` chat with Project Home: the Project's current Database is the protected root surface, its footer Agent Dock can work with a new or existing task without navigating away, and Browser Use opens controlled pages in the task that owns them.
@@ -14,6 +15,7 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 - Fixed Project folder controls so the label opens Project Home and the leading chevron changes chat disclosure without either action triggering the other.
 - New Session Scenes now start with the right panel collapsed, while Project Home and the explicit first-Project Welcome presentation retain their intended full-width layouts.
+- Fixed background Browser tabs so agent requests with hidden presentation remain available without opening the right panel or changing the active tab, split, focus history, or maximized surface.
 
 ## [0.2.0] - 2026-08-01
 

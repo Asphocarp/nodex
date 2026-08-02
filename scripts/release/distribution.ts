@@ -167,6 +167,13 @@ const verifyApp = async (options: {
     verifySignatures: true,
   } as const;
   if (options.runtimeCheck.kind === "smoke") {
+    runTask(process.cwd(), "pnpm", [
+      "exec",
+      "tsx",
+      "scripts/run-browser-runtime-probe.ts",
+      "--resources-path",
+      join(options.appPath, "Contents/Resources"),
+    ]);
     await verifyPackagedNativeRuntimeSmoke({
       ...runtimeOptions,
       launchApp: options.runtimeCheck.launchApp,

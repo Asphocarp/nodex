@@ -71,10 +71,14 @@ class FakeSkyAddon implements SkyNativeAddon {
   completedThreads: string[] = [];
   invalidatedPresentations: string[] = [];
   invalidatedTurns: Array<[string, string]> = [];
+  maxDisplaySizeChangedHandler: ((size: number) => void) | null = null;
+  maxDisplaySizes: number[] = [];
+  privacySettingsTerminationRequest = false;
   registrations: SkyRemoteHostedPipHostRegistration[] = [];
   suppressedThreadIds: string[][] = [];
   upserts: Array<[string, string, string, string | null]> = [];
   unregisteredHostIds: string[] = [];
+  visibleValues: boolean[] = [];
   visibilityHandler: ((isVisible: boolean, threadIds: string[]) => void) | null = null;
 
   completeRemoteHostedPIPContentThread(threadId: string): boolean {
@@ -93,7 +97,9 @@ class FakeSkyAddon implements SkyNativeAddon {
     this.invalidatedTurns.push([threadId, turnId]);
     return true;
   }
-  isPrivacySettingsTerminationRequest(): boolean { return false; }
+  isPrivacySettingsTerminationRequest(): boolean {
+    return this.privacySettingsTerminationRequest;
+  }
   registerRemoteHostedPIPContentHost(input: SkyRemoteHostedPipHostRegistration): boolean {
     this.registrations.push(input);
     return true;
@@ -103,8 +109,16 @@ class FakeSkyAddon implements SkyNativeAddon {
     return true;
   }
   setRemoteHostedPIPContentComputerUseCursorLocationHandler(): boolean { return true; }
-  setRemoteHostedPIPContentMaxDisplaySize(): boolean { return true; }
-  setRemoteHostedPIPContentMaxDisplaySizeChangedHandler(): boolean { return true; }
+  setRemoteHostedPIPContentMaxDisplaySize(size: number): boolean {
+    this.maxDisplaySizes.push(size);
+    return true;
+  }
+  setRemoteHostedPIPContentMaxDisplaySizeChangedHandler(
+    handler: ((size: number) => void) | null,
+  ): boolean {
+    this.maxDisplaySizeChangedHandler = handler;
+    return true;
+  }
   setRemoteHostedPIPContentPetWakeRequestHandler(): boolean { return true; }
   setRemoteHostedPIPContentSuppressedThreadIDs(threadIds: string[]): boolean {
     this.suppressedThreadIds.push(threadIds);
@@ -116,8 +130,11 @@ class FakeSkyAddon implements SkyNativeAddon {
     this.visibilityHandler = handler;
     return true;
   }
-  setRemoteHostedPIPContentVisible(): boolean { return true; }
-  spawnComputerUseService(): number | null { return 123; }
+  setRemoteHostedPIPContentVisible(visible: boolean): boolean {
+    this.visibleValues.push(visible);
+    return true;
+  }
+  async spawnComputerUseService(): Promise<number | null> { return 123; }
   startRemoteHostedPIPContentHost(): boolean { return true; }
   stopRemoteHostedPIPContentHost(): boolean { return true; }
   unregisterRemoteHostedPIPContentHost(hostId: string): boolean {
@@ -150,19 +167,27 @@ function createHarness() {
   const sent: Array<{ channel: string; payload: unknown }> = [];
   const window = new FakeWindow(1);
   let surfacePresented = false;
+  let alwaysHide = false;
+  let maxDisplaySize: number | null = 280;
   const service = new RemoteHostedPipService({
     addon,
     broadcast: (channel, payload) => broadcasts.push({ channel, payload }),
     getFocusedWindow: () => window.focused && !window.destroyed ? window : null,
     getWindowForSender: (sender) => sender.id === window.webContents.id ? window : null,
     isThreadSurfacePresented: () => surfacePresented,
+    readAlwaysHide: () => alwaysHide,
+    readMaxDisplaySize: () => maxDisplaySize,
     sendToSender: (_sender, channel, payload) => sent.push({ channel, payload }),
+    writeAlwaysHide: (value) => { alwaysHide = value; },
+    writeMaxDisplaySize: (size) => { maxDisplaySize = size; },
   });
   return {
     addon,
     broadcasts,
     sent,
     service,
+    getMaxDisplaySize: () => maxDisplaySize,
+    getAlwaysHide: () => alwaysHide,
     setSurfacePresented(value: boolean) { surfacePresented = value; },
     window,
   };
@@ -204,6 +229,9 @@ describe("RemoteHostedPipService", () => {
       title: "Window 1",
     });
     expect(addon.activeThreadIds.at(-1)).toBe("thread-1");
+    expect(addon.maxDisplaySizes).toEqual([280]);
+
+    addon.maxDisplaySizeChangedHandler?.(340);
 
     addon.activePresentation = true;
     addon.anyPresentation = true;
@@ -219,6 +247,33 @@ describe("RemoteHostedPipService", () => {
         type: "remote-hosted-pip-stream-state-changed",
       },
     });
+    service.dispose();
+  });
+
+  test("persists native resize callbacks and exposes privacy-settings termination", () => {
+    const { addon, getMaxDisplaySize, service, window } = createHarness();
+    attachThread(service, window);
+
+    addon.maxDisplaySizeChangedHandler?.(360);
+    expect(getMaxDisplaySize()).toBe(360);
+    addon.privacySettingsTerminationRequest = true;
+    expect(service.isPrivacySettingsTerminationRequest()).toBe(true);
+
+    service.dispose();
+    expect(addon.maxDisplaySizeChangedHandler).toBeNull();
+  });
+
+  test("persists the global always-hide setting and drives native visibility", () => {
+    const { addon, getAlwaysHide, service, window } = createHarness();
+    attachThread(service, window);
+
+    service.setAlwaysHide(true);
+    expect(getAlwaysHide()).toBe(true);
+    expect(service.getAlwaysHide()).toBe(true);
+    expect(addon.visibleValues.at(-1)).toBe(false);
+
+    service.setAlwaysHide(false);
+    expect(addon.visibleValues.at(-1)).toBe(true);
     service.dispose();
   });
 

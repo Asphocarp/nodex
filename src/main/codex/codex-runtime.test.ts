@@ -3,6 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, test } from "vitest";
+import { BROWSER_RUNTIME_BUNDLE_DIRECTORY } from "../../shared/browser-runtime-metadata";
+import { writeBrowserRuntimeFixture } from "./browser-runtime-test-fixture";
 import { resolveCodexRuntime } from "./codex-runtime";
 
 function writeRuntime(rootPath: string): void {
@@ -178,6 +180,43 @@ describe("codex-runtime", () => {
       expect(runtime.missingBinaryMessage).toBe(
         "Pinned agent runtime is missing or incomplete. Run `pnpm run stage:codex-runtime:mac`.",
       );
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  test("retains the primary app server while exposing the signed Desktop Tool launcher", () => {
+    const fixture = makeStagedRuntimeFixture();
+    try {
+      const runtimeRoot = path.join(
+        fixture.projectRootPath,
+        ".generated",
+        "codex-runtime",
+        "agent-runtime",
+      );
+      writeBrowserRuntimeFixture(
+        path.join(runtimeRoot, BROWSER_RUNTIME_BUNDLE_DIRECTORY),
+        { codexCompatibilityVersion: "0.144.5" },
+      );
+      const runtime = resolveCodexRuntime({
+        browserRuntimePlatformArtifactVerifier: () => null,
+        isPackaged: false,
+        projectRootPath: fixture.projectRootPath,
+      });
+
+      expect(runtime.browserRuntime.status).toBe("available");
+      expect(runtime.binaryPath).toBe(path.join(
+        runtimeRoot,
+        "bin",
+        "interpreter",
+      ));
+      if (runtime.browserRuntime.status !== "available") return;
+      expect(runtime.browserRuntime.bundle.paths.codexCli).toBe(path.join(
+        runtimeRoot,
+        BROWSER_RUNTIME_BUNDLE_DIRECTORY,
+        "bin",
+        "codex",
+      ));
     } finally {
       fixture.cleanup();
     }

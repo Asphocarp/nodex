@@ -7,6 +7,7 @@ import {
   History,
   KeyRound,
   LayoutTemplate,
+  MonitorCog,
   Puzzle,
   Shield,
   Type,
@@ -32,6 +33,7 @@ export type SettingsSectionId =
   | "browser-contact-info"
   | "browser-history"
   | "browser-extensions"
+  | "computer-use"
   | "agent"
   | "agent-import"
   | "editor"
@@ -124,6 +126,13 @@ export const SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
     icon: Puzzle,
     groupKey: "integrations",
     searchMessages: SETTINGS_SEARCH_CATALOG["browser-extensions"].messages,
+  },
+  {
+    id: "computer-use",
+    label: "Computer use",
+    icon: MonitorCog,
+    groupKey: "integrations",
+    searchMessages: SETTINGS_SEARCH_CATALOG["computer-use"].messages,
   },
   {
     id: "agent",
