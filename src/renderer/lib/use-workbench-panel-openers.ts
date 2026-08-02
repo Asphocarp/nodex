@@ -274,6 +274,61 @@ const openSideChat = useCallback(async (
     workbenchCodexControl,
   ]);
 
+  const openExistingSideChat = useCallback(async (input: {
+    threadId: string;
+    parentThreadId: string;
+    parentNavigationPath: string;
+  }): Promise<boolean> => {
+    if (!activeSession?.thread) return false;
+    if (activeSession.thread.threadId !== input.parentThreadId) return false;
+
+    const tabId = `sidechat:${input.threadId}`;
+    const existingTab = (sideChatTabsBySession[activeSession.id] ?? [])
+      .find((tab) => tab.id === tabId);
+    if (existingTab) {
+      panelControllerRef.current.updateSideChatActiveTabByPanel((current) => ({
+        ...current,
+        [makeWorkbenchSessionPanelSlotKey(
+          activeSession.id,
+          existingTab.panelId,
+          existingTab.leafId,
+        )]: tabId,
+      }));
+      await ensureActivePanelOpenWithoutRefresh(existingTab.panelId);
+      return true;
+    }
+
+    const panelId = "right" as const;
+    const leafId = resolveSessionPanelActiveLeafId(activeSession, panelId);
+    const panelSideChats = (sideChatTabsBySession[activeSession.id] ?? [])
+      .filter((tab) => tab.panelId === panelId);
+    const tab: SideChatPanelTab = {
+      sideChat: true,
+      id: tabId,
+      sessionId: activeSession.id,
+      panelId,
+      leafId,
+      parentThreadId: input.parentThreadId,
+      parentNavigationPath: input.parentNavigationPath,
+      threadId: input.threadId,
+      title: getSideChatTabTitle(panelSideChats.length + 1),
+      status: "ready",
+      stateKey: Date.now(),
+    };
+
+    panelControllerRef.current.upsertEphemeralTab(tab);
+    panelControllerRef.current.updateSideChatActiveTabByPanel((current) => ({
+      ...current,
+      [makeWorkbenchSessionPanelSlotKey(activeSession.id, panelId, leafId)]: tabId,
+    }));
+    await ensureActivePanelOpenWithoutRefresh(panelId);
+    return true;
+  }, [
+    activeSession,
+    ensureActivePanelOpenWithoutRefresh,
+    sideChatTabsBySession,
+  ]);
+
   const openMcpAppSidePanel = useCallback(async (input: ThreadMcpAppSidePanelInput) => {
     if (!activeSession || activeSession.projectId === null) return;
     const projectId = activeSession.projectId;
@@ -816,6 +871,7 @@ const openSideChat = useCallback(async (
 
   return {
     openSideChat,
+    openExistingSideChat,
     openMcpAppSidePanel,
     openPlanSidePanel,
     openAutomationSidePanel,

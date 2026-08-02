@@ -185,8 +185,8 @@ import { CoreModuleResponseError } from "./core-client/core-client";
 import type { CoreReadResult } from "../shared/core-read-result";
 import type { DesktopAutomationModulePort } from "./core-client/desktop-automation-module-bridge";
 import type { DesktopStoreAdministrationPort } from "./core-client/desktop-store-administration-bridge";
-import type { DesktopNotificationManager } from "./desktop-notification-manager";
 import type { GitWorkerHost } from "./git-worker-host";
+import type { SystemNotificationPermissionService } from "./system-notification-permission-service";
 import { readGitRepositoryIdentity } from "./git-repository-identity-service";
 import {
   cancelGitAction,
@@ -936,13 +936,16 @@ interface RegisterIpcHandlersOptions {
     webContentsId: number,
     bounds: WindowSessionBounds,
   ) => void;
-  desktopNotificationManager?: DesktopNotificationManager;
   onGetAppUpdateStatus?: () => AppUpdateStatus;
   onCheckForAppUpdate?: () => Promise<AppUpdateStatus>;
   onInstallAppUpdate?: () => boolean | Promise<boolean>;
   onAppUpdateSettingsChanged?: (settings: AppUpdateSettings) => void;
   onCommandKeybindingsChanged?: (state: CommandKeymapState) => void;
   rendererClientRouter?: RendererClientRouter;
+  systemNotificationPermissionService?: Pick<
+    SystemNotificationPermissionService,
+    "getNotificationPermissionStatus" | "openNotificationSettings"
+  >;
   onHeartbeatAutomationsEnabledChanged?: (
     input: CodexHeartbeatAutomationsEnabledChangedInput,
   ) => void;
@@ -1302,19 +1305,6 @@ export function registerIpcHandlers(
       terminalLeaseCleanupBound.delete(sender.id);
       terminalManager.releaseLeasesForWebContents(sender.id);
     });
-  };
-
-  const focusNotificationOriginWindow = (
-    window: BrowserWindow | null,
-  ): void => {
-    if (!window || window.isDestroyed()) {
-      return;
-    }
-    if (window.isMinimized()) {
-      window.restore();
-    }
-    window.show();
-    window.focus();
   };
 
   const resolveRendererClientId = (event: IpcMainInvokeEvent): string | null =>
@@ -2431,6 +2421,15 @@ export function registerIpcHandlers(
     updateThreadNotificationSettings(input),
   );
 
+  registerHandle("system-notification-permission:get", () =>
+    options.systemNotificationPermissionService
+      ?.getNotificationPermissionStatus() ?? Promise.resolve(null),
+  );
+
+  registerHandle("system-notification-permission:open-settings", async () => {
+    await options.systemNotificationPermissionService?.openNotificationSettings();
+  });
+
   registerHandle("settings:codex-developer:get", () =>
     getCodexDeveloperInstructionSettings(),
   );
@@ -2453,38 +2452,6 @@ export function registerIpcHandlers(
       resourcesPath: process.resourcesPath,
     }),
   );
-
-  registerHandle("desktop-notification:show", (event, notification) => {
-    if (!options.desktopNotificationManager) {
-      return;
-    }
-
-    const originWindow = BrowserWindow.fromWebContents(event.sender);
-    options.desktopNotificationManager.showNotification(
-      notification,
-      event.sender,
-      (action) => {
-        if (action.actionType === "open") {
-          focusNotificationOriginWindow(originWindow);
-        }
-
-        safeSendToWebContents(event.sender, "desktop-notification:action", [
-          {
-            ...action,
-            conversationId: notification.conversationId ?? null,
-            requestId: notification.requestId ?? null,
-            approvalKind: notification.approvalKind ?? null,
-          },
-        ]);
-      },
-    );
-  });
-
-  registerHandle("desktop-notification:hide", (_, conversationId: string) => {
-    options.desktopNotificationManager?.dismissByConversationId(
-      conversationId ?? null,
-    );
-  });
 
   registerHandle("electron-window:focus:get", (event) => {
     return BrowserWindow.fromWebContents(event.sender)?.isFocused() ?? false;
@@ -3819,12 +3786,16 @@ export function registerIpcHandlers(
       const threadId = "threadId" in input && typeof input.threadId === "string"
         ? input.threadId.trim()
         : "";
-      if (!threadId) return false;
+      const surfaceId = "surfaceId" in input && typeof input.surfaceId === "string"
+        ? input.surfaceId.trim()
+        : "";
+      if (!threadId || !surfaceId) return false;
       const clientId = resolveRendererClientId(event);
       if (!clientId) return false;
       codexService.setRendererConversationPresented(
         threadId,
         clientId,
+        surfaceId,
         "presented" in input && input.presented === true,
       );
       return true;

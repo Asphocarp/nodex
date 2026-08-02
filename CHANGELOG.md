@@ -21,6 +21,7 @@ All notable changes to this project will be documented in this file.
 - Window restore and new-window cloning now persist one owner-scoped Scene layout for both Projects and Sessions instead of parallel Project Session panel-view models.
 
 ### Fixed
+- Fixed task notifications so child-agent completion no longer produces desktop alerts, while top-level interrupted turns, approvals, permissions, and input requests now follow exact visibility settings, resolve cleanly, and navigate to the correct task or Side chat before acting.
 - Fixed Project folder controls so the label opens Project Home and the leading chevron changes chat disclosure without either action triggering the other.
 - New Session Scenes now start with the right panel collapsed, while Project Home and the explicit first-Project Welcome presentation retain their intended full-width layouts.
 - Fixed background Browser tabs so agent requests with hidden presentation remain available without opening the right panel or changing the active tab, split, focus history, or maximized surface.

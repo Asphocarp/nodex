@@ -1214,6 +1214,13 @@ vi.mock("@/features/local-conversation", () => ({
     return createElement("div", { "data-review-diff-panel": "true" }, `Review:${String(props.threadId)}`);
   },
   useCodexAppServerControl: () => mockCodexControl,
+  useCodexAppServerRegistry: () => ({
+    getForHostId: () => ({
+      readConversation: () => null,
+      startTurn: async () => undefined,
+      respondApproval: async () => false,
+    }),
+  }),
   useConversation: (threadId: string | null) => threadId ? sideChatConversations[threadId] ?? null : null,
   useConversationSubset: (threadIds: readonly string[]) => Object.fromEntries(
     threadIds.flatMap((threadId) =>
@@ -1231,10 +1238,6 @@ vi.mock("@/features/local-conversation", () => ({
   useCodexThreadStartProgress: () => mockThreadStartProgress,
   useLocalConversationAccount: () => null,
   useLocalConversationConnection: () => ({ status: "connected", retries: 0 }),
-}));
-
-vi.mock("@/features/local-conversation/desktop-notification-controller", () => ({
-  DesktopNotificationController: () => null,
 }));
 
 vi.mock("@/lib/calendar-view-state", () => ({

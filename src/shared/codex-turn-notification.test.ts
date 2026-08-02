@@ -75,56 +75,59 @@ describe("codex-turn-notification helpers", () => {
     expect(suppressed?.decision).toBe("DONT_NOTIFY");
   });
 
-  test("detects notification-ineligible internal and side conversations", () => {
+  test("only excludes conversations with real parent provenance", () => {
     expect(isCodexConversationDesktopNotificationEligible(baseConversation())).toBe(true);
-    expect(isCodexConversationDesktopNotificationEligible(baseConversation({ ephemeral: true }))).toBe(false);
-    expect(isCodexConversationDesktopNotificationEligible(baseConversation({ threadSource: "system" }))).toBe(false);
+    expect(isCodexConversationDesktopNotificationEligible(baseConversation({ ephemeral: true }))).toBe(true);
+    expect(isCodexConversationDesktopNotificationEligible(baseConversation({ threadSource: "system" }))).toBe(true);
     expect(isCodexConversationDesktopNotificationEligible(baseConversation({
       source: { parentThreadId: "parent", sideConversation: true },
     }))).toBe(false);
+    expect(isCodexConversationDesktopNotificationEligible(baseConversation({
+      source: { parentThreadId: null, sideConversation: true },
+    }))).toBe(true);
   });
 
-  test("detects pending continuation from queues, steers, and active goals", () => {
-    expect(hasCodexPendingContinuation(baseConversation())).toBe(false);
-    expect(hasCodexPendingContinuation(baseConversation({
-      queuedFollowUps: [{
-        followUpId: "follow-1",
-        threadId: "thread-1",
-        prompt: "Continue",
-        createdAt: 1,
-        serviceTier: null,
-      }],
-    }))).toBe(true);
-    expect(hasCodexPendingContinuation(baseConversation({
-      queuedFollowUps: [{
-        followUpId: "follow-1",
-        threadId: "thread-1",
-        prompt: "Continue",
-        createdAt: 1,
-        serviceTier: null,
-        pausedReason: "waiting",
-      }],
-    }))).toBe(false);
-    expect(hasCodexPendingContinuation(baseConversation({
-      pendingSteers: [{
-        steerId: "steer-1",
-        threadId: "thread-1",
-        turnId: "turn-1",
-        prompt: "Use this direction",
-        createdAt: 1,
-      }],
-    }))).toBe(true);
-    expect(hasCodexPendingContinuation(baseConversation({
-      threadGoal: {
-        threadId: "thread-1",
-        objective: "Finish the task",
-        status: "active",
-        tokenBudget: null,
-        tokensUsed: 0,
-        timeUsedSeconds: 0,
-        createdAt: 1,
-        updatedAt: 1,
-      },
-    }))).toBe(true);
+  test("matches exact terminal continuation semantics", () => {
+    const facts = {
+      terminalStatus: "completed" as const,
+      queuedResourceLoading: false,
+      queuedHeadPausedReason: undefined,
+      threadGoalStatus: null,
+      latestMergedTurnStatus: "completed" as const,
+      hasRunningCollabAgent: false,
+      hasActiveDescendant: false,
+    };
+    expect(hasCodexPendingContinuation(facts)).toBe(false);
+    expect(hasCodexPendingContinuation({
+      ...facts,
+      queuedHeadPausedReason: null,
+    })).toBe(true);
+    expect(hasCodexPendingContinuation({
+      ...facts,
+      terminalStatus: "interrupted",
+      queuedHeadPausedReason: null,
+    })).toBe(false);
+    expect(hasCodexPendingContinuation({
+      ...facts,
+      threadGoalStatus: "active",
+    })).toBe(true);
+    expect(hasCodexPendingContinuation({
+      ...facts,
+      terminalStatus: "failed",
+      threadGoalStatus: "active",
+    })).toBe(false);
+    expect(hasCodexPendingContinuation({
+      ...facts,
+      terminalStatus: "interrupted",
+      latestMergedTurnStatus: "inProgress",
+    })).toBe(true);
+    expect(hasCodexPendingContinuation({
+      ...facts,
+      hasRunningCollabAgent: true,
+    })).toBe(true);
+    expect(hasCodexPendingContinuation({
+      ...facts,
+      hasActiveDescendant: true,
+    })).toBe(true);
   });
 });

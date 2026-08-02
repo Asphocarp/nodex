@@ -9,6 +9,7 @@ import { WorkbenchShell } from "@/components/workbench/workbench-shell";
 import { AppUpdateRestartNotice } from "@/components/workbench/app-update-restart-notice";
 import { LocalConversationProvider } from "@/features/local-conversation";
 import { HeartbeatAutomationController } from "@/features/local-conversation/heartbeat-automation-controller";
+import { DesktopNotificationPermissionBootstrap } from "@/features/local-conversation/desktop-notification-permission-bootstrap";
 import { LocalConversationViewStateCleanupController } from "@/features/local-conversation/view/local-conversation-view-state-cleanup-controller";
 import { NodexModalHost } from "@/lib/modal-registry";
 import { loadProductFeatureGates } from "@/lib/product-feature-gates";
@@ -174,6 +175,7 @@ export default function App() {
   return (
     <NodexToastProvider>
       <LocalConversationProvider>
+        <DesktopNotificationPermissionBootstrap />
         <LocalConversationViewStateCleanupController />
         <HeartbeatAutomationController />
         <WorkbenchShell

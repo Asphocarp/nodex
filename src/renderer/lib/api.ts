@@ -522,13 +522,7 @@ export function subscribeCodexRendererClientRequests(
 }
 
 export function subscribeDesktopNotificationActions(
-  callback: (
-    payload: import("./types").DesktopNotificationActionPayload & {
-      conversationId: string | null;
-      requestId: import("./types").CodexProtocolRequestId | null;
-      approvalKind: import("./types").CodexApprovalKind | null;
-    },
-  ) => void,
+  callback: (payload: import("./types").DesktopNotificationActionInvocation) => void,
 ): () => void {
   return resolveRendererTransport().subscribeDesktopNotificationActions(
     callback,

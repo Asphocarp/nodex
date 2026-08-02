@@ -2,9 +2,8 @@ import type {
   AppUpdateStatus,
   CodexEvent,
   CodexHostMessage,
-  CodexProtocolRequestId,
   CodexRendererClientRequestMessage,
-  DesktopNotificationActionPayload,
+  DesktopNotificationActionInvocation,
 } from "./types";
 import {
   COMMAND_KEYBINDINGS_CHANGED_CHANNEL,
@@ -326,51 +325,31 @@ export function createElectronRendererTransport(
       );
     },
     subscribeDesktopNotificationActions(
-      callback: (
-        message: DesktopNotificationActionPayload & {
-          conversationId: string | null;
-          requestId: CodexProtocolRequestId | null;
-          approvalKind: import("./types").CodexApprovalKind | null;
-        },
-      ) => void,
+      callback: (message: DesktopNotificationActionInvocation) => void,
     ) {
+      if (!bridge.on) return () => {};
       return bridge.on("desktop-notification:action", (...args: unknown[]) => {
-        const payload = args[0] as
-          | (DesktopNotificationActionPayload & {
-              conversationId?: string | null;
-              requestId?: CodexProtocolRequestId | null;
-              approvalKind?: import("./types").CodexApprovalKind | null;
-            })
-          | undefined;
+        const payload = args[0] as Partial<DesktopNotificationActionInvocation> | undefined;
+        if (!payload || typeof payload.notificationId !== "string") return;
         if (
-          !payload ||
-          typeof payload.notificationId !== "string" ||
-          typeof payload.actionType !== "string"
-        ) {
-          return;
-        }
+          payload.actionType !== "open"
+          && payload.actionType !== "reply"
+          && payload.actionType !== "approve"
+          && payload.actionType !== "approve-for-session"
+          && payload.actionType !== "decline"
+        ) return;
+        if (payload.actionId !== null && typeof payload.actionId !== "string") return;
+        if (typeof payload.hostId !== "string" || payload.hostId.trim().length === 0) return;
+        if (payload.conversationId !== null && typeof payload.conversationId !== "string") return;
+        if (payload.navigationPath !== null && typeof payload.navigationPath !== "string") return;
+        if (payload.activateTabId !== null && typeof payload.activateTabId !== "string") return;
         if (
-          payload.requestId !== undefined
-          && payload.requestId !== null
+          payload.requestId !== null
           && typeof payload.requestId !== "string"
           && typeof payload.requestId !== "number"
-        ) {
-          return;
-        }
-        if (
-          payload.approvalKind !== undefined
-          && payload.approvalKind !== null
-          && payload.approvalKind !== "command"
-          && payload.approvalKind !== "file"
-        ) {
-          return;
-        }
-        callback({
-          ...payload,
-          conversationId: payload.conversationId ?? null,
-          requestId: payload.requestId ?? null,
-          approvalKind: payload.approvalKind ?? null,
-        });
+        ) return;
+        if (payload.reply !== undefined && typeof payload.reply !== "string") return;
+        callback(payload as DesktopNotificationActionInvocation);
       });
     },
     subscribeWorkspaceFileChanges(

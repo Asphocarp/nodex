@@ -6,470 +6,242 @@ Active
 
 ## Purpose
 
-This document defines the source-of-truth behavior for Nodex desktop notifications related to Codex Threads. It covers:
+This document is the source of truth for Nodex OS-level notifications produced
+by Codex task lifecycle events. Browser delivery, in-app toasts, reminder
+notifications, and remote cloud-task watchers are separate features.
 
-- which thread events can produce desktop notifications
-- how notification settings are stored and applied
-- when notifications are suppressed
-- notification payload and action contracts
-- how the renderer and main process divide responsibility
+## Notification Families
 
-This document applies to the Electron desktop runtime. Browser delivery is out of scope.
+Nodex has three task notification families:
 
-## Scope
+- `turn-complete`: a local-host top-level task turn reached `completed`,
+  `failed`, or `interrupted`.
+- `permission`: a command, file-change, or permissions request became pending.
+- `question`: a user-input request became pending, including ordinary
+  questions and supported option/onboarding/setup inputs with no question
+  rows.
 
-Core thread desktop notifications are limited to three notification families:
+MCP elicitation, plan-implementation confirmation, setup context selection,
+and unsupported private requests do not produce desktop notifications.
 
-- `turn-complete`
-- `permission`
-- `question`
+## Ownership and Ordering
 
-These correspond to:
+The feature has four owners:
 
-- a local thread turn reaching a notifying terminal state
-- a new approval request entering a live conversation
-- a new request-user-input prompt entering a live conversation
+1. `CodexService` emits a typed occurrence only after the matching raw
+   app-server lifecycle transition and pending-request registry change have
+   committed. Hydration and renderer snapshot projection are not producers.
+2. `CodexThreadNotificationCoordinator` is the single Main-process policy,
+   settings, focus, presentation, host, and target-renderer authority.
+3. `DesktopNotificationManager` owns Electron `Notification` instances and
+   their native callback lifecycle.
+4. `WorkbenchCommandIngress` owns renderer action ingress. Workbench session
+   and panel commands perform navigation before any reply or approval action.
 
-The host notification manager may be reused by other features such as reminders, automation heartbeat notifications, or worktree failure notifications, but those are separate producers and are not part of this thread notification contract.
+One raw lifecycle occurrence emits at most one domain event. Owner/follower
+renderer state, cold snapshots, and repeated projections cannot create another
+OS notification. Re-showing the same native ID replaces the existing native
+record; replacement is lifecycle behavior, not producer deduplication.
 
-## Architectural Split
+## Child Classification
 
-Desktop notifications are a three-layer feature.
+A conversation is a child when either source of provenance is present:
 
-### 1. Producer layer
+- its direct `parentThreadId` is non-empty; or
+- app-server `source.subAgent.thread_spawn.parent_thread_id` is non-empty.
 
-The local conversation manager is the producer for local thread notifications.
+Every notification family is suppressed for real child conversations. A child
+approval or question is not relabeled as a parent-task notification.
 
-It is responsible for:
+No blanket exclusion applies merely because a top-level conversation is
+ephemeral, system-sourced, or a side conversation. `realtime_voice` suppresses
+turn completion only. Internal helpers that are real children remain excluded
+by provenance.
 
-- observing live conversation diffs
-- emitting normalized `turn-complete`, `approval-request`, and `user-input-request` events
-- deduplicating request ingress against existing live request ids
-- explicitly suppressing user-interrupted turns from turn-complete notification emission
+## Settings
 
-The producer does not know about window focus, settings suppression, OS notification objects, or route navigation.
-
-### 2. Renderer controller layer
-
-The renderer notification controller is responsible for:
-
-- reading notification settings
-- reading current window focus state
-- reading the focused workbench stage and active thread tab
-- suppressing or allowing notifications based on the rules in this document
-- shaping user-facing notification title/body/action payloads
-- handling notification actions returned from the main process
-
-The renderer does not own Electron `Notification` instances.
-
-### 3. Host layer
-
-The main process notification manager is responsible for:
-
-- creating and tracking Electron `Notification` objects
-- registering click, button, close, and reply callbacks
-- focusing the origin window before `open` actions are delivered back to the renderer
-- dismissing notifications by conversation id
-- applying host-only details such as `timeoutType`, action cap, reply support, and macOS sound staging
-
-## Settings Model
-
-Thread desktop notifications use three independent settings.
-
-### Turn-complete mode
-
-Stored as:
+The three app preferences are independent:
 
 - `turnMode: "off" | "unfocused" | "always"`
-
-Behavior:
-
-- `off`: never notify for turn-complete
-- `unfocused`: notify for turn-complete only when the app window is not focused
-- `always`: notify for turn-complete regardless of same-conversation focus
-
-### Approval notifications
-
-Stored as:
-
 - `permissionsEnabled: boolean`
-
-Behavior:
-
-- controls approval-request notifications only
-- does not affect turn-complete or question notifications
-
-### Question notifications
-
-Stored as:
-
 - `questionsEnabled: boolean`
 
-Behavior:
-
-- controls request-user-input notifications only
-- does not affect turn-complete or approval notifications
-
-### Defaults
-
-Fresh defaults are:
-
-- `turnMode = "unfocused"`
-- `permissionsEnabled = true`
-- `questionsEnabled = true`
-
-### Storage keys
-
-The persisted config keys are:
+Defaults are `unfocused`, `true`, and `true`. They persist under:
 
 - `thread_notifications_turn_mode`
 - `thread_notifications_permissions_enabled`
 - `thread_notifications_questions_enabled`
 
-No legacy notification keys are part of this contract.
-
-## Producer Rules
-
-### Turn-complete producer
-
-The producer emits a `turn-complete` event only when all of the following are true:
-
-- the conversation already existed in the live manager
-- the turn existed before the update
-- the previous turn status was `inProgress`
-- the new turn status is `completed` or `failed`
-- the conversation is notification-eligible
-
-The event payload includes:
-
-- `conversationId`
-- `turnId`
-- `status`
-- `lastAgentMessage`
-- `heartbeatAssistantMessage`
-- `hasPendingContinuation`
-
-`lastAgentMessage` is taken from the final assistant message in that turn when it has non-empty text. If no assistant message exists, it is `null`. The renderer controller normalizes whitespace when shaping the final OS notification body.
-
-`heartbeatAssistantMessage` is derived from the final `<heartbeat>` block in that assistant text. `DONT_NOTIFY` suppresses the turn-complete notification. `NOTIFY` uses the heartbeat `<message>` when present, otherwise the assistant text with the heartbeat block removed.
-
-`hasPendingContinuation` is true when the conversation still has an unpaused queued follow-up, a pending steer, or an active thread goal. Turn-complete notifications are suppressed while this is true because the thread is expected to keep working.
-
-### Interrupted-turn exclusion
-
-User-interrupted turns must never emit a `turn-complete` notification.
-
-This exclusion is explicit. The producer tracks interrupted turn ids so a later terminal update for that same turn still cannot generate a turn-complete notification.
-
-This applies to:
-
-- normal interrupt flow from an already-known in-progress turn
-- optimistic renderer-side interrupt paths before later stream reconciliation arrives
-
-### Approval-request producer
-
-The producer emits an approval notification event when:
-
-- a request id is present in the new `conversation.requests`
-- that request id was not present in the previous `conversation.requests`
-- the request type is `approval`
-- the conversation is notification-eligible
-
-The event payload includes:
-
-- `conversationId`
-- `requestId`
-- `kind`
-- `reason`
-
-`kind` is `command` or `file`.
-
-### Question producer
-
-The producer emits a question notification event when:
-
-- a request id is present in the new `conversation.requests`
-- that request id was not present in the previous `conversation.requests`
-- the request type is `userInput`
-- the conversation is notification-eligible
-
-The event payload includes:
-
-- `conversationId`
-- `requestId`
-- `turnId`
-- `questionCount`
-- `firstQuestion`
-
-### Bootstrap and resume behavior
-
-The producer must not emit notifications from:
-
-- initial bootstrap snapshots
-- cold snapshot hydration for a conversation first entering the manager
-- resume hydration that is effectively a current-state snapshot rather than a new live ingress
-
-Notifications come from live deltas, not from first-seen current state.
-
-### Notification eligibility
-
-A conversation is not eligible for thread desktop notifications when any of the following are true:
-
-- `ephemeral === true`
-- `threadSource === "system"`
-- `source.sideConversation === true`
-
-Auto-title helper threads and other internal system threads must stay out of turn-complete, approval, and question notification production.
-
-## Focus and Suppression Rules
-
-### Same-conversation focused
-
-For desktop notification suppression, "same conversation focused" means:
-
-- `focusedStage === "threads"`
-- the active thread tab is a real thread id, not the new-thread placeholder
-- `activeThreadsTabId === conversationId`
-- the app window is focused
-
-### Turn-complete suppression
-
-Turn-complete notifications are governed by:
-
-- `turnMode`
-- current window focus state
-- heartbeat suppression
-- pending continuation suppression
-
-Turn-complete notifications are not suppressed merely because the same conversation is already open.
-
-Rules:
-
-- `off`: always suppress
-- `unfocused`: suppress when the app window is focused
-- `always`: never suppress for focus reasons
-
-### Approval suppression
-
-Approval notifications are shown only when:
-
-- `permissionsEnabled === true`
-- the same conversation is not focused
-
-Approval notifications do not consult `turnMode`.
-
-### Question suppression
-
-Question notifications are shown only when:
-
-- `questionsEnabled === true`
-- the same conversation is not focused
-
-Question notifications do not consult `turnMode`.
-
-## Notification Payload Shape
-
-The renderer sends normalized notification payloads to the host with this shape:
-
-```ts
-interface DesktopNotificationPayload {
-  id: string;
-  kind: "turn-complete" | "permission" | "question";
-  title: string;
-  body: string;
-  conversationId?: string;
-  requestId?: string;
-  actions?: Array<{
-    id: string;
-    title: string;
-    actionType: "approve" | "approve-for-session" | "decline";
-  }>;
-  replyPlaceholder?: string;
-}
-```
-
-### Payload invariants
-
-- `id` is unique per active notification
-- `conversationId` is included for all thread notification families
-- `requestId` is included for approval and question notifications
-- `actions` are used only for approval notifications
-- `replyPlaceholder` is used only for turn-complete notifications
-
-## User-Facing Copy Rules
-
-### Turn-complete title
-
-Use:
-
-- thread title when available
-- otherwise `Turn complete`
-
-### Turn-complete body
-
-Body selection order:
-
-1. normalized final assistant message summary for code-review findings
-2. normalized final assistant message
-3. fallback `Codex finished a turn.`
-
-If the final assistant message contains inline review findings (`::code-comment{...}`), summarize as:
-
-- `Code review finished. No findings.` when the review explicitly reports no findings
-- `Code review finished. 1 finding.`
-- `Code review finished. N findings.`
-
-### Approval title
-
-Use:
-
-- `Command approval` for command approvals
-- `File edit approval` for file-edit approvals
-
-### Approval body
-
-Use:
-
-- normalized approval reason when present
-- otherwise `Approval required`
-
-### Question title
-
-Use:
-
-- thread title when available
-- otherwise `Need your input`
-
-### Question body
-
-Use:
-
-- `Answer N questions to proceed.`
-- `Answer 1 question to proceed.`
-- `Answer a question to proceed.`
-
-depending on `questionCount`.
-
-## Host Delivery Rules
-
-### Action cap
-
-The host must cap notification buttons to 4 actions.
-
-### Reply support
-
-Reply is enabled only when:
-
-- `kind === "turn-complete"`
-- `replyPlaceholder` is present and non-empty
-
-Approval and question notifications are never reply-enabled.
-
-### Timeout behavior
-
-Use:
-
-- `timeoutType: "never"` for `permission`
-- `timeoutType: "never"` for `question`
-
-Turn-complete notifications do not force `timeoutType: "never"`.
-
-### Sound behavior
-
-On macOS, the host stages the packaged `nodex-notification.aiff` sound once and references it by the `nodex-notification` sound name for delivery. If staging fails, delivery still proceeds without a custom sound.
-
-## Action Routing
-
-The host sends renderer actions back in this shape:
-
-```ts
-interface DesktopNotificationActionPayload {
-  notificationId: string;
-  actionId: string | null;
-  actionType: "open" | "reply" | "approve" | "approve-for-session" | "decline";
-  reply?: string;
-}
-```
-
-The renderer receives that plus:
-
-- `conversationId`
-- `requestId`
-
-from the host callback context.
-
-### Open
-
-When the user clicks the notification body:
-
-- the host focuses the origin window first
-- the renderer navigates to the matching thread tab
-
-### Reply
-
-Reply is valid only for turn-complete notifications.
-
-The renderer:
-
-- opens the matching thread tab
-- sends a new turn using the reply text
-
-Empty replies are ignored.
-
-### Approval actions
-
-Approval buttons map as follows:
-
-- `approve` -> `accept`
-- `approve-for-session` -> `acceptForSession`
-- `decline` -> `decline`
-
-The renderer:
-
-- opens the matching thread tab
-- routes the decision through the existing approval-response path for that request id
-
-### Questions
-
-Question notifications are open-only in desktop notification delivery.
-
-They do not support:
-
-- inline reply
-- inline question answering
-- approval-style action buttons
-
-## Dismissal Rules
-
-When the active thread tab becomes a real thread id, the renderer requests host dismissal for that conversation id.
-
-Host dismissal closes all tracked notifications associated with that conversation id.
-
-This keeps thread notifications from lingering after the user is actively viewing that thread.
-
-## Transport Contract
-
-Renderer-to-main invoke channels:
-
-- `desktop-notification:show`
-- `desktop-notification:hide`
-- `electron-window:focus:get`
-
-Main-to-renderer events:
-
-- `desktop-notification:action`
-- `electron-window:focus-changed`
-
-The browser `Notification` API is not the delivery mechanism for this feature. Browser-side permission probing may exist opportunistically, but Electron host delivery is authoritative.
-
-## Out of Scope
-
-The following are not part of the core thread notification path defined here:
-
-- reminders
-- automation heartbeat notifications
-- worktree failure notifications
-- browser-native notification delivery
-- remote unread-thread notification feeds
-
-Remote unread-thread notifications, if added later, must remain a separate producer path rather than reusing local `turn-complete` emission semantics.
+System notification permission is separate from these preferences. A denied
+OS permission does not rewrite app preferences, and disabling approval
+notifications does not change OS permission.
+
+## Turn Policy
+
+Turn policy is evaluated in this order:
+
+1. non-default hosts do not emit turn notifications;
+2. an automation-level `DONT_NOTIFY` suppresses;
+3. when there is no automation decision, a heartbeat `DONT_NOTIFY`
+   suppresses;
+4. real children suppress;
+5. `threadSource === "realtime_voice"` suppresses;
+6. a terminal-specific pending continuation suppresses;
+7. `turnMode === "off"` suppresses;
+8. `turnMode === "unfocused"` suppresses while any Workbench window is
+   foregrounded;
+9. otherwise show.
+
+Pending continuation is exact to the terminal state:
+
+- a loading queued resource or unpaused queue head suppresses `completed` and
+  `failed`, but does not suppress `interrupted`;
+- an active thread goal suppresses `completed` only;
+- a latest merged turn that is still `inProgress`, any running collaboration
+  agent, or any active descendant suppresses every terminal state;
+- a pending steer does not suppress on its own.
+
+The automation decision is an optional upstream fact. Nodex does not currently
+persist a per-automation notification mode, so local automation turns provide
+no automation decision and use the heartbeat fallback. Adding mute or
+failed-runs-only controls requires an Automation-owned persisted contract; it
+must not be inferred from cron or heartbeat identity.
+
+Completed, failed, and interrupted terminal states all enter this policy.
+User interruption is not an unconditional exclusion.
+
+The title is the normalized task title, falling back to `Turn complete`. The
+body prefers the heartbeat notification message, then heartbeat-visible text,
+then the final assistant message, and finally `Nodex finished a turn.`. Turn
+notifications may expose native inline reply.
+
+## Request Policy
+
+An approval or input request is shown only when:
+
+- the corresponding app preference is enabled;
+- the conversation is not a real child; and
+- no foreground renderer is actually presenting that conversation.
+
+Request policy does not consult `turnMode`. A foreground app showing another
+task does not suppress the request.
+
+Presentation is surface-aware. Main tracks
+`(rendererClientId, conversationId, surfaceId)`, so unmounting one duplicate
+surface does not clear another surface that remains visible. Stream ownership
+is not presentation.
+
+Request presentation is:
+
+| Raw request | Title | Body | Native actions |
+| --- | --- | --- | --- |
+| command approval | `Command approval` | reason or `Approval required` | Approve, Approve for session, Decline |
+| file-change approval | `File edit approval` | reason or `Approval required` | Approve, Approve for session, Decline |
+| permissions approval | `Permission approval` | reason or `Approval required` | none; open only |
+| input request | task title or `Need your input` | singular/plural question count | none; open only |
+
+The current production app-server source is the singleton local host. Request
+events and actions retain a host-qualified contract so a future real host
+source can register without changing request semantics. No synthetic remote
+producer is created by the notification subsystem. Only the local host emits
+turn completion.
+
+## Request Resolution
+
+Every raw `serverRequest/resolved` withdraws native request UI, including when
+the canonical request reducer has no matching live request. Main attempts exact
+dismissal of both possible families:
+
+- `approval-${hostId}-${requestId}`
+- `question-${hostId}-${requestId}`
+
+Presenting a conversation in a foreground renderer dismisses all notifications
+for that conversation. Window disposal dismisses records targeted to that
+renderer. The native manager also supports exact notification-ID and exact
+navigation-path dismissal.
+
+## Native IDs and Presentation
+
+Stable public IDs are:
+
+- `turn-${turnId}`
+- `approval-${hostId}-${requestId}`
+- `question-${hostId}-${requestId}`
+
+Public IDs intentionally preserve the native contract. Main separately indexes
+each occurrence by family, host, conversation, and strict scalar request ID, so
+numeric `73`, textual `"73"`, and equal public IDs in different conversations
+cannot replace or resolve one another.
+
+Main converts title and body to bounded single-line plain text, removing
+script/style blocks, HTML tags, Markdown decoration, and excess whitespace.
+It caps native buttons at four, uses `timeoutType: "never"` for approval and
+question notifications, enables reply for turn notifications only, and uses
+the Nodex notification sound on macOS when the packaged resource can be
+staged.
+
+Click, button, reply, native failure, close, replacement, route dismissal,
+renderer disposal, and shutdown cleanup are idempotent. Constructor/show/close
+and callback-cleanup failures are isolated to their occurrence. The first
+native action consumes its callback record; later callbacks from the same
+native instance do nothing.
+
+## Target Renderer and Focus
+
+Main selects one live renderer for each notification:
+
+1. the latest renderer whose presentation surface actually contains that
+   conversation;
+2. the last-focused live Workbench window;
+3. the first remaining live Workbench window.
+
+If no live renderer exists, the occurrence is dropped and logged. Only an
+`open` click restores, shows, and focuses the target window. Inline buttons and
+reply navigate and act without forcing focus.
+
+## Navigation and Actions
+
+Every native callback carries `hostId`, actual `conversationId`,
+`navigationPath`, optional `activateTabId`, and strict `requestId`.
+
+- A root notification navigates to its attached task session.
+- A side-conversation notification navigates to the saved parent path and
+  activates `sidechat:${conversationId}`. If the ready side tab is not mounted,
+  Workbench materializes it without starting a new side conversation.
+- Navigation must complete before reply or approval execution.
+- Reply trims only surrounding whitespace, preserves the user's Markdown and
+  type-like text, and starts a turn through the manager for the payload's exact
+  host.
+- Approval re-reads the live canonical request by strict scalar ID and accepts
+  only command/file approval methods. Resolved, missing, permission, or
+  replaced requests fail closed.
+
+Native ingress enters through `WorkbenchCommandIngress`; it is not converted
+into request-tick props or handled by a global conversation controller.
+
+## System Permission
+
+At renderer bootstrap, Nodex checks the browser `Notification` API. A
+`default` status requests permission once per Notification-constructor
+identity, including across StrictMode effect replay. Missing API, initial
+status, result, and failure are logged.
+
+Main exposes `enabled | disabled | not-determined | null` through a capability
+detected Adapter:
+
+- a runtime static permission API is used when available;
+- macOS falls back to UserNotifications through a dynamically loaded native
+  bridge;
+- unsupported status queries return `null`, never a fabricated enabled state.
+
+Opening macOS notification settings first requests alert, sound, and badge when
+status is unknown or not determined. The request is fire-and-forget so a native
+prompt cannot block navigation; Main waits about two seconds for OS persistence,
+then opens the real Nodex bundle settings page. Windows opens
+`ms-settings:notifications`.
+
+## Observability
+
+Main logs structured suppression reasons, dropped occurrences with no live
+target, OS permission status/failure, and native permission-request failure.
+These logs must not contain prompt bodies, approval commands, or user replies.

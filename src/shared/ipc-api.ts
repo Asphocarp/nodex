@@ -171,7 +171,6 @@ import type {
   CodexRateLimitResetInput,
   CodexRateLimitResetResult,
   CodexApprovalResponse,
-  CodexApprovalKind,
   CodexCanonicalOptionPickerResponse,
   CodexCanonicalSetupContextPickerResponse,
   CodexCanonicalSetupCodexStepResponse,
@@ -353,7 +352,6 @@ import type {
   TerminalViewLeaseRevokedEvent,
   TerminalViewLeaseResult,
   ThreadNotificationSettings,
-  DesktopNotificationPayload,
   UpdateDiagnosticsSettingsInput,
   UpdateTelemetrySettingsInput,
   UpdateBackupSettingsInput,
@@ -362,7 +360,8 @@ import type {
   UpdateThreadNotificationSettingsInput,
   UpdateWindowRestoreSettingsInput,
   WindowRestoreSettings,
-  DesktopNotificationActionPayload,
+  DesktopNotificationActionInvocation,
+  SystemNotificationPermissionStatus,
   WorkspaceDirectoryEntriesInput,
   WorkspaceDirectoryEntriesResult,
   WorkspaceFileBinaryReadResult,
@@ -1007,12 +1006,12 @@ export interface IpcApi {
     args: [input: UpdateThreadNotificationSettingsInput];
     result: ThreadNotificationSettings;
   };
-  "desktop-notification:show": {
-    args: [notification: DesktopNotificationPayload];
-    result: void;
+  "system-notification-permission:get": {
+    args: [];
+    result: SystemNotificationPermissionStatus;
   };
-  "desktop-notification:hide": {
-    args: [conversationId: string];
+  "system-notification-permission:open-settings": {
+    args: [];
     result: void;
   };
   "electron-window:focus:get": { args: []; result: boolean };
@@ -1789,7 +1788,7 @@ export interface IpcApi {
     result: boolean;
   };
   "codex:thread:presentation:set": {
-    args: [input: { threadId: string; presented: boolean }];
+    args: [input: { threadId: string; surfaceId: string; presented: boolean }];
     result: boolean;
   };
   "codex:user-input:auto-resolution:snapshot": {
@@ -2079,11 +2078,7 @@ export interface IpcEvents {
   "browser-local-server-preferences-changed": BrowserLocalServerPreferences;
   "remote-hosted-pip-stream-state-changed": RemoteHostedPipStreamStateChangedMessage;
   "remote-hosted-pip-hidden-thread-ids-requested": RemoteHostedPipHiddenThreadIdsRequestedMessage;
-  "desktop-notification:action": DesktopNotificationActionPayload & {
-    conversationId: string | null;
-    requestId: CodexProtocolRequestId | null;
-    approvalKind: CodexApprovalKind | null;
-  };
+  "desktop-notification:action": DesktopNotificationActionInvocation;
   "electron-window:focus-changed": { isFocused: boolean };
   "electron-window-opaque-surface-changed": {
     opaqueWindowSurfaceEnabled: boolean;

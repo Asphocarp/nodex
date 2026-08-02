@@ -6,7 +6,9 @@ import type {
   CodexPermissionState,
   DiagnosticsSettings,
   Project,
+  SystemNotificationPermissionStatus,
   TelemetrySettings,
+  ThreadNotificationSettings,
   UpdateWorktreeEnvironmentConfigInput,
   WorktreeEnvironmentSettingsSnapshot,
 } from "@/lib/types";
@@ -124,6 +126,8 @@ function ensureStorybookElectronBridge({
   onDeleteBackup,
   onCreateBackup,
   initialCommandKeybindingOverrides = {},
+  notificationSettings,
+  systemNotificationPermissionStatus,
 }: {
   snapshots: Record<string, WorktreeEnvironmentSettingsSnapshot>;
   onSaveSnapshot: (input: UpdateWorktreeEnvironmentConfigInput) => WorktreeEnvironmentSettingsSnapshot;
@@ -131,6 +135,8 @@ function ensureStorybookElectronBridge({
   onDeleteBackup: (backupId: string) => void;
   onCreateBackup: (label: string | null) => BackupRecord;
   initialCommandKeybindingOverrides?: CommandKeybindingOverrides;
+  notificationSettings: ThreadNotificationSettings;
+  systemNotificationPermissionStatus: SystemNotificationPermissionStatus;
 }) {
   if (typeof window === "undefined") return;
 
@@ -213,11 +219,11 @@ function ensureStorybookElectronBridge({
           gitSettings = { ...gitSettings, ...(args[0] as Partial<typeof gitSettings>) };
           return gitSettings;
         case "settings:thread-notifications:get":
-          return {
-            turnMode: "unfocused",
-            permissionsEnabled: true,
-            questionsEnabled: true,
-          };
+          return notificationSettings;
+        case "system-notification-permission:get":
+          return systemNotificationPermissionStatus;
+        case "system-notification-permission:open-settings":
+          return undefined;
         case "codex-command-keymap-state":
           return createCommandKeymapState(commandKeybindingOverrides);
         case "set-codex-command-keybinding": {
@@ -377,12 +383,20 @@ function SettingsRouteShellStory({
   initialCommandKeybindingOverrides,
   initialSettingsSearchQuery,
   initialSettingsSearchHighlightIndex,
+  notificationSettings = {
+    turnMode: "unfocused",
+    permissionsEnabled: true,
+    questionsEnabled: true,
+  },
+  systemNotificationPermissionStatus = "enabled",
 }: {
   initialPath: string;
   initialServiceTier?: "standard" | "fast";
   initialCommandKeybindingOverrides?: CommandKeybindingOverrides;
   initialSettingsSearchQuery?: string;
   initialSettingsSearchHighlightIndex?: number;
+  notificationSettings?: ThreadNotificationSettings;
+  systemNotificationPermissionStatus?: SystemNotificationPermissionStatus;
 }) {
   const [path, setPath] = useState(initialPath);
   const [environmentSnapshots, setEnvironmentSnapshots] = useState<Record<string, WorktreeEnvironmentSettingsSnapshot>>({
@@ -461,6 +475,8 @@ function SettingsRouteShellStory({
       return backup;
     },
     initialCommandKeybindingOverrides,
+    notificationSettings,
+    systemNotificationPermissionStatus,
   });
 
   if (typeof localStorage !== "undefined") {
@@ -524,6 +540,59 @@ type Story = StoryObj<typeof meta>;
 
 export const General: Story = {
   render: () => <SettingsRouteShellStory initialPath={buildSettingsPath("general-settings")} />,
+};
+
+export const NotificationsNever: Story = {
+  render: () => (
+    <SettingsRouteShellStory
+      initialPath={buildSettingsPath("general-settings")}
+      notificationSettings={{
+        turnMode: "off",
+        permissionsEnabled: true,
+        questionsEnabled: true,
+      }}
+    />
+  ),
+};
+
+export const NotificationsAlways: Story = {
+  render: () => (
+    <SettingsRouteShellStory
+      initialPath={buildSettingsPath("general-settings")}
+      notificationSettings={{
+        turnMode: "always",
+        permissionsEnabled: true,
+        questionsEnabled: true,
+      }}
+    />
+  ),
+};
+
+export const NotificationApprovalsDisabled: Story = {
+  render: () => (
+    <SettingsRouteShellStory
+      initialPath={buildSettingsPath("general-settings")}
+      notificationSettings={{
+        turnMode: "unfocused",
+        permissionsEnabled: false,
+        questionsEnabled: true,
+      }}
+      systemNotificationPermissionStatus="disabled"
+    />
+  ),
+};
+
+export const NotificationQuestionsDisabled: Story = {
+  render: () => (
+    <SettingsRouteShellStory
+      initialPath={buildSettingsPath("general-settings")}
+      notificationSettings={{
+        turnMode: "unfocused",
+        permissionsEnabled: true,
+        questionsEnabled: false,
+      }}
+    />
+  ),
 };
 
 export const OpenSourceLicenses: Story = {
