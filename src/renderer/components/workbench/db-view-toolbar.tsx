@@ -1,11 +1,11 @@
+import { SearchIcon } from "@/components/shared/icons";
 import { useState, type ComponentType, type ReactNode, type RefObject } from "react";
 import {
   ArrowUpDown,
   ListFilter,
-  Search,
   SlidersHorizontal,
   XCircle,
-} from "lucide-react";
+} from "@/components/shared/icons/generic-icons";
 import * as TabsPrimitive from "@radix-ui/react-tabs";
 import { NodexIconButton } from "@/components/ui/button";
 import {
@@ -292,7 +292,7 @@ export function DbViewToolbar({
             {showSearchControls ? (
               <div className="flex items-center">
                 <NodexIconButton
-                  icon={Search}
+                  icon={SearchIcon}
                   size="sm"
                   ariaLabel="Search"
                   title={`Task search (${searchShortcutLabel})`}

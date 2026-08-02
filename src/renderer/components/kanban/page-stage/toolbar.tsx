@@ -1,5 +1,5 @@
-import { ArrowLeft, Link2, MoreHorizontal, Trash2 } from "lucide-react";
-import { CodeBracketsIcon } from "@/components/shared/icons";
+import { ArrowLeft, Link2, Trash2 } from "@/components/shared/icons/generic-icons";
+import { CodeBracketsIcon, ProjectActionsIcon } from "@/components/shared/icons";
 import {
   NodexDropdownItem,
   NodexDropdownMenu,
@@ -183,7 +183,7 @@ export function PageStageToolbar({
                 disabled && "cursor-not-allowed opacity-40 hover:bg-transparent hover:text-(--foreground-tertiary)",
               )}
             >
-              <MoreHorizontal className="icon-sm shrink-0" />
+              <ProjectActionsIcon className="icon-sm shrink-0" />
             </button>
           )}
         >

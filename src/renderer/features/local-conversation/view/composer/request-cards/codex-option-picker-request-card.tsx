@@ -1,5 +1,5 @@
 import { useState, type FormEvent, type KeyboardEvent } from "react";
-import { CodexCloseIcon } from "@/components/shared/icons";
+import { CloseIcon } from "@/components/shared/icons";
 import type {
   CodexCanonicalOptionPickerResponse,
   CodexOptionPickerRequest,
@@ -92,7 +92,7 @@ export function CodexOptionPickerRequestCard({
             className="inline-flex h-token-button-composer aspect-square shrink-0 items-center justify-center rounded-lg border border-transparent text-token-text-tertiary focus:outline-none hover:bg-token-list-hover-background hover:text-token-foreground"
             onClick={() => void dismiss()}
           >
-            <CodexCloseIcon className="icon-2xs" />
+            <CloseIcon className="icon-2xs" />
           </button>
         </div>
 

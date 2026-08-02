@@ -1,4 +1,5 @@
-import { Minus, Plus, RotateCcw } from "lucide-react";
+import { PlusIcon } from "@/components/shared/icons";
+import { Minus, RotateCcw } from "@/components/shared/icons/generic-icons";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { NodexButton as Button } from "@/components/ui/button";
 import {
@@ -135,7 +136,7 @@ export function ImagePreviewDialog({
               aria-label="Zoom in"
               title="Zoom in (+)"
             >
-              <Plus className="size-4" />
+              <PlusIcon className="size-4" />
             </Button>
             <Button
               type="button"

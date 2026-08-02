@@ -1,5 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { ExternalLink, FileIcon, Globe, ListTree, MessageSquare, PictureInPicture2, Slash, SquareTerminal } from "lucide-react";
+import {
+  ExternalLink,
+  ListTree,
+  MessageSquare,
+  PictureInPicture2,
+  Slash,
+  SquareTerminal,
+} from "@/components/shared/icons/generic-icons";
 import { MotionConfig } from "motion/react";
 import type { CSSProperties } from "react";
 import {
@@ -11,6 +18,8 @@ import {
   ThreadSummaryChangesIcon,
   ThreadSummaryCommitIcon,
   ThreadSummaryCreatePullRequestIcon,
+  GlobeIcon,
+  FileIcon,
 } from "@/components/shared/icons";
 import { CODEX_SUMMARY_PANEL_WIDTH } from "@/lib/codex-panel-motion";
 import type {
@@ -24,10 +33,10 @@ import { ThreadSummaryGitActionDialog } from "./thread-summary-git-action-dialog
 import { ThreadSummaryPanelRow } from "./thread-summary-panel-row";
 import { ThreadSummaryPanelSection } from "./thread-summary-panel-section";
 import {
-  CodexConnectorFallbackIcon,
-  CodexGlobeIcon,
-  CodexPluginCubeIcon,
-} from "../shared/tools/codex-tool-icons";
+  ConnectorFallbackIcon,
+  ConnectorGlobeIcon,
+  PluginCubeIcon,
+} from "@/components/shared/icons";
 import { ToolActivityIcon } from "../shared/tools/tool-call-icons";
 
 const SUMMARY_PANEL_STORY_CHILD_MEMBERSHIPS: CodexConversationChildMembership[] = [
@@ -242,19 +251,19 @@ function SummaryPanelSurfaceStory({ noGit = false }: { noGit?: boolean }) {
               title="src/renderer/features/local-conversation/view/thread-layout.tsx"
             />
             <ThreadSummaryPanelRow
-              icon={<CodexGlobeIcon className="size-3.5" aria-hidden={true} />}
+              icon={<ConnectorGlobeIcon className="size-3.5" aria-hidden={true} />}
               label="localhost:5173/preview"
               title="http://localhost:5173/preview"
               interactive
             />
             <ThreadSummaryPanelRow
-              icon={<CodexConnectorFallbackIcon className="size-3.5" aria-hidden={true} />}
+              icon={<ConnectorFallbackIcon className="size-3.5" aria-hidden={true} />}
               label="Reference Roadmap"
               title="https://docs.google.com/document/d/doc-123/edit"
               interactive
             />
             <ThreadSummaryPanelRow
-              icon={<CodexPluginCubeIcon className="size-3.5" aria-hidden={true} />}
+              icon={<PluginCubeIcon className="size-3.5" aria-hidden={true} />}
               label={(
                 <span className="flex min-w-0 items-center gap-1">
                   <span className="truncate">Story app</span>
@@ -329,7 +338,7 @@ function SummaryPanelSurfaceStory({ noGit = false }: { noGit?: boolean }) {
           >
             <ThreadSummaryPanelRow
               label="Release notes"
-              icon={<Globe className="icon-xs shrink-0" />}
+              icon={<GlobeIcon className="icon-xs shrink-0" />}
               trailing={<span className="text-size-chat text-token-text-tertiary">Right panel</span>}
               trailingVisible
               interactive

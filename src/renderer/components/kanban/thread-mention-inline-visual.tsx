@@ -1,6 +1,6 @@
 import type { ComponentPropsWithoutRef, CSSProperties, ReactNode } from "react";
 
-import { CodexThreadIcon } from "@/components/shared/icons";
+import { ThreadIcon } from "@/components/shared/icons";
 import { cn } from "@/lib/utils";
 
 const THREAD_MENTION_INLINE_UNDERLINE_STYLE = {
@@ -36,7 +36,7 @@ function ThreadMentionInlineVisualChildren({
 }: ThreadMentionInlineVisualBaseProps) {
   return (
     <>
-      <CodexThreadIcon
+      <ThreadIcon
         className={cn(
           "relative top-[0.14em] inline-block size-[1.0em] shrink-0 text-token-description-foreground",
           iconClassName,

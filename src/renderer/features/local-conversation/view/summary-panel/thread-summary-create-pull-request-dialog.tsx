@@ -1,4 +1,4 @@
-import { ExternalLink, GitBranch, GitPullRequest, PencilLine } from "lucide-react";
+import { ExternalLink, GitBranch, GitPullRequest, PencilLine } from "@/components/shared/icons/generic-icons";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { NodexButton } from "@/components/ui/button";

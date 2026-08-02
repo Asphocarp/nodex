@@ -39,7 +39,7 @@ describe("Workbench profile preferences", () => {
       width: 520,
       collapsibleSections: {
         pinned: true,
-        library: false,
+        pages: false,
         projects: false,
         chats: true,
       },

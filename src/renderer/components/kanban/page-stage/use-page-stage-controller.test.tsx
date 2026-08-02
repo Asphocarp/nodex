@@ -16,7 +16,7 @@ import {
   usePageStageController,
   type PageStageControllerDependencies,
 } from "./use-page-stage-controller";
-import type { PageStageProps } from "./types";
+import type { PageStageProps, PageStageSessionSnapshot } from "./types";
 
 type PageStageController = ReturnType<typeof usePageStageController>;
 
@@ -112,8 +112,9 @@ function buildProps(overrides: Partial<PageStageProps> = {}): PageStageProps {
   const page = overrides.page === undefined ? toStageModel(sourcePage) : overrides.page;
   return {
     page,
+    contentAccessContext: { kind: "project", projectId: "project-1" },
     documentAuthority: documentAuthority(),
-    projectId: "project-1",
+    documentScopeId: "project-1",
     availableTags: [],
     onClose: () => undefined,
     onUpdate: async (_pageId, updates) =>
@@ -210,6 +211,20 @@ describe("usePageStageController", () => {
     expect(updates.length).toBe(0);
     expect(liveTitles).toEqual(["Live Y.Text title"]);
     expect(leftTitles.join(",")).toBe("Live Y.Text title");
+  });
+
+  test("does not publish a Project session snapshot for Library authority", async () => {
+    const snapshots: PageStageSessionSnapshot[] = [];
+    const result = renderController(buildProps({
+      contentAccessContext: { kind: "library" },
+      documentScopeId: "library",
+      onLeavePage: (snapshot) => snapshots.push(snapshot),
+    }));
+    await settleAsyncRender();
+
+    await act(async () => result.controller.handleClose());
+
+    expect(snapshots).toEqual([]);
   });
 
   test("persists freeform metadata without title or description fields", async () => {

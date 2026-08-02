@@ -1,5 +1,5 @@
 import { act, fireEvent, waitFor } from "@testing-library/react";
-import { FileText } from "lucide-react";
+import { FileIcon } from "@/components/shared/icons";
 import { describe, expect, test } from "vitest";
 
 import {
@@ -11,7 +11,7 @@ import {
 import { render } from "@/test/dom";
 import { OwnedDocumentReferenceSurface } from "./owned-document-reference-surface";
 
-const renderIcon = () => <FileText aria-hidden="true" className="size-3.5" />;
+const renderIcon = () => <FileIcon aria-hidden="true" className="size-3.5" />;
 
 describe("OwnedDocumentReferenceSurface", () => {
   test("does not mount the foreign provider surface until local expansion", async () => {

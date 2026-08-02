@@ -1,4 +1,5 @@
-import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import { ChevronRightIcon, PlusIcon } from "@/components/shared/icons";
+import { ChevronLeft } from "@/components/shared/icons/generic-icons";
 import type { CalendarRangeState } from "@/lib/calendar-range";
 import { formatCalendarToolbarMonthYear } from "@/lib/calendar-view-state";
 import { cn } from "@/lib/utils";
@@ -43,7 +44,7 @@ export function CalendarToolbarControls({
         aria-label="Create calendar task"
         title="Create calendar task"
       >
-        <Plus className="size-4" />
+        <PlusIcon className="size-4" />
       </button>
 
       <CalendarRangeDropdown range={range} onRangeChange={onRangeChange} />
@@ -66,7 +67,7 @@ export function CalendarToolbarControls({
           className={cn(groupedButton, "w-8 px-0")}
           aria-label="Next"
         >
-          <ChevronRight className="size-4" />
+          <ChevronRightIcon className="size-4" />
         </button>
       </div>
     </div>

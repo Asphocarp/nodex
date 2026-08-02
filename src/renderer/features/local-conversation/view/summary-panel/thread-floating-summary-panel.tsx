@@ -1,12 +1,13 @@
-import { ExternalLink, FileIcon, ImageIcon, ListTree, PictureInPicture2, Slash, SquareTerminal, X } from "lucide-react";
+import { ExternalLink, ImageIcon, ListTree, PictureInPicture2, Slash, SquareTerminal, X } from "@/components/shared/icons/generic-icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import {
   BranchStatusIcon,
+  FileIcon,
   ChevronDownIcon,
   ClockIcon,
   ComposerPlanModeIcon,
-  CodexSidePanelSideChatIcon,
+  SidePanelSideChatIcon,
   LocalStatusIcon,
   SpinnerIcon,
   ThreadSummaryChangesIcon,
@@ -35,10 +36,10 @@ import {
 } from "../shared/branch-selector-state";
 import { DiffStats } from "../shared/tools/diff-file-shared";
 import {
-  CodexConnectorFallbackIcon,
-  CodexGlobeIcon,
-  CodexPluginCubeIcon,
-} from "../shared/tools/codex-tool-icons";
+  ConnectorFallbackIcon,
+  ConnectorGlobeIcon,
+  PluginCubeIcon,
+} from "@/components/shared/icons";
 import { getGitWorkerClient, invoke } from "../../../../lib/api";
 import {
   CODEX_SUMMARY_PANEL_TRANSITION,
@@ -468,7 +469,7 @@ function SummaryBrowserFavicon({
   const iconClassName = cn("size-full", isAgentWorking && "opacity-30");
 
   if (!faviconUrl || failed) {
-    return <CodexGlobeIcon className={iconClassName} aria-hidden={true} />;
+    return <ConnectorGlobeIcon className={iconClassName} aria-hidden={true} />;
   }
 
   return (
@@ -562,15 +563,15 @@ function SummaryOutputIcon({ row }: { row: ThreadSummaryPanelOutputRow }) {
   }
 
   if (row.kind === "website") {
-    return <CodexGlobeIcon className="size-3.5" aria-hidden={true} />;
+    return <ConnectorGlobeIcon className="size-3.5" aria-hidden={true} />;
   }
 
   if (row.kind === "google-drive") {
-    return <CodexConnectorFallbackIcon className="size-3.5" aria-hidden={true} />;
+    return <ConnectorFallbackIcon className="size-3.5" aria-hidden={true} />;
   }
 
   if (row.kind === "appgen-app") {
-    return <CodexPluginCubeIcon className="size-3.5" aria-hidden={true} />;
+    return <PluginCubeIcon className="size-3.5" aria-hidden={true} />;
   }
 
   return <FileIcon className="size-3.5" />;
@@ -1296,8 +1297,6 @@ export function ThreadSummaryPanelSurface({
                         side="left"
                         align="start"
                         sideOffset={4}
-                        contentWidth="menuNarrow"
-                        contentClassName="max-w-[calc(100vw-2rem)]"
                         menuTitle="Continue in"
                         tooltipContent="Select where to run the task"
                         renderTrigger={({ iconKey, title, disabled }) => (
@@ -1512,7 +1511,7 @@ export function ThreadSummaryPanelSurface({
                         title={row.title}
                         icon={row.isResponseInProgress
                           ? <SpinnerIcon className="icon-sm shrink-0" />
-                          : <CodexSidePanelSideChatIcon className="icon-sm shrink-0" />}
+                          : <SidePanelSideChatIcon className="icon-sm shrink-0" />}
                         interactive={Boolean(actions?.onOpenSummarySideChatRow && row.panelId)}
                         onClick={actions?.onOpenSummarySideChatRow && row.panelId
                           ? () => handleOpenAuxiliaryRow(row, actions.onOpenSummarySideChatRow)

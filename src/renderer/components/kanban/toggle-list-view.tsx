@@ -36,6 +36,7 @@ import {
 } from "@/lib/toggle-list/types";
 import { ToggleListScrollContainer } from "./view-scroll-containers";
 import type { OpenPageStageOptions } from "./open-page-stage";
+import { projectContentAccess } from "../../../shared/content-access-context";
 
 const EmbeddedReferencedPageDocument = lazy(() =>
   import("./editor/embedded-referenced-page-document").then((module) => ({
@@ -332,7 +333,8 @@ export function ToggleListView({
       }) => openPageStage(targetProjectId, pageId, titleSnapshot)
     : undefined;
   const hostRuntime: BlockReferenceHostRuntime = {
-    projectId,
+    contentAccessContext: projectContentAccess(projectId),
+    documentScopeId: projectId,
     projectName: null,
     projectWorkspacePath: null,
     hostPageId: null,
@@ -368,7 +370,7 @@ export function ToggleListView({
                 }
               >
                 <EmbeddedReferencedPageDocument
-                  projectId={targetProjectId}
+                  documentScopeId={targetProjectId}
                   card={card}
                   isActive={isActive}
                   hostRuntime={hostRuntime}

@@ -1,5 +1,6 @@
 import type { ThreadBackgroundTerminal } from "@nodex/codex-app-server-protocol/v2/ThreadBackgroundTerminal";
 import type { GitRepositoryIdentity } from "./git-repository-identity";
+import type { ContentAccessContext } from "./content-access-context";
 import type { LocalPathPresentationContext } from "./local-path-presentation";
 import type {
   ManagedAssetImageBytes,
@@ -409,7 +410,6 @@ import type {
   WindowSessionNewWindowRequest,
   WindowSessionSaveLayoutInput,
 } from "./window-session";
-import type { ProductFeatureGates } from "./product-feature-gates";
 import type { FileLinkOpenerId, FileLinkTarget } from "./file-link-openers";
 import type {
   CommandKeybindingUpdate,
@@ -668,11 +668,17 @@ export interface IpcApi {
     result: DatabaseApplyResultV2;
   };
   "library-module:read": {
-    args: [request: LibraryModuleReadRequest];
+    args: [
+      accessContext: ContentAccessContext,
+      request: LibraryModuleReadRequest,
+    ];
     result: LibraryModuleReadResult;
   };
   "library-module:apply": {
-    args: [request: LibraryModuleApplyRequest];
+    args: [
+      accessContext: ContentAccessContext,
+      request: LibraryModuleApplyRequest,
+    ];
     result: LibraryModuleApplyResult;
   };
   "library-database-module:read": {
@@ -1139,7 +1145,6 @@ export interface IpcApi {
   };
   "window:show-emoji-panel": { args: []; result: boolean };
   "window:new": { args: [request?: WindowSessionNewWindowRequest]; result: boolean };
-  "app:feature-gates:get": { args: []; result: ProductFeatureGates };
   "window-sessions:bootstrap": { args: []; result: WindowSessionBootstrap };
   "window-sessions:save-layout": {
     args: [input: WindowSessionSaveLayoutInput];

@@ -1,6 +1,12 @@
+import {
+  CalendarIcon,
+  CanvasIcon,
+  BoardIcon,
+  DatabaseIcon,
+} from "@/components/shared/icons";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
-import { CalendarDays, Shapes, SquareKanban, Table2 } from "lucide-react";
+
 import {
   CalendarToolbarControls,
   CalendarToolbarMonthLabel,
@@ -25,9 +31,9 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 const ITEMS: DbViewToolbarItem[] = [
-  { id: "kanban", label: "Board", icon: SquareKanban, onSelect: () => undefined },
-  { id: "list", label: "Table", icon: Table2, onSelect: () => undefined },
-  { id: "calendar", label: "Calendar", icon: CalendarDays, active: true, onSelect: () => undefined },
+  { id: "kanban", label: "Board", icon: BoardIcon, onSelect: () => undefined },
+  { id: "list", label: "Table", icon: DatabaseIcon, onSelect: () => undefined },
+  { id: "calendar", label: "Calendar", icon: CalendarIcon, active: true, onSelect: () => undefined },
 ];
 
 function CalendarDbToolbarStory({ narrow = false }: { narrow?: boolean }) {
@@ -48,7 +54,7 @@ function CalendarDbToolbarStory({ narrow = false }: { narrow?: boolean }) {
           destinationItems={[{
             id: "primary-canvas",
             label: "Canvas",
-            icon: Shapes,
+            icon: CanvasIcon,
             onSelect: () => undefined,
           }]}
           activeSearchQuery=""

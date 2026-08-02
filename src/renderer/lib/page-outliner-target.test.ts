@@ -5,6 +5,7 @@ import {
 } from "../../shared/block-documents";
 import type { PageTargetReadModel } from "../../shared/page-targets";
 import type { Page } from "../../shared/page";
+import { projectContentAccess } from "../../shared/content-access-context";
 import {
   pageOutlinerInlineStateLabel,
   pageOutlinerPlainTitle,
@@ -52,7 +53,8 @@ const input = (
   model: available,
   loading: false,
   error: null,
-  requestingProjectId: "host-project",
+  contentAccessContext: projectContentAccess("host-project"),
+  documentScopeId: "host-project",
   hostPageId: "host-page",
   ancestorPageIds: ["host-page"],
   ...overrides,
@@ -64,7 +66,8 @@ describe("resolvePageOutlinerTarget", () => {
       status: "available",
       relationship: "reference",
       targetBlockId: "page-target",
-      requestingProjectId: "host-project",
+      contentAccessContext: projectContentAccess("host-project"),
+      documentScopeId: "host-project",
       page: { title: "Canonical title" },
       inlineMode: "editable",
     });

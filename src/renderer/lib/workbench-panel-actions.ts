@@ -7,11 +7,14 @@ import {
   type CommandKeymapState,
 } from "../../shared/command-keybindings";
 import {
-  CodexSidePanelBrowserIcon,
-  CodexSidePanelFilesIcon,
-  CodexSidePanelReviewIcon,
-  CodexSidePanelSideChatIcon,
-  CodexSidePanelTerminalIcon,
+  SidePanelBrowserIcon,
+  SidePanelFilesIcon,
+  SidePanelReviewIcon,
+  SidePanelSideChatIcon,
+  SidePanelTerminalIcon,
+  CanvasIcon,
+  DatabaseIcon,
+  PageIcon,
 } from "@/components/shared/icons";
 import {
   resolveWorkbenchPanelCapabilities,
@@ -21,11 +24,7 @@ import type {
   PanelId,
   WorkbenchTabProjection,
 } from "@/lib/types";
-import {
-  SquareKanban,
-  Shapes,
-  Table2,
-} from "lucide-react";
+
 
 export type PanelNewTabActionKind = WorkbenchPanelActionKind;
 
@@ -66,7 +65,7 @@ export const PANEL_NEW_TAB_ACTIONS: PanelNewTabAction[] = [
     description: "Browse project files",
     shortcut: "mod+shift+e",
     commandId: "toggleFileTreePanel",
-    Icon: CodexSidePanelFilesIcon,
+    Icon: SidePanelFilesIcon,
   },
   {
     kind: "side_chat",
@@ -76,7 +75,7 @@ export const PANEL_NEW_TAB_ACTIONS: PanelNewTabAction[] = [
     description: "Start a side conversation",
     shortcut: "alt+mod+s",
     commandId: "openSideChat",
-    Icon: CodexSidePanelSideChatIcon,
+    Icon: SidePanelSideChatIcon,
   },
   {
     kind: "browser",
@@ -86,7 +85,7 @@ export const PANEL_NEW_TAB_ACTIONS: PanelNewTabAction[] = [
     description: "Open a website",
     shortcut: "mod+t",
     commandId: "openBrowserTab",
-    Icon: CodexSidePanelBrowserIcon,
+    Icon: SidePanelBrowserIcon,
   },
   {
     kind: "review",
@@ -96,7 +95,7 @@ export const PANEL_NEW_TAB_ACTIONS: PanelNewTabAction[] = [
     description: "View code changes",
     shortcut: "ctrl+shift+g",
     commandId: "openReviewTab",
-    Icon: CodexSidePanelReviewIcon,
+    Icon: SidePanelReviewIcon,
   },
   {
     kind: "terminal",
@@ -106,28 +105,28 @@ export const PANEL_NEW_TAB_ACTIONS: PanelNewTabAction[] = [
     description: "Start an interactive shell",
     shortcut: "ctrl+backquote",
     commandId: "toggleTerminal",
-    Icon: CodexSidePanelTerminalIcon,
+    Icon: SidePanelTerminalIcon,
   },
   {
     kind: "db_view",
     defaultPanelId: "right",
     label: "DB View",
     description: "Open the project database",
-    Icon: Table2,
+    Icon: DatabaseIcon,
   },
   {
     kind: "page_stage",
     defaultPanelId: "right",
     label: "Page",
     description: "Open a Library Page",
-    Icon: SquareKanban,
+    Icon: PageIcon,
   },
   {
     kind: "canvas_stage",
     defaultPanelId: "right",
     label: "Canvas",
     description: "Open the project Canvas",
-    Icon: Shapes,
+    Icon: CanvasIcon,
   },
 ];
 

@@ -1,5 +1,6 @@
+import { ChevronRightIcon } from "@/components/shared/icons";
 import { useId, type ReactNode } from "react";
-import { ChevronRight } from "lucide-react";
+
 
 import {
   BlockDisclosureStateStore,
@@ -128,7 +129,7 @@ export function OwnedDocumentReferenceSurface({
           )}
           onClick={() => setExpanded(!expanded)}
         >
-          <ChevronRight
+          <ChevronRightIcon
             aria-hidden="true"
             className={cn(
               "size-3.5 shrink-0 transition-transform duration-150 ease-out",

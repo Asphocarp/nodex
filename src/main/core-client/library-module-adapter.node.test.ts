@@ -379,7 +379,6 @@ describe("Core Library Module Adapter", () => {
     } as unknown as RustDataAuthorityRuntime;
     const bridge = createDesktopLibraryModuleBridge({
       authority: Promise.resolve(runtime),
-      resolveProjectId: () => null,
     });
 
     await expect(bridge.readProjectPageDetail(
@@ -485,7 +484,7 @@ describe("Core Library Module Adapter", () => {
     const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
 
     await expect(adapter.resolvePageTarget({
-      requestingProjectId: "project:test",
+      accessContext: { kind: "project", projectId: "project:test" },
       targetPageId: "page:one",
     })).resolves.toMatchObject({
       status: "available",
@@ -494,7 +493,7 @@ describe("Core Library Module Adapter", () => {
       document: { readiness: "ready", schemaKey: "nodex.page" },
     });
     await expect(adapter.resolvePageOwnershipPath({
-      requestingProjectId: "project:test",
+      accessContext: { kind: "project", projectId: "project:test" },
       targetPageId: "page:one",
     })).resolves.toEqual({
       libraryId: "library:test",
@@ -946,12 +945,14 @@ describe("Core Library Module Adapter", () => {
     }]);
   });
 
-  test("binds reference reads to their Project and locations to the trusted root", async () => {
+  test("binds reference reads to explicit Project or Library authority", async () => {
     const rootClient = new FakeCoreClient();
     const projectClient = new FakeCoreClient();
     projectClient.enqueueRead(pageTargetSnapshot());
     projectClient.enqueueRead(pageOwnershipPathSnapshot());
     projectClient.enqueueRead(pageLifecyclePreflightSnapshot());
+    rootClient.enqueueRead(pageTargetSnapshot());
+    rootClient.enqueueRead(pageOwnershipPathSnapshot());
     rootClient.enqueueRead(pageLocationSnapshot());
     rootClient.enqueueRead(viewLocationSnapshot());
     const requestedProjects: string[] = [];
@@ -968,15 +969,22 @@ describe("Core Library Module Adapter", () => {
     } as unknown as RustDataAuthorityRuntime;
     const bridge = createDesktopLibraryModuleBridge({
       authority: Promise.resolve(runtime),
-      resolveProjectId: () => null,
     });
 
     await bridge.resolvePageTarget({
-      requestingProjectId: "project:test",
+      accessContext: { kind: "project", projectId: "project:test" },
       targetPageId: "page:one",
     });
     await bridge.resolvePageOwnershipPath({
-      requestingProjectId: "project:test",
+      accessContext: { kind: "project", projectId: "project:test" },
+      targetPageId: "page:one",
+    });
+    await bridge.resolvePageTarget({
+      accessContext: { kind: "library" },
+      targetPageId: "page:one",
+    });
+    await bridge.resolvePageOwnershipPath({
+      accessContext: { kind: "library" },
       targetPageId: "page:one",
     });
     await expect(bridge.readPageLifecyclePreflight(
@@ -989,6 +997,14 @@ describe("Core Library Module Adapter", () => {
     expect(requestedProjects).toEqual(["project:test"]);
     expect(projectClient.reads).toHaveLength(3);
     expect(rootClient.reads).toEqual([
+      {
+        kind: "page_target",
+        page_id: "page:one",
+      },
+      {
+        kind: "page_ownership_path",
+        page_id: "page:one",
+      },
       {
         kind: "page_location",
         page_id: "page:one",
@@ -1060,7 +1076,7 @@ describe("Core Library Module Adapter", () => {
     })).resolves.toEqual({
       ok: true,
       value: {
-        version: 4,
+        version: LIBRARY_MODULE_CONTRACT_VERSION,
         profileId: identity.profileId,
         libraryId: identity.libraryId,
         storeEpoch: identity.storeEpoch,
@@ -1091,6 +1107,172 @@ describe("Core Library Module Adapter", () => {
       cursor: null,
       limit: undefined,
       force_include_target: null,
+    }]);
+  });
+
+  test("maps standalone root reads without deriving Project ownership", async () => {
+    const client = new FakeCoreClient();
+    client.enqueueRead({
+      contract_version: 8,
+      store_epoch: identity.storeEpoch,
+      event_head: 8,
+      value: {
+        kind: "standalone_roots",
+        items: [{
+          kind: "page",
+          page_id: "page:standalone",
+          title: "Prompts",
+          has_children: false,
+          parent_revision: 1,
+          metadata_revision: 2,
+          document_generation: 1,
+          document_head_seq: 3,
+          updated_at: "2026-08-03T00:00:00.000Z",
+        }],
+        next_cursor: null,
+        has_more: false,
+        total: 1,
+      },
+    });
+    const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
+
+    await expect(adapter.read({
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      read: {
+        mode: "standalone_roots",
+        limit: 10,
+        forceIncludeTarget: { kind: "page", pageId: "page:standalone" },
+      },
+    })).resolves.toMatchObject({
+      ok: true,
+      value: {
+        value: {
+          kind: "standalone_roots",
+          items: [{ kind: "page", pageId: "page:standalone" }],
+          total: 1,
+        },
+      },
+    });
+    expect(client.reads).toEqual([{
+      kind: "standalone_roots",
+      cursor: null,
+      limit: 10,
+      force_include_target: { kind: "page", page_id: "page:standalone" },
+    }]);
+  });
+
+  test("maps the Project access matrix and atomic access intent", async () => {
+    const client = new FakeCoreClient();
+    client.enqueueRead({
+      contract_version: 8,
+      store_epoch: identity.storeEpoch,
+      event_head: 9,
+      value: {
+        kind: "resource_project_access",
+        value: {
+          target: { kind: "page", page_id: "page:one" },
+          projects: [{
+            project_id: "project:test",
+            project_name: "Product",
+            appearance: {
+              color: "blue",
+              marker: { kind: "icon", icon: "folder" },
+            },
+            lifecycle: "active",
+            direct_grant: { access: "read", revision: 2 },
+            inherited_sources: [{
+              kind: "ancestor_page",
+              page_id: "page:parent",
+              page_title: "Strategy",
+              access: "read_write",
+            }],
+            effective_access: "read_write",
+          }],
+        },
+      },
+    });
+    client.enqueueApply({
+      value: {
+        affected_resource_ids: ["page:one"],
+        page_copy: null,
+        block_transfer: null,
+        page_lifecycle: null,
+      },
+      receipt: {
+        operation_id: "operation:set-access",
+        duplicate: false,
+        operation_kind: "set_project_access",
+        did_mutate: true,
+        created_target: null,
+        affected_parent_keys: [],
+        affected_page_ids: ["page:one"],
+        affected_database_ids: [],
+        affected_view_ids: [],
+        committed_revisions: { "projectGrant:project:test": 3 },
+        change_log_seq: 10,
+        committed_at: "2026-08-04T00:00:00.000Z",
+      },
+      event_sequence: 10,
+      store_epoch: identity.storeEpoch,
+    });
+    const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
+
+    await expect(adapter.read({
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      read: {
+        mode: "resource_project_access",
+        target: { kind: "page", pageId: "page:one" },
+      },
+    })).resolves.toMatchObject({
+      ok: true,
+      value: {
+        value: {
+          kind: "resource_project_access",
+          value: {
+            projects: [{
+              projectId: "project:test",
+              directGrant: { access: "read", revision: 2 },
+              inheritedSources: [{
+                kind: "ancestor_page",
+                pageId: "page:parent",
+              }],
+            }],
+          },
+        },
+      },
+    });
+    await expect(adapter.apply({
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      operationId: "operation:set-access",
+      storeEpoch: identity.storeEpoch,
+      operation: {
+        kind: "set_project_access",
+        target: { kind: "page", pageId: "page:one" },
+        changes: [{
+          projectId: "project:test",
+          access: null,
+          expectedRevision: 2,
+        }],
+      },
+    })).resolves.toMatchObject({
+      ok: true,
+      value: { operationKind: "set_project_access", didMutate: true },
+    });
+    expect(client.reads).toEqual([{
+      kind: "resource_project_access",
+      target: { kind: "page", page_id: "page:one" },
+    }]);
+    expect(client.applies).toEqual([{
+      operationId: "operation:set-access",
+      intent: {
+        kind: "set_project_access",
+        target: { kind: "page", page_id: "page:one" },
+        changes: [{
+          project_id: "project:test",
+          access: null,
+          expected_revision: 2,
+        }],
+      },
     }]);
   });
 
@@ -1304,22 +1486,24 @@ describe("Core Library Module Adapter", () => {
     const published: Array<Record<string, unknown>> = [];
     const bridge = createDesktopLibraryModuleBridge({
       authority: Promise.resolve(runtime),
-      resolveProjectId: () => "project:test",
       publishLibraryDocumentCommits: (input) => published.push(input),
     });
 
-    const result = await bridge.apply({
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
-      operationId: "operation:create-inline-canvas",
-      storeEpoch: identity.storeEpoch,
-      operation: {
-        kind: "create_canvas",
-        canvasId,
-        documentId: canvasDocumentId,
-        displayName: "Inline Canvas",
-        destination: { kind: "library" },
+    const result = await bridge.apply(
+      { kind: "project", projectId: "project:test" },
+      {
+        version: LIBRARY_MODULE_CONTRACT_VERSION,
+        operationId: "operation:create-inline-canvas",
+        storeEpoch: identity.storeEpoch,
+        operation: {
+          kind: "create_canvas",
+          canvasId,
+          documentId: canvasDocumentId,
+          displayName: "Inline Canvas",
+          destination: { kind: "library" },
+        },
       },
-    }, {});
+    );
 
     expect(result).toMatchObject({ ok: true });
     expect(published).toEqual([
@@ -1400,37 +1584,6 @@ describe("Core Library Module Adapter", () => {
     expect(client.applies).toHaveLength(1);
   });
 
-  test("fails closed before a Rust write without a trusted window Project", async () => {
-    const runtime = {
-      backend: "rust",
-      identity,
-      rootClient: { handshake: fakeHandshake() },
-      clientForProject: () => {
-        throw new Error("Project client must not be resolved");
-      },
-    } as unknown as RustDataAuthorityRuntime;
-    const bridge = createDesktopLibraryModuleBridge({
-      authority: Promise.resolve(runtime),
-      resolveProjectId: () => null,
-    });
-
-    await expect(bridge.apply({
-      version: 4,
-      operationId: "operation:unbound",
-      storeEpoch: identity.storeEpoch,
-      operation: {
-        kind: "create_page",
-        pageId: "page:unbound",
-        documentId: "document:unbound",
-        title: "Unbound",
-        parent: { kind: "library" },
-      },
-    }, {})).resolves.toMatchObject({
-      ok: false,
-      error: { code: "invalid_request" },
-    });
-  });
-
   test("routes trusted Library writes through the root Core client", async () => {
     const rootClient = new FakeCoreClient();
     rootClient.enqueueApply({
@@ -1469,7 +1622,6 @@ describe("Core Library Module Adapter", () => {
     } as unknown as RustDataAuthorityRuntime;
     const bridge = createDesktopLibraryModuleBridge({
       authority: Promise.resolve(runtime),
-      resolveProjectId: () => null,
     });
     const request = {
       version: LIBRARY_MODULE_CONTRACT_VERSION,
@@ -1484,7 +1636,7 @@ describe("Core Library Module Adapter", () => {
       },
     };
 
-    await expect(bridge.applyTrustedLibrary(request)).resolves.toMatchObject({
+    await expect(bridge.apply({ kind: "library" }, request)).resolves.toMatchObject({
       ok: true,
       value: {
         operationId: request.operationId,

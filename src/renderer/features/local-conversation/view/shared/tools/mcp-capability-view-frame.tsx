@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Maximize2, Minimize2 } from "lucide-react";
+import { Maximize2, Minimize2 } from "@/components/shared/icons/generic-icons";
 import { NodexTooltip } from "../../../../../components/ui/tooltip";
 import { cn } from "../../../../../lib/utils";
 import { resolveMcpAppFrameHeight, type McpRenderableResource } from "./mcp-tool-call-resource-utils";

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { LoaderCircle } from "lucide-react";
+import { LoaderCircle } from "@/components/shared/icons/generic-icons";
 import { useRemovedProjects } from "@/lib/use-projects";
 import type { Project } from "@/lib/types";
 import { NodexButton } from "@/components/ui/button";

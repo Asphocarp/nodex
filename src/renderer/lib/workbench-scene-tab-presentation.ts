@@ -1,5 +1,5 @@
 import type { ComponentType } from "react";
-import { MessageSquare } from "lucide-react";
+import { MessageSquare } from "@/components/shared/icons/generic-icons";
 import type { WorkbenchSurfaceDescriptor } from "../../shared/workbench-scene";
 import { getPanelNewTabAction } from "./workbench-panel-actions";
 

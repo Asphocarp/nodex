@@ -1,13 +1,28 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useEffect, useState } from "react";
-import { Check, FolderGit2, Settings2, Shield, Sparkles, SquareKanban, Table2 } from "lucide-react";
 import {
-  CodexSidePanelBrowserIcon,
-  CodexSidePanelFilesIcon,
-  CodexSidePanelReviewIcon,
-  CodexSidePanelSideChatIcon,
+  Check,
+  FolderGit2,
+  Settings2,
+  Shield,
+  Sparkles,
+} from "@/components/shared/icons/generic-icons";
+import {
+  ArchiveIcon,
+  DatabaseIcon,
+  MoveToIcon,
+  OpenInIcon,
+  PageIcon,
+  ProjectAccessIcon,
+  ProjectRemovedIcon,
+  SidePanelBrowserIcon,
+  SidePanelFilesIcon,
+  SidePanelReviewIcon,
+  SidePanelSideChatIcon,
   ConfigStatusIcon,
   EstimatePickerIcon,
+  RefreshIcon,
+  BoardIcon,
 } from "@/components/shared/icons";
 import { NodexButton } from "./button";
 import {
@@ -159,37 +174,69 @@ function PanelActionIconDropdownDemo() {
         )}
       >
         <NodexDropdownItem
-          leftSlot={<CodexSidePanelFilesIcon className="icon-sm" />}
+          leftSlot={<SidePanelFilesIcon className="icon-sm" />}
           keyboardShortcut="⌘P"
         >
           Files
         </NodexDropdownItem>
         <NodexDropdownItem
-          leftSlot={<CodexSidePanelSideChatIcon className="icon-sm" />}
+          leftSlot={<SidePanelSideChatIcon className="icon-sm" />}
         >
           Side chat
         </NodexDropdownItem>
         <NodexDropdownItem
-          leftSlot={<CodexSidePanelBrowserIcon className="icon-sm" />}
+          leftSlot={<SidePanelBrowserIcon className="icon-sm" />}
           keyboardShortcut="⌘T"
         >
           Browser
         </NodexDropdownItem>
         <NodexDropdownItem
-          leftSlot={<CodexSidePanelReviewIcon className="icon-sm" />}
+          leftSlot={<SidePanelReviewIcon className="icon-sm" />}
           keyboardShortcut="⌃⇧G"
         >
           Review
         </NodexDropdownItem>
         <NodexDropdownItem
-          leftSlot={<Table2 className="icon-sm" />}
+          leftSlot={<DatabaseIcon className="icon-sm" />}
         >
           DB View
         </NodexDropdownItem>
         <NodexDropdownItem
-          leftSlot={<SquareKanban className="icon-sm" />}
+          leftSlot={<BoardIcon className="icon-sm" />}
         >
           Page Stage
+        </NodexDropdownItem>
+      </NodexDropdownMenu>
+    </StorySurface>
+  );
+}
+
+function LibraryActionIconDropdownDemo() {
+  return (
+    <StorySurface>
+      <NodexDropdownMenu
+        open={true}
+        triggerButton={(
+          <NodexDropdownButtonTrigger className="min-w-32">
+            Library item
+          </NodexDropdownButtonTrigger>
+        )}
+      >
+        <NodexDropdownItem leftSlot={<PageIcon />}>Page</NodexDropdownItem>
+        <NodexDropdownItem leftSlot={<DatabaseIcon />}>Database</NodexDropdownItem>
+        <NodexDropdownSeparator />
+        <NodexDropdownItem leftSlot={<MoveToIcon />}>Move to…</NodexDropdownItem>
+        <NodexDropdownItem leftSlot={<ProjectAccessIcon />}>
+          Manage access
+        </NodexDropdownItem>
+        <NodexDropdownItem leftSlot={<OpenInIcon />}>Open in Project…</NodexDropdownItem>
+        <NodexDropdownItem leftSlot={<ArchiveIcon />}>
+          Archive
+        </NodexDropdownItem>
+        <NodexDropdownItem leftSlot={<RefreshIcon />}>Restore</NodexDropdownItem>
+        <NodexDropdownSeparator />
+        <NodexDropdownItem leftSlot={<ProjectRemovedIcon />}>
+          Removed projects…
         </NodexDropdownItem>
       </NodexDropdownMenu>
     </StorySurface>
@@ -518,6 +565,10 @@ export const DropdownIconOnlyTrigger: Story = {
 
 export const DropdownPanelActionIcons: Story = {
   render: () => <PanelActionIconDropdownDemo />,
+};
+
+export const DropdownLibraryActionIcons: Story = {
+  render: () => <LibraryActionIconDropdownDemo />,
 };
 
 export const DropdownLongLabelTrigger: Story = {

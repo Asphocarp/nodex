@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { ArrowLeft, ArrowRight, CircleX } from "lucide-react";
+import { ArrowLeft, ArrowRight, CircleX } from "@/components/shared/icons/generic-icons";
 import type { ReactNode } from "react";
 import {
   CheckmarkIcon,

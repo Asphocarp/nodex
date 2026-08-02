@@ -1,4 +1,4 @@
-import { AlertTriangle, LoaderCircle } from "lucide-react";
+import { AlertTriangle, LoaderCircle } from "@/components/shared/icons/generic-icons";
 
 import type { CoreAuthorityStatus } from "../../shared/core-authority-status";
 

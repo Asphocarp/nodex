@@ -1,14 +1,14 @@
+import { ProjectActionsIcon } from "@/components/shared/icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ExternalLink,
   Loader2,
-  MoreHorizontal,
   Play,
   RotateCw,
   SquareTerminal,
   StopCircle,
   XIcon,
-} from "lucide-react";
+} from "@/components/shared/icons/generic-icons";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { NodexButton, NodexIconButton } from "@/components/ui/button";
 import {
@@ -203,7 +203,7 @@ function ProcessManagerActionMenu({
       contentWidth="sm"
       triggerButton={(
         <NodexIconButton
-          icon={MoreHorizontal}
+          icon={ProjectActionsIcon}
           ariaLabel="Process actions"
           size="xs"
           className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 data-[state=open]:opacity-100"

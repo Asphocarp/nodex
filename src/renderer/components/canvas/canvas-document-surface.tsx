@@ -45,7 +45,7 @@ import { CanvasSceneProvider } from "@/lib/canvas-scene-provider";
 import { canvasDocumentSessionRegistry } from "@/lib/canvas-document-session";
 import { canvasSceneSurfaceRegistry } from "@/lib/canvas-scene-surface-runtime";
 import type { ReadyRegisteredOwnedBlockDocumentDescriptor } from "@/lib/owned-block-document";
-import { LayoutGrid } from "lucide-react";
+import { LayoutGrid } from "@/components/shared/icons/generic-icons";
 import { CanvasDocumentState } from "../kanban/canvas-document-state";
 import { CANVAS_SCENE_MAINTENANCE_VERSION } from "../../../shared/block-documents/canvas-scene-maintenance";
 import {

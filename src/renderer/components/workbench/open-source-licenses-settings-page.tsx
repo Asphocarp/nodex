@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft } from "@/components/shared/icons/generic-icons";
 import { NodexButton } from "@/components/ui/button";
 import { LazySourceViewer } from "@/components/ui/lazy-source-viewer";
 import {

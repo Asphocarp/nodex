@@ -1,9 +1,9 @@
 import { useState, type MouseEvent } from "react";
 import { motion } from "motion/react";
 import {
-  CodexPlanDownloadIcon,
-  CodexPlanSidePanelCloseIcon,
-  CodexPlanSidePanelOpenIcon,
+  PlanDownloadIcon,
+  PlanSidePanelCloseIcon,
+  PlanSidePanelOpenIcon,
   ComposerPlanModeIcon,
 } from "@/components/shared/icons";
 import { BudgetedMarkdownRenderer } from "./markdown/budgeted-markdown-renderer";
@@ -81,7 +81,7 @@ export function PlanMessage({
           onClick={handleCloseSidePanel}
         >
           <span className="electron:rounded-md flex size-6 items-center justify-center rounded-full hover:bg-token-list-hover-background">
-            <CodexPlanSidePanelCloseIcon className="icon-sm shrink-0" />
+            <PlanSidePanelCloseIcon className="icon-sm shrink-0" />
           </span>
         </button>
       ) : canOpenSidePanel ? (
@@ -112,7 +112,7 @@ export function PlanMessage({
           className="relative z-20 flex items-center gap-1"
         >
           <ThreadActionIconButton label="Download plan" onClick={handleDownload}>
-            <CodexPlanDownloadIcon />
+            <PlanDownloadIcon />
           </ThreadActionIconButton>
           <CopyMessageActionButton text={content} label="Copy" copiedLabel="Copied" stopPropagation />
           {completed ? (
@@ -129,7 +129,7 @@ export function PlanMessage({
               />
               {canOpenSidePanel ? (
                 <ThreadActionIconButton label="Open plan in side panel" onClick={handleOpenSidePanel}>
-                  <CodexPlanSidePanelOpenIcon className="icon-2xs shrink-0" />
+                  <PlanSidePanelOpenIcon className="icon-2xs shrink-0" />
                 </ThreadActionIconButton>
               ) : null}
             </>

@@ -1,14 +1,18 @@
 import { describe, expect, test } from "vitest";
 import { WorkbenchSceneSnapshotSchema } from "./schemas/workbench-scene";
+import { flattenWorkbenchPanelTabIds } from "./workbench-panel-layout";
 import {
+  WORKBENCH_SCENE_MAX_PANEL_SURFACES,
   cloneWorkbenchSceneLayoutForNewWindow,
   createWorkbenchSceneSurface,
   getWorkbenchSurfaceReuseKey,
   makeWorkbenchSceneKey,
   materializeInitialWorkbenchScene,
   mergeWorkbenchSceneLeaf,
-  migrateWorkbenchSceneV1ToV2,
-  migrateWorkbenchSceneV2ToV3,
+  migrateWorkbenchSceneV1ToV4,
+  migrateWorkbenchSceneV2ToV4,
+  migrateWorkbenchSceneV3ToV4,
+  migrateWorkbenchSceneV4ToV5,
   moveWorkbenchSceneSurface,
   patchWorkbenchScenePanel,
   removeWorkbenchSceneSurface,
@@ -18,7 +22,9 @@ import {
   type WorkbenchSceneSnapshot,
   type WorkbenchSceneSnapshotV1,
   type WorkbenchSceneSnapshotV2,
+  type WorkbenchSceneSnapshotV4,
   type WorkbenchSurfaceDescriptor,
+  type WorkbenchSurfaceDescriptorV3,
 } from "./workbench-scene";
 
 function identityFactory(prefix: string): WorkbenchSceneIdentityFactory {
@@ -56,17 +62,55 @@ function browserSurface(id = "browser-surface"): WorkbenchSurfaceDescriptor {
   };
 }
 
+function protectedPrimary(
+  scene: WorkbenchSceneSnapshot,
+): WorkbenchSurfaceDescriptor {
+  if (!scene.primary) throw new Error("Expected a protected Scene primary");
+  return scene.primary;
+}
+
 function sceneV2Fields(
   scene: WorkbenchSceneSnapshot,
 ): Omit<WorkbenchSceneSnapshotV2, "version" | "agentDock"> {
+  if (scene.owner.kind === "pages") {
+    throw new Error("Pages Scenes did not exist in Scene v2");
+  }
   return {
     owner: scene.owner,
-    primary: scene.primary,
-    panelSurfacesById: scene.panelSurfacesById,
+    primary: toLegacySurface(protectedPrimary(scene)),
+    panelSurfacesById: Object.fromEntries(
+      Object.entries(scene.panelSurfacesById).map(([surfaceId, surface]) => [
+        surfaceId,
+        toLegacySurface(surface),
+      ]),
+    ),
     panels: scene.panels,
     lastFocusedPanelId: scene.lastFocusedPanelId,
     touchedAt: scene.touchedAt,
   };
+}
+
+function toLegacySurface(
+  surface: WorkbenchSurfaceDescriptor,
+): WorkbenchSurfaceDescriptorV3 {
+  if (
+    surface.kind !== "db_view"
+    && surface.kind !== "page_stage"
+    && surface.kind !== "canvas_stage"
+  ) {
+    return surface;
+  }
+  if (surface.config.accessContext.kind !== "project") {
+    throw new Error("Legacy Scenes only carried Project resource surfaces");
+  }
+  const { accessContext, ...config } = surface.config;
+  return {
+    ...surface,
+    config: {
+      ...config,
+      projectId: accessContext.projectId,
+    },
+  } as WorkbenchSurfaceDescriptorV3;
 }
 
 describe("WorkbenchScene", () => {
@@ -83,7 +127,7 @@ describe("WorkbenchScene", () => {
     expect(project.primary).toMatchObject({
       kind: "db_view",
       config: {
-        projectId: "project-1",
+        accessContext: { kind: "project", projectId: "project-1" },
         target: { kind: "project-default" },
       },
     });
@@ -95,8 +139,8 @@ describe("WorkbenchScene", () => {
     expect(project.panels.right.size.fullWidth).toBe(true);
     expect(project.panels.right.layout.root).toMatchObject({
       type: "leaf",
-      tabIds: [project.primary.id],
-      activeTabId: project.primary.id,
+      tabIds: [protectedPrimary(project).id],
+      activeTabId: protectedPrimary(project).id,
     });
     expect(project.composerOverlay).toEqual({ visible: true });
     expect(session.composerOverlay).toEqual({ visible: true });
@@ -106,8 +150,17 @@ describe("WorkbenchScene", () => {
     expect(project.panels.bottom.collapsed).toBe(true);
     expect(makeWorkbenchSceneKey(project.owner)).toBe("project:project-1");
     expect(makeWorkbenchSceneKey(session.owner)).toBe("session:session-1");
+    const pages = materializeInitialWorkbenchScene({ kind: "pages" });
+    expect(pages.primary).toBeNull();
+    expect(pages.panelSurfacesById).toEqual({});
+    expect(pages.panels.right.collapsed).toBe(false);
+    expect(pages.panels.right.size.fullWidth).toBe(true);
+    expect(pages.composerOverlay.visible).toBe(false);
+    expect(pages.agentDock).toBeNull();
+    expect(makeWorkbenchSceneKey(pages.owner)).toBe("pages");
     expect(WorkbenchSceneSnapshotSchema.parse(project)).toEqual(project);
     expect(WorkbenchSceneSnapshotSchema.parse(session)).toEqual(session);
+    expect(WorkbenchSceneSnapshotSchema.parse(pages)).toEqual(pages);
   });
 
   test("owns each panel surface exactly once and never allows closing primary", () => {
@@ -122,13 +175,169 @@ describe("WorkbenchScene", () => {
     );
     expect(withBrowser.panels.right.layout.root).toMatchObject({
       type: "leaf",
-      tabIds: [initial.primary.id, "browser-surface"],
+      tabIds: [protectedPrimary(initial).id, "browser-surface"],
     });
     expect(WorkbenchSceneSnapshotSchema.parse(withBrowser)).toEqual(withBrowser);
     expect(createWorkbenchSceneSurface(withBrowser, {
       panelId: "bottom",
       surface: browserSurface(),
     })).toBe(withBrowser);
+  });
+
+  test("treats every Pages surface as ordinary and permits an empty tablist", () => {
+    const pages = materializeInitialWorkbenchScene({ kind: "pages" }, {
+      identityFactory: identityFactory("pages"),
+    });
+    const withPage = createWorkbenchSceneSurface(pages, {
+      panelId: "right",
+      surface: {
+        id: "library-page",
+        kind: "page_stage",
+        titleSnapshot: "Library Page",
+        config: {
+          accessContext: { kind: "library" },
+          pageId: "page:library",
+        },
+        stateKey: 0,
+        state: null,
+      },
+    });
+
+    expect(withPage.primary).toBeNull();
+    expect(withPage.panelSurfacesById["library-page"]).toBeDefined();
+    expect(WorkbenchSceneSnapshotSchema.parse(withPage)).toEqual(withPage);
+
+    const empty = removeWorkbenchSceneSurface(withPage, "library-page");
+    expect(empty.panelSurfacesById).toEqual({});
+    expect(WorkbenchSceneSnapshotSchema.parse(empty)).toEqual(empty);
+  });
+
+  test("keeps a migrated Resource primary when the Pages surface cap is full", () => {
+    const seed = projectScene();
+    const primary = protectedPrimary(seed);
+    const surfaces = Object.fromEntries(
+      Array.from({ length: WORKBENCH_SCENE_MAX_PANEL_SURFACES }, (_, index) => {
+        const id = String(index + 1);
+        return [id, {
+          id,
+          kind: "page_stage" as const,
+          titleSnapshot: `Page ${index}`,
+          config: {
+            accessContext: { kind: "library" as const },
+            pageId: `page:${index}`,
+          },
+          stateKey: 0,
+          state: null,
+        }];
+      }),
+    );
+    const root = seed.panels.right.layout.root;
+    if (root.type !== "leaf") throw new Error("Expected one right panel leaf");
+    const legacy: WorkbenchSceneSnapshotV4 = {
+      ...seed,
+      version: 4,
+      owner: {
+        kind: "resource",
+        root: { kind: "page", pageId: "page:root" },
+      },
+      primary: {
+        ...primary,
+        id: "library-root",
+        kind: "page_stage",
+        config: {
+          accessContext: { kind: "library" },
+          pageId: "page:root",
+        },
+      },
+      panelSurfacesById: surfaces,
+      panels: {
+        ...seed.panels,
+        right: {
+          ...seed.panels.right,
+          layout: {
+            ...seed.panels.right.layout,
+            root: {
+              ...root,
+              tabIds: ["library-root", ...Object.keys(surfaces)],
+              activeTabId: "library-root",
+            },
+          },
+        },
+      },
+      composerOverlay: { visible: false },
+      agentDock: null,
+    };
+
+    const migrated = migrateWorkbenchSceneV4ToV5(legacy);
+
+    expect(Object.keys(migrated.panelSurfacesById)).toHaveLength(
+      WORKBENCH_SCENE_MAX_PANEL_SURFACES,
+    );
+    expect(migrated.panelSurfacesById["library-root"]).toBeDefined();
+    expect(flattenWorkbenchPanelTabIds(migrated.panels.right.layout))
+      .toContain("library-root");
+    expect(WorkbenchSceneSnapshotSchema.parse(migrated)).toEqual(migrated);
+  });
+
+  test("drops Resource surfaces that cannot be authorized by Pages", () => {
+    const seed = projectScene();
+    const primary = protectedPrimary(seed);
+    const root = seed.panels.right.layout.root;
+    if (root.type !== "leaf") throw new Error("Expected one right panel leaf");
+    const legacy: WorkbenchSceneSnapshotV4 = {
+      ...seed,
+      version: 4,
+      owner: {
+        kind: "resource",
+        root: { kind: "page", pageId: "page:root" },
+      },
+      primary: {
+        ...primary,
+        id: "library-root",
+        kind: "page_stage",
+        config: {
+          accessContext: { kind: "library" },
+          pageId: "page:root",
+        },
+      },
+      panelSurfacesById: {
+        "project-page": {
+          id: "project-page",
+          kind: "page_stage",
+          titleSnapshot: "Project Page",
+          config: {
+            accessContext: { kind: "project", projectId: "legacy" },
+            pageId: "page:project",
+          },
+          stateKey: 0,
+          state: null,
+        },
+        browser: browserSurface("browser"),
+      },
+      panels: {
+        ...seed.panels,
+        right: {
+          ...seed.panels.right,
+          layout: {
+            ...seed.panels.right.layout,
+            root: {
+              ...root,
+              tabIds: ["library-root", "project-page", "browser"],
+              activeTabId: "project-page",
+            },
+          },
+        },
+      },
+      composerOverlay: { visible: false },
+      agentDock: null,
+    };
+
+    const migrated = migrateWorkbenchSceneV4ToV5(legacy);
+
+    expect(Object.keys(migrated.panelSurfacesById)).toEqual(["library-root"]);
+    expect(flattenWorkbenchPanelTabIds(migrated.panels.right.layout))
+      .toEqual(["library-root"]);
+    expect(WorkbenchSceneSnapshotSchema.parse(migrated)).toEqual(migrated);
   });
 
   test("rejects owner-root primary mismatches and duplicate placement", () => {
@@ -178,16 +387,16 @@ describe("WorkbenchScene", () => {
     });
     const rootLeafId = initial.panels.right.layout.activeLeafId;
 
-    expect(removeWorkbenchSceneSurface(initial, initial.primary.id)).toBe(initial);
+    expect(removeWorkbenchSceneSurface(initial, protectedPrimary(initial).id)).toBe(initial);
     expect(moveWorkbenchSceneSurface(initial, {
-      surfaceId: initial.primary.id,
+      surfaceId: protectedPrimary(initial).id,
       targetPanelId: "bottom",
     })).toBe(initial);
     expect(splitWorkbenchSceneLeaf(initial, {
       panelId: "right",
       leafId: rootLeafId,
       side: "right",
-      surfaceId: initial.primary.id,
+      surfaceId: protectedPrimary(initial).id,
     })).toBe(initial);
     expect(mergeWorkbenchSceneLeaf(initial, {
       panelId: "right",
@@ -197,11 +406,11 @@ describe("WorkbenchScene", () => {
     const reordered = reorderWorkbenchSceneSurfaces(initial, {
       panelId: "right",
       leafId: rootLeafId,
-      orderedSurfaceIds: ["browser-surface", initial.primary.id],
+      orderedSurfaceIds: ["browser-surface", protectedPrimary(initial).id],
     });
     expect(reordered.panels.right.layout.root).toMatchObject({
       type: "leaf",
-      tabIds: [initial.primary.id, "browser-surface"],
+      tabIds: [protectedPrimary(initial).id, "browser-surface"],
     });
     expect(WorkbenchSceneSnapshotSchema.parse(reordered)).toEqual(reordered);
   });
@@ -211,14 +420,7 @@ describe("WorkbenchScene", () => {
     if (current.panels.right.layout.root.type !== "leaf") {
       throw new Error("Expected a single Project root leaf");
     }
-    const withoutDock: Omit<WorkbenchSceneSnapshotV1, "version"> = {
-      owner: current.owner,
-      primary: current.primary,
-      panelSurfacesById: current.panelSurfacesById,
-      panels: current.panels,
-      lastFocusedPanelId: current.lastFocusedPanelId,
-      touchedAt: current.touchedAt,
-    };
+    const withoutDock = sceneV2Fields(current);
     const legacy: WorkbenchSceneSnapshotV1 = {
       ...withoutDock,
       version: 1,
@@ -251,30 +453,17 @@ describe("WorkbenchScene", () => {
       },
     };
 
-    const migrated = migrateWorkbenchSceneV1ToV2(legacy);
-    const canonical = migrateWorkbenchSceneV2ToV3(migrated);
+    const canonical = migrateWorkbenchSceneV1ToV4(legacy);
 
-    expect(migrated.version).toBe(2);
-    expect(migrated.panelSurfacesById).toEqual({});
-    expect(migrated.agentDock).toEqual({
-      visible: true,
-      binding: { kind: "session", sessionId: "session-1" },
-      newDraftId: `agent-draft:${current.primary.id}`,
-    });
-    expect(migrated.panels.right.layout.root).toMatchObject({
-      type: "leaf",
-      tabIds: [current.primary.id],
-      activeTabId: current.primary.id,
-    });
-    expect(canonical.version).toBe(3);
+    expect(canonical.version).toBe(4);
     expect(canonical.composerOverlay).toEqual({ visible: true });
     expect(canonical.agentDock).toEqual({
       binding: { kind: "session", sessionId: "session-1" },
       newDraftId: `agent-draft:${canonical.primary.id}`,
     });
-    expect(WorkbenchSceneSnapshotSchema.parse(legacy)).toEqual(canonical);
-    expect(WorkbenchSceneSnapshotSchema.parse(migrated)).toEqual(canonical);
-    expect(WorkbenchSceneSnapshotSchema.parse(canonical)).toEqual(canonical);
+    const currentSnapshot = WorkbenchSceneSnapshotSchema.parse(canonical);
+    expect(currentSnapshot.version).toBe(5);
+    expect(WorkbenchSceneSnapshotSchema.parse(legacy)).toEqual(currentSnapshot);
   });
 
   test("migrates v2 composer visibility into the shared Scene presentation", () => {
@@ -297,10 +486,41 @@ describe("WorkbenchScene", () => {
       agentDock: null,
     };
 
-    expect(migrateWorkbenchSceneV2ToV3(legacyProject).composerOverlay)
+    expect(migrateWorkbenchSceneV2ToV4(legacyProject).composerOverlay)
       .toEqual({ visible: false });
-    expect(migrateWorkbenchSceneV2ToV3(legacySession).composerOverlay)
+    expect(migrateWorkbenchSceneV2ToV4(legacySession).composerOverlay)
       .toEqual({ visible: true });
+  });
+
+  test("migrates v3 resource configs to explicit Project access", () => {
+    const current = projectScene();
+    if (current.owner.kind === "pages") {
+      throw new Error("Expected a legacy-compatible Project Scene");
+    }
+    const legacy = {
+      ...current,
+      version: 3 as const,
+      owner: current.owner,
+      primary: toLegacySurface(protectedPrimary(current)),
+      panelSurfacesById: Object.fromEntries(
+        Object.entries(current.panelSurfacesById).map(([id, surface]) => [
+          id,
+          toLegacySurface(surface),
+        ]),
+      ),
+    };
+
+    const migrated = migrateWorkbenchSceneV3ToV4(legacy);
+
+    expect(migrated.primary).toMatchObject({
+      kind: "db_view",
+      config: {
+        accessContext: { kind: "project", projectId: "project-1" },
+      },
+    });
+    expect(WorkbenchSceneSnapshotSchema.parse(legacy)).toEqual(
+      WorkbenchSceneSnapshotSchema.parse(migrated),
+    );
   });
 
   test("new-window clone remints presentation and Browser identities", () => {
@@ -322,7 +542,7 @@ describe("WorkbenchScene", () => {
     const clonedBrowser = Object.values(clone.panelSurfacesById)[0];
 
     expect(clone.owner).toEqual(original.owner);
-    expect(clone.primary.id).not.toBe(original.primary.id);
+    expect(protectedPrimary(clone).id).not.toBe(protectedPrimary(original).id);
     expect(clone.agentDock?.newDraftId).not.toBe(
       original.agentDock?.newDraftId,
     );
@@ -378,13 +598,26 @@ describe("WorkbenchScene", () => {
     const conversation = materializeInitialWorkbenchScene(
       { kind: "session", sessionId: "session-1" },
       { identityFactory: identityFactory("reuse") },
-    ).primary;
-    const database = projectScene().primary;
+    );
+    const databaseScene = projectScene();
 
-    expect(getWorkbenchSurfaceReuseKey(conversation)).toBe(
+    expect(getWorkbenchSurfaceReuseKey(protectedPrimary(conversation))).toBe(
       "conversation:session-1",
     );
-    expect(getWorkbenchSurfaceReuseKey(database)).toBe("db:project-1:default");
+    expect(getWorkbenchSurfaceReuseKey(protectedPrimary(databaseScene))).toBe(
+      "db:project:project-1:default",
+    );
+    expect(getWorkbenchSurfaceReuseKey({
+      id: "library-page",
+      kind: "page_stage",
+      titleSnapshot: "Page",
+      config: {
+        accessContext: { kind: "library" },
+        pageId: "page-1",
+      },
+      stateKey: 0,
+      state: null,
+    })).toBe("page:library:page-1");
     expect(getWorkbenchSurfaceReuseKey({
       id: "review-project",
       kind: "review",

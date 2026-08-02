@@ -1,8 +1,4 @@
 import {
-  FileText,
-  Search,
-} from "lucide-react";
-import {
   useCallback,
   useDeferredValue,
   useEffect,
@@ -13,10 +9,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import {
-  NfmSideMenuChevronRightIcon,
-  SpinnerIcon,
-} from "@/components/shared/icons";
+import { NfmSideMenuChevronRightIcon, PageIcon, SpinnerIcon, SearchIcon } from "@/components/shared/icons";
 import {
   resolveQueryFreshAccept,
   shouldConsumeStalePickerNavigation,
@@ -97,7 +90,7 @@ function MoveToProjectIcon({
 }
 
 function MoveToRowIcon({ row }: { row: NfmMoveToRow }) {
-  if (row.kind === "page") return <FileText className="size-4" aria-hidden="true" />;
+  if (row.kind === "page") return <PageIcon className="size-4" aria-hidden="true" />;
   if (row.kind === "db-column") {
     return (
       <StatusIcon
@@ -577,7 +570,7 @@ export function NfmMoveToMenuSurface({
       contentEditable={false}
     >
       <div className="flex h-[38px] shrink-0 items-center gap-1.5 px-2 py-[5px]">
-        <Search className="size-4 shrink-0 text-token-description-foreground" aria-hidden="true" />
+        <SearchIcon className="size-4 shrink-0 text-token-description-foreground" aria-hidden="true" />
         <input
           id={comboboxId}
           role="combobox"

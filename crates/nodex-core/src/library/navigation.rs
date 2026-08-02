@@ -37,7 +37,9 @@ pub(super) fn read(
         .map(|project| project.0.as_str());
     let requesting_adapter = &context.adapter;
     match request {
-        LibraryRead::Metadata | LibraryRead::FilterProjectionImpactForProject { .. } => {
+        LibraryRead::Metadata
+        | LibraryRead::ResourceProjectAccess { .. }
+        | LibraryRead::FilterProjectionImpactForProject { .. } => {
             Err(invalid("Read is assembled by the Library Module"))
         }
         LibraryRead::Children {
@@ -64,6 +66,17 @@ pub(super) fn read(
                 force_include_target,
             )
         }
+        LibraryRead::StandaloneRoots {
+            cursor: requested_cursor,
+            limit,
+            force_include_target,
+        } => standalone_roots(
+            connection,
+            library_id,
+            requested_cursor,
+            limit,
+            force_include_target,
+        ),
         LibraryRead::Path { target } => {
             if let (Some(project_id), LibraryRouteTarget::Page { page_id }) =
                 (requesting_project_id, &target)
@@ -227,12 +240,24 @@ pub(super) fn read(
             limit,
         ),
         LibraryRead::PageTarget { page_id } => Ok(LibraryReadValue::PageTarget {
-            value: page_target(connection, library_id, requesting_project_id, &page_id)?
-                .map(Box::new),
+            value: page_target(
+                connection,
+                library_id,
+                requesting_project_id,
+                requesting_adapter,
+                &page_id,
+            )?
+            .map(Box::new),
         }),
         LibraryRead::PageOwnershipPath { page_id } => Ok(LibraryReadValue::PageOwnershipPath {
-            value: page_ownership_path(connection, library_id, requesting_project_id, &page_id)?
-                .map(Box::new),
+            value: page_ownership_path(
+                connection,
+                library_id,
+                requesting_project_id,
+                requesting_adapter,
+                &page_id,
+            )?
+            .map(Box::new),
         }),
         LibraryRead::PageLocation { page_id } => {
             if requesting_project_id.is_some() || !trusted_root_adapter(requesting_adapter) {
@@ -538,15 +563,22 @@ fn page_target(
     connection: &Connection,
     library_id: &str,
     requesting_project_id: Option<&str>,
+    requesting_adapter: &AdapterKind,
     page_id: &str,
 ) -> Result<Option<LibraryPageTarget>, StoreError> {
     validate_identity(page_id, "Page target")?;
-    let project_id = requesting_project_id
-        .ok_or_else(|| unauthorized("Page target resolution requires a bound Project"))?;
-    if !project_scope_exists(connection, library_id, project_id)? {
+    let Some(authority) = page_projection_authority(
+        connection,
+        library_id,
+        requesting_project_id,
+        requesting_adapter,
+    )?
+    else {
         return Ok(None);
-    }
-    if let Err(error) = super::require_page_read_access(connection, library_id, project_id, page_id)
+    };
+    if let PageProjectionAuthority::Project(project_id) = authority
+        && let Err(error) =
+            super::require_page_read_access(connection, library_id, project_id, page_id)
     {
         if error.code == StoreErrorCode::NotFound {
             return Ok(Some(LibraryPageTarget::Missing {
@@ -642,27 +674,43 @@ fn page_ownership_path(
     connection: &Connection,
     library_id: &str,
     requesting_project_id: Option<&str>,
+    requesting_adapter: &AdapterKind,
     page_id: &str,
 ) -> Result<Option<LibraryPageOwnershipPath>, StoreError> {
     validate_identity(page_id, "Page ownership path")?;
-    let project_id = requesting_project_id
-        .ok_or_else(|| unauthorized("Page ownership path requires a bound Project"))?;
-    if !project_scope_exists(connection, library_id, project_id)? {
+    let Some(authority) = page_projection_authority(
+        connection,
+        library_id,
+        requesting_project_id,
+        requesting_adapter,
+    )?
+    else {
         return Ok(None);
-    }
+    };
     let Some(hierarchy) = page_hierarchy(connection, library_id, page_id)? else {
         return Ok(Some(LibraryPageOwnershipPath::Missing {
             target_page_id: page_id.to_owned(),
         }));
     };
-    let mut visible = Vec::new();
-    for page in hierarchy {
-        match super::require_page_read_access(connection, library_id, project_id, &page.page_id) {
-            Ok(()) => visible.push(page),
-            Err(error) if error.code == StoreErrorCode::NotFound => break,
-            Err(error) => return Err(error),
+    let visible = match authority {
+        PageProjectionAuthority::TrustedLibrary => hierarchy,
+        PageProjectionAuthority::Project(project_id) => {
+            let mut visible = Vec::new();
+            for page in hierarchy {
+                match super::require_page_read_access(
+                    connection,
+                    library_id,
+                    project_id,
+                    &page.page_id,
+                ) {
+                    Ok(()) => visible.push(page),
+                    Err(error) if error.code == StoreErrorCode::NotFound => break,
+                    Err(error) => return Err(error),
+                }
+            }
+            visible
         }
-    }
+    };
     if visible.first().is_none_or(|page| page.page_id != page_id) {
         return Ok(Some(LibraryPageOwnershipPath::Missing {
             target_page_id: page_id.to_owned(),
@@ -682,6 +730,30 @@ fn page_ownership_path(
         target_page_id: page_id.to_owned(),
         ancestors,
     }))
+}
+
+#[derive(Clone, Copy)]
+enum PageProjectionAuthority<'a> {
+    TrustedLibrary,
+    Project(&'a str),
+}
+
+fn page_projection_authority<'a>(
+    connection: &Connection,
+    library_id: &str,
+    requesting_project_id: Option<&'a str>,
+    requesting_adapter: &AdapterKind,
+) -> Result<Option<PageProjectionAuthority<'a>>, StoreError> {
+    if let Some(project_id) = requesting_project_id {
+        return Ok(project_scope_exists(connection, library_id, project_id)?
+            .then_some(PageProjectionAuthority::Project(project_id)));
+    }
+    if trusted_root_adapter(requesting_adapter) {
+        return Ok(Some(PageProjectionAuthority::TrustedLibrary));
+    }
+    Err(unauthorized(
+        "Page projections require a trusted root or bound Project Adapter",
+    ))
 }
 
 struct PageHierarchyEntry {
@@ -1013,6 +1085,69 @@ fn children(
     })
 }
 
+fn standalone_roots(
+    connection: &Connection,
+    library_id: &str,
+    requested_cursor: Option<String>,
+    limit: Option<u32>,
+    force_include_target: Option<LibraryResourceTarget>,
+) -> Result<LibraryReadValue, StoreError> {
+    let subject = vec!["standalone_roots".to_owned()];
+    let after = cursor_coordinate(
+        connection,
+        requested_cursor.as_deref(),
+        library_id,
+        &subject,
+    )?;
+    let limit = read_limit(limit)?;
+    let (mut ordered, total) =
+        standalone_root_node_window(connection, library_id, after.as_ref(), limit)?;
+    let has_more = ordered.len() > limit;
+    ordered.truncate(limit);
+    let next_cursor = has_more
+        .then(|| {
+            let last = ordered
+                .last()
+                .ok_or_else(|| corrupt("Standalone root continuation has no node"))?;
+            cursor::mint(
+                connection,
+                library_id,
+                &subject,
+                cursor::KeysetCoordinate {
+                    values: vec![cursor::KeysetValue::Text {
+                        value: last.sort_key.clone(),
+                    }],
+                    stable_id: navigation_node_id(&last.node).to_owned(),
+                },
+            )
+        })
+        .transpose()?;
+    let mut items = ordered
+        .into_iter()
+        .map(|ordered| ordered.node)
+        .collect::<Vec<_>>();
+    if let Some(target) = force_include_target {
+        let route_target = resource_route_target(&target);
+        if !items.iter().any(|node| matches_target(node, &route_target))
+            && standalone_root_is_eligible(connection, library_id, &target)?
+            && let Some(forced) = forced_child_node(
+                connection,
+                library_id,
+                &LibraryNavigationParent::Library,
+                &route_target,
+            )?
+        {
+            items.push(forced);
+        }
+    }
+    Ok(LibraryReadValue::StandaloneRoots {
+        items,
+        next_cursor,
+        has_more,
+        total,
+    })
+}
+
 struct OrderedNavigationNode {
     node: LibraryNavigationNode,
     sort_key: String,
@@ -1082,6 +1217,147 @@ fn root_node_window(
         |row| row.get::<_, i64>(0),
     )?;
     Ok((nodes, count_to_u64(total)?))
+}
+
+fn standalone_root_node_window(
+    connection: &Connection,
+    library_id: &str,
+    after: Option<&cursor::KeysetCoordinate>,
+    limit: usize,
+) -> Result<(Vec<OrderedNavigationNode>, u64), StoreError> {
+    let (after_sort_key, after_id) = keyset_text_coordinate(after)?;
+    let query_limit =
+        i64::try_from(limit.saturating_add(1)).map_err(|_| invalid("Library limit overflowed"))?;
+    let eligibility = "NOT (block.type = 'database' AND EXISTS( \
+          SELECT 1 FROM project_database_bindings binding \
+          INNER JOIN projects project \
+            ON project.id = binding.project_id \
+            AND project.library_id = binding.library_id \
+          WHERE binding.database_block_id = block.id \
+            AND binding.library_id = placement.library_id \
+            AND binding.lifecycle = 'active' \
+            AND project.lifecycle <> 'archived' \
+        )) AND NOT (block.type = 'canvas' AND EXISTS( \
+          SELECT 1 FROM projects project \
+          WHERE project.id = block.project_id \
+            AND project.library_id = placement.library_id \
+            AND project.lifecycle <> 'archived' \
+            AND block.id = 'canvas:primary:' || project.id \
+        ))";
+    let rows_sql = format!(
+        "SELECT block.type, block.id, placement.rank_key, \
+           materialization.title, page.parent_revision, page.metadata_revision, \
+           document.generation, document.head_seq, page.updated_at, \
+           EXISTS(SELECT 1 FROM document_block_index child \
+             INNER JOIN blocks child_block ON child_block.id = child.block_id \
+             WHERE child.document_id = page.document_id \
+               AND child_block.type IN ('page', 'database', 'canvas') \
+               AND child_block.lifecycle = 'active'), \
+           container.name, container.default_view_id, container.metadata_revision, \
+           block.location_revision, container.updated_at, \
+           (SELECT COUNT(*) FROM database_views view \
+             WHERE view.database_block_id = container.block_id \
+               AND view.lifecycle = 'active'), \
+           json_extract(canvas_name.value_json, '$'), block.metadata_revision, \
+           block.location_revision, canvas.updated_at, canvas_document.generation, \
+           canvas_document.head_seq, block.project_id \
+         FROM library_block_placements placement \
+         INNER JOIN blocks block ON block.id = placement.block_id \
+         LEFT JOIN pages page ON page.block_id = block.id \
+         LEFT JOIN documents document ON document.id = page.document_id \
+         LEFT JOIN document_materializations materialization \
+           ON materialization.document_id = page.document_id \
+         LEFT JOIN database_containers container ON container.block_id = block.id \
+         LEFT JOIN canvas_owners canvas ON canvas.block_id = block.id \
+         LEFT JOIN block_documents canvas_ownership ON canvas_ownership.block_id = block.id \
+         LEFT JOIN documents canvas_document ON canvas_document.id = canvas_ownership.document_id \
+         LEFT JOIN block_properties canvas_name ON canvas_name.block_id = block.id \
+           AND canvas_name.property_key = 'document.display_name' \
+         WHERE placement.library_id = ?1 AND block.type IN ('page', 'database', 'canvas') \
+           AND block.lifecycle = 'active' \
+           AND COALESCE(page.lifecycle, container.lifecycle, block.lifecycle) = 'active' \
+           AND {eligibility} \
+           AND (?2 IS NULL OR placement.rank_key > ?2 \
+             OR (placement.rank_key = ?2 AND block.id > ?3)) \
+         ORDER BY placement.rank_key, block.id LIMIT ?4"
+    );
+    let nodes = connection
+        .prepare(&rows_sql)?
+        .query_map(
+            params![library_id, after_sort_key, after_id, query_limit],
+            navigation_row,
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let count_sql = format!(
+        "SELECT COUNT(*) FROM library_block_placements placement \
+         INNER JOIN blocks block ON block.id = placement.block_id \
+         LEFT JOIN pages page ON page.block_id = block.id \
+         LEFT JOIN database_containers container ON container.block_id = block.id \
+         WHERE placement.library_id = ?1 AND block.type IN ('page', 'database', 'canvas') \
+           AND block.lifecycle = 'active' \
+           AND COALESCE(page.lifecycle, container.lifecycle, block.lifecycle) = 'active' \
+           AND {eligibility}"
+    );
+    let total = connection.query_row(&count_sql, [library_id], |row| row.get::<_, i64>(0))?;
+    Ok((nodes, count_to_u64(total)?))
+}
+
+fn standalone_root_is_eligible(
+    connection: &Connection,
+    library_id: &str,
+    target: &LibraryResourceTarget,
+) -> Result<bool, StoreError> {
+    let (block_type, block_id) = match target {
+        LibraryResourceTarget::Page { page_id } => ("page", page_id),
+        LibraryResourceTarget::Database { database_id } => ("database", database_id),
+        LibraryResourceTarget::Canvas { canvas_id } => ("canvas", canvas_id),
+    };
+    connection
+        .query_row(
+            "SELECT EXISTS( \
+               SELECT 1 FROM library_block_placements placement \
+               INNER JOIN blocks block ON block.id = placement.block_id \
+               LEFT JOIN pages page ON page.block_id = block.id \
+               LEFT JOIN database_containers container ON container.block_id = block.id \
+               WHERE placement.library_id = ?1 AND block.id = ?2 AND block.type = ?3 \
+                 AND block.lifecycle = 'active' \
+                 AND COALESCE(page.lifecycle, container.lifecycle, block.lifecycle) = 'active' \
+                 AND NOT (block.type = 'database' AND EXISTS( \
+                   SELECT 1 FROM project_database_bindings binding \
+                   INNER JOIN projects project \
+                     ON project.id = binding.project_id \
+                     AND project.library_id = binding.library_id \
+                   WHERE binding.database_block_id = block.id \
+                     AND binding.library_id = placement.library_id \
+                     AND binding.lifecycle = 'active' \
+                     AND project.lifecycle <> 'archived' \
+                 )) \
+                 AND NOT (block.type = 'canvas' AND EXISTS( \
+                   SELECT 1 FROM projects project \
+                   WHERE project.id = block.project_id \
+                     AND project.library_id = placement.library_id \
+                     AND project.lifecycle <> 'archived' \
+                     AND block.id = 'canvas:primary:' || project.id \
+                 )) \
+             )",
+            params![library_id, block_id, block_type],
+            |row| row.get(0),
+        )
+        .map_err(Into::into)
+}
+
+fn resource_route_target(target: &LibraryResourceTarget) -> LibraryRouteTarget {
+    match target {
+        LibraryResourceTarget::Page { page_id } => LibraryRouteTarget::Page {
+            page_id: page_id.clone(),
+        },
+        LibraryResourceTarget::Database { database_id } => LibraryRouteTarget::Database {
+            database_id: database_id.clone(),
+        },
+        LibraryResourceTarget::Canvas { canvas_id } => LibraryRouteTarget::Canvas {
+            canvas_id: canvas_id.clone(),
+        },
+    }
 }
 
 fn page_child_node_window(

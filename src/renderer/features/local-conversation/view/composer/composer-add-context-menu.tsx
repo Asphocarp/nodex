@@ -13,14 +13,14 @@ import {
 import {
   CheckIcon,
   CircleDotIcon,
-  FileIcon,
   MessageSquareIcon,
   SplitIcon,
   SparklesIcon,
-} from "lucide-react";
+} from "@/components/shared/icons/generic-icons";
 import {
-  CodexGoalTargetIcon,
-  CodexSidePanelBrowserIcon,
+  GoalTargetIcon,
+  FileIcon,
+  SidePanelBrowserIcon,
   ComposerAddFilesIcon,
   ComposerAppshotIcon,
   ComposerPlanModeIcon,
@@ -962,7 +962,7 @@ const ComposerAddContextRootMenuContent = forwardRef<
               searchTerms: ["objective", "keep pursuing"],
               value: { kind: "action" as const, run: onActivateGoal },
             },
-            icon: <CodexGoalTargetIcon className="size-4 shrink-0" />,
+            icon: <GoalTargetIcon className="size-4 shrink-0" />,
             active: false,
           }]
         : []),
@@ -1050,7 +1050,7 @@ const ComposerAddContextRootMenuContent = forwardRef<
           iconUrlDark={plugin.iconUrlDark}
           brandColor={plugin.brandColor}
           fallback={plugin.id.startsWith("browser@")
-            ? <CodexSidePanelBrowserIcon className="size-3.5" />
+            ? <SidePanelBrowserIcon className="size-3.5" />
             : <ComposerPluginsIcon className="size-3.5" />}
         />
       ),

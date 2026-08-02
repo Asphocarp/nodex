@@ -14,7 +14,6 @@ interface WorkbenchRouteHostProps {
   readonly sidebarMounted: boolean;
   readonly settings: ReactNode;
   readonly pendingWorktree: WorkbenchRouteSlot;
-  readonly library: WorkbenchRouteSlot;
   readonly automations: WorkbenchRouteSlot;
   readonly session: WorkbenchRouteSlot;
 }
@@ -48,7 +47,6 @@ export function WorkbenchRouteHost({
   sidebarMounted,
   settings,
   pendingWorktree,
-  library,
   automations,
   session,
 }: WorkbenchRouteHostProps) {
@@ -62,18 +60,6 @@ export function WorkbenchRouteHost({
           {pendingWorktree.content()}
         </WorkbenchRouteMain>
         {pendingWorktree.afterMain}
-      </>
-    );
-  }
-
-  if (location.kind === "library") {
-    return (
-      <>
-        {sidebar}
-        <WorkbenchRouteMain sidebarMounted={sidebarMounted}>
-          {library.content()}
-        </WorkbenchRouteMain>
-        {library.afterMain}
       </>
     );
   }
@@ -93,6 +79,7 @@ export function WorkbenchRouteHost({
   if (
     location.kind === "project"
     || location.kind === "session"
+    || location.kind === "pages"
     || location.kind === "empty"
   ) {
     return (

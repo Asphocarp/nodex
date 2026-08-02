@@ -15,12 +15,17 @@ describe("sidebar-section-prefs", () => {
     });
 
     expect(defaults.pinned).toBe(false);
-    expect(defaults.library).toBe(false);
+    expect(defaults.pages).toBe(false);
     expect(state.pinned).toBe(true);
     expect(state.projects).toBe(false);
     expect(state.chats).toBe(true);
     expect(JSON.stringify(Object.keys(state))).toBe(
-      JSON.stringify(["pinned", "library", "projects", "chats"]),
+      JSON.stringify(["pinned", "pages", "projects", "chats"]),
     );
+  });
+
+  test("migrates the retired Library collapse preference to Pages", () => {
+    expect(normalizeSidebarCollapsibleSectionsState({ library: true }).pages)
+      .toBe(true);
   });
 });

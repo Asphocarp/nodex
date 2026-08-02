@@ -22,9 +22,7 @@ import {
   shift,
   size,
 } from "@floating-ui/react";
-import {
-  Plus,
-} from "lucide-react";
+
 import {
   Fragment,
   createContext,
@@ -67,6 +65,7 @@ import {
   NfmSideMenuTextBlockIcon,
   NfmSideMenuToggleListBlockIcon,
   NfmSideMenuTurnIntoIcon,
+  PlusIcon,
 } from "@/components/shared/icons";
 import {
   NodexPopover,
@@ -701,7 +700,7 @@ function NfmAddBlockButton() {
       onPointerUp={handlePointerUp}
       icon={
         <span className="pointer-events-none" data-test="dragHandleAdd">
-          <Plus size={18} />
+          <PlusIcon className="icon-sm" />
         </span>
       }
     />

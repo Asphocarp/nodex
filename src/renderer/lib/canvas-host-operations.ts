@@ -6,6 +6,7 @@ import {
   readLibraryModule,
 } from "./api";
 import { createUuidV7 } from "../../shared/uuid-v7";
+import type { ContentAccessContext } from "../../shared/content-access-context";
 import {
   LIBRARY_MODULE_CONTRACT_VERSION,
   type LibraryModuleApplyReceipt,
@@ -128,6 +129,7 @@ function requireCanvasHostStoreEpoch(
 }
 
 export async function applyLibraryRequestWithExactRetry(
+  accessContext: ContentAccessContext,
   request: LibraryModuleApplyRequest,
   apply: typeof applyLibraryModule = applyLibraryModule,
 ): Promise<LibraryModuleApplyReceipt> {
@@ -135,7 +137,7 @@ export async function applyLibraryRequestWithExactRetry(
   for (let attempt = 0; attempt < 2; attempt += 1) {
     let result: Awaited<ReturnType<typeof apply>>;
     try {
-      result = await apply(request);
+      result = await apply(accessContext, request);
     } catch (error) {
       thrown = error;
       if (attempt === 0) continue;
@@ -150,11 +152,14 @@ export async function applyLibraryRequestWithExactRetry(
     : new Error("Canvas change failed.");
 }
 
-async function readAvailableCanvas(canvasId: string): Promise<{
+async function readAvailableCanvas(
+  accessContext: ContentAccessContext,
+  canvasId: string,
+): Promise<{
   readonly storeEpoch: string;
   readonly summary: LibraryCanvasSummary;
 }> {
-  const result = await readLibraryModule({
+  const result = await readLibraryModule(accessContext, {
     version: LIBRARY_MODULE_CONTRACT_VERSION,
     read: { mode: "canvas_target", canvasId },
   });
@@ -177,6 +182,7 @@ async function readAvailableCanvas(canvasId: string): Promise<{
 }
 
 export async function createCanvasInHostPage(input: {
+  readonly accessContext: ContentAccessContext;
   readonly hostPageId: string;
   readonly replacementBlockId: string;
   readonly displayName?: string;
@@ -218,17 +224,24 @@ export async function createCanvasInHostPage(input: {
 
   return {
     canvasBlockId: identities.canvasId,
-    receipt: await applyLibraryRequestWithExactRetry(request),
+    receipt: await applyLibraryRequestWithExactRetry(
+      input.accessContext,
+      request,
+    ),
   };
 }
 
 export async function renameCanvasOwner(input: {
+  readonly accessContext: ContentAccessContext;
   readonly canvasBlockId: string;
   readonly displayName: string;
   readonly operationId?: string;
 }): Promise<LibraryModuleApplyReceipt> {
-  const target = await readAvailableCanvas(input.canvasBlockId);
-  return applyLibraryRequestWithExactRetry({
+  const target = await readAvailableCanvas(
+    input.accessContext,
+    input.canvasBlockId,
+  );
+  return applyLibraryRequestWithExactRetry(input.accessContext, {
     version: LIBRARY_MODULE_CONTRACT_VERSION,
     operationId: input.operationId ?? createUuidV7(),
     storeEpoch: target.storeEpoch,
@@ -242,6 +255,7 @@ export async function renameCanvasOwner(input: {
 }
 
 export async function deleteCanvasOwner(input: {
+  readonly accessContext: ContentAccessContext;
   readonly canvasBlockId: string;
   readonly operationId?: string;
 }, dependencies: {
@@ -254,8 +268,8 @@ export async function deleteCanvasOwner(input: {
 } = {}): Promise<LibraryModuleApplyReceipt> {
   const target = await (
     dependencies.readTarget ?? readAvailableCanvas
-  )(input.canvasBlockId);
-  const receipt = await applyLibraryRequestWithExactRetry({
+  )(input.accessContext, input.canvasBlockId);
+  const receipt = await applyLibraryRequestWithExactRetry(input.accessContext, {
     version: LIBRARY_MODULE_CONTRACT_VERSION,
     operationId: input.operationId ?? createUuidV7(),
     storeEpoch: target.storeEpoch,
@@ -273,6 +287,7 @@ export async function deleteCanvasOwner(input: {
 }
 
 export async function duplicateCanvasInHostPage(input: {
+  readonly accessContext: ContentAccessContext;
   readonly sourceCanvasBlockId: string;
   readonly hostPageId: string;
   readonly insertion: LibraryPageInsertion;
@@ -291,14 +306,17 @@ export async function duplicateCanvasInHostPage(input: {
   await canvasSceneSurfaceRegistry.flushOwnerCommitted(
     input.sourceCanvasBlockId,
   );
-  const target = await readAvailableCanvas(input.sourceCanvasBlockId);
+  const target = await readAvailableCanvas(
+    input.accessContext,
+    input.sourceCanvasBlockId,
+  );
   requireCanvasHostStoreEpoch(target.storeEpoch, host);
   const identities = input.identities ?? {
     operationId: createUuidV7(),
     canvasId: createUuidV7(),
     documentId: createUuidV7(),
   };
-  const receipt = await applyLibraryRequestWithExactRetry({
+  const receipt = await applyLibraryRequestWithExactRetry(input.accessContext, {
     version: LIBRARY_MODULE_CONTRACT_VERSION,
     operationId: identities.operationId,
     storeEpoch: target.storeEpoch,
@@ -323,6 +341,7 @@ export async function duplicateCanvasInHostPage(input: {
 }
 
 export async function moveCanvasOwnerToPage(input: {
+  readonly accessContext: ContentAccessContext;
   readonly canvasBlockId: string;
   readonly targetPageId: string;
   readonly targetDocumentGeneration: number;
@@ -332,9 +351,12 @@ export async function moveCanvasOwnerToPage(input: {
   readonly operationId?: string;
 }): Promise<LibraryModuleApplyReceipt> {
   const sourceHost = await prepareCanvasHost(input.sourceRuntime);
-  const target = await readAvailableCanvas(input.canvasBlockId);
+  const target = await readAvailableCanvas(
+    input.accessContext,
+    input.canvasBlockId,
+  );
   requireCanvasHostStoreEpoch(target.storeEpoch, sourceHost);
-  return applyLibraryRequestWithExactRetry({
+  return applyLibraryRequestWithExactRetry(input.accessContext, {
     version: LIBRARY_MODULE_CONTRACT_VERSION,
     operationId: input.operationId ?? createUuidV7(),
     storeEpoch: target.storeEpoch,
@@ -355,6 +377,7 @@ export async function moveCanvasOwnerToPage(input: {
 }
 
 export async function moveCanvasOwnerBetweenHostPages(input: {
+  readonly accessContext: ContentAccessContext;
   readonly canvasBlockId: string;
   readonly targetPageId: string;
   readonly insertion: LibraryPageInsertion;
@@ -368,9 +391,12 @@ export async function moveCanvasOwnerBetweenHostPages(input: {
   const targetHost = input.sourceRuntime === input.targetRuntime
     ? sourceHost
     : await prepareCanvasHost(input.targetRuntime);
-  const target = await readAvailableCanvas(input.canvasBlockId);
+  const target = await readAvailableCanvas(
+    input.accessContext,
+    input.canvasBlockId,
+  );
   requireCanvasHostStoreEpoch(target.storeEpoch, sourceHost, targetHost);
-  return applyLibraryRequestWithExactRetry({
+  return applyLibraryRequestWithExactRetry(input.accessContext, {
     version: LIBRARY_MODULE_CONTRACT_VERSION,
     operationId: input.operationId ?? createUuidV7(),
     storeEpoch: target.storeEpoch,

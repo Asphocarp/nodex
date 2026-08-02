@@ -165,6 +165,10 @@ Dropdowns are **frosted glass** with a subtle shadow — they float above conten
 
 Use one shared dropdown chrome system across selector-style surfaces. Radix `Select`, `DropdownMenu`, and selector `Popover` content should share the same surface, row, divider, and motion treatment by default. Triggers can stay context-specific: toolbar pills, dialog fields, and inline chip controls do not need identical trigger chrome as long as their poppers resolve to the same floating menu language.
 
+- Default action menus are content-sized within a compact 172–240px range. Use a wider semantic size only when the content demands it; never use a fixed width that leaves obvious empty space.
+- Shared menu-item primitives own leading-icon hierarchy: 16px, `shrink-0`, secondary color at rest, and primary color on hover/focus. Feature menus only provide the semantic icon or an intentional accent.
+- Use `…` only when completing the command requires missing information or an additional choice. Immediate and confirmation-only commands use plain labels, for example `Archive` rather than `Archive…`.
+
 ## Dialogs
 
 All modal dialogs use the shared Nodex dialog surface by default. `NodexDialogContent` owns the overlay, centered placement, frosted background, hairline ring, shadow, radius, overflow, and close control. Do not introduce provenance- or feature-named chrome variants.
@@ -177,6 +181,49 @@ Compose ordinary dialogs from the shared anatomy:
 - Choose a semantic `size` on `NodexDialogContent`; avoid recreating widths with one-off surface classes.
 
 Complex dialogs may keep a purpose-built internal layout while inheriting the default surface. Use `unstyledContent` only when the dialog content is itself a complete surface, such as a full-screen media viewer or a position-sensitive command palette. Keep this exception explicit at the call site.
+
+### Modal ownership follows the React tree
+
+A DOM portal changes placement, not React ownership. Events from portaled
+content still bubble through the component that rendered the portal. Therefore,
+rendering a `NodexDialog` inside a draggable/clickable row, menu trigger, route,
+or other interactive subtree can activate that ancestor even though the dialog
+appears under `document.body`.
+
+Use this ownership decision before implementing any modal:
+
+| Surface | Required owner |
+| --- | --- |
+| Form, chooser, manager, or multi-step dialog whose lifetime is independent of its trigger | Open through `src/renderer/lib/modal-registry.tsx`; render only from the renderer-window `NodexModalHost` |
+| Dialog opened from a dropdown command | Record the pending command in `onSelect`, then call `openModal(...)` from `onCloseAutoFocus` after the dropdown closes |
+| Short confirmation that intentionally belongs to one mounted action boundary | May stay local only when that boundary contains the trigger and its portaled descendants and stops pointer/click activation from reaching an interactive ancestor |
+
+Hard rules:
+
+- Do not render an application modal as JSX beneath the row/menu/route that
+  triggers it. A local `stopPropagation()` patch is not a substitute for correct
+  ownership and still couples the modal lifetime to the trigger subtree.
+- Define registered modal components at module scope. The registry deduplicates
+  by component identity and preserves the mounted entry key when props change.
+  If one component can be retargeted to another resource, key its stateful inner
+  content by that semantic resource identity so draft/confirmation state cannot
+  leak across targets.
+- For a permitted local confirmation, add a containment guard around the whole
+  action boundary—not just the trigger button. Stop `pointerdown`, `mousedown`,
+  and `click`; stop keyboard activation when the ancestor row also handles it.
+- Keep Process Manager, Command Palette, and other independently owned root
+  controllers outside the modal registry; do not use the registry merely
+  because a surface floats.
+
+Required regression coverage for a modal triggered inside an interactive row:
+
+1. Mount the trigger beneath a parent `pointerdown`/activation spy and mount
+   `NodexModalHost` outside that parent.
+2. Open the modal through the real menu workflow and fire `pointerdown` on its
+   title/body; the parent spy must remain untouched.
+3. For a registry-owned modal, unmount the trigger row and prove the modal
+   remains mounted. For a local confirmation, prove its action-boundary guard
+   prevents the same ancestor activation.
 
 ### Menu dividers
 
@@ -259,11 +306,15 @@ border-top: 0.5px solid var(--border-token);
 
 ## Icons
 
-- Size classes: `icon-xxs`, `icon-2xs`, `icon-xs`, `icon-sm`
+- Size classes: `icon-xxs` (12px), `icon-2xs` (14px), `icon-xs` (16px), `icon-sm` (18px), `icon-base` (20px)
 - Use `shrink-0` on all icons to prevent flex compression
 - Use `currentColor` for fill/stroke — inherit color from parent
-- Standard menu/dropdown icon: `icon-2xs` (≈14px)
-- Standard sidebar/toolbar icon: `icon-sm` (≈20px)
+- Use semantic app-owned icons from `@/components/shared/icons` for app-shell chrome, compact menus, sidebars, activities, file types, and resource identity. Component names describe meaning, never provenance.
+- Use the shared app-owned `FileIcon` / `PageIcon` geometry for generic resource identity in attachments, menus, breadcrumbs, and Page rows. Preserve extension/MIME-specific artwork in format-sensitive file trees and file tabs; keep folders and file-related actions distinct.
+- Import stock fallbacks only through `@/components/shared/icons/generic-icons`; its 16px / 1.75-stroke defaults are the baseline, not raw library defaults.
+- Keep reusable custom SVGs in `src/renderer/components/shared/icons/`. Feature-local SVGs are limited to diagrams, data marks, and composite artwork covered by the icon-boundary audit.
+- Standard compact shell/resource-action menu icon: `icon-xs` (16px). Reserve `icon-2xs` (14px) for denser secondary controls and indicators.
+- Standard sidebar/toolbar icon: `icon-sm` (18px). Use `icon-base` only where the 20px visual weight is intentional.
 
 ## Typography
 
@@ -304,3 +355,6 @@ Before shipping any UI, verify:
 - [ ] Icons use `shrink-0` and `currentColor`
 - [ ] No nested bordered containers — flat cards with internal dividers only
 - [ ] Information density is high — no excessive whitespace
+- [ ] Application modals escape row/menu/route trigger subtrees through the renderer-window modal registry
+- [ ] Dropdown-triggered dialogs open from `onCloseAutoFocus`, after the menu closes
+- [ ] Local confirmations have an action-boundary propagation test; registry modals survive trigger unmount in a regression test

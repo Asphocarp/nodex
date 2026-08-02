@@ -311,7 +311,10 @@ describe("native Database Page projections", () => {
     const model = projectDatabaseViewReference(
       makeQuery([makeRow("page:host"), makeRow("page:visible")]),
       {
-        requestingProjectId: "project:reader",
+        accessContext: {
+          kind: "project",
+          projectId: "project:reader",
+        },
         databaseViewId: viewId,
         hostBlockId: "page:host",
       },

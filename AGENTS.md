@@ -157,7 +157,20 @@ Treat `CHANGELOG.md` as a required deliverable only for **release-note-worthy** 
 - For ordinary commits, use `<area>: <precise imperative summary>`. Do not default to Conventional Commits or type prefixes such as `feat:`, `fix:`, `chore:`, or `refactor:`.
 - Choose `area` from stable repository terminology: a subsystem, package, component, or code region rather than a change type. If it is unclear, inspect `git log --oneline -- path/to/file`.
 - Make the summary state the concrete behavior change in imperative mood, omit a terminal period, and aim for at most 72 characters without sacrificing precision. Example: `editor: preserve selection across remote updates`.
-- Separate the subject and body with a blank line. An obvious change may omit the body; otherwise explain why the change is needed, including prior behavior, constraints, rationale, or non-obvious trade-offs as relevant. Do not narrate the diff.
+- Omit the body when the subject is sufficient. Otherwise, separate it with a blank line and explain the motivation, constraints, or non-obvious trade-offs. Do not paraphrase the diff.
+- Use `git commit -m "<subject>"` for a subject-only message. For a message with a body, pass real line breaks:
+
+  ```bash
+  git commit -F - <<'EOF'
+  <subject>
+
+  <body paragraph wrapped at 72 columns>
+
+  <next body paragraph>
+  EOF
+  ```
+
+  Never encode line breaks as literal `\n`; Git records them as text.
 - Hard-wrap ordinary body prose at 72 characters. URLs, commands, file paths, identifiers, code, and indivisible machine-readable content are exempt.
 - Place issue references and other trailers after the body, following existing repository conventions.
 - Merge, revert, release, and generated commits may follow their tool or established repository format.

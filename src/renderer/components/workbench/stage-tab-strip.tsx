@@ -1,4 +1,5 @@
-import { Plus, X } from "lucide-react";
+import { PlusIcon } from "@/components/shared/icons";
+import { X } from "@/components/shared/icons/generic-icons";
 import { cn } from "../../lib/utils";
 
 export interface StageTabItem {
@@ -94,7 +95,7 @@ export function StageTabStrip({
             "text-(--foreground-tertiary) hover:bg-(--background-tertiary)/50 hover:text-(--foreground-secondary)",
           )}
         >
-          <Plus className="size-3.5" />
+          <PlusIcon className="size-3.5" />
         </button>
       )}
     </div>

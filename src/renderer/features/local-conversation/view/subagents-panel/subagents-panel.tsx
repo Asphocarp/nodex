@@ -1,4 +1,4 @@
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft } from "@/components/shared/icons/generic-icons";
 import {
   useEffect,
   useCallback,

@@ -24,7 +24,26 @@ use crate::infrastructure::writer::{StoreReaders, StoreWriter};
 
 mod page_projection;
 mod projection_authorization;
+mod resource_access;
 mod search_snapshot;
+
+fn require_trusted_library_authority(context: &BoundModuleContext) -> Result<(), StoreError> {
+    if context.project_id.is_none()
+        && matches!(
+            context.adapter,
+            nodex_core_contracts::AdapterKind::ElectronHost
+                | nodex_core_contracts::AdapterKind::NativeCli
+                | nodex_core_contracts::AdapterKind::Test
+        )
+    {
+        return Ok(());
+    }
+    Err(StoreError::new(
+        StoreErrorCode::Unauthorized,
+        "Project access can only be managed from trusted Library authority",
+        false,
+    ))
+}
 
 #[derive(Clone, Debug)]
 pub struct LibraryApplyOutcome {
@@ -377,6 +396,16 @@ impl LibraryModule {
                             library_id,
                             change_log_seq: event_head,
                         },
+                        LibraryRead::ResourceProjectAccess { target } => {
+                            LibraryReadValue::ResourceProjectAccess {
+                                value: Box::new(resource_access::read(
+                                    &transaction,
+                                    &library_id,
+                                    &context,
+                                    target,
+                                )?),
+                            }
+                        }
                         LibraryRead::FilterProjectionImpactForProject { project_id, impact } => {
                             LibraryReadValue::ProjectionImpact {
                                 impact: projection_authorization::filter_for_project(
@@ -1834,6 +1863,8 @@ mod tests {
         const ROOT_DOCUMENT: &str = "document:root";
         const ROW_DOCUMENT: &str = "document:row";
         const DATABASE: &str = "database:root";
+        const PRIMARY_CANVAS: &str = "canvas:primary:project-1";
+        const CANVAS_DOCUMENT: &str = "document:canvas:primary:project-1";
         const SOURCE: &str = "source:root";
         const VIEW: &str = "view:root";
         const DELETED_VIEW: &str = "view:deleted";
@@ -1880,6 +1911,7 @@ mod tests {
                     for (block_id, block_type, location) in [
                         (ROOT_PAGE, "page", "space"),
                         (DATABASE, "database", "space"),
+                        (PRIMARY_CANVAS, "canvas", "space"),
                     ] {
                         transaction.execute(
                             "INSERT INTO blocks( \
@@ -1974,6 +2006,32 @@ mod tests {
                         )?;
                     }
                     transaction.execute(
+                        "INSERT INTO documents( \
+                           id, project_id, generation, head_seq, schema_key, schema_version, \
+                           state_vector, state_hash, readiness, authority, created_at, updated_at, sync_engine \
+                         ) VALUES (?1, 'project-1', 1, 0, 'nodex.canvas', 1, X'', \
+                           '0000000000000000000000000000000000000000000000000000000000000000', \
+                           'ready', 'ydoc_primary', ?2, ?2, 'canvas_scene')",
+                        params![CANVAS_DOCUMENT, NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO block_documents(block_id, document_id, project_id, created_at) \
+                         VALUES (?1, ?2, 'project-1', ?3)",
+                        params![PRIMARY_CANVAS, CANVAS_DOCUMENT, NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO canvas_owners(block_id, library_id, created_at, updated_at) \
+                         VALUES (?1, 'library-1', ?2, ?2)",
+                        params![PRIMARY_CANVAS, NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO block_properties( \
+                           block_id, project_id, property_key, value_type, value_json, revision, updated_at \
+                         ) VALUES (?1, 'project-1', 'document.display_name', 'string', \
+                           '\"Canvas\"', 1, ?2)",
+                        params![PRIMARY_CANVAS, NOW],
+                    )?;
+                    transaction.execute(
                         "INSERT INTO data_source_page_memberships( \
                            id, data_source_id, page_block_id, revision, created_at, removed_at \
                          ) VALUES ('membership:row', ?1, ?2, 1, ?3, NULL)",
@@ -2025,8 +2083,9 @@ mod tests {
                         "INSERT INTO library_block_placements( \
                            block_id, library_id, rank_key, created_at, updated_at \
                          ) VALUES (?1, 'library-1', 'a', ?3, ?3), \
-                                  (?2, 'library-1', 'b', ?3, ?3)",
-                        params![ROOT_PAGE, DATABASE, NOW],
+                                  (?2, 'library-1', 'b', ?3, ?3), \
+                                  (?4, 'library-1', 'c', ?3, ?3)",
+                        params![ROOT_PAGE, DATABASE, NOW, PRIMARY_CANVAS],
                     )?;
                     Ok(())
                 })
@@ -2159,12 +2218,74 @@ mod tests {
         }) else {
             panic!("root children");
         };
-        assert_eq!(items.len(), 2);
+        assert_eq!(items.len(), 3);
         assert!(!items.iter().any(|node| matches!(
             node,
             nodex_core_contracts::library::LibraryNavigationNode::Page { page_id, .. }
                 if page_id == ROW_PAGE
         )));
+        let LibraryReadValue::StandaloneRoots {
+            items,
+            total,
+            has_more,
+            ..
+        } = read(LibraryRead::StandaloneRoots {
+            cursor: None,
+            limit: None,
+            force_include_target: Some(LibraryResourceTarget::Database {
+                database_id: DATABASE.to_owned(),
+            }),
+        })
+        else {
+            panic!("standalone roots");
+        };
+        assert_eq!(total, 1);
+        assert!(!has_more);
+        assert!(matches!(
+            items.as_slice(),
+            [nodex_core_contracts::library::LibraryNavigationNode::Page { page_id, .. }]
+                if page_id == ROOT_PAGE
+        ));
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "UPDATE projects SET lifecycle = 'archived' WHERE id = 'project-1'",
+                    [],
+                )?;
+                Ok(())
+            })
+            .expect("archive Project");
+        let LibraryReadValue::StandaloneRoots { items, total, .. } =
+            read(LibraryRead::StandaloneRoots {
+                cursor: None,
+                limit: None,
+                force_include_target: None,
+            })
+        else {
+            panic!("archived Project standalone roots");
+        };
+        assert_eq!(total, 3);
+        assert!(items.iter().any(|node| matches!(
+            node,
+            nodex_core_contracts::library::LibraryNavigationNode::Database { database_id, .. }
+                if database_id == DATABASE
+        )));
+        assert!(items.iter().any(|node| matches!(
+            node,
+            nodex_core_contracts::library::LibraryNavigationNode::Canvas { canvas_id, .. }
+                if canvas_id == PRIMARY_CANVAS
+        )));
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "UPDATE projects SET lifecycle = 'active' WHERE id = 'project-1'",
+                    [],
+                )?;
+                Ok(())
+            })
+            .expect("restore Project");
         let LibraryReadValue::Catalog { items, .. } = read(LibraryRead::Catalog {
             query: Some("say hi".to_owned()),
             kinds: None,
@@ -2216,6 +2337,30 @@ mod tests {
         assert_eq!(project_search_error.code, CoreErrorCode::Unauthorized);
         let mut untrusted_root_context = context();
         untrusted_root_context.adapter = AdapterKind::Agent;
+        let untrusted_target_error = module
+            .read(
+                &untrusted_root_context,
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::PageTarget {
+                        page_id: ROOT_PAGE.to_owned(),
+                    },
+                },
+            )
+            .expect_err("Agent clients cannot claim trusted Page target authority");
+        assert_eq!(untrusted_target_error.code, CoreErrorCode::Unauthorized);
+        let untrusted_path_error = module
+            .read(
+                &untrusted_root_context,
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::PageOwnershipPath {
+                        page_id: ROOT_PAGE.to_owned(),
+                    },
+                },
+            )
+            .expect_err("Agent clients cannot claim trusted Page path authority");
+        assert_eq!(untrusted_path_error.code, CoreErrorCode::Unauthorized);
         let untrusted_search_error = module
             .read(
                 &untrusted_root_context,
@@ -2495,6 +2640,53 @@ mod tests {
                 },
             )
             .expect("create nested reference Page");
+        let root_context = context();
+        let LibraryReadValue::PageTarget { value } = module
+            .read(
+                &root_context,
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::PageTarget {
+                        page_id: NESTED_PAGE.to_owned(),
+                    },
+                },
+            )
+            .expect("trusted root Page target")
+            .value
+        else {
+            panic!("Page target");
+        };
+        assert!(matches!(
+            value.as_deref(),
+            Some(nodex_core_contracts::library::LibraryPageTarget::Available {
+                target_page_id,
+                ..
+            }) if target_page_id == NESTED_PAGE
+        ));
+        let LibraryReadValue::PageOwnershipPath { value } = module
+            .read(
+                &root_context,
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::PageOwnershipPath {
+                        page_id: NESTED_PAGE.to_owned(),
+                    },
+                },
+            )
+            .expect("trusted root Page ownership path")
+            .value
+        else {
+            panic!("Page ownership path");
+        };
+        let Some(nodex_core_contracts::library::LibraryPageOwnershipPath::Available {
+            ancestors,
+            ..
+        }) = value.as_deref()
+        else {
+            panic!("available Page ownership path");
+        };
+        assert_eq!(ancestors.len(), 1);
+        assert_eq!(ancestors[0].page_id, ROOT_PAGE);
         let project_two_context = BoundModuleContext {
             project_id: Some(ProjectId("project-2".to_owned())),
             connection_id: "connection:reference-project".to_owned(),
@@ -2660,7 +2852,7 @@ mod tests {
         let LibraryReadValue::Children { next_cursor, .. } = read(LibraryRead::Children {
             parent: LibraryNavigationParent::Library,
             cursor: None,
-            limit: Some(1),
+            limit: Some(2),
             force_include_target: None,
         }) else {
             panic!("paged roots");
@@ -5004,6 +5196,50 @@ mod tests {
                 Ok(())
             })
             .expect("Property authority evidence");
+
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "UPDATE projects SET lifecycle = 'archived' WHERE id = 'project-1'",
+                    [],
+                )?;
+                Ok(())
+            })
+            .expect("archive compatibility storage Project");
+        let mut library_context = persistent_context.clone();
+        library_context.project_id = None;
+        let property_write = module
+            .apply(
+                &library_context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "property:library-authority".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::ApplyBlockPropertyMutation {
+                        mutation: Box::new(LibraryBlockPropertyMutation {
+                            actor: serde_json::json!({ "kind": "test" }),
+                            client_session_id: None,
+                            fields: vec![LibraryBlockPropertyFieldMutation::IntrinsicSet {
+                                block_id: PAGE.to_owned(),
+                                property_key: "run.target".to_owned(),
+                                expected_revision: 2,
+                                value: serde_json::json!("localProject"),
+                            }],
+                        }),
+                    },
+                },
+            )
+            .expect("Library authority writes Properties without an active Project");
+        assert!(matches!(
+            property_write
+                .committed
+                .value
+                .block_property_mutation
+                .as_ref()
+                .map(|receipt| &receipt.outcome),
+            Some(LibraryBlockPropertyMutationOutcome::Committed { .. })
+        ));
     }
 }
 pub(crate) mod agent_authorization;

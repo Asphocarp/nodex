@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Check } from "lucide-react";
+import { Check } from "@/components/shared/icons/generic-icons";
 import { EMPTY_PRIORITY_OPTION_VALUE, KANBAN_PRIORITY_SELECT_OPTIONS } from "@/lib/kanban-options";
 import {
   NodexDropdownActionRow,

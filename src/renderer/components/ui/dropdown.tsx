@@ -21,7 +21,6 @@ export type NodexDropdownContentWidth =
   | "icon"
   | "xs"
   | "sm"
-  | "menuNarrow"
   | "menu"
   | "menuFixed"
   | "menuBounded"
@@ -116,7 +115,10 @@ const NodexDropdownSubmenuContent = forwardRef<
               "m-0 flex min-w-[180px] select-none flex-col overflow-x-hidden overflow-y-auto p-0",
               APP_SHELL_FLOATING_UI_LAYER_CLASS,
             )
-          : dropdownContentSurfaceClassName,
+          : cn(
+              dropdownContentSurfaceClassName,
+              surface === "menu" && dropdownAdaptiveWidthClassName,
+            ),
         motion === "default"
           ? dropdownContentMotionClassName
           : "data-[state=closed]:invisible data-[state=closed]:pointer-events-none",
@@ -137,6 +139,9 @@ const dropdownItemBaseClassName =
   "text-token-foreground outline-hidden rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm";
 const dropdownItemInteractiveClassName =
   "hover:bg-token-list-hover-background focus:bg-token-list-hover-background cursor-interaction";
+const dropdownItemLeftSlotClassName = "shrink-0 text-token-text-secondary";
+const dropdownItemLeftSlotInteractiveClassName =
+  "group-focus:text-token-foreground group-hover:text-token-foreground";
 const dropdownSectionLabelClassName =
   "px-[var(--padding-row-x)] py-1 text-sm text-token-description-foreground";
 const dropdownMessageClassName = "px-[var(--padding-row-x)] text-sm";
@@ -157,19 +162,20 @@ function resolveDropdownSurfaceClass(surface: NodexDropdownSurface): string | un
   return undefined;
 }
 
-function resolveDropdownWidthClass(width?: NodexDropdownContentWidth): string | undefined {
-  if (width === "icon") return "min-w-[120px]";
-  if (width === "xs") return "min-w-[160px]";
-  if (width === "sm") return "min-w-[180px]";
-  if (width === "menuNarrow") return "w-52";
-  if (width === "menu") return "min-w-[220px]";
+const dropdownAdaptiveWidthClassName = "min-w-[172px] max-w-[240px]";
+
+function resolveDropdownWidthClass(width?: NodexDropdownContentWidth): string {
+  if (width === "icon") return "min-w-[120px] max-w-[240px]";
+  if (width === "xs") return "min-w-[160px] max-w-[240px]";
+  if (width === "sm") return "min-w-[180px] max-w-[240px]";
+  if (width === "menu") return "min-w-[220px] max-w-[320px]";
   if (width === "menuFixed") return "w-[220px]";
   if (width === "menuBounded") return "min-w-[200px] max-w-[320px]";
   if (width === "menuWide") return "w-[240px]";
-  if (width === "workspace") return "min-w-[260px]";
+  if (width === "workspace") return "min-w-[260px] max-w-[360px]";
   if (width === "panel") return "w-[280px]";
   if (width === "panelWide") return "w-[360px]";
-  return undefined;
+  return dropdownAdaptiveWidthClassName;
 }
 
 function resolveDropdownMaxHeightClass(maxHeight?: NodexDropdownContentMaxHeight): string | undefined {
@@ -404,7 +410,16 @@ export const NodexDropdownItem = forwardRef<
       {...props}
     >
       <div className="flex w-full items-center gap-1.5">
-        {leftSlot ? <span className="shrink-0">{leftSlot}</span> : null}
+        {leftSlot ? (
+          <span
+            className={cn(
+              dropdownItemLeftSlotClassName,
+              !disabled && dropdownItemLeftSlotInteractiveClassName,
+            )}
+          >
+            {leftSlot}
+          </span>
+        ) : null}
         <span className={cn("min-w-0 flex-1", allowWrap ? "whitespace-normal" : "truncate")}>
           <span className={cn("flex items-center gap-1", subText && "flex-col items-start gap-0.5")}>
             <span className={cn("min-w-0", !allowWrap && "truncate")}>{children}</span>
@@ -490,7 +505,16 @@ export const NodexDropdownRadioItem = forwardRef<
       {...props}
     >
       <div className="flex w-full items-center gap-1.5">
-        {leftSlot ? <span className="shrink-0">{leftSlot}</span> : null}
+        {leftSlot ? (
+          <span
+            className={cn(
+              dropdownItemLeftSlotClassName,
+              !disabled && dropdownItemLeftSlotInteractiveClassName,
+            )}
+          >
+            {leftSlot}
+          </span>
+        ) : null}
         <span className={cn("min-w-0 flex-1", allowWrap ? "whitespace-normal" : "truncate")}>
           <span className={cn("min-w-0", !allowWrap && "truncate")}>{children}</span>
         </span>
@@ -806,7 +830,16 @@ export function NodexDropdownFlyoutSubmenuItem({
     >
       {triggerContent ?? (
         <div className="flex w-full items-center gap-1.5">
-          {leftSlot ? <span className="shrink-0">{leftSlot}</span> : null}
+          {leftSlot ? (
+            <span
+              className={cn(
+                dropdownItemLeftSlotClassName,
+                !disabled && dropdownItemLeftSlotInteractiveClassName,
+              )}
+            >
+              {leftSlot}
+            </span>
+          ) : null}
           <span className="min-w-0 flex-1 truncate">{label}</span>
           <ChevronRightIcon className="icon-xs shrink-0 text-token-input-placeholder-foreground opacity-75 group-focus:opacity-100 group-hover:opacity-100" />
         </div>

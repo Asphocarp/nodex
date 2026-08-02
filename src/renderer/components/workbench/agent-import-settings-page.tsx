@@ -1,4 +1,5 @@
-import { Check, FolderOpen, RefreshCw } from "lucide-react";
+import { FolderOpenIcon } from "@/components/shared/icons";
+import { Check, RefreshCw } from "@/components/shared/icons/generic-icons";
 import { useCallback, useEffect, useState } from "react";
 import type {
   AgentImportProgress,
@@ -199,7 +200,7 @@ export function AgentImportSettingsPage({
                 size="sm"
                 variant="ghost"
               >
-                <FolderOpen className="icon-2xs shrink-0" />
+                <FolderOpenIcon className="icon-2xs shrink-0" />
                 Choose folder
               </NodexButton>
             ) : null}

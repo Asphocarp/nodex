@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { Repeat2Icon } from "lucide-react";
+import { Repeat2Icon } from "@/components/shared/icons/generic-icons";
 import { formatTimeRange } from "@/lib/calendar-utils";
 import { resolveKanbanPriorityOption } from "@/lib/kanban-options";
 import { estimateStyles } from "@/lib/types";

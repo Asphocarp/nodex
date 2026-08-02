@@ -1,5 +1,9 @@
+import { FileIcon, FolderIcon, PageIcon } from "@/components/shared/icons";
 import type { ReactNode } from "react";
-import { Bot, FileCode2, FileText, Folder, Link2 } from "lucide-react";
+import {
+  Bot,
+  Link2,
+} from "@/components/shared/icons/generic-icons";
 import { Streamdown } from "streamdown";
 import {
   InlineMarkdownCode,
@@ -526,10 +530,10 @@ function InlineItem({
     const Icon = item.mode === "link"
       ? Link2
       : item.kind === "folder"
-        ? Folder
+        ? FolderIcon
         : item.kind === "file"
-          ? FileCode2
-          : FileText;
+          ? FileIcon
+          : PageIcon;
     const label = item.name.trim() || (item.kind === "text" ? "Pasted text" : "Untitled attachment");
 
     return (

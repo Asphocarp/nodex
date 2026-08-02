@@ -1,14 +1,17 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { FileIcon, FolderIcon, FolderOpenIcon, PageIcon } from "@/components/shared/icons";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ComponentType,
+} from "react";
 import { createReactInlineContentSpec } from "@blocknote/react";
 import {
   ArrowUpRight,
   Copy,
-  FileCode2,
-  FileText,
-  Folder,
-  FolderOpen,
   Link2,
-} from "lucide-react";
+} from "@/components/shared/icons/generic-icons";
 
 import {
   NodexPopover,
@@ -69,9 +72,9 @@ export function getAttachmentLabel(
 
 function getAttachmentIcon(kind: AttachmentProps["kind"], mode: AttachmentProps["mode"]) {
   if (mode === "link") return Link2;
-  if (kind === "folder") return Folder;
-  if (kind === "file") return FileCode2;
-  return FileText;
+  if (kind === "folder") return FolderIcon;
+  if (kind === "file") return FileIcon;
+  return PageIcon;
 }
 
 function canPreviewAttachment(props: AttachmentProps): boolean {
@@ -194,7 +197,7 @@ function AttachmentPopover({
 
       <div className="mt-3 flex flex-wrap gap-1.5">
         <AttachmentActionButton label="Open" icon={ArrowUpRight} onClick={onPrimaryOpen} />
-        <AttachmentActionButton label="Reveal" icon={FolderOpen} onClick={handleReveal} />
+        <AttachmentActionButton label="Reveal" icon={FolderOpenIcon} onClick={handleReveal} />
         <AttachmentActionButton label="Copy path" icon={Copy} onClick={handleCopyPath} />
         {hasOriginal && (
           <AttachmentActionButton label="Open original" icon={Link2} onClick={handleOpenOriginal} />
@@ -265,7 +268,7 @@ function AttachmentActionButton({
   onClick,
 }: {
   label: string;
-  icon: typeof ArrowUpRight;
+  icon: ComponentType<{ className?: string }>;
   onClick: () => Promise<void>;
 }) {
   return (

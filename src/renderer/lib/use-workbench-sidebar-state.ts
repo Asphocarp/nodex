@@ -127,7 +127,7 @@ export function useWorkbenchSidebarState({
     finishArchive,
     sections: resolvedCollapsibleSections,
     togglePinnedSection: () => toggleSection("pinned"),
-    toggleLibrarySection: () => toggleSection("library"),
+    togglePagesSection: () => toggleSection("pages"),
     toggleProjectsSection: () => toggleSection("projects"),
     toggleChatsSection: () => toggleSection("chats"),
   };

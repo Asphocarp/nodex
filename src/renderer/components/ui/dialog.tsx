@@ -1,6 +1,6 @@
 import * as React from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { CodexCloseIcon } from "@/components/shared/icons";
+import { CloseIcon } from "@/components/shared/icons";
 import { cn } from "@/lib/utils";
 
 export type NodexDialogSize =
@@ -114,7 +114,7 @@ export function NodexDialogContent({
             className="no-drag absolute top-4 right-4 cursor-interaction rounded p-1 leading-none text-token-foreground/80 hover:bg-token-toolbar-hover-background focus:outline-none focus-visible:ring-1 focus-visible:ring-token-focus-border"
             aria-label={closeButtonAriaLabel}
           >
-            <CodexCloseIcon className="icon-xs" />
+            <CloseIcon className="icon-xs" />
           </DialogPrimitive.Close>
         ) : null}
       </DialogPrimitive.Content>

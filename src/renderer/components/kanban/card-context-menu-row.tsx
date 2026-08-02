@@ -6,7 +6,7 @@ import {
   SlidersHorizontal,
   Star,
   Trash2,
-} from "lucide-react";
+} from "@/components/shared/icons/generic-icons";
 import type { CardActionMenuEntry } from "./card-context-menu-model";
 
 function ActionIcon({ entryId }: { entryId: CardActionMenuEntry["id"] }) {

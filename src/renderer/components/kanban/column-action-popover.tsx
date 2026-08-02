@@ -1,5 +1,6 @@
+import { ProjectActionsIcon, PlusIcon } from "@/components/shared/icons";
 import { useState } from "react";
-import { ChevronsLeftRight, ChevronsRightLeft, Minus, MoreHorizontal, Plus } from "lucide-react";
+import { ChevronsLeftRight, ChevronsRightLeft, Minus } from "@/components/shared/icons/generic-icons";
 import {
   NodexDropdownSeparator,
 } from "@/components/ui/dropdown";
@@ -164,7 +165,7 @@ export function ColumnActionPopoverContent({
             disabled={!canIncreaseWidth}
             onClick={() => handleWidthChange(width + KANBAN_COLUMN_WIDTH_STEP)}
           >
-            <Plus className="size-3" />
+            <PlusIcon className="size-3" />
           </StepperButton>
         </div>
       </div>
@@ -203,7 +204,7 @@ export function ColumnActionPopover({
             event.stopPropagation();
           }}
         >
-          <MoreHorizontal className="size-3.5" />
+          <ProjectActionsIcon className="size-3.5" />
         </button>
       </NodexPopoverTrigger>
 

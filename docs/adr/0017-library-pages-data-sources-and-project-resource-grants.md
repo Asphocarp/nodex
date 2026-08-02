@@ -192,6 +192,15 @@ Authorization answers whether the Project may act on a resource. Approval
 answers whether an already authorized action may proceed automatically, once,
 for the task, or not at all.
 
+Library access management reads one authoritative matrix across every Project
+in the Library. The read model distinguishes the exact direct grant from
+effective access and names inherited sources. Its batch command changes only
+exact direct grants, applies per-grant revision fences, and commits all edits in
+one transaction. Because grants are additive, an inherited or primary-Database
+capability is a non-reducible floor; removing a child grant is not a deny
+override. Inactive and archived Projects may have a direct grant revoked but
+cannot receive or upgrade one.
+
 ### One deep Database Module owns database semantics
 
 Database semantics live behind one deep Module rather than table-shaped

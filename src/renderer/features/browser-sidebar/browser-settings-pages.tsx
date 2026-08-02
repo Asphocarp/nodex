@@ -1,11 +1,11 @@
+import { SearchIcon } from "@/components/shared/icons";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   Download,
   Puzzle,
   RotateCcw,
-  Search,
   Trash2,
-} from "lucide-react";
+} from "@/components/shared/icons/generic-icons";
 import { NodexButton, NodexSwitch } from "@/components/ui/button";
 import {
   NodexSettingsPageSurface,
@@ -629,7 +629,7 @@ export function BrowserHistorySettingsPage({ open }: { open: boolean }) {
       )}
     >
       <label className="flex h-9 items-center gap-2 rounded-lg border border-token-border bg-token-main-surface-primary px-3">
-        <Search className="size-4 text-token-text-tertiary" />
+        <SearchIcon className="size-4 text-token-text-tertiary" />
         <input
           className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-token-text-tertiary"
           value={query}

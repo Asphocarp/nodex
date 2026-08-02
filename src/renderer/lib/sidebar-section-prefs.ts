@@ -1,6 +1,6 @@
 export const SIDEBAR_COLLAPSIBLE_SECTION_IDS = [
   "pinned",
-  "library",
+  "pages",
   "projects",
   "chats",
 ] as const;
@@ -29,7 +29,10 @@ export function normalizeSidebarCollapsibleSectionsState(value: unknown): Sideba
   if (typeof value !== "object" || value === null || Array.isArray(value)) return defaults;
 
   return SIDEBAR_COLLAPSIBLE_SECTION_IDS.reduce<SidebarCollapsibleSectionsState>((acc, sectionId) => {
-    const collapsed = (value as Record<string, unknown>)[sectionId];
+    const record = value as Record<string, unknown>;
+    const collapsed = sectionId === "pages"
+      ? record.pages ?? record.library
+      : record[sectionId];
     acc[sectionId] = typeof collapsed === "boolean" ? collapsed : defaults[sectionId];
     return acc;
   }, {} as SidebarCollapsibleSectionsState);

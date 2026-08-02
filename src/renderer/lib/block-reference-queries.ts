@@ -16,6 +16,10 @@ import { useProjectionInvalidationRegistry } from "./projection-invalidation-con
 import type { ProjectionDependencies } from "./projection-invalidation-registry";
 import type { ProjectionCursor, ProjectionScope } from "../../shared/projection-stream";
 import { useLibraryMetadata } from "./use-library-navigation";
+import {
+  projectIdFromContentAccessContext,
+  type ContentAccessContext,
+} from "../../shared/content-access-context";
 
 export interface ReferenceQueryResult<T> {
   readonly data: T | null;
@@ -38,18 +42,20 @@ const pageOwnershipPathChangeSubscriptions =
   });
 
 const pageTargetQueryOptions = (
-  requestingProjectId: string,
+  accessContext: ContentAccessContext,
   targetBlockId: string,
-) => ({
-  queryKey: queryKeys.pageTargets.byId(requestingProjectId, targetBlockId),
-  queryFn: () => resolvePageTarget({
-    requestingProjectId,
-    targetPageId: targetBlockId,
-  }),
-  enabled: requestingProjectId.length > 0 && targetBlockId.length > 0,
-  staleTime: 5_000,
-  refetchOnWindowFocus: true,
-});
+) => {
+  return {
+    queryKey: queryKeys.pageTargets.byId(accessContext, targetBlockId),
+    queryFn: () => resolvePageTarget({
+      accessContext,
+      targetPageId: targetBlockId,
+    }),
+    enabled: targetBlockId.length > 0,
+    staleTime: 5_000,
+    refetchOnWindowFocus: true,
+  };
+};
 
 const useProjectionQueryRefresh = (input: {
   readonly scope: ProjectionScope | null;
@@ -94,21 +100,23 @@ const useProjectionQueryRefresh = (input: {
 };
 
 export const usePageTargetReadModel = (
-  requestingProjectId: string,
+  accessContext: ContentAccessContext,
   targetBlockId: string,
 ): ReferenceQueryResult<PageTargetReadModel> => {
-  const enabled = requestingProjectId.length > 0 && targetBlockId.length > 0;
+  const enabled = targetBlockId.length > 0;
   const library = useLibraryMetadata(enabled);
-  const query = useQuery(pageTargetQueryOptions(requestingProjectId, targetBlockId));
+  const query = useQuery(pageTargetQueryOptions(accessContext, targetBlockId));
   const libraryId = library.data?.libraryId ?? query.data?.libraryId ?? null;
-  const queryKey = queryKeys.pageTargets.byId(requestingProjectId, targetBlockId);
+  const queryKey = queryKeys.pageTargets.byId(accessContext, targetBlockId);
   useProjectionQueryRefresh({
     scope: enabled && libraryId
-      ? {
-          kind: "project",
-          libraryId,
-          projectId: requestingProjectId,
-        }
+      ? accessContext.kind === "library"
+        ? { kind: "library", libraryId }
+        : {
+            kind: "project",
+            libraryId,
+            projectId: accessContext.projectId,
+          }
       : null,
     dependencies: { pageIds: [targetBlockId] },
     cursor: query.data
@@ -124,20 +132,21 @@ export const usePageTargetReadModel = (
 };
 
 export const usePageOwnershipPathReadModel = (
-  requestingProjectId: string,
+  accessContext: ContentAccessContext,
   targetPageId: string,
 ): ReferenceQueryResult<PageOwnershipPathReadModel> => {
   const queryClient = useQueryClient();
-  const enabled = requestingProjectId.length > 0 && targetPageId.length > 0;
+  const enabled = targetPageId.length > 0;
+  const projectId = projectIdFromContentAccessContext(accessContext);
   const library = useLibraryMetadata(enabled);
   const queryKey = queryKeys.pageOwnershipPaths.byPage(
-    requestingProjectId,
+    accessContext,
     targetPageId,
   );
   const query = useQuery({
     queryKey,
     queryFn: () => resolvePageOwnershipPath({
-      requestingProjectId,
+      accessContext,
       targetPageId,
     }),
     enabled,
@@ -150,11 +159,13 @@ export const usePageOwnershipPathReadModel = (
     : [targetPageId];
   useProjectionQueryRefresh({
     scope: enabled && libraryId
-      ? {
-          kind: "project",
-          libraryId,
-          projectId: requestingProjectId,
-        }
+      ? accessContext.kind === "library"
+        ? { kind: "library", libraryId }
+        : {
+            kind: "project",
+            libraryId,
+            projectId: accessContext.projectId,
+          }
       : null,
     dependencies: { pageIds: observedPageIds },
     cursor: query.data
@@ -164,17 +175,20 @@ export const usePageOwnershipPathReadModel = (
   });
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || !projectId) return;
     return pageOwnershipPathChangeSubscriptions.subscribe(
-      requestingProjectId,
+      projectId,
       "page-ownership-paths",
       () => {
         void queryClient.invalidateQueries({
-          queryKey: queryKeys.pageOwnershipPaths.byProject(requestingProjectId),
+          queryKey: queryKeys.pageOwnershipPaths.byScope({
+            kind: "project",
+            projectId,
+          }),
         });
       },
     );
-  }, [enabled, queryClient, requestingProjectId]);
+  }, [enabled, projectId, queryClient]);
 
   return {
     data: query.data ?? null,
@@ -184,21 +198,21 @@ export const usePageOwnershipPathReadModel = (
 };
 
 export const useDatabaseViewReadModel = (
-  requestingProjectId: string,
+  accessContext: ContentAccessContext,
   databaseViewId: string,
   hostBlockId?: string,
 ): ReferenceQueryResult<DatabaseViewReadModel> => {
-  const enabled = requestingProjectId.length > 0 && databaseViewId.length > 0;
+  const enabled = databaseViewId.length > 0;
   const library = useLibraryMetadata(enabled);
   const queryKey = queryKeys.blockReferences.databaseView(
-    requestingProjectId,
+    accessContext,
     databaseViewId,
     hostBlockId,
   );
   const { data, error, status } = useQuery({
     queryKey,
     queryFn: () => readDatabaseViewReference({
-      requestingProjectId,
+      accessContext,
       databaseViewId,
       ...(hostBlockId ? { hostBlockId } : {}),
     }),
@@ -209,11 +223,13 @@ export const useDatabaseViewReadModel = (
   const libraryId = library.data?.libraryId ?? data?.libraryId ?? null;
   useProjectionQueryRefresh({
     scope: enabled && libraryId
-      ? {
-          kind: "project",
-          libraryId,
-          projectId: requestingProjectId,
-        }
+      ? accessContext.kind === "library"
+        ? { kind: "library", libraryId }
+        : {
+            kind: "project",
+            libraryId,
+            projectId: accessContext.projectId,
+          }
       : null,
     dependencies: {
       databaseIds: data ? [data.view.databaseBlockId] : [],

@@ -76,6 +76,8 @@ interface WorkbenchPanelHostProps {
   headerStartInsetPx?: number;
   headerEndInsetPx?: number;
   tabScrollEndPaddingPx?: number;
+  renderNewTab?: (leafId: string) => ReactNode;
+  renderEmptyLeaf?: (leafId: string) => ReactNode;
 }
 
 export function WorkbenchPanelHost({
@@ -95,6 +97,8 @@ export function WorkbenchPanelHost({
   headerStartInsetPx,
   headerEndInsetPx,
   tabScrollEndPaddingPx,
+  renderNewTab,
+  renderEmptyLeaf,
 }: WorkbenchPanelHostProps) {
   return (
     <PanelGroupTree
@@ -104,7 +108,7 @@ export function WorkbenchPanelHost({
       tabItemsByLeafId={tabItemsByLeafId}
       activeTabIdsByLeafId={activeTabIdsByLeafId}
       renderAfterTabs={(leafId) => (
-        <WorkbenchPanelNewTabButton
+        renderNewTab?.(leafId) ?? <WorkbenchPanelNewTabButton
           actions={availableActions}
           projects={projects}
           panelId={panelId}
@@ -122,7 +126,7 @@ export function WorkbenchPanelHost({
       headerEndInsetPx={headerEndInsetPx}
       tabScrollEndPaddingPx={tabScrollEndPaddingPx}
       renderEmptyLeaf={(leafId) => (
-        <EmptyRightPane
+        renderEmptyLeaf?.(leafId) ?? <EmptyRightPane
           actions={availableActions}
           projects={projects}
           isMac={isMac}

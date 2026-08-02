@@ -56,7 +56,8 @@ async function copyPageDeeplink(pageId: string): Promise<void> {
 }
 
 interface PageStageDescriptionEditorProps {
-  readonly projectId: string;
+  readonly contentAccessContext: PageStageProps["contentAccessContext"];
+  readonly documentScopeId: string;
   readonly projectName?: string | null;
   readonly projectWorkspacePath?: string | null;
   readonly pageId: string;
@@ -108,7 +109,8 @@ function CollaborativePageStageRawContent({
 
 const PageStageDescriptionEditor = memo(
   function PageStageDescriptionEditor({
-    projectId,
+    contentAccessContext,
+    documentScopeId,
     projectName,
     projectWorkspacePath,
     pageId,
@@ -140,7 +142,8 @@ const PageStageDescriptionEditor = memo(
 
     return (
       <NfmEditor
-        projectId={projectId}
+        contentAccessContext={contentAccessContext}
+        documentScopeId={documentScopeId}
         projectName={projectName}
         projectWorkspacePath={projectWorkspacePath}
         source={{
@@ -320,7 +323,8 @@ export function PageStage(props: PageStageProps) {
       }
       description={
         <PageStageDescriptionEditor
-          projectId={props.projectId}
+          contentAccessContext={props.contentAccessContext}
+          documentScopeId={props.documentScopeId}
           projectName={props.projectName}
           projectWorkspacePath={props.projectWorkspacePath}
           pageId={page.id}
@@ -352,7 +356,7 @@ export function PageStage(props: PageStageProps) {
     />
   );
   const surfaceProps = {
-    projectId: props.projectId,
+    projectId: props.documentScopeId,
     descriptor: props.documentAuthority.descriptor,
     isActive: props.isActivePanelTab ?? true,
     runtimeRef: documentRuntimeRef,
@@ -376,33 +380,38 @@ export function PageStage(props: PageStageProps) {
       {(surface) => renderDocumentSurface(surface)}
     </BlockDocumentSurface>
   );
+  const toolbar = (
+    <PageStageToolbar
+      onNavigateBack={props.onNavigateBack}
+      saving={controller.saving}
+      historyPanelActive={controller.historyPanelActive}
+      limitMainContentWidth={controller.limitMainContentWidth}
+      showRawContent={controller.showRawContent}
+      onCopyDeeplink={() => {
+        void copyPageDeeplink(page.id);
+      }}
+      onDelete={() => {
+        void controller.handleDelete();
+      }}
+      showDelete={Boolean(props.onDelete)}
+      onToggleContentWidth={controller.handleToggleContentWidth}
+      onToggleShowRawContent={controller.handleToggleShowRawContent}
+      onToggleHistoryPanel={handleToggleHistoryPanel}
+      breadcrumb={props.breadcrumb ? {
+        ...props.breadcrumb,
+        currentTitle: controller.title,
+      } : undefined}
+    />
+  );
 
   return (
     <div
       className="flex h-full w-full flex-col bg-(--background)"
       data-page-stage-surface="true"
     >
-      <PageStageToolbar
-        onNavigateBack={props.onNavigateBack}
-        saving={controller.saving}
-        historyPanelActive={controller.historyPanelActive}
-        limitMainContentWidth={controller.limitMainContentWidth}
-        showRawContent={controller.showRawContent}
-        onCopyDeeplink={() => {
-          void copyPageDeeplink(page.id);
-        }}
-        onDelete={() => {
-          void controller.handleDelete();
-        }}
-        showDelete={Boolean(props.onDelete)}
-        onToggleContentWidth={controller.handleToggleContentWidth}
-        onToggleShowRawContent={controller.handleToggleShowRawContent}
-        onToggleHistoryPanel={handleToggleHistoryPanel}
-        breadcrumb={props.breadcrumb ? {
-          ...props.breadcrumb,
-          currentTitle: controller.title,
-        } : undefined}
-      />
+      {props.toolbarPlacement?.kind === "external"
+        ? props.toolbarPlacement.render(toolbar)
+        : toolbar}
 
       <div
         ref={setHeadingRailPortalElement}

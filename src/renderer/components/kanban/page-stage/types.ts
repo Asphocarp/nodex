@@ -1,4 +1,4 @@
-import type { MutableRefObject } from "react";
+import type { MutableRefObject, ReactNode } from "react";
 import type {
   PageInput,
   WorkflowStatus,
@@ -13,6 +13,7 @@ import type {
 } from "@/lib/page-stage-page";
 import type { PageStageBreadcrumbProps } from "./breadcrumb";
 import type { DatabaseId } from "../../../../shared/database-identities";
+import type { ContentAccessContext } from "../../../../shared/content-access-context";
 
 export type { PageStageMetadataMutationResult } from "@/lib/page-stage-page";
 
@@ -58,6 +59,13 @@ export interface PageStageProps {
   retainEditorSession?: boolean;
   /** Optional route-level navigation control for standalone Page surfaces. */
   onNavigateBack?: () => void;
+  /** Hosts the single Page toolbar outside the surface without duplicating it. */
+  toolbarPlacement?:
+    | { readonly kind: "surface" }
+    | {
+        readonly kind: "external";
+        readonly render: (toolbar: ReactNode) => ReactNode;
+      };
   onLeavePage?: (snapshot: PageStageSessionSnapshot) => void;
   /** Publishes the authoritative plain-text Y.Text title for surrounding chrome. */
   onTitleChange?: (title: string) => void;
@@ -70,7 +78,10 @@ export interface PageStageProps {
   sessionSnapshotRef?: MutableRefObject<PageStageSessionSnapshot | null>;
   isActivePanelTab?: boolean;
   page: PageStagePageModel | null;
-  projectId: string;
+  /** Content authority selected by the mounted Project or Resource surface. */
+  contentAccessContext: ContentAccessContext;
+  /** Renderer-local identity for the mounted collaborative Document surface. */
+  documentScopeId: string;
   projectName?: string | null;
   projectWorkspacePath?: string | null;
   availableTags: string[];

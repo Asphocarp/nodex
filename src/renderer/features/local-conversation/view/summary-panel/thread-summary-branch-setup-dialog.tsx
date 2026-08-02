@@ -1,4 +1,4 @@
-import { GitBranchPlus } from "lucide-react";
+import { GitBranchPlus } from "@/components/shared/icons/generic-icons";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   NodexDialog,

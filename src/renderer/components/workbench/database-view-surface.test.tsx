@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
-import { act } from "react";
+import { act, useRef, useState } from "react";
 import type { DatabaseViewRenderModel } from "@/lib/database-view-render-model";
 import { plainTextToPortableRichText } from "../../../shared/block-documents";
 import {
@@ -10,7 +10,8 @@ import {
   parseDataSourcePropertyId,
 } from "../../../shared/database-identities";
 import { render } from "../../test/dom";
-import { DatabaseViewSurface } from "./read-only-database-view";
+import { DatabaseViewSurface } from "./database-view-surface";
+import { DatabaseViewTabSurface } from "./workbench-db-view-panel";
 
 const timestamp = "2026-07-12T00:00:00.000Z";
 const dataSourceId = parseDataSourceId("source-1");
@@ -20,7 +21,7 @@ const tagsPropertyId = parseDataSourcePropertyId("tags");
 
 const model: DatabaseViewRenderModel = {
   libraryId: "library-1",
-  projectId: "project-1",
+  accessContext: { kind: "project", projectId: "project-1" },
   databaseViewId: viewId,
   databaseId,
   dataSourceId,
@@ -153,17 +154,12 @@ describe("DatabaseViewSurface", () => {
       <DatabaseViewSurface
         model={model}
         searchQuery="focused"
-        openPageStage={(...args) => opened.push(args)}
+        onOpenPage={(...args) => opened.push(args)}
       />,
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Open Page Focused Page" }));
-    expect(opened[0]).toEqual([
-      "project-1",
-      "page-focused",
-      "Focused Page",
-      { openMode: "preview" },
-    ]);
+    expect(opened[0]).toEqual(["page-focused", "Focused Page"]);
   });
 
   test("writes a displayed custom property through Page and Data Source identity", async () => {
@@ -172,7 +168,7 @@ describe("DatabaseViewSurface", () => {
       <DatabaseViewSurface
         model={model}
         searchQuery=""
-        openPageStage={() => undefined}
+        onOpenPage={() => undefined}
         commitOperations={async (input) => {
           operations.push(...input.operations);
           return null;
@@ -192,5 +188,43 @@ describe("DatabaseViewSurface", () => {
       add: ["o_BBBBBBBB"],
       remove: [],
     });
+  });
+});
+
+function DatabaseViewTabHarness() {
+  const [query, setQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  return (
+    <DatabaseViewTabSurface
+      model={model}
+      activeSearchQuery={query}
+      taskSearchOpen={searchOpen}
+      searchShortcutLabel="Ctrl+F"
+      taskSearchInputRef={searchInputRef}
+      onSearchQueryChange={setQuery}
+      onOpenTaskSearch={() => setSearchOpen(true)}
+      onCloseTaskSearch={() => setSearchOpen(false)}
+      onOpenPage={() => undefined}
+    />
+  );
+}
+
+describe("DatabaseViewTabSurface", () => {
+  test("uses the DB View tab toolbar to search the shared Database surface", async () => {
+    const screen = render(<DatabaseViewTabHarness />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Search" }));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.change(screen.getByRole("textbox", { name: "Search tasks" }), {
+        target: { value: "missing page" },
+      });
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText("No matching Pages")).toBeTruthy();
   });
 });

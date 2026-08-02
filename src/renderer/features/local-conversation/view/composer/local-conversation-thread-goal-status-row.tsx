@@ -1,12 +1,12 @@
 import { useEffect, useLayoutEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import type { ThreadGoal } from "@nodex/codex-app-server-protocol/v2";
 import {
-  CodexGoalChevronRightIcon,
-  CodexGoalEditIcon,
-  CodexGoalPauseIcon,
-  CodexGoalResumeIcon,
-  CodexGoalTargetIcon,
-  CodexGoalTrashIcon,
+  GoalChevronRightIcon,
+  GoalEditIcon,
+  GoalPauseIcon,
+  GoalResumeIcon,
+  GoalTargetIcon,
+  GoalTrashIcon,
   SpinnerIcon,
 } from "@/components/shared/icons";
 import {
@@ -187,7 +187,7 @@ function ThreadGoalEditDialog({
         <NodexDialogForm onSubmit={handleSubmit}>
           <NodexDialogHeader>
             <NodexDialogTitle className="flex items-center gap-2">
-              <CodexGoalTargetIcon className="icon-2xs text-token-input-placeholder-foreground/80" />
+              <GoalTargetIcon className="icon-2xs text-token-input-placeholder-foreground/80" />
               <span>{getThreadGoalMessage("composer.threadGoal.editDialog.title")}</span>
             </NodexDialogTitle>
             <NodexDialogDescription className="sr-only">
@@ -353,7 +353,7 @@ export function ThreadGoalStatusRow({
       >
         <div className="flex items-center justify-between gap-2 px-3 py-row-y">
           <div className="flex min-w-0 flex-1 items-center gap-2">
-            <CodexGoalTargetIcon className="icon-2xs shrink-0 text-token-input-placeholder-foreground/70" />
+            <GoalTargetIcon className="icon-2xs shrink-0 text-token-input-placeholder-foreground/70" />
             <div className="text-size-chat flex min-w-0 flex-1 items-center overflow-hidden leading-4">
               <span className="shrink-0 text-token-foreground">
                 {formatThreadGoalStatusLabel(goal.status)}
@@ -380,7 +380,7 @@ export function ThreadGoalStatusRow({
                 void handleOpenEdit();
               }}
             >
-              <CodexGoalEditIcon className="icon-2xs" />
+              <GoalEditIcon className="icon-2xs" />
             </ThreadGoalRowIconButton>
             {toggleTarget ? (
               <ThreadGoalRowIconButton
@@ -393,8 +393,8 @@ export function ThreadGoalStatusRow({
                 }}
               >
                 {toggleTarget === "paused"
-                  ? <CodexGoalPauseIcon className="icon-2xs" />
-                  : <CodexGoalResumeIcon className="icon-2xs" />}
+                  ? <GoalPauseIcon className="icon-2xs" />
+                  : <GoalResumeIcon className="icon-2xs" />}
               </ThreadGoalRowIconButton>
             ) : null}
             <ThreadGoalRowIconButton
@@ -406,7 +406,7 @@ export function ThreadGoalStatusRow({
                 void handleClear();
               }}
             >
-              <CodexGoalTrashIcon className="icon-2xs" />
+              <GoalTrashIcon className="icon-2xs" />
             </ThreadGoalRowIconButton>
             {isObjectiveTruncated || isExpanded ? (
               <ThreadGoalRowIconButton
@@ -421,7 +421,7 @@ export function ThreadGoalStatusRow({
                   setExpandedObjective(isExpanded ? null : goal.objective);
                 }}
               >
-                <CodexGoalChevronRightIcon className={cn("icon-2xs transition-transform", isExpanded && "rotate-90")} />
+                <GoalChevronRightIcon className={cn("icon-2xs transition-transform", isExpanded && "rotate-90")} />
               </ThreadGoalRowIconButton>
             ) : null}
           </div>

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import {
-  CodexThreadIcon,
+  ThreadIcon,
   WorktreeStatusIcon,
 } from "@/components/shared/icons";
 import type { CodexWorktreeInitActivity } from "@/lib/codex-worktree-init-activity";
@@ -50,7 +50,7 @@ function WorktreeInitActivityIcon({
   if (activity.kind === "setup") {
     return <WorktreeSetupStatusIcon className={className} />;
   }
-  return <CodexThreadIcon className={className} />;
+  return <ThreadIcon className={className} />;
 }
 
 function RunningConversationActivity({ activity }: { activity: CodexWorktreeInitActivity }) {

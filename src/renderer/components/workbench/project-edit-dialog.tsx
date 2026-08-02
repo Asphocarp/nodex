@@ -9,9 +9,9 @@ import {
 } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import {
-  CodexCloseIcon,
-  CodexFolderIcon,
-  CodexFolderPlusIcon,
+  CloseIcon,
+  FolderIcon,
+  FolderPlusIcon,
 } from "@/components/shared/icons";
 import {
   DEFAULT_PROJECT_APPEARANCE,
@@ -86,7 +86,7 @@ function ProjectSourceRow({
     >
       <NodexTooltip tooltipContent={root}>
         <div className="flex min-w-0 flex-1 items-center gap-2">
-          <CodexFolderIcon className="icon-sm shrink-0 text-token-description-foreground" />
+          <FolderIcon className="icon-sm shrink-0 text-token-description-foreground" />
           <span className="min-w-0 truncate text-sm text-token-text-primary">
             {displayName}
           </span>
@@ -117,7 +117,7 @@ function ProjectSourceRow({
         aria-label={`Remove ${displayName}`}
         onClick={() => onRemove(root)}
       >
-        <CodexCloseIcon className="icon-xs" />
+        <CloseIcon className="icon-xs" />
       </button>
     </motion.div>
   );
@@ -206,7 +206,7 @@ export function ProjectSourcesEditor({
           aria-label={empty ? "Choose source folders" : undefined}
           onClick={() => void addFolder()}
         >
-          <CodexFolderPlusIcon className="icon-sm text-token-description-foreground" />
+          <FolderPlusIcon className="icon-sm text-token-description-foreground" />
           {empty ? "Add folders ChatGPT can read and edit" : "Add folder"}
         </button>
       </motion.div>

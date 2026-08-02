@@ -32,6 +32,7 @@ import {
   pageBlockConfig,
   pageRefBlockConfig,
 } from "../../../../shared/block-documents/blocknote-schema-config";
+import { libraryContentAccess } from "../../../../shared/content-access-context";
 
 import {
   moveFromEmbeddedSurfaceToHostNeighbor,
@@ -75,10 +76,12 @@ export function PageOutlinerBlock({
   visibilityOverride,
 }: PageOutlinerBlockProps) {
   const host = useBlockReferenceHostRuntime();
-  const requestingProjectId = host?.projectId ?? "";
+  const contentAccessContext = host?.contentAccessContext
+    ?? libraryContentAccess;
+  const documentScopeId = host?.documentScopeId ?? "";
   const reference = usePageTargetReadModel(
-    requestingProjectId,
-    targetBlockId.trim(),
+    contentAccessContext,
+    host ? targetBlockId.trim() : "",
   );
   const target = resolvePageOutlinerTarget({
     relationship,
@@ -86,7 +89,8 @@ export function PageOutlinerBlock({
     model: reference.data,
     loading: reference.loading,
     error: reference.error,
-    requestingProjectId,
+    contentAccessContext,
+    documentScopeId,
     hostPageId: host?.hostPageId ?? null,
     ancestorPageIds: host?.ancestorPageIds ?? [],
   });
@@ -156,7 +160,7 @@ export function PageOutlinerBlock({
       ? {
           onOpenPage: () =>
             host.openPage?.({
-              projectId: target.requestingProjectId,
+              projectId: target.documentScopeId,
               pageId: target.page.pageId,
               titleSnapshot: plainTitle,
             }),
@@ -198,7 +202,7 @@ export function PageOutlinerBlock({
     <PageOutlinerFrame
       targetBlockId={target.targetBlockId}
       {...(target.status === "available"
-        ? { projectId: target.requestingProjectId }
+        ? { projectId: target.documentScopeId }
         : {})}
       expanded={activation.expanded}
       active={activation.active}

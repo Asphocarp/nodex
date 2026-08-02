@@ -1,4 +1,4 @@
-import { ArrowUpRight } from "lucide-react";
+import { ArrowUpRight } from "@/components/shared/icons/generic-icons";
 import type {
   ProjectAgentDockModel,
   ProjectAgentDockPendingWorktreeModel,

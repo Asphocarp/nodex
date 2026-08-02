@@ -1,5 +1,13 @@
+import { PlusIcon } from "@/components/shared/icons";
 import { useEffect, useState } from "react";
-import { ArrowDown, ArrowUp, Eye, EyeOff, Plus, RotateCcw, X } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  Eye,
+  EyeOff,
+  RotateCcw,
+  X,
+} from "@/components/shared/icons/generic-icons";
 import {
   NodexDropdownButtonTrigger,
   NodexDropdownChoiceMenu,
@@ -340,7 +348,7 @@ function FilterSection({
       <div className="flex items-center justify-between">
         <span className={SECTION_LABEL}>Filters</span>
         <button type="button" className={GHOST_BTN} onClick={addGroup}>
-          <Plus className="size-3" />
+          <PlusIcon className="size-3" />
           Group
         </button>
       </div>
@@ -436,7 +444,7 @@ function SortSection({
       <div className="flex items-center justify-between">
         <span className={SECTION_LABEL}>Sort</span>
         <button type="button" className={GHOST_BTN} onClick={addSort}>
-          <Plus className="size-3" />
+          <PlusIcon className="size-3" />
           Sort
         </button>
       </div>

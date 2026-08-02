@@ -1,10 +1,10 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
-  CodexCloseIcon,
-  CodexContentSearchDiffIcon,
-  CodexSettingsSearchIcon,
-  CodexThreadIcon,
+  CloseIcon,
+  ContentSearchDiffIcon,
+  SettingsSearchIcon,
+  ThreadIcon,
   GlobeIcon,
   SpinnerIcon,
   UpArrowIcon,
@@ -122,7 +122,7 @@ export function ContentSearchSurfaceView({
     >
       <div className="no-drag pointer-events-auto grid w-[340px] max-w-[70vw] grid-cols-[minmax(0,1fr)_auto_auto] overflow-hidden rounded-[20px] border-[0.5px] border-token-border bg-token-side-bar-background shadow-[0px_8px_16px_-4px_rgba(0,0,0,0.12)]">
         <div className="col-[1/2] row-[1] flex h-[44px] min-w-0 items-center gap-2 pl-4">
-          <CodexSettingsSearchIcon className="size-4 text-token-input-placeholder-foreground" />
+          <SettingsSearchIcon className="size-4 text-token-input-placeholder-foreground" />
           <input
             id={CONTENT_SEARCH_INPUT_ID}
             value={query}
@@ -153,14 +153,14 @@ export function ContentSearchSurfaceView({
             activeDomain: domain,
             label: "Search chat",
             onDomainChange,
-            children: <CodexThreadIcon className="size-4" />,
+            children: <ThreadIcon className="size-4" />,
           })}
           {renderDomainButton({
             domain: "diff",
             activeDomain: domain,
             label: "Search diffs",
             onDomainChange,
-            children: <CodexContentSearchDiffIcon className="size-4" />,
+            children: <ContentSearchDiffIcon className="size-4" />,
           })}
           {hasBrowserTarget
             ? renderDomainButton({
@@ -181,7 +181,7 @@ export function ContentSearchSurfaceView({
             className="flex size-6 items-center justify-center rounded-full text-token-description-foreground transition-colors hover:bg-token-foreground/5 hover:text-token-foreground"
             onClick={onClose}
           >
-            <CodexCloseIcon className="size-4" />
+            <CloseIcon className="size-4" />
           </button>
         </div>
 

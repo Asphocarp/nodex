@@ -62,16 +62,16 @@ import {
 } from "../shared/composer-action";
 import { cn } from "../../../../lib/utils";
 import {
-  CodexCloseIcon,
-  CodexFastModeIcon,
-  CodexGoalClearIcon,
-  CodexGoalTargetIcon,
+  CloseIcon,
+  FastModeIcon,
+  GoalClearIcon,
+  GoalTargetIcon,
   ComposerAddFilesIcon,
   ComposerPlanModeCloseIcon,
   ComposerPlanModeIcon,
   MicIcon,
   PlusIcon,
-  ReviewFileDocumentIcon,
+  FileIcon,
   SpinnerIcon,
   StopIcon,
   UpArrowIcon,
@@ -740,8 +740,8 @@ function ActiveGoalModeChip({
           onClear();
         }}
       >
-        <CodexGoalTargetIcon className="icon-xs shrink-0 group-hover:hidden" />
-        <CodexGoalClearIcon className="icon-xs hidden shrink-0 group-hover:block" />
+        <GoalTargetIcon className="icon-xs shrink-0 group-hover:hidden" />
+        <GoalClearIcon className="icon-xs hidden shrink-0 group-hover:block" />
         <span className={COMPOSER_FOOTER_LABEL_WIDE_CLASS_NAME}>
           {getThreadGoalMessage("composer.goalModeIndicator")}
         </span>
@@ -884,7 +884,7 @@ function PlanKeywordSuggestion({
                 onDismiss();
               }}
             >
-              <CodexCloseIcon className="icon-xs" />
+              <CloseIcon className="icon-xs" />
             </button>
           </div>
         </div>
@@ -930,7 +930,7 @@ function renderModelMenuLabel(input: {
   return (
     <span className="flex min-w-0 items-center gap-1 tabular-nums">
       {input.showFastIndicator && input.serviceTier === "fast" ? (
-        <CodexFastModeIcon className="icon-2xs shrink-0 text-token-foreground" />
+        <FastModeIcon className="icon-2xs shrink-0 text-token-foreground" />
       ) : null}
       <span className="truncate whitespace-nowrap">
         {formatCodexModelLabel(input.modelId, input.availableModels)}
@@ -3763,7 +3763,7 @@ function HydratedThreadComposer({
                         onClick={() => handleRemoveAppshotContext(context.id)}
                         aria-label={`Remove ${context.appName} Appshot`}
                       >
-                        <CodexCloseIcon className="size-3" />
+                        <CloseIcon className="size-3" />
                       </button>
                     </div>
                   ))}
@@ -3852,7 +3852,7 @@ function HydratedThreadComposer({
                       }
                       title={`Remove browser annotation on ${attachment.pageTitle || attachment.pageUrl}`}
                     >
-                      <ReviewFileDocumentIcon className="size-3 text-token-description-foreground" />
+                      <FileIcon className="size-3 text-token-description-foreground" />
                       <span className="min-w-0 truncate">
                         {attachment.pageTitle || "Browser annotation"}
                       </span>
@@ -3880,7 +3880,7 @@ function HydratedThreadComposer({
                         onClick={() => handleRemoveCommentAttachment(attachment.id)}
                         title={`Remove ${lineLabel}: ${commentText}`}
                       >
-                        <ReviewFileDocumentIcon className="size-3 text-token-description-foreground" />
+                        <FileIcon className="size-3 text-token-description-foreground" />
                         <span className="min-w-0 truncate">{fileLabel}</span>
                         <span className="shrink-0 text-token-description-foreground">{lineLabel.replace("Comment on ", "")}</span>
                         <span className="text-token-description-foreground">x</span>

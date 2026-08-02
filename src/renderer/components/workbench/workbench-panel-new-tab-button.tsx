@@ -1,6 +1,6 @@
 import { useState } from "react";
 import {
-  CodexSidePanelPlusIcon,
+  SidePanelPlusIcon,
 } from "@/components/shared/icons";
 import {
   NodexDropdownFlyoutSubmenuItem,
@@ -61,6 +61,7 @@ export function WorkbenchPanelNewTabButton({
   onOpenDestination,
 }: WorkbenchPanelNewTabButtonProps) {
   const [open, setOpen] = useState(false);
+  if (actions.length === 0) return null;
   const title = panelId === "right"
     ? "Open side panel tab"
     : "Open bottom panel tab";
@@ -82,7 +83,7 @@ export function WorkbenchPanelNewTabButton({
           title={title}
           aria-label={title}
         >
-          <CodexSidePanelPlusIcon className="icon-xs" />
+          <SidePanelPlusIcon className="icon-xs" />
         </button>
       )}
     >

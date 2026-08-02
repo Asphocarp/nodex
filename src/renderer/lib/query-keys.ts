@@ -1,4 +1,5 @@
 import type { ProtocolMcpResourceReadParams } from "../../shared/types";
+import type { ContentAccessContext } from "../../shared/content-access-context";
 import type {
   WorkspaceDirectoryEntriesInput,
   WorkspaceFileMetadataInput,
@@ -32,33 +33,33 @@ export const queryKeys = {
       ["blockDocuments", "owned", projectId, ownerBlockId] as const,
   },
   pageTargets: {
-    byId: (requestingProjectId: string, targetBlockId: string) => [
+    byId: (accessContext: ContentAccessContext, targetBlockId: string) => [
       "pageTargets",
-      requestingProjectId,
+      accessContext,
       targetBlockId,
     ] as const,
   },
   pageOwnershipPaths: {
     all: () => ["pageOwnershipPaths"] as const,
-    byProject: (requestingProjectId: string) => [
+    byScope: (accessContext: ContentAccessContext) => [
       "pageOwnershipPaths",
-      requestingProjectId,
+      accessContext,
     ] as const,
-    byPage: (requestingProjectId: string, targetPageId: string) => [
+    byPage: (accessContext: ContentAccessContext, targetPageId: string) => [
       "pageOwnershipPaths",
-      requestingProjectId,
+      accessContext,
       targetPageId,
     ] as const,
   },
   blockReferences: {
     databaseView: (
-      requestingProjectId: string,
+      accessContext: ContentAccessContext,
       databaseViewId: string,
       hostBlockId?: string,
     ) => [
       "blockReferences",
       "databaseView",
-      requestingProjectId,
+      accessContext,
       databaseViewId,
       normalizeNullable(hostBlockId),
     ] as const,
@@ -98,6 +99,16 @@ export const queryKeys = {
       parentKey,
       input,
     ] as const,
+    standaloneRoots: (input: unknown) => [
+      "libraryNavigation",
+      "standaloneRoots",
+      input,
+    ] as const,
+    standaloneRootPages: (input: unknown) => [
+      "libraryNavigation",
+      "standaloneRootPages",
+      input,
+    ] as const,
     catalog: (input: unknown) => ["libraryNavigation", "catalog", input] as const,
     catalogPages: (input: unknown) => [
       "libraryNavigation",
@@ -109,6 +120,11 @@ export const queryKeys = {
       "libraryNavigation",
       "canvasTarget",
       canvasId,
+    ] as const,
+    resourceProjectAccess: (target: unknown) => [
+      "libraryNavigation",
+      "resourceProjectAccess",
+      target,
     ] as const,
     pageDetail: (pageId: string) => ["libraryPages", "detail", pageId] as const,
     pageDocument: (pageId: string) => ["libraryPages", "document", pageId] as const,

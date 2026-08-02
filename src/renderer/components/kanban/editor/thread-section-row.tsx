@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { LoaderCircle, Play, SendHorizontal } from "lucide-react";
+import { LoaderCircle, Play, SendHorizontal } from "@/components/shared/icons/generic-icons";
 import { formatElapsedSince } from "@/lib/elapsed-time";
 import { cn } from "@/lib/utils";
 import type { ThreadSectionLinkedThreadState } from "./thread-section-runtime";

@@ -8,6 +8,7 @@ import type {
   DatabaseViewQueryResultV2,
   DataSourcePageRowV2,
   DataSourcePropertyRecordV2,
+  LibraryDatabaseModuleReadSnapshotV2,
 } from "../../shared/database-module-v2";
 import { DATABASE_MODULE_V2_CONTRACT_VERSION } from "../../shared/database-module-v2";
 import type { DatabaseViewWindowSnapshot } from "../../shared/database-views";
@@ -33,7 +34,7 @@ const PRIORITIES = new Set<Priority>([
 const ESTIMATES = new Set<Estimate>(["xs", "s", "m", "l", "xl"]);
 
 export interface DatabaseViewRenderModel {
-  readonly projectId: string;
+  readonly accessContext: DatabaseViewAccessContext;
   readonly libraryId: string;
   readonly databaseViewId: DatabaseViewId;
   readonly databaseId: DatabaseId;
@@ -49,6 +50,10 @@ export interface DatabaseViewRenderModel {
   readonly primaryWriteCompatible: boolean;
   readonly readOnlyReason: string | null;
 }
+
+export type DatabaseViewAccessContext =
+  | { readonly kind: "project"; readonly projectId: string }
+  | { readonly kind: "library" };
 
 export interface DatabaseViewRenderRow {
   readonly pageId: string;
@@ -297,14 +302,16 @@ const buildColumns = (
 };
 
 const queryFromSnapshot = (
-  snapshot: DatabaseModuleReadSnapshotV2,
+  snapshot: DatabaseModuleReadSnapshotV2 | LibraryDatabaseModuleReadSnapshotV2,
 ): DatabaseViewQueryResultV2 => {
   if (snapshot.value.kind === "query") return snapshot.value.value;
   throw new Error("Database View read did not return a query");
 };
 
 export const buildDatabaseViewRenderModel = (
-  snapshot: DatabaseModuleReadSnapshotV2,
+  snapshot:
+    | DatabaseModuleReadSnapshotV2
+    | LibraryDatabaseModuleReadSnapshotV2,
 ): DatabaseViewRenderModel => {
   const query = queryFromSnapshot(snapshot);
   if (
@@ -325,7 +332,9 @@ export const buildDatabaseViewRenderModel = (
     && hasDefaultBoardReadContract(query);
 
   return {
-    projectId: snapshot.projectId,
+    accessContext: "accessContext" in snapshot
+      ? { kind: "library" }
+      : { kind: "project", projectId: snapshot.projectId },
     libraryId: snapshot.libraryId,
     databaseViewId: query.view.viewId,
     databaseId: query.database.databaseId,
@@ -343,11 +352,13 @@ export const buildDatabaseViewRenderModel = (
 };
 
 export const buildDatabaseViewWindowRenderModel = (
-  window: DatabaseViewWindowSnapshot,
+  window: DatabaseViewWindowSnapshot<string | null>,
 ): DatabaseViewRenderModel =>
   buildDatabaseViewRenderModel({
     version: DATABASE_MODULE_V2_CONTRACT_VERSION,
-    projectId: window.projectId,
+    ...(window.projectId === null
+      ? { accessContext: { kind: "library" as const } }
+      : { projectId: window.projectId }),
     libraryId: window.libraryId,
     storeEpoch: window.storeEpoch,
     changeLogSeq: window.changeLogSeq,

@@ -1,5 +1,5 @@
 import { SideMenuExtension } from "@blocknote/core/extensions";
-import { GripVertical } from "lucide-react";
+import { GripVertical } from "@/components/shared/icons/generic-icons";
 import type { DragEvent } from "react";
 import { cn } from "../../../lib/utils";
 

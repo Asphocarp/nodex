@@ -3,7 +3,7 @@ import { describe, test, expect } from "vitest";
 import { settleAsyncRender, textContent } from "../../test/dom";
 import { within, act, fireEvent, waitFor } from "@testing-library/react";
 import { type CodexSidebarSyncResult, type CodexSidebarThreadItem } from "@/lib/types";
-import { CODEX_NEW_CHAT_ICON_PREFIX, codexHostMessageListener, getSidebarProjectGroup, getSidebarSection, getThreadRow, getThreadRowTitles, invokeCalls, makeAttachedSession, makePanelLayout, makeProject, makeSession, makeSidebarSnapshotItemForSession, openPanelMenu, renderWorkbench } from "./workbench-testkit/workbench-shell-harness";
+import { NEW_CHAT_ICON_PREFIX, codexHostMessageListener, getSidebarProjectGroup, getSidebarSection, getThreadRow, getThreadRowTitles, invokeCalls, makeAttachedSession, makePanelLayout, makeProject, makeSession, makeSidebarSnapshotItemForSession, openPanelMenu, renderWorkbench } from "./workbench-testkit/workbench-shell-harness";
 
 async function ensureProjectRowExpanded(
   container: HTMLElement,
@@ -481,12 +481,16 @@ describe("workbench session shell / sidebar-projects", () => {
     await settleAsyncRender();
 
     await ensureProjectRowExpanded(screen.container);
+    const projectGroup = getSidebarProjectGroup(
+      getSidebarSection(screen.container, "Projects"),
+      "alpha",
+    );
 
     expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 5"]') !== null).toBe(true);
     expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 6"]')).toBe(null);
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Show more" }));
+      fireEvent.click(within(projectGroup).getByRole("button", { name: "Show more" }));
       await Promise.resolve();
     });
     await settleAsyncRender();
@@ -587,7 +591,7 @@ describe("workbench session shell / sidebar-projects", () => {
 
       const betaAction = screen.getByLabelText("Start new chat in Beta");
       const iconPath = betaAction.querySelector("path")?.getAttribute("d") ?? "";
-      expect(iconPath.startsWith(CODEX_NEW_CHAT_ICON_PREFIX)).toBe(true);
+      expect(iconPath.startsWith(NEW_CHAT_ICON_PREFIX)).toBe(true);
 
       await act(async () => {
         fireEvent.click(betaAction);

@@ -1,11 +1,6 @@
+import { ArchiveIcon, ChevronRightIcon } from "@/components/shared/icons";
 import { useId, type ReactNode } from "react";
-import {
-  Archive,
-  ChevronRight,
-  ExternalLink,
-  Rows3,
-  TriangleAlert,
-} from "lucide-react";
+import { ExternalLink, Rows3, TriangleAlert } from "@/components/shared/icons/generic-icons";
 import type { DatabaseViewReadModel } from "../../../shared/database-views";
 import { isInlineCardCycle } from "./block-reference-runtime-context";
 import type { DatabasePageSummary } from "@/lib/types";
@@ -84,7 +79,7 @@ function CardRowMetadata({
         title={archived ? "Archived" : card.status}
       >
         {archived ? (
-          <Archive aria-hidden="true" className="size-3.5 shrink-0" />
+          <ArchiveIcon aria-hidden="true" className="size-3.5 shrink-0" />
         ) : (
           <StatusIcon statusId={card.status} className="size-3.5!" />
         )}
@@ -151,7 +146,7 @@ export function ReferencedCardRow({
           )}
           onClick={() => setExpanded(!expanded)}
         >
-          <ChevronRight
+          <ChevronRightIcon
             aria-hidden="true"
             className={cn(
               "size-3.5 shrink-0 transition-transform duration-150 ease-out",
@@ -238,6 +233,7 @@ export interface DatabaseViewReferenceSurfaceProps extends ReferenceSurfaceState
   readonly referenceKey: string;
   readonly displayHint: string;
   readonly model: DatabaseViewReadModel | null;
+  readonly documentScopeId?: string;
   readonly loading?: boolean;
   readonly error?: Error | null;
   readonly renderDocument?: ReferencedPageDocumentRenderer;
@@ -250,6 +246,7 @@ export function DatabaseViewReferenceSurface({
   referenceKey,
   displayHint,
   model,
+  documentScopeId,
   loading = false,
   error = null,
   renderDocument,
@@ -292,6 +289,7 @@ export function DatabaseViewReferenceSurface({
   }
 
   const name = model.view.name.trim() || displayHint.trim() || "Database view";
+  const rowDocumentScopeId = documentScopeId ?? model.view.projectId ?? "";
   return (
     <section
       contentEditable={false}
@@ -321,9 +319,13 @@ export function DatabaseViewReferenceSurface({
             <ReferencedCardRow
               key={row.page.id}
               disclosureKey={`${referenceKey}:${row.page.id}`}
-              projectId={model.view.projectId}
+              projectId={rowDocumentScopeId}
               card={row.page}
-              canEdit={!row.page.archived && !referencesAncestor}
+              canEdit={
+                rowDocumentScopeId.length > 0 &&
+                !row.page.archived &&
+                !referencesAncestor
+              }
               archived={row.page.archived}
               inlineEditingDisabledReason={
                 referencesHost

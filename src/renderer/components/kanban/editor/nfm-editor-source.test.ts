@@ -49,13 +49,25 @@ describe("NfmEditor source boundary", () => {
 
   test("enables stable-ID Move To for collaborative Page documents", () => {
     const document = new Y.Doc();
-    const collaborative = resolveNfmEditorBlockActionCapabilities(true);
-    const withoutCardContext = resolveNfmEditorBlockActionCapabilities(false);
+    const collaborative = resolveNfmEditorBlockActionCapabilities(
+      true,
+      "project-1",
+    );
+    const withoutCardContext = resolveNfmEditorBlockActionCapabilities(
+      false,
+      "project-1",
+    );
+    const withoutProjectAuthority = resolveNfmEditorBlockActionCapabilities(
+      true,
+      null,
+    );
 
     expect(collaborative.canMoveBlocks).toBe(true);
     expect(collaborative.canSendBlocksToThread).toBe(true);
     expect(withoutCardContext.canMoveBlocks).toBe(false);
     expect(withoutCardContext.canSendBlocksToThread).toBe(false);
+    expect(withoutProjectAuthority.canMoveBlocks).toBe(false);
+    expect(withoutProjectAuthority.canSendBlocksToThread).toBe(false);
     document.destroy();
   });
 
@@ -66,15 +78,15 @@ describe("NfmEditor source boundary", () => {
       firstDocument.getXmlFragment("body"),
     );
     const sameSourceKey = getNfmEditorInstanceKey({
-      projectId: "project-1",
+      documentScopeId: "project-1",
       source: firstSource,
     });
     const repeatedSourceKey = getNfmEditorInstanceKey({
-      projectId: "project-1",
+      documentScopeId: "project-1",
       source: firstSource,
     });
     const switchedSourceKey = getNfmEditorInstanceKey({
-      projectId: "project-1",
+      documentScopeId: "project-1",
       source: createCollaborativeSource(secondDocument.getXmlFragment("body")),
     });
 

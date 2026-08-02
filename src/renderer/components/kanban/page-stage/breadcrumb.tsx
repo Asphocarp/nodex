@@ -1,4 +1,5 @@
-import { ChevronRight, Ellipsis } from "lucide-react";
+import { ChevronRightIcon } from "@/components/shared/icons";
+import { Ellipsis } from "@/components/shared/icons/generic-icons";
 import {
   NodexDropdownItem,
   NodexDropdownMenu,
@@ -35,7 +36,7 @@ function breadcrumbLabel(title: string): string {
 
 function PageStageBreadcrumbSeparator() {
   return (
-    <ChevronRight
+    <ChevronRightIcon
       aria-hidden="true"
       className="icon-2xs shrink-0 text-token-description-foreground"
     />

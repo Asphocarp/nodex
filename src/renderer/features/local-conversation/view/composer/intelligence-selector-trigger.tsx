@@ -11,7 +11,7 @@ import {
 } from "react";
 import { useReducedMotion, useReducedMotionConfig } from "motion/react";
 import {
-  CodexFastModeIcon,
+  FastModeIcon,
   ChevronDownIcon,
 } from "@/components/shared/icons";
 import { cn } from "@/lib/utils";
@@ -182,7 +182,7 @@ function IntelligenceSelectorLabel({
       data-fast-mode-indicator={showFastIndicator ? "true" : undefined}
     >
       {showFastIndicator ? (
-        <CodexFastModeIcon className="absolute end-full top-1/2 me-1 icon-2xs shrink-0 -translate-y-1/2 text-token-foreground" />
+        <FastModeIcon className="absolute end-full top-1/2 me-1 icon-2xs shrink-0 -translate-y-1/2 text-token-foreground" />
       ) : null}
       <span
         className={cn(

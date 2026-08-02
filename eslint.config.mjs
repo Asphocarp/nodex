@@ -48,8 +48,26 @@ const eslintConfig = defineConfig([
       "react-hooks": reactHooks,
     },
     rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "lucide-react",
+              message:
+                "Use app-owned icons from @/components/shared/icons or normalized generic glyphs from @/components/shared/icons/generic-icons.",
+            },
+          ],
+        },
+      ],
       "react-hooks/exhaustive-deps": "error",
       "react-hooks/rules-of-hooks": "error",
+    },
+  },
+  {
+    files: ["src/renderer/components/shared/icons/generic-icons.tsx"],
+    rules: {
+      "no-restricted-imports": "off",
     },
   },
   {

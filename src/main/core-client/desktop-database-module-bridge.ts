@@ -418,10 +418,15 @@ export const createDesktopDatabaseModuleBridge = (
         return null;
       }
       try {
-        const window = await bridge.getDatabaseViewWindow(
-          referenceInput.requestingProjectId,
-          { databaseViewId: viewId, first: 50 },
-        );
+        const window = referenceInput.accessContext.kind === "library"
+          ? await bridge.getLibraryDatabaseViewWindow({
+              databaseViewId: viewId,
+              first: 50,
+            })
+          : await bridge.getDatabaseViewWindow(
+              referenceInput.accessContext.projectId,
+              { databaseViewId: viewId, first: 50 },
+            );
         const model: DatabaseViewReadModel = {
           libraryId: window.libraryId,
           storeEpoch: window.storeEpoch,

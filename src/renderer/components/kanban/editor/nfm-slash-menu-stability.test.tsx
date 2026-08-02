@@ -129,7 +129,7 @@ function MentionGetItemsHarness({
 }) {
   const getItems = useNfmMentionGetItems({
     editor: fakeEditor,
-    projectId: "project-1",
+    activeProjectId: "project-1",
     pageItems: pages,
     pageSearchIndex,
     projectIdsForPageSearch: ["project-1"],

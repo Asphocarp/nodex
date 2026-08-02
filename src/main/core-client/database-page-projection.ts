@@ -815,7 +815,9 @@ export const projectDatabaseViewReference = (
     view: {
       id: query.view.viewId,
       databaseBlockId: query.view.databaseId,
-      projectId: input.requestingProjectId,
+      projectId: input.accessContext.kind === "project"
+        ? input.accessContext.projectId
+        : null,
       name: query.view.name,
       kind: query.view.kind,
       config: JSON.parse(

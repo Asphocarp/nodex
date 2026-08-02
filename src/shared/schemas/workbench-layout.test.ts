@@ -1,14 +1,20 @@
 import { describe, expect, test } from "vitest";
+import { parseDatabaseId } from "../database-identities";
 
 import {
   createDefaultWorkbenchLayoutSnapshotV3,
   createDefaultWorkbenchLayoutSnapshotV4,
+  createDefaultWorkbenchLayoutSnapshotV6,
 } from "../workbench-layout";
 import {
   createEmptyWorkbenchSessionView,
   materializeInitialWorkbenchSessionView,
 } from "../workbench-session-view";
 import {
+  materializeInitialWorkbenchScene,
+} from "../workbench-scene";
+import {
+  WorkbenchLayoutSnapshotSchema,
   WorkbenchLayoutSnapshotV3Schema,
   WorkbenchLayoutSnapshotV4Schema,
   WorkbenchLayoutSnapshotV5Schema,
@@ -303,7 +309,7 @@ describe("WorkbenchLayoutSnapshotV5Schema", () => {
 
   test("folds pending routes and rejects non-canonical Scene map keys", () => {
     const projectScene = {
-      version: 1,
+      version: 3,
       owner: { kind: "project", projectId: "alpha" },
       primary: {
         id: "primary",
@@ -320,6 +326,11 @@ describe("WorkbenchLayoutSnapshotV5Schema", () => {
       panelSurfacesById: {},
       panels: createEmptyWorkbenchSessionView("legacy").panels,
       lastFocusedPanelId: null,
+      composerOverlay: { visible: true },
+      agentDock: {
+        binding: { kind: "new" },
+        newDraftId: "agent-draft:primary",
+      },
       touchedAt: "2026-07-31T00:00:00.000Z",
     } as const;
     const input = {
@@ -344,5 +355,197 @@ describe("WorkbenchLayoutSnapshotV5Schema", () => {
       location: input.location.returnTo,
       scenesByOwnerKey: { wrong: projectScene },
     })).toThrow();
+  });
+});
+
+describe("WorkbenchLayoutSnapshotV6Schema", () => {
+  test("folds the retired Library route and migrates Scene resource access", () => {
+    const currentScene = materializeInitialWorkbenchScene({
+      kind: "project",
+      projectId: "alpha",
+    });
+    if (currentScene.primary?.kind !== "db_view") {
+      throw new Error("Expected a Project Database primary");
+    }
+    const legacyScene = {
+      ...currentScene,
+      version: 3,
+      primary: {
+        ...currentScene.primary,
+        config: {
+          projectId: "alpha",
+          target: { kind: "project-default" },
+          view: currentScene.primary.config.view,
+        },
+      },
+    } as const;
+
+    const migrated = WorkbenchLayoutSnapshotSchema.parse({
+      version: 5,
+      location: {
+        kind: "library",
+        target: { kind: "home" },
+        returnTo: { kind: "project", projectId: "alpha" },
+      },
+      databaseSearchByProject: { alpha: "owner:me" },
+      scenesByOwnerKey: { "project:alpha": legacyScene },
+    });
+
+    expect(migrated).toMatchObject({
+      version: 7,
+      location: { kind: "project", projectId: "alpha" },
+      databaseSearchByProject: { alpha: "owner:me" },
+    });
+    expect(migrated.scenesByOwnerKey["project:alpha"]?.primary).toMatchObject({
+      kind: "db_view",
+      config: {
+        accessContext: { kind: "project", projectId: "alpha" },
+        target: { kind: "project-default" },
+      },
+    });
+  });
+
+  test("migrates the active standalone Resource Scene into Pages", () => {
+    const root = {
+      kind: "database" as const,
+      databaseId: parseDatabaseId("database:alpha"),
+    };
+    const seed = materializeInitialWorkbenchScene({
+      kind: "project",
+      projectId: "legacy",
+    });
+    if (!seed.primary) throw new Error("Expected seed primary");
+    const primary = {
+      ...seed.primary,
+      kind: "db_view" as const,
+      titleSnapshot: "Library Database",
+      config: {
+        accessContext: { kind: "library" as const },
+        target: { kind: "database-default" as const, databaseId: root.databaseId },
+        view: "kanban" as const,
+      },
+    };
+    const rightRoot = seed.panels.right.layout.root;
+    if (rightRoot.type !== "leaf") throw new Error("Expected one right leaf");
+    const scene = {
+      ...seed,
+      version: 4 as const,
+      owner: { kind: "resource" as const, root },
+      primary,
+      panelSurfacesById: {
+        "legacy-project-page": {
+          id: "legacy-project-page",
+          kind: "page_stage" as const,
+          titleSnapshot: "Project Page",
+          config: {
+            accessContext: { kind: "project" as const, projectId: "legacy" },
+            pageId: "page:project",
+          },
+          stateKey: 0,
+          state: null,
+        },
+        "legacy-browser": {
+          id: "legacy-browser",
+          kind: "browser" as const,
+          titleSnapshot: "Browser",
+          config: {
+            browserTabId: "browser:legacy",
+            browserStorageId: "browser-storage:legacy",
+          },
+          stateKey: 0,
+          state: null,
+        },
+      },
+      panels: {
+        ...seed.panels,
+        right: {
+          ...seed.panels.right,
+          layout: {
+            ...seed.panels.right.layout,
+            root: {
+              ...rightRoot,
+              tabIds: [primary.id, "legacy-project-page", "legacy-browser"],
+              activeTabId: "legacy-project-page",
+            },
+          },
+        },
+      },
+      composerOverlay: { visible: false },
+      agentDock: null,
+    };
+    const input = {
+      ...createDefaultWorkbenchLayoutSnapshotV6(),
+      location: { kind: "resource" as const, root },
+      scenesByOwnerKey: { "resource:database:database:alpha": scene },
+    };
+
+    const first = WorkbenchLayoutSnapshotSchema.parse(input);
+    const second = WorkbenchLayoutSnapshotSchema.parse(
+      JSON.parse(JSON.stringify(first)),
+    );
+
+    expect(second).toEqual(first);
+    expect(second.location).toEqual({ kind: "pages" });
+    expect(second.scenesByOwnerKey.pages?.primary).toBeNull();
+    expect(Object.keys(second.scenesByOwnerKey.pages!.panelSurfacesById))
+      .toEqual([primary.id]);
+    expect(Object.values(second.scenesByOwnerKey.pages!.panelSurfacesById)[0])
+      .toMatchObject({
+      kind: "db_view",
+      config: {
+        accessContext: { kind: "library" },
+        target: {
+          kind: "database-default",
+          databaseId: "database:alpha",
+        },
+      },
+      });
+
+    expect(() => WorkbenchLayoutSnapshotSchema.parse({
+      ...input,
+      scenesByOwnerKey: {
+        "resource:database:database:alpha": {
+          ...scene,
+          primary: {
+            ...scene.primary,
+            config: {
+              ...scene.primary.config,
+              target: {
+                kind: "database-default" as const,
+                databaseId: parseDatabaseId("database:other"),
+              },
+            },
+          },
+        },
+      },
+    })).toThrow();
+  });
+
+  test("deterministically materializes a missing long-id Resource Scene", () => {
+    const root = {
+      kind: "page" as const,
+      pageId: `page:${"x".repeat(500)}`,
+    };
+    const input = {
+      ...createDefaultWorkbenchLayoutSnapshotV6(),
+      location: { kind: "resource" as const, root },
+      scenesByOwnerKey: {},
+    };
+
+    const first = WorkbenchLayoutSnapshotSchema.parse(input);
+    const second = WorkbenchLayoutSnapshotSchema.parse(input);
+    const surface = Object.values(
+      first.scenesByOwnerKey.pages?.panelSurfacesById ?? {},
+    )[0];
+
+    expect(second).toEqual(first);
+    expect(surface?.id.length).toBeLessThanOrEqual(160);
+    expect(surface).toMatchObject({
+      kind: "page_stage",
+      config: {
+        accessContext: { kind: "library" },
+        pageId: root.pageId,
+      },
+    });
   });
 });

@@ -41,6 +41,7 @@ import type {
 import { useScheduleState } from "@/lib/use-schedule-state";
 import { usePageStageCollapsedProperties } from "@/lib/use-page-stage-collapsed-properties";
 import { KANBAN_STATUS_OPTIONS } from "@/lib/kanban-options";
+import { projectIdFromContentAccessContext } from "../../../../shared/content-access-context";
 import {
   clearPageDraftOverlay,
   setPageDraftOverlay,
@@ -234,11 +235,11 @@ function areStringArraysEqual(left: string[], right: string[]): boolean {
 }
 
 function buildPageStageSessionSnapshot(
-  projectId: string,
+  projectId: string | null,
   page: PageStageCorePage | null,
   title: string,
 ): PageStageSessionSnapshot | null {
-  if (!page) return null;
+  if (!page || projectId === null) return null;
 
   const titleSnapshot = title.trim() || page.title.trim() || page.id;
   return {
@@ -265,7 +266,8 @@ export function usePageStageController(
     persistRef,
     sessionSnapshotRef,
     page: pageModel,
-    projectId,
+    contentAccessContext,
+    documentScopeId,
     projectWorkspacePath,
     availableTags,
     onUpdate,
@@ -281,6 +283,9 @@ export function usePageStageController(
     historyPanelActive = false,
     isActivePanelTab = true,
   } = props;
+  const executionProjectId = projectIdFromContentAccessContext(
+    contentAccessContext,
+  );
   const page = pageModel?.page ?? null;
   const databaseProperties =
     pageModel?.databaseContext.kind === "member"
@@ -471,9 +476,9 @@ export function usePageStageController(
     if (!draftOverlayPageId) return;
 
     return () => {
-      clearPageDraftOverlay(projectId, draftOverlayPageId);
+      clearPageDraftOverlay(documentScopeId, draftOverlayPageId);
     };
-  }, [draftOverlayPageId, projectId]);
+  }, [documentScopeId, draftOverlayPageId]);
 
   useEffect(() => {
     if (!page) return;
@@ -484,20 +489,20 @@ export function usePageStageController(
       assignee,
     });
 
-    setPageDraftOverlay(projectId, page.id, overlay);
-  }, [assignee, page, databaseProperties?.assignee, projectId]);
+    setPageDraftOverlay(documentScopeId, page.id, overlay);
+  }, [assignee, databaseProperties?.assignee, documentScopeId, page]);
 
   const rememberScrollTopForPage = useCallback((pageId: string | null, scrollTop: number) => {
     if (!pageId) return;
     lastKnownScrollTopRef.current = { pageId, scrollTop };
-    rememberScrollPosition(projectId, pageId, scrollTop, editorSessionKey);
-  }, [editorSessionKey, projectId]);
+    rememberScrollPosition(documentScopeId, pageId, scrollTop, editorSessionKey);
+  }, [documentScopeId, editorSessionKey]);
 
   const saveScrollTopForPage = useCallback((pageId: string | null, scrollTop: number) => {
     if (!pageId) return;
     lastKnownScrollTopRef.current = { pageId, scrollTop };
-    saveScrollPosition(projectId, pageId, scrollTop, editorSessionKey);
-  }, [editorSessionKey, projectId]);
+    saveScrollPosition(documentScopeId, pageId, scrollTop, editorSessionKey);
+  }, [documentScopeId, editorSessionKey]);
 
   const readCurrentScrollTopForPage = useCallback((pageId: string, element: HTMLDivElement | null) => {
     if (element && elementHasLayoutBox(element)) {
@@ -528,7 +533,11 @@ export function usePageStageController(
 
     scrollRestoreVersionRef.current += 1;
     const restoreVersion = scrollRestoreVersionRef.current;
-    const saved = loadScrollPosition(projectId, pageId, editorSessionKey);
+    const saved = loadScrollPosition(
+      documentScopeId,
+      pageId,
+      editorSessionKey,
+    );
     if (saved === null) {
       if (options.resetWhenMissing) element.scrollTop = 0;
       return;
@@ -551,7 +560,7 @@ export function usePageStageController(
       if (remainingFrames > 0) requestAnimationFrame(retryRestore);
     };
     requestAnimationFrame(retryRestore);
-  }, [editorSessionKey, projectId]);
+  }, [documentScopeId, editorSessionKey]);
 
   const setScrollContainerRef = useCallback((node: HTMLDivElement | null) => {
     const previousNode = scrollContainerRef.current;
@@ -888,12 +897,16 @@ export function usePageStageController(
 
   const handleClose = useCallback(async () => {
     await handlePersist();
-    const sessionSnapshot = buildPageStageSessionSnapshot(projectId, page, title);
+    const sessionSnapshot = buildPageStageSessionSnapshot(
+      executionProjectId,
+      page,
+      title,
+    );
     if (sessionSnapshot) {
       onLeavePage?.(sessionSnapshot);
     }
     onClose();
-  }, [page, handlePersist, onClose, onLeavePage, projectId, title]);
+  }, [executionProjectId, handlePersist, onClose, onLeavePage, page, title]);
 
   useEffect(() => {
     if (!closeRef || !isActivePanelTab) return;
@@ -917,14 +930,18 @@ export function usePageStageController(
 
   useEffect(() => {
     if (!sessionSnapshotRef || !isActivePanelTab) return;
-    const snapshot = buildPageStageSessionSnapshot(projectId, page, title);
+    const snapshot = buildPageStageSessionSnapshot(
+      executionProjectId,
+      page,
+      title,
+    );
     sessionSnapshotRef.current = snapshot;
     return () => {
       if (sessionSnapshotRef.current === snapshot) {
         sessionSnapshotRef.current = null;
       }
     };
-  }, [page, isActivePanelTab, projectId, sessionSnapshotRef, title]);
+  }, [executionProjectId, isActivePanelTab, page, sessionSnapshotRef, title]);
 
   useEffect(() => {
     const wasActive = previousActivePanelTabRef.current;
@@ -1012,15 +1029,17 @@ export function usePageStageController(
   }, [projectWorkspacePath]);
 
   const refreshRunInEnvironmentOptions = useCallback(async () => {
-    const normalizedProjectId = projectId.trim();
-    if (!normalizedProjectId) {
+    if (executionProjectId === null) {
       setRunInEnvironmentOptions([]);
       return [];
     }
 
     setRunInEnvironmentBusy(true);
     try {
-      const result = await invoke("worktrees:environments:list", normalizedProjectId);
+      const result = await invoke(
+        "worktrees:environments:list",
+        executionProjectId,
+      );
       const parsed = parseRunInEnvironmentOptions(result);
       setRunInEnvironmentOptions(parsed);
       return parsed;
@@ -1030,7 +1049,7 @@ export function usePageStageController(
     } finally {
       setRunInEnvironmentBusy(false);
     }
-  }, [projectId]);
+  }, [executionProjectId]);
 
   useEffect(() => {
     if (runInTarget !== "newWorktree") return;
@@ -1089,12 +1108,17 @@ export function usePageStageController(
   }, [saveProperty]);
 
   const handleOpenEnvironmentSettings = useCallback(async () => {
-    if (!projectWorkspacePath?.trim()) return;
+    if (executionProjectId === null || !projectWorkspacePath?.trim()) return;
     onOpenLocalEnvironmentSettings?.({
-      projectId,
+      projectId: executionProjectId,
       configPath: runInEnvironmentPath.trim() || null,
     });
-  }, [onOpenLocalEnvironmentSettings, projectId, projectWorkspacePath, runInEnvironmentPath]);
+  }, [
+    executionProjectId,
+    onOpenLocalEnvironmentSettings,
+    projectWorkspacePath,
+    runInEnvironmentPath,
+  ]);
 
   const handlePriorityChange = useCallback((next: Priority | null) => {
     const nextPriority = next ?? undefined;

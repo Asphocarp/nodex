@@ -7,7 +7,7 @@ import {
   type Ref,
 } from "react";
 import { createPortal } from "react-dom";
-import { CodexSidePanelSideChatIcon } from "@/components/shared/icons";
+import { SidePanelSideChatIcon } from "@/components/shared/icons";
 import type { ThreadStageActions } from "../thread-stage-types";
 
 export const THREAD_SELECTED_TEXT_TARGET_SELECTOR = '[data-thread-selected-text-target="true"]';
@@ -210,7 +210,7 @@ export function SelectedTextSideChatOverlayView({
         }}
         onClick={onAskInSideChat}
       >
-        <CodexSidePanelSideChatIcon className="icon-xs shrink-0" />
+        <SidePanelSideChatIcon className="icon-xs shrink-0" />
         <span className="truncate">Ask in side chat</span>
       </button>
     </div>

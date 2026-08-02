@@ -21,6 +21,7 @@ import {
   plainTextToPortableRichText,
 } from "../../../shared/block-documents";
 import { populateBlockDocumentBodyFromNfm } from "../../../shared/block-documents/block-document-codec";
+import { projectContentAccess } from "../../../shared/content-access-context";
 
 let lastNfmEditorProps: Record<string, unknown> | null = null;
 let publishCollaborativeTitle: ((title: string) => void) | null = null;
@@ -159,9 +160,10 @@ function renderStage(
   return render(
     <NodexTooltipProvider>
       <PageStage
+        contentAccessContext={projectContentAccess("default")}
         onClose={() => undefined}
         page={page}
-        projectId="default"
+        documentScopeId="default"
         projectName="Default"
         documentAuthority={documentAuthority()}
         availableTags={[]}
@@ -211,6 +213,10 @@ describe("page stage", () => {
       "Mock collaborative editor",
     );
     const source = lastNfmEditorProps?.source as Record<string, unknown>;
+    expect(lastNfmEditorProps?.documentScopeId).toBe("default");
+    expect(lastNfmEditorProps?.contentAccessContext).toEqual(
+      projectContentAccess("default"),
+    );
     expect(source.kind).toBe("collaborative-document");
     expect(source.documentId).toBe("document:page-1");
     expect(Object.hasOwn(source, "content")).toBe(false);

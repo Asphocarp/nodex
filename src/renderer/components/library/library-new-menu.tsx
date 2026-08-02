@@ -1,6 +1,6 @@
 import type { ReactElement } from "react";
-import { Database, FileText } from "lucide-react";
 
+import { DatabaseIcon, PageIcon } from "@/components/shared/icons";
 import {
   NodexDropdownItem,
   NodexDropdownMenu,
@@ -24,6 +24,38 @@ export function LibraryNewMenu({
   onCreated,
 }: {
   readonly triggerButton: ReactElement;
+  readonly parent?: LibraryWriteParent;
+  readonly onCreated: (target: LibraryRouteTarget) => void;
+}) {
+  const commands = useLibraryCreateCommands({ parent, onCreated });
+
+  return (
+    <NodexDropdownMenu
+      triggerButton={triggerButton}
+      disabled={commands.isPending}
+      align="end"
+      contentWidth="sm"
+    >
+      <NodexDropdownItem
+        leftSlot={<PageIcon />}
+        onSelect={() => void commands.createPage()}
+      >
+        Page
+      </NodexDropdownItem>
+      <NodexDropdownItem
+        leftSlot={<DatabaseIcon />}
+        onSelect={() => void commands.createDatabase()}
+      >
+        Database
+      </NodexDropdownItem>
+    </NodexDropdownMenu>
+  );
+}
+
+export function useLibraryCreateCommands({
+  parent = { kind: "library" },
+  onCreated,
+}: {
   readonly parent?: LibraryWriteParent;
   readonly onCreated: (target: LibraryRouteTarget) => void;
 }) {
@@ -60,25 +92,9 @@ export function LibraryNewMenu({
     }
   };
 
-  return (
-    <NodexDropdownMenu
-      triggerButton={triggerButton}
-      disabled={mutation.isPending}
-      align="end"
-      contentWidth="sm"
-    >
-      <NodexDropdownItem
-        leftSlot={<FileText className="icon-sm" />}
-        onSelect={() => void createPage()}
-      >
-        Page
-      </NodexDropdownItem>
-      <NodexDropdownItem
-        leftSlot={<Database className="icon-sm" />}
-        onSelect={() => void createDatabase()}
-      >
-        Database
-      </NodexDropdownItem>
-    </NodexDropdownMenu>
-  );
+  return {
+    isPending: mutation.isPending,
+    createPage,
+    createDatabase,
+  };
 }

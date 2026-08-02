@@ -21,7 +21,7 @@ import {
   CornerDownLeft,
   Repeat2,
   X,
-} from "lucide-react";
+} from "@/components/shared/icons/generic-icons";
 import "@blocknote/core/fonts/inter.css";
 import "@blocknote/shadcn/style.css";
 
@@ -40,6 +40,10 @@ import { NfmLinkToolbar } from "./nfm-link-toolbar";
 import { NfmLinkToolbarController } from "./nfm-link-toolbar-controller";
 import { toast } from "@/components/ui/toast";
 import { createUuidV7 } from "../../../../shared/uuid-v7";
+import {
+  projectIdFromContentAccessContext,
+  type ContentAccessContext,
+} from "../../../../shared/content-access-context";
 import {
   NodexPopover,
   NodexPopoverAnchor,
@@ -184,7 +188,8 @@ import {
 import type { PageEditorSession } from "@/lib/page-editor-session-registry";
 import { useBlockDocumentSurfaceWriteFrozen } from "@/lib/use-block-document-surface-write-fence";
 import {
-  useCodexAppServerControl,
+  useCodexPermissionState,
+  useDefaultCodexAppServerManager,
   useProjectThreadSummaries,
 } from "@/features/local-conversation/local-conversation-store";
 import type { ModifyShortcutEditor } from "./modify-block-shortcut";
@@ -207,7 +212,9 @@ interface NfmEditorFocusRuntime extends NfmEditorRelocationRuntime {
 }
 
 interface NfmEditorCommonProps {
-  projectId: string;
+  contentAccessContext: ContentAccessContext;
+  /** Renderer-local identity for the mounted collaborative Document surface. */
+  documentScopeId: string;
   projectName?: string | null;
   projectWorkspacePath?: string | null;
   sourcePageContext?: {
@@ -377,7 +384,7 @@ function buildThreadSectionThreadMap(
 export function NfmEditor(props: NfmEditorProps) {
   const source = props.source;
   const editorInstanceKey = getNfmEditorInstanceKey({
-    projectId: props.projectId,
+    documentScopeId: props.documentScopeId,
     source,
   });
 
@@ -392,7 +399,8 @@ export function NfmEditor(props: NfmEditorProps) {
 }
 
 function NfmEditorInstance({
-  projectId,
+  contentAccessContext,
+  documentScopeId,
   projectName = null,
   projectWorkspacePath,
   source,
@@ -417,13 +425,17 @@ function NfmEditorInstance({
   embeddedBoundary,
   editorSession,
 }: NfmEditorInstanceProps) {
+  const executionProjectId = projectIdFromContentAccessContext(
+    contentAccessContext,
+  );
   const writeFrozen = useBlockDocumentSurfaceWriteFrozen(surfaceWriteFence);
   const parentBlockReferenceRuntime = useBlockReferenceHostRuntime();
   const { resolved: themeMode } = useTheme();
   const { spellcheck } = useSpellcheck();
   const { settings: pasteResourceSettings } = usePasteResourceSettings();
-  const codexControl = useCodexAppServerControl(projectId);
-  const projectThreadSummaries = useProjectThreadSummaries(projectId);
+  const codexManager = useDefaultCodexAppServerManager();
+  const codexPermissionState = useCodexPermissionState(executionProjectId);
+  const projectThreadSummaries = useProjectThreadSummaries(executionProjectId);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [replaceOpen, setReplaceOpen] = useState(false);
@@ -436,8 +448,8 @@ function NfmEditorInstance({
     useState<ThreadSectionPickerState | null>(null);
   const { threads: sendToThreadItems, loading: sendToThreadItemsLoading } =
     useCommandPaletteThreadItems({
-      enabled: Boolean(threadSectionPicker) && Boolean(projectId),
-      activeProjectId: projectId,
+      enabled: Boolean(threadSectionPicker) && executionProjectId !== null,
+      activeProjectId: executionProjectId,
       refreshKey: 0,
     });
   const [pasteResourcePending, setPasteResourcePending] = useState(false);
@@ -505,12 +517,12 @@ function NfmEditorInstance({
       ),
     [canStartThreadInSession, sessionId, sessionThread],
   );
-  const sendToThreadProjectNameById = useMemo(
-    () => ({
-      [projectId]: projectName?.trim() || projectId,
-    }),
-    [projectId, projectName],
-  );
+  const sendToThreadProjectNameById = useMemo(() => {
+    if (executionProjectId === null) return {};
+    return {
+      [executionProjectId]: projectName?.trim() || executionProjectId,
+    };
+  }, [executionProjectId, projectName]);
 
   const threadMentionSummaryMap = useMemo(
     () => ({
@@ -874,6 +886,13 @@ function NfmEditorInstance({
       if (!editor) {
         return false;
       }
+      if (executionProjectId === null) {
+        toast.danger("Thread sending requires a Project.", {
+          id: "nfm-thread-section",
+        });
+        restoreEditorFocus();
+        return false;
+      }
       if (sendRequest.target.kind === "thread" && !onSendThreadSectionPrompt) {
         toast.danger("Thread sending is not available.", {
           id: "nfm-thread-section",
@@ -920,7 +939,7 @@ function NfmEditorInstance({
               ? sendRequest.target.threadId
               : (
                   await startNewSessionThread!({
-                    projectId,
+                    projectId: executionProjectId,
                     targetSessionId: sendRequest.target.sessionId,
                     prompt: request.prompt,
                     promptInput: request.promptInput,
@@ -930,7 +949,7 @@ function NfmEditorInstance({
 
           if (sendRequest.target.kind === "thread") {
             await sendExistingThreadPrompt!({
-              projectId,
+              projectId: executionProjectId,
               threadId,
               prompt: request.prompt,
               promptInput: request.promptInput,
@@ -963,9 +982,9 @@ function NfmEditorInstance({
     },
     [
       editor,
+      executionProjectId,
       onStartNewSessionThreadFromEditor,
       onSendThreadSectionPrompt,
-      projectId,
       restoreEditorFocus,
       withPendingThreadSection,
     ],
@@ -983,7 +1002,13 @@ function NfmEditorInstance({
 
   const handleSendThreadSectionByBlockId = useCallback(
     (blockId: string, anchor?: HTMLElement) => {
-      if (!editor || !onSendThreadSectionPrompt) return false;
+      if (
+        !editor ||
+        executionProjectId === null ||
+        !onSendThreadSectionPrompt
+      ) {
+        return false;
+      }
 
       const cssEscape =
         globalThis.CSS?.escape ??
@@ -1026,6 +1051,7 @@ function NfmEditorInstance({
     },
     [
       editor,
+      executionProjectId,
       onSendThreadSectionPrompt,
       prepareThreadSectionSend,
       resolveThreadSectionPreferredThread,
@@ -1058,14 +1084,17 @@ function NfmEditorInstance({
 
   useEffect(() => {
     const runtime = editor as unknown as InlineViewHostContextRuntimeEditor;
-    runtime.nodexSourcePageContext = sourcePageContext
-      ? { projectId, pageId: sourcePageContext.pageId }
+    runtime.nodexSourcePageContext = sourcePageContext && executionProjectId
+      ? {
+          projectId: executionProjectId,
+          pageId: sourcePageContext.pageId,
+        }
       : null;
 
     return () => {
       runtime.nodexSourcePageContext = null;
     };
-  }, [editor, projectId, sourcePageContext]);
+  }, [editor, executionProjectId, sourcePageContext]);
 
   const handlePasteResourceChoice = useCallback(
     async (mode: "materialized" | "link") => {
@@ -1692,14 +1721,17 @@ function NfmEditorInstance({
       if (!sourcePageContext) {
         throw new Error("No blocks selected.");
       }
+      if (executionProjectId === null) {
+        throw new Error("Moving Blocks between Pages requires a Project.");
+      }
       if (
-        targetProjectId === projectId &&
+        targetProjectId === executionProjectId &&
         targetPageId === sourcePageContext.pageId
       ) {
         throw new Error("Choose a different destination card.");
       }
 
-      if (targetProjectId !== projectId) {
+      if (targetProjectId !== executionProjectId) {
         throw new Error(
           "Moving Blocks between Pages in different Projects is not available yet.",
         );
@@ -1725,10 +1757,10 @@ function NfmEditorInstance({
       if (preparedTarget.value.documentId === source.documentId) {
         throw new Error("Choose a different destination Page.");
       }
-      const result = await transferBlocks(projectId, {
+      const result = await transferBlocks(executionProjectId, {
         version: 2,
         operationId: crypto.randomUUID(),
-        projectId,
+        projectId: executionProjectId,
         storeEpoch: source.storeEpoch,
         mode: "move",
         rootBlockIds: selection.blockIds,
@@ -1744,7 +1776,7 @@ function NfmEditorInstance({
       if (!result.ok) throw new Error(result.error.message);
     },
     [
-      projectId,
+      executionProjectId,
       source,
       sourcePageContext,
       surfaceWriteFence,
@@ -1779,7 +1811,7 @@ function NfmEditorInstance({
         }
         if (
           !sourcePageContext
-          || destination.projectId !== projectId
+          || destination.projectId !== executionProjectId
           || destination.pageId === sourcePageContext.pageId
         ) {
           throw new Error("Choose another Page in this Project.");
@@ -1795,6 +1827,7 @@ function NfmEditorInstance({
         );
         if (!target.ok) throw new Error(target.error.message);
         await moveCanvasOwnerToPage({
+          accessContext: contentAccessContext,
           canvasBlockId: selectedCanvasBlocks[0]!.id,
           targetPageId: destination.pageId,
           targetDocumentGeneration: target.value.generation,
@@ -1816,10 +1849,11 @@ function NfmEditorInstance({
     },
     [
       appendSendBlockSelectionToCard,
+      contentAccessContext,
       resolveSendBlocksSelection,
       restoreEditorFocus,
       sendBlockSelectionToProject,
-      projectId,
+      executionProjectId,
       sourcePageContext,
       surfaceWriteFence,
     ],
@@ -1829,6 +1863,9 @@ function NfmEditorInstance({
     async (request: NfmSendToThreadRequest, fallbackBlockId: string) => {
       if (!sourcePageContext) {
         throw new Error("No blocks selected.");
+      }
+      if (executionProjectId === null) {
+        throw new Error("Sending Blocks to a chat requires a Project.");
       }
 
       const selection = resolveSendBlocksSelection(fallbackBlockId);
@@ -1864,7 +1901,7 @@ function NfmEditorInstance({
         }
         threadId = (
           await onStartNewSessionThreadFromEditor({
-            projectId,
+            projectId: executionProjectId,
             targetSessionId: request.target.sessionId,
             prompt: promptInput.text,
             promptInput,
@@ -1873,8 +1910,8 @@ function NfmEditorInstance({
       }
 
       if (request.target.kind === "thread") {
-        await codexControl.startTurn(threadId, promptInput.text, {
-          projectId,
+        await codexManager.startTurn(threadId, promptInput.text, {
+          permissionMode: codexPermissionState.mode,
           promptInput,
         });
       }
@@ -1907,25 +1944,27 @@ function NfmEditorInstance({
       restoreEditorFocus();
     },
     [
-      codexControl,
+      codexManager,
+      codexPermissionState.mode,
       editor,
+      executionProjectId,
       onStartNewSessionThreadFromEditor,
-      projectId,
       resolveSendBlocksSelection,
       restoreEditorFocus,
       sourcePageContext,
     ],
   );
 
-  const crossSurfaceDrag = useMemo(
-    () => ({
+  const crossSurfaceDrag = useMemo(() => {
+    if (executionProjectId === null) return undefined;
+    return {
       surfaceId: source.clientSessionId,
-      projectId,
+      projectId: executionProjectId,
       documentId: source.documentId,
       storeEpoch: source.storeEpoch,
       blockTransferDrop: {
         surfaceId: source.clientSessionId,
-        projectId,
+        projectId: executionProjectId,
         documentId: source.documentId,
         storeEpoch: source.storeEpoch,
         ...(sourcePageContext?.pageId
@@ -1934,7 +1973,7 @@ function NfmEditorInstance({
         ancestorPageIds: parentBlockReferenceRuntime?.ancestorPageIds ?? [],
         createOperationId: () => crypto.randomUUID(),
         transfer: (intent: Parameters<typeof transferBlocks>[1]) =>
-          transferBlocks(projectId, intent),
+          transferBlocks(executionProjectId, intent),
         ...(sourcePageContext && isCanvasHostDocumentRuntime(surfaceWriteFence)
           ? {
               transferCanvas: async ({
@@ -1955,6 +1994,7 @@ function NfmEditorInstance({
               }) => {
                 if (mode === "copy") {
                   await duplicateCanvasInHostPage({
+                    accessContext: contentAccessContext,
                     sourceCanvasBlockId: canvasBlockId,
                     hostPageId: targetPageId,
                     insertion,
@@ -1971,6 +2011,7 @@ function NfmEditorInstance({
                   );
                 }
                 await moveCanvasOwnerBetweenHostPages({
+                  accessContext: contentAccessContext,
                   canvasBlockId,
                   targetPageId,
                   insertion,
@@ -1982,17 +2023,17 @@ function NfmEditorInstance({
           : {}),
         reportError: (message: string) => toast.danger(message),
       },
-    }),
-    [
-      parentBlockReferenceRuntime?.ancestorPageIds,
-      projectId,
-      source.documentId,
-      source.clientSessionId,
-      source.storeEpoch,
-      sourcePageContext,
-      surfaceWriteFence,
-    ],
-  );
+    };
+  }, [
+    parentBlockReferenceRuntime?.ancestorPageIds,
+    contentAccessContext,
+    executionProjectId,
+    source.documentId,
+    source.clientSessionId,
+    source.storeEpoch,
+    sourcePageContext,
+    surfaceWriteFence,
+  ]);
 
   useEditorDragBehaviors({
     editor,
@@ -2015,6 +2056,7 @@ function NfmEditorInstance({
   // the callback identity below never changes.
   const blockActionCapabilities = resolveNfmEditorBlockActionCapabilities(
     sourcePageContext !== undefined,
+    executionProjectId,
   );
   const handleBlockDragStart = useCallback(
     ({
@@ -2024,12 +2066,13 @@ function NfmEditorInstance({
       dataTransfer: DataTransfer;
       blockIds: readonly string[];
     }) => {
+      if (executionProjectId === null) return;
       const roots = resolveTopLevelDraggedBlocks(editor, [...blockIds]);
       if (roots.length === 0) return;
       beginLocalBlockDragSession(
         {
           sourceSurfaceId: source.clientSessionId,
-          projectId,
+          projectId: executionProjectId,
           storeEpoch: source.storeEpoch,
           source: sourcePageContext
             ? { kind: "page", pageId: sourcePageContext.pageId }
@@ -2040,7 +2083,7 @@ function NfmEditorInstance({
         dataTransfer,
       );
     },
-    [editor, projectId, source, sourcePageContext],
+    [editor, executionProjectId, source, sourcePageContext],
   );
   const handleBlockDragEnd = useCallback(
     () =>
@@ -2050,7 +2093,7 @@ function NfmEditorInstance({
   const sideMenuHandlersRef = useRef({
     canSendBlocks: blockActionCapabilities.canMoveBlocks,
     hasConvertDividerToThreadSection: true,
-    sourceProjectId: sourcePageContext ? projectId : null,
+    sourceProjectId: sourcePageContext ? executionProjectId : null,
     sourcePageId: sourcePageContext?.pageId ?? null,
     onMoveBlocksToDestination: moveBlocksToDestination,
     onConvertDividerToThreadSection: handleConvertDividerToThreadSection,
@@ -2064,7 +2107,7 @@ function NfmEditorInstance({
   sideMenuHandlersRef.current = {
     canSendBlocks: blockActionCapabilities.canMoveBlocks,
     hasConvertDividerToThreadSection: true,
-    sourceProjectId: sourcePageContext ? projectId : null,
+    sourceProjectId: sourcePageContext ? executionProjectId : null,
     sourcePageId: sourcePageContext?.pageId ?? null,
     onMoveBlocksToDestination: moveBlocksToDestination,
     onConvertDividerToThreadSection: handleConvertDividerToThreadSection,
@@ -2088,7 +2131,7 @@ function NfmEditorInstance({
   const textActionMenuRuntimeValue = useMemo(
     () => ({
       canSendBlocks: blockActionCapabilities.canSendBlocksToThread,
-      sourceProjectId: sourcePageContext ? projectId : null,
+      sourceProjectId: sourcePageContext ? executionProjectId : null,
       sourcePageId: sourcePageContext?.pageId ?? null,
       sendToThreadProjectNameById,
       sendToThreadPreferredTarget: sessionSendToThreadPreferredTarget,
@@ -2105,7 +2148,7 @@ function NfmEditorInstance({
       blockActionCapabilities.canMoveBlocks,
       blockActionCapabilities.canSendBlocksToThread,
       moveBlocksToDestination,
-      projectId,
+      executionProjectId,
       sendToThreadProjectNameById,
       sendBlocksToThread,
       sessionSendToThreadPreferredTarget,
@@ -2138,13 +2181,14 @@ function NfmEditorInstance({
         );
       }
       return createCanvasInHostPage({
+        accessContext: contentAccessContext,
         hostPageId: sourcePageContext.pageId,
         replacementBlockId: blockId,
         displayName,
         runtime: surfaceWriteFence,
       });
     },
-    [sourcePageContext, surfaceWriteFence],
+    [contentAccessContext, sourcePageContext, surfaceWriteFence],
   );
 
   const requireCanvasHostRuntime = useCallback(() => {
@@ -2171,6 +2215,7 @@ function NfmEditorInstance({
       const siblingBlockIds = (parent?.children ?? editor.document)
         .map((block) => block.id);
       await duplicateCanvasInHostPage({
+        accessContext: contentAccessContext,
         sourceCanvasBlockId: canvasBlockId,
         hostPageId: host.hostPageId,
         insertion: resolveCanvasInsertionAfterBlock({
@@ -2181,14 +2226,17 @@ function NfmEditorInstance({
         runtime: host.runtime,
       });
     },
-    [editor, requireCanvasHostRuntime],
+    [contentAccessContext, editor, requireCanvasHostRuntime],
   );
 
   const deleteCanvas = useCallback(
     async (canvasBlockId: string) => {
-      await deleteCanvasOwner({ canvasBlockId });
+      await deleteCanvasOwner({
+        accessContext: contentAccessContext,
+        canvasBlockId,
+      });
     },
-    [],
+    [contentAccessContext],
   );
 
   const renameCanvas = useCallback(
@@ -2199,9 +2247,13 @@ function NfmEditorInstance({
       readonly canvasBlockId: string;
       readonly displayName: string;
     }) => {
-      await renameCanvasOwner({ canvasBlockId, displayName });
+      await renameCanvasOwner({
+        accessContext: contentAccessContext,
+        canvasBlockId,
+        displayName,
+      });
     },
-    [],
+    [contentAccessContext],
   );
   canvasCommandHandlersRef.current = {
     duplicate: async (canvasBlockId) => {
@@ -2246,7 +2298,8 @@ function NfmEditorInstance({
       const currentDocumentOwnerBlockId =
         documentOwnerBlockId ?? sourcePageContext?.pageId;
       return {
-        projectId,
+        contentAccessContext,
+        documentScopeId,
         projectName,
         projectWorkspacePath: projectWorkspacePath ?? null,
         hostPageId: sourcePageContext?.pageId ?? null,
@@ -2274,12 +2327,13 @@ function NfmEditorInstance({
       };
     },
     [
+      contentAccessContext,
       documentOwnerBlockId,
       isActivePanelTab,
       onOpenPage,
       onOpenDatabase,
       onOpenCanvas,
-      projectId,
+      documentScopeId,
       projectName,
       projectWorkspacePath,
       parentBlockReferenceRuntime?.ancestorPageIds,
@@ -2471,7 +2525,7 @@ function NfmEditorInstance({
             style={{ width: 330 }}
           >
             <NfmSendToThreadMenuSurface
-              projectId={projectId}
+              projectId={executionProjectId}
               threadItems={sendToThreadItems}
               threadItemsLoading={sendToThreadItemsLoading}
               projectNameById={sendToThreadProjectNameById}
@@ -2545,7 +2599,7 @@ function NfmEditorInstance({
                         }}
                       />
                       <NfmSlashMenu
-                        projectId={projectId}
+                        executionProjectId={executionProjectId}
                         allowPageReferences
                       />
                       <NfmTableHandlesController />
