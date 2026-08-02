@@ -1,0 +1,89 @@
+name: Assemble Release Bundle
+
+on:
+  workflow_call:
+    inputs:
+      retention_days:
+        description: Release Bundle artifact retention period
+        required: true
+        type: number
+      source_sha:
+        description: Exact protected-main source commit
+        required: true
+        type: string
+      version:
+        description: Stable application version
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  assemble:
+    name: assemble Release Bundle
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.source_sha }}
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: nodex-macos-arm64-${{ inputs.source_sha }}
+          path: ${{ runner.temp }}/architectures/arm64
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: nodex-macos-x64-${{ inputs.source_sha }}
+          path: ${{ runner.temp }}/architectures/x64
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: nodex-sparkle-arm64-${{ inputs.source_sha }}
+          path: ${{ runner.temp }}/updates/arm64
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: nodex-sparkle-x64-${{ inputs.source_sha }}
+          path: ${{ runner.temp }}/updates/x64
+
+      - name: Assemble and verify Release Bundle
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          VERSION: ${{ inputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle="${RUNNER_TEMP}/release-bundle"
+          pnpm release:assemble -- \
+            --arm64-dir "${RUNNER_TEMP}/architectures/arm64" \
+            --arm64-update-dir "${RUNNER_TEMP}/updates/arm64" \
+            --x64-dir "${RUNNER_TEMP}/architectures/x64" \
+            --x64-update-dir "${RUNNER_TEMP}/updates/x64" \
+            --source-sha "${SOURCE_SHA}" \
+            --version "${VERSION}" \
+            --output "${bundle}"
+          pnpm release:notes -- \
+            --version "${VERSION}" \
+            --output "${bundle}/release-notes.md"
+          {
+            echo "## Verified Release Bundle"
+            echo
+            echo '```json'
+            cat "${bundle}/release-bundle.json"
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload verified Release Bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nodex-release-bundle-${{ inputs.source_sha }}
+          path: ${{ runner.temp }}/release-bundle/
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: ${{ inputs.retention_days }}

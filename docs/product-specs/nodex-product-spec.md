@@ -783,9 +783,12 @@ nodex/
 │   ├── nodex-core-protocol/    # Generated transport envelopes/OpenAPI source
 │   └── nodex-core-server/      # Profile-private authenticated UDS process
 ├── .github/
+│   ├── actions/
+│   │   └── finalize-sparkle/   # Protected appcast and delta finalization steps
 │   └── workflows/
 │       ├── ci.yml              # Stable CI / required source gate
-│       ├── _macos-distribution.yml # Shared native dual-architecture Distribution
+│       ├── _macos-distribution.yml # Shared native dual-architecture builds
+│       ├── _assemble-release.yml # Secret-free verified Bundle assembly
 │       ├── release.yml         # Protected-main version-transition promotion
 │       └── release-recovery.yml # Exact-SHA idempotent recovery
 ├── ~/.nodex/                  # Default storage directory

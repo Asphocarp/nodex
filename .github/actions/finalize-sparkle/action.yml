@@ -1,0 +1,97 @@
+name: Finalize Sparkle update channel
+description: Sign one architecture's appcast, enclosures, and compatible deltas
+
+inputs:
+  architecture:
+    description: macOS release architecture
+    required: true
+  private_key:
+    description: Sparkle Ed25519 private key from the protected environment
+    required: true
+  retention_days:
+    description: Signed update artifact retention period
+    required: true
+  source_sha:
+    description: Exact protected-main source commit
+    required: true
+  version:
+    description: Stable application version
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+    - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      with:
+        node-version-file: .node-version
+        cache: pnpm
+        cache-dependency-path: pnpm-lock.yaml
+    - shell: bash
+      run: pnpm install --frozen-lockfile
+    - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: nodex-macos-${{ inputs.architecture }}-${{ inputs.source_sha }}
+        path: ${{ runner.temp }}/architecture
+
+    - name: Fetch verified compatible update history
+      id: history
+      env:
+        GH_TOKEN: ${{ github.token }}
+        RELEASE_ARCH: ${{ inputs.architecture }}
+        RELEASE_VERSION: ${{ inputs.version }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        history_dirs="$(pnpm --silent release:fetch:sparkle-history -- \
+          --arch "${RELEASE_ARCH}" \
+          --version "${RELEASE_VERSION}" \
+          --repo "${GITHUB_REPOSITORY}" \
+          --output "${RUNNER_TEMP}/sparkle-history")"
+        echo "directories=${history_dirs}" >> "${GITHUB_OUTPUT}"
+
+    - name: Finalize signed appcast and deltas
+      env:
+        HISTORY_DIRS: ${{ steps.history.outputs.directories }}
+        RELEASE_ARCH: ${{ inputs.architecture }}
+        RELEASE_SOURCE_SHA: ${{ inputs.source_sha }}
+        RELEASE_VERSION: ${{ inputs.version }}
+        SPARKLE_ED25519_PRIVATE_KEY: ${{ inputs.private_key }}
+        SPARKLE_OUTPUT: ${{ github.workspace }}/.generated/sparkle-update/${{ inputs.architecture }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        test -n "${SPARKLE_ED25519_PRIVATE_KEY}"
+        pnpm release:notes -- \
+          --version "${RELEASE_VERSION}" \
+          --output "${RUNNER_TEMP}/release-notes.md"
+        published_at="$(git show -s --format=%cI "${RELEASE_SOURCE_SHA}")"
+        history_args=()
+        if [[ -n "${HISTORY_DIRS}" ]]; then
+          history_args=(--history-dirs "${HISTORY_DIRS}")
+        fi
+        pnpm release:finalize:sparkle -- \
+          --arch "${RELEASE_ARCH}" \
+          --architecture-dir "${RUNNER_TEMP}/architecture" \
+          "${history_args[@]}" \
+          --notes "${RUNNER_TEMP}/release-notes.md" \
+          --published-at "${published_at}" \
+          --source-sha "${RELEASE_SOURCE_SHA}" \
+          --version "${RELEASE_VERSION}" \
+          --output "${SPARKLE_OUTPUT}"
+
+    - name: Summarize signed update set
+      env:
+        RELEASE_ARCH: ${{ inputs.architecture }}
+        RELEASE_VERSION: ${{ inputs.version }}
+        SPARKLE_OUTPUT: ${{ github.workspace }}/.generated/sparkle-update/${{ inputs.architecture }}
+      shell: bash
+      run: cat "${SPARKLE_OUTPUT}/Nodex-${RELEASE_VERSION}-update-${RELEASE_ARCH}.json" >> "${GITHUB_STEP_SUMMARY}"
+
+    - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: nodex-sparkle-${{ inputs.architecture }}-${{ inputs.source_sha }}
+        path: ${{ github.workspace }}/.generated/sparkle-update/${{ inputs.architecture }}/
+        compression-level: 0
+        if-no-files-found: error
+        retention-days: ${{ inputs.retention_days }}

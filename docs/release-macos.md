@@ -83,8 +83,9 @@ that commit makes release detection fail closed.
 ## One-time repository configuration
 
 The repository must have these environments, restricted to protected `main`.
-They separate deployment policy and audit; reusable workflows receive only the
-explicit secret contract declared by their caller.
+They separate deployment policy and audit. Reusable workflows receive only the
+explicit repository-secret contract declared by their caller; protected
+environment secrets are resolved only by direct jobs.
 
 | Environment | Authority |
 | --- | --- |
@@ -108,22 +109,23 @@ Configure these repository Action secrets:
 
 Configure `SPARKLE_ED25519_PRIVATE_KEY` as an environment secret on
 `sparkle-feed-finalization`, not as a repository-wide secret and not as a
-caller-supplied `workflow_call` secret. The reusable distribution workflow
-declares the name as optional so GitHub resolves the expression, but repository
-guards reject any caller mapping; the finalizer's protected environment is the
-only source and the only job that receives it.
+caller-supplied `workflow_call` secret. `Release`, `Distribution Rehearsal`, and
+`Release Recovery` each own direct finalizer jobs bound to that environment and
+pass the value only to the repository-local Sparkle finalization action. The
+reusable native-distribution and Bundle-assembly workflows never declare or
+receive the key. Repository guards reject reusable-workflow transport and any
+reference outside a direct protected finalizer.
 
 Each caller maps the repository secrets above to lowercase
 `workflow_call.secrets` aliases. Do
 not replace the mappings with broad `secrets: inherit`, and do not reference a
-repository secret from PR CI. The Sparkle key is the deliberate exception: its
-name is declared by the reusable workflow but its value is resolved directly
-from the protected job environment and has no caller transport. The alias
-boundary otherwise avoids relying on
-implicit environment-secret resolution or same-name precedence inside nested
-reusable workflows. Record PAT expiry dates in release operations and rotate
-them before expiry. Remove duplicate credentials from the legacy `release`
-environment after rehearsal succeeds.
+repository secret from PR CI. The Sparkle key is the deliberate exception: it
+is resolved only by each top-level protected job and never crosses a reusable
+workflow boundary. The alias boundary for all other credentials avoids relying
+on implicit secret inheritance or same-name precedence inside nested reusable
+workflows. Record PAT expiry dates in release operations and rotate them before
+expiry. Remove duplicate credentials from the legacy `release` environment
+after rehearsal succeeds.
 
 The official Skills publisher authenticates Git through a GitHub-scoped Basic
 extra header and keeps credentials out of remote URLs. Promotion additionally
