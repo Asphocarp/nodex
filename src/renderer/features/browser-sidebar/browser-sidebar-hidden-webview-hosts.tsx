@@ -31,7 +31,7 @@ import {
 } from "./browser-sidebar-tab-config";
 
 interface BrowserSidebarHiddenWebviewHostsProps {
-  sessionId: string;
+  durableBrowserConversationId: string;
   browserViewScopeId: string;
   tabs: WorkbenchTabProjection[];
   mountedTabIds: ReadonlySet<string>;
@@ -54,7 +54,7 @@ interface HiddenHostDescriptor {
 }
 
 export function BrowserSidebarHiddenWebviewHosts({
-  sessionId,
+  durableBrowserConversationId,
   browserViewScopeId,
   tabs,
   mountedTabIds,
@@ -98,15 +98,21 @@ export function BrowserSidebarHiddenWebviewHosts({
   }, []);
 
   const descriptors = useMemo(() => {
+    const liveBrowserUseTabs = browserUseState.tabs.filter((tab) =>
+      tab.browserViewScopeId === browserViewScopeId && !tab.released
+    );
     const browserDescriptors = tabs.flatMap((tab): HiddenHostDescriptor[] => {
       if (tab.kind !== "browser") return [];
       if (visibleTabIds.has(tab.id) || mountedTabIds.has(tab.id)) return [];
       const browserTabId = requireWorkbenchBrowserTabProjectionId(tab);
       const identity = {
-        browserConversationId: sessionId,
+        browserConversationId: durableBrowserConversationId,
         browserViewScopeId,
         browserTabId,
       };
+      if (liveBrowserUseTabs.some((runtimeTab) =>
+        matchesBrowserSidebarTabIdentity(runtimeTab, identity)
+      )) return [];
       const snapshot = snapshots.find((candidate) =>
         matchesBrowserSidebarTabIdentity(candidate, identity)
       );
@@ -116,7 +122,7 @@ export function BrowserSidebarHiddenWebviewHosts({
       if (isBlankBrowserUrl(initialUrl)) return [];
       if (snapshot && !snapshot.hasBrowserPage) return [];
       return [{
-        browserConversationId: sessionId,
+        browserConversationId: durableBrowserConversationId,
         browserViewScopeId,
         browserTabId,
         browserStorageId: snapshot?.browserStorageId
@@ -133,20 +139,17 @@ export function BrowserSidebarHiddenWebviewHosts({
       }];
     });
 
-    const browserUseDescriptors = browserUseState.tabs.flatMap((tab): HiddenHostDescriptor[] => {
-      if (!matchesBrowserSidebarTabIdentity(tab, {
-        browserConversationId: sessionId,
-        browserViewScopeId,
-        browserTabId: tab.browserTabId,
-      })) return [];
-      if (tab.released) return [];
-      const hasMountedWorkbenchTab = tabs.some((workbenchTab) =>
-        workbenchTab.kind === "browser"
-        && (
-          visibleTabIds.has(workbenchTab.id)
-          || mountedTabIds.has(workbenchTab.id)
+    const browserUseDescriptors = liveBrowserUseTabs.flatMap((tab): HiddenHostDescriptor[] => {
+      const hasMountedWorkbenchTab = (
+        tab.browserConversationId === durableBrowserConversationId
+        && tabs.some((workbenchTab) =>
+          workbenchTab.kind === "browser"
+          && (
+            visibleTabIds.has(workbenchTab.id)
+            || mountedTabIds.has(workbenchTab.id)
+          )
+          && requireWorkbenchBrowserTabProjectionId(workbenchTab) === tab.browserTabId
         )
-        && requireWorkbenchBrowserTabProjectionId(workbenchTab) === tab.browserTabId
       );
       if (hasMountedWorkbenchTab) return [];
       return [{
@@ -170,7 +173,7 @@ export function BrowserSidebarHiddenWebviewHosts({
     });
 
     return [...browserDescriptors, ...browserUseDescriptors];
-  }, [browserUseState, browserUseViewport, browserViewScopeId, mountedTabIds, sessionId, snapshots, tabs, visibleTabIds]);
+  }, [browserUseState, browserUseViewport, browserViewScopeId, durableBrowserConversationId, mountedTabIds, snapshots, tabs, visibleTabIds]);
 
   return (
     <>

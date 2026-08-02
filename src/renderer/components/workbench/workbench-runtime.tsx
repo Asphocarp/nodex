@@ -3686,7 +3686,7 @@ export function WorkbenchRuntime({
           >
             {activeRenderSession ? (
               <BrowserSidebarHiddenWebviewHosts
-                sessionId={activeRenderSession.id}
+                durableBrowserConversationId={activeRenderSession.id}
                 browserViewScopeId={windowSessionId}
                 tabs={browserRetentionTabs}
                 mountedTabIds={mountedBrowserTabIds}
@@ -3694,7 +3694,7 @@ export function WorkbenchRuntime({
               />
             ) : activeProjectScene && projectSceneKey ? (
               <BrowserSidebarHiddenWebviewHosts
-                sessionId={projectSceneKey}
+                durableBrowserConversationId={projectSceneKey}
                 browserViewScopeId={windowSessionId}
                 tabs={projectBrowserRetentionTabs}
                 mountedTabIds={visibleProjectBrowserTabIds}
