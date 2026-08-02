@@ -16,17 +16,6 @@ const REPOSITORY_ROOT = resolve(import.meta.dirname, "..");
 const DEFAULT_OUTPUT_FILE = join(REPOSITORY_ROOT, "resources", "THIRD_PARTY_NOTICES.txt");
 const LEGAL_FILENAME_PATTERN = /^(?:licen[cs]e|copying|notice)(?:[._-].*)?$/i;
 const DIVIDER = "=".repeat(80);
-const TARGET_RUNTIME_PACKAGE_ALIASES = [
-  {
-    alias: "@openai/codex-darwin-arm64",
-    homepage: "https://github.com/openai/codex#readme",
-  },
-  {
-    alias: "@openai/codex-darwin-x64",
-    homepage: "https://github.com/openai/codex#readme",
-  },
-] as const;
-
 interface PnpmLicensePackage {
   author?: string;
   homepage?: string;
@@ -39,11 +28,7 @@ interface PnpmLicensePackage {
 type PnpmLicenseReport = Record<string, PnpmLicensePackage[]>;
 
 interface PackageManifest {
-  homepage?: string;
-  license?: string;
-  name: string;
   os?: string[];
-  version: string;
 }
 
 interface CargoMetadata {
@@ -166,25 +151,6 @@ async function collectPnpmEntries(): Promise<ThirdPartyLegalEntry[]> {
   return entries;
 }
 
-async function collectAliasedRuntimeEntries(): Promise<ThirdPartyLegalEntry[]> {
-  return await Promise.all(TARGET_RUNTIME_PACKAGE_ALIASES.map(async (targetPackage) => {
-    const packageDirectory = join(
-      REPOSITORY_ROOT,
-      "node_modules",
-      ...targetPackage.alias.split("/"),
-    );
-    const manifest = JSON.parse(
-      await readFile(join(packageDirectory, "package.json"), "utf8"),
-    ) as PackageManifest;
-    return {
-      homepage: manifest.homepage?.trim() || targetPackage.homepage,
-      identity: `${manifest.name}@${manifest.version}`,
-      legalText: await readLegalDocuments(packageDirectory),
-      license: manifest.license?.trim() || "Not declared",
-    };
-  }));
-}
-
 async function collectCargoEntries(): Promise<ThirdPartyLegalEntry[]> {
   const { stdout } = await execFileAsync(
     "cargo",
@@ -305,15 +271,13 @@ export function renderThirdPartyNotices(entries: ThirdPartyLegalEntry[]): string
 }
 
 export async function generateThirdPartyNotices(): Promise<string> {
-  const [pnpmEntries, aliasedRuntimeEntries, cargoEntries, runtimeEntries] = await Promise.all([
+  const [pnpmEntries, cargoEntries, runtimeEntries] = await Promise.all([
     collectPnpmEntries(),
-    collectAliasedRuntimeEntries(),
     collectCargoEntries(),
     collectBundledRuntimeEntries(),
   ]);
   return renderThirdPartyNotices([
     ...pnpmEntries,
-    ...aliasedRuntimeEntries,
     ...cargoEntries,
     ...runtimeEntries,
   ]);

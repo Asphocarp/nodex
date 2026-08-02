@@ -201,7 +201,6 @@ export async function buildMacDistribution(options: {
     "legacy-profile-migrator:verify-reproducible",
     "third-party-notices:verify",
     "codex:schemas:verify",
-    "codex:schemas:compat",
     "test:agent-runtime-conformance",
     "test:browser-runtime-conformance",
   ] as const;

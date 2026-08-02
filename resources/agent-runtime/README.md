@@ -15,6 +15,11 @@ the package layout, third-party notices, and the generated experimental
 app-server schema fingerprint. A runtime upgrade is incomplete until both macOS
 architectures pass staging and the app-server conformance probes.
 
+Normal installs carry no parallel official Codex npm package or protocol
+snapshot. When `codexCompatibilityVersion` changes, rebuild and relock the Open
+Interpreter artifacts, regenerate the committed protocol package from that
+runtime, and run `pnpm run verify:runtime:mac`.
+
 ## Rebuild procedure
 
 Clone `source.repository` into a disposable directory, detach at the exact
