@@ -151,8 +151,10 @@ proceed with a partial Sentry configuration.
 
 Repository Actions default permissions remain read-only. The `main` ruleset
 requires PRs, linear history, an up-to-date branch, and `CI / required`; it
-blocks force pushes and deletion. Repository merge settings enable squash
-merge only. A `v*` tag ruleset prevents update/deletion while allowing the
+blocks force pushes and deletion. Repository merge settings enable rebase and
+squash merges; release foundation batches and the single-commit metadata PR in
+this runbook use rebase-and-merge so their reviewed commits remain a linear
+`main` history. A `v*` tag ruleset prevents update/deletion while allowing the
 release workflow to create a new tag. Immutable releases must be enabled after
 the current Latest release points to a stable app release.
 
@@ -265,6 +267,13 @@ Download `nodex-release-bundle-<sha>` and inspect `release-bundle.json` and
 `SHA256SUMS`. A rehearsal is required after release workflow, native packaging,
 Apple signing, updater, Agent runtime, Browser runtime, or provenance changes.
 
+When a candidate consists of a large foundation batch, first land that batch
+through an ordinary PR with rebase-and-merge while `package.json` still carries
+the current released version. Wait for the resulting protected-main CI run,
+then rehearse that exact final `main` SHA. Do not mix the next version transition
+into the batch: the four-file metadata commit below must remain a separate,
+reviewable release trigger.
+
 ## Prepare v0.2.1 (or another stable release)
 
 Start from the latest protected `main`, use a dedicated branch, and provide the
@@ -302,8 +311,10 @@ git commit -m "release: prepare v0.2.1" \
 git push -u origin codex/release-v0.2.1
 ```
 
-Merge the PR with squash after `CI / required` succeeds. Do not create a tag or
-manually dispatch the normal `Release` workflow.
+Merge the single-commit PR with rebase-and-merge after `CI / required` succeeds.
+Do not create a tag or manually dispatch the normal `Release` workflow. The
+rebased commit must still be the exact four-file transition checked above; the
+successful protected-main CI run on that commit is the release trigger.
 
 ## Automatic production path
 
