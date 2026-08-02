@@ -18,6 +18,10 @@ import {
 } from "../../config/renderer-vite-shared";
 import { CoreClient } from "../../src/main/core-client/core-client";
 import { LARGE_CONTENT_FIXTURE_SIZES } from "../../src/main/performance/large-content-fixtures";
+import {
+  AGENT_RUNTIME_LAYOUT_VERSION,
+  parseBundledAgentRuntimeMetadata,
+} from "../../src/shared/codex-runtime-metadata";
 import { LIBRARY_MODULE_CONTRACT_VERSION } from "../../src/shared/library-module";
 
 const repositoryRoot = process.cwd();
@@ -72,11 +76,17 @@ function prepareRuntimeFixture(root: string): void {
       size: Buffer.byteLength(body),
     };
   });
-  fs.writeFileSync(path.join(runtimeRoot, "agent-runtime.json"), JSON.stringify({
+  const runtimeMetadata = {
+    artifactRelease: {
+      archiveSha256: "0".repeat(64),
+      assetName: "nodex-e2e-fixture.tar.gz",
+      repository: "junyudev/nodex",
+      tag: "agent-runtime-v0.0.0-e2e",
+    },
     artifacts,
     codexCompatibilityVersion: "0.0.0-e2e",
     entrypoint: "bin/interpreter",
-    layoutVersion: 2,
+    layoutVersion: AGENT_RUNTIME_LAYOUT_VERSION,
     packageManifest: {
       entrypoint: "bin/interpreter",
       layoutVersion: 1,
@@ -89,16 +99,22 @@ function prepareRuntimeFixture(root: string): void {
     runtimeFamily: "open-interpreter",
     runtimeVersion: "0.0.0-e2e",
     searchPaths: ["codex-path"],
-    sourceRelease: {
-      archiveSha256: "0".repeat(64),
-      assetName: "nodex-e2e-fixture.tar.gz",
+    sourceRevision: {
+      commit: "0".repeat(40),
+      patches: [],
       repository: "openinterpreter/openinterpreter",
-      tag: "rust-v0.0.0-e2e",
     },
     targetArch: process.arch,
     targetPlatform: process.platform,
     targetTriple: `${process.arch}-${process.platform}`,
-  }));
+  };
+  if (!parseBundledAgentRuntimeMetadata(runtimeMetadata)) {
+    throw new Error("Electron E2E Agent runtime fixture is invalid");
+  }
+  fs.writeFileSync(
+    path.join(runtimeRoot, "agent-runtime.json"),
+    JSON.stringify(runtimeMetadata),
+  );
 }
 
 async function launchApplication(cwd: string, nodexHome: string): Promise<ElectronApplication> {
@@ -430,11 +446,13 @@ test("provisions and persists the initial source-backed Project across a full El
           layout?: {
             location?: {
               kind?: string;
-              activeProjectId?: string | null;
-              sessionId?: string;
+              projectId?: string;
             };
-            sessionViewsBySessionId?: Record<string, {
-              tabsById?: Record<string, {
+            scenesByOwnerKey?: Record<string, {
+              primary?: {
+                kind?: string;
+              };
+              panelSurfacesById?: Record<string, {
                 kind?: string;
                 config?: { pageId?: string };
               }>;
@@ -464,27 +482,27 @@ test("provisions and persists the initial source-backed Project across a full El
 
     const layout = firstState.bootstrap?.session?.layout;
     expect(layout?.location).toMatchObject({
-      kind: "session",
-      activeProjectId: createdProject?.id,
+      kind: "project",
+      projectId: createdProject?.id,
     });
-    const starterSessionId = layout?.location?.sessionId;
-    const starterView = starterSessionId
-      ? layout?.sessionViewsBySessionId?.[starterSessionId]
+    const projectScene = createdProject?.id
+      ? layout?.scenesByOwnerKey?.[`project:${createdProject.id}`]
       : undefined;
-    const tabs = Object.values(starterView?.tabsById ?? {});
-    expect(tabs.map((tab) => tab.kind)).toEqual(["db_view", "page_stage"]);
-    expect(starterView?.panels?.right).toMatchObject({
+    expect(projectScene?.primary?.kind).toBe("db_view");
+    const surfaces = Object.values(projectScene?.panelSurfacesById ?? {});
+    expect(surfaces.map((surface) => surface.kind)).toEqual(["page_stage"]);
+    expect(projectScene?.panels?.right).toMatchObject({
       collapsed: false,
       size: { fullWidth: true },
     });
-    const activeRightTabId = starterView?.panels?.right?.layout?.root
+    const activeRightTabId = projectScene?.panels?.right?.layout?.root
       ?.activeTabId;
     expect(
       activeRightTabId
-        ? starterView?.tabsById?.[activeRightTabId]?.kind
+        ? projectScene?.panelSurfacesById?.[activeRightTabId]?.kind
         : undefined,
     ).toBe("page_stage");
-    const starterPageId = tabs.find((tab) => tab.kind === "page_stage")
+    const starterPageId = surfaces.find((surface) => surface.kind === "page_stage")
       ?.config?.pageId;
     expect(starterPageId).toBeTruthy();
 
@@ -547,8 +565,8 @@ test("provisions and persists the initial source-backed Project across a full El
     expect((persisted as {
       bootstrap?: { session?: { layout?: { location?: unknown } } };
     }).bootstrap?.session?.layout?.location).toMatchObject({
-      kind: "session",
-      activeProjectId: createdProject?.id,
+      kind: "project",
+      projectId: createdProject?.id,
     });
     await expect(restartedWindow.getByRole("heading", {
       name: "Select a project",
@@ -580,14 +598,10 @@ test("creates and draws in an inline Canvas without taking over the Page", async
     );
 
     await page.getByRole("button", {
-      name: "Canvas workflow",
+      name: "Open Canvas workflow",
       exact: true,
     }).click();
-    await page
-      .locator('[data-app-action-sidebar-thread-title="Database View"]')
-      .first()
-      .click();
-    await page.waitForTimeout(1_000);
+    await page.getByRole("tab", { name: "Project Home" }).waitFor();
     await page.getByRole("button", { name: "Open Library" }).click({
       force: true,
     });
@@ -606,9 +620,9 @@ test("creates and draws in an inline Canvas without taking over the Page", async
       .click();
     await page.getByRole("menuitem", { name: "Open in Project…" }).click();
     await page.getByRole("button", { name: "Grant and open" }).click();
-    await page.getByRole("button", { name: "Page actions" }).waitFor();
 
     const editor = page
+      .locator('[data-page-stage-surface="true"]')
       .getByTestId("page-stage-scroll-container")
       .locator(".nfm-editor .ProseMirror[contenteditable=true]")
       .first();
@@ -637,7 +651,6 @@ test("creates and draws in an inline Canvas without taking over the Page", async
         }).__canvasPendingObserved === true
       ),
     ).toBe(true);
-
     const canvasBlock = page.locator("[data-canvas-block]").first();
     await expect(canvasBlock).toBeVisible({ timeout: 5_000 });
     await expect(canvasBlock).toHaveAttribute(
