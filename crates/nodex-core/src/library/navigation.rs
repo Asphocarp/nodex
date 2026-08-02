@@ -64,6 +64,17 @@ pub(super) fn read(
                 force_include_target,
             )
         }
+        LibraryRead::StandaloneRoots {
+            cursor: requested_cursor,
+            limit,
+            force_include_target,
+        } => standalone_roots(
+            connection,
+            library_id,
+            requested_cursor,
+            limit,
+            force_include_target,
+        ),
         LibraryRead::Path { target } => {
             if let (Some(project_id), LibraryRouteTarget::Page { page_id }) =
                 (requesting_project_id, &target)
@@ -1013,6 +1024,69 @@ fn children(
     })
 }
 
+fn standalone_roots(
+    connection: &Connection,
+    library_id: &str,
+    requested_cursor: Option<String>,
+    limit: Option<u32>,
+    force_include_target: Option<LibraryResourceTarget>,
+) -> Result<LibraryReadValue, StoreError> {
+    let subject = vec!["standalone_roots".to_owned()];
+    let after = cursor_coordinate(
+        connection,
+        requested_cursor.as_deref(),
+        library_id,
+        &subject,
+    )?;
+    let limit = read_limit(limit)?;
+    let (mut ordered, total) =
+        standalone_root_node_window(connection, library_id, after.as_ref(), limit)?;
+    let has_more = ordered.len() > limit;
+    ordered.truncate(limit);
+    let next_cursor = has_more
+        .then(|| {
+            let last = ordered
+                .last()
+                .ok_or_else(|| corrupt("Standalone root continuation has no node"))?;
+            cursor::mint(
+                connection,
+                library_id,
+                &subject,
+                cursor::KeysetCoordinate {
+                    values: vec![cursor::KeysetValue::Text {
+                        value: last.sort_key.clone(),
+                    }],
+                    stable_id: navigation_node_id(&last.node).to_owned(),
+                },
+            )
+        })
+        .transpose()?;
+    let mut items = ordered
+        .into_iter()
+        .map(|ordered| ordered.node)
+        .collect::<Vec<_>>();
+    if let Some(target) = force_include_target {
+        let route_target = resource_route_target(&target);
+        if !items.iter().any(|node| matches_target(node, &route_target))
+            && standalone_root_is_eligible(connection, library_id, &target)?
+            && let Some(forced) = forced_child_node(
+                connection,
+                library_id,
+                &LibraryNavigationParent::Library,
+                &route_target,
+            )?
+        {
+            items.push(forced);
+        }
+    }
+    Ok(LibraryReadValue::StandaloneRoots {
+        items,
+        next_cursor,
+        has_more,
+        total,
+    })
+}
+
 struct OrderedNavigationNode {
     node: LibraryNavigationNode,
     sort_key: String,
@@ -1082,6 +1156,147 @@ fn root_node_window(
         |row| row.get::<_, i64>(0),
     )?;
     Ok((nodes, count_to_u64(total)?))
+}
+
+fn standalone_root_node_window(
+    connection: &Connection,
+    library_id: &str,
+    after: Option<&cursor::KeysetCoordinate>,
+    limit: usize,
+) -> Result<(Vec<OrderedNavigationNode>, u64), StoreError> {
+    let (after_sort_key, after_id) = keyset_text_coordinate(after)?;
+    let query_limit =
+        i64::try_from(limit.saturating_add(1)).map_err(|_| invalid("Library limit overflowed"))?;
+    let eligibility = "NOT (block.type = 'database' AND EXISTS( \
+          SELECT 1 FROM project_database_bindings binding \
+          INNER JOIN projects project \
+            ON project.id = binding.project_id \
+            AND project.library_id = binding.library_id \
+          WHERE binding.database_block_id = block.id \
+            AND binding.library_id = placement.library_id \
+            AND binding.lifecycle = 'active' \
+            AND project.lifecycle <> 'archived' \
+        )) AND NOT (block.type = 'canvas' AND EXISTS( \
+          SELECT 1 FROM projects project \
+          WHERE project.id = block.project_id \
+            AND project.library_id = placement.library_id \
+            AND project.lifecycle <> 'archived' \
+            AND block.id = 'canvas:primary:' || project.id \
+        ))";
+    let rows_sql = format!(
+        "SELECT block.type, block.id, placement.rank_key, \
+           materialization.title, page.parent_revision, page.metadata_revision, \
+           document.generation, document.head_seq, page.updated_at, \
+           EXISTS(SELECT 1 FROM document_block_index child \
+             INNER JOIN blocks child_block ON child_block.id = child.block_id \
+             WHERE child.document_id = page.document_id \
+               AND child_block.type IN ('page', 'database', 'canvas') \
+               AND child_block.lifecycle = 'active'), \
+           container.name, container.default_view_id, container.metadata_revision, \
+           block.location_revision, container.updated_at, \
+           (SELECT COUNT(*) FROM database_views view \
+             WHERE view.database_block_id = container.block_id \
+               AND view.lifecycle = 'active'), \
+           json_extract(canvas_name.value_json, '$'), block.metadata_revision, \
+           block.location_revision, canvas.updated_at, canvas_document.generation, \
+           canvas_document.head_seq, block.project_id \
+         FROM library_block_placements placement \
+         INNER JOIN blocks block ON block.id = placement.block_id \
+         LEFT JOIN pages page ON page.block_id = block.id \
+         LEFT JOIN documents document ON document.id = page.document_id \
+         LEFT JOIN document_materializations materialization \
+           ON materialization.document_id = page.document_id \
+         LEFT JOIN database_containers container ON container.block_id = block.id \
+         LEFT JOIN canvas_owners canvas ON canvas.block_id = block.id \
+         LEFT JOIN block_documents canvas_ownership ON canvas_ownership.block_id = block.id \
+         LEFT JOIN documents canvas_document ON canvas_document.id = canvas_ownership.document_id \
+         LEFT JOIN block_properties canvas_name ON canvas_name.block_id = block.id \
+           AND canvas_name.property_key = 'document.display_name' \
+         WHERE placement.library_id = ?1 AND block.type IN ('page', 'database', 'canvas') \
+           AND block.lifecycle = 'active' \
+           AND COALESCE(page.lifecycle, container.lifecycle, block.lifecycle) = 'active' \
+           AND {eligibility} \
+           AND (?2 IS NULL OR placement.rank_key > ?2 \
+             OR (placement.rank_key = ?2 AND block.id > ?3)) \
+         ORDER BY placement.rank_key, block.id LIMIT ?4"
+    );
+    let nodes = connection
+        .prepare(&rows_sql)?
+        .query_map(
+            params![library_id, after_sort_key, after_id, query_limit],
+            navigation_row,
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let count_sql = format!(
+        "SELECT COUNT(*) FROM library_block_placements placement \
+         INNER JOIN blocks block ON block.id = placement.block_id \
+         LEFT JOIN pages page ON page.block_id = block.id \
+         LEFT JOIN database_containers container ON container.block_id = block.id \
+         WHERE placement.library_id = ?1 AND block.type IN ('page', 'database', 'canvas') \
+           AND block.lifecycle = 'active' \
+           AND COALESCE(page.lifecycle, container.lifecycle, block.lifecycle) = 'active' \
+           AND {eligibility}"
+    );
+    let total = connection.query_row(&count_sql, [library_id], |row| row.get::<_, i64>(0))?;
+    Ok((nodes, count_to_u64(total)?))
+}
+
+fn standalone_root_is_eligible(
+    connection: &Connection,
+    library_id: &str,
+    target: &LibraryResourceTarget,
+) -> Result<bool, StoreError> {
+    let (block_type, block_id) = match target {
+        LibraryResourceTarget::Page { page_id } => ("page", page_id),
+        LibraryResourceTarget::Database { database_id } => ("database", database_id),
+        LibraryResourceTarget::Canvas { canvas_id } => ("canvas", canvas_id),
+    };
+    connection
+        .query_row(
+            "SELECT EXISTS( \
+               SELECT 1 FROM library_block_placements placement \
+               INNER JOIN blocks block ON block.id = placement.block_id \
+               LEFT JOIN pages page ON page.block_id = block.id \
+               LEFT JOIN database_containers container ON container.block_id = block.id \
+               WHERE placement.library_id = ?1 AND block.id = ?2 AND block.type = ?3 \
+                 AND block.lifecycle = 'active' \
+                 AND COALESCE(page.lifecycle, container.lifecycle, block.lifecycle) = 'active' \
+                 AND NOT (block.type = 'database' AND EXISTS( \
+                   SELECT 1 FROM project_database_bindings binding \
+                   INNER JOIN projects project \
+                     ON project.id = binding.project_id \
+                     AND project.library_id = binding.library_id \
+                   WHERE binding.database_block_id = block.id \
+                     AND binding.library_id = placement.library_id \
+                     AND binding.lifecycle = 'active' \
+                     AND project.lifecycle <> 'archived' \
+                 )) \
+                 AND NOT (block.type = 'canvas' AND EXISTS( \
+                   SELECT 1 FROM projects project \
+                   WHERE project.id = block.project_id \
+                     AND project.library_id = placement.library_id \
+                     AND project.lifecycle <> 'archived' \
+                     AND block.id = 'canvas:primary:' || project.id \
+                 )) \
+             )",
+            params![library_id, block_id, block_type],
+            |row| row.get(0),
+        )
+        .map_err(Into::into)
+}
+
+fn resource_route_target(target: &LibraryResourceTarget) -> LibraryRouteTarget {
+    match target {
+        LibraryResourceTarget::Page { page_id } => LibraryRouteTarget::Page {
+            page_id: page_id.clone(),
+        },
+        LibraryResourceTarget::Database { database_id } => LibraryRouteTarget::Database {
+            database_id: database_id.clone(),
+        },
+        LibraryResourceTarget::Canvas { canvas_id } => LibraryRouteTarget::Canvas {
+            canvas_id: canvas_id.clone(),
+        },
+    }
 }
 
 fn page_child_node_window(

@@ -6,7 +6,7 @@ import type {
 import type { DatabaseViewKind } from "./database-kernel";
 import type { RelocationDocumentCommit } from "./block-documents/contracts";
 
-export const LIBRARY_MODULE_CONTRACT_VERSION = 4 as const;
+export const LIBRARY_MODULE_CONTRACT_VERSION = 5 as const;
 export const DEFAULT_LIBRARY_READ_LIMIT = 20 as const;
 export const MAX_LIBRARY_READ_LIMIT = 100 as const;
 export const MAX_LIBRARY_CURSOR_LENGTH = 2_048 as const;
@@ -101,6 +101,12 @@ export type LibraryRead =
       readonly limit?: number;
       readonly forceIncludeTarget?: LibraryRouteTarget;
     }
+  | {
+      readonly mode: "standalone_roots";
+      readonly cursor?: string;
+      readonly limit?: number;
+      readonly forceIncludeTarget?: LibraryResourceTarget;
+    }
   | { readonly mode: "path"; readonly target: LibraryRouteTarget }
   | {
       readonly mode: "catalog";
@@ -154,6 +160,16 @@ export type LibraryReadValue =
       readonly kind: "children";
       readonly parent: LibraryNavigationParent;
       readonly items: readonly LibraryNavigationNode[];
+      readonly nextCursor: string | null;
+      readonly hasMore: boolean;
+      readonly total: number;
+    }
+  | {
+      readonly kind: "standalone_roots";
+      readonly items: readonly Exclude<
+        LibraryNavigationNode,
+        LibraryViewNavigationNode
+      >[];
       readonly nextCursor: string | null;
       readonly hasMore: boolean;
       readonly total: number;

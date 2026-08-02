@@ -1834,6 +1834,8 @@ mod tests {
         const ROOT_DOCUMENT: &str = "document:root";
         const ROW_DOCUMENT: &str = "document:row";
         const DATABASE: &str = "database:root";
+        const PRIMARY_CANVAS: &str = "canvas:primary:project-1";
+        const CANVAS_DOCUMENT: &str = "document:canvas:primary:project-1";
         const SOURCE: &str = "source:root";
         const VIEW: &str = "view:root";
         const DELETED_VIEW: &str = "view:deleted";
@@ -1880,6 +1882,7 @@ mod tests {
                     for (block_id, block_type, location) in [
                         (ROOT_PAGE, "page", "space"),
                         (DATABASE, "database", "space"),
+                        (PRIMARY_CANVAS, "canvas", "space"),
                     ] {
                         transaction.execute(
                             "INSERT INTO blocks( \
@@ -1974,6 +1977,32 @@ mod tests {
                         )?;
                     }
                     transaction.execute(
+                        "INSERT INTO documents( \
+                           id, project_id, generation, head_seq, schema_key, schema_version, \
+                           state_vector, state_hash, readiness, authority, created_at, updated_at, sync_engine \
+                         ) VALUES (?1, 'project-1', 1, 0, 'nodex.canvas', 1, X'', \
+                           '0000000000000000000000000000000000000000000000000000000000000000', \
+                           'ready', 'ydoc_primary', ?2, ?2, 'canvas_scene')",
+                        params![CANVAS_DOCUMENT, NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO block_documents(block_id, document_id, project_id, created_at) \
+                         VALUES (?1, ?2, 'project-1', ?3)",
+                        params![PRIMARY_CANVAS, CANVAS_DOCUMENT, NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO canvas_owners(block_id, library_id, created_at, updated_at) \
+                         VALUES (?1, 'library-1', ?2, ?2)",
+                        params![PRIMARY_CANVAS, NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO block_properties( \
+                           block_id, project_id, property_key, value_type, value_json, revision, updated_at \
+                         ) VALUES (?1, 'project-1', 'document.display_name', 'string', \
+                           '\"Canvas\"', 1, ?2)",
+                        params![PRIMARY_CANVAS, NOW],
+                    )?;
+                    transaction.execute(
                         "INSERT INTO data_source_page_memberships( \
                            id, data_source_id, page_block_id, revision, created_at, removed_at \
                          ) VALUES ('membership:row', ?1, ?2, 1, ?3, NULL)",
@@ -2025,8 +2054,9 @@ mod tests {
                         "INSERT INTO library_block_placements( \
                            block_id, library_id, rank_key, created_at, updated_at \
                          ) VALUES (?1, 'library-1', 'a', ?3, ?3), \
-                                  (?2, 'library-1', 'b', ?3, ?3)",
-                        params![ROOT_PAGE, DATABASE, NOW],
+                                  (?2, 'library-1', 'b', ?3, ?3), \
+                                  (?4, 'library-1', 'c', ?3, ?3)",
+                        params![ROOT_PAGE, DATABASE, NOW, PRIMARY_CANVAS],
                     )?;
                     Ok(())
                 })
@@ -2159,12 +2189,74 @@ mod tests {
         }) else {
             panic!("root children");
         };
-        assert_eq!(items.len(), 2);
+        assert_eq!(items.len(), 3);
         assert!(!items.iter().any(|node| matches!(
             node,
             nodex_core_contracts::library::LibraryNavigationNode::Page { page_id, .. }
                 if page_id == ROW_PAGE
         )));
+        let LibraryReadValue::StandaloneRoots {
+            items,
+            total,
+            has_more,
+            ..
+        } = read(LibraryRead::StandaloneRoots {
+            cursor: None,
+            limit: None,
+            force_include_target: Some(LibraryResourceTarget::Database {
+                database_id: DATABASE.to_owned(),
+            }),
+        })
+        else {
+            panic!("standalone roots");
+        };
+        assert_eq!(total, 1);
+        assert!(!has_more);
+        assert!(matches!(
+            items.as_slice(),
+            [nodex_core_contracts::library::LibraryNavigationNode::Page { page_id, .. }]
+                if page_id == ROOT_PAGE
+        ));
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "UPDATE projects SET lifecycle = 'archived' WHERE id = 'project-1'",
+                    [],
+                )?;
+                Ok(())
+            })
+            .expect("archive Project");
+        let LibraryReadValue::StandaloneRoots { items, total, .. } =
+            read(LibraryRead::StandaloneRoots {
+                cursor: None,
+                limit: None,
+                force_include_target: None,
+            })
+        else {
+            panic!("archived Project standalone roots");
+        };
+        assert_eq!(total, 3);
+        assert!(items.iter().any(|node| matches!(
+            node,
+            nodex_core_contracts::library::LibraryNavigationNode::Database { database_id, .. }
+                if database_id == DATABASE
+        )));
+        assert!(items.iter().any(|node| matches!(
+            node,
+            nodex_core_contracts::library::LibraryNavigationNode::Canvas { canvas_id, .. }
+                if canvas_id == PRIMARY_CANVAS
+        )));
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "UPDATE projects SET lifecycle = 'active' WHERE id = 'project-1'",
+                    [],
+                )?;
+                Ok(())
+            })
+            .expect("restore Project");
         let LibraryReadValue::Catalog { items, .. } = read(LibraryRead::Catalog {
             query: Some("say hi".to_owned()),
             kinds: None,
@@ -2660,7 +2752,7 @@ mod tests {
         let LibraryReadValue::Children { next_cursor, .. } = read(LibraryRead::Children {
             parent: LibraryNavigationParent::Library,
             cursor: None,
-            limit: Some(1),
+            limit: Some(2),
             force_include_target: None,
         }) else {
             panic!("paged roots");

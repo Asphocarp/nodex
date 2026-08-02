@@ -98,6 +98,20 @@ export const libraryChildrenQueryOptions = (
   staleTime: 30_000,
 });
 
+export const libraryStandaloneRootsQueryOptions = (
+  input: Omit<
+    Extract<LibraryModuleReadRequest["read"], { mode: "standalone_roots" }>,
+    "mode"
+  > = {},
+) => queryOptions({
+  queryKey: queryKeys.library.standaloneRoots(input),
+  queryFn: () => requireReadValue({
+    version: LIBRARY_MODULE_CONTRACT_VERSION,
+    read: { mode: "standalone_roots", ...input },
+  }, "standalone_roots"),
+  staleTime: 30_000,
+});
+
 export const libraryCatalogQueryOptions = (
   input: Omit<
     Extract<LibraryModuleReadRequest["read"], { mode: "catalog" }>,
@@ -163,12 +177,11 @@ export const useLibraryMetadata = (enabled = true) => useQuery({
   enabled,
 });
 
-export const useApplyLibraryOperation = (enabled = true) => {
+export const useApplyLibraryOperation = () => {
   const queryClient = useQueryClient();
-  const metadata = useLibraryMetadata(enabled);
+  const metadata = useLibraryMetadata();
   const mutation = useMutation({
     mutationFn: async (operation: LibraryApplyOperation) => {
-      if (!enabled) throw new Error("Library workspace is unavailable");
       if (!metadata.data) throw new Error("Library identity is not ready");
       const result = await applyLibraryModule({
         version: LIBRARY_MODULE_CONTRACT_VERSION,
@@ -214,6 +227,28 @@ export const useInfiniteLibraryChildren = (
       ...(pageParam ? { cursor: pageParam } : {}),
     },
   }, "children"),
+  getNextPageParam: (page) => page.nextCursor ?? undefined,
+  staleTime: 30_000,
+  enabled,
+});
+
+export const useInfiniteLibraryStandaloneRoots = (
+  input: Omit<
+    Parameters<typeof libraryStandaloneRootsQueryOptions>[0],
+    "cursor"
+  > = {},
+  enabled = true,
+) => useInfiniteQuery({
+  queryKey: queryKeys.library.standaloneRootPages(input),
+  initialPageParam: undefined as string | undefined,
+  queryFn: ({ pageParam }) => requireReadValue({
+    version: LIBRARY_MODULE_CONTRACT_VERSION,
+    read: {
+      mode: "standalone_roots",
+      ...input,
+      ...(pageParam ? { cursor: pageParam } : {}),
+    },
+  }, "standalone_roots"),
   getNextPageParam: (page) => page.nextCursor ?? undefined,
   staleTime: 30_000,
   enabled,

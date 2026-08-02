@@ -8,8 +8,8 @@ import { CanvasDocumentState } from "@/components/kanban/canvas-document-state";
 import { makeCanvasSceneSurfaceKey } from "@/lib/canvas-scene-surface-runtime";
 import { makeCanvasViewportPreferenceScope } from "@/lib/canvas-presentation-preference";
 import { canvasDocumentSessionRegistry } from "@/lib/canvas-document-session";
-import type { WorkbenchTabProjection } from "@/lib/types";
 import { useLibraryCanvasTarget } from "@/lib/use-library-navigation";
+import type { WorkbenchSurfaceDescriptor } from "../../../shared/workbench-scene";
 
 const CanvasDocumentSurface = lazy(async () => {
   const module = await import(
@@ -18,28 +18,33 @@ const CanvasDocumentSurface = lazy(async () => {
   return { default: module.CanvasDocumentSurface };
 });
 
-type CanvasStageTab = Extract<
-  WorkbenchTabProjection,
+type CanvasStageSurface = Extract<
+  WorkbenchSurfaceDescriptor,
   { readonly kind: "canvas_stage" }
 >;
 
 export function WorkbenchCanvasStagePanel({
-  tab,
+  surface,
   windowSessionId,
-  projectSessionId,
+  presentationOwnerId,
   isActivePanelTab,
   onClose,
   onTitleChange,
+  onOpenPage,
 }: {
-  readonly tab: CanvasStageTab;
+  readonly surface: CanvasStageSurface;
   readonly windowSessionId: string;
-  readonly projectSessionId: string;
+  readonly presentationOwnerId: string;
   readonly isActivePanelTab: boolean;
   readonly onClose: () => void;
   readonly onTitleChange: (title: string) => void;
+  readonly onOpenPage?: (input: {
+    readonly pageId: string;
+    readonly titleSnapshot?: string;
+  }) => void;
 }) {
   const target = useLibraryCanvasTarget(
-    tab.config.canvasBlockId,
+    surface.config.canvasBlockId,
     isActivePanelTab,
   );
   const summary = target.data?.value.status === "available"
@@ -47,17 +52,21 @@ export function WorkbenchCanvasStagePanel({
     : null;
 
   useEffect(() => {
-    if (!summary?.title || summary.title === tab.title) return;
+    if (!summary?.title || summary.title === surface.titleSnapshot) return;
     onTitleChange(summary.title);
-  }, [onTitleChange, summary?.title, tab.title]);
+  }, [onTitleChange, summary?.title, surface.titleSnapshot]);
 
   const targetStatus = target.data?.value.status;
   useEffect(() => {
     if (targetStatus !== "deleted") return;
+    if (surface.config.accessContext.kind !== "project") return;
     void canvasDocumentSessionRegistry
-      .retireOwner(tab.config.projectId, tab.config.canvasBlockId)
+      .retireOwner(
+        surface.config.accessContext.projectId,
+        surface.config.canvasBlockId,
+      )
       .catch(() => undefined);
-  }, [tab.config.canvasBlockId, tab.config.projectId, targetStatus]);
+  }, [surface.config, targetStatus]);
 
   if (target.isPending) {
     return <CanvasDocumentState status="loading" label="Opening Canvas…" />;
@@ -99,20 +108,25 @@ export function WorkbenchCanvasStagePanel({
       fallback={<CanvasDocumentState status="loading" label="Opening Canvas…" />}
     >
       <CanvasDocumentSurface
-        projectId={tab.config.projectId}
-        canvasBlockId={tab.config.canvasBlockId}
+        projectId={summary.projectId}
+        canvasBlockId={surface.config.canvasBlockId}
         surfaceKey={makeCanvasSceneSurfaceKey(
           windowSessionId,
-          projectSessionId,
-          tab.id,
+          presentationOwnerId,
+          surface.id,
         )}
         viewportPreferenceScope={makeCanvasViewportPreferenceScope({
           variant: "stage",
           windowSessionId,
-          projectSessionId,
+          projectSessionId: presentationOwnerId,
         })}
         variant="stage"
         active={isActivePanelTab}
+        onOpenPage={onOpenPage
+          ? ({ pageId, titleSnapshot }) => {
+              onOpenPage({ pageId, titleSnapshot });
+            }
+          : undefined}
       />
     </Suspense>
   );

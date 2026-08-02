@@ -23,6 +23,7 @@ const projectChangeType = (
 export interface CoreWorkspaceNotificationPlan {
   readonly project?: ProjectsChangeEvent;
   readonly sessions?: ProjectSessionsChangeEvent;
+  readonly invalidateStandaloneRoots: boolean;
 }
 
 export function planCoreWorkspaceNotifications(
@@ -47,7 +48,9 @@ export function planCoreWorkspaceNotifications(
         changeType: "update" as const,
       }
     : undefined;
-  return { project, sessions };
+  const invalidateStandaloneRoots = event.projectCatalogChange === "created"
+    || event.projectCatalogChange === "lifecycle_updated";
+  return { project, sessions, invalidateStandaloneRoots };
 }
 
 export const allProjectSessionInvalidation = (): ProjectSessionsChangeEvent => ({

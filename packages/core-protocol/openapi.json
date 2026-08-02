@@ -16231,6 +16231,44 @@
               {
                 "type": "object",
                 "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "cursor": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "force_include_target": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/LibraryResourceTarget"
+                      }
+                    ]
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "standalone_roots"
+                    ]
+                  },
+                  "limit": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
                   "target",
                   "kind"
                 ],
@@ -21460,6 +21498,43 @@
                           },
                           "parent": {
                             "$ref": "#/components/schemas/LibraryNavigationParent"
+                          },
+                          "total": {
+                            "type": "integer",
+                            "format": "int64",
+                            "minimum": 0
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "items",
+                          "has_more",
+                          "total",
+                          "kind"
+                        ],
+                        "properties": {
+                          "has_more": {
+                            "type": "boolean"
+                          },
+                          "items": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/LibraryNavigationNode"
+                            }
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "standalone_roots"
+                            ]
+                          },
+                          "next_cursor": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
                           },
                           "total": {
                             "type": "integer",

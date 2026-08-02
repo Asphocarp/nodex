@@ -1060,7 +1060,7 @@ describe("Core Library Module Adapter", () => {
     })).resolves.toEqual({
       ok: true,
       value: {
-        version: 4,
+        version: LIBRARY_MODULE_CONTRACT_VERSION,
         profileId: identity.profileId,
         libraryId: identity.libraryId,
         storeEpoch: identity.storeEpoch,
@@ -1091,6 +1091,57 @@ describe("Core Library Module Adapter", () => {
       cursor: null,
       limit: undefined,
       force_include_target: null,
+    }]);
+  });
+
+  test("maps standalone root reads without deriving Project ownership", async () => {
+    const client = new FakeCoreClient();
+    client.enqueueRead({
+      contract_version: 7,
+      store_epoch: identity.storeEpoch,
+      event_head: 8,
+      value: {
+        kind: "standalone_roots",
+        items: [{
+          kind: "page",
+          page_id: "page:standalone",
+          title: "Prompts",
+          has_children: false,
+          parent_revision: 1,
+          metadata_revision: 2,
+          document_generation: 1,
+          document_head_seq: 3,
+          updated_at: "2026-08-03T00:00:00.000Z",
+        }],
+        next_cursor: null,
+        has_more: false,
+        total: 1,
+      },
+    });
+    const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
+
+    await expect(adapter.read({
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      read: {
+        mode: "standalone_roots",
+        limit: 10,
+        forceIncludeTarget: { kind: "page", pageId: "page:standalone" },
+      },
+    })).resolves.toMatchObject({
+      ok: true,
+      value: {
+        value: {
+          kind: "standalone_roots",
+          items: [{ kind: "page", pageId: "page:standalone" }],
+          total: 1,
+        },
+      },
+    });
+    expect(client.reads).toEqual([{
+      kind: "standalone_roots",
+      cursor: null,
+      limit: 10,
+      force_include_target: { kind: "page", page_id: "page:standalone" },
     }]);
   });
 
@@ -1415,7 +1466,7 @@ describe("Core Library Module Adapter", () => {
     });
 
     await expect(bridge.apply({
-      version: 4,
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
       operationId: "operation:unbound",
       storeEpoch: identity.storeEpoch,
       operation: {

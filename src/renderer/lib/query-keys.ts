@@ -98,6 +98,16 @@ export const queryKeys = {
       parentKey,
       input,
     ] as const,
+    standaloneRoots: (input: unknown) => [
+      "libraryNavigation",
+      "standaloneRoots",
+      input,
+    ] as const,
+    standaloneRootPages: (input: unknown) => [
+      "libraryNavigation",
+      "standaloneRootPages",
+      input,
+    ] as const,
     catalog: (input: unknown) => ["libraryNavigation", "catalog", input] as const,
     catalogPages: (input: unknown) => [
       "libraryNavigation",

@@ -10,14 +10,18 @@ import {
   patchWorkbenchScenePanel,
   resolveWorkbenchSceneSurface,
   type WorkbenchBrowserSurfaceConfig,
+  type WorkbenchCanvasStageSurfaceConfig,
   type WorkbenchDbViewSurfaceConfig,
   type WorkbenchFilesSurfaceConfig,
+  type WorkbenchPageStageSurfaceConfig,
   type WorkbenchReviewSurfaceConfig,
   type WorkbenchSceneOwner,
   type WorkbenchSceneSnapshot,
   type WorkbenchSurfaceDescriptor,
   type WorkbenchTerminalSurfaceConfig,
 } from "../../shared/workbench-scene";
+import type { WorkbenchSceneLocation } from "../../shared/workbench-layout";
+import type { LibraryResourceTarget } from "../../shared/library-module";
 import type { WorkbenchPanelId } from "../../shared/workbench-session-view";
 import { resolveRightNeighborPanelPlacement } from "./workbench-panel-placement";
 
@@ -34,14 +38,12 @@ export type WorkbenchSurfaceOpenRequest =
     }
   | {
       readonly kind: "page_stage";
-      readonly projectId: string;
-      readonly pageId: string;
+      readonly config: WorkbenchPageStageSurfaceConfig;
       readonly titleSnapshot?: string;
     }
   | {
       readonly kind: "canvas_stage";
-      readonly projectId: string;
-      readonly canvasBlockId: string;
+      readonly config: WorkbenchCanvasStageSurfaceConfig;
       readonly titleSnapshot?: string;
     }
   | {
@@ -154,10 +156,7 @@ export interface WorkbenchSceneNavigatorPort {
       previous: WorkbenchSceneSnapshot | undefined,
     ) => WorkbenchSceneSnapshot,
   ) => void;
-  readonly selectOwner: (
-    owner: WorkbenchSceneOwner,
-    projectContextId?: string | null,
-  ) => void;
+  readonly selectLocation: (location: WorkbenchSceneLocation) => void;
   readonly presentPreview?: (
     input: PresentWorkbenchPanelSurfaceInput,
   ) => Promise<PresentWorkbenchPanelSurfaceResult>;
@@ -169,6 +168,7 @@ export interface WorkbenchSceneNavigator {
     readonly id: string;
     readonly projectId: string | null;
   }) => void;
+  readonly openResource: (root: LibraryResourceTarget) => void;
   readonly presentPanelSurface: (
     input: PresentWorkbenchPanelSurfaceInput,
   ) => Promise<PresentWorkbenchPanelSurfaceResult>;
@@ -214,26 +214,14 @@ function makeSurfaceDescriptor(
         ...common,
         kind: request.kind,
         titleSnapshot: request.titleSnapshot ?? "Page",
-        config: {
-          projectId: request.projectId,
-          pageId: request.pageId,
-          ...(request.titleSnapshot
-            ? { titleSnapshot: request.titleSnapshot }
-            : {}),
-        },
+        config: request.config,
       };
     case "canvas_stage":
       return {
         ...common,
         kind: request.kind,
         titleSnapshot: request.titleSnapshot ?? "Canvas",
-        config: {
-          projectId: request.projectId,
-          canvasBlockId: request.canvasBlockId,
-          ...(request.titleSnapshot
-            ? { titleSnapshot: request.titleSnapshot }
-            : {}),
-        },
+        config: request.config,
       };
     case "terminal":
       return {
@@ -351,7 +339,7 @@ function presentDurableSurface(
   });
 
   if (input.navigation === "select-owner") {
-    port.selectOwner(input.owner);
+    port.selectLocation(sceneLocationForOwner(input.owner));
   }
   return result;
 }
@@ -376,6 +364,20 @@ export function createWorkbenchSceneNavigator(
         reason: "Project conversations belong to Agent Dock",
       };
     }
+    if (
+      input.owner.kind === "resource"
+      && ![
+        "db_view",
+        "page_stage",
+        "canvas_stage",
+        "browser",
+      ].includes(input.request.kind)
+    ) {
+      return {
+        status: "unavailable",
+        reason: "Execution surfaces require a Project or Session Scene",
+      };
+    }
     return presentDurableSurface(port, identities, {
       ...input,
       request: input.request,
@@ -384,14 +386,32 @@ export function createWorkbenchSceneNavigator(
 
   return {
     openProject(projectId) {
-      port.selectOwner({ kind: "project", projectId });
+      port.selectLocation({ kind: "project", projectId });
     },
     openSession(session) {
-      port.selectOwner(
-        { kind: "session", sessionId: session.id },
-        session.projectId,
-      );
+      port.selectLocation({
+        kind: "session",
+        sessionId: session.id,
+        projectContextId: session.projectId,
+      });
+    },
+    openResource(root) {
+      port.selectLocation({ kind: "resource", root });
     },
     presentPanelSurface,
   };
+}
+
+function sceneLocationForOwner(owner: WorkbenchSceneOwner): WorkbenchSceneLocation {
+  if (owner.kind === "project") {
+    return { kind: "project", projectId: owner.projectId };
+  }
+  if (owner.kind === "session") {
+    return {
+      kind: "session",
+      sessionId: owner.sessionId,
+      projectContextId: null,
+    };
+  }
+  return { kind: "resource", root: owner.root };
 }

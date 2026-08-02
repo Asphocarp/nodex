@@ -21,13 +21,13 @@ import {
 
 function createHarness() {
   const scenes: Record<string, WorkbenchSceneSnapshot> = {};
-  const selectOwner = vi.fn();
+  const selectLocation = vi.fn();
   const port: WorkbenchSceneNavigatorPort = {
     setScene(owner, update) {
       const key = makeWorkbenchSceneKey(owner);
       scenes[key] = update(scenes[key]);
     },
-    selectOwner,
+    selectLocation,
   };
   let nextId = 0;
   const navigator = createWorkbenchSceneNavigator(port, {
@@ -39,7 +39,7 @@ function createHarness() {
   return {
     navigator,
     scenes,
-    selectOwner,
+    selectLocation,
   };
 }
 
@@ -51,8 +51,10 @@ describe("WorkbenchSceneNavigator", () => {
       owner,
       request: {
         kind: "page_stage" as const,
-        projectId: "alpha",
-        pageId: "page:one",
+        config: {
+          accessContext: { kind: "project" as const, projectId: "alpha" },
+          pageId: "page:one",
+        },
         titleSnapshot: "Page One",
       },
       target: { panelId: "right" as const },
@@ -120,8 +122,10 @@ describe("WorkbenchSceneNavigator", () => {
         owner,
         request: {
           kind: "page_stage",
-          projectId: "alpha",
-          pageId,
+          config: {
+            accessContext: { kind: "project", projectId: "alpha" },
+            pageId,
+          },
           titleSnapshot: pageId,
         },
         target: {
@@ -184,9 +188,44 @@ describe("WorkbenchSceneNavigator", () => {
 
     harness.navigator.openSession({ id: "session:one", projectId: "alpha" });
 
-    expect(harness.selectOwner).toHaveBeenCalledWith(
-      { kind: "session", sessionId: "session:one" },
-      "alpha",
-    );
+    expect(harness.selectLocation).toHaveBeenCalledWith({
+      kind: "session",
+      sessionId: "session:one",
+      projectContextId: "alpha",
+    });
+  });
+
+  test("opens a standalone root as its own Resource Scene", () => {
+    const harness = createHarness();
+
+    harness.navigator.openResource({ kind: "page", pageId: "page:one" });
+
+    expect(harness.selectLocation).toHaveBeenCalledWith({
+      kind: "resource",
+      root: { kind: "page", pageId: "page:one" },
+    });
+  });
+
+  test("rejects execution-only surfaces in a Resource Scene", async () => {
+    const harness = createHarness();
+    const owner = {
+      kind: "resource" as const,
+      root: { kind: "page" as const, pageId: "page:one" },
+    };
+
+    await expect(harness.navigator.presentPanelSurface({
+      owner,
+      request: {
+        kind: "terminal",
+        config: {},
+      },
+      target: { panelId: "right" },
+      mode: "durable",
+      navigation: "background",
+    })).resolves.toEqual({
+      status: "unavailable",
+      reason: "Execution surfaces require a Project or Session Scene",
+    });
+    expect(harness.scenes).toEqual({});
   });
 });

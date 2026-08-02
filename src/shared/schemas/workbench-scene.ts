@@ -7,12 +7,15 @@ import {
   WORKBENCH_SCENE_MAX_PANEL_SURFACES,
   WORKBENCH_SCENE_VERSION,
   makeWorkbenchSceneKey,
-  migrateWorkbenchSceneV1ToV3,
-  migrateWorkbenchSceneV2ToV3,
+  migrateWorkbenchSceneV1ToV4,
+  migrateWorkbenchSceneV2ToV4,
+  migrateWorkbenchSceneV3ToV4,
   type WorkbenchSceneOwner,
   type WorkbenchSceneSnapshot,
   type WorkbenchSceneSnapshotV2,
+  type WorkbenchSceneSnapshotV3,
   type WorkbenchSurfaceDescriptor,
+  type WorkbenchSurfaceDescriptorV3,
 } from "../workbench-scene";
 import { BrowserSidebarDeviceToolbarStateSchema } from "../browser/browser-schemas";
 import { WorkbenchViewSchema } from "./workbench";
@@ -20,6 +23,9 @@ import {
   MAX_WORKBENCH_SESSION_VIEW_JSON_BYTES,
   WorkbenchPanelStateSchema,
 } from "./workbench-session-view";
+import { parseDatabaseId } from "../database-identities";
+import type { ContentAccessContext } from "../content-access-context";
+import type { LibraryResourceTarget } from "../library-module";
 
 const idSchema = z.string().min(1).max(512);
 const surfaceIdSchema = z.string().min(1).max(160);
@@ -42,16 +48,45 @@ export const WorkbenchSceneOwnerSchema = z.discriminatedUnion("kind", [
     kind: z.literal("session"),
     sessionId: idSchema,
   }).strict(),
+  z.object({
+    kind: z.literal("resource"),
+    root: z.discriminatedUnion("kind", [
+      z.object({
+        kind: z.literal("page"),
+        pageId: idSchema,
+      }).strict(),
+      z.object({
+        kind: z.literal("database"),
+        databaseId: idSchema.transform(parseDatabaseId),
+      }).strict(),
+      z.object({
+        kind: z.literal("canvas"),
+        canvasId: idSchema,
+      }).strict(),
+    ]) satisfies z.ZodType<LibraryResourceTarget>,
+  }).strict(),
 ]) satisfies z.ZodType<WorkbenchSceneOwner>;
 
 const WorkbenchConversationSurfaceConfigSchema = z.object({
   sessionId: idSchema,
 }).strict();
 
+const ContentAccessContextSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("library") }).strict(),
+  z.object({
+    kind: z.literal("project"),
+    projectId: idSchema,
+  }).strict(),
+]) satisfies z.ZodType<ContentAccessContext>;
+
 const WorkbenchDbViewSurfaceConfigSchema = z.object({
-  projectId: idSchema,
+  accessContext: ContentAccessContextSchema,
   target: z.discriminatedUnion("kind", [
     z.object({ kind: z.literal("project-default") }).strict(),
+    z.object({
+      kind: z.literal("database-default"),
+      databaseId: idSchema.transform(parseDatabaseId),
+    }).strict(),
     z.object({
       kind: z.literal("database-view"),
       databaseViewId: idSchema,
@@ -61,13 +96,13 @@ const WorkbenchDbViewSurfaceConfigSchema = z.object({
 }).strict();
 
 const WorkbenchPageStageSurfaceConfigSchema = z.object({
-  projectId: idSchema,
+  accessContext: ContentAccessContextSchema,
   pageId: idSchema,
   titleSnapshot: z.string().max(2_000).optional(),
 }).strict();
 
 const WorkbenchCanvasStageSurfaceConfigSchema = z.object({
-  projectId: idSchema,
+  accessContext: ContentAccessContextSchema,
   canvasBlockId: idSchema,
   titleSnapshot: z.string().max(2_000).optional(),
 }).strict();
@@ -184,6 +219,73 @@ export const WorkbenchSurfaceDescriptorSchema = z.discriminatedUnion("kind", [
   }
 }) satisfies z.ZodType<WorkbenchSurfaceDescriptor>;
 
+const WorkbenchDbViewSurfaceConfigV3Schema = z.object({
+  projectId: idSchema,
+  target: z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal("project-default") }).strict(),
+    z.object({
+      kind: z.literal("database-view"),
+      databaseViewId: idSchema,
+    }).strict(),
+  ]),
+  view: WorkbenchViewSchema,
+}).strict();
+
+const WorkbenchPageStageSurfaceConfigV3Schema = z.object({
+  projectId: idSchema,
+  pageId: idSchema,
+  titleSnapshot: z.string().max(2_000).optional(),
+}).strict();
+
+const WorkbenchCanvasStageSurfaceConfigV3Schema = z.object({
+  projectId: idSchema,
+  canvasBlockId: idSchema,
+  titleSnapshot: z.string().max(2_000).optional(),
+}).strict();
+
+const WorkbenchSurfaceDescriptorV3Schema = z.discriminatedUnion("kind", [
+  z.object({
+    ...surfaceBaseSchema,
+    kind: z.literal("conversation"),
+    config: WorkbenchConversationSurfaceConfigSchema,
+  }).strict(),
+  z.object({
+    ...surfaceBaseSchema,
+    kind: z.literal("db_view"),
+    config: WorkbenchDbViewSurfaceConfigV3Schema,
+  }).strict(),
+  z.object({
+    ...surfaceBaseSchema,
+    kind: z.literal("page_stage"),
+    config: WorkbenchPageStageSurfaceConfigV3Schema,
+  }).strict(),
+  z.object({
+    ...surfaceBaseSchema,
+    kind: z.literal("canvas_stage"),
+    config: WorkbenchCanvasStageSurfaceConfigV3Schema,
+  }).strict(),
+  z.object({
+    ...surfaceBaseSchema,
+    kind: z.literal("terminal"),
+    config: WorkbenchTerminalSurfaceConfigSchema,
+  }).strict(),
+  z.object({
+    ...surfaceBaseSchema,
+    kind: z.literal("browser"),
+    config: WorkbenchBrowserSurfaceConfigSchema,
+  }).strict(),
+  z.object({
+    ...surfaceBaseSchema,
+    kind: z.literal("review"),
+    config: WorkbenchReviewSurfaceConfigSchema,
+  }).strict(),
+  z.object({
+    ...surfaceBaseSchema,
+    kind: z.literal("files"),
+    config: WorkbenchFilesSurfaceConfigSchema,
+  }).strict(),
+]) satisfies z.ZodType<WorkbenchSurfaceDescriptorV3>;
+
 const WorkbenchAgentDockStateSchema = z.object({
   binding: z.discriminatedUnion("kind", [
     z.object({ kind: z.literal("new") }).strict(),
@@ -218,23 +320,60 @@ const workbenchSceneSnapshotFields = {
   touchedAt: z.iso.datetime(),
 } as const;
 
+const WorkbenchSceneOwnerV3Schema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("project"),
+    projectId: idSchema,
+  }).strict(),
+  z.object({
+    kind: z.literal("session"),
+    sessionId: idSchema,
+  }).strict(),
+]);
+
+const workbenchSceneSnapshotFieldsV3 = {
+  owner: WorkbenchSceneOwnerV3Schema,
+  primary: WorkbenchSurfaceDescriptorV3Schema,
+  panelSurfacesById: z.record(
+    surfaceIdSchema,
+    WorkbenchSurfaceDescriptorV3Schema,
+  ),
+  panels: z.object({
+    right: WorkbenchPanelStateSchema,
+    bottom: WorkbenchPanelStateSchema,
+  }).strict(),
+  lastFocusedPanelId: z.enum(["right", "bottom"]).nullable(),
+  touchedAt: z.iso.datetime(),
+} as const;
+
 const WorkbenchSceneSnapshotV1InputSchema = z.object({
   version: z.literal(1),
-  ...workbenchSceneSnapshotFields,
+  ...workbenchSceneSnapshotFieldsV3,
 }).strict();
 
 const WorkbenchSceneSnapshotV2InputSchema = z.object({
   version: z.literal(2),
-  ...workbenchSceneSnapshotFields,
+  ...workbenchSceneSnapshotFieldsV3,
   agentDock: WorkbenchAgentDockStateV2Schema.nullable(),
 }).strict() satisfies z.ZodType<WorkbenchSceneSnapshotV2>;
 
+export const WorkbenchSceneSnapshotV3InputSchema = z.object({
+  version: z.literal(3),
+  ...workbenchSceneSnapshotFieldsV3,
+  composerOverlay: WorkbenchComposerOverlayStateSchema,
+  agentDock: WorkbenchAgentDockStateSchema.nullable(),
+}).strict() satisfies z.ZodType<WorkbenchSceneSnapshotV3>;
+
 function migrateWorkbenchSceneSnapshot(value: unknown): unknown {
+  const currentLegacy = WorkbenchSceneSnapshotV3InputSchema.safeParse(value);
+  if (currentLegacy.success) {
+    return migrateWorkbenchSceneV3ToV4(currentLegacy.data);
+  }
   const previous = WorkbenchSceneSnapshotV2InputSchema.safeParse(value);
-  if (previous.success) return migrateWorkbenchSceneV2ToV3(previous.data);
+  if (previous.success) return migrateWorkbenchSceneV2ToV4(previous.data);
   const legacy = WorkbenchSceneSnapshotV1InputSchema.safeParse(value);
   if (!legacy.success) return value;
-  return migrateWorkbenchSceneV1ToV3(legacy.data);
+  return migrateWorkbenchSceneV1ToV4(legacy.data);
 }
 
 export const WorkbenchSceneSnapshotSchema = z.preprocess(
@@ -302,7 +441,8 @@ export const WorkbenchSceneSnapshotSchema = z.preprocess(
   if (scene.owner.kind === "project") {
     if (
       scene.primary.kind !== "db_view"
-      || scene.primary.config.projectId !== scene.owner.projectId
+      || scene.primary.config.accessContext.kind !== "project"
+      || scene.primary.config.accessContext.projectId !== scene.owner.projectId
       || scene.primary.config.target.kind !== "project-default"
     ) {
       context.addIssue({
@@ -362,6 +502,75 @@ export const WorkbenchSceneSnapshotSchema = z.preprocess(
         code: "custom",
         path: ["panelSurfacesById"],
         message: "Project conversations belong to Agent Dock, not panel surfaces",
+      });
+    }
+  } else if (scene.owner.kind === "resource") {
+    const root = scene.owner.root;
+    const primaryMatchesRoot = root.kind === "page"
+      ? scene.primary.kind === "page_stage"
+        && scene.primary.config.accessContext.kind === "library"
+        && scene.primary.config.pageId === root.pageId
+      : root.kind === "database"
+        ? scene.primary.kind === "db_view"
+          && scene.primary.config.accessContext.kind === "library"
+          && scene.primary.config.target.kind === "database-default"
+          && scene.primary.config.target.databaseId === root.databaseId
+        : scene.primary.kind === "canvas_stage"
+          && scene.primary.config.accessContext.kind === "library"
+          && scene.primary.config.canvasBlockId === root.canvasId;
+    if (!primaryMatchesRoot) {
+      context.addIssue({
+        code: "custom",
+        path: ["primary"],
+        message: "Resource Scene primary must target its owning Library root",
+      });
+    }
+    if (scene.agentDock !== null || scene.composerOverlay.visible) {
+      context.addIssue({
+        code: "custom",
+        path: ["agentDock"],
+        message: "Resource Scene cannot own execution composer state",
+      });
+    }
+    if (
+      placementCount.get(scene.primary.id) !== 1
+      || flattenWorkbenchPanelTabIds(scene.panels.bottom.layout).includes(
+        scene.primary.id,
+      )
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["primary", "id"],
+        message: "Resource primary must be placed once in the right surface stack",
+      });
+    }
+    const primaryLeaf = findWorkbenchPanelLeafForTab(
+      scene.panels.right.layout,
+      scene.primary.id,
+    );
+    if (!primaryLeaf || primaryLeaf.tabIds[0] !== scene.primary.id) {
+      context.addIssue({
+        code: "custom",
+        path: ["panels", "right", "layout"],
+        message: "Resource primary must be the first tab in its leaf",
+      });
+    }
+    if (
+      scene.panels.right.collapsed
+      || scene.panels.right.size.fullWidth !== true
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["panels", "right"],
+        message: "Resource right surface stack must remain open and full width",
+      });
+    }
+    const allowedKinds = new Set(["db_view", "page_stage", "canvas_stage", "browser"]);
+    if (entries.some(([, surface]) => !allowedKinds.has(surface.kind))) {
+      context.addIssue({
+        code: "custom",
+        path: ["panelSurfacesById"],
+        message: "Resource Scene contains an execution-only surface",
       });
     }
   } else if (

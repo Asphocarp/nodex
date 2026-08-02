@@ -740,6 +740,35 @@ export const bindLibraryModuleRead = (
       },
     };
   }
+  if (read.mode === "standalone_roots") {
+    exactKeys(
+      read,
+      "libraryModuleRead.read",
+      ["mode"],
+      ["cursor", "limit", "forceIncludeTarget"],
+    );
+    const cursor = optionalString(
+      read.cursor,
+      "libraryModuleRead.read.cursor",
+      MAX_LIBRARY_CURSOR_LENGTH,
+    );
+    const limit = readLimit(read.limit, "libraryModuleRead.read.limit");
+    const forceIncludeTarget = read.forceIncludeTarget === undefined
+      ? undefined
+      : parseApplyResourceTarget(
+          read.forceIncludeTarget,
+          "libraryModuleRead.read.forceIncludeTarget",
+        );
+    return {
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      read: {
+        mode: "standalone_roots",
+        ...(cursor === undefined ? {} : { cursor }),
+        ...(limit === undefined ? {} : { limit }),
+        ...(forceIncludeTarget === undefined ? {} : { forceIncludeTarget }),
+      },
+    };
+  }
   if (read.mode === "path") {
     exactKeys(read, "libraryModuleRead.read", ["mode", "target"]);
     return {
@@ -1146,6 +1175,41 @@ const parseReadValue = (value: unknown): LibraryReadValue => {
       nextCursor,
       hasMore: boolean(readValue.hasMore, "library children hasMore"),
       total: revision(readValue.total, "library children total"),
+    };
+  }
+  if (readValue.kind === "standalone_roots") {
+    exactKeys(readValue, "libraryModuleReadResult.value.value", [
+      "kind",
+      "items",
+      "nextCursor",
+      "hasMore",
+      "total",
+    ]);
+    if (!Array.isArray(readValue.items)) {
+      throw new TypeError("library standalone roots items must be an array");
+    }
+    const items = readValue.items.map((entry, index) =>
+      parseNavigationNode(entry, `library standalone roots items[${index}]`)
+    );
+    if (items.some((item) => item.kind === "view")) {
+      throw new TypeError("library standalone roots cannot contain Views");
+    }
+    const nextCursor = readValue.nextCursor === null
+      ? null
+      : string(
+          readValue.nextCursor,
+          "libraryModuleReadResult.value.value.nextCursor",
+          MAX_LIBRARY_CURSOR_LENGTH,
+        );
+    return {
+      kind: "standalone_roots",
+      items: items as Extract<
+        LibraryReadValue,
+        { kind: "standalone_roots" }
+      >["items"],
+      nextCursor,
+      hasMore: boolean(readValue.hasMore, "library standalone roots hasMore"),
+      total: revision(readValue.total, "library standalone roots total"),
     };
   }
   if (readValue.kind === "path") {

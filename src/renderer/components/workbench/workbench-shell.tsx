@@ -37,7 +37,7 @@ import type {
   ProjectUpdateInput,
   WindowSessionBootstrap,
 } from "@/lib/types";
-import { WorkbenchLayoutSnapshotV5Schema } from "../../../shared/schemas/workbench-layout";
+import { WorkbenchLayoutSnapshotV6Schema } from "../../../shared/schemas/workbench-layout";
 import { getWorkbenchSceneReturnLocation } from "../../../shared/workbench-layout";
 
 const WORKBENCH_V2_FLAG_KEY = "workbenchV2";
@@ -80,14 +80,12 @@ function replaceProjectQueryParam(projectId: string | null): void {
 
 export function WorkbenchShell({
   windowSessionBootstrap,
-  libraryWorkspaceEnabled,
 }: {
   windowSessionBootstrap: WindowSessionBootstrap;
-  libraryWorkspaceEnabled: boolean;
 }) {
   const workbenchV2Enabled = readWorkbenchV2Flag();
   const initialWindowLayoutSnapshot = useMemo(
-    () => WorkbenchLayoutSnapshotV5Schema.parse(
+    () => WorkbenchLayoutSnapshotV6Schema.parse(
       windowSessionBootstrap.session.layout,
     ),
     [windowSessionBootstrap.session.layout],
@@ -473,7 +471,6 @@ export function WorkbenchShell({
     <WorkbenchRuntime
       windowSessionId={windowSessionBootstrap.session.id}
       initialWindowLayoutSnapshot={initialWindowLayoutSnapshot}
-      libraryWorkspaceEnabled={libraryWorkspaceEnabled}
       projects={projects}
       hasMoreProjects={hasMoreProjects}
       loadingMoreProjects={loadingMoreProjects}

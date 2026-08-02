@@ -1923,6 +1923,19 @@ function publishCoreModuleEventToNotifiers(
       notifications.project.projectId,
     );
   }
+  if (notifications.invalidateStandaloneRoots) {
+    dbNotifier.notifyLibraryNavigationChanged({
+      version: 1,
+      libraryId,
+      storeEpoch: envelope.event.store_epoch,
+      changeLogSeq: envelope.event.sequence,
+      changeKind: "lifecycle",
+      affectedParentKeys: ["standalone_roots"],
+      affectedPageIds: [],
+      affectedDatabaseIds: [],
+      affectedViewIds: [],
+    });
+  }
   if (notifications.sessions) {
     dbNotifier.notifyProjectSessionInvalidation(notifications.sessions);
   }

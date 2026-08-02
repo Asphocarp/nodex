@@ -409,7 +409,6 @@ import type {
   WindowSessionNewWindowRequest,
   WindowSessionSaveLayoutInput,
 } from "./window-session";
-import type { ProductFeatureGates } from "./product-feature-gates";
 import type { FileLinkOpenerId, FileLinkTarget } from "./file-link-openers";
 import type {
   CommandKeybindingUpdate,
@@ -1139,7 +1138,6 @@ export interface IpcApi {
   };
   "window:show-emoji-panel": { args: []; result: boolean };
   "window:new": { args: [request?: WindowSessionNewWindowRequest]; result: boolean };
-  "app:feature-gates:get": { args: []; result: ProductFeatureGates };
   "window-sessions:bootstrap": { args: []; result: WindowSessionBootstrap };
   "window-sessions:save-layout": {
     args: [input: WindowSessionSaveLayoutInput];

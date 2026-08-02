@@ -1640,7 +1640,7 @@ describe("workbench session shell / layout-panel-actions", () => {
 
     const actionGrid = screen.container.querySelector('[data-thread-side-panel-new-tab-action-grid="true"]');
     expect(actionGrid !== null).toBe(true);
-    if (!actionGrid) throw new Error("Expected right-panel action grid");
+    if (!(actionGrid instanceof HTMLElement)) throw new Error("Expected right-panel action grid");
     const actionText = textContent(actionGrid);
     expect(actionText.indexOf("Review") < actionText.indexOf("Terminal")).toBe(true);
     expect(actionText.indexOf("Terminal") < actionText.indexOf("Browser")).toBe(true);
@@ -1651,7 +1651,7 @@ describe("workbench session shell / layout-panel-actions", () => {
     expect(screen.getByRole("button", { name: /Files/ }) !== null).toBe(true);
     expect(screen.queryByRole("button", { name: /Side chat/ })).toBe(null);
     expect(screen.getByRole("button", { name: /DB View/ }) !== null).toBe(true);
-    expect(screen.getByRole("button", { name: /Page/ }) !== null).toBe(true);
+    expect(within(actionGrid).getByRole("button", { name: "Page" }) !== null).toBe(true);
     expect(actionText.indexOf("Files") < actionText.indexOf("DB View")).toBe(true);
     expect(actionText.indexOf("DB View") < actionText.indexOf("Page")).toBe(true);
     expect(textContent(actionGrid).includes("⌃⇧G")).toBe(true);
@@ -2078,7 +2078,9 @@ describe("workbench session shell / layout-panel-actions", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    await pointerActivate(screen.getByRole("button", { name: /Page/ }));
+    const actionGrid = screen.container.querySelector('[data-thread-side-panel-new-tab-action-grid="true"]');
+    if (!(actionGrid instanceof HTMLElement)) throw new Error("Expected right-panel action grid");
+    await pointerActivate(within(actionGrid).getByRole("button", { name: "Page" }));
     await waitFor(() => {
       expect(screen.getByRole("dialog", { name: "Open Page" }) !== null).toBe(true);
     });

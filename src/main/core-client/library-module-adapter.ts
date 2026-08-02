@@ -16,6 +16,7 @@ import type {
   LibraryNavigationNode,
   LibraryNavigationParent,
   LibraryReadValue,
+  LibraryResourceTarget,
   LibraryRouteTarget,
   LibraryWriteParent,
 } from "../../shared/library-module";
@@ -134,6 +135,14 @@ const toCoreRouteTarget = (target: LibraryRouteTarget) => {
   return { kind: target.kind, view_id: target.viewId } as const;
 };
 
+const toCoreResourceTarget = (target: LibraryResourceTarget) => {
+  if (target.kind === "page") return { kind: target.kind, page_id: target.pageId } as const;
+  if (target.kind === "database") {
+    return { kind: target.kind, database_id: target.databaseId } as const;
+  }
+  return { kind: target.kind, canvas_id: target.canvasId } as const;
+};
+
 const toCoreParent = (parent: LibraryNavigationParent) => {
   if (parent.kind === "library") return parent;
   if (parent.kind === "page") return { kind: parent.kind, page_id: parent.pageId } as const;
@@ -213,6 +222,15 @@ const toCoreRead = (request: LibraryModuleReadRequest): LibraryRead => {
         limit: read.limit,
         force_include_target: read.forceIncludeTarget
           ? toCoreRouteTarget(read.forceIncludeTarget)
+          : null,
+      };
+    case "standalone_roots":
+      return {
+        kind: "standalone_roots",
+        cursor: read.cursor ?? null,
+        limit: read.limit,
+        force_include_target: read.forceIncludeTarget
+          ? toCoreResourceTarget(read.forceIncludeTarget)
           : null,
       };
     case "path":
@@ -420,6 +438,10 @@ type CoreNavigationParent = Extract<
   LibraryReadSnapshot["value"],
   { kind: "children" }
 >["parent"];
+type CoreNavigationNode = Extract<
+  LibraryReadSnapshot["value"],
+  { kind: "children" | "standalone_roots" }
+>["items"][number];
 type CorePageDetail = Extract<
   LibraryReadSnapshot["value"],
   { kind: "page_detail" }
@@ -472,7 +494,7 @@ const parseViewKind = (value: string): DatabaseViewKind => {
 };
 
 const fromCoreNode = (
-  node: Extract<LibraryReadSnapshot["value"], { kind: "children" }>["items"][number],
+  node: CoreNavigationNode,
 ): LibraryNavigationNode => {
   if (node.kind === "page") {
     return {
@@ -571,6 +593,16 @@ const mapReadValue = (snapshot: LibraryReadSnapshot): LibraryReadValue => {
         kind: value.kind,
         parent: fromCoreParent(value.parent),
         items: value.items.map(fromCoreNode),
+        nextCursor: value.next_cursor ?? null,
+        hasMore: value.has_more,
+        total: value.total,
+      } as const;
+    case "standalone_roots":
+      return {
+        kind: value.kind,
+        items: value.items.map(fromCoreNode).filter(
+          (node) => node.kind !== "view",
+        ),
         nextCursor: value.next_cursor ?? null,
         hasMore: value.has_more,
         total: value.total,

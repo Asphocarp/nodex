@@ -13,7 +13,6 @@ import type {
   DataSourcePageRowV2,
   DataSourcePropertyRecordV2,
 } from "../../../shared/database-module-v2";
-import type { OpenPageStageOptions } from "@/components/kanban/open-page-stage";
 import type { ColumnPaginationState } from "@/lib/kanban-store";
 import { NodexIconButton } from "@/components/ui/button";
 import { matchesSearchTokens, tokenizeSearchQuery } from "@/lib/page-search";
@@ -34,16 +33,15 @@ import { useMutationAuditSessionId } from "@/lib/mutation-audit-session";
 import { normalizeSearchText } from "@/lib/search-text";
 import { cn } from "@/lib/utils";
 
-interface DurableDatabaseViewProps {
+interface DatabaseViewSurfaceProps {
   readonly model: DatabaseViewRenderModel;
   readonly groupPagination?: ReadonlyMap<string, ColumnPaginationState>;
   readonly onLoadMoreGroup?: (scopeKey: string) => Promise<void> | void;
   readonly searchQuery: string;
-  readonly openPageStage: (
-    projectId: string,
+  readonly showViewLabel?: boolean;
+  readonly onOpenPage: (
     pageId: string,
-    titleSnapshot?: string,
-    options?: OpenPageStageOptions,
+    titleSnapshot: string,
   ) => void;
   readonly onCommitted?: () => void | Promise<void>;
   readonly commitOperations?: typeof commitDatabaseViewOperations;
@@ -227,7 +225,7 @@ function DurablePageSurface({
   busy,
   canMoveUp,
   canMoveDown,
-  openPageStage,
+  onOpenPage,
   onSetValue,
   onMove,
 }: {
@@ -237,7 +235,7 @@ function DurablePageSurface({
   readonly busy: boolean;
   readonly canMoveUp: boolean;
   readonly canMoveDown: boolean;
-  readonly openPageStage: DurableDatabaseViewProps["openPageStage"];
+  readonly onOpenPage: DatabaseViewSurfaceProps["onOpenPage"];
   readonly onSetValue: (
     pageId: string,
     propertyId: string,
@@ -262,12 +260,7 @@ function DurablePageSurface({
             "min-w-0 flex-1 text-left text-sm text-token-text-primary outline-none",
             showTitle ? "truncate" : "text-token-description-foreground",
           )}
-          onClick={() => openPageStage(
-            model.projectId,
-            row.pageId,
-            row.title,
-            { openMode: "preview" },
-          )}
+          onClick={() => onOpenPage(row.pageId, row.title)}
         >
           {showTitle ? row.title || "Untitled" : "Open Page"}
         </button>
@@ -368,10 +361,11 @@ export function DatabaseViewSurface({
   groupPagination,
   onLoadMoreGroup,
   searchQuery,
-  openPageStage,
+  showViewLabel = true,
+  onOpenPage,
   onCommitted,
   commitOperations = commitDatabaseViewOperations,
-}: DurableDatabaseViewProps) {
+}: DatabaseViewSurfaceProps) {
   const clientSessionId = useMutationAuditSessionId();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -400,6 +394,8 @@ export function DatabaseViewSurface({
     .filter((state) => state.hasMore);
   const anyContinuationLoading = continuableScopes
     .some((state) => state.loadingMore);
+  const failedContinuations = [...(groupPagination?.values() ?? [])]
+    .filter((state) => state.error !== null);
   const loadMoreEverywhere = () => {
     for (const state of continuableScopes) {
       void onLoadMoreGroup?.(state.scopeKey);
@@ -459,7 +455,7 @@ export function DatabaseViewSurface({
       busy,
       canMoveUp: canMoveDatabaseViewPage({ model, pageId: row.pageId, direction: "up" }),
       canMoveDown: canMoveDatabaseViewPage({ model, pageId: row.pageId, direction: "down" }),
-      openPageStage,
+      onOpenPage,
       onSetValue: setValue,
       onMove: move,
     } as const);
@@ -474,7 +470,34 @@ export function DatabaseViewSurface({
           {error} — refreshed from current authority.
         </div>
       ) : null}
-      {model.query.view.kind === "kanban" ? (
+      {failedContinuations.length > 0 && onLoadMoreGroup ? (
+        <div
+          role="alert"
+          className="mx-3 mt-2 flex min-h-8 items-center gap-2 rounded-md bg-token-error-background/20 px-2.5 text-xs text-token-error-foreground"
+        >
+          <span className="min-w-0 flex-1 truncate">
+            {failedContinuations[0]?.error}
+          </span>
+          <button
+            type="button"
+            className="shrink-0 rounded-md px-2 py-1 text-token-text-primary hover:bg-token-foreground/5"
+            onClick={() => {
+              for (const state of failedContinuations) {
+                void onLoadMoreGroup(state.scopeKey);
+              }
+            }}
+          >
+            Retry
+          </button>
+        </div>
+      ) : null}
+      {allRows.length === 0 ? (
+        <div className="flex min-h-0 flex-1 items-center justify-center px-6 text-sm text-token-description-foreground">
+          {searchTokens.length > 0
+            ? "No matching Pages"
+            : "This View has no Pages"}
+        </div>
+      ) : model.query.view.kind === "kanban" ? (
         <div className="flex min-h-0 flex-1 gap-2 overflow-auto p-3">
           {columns.map((column) => (
             <section key={column.id} className="w-64 shrink-0">
@@ -526,11 +549,13 @@ export function DatabaseViewSurface({
       ) : (
         <div className="min-h-0 flex-1 overflow-auto p-3">
           <div className="mx-auto max-w-4xl">
-            <div className="mb-1 flex h-7 items-center gap-2 px-2 text-xs text-token-description-foreground">
-              <List className="size-3.5" />
-              <span className="min-w-0 flex-1 truncate">{model.databaseName} / {model.viewName}</span>
-              <span>{allRows.length}</span>
-            </div>
+            {showViewLabel ? (
+              <div className="mb-1 flex h-7 items-center gap-2 px-2 text-xs text-token-description-foreground">
+                <List className="size-3.5" />
+                <span className="min-w-0 flex-1 truncate">{model.databaseName} / {model.viewName}</span>
+                <span>{allRows.length}</span>
+              </div>
+            ) : null}
             <div className="space-y-1">
               {allRows.map((row) => (
                 <DurablePageSurface key={row.pageId} compact={false} {...pageProps(row)} />

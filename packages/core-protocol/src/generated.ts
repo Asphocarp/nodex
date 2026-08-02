@@ -4020,6 +4020,13 @@ export interface components {
                 readonly limit?: number | null;
                 readonly parent: components["schemas"]["LibraryNavigationParent"];
             } | {
+                readonly cursor?: string | null;
+                readonly force_include_target?: null | components["schemas"]["LibraryResourceTarget"];
+                /** @enum {string} */
+                readonly kind: "standalone_roots";
+                /** Format: int32 */
+                readonly limit?: number | null;
+            } | {
                 /** @enum {string} */
                 readonly kind: "path";
                 readonly target: components["schemas"]["LibraryRouteTarget"];
@@ -5164,6 +5171,14 @@ export interface components {
                     readonly kind: "children";
                     readonly next_cursor?: string | null;
                     readonly parent: components["schemas"]["LibraryNavigationParent"];
+                    /** Format: int64 */
+                    readonly total: number;
+                } | {
+                    readonly has_more: boolean;
+                    readonly items: readonly components["schemas"]["LibraryNavigationNode"][];
+                    /** @enum {string} */
+                    readonly kind: "standalone_roots";
+                    readonly next_cursor?: string | null;
                     /** Format: int64 */
                     readonly total: number;
                 } | {

@@ -107,6 +107,7 @@ fn document_policy(read: &OwnedDocumentRead) -> ReadBudgetPolicy {
 fn library_policy(read: &LibraryRead) -> ReadBudgetPolicy {
     match read {
         LibraryRead::Children { .. }
+        | LibraryRead::StandaloneRoots { .. }
         | LibraryRead::Catalog { .. }
         | LibraryRead::AgentSearch { .. }
         | LibraryRead::Search { .. }

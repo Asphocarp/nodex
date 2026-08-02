@@ -17,7 +17,7 @@ import type {
   ProjectSessionSummary,
   ProjectSessionSummaryWindow,
 } from "../../shared/types";
-import type { WorkbenchLocationV5 } from "../../shared/workbench-layout";
+import type { WorkbenchLocationV6 } from "../../shared/workbench-layout";
 import { getWorkbenchSceneReturnLocation } from "../../shared/workbench-layout";
 import {
   makeWorkbenchSceneKey,
@@ -49,7 +49,7 @@ import type { WorkbenchSessionCatalogEntry } from "./workbench-window-state";
 const PROJECTLESS_SCOPE_KEY = "__projectless__";
 
 export interface WorkbenchSessionCatalogWindowPort {
-  readonly location: WorkbenchLocationV5;
+  readonly location: WorkbenchLocationV6;
   readonly scenesByOwnerKey: Readonly<
     Record<string, WorkbenchSceneSnapshot>
   >;

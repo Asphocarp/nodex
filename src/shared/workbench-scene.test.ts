@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { parseDatabaseId } from "./database-identities";
 import { WorkbenchSceneSnapshotSchema } from "./schemas/workbench-scene";
 import {
   cloneWorkbenchSceneLayoutForNewWindow,
@@ -7,8 +8,9 @@ import {
   makeWorkbenchSceneKey,
   materializeInitialWorkbenchScene,
   mergeWorkbenchSceneLeaf,
-  migrateWorkbenchSceneV1ToV2,
-  migrateWorkbenchSceneV2ToV3,
+  migrateWorkbenchSceneV1ToV4,
+  migrateWorkbenchSceneV2ToV4,
+  migrateWorkbenchSceneV3ToV4,
   moveWorkbenchSceneSurface,
   patchWorkbenchScenePanel,
   removeWorkbenchSceneSurface,
@@ -19,6 +21,7 @@ import {
   type WorkbenchSceneSnapshotV1,
   type WorkbenchSceneSnapshotV2,
   type WorkbenchSurfaceDescriptor,
+  type WorkbenchSurfaceDescriptorV3,
 } from "./workbench-scene";
 
 function identityFactory(prefix: string): WorkbenchSceneIdentityFactory {
@@ -59,14 +62,45 @@ function browserSurface(id = "browser-surface"): WorkbenchSurfaceDescriptor {
 function sceneV2Fields(
   scene: WorkbenchSceneSnapshot,
 ): Omit<WorkbenchSceneSnapshotV2, "version" | "agentDock"> {
+  if (scene.owner.kind === "resource") {
+    throw new Error("Resource Scenes did not exist in Scene v2");
+  }
   return {
     owner: scene.owner,
-    primary: scene.primary,
-    panelSurfacesById: scene.panelSurfacesById,
+    primary: toLegacySurface(scene.primary),
+    panelSurfacesById: Object.fromEntries(
+      Object.entries(scene.panelSurfacesById).map(([surfaceId, surface]) => [
+        surfaceId,
+        toLegacySurface(surface),
+      ]),
+    ),
     panels: scene.panels,
     lastFocusedPanelId: scene.lastFocusedPanelId,
     touchedAt: scene.touchedAt,
   };
+}
+
+function toLegacySurface(
+  surface: WorkbenchSurfaceDescriptor,
+): WorkbenchSurfaceDescriptorV3 {
+  if (
+    surface.kind !== "db_view"
+    && surface.kind !== "page_stage"
+    && surface.kind !== "canvas_stage"
+  ) {
+    return surface;
+  }
+  if (surface.config.accessContext.kind !== "project") {
+    throw new Error("Legacy Scenes only carried Project resource surfaces");
+  }
+  const { accessContext, ...config } = surface.config;
+  return {
+    ...surface,
+    config: {
+      ...config,
+      projectId: accessContext.projectId,
+    },
+  } as WorkbenchSurfaceDescriptorV3;
 }
 
 describe("WorkbenchScene", () => {
@@ -83,7 +117,7 @@ describe("WorkbenchScene", () => {
     expect(project.primary).toMatchObject({
       kind: "db_view",
       config: {
-        projectId: "project-1",
+        accessContext: { kind: "project", projectId: "project-1" },
         target: { kind: "project-default" },
       },
     });
@@ -106,8 +140,55 @@ describe("WorkbenchScene", () => {
     expect(project.panels.bottom.collapsed).toBe(true);
     expect(makeWorkbenchSceneKey(project.owner)).toBe("project:project-1");
     expect(makeWorkbenchSceneKey(session.owner)).toBe("session:session-1");
+    const resource = materializeInitialWorkbenchScene({
+      kind: "resource",
+      root: { kind: "page", pageId: "page-1" },
+    });
+    expect(resource.primary).toMatchObject({
+      kind: "page_stage",
+      config: {
+        accessContext: { kind: "library" },
+        pageId: "page-1",
+      },
+    });
+    expect(resource.composerOverlay.visible).toBe(false);
+    expect(resource.agentDock).toBeNull();
+    expect(makeWorkbenchSceneKey(resource.owner)).toBe("resource:page:page-1");
+    const databaseResource = materializeInitialWorkbenchScene({
+      kind: "resource",
+      root: {
+        kind: "database",
+        databaseId: parseDatabaseId("database-1"),
+      },
+    });
+    const canvasResource = materializeInitialWorkbenchScene({
+      kind: "resource",
+      root: { kind: "canvas", canvasId: "canvas-1" },
+    });
+    expect(databaseResource.primary).toMatchObject({
+      kind: "db_view",
+      config: {
+        accessContext: { kind: "library" },
+        target: {
+          kind: "database-default",
+          databaseId: "database-1",
+        },
+      },
+    });
+    expect(canvasResource.primary).toMatchObject({
+      kind: "canvas_stage",
+      config: {
+        accessContext: { kind: "library" },
+        canvasBlockId: "canvas-1",
+      },
+    });
     expect(WorkbenchSceneSnapshotSchema.parse(project)).toEqual(project);
     expect(WorkbenchSceneSnapshotSchema.parse(session)).toEqual(session);
+    expect(WorkbenchSceneSnapshotSchema.parse(resource)).toEqual(resource);
+    expect(WorkbenchSceneSnapshotSchema.parse(databaseResource))
+      .toEqual(databaseResource);
+    expect(WorkbenchSceneSnapshotSchema.parse(canvasResource))
+      .toEqual(canvasResource);
   });
 
   test("owns each panel surface exactly once and never allows closing primary", () => {
@@ -211,14 +292,7 @@ describe("WorkbenchScene", () => {
     if (current.panels.right.layout.root.type !== "leaf") {
       throw new Error("Expected a single Project root leaf");
     }
-    const withoutDock: Omit<WorkbenchSceneSnapshotV1, "version"> = {
-      owner: current.owner,
-      primary: current.primary,
-      panelSurfacesById: current.panelSurfacesById,
-      panels: current.panels,
-      lastFocusedPanelId: current.lastFocusedPanelId,
-      touchedAt: current.touchedAt,
-    };
+    const withoutDock = sceneV2Fields(current);
     const legacy: WorkbenchSceneSnapshotV1 = {
       ...withoutDock,
       version: 1,
@@ -251,29 +325,15 @@ describe("WorkbenchScene", () => {
       },
     };
 
-    const migrated = migrateWorkbenchSceneV1ToV2(legacy);
-    const canonical = migrateWorkbenchSceneV2ToV3(migrated);
+    const canonical = migrateWorkbenchSceneV1ToV4(legacy);
 
-    expect(migrated.version).toBe(2);
-    expect(migrated.panelSurfacesById).toEqual({});
-    expect(migrated.agentDock).toEqual({
-      visible: true,
-      binding: { kind: "session", sessionId: "session-1" },
-      newDraftId: `agent-draft:${current.primary.id}`,
-    });
-    expect(migrated.panels.right.layout.root).toMatchObject({
-      type: "leaf",
-      tabIds: [current.primary.id],
-      activeTabId: current.primary.id,
-    });
-    expect(canonical.version).toBe(3);
+    expect(canonical.version).toBe(4);
     expect(canonical.composerOverlay).toEqual({ visible: true });
     expect(canonical.agentDock).toEqual({
       binding: { kind: "session", sessionId: "session-1" },
       newDraftId: `agent-draft:${canonical.primary.id}`,
     });
     expect(WorkbenchSceneSnapshotSchema.parse(legacy)).toEqual(canonical);
-    expect(WorkbenchSceneSnapshotSchema.parse(migrated)).toEqual(canonical);
     expect(WorkbenchSceneSnapshotSchema.parse(canonical)).toEqual(canonical);
   });
 
@@ -297,10 +357,39 @@ describe("WorkbenchScene", () => {
       agentDock: null,
     };
 
-    expect(migrateWorkbenchSceneV2ToV3(legacyProject).composerOverlay)
+    expect(migrateWorkbenchSceneV2ToV4(legacyProject).composerOverlay)
       .toEqual({ visible: false });
-    expect(migrateWorkbenchSceneV2ToV3(legacySession).composerOverlay)
+    expect(migrateWorkbenchSceneV2ToV4(legacySession).composerOverlay)
       .toEqual({ visible: true });
+  });
+
+  test("migrates v3 resource configs to explicit Project access", () => {
+    const current = projectScene();
+    if (current.owner.kind === "resource") {
+      throw new Error("Expected a legacy-compatible Project Scene");
+    }
+    const legacy = {
+      ...current,
+      version: 3 as const,
+      owner: current.owner,
+      primary: toLegacySurface(current.primary),
+      panelSurfacesById: Object.fromEntries(
+        Object.entries(current.panelSurfacesById).map(([id, surface]) => [
+          id,
+          toLegacySurface(surface),
+        ]),
+      ),
+    };
+
+    const migrated = migrateWorkbenchSceneV3ToV4(legacy);
+
+    expect(migrated.primary).toMatchObject({
+      kind: "db_view",
+      config: {
+        accessContext: { kind: "project", projectId: "project-1" },
+      },
+    });
+    expect(WorkbenchSceneSnapshotSchema.parse(legacy)).toEqual(migrated);
   });
 
   test("new-window clone remints presentation and Browser identities", () => {
@@ -384,7 +473,20 @@ describe("WorkbenchScene", () => {
     expect(getWorkbenchSurfaceReuseKey(conversation)).toBe(
       "conversation:session-1",
     );
-    expect(getWorkbenchSurfaceReuseKey(database)).toBe("db:project-1:default");
+    expect(getWorkbenchSurfaceReuseKey(database)).toBe(
+      "db:project:project-1:default",
+    );
+    expect(getWorkbenchSurfaceReuseKey({
+      id: "library-page",
+      kind: "page_stage",
+      titleSnapshot: "Page",
+      config: {
+        accessContext: { kind: "library" },
+        pageId: "page-1",
+      },
+      stateKey: 0,
+      state: null,
+    })).toBe("page:library:page-1");
     expect(getWorkbenchSurfaceReuseKey({
       id: "review-project",
       kind: "review",

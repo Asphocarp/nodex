@@ -8,7 +8,43 @@ import { THREAD_QUEUE_FOLLOW_UPS_STORAGE_KEY } from "@/lib/thread-composer-follo
 import { COMPOSER_ENTER_BEHAVIOR_STORAGE_KEY } from "@/lib/composer-enter-behavior";
 import { type CodexScheduledAutomationCreateInput } from "@/lib/types";
 import { __getNodexToastSnapshotForTests } from "@/components/ui/toast";
-import { getHeaderShellSlot, getLastThreadStageActions, getPanelTabById, installShellBodyMeasurementForTest, installTerminalEventApiMock, invokeCalls, makeAttachedSession, makeBlankSession, makePanelLayout, makeProject, makeScheduledAutomation, makeSession, makeSessionTab, mockInvokeImpl, mockThreadStartProgress, pointerActivate, renderWorkbench, setMockConversationHasVisibleTurn, setMockInvokeImpl, setMockThreadStartProgress } from "./workbench-testkit/workbench-shell-harness";
+import {
+  parseDatabaseId,
+  parseDatabaseViewId,
+} from "../../../shared/database-identities";
+import type { LibraryDatabaseNavigationNode } from "../../../shared/library-module";
+import { getHeaderShellSlot, getLastThreadStageActions, getPanelTabById, installShellBodyMeasurementForTest, installTerminalEventApiMock, invokeCalls, makeAttachedSession, makeBlankSession, makePanelLayout, makeProject, makeScheduledAutomation, makeSession, makeSessionTab, mockInvokeImpl, mockThreadStartProgress, renderWorkbench, setMockConversationHasVisibleTurn, setMockInvokeImpl, setMockThreadStartProgress } from "./workbench-testkit/workbench-shell-harness";
+
+const standaloneTasksDatabase: LibraryDatabaseNavigationNode = {
+  kind: "database",
+  databaseId: parseDatabaseId("database:test:standalone"),
+  title: "Tasks",
+  defaultViewId: parseDatabaseViewId("database-view:test:board"),
+  hasMultipleViews: false,
+  metadataRevision: 1,
+  locationRevision: 1,
+  updatedAt: "2026-08-03T00:00:00.000Z",
+};
+
+const openStandaloneTasksDatabase = async (
+  screen: ReturnType<typeof renderWorkbench>,
+) => {
+  await settleAsyncRender();
+  await settleAsyncRender();
+  if (!screen.queryByText("Tasks")) {
+    throw new Error("Expected the standalone Tasks row");
+  }
+  const row = screen.getByText("Tasks").closest('[role="listitem"]');
+  if (!(row instanceof HTMLElement)) {
+    throw new Error("Expected the standalone Tasks row");
+  }
+  await act(async () => {
+    fireEvent.click(row);
+    await Promise.resolve();
+  });
+  await settleAsyncRender();
+  await settleAsyncRender();
+};
 
 describe("workbench session shell / routes-threads", () => {
   test("opens settings as a full-window route shell from the sidebar settings button", async () => {
@@ -102,43 +138,55 @@ describe("workbench session shell / routes-threads", () => {
     expect(screen.container.querySelector('[data-testid="project-session-sidebar"]') !== null).toBe(true);
   });
 
-  test("hides Project panel toggles throughout the Library route shell", async () => {
-    const screen = renderWorkbench({ libraryWorkspaceEnabled: true });
+  test("routes a Pages Database through global Back and Forward", async () => {
+    const screen = renderWorkbench({ libraryRoots: [standaloneTasksDatabase] });
     await settleAsyncRender();
     await settleAsyncRender();
 
     const globalHeader = screen.getByTestId("workbench-global-header");
-    expect(within(globalHeader).queryByRole("button", { name: "Toggle bottom panel" }) !== null).toBe(true);
-    expect(within(globalHeader).queryByRole("button", { name: "Toggle side panel" }) !== null).toBe(true);
+    await openStandaloneTasksDatabase(screen);
 
+    expect(screen.getByTestId("workbench-database-view-surface") !== null).toBe(true);
+    const breadcrumb = screen.getByTestId("app-shell-header-context-menu-surface");
+    expect(within(breadcrumb).getByText("Pages") !== null).toBe(true);
+    expect(within(breadcrumb).getByText("Tasks") !== null).toBe(true);
+
+    const back = within(globalHeader).getByRole("button", { name: "Back" });
+    expect((back as HTMLButtonElement).disabled).toBe(false);
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Open Library" }));
+      fireEvent.click(back);
       await Promise.resolve();
     });
     await settleAsyncRender();
 
-    expect(screen.getByRole("heading", { level: 1, name: "Library" }) !== null).toBe(true);
-    expect(within(globalHeader).queryByRole("button", { name: "Toggle bottom panel" })).toBe(null);
-    expect(within(globalHeader).queryByRole("button", { name: "Toggle side panel" })).toBe(null);
-    expect(within(globalHeader).queryByRole("button", { name: "Hide sidebar" }) !== null).toBe(true);
-    expect(within(globalHeader).queryByRole("button", { name: "Back" }) !== null).toBe(true);
-    expect(within(globalHeader).queryByRole("button", { name: "Forward" }) !== null).toBe(true);
+    expect(screen.queryByTestId("workbench-database-view-surface")).toBeNull();
+    const forward = within(globalHeader).getByRole("button", { name: "Forward" });
+    expect((forward as HTMLButtonElement).disabled).toBe(false);
+    await act(async () => {
+      fireEvent.click(forward);
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+    expect(screen.getByTestId("workbench-database-view-surface") !== null).toBe(true);
   });
 
-  test("keeps gated Library surfaces unavailable without hiding Project removal", async () => {
-    const screen = renderWorkbench();
+  test("opens a standalone Database with Library authority in a Resource Scene", async () => {
+    const screen = renderWorkbench({ libraryRoots: [standaloneTasksDatabase] });
     await settleAsyncRender();
     await settleAsyncRender();
 
-    expect(screen.queryByRole("button", { name: "Open Library" })).toBeNull();
-    expect(invokeCalls.some(([channel]) => channel === "library-module:read")).toBe(false);
+    await openStandaloneTasksDatabase(screen);
 
-    await pointerActivate(screen.getByRole("button", {
-      name: "Project actions for Alpha",
-    }));
-    await settleAsyncRender();
-
-    expect(screen.getByRole("menuitem", { name: "Remove" })).toBeTruthy();
+    const props = (globalThis as {
+      __lastWorkbenchDatabaseViewSurfaceProps?: Record<string, unknown>;
+    }).__lastWorkbenchDatabaseViewSurfaceProps;
+    expect(props?.accessContext).toEqual({ kind: "library" });
+    expect(props?.target).toEqual({
+      kind: "database-default",
+      databaseId: "database:test:standalone",
+    });
+    expect(screen.getByRole("tab", { name: "Tasks", selected: true }) !== null).toBe(true);
+    expect(screen.queryByText("Library")).toBeNull();
   });
 
   test("restores full-width right-panel geometry after returning from settings", async () => {

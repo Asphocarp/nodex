@@ -1,10 +1,10 @@
 import type {
-  WorkbenchLayoutSnapshotV5,
-  WorkbenchLocationV5,
+  WorkbenchLayoutSnapshotV6,
+  WorkbenchLocationV6,
   WorkbenchSceneLocation,
 } from "../../shared/workbench-layout";
 import {
-  getRestorableWorkbenchLocationV5,
+  getRestorableWorkbenchLocationV6,
   getWorkbenchSceneReturnLocation,
 } from "../../shared/workbench-layout";
 import {
@@ -16,7 +16,7 @@ import {
 const MAX_WORKBENCH_LOCATION_HISTORY = 50;
 
 export interface WorkbenchWindowNavigationSnapshot {
-  readonly location: WorkbenchLocationV5;
+  readonly location: WorkbenchLocationV6;
   readonly scenesByOwnerKey: Readonly<
     Record<string, WorkbenchSceneSnapshot>
   >;
@@ -28,7 +28,7 @@ export interface WorkbenchLocationHistory {
 }
 
 export interface WorkbenchWindowState {
-  readonly location: WorkbenchLocationV5;
+  readonly location: WorkbenchLocationV6;
   readonly databaseSearchByProject: Readonly<Record<string, string>>;
   readonly scenesByOwnerKey: Readonly<
     Record<string, WorkbenchSceneSnapshot>
@@ -42,7 +42,7 @@ export interface WorkbenchSessionCatalogEntry {
 }
 
 export function createWorkbenchWindowState(
-  snapshot: WorkbenchLayoutSnapshotV5,
+  snapshot: WorkbenchLayoutSnapshotV6,
 ): WorkbenchWindowState {
   return {
     location: snapshot.location,
@@ -56,8 +56,8 @@ export function createWorkbenchWindowState(
 }
 
 export function areWorkbenchLocationsEqual(
-  left: WorkbenchLocationV5,
-  right: WorkbenchLocationV5,
+  left: WorkbenchLocationV6,
+  right: WorkbenchLocationV6,
 ): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
@@ -107,7 +107,7 @@ function recordWorkbenchNavigationTransition(
 
 export function navigateWorkbenchWindow(
   state: WorkbenchWindowState,
-  location: WorkbenchLocationV5,
+  location: WorkbenchLocationV6,
   options: { readonly record?: boolean } = {},
 ): WorkbenchWindowState {
   if (areWorkbenchLocationsEqual(state.location, location)) return state;
@@ -166,7 +166,7 @@ export function navigateForwardInWorkbenchWindow(
 }
 
 function projectContextFromLocation(
-  location: WorkbenchLocationV5,
+  location: WorkbenchLocationV6,
 ): string | null {
   const sceneLocation = getWorkbenchSceneReturnLocation(location);
   if (sceneLocation.kind === "project") return sceneLocation.projectId;
@@ -201,16 +201,16 @@ export function selectWorkbenchProject(
   );
 }
 
+export function selectWorkbenchResource(
+  state: WorkbenchWindowState,
+  root: Extract<WorkbenchSceneLocation, { readonly kind: "resource" }>["root"],
+): WorkbenchWindowState {
+  return navigateWorkbenchWindow(state, { kind: "resource", root });
+}
+
 export function openWorkbenchRoute(
   state: WorkbenchWindowState,
   route:
-    | {
-        readonly kind: "library";
-        readonly target: Extract<
-          WorkbenchLocationV5,
-          { readonly kind: "library" }
-        >["target"];
-      }
     | { readonly kind: "settings"; readonly path: string }
     | { readonly kind: "automations"; readonly path: string }
     | {
@@ -222,7 +222,7 @@ export function openWorkbenchRoute(
   return navigateWorkbenchWindow(state, {
     ...route,
     returnTo,
-  } as WorkbenchLocationV5);
+  } as WorkbenchLocationV6);
 }
 
 export function closeWorkbenchRoute(
@@ -231,6 +231,7 @@ export function closeWorkbenchRoute(
   if (
     state.location.kind === "project"
     || state.location.kind === "session"
+    || state.location.kind === "resource"
     || state.location.kind === "empty"
   ) {
     return state;
@@ -316,6 +317,7 @@ export function reconcileMissingWorkbenchSession(
   if (
     withoutScene.location.kind !== "project"
     && withoutScene.location.kind !== "session"
+    && withoutScene.location.kind !== "resource"
     && withoutScene.location.kind !== "empty"
   ) {
     return {
@@ -331,7 +333,7 @@ export function reconcileMissingWorkbenchSession(
 
 export function replaceWorkbenchWindowSnapshot(
   state: WorkbenchWindowState,
-  snapshot: WorkbenchLayoutSnapshotV5,
+  snapshot: WorkbenchLayoutSnapshotV6,
 ): WorkbenchWindowState {
   return {
     ...createWorkbenchWindowState(snapshot),
@@ -341,10 +343,10 @@ export function replaceWorkbenchWindowSnapshot(
 
 export function snapshotWorkbenchWindowState(
   state: WorkbenchWindowState,
-): WorkbenchLayoutSnapshotV5 {
+): WorkbenchLayoutSnapshotV6 {
   return {
-    version: 5,
-    location: getRestorableWorkbenchLocationV5(state.location),
+    version: 6,
+    location: getRestorableWorkbenchLocationV6(state.location),
     databaseSearchByProject: {
       ...state.databaseSearchByProject,
     },

@@ -1,4 +1,4 @@
-import { Database, ExternalLink } from "lucide-react";
+import { ExternalLink, Table2 } from "lucide-react";
 import { createReactBlockSpec } from "@blocknote/react";
 
 import { useBlockReferenceHostRuntime } from "@/components/block-documents/block-reference-runtime-context";
@@ -25,7 +25,7 @@ export function DatabaseBlockSurface({
       disabled={!onOpen}
       onClick={onOpen}
     >
-      <Database className="size-4 shrink-0 text-token-description-foreground" />
+      <Table2 className="size-4 shrink-0 text-token-description-foreground" />
       <span className="min-w-0 flex-1 truncate font-medium">
         {loading ? "Opening database…" : title}
       </span>

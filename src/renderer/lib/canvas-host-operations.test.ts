@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-import type {
-  LibraryCanvasSummary,
-  LibraryModuleApplyRequest,
-  LibraryModuleApplyResult,
+import {
+  LIBRARY_MODULE_CONTRACT_VERSION,
+  type LibraryCanvasSummary,
+  type LibraryModuleApplyRequest,
+  type LibraryModuleApplyResult,
 } from "../../shared/library-module";
 import { bindLibraryModuleApply } from "../../shared/library-module-transport";
 import { createUuidV7FromTimestamp } from "../../shared/uuid-v7";
@@ -101,7 +102,7 @@ const receiptFor = (
 ): Extract<LibraryModuleApplyResult, { readonly ok: true }> => ({
   ok: true,
   value: {
-    version: 4,
+    version: LIBRARY_MODULE_CONTRACT_VERSION,
     operationId: request.operationId,
     storeEpoch: request.storeEpoch,
     libraryId: "library-1",
@@ -126,7 +127,7 @@ describe("Canvas host operations", () => {
     vi.mocked(readLibraryModule).mockImplementation(async (request) => ({
       ok: true,
       value: {
-        version: 4,
+        version: LIBRARY_MODULE_CONTRACT_VERSION,
         profileId: "profile-1",
         libraryId: "library-1",
         storeEpoch: "epoch-1",
@@ -284,7 +285,7 @@ describe("Canvas host operations", () => {
     vi.mocked(readLibraryModule).mockResolvedValueOnce({
       ok: true,
       value: {
-        version: 4,
+        version: LIBRARY_MODULE_CONTRACT_VERSION,
         profileId: "profile-1",
         libraryId: "library-1",
         storeEpoch: "epoch-2",
@@ -312,7 +313,7 @@ describe("Canvas host operations", () => {
 
   test("retries transport ambiguity with the exact same operation request", async () => {
     const request = {
-      version: 4,
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
       operationId: "operation-1",
       storeEpoch: "epoch-1",
       operation: {
@@ -337,7 +338,7 @@ describe("Canvas host operations", () => {
       .mockResolvedValueOnce({
         ok: true,
         value: {
-          version: 4,
+          version: LIBRARY_MODULE_CONTRACT_VERSION,
           operationId: "operation-1",
           storeEpoch: "epoch-1",
           libraryId: "library-1",
@@ -369,7 +370,7 @@ describe("Canvas host operations", () => {
     ): Promise<LibraryModuleApplyResult> => ({
       ok: true,
       value: {
-        version: 4,
+        version: LIBRARY_MODULE_CONTRACT_VERSION,
         operationId: request.operationId,
         storeEpoch: request.storeEpoch,
         libraryId: "library-1",
@@ -420,7 +421,7 @@ describe("Canvas host operations", () => {
     });
 
     expect(apply).toHaveBeenCalledWith({
-      version: 4,
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
       operationId: "delete-1",
       storeEpoch: "epoch-1",
       operation: {

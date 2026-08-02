@@ -13,6 +13,7 @@ import {
   listWorkbenchPanelLeaves,
 } from "../../../shared/workbench-panel-layout";
 import {
+  makeWorkbenchSceneKey,
   resolveWorkbenchSceneSurface,
   type WorkbenchSceneSnapshot,
   type WorkbenchSurfaceDescriptor,
@@ -24,7 +25,7 @@ import { WorkbenchPanelHost } from "./workbench-panel-host";
 
 export interface WorkbenchScenePanelsProps {
   readonly scene: WorkbenchSceneSnapshot;
-  readonly project: Project;
+  readonly project: Project | null;
   readonly projects: Project[];
   readonly commands: WorkbenchSceneDurablePanelCommands;
   readonly isMac: boolean;
@@ -56,7 +57,7 @@ export interface WorkbenchScenePanelsProps {
 
 function makePanelItems(
   scene: WorkbenchSceneSnapshot,
-  project: Project,
+  project: Project | null,
   panelId: PanelId,
   renderSurface: WorkbenchScenePanelsProps["renderSurface"],
 ): {
@@ -78,11 +79,15 @@ function makePanelItems(
         surface,
         isProjectHomeRoot,
       );
+      const isResourceRoot = scene.owner.kind === "resource"
+        && surface.id === scene.primary.id;
       return {
         id: surface.id,
-        title: presentation.title,
+        title: isResourceRoot
+          ? surface.titleSnapshot
+          : presentation.title,
         icon: presentation.icon,
-        iconElement: isProjectHomeRoot ? (
+        iconElement: isProjectHomeRoot && project ? (
           <ProjectMarker
             appearance={project.appearance}
             className="size-4"
@@ -125,16 +130,14 @@ export function buildWorkbenchScenePanels({
   onOpenDestination,
   onCloseSurface,
 }: WorkbenchScenePanelsProps) {
-  const ownerKey = scene.owner.kind === "project"
-    ? `project:${scene.owner.projectId}`
-    : `session:${scene.owner.sessionId}`;
+  const ownerKey = makeWorkbenchSceneKey(scene.owner);
 
   const renderPanel = (panelId: PanelId) => {
     const projection = makePanelItems(scene, project, panelId, renderSurface);
     return (
       <WorkbenchPanelHost
         sessionId={ownerKey}
-        sessionProjectId={project.id}
+        sessionProjectId={project?.id ?? null}
         panelId={panelId}
         layout={scene.panels[panelId].layout}
         tabItemsByLeafId={projection.itemsByLeafId}

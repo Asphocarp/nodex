@@ -5,7 +5,7 @@ import {
   CalendarDays,
   CheckSquare2,
   Columns3,
-  Database,
+  Table2,
   Hash,
   List,
   Plus,
@@ -244,7 +244,7 @@ export function DatabaseManagementSurface({
       <aside className="flex min-h-0 flex-col border-r-[0.5px] border-token-border bg-token-foreground/3 max-sm:hidden">
         <div className="px-3 pb-3 pt-4">
           <h2 className="flex items-center gap-2 text-base font-medium text-token-text-primary">
-            <Database className="size-4 shrink-0 text-token-description-foreground" />
+            <Table2 className="size-4 shrink-0 text-token-description-foreground" />
             Databases
           </h2>
           <p className="mt-1 truncate text-xs text-token-description-foreground">
@@ -276,7 +276,7 @@ export function DatabaseManagementSurface({
                     : "text-token-text-secondary hover:bg-token-foreground/5 hover:text-token-text-primary",
                 )}
               >
-                <Database className="size-3.5 shrink-0 opacity-70" />
+                <Table2 className="size-3.5 shrink-0 opacity-70" />
                 <span className="min-w-0 flex-1 truncate">
                   {candidate.database.name}
                 </span>
@@ -690,7 +690,7 @@ export function DatabaseManagementSurface({
           </>
         ) : (
           <div className="flex h-full flex-col items-center justify-center text-center">
-            <Database className="mb-2 size-5 shrink-0 text-token-description-foreground" />
+            <Table2 className="mb-2 size-5 shrink-0 text-token-description-foreground" />
             <p className="text-sm font-medium text-token-text-primary">
               Database unavailable
             </p>

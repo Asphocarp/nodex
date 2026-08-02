@@ -11,7 +11,7 @@ use crate::agent::{
 use crate::database::DatabaseGroupScope;
 use crate::{CommittedModuleValue, ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const LIBRARY_CONTRACT_VERSION: u32 = 6;
+pub const LIBRARY_CONTRACT_VERSION: u32 = 7;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -487,6 +487,11 @@ pub enum LibraryRead {
         cursor: Option<String>,
         limit: Option<u32>,
         force_include_target: Option<LibraryRouteTarget>,
+    },
+    StandaloneRoots {
+        cursor: Option<String>,
+        limit: Option<u32>,
+        force_include_target: Option<LibraryResourceTarget>,
     },
     Path {
         target: LibraryRouteTarget,
@@ -1717,6 +1722,12 @@ pub enum LibraryReadValue {
     },
     Children {
         parent: LibraryNavigationParent,
+        items: Vec<LibraryNavigationNode>,
+        next_cursor: Option<String>,
+        has_more: bool,
+        total: u64,
+    },
+    StandaloneRoots {
         items: Vec<LibraryNavigationNode>,
         next_cursor: Option<String>,
         has_more: bool,

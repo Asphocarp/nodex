@@ -376,33 +376,38 @@ export function PageStage(props: PageStageProps) {
       {(surface) => renderDocumentSurface(surface)}
     </BlockDocumentSurface>
   );
+  const toolbar = (
+    <PageStageToolbar
+      onNavigateBack={props.onNavigateBack}
+      saving={controller.saving}
+      historyPanelActive={controller.historyPanelActive}
+      limitMainContentWidth={controller.limitMainContentWidth}
+      showRawContent={controller.showRawContent}
+      onCopyDeeplink={() => {
+        void copyPageDeeplink(page.id);
+      }}
+      onDelete={() => {
+        void controller.handleDelete();
+      }}
+      showDelete={Boolean(props.onDelete)}
+      onToggleContentWidth={controller.handleToggleContentWidth}
+      onToggleShowRawContent={controller.handleToggleShowRawContent}
+      onToggleHistoryPanel={handleToggleHistoryPanel}
+      breadcrumb={props.breadcrumb ? {
+        ...props.breadcrumb,
+        currentTitle: controller.title,
+      } : undefined}
+    />
+  );
 
   return (
     <div
       className="flex h-full w-full flex-col bg-(--background)"
       data-page-stage-surface="true"
     >
-      <PageStageToolbar
-        onNavigateBack={props.onNavigateBack}
-        saving={controller.saving}
-        historyPanelActive={controller.historyPanelActive}
-        limitMainContentWidth={controller.limitMainContentWidth}
-        showRawContent={controller.showRawContent}
-        onCopyDeeplink={() => {
-          void copyPageDeeplink(page.id);
-        }}
-        onDelete={() => {
-          void controller.handleDelete();
-        }}
-        showDelete={Boolean(props.onDelete)}
-        onToggleContentWidth={controller.handleToggleContentWidth}
-        onToggleShowRawContent={controller.handleToggleShowRawContent}
-        onToggleHistoryPanel={handleToggleHistoryPanel}
-        breadcrumb={props.breadcrumb ? {
-          ...props.breadcrumb,
-          currentTitle: controller.title,
-        } : undefined}
-      />
+      {props.toolbarPlacement?.kind === "external"
+        ? props.toolbarPlacement.render(toolbar)
+        : toolbar}
 
       <div
         ref={setHeadingRailPortalElement}

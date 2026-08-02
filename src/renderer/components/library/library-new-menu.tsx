@@ -1,5 +1,5 @@
 import type { ReactElement } from "react";
-import { Database, FileText } from "lucide-react";
+import { FileText, Table2 } from "lucide-react";
 
 import {
   NodexDropdownItem,
@@ -74,7 +74,7 @@ export function LibraryNewMenu({
         Page
       </NodexDropdownItem>
       <NodexDropdownItem
-        leftSlot={<Database className="icon-sm" />}
+        leftSlot={<Table2 className="icon-sm" />}
         onSelect={() => void createDatabase()}
       >
         Database

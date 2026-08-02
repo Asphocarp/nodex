@@ -8,7 +8,7 @@ const databaseSurface: WorkbenchSurfaceDescriptor = {
   kind: "db_view",
   titleSnapshot: "Database",
   config: {
-    projectId: "alpha",
+    accessContext: { kind: "project", projectId: "alpha" },
     target: { kind: "project-default" },
     view: "kanban",
   },

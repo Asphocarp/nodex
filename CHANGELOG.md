@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 ### Changed
+- Replaced the Library workspace and ownership tree with a compact Pages section for standalone top-level resources; Pages now open in their own restorable Workbench Scenes with shared Database, Page, and Canvas tabs, breadcrumbs, and app-wide Back/Forward navigation without switching Projects.
 
 ### Fixed
 - Fixed parent-linked subagent tasks so they remain in parent-conversation activity without appearing as standalone Project or projectless sidebar chats; any leaked Session is retired when late parent metadata arrives.
@@ -18,6 +19,7 @@ All notable changes to this project will be documented in this file.
 - Added native macOS Picture-in-Picture for background Browser work and Apple Silicon Computer Use, including live desktop-app presentation, native per-task visibility, and turn-scoped cleanup.
 
 ### Changed
+- Library is now a permanent, compact workspace whose Home, Pages, Databases, Views, and Canvases share app-window Back/Forward navigation, App Header chrome, and Project-aligned Sidebar rows.
 - Replaced the automatically seeded `Database View` chat with Project Home: the Project's current Database is the protected root surface, its footer Agent Dock can work with a new or existing task without navigating away, and Browser Use opens controlled pages in the task that owns them.
 - Window restore and new-window cloning now persist one owner-scoped Scene layout for both Projects and Sessions instead of parallel Project Session panel-view models.
 

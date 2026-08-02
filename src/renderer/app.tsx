@@ -12,15 +12,10 @@ import { HeartbeatAutomationController } from "@/features/local-conversation/hea
 import { DesktopNotificationPermissionBootstrap } from "@/features/local-conversation/desktop-notification-permission-bootstrap";
 import { LocalConversationViewStateCleanupController } from "@/features/local-conversation/view/local-conversation-view-state-cleanup-controller";
 import { NodexModalHost } from "@/lib/modal-registry";
-import { loadProductFeatureGates } from "@/lib/product-feature-gates";
 import type { WindowSessionBootstrap } from "@/lib/types";
 import { bootstrapWindowSession } from "@/lib/window-sessions";
 import type { AppInitializationStep } from "../shared/app-startup";
 import type { CoreAuthorityStatus } from "../shared/core-authority-status";
-import {
-  DEFAULT_PRODUCT_FEATURE_GATES,
-  type ProductFeatureGates,
-} from "../shared/product-feature-gates";
 import { useAppUpdateStatus } from "./app-providers";
 import { invoke } from "./lib/api";
 
@@ -30,7 +25,6 @@ interface BootstrapState {
   readonly failed: boolean;
   readonly ready: boolean;
   readonly windowSession: WindowSessionBootstrap | null;
-  readonly productFeatureGates: ProductFeatureGates;
   readonly step: AppInitializationStep;
 }
 
@@ -38,7 +32,6 @@ const INITIAL_BOOTSTRAP_STATE: BootstrapState = {
   failed: false,
   ready: false,
   windowSession: null,
-  productFeatureGates: DEFAULT_PRODUCT_FEATURE_GATES,
   step: { phase: "opening" },
 };
 
@@ -68,16 +61,13 @@ export default function App() {
         }),
       );
     }
-    const loadBootstrap = () => Promise.all([
-      bootstrapWindowSession(),
-      loadProductFeatureGates(),
-    ] as const);
+    const loadBootstrap = () => bootstrapWindowSession();
     const bootstrapPromise = window.api?.awaitInitialization
       ? window.api.awaitInitialization().then(loadBootstrap)
       : loadBootstrap();
 
     void bootstrapPromise
-      .then(([windowSession, productFeatureGates]) => {
+      .then((windowSession) => {
         if (cancelled) return;
         window.api?.reportInitializationReady?.({
           durationMs:
@@ -88,7 +78,6 @@ export default function App() {
           failed: false,
           ready: true,
           windowSession,
-          productFeatureGates,
           step: { phase: "done" },
         });
       })
@@ -103,7 +92,6 @@ export default function App() {
           failed: true,
           ready: false,
           windowSession: null,
-          productFeatureGates: DEFAULT_PRODUCT_FEATURE_GATES,
           step: { phase: "failed" },
         });
       });
@@ -180,9 +168,6 @@ export default function App() {
         <HeartbeatAutomationController />
         <WorkbenchShell
           windowSessionBootstrap={bootstrapState.windowSession}
-          libraryWorkspaceEnabled={
-            bootstrapState.productFeatureGates.libraryWorkspace
-          }
         />
         <CoreAuthorityStatusNotice
           status={

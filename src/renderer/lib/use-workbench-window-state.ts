@@ -5,11 +5,11 @@ import {
   useRef,
 } from "react";
 import type {
-  WorkbenchLayoutSnapshotV5,
-  WorkbenchLocationV5,
+  WorkbenchLayoutSnapshotV6,
+  WorkbenchLocationV6,
 } from "../../shared/workbench-layout";
-import { createDefaultWorkbenchLayoutSnapshotV5 } from "../../shared/workbench-layout";
-import { WorkbenchLayoutSnapshotV5Schema } from "../../shared/schemas/workbench-layout";
+import { createDefaultWorkbenchLayoutSnapshotV6 } from "../../shared/workbench-layout";
+import { WorkbenchLayoutSnapshotV6Schema } from "../../shared/schemas/workbench-layout";
 import {
   type WorkbenchSceneOwner,
   type WorkbenchSceneSnapshot,
@@ -32,6 +32,7 @@ import {
   removeWorkbenchScene,
   replaceWorkbenchWindowSnapshot,
   selectWorkbenchProject,
+  selectWorkbenchResource,
   selectWorkbenchSession,
   setWorkbenchDatabaseSearch,
   snapshotWorkbenchWindowState,
@@ -58,7 +59,7 @@ export const workbenchScenesAtom = scopedDerivedAtom(
   { debugLabel: "workbench-scenes" },
 );
 
-export function useWorkbenchLocation(): WorkbenchLocationV5 | null {
+export function useWorkbenchLocation(): WorkbenchLocationV6 | null {
   return useScopedAtomValue(workbenchLocationAtom);
 }
 
@@ -69,8 +70,8 @@ export function useWorkbenchScenes(): Readonly<
 }
 
 export function useWorkbenchWindowState(
-  initialSnapshot: WorkbenchLayoutSnapshotV5 =
-    createDefaultWorkbenchLayoutSnapshotV5(),
+  initialSnapshot: WorkbenchLayoutSnapshotV6 =
+    createDefaultWorkbenchLayoutSnapshotV6(),
 ) {
   const [storedState, setStoredState] = useScopedAtom(
     workbenchWindowStateAtom,
@@ -78,7 +79,7 @@ export function useWorkbenchWindowState(
   const initialStateRef = useRef<WorkbenchWindowState | null>(null);
   if (!initialStateRef.current) {
     initialStateRef.current = createWorkbenchWindowState(
-      WorkbenchLayoutSnapshotV5Schema.parse(initialSnapshot),
+      WorkbenchLayoutSnapshotV6Schema.parse(initialSnapshot),
     );
   }
   const initialState = initialStateRef.current;
@@ -97,7 +98,7 @@ export function useWorkbenchWindowState(
 
   const navigate = useCallback(
     (
-      location: WorkbenchLocationV5,
+      location: WorkbenchLocationV6,
       options?: { readonly record?: boolean },
     ) => {
       updateState((previous) =>
@@ -118,6 +119,13 @@ export function useWorkbenchWindowState(
     (projectId: string | null) => {
       updateState((previous) =>
         selectWorkbenchProject(previous, projectId));
+    },
+    [updateState],
+  );
+
+  const selectResource = useCallback(
+    (root: Parameters<typeof selectWorkbenchResource>[1]) => {
+      updateState((previous) => selectWorkbenchResource(previous, root));
     },
     [updateState],
   );
@@ -170,7 +178,7 @@ export function useWorkbenchWindowState(
   }, [updateState]);
 
   const replaceFromSnapshot = useCallback(
-    (snapshot: WorkbenchLayoutSnapshotV5) => {
+    (snapshot: WorkbenchLayoutSnapshotV6) => {
       updateState((previous) =>
         replaceWorkbenchWindowSnapshot(previous, snapshot));
     },
@@ -193,6 +201,7 @@ export function useWorkbenchWindowState(
     navigateForward,
     selectSession,
     selectProject,
+    selectResource,
     openProject: selectProject,
     openRoute,
     closeRoute,
@@ -212,6 +221,7 @@ export function useWorkbenchWindowState(
     reconcileMissingSession,
     replaceFromSnapshot,
     selectProject,
+    selectResource,
     selectSession,
     setDatabaseSearch,
     setScene,

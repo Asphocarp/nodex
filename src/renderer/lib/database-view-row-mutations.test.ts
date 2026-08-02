@@ -143,7 +143,7 @@ const model = (): DatabaseViewRenderModel => {
   );
   return {
     libraryId: "library-1",
-    projectId: "project-1",
+    accessContext: { kind: "project", projectId: "project-1" },
     databaseViewId: view.viewId,
     databaseId: database.databaseId,
     dataSourceId,
@@ -253,7 +253,7 @@ describe("selected Database View Page mutations", () => {
       model: model(),
       operations,
       dependencies: {
-        apply: async (_projectId, request) => {
+        applyProject: async (_projectId, request) => {
           requests.push(JSON.stringify(request));
           calls += 1;
           if (calls === 1) throw new Error("transport lost ACK");
@@ -262,10 +262,67 @@ describe("selected Database View Page mutations", () => {
             value: { ...result.value, operationId: request.operationId },
           };
         },
+        applyLibrary: async () => {
+          throw new Error("Unexpected Library authority");
+        },
       },
     });
     expect(requests).toHaveLength(2);
     expect(requests[0]).toBe(requests[1]);
     expect(receipt?.operationId).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  test("uses the Library apply contract without a synthetic Project", async () => {
+    const authority: DatabaseViewRenderModel = {
+      ...model(),
+      accessContext: { kind: "library" },
+    };
+    const operations = buildDatabaseViewPropertyValueOperations({
+      model: authority,
+      pageId: "page-a",
+      propertyId: scorePropertyId,
+      value: 2,
+    });
+    const libraryRequests: unknown[] = [];
+
+    await commitDatabaseViewOperations({
+      model: authority,
+      operations,
+      operationId: "operation:library",
+      dependencies: {
+        applyProject: async () => {
+          throw new Error("Unexpected Project authority");
+        },
+        applyLibrary: async (request) => {
+          libraryRequests.push(request);
+          return {
+            ok: true,
+            value: {
+              version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+              operationId: request.operationId,
+              accessContext: { kind: "library" },
+              libraryId,
+              storeEpoch: "epoch-1",
+              duplicate: false,
+              operationKinds: ["set_value"],
+              affectedDatabaseIds: [databaseId],
+              affectedDataSourceIds: [dataSourceId],
+              affectedPageIds: ["page-a"],
+              affectedViewIds: [],
+              committedRevisions: {},
+              changeLogSeq: 5,
+              committedAt: timestamp,
+            },
+          };
+        },
+      },
+    });
+
+    expect(libraryRequests).toEqual([{
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      operationId: "operation:library",
+      storeEpoch: "epoch-1",
+      operations,
+    }]);
   });
 });

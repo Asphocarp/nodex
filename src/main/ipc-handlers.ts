@@ -133,7 +133,6 @@ import type {
   WindowSessionSaveLayoutInput,
 } from "../shared/window-session";
 import { WorkbenchSceneSnapshotSchema } from "../shared/schemas/workbench-scene";
-import { productFeatureGates } from "./product-feature-gates";
 import { readThirdPartyNotices } from "./third-party-notices";
 import type {
   NativeContextMenuItem,
@@ -2695,8 +2694,6 @@ export function registerIpcHandlers(
     options.onCreateWindow(event.sender.id, request);
     return true;
   });
-
-  registerHandle("app:feature-gates:get", () => productFeatureGates);
 
   registerHandle("window-sessions:bootstrap", (event) => {
     if (!options.onBootstrapWindowSession) {

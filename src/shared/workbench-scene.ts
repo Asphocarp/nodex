@@ -1,6 +1,9 @@
 import type { BrowserSidebarDeviceToolbarState } from "./browser-sidebar";
 import type { CodexForkBrowserSidePanelSnapshot } from "./codex-fork-browser-transfer";
 import type { InitialProjectPresentation } from "./initial-project-welcome";
+import type { ContentAccessContext } from "./content-access-context";
+import type { DatabaseId } from "./database-identities";
+import type { LibraryResourceTarget } from "./library-module";
 import {
   activateWorkbenchSessionViewTab,
   cloneWorkbenchLayoutForNewWindow as cloneLegacyWorkbenchLayoutForNewWindow,
@@ -37,7 +40,7 @@ import {
   type WorkbenchPanelSplitSide,
 } from "./workbench-panel-layout";
 
-export const WORKBENCH_SCENE_VERSION = 3 as const;
+export const WORKBENCH_SCENE_VERSION = 4 as const;
 export const WORKBENCH_SCENE_MAX_PANEL_SURFACES = 2_048;
 
 export type WorkbenchSceneOwner =
@@ -48,6 +51,10 @@ export type WorkbenchSceneOwner =
   | {
       readonly kind: "session";
       readonly sessionId: string;
+    }
+  | {
+      readonly kind: "resource";
+      readonly root: LibraryResourceTarget;
     };
 
 export type WorkbenchSceneKey = string;
@@ -68,9 +75,13 @@ export interface WorkbenchComposerOverlayState {
 export function makeWorkbenchSceneKey(
   owner: WorkbenchSceneOwner,
 ): WorkbenchSceneKey {
-  return owner.kind === "project"
-    ? `project:${owner.projectId}`
-    : `session:${owner.sessionId}`;
+  if (owner.kind === "project") return `project:${owner.projectId}`;
+  if (owner.kind === "session") return `session:${owner.sessionId}`;
+  if (owner.root.kind === "page") return `resource:page:${owner.root.pageId}`;
+  if (owner.root.kind === "database") {
+    return `resource:database:${owner.root.databaseId}`;
+  }
+  return `resource:canvas:${owner.root.canvasId}`;
 }
 
 export type WorkbenchSurfaceKind =
@@ -88,9 +99,13 @@ export interface WorkbenchConversationSurfaceConfig {
 }
 
 export interface WorkbenchDbViewSurfaceConfig {
-  readonly projectId: string;
+  readonly accessContext: ContentAccessContext;
   readonly target:
     | { readonly kind: "project-default" }
+    | {
+        readonly kind: "database-default";
+        readonly databaseId: DatabaseId;
+      }
     | {
         readonly kind: "database-view";
         readonly databaseViewId: string;
@@ -99,13 +114,13 @@ export interface WorkbenchDbViewSurfaceConfig {
 }
 
 export interface WorkbenchPageStageSurfaceConfig {
-  readonly projectId: string;
+  readonly accessContext: ContentAccessContext;
   readonly pageId: string;
   readonly titleSnapshot?: string;
 }
 
 export interface WorkbenchCanvasStageSurfaceConfig {
-  readonly projectId: string;
+  readonly accessContext: ContentAccessContext;
   readonly canvasBlockId: string;
   readonly titleSnapshot?: string;
 }
@@ -196,8 +211,64 @@ export interface WorkbenchSceneSnapshot {
   readonly touchedAt: string;
 }
 
+type WorkbenchLegacyResourceSurfaceDescriptor =
+  | (Omit<
+      Extract<WorkbenchSurfaceDescriptor, { readonly kind: "db_view" }>,
+      "config"
+    > & {
+      readonly config: {
+        readonly projectId: string;
+        readonly target:
+          | { readonly kind: "project-default" }
+          | {
+              readonly kind: "database-view";
+              readonly databaseViewId: string;
+            };
+        readonly view: WorkbenchDbViewSurfaceConfig["view"];
+      };
+    })
+  | (Omit<
+      Extract<WorkbenchSurfaceDescriptor, { readonly kind: "page_stage" }>,
+      "config"
+    > & {
+      readonly config: Omit<
+        WorkbenchPageStageSurfaceConfig,
+        "accessContext"
+      > & { readonly projectId: string };
+    })
+  | (Omit<
+      Extract<WorkbenchSurfaceDescriptor, { readonly kind: "canvas_stage" }>,
+      "config"
+    > & {
+      readonly config: Omit<
+        WorkbenchCanvasStageSurfaceConfig,
+        "accessContext"
+      > & { readonly projectId: string };
+    });
+
+export type WorkbenchSurfaceDescriptorV3 =
+  | Exclude<
+      WorkbenchSurfaceDescriptor,
+      { readonly kind: "db_view" | "page_stage" | "canvas_stage" }
+    >
+  | WorkbenchLegacyResourceSurfaceDescriptor;
+
+export interface WorkbenchSceneSnapshotV3 {
+  readonly version: 3;
+  readonly owner: Exclude<WorkbenchSceneOwner, { readonly kind: "resource" }>;
+  readonly primary: WorkbenchSurfaceDescriptorV3;
+  readonly panelSurfacesById: Readonly<
+    Record<string, WorkbenchSurfaceDescriptorV3>
+  >;
+  readonly panels: Readonly<Record<WorkbenchPanelId, WorkbenchPanelState>>;
+  readonly lastFocusedPanelId: WorkbenchPanelId | null;
+  readonly composerOverlay: WorkbenchComposerOverlayState;
+  readonly agentDock: WorkbenchAgentDockState | null;
+  readonly touchedAt: string;
+}
+
 export type WorkbenchSceneSnapshotV2 = Omit<
-  WorkbenchSceneSnapshot,
+  WorkbenchSceneSnapshotV3,
   "version" | "composerOverlay" | "agentDock"
 > & {
   readonly version: 2;
@@ -422,12 +493,40 @@ function enforceSessionSceneInvariants(
   };
 }
 
+function enforceResourceSceneInvariants(
+  scene: WorkbenchSceneSnapshot,
+): WorkbenchSceneSnapshot {
+  const allowedKinds = new Set<WorkbenchSurfaceKind>([
+    "db_view",
+    "page_stage",
+    "canvas_stage",
+    "browser",
+  ]);
+  const rooted = enforceProjectSceneInvariants({
+    ...scene,
+    panelSurfacesById: Object.fromEntries(
+      Object.entries(scene.panelSurfacesById).filter(([, surface]) =>
+        allowedKinds.has(surface.kind)
+      ),
+    ),
+  });
+  return {
+    ...rooted,
+    composerOverlay: { visible: false },
+    agentDock: null,
+  };
+}
+
 function enforceWorkbenchSceneInvariants(
   scene: WorkbenchSceneSnapshot,
 ): WorkbenchSceneSnapshot {
-  return scene.owner.kind === "project"
-    ? enforceProjectSceneInvariants(scene)
-    : enforceSessionSceneInvariants(scene);
+  if (scene.owner.kind === "project") {
+    return enforceProjectSceneInvariants(scene);
+  }
+  if (scene.owner.kind === "resource") {
+    return enforceResourceSceneInvariants(scene);
+  }
+  return enforceSessionSceneInvariants(scene);
 }
 
 function fromLegacyPanelView(
@@ -475,7 +574,13 @@ function toLegacyPanelTab(
   return {
     ...surface,
     config: {
-      projectId: surface.config.projectId,
+      projectId: surface.config.accessContext.kind === "project"
+        ? surface.config.accessContext.projectId
+        : (() => {
+            throw new Error(
+              "A Library Database surface cannot be projected as a legacy Session tab",
+            );
+          })(),
       databaseViewId: surface.config.target.databaseViewId,
       view: surface.config.view,
     },
@@ -493,7 +598,7 @@ export function workbenchSurfaceFromLegacySessionTab(
   return {
     ...tab,
     config: {
-      projectId: tab.config.projectId,
+      accessContext: { kind: "project", projectId: tab.config.projectId },
       target: {
         kind: "database-view",
         databaseViewId: tab.config.databaseViewId,
@@ -560,7 +665,7 @@ function ownerRootPrimary(
       kind: "db_view",
       titleSnapshot: "Database",
       config: {
-        projectId: owner.projectId,
+        accessContext: { kind: "project", projectId: owner.projectId },
         target: { kind: "project-default" },
         view: "kanban",
       },
@@ -569,13 +674,54 @@ function ownerRootPrimary(
     };
   }
 
-  return {
+  if (owner.kind === "session") return {
     id: identityFactory.createId("surface"),
     kind: "conversation",
     titleSnapshot: "Conversation",
     config: { sessionId: owner.sessionId },
     stateKey: 0,
     state: null,
+  };
+
+  const common = {
+    id: identityFactory.createId("surface"),
+    stateKey: 0,
+    state: null,
+  } as const;
+  if (owner.root.kind === "page") {
+    return {
+      ...common,
+      kind: "page_stage",
+      titleSnapshot: "Page",
+      config: {
+        accessContext: { kind: "library" },
+        pageId: owner.root.pageId,
+      },
+    };
+  }
+  if (owner.root.kind === "database") {
+    return {
+      ...common,
+      kind: "db_view",
+      titleSnapshot: "Database",
+      config: {
+        accessContext: { kind: "library" },
+        target: {
+          kind: "database-default",
+          databaseId: owner.root.databaseId,
+        },
+        view: "kanban",
+      },
+    };
+  }
+  return {
+    ...common,
+    kind: "canvas_stage",
+    titleSnapshot: "Canvas",
+    config: {
+      accessContext: { kind: "library" },
+      canvasBlockId: owner.root.canvasId,
+    },
   };
 }
 
@@ -598,7 +744,7 @@ export function createEmptyWorkbenchScene(
     panelSurfacesById: {},
     panels: view.panels,
     lastFocusedPanelId: null,
-    composerOverlay: { visible: true },
+    composerOverlay: { visible: owner.kind !== "resource" },
     agentDock: owner.kind === "project"
       ? {
           binding: { kind: "new" },
@@ -646,7 +792,10 @@ export function materializeInitialProjectWelcomeScene(
       kind: "page_stage",
       titleSnapshot: presentation.starterPageTitle,
       config: {
-        projectId: presentation.projectId,
+        accessContext: {
+          kind: "project",
+          projectId: presentation.projectId,
+        },
         pageId: presentation.starterPageId,
         titleSnapshot: presentation.starterPageTitle,
       },
@@ -670,18 +819,89 @@ export function normalizeWorkbenchScene(
   return fromLegacyPanelView(value, normalized);
 }
 
+function migrateWorkbenchSurfaceV3ToV4(
+  surface: WorkbenchSurfaceDescriptorV3,
+): WorkbenchSurfaceDescriptor {
+  if (
+    surface.kind !== "db_view"
+    && surface.kind !== "page_stage"
+    && surface.kind !== "canvas_stage"
+  ) {
+    return surface;
+  }
+  const { projectId, ...config } = surface.config;
+  return {
+    ...surface,
+    config: {
+      ...config,
+      accessContext: { kind: "project", projectId },
+    },
+  } as WorkbenchSurfaceDescriptor;
+}
+
+function migrateLegacySceneBase(input: {
+  readonly legacy: Omit<WorkbenchSceneSnapshotV3, "version" | "composerOverlay" | "agentDock">;
+  readonly composerOverlay: WorkbenchComposerOverlayState;
+  readonly agentDock: WorkbenchAgentDockState | null;
+}): WorkbenchSceneSnapshot {
+  return normalizeWorkbenchScene({
+    ...input.legacy,
+    version: WORKBENCH_SCENE_VERSION,
+    primary: migrateWorkbenchSurfaceV3ToV4(input.legacy.primary),
+    panelSurfacesById: Object.fromEntries(
+      Object.entries(input.legacy.panelSurfacesById).map(
+        ([surfaceId, surface]) => [
+          surfaceId,
+          migrateWorkbenchSurfaceV3ToV4(surface),
+        ],
+      ),
+    ),
+    composerOverlay: input.composerOverlay,
+    agentDock: input.agentDock,
+  });
+}
+
+export function migrateWorkbenchSceneV3ToV4(
+  legacy: WorkbenchSceneSnapshotV3,
+): WorkbenchSceneSnapshot {
+  const { composerOverlay, agentDock, ...scene } = legacy;
+  return migrateLegacySceneBase({
+    legacy: scene,
+    composerOverlay,
+    agentDock,
+  });
+}
+
+export function migrateWorkbenchSceneV2ToV4(
+  legacy: WorkbenchSceneSnapshotV2,
+): WorkbenchSceneSnapshot {
+  const { agentDock: legacyAgentDock, ...scene } = legacy;
+  return migrateLegacySceneBase({
+    legacy: scene,
+    composerOverlay: {
+      visible: legacy.owner.kind === "project"
+        ? legacyAgentDock?.visible ?? true
+        : true,
+    },
+    agentDock: legacyAgentDock
+      ? {
+          binding: legacyAgentDock.binding,
+          newDraftId: legacyAgentDock.newDraftId,
+        }
+      : null,
+  });
+}
+
 /**
- * Pure, deterministic Scene-v1 migration used by the persistence codec.
- * Project Conversation surfaces become a Dock binding; their Sessions remain
- * owned by Core and are never deleted by this UI-state migration.
+ * Pure Scene-v1 migration. Project Conversation surfaces become a Dock
+ * binding; their Sessions remain owned by Core.
  */
-function migrateWorkbenchSceneV1ToCurrent(
+export function migrateWorkbenchSceneV1ToV4(
   legacy: WorkbenchSceneSnapshotV1,
 ): WorkbenchSceneSnapshot {
   if (legacy.owner.kind === "session") {
-    return normalizeWorkbenchScene({
-      ...legacy,
-      version: WORKBENCH_SCENE_VERSION,
+    return migrateLegacySceneBase({
+      legacy,
       composerOverlay: { visible: true },
       agentDock: null,
     });
@@ -695,9 +915,8 @@ function migrateWorkbenchSceneV1ToCurrent(
   const boundSessionId = activeSurface?.kind === "conversation"
     ? activeSurface.config.sessionId
     : null;
-  const migrated = normalizeWorkbenchScene({
-    ...legacy,
-    version: WORKBENCH_SCENE_VERSION,
+  const migrated = migrateLegacySceneBase({
+    legacy,
     composerOverlay: { visible: true },
     agentDock: {
       binding: boundSessionId
@@ -728,57 +947,6 @@ function migrateWorkbenchSceneV1ToCurrent(
     },
     lastFocusedPanelId: "right",
   };
-}
-
-function currentWorkbenchSceneToV2(
-  scene: WorkbenchSceneSnapshot,
-): WorkbenchSceneSnapshotV2 {
-  const { composerOverlay, ...withoutComposerOverlay } = scene;
-  return {
-    ...withoutComposerOverlay,
-    version: 2,
-    agentDock: scene.agentDock
-      ? { ...scene.agentDock, visible: composerOverlay.visible }
-      : null,
-  };
-}
-
-export function migrateWorkbenchSceneV1ToV2(
-  legacy: WorkbenchSceneSnapshotV1,
-): WorkbenchSceneSnapshotV2 {
-  return currentWorkbenchSceneToV2(
-    migrateWorkbenchSceneV1ToCurrent(legacy),
-  );
-}
-
-export function migrateWorkbenchSceneV2ToV3(
-  legacy: WorkbenchSceneSnapshotV2,
-): WorkbenchSceneSnapshot {
-  const { agentDock: legacyAgentDock, ...scene } = legacy;
-  const agentDock = legacyAgentDock
-    ? {
-        binding: legacyAgentDock.binding,
-        newDraftId: legacyAgentDock.newDraftId,
-      }
-    : null;
-  return normalizeWorkbenchScene({
-    ...scene,
-    version: WORKBENCH_SCENE_VERSION,
-    composerOverlay: {
-      visible: legacy.owner.kind === "project"
-        ? legacyAgentDock?.visible ?? true
-        : true,
-    },
-    agentDock,
-  });
-}
-
-export function migrateWorkbenchSceneV1ToV3(
-  legacy: WorkbenchSceneSnapshotV1,
-): WorkbenchSceneSnapshot {
-  return migrateWorkbenchSceneV2ToV3(
-    migrateWorkbenchSceneV1ToV2(legacy),
-  );
 }
 
 export function createWorkbenchSceneSurface(
@@ -1049,7 +1217,8 @@ function cloneWorkbenchScene(
         const surface = tab as WorkbenchSurfaceDescriptor;
         return surface.kind === "db_view"
           && surface.config.target.kind === "project-default"
-          && surface.config.projectId === projectId;
+          && surface.config.accessContext.kind === "project"
+          && surface.config.accessContext.projectId === projectId;
       }) as WorkbenchSurfaceDescriptor | undefined
     : undefined;
   return fromLegacyPanelView(
@@ -1086,20 +1255,30 @@ export function cloneWorkbenchSceneLayoutForNewWindow<
   };
 }
 
+function contentAccessContextKey(context: ContentAccessContext): string {
+  return context.kind === "project"
+    ? `project:${context.projectId}`
+    : "library";
+}
+
 export function getWorkbenchSurfaceReuseKey(
   surface: WorkbenchSurfaceDescriptor,
 ): string | null {
   switch (surface.kind) {
     case "conversation":
       return `conversation:${surface.config.sessionId}`;
-    case "db_view":
+    case "db_view": {
+      const accessKey = contentAccessContextKey(surface.config.accessContext);
       return surface.config.target.kind === "project-default"
-        ? `db:${surface.config.projectId}:default`
-        : `db:${surface.config.projectId}:${surface.config.target.databaseViewId}`;
+        ? `db:${accessKey}:default`
+        : surface.config.target.kind === "database-default"
+          ? `db:${accessKey}:database:${surface.config.target.databaseId}:default`
+          : `db:${accessKey}:view:${surface.config.target.databaseViewId}`;
+    }
     case "page_stage":
-      return `page:${surface.config.projectId}:${surface.config.pageId}`;
+      return `page:${contentAccessContextKey(surface.config.accessContext)}:${surface.config.pageId}`;
     case "canvas_stage":
-      return `canvas:${surface.config.projectId}:${surface.config.canvasBlockId}`;
+      return `canvas:${contentAccessContextKey(surface.config.accessContext)}:${surface.config.canvasBlockId}`;
     case "review": {
       const context = surface.config.context;
       if (!context) return `review:project:${surface.config.projectId}`;

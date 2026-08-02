@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-import type { WorkbenchTabProjection } from "@/lib/types";
+import type { WorkbenchSurfaceDescriptor } from "../../../shared/workbench-scene";
 import { useLibraryCanvasTarget } from "@/lib/use-library-navigation";
 import { WorkbenchCanvasStagePanel } from "./workbench-canvas-stage-panel";
 
@@ -24,25 +24,18 @@ vi.mock("@/components/canvas/canvas-document-surface", () => ({
   ),
 }));
 
-const canvasTab = {
+const canvasSurface = {
   id: "canvas-tab",
-  sessionId: "session-1",
-  projectId: "project-1",
-  panelId: "right",
   kind: "canvas_stage",
-  title: "Snapshot title",
-  order: 0,
+  titleSnapshot: "Snapshot title",
   config: {
-    projectId: "project-1",
+    accessContext: { kind: "project", projectId: "project-1" },
     canvasBlockId: "canvas-1",
     titleSnapshot: "Snapshot title",
   },
-  browserTabId: null,
   stateKey: 0,
   state: null,
-  createdAt: "2026-07-30T00:00:00.000Z",
-  updatedAt: "2026-07-30T00:00:00.000Z",
-} satisfies WorkbenchTabProjection;
+} satisfies WorkbenchSurfaceDescriptor;
 
 describe("WorkbenchCanvasStagePanel", () => {
   beforeEach(() => {
@@ -88,9 +81,9 @@ describe("WorkbenchCanvasStagePanel", () => {
 
     render(
       <WorkbenchCanvasStagePanel
-        tab={canvasTab}
+        surface={canvasSurface}
         windowSessionId="window-1"
-        projectSessionId="session-1"
+        presentationOwnerId="session-1"
         isActivePanelTab
         onClose={vi.fn()}
         onTitleChange={onTitleChange}
@@ -108,9 +101,9 @@ describe("WorkbenchCanvasStagePanel", () => {
   test("keeps the Stage viewport scope stable when the Canvas tab is reopened", async () => {
     const rendered = render(
       <WorkbenchCanvasStagePanel
-        tab={canvasTab}
+        surface={canvasSurface}
         windowSessionId="window-1"
-        projectSessionId="session-1"
+        presentationOwnerId="session-1"
         isActivePanelTab
         onClose={vi.fn()}
         onTitleChange={vi.fn()}
@@ -121,9 +114,9 @@ describe("WorkbenchCanvasStagePanel", () => {
 
     rendered.rerender(
       <WorkbenchCanvasStagePanel
-        tab={{ ...canvasTab, id: "reopened-canvas-tab" }}
+        surface={{ ...canvasSurface, id: "reopened-canvas-tab" }}
         windowSessionId="window-1"
-        projectSessionId="session-1"
+        presentationOwnerId="session-1"
         isActivePanelTab
         onClose={vi.fn()}
         onTitleChange={vi.fn()}

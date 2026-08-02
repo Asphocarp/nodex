@@ -113,7 +113,7 @@ describe("workbench session shell / pages-shell-navigation", () => {
     expect(typeof input?.clientTabId).toBe("string");
     expect(input?.kind).toBe("page_stage");
     expect(JSON.stringify(input?.config)).toBe(JSON.stringify({
-      projectId: "alpha",
+      accessContext: { kind: "project", projectId: "alpha" },
       pageId: "card-1",
       titleSnapshot: "Card One",
     }));
@@ -209,7 +209,7 @@ describe("workbench session shell / pages-shell-navigation", () => {
       expect(input?.kind).toBe("page_stage");
       expect(input?.title).toBe("Card One");
       expect(JSON.stringify(input?.config)).toBe(JSON.stringify({
-        projectId: "alpha",
+        accessContext: { kind: "project", projectId: "alpha" },
         pageId: "card-1",
         titleSnapshot: "Card One",
       }));
@@ -946,12 +946,15 @@ describe("workbench session shell / pages-shell-navigation", () => {
     const createCall = invokeCalls.find((call) => call[0] === "window-session-view:tab-create");
     const input = createCall?.[1] as {
       config?: {
-        projectId?: string;
+        accessContext?: {
+          kind: "project";
+          projectId: string;
+        };
         pageId?: string;
       };
     } | undefined;
     expect(input?.config).toEqual({
-      projectId: "alpha",
+      accessContext: { kind: "project", projectId: "alpha" },
       pageId: "nested-card",
       titleSnapshot: "Nested Card",
     });

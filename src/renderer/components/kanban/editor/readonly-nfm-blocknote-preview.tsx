@@ -9,7 +9,7 @@ import {
 import type { PartialBlock } from "@blocknote/core";
 import { createReactBlockSpec, createReactInlineContentSpec, useCreateBlockNote } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/shadcn";
-import { Bot, BoxSelect, Database, FileText, Link2, ListTree, Paperclip, RefreshCw, Rows3, Settings2 } from "lucide-react";
+import { Bot, BoxSelect, FileText, Link2, ListTree, Paperclip, RefreshCw, Rows3, Settings2, Table2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { parseNfm, nfmToBlockNote } from "@/lib/nfm";
@@ -141,7 +141,7 @@ const createReadonlyDatabaseBlockSpec = createReactBlockSpec(
   {
     render: ({ block }) => (
       <InertEmbedPlaceholder
-        icon={Database}
+        icon={Table2}
         label="Database"
         detail={block.id}
       />

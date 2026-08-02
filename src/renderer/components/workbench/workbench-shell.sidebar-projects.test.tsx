@@ -481,12 +481,16 @@ describe("workbench session shell / sidebar-projects", () => {
     await settleAsyncRender();
 
     await ensureProjectRowExpanded(screen.container);
+    const projectGroup = getSidebarProjectGroup(
+      getSidebarSection(screen.container, "Projects"),
+      "alpha",
+    );
 
     expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 5"]') !== null).toBe(true);
     expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 6"]')).toBe(null);
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Show more" }));
+      fireEvent.click(within(projectGroup).getByRole("button", { name: "Show more" }));
       await Promise.resolve();
     });
     await settleAsyncRender();

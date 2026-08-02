@@ -1,4 +1,4 @@
-import type { MutableRefObject } from "react";
+import type { MutableRefObject, ReactNode } from "react";
 import type {
   PageInput,
   WorkflowStatus,
@@ -58,6 +58,13 @@ export interface PageStageProps {
   retainEditorSession?: boolean;
   /** Optional route-level navigation control for standalone Page surfaces. */
   onNavigateBack?: () => void;
+  /** Hosts the single Page toolbar outside the surface without duplicating it. */
+  toolbarPlacement?:
+    | { readonly kind: "surface" }
+    | {
+        readonly kind: "external";
+        readonly render: (toolbar: ReactNode) => ReactNode;
+      };
   onLeavePage?: (snapshot: PageStageSessionSnapshot) => void;
   /** Publishes the authoritative plain-text Y.Text title for surrounding chrome. */
   onTitleChange?: (title: string) => void;

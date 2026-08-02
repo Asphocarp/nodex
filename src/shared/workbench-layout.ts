@@ -2,8 +2,12 @@ import type { WorkbenchSessionViewSnapshot } from "./workbench-session-view";
 import type {
   WorkbenchSceneKey,
   WorkbenchSceneSnapshot,
+  WorkbenchSceneSnapshotV3,
 } from "./workbench-scene";
-import type { LibraryRouteTarget } from "./library-module";
+import type {
+  LibraryResourceTarget,
+  LibraryRouteTarget,
+} from "./library-module";
 
 export type WorkbenchLayoutView = "kanban" | "list" | "toggle-list" | "calendar";
 export type WorkbenchLayoutStageId = "db" | "pages" | "threads" | "files";
@@ -131,7 +135,7 @@ export interface WorkbenchLayoutSnapshotV4 {
   >;
 }
 
-export type WorkbenchSceneLocation =
+export type WorkbenchSceneLocationV5 =
   | {
       readonly kind: "project";
       readonly projectId: string;
@@ -146,12 +150,50 @@ export type WorkbenchSceneLocation =
     };
 
 export type WorkbenchLocationV5 =
-  | WorkbenchSceneLocation
+  | WorkbenchSceneLocationV5
   | {
       readonly kind: "library";
       readonly target: WorkbenchLibraryLocationTarget;
-      readonly returnTo: WorkbenchSceneLocation;
+      readonly returnTo: WorkbenchSceneLocationV5;
     }
+  | {
+      readonly kind: "settings";
+      readonly path: string;
+      readonly returnTo: WorkbenchSceneLocationV5;
+    }
+  | {
+      readonly kind: "automations";
+      readonly path: string;
+      readonly returnTo: WorkbenchSceneLocationV5;
+    }
+  | {
+      readonly kind: "pending-worktree";
+      readonly clientThreadId: string;
+      readonly returnTo: WorkbenchSceneLocationV5;
+    };
+
+export interface WorkbenchLayoutSnapshotV5 {
+  readonly version: 5;
+  readonly location: Exclude<
+    WorkbenchLocationV5,
+    { readonly kind: "pending-worktree" }
+  >;
+  readonly databaseSearchByProject: Record<string, string>;
+  readonly scenesByOwnerKey: Record<
+    WorkbenchSceneKey,
+    WorkbenchSceneSnapshotV3
+  >;
+}
+
+export type WorkbenchSceneLocation =
+  | WorkbenchSceneLocationV5
+  | {
+      readonly kind: "resource";
+      readonly root: LibraryResourceTarget;
+    };
+
+export type WorkbenchLocationV6 =
+  | WorkbenchSceneLocation
   | {
       readonly kind: "settings";
       readonly path: string;
@@ -168,10 +210,10 @@ export type WorkbenchLocationV5 =
       readonly returnTo: WorkbenchSceneLocation;
     };
 
-export interface WorkbenchLayoutSnapshotV5 {
-  readonly version: 5;
+export interface WorkbenchLayoutSnapshotV6 {
+  readonly version: 6;
   readonly location: Exclude<
-    WorkbenchLocationV5,
+    WorkbenchLocationV6,
     { readonly kind: "pending-worktree" }
   >;
   readonly databaseSearchByProject: Record<string, string>;
@@ -181,8 +223,8 @@ export interface WorkbenchLayoutSnapshotV5 {
   >;
 }
 
-export type WorkbenchLocation = WorkbenchLocationV5;
-export type WorkbenchLayoutSnapshot = WorkbenchLayoutSnapshotV5;
+export type WorkbenchLocation = WorkbenchLocationV6;
+export type WorkbenchLayoutSnapshot = WorkbenchLayoutSnapshotV6;
 
 function createDefaultDockTree(): WorkbenchLayoutSnapshotV3["dock"]["tree"] {
   return {
@@ -259,8 +301,17 @@ export function createDefaultWorkbenchLayoutSnapshotV5(): WorkbenchLayoutSnapsho
   };
 }
 
+export function createDefaultWorkbenchLayoutSnapshotV6(): WorkbenchLayoutSnapshotV6 {
+  return {
+    version: 6,
+    location: { kind: "empty" },
+    databaseSearchByProject: {},
+    scenesByOwnerKey: {},
+  };
+}
+
 export function createDefaultWorkbenchLayoutSnapshot(): WorkbenchLayoutSnapshot {
-  return createDefaultWorkbenchLayoutSnapshotV5();
+  return createDefaultWorkbenchLayoutSnapshotV6();
 }
 
 export function getWorkbenchSessionReturnLocationV4(
@@ -273,11 +324,12 @@ export function getWorkbenchSessionReturnLocationV4(
 }
 
 export function getWorkbenchSceneReturnLocation(
-  location: WorkbenchLocationV5,
+  location: WorkbenchLocationV6,
 ): WorkbenchSceneLocation {
   if (
     location.kind === "project"
     || location.kind === "session"
+    || location.kind === "resource"
     || location.kind === "empty"
   ) {
     return location;
@@ -299,5 +351,12 @@ export function getRestorableWorkbenchLocationV5(
   return location.returnTo;
 }
 
+export function getRestorableWorkbenchLocationV6(
+  location: WorkbenchLocationV6,
+): WorkbenchLayoutSnapshotV6["location"] {
+  if (location.kind !== "pending-worktree") return location;
+  return location.returnTo;
+}
+
 export const getRestorableWorkbenchLocation =
-  getRestorableWorkbenchLocationV5;
+  getRestorableWorkbenchLocationV6;

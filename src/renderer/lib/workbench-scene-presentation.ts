@@ -24,9 +24,32 @@ function resourceProjectId(
   session: ProjectSession,
   surface: WorkbenchSurfaceDescriptor,
 ): string | null {
+  if (
+    surface.kind === "db_view"
+    || surface.kind === "page_stage"
+    || surface.kind === "canvas_stage"
+  ) {
+    return surface.config.accessContext.kind === "project"
+      ? surface.config.accessContext.projectId
+      : null;
+  }
   return "projectId" in surface.config
     ? surface.config.projectId
     : session.projectId;
+}
+
+function requireProjectAccess(
+  surface: Extract<
+    WorkbenchSurfaceDescriptor,
+    { readonly kind: "db_view" | "page_stage" | "canvas_stage" }
+  >,
+): string {
+  if (surface.config.accessContext.kind === "project") {
+    return surface.config.accessContext.projectId;
+  }
+  throw new Error(
+    "A Library resource surface cannot be rendered as a Session panel tab",
+  );
 }
 
 function projectionConfig(
@@ -42,9 +65,27 @@ function projectionConfig(
       );
     }
     return {
-      projectId: surface.config.projectId,
+      projectId: requireProjectAccess(surface),
       databaseViewId: surface.config.target.databaseViewId,
       view: surface.config.view,
+    };
+  }
+  if (surface.kind === "page_stage") {
+    return {
+      projectId: requireProjectAccess(surface),
+      pageId: surface.config.pageId,
+      ...(surface.config.titleSnapshot
+        ? { titleSnapshot: surface.config.titleSnapshot }
+        : {}),
+    };
+  }
+  if (surface.kind === "canvas_stage") {
+    return {
+      projectId: requireProjectAccess(surface),
+      canvasBlockId: surface.config.canvasBlockId,
+      ...(surface.config.titleSnapshot
+        ? { titleSnapshot: surface.config.titleSnapshot }
+        : {}),
     };
   }
   if (surface.kind !== "browser") return surface.config;
@@ -155,12 +196,47 @@ export function workbenchSurfaceFromCreateInput(
       ...common,
       kind: "db_view",
       config: {
-        projectId: input.config.projectId,
+        accessContext: {
+          kind: "project",
+          projectId: input.config.projectId,
+        },
         target: {
           kind: "database-view",
           databaseViewId: input.config.databaseViewId,
         },
         view: input.config.view,
+      },
+    };
+  }
+  if (input.kind === "page_stage") {
+    return {
+      ...common,
+      kind: "page_stage",
+      config: {
+        accessContext: {
+          kind: "project",
+          projectId: input.config.projectId,
+        },
+        pageId: input.config.pageId,
+        ...(input.config.titleSnapshot
+          ? { titleSnapshot: input.config.titleSnapshot }
+          : {}),
+      },
+    };
+  }
+  if (input.kind === "canvas_stage") {
+    return {
+      ...common,
+      kind: "canvas_stage",
+      config: {
+        accessContext: {
+          kind: "project",
+          projectId: input.config.projectId,
+        },
+        canvasBlockId: input.config.canvasBlockId,
+        ...(input.config.titleSnapshot
+          ? { titleSnapshot: input.config.titleSnapshot }
+          : {}),
       },
     };
   }
@@ -222,12 +298,47 @@ export function applyWorkbenchSurfacePatch(
       ...common,
       kind: "db_view",
       config: {
-        projectId: patch.config.projectId,
+        accessContext: {
+          kind: "project",
+          projectId: patch.config.projectId,
+        },
         target: {
           kind: "database-view",
           databaseViewId: patch.config.databaseViewId,
         },
         view: patch.config.view,
+      },
+    };
+  }
+  if (surface.kind === "page_stage" && "pageId" in patch.config) {
+    return {
+      ...common,
+      kind: "page_stage",
+      config: {
+        accessContext: {
+          kind: "project",
+          projectId: patch.config.projectId,
+        },
+        pageId: patch.config.pageId,
+        ...(patch.config.titleSnapshot
+          ? { titleSnapshot: patch.config.titleSnapshot }
+          : {}),
+      },
+    };
+  }
+  if (surface.kind === "canvas_stage" && "canvasBlockId" in patch.config) {
+    return {
+      ...common,
+      kind: "canvas_stage",
+      config: {
+        accessContext: {
+          kind: "project",
+          projectId: patch.config.projectId,
+        },
+        canvasBlockId: patch.config.canvasBlockId,
+        ...(patch.config.titleSnapshot
+          ? { titleSnapshot: patch.config.titleSnapshot }
+          : {}),
       },
     };
   }

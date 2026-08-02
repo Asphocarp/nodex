@@ -8,13 +8,16 @@ import {
   type DatabaseModuleErrorV2,
   type DataSourcePageRowV2,
   type DataSourcePropertyRecordV2,
+  type LibraryDatabaseApplyReceiptV2,
+  type LibraryDatabaseApplyResultV2,
+  type LibraryDatabaseApplyV2,
 } from "../../shared/database-module-v2";
 import { parseDataSourceOptionId } from "../../shared/database-identities";
 import {
   stableStringifyDatabaseJson,
   type DatabaseJsonValue,
 } from "../../shared/database-kernel";
-import { applyDatabaseModule } from "./api";
+import { applyDatabaseModule, applyLibraryDatabaseModule } from "./api";
 import type { DatabaseViewRenderModel } from "./database-view-render-model";
 
 export class DatabaseViewMutationError extends Error {
@@ -205,15 +208,23 @@ export const canMoveDatabaseViewPage = (input: {
 };
 
 export interface DatabaseViewMutationDependencies {
-  readonly apply: (
+  readonly applyProject: (
     projectId: string,
     request: DatabaseApplyV2,
   ) => Promise<DatabaseApplyResultV2>;
+  readonly applyLibrary: (
+    request: LibraryDatabaseApplyV2,
+  ) => Promise<LibraryDatabaseApplyResultV2>;
 }
 
 const defaultDependencies: DatabaseViewMutationDependencies = {
-  apply: applyDatabaseModule,
+  applyProject: applyDatabaseModule,
+  applyLibrary: applyLibraryDatabaseModule,
 };
+
+export type DatabaseViewMutationReceipt =
+  | DatabaseApplyReceiptV2
+  | LibraryDatabaseApplyReceiptV2;
 
 export const commitDatabaseViewOperations = async (input: {
   readonly model: DatabaseViewRenderModel;
@@ -221,32 +232,37 @@ export const commitDatabaseViewOperations = async (input: {
   readonly clientSessionId?: string;
   readonly operationId?: string;
   readonly dependencies?: DatabaseViewMutationDependencies;
-}): Promise<DatabaseApplyReceiptV2 | null> => {
+}): Promise<DatabaseViewMutationReceipt | null> => {
   if (input.operations.length === 0) return null;
-  const request: DatabaseApplyV2 = {
+  const commonRequest = {
     version: DATABASE_MODULE_V2_CONTRACT_VERSION,
     operationId: input.operationId ?? crypto.randomUUID(),
-    projectId: input.model.projectId,
     storeEpoch: input.model.storeEpoch,
-    actor: {
-      kind: "renderer_database_view",
-      ...(input.clientSessionId
-        ? { clientSessionId: input.clientSessionId }
-        : {}),
-    },
     operations: input.operations,
-  };
+  } as const;
   const dependencies = input.dependencies ?? defaultDependencies;
-  let result: DatabaseApplyResultV2;
+  const apply = () => input.model.accessContext.kind === "library"
+    ? dependencies.applyLibrary(commonRequest)
+    : dependencies.applyProject(input.model.accessContext.projectId, {
+        ...commonRequest,
+        projectId: input.model.accessContext.projectId,
+        actor: {
+          kind: "renderer_database_view" as const,
+          ...(input.clientSessionId
+            ? { clientSessionId: input.clientSessionId }
+            : {}),
+        },
+      });
+  let result: DatabaseApplyResultV2 | LibraryDatabaseApplyResultV2;
   let retried = false;
   try {
-    result = await dependencies.apply(input.model.projectId, request);
+    result = await apply();
   } catch {
     retried = true;
-    result = await dependencies.apply(input.model.projectId, request);
+    result = await apply();
   }
   if (!result.ok && result.error.retryable && !retried) {
-    result = await dependencies.apply(input.model.projectId, request);
+    result = await apply();
   }
   if (result.ok) return result.value;
   throw new DatabaseViewMutationError(result.error);

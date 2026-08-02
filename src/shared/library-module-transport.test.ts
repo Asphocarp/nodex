@@ -120,6 +120,71 @@ describe("Library Module transport", () => {
     });
   });
 
+  test("binds and parses standalone roots while rejecting View entries", () => {
+    const pageId = uuidV7(31);
+    expect(bindLibraryModuleRead({
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      read: {
+        mode: "standalone_roots",
+        cursor: "cursor-1",
+        limit: 10,
+        forceIncludeTarget: { kind: "page", pageId },
+      },
+    })).toEqual({
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      read: {
+        mode: "standalone_roots",
+        cursor: "cursor-1",
+        limit: 10,
+        forceIncludeTarget: { kind: "page", pageId },
+      },
+    });
+
+    expect(parseLibraryModuleReadResult(readResult({
+      kind: "standalone_roots",
+      items: [{
+        kind: "page",
+        pageId,
+        title: "Prompts",
+        hasChildren: false,
+        parentRevision: 1,
+        metadataRevision: 1,
+        documentGeneration: 1,
+        documentHeadSeq: 0,
+        updatedAt: "2026-08-03T00:00:00.000Z",
+      }],
+      nextCursor: null,
+      hasMore: false,
+      total: 1,
+    }))).toMatchObject({
+      ok: true,
+      value: {
+        value: {
+          kind: "standalone_roots",
+          items: [{ kind: "page", pageId }],
+          total: 1,
+        },
+      },
+    });
+
+    expect(() => parseLibraryModuleReadResult(readResult({
+      kind: "standalone_roots",
+      items: [{
+        kind: "view",
+        viewId: uuidV7(32),
+        databaseId: uuidV7(33),
+        dataSourceId: uuidV7(34),
+        title: "Board",
+        viewKind: "kanban",
+        isDefault: true,
+        revision: 1,
+      }],
+      nextCursor: null,
+      hasMore: false,
+      total: 1,
+    }))).toThrow("cannot contain Views");
+  });
+
   test("binds and parses the deterministic primary Canvas identity", () => {
     expect(bindLibraryModuleRead({
       version: LIBRARY_MODULE_CONTRACT_VERSION,
