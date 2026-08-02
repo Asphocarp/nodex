@@ -1016,12 +1016,26 @@ export function WorkbenchRuntime({
       };
     }, { recordHistory: false });
   }, [workbenchWindow]);
+  const setComposerOverlayVisible = useCallback((
+    owner: WorkbenchSceneOwner,
+    visible: boolean,
+  ) => {
+    workbenchWindow.setScene(owner, (stored) => {
+      const scene = stored ?? materializeInitialWorkbenchScene(owner);
+      if (scene.composerOverlay.visible === visible) return scene;
+      return {
+        ...scene,
+        composerOverlay: { visible },
+      };
+    }, { recordHistory: false });
+  }, [workbenchWindow]);
   const setProjectAgentDockVisible = useCallback((visible: boolean) => {
     if (!selectedProjectSceneId) return;
-    updateProjectAgentDock(selectedProjectSceneId, (dock) =>
-      dock.visible === visible ? dock : { ...dock, visible }
-    );
-  }, [selectedProjectSceneId, updateProjectAgentDock]);
+    setComposerOverlayVisible({
+      kind: "project",
+      projectId: selectedProjectSceneId,
+    }, visible);
+  }, [selectedProjectSceneId, setComposerOverlayVisible]);
   const selectProjectAgentDockTarget = useCallback((
     row: ProjectAgentDockTargetRow,
   ) => {
@@ -1132,6 +1146,18 @@ export function WorkbenchRuntime({
       .find((candidate) => candidate.id === tabId) ?? null;
   }, [activeSession, resolveSessionScene]);
   const activeRenderSession = activeSession;
+  const activeSessionScene = activeSession
+    ? resolveSessionScene(activeSession)
+    : null;
+  const setActiveSessionComposerOverlayVisible = useCallback((
+    visible: boolean,
+  ) => {
+    if (!activeSession) return;
+    setComposerOverlayVisible({
+      kind: "session",
+      sessionId: activeSession.id,
+    }, visible);
+  }, [activeSession, setComposerOverlayVisible]);
   const forkTransferTargetConversationId = activeRenderSession?.thread?.threadId ?? null;
   const forkTransferTargetSessionId = activeRenderSession?.id ?? null;
   const consumedForkTransferTargetsRef = useRef(new Set<string>());
@@ -1331,6 +1357,23 @@ export function WorkbenchRuntime({
     useBrowserDocumentBottom(rightPanelComposerOverlayBrowserIdentity);
   const rightPanelComposerOverlayDocumentBottomKey =
     getBrowserDocumentBottomKey(rightPanelComposerOverlayBrowserIdentity);
+  const rightPanelComposerOverlayVisibility = activeSessionScene
+    ? rightPanelComposerOverlayCompact
+      ? {
+          kind: "controlled-browser-auto" as const,
+          visible: activeSessionScene.composerOverlay.visible,
+          attention: "none" as const,
+          onVisibleChange: setActiveSessionComposerOverlayVisible,
+          documentBottomKey: rightPanelComposerOverlayDocumentBottomKey,
+          isAtDocumentBottom: rightPanelComposerOverlayAtDocumentBottom,
+        }
+      : {
+          kind: "controlled" as const,
+          visible: activeSessionScene.composerOverlay.visible,
+          attention: "none" as const,
+          onVisibleChange: setActiveSessionComposerOverlayVisible,
+        }
+    : undefined;
   const shellCanNavigateBack = workbenchWindow.canNavigateBack;
   const shellCanNavigateForward = workbenchWindow.canNavigateForward;
   const isMacPlatform =
@@ -3317,11 +3360,11 @@ export function WorkbenchRuntime({
         project={activeProject}
         projects={projects}
         composerDock={{
-          visible: activeProjectScene.agentDock.visible,
+          visible: activeProjectScene.composerOverlay.visible,
           target: rightPanelComposerOverlayTarget,
           visibility: {
             kind: "controlled",
-            visible: activeProjectScene.agentDock.visible,
+            visible: activeProjectScene.composerOverlay.visible,
             attention: projectAgentDockAttention,
             onVisibleChange: setProjectAgentDockVisible,
           },
@@ -3365,7 +3408,7 @@ export function WorkbenchRuntime({
   ) : (
     <ProjectAgentDockUnavailableOverlay
       target={rightPanelComposerOverlayTarget}
-      visible={activeProjectScene.agentDock.visible}
+      visible={activeProjectScene.composerOverlay.visible}
       attention={projectAgentDockAttention}
       onVisibleChange={setProjectAgentDockVisible}
       leadingContent={projectAgentDockLeadingContent}
@@ -3518,9 +3561,8 @@ export function WorkbenchRuntime({
             threadSummary.onToggleSummaryComputerUsePip,
           rightPanelComposerOverlayEnabled,
           rightPanelComposerOverlayCompact,
-          rightPanelComposerOverlayAtDocumentBottom,
-          rightPanelComposerOverlayDocumentBottomKey,
           rightPanelComposerOverlayTarget,
+          rightPanelComposerOverlayVisibility,
           onOpenSideChat: filterAvailablePanelActions(
             PANEL_NEW_TAB_ACTIONS,
             activeRenderSession.tabs,

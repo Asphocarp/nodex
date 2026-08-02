@@ -7,9 +7,11 @@ import {
   WORKBENCH_SCENE_MAX_PANEL_SURFACES,
   WORKBENCH_SCENE_VERSION,
   makeWorkbenchSceneKey,
-  migrateWorkbenchSceneV1ToV2,
+  migrateWorkbenchSceneV1ToV3,
+  migrateWorkbenchSceneV2ToV3,
   type WorkbenchSceneOwner,
   type WorkbenchSceneSnapshot,
+  type WorkbenchSceneSnapshotV2,
   type WorkbenchSurfaceDescriptor,
 } from "../workbench-scene";
 import { BrowserSidebarDeviceToolbarStateSchema } from "../browser/browser-schemas";
@@ -183,7 +185,6 @@ export const WorkbenchSurfaceDescriptorSchema = z.discriminatedUnion("kind", [
 }) satisfies z.ZodType<WorkbenchSurfaceDescriptor>;
 
 const WorkbenchAgentDockStateSchema = z.object({
-  visible: z.boolean(),
   binding: z.discriminatedUnion("kind", [
     z.object({ kind: z.literal("new") }).strict(),
     z.object({
@@ -192,6 +193,14 @@ const WorkbenchAgentDockStateSchema = z.object({
     }).strict(),
   ]),
   newDraftId: idSchema,
+}).strict();
+
+const WorkbenchComposerOverlayStateSchema = z.object({
+  visible: z.boolean(),
+}).strict();
+
+const WorkbenchAgentDockStateV2Schema = WorkbenchAgentDockStateSchema.extend({
+  visible: z.boolean(),
 }).strict();
 
 const workbenchSceneSnapshotFields = {
@@ -214,10 +223,18 @@ const WorkbenchSceneSnapshotV1InputSchema = z.object({
   ...workbenchSceneSnapshotFields,
 }).strict();
 
+const WorkbenchSceneSnapshotV2InputSchema = z.object({
+  version: z.literal(2),
+  ...workbenchSceneSnapshotFields,
+  agentDock: WorkbenchAgentDockStateV2Schema.nullable(),
+}).strict() satisfies z.ZodType<WorkbenchSceneSnapshotV2>;
+
 function migrateWorkbenchSceneSnapshot(value: unknown): unknown {
+  const previous = WorkbenchSceneSnapshotV2InputSchema.safeParse(value);
+  if (previous.success) return migrateWorkbenchSceneV2ToV3(previous.data);
   const legacy = WorkbenchSceneSnapshotV1InputSchema.safeParse(value);
   if (!legacy.success) return value;
-  return migrateWorkbenchSceneV1ToV2(legacy.data);
+  return migrateWorkbenchSceneV1ToV3(legacy.data);
 }
 
 export const WorkbenchSceneSnapshotSchema = z.preprocess(
@@ -225,6 +242,7 @@ export const WorkbenchSceneSnapshotSchema = z.preprocess(
   z.object({
   version: z.literal(WORKBENCH_SCENE_VERSION),
   ...workbenchSceneSnapshotFields,
+  composerOverlay: WorkbenchComposerOverlayStateSchema,
   agentDock: WorkbenchAgentDockStateSchema.nullable(),
 }).strict().superRefine((scene, context) => {
   const entries = Object.entries(scene.panelSurfacesById);

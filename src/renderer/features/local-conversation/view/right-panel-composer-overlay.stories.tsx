@@ -12,7 +12,12 @@ import {
 
 interface RightPanelComposerOverlayStoryProps {
   tabKind: "review" | "browser";
-  visibilityPolicy: "always" | "controlled" | "browser-auto";
+  visibilityPolicy:
+    | "always"
+    | "controlled"
+    | "browser-auto"
+    | "controlled-browser-auto";
+  initiallyVisible: boolean;
   draft: "empty" | "long-line" | "multiline";
   bottomPanelOpen: boolean;
   atDocumentBottom: boolean;
@@ -67,13 +72,14 @@ function buildStoryFooterModel(running: boolean) {
 function RightPanelComposerOverlayStory({
   tabKind,
   visibilityPolicy,
+  initiallyVisible,
   draft,
   bottomPanelOpen,
   atDocumentBottom,
   running,
 }: RightPanelComposerOverlayStoryProps) {
   const [overlayHost, setOverlayHost] = useState<HTMLElement | null>(null);
-  const [controlledVisible, setControlledVisible] = useState(true);
+  const [controlledVisible, setControlledVisible] = useState(initiallyVisible);
   const baseFooterModel = buildStoryFooterModel(running);
   const draftPrompt = draft === "long-line"
     ? "This single logical line is deliberately long enough to exceed the compact overlay row, so the shared composer promotes it into the normal prompt-above-controls layout without requiring an explicit newline."
@@ -142,6 +148,15 @@ function RightPanelComposerOverlayStory({
                       attention: running ? "activity" : "none",
                       onVisibleChange: setControlledVisible,
                     }
+                  : visibilityPolicy === "controlled-browser-auto"
+                    ? {
+                        kind: "controlled-browser-auto",
+                        visible: controlledVisible,
+                        attention: running ? "activity" : "none",
+                        onVisibleChange: setControlledVisible,
+                        documentBottomKey: "story-browser",
+                        isAtDocumentBottom: atDocumentBottom,
+                      }
                   : {
                       kind: "browser-auto",
                       documentBottomKey: "story-browser",
@@ -165,7 +180,8 @@ const meta = {
   component: RightPanelComposerOverlayStory,
   args: {
     tabKind: "review",
-    visibilityPolicy: "always",
+    visibilityPolicy: "controlled",
+    initiallyVisible: true,
     draft: "empty",
     bottomPanelOpen: false,
     atDocumentBottom: false,
@@ -178,7 +194,16 @@ const meta = {
     },
     visibilityPolicy: {
       control: "inline-radio",
-      options: ["always", "controlled", "browser-auto"],
+      options: [
+        "always",
+        "controlled",
+        "browser-auto",
+        "controlled-browser-auto",
+      ],
+    },
+    initiallyVisible: {
+      control: false,
+      table: { disable: true },
     },
     draft: {
       control: "inline-radio",
@@ -204,7 +229,20 @@ export const FullWidthReview: Story = {
 export const FullWidthBrowser: Story = {
   args: {
     tabKind: "browser",
-    visibilityPolicy: "browser-auto",
+    visibilityPolicy: "controlled-browser-auto",
+  },
+};
+
+export const HiddenSessionDock: Story = {
+  args: {
+    initiallyVisible: false,
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "A persisted hidden Session composer releases its pane reserve and leaves the shared reveal handle available.",
+      },
+    },
   },
 };
 

@@ -66,7 +66,6 @@ describe("buildProjectAgentDockModel", () => {
     const model = buildProjectAgentDockModel({
       projectId: "project-1",
       dock: {
-        visible: true,
         binding: { kind: "new" },
         newDraftId: "draft-1",
       },
@@ -87,7 +86,6 @@ describe("buildProjectAgentDockModel", () => {
     const model = buildProjectAgentDockModel({
       projectId: "project-1",
       dock: {
-        visible: true,
         binding: { kind: "session", sessionId: "approval" },
         newDraftId: "draft-1",
       },
@@ -145,7 +143,6 @@ describe("buildProjectAgentDockModel", () => {
     const model = buildProjectAgentDockModel({
       projectId: "project-1",
       dock: {
-        visible: true,
         binding: { kind: "session", sessionId: "unread" },
         newDraftId: "draft-1",
       },
@@ -164,7 +161,6 @@ describe("buildProjectAgentDockModel", () => {
     const model = buildProjectAgentDockModel({
       projectId: "project-1",
       dock: {
-        visible: true,
         binding: { kind: "new" },
         newDraftId: "draft-1",
       },

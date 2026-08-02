@@ -102,9 +102,8 @@ function ConnectedSessionThread({
   onToggleSummaryComputerUsePip,
   rightPanelComposerOverlayEnabled,
   rightPanelComposerOverlayCompact,
-  rightPanelComposerOverlayAtDocumentBottom,
-  rightPanelComposerOverlayDocumentBottomKey,
   rightPanelComposerOverlayTarget,
+  rightPanelComposerOverlayVisibility,
   onOpenSideChat,
   onOpenMcpAppSidePanel,
   onOpenPlanInSidePanel,
@@ -193,9 +192,8 @@ function ConnectedSessionThread({
   >;
   rightPanelComposerOverlayEnabled: boolean;
   rightPanelComposerOverlayCompact: boolean;
-  rightPanelComposerOverlayAtDocumentBottom: boolean;
-  rightPanelComposerOverlayDocumentBottomKey: string | null;
   rightPanelComposerOverlayTarget: HTMLElement | null;
+  rightPanelComposerOverlayVisibility?: RightPanelComposerOverlayVisibility;
   onOpenSideChat?: (
     input?: ThreadOpenSideChatInput & {
       collaborationMode?: CodexCollaborationModeKind;
@@ -661,14 +659,11 @@ function ConnectedSessionThread({
         rightPanelComposerOverlayCompact={
           rightPanelComposerOverlayCompact
         }
-        rightPanelComposerOverlayAtDocumentBottom={
-          rightPanelComposerOverlayAtDocumentBottom
-        }
-        rightPanelComposerOverlayDocumentBottomKey={
-          rightPanelComposerOverlayDocumentBottomKey
-        }
         rightPanelComposerOverlayTarget={
           rightPanelComposerOverlayTarget
+        }
+        rightPanelComposerOverlayVisibility={
+          rightPanelComposerOverlayVisibility
         }
         turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
         routeActive={routeActive}
@@ -798,8 +793,6 @@ export function ProjectSessionThreadComposerDock({
       onToggleSummaryComputerUsePip={noOp}
       rightPanelComposerOverlayEnabled={false}
       rightPanelComposerOverlayCompact={false}
-      rightPanelComposerOverlayAtDocumentBottom={false}
-      rightPanelComposerOverlayDocumentBottomKey={null}
       rightPanelComposerOverlayTarget={null}
       onOpenMcpAppSidePanel={undefined}
       onOpenPlanInSidePanel={undefined}

@@ -30,7 +30,7 @@ Session, or a second conversation runtime.
 
 ### The Project root is part of the surface stack
 
-`WorkbenchSceneSnapshot` version 2 keeps one semantic `primary` descriptor but
+`WorkbenchSceneSnapshot` version 3 keeps one semantic `primary` descriptor but
 allows a Project primary to occur in the right-panel placement tree. A Project
 Scene normalizes that tree into a permanently open, full-width surface stack:
 
@@ -53,14 +53,17 @@ into the fixed stack, removes Project Conversation descriptors without deleting
 their Sessions, and converts the active Conversation target into an Agent Dock
 binding when possible. Session Scene placement is unchanged. Window cloning
 remints the Project's unbound draft identity while preserving bindings to real
-Sessions.
+Sessions. Scene v3 extracts composer visibility into one owner-scoped
+presentation state shared by Project and Session Scenes; Project binding and
+draft identity remain Agent Dock-only state.
 
 ### Project collaboration is a Session-bound Agent Dock
 
-Every Project Scene owns Window Session-local Agent Dock presentation state:
-visibility, one binding to either `New chat` or an exact Project Session, and a
-stable identity for the unbound draft. Binding and visibility are persisted but
-do not create Back/Forward checkpoints.
+Every Project Scene owns Window Session-local Agent Dock target state: one
+binding to either `New chat` or an exact Project Session, plus a stable identity
+for the unbound draft. Every owner Scene separately owns the shared composer
+overlay visibility. Binding and visibility are persisted but do not create
+Back/Forward checkpoints.
 
 The Dock mounts the shared conversation footer, latest-turn projection,
 blocking requests, and composer. It does not mount a transcript body, a second
@@ -121,8 +124,9 @@ transfer, or rebind the Browser runtime.
 
 - Core owns Projects, Sessions, Session-to-Thread links, and task ordering.
 - Codex conversation Modules own one canonical live Thread/Turn state.
-- A Window Session Scene owns surface placement plus Agent Dock binding,
-  visibility, and unbound draft identity.
+- A Window Session Scene owns surface placement and shared composer-overlay
+  visibility; Project Scenes additionally own Agent Dock binding and unbound
+  draft identity.
 - Main Browser services own route capture, route promotion, controlled pages,
   runtime-tab ownership, and guest lifecycle.
 - Renderer coordinators project Main presentation intent into the currently

@@ -16,6 +16,7 @@ import type {
   CodexThreadSummary,
 } from "../../../lib/types";
 import type { ThreadStageActions, ThreadStageRouteInput } from "../thread-stage-types";
+import type { RightPanelComposerOverlayVisibility } from "./right-panel-composer-overlay";
 
 let invokeCalls: Array<{
   channel: string;
@@ -295,6 +296,7 @@ async function renderStage(
     backgroundAgentDetail?: boolean;
     routeActive?: boolean;
     rightPanelComposerOverlayEnabled?: boolean;
+    rightPanelComposerOverlayVisibility?: RightPanelComposerOverlayVisibility;
     threadBodyVisible?: boolean;
   } = {},
 ) {
@@ -334,6 +336,9 @@ async function renderStage(
             routeActive={options.routeActive}
             rightPanelComposerOverlayEnabled={
               options.rightPanelComposerOverlayEnabled
+            }
+            rightPanelComposerOverlayVisibility={
+              options.rightPanelComposerOverlayVisibility
             }
             threadBodyVisible={options.threadBodyVisible}
             actions={buildActions()}
@@ -667,6 +672,38 @@ describe("ConnectedThreadStage archived resume behavior", () => {
       && call.threadId === "thread_active"
       && call.presented === true
     )).toBe(true);
+
+    await act(async () => {
+      view.unmount();
+      await settleAsyncRender();
+    });
+  });
+
+  test("releases the request presentation when the Session composer is hidden", async () => {
+    installAsyncRequestAnimationFrame();
+    invokeCalls = [];
+    hostMessageListener = null;
+
+    const view = await renderStage(buildThreadSummary(false), {
+      routeActive: true,
+      threadBodyVisible: false,
+      rightPanelComposerOverlayEnabled: true,
+      rightPanelComposerOverlayVisibility: {
+        kind: "controlled",
+        visible: false,
+        attention: "request",
+        onVisibleChange: () => {},
+      },
+    });
+    await act(async () => {
+      await settleAsyncRender();
+    });
+
+    expect(invokeCalls.some((call) =>
+      call.channel === "codex:thread:presentation:set"
+      && call.threadId === "thread_active"
+      && call.presented === true
+    )).toBe(false);
 
     await act(async () => {
       view.unmount();

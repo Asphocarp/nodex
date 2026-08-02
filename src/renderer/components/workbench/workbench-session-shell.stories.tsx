@@ -1079,9 +1079,9 @@ function ProjectSceneStory({
     const scene = withSplitPage.agentDock
       ? {
           ...withSplitPage,
+          composerOverlay: { visible: !dockHidden },
           agentDock: {
             ...withSplitPage.agentDock,
-            visible: !dockHidden,
             binding: session
               ? { kind: "session" as const, sessionId: session.id }
               : { kind: "new" as const },
