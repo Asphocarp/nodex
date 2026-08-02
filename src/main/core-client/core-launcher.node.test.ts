@@ -13,12 +13,12 @@ import {
 const CORE_BINARY = path.resolve("target/debug/nodex-core");
 
 const waitUntil = async (
-  predicate: () => boolean,
+  predicate: () => boolean | Promise<boolean>,
   message: string,
 ): Promise<void> => {
   const deadline = Date.now() + 5_000;
   while (Date.now() < deadline) {
-    if (predicate()) return;
+    if (await predicate()) return;
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
   throw new Error(message);
@@ -142,9 +142,10 @@ describe("native Core launcher", () => {
       expect(reusedEvents).toEqual(["candidate_checked"]);
       expect(reused.timings.disposition).toBe("reused");
       expect(reused.client.handshake.generation.pid).toBe(first.client.handshake.generation.pid);
-      await expect(reused.client.health()).resolves.toMatchObject({
-        metrics: { active_clients: 1 },
-      });
+      await waitUntil(
+        async () => (await reused.client.health()).metrics.active_clients === 1,
+        "Core retained the short-lived selector probe after runtime reuse",
+      );
 
       await first.client.shutdown();
       const socketPath = path.join(nodexHome, "run/core/core.sock");
