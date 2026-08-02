@@ -624,8 +624,12 @@ When working with coding agents like Claude Code, there's no streamlined way to:
   config. Nodex retains its pinned Open Interpreter app-server, while every
   Desktop Tool thread launches the shared `node_repl` through vendor-signed
   Node and Codex processes. This preserves Browser's peer ancestry and keeps
-  Codex as the helper's immediate sender parent. Intel macOS and unsupported
-  macOS versions omit Computer Use entirely while retaining Browser Use. Action
+  Codex as the helper's immediate sender parent. The app-server-owned Codex home
+  is the trusted Node REPL code root so the versioned installed plugin-cache
+  copy used by agent skill paths retains the native bridge and runtime
+  environment; Browser client code is additionally hash-allowlisted. Intel
+  macOS and unsupported macOS versions omit Computer Use entirely while
+  retaining Browser Use. Action
   approval and denial continue through app-server elicitation and native
   Computer Use errors remain typed tool failures.
 - Settings -> Computer use shows the verified runtime state, global PiP
