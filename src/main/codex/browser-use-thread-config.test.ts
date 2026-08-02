@@ -98,14 +98,7 @@ describe("BrowserUseThreadConfigBuilder", () => {
         NODE_REPL_NODE_PATH: path.join(bundleRoot, "bin", "node"),
         NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S:
           browserRuntime.bundle.browserPluginClientSha256,
-        NODE_REPL_TRUSTED_CODE_PATHS: path.join(
-          path.resolve(runtimeStateHome),
-          ".tmp",
-          "bundled-marketplaces",
-          "openai-bundled",
-          "plugins",
-          "browser",
-        ),
+        NODE_REPL_TRUSTED_CODE_PATHS: path.resolve(runtimeStateHome),
       },
     });
     expect(config?.[
@@ -175,20 +168,15 @@ describe("BrowserUseThreadConfigBuilder", () => {
     expect(nodeRepl.env).toMatchObject({
       NODE_REPL_HOST_SERVICES_PIPE_PATH:
         "/tmp/nodex-host-services/runtime.sock",
-      NODE_REPL_INSTRUCTIONS_USE_CASE_COMPUTER:
+      NODE_REPL_INSTRUCTIONS_USE_CASE_COMPUTER_USE:
         "Control desktop apps on macOS through Computer Use.",
-      NODE_REPL_TRUSTED_CODE_PATHS: path.join(
-        runtimeStateHome,
-        ".tmp",
-        "bundled-marketplaces",
-        "openai-bundled",
-        "plugins",
-        "computer-use",
-      ),
+      NODE_REPL_TRUSTED_CODE_PATHS: runtimeStateHome,
       SKY_CUA_SERVICE_PATH:
         "/tmp/nodex-agent/computer-use/Codex Computer Use.app",
     });
-    expect(nodeRepl.env?.BROWSER_USE_AVAILABLE_BACKENDS).toBeUndefined();
-    expect(nodeRepl.env?.NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S).toBeUndefined();
+    expect(nodeRepl.env?.BROWSER_USE_AVAILABLE_BACKENDS).toBe("");
+    expect(nodeRepl.env?.NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S).toBe(
+      browserRuntime.bundle.browserPluginClientSha256,
+    );
   });
 });

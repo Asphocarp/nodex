@@ -941,6 +941,10 @@ socket provides only `ensureService("computer-use")`; the service manager
 serializes spawn/reuse, rejects stale or mismatched PIDs, and leaves the shared
 canonical service alive during ordinary Host disposal. Browser and Computer Use
 share one `node_repl` configuration and one materialized bundled marketplace.
+The app-server-owned `$CODEX_HOME` is the Node REPL trusted-code root because
+installed plugin skills execute from its versioned `plugins/cache` copy rather
+than from the marketplace source path; Browser client execution remains
+independently constrained by the verified client hash allowlist.
 Intel builds deliberately omit the Computer Use plugin and helper while keeping
 Browser native PiP available.
 

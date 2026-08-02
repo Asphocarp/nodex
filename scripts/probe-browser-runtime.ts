@@ -84,6 +84,31 @@ nodeRepl.write("__NODEX_CUA_PROBE__" + JSON.stringify({ appCount: computerUseApp
 `;
 }
 
+function resolveInstalledComputerUsePluginRoot(
+  runtimeStateHome: string,
+  version: string,
+): string {
+  const pluginRoot = path.join(
+    runtimeStateHome,
+    "plugins",
+    "cache",
+    "openai-bundled",
+    "computer-use",
+    version,
+  );
+  const clientPath = path.join(
+    pluginRoot,
+    "scripts",
+    "computer-use-client.mjs",
+  );
+  if (!fs.existsSync(clientPath)) {
+    throw new Error(
+      `Installed Computer Use client is missing from the app-server plugin cache: ${clientPath}`,
+    );
+  }
+  return pluginRoot;
+}
+
 function parseComputerUseProbeResult(text: string): { appCount?: unknown } {
   const marker = "__NODEX_CUA_PROBE__";
   const markerIndex = text.lastIndexOf(marker);
@@ -378,6 +403,11 @@ export async function probeBrowserRuntime(
       computerUseRuntimeResult.status === "available"
       && reconciliation.computerUse.status === "ready"
     ) {
+      const installedComputerUsePluginRoot =
+        resolveInstalledComputerUsePluginRoot(
+          stateHome,
+          reconciliation.computerUse.installedVersion,
+        );
       const computerUseResponse = await client.request<McpServerToolCallResponse>(
         "mcpServer/tool/call",
         {
@@ -391,7 +421,7 @@ export async function probeBrowserRuntime(
           },
           arguments: {
             code: makeComputerUseProbeCode(
-              reconciliation.computerUse.pluginRoot,
+              installedComputerUsePluginRoot,
             ),
             timeout_ms: 30_000,
           },

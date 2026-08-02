@@ -74,23 +74,14 @@ function buildAvailableConfig(
 ): BrowserUseThreadConfig {
   const availableBackendsValue = availableBackends.join(",");
   const trustedClientHashes = bundle.browserPluginClientSha256;
-  const marketplaceRoot = path.join(
-    runtimeStateHome,
-    ".tmp",
-    "bundled-marketplaces",
-    "openai-bundled",
-  );
-  const browserPluginRoot = path.join(marketplaceRoot, "plugins", "browser");
-  const computerUsePluginRoot = path.join(
-    marketplaceRoot,
-    "plugins",
-    "computer-use",
-  );
-  const trustedCodePaths = [
-    ...(availableBackends.length > 0 ? [browserPluginRoot] : []),
-    ...(computerUseRuntime ? [computerUsePluginRoot] : []),
-  ].join(path.delimiter);
+  // app-server installs local marketplace plugins into versioned directories
+  // beneath CODEX_HOME/plugins/cache and exposes skill paths from that cache.
+  // Trust the app-server-owned home so both the marketplace source and the
+  // effective installed copy receive the privileged Node REPL bridge. Browser
+  // clients remain independently constrained by their verified SHA-256.
+  const trustedCodePaths = runtimeStateHome;
   const env: Record<string, string> = {
+    BROWSER_USE_AVAILABLE_BACKENDS: availableBackendsValue,
     BROWSER_USE_CODEX_APP_BUILD_FLAVOR: bundle.manifest.buildFlavor,
     BROWSER_USE_CODEX_APP_VERSION: bundle.manifest.desktopBuild,
     BROWSER_USE_DISABLE_AMBIENT_NETWORK: "1",
@@ -102,8 +93,7 @@ function buildAvailableConfig(
     NODE_REPL_NODE_PATH: bundle.paths.node,
     NODE_REPL_TRUSTED_CODE_PATHS: trustedCodePaths,
   };
-  if (availableBackends.length > 0) {
-    env.BROWSER_USE_AVAILABLE_BACKENDS = availableBackendsValue;
+  if (availableBackends.length > 0 || computerUseRuntime) {
     env.NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S = trustedClientHashes;
   }
   if (availableBackends.includes("iab")) {
@@ -116,7 +106,7 @@ function buildAvailableConfig(
   if (computerUseRuntime) {
     env.NODE_REPL_HOST_SERVICES_PIPE_PATH =
       computerUseRuntime.hostServicesPipePath;
-    env.NODE_REPL_INSTRUCTIONS_USE_CASE_COMPUTER = COMPUTER_USE_INSTRUCTIONS;
+    env.NODE_REPL_INSTRUCTIONS_USE_CASE_COMPUTER_USE = COMPUTER_USE_INSTRUCTIONS;
     env.SKY_CUA_SERVICE_PATH = computerUseRuntime.appPath;
   }
 
@@ -139,17 +129,12 @@ function buildAvailableConfig(
     },
   };
   if (bundle.manifest.targetPlatform !== "darwin") return config;
-
-  const shellEnvironmentPolicy: BrowserUseThreadConfig = {
-    ...config,
-    "shell_environment_policy.set.NODE_REPL_TRUSTED_CODE_PATHS": trustedCodePaths,
-  };
-  if (availableBackends.length === 0) return shellEnvironmentPolicy;
   return {
-    ...shellEnvironmentPolicy,
+    ...config,
     "shell_environment_policy.set.BROWSER_USE_AVAILABLE_BACKENDS": availableBackendsValue,
     "shell_environment_policy.set.NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S":
       trustedClientHashes,
+    "shell_environment_policy.set.NODE_REPL_TRUSTED_CODE_PATHS": trustedCodePaths,
   };
 }
 
