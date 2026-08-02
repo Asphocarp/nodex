@@ -95,7 +95,7 @@ jobs:
           fi
 
   distribution:
-    name: build verified distribution
+    name: build native distributions
     if: needs.detect.outputs.should_release == 'true'
     needs: detect
     permissions:
@@ -117,10 +117,51 @@ jobs:
       sentry_org: ${{ secrets.SENTRY_ORG }}
       sentry_project: ${{ secrets.SENTRY_PROJECT }}
 
+  finalize-sparkle:
+    name: finalize ${{ matrix.arch }} Sparkle updates
+    if: needs.detect.outputs.should_release == 'true'
+    needs: [detect, distribution]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-26
+          - arch: x64
+            runner: macos-26-intel
+    runs-on: ${{ matrix.runner }}
+    environment: sparkle-feed-finalization
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ needs.detect.outputs.source_sha }}
+      - uses: ./.github/actions/finalize-sparkle
+        with:
+          architecture: ${{ matrix.arch }}
+          private_key: ${{ secrets.SPARKLE_ED25519_PRIVATE_KEY }}
+          retention_days: 30
+          source_sha: ${{ needs.detect.outputs.source_sha }}
+          version: ${{ needs.detect.outputs.version }}
+
+  assemble:
+    name: assemble verified Release Bundle
+    if: needs.detect.outputs.should_release == 'true'
+    needs: [detect, distribution, finalize-sparkle]
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_assemble-release.yml
+    with:
+      retention_days: 30
+      source_sha: ${{ needs.detect.outputs.source_sha }}
+      version: ${{ needs.detect.outputs.version }}
+
   promote:
     name: promote verified distribution
     if: needs.detect.outputs.should_release == 'true'
-    needs: [detect, distribution]
+    needs: [detect, assemble]
     permissions:
       contents: write
     uses: ./.github/workflows/_promote-release.yml

@@ -193,7 +193,7 @@ jobs:
           retention-days: 30
 
   distribution:
-    name: rebuild verified distribution
+    name: rebuild native distributions
     if: needs.restore-bundle.outputs.restored != 'true'
     needs: [validate, restore-bundle]
     permissions:
@@ -215,14 +215,66 @@ jobs:
       sentry_org: ${{ secrets.SENTRY_ORG }}
       sentry_project: ${{ secrets.SENTRY_PROJECT }}
 
+  finalize-sparkle:
+    name: finalize rebuilt ${{ matrix.arch }} Sparkle updates
+    if: >-
+      always()
+      && needs.validate.result == 'success'
+      && needs.restore-bundle.result == 'success'
+      && needs.restore-bundle.outputs.restored != 'true'
+      && needs.distribution.result == 'success'
+    needs: [validate, restore-bundle, distribution]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-26
+          - arch: x64
+            runner: macos-26-intel
+    runs-on: ${{ matrix.runner }}
+    environment: sparkle-feed-finalization
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ needs.validate.outputs.source_sha }}
+      - uses: ./.github/actions/finalize-sparkle
+        with:
+          architecture: ${{ matrix.arch }}
+          private_key: ${{ secrets.SPARKLE_ED25519_PRIVATE_KEY }}
+          retention_days: 30
+          source_sha: ${{ needs.validate.outputs.source_sha }}
+          version: ${{ needs.validate.outputs.version }}
+
+  assemble:
+    name: assemble rebuilt Release Bundle
+    if: >-
+      always()
+      && needs.validate.result == 'success'
+      && needs.restore-bundle.result == 'success'
+      && needs.restore-bundle.outputs.restored != 'true'
+      && needs.distribution.result == 'success'
+      && needs.finalize-sparkle.result == 'success'
+    needs: [validate, restore-bundle, distribution, finalize-sparkle]
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_assemble-release.yml
+    with:
+      retention_days: 30
+      source_sha: ${{ needs.validate.outputs.source_sha }}
+      version: ${{ needs.validate.outputs.version }}
+
   promote:
     name: resume promotion
     if: >-
       always()
       && needs.validate.result == 'success'
       && needs.restore-bundle.result == 'success'
-      && (needs.restore-bundle.outputs.restored == 'true' || needs.distribution.result == 'success')
-    needs: [validate, restore-bundle, distribution]
+      && (needs.restore-bundle.outputs.restored == 'true' || needs.assemble.result == 'success')
+    needs: [validate, restore-bundle, assemble]
     permissions:
       contents: write
     uses: ./.github/workflows/_promote-release.yml

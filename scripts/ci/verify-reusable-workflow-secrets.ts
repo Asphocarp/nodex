@@ -41,6 +41,17 @@ const workflowCallSecrets = (workflow: UnknownRecord): UnknownRecord => {
   return isRecord(workflowCall.secrets) ? workflowCall.secrets : {};
 };
 
+const isReusableWorkflow = (workflow: UnknownRecord): boolean => {
+  const triggers = workflow.on;
+  return isRecord(triggers) && isRecord(triggers.workflow_call);
+};
+
+const environmentName = (job: UnknownRecord): string | undefined => {
+  if (typeof job.environment === "string") return job.environment;
+  if (!isRecord(job.environment)) return undefined;
+  return typeof job.environment.name === "string" ? job.environment.name : undefined;
+};
+
 const referencedSecrets = (value: unknown): ReadonlySet<string> => {
   const references = new Set<string>();
   const visit = (candidate: unknown): void => {
@@ -73,7 +84,7 @@ const resolveLocalWorkflow = (callerPath: string, uses: string): string => {
 
 export const verifyDeclaredReferences = (filePath: string, workflow: UnknownRecord): void => {
   const declared = workflowCallSecrets(workflow);
-  if (Object.keys(declared).length === 0) return;
+  const reusable = isReusableWorkflow(workflow);
   const jobs = requireRecord(workflow.jobs, `${path.relative(repositoryRoot, filePath)}.jobs`);
   const workflowWithoutJobs = { ...workflow };
   delete workflowWithoutJobs.jobs;
@@ -86,20 +97,28 @@ export const verifyDeclaredReferences = (filePath: string, workflow: UnknownReco
       `${path.relative(repositoryRoot, filePath)} references protected environment secrets outside a job: ${topLevelEnvironmentSecrets.join(", ")}`,
     );
   }
-  const topLevelUndeclared = topLevelReferences
-    .filter((name) => !Object.hasOwn(declared, name))
-    .sort();
-  if (topLevelUndeclared.length > 0) {
-    throw new Error(
-      `${path.relative(repositoryRoot, filePath)} references undeclared workflow-call secrets outside a job: ${topLevelUndeclared.join(", ")}`,
-    );
+  if (reusable) {
+    const topLevelUndeclared = topLevelReferences
+      .filter((name) => !Object.hasOwn(declared, name))
+      .sort();
+    if (topLevelUndeclared.length > 0) {
+      throw new Error(
+        `${path.relative(repositoryRoot, filePath)} references undeclared workflow-call secrets outside a job: ${topLevelUndeclared.join(", ")}`,
+      );
+    }
   }
   for (const [jobName, rawJob] of Object.entries(jobs)) {
     const job = requireRecord(rawJob, `${jobName} job`);
-    const allowed = typeof job.environment === "string"
-      ? environmentSecretContracts.get(job.environment) ?? new Set<string>()
-      : new Set<string>();
+    const allowed = environmentSecretContracts.get(environmentName(job) ?? "") ?? new Set<string>();
     const references = [...referencedSecrets(job)];
+    const reusableEnvironmentSecrets = references
+      .filter((name) => reusable && environmentSecretNames.has(name))
+      .sort();
+    if (reusableEnvironmentSecrets.length > 0) {
+      throw new Error(
+        `${path.relative(repositoryRoot, filePath)}:${jobName} must not resolve protected environment secrets across a reusable workflow boundary: ${reusableEnvironmentSecrets.join(", ")}`,
+      );
+    }
     const misplacedEnvironmentSecrets = references
       .filter((name) => environmentSecretNames.has(name) && !allowed.has(name))
       .sort();
@@ -108,13 +127,15 @@ export const verifyDeclaredReferences = (filePath: string, workflow: UnknownReco
         `${path.relative(repositoryRoot, filePath)}:${jobName} references protected environment secrets outside their environment: ${misplacedEnvironmentSecrets.join(", ")}`,
       );
     }
-    const undeclared = references
-      .filter((name) => !Object.hasOwn(declared, name) && !allowed.has(name))
-      .sort();
-    if (undeclared.length > 0) {
-      throw new Error(
-        `${path.relative(repositoryRoot, filePath)}:${jobName} references undeclared workflow-call secrets: ${undeclared.join(", ")}`,
-      );
+    if (reusable) {
+      const undeclared = references
+        .filter((name) => !Object.hasOwn(declared, name) && !allowed.has(name))
+        .sort();
+      if (undeclared.length > 0) {
+        throw new Error(
+          `${path.relative(repositoryRoot, filePath)}:${jobName} references undeclared workflow-call secrets: ${undeclared.join(", ")}`,
+        );
+      }
     }
   }
 };

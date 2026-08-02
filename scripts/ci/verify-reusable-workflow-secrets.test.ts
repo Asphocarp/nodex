@@ -4,50 +4,49 @@ import { expect, test } from "vitest";
 
 import { verifyCall, verifyDeclaredReferences } from "./verify-reusable-workflow-secrets";
 
-const workflow = (jobs: Record<string, unknown>): Record<string, unknown> => ({
+const reusableWorkflow = (jobs: Record<string, unknown>): Record<string, unknown> => ({
   jobs,
   on: {
     workflow_call: {
       secrets: {
         DECLARED_SECRET: { required: true },
-        SPARKLE_ED25519_PRIVATE_KEY: { required: false },
       },
     },
   },
 });
 
-test("allows the Sparkle signing key only in its protected environment job", () => {
+test("allows the Sparkle signing key only in a direct protected environment job", () => {
   const filePath = path.resolve(".github/workflows/test.yml");
-  expect(() => verifyDeclaredReferences(filePath, workflow({
+  const directWorkflow = (jobs: Record<string, unknown>): Record<string, unknown> => ({
+    jobs,
+    on: { workflow_dispatch: {} },
+  });
+
+  expect(() => verifyDeclaredReferences(filePath, directWorkflow({
     finalize: {
       environment: "sparkle-feed-finalization",
       steps: [{ env: { KEY: "${{ secrets.SPARKLE_ED25519_PRIVATE_KEY }}" } }],
-    },
-    publish: {
-      steps: [{ env: { TOKEN: "${{ secrets.DECLARED_SECRET }}" } }],
     },
   }))).not.toThrow();
 
-  expect(() => verifyDeclaredReferences(filePath, workflow({
-    finalize: {
-      environment: "sparkle-feed-finalization",
-      steps: [{ env: { KEY: "${{ secrets.SPARKLE_ED25519_PRIVATE_KEY }}" } }],
-    },
+  expect(() => verifyDeclaredReferences(filePath, directWorkflow({
     assemble: {
       steps: [{ env: { KEY: "${{ secrets.SPARKLE_ED25519_PRIVATE_KEY }}" } }],
     },
   }))).toThrow("assemble references protected environment secrets outside their environment");
+
+  expect(() => verifyDeclaredReferences(filePath, reusableWorkflow({
+    finalize: {
+      environment: "sparkle-feed-finalization",
+      steps: [{ env: { KEY: "${{ secrets.SPARKLE_ED25519_PRIVATE_KEY }}" } }],
+    },
+  }))).toThrow("must not resolve protected environment secrets across a reusable workflow boundary");
 });
 
 test("rejects transporting a protected environment secret from a caller", () => {
   const callerPath = path.resolve(".github/workflows/caller.yml");
   const calledPath = path.resolve(".github/workflows/called.yml");
-  const calledWorkflow = workflow({
-    finalize: {
-      environment: "sparkle-feed-finalization",
-      steps: [{ env: { KEY: "${{ secrets.SPARKLE_ED25519_PRIVATE_KEY }}" } }],
-    },
-  });
+  const calledWorkflow = reusableWorkflow({ publish: { steps: [] } });
 
   expect(() => verifyCall(callerPath, "distribution", {
     uses: "./.github/workflows/called.yml",

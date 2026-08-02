@@ -79,7 +79,7 @@ jobs:
           ' "${RUNNER_TEMP}/source.json"
 
   distribution:
-    name: rehearse verified distribution
+    name: rehearse native distributions
     needs: validate
     permissions:
       contents: read
@@ -96,3 +96,42 @@ jobs:
       apple_api_key_id: ${{ secrets.APPLE_API_KEY_ID }}
       csc_key_password: ${{ secrets.CSC_KEY_PASSWORD }}
       csc_link: ${{ secrets.CSC_LINK }}
+
+  finalize-sparkle:
+    name: finalize ${{ matrix.arch }} Sparkle updates
+    needs: [validate, distribution]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-26
+          - arch: x64
+            runner: macos-26-intel
+    runs-on: ${{ matrix.runner }}
+    environment: sparkle-feed-finalization
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ needs.validate.outputs.source_sha }}
+      - uses: ./.github/actions/finalize-sparkle
+        with:
+          architecture: ${{ matrix.arch }}
+          private_key: ${{ secrets.SPARKLE_ED25519_PRIVATE_KEY }}
+          retention_days: 14
+          source_sha: ${{ needs.validate.outputs.source_sha }}
+          version: ${{ needs.validate.outputs.version }}
+
+  assemble:
+    name: assemble rehearsed Release Bundle
+    needs: [validate, distribution, finalize-sparkle]
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_assemble-release.yml
+    with:
+      retention_days: 14
+      source_sha: ${{ needs.validate.outputs.source_sha }}
+      version: ${{ needs.validate.outputs.version }}
