@@ -160,13 +160,7 @@ export interface RendererTransport {
     ) => void,
   ) => () => void;
   subscribeDesktopNotificationActions: (
-    callback: (
-      payload: import("./types").DesktopNotificationActionPayload & {
-        conversationId: string | null;
-        requestId: import("./types").CodexProtocolRequestId | null;
-        approvalKind: import("./types").CodexApprovalKind | null;
-      },
-    ) => void,
+    callback: (payload: import("./types").DesktopNotificationActionInvocation) => void,
   ) => () => void;
   subscribeWorkspaceFileChanges: (
     callback: (

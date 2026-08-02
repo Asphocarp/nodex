@@ -11,9 +11,10 @@ export interface CodexHeartbeatAssistantMessage {
 export interface CodexTurnCompleteNotificationEnvelope {
   conversationId: string;
   turnId: string;
-  status: "completed" | "failed";
+  status: "completed" | "failed" | "interrupted";
   lastAgentMessage: string | null;
   heartbeatAssistantMessage: CodexHeartbeatAssistantMessage | null;
+  automationNotificationDecision?: CodexHeartbeatDecision | null;
   hasPendingContinuation: boolean;
 }
 
@@ -82,23 +83,39 @@ export function parseCodexHeartbeatAssistantMessage(
 }
 
 export function isCodexConversationDesktopNotificationEligible(
-  conversation: Pick<CodexConversationSnapshot, "ephemeral" | "threadSource" | "source">,
+  conversation: Pick<CodexConversationSnapshot, "source"> & {
+    parentThreadId?: string | null;
+  },
 ): boolean {
-  if (conversation.ephemeral === true) return false;
-  if (conversation.threadSource === "system") return false;
-  if (conversation.source?.sideConversation === true) return false;
-  return true;
+  const directParentThreadId = conversation.parentThreadId?.trim() ?? "";
+  if (directParentThreadId.length > 0) return false;
+  return (conversation.source?.parentThreadId?.trim() ?? "").length === 0;
 }
 
-export function hasCodexPendingContinuation(conversation: Pick<
-  CodexConversationSnapshot,
-  "queuedFollowUps" | "pendingSteers" | "threadGoal"
->): boolean {
-  if (conversation.queuedFollowUps.some((followUp) => !followUp.pausedReason)) {
-    return true;
-  }
-  if (conversation.pendingSteers.length > 0) {
-    return true;
-  }
-  return conversation.threadGoal?.status === "active";
+export interface CodexPendingContinuationFacts {
+  terminalStatus: CodexTurnCompleteNotificationEnvelope["status"];
+  queuedResourceLoading: boolean;
+  queuedHeadPausedReason: string | null | undefined;
+  threadGoalStatus: NonNullable<CodexConversationSnapshot["threadGoal"]>["status"] | null;
+  latestMergedTurnStatus: "inProgress" | "completed" | "failed" | "interrupted" | null;
+  hasRunningCollabAgent: boolean;
+  hasActiveDescendant: boolean;
+}
+
+export function hasCodexPendingContinuation(
+  facts: CodexPendingContinuationFacts,
+): boolean {
+  const queuedHeadWillContinue = facts.terminalStatus !== "interrupted"
+    && (
+      facts.queuedResourceLoading
+      || facts.queuedHeadPausedReason === null
+    );
+  if (queuedHeadWillContinue) return true;
+  if (
+    facts.terminalStatus === "completed"
+    && facts.threadGoalStatus === "active"
+  ) return true;
+  if (facts.latestMergedTurnStatus === "inProgress") return true;
+  if (facts.hasRunningCollabAgent) return true;
+  return facts.hasActiveDescendant;
 }

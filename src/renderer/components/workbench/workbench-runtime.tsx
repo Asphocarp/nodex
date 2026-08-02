@@ -50,7 +50,6 @@ import {
 import {
   workspaceTextDocumentRegistry,
 } from "@/features/workspace-files/workspace-text-document-controller";
-import { DesktopNotificationController } from "@/features/local-conversation/desktop-notification-controller";
 import {
   getBrowserDocumentBottomKey,
   useBrowserDocumentBottom,
@@ -81,6 +80,7 @@ import { appScope, useScopeHandle } from "@/lib/maitai";
 import { openModal } from "@/lib/modal-registry";
 import {
   useCodexAppServerControl,
+  useCodexAppServerRegistry,
   ConnectedReviewDiffPanel,
   useConversationSubset,
   useLocalConversationAccount,
@@ -114,6 +114,12 @@ import {
   makeCanvasSceneSurfaceKey,
 } from "@/lib/canvas-scene-surface-runtime";
 import type { WorkbenchCommandPort } from "@/lib/use-workbench-command-ingress";
+import {
+  executeDesktopNotificationAction,
+  resolveDesktopNotificationParentThreadId,
+  resolveDesktopNotificationSideChatThreadId,
+} from "@/lib/desktop-notification-action";
+import type { DesktopNotificationActionInvocation } from "../../../shared/types";
 import {
   APP_SHELL_ROUTE_THREAD_SCOPE_DESCRIPTOR,
   SelectedAppShellHeaderContent,
@@ -810,6 +816,14 @@ export function WorkbenchRuntime({
   const pendingWorkbenchCommandInvocationsRef = useRef<
     WorkbenchCommandInvocation[]
   >([]);
+  const activeThreadIdRef = useRef<string | null>(null);
+  const activeThreadWaitersRef = useRef(new Set<{
+    threadId: string;
+    resolve: (presented: boolean) => void;
+  }>());
+  const desktopNotificationActionChainRef = useRef<Promise<unknown>>(
+    Promise.resolve(),
+  );
   const shellAtMediumWidthRef = useRef(false);
   const shellAtNarrowWidthRef = useRef(false);
   const pinnedProjectsSectionCollapsed = sidebarState.sections.pinned;
@@ -1105,6 +1119,40 @@ export function WorkbenchRuntime({
     [activeProject, sessionsByProject],
   );
   const activeSession = sessionCatalog.activeProjection;
+  const activeThreadId = activeSession?.thread?.threadId ?? null;
+  activeThreadIdRef.current = activeThreadId;
+  useEffect(() => {
+    if (!activeThreadId) return;
+    for (const waiter of [...activeThreadWaitersRef.current]) {
+      if (waiter.threadId !== activeThreadId) continue;
+      activeThreadWaitersRef.current.delete(waiter);
+      waiter.resolve(true);
+    }
+  }, [activeThreadId]);
+  useEffect(() => () => {
+    for (const waiter of activeThreadWaitersRef.current) waiter.resolve(false);
+    activeThreadWaitersRef.current.clear();
+  }, []);
+  const waitForActiveThread = useCallback((threadId: string): Promise<boolean> => {
+    if (activeThreadIdRef.current === threadId) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      let settled = false;
+      const waiter = {
+        threadId,
+        resolve: (presented: boolean) => {
+          if (settled) return;
+          settled = true;
+          window.clearTimeout(timeoutId);
+          resolve(presented);
+        },
+      };
+      const timeoutId = window.setTimeout(() => {
+        activeThreadWaitersRef.current.delete(waiter);
+        waiter.resolve(false);
+      }, 10_000);
+      activeThreadWaitersRef.current.add(waiter);
+    });
+  }, []);
   const createSessionViewTab = useCallback((
     input: WorkbenchTabCreateInput,
   ): WorkbenchTabProjection | null => {
@@ -1223,6 +1271,7 @@ export function WorkbenchRuntime({
   );
   const processManagerConversationsById = useConversationSubset(processManagerThreadIds);
   const workbenchCodexControl = useCodexAppServerControl(activeProject?.id ?? activeProjectId);
+  const codexAppServerRegistry = useCodexAppServerRegistry();
   const activeProjectKanban = useKanban({
     projectId: activeProject?.id ?? activeProjectId ?? "",
     enabled: Boolean(activeProject?.id ?? activeProjectId),
@@ -1923,11 +1972,14 @@ export function WorkbenchRuntime({
   });
   const {
     openSideChat,
+    openExistingSideChat,
     openMcpAppSidePanel,
     openPlanSidePanel,
     openAutomationSidePanel,
     openCanvasStage,
   } = panelOpeners;
+  const openExistingSideChatRef = useRef(openExistingSideChat);
+  openExistingSideChatRef.current = openExistingSideChat;
   openCanvasStageRef.current = openCanvasStage;
   openProjectCanvasStageRef.current = openProjectSceneCanvas;
 
@@ -2329,6 +2381,46 @@ export function WorkbenchRuntime({
     void hideActiveBottomPanel();
   }, [activePanelOwnerKey, bottomPanelOpen, hideActiveBottomPanel, showActiveBottomPanel]);
 
+  const handleDesktopNotificationAction = useCallback(async (
+    invocation: DesktopNotificationActionInvocation,
+  ): Promise<void> => {
+    const parentThreadId = resolveDesktopNotificationParentThreadId(invocation);
+    if (!parentThreadId) return;
+
+    const opened = await openAttachedThreadSessionById(parentThreadId);
+    if (!opened) return;
+    const presented = await waitForActiveThread(parentThreadId);
+    if (!presented) return;
+
+    const sideChatThreadId = resolveDesktopNotificationSideChatThreadId(invocation);
+    if (sideChatThreadId) {
+      const sideChatOpened = await openExistingSideChatRef.current({
+        threadId: sideChatThreadId,
+        parentThreadId,
+        parentNavigationPath:
+          invocation.navigationPath ?? `thread:${parentThreadId}`,
+      });
+      if (!sideChatOpened) return;
+    }
+
+    const manager = codexAppServerRegistry.getForHostId(invocation.hostId);
+    await executeDesktopNotificationAction(invocation, manager);
+  }, [
+    codexAppServerRegistry,
+    openAttachedThreadSessionById,
+    waitForActiveThread,
+  ]);
+
+  const openDesktopNotification = useCallback((
+    invocation: DesktopNotificationActionInvocation,
+  ): Promise<void> => {
+    const action = desktopNotificationActionChainRef.current
+      .catch(() => undefined)
+      .then(() => handleDesktopNotificationAction(invocation));
+    desktopNotificationActionChainRef.current = action;
+    return action;
+  }, [handleDesktopNotificationAction]);
+
   const executeWorkbenchCommand = useCallback(({ commandId }: WorkbenchCommandInvocation) => {
     if (commandId !== TOGGLE_BOTTOM_PANEL_COMMAND_ID) return;
     toggleActiveBottomPanel();
@@ -2371,6 +2463,7 @@ export function WorkbenchRuntime({
     openCommandPalette,
     toggleSettings,
     openKeyboardShortcuts: openKeyboardShortcutsSettings,
+    openDesktopNotification,
   }), [
     activeSession,
     closeFocusedPanelTab,
@@ -2379,6 +2472,7 @@ export function WorkbenchRuntime({
     executeWorkbenchCommand,
     openCommandPalette,
     openKeyboardShortcutsSettings,
+    openDesktopNotification,
     openRenameSessionDialog,
     requestContentSearchOpen,
     selectedSessionDetailReady,
@@ -2970,7 +3064,9 @@ export function WorkbenchRuntime({
           onRefreshSessions={refreshProjectSessions}
           onOpenPageTab={openProjectScenePage}
           onOpenCanvasStage={openProjectSceneCanvas}
-          onOpenThread={openAttachedThreadSessionById}
+          onOpenThread={async (threadId) => {
+            await openAttachedThreadSessionById(threadId);
+          }}
           historyPanelActive={Boolean(
             pageStageHistoryModal
             && pageStageHistoryModal.sessionId === projectSceneKey
@@ -3697,14 +3793,6 @@ export function WorkbenchRuntime({
         >
           <ContentSearchSurface />
           {commandPalette}
-          <DesktopNotificationController
-            activeThreadId={
-              activeSession?.thread?.threadId ?? null
-            }
-            onOpenThread={(threadId) => {
-              void openAttachedThreadSessionById(threadId);
-            }}
-          />
           <WorkbenchProcessManagerDialog
             open={processManagerOpen}
             activeThreadId={activeSession?.thread?.threadId ?? null}

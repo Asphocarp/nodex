@@ -685,7 +685,9 @@ export function useWorkbenchPanelProjection({
                 : {})}
               onCreateTerminalTab={(panelId, leafId) =>
                 createManualTab("terminal", panelId, leafId)}
-              onOpenThread={openAttachedThreadSessionById}
+              onOpenThread={async (threadId) => {
+                await openAttachedThreadSessionById(threadId);
+              }}
               onTogglePageStageHistoryModal={
                 onTogglePageStageHistoryModal
               }

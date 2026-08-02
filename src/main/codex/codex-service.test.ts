@@ -51,6 +51,7 @@ import type {
   CodexUserInputAutoResolutionEntry,
 } from "../../shared/codex-user-input-auto-resolution";
 import { DEFAULT_CODEX_HOST_ID } from "../../shared/codex-host";
+import type { CodexThreadNotificationEvent } from "../../shared/codex-thread-notification";
 import type {
   AppInfo,
   ListMcpServerStatusResponse,
@@ -130,6 +131,9 @@ interface TestableCodexService {
       listener: (message: { targetClientId: string; message: CodexHostMessage }) => void,
     ): unknown;
   };
+  addThreadNotificationListener: (
+    listener: (event: CodexThreadNotificationEvent) => void,
+  ) => () => void;
   shutdown: () => Promise<void>;
   getPersonality: () => import("../../shared/types").CodexPersonality;
   setPersonality: (personality: import("../../shared/types").CodexPersonality) => void;
@@ -4033,6 +4037,10 @@ describe("codex-service renderer owner stream publishing", () => {
     serviceInternals.syncThreadStatusFromKnownTurns = () => {};
     const hostMessages: CodexHostMessage[] = [];
     const ownerMessages: Array<{ targetClientId: string; message: CodexHostMessage }> = [];
+    const notificationEvents: CodexThreadNotificationEvent[] = [];
+    service.addThreadNotificationListener((event) => {
+      notificationEvents.push(event);
+    });
     service.on("hostMessage", (message) => {
       if (message.type === "threadStreamStateChanged") {
         hostMessages.push(message);
@@ -4050,6 +4058,19 @@ describe("codex-service renderer owner stream publishing", () => {
     serviceInternals.setConversationRecordDetail({
       ...makeThreadDetail("thread-owner-turn"),
       turns: [],
+      transcript: [],
+    });
+    serviceInternals.setConversationRecordDetail({
+      ...makeThreadDetail("thread-owner-turn-child"),
+      source: {
+        parentThreadId: "thread-owner-turn",
+      },
+      turns: [{
+        threadId: "thread-owner-turn-child",
+        turnId: "turn-owner-child",
+        status: "inProgress",
+        itemIds: [],
+      }],
       transcript: [],
     });
 
@@ -4073,6 +4094,11 @@ describe("codex-service renderer owner stream publishing", () => {
             id: "turn-owner",
             status: "completed",
             durationMs: 42,
+            items: [{
+              type: "agentMessage",
+              id: "agent-owner",
+              text: "Owner turn finished",
+            }],
           },
         },
       });
@@ -4093,6 +4119,15 @@ describe("codex-service renderer owner stream publishing", () => {
       const snapshot = await service.requestConversationSnapshot("thread-owner-turn");
       expect(snapshot?.turns[0]?.status).toBe("completed");
       expect(snapshot?.turns[0]?.durationMs).toBe(42);
+      expect(notificationEvents).toHaveLength(1);
+      expect(notificationEvents[0]).toMatchObject({
+        type: "turn-completed",
+        hostId: DEFAULT_CODEX_HOST_ID,
+        turnId: "turn-owner",
+        status: "completed",
+        lastAgentMessage: "Owner turn finished",
+        hasPendingContinuation: true,
+      });
     } finally {
       await service.shutdown();
     }
@@ -12074,6 +12109,10 @@ describe("codex-service approval fallback", () => {
 
   test("returns typed direct picker payloads and wrapped dynamic payloads while removing raw requests", async () => {
     const service = createService();
+    const notificationEvents: CodexThreadNotificationEvent[] = [];
+    service.addThreadNotificationListener((event) => {
+      notificationEvents.push(event);
+    });
     const serviceInternals = service as unknown as {
       handleServerRequest: (request: { id: string | number; method: string; params: unknown }) => Promise<unknown>;
       respondToOptionPicker: (
@@ -12160,6 +12199,11 @@ describe("codex-service approval fallback", () => {
         JSON.stringify([610, "dynamic-option-611", 612, "dynamic-setup-613"]),
       );
       expect(record.hasUnreadTurn).toBe(true);
+      expect(notificationEvents.filter((event) => event.type === "user-input-requested"))
+        .toMatchObject([
+          { requestId: 610, questionCount: 0 },
+          { requestId: "dynamic-option-611", questionCount: 0 },
+        ]);
 
       const directOptionResponse = {
         action: "submit" as const,
@@ -16353,6 +16397,10 @@ describe("codex-service terminal turn reconciliation", () => {
       handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
     };
     const hostMessages: CodexHostMessage[] = [];
+    const notificationEvents: CodexThreadNotificationEvent[] = [];
+    service.addThreadNotificationListener((event) => {
+      notificationEvents.push(event);
+    });
     service.on("hostMessage", (message) => {
       if (message.type === "threadStreamStateChanged") hostMessages.push(message);
     });
@@ -16421,6 +16469,8 @@ describe("codex-service terminal turn reconciliation", () => {
       expect(pendingConversation?.turns[0]?.items.find(
         (item) => item.itemId === "mcp-server-elicitation-702",
       )?.status).toBe("inProgress");
+      expect(notificationEvents.filter((event) => event.type === "user-input-requested"))
+        .toMatchObject([{ requestId: 701, questionCount: 1 }]);
 
       await serviceInternals.handleNotification({
         method: "serverRequest/resolved",
@@ -16434,6 +16484,13 @@ describe("codex-service terminal turn reconciliation", () => {
         params: {
           threadId,
           requestId: "702",
+        },
+      });
+      await serviceInternals.handleNotification({
+        method: "serverRequest/resolved",
+        params: {
+          threadId,
+          requestId: 701,
         },
       });
 
@@ -16455,6 +16512,12 @@ describe("codex-service terminal turn reconciliation", () => {
       expect(resolvedMcpItem?.status).toBe("completed");
       expect((resolvedMcpItem?.rawItem as { completed?: boolean } | undefined)?.completed).toBe(true);
       expect((resolvedMcpItem?.rawItem as { action?: unknown } | undefined)?.action).toBe(null);
+      expect(notificationEvents.filter((event) => event.type === "request-resolved"))
+        .toMatchObject([
+          { requestId: 701 },
+          { requestId: "702" },
+          { requestId: 701 },
+        ]);
       expect(await userPromise).toBe(CODEX_SERVER_REQUEST_NO_RESPONSE);
       expect(await mcpPromise).toBe(CODEX_SERVER_REQUEST_NO_RESPONSE);
     } finally {

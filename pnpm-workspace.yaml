@@ -40,5 +40,6 @@ allowBuilds:
   electron-winstaller: true
   esbuild: true
   node-pty: true
+  objc-js: true
   sharp: false
   unrs-resolver: false

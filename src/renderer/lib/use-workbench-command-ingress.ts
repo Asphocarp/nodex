@@ -22,6 +22,8 @@ import type {
   ContentSearchOpenSource,
 } from "@/features/content-search/content-search-context";
 import type { CommandMenuOpenRequest } from "./command-palette";
+import type { DesktopNotificationActionInvocation } from "../../shared/types";
+import { subscribeDesktopNotificationActions } from "./api";
 
 export interface WorkbenchCommandPort {
   readonly navigate: (
@@ -47,6 +49,9 @@ export interface WorkbenchCommandPort {
   readonly openCommandPalette: (request?: CommandMenuOpenRequest) => void;
   readonly toggleSettings: () => void;
   readonly openKeyboardShortcuts: () => void;
+  readonly openDesktopNotification: (
+    invocation: DesktopNotificationActionInvocation,
+  ) => void | Promise<void>;
 }
 
 export interface WorkbenchCommandDispatcher extends WorkbenchCommandPort {
@@ -158,14 +163,44 @@ export function useWorkbenchCommandIngress(
   externalHandlers: WorkbenchExternalIngressHandlers = {},
 ): WorkbenchCommandDispatcher {
   const portRef = useRef<WorkbenchCommandPort | null>(null);
+  const pendingDesktopNotificationInvocationsRef = useRef<
+    DesktopNotificationActionInvocation[]
+  >([]);
+  const desktopNotificationExecutionRef = useRef<Promise<void>>(Promise.resolve());
+
+  const scheduleDesktopNotification = useCallback(
+    (invocation: DesktopNotificationActionInvocation): void => {
+      desktopNotificationExecutionRef.current = desktopNotificationExecutionRef.current
+        .then(async () => {
+          const port = portRef.current;
+          if (!port) {
+            pendingDesktopNotificationInvocationsRef.current.push(invocation);
+            return;
+          }
+          await port.openDesktopNotification(invocation);
+        })
+        .catch((error: unknown) => {
+          console.warn("[desktop-notifications] Workbench action failed", {
+            actionType: invocation.actionType,
+            notificationId: invocation.notificationId,
+            error,
+          });
+        });
+    },
+    [],
+  );
 
   const register = useCallback((port: WorkbenchCommandPort) => {
     portRef.current = port;
+    const pending = pendingDesktopNotificationInvocationsRef.current.splice(0);
+    for (const invocation of pending) {
+      scheduleDesktopNotification(invocation);
+    }
     return () => {
       if (portRef.current !== port) return;
       portRef.current = null;
     };
-  }, []);
+  }, [scheduleDesktopNotification]);
 
   const navigate = useCallback<WorkbenchCommandPort["navigate"]>(
     (direction, source) => portRef.current?.navigate(direction, source),
@@ -213,6 +248,18 @@ export function useWorkbenchCommandIngress(
   >(
     () => portRef.current?.openKeyboardShortcuts(),
     [],
+  );
+  const openDesktopNotification = useCallback<
+    WorkbenchCommandPort["openDesktopNotification"]
+  >(
+    (invocation) => {
+      if (!portRef.current) {
+        pendingDesktopNotificationInvocationsRef.current.push(invocation);
+        return;
+      }
+      scheduleDesktopNotification(invocation);
+    },
+    [scheduleDesktopNotification],
   );
   const onReminderOpen = useEffectEvent((value: unknown) => {
     const request = parseReminderOpenRequest(value);
@@ -293,6 +340,9 @@ export function useWorkbenchCommandIngress(
   useEffect(() => window.api?.onRequestNewWindow?.(
     onRequestNewWindow,
   ), []);
+  useEffect(() => subscribeDesktopNotificationActions((invocation) => {
+    void openDesktopNotification(invocation);
+  }), [openDesktopNotification]);
 
   return useMemo(() => ({
     register,
@@ -306,6 +356,7 @@ export function useWorkbenchCommandIngress(
     openCommandPalette,
     toggleSettings,
     openKeyboardShortcuts,
+    openDesktopNotification,
   }), [
     closePanelTab,
     cyclePanelTab,
@@ -314,6 +365,7 @@ export function useWorkbenchCommandIngress(
     openCommandPalette,
     openContentSearch,
     openKeyboardShortcuts,
+    openDesktopNotification,
     register,
     renameThread,
     toggleSettings,

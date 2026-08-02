@@ -33,6 +33,7 @@ function makePort(): WorkbenchCommandPort {
     openCommandPalette: vi.fn(),
     toggleSettings: vi.fn(),
     openKeyboardShortcuts: vi.fn(),
+    openDesktopNotification: vi.fn(),
   };
 }
 
@@ -184,5 +185,81 @@ describe("useWorkbenchCommandIngress", () => {
       viewId: "view-2",
     });
     expect(onRequestNewWindow).toHaveBeenCalledOnce();
+  });
+
+  test("routes validated desktop notification actions through the command port", async () => {
+    const handlers: Record<string, (...args: unknown[]) => void> = {};
+    Object.defineProperty(window, "api", {
+      configurable: true,
+      value: {
+        on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+          handlers[event] = handler;
+          return vi.fn();
+        }),
+      },
+    });
+
+    const { result } = renderHook(() => useWorkbenchCommandIngress());
+    const port = makePort();
+    result.current.register(port);
+    const invocation = {
+      notificationId: "approval-local-request-1",
+      actionId: "approve",
+      actionType: "approve",
+      hostId: "local",
+      conversationId: "thread-1",
+      navigationPath: "thread:thread-1",
+      activateTabId: null,
+      requestId: "request-1",
+    } as const;
+
+    await act(async () => {
+      handlers["desktop-notification:action"]?.(invocation);
+      handlers["desktop-notification:action"]?.({
+        ...invocation,
+        hostId: "",
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(port.openDesktopNotification).toHaveBeenCalledOnce();
+    expect(port.openDesktopNotification).toHaveBeenCalledWith(invocation);
+  });
+
+  test("queues native notification actions until Workbench registers its port", async () => {
+    const handlers: Record<string, (...args: unknown[]) => void> = {};
+    Object.defineProperty(window, "api", {
+      configurable: true,
+      value: {
+        on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+          handlers[event] = handler;
+          return vi.fn();
+        }),
+      },
+    });
+    const invocation = {
+      notificationId: "question-default-request-1",
+      actionId: null,
+      actionType: "open",
+      hostId: "default",
+      conversationId: "thread-1",
+      navigationPath: "thread:thread-1",
+      activateTabId: null,
+      requestId: "request-1",
+    } as const;
+    const { result } = renderHook(() => useWorkbenchCommandIngress());
+
+    act(() => {
+      handlers["desktop-notification:action"]?.(invocation);
+    });
+    const port = makePort();
+    await act(async () => {
+      result.current.register(port);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(port.openDesktopNotification).toHaveBeenCalledWith(invocation);
   });
 });
