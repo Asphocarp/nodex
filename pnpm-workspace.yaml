@@ -42,6 +42,3 @@ allowBuilds:
   node-pty: true
   sharp: false
   unrs-resolver: false
-
-minimumReleaseAgeExclude:
-  - "@openai/codex@0.144.6-darwin-arm64 || 0.144.6-darwin-x64 || 0.144.6-linux-arm64 || 0.144.6-linux-x64 || 0.144.6-win32-arm64 || 0.144.6-win32-x64 || 0.144.6"
