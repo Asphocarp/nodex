@@ -121,11 +121,9 @@ export function verifyCodexRuntime(input: {
     }
     if (runtime.browserRuntime.status === "available") {
       const { bundle } = runtime.browserRuntime;
-      if (bundle.manifest.peerAuthorization.signingTeamId !== appTeamIdentifier) {
-        throw new Error(
-          "Browser runtime peer authorization signing team does not match the enclosing app",
-        );
-      }
+      const browserRuntimeTeamIdentifier =
+        bundle.manifest.peerAuthorization.signingTeamId;
+      const computerUseCapability = bundle.manifest.capabilities.computerUse;
       for (const artifact of bundle.manifest.artifacts) {
         if (artifact.kind === "data" || artifact.architecture === "any") continue;
         const artifactPath = join(bundle.rootPath, ...artifact.path.split("/"));
@@ -141,9 +139,14 @@ export function verifyCodexRuntime(input: {
           );
         }
         const artifactTeamIdentifier = readMacosTeamIdentifier(artifactPath);
-        if (artifactTeamIdentifier !== appTeamIdentifier) {
+        const expectedTeamIdentifier =
+          computerUseCapability.status === "available"
+          && artifact.path.startsWith(`${computerUseCapability.appBundle}/`)
+            ? computerUseCapability.signingTeamId
+            : browserRuntimeTeamIdentifier;
+        if (artifactTeamIdentifier !== expectedTeamIdentifier) {
           throw new Error(
-            `Expected ${artifactPath} to use the enclosing app team ${appTeamIdentifier}; `
+            `Expected ${artifactPath} to retain desktop tool team ${expectedTeamIdentifier}; `
             + `found ${artifactTeamIdentifier}`,
           );
         }

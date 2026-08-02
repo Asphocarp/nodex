@@ -11,12 +11,14 @@ describe("workbench settings routes", () => {
     expect(buildSettingsPath("general-settings")).toBe("/settings/general-settings");
     expect(buildSettingsPath("keyboard-shortcuts")).toBe("/settings/keyboard-shortcuts");
     expect(buildSettingsPath("local-environments")).toBe("/settings/local-environments");
+    expect(buildSettingsPath("computer-use")).toBe("/settings/computer-use");
   });
 
   test("parses canonical settings paths", () => {
     expect(parseSettingsPath("/settings/general-settings")).toBe("general-settings");
     expect(parseSettingsPath("/settings/keyboard-shortcuts")).toBe("keyboard-shortcuts");
     expect(parseSettingsPath("/settings/local-environments")).toBe("local-environments");
+    expect(parseSettingsPath("/settings/computer-use")).toBe("computer-use");
     expect(parseSettingsPath("/settings")).toBe(null);
     expect(parseSettingsPath("/not-settings")).toBe(null);
   });

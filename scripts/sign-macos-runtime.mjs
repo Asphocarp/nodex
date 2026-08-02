@@ -21,13 +21,18 @@ const sparkleOwnedRelativePaths = [
   "Contents/Resources/native/nodex-sparkle.node",
   "Contents/Frameworks/Sparkle.framework",
 ];
+const browserRuntimeVendorRelativePath = path.join(
+  "Contents",
+  "Resources",
+  "browser-runtime",
+);
 const sparkleCodeObjectRelativePaths = [
   "Contents/Resources/native/nodex-sparkle.node",
   "Contents/Frameworks/Sparkle.framework/Versions/B/Autoupdate",
   "Contents/Frameworks/Sparkle.framework/Versions/B/Updater.app",
   "Contents/Frameworks/Sparkle.framework",
 ];
-const browserRuntimeSchemaVersion = 3;
+const browserRuntimeSchemaVersion = 4;
 const expectedBinaryPaths = new Map([
   ["nodex", "Resources/bin/nodex"],
   ["nodex-appshot-helper", "Resources/bin/nodex-appshot-helper"],
@@ -63,6 +68,11 @@ const matchesIgnore = (ignore, filePath) => {
 
 const isSparkleOwnedCode = (appPath, filePath) => sparkleOwnedRelativePaths.some(
   (relativePath) => isInside(path.join(appPath, relativePath), filePath),
+);
+
+export const isPreservedBrowserRuntimeVendorCode = (appPath, filePath) => isInside(
+  path.join(appPath, browserRuntimeVendorRelativePath),
+  filePath,
 );
 
 export const sparkleCodeSignArguments = ({
@@ -331,9 +341,36 @@ export const refreshSignedBrowserRuntimeManifest = (
     options.readSigningTeamIdentifier ?? readMacosTeamIdentifier
   )(bundledPeerAuthorizationPath);
 
+  let capabilities = manifest.capabilities;
+  if (capabilities?.computerUse?.status === "available") {
+    const serviceExecutablePath = requireSafeAgentArtifactPath(
+      capabilities.computerUse.serviceExecutable,
+      manifestPath,
+    );
+    const bundledServiceExecutablePath = path.join(
+      appPath,
+      "Contents",
+      "Resources",
+      "browser-runtime",
+      ...serviceExecutablePath.split("/"),
+    );
+    capabilities = {
+      ...capabilities,
+      computerUse: {
+        ...capabilities.computerUse,
+        signingTeamId: (
+          options.readComputerUseSigningTeamIdentifier
+          ?? options.readSigningTeamIdentifier
+          ?? readMacosTeamIdentifier
+        )(bundledServiceExecutablePath),
+      },
+    };
+  }
+
   writeManifestAtomically(manifestPath, {
     ...manifest,
     artifacts,
+    capabilities,
     peerAuthorization: {
       ...manifest.peerAuthorization,
       signingTeamId,
@@ -395,6 +432,7 @@ export const sign = async (options) => {
     ...signOptions,
     ignore: (filePath) => (
       isSparkleOwnedCode(signOptions.app, filePath)
+      || isPreservedBrowserRuntimeVendorCode(signOptions.app, filePath)
       || matchesIgnore(baseIgnore, filePath)
     ),
   });

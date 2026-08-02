@@ -1,19 +1,23 @@
 #!/usr/bin/env tsx
 
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
+import { createRequire } from "node:module";
 import type {
   McpServerToolCallResponse,
   ThreadStartResponse,
 } from "@nodex/codex-app-server-protocol/v2";
+import type { BrowserUsePeerAuthorizationMode } from "../src/shared/browser-use-host-capability";
 import { CodexAppServerClient } from "../src/main/codex/codex-app-server-client";
 import { BrowserPluginReconciler } from "../src/main/codex/browser-plugin-reconciler";
 import { BrowserUseThreadConfigBuilder } from "../src/main/codex/browser-use-thread-config";
 import { resolveCodexRuntime } from "../src/main/codex/codex-runtime";
 import { BrowserUseNativePipeServer } from "../src/main/browser-use/browser-use-native-pipe-server";
 import { createBrowserUsePeerAuthorizer } from "../src/main/browser-use/browser-use-peer-authorizer";
+import { ComputerUseRuntimeCoordinator } from "../src/main/codex/computer-use-runtime";
+import type { SkyNativeAddon } from "../src/main/sky-native";
 
 type BrowserRuntimeProbeReport = {
   appServerCompatibilityVersion: string;
@@ -24,15 +28,23 @@ type BrowserRuntimeProbeReport = {
     node: string;
     peerAuthorization: string;
   };
+  computerUse:
+    | { appCount: number; status: "available" }
+    | { reason: string; status: "unavailable" };
   nativePipeMethods: string[];
   nodeReplResult: string;
   targetArch: string;
   targetPlatform: string;
 };
 
+export interface BrowserRuntimeProbeOptions {
+  readonly resourcesPath?: string;
+}
+
 interface BrowserRuntimeCleanupDependencies {
   readonly closeNativePipeServer: () => Promise<void>;
   readonly removeStateHome: () => void;
+  readonly stopComputerUseRuntime: () => Promise<void>;
   readonly stopClient: () => Promise<void>;
 }
 
@@ -43,6 +55,7 @@ export async function cleanupBrowserRuntime(
   let hasError = false;
   const operations = [
     dependencies.stopClient,
+    dependencies.stopComputerUseRuntime,
     dependencies.closeNativePipeServer,
     dependencies.removeStateHome,
   ];
@@ -58,6 +71,50 @@ export async function cleanupBrowserRuntime(
   }
 
   if (hasError) throw firstError;
+}
+
+function makeComputerUseProbeCode(computerUsePluginRoot: string): string {
+  return `
+var computerUseModule = await import(${JSON.stringify(
+    path.join(computerUsePluginRoot, "scripts", "computer-use-client.mjs"),
+  )});
+await computerUseModule.setupComputerUseRuntime({ globals: globalThis });
+var computerUseApps = await sky.list_apps();
+nodeRepl.write("__NODEX_CUA_PROBE__" + JSON.stringify({ appCount: computerUseApps.length }));
+`;
+}
+
+function parseComputerUseProbeResult(text: string): { appCount?: unknown } {
+  const marker = "__NODEX_CUA_PROBE__";
+  const markerIndex = text.lastIndexOf(marker);
+  if (markerIndex < 0) {
+    throw new Error(`Computer Use probe did not return its result marker: ${text}`);
+  }
+  return JSON.parse(text.slice(markerIndex + marker.length).trim()) as {
+    appCount?: unknown;
+  };
+}
+
+export function classifyComputerUseProbeResponse(
+  text: string,
+  isError: boolean,
+): BrowserRuntimeProbeReport["computerUse"] {
+  if (
+    isError
+    && text.includes("The Mac is locked")
+    && text.toLowerCase().includes("unlock")
+  ) {
+    return { reason: "mac-locked", status: "unavailable" };
+  }
+  const parsed = parseComputerUseProbeResult(text);
+  if (
+    isError
+    || !Number.isSafeInteger(parsed.appCount)
+    || Number(parsed.appCount) <= 0
+  ) {
+    throw new Error(`Computer Use list_apps probe failed: ${text}`);
+  }
+  return { appCount: Number(parsed.appCount), status: "available" };
 }
 
 function textFromToolResponse(response: McpServerToolCallResponse): string {
@@ -117,10 +174,20 @@ nodeRepl.write(JSON.stringify({
 `;
 }
 
-export async function probeBrowserRuntime(projectRoot: string): Promise<BrowserRuntimeProbeReport> {
+export async function probeBrowserRuntime(
+  projectRoot: string,
+  options: BrowserRuntimeProbeOptions = {},
+): Promise<BrowserRuntimeProbeReport> {
+  const resourcesPath = options.resourcesPath?.trim();
+  const isPackaged = Boolean(resourcesPath);
+  const peerAuthorizationMode: BrowserUsePeerAuthorizationMode = isPackaged
+    ? "packaged"
+    : "disabled";
   const runtime = resolveCodexRuntime({
-    isPackaged: false,
-    projectRootPath: projectRoot,
+    isPackaged,
+    ...(resourcesPath
+      ? { resourcesPath: path.resolve(resourcesPath) }
+      : { projectRootPath: projectRoot }),
   });
   if (runtime.browserRuntime.status === "unavailable") {
     throw new Error(runtime.browserRuntime.message);
@@ -130,7 +197,11 @@ export async function probeBrowserRuntime(projectRoot: string): Promise<BrowserR
   }
 
   const bundle = runtime.browserRuntime.bundle;
-  const stateHome = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-browser-runtime-probe-"));
+  const stateHome = fs.mkdtempSync(path.join(
+    projectRoot,
+    ".generated",
+    "browser-runtime-probe-",
+  ));
   const trustedBridgeProbePath = path.join(stateHome, "trusted-bridge-probe.mjs");
   fs.writeFileSync(trustedBridgeProbePath, TRUSTED_BRIDGE_PROBE_SOURCE, {
     encoding: "utf8",
@@ -178,7 +249,7 @@ export async function probeBrowserRuntime(projectRoot: string): Promise<BrowserR
     },
     socketPeerAuthorizer: createBrowserUsePeerAuthorizer({
       addonPath: bundle.paths.peerAuthorization,
-      mode: "disabled",
+      mode: peerAuthorizationMode,
     }),
   });
   const client = new CodexAppServerClient({
@@ -198,19 +269,40 @@ export async function probeBrowserRuntime(projectRoot: string): Promise<BrowserR
     logStderr: false,
     requestTimeoutMs: 150_000,
   });
+  const requireForProbe = createRequire(import.meta.url);
+  const computerUseRuntime = new ComputerUseRuntimeCoordinator({
+    browserRuntime: runtime.browserRuntime,
+    loadAddon: () => requireForProbe(bundle.paths.skyNativeAddon) as Pick<
+      SkyNativeAddon,
+      "computerUseServiceProcessMatchesExecutablePath" | "spawnComputerUseService"
+    >,
+    macOSRelease: execFileSync("/usr/bin/sw_vers", ["-productVersion"], {
+      encoding: "utf8",
+    }).trim(),
+    peerAuthorizationMode,
+    runtimeStateHome: stateHome,
+    terminateManagedServiceOnDispose: true,
+  });
 
   try {
     await nativePipeServer.start();
+    const computerUseRuntimeResult = await computerUseRuntime.ensureReady();
     await client.start();
     const reconciliation = await new BrowserPluginReconciler({
       browserRuntime: runtime.browserRuntime,
       client,
+      computerUseAvailable: () => computerUseRuntimeResult.status === "available",
+      runtimeStateHome: stateHome,
     }).ensureInstalled();
     if (reconciliation.status !== "ready") throw new Error(reconciliation.message);
 
     const browserConfig = await new BrowserUseThreadConfigBuilder({
       availableBackends: () => ["iab"],
       browserRuntime: runtime.browserRuntime,
+      computerUsePluginReady: () =>
+        reconciliation.status === "ready"
+        && reconciliation.computerUse.status === "ready",
+      computerUseRuntime: () => computerUseRuntimeResult,
       runtimeStateHome: stateHome,
     }).build();
     if (!browserConfig) throw new Error("Verified Browser runtime did not build thread config");
@@ -281,10 +373,54 @@ export async function probeBrowserRuntime(projectRoot: string): Promise<BrowserR
       throw new Error("Browser client did not reach the native-pipe Browser backend");
     }
 
+    let computerUse: BrowserRuntimeProbeReport["computerUse"];
+    if (
+      computerUseRuntimeResult.status === "available"
+      && reconciliation.computerUse.status === "ready"
+    ) {
+      const computerUseResponse = await client.request<McpServerToolCallResponse>(
+        "mcpServer/tool/call",
+        {
+          _meta: {
+            "x-codex-turn-metadata": {
+              item_id: randomUUID(),
+              session_id: sessionId,
+              thread_id: threadId,
+              turn_id: turnId,
+            },
+          },
+          arguments: {
+            code: makeComputerUseProbeCode(
+              reconciliation.computerUse.pluginRoot,
+            ),
+            timeout_ms: 30_000,
+          },
+          server: "node_repl",
+          threadId,
+          tool: "js",
+        },
+      );
+      const computerUseText = textFromToolResponse(computerUseResponse);
+      computerUse = classifyComputerUseProbeResponse(
+        computerUseText,
+        computerUseResponse.isError === true,
+      );
+    } else {
+      computerUse = {
+        reason: computerUseRuntimeResult.status === "unavailable"
+          ? computerUseRuntimeResult.reason
+          : reconciliation.computerUse.status === "unavailable"
+            ? reconciliation.computerUse.reason
+            : "Computer Use probe prerequisites were not ready",
+        status: "unavailable",
+      };
+    }
+
     return {
       appServerCompatibilityVersion: runtime.codexCompatibilityVersion,
       browserPluginVersion: bundle.manifest.browserPlugin.version,
       browserRuntimeVersions: bundle.manifest.runtimeVersions,
+      computerUse,
       nativePipeMethods: [...new Set(nativePipeMethods)],
       nodeReplResult,
       targetArch: bundle.manifest.targetArch,
@@ -299,6 +435,7 @@ export async function probeBrowserRuntime(projectRoot: string): Promise<BrowserR
         recursive: true,
         retryDelay: 100,
       }),
+      stopComputerUseRuntime: () => computerUseRuntime.dispose(),
       stopClient: () => client.stop(),
     });
   }
@@ -312,7 +449,15 @@ function isDirectExecution(): boolean {
 
 if (isDirectExecution()) {
   const projectRoot = path.resolve(process.cwd());
-  probeBrowserRuntime(projectRoot).then(
+  const arguments_ = process.argv.slice(2);
+  const resourcesPathIndex = arguments_.indexOf("--resources-path");
+  const resourcesPath = resourcesPathIndex < 0
+    ? undefined
+    : arguments_[resourcesPathIndex + 1];
+  if (resourcesPathIndex >= 0 && (!resourcesPath || resourcesPath.startsWith("--"))) {
+    throw new Error("--resources-path requires a path to packaged Resources");
+  }
+  probeBrowserRuntime(projectRoot, resourcesPath ? { resourcesPath } : {}).then(
     (report) => {
       process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
     },

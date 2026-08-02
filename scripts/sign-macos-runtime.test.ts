@@ -6,6 +6,7 @@ import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import {
   applyMacSigningMode,
+  isPreservedBrowserRuntimeVendorCode,
   refreshSignedAgentRuntimeMetadata,
   refreshSignedBrowserRuntimeManifest,
   refreshSignedSparkleRuntimeManifest,
@@ -55,6 +56,40 @@ describe("applyMacSigningMode", () => {
   test("rejects unknown signing modes instead of silently signing differently", () => {
     expect(() => applyMacSigningMode(releaseOptions, "adhoc"))
       .toThrow("Unknown NODEX_MAC_SIGN_MODE: adhoc");
+  });
+});
+
+describe("desktop tool runtime vendor signing boundary", () => {
+  const appPath = "/tmp/Nodex.app";
+  const vendorRuntimePath = path.join(
+    appPath,
+    "Contents/Resources/browser-runtime",
+  );
+
+  test("preserves the complete signed runtime closure but not adjacent code", () => {
+    expect(isPreservedBrowserRuntimeVendorCode(
+      appPath,
+      path.join(
+        vendorRuntimePath,
+        "runtime/lib/node_modules/@oai/sky/Codex Computer Use.app/Contents/MacOS/SkyComputerUseService",
+      ),
+    )).toBe(true);
+    expect(isPreservedBrowserRuntimeVendorCode(
+      appPath,
+      path.join(vendorRuntimePath, "native/sky.node"),
+    )).toBe(true);
+    expect(isPreservedBrowserRuntimeVendorCode(
+      appPath,
+      path.join(vendorRuntimePath, "bin/node_repl"),
+    )).toBe(true);
+    expect(isPreservedBrowserRuntimeVendorCode(
+      appPath,
+      `${vendorRuntimePath}.backup/native/sky.node`,
+    )).toBe(false);
+    expect(isPreservedBrowserRuntimeVendorCode(
+      appPath,
+      path.join(appPath, "Contents/Resources/bin/nodex"),
+    )).toBe(false);
   });
 });
 
@@ -170,7 +205,7 @@ describe("refreshSignedBrowserRuntimeManifest", () => {
     const manifestPath = path.join(browserRoot, "browser-runtime-manifest.json");
     fs.writeFileSync(manifestPath, JSON.stringify({
       contractVersion: 1,
-      schemaVersion: 3,
+      schemaVersion: 4,
       artifacts: [
         {
           architecture: "arm64",

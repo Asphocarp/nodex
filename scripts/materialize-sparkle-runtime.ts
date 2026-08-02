@@ -56,6 +56,11 @@ export interface MaterializeSparkleOptions {
 const sha256File = (filePath: string): string =>
   createHash("sha256").update(readFileSync(filePath)).digest("hex");
 
+const normalizeLicenseWhitespace = (filePath: string): void => {
+  const normalized = readFileSync(filePath, "utf8").replace(/[\t ]+$/gmu, "");
+  writeFileSync(filePath, normalized, "utf8");
+};
+
 function assertFileSha256(filePath: string, expectedSha256: string, label: string): void {
   const actualSha256 = sha256File(filePath);
   if (actualSha256 !== expectedSha256) {
@@ -292,6 +297,10 @@ export async function materializeSparkleRuntime(
       "./bin/sign_update",
       "./LICENSE",
     ]);
+    // Keep the committed notice and staged notice byte-identical without
+    // retaining upstream-only trailing spaces. The archive itself remains
+    // pinned and verified byte-for-byte before extraction.
+    normalizeLicenseWhitespace(path.join(extractedRoot, "LICENSE"));
     for (const tool of REQUIRED_TOOLS) chmodSync(path.join(extractedRoot, "bin", tool), 0o755);
     const manifest: SparkleToolchainManifest = {
       archiveSha256: lock.archive.sha256,

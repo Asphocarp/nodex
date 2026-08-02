@@ -27,7 +27,7 @@
     "codex:schemas:compat": "pnpm --silent run stage:codex-runtime:mac && tsx scripts/compare-app-server-schemas.ts",
     "agent-runtime:probe": "tsx scripts/probe-agent-runtime.ts",
     "agent-runtime:probe:wire": "tsx scripts/probe-agent-runtime-wire.ts",
-    "browser-runtime:probe": "tsx scripts/probe-browser-runtime.ts",
+    "browser-runtime:probe": "tsx scripts/run-browser-runtime-probe.ts",
     "test:agent-runtime-conformance": "pnpm --silent run stage:codex-runtime:mac && pnpm --silent run agent-runtime:probe && pnpm --silent run agent-runtime:probe:wire",
     "test:browser-runtime-conformance": "pnpm --silent run stage:codex-runtime:mac && pnpm --silent run browser-runtime:probe",
     "core:fmt": "cargo fmt --all --check",

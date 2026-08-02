@@ -82,7 +82,7 @@ export const restorePackagedBrowserRuntimeClosure = ({
 
   const manifest = JSON.parse(sourceManifestBytes.toString("utf8"));
   if (
-    manifest.schemaVersion !== 3
+    manifest.schemaVersion !== 4
     || manifest.contractVersion !== 1
     || !Array.isArray(manifest.artifacts)
   ) {

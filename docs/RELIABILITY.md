@@ -417,6 +417,26 @@
   presented, recently used, Browser Use, capture, audio/media, loading/restore,
   and active-download pages are protected. Suspended pages retain their durable
   shell/snapshot and cold-restore when selected.
+- Native remote-hosted PiP is ephemeral Main/OS presentation, never a second
+  page owner. Completed Browser `node_repl` activity contributes static
+  screenshots, while Computer Use contributes its service-owned live layer.
+  Visible Browser presentation suppresses the owning thread, and turn
+  completion, privacy termination, release, window teardown, and shutdown use
+  idempotent cleanup. Maximum display size and global always-hide are restored
+  from a Profile-local atomic preference file; per-task hidden state remains
+  intentionally ephemeral.
+- The canonical Computer Use helper is published by staging-and-rename with
+  rollback after strict post-swap verification. Its service manager serializes
+  concurrent starts, reuses only a live non-zombie process with an exact native
+  executable-path match, and respawns otherwise. Ordinary coordinator disposal
+  closes the private host-services pipe but deliberately does not kill the
+  shared helper; isolated conformance probes terminate only the exact PID they
+  started before removing temporary state.
+- Computer Use overlay config and approval preference JSON are serialized and
+  atomically renamed, so concurrent startup/settings mutations cannot expose a
+  partial document. A malformed or missing file projects empty approvals and
+  default click sound; Locked Use status failure projects disabled rather than
+  claiming installation.
 - Browser download and history stores are Profile-owned atomic files. Download
   records are bounded, retain collision-safe destination and progress state
   across restart, and attribute events only to the owning route/window. Browser
@@ -492,14 +512,52 @@
 - Missing Codex CLI binary surfaces explicit `missingBinary` connection status in UI.
 - `codex-service` defers absent staged/bundled runtime handling until the client actually starts, while a materialized Open Interpreter runtime must pass its release-lock and manifest contracts before app-server launch: every artifact is a regular file with recorded size, SHA-256, and executable mode, every declared search-path tool is executable, the runtime version matches the lock, and initialize must resolve the expected isolated state home at `${NODEX_HOME}/agent`.
 - Packaged builds mount one pinned Open Interpreter closure directly at `Contents/Resources`: `interpreter` and `codex-code-mode-host` share `Resources/bin` with the Nodex executables, one canonical `Resources/codex-path/rg` serves both runtimes, and the patched zsh remains at the upstream-required `Resources/codex-resources/zsh/bin/zsh`. `agent-runtime.json`, `codex-package.json`, and the Open Interpreter notices live at that same package root. Dev/unpackaged runs retain `.generated/codex-runtime/agent-runtime` as an atomic staging ownership boundary while preserving the same package-relative paths. Staging downloads the architecture-specific locked archive, checks archive and inner artifact evidence, installs atomically, retains Apache-2.0 license/NOTICE material without duplicating the `i` executable alias, and rejects wrong-architecture or non-executable outputs before packaging.
-- Browser automation runtime is a separately sealed closure at `browser-runtime/` inside the Agent runtime. A committed release lock requires exact arm64 and x64 assets and binds each immutable HTTPS archive by byte size, archive SHA-256, inner manifest SHA-256, source desktop build/build number, Codex compatibility version, Browser plugin version, CUA runtime version, Node version, Codex CLI version, and architecture-specific peer-authorizer hash. Normal development, CI, and packaging materialize only this lock into a generated source closure; they never inspect `/Applications` or another installed desktop app. Local desktop extraction is an explicit maintainer-only vendor operation. The schema-v3 inner manifest then binds platform/architecture, exact Codex CLI/Node/Node REPL/Browser plugin/peer-authorization paths, artifact sizes and SHA-256 values, Node module directories, signing-team metadata, and supported backends. Materialization rejects unsafe archive entries and verifies the complete declared closure before atomic publication; staging verifies it again before activation. A missing, incompatible, tampered, symlinked, or wrong-target closure produces an explicit unavailable reason and leaves ordinary Agent runtime startup usable, while release packaging requires the closure to be present.
+- Desktop Tool automation is a separately sealed closure at `browser-runtime/`
+  inside the Agent runtime. A committed release lock requires exact arm64 and
+  x64 assets and binds each immutable HTTPS archive by byte size, archive
+  SHA-256, inner manifest SHA-256, source desktop build/build number, Codex
+  compatibility version, Browser plugin version, CUA runtime version, Node
+  version, Codex CLI version, and architecture-specific native-artifact hashes.
+  Normal development, CI, and packaging materialize only this lock into a
+  generated source closure; they never inspect `/Applications` or another
+  installed desktop app. Local desktop extraction is an explicit
+  maintainer-only vendor operation. The schema-v4 inner manifest binds the
+  complete Browser and architecture-optional Computer Use closure: exact signed
+  Codex CLI, Node, Node REPL, Browser/Computer Use plugin, native PiP bridge,
+  `sky.node`, helper app, peer-authorization paths, artifact sizes and SHA-256
+  values, Node module directories, signing-team metadata, and supported
+  backends. Materialization rejects unsafe archive entries and verifies the
+  complete declared closure before atomic publication; staging verifies it
+  again before activation. A missing, incompatible, tampered, symlinked, or
+  wrong-target closure produces an explicit unavailable reason and leaves
+  ordinary Agent runtime startup usable, while release packaging requires the
+  target closure to be present.
 - Thread start, resume, heartbeat resume, and fork obtain Browser-use app-server configuration through the same thread-config seam. That seam emits pinned verified paths and client hashes, limits trusted code to the bundled Browser plugin root, mirrors the macOS shell policy, and advertises only backends supplied by the active host capability; it never enables trust-all code or experimental thread-config endpoints. The same capability controls native-pipe activation and Browser bundled-plugin eligibility. If it becomes unavailable, the managed plugin is uninstalled and skills are reloaded before another thread can receive Browser configuration, preventing a visible skill with no provider.
 - Packaged macOS runs require production peer authorization. In unpackaged development, Browser capability still comes from the verified runtime and supported platform; the native pipe relies on its current-user-owned `0700` directory and `0600` socket, matching the upstream development policy. `CODEX_BROWSER_USE_PEER_AUTHORIZATION=1` is an explicit opt-in to native development peer verification, not a feature-enable flag, and isolated-run supervision preserves rather than invents that policy. The chosen mode is logged independently from backend availability.
 - A not-yet-materialized Thread may initially capture conversation-backed Browser routing under its Project Session identity. Arrival of the canonical Codex session closes any matching provisional backend before publishing the canonical pipe, and the transition also waits for an in-flight provisional startup. A Project Scene Browser instead routes under its canonical Project owner key and registers no `codexSessionId`; it can browse normally, while actions that add Browser context to an agent remain unavailable until a Conversation exists. Projectless tasks are valid with `projectId: null`. This keeps discovery at one pipe per live Codex session and prevents first-turn races from leaving stale candidates.
 - App-server initialization must advertise `mcpServerOpenaiFormElicitation`. Browser origin consent is delivered as an app-server request and must receive the renderer's structured response; without that negotiated capability, the plugin can load and connect while its first navigation remains blocked before CDP. Native-pipe request lifecycle logs record only bounded method labels and durations, never command parameters or URLs, so this failure boundary remains diagnosable without leaking browsing data.
 - Browser native-pipe framing owns connection isolation, authorization, and frame bounds, but does not impose a second request deadline around its handler. Main owns a fixed 20-second deadline for each CDP operation and deliberately ignores plugin-provided `timeoutMs` and `preserveDebuggerOnTimeout` hints; this prevents a 2–5 second client hint from truncating host-side paint synchronization while preserving a single bounded command lifecycle.
 - A `Page.captureScreenshot` request with `captureBeyondViewport: true` and a finite positive `clip` temporarily sizes the Browser guest to the rounded-up clip through the central renderer webview manager, whether that guest is currently presented or retained. Hidden painting stays at `(0, 0)` with near-transparent opacity, no pointer events, explicit paint/size containment, and compositor promotion. Main polls `Page.getLayoutMetrics` for at most one second before issuing the screenshot, then restores the normal surface in `finally`. Metric read failure or a slow renderer does not extend the synchronization indefinitely.
-- macOS packaging re-signs every embedded Open Interpreter executable and native Nodex binary under the enclosing Nodex Developer ID identity. Because signing changes Mach-O bytes, the custom signing boundary refreshes `agent-runtime.json`, the optional `browser-runtime-manifest.json`, and `rust-core-runtime.json` from the final nested signatures and then reseals only the outer app before notarization. Structural packaged verification requires each executable's TeamIdentifier to equal the enclosing app, the Browser peer-authorization signing team to equal that identity when the optional closure is required, and every manifest digest to match the final artifact; upstream ad-hoc signatures are not treated as distribution authority. Distribution runs the stateful runtime smoke exactly once per architecture against the extracted, notarized ZIP App, while the mounted DMG is structural-only and must share its version, bundle, team, and sealed provenance. The smoke requires the manifest Core SHA-256 to equal Core's authenticated self identity, two selector launches to reuse one PID/start nonce, and a real symlinked CLI workflow. It starts from an empty Profile, provisions the first Project through the same Electron-host bootstrap boundary, passes the returned opaque Project ID into Page creation and ripgrep checks, and explicitly drains the live Core connection after the final command.
+- macOS packaging re-signs embedded Open Interpreter and native Nodex artifacts
+  under the enclosing Nodex Developer ID identity, but preserves and restores
+  the complete vendor-signed Desktop Tool closure after that outer signing pass.
+  Because either operation can change Mach-O bytes, the custom signing boundary
+  refreshes `agent-runtime.json`, `browser-runtime-manifest.json`, and
+  `rust-core-runtime.json` from their final nested artifacts and reseals only the
+  outer app before notarization. Structural packaged verification requires
+  Nodex-owned executables to match the enclosing app, Desktop Tool artifacts to
+  match their manifest-specific signing teams, and every manifest digest to
+  match the final artifact. Distribution runs the stateful runtime smoke exactly
+  once per architecture against the extracted, notarized ZIP App, while the
+  mounted DMG is structural-only and must share its version, bundle, team, and
+  sealed provenance. The smoke requires the manifest Core SHA-256 to equal
+  Core's authenticated self identity, two selector launches to reuse one
+  PID/start nonce, a real symlinked CLI workflow, Browser native-pipe
+  conformance, and Computer Use conformance when the architecture advertises it.
+  The Desktop Tool probe is relaunched as a temporary LaunchServices background
+  app so the native helper inherits the same ordinary desktop stdio context as
+  a packaged Electron launch; running it under a CI pipe can otherwise propagate
+  macOS guarded file descriptors into the helper.
 - Local macOS source deployment asks electron-builder for an unpacked App in a
   unique generated directory and installs that verified bundle directly. Its
   Sparkle runtime is explicitly disabled and has no feed URL. Sealed package

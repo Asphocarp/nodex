@@ -16,25 +16,38 @@ function makeRuntime() {
     targetPlatform: "darwin",
   });
   if (browserRuntime.status === "unavailable") throw new Error(browserRuntime.message);
-  return { browserRuntime, root };
+  const runtimeStateHome = path.join(root, "state");
+  const marketplaceRoot = path.join(
+    runtimeStateHome,
+    ".tmp",
+    "bundled-marketplaces",
+    "openai-bundled",
+  );
+  return { browserRuntime, marketplaceRoot, root, runtimeStateHome };
 }
 
-function plugin(input: { enabled: boolean; installed: boolean; version: string }) {
+function plugin(input: {
+  enabled: boolean;
+  installed: boolean;
+  name?: "browser" | "computer-use";
+  version: string;
+}) {
+  const name = input.name ?? "browser";
   return {
     authPolicy: "ON_INSTALL",
     availability: "AVAILABLE",
     enabled: input.enabled,
-    id: "browser@openai-bundled",
+    id: `${name}@openai-bundled`,
     installPolicy: "AVAILABLE",
     installPolicySource: null,
     installed: input.installed,
     interface: null,
     keywords: [],
     localVersion: input.version,
-    name: "browser",
+    name,
     remotePluginId: null,
     shareContext: null,
-    source: { type: "local", path: "/tmp/browser" },
+    source: { type: "local", path: `/tmp/${name}` },
     version: input.version,
   };
 }
@@ -50,7 +63,7 @@ describe("BrowserPluginReconciler", () => {
           marketplaces: [{
             interface: null,
             name: "openai-bundled",
-            path: fixture.browserRuntime.bundle.browserPluginMarketplaceRoot,
+            path: fixture.marketplaceRoot,
             plugins: [plugin({ enabled: true, installed: true, version: "1.0.0-test" })],
           }],
         };
@@ -62,10 +75,17 @@ describe("BrowserPluginReconciler", () => {
       const reconciler = new BrowserPluginReconciler({
         browserRuntime: fixture.browserRuntime,
         client: { request },
+        runtimeStateHome: fixture.runtimeStateHome,
       });
       await expect(reconciler.ensureInstalled()).resolves.toEqual({
+        computerUse: {
+          message: "Computer Use runtime capability is unavailable",
+          reason: "capability-unavailable",
+          status: "unavailable",
+        },
         enabled: true,
         installedVersion: "1.0.0-test",
+        marketplaceRoot: fixture.marketplaceRoot,
         status: "ready",
       });
       await reconciler.ensureInstalled();
@@ -85,7 +105,7 @@ describe("BrowserPluginReconciler", () => {
         marketplaceAdded = true;
         return {
           marketplaceName: "openai-bundled",
-          installedRoot: fixture.browserRuntime.bundle.browserPluginMarketplaceRoot,
+          installedRoot: fixture.marketplaceRoot,
           alreadyAdded: false,
         };
       }
@@ -97,7 +117,7 @@ describe("BrowserPluginReconciler", () => {
             ? [{
                 interface: null,
                 name: "openai-bundled",
-                path: fixture.browserRuntime.bundle.browserPluginMarketplaceRoot,
+                path: fixture.marketplaceRoot,
                 plugins: [plugin({
                   enabled: installed,
                   installed,
@@ -119,6 +139,7 @@ describe("BrowserPluginReconciler", () => {
       const reconciler = new BrowserPluginReconciler({
         browserRuntime: fixture.browserRuntime,
         client: { request },
+        runtimeStateHome: fixture.runtimeStateHome,
       });
       await expect(reconciler.ensureInstalled()).resolves.toMatchObject({ status: "ready" });
       expect(request.mock.calls.map(([method]) => method)).toEqual([
@@ -129,6 +150,74 @@ describe("BrowserPluginReconciler", () => {
         "skills/list",
         "plugin/list",
       ]);
+    } finally {
+      fs.rmSync(fixture.root, { force: true, recursive: true });
+    }
+  });
+
+  test("installs Browser and Computer Use from the materialized marketplace", async () => {
+    const fixture = makeRuntime();
+    const installed = new Set<string>();
+    const request = vi.fn(async (method: string, params?: unknown) => {
+      if (method === "plugin/list") {
+        return {
+          featuredPluginIds: [],
+          marketplaceLoadErrors: [],
+          marketplaces: [{
+            interface: null,
+            name: "openai-bundled",
+            path: fixture.marketplaceRoot,
+            plugins: [
+              plugin({
+                enabled: installed.has("browser"),
+                installed: installed.has("browser"),
+                version: "1.0.0-test",
+              }),
+              plugin({
+                enabled: installed.has("computer-use"),
+                installed: installed.has("computer-use"),
+                name: "computer-use",
+                version: "1.0.0-test",
+              }),
+            ],
+          }],
+        };
+      }
+      if (method === "plugin/install") {
+        const pluginName = (params as { pluginName: string }).pluginName;
+        installed.add(pluginName);
+        return { appsNeedingAuth: [], authPolicy: "ON_INSTALL" };
+      }
+      if (method === "skills/list") return { data: [] };
+      throw new Error(`Unexpected request: ${method}`);
+    });
+
+    try {
+      const reconciler = new BrowserPluginReconciler({
+        browserRuntime: fixture.browserRuntime,
+        client: { request },
+        computerUseAvailable: () => true,
+        runtimeStateHome: fixture.runtimeStateHome,
+      });
+
+      await expect(reconciler.ensureInstalled()).resolves.toMatchObject({
+        computerUse: {
+          enabled: true,
+          installedVersion: "1.0.0-test",
+          pluginRoot: path.join(
+            fixture.marketplaceRoot,
+            "plugins",
+            "computer-use",
+          ),
+          status: "ready",
+        },
+        enabled: true,
+        status: "ready",
+      });
+      expect(request.mock.calls
+        .filter(([method]) => method === "plugin/install")
+        .map(([, params]) => (params as { pluginName: string }).pluginName))
+        .toEqual(["browser", "computer-use"]);
     } finally {
       fs.rmSync(fixture.root, { force: true, recursive: true });
     }
@@ -163,7 +252,7 @@ describe("BrowserPluginReconciler", () => {
         };
       }
       if (method === "marketplace/add") {
-        source = fixture.browserRuntime.bundle.browserPluginMarketplaceRoot;
+        source = fixture.marketplaceRoot;
         return {
           marketplaceName: "openai-bundled",
           installedRoot: source,
@@ -177,6 +266,7 @@ describe("BrowserPluginReconciler", () => {
       const reconciler = new BrowserPluginReconciler({
         browserRuntime: fixture.browserRuntime,
         client: { request },
+        runtimeStateHome: fixture.runtimeStateHome,
       });
       await expect(reconciler.ensureInstalled()).resolves.toMatchObject({
         status: "ready",
@@ -209,7 +299,7 @@ describe("BrowserPluginReconciler", () => {
                   interface: null,
                   name: "openai-bundled",
                   path:
-                    fixture.browserRuntime.bundle.browserPluginMarketplaceRoot,
+                    fixture.marketplaceRoot,
                   plugins: [plugin({
                     enabled: true,
                     installed: true,
@@ -221,9 +311,10 @@ describe("BrowserPluginReconciler", () => {
             throw new Error(`Unexpected request: ${method}`);
           },
         },
+        runtimeStateHome: fixture.runtimeStateHome,
       });
       await expect(reconciler.ensureInstalled()).resolves.toEqual({
-        message: "Browser plugin reconciliation failed: unsupported",
+        message: "Desktop tool plugin reconciliation failed: unsupported",
         reason: "reconciliation-failed",
         status: "unavailable",
       });
@@ -248,7 +339,7 @@ describe("BrowserPluginReconciler", () => {
           marketplaces: [{
             interface: null,
             name: "openai-bundled",
-            path: fixture.browserRuntime.bundle.browserPluginMarketplaceRoot,
+            path: fixture.marketplaceRoot,
             plugins: [plugin({
               enabled: installed,
               installed,
@@ -275,10 +366,11 @@ describe("BrowserPluginReconciler", () => {
         availableBackends: () => availableBackends,
         browserRuntime: fixture.browserRuntime,
         client: { request },
+        runtimeStateHome: fixture.runtimeStateHome,
       });
 
       await expect(reconciler.ensureInstalled()).resolves.toEqual({
-        message: "Browser host backend is unavailable",
+        message: "Desktop tool host backends are unavailable",
         reason: "backend-unavailable",
         status: "unavailable",
       });
@@ -291,8 +383,14 @@ describe("BrowserPluginReconciler", () => {
 
       availableBackends = ["iab"];
       await expect(reconciler.ensureInstalled()).resolves.toEqual({
+        computerUse: {
+          message: "Computer Use runtime capability is unavailable",
+          reason: "capability-unavailable",
+          status: "unavailable",
+        },
         enabled: true,
         installedVersion: "1.0.0-test",
+        marketplaceRoot: fixture.marketplaceRoot,
         status: "ready",
       });
       expect(

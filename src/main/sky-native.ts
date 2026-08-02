@@ -1,7 +1,6 @@
 import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
-import { app } from "electron";
 import type {
   RemoteHostedPipAnchor,
   RemoteHostedPipPresentationScope,
@@ -42,7 +41,7 @@ export interface SkyNativeAddon {
     handler: ((isVisible: boolean, threadIds: string[]) => void) | null,
   ): boolean;
   setRemoteHostedPIPContentVisible(isVisible: boolean): boolean;
-  spawnComputerUseService(executablePath: string): number | null;
+  spawnComputerUseService(executablePath: string): Promise<number | null>;
   startRemoteHostedPIPContentHost(tooltips: {
     hide: string;
     placement: string;
@@ -58,6 +57,17 @@ export interface SkyNativeAddon {
 }
 
 const requireFromMain = createRequire(import.meta.url);
+
+function resolveElectronAppPath(): string {
+  try {
+    const electronModule = requireFromMain("electron") as {
+      app?: { getAppPath?: () => string };
+    };
+    return electronModule.app?.getAppPath?.() ?? process.cwd();
+  } catch {
+    return process.cwd();
+  }
+}
 const REQUIRED_REMOTE_HOSTED_PIP_EXPORTS = [
   "completeRemoteHostedPIPContentThread",
   "hasRemoteHostedPIPContentActivePresentation",
@@ -86,7 +96,7 @@ function hasRequiredExports(value: unknown): value is SkyNativeAddon {
 }
 
 export function resolveSkyNativeAddonPath({
-  appPath = app.getAppPath(),
+  appPath = resolveElectronAppPath(),
   resourcesPath = process.resourcesPath,
 }: {
   appPath?: string;

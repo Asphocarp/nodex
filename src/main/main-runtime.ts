@@ -33,7 +33,11 @@ import {
   projectionScopeKey,
   type ProjectionScope,
 } from "../shared/projection-stream";
-import { registerIpcHandlers } from "./ipc-handlers";
+import {
+  disposeRemoteHostedPipRuntime,
+  isRemoteHostedPipPrivacySettingsTerminationRequest,
+  registerIpcHandlers,
+} from "./ipc-handlers";
 import { dbNotifier } from "./local-store/notifier";
 import { getAssetsPathPrefix } from "./local-store/assets";
 import {
@@ -2110,6 +2114,13 @@ function shutdownMainRuntime(): Promise<void> {
       RUNTIME_SHUTDOWN_STEP_TIMEOUT_MS,
     );
     await settleRuntimeShutdownStep(
+      "Remote hosted PiP",
+      async () => {
+        disposeRemoteHostedPipRuntime();
+      },
+      RUNTIME_SHUTDOWN_STEP_TIMEOUT_MS,
+    );
+    await settleRuntimeShutdownStep(
       "Codex service",
       () => codexService.shutdown(),
       RUNTIME_SHUTDOWN_STEP_TIMEOUT_MS,
@@ -2146,6 +2157,10 @@ function registerRuntimeLifecycleHandlers(): void {
   runtimeLifecycleHandlersRegistered = true;
 
   app.on("before-quit", (event) => {
+    if (isRemoteHostedPipPrivacySettingsTerminationRequest()) {
+      event.preventDefault();
+      return;
+    }
     if (runtimeShutdownCompleted) return;
     event.preventDefault();
     if (runtimeQuitContinuationStarted) return;

@@ -510,6 +510,10 @@ import type {
   BrowserUsePolicySnapshot,
 } from "./browser-use-policy";
 import type {
+  ComputerUseSettingsSnapshot,
+  ComputerUseSoundMode,
+} from "./computer-use-settings";
+import type {
   FeedbackUploadParams,
   FeedbackUploadResponse,
   ThreadGoal,
@@ -1313,6 +1317,30 @@ export interface IpcApi {
   "browser-use-policy-update-origin-rule": {
     args: [input: BrowserUseOriginRuleUpdate];
     result: BrowserUsePolicySnapshot;
+  };
+  "computer-use-settings-get": {
+    args: [];
+    result: ComputerUseSettingsSnapshot;
+  };
+  "computer-use-settings-remove-app-approval": {
+    args: [bundleIdentifier: string];
+    result: ComputerUseSettingsSnapshot;
+  };
+  "computer-use-settings-remove-message-approval": {
+    args: [chatGuid: string];
+    result: ComputerUseSettingsSnapshot;
+  };
+  "computer-use-settings-set-always-hide-pip": {
+    args: [alwaysHide: boolean];
+    result: ComputerUseSettingsSnapshot;
+  };
+  "computer-use-settings-set-locked-use": {
+    args: [enabled: boolean];
+    result: ComputerUseSettingsSnapshot;
+  };
+  "computer-use-settings-set-sound-mode": {
+    args: [soundMode: ComputerUseSoundMode];
+    result: ComputerUseSettingsSnapshot;
   };
   "browser-annotation-capture-evidence": {
     args: [input: import("./browser-annotation").BrowserAnnotationEvidenceCaptureInput];

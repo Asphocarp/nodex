@@ -53,6 +53,12 @@ const FIXTURE_FILES = [
     architecture: "any",
     executable: false,
     kind: "data",
+    path: "marketplace/plugins/browser/.codex-plugin/plugin.json",
+  },
+  {
+    architecture: "any",
+    executable: false,
+    kind: "data",
     path: "marketplace/.agents/plugins/marketplace.json",
   },
 ] as const;
@@ -61,6 +67,24 @@ const COMPUTER_USE_FIXTURE_FILES = [
   { architecture: "any", executable: false, kind: "data", path: "marketplace/plugins/computer-use/manifest.json" },
   { architecture: "any", executable: false, kind: "data", path: "marketplace/plugins/computer-use/client.mjs" },
   { architecture: "any", executable: false, kind: "data", path: "marketplace/plugins/computer-use/docs/SKILL.md" },
+  {
+    architecture: "any",
+    executable: false,
+    kind: "data",
+    path: "marketplace/plugins/computer-use/skills/computer-use/SKILL.md",
+  },
+  {
+    architecture: "any",
+    executable: false,
+    kind: "data",
+    path: "marketplace/plugins/computer-use/.codex-plugin/plugin.json",
+  },
+  {
+    architecture: "any",
+    executable: false,
+    kind: "data",
+    path: "marketplace/plugins/computer-use/.codex-plugin/computer-use-node-repl.md",
+  },
   {
     architecture: "arm64",
     executable: true,
@@ -73,6 +97,37 @@ function sha256(content: string): string {
   return createHash("sha256").update(content).digest("hex");
 }
 
+function fixtureContent(relativePath: string): string {
+  if (relativePath === "marketplace/.agents/plugins/marketplace.json") {
+    return `${JSON.stringify({
+      name: "openai-bundled",
+      plugins: [
+        {
+          name: "browser",
+          source: { path: "./plugins/browser", source: "local" },
+        },
+        {
+          name: "computer-use",
+          source: { path: "./plugins/computer-use", source: "local" },
+        },
+      ],
+    }, null, 2)}\n`;
+  }
+  if (relativePath.endsWith("/.codex-plugin/plugin.json")) {
+    const name = relativePath.includes("/computer-use/")
+      ? "computer-use"
+      : "browser";
+    return `${JSON.stringify({ name, version: "1.0.0-test" }, null, 2)}\n`;
+  }
+  if (relativePath.endsWith("/computer-use-node-repl.md")) {
+    return "---\nname: computer-use\n---\n\nNode REPL variant\n";
+  }
+  if (relativePath.endsWith("/computer-use/docs/SKILL.md")) {
+    return "---\nname: computer-use\n---\n\nNative MCP variant\n";
+  }
+  return `fixture:${relativePath}\n`;
+}
+
 export function writeBrowserRuntimeFixture(
   bundleRoot: string,
   options: BrowserRuntimeFixtureOptions = {},
@@ -82,7 +137,7 @@ export function writeBrowserRuntimeFixture(
     ? [...FIXTURE_FILES, ...COMPUTER_USE_FIXTURE_FILES]
     : FIXTURE_FILES;
   const artifacts: BrowserRuntimeArtifact[] = definitions.map((definition) => {
-    const content = `fixture:${definition.path}\n`;
+    const content = fixtureContent(definition.path);
     const artifactPath = path.join(bundleRoot, ...definition.path.split("/"));
     fs.mkdirSync(path.dirname(artifactPath), { recursive: true });
     fs.writeFileSync(artifactPath, content);

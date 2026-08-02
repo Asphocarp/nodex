@@ -537,6 +537,11 @@ import { resolveCodexRuntime, type ResolvedCodexRuntime } from "./codex-runtime"
 import { materializeCodexFeatureDefaults } from "./codex-feature-defaults";
 import { BrowserUseThreadConfigBuilder } from "./browser-use-thread-config";
 import { BrowserPluginReconciler } from "./browser-plugin-reconciler";
+import {
+  ComputerUseRuntimeCoordinator,
+  type ComputerUseRuntimeResult,
+} from "./computer-use-runtime";
+import type { ComputerUseRuntimeConfigInput } from "./computer-use-runtime-config";
 import type { BrowserRuntimeBackend } from "../../shared/browser-runtime-metadata";
 import type { BrowserRuntimeAvailability } from "./browser-runtime-bundle";
 import { AGENT_RUNTIME_METADATA_FILENAME } from "../../shared/codex-runtime-metadata";
@@ -1405,6 +1410,11 @@ type CodexBrowserTransferStateReader = Pick<
 
 type CodexServiceOptions = {
   browserPluginReconciler?: Pick<BrowserPluginReconciler, "ensureInstalled">;
+  computerUseRuntimeCoordinator?: Pick<
+    ComputerUseRuntimeCoordinator,
+    "dispose" | "ensureReady" | "getResult"
+  >;
+  computerUseRuntimeConfig?: () => ComputerUseRuntimeConfigInput;
   runtime?: ResolvedCodexRuntime;
   runtimeStateHome?: string;
   providerCredentialStore?: ProviderCredentialStore;
@@ -2944,6 +2954,11 @@ export class CodexService extends EventEmitter {
     "ensureInstalled"
   >;
   private browserPluginReady = false;
+  private computerUsePluginReady = false;
+  private readonly computerUseRuntimeCoordinator: Pick<
+    ComputerUseRuntimeCoordinator,
+    "dispose" | "ensureReady" | "getResult"
+  >;
   private readonly providerCredentialStore: ProviderCredentialStore;
   private readonly rateLimitsPollIntervalMs: number;
   private readonly inactiveRendererOwnerRetentionMs: number;
@@ -3157,6 +3172,16 @@ export class CodexService extends EventEmitter {
       options?.runtimeStateHome
         ?? path.join(getNodexHome(), "agent"),
     );
+    this.computerUseRuntimeCoordinator =
+      options?.computerUseRuntimeCoordinator
+      ?? new ComputerUseRuntimeCoordinator({
+        browserRuntime: this.browserRuntime,
+        peerAuthorizationMode: runtime.source === "bundled"
+          ? "packaged"
+          : "development",
+        runtimeConfig: options?.computerUseRuntimeConfig,
+        runtimeStateHome: this.runtimeStateHome,
+      });
     this.providerCredentialStore = options?.providerCredentialStore
       ?? createElectronProviderCredentialStore();
     this.rateLimitsPollIntervalMs = options?.rateLimitsPollIntervalMs ?? RATE_LIMITS_POLL_INTERVAL_MS;
@@ -3184,6 +3209,9 @@ export class CodexService extends EventEmitter {
         this.browserPluginReady ? this.browserUseAvailableBackends() : []
       ),
       browserRuntime: runtime.browserRuntime,
+      computerUsePluginReady: () => this.computerUsePluginReady,
+      computerUseRuntime: () =>
+        this.computerUseRuntimeCoordinator.getResult() as ComputerUseRuntimeResult | null,
       runtimeStateHome: this.runtimeStateHome,
     });
     this.threadCodexConfigBuilder = options?.threadCodexConfigBuilder
@@ -3268,6 +3296,9 @@ export class CodexService extends EventEmitter {
         availableBackends: () => this.browserUseAvailableBackends(),
         browserRuntime: this.browserRuntime,
         client: this.client,
+        computerUseAvailable: () =>
+          this.computerUseRuntimeCoordinator.getResult()?.status === "available",
+        runtimeStateHome: this.runtimeStateHome,
       });
 
     this.agentImportCoordinator = new AgentImportCoordinator({
@@ -4435,6 +4466,22 @@ export class CodexService extends EventEmitter {
 
   getBrowserRuntimeAvailability(): BrowserRuntimeAvailability {
     return this.browserRuntime;
+  }
+
+  getComputerUseRuntimeResult(): ComputerUseRuntimeResult | null {
+    return this.computerUseRuntimeCoordinator.getResult();
+  }
+
+  async ensureComputerUseRuntimeReady(): Promise<ComputerUseRuntimeResult> {
+    return await this.computerUseRuntimeCoordinator.ensureReady();
+  }
+
+  async readConfigRequirements(): Promise<ConfigRequirementsReadResponse> {
+    await this.ensureClientReady();
+    return await this.client.request<
+      "configRequirements/read",
+      ConfigRequirementsReadResponse
+    >("configRequirements/read", undefined);
   }
 
   setBrowserUseBackendAvailabilityResolver(
@@ -7420,7 +7467,11 @@ export class CodexService extends EventEmitter {
     }
     this.pendingDynamicToolCalls.clear();
 
-    await this.client.stop();
+    try {
+      await this.client.stop();
+    } finally {
+      await this.computerUseRuntimeCoordinator.dispose();
+    }
   }
 
   listPendingWorktrees(): readonly CodexPendingWorktreeEntry[] {
@@ -7669,15 +7720,38 @@ export class CodexService extends EventEmitter {
   }
 
   private async ensureClientReady(): Promise<void> {
+    const computerUseRuntime = await this.computerUseRuntimeCoordinator.ensureReady();
     await this.client.start();
     const pluginResult = await this.browserPluginReconciler.ensureInstalled();
     this.browserPluginReady = pluginResult.status === "ready" && pluginResult.enabled;
+    this.computerUsePluginReady = pluginResult.status === "ready"
+      && pluginResult.computerUse.status === "ready"
+      && computerUseRuntime.status === "available";
     if (
       pluginResult.status === "unavailable"
       && pluginResult.reason === "reconciliation-failed"
     ) {
       this.logger.warn("Browser plugin is unavailable after runtime verification", {
         message: pluginResult.message,
+      });
+    }
+    if (
+      computerUseRuntime.status === "unavailable"
+      && computerUseRuntime.reason !== "architecture-unsupported"
+      && computerUseRuntime.reason !== "runtime-unavailable"
+    ) {
+      this.logger.warn("Computer Use runtime is unavailable", {
+        message: computerUseRuntime.message,
+        reason: computerUseRuntime.reason,
+      });
+    }
+    if (
+      pluginResult.status === "ready"
+      && pluginResult.computerUse.status === "unavailable"
+      && pluginResult.computerUse.reason === "reconciliation-failed"
+    ) {
+      this.logger.warn("Computer Use plugin is unavailable", {
+        message: pluginResult.computerUse.message,
       });
     }
   }

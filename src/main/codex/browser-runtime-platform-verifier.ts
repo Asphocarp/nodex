@@ -87,11 +87,15 @@ export function createBrowserRuntimePlatformArtifactVerifier(
     } catch {
       return "Mach-O code signature is invalid";
     }
-    if (artifact.path !== manifest.entrypoints.peerAuthorization) return null;
-
     const teamIdentifier = readTeamIdentifier(artifactPath, run);
-    if (teamIdentifier !== manifest.peerAuthorization.signingTeamId) {
-      return "peer authorization signing Team ID does not match the manifest";
+    const computerUse = manifest.capabilities.computerUse;
+    const expectedTeamIdentifier =
+      computerUse.status === "available"
+      && artifact.path.startsWith(`${computerUse.appBundle}/`)
+        ? computerUse.signingTeamId
+        : manifest.peerAuthorization.signingTeamId;
+    if (teamIdentifier !== expectedTeamIdentifier) {
+      return "desktop tool runtime signing Team ID does not match the manifest";
     }
     return null;
   };

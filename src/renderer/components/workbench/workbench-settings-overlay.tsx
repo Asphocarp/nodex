@@ -57,6 +57,7 @@ import { useCodeFontSize } from "../../lib/use-code-font-size";
 import { useNfmAutolinkSettings } from "../../lib/use-nfm-autolink-settings";
 import { AppUpdateSettingsControl } from "./app-update-settings-control";
 import { AgentImportSettingsPage } from "./agent-import-settings-page";
+import { ComputerUseSettingsPage } from "./computer-use-settings-page";
 import { KeyboardShortcutsSettingsPage } from "./keyboard-shortcuts-settings-page";
 import { LocalEnvironmentsSettingsPage } from "./local-environments-settings-page";
 import { WorkbenchHooksSettingsPage } from "./workbench-hooks-settings-page";
@@ -2665,6 +2666,7 @@ const SETTINGS_SECTION_COMPONENTS: Record<SettingsSectionId, ComponentType<Setti
   "browser-contact-info": BrowserContactInfoSettingsPage,
   "browser-history": BrowserHistorySettingsPage,
   "browser-extensions": BrowserExtensionsSettingsPage,
+  "computer-use": ComputerUseSettingsPage,
   "keyboard-shortcuts": KeyboardShortcutsSettingsPage,
   agent: AgentSettingsPage,
   "agent-import": AgentImportSettingsPage,

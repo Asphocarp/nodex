@@ -118,10 +118,14 @@ function resolveRuntimeFromRoot(input: {
     targetArch: metadata.targetArch as NodeJS.Architecture,
     targetPlatform: metadata.targetPlatform as NodeJS.Platform,
   });
+  const primaryBinaryPath = path.join(
+    input.runtimeRoot,
+    ...metadata.entrypoint.split("/"),
+  );
 
   return {
     source: input.source,
-    binaryPath: path.join(input.runtimeRoot, ...metadata.entrypoint.split("/")),
+    binaryPath: primaryBinaryPath,
     browserRuntime,
     additionalSearchPaths: metadata.searchPaths.map((searchPath) => (
       path.join(input.runtimeRoot, ...searchPath.split("/"))

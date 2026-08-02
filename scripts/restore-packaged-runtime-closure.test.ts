@@ -40,7 +40,7 @@ function createFixture(): {
       size: 0,
     }],
     contractVersion: 1,
-    schemaVersion: 3,
+    schemaVersion: 4,
   };
   const manifestBytes = `${JSON.stringify(manifest)}\n`;
   fs.writeFileSync(
