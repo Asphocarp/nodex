@@ -7,6 +7,7 @@ REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 use_codex_home="true"
 use_nodex_home="true"
 copy_codex_auth="false"
+requested_auth_json=""
 copy_codex_config="false"
 keep_run_root="false"
 requested_run_root=""
@@ -29,6 +30,9 @@ NODEX_HOME point into a new temporary directory that is deleted on exit.
 
 Options:
   -a, --auth        Copy auth.json from the current Codex home.
+      --auth-json FILE
+                    Copy FILE as auth.json instead of using the current Codex
+                    home. Cannot be combined with --auth or --global-codex.
   -c, --config      Copy portable config.toml settings from the current Codex
                     home. Nodex-owned Browser runtime settings are omitted.
       --global-codex
@@ -56,6 +60,7 @@ Examples:
   pnpm run build:run:isolated
   pnpm run build:run:isolated -- -ac
   pnpm run build:run:isolated -- -dak
+  scripts/run.sh --auth-json /path/to/auth.json
   scripts/run.sh --root /tmp/nodex-manual-run --keep
   scripts/run.sh --root /tmp/nodex-manual-run --keep --reuse-build
   scripts/run.sh --global-codex --global-nodex --dev
@@ -71,6 +76,20 @@ while (($# > 0)); do
   case "$1" in
   -a | --auth)
     copy_codex_auth="true"
+    shift
+    ;;
+  --auth-json)
+    shift
+    (($# > 0)) || fail "Expected a file after --auth-json."
+    [[ -n "$1" ]] || fail "The --auth-json file cannot be empty."
+    [[ -z "${requested_auth_json}" ]] || fail "--auth-json may be specified only once."
+    requested_auth_json="$1"
+    shift
+    ;;
+  --auth-json=*)
+    [[ -z "${requested_auth_json}" ]] || fail "--auth-json may be specified only once."
+    requested_auth_json="${1#*=}"
+    [[ -n "${requested_auth_json}" ]] || fail "The --auth-json file cannot be empty."
     shift
     ;;
   -c | --config)
@@ -141,8 +160,12 @@ if [[ "${reuse_build}" == "true" ]]; then
   run_script="build:run:prepared"
 fi
 
-if [[ "${use_codex_home}" != "true" && ("${copy_codex_auth}" == "true" || "${copy_codex_config}" == "true") ]]; then
-  fail "--global-codex cannot be combined with --auth or --config."
+if [[ "${copy_codex_auth}" == "true" && -n "${requested_auth_json}" ]]; then
+  fail "--auth cannot be combined with --auth-json."
+fi
+
+if [[ "${use_codex_home}" != "true" && ("${copy_codex_auth}" == "true" || -n "${requested_auth_json}" || "${copy_codex_config}" == "true") ]]; then
+  fail "--global-codex cannot be combined with --auth, --auth-json, or --config."
 fi
 
 if [[ "${use_codex_home}" != "true" && "${use_nodex_home}" != "true" ]]; then
@@ -235,11 +258,19 @@ if [[ "${use_codex_home}" == "true" ]]; then
   isolated_codex_home="${run_root}/.nodex/agent"
   mkdir -p "${isolated_codex_home}"
 
-  if [[ "${copy_codex_auth}" == "true" || "${copy_codex_config}" == "true" ]]; then
-    source_codex_home="$(resolve_source_codex_home)"
+  if [[ "${copy_codex_auth}" == "true" || -n "${requested_auth_json}" || "${copy_codex_config}" == "true" ]]; then
+    source_codex_home=""
+    auth_source="${requested_auth_json}"
+
+    if [[ "${copy_codex_auth}" == "true" || "${copy_codex_config}" == "true" ]]; then
+      source_codex_home="$(resolve_source_codex_home)"
+    fi
 
     if [[ "${copy_codex_auth}" == "true" ]]; then
       auth_source="${source_codex_home}/auth.json"
+    fi
+
+    if [[ -n "${auth_source}" ]]; then
       [[ -f "${auth_source}" ]] || fail "Codex auth file not found: ${auth_source}"
       cp -p "${auth_source}" "${isolated_codex_home}/auth.json"
       chmod 600 "${isolated_codex_home}/auth.json"

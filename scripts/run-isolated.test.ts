@@ -5,6 +5,7 @@ import {
   mkdirSync,
   readFileSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -146,6 +147,50 @@ describe("isolated run shell integration", () => {
       args: ["--silent", "run", "build:run"],
     });
     expect(existsSync(sandbox.runRoot)).toBe(false);
+  });
+
+  test("copies an explicitly selected auth JSON into the isolated Codex home", () => {
+    const sandbox = createSandbox();
+    const authSource = path.join(sandbox.sandbox, "custom auth.json");
+    writeFileSync(authSource, '{"tokens":{"access_token":"test-token"}}\n');
+
+    const result = runIsolatedScript(sandbox, {
+      args: ["--auth-json", authSource, "--keep"],
+    });
+
+    expect(result.status).toBe(0);
+    const copiedAuth = path.join(
+      sandbox.runRoot,
+      ".nodex",
+      "agent",
+      "auth.json",
+    );
+    expect(readFileSync(copiedAuth, "utf8")).toBe(
+      '{"tokens":{"access_token":"test-token"}}\n',
+    );
+    expect(statSync(copiedAuth).mode & 0o777).toBe(0o600);
+  });
+
+  test("rejects conflicting auth sources", () => {
+    const sandbox = createSandbox();
+    const authSource = path.join(sandbox.sandbox, "auth.json");
+    writeFileSync(authSource, "{}\n");
+
+    const duplicateSource = runIsolatedScript(sandbox, {
+      args: ["--auth", `--auth-json=${authSource}`],
+    });
+    const globalCodex = runIsolatedScript(sandbox, {
+      args: ["--global-codex", `--auth-json=${authSource}`],
+    });
+
+    expect(duplicateSource.status).toBe(1);
+    expect(duplicateSource.stderr).toContain(
+      "--auth cannot be combined with --auth-json",
+    );
+    expect(globalCodex.status).toBe(1);
+    expect(globalCodex.stderr).toContain(
+      "--global-codex cannot be combined with --auth, --auth-json, or --config",
+    );
   });
 
   test("copies portable config without host-owned Browser runtime settings", () => {
