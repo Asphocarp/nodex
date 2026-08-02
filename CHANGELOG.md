@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+## [0.2.1] - 2026-08-02
+
+### Added
 - Added Window Session-owned Project and Session Scenes with one fixed owner-root primary and shared right/bottom panel surfaces. Projects can open with zero chats, while Database, Page, Canvas, Files, Browser, Review, and Terminal surfaces no longer need a chat as their panel host.
 - Added native macOS Picture-in-Picture for background Browser work and Apple Silicon Computer Use, including live desktop-app presentation, native per-task visibility, and turn-scoped cleanup.
 
