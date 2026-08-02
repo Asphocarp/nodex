@@ -54,6 +54,7 @@ function createPlugin(
     enabled: true,
     installPolicy: "AVAILABLE",
     installPolicySource: null,
+    mustShowInstallationInterstitial: null,
     authPolicy: "ON_USE",
     availability: "AVAILABLE",
     keywords: [],

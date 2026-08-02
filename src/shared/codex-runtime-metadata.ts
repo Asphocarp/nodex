@@ -1,4 +1,4 @@
-export const AGENT_RUNTIME_LAYOUT_VERSION = 2;
+export const AGENT_RUNTIME_LAYOUT_VERSION = 3;
 export const AGENT_RUNTIME_METADATA_FILENAME = "agent-runtime.json";
 
 export type AgentRuntimeArtifact = {
@@ -19,6 +19,12 @@ export type OpenInterpreterPackageManifest = {
 };
 
 export type BundledAgentRuntimeMetadata = {
+  artifactRelease: {
+    archiveSha256: string;
+    assetName: string;
+    repository: string;
+    tag: string;
+  };
   artifacts: AgentRuntimeArtifact[];
   codexCompatibilityVersion: string;
   entrypoint: string;
@@ -27,11 +33,13 @@ export type BundledAgentRuntimeMetadata = {
   runtimeFamily: "open-interpreter";
   runtimeVersion: string;
   searchPaths: string[];
-  sourceRelease: {
-    archiveSha256: string;
-    assetName: string;
+  sourceRevision: {
+    commit: string;
+    patches: Array<{
+      path: string;
+      sha256: string;
+    }>;
     repository: string;
-    tag: string;
   };
   targetArch: string;
   targetPlatform: string;
@@ -82,7 +90,7 @@ function parsePackageManifest(value: unknown): OpenInterpreterPackageManifest | 
   };
 }
 
-function parseSourceRelease(value: unknown): BundledAgentRuntimeMetadata["sourceRelease"] | null {
+function parseArtifactRelease(value: unknown): BundledAgentRuntimeMetadata["artifactRelease"] | null {
   if (!isObject(value)) return null;
   if (typeof value.repository !== "string" || value.repository.length === 0) return null;
   if (typeof value.tag !== "string" || value.tag.length === 0) return null;
@@ -95,6 +103,27 @@ function parseSourceRelease(value: unknown): BundledAgentRuntimeMetadata["source
     tag: value.tag,
     assetName: value.assetName,
     archiveSha256: value.archiveSha256,
+  };
+}
+
+function parseSourceRevision(value: unknown): BundledAgentRuntimeMetadata["sourceRevision"] | null {
+  if (!isObject(value)) return null;
+  if (typeof value.repository !== "string" || value.repository.length === 0) return null;
+  if (typeof value.commit !== "string" || !/^[a-f0-9]{40}$/u.test(value.commit)) return null;
+  if (!Array.isArray(value.patches)) return null;
+  const patches = value.patches.map((entry) => {
+    if (!isObject(entry)) return null;
+    if (typeof entry.path !== "string" || !isSafeRelativePath(entry.path)) return null;
+    if (typeof entry.sha256 !== "string" || !/^[a-f0-9]{64}$/u.test(entry.sha256)) return null;
+    return { path: entry.path, sha256: entry.sha256 };
+  });
+  if (patches.some((entry) => entry === null)) return null;
+  const parsedPatches = patches as Array<{ path: string; sha256: string }>;
+  if (new Set(parsedPatches.map((entry) => entry.path)).size !== parsedPatches.length) return null;
+  return {
+    commit: value.commit,
+    patches: parsedPatches,
+    repository: value.repository,
   };
 }
 
@@ -136,10 +165,13 @@ export function parseBundledAgentRuntimeMetadata(value: unknown): BundledAgentRu
   if (!artifactPaths.has("codex-package.json")) return null;
   if (!searchPaths.includes(packageManifest.pathDir)) return null;
 
-  const sourceRelease = parseSourceRelease(value.sourceRelease);
-  if (!sourceRelease) return null;
+  const artifactRelease = parseArtifactRelease(value.artifactRelease);
+  if (!artifactRelease) return null;
+  const sourceRevision = parseSourceRevision(value.sourceRevision);
+  if (!sourceRevision) return null;
 
   return {
+    artifactRelease,
     artifacts: parsedArtifacts,
     codexCompatibilityVersion: value.codexCompatibilityVersion,
     entrypoint: value.entrypoint,
@@ -148,7 +180,7 @@ export function parseBundledAgentRuntimeMetadata(value: unknown): BundledAgentRu
     runtimeFamily: value.runtimeFamily,
     runtimeVersion: value.runtimeVersion,
     searchPaths,
-    sourceRelease,
+    sourceRevision,
     targetArch: value.targetArch,
     targetPlatform: value.targetPlatform,
     targetTriple: value.targetTriple,

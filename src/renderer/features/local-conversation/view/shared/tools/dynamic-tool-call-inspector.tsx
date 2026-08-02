@@ -152,6 +152,17 @@ function DynamicToolOutput({
           );
         }
 
+        if (contentItem.type === "inputAudio") {
+          return (
+            <audio
+              key={`${contentItem.type}-${index}`}
+              className="w-full"
+              controls
+              src={contentItem.audioUrl}
+            />
+          );
+        }
+
         return (
           <DynamicToolTextOutput
             key={`${contentItem.type}-${index}`}

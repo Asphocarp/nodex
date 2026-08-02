@@ -161,7 +161,7 @@ describe("refreshSignedAgentRuntimeMetadata", () => {
     fs.writeFileSync(executablePath, "developer-id-signed-interpreter", { mode: 0o755 });
     const metadataPath = path.join(resourcesPath, "agent-runtime.json");
     fs.writeFileSync(metadataPath, JSON.stringify({
-      layoutVersion: 2,
+      layoutVersion: 3,
       artifacts: [{
         executable: true,
         path: "bin/interpreter",

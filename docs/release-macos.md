@@ -400,6 +400,25 @@ That Interface validates both archives, invokes `gh release create` with
 the runtime tag at an exact reviewed Nodex source commit first; do not use a
 bare `gh release create` for runtime releases.
 
+The primary Agent runtime is a separate immutable release. Its tag contains the
+runtime version and the first eight characters of the exact upstream source
+commit; the committed lock additionally binds the full commit and every
+reviewed patch. Publish its verified dual-architecture archives only through:
+
+```bash
+pnpm agent-runtime:publish -- \
+  --repo junyudev/nodex \
+  --tag agent-runtime-v<version>-<8-char-source-commit> \
+  --source-commit <40-char-source-commit> \
+  --arm64 <arm64-archive> \
+  --x64 <x64-archive>
+```
+
+As with the Desktop Tool runtime, create and push the tag at an exact reviewed
+Nodex commit first. The publisher verifies that tag, opts out of app Latest, and
+asserts that the stable app Latest release does not move. After publication,
+restage from the release-lock URLs and rerun the macOS runtime gate.
+
 ## Post-release acceptance
 
 For v0.2.1, run:

@@ -49,7 +49,7 @@ This plan migrates the existing unreleased `nodex_app@1` implementation to `node
   Evidence: the current Database edit preparation validates schema state before resolving a committed dynamic-call receipt. A response-loss retry can therefore conflict after a later unrelated schema change even though the original call already committed.
 
 - Observation: current Codex dynamic tools do not provide structured Code Mode results.
-  Evidence: Nodex returns one JSON `inputText` item, the generated `DynamicToolFunctionSpec` has no output schema, and `DynamicToolCallResponse` has only `contentItems` and `success`. Pinned Codex 0.144.6 and current upstream convert the dynamic result to a JavaScript string.
+  Evidence: Nodex returns one JSON `inputText` item, the generated `DynamicToolFunctionSpec` has no output schema, and `DynamicToolCallResponse` has only `contentItems` and `success`. Pinned Codex 0.146.0 and current upstream convert the dynamic result to a JavaScript string.
 
 - Observation: `Promise.all` does not currently make nested dynamic tools execute concurrently.
   Evidence: the Codex dynamic handler does not opt into parallel tool calls and the router serializes the calls. Code Mode still removes model round trips, but instructions must not promise I/O parallelism.

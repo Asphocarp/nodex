@@ -1667,6 +1667,10 @@ function formatAutomationArchiveProtocolUserMessage(
         return [`image: ${entry.url}`];
       case "localImage":
         return [`localImage: ${entry.path}`];
+      case "audio":
+        return [`audio: ${entry.url}`];
+      case "localAudio":
+        return [`localAudio: ${entry.path}`];
       case "skill":
       case "mention":
         return [`${entry.type}: ${entry.name} (${entry.path})`];
@@ -11680,9 +11684,6 @@ export class CodexService extends EventEmitter {
     const executionProfile = patch.executionProfile;
     if (executionProfile || hasOwnValue(patch, "model")) {
       params.model = executionProfile?.modelId ?? patch.model ?? null;
-    }
-    if (executionProfile) {
-      params.modelProvider = executionProfile.providerId;
     }
     if (executionProfile || hasOwnValue(patch, "serviceTier")) {
       params.serviceTier = executionProfile?.serviceTier ?? patch.serviceTier ?? null;

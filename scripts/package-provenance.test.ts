@@ -160,7 +160,7 @@ const makeApp = (): {
     targetArch: "arm64",
   });
   writeJson(path.join(resources, "agent-runtime.json"), {
-    layoutVersion: 2,
+    layoutVersion: 3,
     targetPlatform: "darwin",
     targetArch: "arm64",
   });
@@ -199,13 +199,13 @@ describe("packaged build provenance", () => {
       "Contents/Resources/agent-runtime.json",
     );
     writeJson(agentManifestPath, {
-      codexCompatibilityVersion: "0.144.6",
-      layoutVersion: 2,
+      codexCompatibilityVersion: "0.146.0",
+      layoutVersion: 3,
       targetArch: "arm64",
       targetPlatform: "darwin",
     });
     writeJson(browserManifestPath, {
-      codexCompatibilityVersion: "0.144.6",
+      codexCompatibilityVersion: "0.146.0",
       contractVersion: 1,
       schemaVersion: 1,
       targetArch: "arm64",

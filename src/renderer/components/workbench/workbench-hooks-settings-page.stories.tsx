@@ -23,6 +23,7 @@ function hook(overrides: Partial<HookMetadata> & Pick<HookMetadata, "key" | "sou
     currentHash: "current-hash",
     trustStatus: "trusted",
     ...overrides,
+    additionalContextLimit: overrides.additionalContextLimit ?? null,
   };
 }
 

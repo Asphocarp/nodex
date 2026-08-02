@@ -385,6 +385,7 @@ function makeProtocolThread(
     parentThreadId: null,
     preview: "",
     ephemeral: false,
+    isPinned: false,
     historyMode: "paginated",
     modelProvider: "openai",
     createdAt: 1_711_278_000,
@@ -395,6 +396,7 @@ function makeProtocolThread(
     cwd,
     cliVersion: "0.0.0-test",
     source: "appServer",
+    canAcceptDirectInput: true,
     threadSource: null,
     agentNickname: null,
     agentRole: null,
@@ -427,6 +429,8 @@ function makeProtocolCommandExecution(
   return {
     type: "commandExecution",
     id: input.id,
+    pluginId: input.pluginId ?? null,
+    scriptPath: input.scriptPath ?? null,
     command: input.command,
     cwd: input.cwd ?? "/workspace/project",
     processId: input.processId ?? null,
@@ -473,6 +477,8 @@ function makeCanonicalHydrationTurn(turnId: string): Turn {
     {
       type: "commandExecution",
       id: sharedItemId,
+      pluginId: null,
+      scriptPath: null,
       command: "pwd",
       cwd: "/workspace/project",
       processId: null,
@@ -527,6 +533,8 @@ function makeCanonicalResumeResponse(input: {
     reasoningEffort: "high",
     multiAgentMode: "explicitRequestOnly",
     initialTurnsPage: input.initialTurnsPage,
+    turnsBackwardsCursor: null,
+    itemsBackwardsCursor: null,
   };
 }
 
@@ -659,6 +667,8 @@ function makeCanonicalForkResumeResponse(
       nextCursor: null,
       backwardsCursor: null,
     },
+    turnsBackwardsCursor: null,
+    itemsBackwardsCursor: null,
   };
 }
 
@@ -1822,6 +1832,8 @@ test("history projection splits command actions while retaining the raw command 
   const rawCommand = {
     type: "commandExecution",
     id: "command-multi",
+    pluginId: null,
+    scriptPath: null,
     command: "cat a && rg b",
     cwd: "/workspace/project",
     processId: "process-1",
@@ -1902,6 +1914,8 @@ test("history projection keeps patch, visualization, and filtered turn diff stat
           {
           type: "commandExecution",
           id: "command-cwd",
+          pluginId: null,
+          scriptPath: null,
           command: "pwd",
           cwd: "/workspace/changed",
           processId: null,
@@ -2039,6 +2053,7 @@ test("history projection applies MCP, dynamic, collab, and web special-family ru
           id: "web-active",
           query: "fixture",
           action: { type: "search", query: "fixture", queries: ["fixture"] },
+          results: null,
         },
         ],
       }],
@@ -4589,7 +4604,7 @@ describe("codex-service rate limit polling", () => {
   test.each([
     ["signed out", null],
     ["API key", { type: "apiKey" }],
-    ["Amazon Bedrock", { type: "amazonBedrock", credentialSource: "awsManaged" }],
+    ["Amazon Bedrock", { type: "amazonBedrock", usesCodexManagedCredentials: true }],
   ])("does not request ChatGPT rate limits for a %s account", async (_, account) => {
     const service = createService({ rateLimitsPollIntervalMs: 20 });
     const client = Reflect.get(service as object, "client") as {
@@ -5618,6 +5633,8 @@ describe("codex-service session-backed transcript recovery", () => {
         {
           id: "command-1",
           type: "commandExecution",
+          pluginId: null,
+          scriptPath: null,
           command: "printf hello",
           cwd: "/workspace/project",
           processId: null,
@@ -7922,7 +7939,7 @@ describe("codex-service collaboration modes", () => {
       const params = requests[0]?.params;
       expect(persistedProfiles).toEqual([nextProfile]);
       expect(params?.model).toBe("gpt-5.4");
-      expect(params?.modelProvider).toBe("openai");
+      expect(params).not.toHaveProperty("modelProvider");
       expect(params?.effort).toBe("medium");
       expect(params?.serviceTier).toBe("fast");
       expect(settings.model).toBe("gpt-5.4");

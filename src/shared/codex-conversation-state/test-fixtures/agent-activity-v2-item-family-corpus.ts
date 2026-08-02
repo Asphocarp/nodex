@@ -80,6 +80,8 @@ export const agentActivityV2MultiActionCommandItem = {
   command: "sed -n fixture && find src fixture && rg fixture src && git status --short",
   cwd: "/workspace/project",
   processId: "process-fixture",
+  pluginId: null,
+  scriptPath: null,
   source: "agent",
   status: "completed",
   commandActions: [
@@ -116,6 +118,8 @@ export const agentActivityV2FallbackCommandItem = {
   command: "printf fixture",
   cwd: "/workspace/project",
   processId: null,
+  pluginId: null,
+  scriptPath: null,
   source: "agent",
   status: "completed",
   commandActions: [],
@@ -169,6 +173,7 @@ export const agentActivityV2WebSearchItem = {
     query: "public app-server lifecycle",
     queries: ["app-server lifecycle", "tool call lifecycle"],
   },
+  results: null,
 } satisfies WebSearchItem;
 
 export const agentActivityV2WhitespaceWebSearchItem = {
@@ -176,6 +181,7 @@ export const agentActivityV2WhitespaceWebSearchItem = {
   id: "web-search-whitespace",
   query: "   ",
   action: null,
+  results: null,
 } satisfies WebSearchItem;
 
 export const agentActivityV2ActiveWebSearchItem = {
@@ -186,6 +192,7 @@ export const agentActivityV2ActiveWebSearchItem = {
     type: "openPage",
     url: "https://example.invalid/fixture",
   },
+  results: null,
 } satisfies WebSearchItem;
 
 const FULL_MCP_APP_CONTEXT = {

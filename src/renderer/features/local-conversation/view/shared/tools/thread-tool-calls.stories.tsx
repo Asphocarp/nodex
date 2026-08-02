@@ -2398,6 +2398,27 @@ function buildGenericDynamicStoryItem(input: {
   };
 }
 
+function buildDynamicAudioStoryItem(): CodexTranscriptEntry {
+  const contentItems = [{
+    type: "inputAudio" as const,
+    audioUrl: "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=",
+  }];
+  const item = buildGenericDynamicStoryItem({
+    id: "fallback-audio-output",
+    namespace: "example_connector",
+    tool: "render_audio",
+    completed: true,
+  });
+  if (!item.toolCall || !item.dynamicToolCall) {
+    throw new Error("Dynamic audio story requires dynamic tool payloads");
+  }
+  return {
+    ...item,
+    toolCall: { ...item.toolCall, result: contentItems },
+    dynamicToolCall: { ...item.dynamicToolCall, contentItems },
+  };
+}
+
 export const DynamicToolCallReadThread: Story = {
   render: () => (
     <StorySurface
@@ -2579,6 +2600,7 @@ export const DynamicToolCallFallbackRows: Story = {
             args: { depth: 2 },
             contentText: "done",
           })} />
+          <DynamicToolCall item={buildDynamicAudioStoryItem()} />
         </div>
       </ConversationStorySurface>
     </StorySurface>

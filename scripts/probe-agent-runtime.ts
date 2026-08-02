@@ -348,7 +348,7 @@ export async function probeAgentRuntime(input: {
       platformOs: initialize.platformOs,
       userAgent: initialize.userAgent,
     },
-    lockTag: lock.tag,
+    lockTag: lock.release.tag,
     modelHarnesses,
     protocolSchemaSha256,
     providers,

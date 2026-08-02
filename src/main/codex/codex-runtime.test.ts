@@ -12,7 +12,7 @@ function writeRuntime(rootPath: string): void {
   const artifactBodies = new Map([
     ["codex-package.json", JSON.stringify({
       layoutVersion: 1,
-      version: "0.0.34",
+      version: "0.146.0",
       target: "aarch64-apple-darwin",
       variant: "open-interpreter",
       entrypoint: "bin/interpreter",
@@ -40,13 +40,19 @@ function writeRuntime(rootPath: string): void {
   fs.writeFileSync(
     path.join(rootPath, "agent-runtime.json"),
     JSON.stringify({
+      artifactRelease: {
+        archiveSha256: "1".repeat(64),
+        assetName: "open-interpreter-package-aarch64-apple-darwin.tar.gz",
+        repository: "junyudev/nodex",
+        tag: "agent-runtime-v0.146.0-855ab60c",
+      },
       artifacts,
-      codexCompatibilityVersion: "0.144.5",
+      codexCompatibilityVersion: "0.146.0",
       entrypoint: "bin/interpreter",
-      layoutVersion: 2,
+      layoutVersion: 3,
       packageManifest: {
         layoutVersion: 1,
-        version: "0.0.34",
+        version: "0.146.0",
         target: "aarch64-apple-darwin",
         variant: "open-interpreter",
         entrypoint: "bin/interpreter",
@@ -54,13 +60,12 @@ function writeRuntime(rootPath: string): void {
         pathDir: "codex-path",
       },
       runtimeFamily: "open-interpreter",
-      runtimeVersion: "0.0.34",
+      runtimeVersion: "0.146.0",
       searchPaths: ["codex-path"],
-      sourceRelease: {
-        archiveSha256: "1".repeat(64),
-        assetName: "runtime.tar.gz",
+      sourceRevision: {
+        commit: "855ab60c0e10dac6bc89f3e248cba3746d44f034",
+        patches: [],
         repository: "openinterpreter/openinterpreter",
-        tag: "rust-v0.0.34",
       },
       targetArch: "arm64",
       targetPlatform: "darwin",
@@ -99,8 +104,8 @@ describe("codex-runtime", () => {
       expect(runtime.additionalSearchPaths).toEqual([
         path.join(fixture.resourcesPath, "codex-path"),
       ]);
-      expect(runtime.version).toBe("0.0.34");
-      expect(runtime.codexCompatibilityVersion).toBe("0.144.5");
+      expect(runtime.version).toBe("0.146.0");
+      expect(runtime.codexCompatibilityVersion).toBe("0.146.0");
       expect(runtime.rootPath).toBe(fixture.resourcesPath);
       expect(runtime.browserRuntime).toMatchObject({
         reason: "manifest-missing",
@@ -175,7 +180,7 @@ describe("codex-runtime", () => {
       expect(runtime.source).toBe("staged");
       expect(runtime.binaryPath).toBe(path.join(runtimeRoot, "bin", "interpreter"));
       expect(runtime.additionalSearchPaths).toEqual([path.join(runtimeRoot, "codex-path")]);
-      expect(runtime.version).toBe("0.0.34");
+      expect(runtime.version).toBe("0.146.0");
       expect(runtime.metadataPath).toBe(path.join(runtimeRoot, "agent-runtime.json"));
       expect(runtime.missingBinaryMessage).toBe(
         "Pinned agent runtime is missing or incomplete. Run `pnpm run stage:codex-runtime:mac`.",
@@ -196,7 +201,7 @@ describe("codex-runtime", () => {
       );
       writeBrowserRuntimeFixture(
         path.join(runtimeRoot, BROWSER_RUNTIME_BUNDLE_DIRECTORY),
-        { codexCompatibilityVersion: "0.144.5" },
+        { codexCompatibilityVersion: "0.146.0" },
       );
       const runtime = resolveCodexRuntime({
         browserRuntimePlatformArtifactVerifier: () => null,
