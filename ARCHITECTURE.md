@@ -891,7 +891,11 @@ Use control. Release transfers the existing page into an ordinary durable
 Session Browser shell, while close removes both runtime and shell. A
 renderer-wide immutable Browser projection bootstraps from a scoped Main
 snapshot and feeds hidden hosts, Browser Use presentation, and thread summary;
-it is a cache of Main state, not a second runtime authority.
+it is a cache of Main state, not a second runtime authority. Retained Browser
+Use hosts reconcile every live tab in that Window Session projection,
+independently of the selected Scene owner. Durable background and panel hosts
+remain Scene-owned and supersede a retained host only when the full route tuple
+matches; a `browserTabId` collision across conversations is not ownership.
 
 Browser automation remains a separate low-level Adapter over that aggregate.
 One verified Desktop Tool Runtime bundle supplies the matching signed Codex CLI,
