@@ -172,15 +172,15 @@ export const createCoreCanvasSceneAdapter = (
           () => subscriptions.get(key) === subscription,
           async () => await client.documentCanvasSync(request),
         );
-        if (
-          response.projectId !== request.projectId
-          || response.documentId !== request.documentId
-        ) {
+        if (response.documentId !== request.documentId) {
           throw new CanvasSceneAdapterContractError(
-            "Core Canvas sync escaped its Project or Document boundary",
+            "Core Canvas sync escaped its Document boundary",
           );
         }
-        return { ok: true, value: response };
+        return {
+          ok: true,
+          value: { ...response, projectId: request.projectId },
+        };
       } catch (error) {
         return canvasErrorResult(error);
       }
@@ -218,15 +218,17 @@ export const createCoreCanvasSceneAdapter = (
           committed.value.canvas,
         );
         if (
-          value.projectId !== canonical.projectId
-          || value.documentId !== canonical.documentId
+          value.documentId !== canonical.documentId
           || value.mutationId !== canonical.mutationId
         ) {
           throw new CanvasSceneAdapterContractError(
             "Core Canvas mutation escaped its request boundary",
           );
         }
-        return { ok: true, value };
+        return {
+          ok: true,
+          value: { ...value, projectId: canonical.projectId },
+        };
       } catch (error) {
         return canvasErrorResult(error, request.mutationId);
       }
@@ -286,15 +288,17 @@ export const createCoreCanvasSceneAdapter = (
         }
         const value = parseCanvasSceneCompactionResult(committed.value.canvas);
         if (
-          value.projectId !== request.projectId
-          || value.documentId !== request.documentId
+          value.documentId !== request.documentId
           || value.operationId !== request.mutationId
         ) {
           throw new CanvasSceneAdapterContractError(
             "Core Canvas compaction escaped its request boundary",
           );
         }
-        return { ok: true, value };
+        return {
+          ok: true,
+          value: { ...value, projectId: request.projectId },
+        };
       } catch (error) {
         return canvasErrorResult(error, request.mutationId);
       }

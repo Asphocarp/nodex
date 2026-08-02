@@ -46,10 +46,7 @@ import {
 export interface DesktopLibraryModuleBridgeInput {
   readonly authority: Promise<DesktopDataAuthorityRuntime>;
   readonly resolveProjectId: (event: unknown) => string | null;
-  readonly publishDocumentCommits?: (input: {
-    readonly scope:
-      | { readonly kind: "project"; readonly projectId: string }
-      | { readonly kind: "library" };
+  readonly publishLibraryDocumentCommits?: (input: {
     readonly storeEpoch: string;
     readonly commits: readonly RelocationDocumentCommit[];
     readonly clientSessionId: string;
@@ -139,22 +136,15 @@ export function createDesktopLibraryModuleBridge(
   };
   const publishCanvasDocumentCommits = (
     result: LibraryModuleApplyResult,
-    scopes: readonly (
-      | { readonly kind: "project"; readonly projectId: string }
-      | { readonly kind: "library" }
-    )[],
   ): void => {
     if (!result.ok) return;
     const commits = result.value.canvasMutation?.documentCommits ?? [];
     if (commits.length === 0) return;
-    for (const scope of scopes) {
-      input.publishDocumentCommits?.({
-        scope,
-        storeEpoch: result.value.storeEpoch,
-        commits,
-        clientSessionId: "rust:library",
-      });
-    }
+    input.publishLibraryDocumentCommits?.({
+      storeEpoch: result.value.storeEpoch,
+      commits,
+      clientSessionId: "rust:library",
+    });
   };
 
   return {
@@ -177,17 +167,14 @@ export function createDesktopLibraryModuleBridge(
         };
       }
       const result = await projectCoreAdapter(runtime, projectId).apply(request);
-      publishCanvasDocumentCommits(result, [
-        { kind: "project", projectId },
-        { kind: "library" },
-      ]);
+      publishCanvasDocumentCommits(result);
       return result;
     },
     applyTrustedLibrary: async (request) => {
       const runtime = await input.authority;
       rootCoreAdapter ??= coreAdapter(runtime);
       const result = await rootCoreAdapter.apply(request);
-      publishCanvasDocumentCommits(result, [{ kind: "library" }]);
+      publishCanvasDocumentCommits(result);
       return result;
     },
     readProjectPageDetail: async (projectId, pageId) => {

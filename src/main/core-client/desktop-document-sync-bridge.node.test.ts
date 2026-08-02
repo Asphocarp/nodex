@@ -464,13 +464,78 @@ describe("Desktop Document sync bridge", () => {
     expect(projectClient.documentSyncs).toHaveLength(0);
   });
 
+  test("fans Library commits out to every authorized live Document surface", async () => {
+    const bridge = createDesktopDocumentSyncBridge({
+      authority: Promise.resolve(rustRuntime(new FakeCoreClient())),
+    });
+    const projectOne = new FakeTarget(1);
+    const projectTwo = new FakeTarget(2);
+    const library = new FakeTarget(3);
+    const unrelated = new FakeTarget(4);
+    await bridge.subscribe(
+      { kind: "project", projectId: "project:one" },
+      projectOne,
+      { ...subscribeRequest, clientSessionId: "renderer:project:one" },
+    );
+    await bridge.subscribe(
+      { kind: "project", projectId: "project:two" },
+      projectTwo,
+      { ...subscribeRequest, clientSessionId: "renderer:project:two" },
+    );
+    await bridge.subscribe(
+      { kind: "library" },
+      library,
+      { ...subscribeRequest, clientSessionId: "renderer:library" },
+    );
+    await bridge.subscribe(
+      { kind: "project", projectId: "project:two" },
+      unrelated,
+      {
+        documentId: "document:unrelated",
+        clientSessionId: "renderer:unrelated",
+      },
+    );
+    for (const target of [projectOne, projectTwo, library, unrelated]) {
+      target.sent.splice(0);
+    }
+
+    bridge.publishLibraryDocumentCommits({
+      storeEpoch: "epoch:test",
+      clientSessionId: "rust:library",
+      commits: [{
+        documentId: subscribeRequest.documentId,
+        generation: 1,
+        baseHeadSeq: 2,
+        headSeq: 3,
+        updateId: "update:library",
+        update: new Uint8Array([1, 2, 3]),
+        stateVector: new Uint8Array([4, 5]),
+      }],
+    });
+
+    for (const target of [projectOne, projectTwo, library]) {
+      expect(target.sent).toEqual([expect.objectContaining({
+        channel: "document-sync:event",
+        payload: expect.objectContaining({
+          kind: "document-update",
+          documentId: subscribeRequest.documentId,
+          headSeq: 3,
+          clientSessionId: "rust:library",
+        }),
+      })]);
+    }
+    expect(unrelated.sent).toHaveLength(0);
+  });
+
   test("reads and prepares Project and Library owners through their exact clients", async () => {
     const rootClient = new FakeCoreClient();
     const projectClient = new FakeCoreClient();
     const bridge = createDesktopDocumentSyncBridge({
       authority: Promise.resolve(rustRuntime(rootClient, projectClient)),
     });
-    projectClient.enqueueDocumentRead(ownedDocumentDescriptorSnapshot());
+    projectClient.enqueueDocumentRead(ownedDocumentDescriptorSnapshot(
+      "project:compatibility-storage",
+    ));
 
     await expect(bridge.getOwnedDocumentDescriptor(
       "project:one",
@@ -484,7 +549,9 @@ describe("Desktop Document sync bridge", () => {
     projectClient.enqueueDocumentApply(preparedDocumentCommit(
       prepareOperationId("project:project:one"),
     ));
-    projectClient.enqueueDocumentRead(ownedDocumentDescriptorSnapshot());
+    projectClient.enqueueDocumentRead(ownedDocumentDescriptorSnapshot(
+      "project:compatibility-storage",
+    ));
     await expect(bridge.prepareOwnedBlockDocument(
       "project:one",
       "page:one",

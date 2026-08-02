@@ -1305,7 +1305,7 @@ describe("Core Library Module Adapter", () => {
     const bridge = createDesktopLibraryModuleBridge({
       authority: Promise.resolve(runtime),
       resolveProjectId: () => "project:test",
-      publishDocumentCommits: (input) => published.push(input),
+      publishLibraryDocumentCommits: (input) => published.push(input),
     });
 
     const result = await bridge.apply({
@@ -1324,19 +1324,11 @@ describe("Core Library Module Adapter", () => {
     expect(result).toMatchObject({ ok: true });
     expect(published).toEqual([
       expect.objectContaining({
-        scope: { kind: "project", projectId: "project:test" },
         storeEpoch: identity.storeEpoch,
         clientSessionId: "rust:library",
         commits: [expect.objectContaining({
           documentId: "document:page",
           generation: 2,
-          headSeq: 8,
-        })],
-      }),
-      expect.objectContaining({
-        scope: { kind: "library" },
-        commits: [expect.objectContaining({
-          documentId: "document:page",
           headSeq: 8,
         })],
       }),
