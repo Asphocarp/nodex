@@ -635,8 +635,8 @@ const ensureBlankSessionForProject = useCallback(async (
   }, [openAttachedThreadSessionResult, threadScopeIdentityRegistry]);
 
   const openAttachedThreadSessionById = useCallback(async (threadId: string) => {
-    await openAttachedThreadSession(threadId);
-  }, [openAttachedThreadSession]);
+    return await openAttachedThreadSessionResult(threadId);
+  }, [openAttachedThreadSessionResult]);
 
   const openAutomationHistoryThreadSessionById = useCallback(async (threadId: string) => {
     const opened = await openAttachedThreadSessionResult(threadId);

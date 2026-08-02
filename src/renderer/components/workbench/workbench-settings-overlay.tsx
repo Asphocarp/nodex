@@ -104,6 +104,7 @@ import type {
   CodexGitSettings,
   CodexThreadDetailLevel,
   ThreadNotificationTurnMode,
+  SystemNotificationPermissionStatus,
   WindowRestorePolicy,
 } from "../../lib/types";
 import { cn } from "../../lib/utils";
@@ -386,13 +387,39 @@ function ThreadNotificationSettingControl({ open }: { open: boolean }) {
   const { settings, isLoading, reloadSettings, updateSettings } = useThreadNotificationSettings();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [systemPermissionStatus, setSystemPermissionStatus] =
+    useState<SystemNotificationPermissionStatus>(null);
+  const systemSettingsPlatformSupported = typeof navigator !== "undefined"
+    && /MAC|WIN/u.test(navigator.platform.toUpperCase());
+
+  const refreshSystemPermissionStatus = useCallback(async () => {
+    try {
+      const status = await invoke("system-notification-permission:get");
+      if (
+        status === "enabled"
+        || status === "disabled"
+        || status === "not-determined"
+        || status === null
+      ) setSystemPermissionStatus(status);
+    } catch {
+      setSystemPermissionStatus(null);
+    }
+  }, []);
 
   useEffect(() => {
     if (!open) return;
     void reloadSettings().catch((err) => {
       setError(err instanceof Error ? err.message : "Could not load thread notification settings.");
     });
-  }, [open, reloadSettings]);
+    void refreshSystemPermissionStatus();
+    const handleWindowFocus = () => {
+      void refreshSystemPermissionStatus();
+    };
+    window.addEventListener("focus", handleWindowFocus);
+    return () => {
+      window.removeEventListener("focus", handleWindowFocus);
+    };
+  }, [open, refreshSystemPermissionStatus, reloadSettings]);
 
   const handleChange = useCallback(
     async (nextSettings: {
@@ -461,6 +488,35 @@ function ThreadNotificationSettingControl({ open }: { open: boolean }) {
             disabled={busy || isLoading}
           />
         </div>
+        {systemPermissionStatus !== null || systemSettingsPlatformSupported ? (
+          <div className="flex items-center justify-between gap-4 pt-1">
+          <span className="text-right text-xs text-(--foreground-secondary)">
+            System permission: {
+              systemPermissionStatus === "not-determined"
+                ? "Not requested"
+                : systemPermissionStatus === "enabled"
+                  ? "Enabled"
+                  : systemPermissionStatus === "disabled"
+                    ? "Disabled"
+                    : "Unavailable"
+            }
+          </span>
+          <NodexButton
+            size="sm"
+            variant="secondary"
+            onClick={() => {
+              void invoke("system-notification-permission:open-settings")
+                .catch((err) => {
+                  setError(err instanceof Error
+                    ? err.message
+                    : "Could not open system notification settings.");
+                });
+            }}
+          >
+            System settings
+          </NodexButton>
+          </div>
+        ) : null}
       </div>
       {error ? (
         <span className="max-w-80 text-right text-xs text-(--red-text)">

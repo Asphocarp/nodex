@@ -358,6 +358,14 @@ import {
   getCodexSubagentOtherSource,
   hasCodexSubagentSource,
 } from "../../shared/codex-subagent-metadata";
+import {
+  type CodexNotificationConversationFacts,
+  type CodexThreadNotificationEvent,
+} from "../../shared/codex-thread-notification";
+import {
+  hasCodexPendingContinuation,
+  parseCodexHeartbeatAssistantMessage,
+} from "../../shared/codex-turn-notification";
 import { isRawCodexSubagentThreadIdLabel } from "../../shared/codex-subagent-display";
 import {
   buildCodexTurnDiffFromPatchBatches,
@@ -3093,6 +3101,7 @@ export class CodexService extends EventEmitter {
       this.applyFrameTextDeltas(updates);
     },
   });
+  private notificationRoutingQueue: Promise<void> = Promise.resolve();
   private readonly outputDeltaQueue = new CodexCommandOutputQueue({
     onFlush: (updates) => {
       this.applyOutputDeltas(updates);
@@ -3387,12 +3396,16 @@ export class CodexService extends EventEmitter {
     });
 
     this.client.on("notification", (notification: CodexServerNotification) => {
-      void this.routeAppServerNotification(notification).catch((error) => {
-        this.logger.warn("Codex notification routing failed", {
-          method: notification.method,
-          error: error instanceof Error ? error.message : String(error),
+      this.notificationRoutingQueue = this.notificationRoutingQueue
+        .then(async () => {
+          await this.routeAppServerNotification(notification);
+        })
+        .catch((error: unknown) => {
+          this.logger.warn("Codex notification routing failed", {
+            method: notification.method,
+            error: error instanceof Error ? error.message : String(error),
+          });
         });
-      });
     });
 
     this.client.on("protocolError", (message: string) => {
@@ -3404,6 +3417,61 @@ export class CodexService extends EventEmitter {
   private emitEvent(event: CodexEvent): void {
     this.emit("event", event);
     this.emitHostMessagesForEvent(event);
+  }
+
+  addThreadNotificationListener(
+    listener: (event: CodexThreadNotificationEvent) => void,
+  ): () => void {
+    this.on("threadNotification", listener);
+    return () => {
+      this.off("threadNotification", listener);
+    };
+  }
+
+  private emitThreadNotificationEvent(event: CodexThreadNotificationEvent): void {
+    this.emit("threadNotification", event);
+  }
+
+  private buildNotificationConversationFacts(
+    threadId: string,
+  ): CodexNotificationConversationFacts {
+    const record = this.getMaybeConversationRecord(threadId);
+    const detail = record?.detail ?? null;
+    const summary = this.getThreadLinkSafely(threadId);
+    const source = detail?.source ?? summary?.source ?? null;
+    const localParentThreadId = source?.sideConversation === true
+      ? null
+      : source?.parentThreadId ?? null;
+    return {
+      conversationId: threadId,
+      title: detail?.threadName ?? summary?.threadName ?? null,
+      threadSource: detail?.threadSource ?? summary?.threadSource ?? null,
+      parentThreadId:
+        record?.canonicalState?.protocol.parentThreadId
+        ?? localParentThreadId
+        ?? null,
+      source: record?.canonicalState?.protocol.source ?? source,
+      sideConversationParentNavigationPath:
+        detail?.source?.sideConversationParentNavigationPath
+        ?? summary?.source?.sideConversationParentNavigationPath
+        ?? null,
+    };
+  }
+
+  private emitUserInputRequiredNotification(input: {
+    threadId: string;
+    requestId: RequestId;
+    turnId: string;
+    questionCount: number;
+  }): void {
+    this.emitThreadNotificationEvent({
+      type: "user-input-requested",
+      hostId: DEFAULT_CODEX_HOST_ID,
+      conversation: this.buildNotificationConversationFacts(input.threadId),
+      requestId: input.requestId,
+      turnId: input.turnId,
+      questionCount: input.questionCount,
+    });
   }
 
   notifyAutomationRunsUpdated(event: CodexAutomationRunsUpdatedEvent): void {
@@ -3632,7 +3700,7 @@ export class CodexService extends EventEmitter {
       return;
     }
 
-    void this.handleNotification(notification);
+    await this.handleNotification(notification);
   }
 
   private emitHostMessage(message: CodexHostMessage): void {
@@ -4066,6 +4134,14 @@ export class CodexService extends EventEmitter {
     });
   }
 
+  private waitForFrameTextDeltaDrain(conversationId: string): Promise<void> {
+    return new Promise((resolve) => {
+      if (!this.frameTextDeltaQueue.drainBefore(resolve, conversationId)) {
+        resolve();
+      }
+    });
+  }
+
   private clearOwnerNotificationDrain(conversationId: string): void {
     const timer = this.ownerNotificationDrainTimersByConversationId.get(conversationId);
     if (timer) {
@@ -4194,18 +4270,50 @@ export class CodexService extends EventEmitter {
       this.userInputAutoResolutionController.reevaluatePresentation(
         conversationId,
       );
+      if (foregrounded) {
+        this.emit("rendererConversationPresentedInForeground", conversationId);
+      }
     }
   }
 
   setRendererConversationPresented(
     threadId: string,
     clientId: string | null | undefined,
+    surfaceId: string,
     presented: boolean,
   ): void {
     if (!clientId) return;
     if (presented && this.disposedRendererClientIds.has(clientId)) return;
-    this.rendererViewRegistry.setPresented(threadId, clientId, presented);
+    this.rendererViewRegistry.setPresented(threadId, clientId, surfaceId, presented);
     this.userInputAutoResolutionController.reevaluatePresentation(threadId);
+    if (presented && this.rendererViewRegistry.isPresentedInForeground(threadId)) {
+      this.emit("rendererConversationPresentedInForeground", threadId);
+    }
+  }
+
+  addRendererConversationPresentedInForegroundListener(
+    listener: (conversationId: string) => void,
+  ): () => void {
+    this.on("rendererConversationPresentedInForeground", listener);
+    return () => {
+      this.off("rendererConversationPresentedInForeground", listener);
+    };
+  }
+
+  isRendererConversationPresentedInForeground(conversationId: string): boolean {
+    return this.rendererViewRegistry.isPresentedInForeground(conversationId);
+  }
+
+  hasForegroundRendererClient(): boolean {
+    return this.rendererViewRegistry.hasForegroundClient();
+  }
+
+  resolveRendererPresentationClient(conversationId: string): string | null {
+    return this.rendererViewRegistry.resolvePresentationClient(conversationId);
+  }
+
+  resolveRendererPresentedSurfaceClient(conversationId: string): string | null {
+    return this.rendererViewRegistry.resolvePresentedSurfaceClient(conversationId);
   }
 
   getUserInputAutoResolutionSnapshot():
@@ -13629,6 +13737,99 @@ export class CodexService extends EventEmitter {
     const directive = parseCodexAutomationInboxItemDirective(markdown);
     if (!directive) return null;
     return directive;
+  }
+
+  private resolveNotificationLastAgentMessage(
+    threadId: string,
+    turnId: string,
+    rawTurn: Turn,
+  ): string | null {
+    const canonicalTurn = this.getMaybeConversationRecord(threadId)
+      ?.canonicalState
+      ?.turns
+      .find((turn) => turn.protocol.id === turnId);
+    for (let index = (canonicalTurn?.items.length ?? 0) - 1; index >= 0; index -= 1) {
+      const item = canonicalTurn?.items[index];
+      if (item?.type !== "agentMessage") continue;
+      const text = item.text.trim();
+      if (text.length > 0) return text;
+    }
+
+    const transcript = this.getMaybeConversationRecord(threadId)?.detail?.transcript ?? [];
+    for (let index = transcript.length - 1; index >= 0; index -= 1) {
+      const item = transcript[index];
+      if (!item || item.turnId !== turnId || !this.isAssistantTextItem(item)) continue;
+      const text = item.markdownText?.trim() ?? "";
+      if (text.length > 0) return text;
+    }
+
+    const items = Array.isArray(rawTurn.items) ? rawTurn.items : [];
+    for (let index = items.length - 1; index >= 0; index -= 1) {
+      const item = items[index];
+      if (item?.type !== "agentMessage") continue;
+      const text = item.text.trim();
+      if (text.length > 0) return text;
+    }
+    return null;
+  }
+
+  private isNotificationConversationActive(threadId: string): boolean {
+    const record = this.getMaybeConversationRecord(threadId);
+    const detail = record?.detail;
+    const workspaceThread = this.workspaceThreadProjectionById.get(threadId);
+    if (detail?.threadRuntimeStatus?.type === "active") return true;
+    if (detail?.statusType === "active") return true;
+    if (workspaceThread?.statusType === "active") return true;
+    if (this.listKnownTurns(threadId).some((turn) => turn.status === "inProgress")) {
+      return true;
+    }
+    return hasRunningCollabAgentTranscriptEntry(detail?.transcript ?? []);
+  }
+
+  private hasActiveNotificationDescendant(threadId: string): boolean {
+    const knownThreadIds = new Set([
+      ...this.conversationRecords.keys(),
+      ...this.workspaceThreadProjectionById.keys(),
+    ]);
+    for (const candidateThreadId of knownThreadIds) {
+      if (candidateThreadId === threadId) continue;
+      if (!this.isNotificationConversationActive(candidateThreadId)) continue;
+
+      const visited = new Set<string>([candidateThreadId]);
+      let parentThreadId = this.buildNotificationConversationFacts(
+        candidateThreadId,
+      ).parentThreadId;
+      while (parentThreadId && !visited.has(parentThreadId)) {
+        if (parentThreadId === threadId) return true;
+        visited.add(parentThreadId);
+        parentThreadId = this.buildNotificationConversationFacts(
+          parentThreadId,
+        ).parentThreadId;
+      }
+    }
+    return false;
+  }
+
+  private hasPendingNotificationContinuation(
+    threadId: string,
+    terminalStatus: "completed" | "failed" | "interrupted",
+  ): boolean {
+    const queuedHead = this.listQueuedFollowUps(threadId)[0];
+    const record = this.getMaybeConversationRecord(threadId);
+    const turns = this.listKnownTurns(threadId);
+    return hasCodexPendingContinuation({
+      terminalStatus,
+      queuedResourceLoading: false,
+      queuedHeadPausedReason: queuedHead
+        ? queuedHead.pausedReason ?? null
+        : undefined,
+      threadGoalStatus: record?.threadGoal?.status ?? null,
+      latestMergedTurnStatus: turns.at(-1)?.status ?? null,
+      hasRunningCollabAgent: hasRunningCollabAgentTranscriptEntry(
+        record?.detail?.transcript ?? [],
+      ),
+      hasActiveDescendant: this.hasActiveNotificationDescendant(threadId),
+    });
   }
 
   private async recordAutomationTurnCompleted(
@@ -23112,6 +23313,24 @@ export class CodexService extends EventEmitter {
       };
       this.pendingDynamicToolCalls.set(request.id, pending);
 
+      const dynamicArgs = asRecord(request.params.arguments);
+      const shouldNotifyUserInput = isStoredSpecialRequest && (
+        request.params.tool === "request_option_picker"
+        || request.params.tool === "request_onboarding_input"
+        || (
+          request.params.tool === "setup_codex_step"
+          && dynamicArgs?.step !== "complete"
+        )
+      );
+      if (shouldNotifyUserInput) {
+        this.emitUserInputRequiredNotification({
+          threadId,
+          requestId: request.id,
+          turnId: request.params.turnId,
+          questionCount: 0,
+        });
+      }
+
       const ownerRouted = this.forwardServerRequestToRendererOwner({
         id: request.id,
         method: "item/tool/call",
@@ -23491,9 +23710,17 @@ export class CodexService extends EventEmitter {
       const ownerRouted = this.forwardServerRequestToRendererOwner(request);
       if (ownerRouted) {
         this.syncInactiveRendererOwnerCleanup(threadId);
-        return;
+      } else {
+        this.syncBroadcastServerRequestLifecycle(threadId, lifecycle);
       }
-      this.syncBroadcastServerRequestLifecycle(threadId, lifecycle);
+      if (request.method === "item/tool/requestOptionPicker") {
+        this.emitUserInputRequiredNotification({
+          threadId,
+          requestId: request.id,
+          turnId: request.params.turnId,
+          questionCount: 0,
+        });
+      }
     });
   }
 
@@ -23673,6 +23900,15 @@ export class CodexService extends EventEmitter {
         this.syncBroadcastServerRequestLifecycle(threadId, ingressLifecycle, [turnId]);
       }
       this.emitEvent({ type: "approvalRequested", request: payload });
+      this.emitThreadNotificationEvent({
+        type: "approval-requested",
+        hostId: DEFAULT_CODEX_HOST_ID,
+        conversation: this.buildNotificationConversationFacts(threadId),
+        requestId,
+        turnId,
+        approvalKind: kind === "command" ? "commandExecution" : "fileChange",
+        reason: payload.reason ?? null,
+      });
     });
   }
 
@@ -23870,6 +24106,15 @@ export class CodexService extends EventEmitter {
       } else {
         this.syncBroadcastServerRequestLifecycle(threadId, ingressLifecycle);
       }
+      this.emitThreadNotificationEvent({
+        type: "approval-requested",
+        hostId: DEFAULT_CODEX_HOST_ID,
+        conversation: this.buildNotificationConversationFacts(threadId),
+        requestId,
+        turnId,
+        approvalKind: "permissionRequest",
+        reason: payload.reason ?? null,
+      });
     });
   }
 
@@ -23950,6 +24195,12 @@ export class CodexService extends EventEmitter {
         this.syncBroadcastServerRequestLifecycle(threadId, ingressLifecycle);
       }
       this.emitEvent({ type: "userInputRequested", request: payload });
+      this.emitUserInputRequiredNotification({
+        threadId,
+        requestId,
+        turnId,
+        questionCount: questions.length,
+      });
     });
   }
 
@@ -24242,6 +24493,12 @@ export class CodexService extends EventEmitter {
     options: { suppressConversationSync?: boolean } = {},
   ): void {
     this.clearRendererOwnerRequestDelivery(threadId, requestId);
+    this.emitThreadNotificationEvent({
+      type: "request-resolved",
+      hostId: DEFAULT_CODEX_HOST_ID,
+      conversationId: threadId,
+      requestId,
+    });
     const record = this.getMaybeConversationRecord(threadId);
     if (!record) return;
     const notification = {
@@ -24845,23 +25102,11 @@ export class CodexService extends EventEmitter {
       const payload = params;
       const { threadId, turn: turnRecord } = payload;
 
-      if (method === "turn/completed") {
-        await this.recordAutomationTurnCompleted(threadId, turnRecord);
-      }
-
       const ownerRouted = this.forwardNotificationToRendererOwner(notification);
       if (method !== "turn/started" && !ownerRouted) {
-        if (this.drainRendererOwnerNotificationsBefore(threadId, () => {
-          void this.handleNotification(notification, options);
-        })) {
-          return;
-        }
+        await this.waitForRendererOwnerNotificationDrain(threadId);
         if (method === "turn/completed") {
-          if (this.frameTextDeltaQueue.drainBefore(() => {
-            void this.handleNotification(notification, options);
-          })) {
-            return;
-          }
+          await this.waitForFrameTextDeltaDrain(threadId);
         }
       }
 
@@ -24895,6 +25140,39 @@ export class CodexService extends EventEmitter {
       if (!canonicalTurnId) return;
       const mergedTurn = this.getKnownTurn(threadId, canonicalTurnId);
       if (!mergedTurn || mergedTurn.turnId === null) return;
+      if (mergedTurn.status !== "inProgress") {
+        this.syncTurnDiffItem(threadId, mergedTurn.turnId, mergedTurn.diff, mergedTurn.status);
+      }
+      this.reconcileTurnItemsToTerminalStatus(threadId, mergedTurn.turnId, mergedTurn.status);
+      if (mergedTurn.status !== "inProgress") {
+        this.restoreUnacceptedSteeringEntriesForTurn(
+          threadId,
+          mergedTurn.turnId,
+          mergedTurn.status === "interrupted" ? "Turn was interrupted before the steer was accepted" : "Turn ended before the steer was accepted",
+        );
+      }
+      this.emitEvent({ type: "turn", turn: mergedTurn });
+      if (method === "turn/completed" && mergedTurn.status !== "inProgress") {
+        const lastAgentMessage = this.resolveNotificationLastAgentMessage(
+          threadId,
+          mergedTurn.turnId,
+          turnRecord,
+        );
+        this.emitThreadNotificationEvent({
+          type: "turn-completed",
+          hostId: DEFAULT_CODEX_HOST_ID,
+          conversation: this.buildNotificationConversationFacts(threadId),
+          turnId: mergedTurn.turnId,
+          status: mergedTurn.status,
+          lastAgentMessage,
+          heartbeatAssistantMessage: parseCodexHeartbeatAssistantMessage(lastAgentMessage),
+          automationNotificationDecision: null,
+          hasPendingContinuation: this.hasPendingNotificationContinuation(
+            threadId,
+            mergedTurn.status,
+          ),
+        });
+      }
       try {
         if (method === "turn/started") {
           await this.browserUseTurnLifecycle?.turnStarted({
@@ -24915,19 +25193,10 @@ export class CodexService extends EventEmitter {
           turnId: mergedTurn.turnId,
         });
       }
-      if (mergedTurn.status !== "inProgress") {
-        this.syncTurnDiffItem(threadId, mergedTurn.turnId, mergedTurn.diff, mergedTurn.status);
-      }
       await this.syncThreadStatusFromKnownTurns(threadId);
-      this.reconcileTurnItemsToTerminalStatus(threadId, mergedTurn.turnId, mergedTurn.status);
-      if (mergedTurn.status !== "inProgress") {
-        this.restoreUnacceptedSteeringEntriesForTurn(
-          threadId,
-          mergedTurn.turnId,
-          mergedTurn.status === "interrupted" ? "Turn was interrupted before the steer was accepted" : "Turn ended before the steer was accepted",
-        );
+      if (method === "turn/completed") {
+        void this.recordAutomationTurnCompleted(threadId, turnRecord);
       }
-      this.emitEvent({ type: "turn", turn: mergedTurn });
       if (!ownerRouted) {
         this.syncDormantConversationFromRecord(threadId, "owner-unavailable");
       }
@@ -25044,16 +25313,8 @@ export class CodexService extends EventEmitter {
       const ownerRouted = this.forwardNotificationToRendererOwner(notification);
 
       if (method === "item/completed" && !ownerRouted) {
-        if (this.drainRendererOwnerNotificationsBefore(threadId, () => {
-          void this.handleNotification(notification, options);
-        })) {
-          return;
-        }
-        if (this.frameTextDeltaQueue.drainBefore(() => {
-          void this.handleNotification(notification, options);
-        })) {
-          return;
-        }
+        await this.waitForRendererOwnerNotificationDrain(threadId);
+        await this.waitForFrameTextDeltaDrain(threadId);
       }
 
       const turnId = this.reduceCanonicalMainItemLifecycle(notification);

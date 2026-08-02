@@ -102,9 +102,14 @@ export type ConnectedThreadStageInput = Omit<
   | "primaryRequest"
 >;
 
+let presentedConversationSurfaceSequence = 0;
+
 function usePresentedConversationIds(
   conversationIds: readonly string[],
 ): void {
+  const [surfaceId] = useState(
+    () => `connected-thread-stage:${++presentedConversationSurfaceSequence}`,
+  );
   const currentIdsRef = useRef<ReadonlySet<string>>(new Set());
   const updateQueueRef = useRef<Promise<void>>(Promise.resolve());
   const updatePresentedIds = useEffectEvent((nextIds: readonly string[]) => {
@@ -125,12 +130,14 @@ function usePresentedConversationIds(
         for (const conversationId of removed) {
           await setLocalConversationThreadPresented(
             conversationId,
+            surfaceId,
             false,
           ).catch(() => undefined);
         }
         for (const conversationId of added) {
           await setLocalConversationThreadPresented(
             conversationId,
+            surfaceId,
             true,
           ).catch(() => undefined);
         }

@@ -76,6 +76,7 @@ import {
   getCommandKeymapState,
   getHistorySettings,
   getNodexHome,
+  getThreadNotificationSettings,
   getWindowRestoreSettings,
 } from "./local-store/config";
 import { createBrowserUsePeerAuthorizer } from "./browser-use/browser-use-peer-authorizer";
@@ -89,6 +90,8 @@ import {
   type CodexScheduledAutomationScheduler,
 } from "./codex-scheduled-automation-scheduler";
 import { DesktopNotificationManager } from "./desktop-notification-manager";
+import { CodexThreadNotificationCoordinator } from "./codex/codex-thread-notification-coordinator";
+import { SystemNotificationPermissionService } from "./system-notification-permission-service";
 import { composerAppshotService } from "./composer-appshot-service";
 import {
   parsePageDeepLink,
@@ -277,6 +280,7 @@ let scheduledAutomationScheduler: CodexScheduledAutomationScheduler | null = nul
 let appPermissionHandlersRegistered = false;
 let browserPermissionHandlersRegistered = false;
 let rendererClientRouter: RendererClientRouter | null = null;
+let codexThreadNotificationCoordinator: CodexThreadNotificationCoordinator | null = null;
 let desktopDataAuthorityRuntime: DesktopDataAuthorityRuntime | null = null;
 let desktopAutomationModule: DesktopAutomationModulePort | null = null;
 let desktopLibraryModule: DesktopLibraryModuleBridge | null = null;
@@ -288,8 +292,15 @@ let storeAdministrationBackupScheduler: StoreAdministrationBackupScheduler | nul
 let storeAdministrationMaintenanceScheduler:
   StoreAdministrationMaintenanceScheduler | null = null;
 let reminderResumeHandlerRegistered = false;
-const desktopNotificationManager = new DesktopNotificationManager();
 const logger = getLogger({ subsystem: "app" });
+const desktopNotificationManager = new DesktopNotificationManager({ logger });
+const systemNotificationPermissionService = new SystemNotificationPermissionService({
+  notificationApi: Notification as unknown as {
+    getPermissionStatus?: () => unknown | Promise<unknown>;
+  },
+  openExternal: (url) => shell.openExternal(url),
+  logger,
+});
 
 const isCoreAuthorityReady = (): boolean => coreAuthorityStatus.kind === "ready";
 
@@ -1593,6 +1604,7 @@ function createWindow(
   });
   window.on("closed", () => {
     browserSidebarService.releaseRendererOwner(webContentsId);
+    desktopNotificationManager.dismissByOriginWebContentsId(webContentsId);
     codexService.setRendererClientForegrounded(
       rendererClientRegistration?.clientId,
       false,
@@ -2062,6 +2074,9 @@ function beginMainRuntimeShutdown(): void {
   runtimeReminderTick = null;
   scheduledAutomationScheduler?.dispose();
   scheduledAutomationScheduler = null;
+  codexThreadNotificationCoordinator?.dispose();
+  codexThreadNotificationCoordinator = null;
+  desktopNotificationManager.dispose();
   terminalManager.killAll();
 }
 
@@ -2251,6 +2266,9 @@ export async function runMainAppStartup(
     pid: process.pid,
     nodexHome: getNodexHome(),
   });
+  if (process.platform === "win32") {
+    app.setAppUserModelId("app.jyu.nodex");
+  }
   registerDeepLinkProtocol();
   // Packaged macOS builds use the bundle icon; dev still needs an explicit Dock icon override.
   if (process.platform === "darwin" && !app.isPackaged && !appDockIcon.isEmpty()) {
@@ -2661,6 +2679,59 @@ export async function runMainAppStartup(
   });
   disposeGitWorkerIpc = registerGitWorkerIpc(gitWorkerHost);
   rendererClientRouter = new RendererClientRouter();
+  const notificationRendererRouter = rendererClientRouter;
+  codexThreadNotificationCoordinator = new CodexThreadNotificationCoordinator({
+    source: codexService,
+    getSettings: getThreadNotificationSettings,
+    isAppForegrounded: () => codexService.hasForegroundRendererClient(),
+    isConversationPresentedInForeground: (conversationId) =>
+      codexService.isRendererConversationPresentedInForeground(conversationId),
+    resolveTargetClientId: (conversationId) => {
+      const presenting = codexService.resolveRendererPresentedSurfaceClient(
+        conversationId,
+      );
+      if (presenting) return presenting;
+      const fallbackWindow = getLastFocusedWindow();
+      if (!fallbackWindow) return null;
+      return notificationRendererRouter.getClientIdForWebContentsId(
+        fallbackWindow.webContents.id,
+      );
+    },
+    showNotification: (notification, targetClientId, onAction) => {
+      const webContentsId = notificationRendererRouter.getWebContentsIdForClientId(
+        targetClientId,
+      );
+      if (webContentsId === null) return;
+      const targetWindow = openWindows.get(webContentsId);
+      if (!targetWindow || targetWindow.isDestroyed()) return;
+      desktopNotificationManager.showNotification(
+        notification,
+        targetWindow.webContents,
+        onAction,
+      );
+    },
+    dismissNotification: (selector) => {
+      desktopNotificationManager.dismiss(selector);
+    },
+    dispatchAction: (targetClientId, action) =>
+      notificationRendererRouter.sendToClient(
+        targetClientId,
+        "desktop-notification:action",
+        [action],
+      ),
+    focusTargetClient: (targetClientId) => {
+      const webContentsId = notificationRendererRouter.getWebContentsIdForClientId(
+        targetClientId,
+      );
+      if (webContentsId === null) return;
+      const targetWindow = openWindows.get(webContentsId);
+      if (!targetWindow || targetWindow.isDestroyed()) return;
+      if (targetWindow.isMinimized()) targetWindow.restore();
+      targetWindow.show();
+      targetWindow.focus();
+    },
+    logger,
+  });
   codexService.setNodexAgentAuthorizationBroker(new NodexAgentAuthorizationBroker({
     rendererClientRouter,
     readStoreEpoch: () => {
@@ -2682,7 +2753,7 @@ export async function runMainAppStartup(
     libraryModule,
     databaseModule,
     rendererClientRouter,
-    desktopNotificationManager,
+    systemNotificationPermissionService,
     onHeartbeatAutomationsEnabledChanged: (input) => {
       scheduledAutomationScheduler?.setHeartbeatAutomationsEnabled(input.enabled);
     },

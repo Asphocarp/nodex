@@ -1466,15 +1466,39 @@ export interface DesktopNotificationAction {
 
 export interface DesktopNotificationPayload {
   id: string;
+  /** Process-local strict identity; the public Codex-compatible ID remains `id`. */
+  occurrenceId?: string;
   kind: DesktopNotificationKind;
   title: string;
   body: string;
+  hostId?: string;
   conversationId?: string;
+  navigationPath?: string;
+  activateTabId?: string | null;
   requestId?: CodexAppServerRequestId;
-  approvalKind?: CodexApprovalKind;
   actions?: DesktopNotificationAction[];
   replyPlaceholder?: string;
 }
+
+export type DesktopNotificationHideSelector =
+  | {
+      occurrenceId: string;
+      notificationId?: never;
+      conversationId?: never;
+      navigationPath?: never;
+    }
+  | {
+      occurrenceId?: never;
+      notificationId: string;
+      conversationId?: never;
+      navigationPath?: never;
+    }
+  | {
+      occurrenceId?: never;
+      notificationId?: never;
+      conversationId?: string | null;
+      navigationPath?: string | null;
+    };
 
 export interface DesktopNotificationActionPayload {
   notificationId: string;
@@ -1482,6 +1506,21 @@ export interface DesktopNotificationActionPayload {
   actionType: "open" | "reply" | "approve" | "approve-for-session" | "decline";
   reply?: string;
 }
+
+export interface DesktopNotificationActionInvocation
+  extends DesktopNotificationActionPayload {
+  hostId: string;
+  conversationId: string | null;
+  navigationPath: string | null;
+  activateTabId: string | null;
+  requestId: CodexAppServerRequestId | null;
+}
+
+export type SystemNotificationPermissionStatus =
+  | "enabled"
+  | "disabled"
+  | "not-determined"
+  | null;
 
 export interface AppUpdateSettings {
   automaticChecksEnabled: boolean;
