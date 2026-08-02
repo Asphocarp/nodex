@@ -8,6 +8,7 @@ import {
   materializeInitialWorkbenchScene,
   mergeWorkbenchSceneLeaf,
   migrateWorkbenchSceneV1ToV2,
+  migrateWorkbenchSceneV2ToV3,
   moveWorkbenchSceneSurface,
   patchWorkbenchScenePanel,
   removeWorkbenchSceneSurface,
@@ -16,6 +17,7 @@ import {
   type WorkbenchSceneIdentityFactory,
   type WorkbenchSceneSnapshot,
   type WorkbenchSceneSnapshotV1,
+  type WorkbenchSceneSnapshotV2,
   type WorkbenchSurfaceDescriptor,
 } from "./workbench-scene";
 
@@ -54,6 +56,19 @@ function browserSurface(id = "browser-surface"): WorkbenchSurfaceDescriptor {
   };
 }
 
+function sceneV2Fields(
+  scene: WorkbenchSceneSnapshot,
+): Omit<WorkbenchSceneSnapshotV2, "version" | "agentDock"> {
+  return {
+    owner: scene.owner,
+    primary: scene.primary,
+    panelSurfacesById: scene.panelSurfacesById,
+    panels: scene.panels,
+    lastFocusedPanelId: scene.lastFocusedPanelId,
+    touchedAt: scene.touchedAt,
+  };
+}
+
 describe("WorkbenchScene", () => {
   test("materializes Project and Session owner-root primary surfaces", () => {
     const project = projectScene();
@@ -83,10 +98,9 @@ describe("WorkbenchScene", () => {
       tabIds: [project.primary.id],
       activeTabId: project.primary.id,
     });
-    expect(project.agentDock).toMatchObject({
-      visible: true,
-      binding: { kind: "new" },
-    });
+    expect(project.composerOverlay).toEqual({ visible: true });
+    expect(session.composerOverlay).toEqual({ visible: true });
+    expect(project.agentDock).toMatchObject({ binding: { kind: "new" } });
     expect(session.panels.right.collapsed).toBe(true);
     expect(session.agentDock).toBeNull();
     expect(project.panels.bottom.collapsed).toBe(true);
@@ -238,6 +252,7 @@ describe("WorkbenchScene", () => {
     };
 
     const migrated = migrateWorkbenchSceneV1ToV2(legacy);
+    const canonical = migrateWorkbenchSceneV2ToV3(migrated);
 
     expect(migrated.version).toBe(2);
     expect(migrated.panelSurfacesById).toEqual({});
@@ -251,12 +266,48 @@ describe("WorkbenchScene", () => {
       tabIds: [current.primary.id],
       activeTabId: current.primary.id,
     });
-    expect(WorkbenchSceneSnapshotSchema.parse(legacy)).toEqual(migrated);
-    expect(WorkbenchSceneSnapshotSchema.parse(migrated)).toEqual(migrated);
+    expect(canonical.version).toBe(3);
+    expect(canonical.composerOverlay).toEqual({ visible: true });
+    expect(canonical.agentDock).toEqual({
+      binding: { kind: "session", sessionId: "session-1" },
+      newDraftId: `agent-draft:${canonical.primary.id}`,
+    });
+    expect(WorkbenchSceneSnapshotSchema.parse(legacy)).toEqual(canonical);
+    expect(WorkbenchSceneSnapshotSchema.parse(migrated)).toEqual(canonical);
+    expect(WorkbenchSceneSnapshotSchema.parse(canonical)).toEqual(canonical);
+  });
+
+  test("migrates v2 composer visibility into the shared Scene presentation", () => {
+    const project = projectScene();
+    const legacyProject: WorkbenchSceneSnapshotV2 = {
+      ...sceneV2Fields(project),
+      version: 2,
+      agentDock: {
+        ...project.agentDock!,
+        visible: false,
+      },
+    };
+    const session = materializeInitialWorkbenchScene({
+      kind: "session",
+      sessionId: "session-1",
+    });
+    const legacySession: WorkbenchSceneSnapshotV2 = {
+      ...sceneV2Fields(session),
+      version: 2,
+      agentDock: null,
+    };
+
+    expect(migrateWorkbenchSceneV2ToV3(legacyProject).composerOverlay)
+      .toEqual({ visible: false });
+    expect(migrateWorkbenchSceneV2ToV3(legacySession).composerOverlay)
+      .toEqual({ visible: true });
   });
 
   test("new-window clone remints presentation and Browser identities", () => {
-    const original = createWorkbenchSceneSurface(projectScene(), {
+    const original = createWorkbenchSceneSurface({
+      ...projectScene(),
+      composerOverlay: { visible: false },
+    }, {
       panelId: "right",
       surface: browserSurface(),
     });
@@ -275,6 +326,7 @@ describe("WorkbenchScene", () => {
     expect(clone.agentDock?.newDraftId).not.toBe(
       original.agentDock?.newDraftId,
     );
+    expect(clone.composerOverlay).toEqual({ visible: false });
     expect(clonedBrowser?.id).not.toBe("browser-surface");
     expect(clonedBrowser?.kind).toBe("browser");
     if (clonedBrowser?.kind !== "browser") {

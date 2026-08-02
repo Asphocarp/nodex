@@ -524,9 +524,32 @@ describe("workbench session shell / layout-panel-actions", () => {
     expect(host !== null).toBe(true);
     expect(props?.rightPanelComposerOverlayEnabled).toBe(true);
     expect(props?.rightPanelComposerOverlayCompact).toBe(false);
-    expect(props?.rightPanelComposerOverlayAtDocumentBottom).toBe(false);
-    expect(props?.rightPanelComposerOverlayDocumentBottomKey).toBe(null);
     expect(props?.rightPanelComposerOverlayTarget).toBe(host);
+    const visibility = props?.rightPanelComposerOverlayVisibility as {
+      kind?: string;
+      visible?: boolean;
+      onVisibleChange?: (visible: boolean) => void;
+    } | undefined;
+    expect(visibility?.kind).toBe("controlled");
+    expect(visibility?.visible).toBe(true);
+
+    await act(async () => {
+      visibility?.onVisibleChange?.(false);
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    const hiddenProps = (globalThis as {
+      __lastConnectedThreadStageProps?: Record<string, unknown>;
+    }).__lastConnectedThreadStageProps;
+    const hiddenVisibility = hiddenProps?.rightPanelComposerOverlayVisibility as {
+      kind?: string;
+      visible?: boolean;
+    } | undefined;
+    expect(hiddenVisibility).toMatchObject({
+      kind: "controlled",
+      visible: false,
+    });
   });
 
   test("limits compact composer presentation to a full-width Browser tab", async () => {
@@ -559,10 +582,12 @@ describe("workbench session shell / layout-panel-actions", () => {
     }).__lastConnectedThreadStageProps;
     expect(props?.rightPanelComposerOverlayEnabled).toBe(true);
     expect(props?.rightPanelComposerOverlayCompact).toBe(true);
-    expect(props?.rightPanelComposerOverlayAtDocumentBottom).toBe(false);
-    expect(props?.rightPanelComposerOverlayDocumentBottomKey).toContain(
-      "browser-tab",
-    );
+    expect(props?.rightPanelComposerOverlayVisibility).toMatchObject({
+      kind: "controlled-browser-auto",
+      visible: true,
+      isAtDocumentBottom: false,
+      documentBottomKey: expect.stringContaining("browser-tab"),
+    });
   });
 
   test("full-width overlay state keeps the bottom-panel toggle clickable after pointerdown", async () => {
