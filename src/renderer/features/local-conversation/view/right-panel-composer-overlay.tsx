@@ -50,6 +50,14 @@ export type RightPanelComposerOverlayVisibility =
       readonly kind: "browser-auto";
       readonly documentBottomKey: string | null;
       readonly isAtDocumentBottom: boolean;
+    }
+  | {
+      readonly kind: "controlled-browser-auto";
+      readonly visible: boolean;
+      readonly attention: RightPanelComposerOverlayAttention;
+      readonly onVisibleChange: (visible: boolean) => void;
+      readonly documentBottomKey: string | null;
+      readonly isAtDocumentBottom: boolean;
     };
 
 export interface RightPanelComposerPortalGeometry {
@@ -238,10 +246,14 @@ export function RightPanelComposerOverlay({
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const interactiveRef = useRef<HTMLDivElement | null>(null);
+  const revealButtonRef = useRef<HTMLButtonElement | null>(null);
+  const focusRevealAfterHideRef = useRef(false);
   const documentBottomKey = visibility.kind === "browser-auto"
+    || visibility.kind === "controlled-browser-auto"
     ? visibility.documentBottomKey
     : null;
   const isAtDocumentBottom = visibility.kind === "browser-auto"
+    || visibility.kind === "controlled-browser-auto"
     ? visibility.isAtDocumentBottom
     : false;
   const previousDocumentBottomRef = useRef({
@@ -250,6 +262,8 @@ export function RightPanelComposerOverlay({
   });
   const contentVisible = visibility.kind === "controlled"
     ? visibility.visible
+    : visibility.kind === "controlled-browser-auto"
+      ? visibility.visible && hiddenReason === null
     : visibility.kind === "browser-auto"
       ? hiddenReason === null
       : true;
@@ -287,7 +301,10 @@ export function RightPanelComposerOverlay({
   }, [target]);
 
   useLayoutEffect(() => {
-    if (visibility.kind !== "browser-auto") {
+    if (
+      visibility.kind !== "browser-auto"
+      && visibility.kind !== "controlled-browser-auto"
+    ) {
       previousDocumentBottomRef.current = {
         key: documentBottomKey,
         value: false,
@@ -330,6 +347,15 @@ export function RightPanelComposerOverlay({
     return () => cancelAnimationFrame(frame);
   }, [contentVisible, controlledFocusRequestKey, target]);
 
+  useLayoutEffect(() => {
+    if (contentVisible || !focusRevealAfterHideRef.current) return;
+    focusRevealAfterHideRef.current = false;
+    const frame = requestAnimationFrame(() => {
+      revealButtonRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [contentVisible]);
+
   const handleBlurCapture = (event: ReactFocusEvent<HTMLDivElement>) => {
     const nextTarget = event.relatedTarget;
     const NodeConstructor =
@@ -352,7 +378,10 @@ export function RightPanelComposerOverlay({
   };
 
   const handleReveal = () => {
-    if (visibility.kind === "controlled") {
+    if (
+      visibility.kind === "controlled"
+      || visibility.kind === "controlled-browser-auto"
+    ) {
       visibility.onVisibleChange(true);
     }
     setHiddenReason(null);
@@ -383,7 +412,10 @@ export function RightPanelComposerOverlay({
     <div
       data-testid="right-panel-composer-overlay-host"
       data-overlay-attention={
-        visibility.kind === "controlled" ? visibility.attention : "none"
+        visibility.kind === "controlled"
+        || visibility.kind === "controlled-browser-auto"
+          ? visibility.attention
+          : "none"
       }
       className={cn(
         "pointer-events-none fixed",
@@ -453,9 +485,13 @@ export function RightPanelComposerOverlay({
                       : "pointer-events-none -translate-y-full opacity-0",
                   )}
                   onClick={(event) => {
+                    focusRevealAfterHideRef.current = event.detail === 0;
                     event.currentTarget.blur();
                     setFocused(false);
-                    if (visibility.kind === "controlled") {
+                    if (
+                      visibility.kind === "controlled"
+                      || visibility.kind === "controlled-browser-auto"
+                    ) {
                       visibility.onVisibleChange(false);
                     } else {
                       setHiddenReason("manual");
@@ -484,6 +520,7 @@ export function RightPanelComposerOverlay({
       inert={contentVisible}
     >
       <button
+        ref={revealButtonRef}
         type="button"
         aria-label="Show floating composer"
         className={cn(

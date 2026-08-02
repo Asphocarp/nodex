@@ -131,25 +131,26 @@ describe("WorkbenchWindowState", () => {
     expect(forward.scenesByOwnerKey[sceneKey]?.panels.right.collapsed).toBe(true);
   });
 
-  test("updates Agent Dock state without recording navigation history", () => {
-    const owner = { kind: "project", projectId: "alpha" } as const;
+  test("updates composer overlay state without recording navigation history", () => {
+    const owner = { kind: "session", sessionId: "session:alpha" } as const;
     const scene = materializeInitialWorkbenchScene(owner);
     const sceneKey = makeWorkbenchSceneKey(owner);
     const initial = createWorkbenchWindowState({
       ...createDefaultWorkbenchLayoutSnapshotV5(),
-      location: { kind: "project", projectId: "alpha" },
+      location: {
+        kind: "session",
+        sessionId: "session:alpha",
+        projectContextId: "alpha",
+      },
       scenesByOwnerKey: { [sceneKey]: scene },
     });
 
     const hidden = updateWorkbenchScene(initial, owner, (current) => ({
       ...current!,
-      agentDock: {
-        ...current!.agentDock!,
-        visible: false,
-      },
+      composerOverlay: { visible: false },
     }), { recordHistory: false });
 
-    expect(hidden.scenesByOwnerKey[sceneKey]?.agentDock?.visible).toBe(false);
+    expect(hidden.scenesByOwnerKey[sceneKey]?.composerOverlay.visible).toBe(false);
     expect(hidden.history).toEqual(initial.history);
     expect(snapshotWorkbenchWindowState(hidden).scenesByOwnerKey[sceneKey])
       .toEqual(hidden.scenesByOwnerKey[sceneKey]);

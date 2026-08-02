@@ -151,10 +151,19 @@ describe("NewChatProjectSelector", () => {
     expect(selected[0]).toBe("devtools-codex");
   });
 
-  test("emits project selection from the heading variant", async () => {
+  test("keeps the heading textual while retaining markers in the project menu", async () => {
     const selected: Array<string | null> = [];
+    const model = buildModel();
     const view = await renderSelector(
-      buildModel(),
+      {
+        ...model,
+        projects: model.projects.map((project) => project.id === "nodex"
+          ? {
+              ...project,
+              appearance: { color: "orange", marker: { kind: "emoji", emoji: "🔥" } },
+            }
+          : project),
+      },
       buildActions({
         onNewThreadProjectChange: (projectId) => {
           selected.push(projectId);
@@ -164,9 +173,12 @@ describe("NewChatProjectSelector", () => {
     );
 
     const trigger = view.getByRole("button", { name: "Select project" });
-    expect(trigger.textContent?.includes("Nodex")).toBe(true);
+    expect(trigger.textContent).toBe("Nodex");
+    expect(trigger.querySelector("[aria-hidden='true']")).toBeNull();
 
     await openMenu(trigger);
+    const selectedRow = document.body.querySelector("[data-new-chat-project-option='nodex']");
+    expect(selectedRow?.querySelector("[aria-hidden='true']")?.textContent).toBe("🔥");
     const devtoolsRow = document.body.querySelector("[data-new-chat-project-option='devtools-codex']");
     if (!(devtoolsRow instanceof HTMLElement)) {
       throw new Error("Expected Devtools Codex row.");

@@ -37,7 +37,7 @@ import {
   type WorkbenchPanelSplitSide,
 } from "./workbench-panel-layout";
 
-export const WORKBENCH_SCENE_VERSION = 2 as const;
+export const WORKBENCH_SCENE_VERSION = 3 as const;
 export const WORKBENCH_SCENE_MAX_PANEL_SURFACES = 2_048;
 
 export type WorkbenchSceneOwner =
@@ -57,9 +57,12 @@ export type WorkbenchAgentDockBinding =
   | { readonly kind: "session"; readonly sessionId: string };
 
 export interface WorkbenchAgentDockState {
-  readonly visible: boolean;
   readonly binding: WorkbenchAgentDockBinding;
   readonly newDraftId: string;
+}
+
+export interface WorkbenchComposerOverlayState {
+  readonly visible: boolean;
 }
 
 export function makeWorkbenchSceneKey(
@@ -188,12 +191,23 @@ export interface WorkbenchSceneSnapshot {
   >;
   readonly panels: Readonly<Record<WorkbenchPanelId, WorkbenchPanelState>>;
   readonly lastFocusedPanelId: WorkbenchPanelId | null;
+  readonly composerOverlay: WorkbenchComposerOverlayState;
   readonly agentDock: WorkbenchAgentDockState | null;
   readonly touchedAt: string;
 }
 
-export type WorkbenchSceneSnapshotV1 = Omit<
+export type WorkbenchSceneSnapshotV2 = Omit<
   WorkbenchSceneSnapshot,
+  "version" | "composerOverlay" | "agentDock"
+> & {
+  readonly version: 2;
+  readonly agentDock: (WorkbenchAgentDockState & {
+    readonly visible: boolean;
+  }) | null;
+};
+
+export type WorkbenchSceneSnapshotV1 = Omit<
+  WorkbenchSceneSnapshotV2,
   "version" | "agentDock"
 > & {
   readonly version: 1;
@@ -382,7 +396,6 @@ function enforceProjectSceneInvariants(
       ? scene.lastFocusedPanelId
       : null,
     agentDock: scene.agentDock ?? {
-      visible: true,
       binding: { kind: "new" },
       newDraftId: `agent-draft:${scene.primary.id}`,
     },
@@ -585,9 +598,9 @@ export function createEmptyWorkbenchScene(
     panelSurfacesById: {},
     panels: view.panels,
     lastFocusedPanelId: null,
+    composerOverlay: { visible: true },
     agentDock: owner.kind === "project"
       ? {
-          visible: true,
           binding: { kind: "new" },
           newDraftId: identityFactory.createId("draft"),
         }
@@ -662,13 +675,14 @@ export function normalizeWorkbenchScene(
  * Project Conversation surfaces become a Dock binding; their Sessions remain
  * owned by Core and are never deleted by this UI-state migration.
  */
-export function migrateWorkbenchSceneV1ToV2(
+function migrateWorkbenchSceneV1ToCurrent(
   legacy: WorkbenchSceneSnapshotV1,
 ): WorkbenchSceneSnapshot {
   if (legacy.owner.kind === "session") {
     return normalizeWorkbenchScene({
       ...legacy,
       version: WORKBENCH_SCENE_VERSION,
+      composerOverlay: { visible: true },
       agentDock: null,
     });
   }
@@ -684,8 +698,8 @@ export function migrateWorkbenchSceneV1ToV2(
   const migrated = normalizeWorkbenchScene({
     ...legacy,
     version: WORKBENCH_SCENE_VERSION,
+    composerOverlay: { visible: true },
     agentDock: {
-      visible: true,
       binding: boundSessionId
         ? { kind: "session", sessionId: boundSessionId }
         : { kind: "new" },
@@ -714,6 +728,57 @@ export function migrateWorkbenchSceneV1ToV2(
     },
     lastFocusedPanelId: "right",
   };
+}
+
+function currentWorkbenchSceneToV2(
+  scene: WorkbenchSceneSnapshot,
+): WorkbenchSceneSnapshotV2 {
+  const { composerOverlay, ...withoutComposerOverlay } = scene;
+  return {
+    ...withoutComposerOverlay,
+    version: 2,
+    agentDock: scene.agentDock
+      ? { ...scene.agentDock, visible: composerOverlay.visible }
+      : null,
+  };
+}
+
+export function migrateWorkbenchSceneV1ToV2(
+  legacy: WorkbenchSceneSnapshotV1,
+): WorkbenchSceneSnapshotV2 {
+  return currentWorkbenchSceneToV2(
+    migrateWorkbenchSceneV1ToCurrent(legacy),
+  );
+}
+
+export function migrateWorkbenchSceneV2ToV3(
+  legacy: WorkbenchSceneSnapshotV2,
+): WorkbenchSceneSnapshot {
+  const { agentDock: legacyAgentDock, ...scene } = legacy;
+  const agentDock = legacyAgentDock
+    ? {
+        binding: legacyAgentDock.binding,
+        newDraftId: legacyAgentDock.newDraftId,
+      }
+    : null;
+  return normalizeWorkbenchScene({
+    ...scene,
+    version: WORKBENCH_SCENE_VERSION,
+    composerOverlay: {
+      visible: legacy.owner.kind === "project"
+        ? legacyAgentDock?.visible ?? true
+        : true,
+    },
+    agentDock,
+  });
+}
+
+export function migrateWorkbenchSceneV1ToV3(
+  legacy: WorkbenchSceneSnapshotV1,
+): WorkbenchSceneSnapshot {
+  return migrateWorkbenchSceneV2ToV3(
+    migrateWorkbenchSceneV1ToV2(legacy),
+  );
 }
 
 export function createWorkbenchSceneSurface(

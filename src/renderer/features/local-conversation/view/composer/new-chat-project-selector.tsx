@@ -68,15 +68,7 @@ export function NewChatProjectSelector({
             className="outline-hidden cursor-interaction relative z-0 inline-block whitespace-pre after:absolute after:-inset-x-1.5 after:-inset-y-0 after:-z-10 after:rounded-xl after:content-[''] group-hover/title:after:bg-token-foreground/5 hover:after:bg-token-foreground/10 data-[state=open]:after:bg-token-foreground/5 data-[state=open]:hover:after:bg-token-foreground/10 disabled:cursor-not-allowed disabled:opacity-50"
             disabled={selectorDisabled}
           >
-            <span className="inline-flex min-w-0 items-center gap-1.5">
-              {selectedOption ? (
-                <ProjectMarker
-                  appearance={selectedOption.appearance}
-                  className="size-4"
-                />
-              ) : null}
-              <span className="truncate">{triggerLabel}</span>
-            </span>
+            {triggerLabel}
           </button>
         )}
       >

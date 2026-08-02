@@ -27,7 +27,7 @@ import {
   validateWorkbenchSceneMapKey,
 } from "./workbench-scene";
 import {
-  migrateWorkbenchSceneV1ToV2,
+  migrateWorkbenchSceneV1ToV3,
   type WorkbenchSceneSnapshot,
   type WorkbenchSurfaceDescriptor,
 } from "../workbench-scene";
@@ -486,7 +486,7 @@ function migrateWorkbenchSessionViewTabToSurface(
 function migrateWorkbenchSessionViewToScene(
   view: WorkbenchSessionViewSnapshot,
 ): WorkbenchSceneSnapshot {
-  return migrateWorkbenchSceneV1ToV2({
+  return migrateWorkbenchSceneV1ToV3({
     version: 1,
     owner: { kind: "session", sessionId: view.sessionId },
     primary: {

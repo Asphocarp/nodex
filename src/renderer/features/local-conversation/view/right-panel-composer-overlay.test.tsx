@@ -171,8 +171,9 @@ describe("RightPanelComposerOverlay", () => {
       return button;
     });
     expect(target.style.getPropertyValue("--right-panel-composer-overlay-reserve")).toBe("0px");
+    hideButton.focus();
     await act(async () => {
-      fireEvent.click(hideButton);
+      fireEvent.click(hideButton, { detail: 0 });
     });
 
     const showButton = document.body.querySelector(
@@ -241,10 +242,65 @@ describe("RightPanelComposerOverlay", () => {
       'button[aria-label="Show floating composer"]',
     );
     if (!showButton) throw new Error("Expected controlled restore control");
+    await waitFor(() => {
+      expect(document.activeElement).toBe(showButton);
+    });
     await act(async () => {
       fireEvent.click(showButton);
     });
     expect(onVisibleChange).toHaveBeenLastCalledWith(true);
+  });
+
+  test("persists Browser manual visibility without persisting document-bottom auto-hide", async () => {
+    const target = makeTarget();
+    const onVisibleChange = vi.fn();
+    const renderOverlay = (visible: boolean, isAtDocumentBottom: boolean) => (
+      <RightPanelComposerOverlay
+        target={target}
+        compact
+        visibility={{
+          kind: "controlled-browser-auto",
+          visible,
+          attention: "none",
+          onVisibleChange,
+          documentBottomKey: "browser-one",
+          isAtDocumentBottom,
+        }}
+      >
+        <button type="button">Composer</button>
+      </RightPanelComposerOverlay>
+    );
+    const view = render(renderOverlay(true, false));
+
+    view.rerender(renderOverlay(true, true));
+    await waitFor(() => {
+      expect(document.body.querySelector(
+        '[data-testid="right-panel-composer-overlay"]',
+      )?.getAttribute("aria-hidden")).toBe("true");
+    });
+    expect(onVisibleChange).not.toHaveBeenCalled();
+
+    const showButton = document.body.querySelector<HTMLButtonElement>(
+      'button[aria-label="Show floating composer"]',
+    );
+    if (!showButton) throw new Error("Expected Browser restore control");
+    await act(async () => {
+      fireEvent.click(showButton);
+    });
+    expect(onVisibleChange).toHaveBeenLastCalledWith(true);
+
+    view.rerender(renderOverlay(true, false));
+    const hideButton = await waitFor(() => {
+      const button = document.body.querySelector<HTMLButtonElement>(
+        'button[aria-label="Hide floating composer"]',
+      );
+      if (!button) throw new Error("Expected Browser hide control");
+      return button;
+    });
+    await act(async () => {
+      fireEvent.click(hideButton);
+    });
+    expect(onVisibleChange).toHaveBeenLastCalledWith(false);
   });
 
   test("focuses the controlled Dock composer only after an explicit request", async () => {

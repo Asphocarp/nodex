@@ -227,9 +227,8 @@ interface ConnectedThreadStageProps extends ConnectedThreadStageInput {
   backgroundAgentDetail?: boolean;
   rightPanelComposerOverlayEnabled?: boolean;
   rightPanelComposerOverlayCompact?: boolean;
-  rightPanelComposerOverlayAtDocumentBottom?: boolean;
-  rightPanelComposerOverlayDocumentBottomKey?: string | null;
   rightPanelComposerOverlayTarget?: HTMLElement | null;
+  rightPanelComposerOverlayVisibility?: RightPanelComposerOverlayVisibility;
   turnDiffHoverPreviewDisabled?: boolean;
   summaryPanelMounted?: boolean;
   summaryPanelOpen?: boolean;
@@ -981,9 +980,8 @@ export function ConnectedThreadStage({
   backgroundAgentDetail = false,
   rightPanelComposerOverlayEnabled = false,
   rightPanelComposerOverlayCompact = false,
-  rightPanelComposerOverlayAtDocumentBottom = false,
-  rightPanelComposerOverlayDocumentBottomKey = null,
   rightPanelComposerOverlayTarget = null,
+  rightPanelComposerOverlayVisibility,
   turnDiffHoverPreviewDisabled = false,
   summaryPanelMounted = false,
   summaryPanelOpen = false,
@@ -1034,8 +1032,13 @@ export function ConnectedThreadStage({
     knownConversationsById,
   ]);
   const presentedConversationIds = useMemo(() => {
+    const overlayManuallyVisible =
+      rightPanelComposerOverlayVisibility?.kind !== "controlled"
+      && rightPanelComposerOverlayVisibility?.kind !== "controlled-browser-auto"
+        ? true
+        : rightPanelComposerOverlayVisibility.visible;
     const requestSurfaceVisible = threadBodyVisible
-      || rightPanelComposerOverlayEnabled;
+      || (rightPanelComposerOverlayEnabled && overlayManuallyVisible);
     if (!routeActive || !requestSurfaceVisible) return [];
     return [...new Set([
       activeThreadId,
@@ -1046,6 +1049,7 @@ export function ConnectedThreadStage({
   }, [
     activeThreadId,
     rightPanelComposerOverlayEnabled,
+    rightPanelComposerOverlayVisibility,
     routeActive,
     threadBodyVisible,
     visibleBackgroundRequestConversationId,
@@ -1292,9 +1296,8 @@ export function ConnectedThreadStage({
                 onErrorMessage={setErrorMessage}
                 rightPanelComposerOverlayEnabled={rightPanelComposerOverlayEnabled && !isSideChat}
                 rightPanelComposerOverlayCompact={rightPanelComposerOverlayCompact}
-                rightPanelComposerOverlayAtDocumentBottom={rightPanelComposerOverlayAtDocumentBottom}
-                rightPanelComposerOverlayDocumentBottomKey={rightPanelComposerOverlayDocumentBottomKey}
                 rightPanelComposerOverlayTarget={rightPanelComposerOverlayTarget}
+                rightPanelComposerOverlayVisibility={rightPanelComposerOverlayVisibility}
                 turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
               />
             )}
