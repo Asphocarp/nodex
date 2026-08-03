@@ -101,7 +101,7 @@ receives the true migration state. Main initialization routes every durable
 port through Core before renderer windows become operational; disconnecting
 Electron does not terminate the detached Core. The active
 proxy slices cover the established Library catalog/navigation `read`/`apply`
-IPC pair, Project/Library Page Detail, Project-scoped Page references and
+IPC pair, Project/Library Page Detail, explicit-authority Page references and
 ownership paths, trusted-root Page deep-link location, and the Project catalog
 boundary. Page lifecycle and mixed Page Property writes also cross the native
 Library aggregate boundary through Core.
@@ -261,12 +261,14 @@ recursively owned Documents while changing only the canonical parent and any
 containing Page shells. Page Copy clones the complete
 Page/Synced/Template/Canvas ownership closure, and multiple roots targeting one
 Page stage all closures before one ordered target-Document commit.
-Project-scoped Page History, Page target, and ownership-path reads also use the
-Library Module Adapter: the renderer request selects the exact Project client
-and Core evaluates recursive resource access in one read snapshot. Ownership
-paths expose only the highest-to-direct-parent prefix independently readable by
-that Project. Page Detail, Page content, and Page paths enforce the same
-recursive access check whenever the connection is Project-bound. Global Page
+Page target and ownership-path reads use the Library Module Adapter selected by
+the surface's explicit content authority. A trusted local root receives the
+complete same-Library target and ownership ancestry; a Project-bound client is
+evaluated against recursive resource access in one read snapshot and sees only
+the highest-to-direct-parent prefix independently readable by that Project.
+Missing or unreadable Project targets remain non-disclosing. Project-scoped
+Page History remains Project-authorized. Page Detail, Page content, and Page
+paths enforce the same trusted-root-or-bound-Project distinction. Global Page
 and saved-View deep-link lookup uses separate minimal location projections
 accepted only from trusted root Electron, native CLI, or test Adapters;
 Project-bound and Agent clients cannot enumerate storage Projects. A View

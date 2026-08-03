@@ -2337,6 +2337,30 @@ mod tests {
         assert_eq!(project_search_error.code, CoreErrorCode::Unauthorized);
         let mut untrusted_root_context = context();
         untrusted_root_context.adapter = AdapterKind::Agent;
+        let untrusted_target_error = module
+            .read(
+                &untrusted_root_context,
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::PageTarget {
+                        page_id: ROOT_PAGE.to_owned(),
+                    },
+                },
+            )
+            .expect_err("Agent clients cannot claim trusted Page target authority");
+        assert_eq!(untrusted_target_error.code, CoreErrorCode::Unauthorized);
+        let untrusted_path_error = module
+            .read(
+                &untrusted_root_context,
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::PageOwnershipPath {
+                        page_id: ROOT_PAGE.to_owned(),
+                    },
+                },
+            )
+            .expect_err("Agent clients cannot claim trusted Page path authority");
+        assert_eq!(untrusted_path_error.code, CoreErrorCode::Unauthorized);
         let untrusted_search_error = module
             .read(
                 &untrusted_root_context,
@@ -2616,6 +2640,53 @@ mod tests {
                 },
             )
             .expect("create nested reference Page");
+        let root_context = context();
+        let LibraryReadValue::PageTarget { value } = module
+            .read(
+                &root_context,
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::PageTarget {
+                        page_id: NESTED_PAGE.to_owned(),
+                    },
+                },
+            )
+            .expect("trusted root Page target")
+            .value
+        else {
+            panic!("Page target");
+        };
+        assert!(matches!(
+            value.as_deref(),
+            Some(nodex_core_contracts::library::LibraryPageTarget::Available {
+                target_page_id,
+                ..
+            }) if target_page_id == NESTED_PAGE
+        ));
+        let LibraryReadValue::PageOwnershipPath { value } = module
+            .read(
+                &root_context,
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::PageOwnershipPath {
+                        page_id: NESTED_PAGE.to_owned(),
+                    },
+                },
+            )
+            .expect("trusted root Page ownership path")
+            .value
+        else {
+            panic!("Page ownership path");
+        };
+        let Some(nodex_core_contracts::library::LibraryPageOwnershipPath::Available {
+            ancestors,
+            ..
+        }) = value.as_deref()
+        else {
+            panic!("available Page ownership path");
+        };
+        assert_eq!(ancestors.len(), 1);
+        assert_eq!(ancestors[0].page_id, ROOT_PAGE);
         let project_two_context = BoundModuleContext {
             project_id: Some(ProjectId("project-2".to_owned())),
             connection_id: "connection:reference-project".to_owned(),

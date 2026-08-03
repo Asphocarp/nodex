@@ -2507,8 +2507,31 @@ describe("Electron native data authority", () => {
         },
         document: { readiness: "ready" },
       });
+      await expect(library.resolvePageTarget({
+        accessContext: { kind: "library" },
+        targetPageId: "page:electron-library-adapter",
+      })).resolves.toMatchObject({
+        status: "available",
+        targetPageId: "page:electron-library-adapter",
+        page: {
+          pageId: "page:electron-library-adapter",
+          title: "Electron Library Adapter",
+        },
+        document: { readiness: "ready" },
+      });
       await expect(library.resolvePageOwnershipPath({
         accessContext: { kind: "project", projectId },
+        targetPageId: "page:electron-library-adapter",
+      })).resolves.toMatchObject({
+        libraryId: runtime.rootClient.handshake.library_id,
+        storeEpoch: runtime.rootClient.handshake.store_epoch,
+        changeLogSeq: expect.any(Number),
+        status: "available",
+        targetPageId: "page:electron-library-adapter",
+        ancestors: [],
+      });
+      await expect(library.resolvePageOwnershipPath({
+        accessContext: { kind: "library" },
         targetPageId: "page:electron-library-adapter",
       })).resolves.toMatchObject({
         libraryId: runtime.rootClient.handshake.library_id,

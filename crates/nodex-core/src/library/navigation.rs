@@ -240,12 +240,24 @@ pub(super) fn read(
             limit,
         ),
         LibraryRead::PageTarget { page_id } => Ok(LibraryReadValue::PageTarget {
-            value: page_target(connection, library_id, requesting_project_id, &page_id)?
-                .map(Box::new),
+            value: page_target(
+                connection,
+                library_id,
+                requesting_project_id,
+                requesting_adapter,
+                &page_id,
+            )?
+            .map(Box::new),
         }),
         LibraryRead::PageOwnershipPath { page_id } => Ok(LibraryReadValue::PageOwnershipPath {
-            value: page_ownership_path(connection, library_id, requesting_project_id, &page_id)?
-                .map(Box::new),
+            value: page_ownership_path(
+                connection,
+                library_id,
+                requesting_project_id,
+                requesting_adapter,
+                &page_id,
+            )?
+            .map(Box::new),
         }),
         LibraryRead::PageLocation { page_id } => {
             if requesting_project_id.is_some() || !trusted_root_adapter(requesting_adapter) {
@@ -551,15 +563,22 @@ fn page_target(
     connection: &Connection,
     library_id: &str,
     requesting_project_id: Option<&str>,
+    requesting_adapter: &AdapterKind,
     page_id: &str,
 ) -> Result<Option<LibraryPageTarget>, StoreError> {
     validate_identity(page_id, "Page target")?;
-    let project_id = requesting_project_id
-        .ok_or_else(|| unauthorized("Page target resolution requires a bound Project"))?;
-    if !project_scope_exists(connection, library_id, project_id)? {
+    let Some(authority) = page_projection_authority(
+        connection,
+        library_id,
+        requesting_project_id,
+        requesting_adapter,
+    )?
+    else {
         return Ok(None);
-    }
-    if let Err(error) = super::require_page_read_access(connection, library_id, project_id, page_id)
+    };
+    if let PageProjectionAuthority::Project(project_id) = authority
+        && let Err(error) =
+            super::require_page_read_access(connection, library_id, project_id, page_id)
     {
         if error.code == StoreErrorCode::NotFound {
             return Ok(Some(LibraryPageTarget::Missing {
@@ -655,27 +674,43 @@ fn page_ownership_path(
     connection: &Connection,
     library_id: &str,
     requesting_project_id: Option<&str>,
+    requesting_adapter: &AdapterKind,
     page_id: &str,
 ) -> Result<Option<LibraryPageOwnershipPath>, StoreError> {
     validate_identity(page_id, "Page ownership path")?;
-    let project_id = requesting_project_id
-        .ok_or_else(|| unauthorized("Page ownership path requires a bound Project"))?;
-    if !project_scope_exists(connection, library_id, project_id)? {
+    let Some(authority) = page_projection_authority(
+        connection,
+        library_id,
+        requesting_project_id,
+        requesting_adapter,
+    )?
+    else {
         return Ok(None);
-    }
+    };
     let Some(hierarchy) = page_hierarchy(connection, library_id, page_id)? else {
         return Ok(Some(LibraryPageOwnershipPath::Missing {
             target_page_id: page_id.to_owned(),
         }));
     };
-    let mut visible = Vec::new();
-    for page in hierarchy {
-        match super::require_page_read_access(connection, library_id, project_id, &page.page_id) {
-            Ok(()) => visible.push(page),
-            Err(error) if error.code == StoreErrorCode::NotFound => break,
-            Err(error) => return Err(error),
+    let visible = match authority {
+        PageProjectionAuthority::TrustedLibrary => hierarchy,
+        PageProjectionAuthority::Project(project_id) => {
+            let mut visible = Vec::new();
+            for page in hierarchy {
+                match super::require_page_read_access(
+                    connection,
+                    library_id,
+                    project_id,
+                    &page.page_id,
+                ) {
+                    Ok(()) => visible.push(page),
+                    Err(error) if error.code == StoreErrorCode::NotFound => break,
+                    Err(error) => return Err(error),
+                }
+            }
+            visible
         }
-    }
+    };
     if visible.first().is_none_or(|page| page.page_id != page_id) {
         return Ok(Some(LibraryPageOwnershipPath::Missing {
             target_page_id: page_id.to_owned(),
@@ -695,6 +730,30 @@ fn page_ownership_path(
         target_page_id: page_id.to_owned(),
         ancestors,
     }))
+}
+
+#[derive(Clone, Copy)]
+enum PageProjectionAuthority<'a> {
+    TrustedLibrary,
+    Project(&'a str),
+}
+
+fn page_projection_authority<'a>(
+    connection: &Connection,
+    library_id: &str,
+    requesting_project_id: Option<&'a str>,
+    requesting_adapter: &AdapterKind,
+) -> Result<Option<PageProjectionAuthority<'a>>, StoreError> {
+    if let Some(project_id) = requesting_project_id {
+        return Ok(project_scope_exists(connection, library_id, project_id)?
+            .then_some(PageProjectionAuthority::Project(project_id)));
+    }
+    if trusted_root_adapter(requesting_adapter) {
+        return Ok(Some(PageProjectionAuthority::TrustedLibrary));
+    }
+    Err(unauthorized(
+        "Page projections require a trusted root or bound Project Adapter",
+    ))
 }
 
 struct PageHierarchyEntry {
