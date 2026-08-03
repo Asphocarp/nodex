@@ -11,7 +11,6 @@ import {
   materializeInitialWorkbenchSessionView,
 } from "../workbench-session-view";
 import {
-  makeWorkbenchSceneKey,
   materializeInitialWorkbenchScene,
 } from "../workbench-scene";
 import {
@@ -365,7 +364,7 @@ describe("WorkbenchLayoutSnapshotV6Schema", () => {
       kind: "project",
       projectId: "alpha",
     });
-    if (currentScene.primary.kind !== "db_view") {
+    if (currentScene.primary?.kind !== "db_view") {
       throw new Error("Expected a Project Database primary");
     }
     const legacyScene = {
@@ -393,7 +392,7 @@ describe("WorkbenchLayoutSnapshotV6Schema", () => {
     });
 
     expect(migrated).toMatchObject({
-      version: 6,
+      version: 7,
       location: { kind: "project", projectId: "alpha" },
       databaseSearchByProject: { alpha: "owner:me" },
     });
@@ -406,19 +405,78 @@ describe("WorkbenchLayoutSnapshotV6Schema", () => {
     });
   });
 
-  test("round trips a standalone Resource Scene", () => {
-    const owner = {
-      kind: "resource" as const,
-      root: {
-        kind: "database" as const,
-        databaseId: parseDatabaseId("database:alpha"),
+  test("migrates the active standalone Resource Scene into Pages", () => {
+    const root = {
+      kind: "database" as const,
+      databaseId: parseDatabaseId("database:alpha"),
+    };
+    const seed = materializeInitialWorkbenchScene({
+      kind: "project",
+      projectId: "legacy",
+    });
+    if (!seed.primary) throw new Error("Expected seed primary");
+    const primary = {
+      ...seed.primary,
+      kind: "db_view" as const,
+      titleSnapshot: "Library Database",
+      config: {
+        accessContext: { kind: "library" as const },
+        target: { kind: "database-default" as const, databaseId: root.databaseId },
+        view: "kanban" as const,
       },
     };
-    const scene = materializeInitialWorkbenchScene(owner);
+    const rightRoot = seed.panels.right.layout.root;
+    if (rightRoot.type !== "leaf") throw new Error("Expected one right leaf");
+    const scene = {
+      ...seed,
+      version: 4 as const,
+      owner: { kind: "resource" as const, root },
+      primary,
+      panelSurfacesById: {
+        "legacy-project-page": {
+          id: "legacy-project-page",
+          kind: "page_stage" as const,
+          titleSnapshot: "Project Page",
+          config: {
+            accessContext: { kind: "project" as const, projectId: "legacy" },
+            pageId: "page:project",
+          },
+          stateKey: 0,
+          state: null,
+        },
+        "legacy-browser": {
+          id: "legacy-browser",
+          kind: "browser" as const,
+          titleSnapshot: "Browser",
+          config: {
+            browserTabId: "browser:legacy",
+            browserStorageId: "browser-storage:legacy",
+          },
+          stateKey: 0,
+          state: null,
+        },
+      },
+      panels: {
+        ...seed.panels,
+        right: {
+          ...seed.panels.right,
+          layout: {
+            ...seed.panels.right.layout,
+            root: {
+              ...rightRoot,
+              tabIds: [primary.id, "legacy-project-page", "legacy-browser"],
+              activeTabId: "legacy-project-page",
+            },
+          },
+        },
+      },
+      composerOverlay: { visible: false },
+      agentDock: null,
+    };
     const input = {
       ...createDefaultWorkbenchLayoutSnapshotV6(),
-      location: { kind: "resource" as const, root: owner.root },
-      scenesByOwnerKey: { [makeWorkbenchSceneKey(owner)]: scene },
+      location: { kind: "resource" as const, root },
+      scenesByOwnerKey: { "resource:database:database:alpha": scene },
     };
 
     const first = WorkbenchLayoutSnapshotSchema.parse(input);
@@ -427,8 +485,12 @@ describe("WorkbenchLayoutSnapshotV6Schema", () => {
     );
 
     expect(second).toEqual(first);
-    expect(second.location).toEqual(input.location);
-    expect(scene.primary).toMatchObject({
+    expect(second.location).toEqual({ kind: "pages" });
+    expect(second.scenesByOwnerKey.pages?.primary).toBeNull();
+    expect(Object.keys(second.scenesByOwnerKey.pages!.panelSurfacesById))
+      .toEqual([primary.id]);
+    expect(Object.values(second.scenesByOwnerKey.pages!.panelSurfacesById)[0])
+      .toMatchObject({
       kind: "db_view",
       config: {
         accessContext: { kind: "library" },
@@ -436,6 +498,53 @@ describe("WorkbenchLayoutSnapshotV6Schema", () => {
           kind: "database-default",
           databaseId: "database:alpha",
         },
+      },
+      });
+
+    expect(() => WorkbenchLayoutSnapshotSchema.parse({
+      ...input,
+      scenesByOwnerKey: {
+        "resource:database:database:alpha": {
+          ...scene,
+          primary: {
+            ...scene.primary,
+            config: {
+              ...scene.primary.config,
+              target: {
+                kind: "database-default" as const,
+                databaseId: parseDatabaseId("database:other"),
+              },
+            },
+          },
+        },
+      },
+    })).toThrow();
+  });
+
+  test("deterministically materializes a missing long-id Resource Scene", () => {
+    const root = {
+      kind: "page" as const,
+      pageId: `page:${"x".repeat(500)}`,
+    };
+    const input = {
+      ...createDefaultWorkbenchLayoutSnapshotV6(),
+      location: { kind: "resource" as const, root },
+      scenesByOwnerKey: {},
+    };
+
+    const first = WorkbenchLayoutSnapshotSchema.parse(input);
+    const second = WorkbenchLayoutSnapshotSchema.parse(input);
+    const surface = Object.values(
+      first.scenesByOwnerKey.pages?.panelSurfacesById ?? {},
+    )[0];
+
+    expect(second).toEqual(first);
+    expect(surface?.id.length).toBeLessThanOrEqual(160);
+    expect(surface).toMatchObject({
+      kind: "page_stage",
+      config: {
+        accessContext: { kind: "library" },
+        pageId: root.pageId,
       },
     });
   });

@@ -43,7 +43,7 @@ import {
   type WorkbenchPanelSplitSide,
 } from "./workbench-panel-layout";
 
-export const WORKBENCH_SCENE_VERSION = 4 as const;
+export const WORKBENCH_SCENE_VERSION = 5 as const;
 export const WORKBENCH_SCENE_MAX_PANEL_SURFACES = 2_048;
 
 export type WorkbenchSceneOwner =
@@ -55,6 +55,12 @@ export type WorkbenchSceneOwner =
       readonly kind: "session";
       readonly sessionId: string;
     }
+  | {
+      readonly kind: "pages";
+    };
+
+export type WorkbenchSceneOwnerV4 =
+  | Exclude<WorkbenchSceneOwner, { readonly kind: "pages" }>
   | {
       readonly kind: "resource";
       readonly root: LibraryResourceTarget;
@@ -80,11 +86,7 @@ export function makeWorkbenchSceneKey(
 ): WorkbenchSceneKey {
   if (owner.kind === "project") return `project:${owner.projectId}`;
   if (owner.kind === "session") return `session:${owner.sessionId}`;
-  if (owner.root.kind === "page") return `resource:page:${owner.root.pageId}`;
-  if (owner.root.kind === "database") {
-    return `resource:database:${owner.root.databaseId}`;
-  }
-  return `resource:canvas:${owner.root.canvasId}`;
+  return "pages";
 }
 
 export type WorkbenchSurfaceKind =
@@ -203,6 +205,20 @@ export type WorkbenchSurfaceDescriptor = {
 export interface WorkbenchSceneSnapshot {
   readonly version: typeof WORKBENCH_SCENE_VERSION;
   readonly owner: WorkbenchSceneOwner;
+  readonly primary: WorkbenchSurfaceDescriptor | null;
+  readonly panelSurfacesById: Readonly<
+    Record<string, WorkbenchSurfaceDescriptor>
+  >;
+  readonly panels: Readonly<Record<WorkbenchPanelId, WorkbenchPanelState>>;
+  readonly lastFocusedPanelId: WorkbenchPanelId | null;
+  readonly composerOverlay: WorkbenchComposerOverlayState;
+  readonly agentDock: WorkbenchAgentDockState | null;
+  readonly touchedAt: string;
+}
+
+export interface WorkbenchSceneSnapshotV4 {
+  readonly version: 4;
+  readonly owner: WorkbenchSceneOwnerV4;
   readonly primary: WorkbenchSurfaceDescriptor;
   readonly panelSurfacesById: Readonly<
     Record<string, WorkbenchSurfaceDescriptor>
@@ -258,7 +274,7 @@ export type WorkbenchSurfaceDescriptorV3 =
 
 export interface WorkbenchSceneSnapshotV3 {
   readonly version: 3;
-  readonly owner: Exclude<WorkbenchSceneOwner, { readonly kind: "resource" }>;
+  readonly owner: Exclude<WorkbenchSceneOwner, { readonly kind: "pages" }>;
   readonly primary: WorkbenchSurfaceDescriptorV3;
   readonly panelSurfacesById: Readonly<
     Record<string, WorkbenchSurfaceDescriptorV3>
@@ -377,7 +393,7 @@ function isSurfacePlaced(
 function toLegacyPanelView(
   scene: WorkbenchSceneSnapshot,
 ): WorkbenchSessionViewSnapshot {
-  const tabsById = isSurfacePlaced(scene, scene.primary.id)
+  const tabsById = scene.primary && isSurfacePlaced(scene, scene.primary.id)
     ? {
         ...scene.panelSurfacesById,
         [scene.primary.id]: scene.primary,
@@ -399,6 +415,7 @@ function toLegacyPanelView(
 function enforceProjectSceneInvariants(
   scene: WorkbenchSceneSnapshot,
 ): WorkbenchSceneSnapshot {
+  if (!scene.primary) return scene;
   const panelSurfacesById = Object.fromEntries(
     Object.entries(scene.panelSurfacesById).filter(([, surface]) =>
       surface.kind !== "conversation"
@@ -437,12 +454,13 @@ function enforceProjectSceneInvariants(
     rootLeaf = findWorkbenchPanelLeafForTab(rightLayout, scene.primary.id);
   }
   if (rootLeaf) {
+    const primaryId = scene.primary.id;
     rightLayout = reorderWorkbenchPanelLeafTabs(
       rightLayout,
       rootLeaf.id,
       [
-        scene.primary.id,
-        ...rootLeaf.tabIds.filter((surfaceId) => surfaceId !== scene.primary.id),
+        primaryId,
+        ...rootLeaf.tabIds.filter((surfaceId) => surfaceId !== primaryId),
       ],
     );
   }
@@ -479,6 +497,7 @@ function enforceProjectSceneInvariants(
 function enforceSessionSceneInvariants(
   scene: WorkbenchSceneSnapshot,
 ): WorkbenchSceneSnapshot {
+  if (!scene.primary) return scene;
   const panels = { ...scene.panels };
   for (const panelId of PANEL_IDS) {
     panels[panelId] = {
@@ -496,25 +515,50 @@ function enforceSessionSceneInvariants(
   };
 }
 
-function enforceResourceSceneInvariants(
+export function isPagesSceneSurfaceAllowed(
+  surface: WorkbenchSurfaceDescriptor,
+): boolean {
+  if (surface.kind === "page_stage" || surface.kind === "canvas_stage") {
+    return surface.config.accessContext.kind === "library";
+  }
+  return surface.kind === "db_view"
+    && surface.config.accessContext.kind === "library"
+    && surface.config.target.kind !== "project-default";
+}
+
+function enforcePagesSceneInvariants(
   scene: WorkbenchSceneSnapshot,
 ): WorkbenchSceneSnapshot {
-  const allowedKinds = new Set<WorkbenchSurfaceKind>([
-    "db_view",
-    "page_stage",
-    "canvas_stage",
-    "browser",
-  ]);
-  const rooted = enforceProjectSceneInvariants({
-    ...scene,
-    panelSurfacesById: Object.fromEntries(
-      Object.entries(scene.panelSurfacesById).filter(([, surface]) =>
-        allowedKinds.has(surface.kind)
-      ),
+  const panelSurfacesById = Object.fromEntries(
+    Object.entries(scene.panelSurfacesById).filter(([, surface]) =>
+      isPagesSceneSurfaceAllowed(surface)
     ),
-  });
+  );
+  const knownIds = new Set(Object.keys(panelSurfacesById));
+  const panels = { ...scene.panels };
+  for (const panelId of PANEL_IDS) {
+    let layout = panels[panelId].layout;
+    for (const surfaceId of flattenWorkbenchPanelTabIds(layout)) {
+      if (knownIds.has(surfaceId)) continue;
+      layout = removeWorkbenchPanelTab(layout, surfaceId);
+    }
+    panels[panelId] = { ...panels[panelId], layout };
+  }
   return {
-    ...rooted,
+    ...scene,
+    primary: null,
+    panelSurfacesById,
+    panels: {
+      ...panels,
+      right: {
+        ...panels.right,
+        collapsed: false,
+        size: {
+          ...panels.right.size,
+          fullWidth: true,
+        },
+      },
+    },
     composerOverlay: { visible: false },
     agentDock: null,
   };
@@ -526,8 +570,8 @@ function enforceWorkbenchSceneInvariants(
   if (scene.owner.kind === "project") {
     return enforceProjectSceneInvariants(scene);
   }
-  if (scene.owner.kind === "resource") {
-    return enforceResourceSceneInvariants(scene);
+  if (scene.owner.kind === "pages") {
+    return enforcePagesSceneInvariants(scene);
   }
   return enforceSessionSceneInvariants(scene);
 }
@@ -536,14 +580,14 @@ function fromLegacyPanelView(
   scene: WorkbenchSceneSnapshot,
   view: WorkbenchSessionViewSnapshot,
 ): WorkbenchSceneSnapshot {
-  const primary = view.tabsById[scene.primary.id]
+  const primary = scene.primary && view.tabsById[scene.primary.id]
     ? view.tabsById[scene.primary.id] as WorkbenchSurfaceDescriptor
     : scene.primary;
   const panelSurfacesById = { ...view.tabsById } as Record<
     string,
     WorkbenchSurfaceDescriptor
   >;
-  delete panelSurfacesById[primary.id];
+  if (primary) delete panelSurfacesById[primary.id];
   return enforceWorkbenchSceneInvariants({
     ...scene,
     primary,
@@ -558,7 +602,7 @@ export function resolveWorkbenchSceneSurface(
   scene: WorkbenchSceneSnapshot,
   surfaceId: string,
 ): WorkbenchSurfaceDescriptor | undefined {
-  return surfaceId === scene.primary.id
+  return surfaceId === scene.primary?.id
     ? scene.primary
     : scene.panelSurfacesById[surfaceId];
 }
@@ -661,7 +705,7 @@ export function applyLegacySessionViewToWorkbenchScene(
 function ownerRootPrimary(
   owner: WorkbenchSceneOwner,
   identityFactory: WorkbenchSceneIdentityFactory,
-): WorkbenchSurfaceDescriptor {
+): WorkbenchSurfaceDescriptor | null {
   if (owner.kind === "project") {
     return {
       id: identityFactory.createId("surface"),
@@ -686,46 +730,7 @@ function ownerRootPrimary(
     state: null,
   };
 
-  const common = {
-    id: identityFactory.createId("surface"),
-    stateKey: 0,
-    state: null,
-  } as const;
-  if (owner.root.kind === "page") {
-    return {
-      ...common,
-      kind: "page_stage",
-      titleSnapshot: "Page",
-      config: {
-        accessContext: { kind: "library" },
-        pageId: owner.root.pageId,
-      },
-    };
-  }
-  if (owner.root.kind === "database") {
-    return {
-      ...common,
-      kind: "db_view",
-      titleSnapshot: "Database",
-      config: {
-        accessContext: { kind: "library" },
-        target: {
-          kind: "database-default",
-          databaseId: owner.root.databaseId,
-        },
-        view: "kanban",
-      },
-    };
-  }
-  return {
-    ...common,
-    kind: "canvas_stage",
-    titleSnapshot: "Canvas",
-    config: {
-      accessContext: { kind: "library" },
-      canvasBlockId: owner.root.canvasId,
-    },
-  };
+  return null;
 }
 
 export function createEmptyWorkbenchScene(
@@ -747,7 +752,7 @@ export function createEmptyWorkbenchScene(
     panelSurfacesById: {},
     panels: view.panels,
     lastFocusedPanelId: null,
-    composerOverlay: { visible: owner.kind !== "resource" },
+    composerOverlay: { visible: owner.kind !== "pages" },
     agentDock: owner.kind === "project"
       ? {
           binding: { kind: "new" },
@@ -846,8 +851,8 @@ function migrateLegacySceneBase(input: {
   readonly legacy: Omit<WorkbenchSceneSnapshotV3, "version" | "composerOverlay" | "agentDock">;
   readonly composerOverlay: WorkbenchComposerOverlayState;
   readonly agentDock: WorkbenchAgentDockState | null;
-}): WorkbenchSceneSnapshot {
-  return normalizeWorkbenchScene({
+}): WorkbenchSceneSnapshotV4 {
+  const current = normalizeWorkbenchScene({
     ...input.legacy,
     version: WORKBENCH_SCENE_VERSION,
     primary: migrateWorkbenchSurfaceV3ToV4(input.legacy.primary),
@@ -862,11 +867,20 @@ function migrateLegacySceneBase(input: {
     composerOverlay: input.composerOverlay,
     agentDock: input.agentDock,
   });
+  if (!current.primary) {
+    throw new Error("Legacy Project and Session Scenes require a primary");
+  }
+  return {
+    ...current,
+    version: 4,
+    owner: input.legacy.owner,
+    primary: current.primary,
+  };
 }
 
 export function migrateWorkbenchSceneV3ToV4(
   legacy: WorkbenchSceneSnapshotV3,
-): WorkbenchSceneSnapshot {
+): WorkbenchSceneSnapshotV4 {
   const { composerOverlay, agentDock, ...scene } = legacy;
   return migrateLegacySceneBase({
     legacy: scene,
@@ -877,7 +891,7 @@ export function migrateWorkbenchSceneV3ToV4(
 
 export function migrateWorkbenchSceneV2ToV4(
   legacy: WorkbenchSceneSnapshotV2,
-): WorkbenchSceneSnapshot {
+): WorkbenchSceneSnapshotV4 {
   const { agentDock: legacyAgentDock, ...scene } = legacy;
   return migrateLegacySceneBase({
     legacy: scene,
@@ -901,7 +915,7 @@ export function migrateWorkbenchSceneV2ToV4(
  */
 export function migrateWorkbenchSceneV1ToV4(
   legacy: WorkbenchSceneSnapshotV1,
-): WorkbenchSceneSnapshot {
+): WorkbenchSceneSnapshotV4 {
   if (legacy.owner.kind === "session") {
     return migrateLegacySceneBase({
       legacy,
@@ -930,6 +944,7 @@ export function migrateWorkbenchSceneV1ToV4(
   });
 
   if (!rightWasCollapsed && !boundSessionId) return migrated;
+  if (!migrated.primary) return migrated;
   const rootLeaf = findWorkbenchPanelLeafForTab(
     migrated.panels.right.layout,
     migrated.primary.id,
@@ -952,12 +967,40 @@ export function migrateWorkbenchSceneV1ToV4(
   };
 }
 
+/** Migrates the former per-resource Scene model into the shared Pages Scene. */
+export function migrateWorkbenchSceneV4ToV5(
+  legacy: WorkbenchSceneSnapshotV4,
+): WorkbenchSceneSnapshot {
+  if (legacy.owner.kind !== "resource") {
+    return normalizeWorkbenchScene({
+      ...legacy,
+      version: WORKBENCH_SCENE_VERSION,
+      owner: legacy.owner,
+    });
+  }
+  const retainedSiblings = Object.entries(legacy.panelSurfacesById)
+    .filter(([, surface]) => isPagesSceneSurfaceAllowed(surface))
+    .slice(0, WORKBENCH_SCENE_MAX_PANEL_SURFACES - 1);
+  return normalizeWorkbenchScene({
+    ...legacy,
+    version: WORKBENCH_SCENE_VERSION,
+    owner: { kind: "pages" },
+    primary: null,
+    panelSurfacesById: {
+      [legacy.primary.id]: legacy.primary,
+      ...Object.fromEntries(retainedSiblings),
+    },
+    composerOverlay: { visible: false },
+    agentDock: null,
+  });
+}
+
 export function createWorkbenchSceneSurface(
   scene: WorkbenchSceneSnapshot,
   input: WorkbenchSceneSurfaceCreateInput,
 ): WorkbenchSceneSnapshot {
   if (
-    input.surface.id === scene.primary.id
+    input.surface.id === scene.primary?.id
     || scene.panelSurfacesById[input.surface.id]
   ) {
     return scene;
@@ -976,7 +1019,7 @@ export function updateWorkbenchSceneSurface(
   surfaceId: string,
   patch: Partial<Omit<WorkbenchSurfaceDescriptor, "id" | "kind">>,
 ): WorkbenchSceneSnapshot {
-  if (surfaceId === scene.primary.id) {
+  if (surfaceId === scene.primary?.id && scene.primary) {
     return {
       ...scene,
       primary: {
@@ -1001,7 +1044,7 @@ export function removeWorkbenchSceneSurface(
   surfaceId: string,
   options: WorkbenchSceneSurfaceRemoveOptions = {},
 ): WorkbenchSceneSnapshot {
-  if (surfaceId === scene.primary.id) return scene;
+  if (surfaceId === scene.primary?.id) return scene;
   const view = removeWorkbenchSessionViewTab(toLegacyPanelView(scene), surfaceId, {
     preserveEmptyLeafIds: options.preserveEmptyLeafIds,
     preferredActiveLeafId: options.preferredActiveLeafId,
@@ -1031,7 +1074,7 @@ export function splitWorkbenchSceneLeaf(
   scene: WorkbenchSceneSnapshot,
   input: WorkbenchSceneLeafSplitInput,
 ): WorkbenchSceneSnapshot {
-  if (input.surfaceId === scene.primary.id) return scene;
+  if (input.surfaceId === scene.primary?.id) return scene;
   const identityFactory = input.identityFactory ?? defaultIdentityFactory();
   return fromLegacyPanelView(
     scene,
@@ -1073,7 +1116,7 @@ export function mergeWorkbenchSceneLeaf(
     scene.panels[input.panelId].layout,
     input.leafId,
   );
-  if (leaf?.tabIds.includes(scene.primary.id)) return scene;
+  if (scene.primary && leaf?.tabIds.includes(scene.primary.id)) return scene;
   return fromLegacyPanelView(
     scene,
     mergeWorkbenchSessionViewLeaf(toLegacyPanelView(scene), input),
@@ -1084,7 +1127,7 @@ export function moveWorkbenchSceneSurface(
   scene: WorkbenchSceneSnapshot,
   input: WorkbenchSceneSurfaceMoveInput,
 ): WorkbenchSceneSnapshot {
-  if (input.surfaceId === scene.primary.id) return scene;
+  if (input.surfaceId === scene.primary?.id) return scene;
   const identityFactory = input.identityFactory ?? defaultIdentityFactory();
   return fromLegacyPanelView(
     scene,
@@ -1112,11 +1155,12 @@ export function reorderWorkbenchSceneSurfaces(
     scene.panels[input.panelId].layout,
     input.leafId,
   );
-  const orderedSurfaceIds = leaf?.tabIds.includes(scene.primary.id)
+  const primaryId = scene.primary?.id ?? null;
+  const orderedSurfaceIds = primaryId && leaf?.tabIds.includes(primaryId)
     ? [
-        scene.primary.id,
+        primaryId,
         ...input.orderedSurfaceIds.filter((surfaceId) =>
-          surfaceId !== scene.primary.id
+          surfaceId !== primaryId
         ),
       ]
     : input.orderedSurfaceIds;
@@ -1227,8 +1271,10 @@ function cloneWorkbenchScene(
   return fromLegacyPanelView(
     {
       ...scene,
-      primary: clonedPlacedPrimary
-        ?? clonePrimarySurface(scene.primary, identityFactory),
+      primary: scene.primary
+        ? clonedPlacedPrimary
+          ?? clonePrimarySurface(scene.primary, identityFactory)
+        : null,
       agentDock: scene.agentDock
         ? {
             ...scene.agentDock,

@@ -61,6 +61,7 @@ export function WorkbenchPanelNewTabButton({
   onOpenDestination,
 }: WorkbenchPanelNewTabButtonProps) {
   const [open, setOpen] = useState(false);
+  if (actions.length === 0) return null;
   const title = panelId === "right"
     ? "Open side panel tab"
     : "Open bottom panel tab";

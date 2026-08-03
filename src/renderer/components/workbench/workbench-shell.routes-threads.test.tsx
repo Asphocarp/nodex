@@ -26,15 +26,21 @@ const standaloneTasksDatabase: LibraryDatabaseNavigationNode = {
   updatedAt: "2026-08-03T00:00:00.000Z",
 };
 
+const standaloneNotesDatabase: LibraryDatabaseNavigationNode = {
+  ...standaloneTasksDatabase,
+  databaseId: parseDatabaseId("database:test:notes"),
+  defaultViewId: parseDatabaseViewId("database-view:test:notes"),
+  title: "Notes",
+};
+
 const openStandaloneTasksDatabase = async (
   screen: ReturnType<typeof renderWorkbench>,
 ) => {
   await settleAsyncRender();
   await settleAsyncRender();
-  if (!screen.queryByText("Tasks")) {
-    throw new Error("Expected the standalone Tasks row");
-  }
-  const row = screen.getByText("Tasks").closest('[role="listitem"]');
+  const row = screen.getAllByText("Tasks")
+    .map((element) => element.closest('[role="listitem"]'))
+    .find((element): element is HTMLElement => element instanceof HTMLElement);
   if (!(row instanceof HTMLElement)) {
     throw new Error("Expected the standalone Tasks row");
   }
@@ -170,7 +176,7 @@ describe("workbench session shell / routes-threads", () => {
     expect(screen.getByTestId("workbench-database-view-surface") !== null).toBe(true);
   });
 
-  test("opens a standalone Database with Library authority in a Resource Scene", async () => {
+  test("opens a standalone Database with Library authority in the Pages Scene", async () => {
     const screen = renderWorkbench({ libraryRoots: [standaloneTasksDatabase] });
     await settleAsyncRender();
     await settleAsyncRender();
@@ -187,6 +193,34 @@ describe("workbench session shell / routes-threads", () => {
     });
     expect(screen.getByRole("tab", { name: "Tasks", selected: true }) !== null).toBe(true);
     expect(screen.queryByText("Library")).toBeNull();
+  });
+
+  test("shares one Pages tablist across standalone roots and reuses open tabs", async () => {
+    const screen = renderWorkbench({
+      libraryRoots: [standaloneTasksDatabase, standaloneNotesDatabase],
+    });
+    await openStandaloneTasksDatabase(screen);
+
+    const notesRow = screen.getByText("Notes").closest('[role="listitem"]');
+    if (!(notesRow instanceof HTMLElement)) throw new Error("Expected Notes row");
+    await act(async () => {
+      fireEvent.click(notesRow);
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(screen.getAllByRole("tab")).toHaveLength(2);
+
+    await openStandaloneTasksDatabase(screen);
+
+    expect(screen.getAllByRole("tab")).toHaveLength(2);
+    const props = (globalThis as {
+      __lastWorkbenchDatabaseViewSurfaceProps?: Record<string, unknown>;
+    }).__lastWorkbenchDatabaseViewSurfaceProps;
+    expect(props?.target).toEqual({
+      kind: "database-default",
+      databaseId: "database:test:standalone",
+    });
   });
 
   test("restores full-width right-panel geometry after returning from settings", async () => {

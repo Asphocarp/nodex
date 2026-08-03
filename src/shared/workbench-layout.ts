@@ -3,6 +3,7 @@ import type {
   WorkbenchSceneKey,
   WorkbenchSceneSnapshot,
   WorkbenchSceneSnapshotV3,
+  WorkbenchSceneSnapshotV4,
 } from "./workbench-scene";
 import type {
   LibraryResourceTarget,
@@ -185,7 +186,7 @@ export interface WorkbenchLayoutSnapshotV5 {
   >;
 }
 
-export type WorkbenchSceneLocation =
+export type WorkbenchSceneLocationV6 =
   | WorkbenchSceneLocationV5
   | {
       readonly kind: "resource";
@@ -193,6 +194,41 @@ export type WorkbenchSceneLocation =
     };
 
 export type WorkbenchLocationV6 =
+  | WorkbenchSceneLocationV6
+  | {
+      readonly kind: "settings";
+      readonly path: string;
+      readonly returnTo: WorkbenchSceneLocationV6;
+    }
+  | {
+      readonly kind: "automations";
+      readonly path: string;
+      readonly returnTo: WorkbenchSceneLocationV6;
+    }
+  | {
+      readonly kind: "pending-worktree";
+      readonly clientThreadId: string;
+      readonly returnTo: WorkbenchSceneLocationV6;
+    };
+
+export interface WorkbenchLayoutSnapshotV6 {
+  readonly version: 6;
+  readonly location: Exclude<
+    WorkbenchLocationV6,
+    { readonly kind: "pending-worktree" }
+  >;
+  readonly databaseSearchByProject: Record<string, string>;
+  readonly scenesByOwnerKey: Record<
+    WorkbenchSceneKey,
+    WorkbenchSceneSnapshotV4
+  >;
+}
+
+export type WorkbenchSceneLocation =
+  | WorkbenchSceneLocationV5
+  | { readonly kind: "pages" };
+
+export type WorkbenchLocationV7 =
   | WorkbenchSceneLocation
   | {
       readonly kind: "settings";
@@ -210,10 +246,10 @@ export type WorkbenchLocationV6 =
       readonly returnTo: WorkbenchSceneLocation;
     };
 
-export interface WorkbenchLayoutSnapshotV6 {
-  readonly version: 6;
+export interface WorkbenchLayoutSnapshotV7 {
+  readonly version: 7;
   readonly location: Exclude<
-    WorkbenchLocationV6,
+    WorkbenchLocationV7,
     { readonly kind: "pending-worktree" }
   >;
   readonly databaseSearchByProject: Record<string, string>;
@@ -223,8 +259,8 @@ export interface WorkbenchLayoutSnapshotV6 {
   >;
 }
 
-export type WorkbenchLocation = WorkbenchLocationV6;
-export type WorkbenchLayoutSnapshot = WorkbenchLayoutSnapshotV6;
+export type WorkbenchLocation = WorkbenchLocationV7;
+export type WorkbenchLayoutSnapshot = WorkbenchLayoutSnapshotV7;
 
 function createDefaultDockTree(): WorkbenchLayoutSnapshotV3["dock"]["tree"] {
   return {
@@ -310,8 +346,17 @@ export function createDefaultWorkbenchLayoutSnapshotV6(): WorkbenchLayoutSnapsho
   };
 }
 
+export function createDefaultWorkbenchLayoutSnapshotV7(): WorkbenchLayoutSnapshotV7 {
+  return {
+    version: 7,
+    location: { kind: "empty" },
+    databaseSearchByProject: {},
+    scenesByOwnerKey: {},
+  };
+}
+
 export function createDefaultWorkbenchLayoutSnapshot(): WorkbenchLayoutSnapshot {
-  return createDefaultWorkbenchLayoutSnapshotV6();
+  return createDefaultWorkbenchLayoutSnapshotV7();
 }
 
 export function getWorkbenchSessionReturnLocationV4(
@@ -324,12 +369,12 @@ export function getWorkbenchSessionReturnLocationV4(
 }
 
 export function getWorkbenchSceneReturnLocation(
-  location: WorkbenchLocationV6,
+  location: WorkbenchLocationV7,
 ): WorkbenchSceneLocation {
   if (
     location.kind === "project"
     || location.kind === "session"
-    || location.kind === "resource"
+    || location.kind === "pages"
     || location.kind === "empty"
   ) {
     return location;
@@ -358,5 +403,12 @@ export function getRestorableWorkbenchLocationV6(
   return location.returnTo;
 }
 
+export function getRestorableWorkbenchLocationV7(
+  location: WorkbenchLocationV7,
+): WorkbenchLayoutSnapshotV7["location"] {
+  if (location.kind !== "pending-worktree") return location;
+  return location.returnTo;
+}
+
 export const getRestorableWorkbenchLocation =
-  getRestorableWorkbenchLocationV6;
+  getRestorableWorkbenchLocationV7;

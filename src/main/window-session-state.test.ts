@@ -97,7 +97,7 @@ describe("WindowSessionState", () => {
 
       expect(session.lifecycle).toEqual({ state: "open" });
       expect(session.layoutRevision).toBe(0);
-      expect(session.layout.version).toBe(6);
+      expect(session.layout.version).toBe(7);
       expect(getActiveProjectId(session.layout)).toBeNull();
       expect(catalog?.version).toBe(3);
       expect(catalog?.sessions).toHaveLength(1);
@@ -131,7 +131,7 @@ describe("WindowSessionState", () => {
         kind: "project",
         projectId: presentation.projectId,
       });
-      expect(scene?.primary.kind).toBe("db_view");
+      expect(scene?.primary?.kind).toBe("db_view");
       expect(Object.values(scene?.panelSurfacesById ?? {}).map(
         (surface) => surface.kind,
       )).toEqual(["page_stage"]);
@@ -567,7 +567,7 @@ describe("WindowSessionState", () => {
         lifecycle: { state: "open" },
         layoutRevision: 7,
         layout: {
-          version: 6,
+          version: 7,
           location: {
             kind: "project",
             projectId: "legacy",
@@ -615,7 +615,7 @@ describe("WindowSessionState", () => {
         lifecycle: { state: "open" },
         layoutRevision: 0,
         layout: {
-          version: 6,
+          version: 7,
           location: {
             kind: "project",
             projectId: "legacy",

@@ -7,7 +7,7 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 ### Changed
-- Replaced the Library workspace and ownership tree with a compact Pages section for standalone top-level resources; Pages now open in their own restorable Workbench Scenes with shared Database, Page, and Canvas tabs, breadcrumbs, and app-wide Back/Forward navigation without switching Projects.
+- Replaced the Library workspace and ownership tree with a compact Pages section for standalone top-level resources; every Page, Database, and Canvas in a window now shares one restorable tablist with searchable open/new actions, breadcrumbs, and app-wide Back/Forward navigation without switching Projects.
 
 ### Fixed
 - Fixed parent-linked subagent tasks so they remain in parent-conversation activity without appearing as standalone Project or projectless sidebar chats; any leaked Session is retired when late parent metadata arrives.

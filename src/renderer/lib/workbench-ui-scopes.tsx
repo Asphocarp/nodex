@@ -36,7 +36,7 @@ export interface RouteScopeDescriptor {
     | "thread"
     | "automations"
     | "settings"
-    | "resource"
+    | "pages"
     | "pending-worktree";
 }
 

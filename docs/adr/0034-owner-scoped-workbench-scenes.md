@@ -10,6 +10,10 @@ authority, but a Project root now participates in the full-width surface stack
 and Project collaboration is presented through the Session-bound Agent Dock
 instead of a Project-owned Conversation surface.
 
+ADR 0038 further supersedes the universal-primary invariant: the window-local
+Pages Scene has no protected primary and owns only ordinary Library content
+surfaces. Project and Session primary rules remain unchanged.
+
 ## Context
 
 The Workbench currently treats one Project Session as both a conversation

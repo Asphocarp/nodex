@@ -125,7 +125,7 @@ function ensureBrowserStorageIdentities(
             sceneKey,
             {
               ...scene,
-              primary: ensureSurface(scene.primary),
+              primary: scene.primary ? ensureSurface(scene.primary) : null,
               panelSurfacesById: Object.fromEntries(
                 Object.entries(scene.panelSurfacesById).map(
                   ([surfaceId, surface]) => [

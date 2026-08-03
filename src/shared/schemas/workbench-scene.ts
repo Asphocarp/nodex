@@ -6,14 +6,18 @@ import {
 import {
   WORKBENCH_SCENE_MAX_PANEL_SURFACES,
   WORKBENCH_SCENE_VERSION,
+  isPagesSceneSurfaceAllowed,
   makeWorkbenchSceneKey,
   migrateWorkbenchSceneV1ToV4,
   migrateWorkbenchSceneV2ToV4,
   migrateWorkbenchSceneV3ToV4,
+  migrateWorkbenchSceneV4ToV5,
   type WorkbenchSceneOwner,
+  type WorkbenchSceneOwnerV4,
   type WorkbenchSceneSnapshot,
   type WorkbenchSceneSnapshotV2,
   type WorkbenchSceneSnapshotV3,
+  type WorkbenchSceneSnapshotV4,
   type WorkbenchSurfaceDescriptor,
   type WorkbenchSurfaceDescriptorV3,
 } from "../workbench-scene";
@@ -49,6 +53,20 @@ export const WorkbenchSceneOwnerSchema = z.discriminatedUnion("kind", [
     sessionId: idSchema,
   }).strict(),
   z.object({
+    kind: z.literal("pages"),
+  }).strict(),
+]) satisfies z.ZodType<WorkbenchSceneOwner>;
+
+const WorkbenchSceneOwnerV4Schema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("project"),
+    projectId: idSchema,
+  }).strict(),
+  z.object({
+    kind: z.literal("session"),
+    sessionId: idSchema,
+  }).strict(),
+  z.object({
     kind: z.literal("resource"),
     root: z.discriminatedUnion("kind", [
       z.object({
@@ -65,7 +83,7 @@ export const WorkbenchSceneOwnerSchema = z.discriminatedUnion("kind", [
       }).strict(),
     ]) satisfies z.ZodType<LibraryResourceTarget>,
   }).strict(),
-]) satisfies z.ZodType<WorkbenchSceneOwner>;
+]) satisfies z.ZodType<WorkbenchSceneOwnerV4>;
 
 const WorkbenchConversationSurfaceConfigSchema = z.object({
   sessionId: idSchema,
@@ -307,7 +325,7 @@ const WorkbenchAgentDockStateV2Schema = WorkbenchAgentDockStateSchema.extend({
 
 const workbenchSceneSnapshotFields = {
   owner: WorkbenchSceneOwnerSchema,
-  primary: WorkbenchSurfaceDescriptorSchema,
+  primary: WorkbenchSurfaceDescriptorSchema.nullable(),
   panelSurfacesById: z.record(
     surfaceIdSchema,
     WorkbenchSurfaceDescriptorSchema,
@@ -318,6 +336,12 @@ const workbenchSceneSnapshotFields = {
   }).strict(),
   lastFocusedPanelId: z.enum(["right", "bottom"]).nullable(),
   touchedAt: z.iso.datetime(),
+} as const;
+
+const workbenchSceneSnapshotFieldsV4 = {
+  ...workbenchSceneSnapshotFields,
+  owner: WorkbenchSceneOwnerV4Schema,
+  primary: WorkbenchSurfaceDescriptorSchema,
 } as const;
 
 const WorkbenchSceneOwnerV3Schema = z.discriminatedUnion("kind", [
@@ -364,16 +388,161 @@ export const WorkbenchSceneSnapshotV3InputSchema = z.object({
   agentDock: WorkbenchAgentDockStateSchema.nullable(),
 }).strict() satisfies z.ZodType<WorkbenchSceneSnapshotV3>;
 
+function validateWorkbenchSceneV4(
+  scene: WorkbenchSceneSnapshotV4,
+  context: z.RefinementCtx,
+) {
+  if (scene.owner.kind !== "resource") return;
+  const entries = Object.entries(scene.panelSurfacesById);
+  if (entries.length > WORKBENCH_SCENE_MAX_PANEL_SURFACES) {
+    context.addIssue({
+      code: "custom",
+      path: ["panelSurfacesById"],
+      message: `Scene contains more than ${WORKBENCH_SCENE_MAX_PANEL_SURFACES} panel surfaces`,
+    });
+  }
+  for (const [surfaceId, surface] of entries) {
+    if (surfaceId === surface.id) continue;
+    context.addIssue({
+      code: "custom",
+      path: ["panelSurfacesById", surfaceId, "id"],
+      message: "Surface map key must match surface.id",
+    });
+  }
+  if (scene.panelSurfacesById[scene.primary.id]) {
+    context.addIssue({
+      code: "custom",
+      path: ["primary", "id"],
+      message: "Primary surface cannot also be a regular panel surface",
+    });
+  }
+
+  const rightIds = flattenWorkbenchPanelTabIds(scene.panels.right.layout);
+  const bottomIds = flattenWorkbenchPanelTabIds(scene.panels.bottom.layout);
+  const placementCount = new Map<string, number>();
+  for (const surfaceId of [...rightIds, ...bottomIds]) {
+    placementCount.set(surfaceId, (placementCount.get(surfaceId) ?? 0) + 1);
+  }
+  for (const surfaceId of Object.keys(scene.panelSurfacesById)) {
+    if (placementCount.get(surfaceId) === 1) continue;
+    context.addIssue({
+      code: "custom",
+      path: ["panelSurfacesById", surfaceId],
+      message: "Every panel surface must be placed exactly once",
+    });
+  }
+  for (const surfaceId of placementCount.keys()) {
+    if (surfaceId === scene.primary.id || scene.panelSurfacesById[surfaceId]) {
+      continue;
+    }
+    context.addIssue({
+      code: "custom",
+      path: ["panels"],
+      message: `Panel placement references unknown surface ${surfaceId}`,
+    });
+  }
+
+  const root = scene.owner.root;
+  const primaryMatchesRoot = root.kind === "page"
+    ? scene.primary.kind === "page_stage"
+      && scene.primary.config.accessContext.kind === "library"
+      && scene.primary.config.pageId === root.pageId
+    : root.kind === "database"
+      ? scene.primary.kind === "db_view"
+        && scene.primary.config.accessContext.kind === "library"
+        && scene.primary.config.target.kind === "database-default"
+        && scene.primary.config.target.databaseId === root.databaseId
+      : scene.primary.kind === "canvas_stage"
+        && scene.primary.config.accessContext.kind === "library"
+        && scene.primary.config.canvasBlockId === root.canvasId;
+  if (!primaryMatchesRoot) {
+    context.addIssue({
+      code: "custom",
+      path: ["primary"],
+      message: "Resource Scene primary must target its owning Library root",
+    });
+  }
+  if (scene.agentDock !== null || scene.composerOverlay.visible) {
+    context.addIssue({
+      code: "custom",
+      path: ["agentDock"],
+      message: "Resource Scene cannot own execution composer state",
+    });
+  }
+  if (
+    placementCount.get(scene.primary.id) !== 1
+    || bottomIds.includes(scene.primary.id)
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["primary", "id"],
+      message: "Resource primary must be placed once in the right surface stack",
+    });
+  }
+  const primaryLeaf = findWorkbenchPanelLeafForTab(
+    scene.panels.right.layout,
+    scene.primary.id,
+  );
+  if (!primaryLeaf || primaryLeaf.tabIds[0] !== scene.primary.id) {
+    context.addIssue({
+      code: "custom",
+      path: ["panels", "right", "layout"],
+      message: "Resource primary must be the first tab in its leaf",
+    });
+  }
+  if (scene.panels.right.collapsed || scene.panels.right.size.fullWidth !== true) {
+    context.addIssue({
+      code: "custom",
+      path: ["panels", "right"],
+      message: "Resource right surface stack must remain open and full width",
+    });
+  }
+  const allowedKinds = new Set(["db_view", "page_stage", "canvas_stage", "browser"]);
+  if (entries.some(([, surface]) => !allowedKinds.has(surface.kind))) {
+    context.addIssue({
+      code: "custom",
+      path: ["panelSurfacesById"],
+      message: "Resource Scene contains an execution-only surface",
+    });
+  }
+  if (encodedJsonBytes(scene) > MAX_WORKBENCH_SESSION_VIEW_JSON_BYTES) {
+    context.addIssue({
+      code: "custom",
+      message: "Scene exceeds its encoded size bound",
+    });
+  }
+}
+
+export const WorkbenchSceneSnapshotV4InputSchema = z.object({
+  version: z.literal(4),
+  ...workbenchSceneSnapshotFieldsV4,
+  composerOverlay: WorkbenchComposerOverlayStateSchema,
+  agentDock: WorkbenchAgentDockStateSchema.nullable(),
+}).strict().superRefine(validateWorkbenchSceneV4) satisfies
+  z.ZodType<WorkbenchSceneSnapshotV4>;
+
 function migrateWorkbenchSceneSnapshot(value: unknown): unknown {
+  const previousCurrent = WorkbenchSceneSnapshotV4InputSchema.safeParse(value);
+  if (previousCurrent.success) {
+    return migrateWorkbenchSceneV4ToV5(previousCurrent.data);
+  }
   const currentLegacy = WorkbenchSceneSnapshotV3InputSchema.safeParse(value);
   if (currentLegacy.success) {
-    return migrateWorkbenchSceneV3ToV4(currentLegacy.data);
+    return migrateWorkbenchSceneV4ToV5(
+      migrateWorkbenchSceneV3ToV4(currentLegacy.data) as WorkbenchSceneSnapshotV4,
+    );
   }
   const previous = WorkbenchSceneSnapshotV2InputSchema.safeParse(value);
-  if (previous.success) return migrateWorkbenchSceneV2ToV4(previous.data);
+  if (previous.success) {
+    return migrateWorkbenchSceneV4ToV5(
+      migrateWorkbenchSceneV2ToV4(previous.data) as WorkbenchSceneSnapshotV4,
+    );
+  }
   const legacy = WorkbenchSceneSnapshotV1InputSchema.safeParse(value);
   if (!legacy.success) return value;
-  return migrateWorkbenchSceneV1ToV4(legacy.data);
+  return migrateWorkbenchSceneV4ToV5(
+    migrateWorkbenchSceneV1ToV4(legacy.data) as WorkbenchSceneSnapshotV4,
+  );
 }
 
 export const WorkbenchSceneSnapshotSchema = z.preprocess(
@@ -402,7 +571,7 @@ export const WorkbenchSceneSnapshotSchema = z.preprocess(
     });
   }
 
-  if (scene.panelSurfacesById[scene.primary.id]) {
+  if (scene.primary && scene.panelSurfacesById[scene.primary.id]) {
     context.addIssue({
       code: "custom",
       path: ["primary", "id"],
@@ -429,7 +598,7 @@ export const WorkbenchSceneSnapshotSchema = z.preprocess(
   for (const surfaceId of placementCount.keys()) {
     if (
       scene.panelSurfacesById[surfaceId]
-      || surfaceId === scene.primary.id
+      || surfaceId === scene.primary?.id
     ) continue;
     context.addIssue({
       code: "custom",
@@ -440,7 +609,8 @@ export const WorkbenchSceneSnapshotSchema = z.preprocess(
 
   if (scene.owner.kind === "project") {
     if (
-      scene.primary.kind !== "db_view"
+      !scene.primary
+      || scene.primary.kind !== "db_view"
       || scene.primary.config.accessContext.kind !== "project"
       || scene.primary.config.accessContext.projectId !== scene.owner.projectId
       || scene.primary.config.target.kind !== "project-default"
@@ -458,7 +628,7 @@ export const WorkbenchSceneSnapshotSchema = z.preprocess(
         message: "Project Scene must own Agent Dock view state",
       });
     }
-    if (placementCount.get(scene.primary.id) !== 1) {
+    if (placementCount.get(scene.primary?.id ?? "") !== 1) {
       context.addIssue({
         code: "custom",
         path: ["primary", "id"],
@@ -467,7 +637,7 @@ export const WorkbenchSceneSnapshotSchema = z.preprocess(
     }
     if (
       flattenWorkbenchPanelTabIds(scene.panels.bottom.layout).includes(
-        scene.primary.id,
+        scene.primary?.id ?? "",
       )
     ) {
       context.addIssue({
@@ -478,9 +648,9 @@ export const WorkbenchSceneSnapshotSchema = z.preprocess(
     }
     const primaryLeaf = findWorkbenchPanelLeafForTab(
       scene.panels.right.layout,
-      scene.primary.id,
+      scene.primary?.id ?? "",
     );
-    if (!primaryLeaf || primaryLeaf.tabIds[0] !== scene.primary.id) {
+    if (!primaryLeaf || primaryLeaf.tabIds[0] !== scene.primary?.id) {
       context.addIssue({
         code: "custom",
         path: ["panels", "right", "layout"],
@@ -504,55 +674,19 @@ export const WorkbenchSceneSnapshotSchema = z.preprocess(
         message: "Project conversations belong to Agent Dock, not panel surfaces",
       });
     }
-  } else if (scene.owner.kind === "resource") {
-    const root = scene.owner.root;
-    const primaryMatchesRoot = root.kind === "page"
-      ? scene.primary.kind === "page_stage"
-        && scene.primary.config.accessContext.kind === "library"
-        && scene.primary.config.pageId === root.pageId
-      : root.kind === "database"
-        ? scene.primary.kind === "db_view"
-          && scene.primary.config.accessContext.kind === "library"
-          && scene.primary.config.target.kind === "database-default"
-          && scene.primary.config.target.databaseId === root.databaseId
-        : scene.primary.kind === "canvas_stage"
-          && scene.primary.config.accessContext.kind === "library"
-          && scene.primary.config.canvasBlockId === root.canvasId;
-    if (!primaryMatchesRoot) {
+  } else if (scene.owner.kind === "pages") {
+    if (scene.primary !== null) {
       context.addIssue({
         code: "custom",
         path: ["primary"],
-        message: "Resource Scene primary must target its owning Library root",
+        message: "Pages Scene does not own a protected primary surface",
       });
     }
     if (scene.agentDock !== null || scene.composerOverlay.visible) {
       context.addIssue({
         code: "custom",
         path: ["agentDock"],
-        message: "Resource Scene cannot own execution composer state",
-      });
-    }
-    if (
-      placementCount.get(scene.primary.id) !== 1
-      || flattenWorkbenchPanelTabIds(scene.panels.bottom.layout).includes(
-        scene.primary.id,
-      )
-    ) {
-      context.addIssue({
-        code: "custom",
-        path: ["primary", "id"],
-        message: "Resource primary must be placed once in the right surface stack",
-      });
-    }
-    const primaryLeaf = findWorkbenchPanelLeafForTab(
-      scene.panels.right.layout,
-      scene.primary.id,
-    );
-    if (!primaryLeaf || primaryLeaf.tabIds[0] !== scene.primary.id) {
-      context.addIssue({
-        code: "custom",
-        path: ["panels", "right", "layout"],
-        message: "Resource primary must be the first tab in its leaf",
+        message: "Pages Scene cannot own execution composer state",
       });
     }
     if (
@@ -562,19 +696,19 @@ export const WorkbenchSceneSnapshotSchema = z.preprocess(
       context.addIssue({
         code: "custom",
         path: ["panels", "right"],
-        message: "Resource right surface stack must remain open and full width",
+        message: "Pages right surface stack must remain open and full width",
       });
     }
-    const allowedKinds = new Set(["db_view", "page_stage", "canvas_stage", "browser"]);
-    if (entries.some(([, surface]) => !allowedKinds.has(surface.kind))) {
+    if (entries.some(([, surface]) => !isPagesSceneSurfaceAllowed(surface))) {
       context.addIssue({
         code: "custom",
         path: ["panelSurfacesById"],
-        message: "Resource Scene contains an execution-only surface",
+        message: "Pages Scene contains a non-Library or execution-only surface",
       });
     }
   } else if (
-    scene.primary.kind !== "conversation"
+    !scene.primary
+    || scene.primary.kind !== "conversation"
     || scene.primary.config.sessionId !== scene.owner.sessionId
   ) {
     context.addIssue({

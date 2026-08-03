@@ -37,7 +37,7 @@ import type {
   ProjectUpdateInput,
   WindowSessionBootstrap,
 } from "@/lib/types";
-import { WorkbenchLayoutSnapshotV6Schema } from "../../../shared/schemas/workbench-layout";
+import { WorkbenchLayoutSnapshotSchema } from "../../../shared/schemas/workbench-layout";
 import { getWorkbenchSceneReturnLocation } from "../../../shared/workbench-layout";
 
 const WORKBENCH_V2_FLAG_KEY = "workbenchV2";
@@ -85,7 +85,7 @@ export function WorkbenchShell({
 }) {
   const workbenchV2Enabled = readWorkbenchV2Flag();
   const initialWindowLayoutSnapshot = useMemo(
-    () => WorkbenchLayoutSnapshotV6Schema.parse(
+    () => WorkbenchLayoutSnapshotSchema.parse(
       windowSessionBootstrap.session.layout,
     ),
     [windowSessionBootstrap.session.layout],

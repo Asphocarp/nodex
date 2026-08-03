@@ -42,7 +42,7 @@ describe("WindowSession schemas", () => {
     });
 
     expect(parsed.sessions[0]?.layoutRevision).toBe(3);
-    expect(parsed.sessions[0]?.layout.version).toBe(6);
+    expect(parsed.sessions[0]?.layout.version).toBe(7);
     expect(parsed.sessions[1]?.lifecycle).toEqual({
       state: "closed",
       closedAt: "2026-07-24T00:00:00.000Z",
@@ -116,7 +116,7 @@ describe("WindowSession schemas", () => {
     })).toThrow();
   });
 
-  test("decodes legacy catalog layouts into Workbench v6", () => {
+  test("decodes legacy catalog layouts into Workbench v7", () => {
     const legacyLayout: Record<string, unknown> = {
       ...createDefaultWorkbenchLayoutSnapshotV3(),
       version: 2,
@@ -135,7 +135,7 @@ describe("WindowSession schemas", () => {
       }],
     });
 
-    expect(parsed.sessions[0]?.layout.version).toBe(6);
+    expect(parsed.sessions[0]?.layout.version).toBe(7);
     expect(parsed.sessions[0]?.layout.scenesByOwnerKey).toEqual({});
   });
 });

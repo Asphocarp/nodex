@@ -79,7 +79,7 @@ export function WorkbenchRouteHost({
   if (
     location.kind === "project"
     || location.kind === "session"
-    || location.kind === "resource"
+    || location.kind === "pages"
     || location.kind === "empty"
   ) {
     return (

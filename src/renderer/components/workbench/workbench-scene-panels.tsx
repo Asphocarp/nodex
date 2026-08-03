@@ -36,6 +36,8 @@ export interface WorkbenchScenePanelsProps {
   readonly rightPanelHeaderStartInsetWidth: number;
   readonly bottomPanelGlobalHeaderInsetWidth: number;
   readonly panelTabScrollEndPaddingPx: number;
+  readonly renderNewTab?: (panelId: PanelId, leafId: string) => ReactNode;
+  readonly renderEmptyLeaf?: (panelId: PanelId, leafId: string) => ReactNode;
   readonly renderSurface: (
     surface: WorkbenchSurfaceDescriptor,
     context: { readonly active: boolean; readonly panelId: PanelId },
@@ -52,7 +54,8 @@ export interface WorkbenchScenePanelsProps {
   ) => Promise<void>;
   readonly onCloseSurface?: (
     surface: WorkbenchSurfaceDescriptor,
-  ) => Promise<boolean>;
+    removeDescriptor: () => void,
+  ) => Promise<void>;
 }
 
 function makePanelItems(
@@ -73,18 +76,16 @@ function makePanelItems(
     });
     itemsByLeafId[leaf.id] = surfaces.map((surface) => {
       const isProjectHomeRoot = scene.owner.kind === "project"
-        && surface.id === scene.primary.id
+        && surface.id === scene.primary?.id
         && surface.kind === "db_view";
       const presentation = resolveWorkbenchSceneTabPresentation(
         surface,
         isProjectHomeRoot,
       );
-      const isResourceRoot = scene.owner.kind === "resource"
-        && surface.id === scene.primary.id;
       return {
         id: surface.id,
-        title: isResourceRoot
-          ? surface.titleSnapshot
+        title: scene.owner.kind === "pages"
+          ? surface.titleSnapshot.trim() || presentation.title
           : presentation.title,
         icon: presentation.icon,
         iconElement: isProjectHomeRoot && project ? (
@@ -94,9 +95,9 @@ function makePanelItems(
             data-project-home-tab-marker="true"
           />
         ) : undefined,
-        closable: surface.id !== scene.primary.id,
-        reorderable: surface.id !== scene.primary.id,
-        splittable: surface.id !== scene.primary.id,
+        closable: surface.id !== scene.primary?.id,
+        reorderable: surface.id !== scene.primary?.id,
+        splittable: surface.id !== scene.primary?.id,
         renderPanel: (_close, context) => renderSurface(surface, {
           active: context.active,
           panelId,
@@ -125,6 +126,8 @@ export function buildWorkbenchScenePanels({
   rightPanelHeaderStartInsetWidth,
   bottomPanelGlobalHeaderInsetWidth,
   panelTabScrollEndPaddingPx,
+  renderNewTab,
+  renderEmptyLeaf,
   renderSurface,
   onOpenAction,
   onOpenDestination,
@@ -159,6 +162,12 @@ export function buildWorkbenchScenePanels({
           ? bottomPanelGlobalHeaderInsetWidth
           : undefined}
         tabScrollEndPaddingPx={panelTabScrollEndPaddingPx}
+        renderNewTab={renderNewTab
+          ? (leafId) => renderNewTab(panelId, leafId)
+          : undefined}
+        renderEmptyLeaf={renderEmptyLeaf
+          ? (leafId) => renderEmptyLeaf(panelId, leafId)
+          : undefined}
         commands={{
           selectTab: (leafId, surfaceId) => {
             commands.activateSurface(
@@ -171,9 +180,15 @@ export function buildWorkbenchScenePanels({
           closeTab: (_leafId, surfaceId) => {
             const surface = resolveWorkbenchSceneSurface(scene, surfaceId);
             if (!surface) return;
-            void (async () => {
-              if (onCloseSurface && !await onCloseSurface(surface)) return;
+            const removeDescriptor = () => {
               commands.removeSurface(scene.owner, surfaceId);
+            };
+            if (!onCloseSurface) {
+              removeDescriptor();
+              return;
+            }
+            void (async () => {
+              await onCloseSurface(surface, removeDescriptor);
             })();
           },
           pinTab: () => undefined,

@@ -1047,7 +1047,7 @@ function ProjectSceneStory({
       ? (() => {
           const sourceLeaf = findWorkbenchPanelLeafForTab(
             withWelcome.panels.right.layout,
-            withWelcome.primary.id,
+            withWelcome.primary?.id ?? "",
           );
           if (!sourceLeaf) return withWelcome;
           const target = ensureWorkbenchSceneLeafToRight(withWelcome, {
