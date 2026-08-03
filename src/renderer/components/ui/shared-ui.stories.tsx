@@ -227,7 +227,7 @@ function LibraryActionIconDropdownDemo() {
         <NodexDropdownSeparator />
         <NodexDropdownItem leftSlot={<MoveToIcon />}>Move to…</NodexDropdownItem>
         <NodexDropdownItem leftSlot={<ProjectAccessIcon />}>
-          Give Project access…
+          Manage access
         </NodexDropdownItem>
         <NodexDropdownItem leftSlot={<OpenInIcon />}>Open in Project…</NodexDropdownItem>
         <NodexDropdownItem leftSlot={<ArchiveIcon />}>

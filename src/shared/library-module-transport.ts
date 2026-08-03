@@ -13,6 +13,7 @@ import {
   LIBRARY_MODULE_CONTRACT_VERSION,
   MAX_LIBRARY_CURSOR_LENGTH,
   MAX_LIBRARY_QUERY_LENGTH,
+  MAX_LIBRARY_PROJECT_ACCESS_CHANGES,
   MAX_LIBRARY_READ_LIMIT,
   type LibraryCatalogEntry,
   type LibraryCanvasDestination,
@@ -31,6 +32,11 @@ import {
   type LibraryRouteTarget,
   type LibraryWriteParent,
 } from "./library-module";
+import {
+  PROJECT_MARKER_COLORS,
+  PROJECT_MARKER_ICONS,
+  type ProjectAppearance,
+} from "./project-appearance";
 import { assertUuidV7 } from "./uuid-v7";
 
 const MAX_ID_LENGTH = 512;
@@ -658,6 +664,64 @@ export const bindLibraryModuleApply = (
       },
     };
   }
+  if (operation.kind === "set_project_access") {
+    exactKeys(operation, "libraryModuleApply.operation", [
+      "kind",
+      "target",
+      "changes",
+    ]);
+    if (
+      !Array.isArray(operation.changes) ||
+      operation.changes.length === 0 ||
+      operation.changes.length > MAX_LIBRARY_PROJECT_ACCESS_CHANGES
+    ) {
+      throw new TypeError(
+        `libraryModuleApply.operation.changes must contain 1 to ${MAX_LIBRARY_PROJECT_ACCESS_CHANGES} Projects`,
+      );
+    }
+    const changes = operation.changes.map((value, index) => {
+      const label = `libraryModuleApply.operation.changes[${index}]`;
+      const change = record(value, label);
+      exactKeys(change, label, ["projectId", "access", "expectedRevision"]);
+      if (
+        change.access !== null &&
+        change.access !== "read" &&
+        change.access !== "read_write"
+      ) {
+        throw new TypeError(`${label}.access is unsupported`);
+      }
+      const access = change.access === null
+        ? null
+        : parseLibraryAccess(change.access, `${label}.access`);
+      const expectedRevision = change.expectedRevision === null
+        ? null
+        : revision(change.expectedRevision, `${label}.expectedRevision`);
+      if (expectedRevision !== null && expectedRevision < 1) {
+        throw new TypeError(`${label}.expectedRevision must be positive`);
+      }
+      return {
+        projectId: string(change.projectId, `${label}.projectId`),
+        access,
+        expectedRevision,
+      };
+    });
+    if (new Set(changes.map((change) => change.projectId)).size !== changes.length) {
+      throw new TypeError("libraryModuleApply.operation.changes must contain unique Projects");
+    }
+    return {
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      operationId,
+      storeEpoch,
+      operation: {
+        kind: operation.kind,
+        target: parseApplyResourceTarget(
+          operation.target,
+          "libraryModuleApply.operation.target",
+        ),
+        changes,
+      },
+    };
+  }
   throw new TypeError("libraryModuleApply.operation.kind is unsupported");
 };
 
@@ -693,6 +757,19 @@ export const bindLibraryModuleRead = (
   if (read.mode === "metadata") {
     exactKeys(read, "libraryModuleRead.read", ["mode"]);
     return { version: LIBRARY_MODULE_CONTRACT_VERSION, read: { mode: "metadata" } };
+  }
+  if (read.mode === "resource_project_access") {
+    exactKeys(read, "libraryModuleRead.read", ["mode", "target"]);
+    return {
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      read: {
+        mode: "resource_project_access",
+        target: parseApplyResourceTarget(
+          read.target,
+          "libraryModuleRead.read.target",
+        ),
+      },
+    };
   }
   if (read.mode === "canvas_target") {
     exactKeys(read, "libraryModuleRead.read", ["mode", "canvasId"]);
@@ -1125,11 +1202,184 @@ const parseCanvasTarget = (
   };
 };
 
+const parseLibraryAccess = (
+  value: unknown,
+  label: string,
+): "read" | "read_write" => {
+  if (value === "read" || value === "read_write") return value;
+  throw new TypeError(`${label} is unsupported`);
+};
+
+const parseProjectAppearance = (value: unknown, label: string): ProjectAppearance => {
+  const appearance = record(value, label);
+  exactKeys(appearance, label, ["color", "marker"]);
+  if (
+    typeof appearance.color !== "string" ||
+    !PROJECT_MARKER_COLORS.includes(
+      appearance.color as (typeof PROJECT_MARKER_COLORS)[number],
+    )
+  ) {
+    throw new TypeError(`${label}.color is unsupported`);
+  }
+  const color = appearance.color as ProjectAppearance["color"];
+  const marker = record(appearance.marker, `${label}.marker`);
+  if (marker.kind === "icon") {
+    exactKeys(marker, `${label}.marker`, ["kind", "icon"]);
+    if (
+      typeof marker.icon !== "string" ||
+      !PROJECT_MARKER_ICONS.includes(
+        marker.icon as (typeof PROJECT_MARKER_ICONS)[number],
+      )
+    ) {
+      throw new TypeError(`${label}.marker.icon is unsupported`);
+    }
+    return {
+      color,
+      marker: {
+        kind: "icon",
+        icon: marker.icon as Extract<
+          ProjectAppearance["marker"],
+          { kind: "icon" }
+        >["icon"],
+      },
+    };
+  }
+  if (marker.kind === "emoji") {
+    exactKeys(marker, `${label}.marker`, ["kind", "emoji"]);
+    return {
+      color,
+      marker: {
+        kind: "emoji",
+        emoji: string(marker.emoji, `${label}.marker.emoji`, 256),
+      },
+    };
+  }
+  throw new TypeError(`${label}.marker.kind is unsupported`);
+};
+
+const parseProjectAccessRow = (
+  value: unknown,
+  label: string,
+): Extract<
+  LibraryReadValue,
+  { kind: "resource_project_access" }
+>["value"]["projects"][number] => {
+  const project = record(value, label);
+  exactKeys(project, label, [
+    "projectId",
+    "projectName",
+    "appearance",
+    "lifecycle",
+    "directGrant",
+    "inheritedSources",
+    "effectiveAccess",
+  ]);
+  if (
+    project.lifecycle !== "active" &&
+    project.lifecycle !== "inactive" &&
+    project.lifecycle !== "archived"
+  ) {
+    throw new TypeError(`${label}.lifecycle is unsupported`);
+  }
+  const directGrant = project.directGrant === null
+    ? null
+    : (() => {
+        const grant = record(project.directGrant, `${label}.directGrant`);
+        exactKeys(grant, `${label}.directGrant`, ["access", "revision"]);
+        const grantRevision = revision(grant.revision, `${label}.directGrant.revision`);
+        if (grantRevision < 1) {
+          throw new TypeError(`${label}.directGrant.revision must be positive`);
+        }
+        return {
+          access: parseLibraryAccess(grant.access, `${label}.directGrant.access`),
+          revision: grantRevision,
+        };
+      })();
+  if (!Array.isArray(project.inheritedSources)) {
+    throw new TypeError(`${label}.inheritedSources must be an array`);
+  }
+  const inheritedSources = project.inheritedSources.map((value, index) => {
+    const sourceLabel = `${label}.inheritedSources[${index}]`;
+    const source = record(value, sourceLabel);
+    if (source.kind === "ancestor_page") {
+      exactKeys(source, sourceLabel, ["kind", "pageId", "pageTitle", "access"]);
+      return {
+        kind: source.kind,
+        pageId: string(source.pageId, `${sourceLabel}.pageId`),
+        pageTitle: string(
+          source.pageTitle,
+          `${sourceLabel}.pageTitle`,
+          MAX_TITLE_LENGTH,
+          true,
+        ),
+        access: parseLibraryAccess(source.access, `${sourceLabel}.access`),
+      } as const;
+    }
+    if (source.kind === "primary_database" || source.kind === "database_grant") {
+      exactKeys(source, sourceLabel, [
+        "kind",
+        "databaseId",
+        "databaseName",
+        "access",
+      ]);
+      return {
+        kind: source.kind,
+        databaseId: parseDatabaseId(source.databaseId),
+        databaseName: string(
+          source.databaseName,
+          `${sourceLabel}.databaseName`,
+          MAX_TITLE_LENGTH,
+        ),
+        access: parseLibraryAccess(source.access, `${sourceLabel}.access`),
+      } as const;
+    }
+    throw new TypeError(`${sourceLabel}.kind is unsupported`);
+  });
+  const effectiveAccess = project.effectiveAccess === null
+    ? null
+    : parseLibraryAccess(project.effectiveAccess, `${label}.effectiveAccess`);
+  return {
+    projectId: string(project.projectId, `${label}.projectId`),
+    projectName: string(project.projectName, `${label}.projectName`, MAX_TITLE_LENGTH),
+    appearance: parseProjectAppearance(project.appearance, `${label}.appearance`),
+    lifecycle: project.lifecycle,
+    directGrant,
+    inheritedSources,
+    effectiveAccess,
+  };
+};
+
 const parseReadValue = (value: unknown): LibraryReadValue => {
   const readValue = record(value, "libraryModuleReadResult.value.value");
   if (readValue.kind === "metadata") {
     exactKeys(readValue, "libraryModuleReadResult.value.value", ["kind"]);
     return { kind: "metadata" };
+  }
+  if (readValue.kind === "resource_project_access") {
+    exactKeys(readValue, "libraryModuleReadResult.value.value", ["kind", "value"]);
+    const accessValue = record(
+      readValue.value,
+      "libraryModuleReadResult.value.value.value",
+    );
+    exactKeys(accessValue, "libraryModuleReadResult.value.value.value", [
+      "target",
+      "projects",
+    ]);
+    if (!Array.isArray(accessValue.projects)) {
+      throw new TypeError("library resource Project access must be an array");
+    }
+    return {
+      kind: readValue.kind,
+      value: {
+        target: parseApplyResourceTarget(
+          accessValue.target,
+          "libraryModuleReadResult.value.value.value.target",
+        ),
+        projects: accessValue.projects.map((project, index) =>
+          parseProjectAccessRow(project, `library resource Project access[${index}]`)
+        ),
+      },
+    };
   }
   if (readValue.kind === "canvas_target") {
     exactKeys(readValue, "libraryModuleReadResult.value.value", [
@@ -1375,6 +1625,7 @@ const parseApplyReceipt = (value: unknown): LibraryModuleApplyReceipt => {
     "archive_resource",
     "restore_resource",
     "grant_project_access",
+    "set_project_access",
   ]);
   if (typeof receipt.operationKind !== "string" || !operationKinds.has(receipt.operationKind)) {
     throw new TypeError("libraryModuleApplyResult.value.operationKind is unsupported");

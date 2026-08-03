@@ -24,7 +24,26 @@ use crate::infrastructure::writer::{StoreReaders, StoreWriter};
 
 mod page_projection;
 mod projection_authorization;
+mod resource_access;
 mod search_snapshot;
+
+fn require_trusted_library_authority(context: &BoundModuleContext) -> Result<(), StoreError> {
+    if context.project_id.is_none()
+        && matches!(
+            context.adapter,
+            nodex_core_contracts::AdapterKind::ElectronHost
+                | nodex_core_contracts::AdapterKind::NativeCli
+                | nodex_core_contracts::AdapterKind::Test
+        )
+    {
+        return Ok(());
+    }
+    Err(StoreError::new(
+        StoreErrorCode::Unauthorized,
+        "Project access can only be managed from trusted Library authority",
+        false,
+    ))
+}
 
 #[derive(Clone, Debug)]
 pub struct LibraryApplyOutcome {
@@ -377,6 +396,16 @@ impl LibraryModule {
                             library_id,
                             change_log_seq: event_head,
                         },
+                        LibraryRead::ResourceProjectAccess { target } => {
+                            LibraryReadValue::ResourceProjectAccess {
+                                value: Box::new(resource_access::read(
+                                    &transaction,
+                                    &library_id,
+                                    &context,
+                                    target,
+                                )?),
+                            }
+                        }
                         LibraryRead::FilterProjectionImpactForProject { project_id, impact } => {
                             LibraryReadValue::ProjectionImpact {
                                 impact: projection_authorization::filter_for_project(

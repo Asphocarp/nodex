@@ -212,6 +212,11 @@ const toCoreRead = (request: LibraryModuleReadRequest): LibraryRead => {
   switch (read.mode) {
     case "metadata":
       return { kind: "metadata" };
+    case "resource_project_access":
+      return {
+        kind: "resource_project_access",
+        target: toCoreResourceTarget(read.target),
+      };
     case "canvas_target":
       return { kind: "canvas_target", canvas_id: read.canvasId };
     case "children":
@@ -335,6 +340,16 @@ const toCoreIntent = (operation: LibraryApplyOperation): LibraryIntent => {
             ? { kind: "page", page_id: operation.target.pageId }
             : { kind: "database", database_id: operation.target.databaseId },
         access: operation.access,
+      };
+    case "set_project_access":
+      return {
+        kind: operation.kind,
+        target: toCoreResourceTarget(operation.target),
+        changes: operation.changes.map((change) => ({
+          project_id: change.projectId,
+          access: change.access,
+          expected_revision: change.expectedRevision,
+        })),
       };
   }
 };
@@ -551,6 +566,51 @@ const mapReadValue = (snapshot: LibraryReadSnapshot): LibraryReadValue => {
   switch (value.kind) {
     case "metadata":
       return { kind: value.kind } as const;
+    case "resource_project_access":
+      return {
+        kind: value.kind,
+        value: {
+          target: value.value.target.kind === "page"
+            ? { kind: "page" as const, pageId: value.value.target.page_id }
+            : value.value.target.kind === "database"
+              ? {
+                kind: "database" as const,
+                databaseId: parseDatabaseId(value.value.target.database_id),
+              }
+              : (() => {
+                throw new Error("Canvas access is inherited and cannot be managed directly");
+              })(),
+          projects: value.value.projects.map((project) => ({
+            projectId: project.project_id,
+            projectName: project.project_name,
+            appearance: project.appearance,
+            lifecycle: project.lifecycle,
+            directGrant: project.direct_grant
+              ? {
+                access: project.direct_grant.access,
+                revision: project.direct_grant.revision,
+              }
+              : null,
+            inheritedSources: project.inherited_sources.map((source) => {
+              if (source.kind === "ancestor_page") {
+                return {
+                  kind: source.kind,
+                  pageId: source.page_id,
+                  pageTitle: source.page_title,
+                  access: source.access,
+                } as const;
+              }
+              return {
+                kind: source.kind,
+                databaseId: parseDatabaseId(source.database_id),
+                databaseName: source.database_name,
+                access: source.access,
+              } as const;
+            }),
+            effectiveAccess: project.effective_access ?? null,
+          })),
+        },
+      } as const;
     case "canvas_target":
       return {
         kind: value.kind,

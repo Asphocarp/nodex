@@ -1113,7 +1113,7 @@ describe("Core Library Module Adapter", () => {
   test("maps standalone root reads without deriving Project ownership", async () => {
     const client = new FakeCoreClient();
     client.enqueueRead({
-      contract_version: 7,
+      contract_version: 8,
       store_epoch: identity.storeEpoch,
       event_head: 8,
       value: {
@@ -1158,6 +1158,121 @@ describe("Core Library Module Adapter", () => {
       cursor: null,
       limit: 10,
       force_include_target: { kind: "page", page_id: "page:standalone" },
+    }]);
+  });
+
+  test("maps the Project access matrix and atomic access intent", async () => {
+    const client = new FakeCoreClient();
+    client.enqueueRead({
+      contract_version: 8,
+      store_epoch: identity.storeEpoch,
+      event_head: 9,
+      value: {
+        kind: "resource_project_access",
+        value: {
+          target: { kind: "page", page_id: "page:one" },
+          projects: [{
+            project_id: "project:test",
+            project_name: "Product",
+            appearance: {
+              color: "blue",
+              marker: { kind: "icon", icon: "folder" },
+            },
+            lifecycle: "active",
+            direct_grant: { access: "read", revision: 2 },
+            inherited_sources: [{
+              kind: "ancestor_page",
+              page_id: "page:parent",
+              page_title: "Strategy",
+              access: "read_write",
+            }],
+            effective_access: "read_write",
+          }],
+        },
+      },
+    });
+    client.enqueueApply({
+      value: {
+        affected_resource_ids: ["page:one"],
+        page_copy: null,
+        block_transfer: null,
+        page_lifecycle: null,
+      },
+      receipt: {
+        operation_id: "operation:set-access",
+        duplicate: false,
+        operation_kind: "set_project_access",
+        did_mutate: true,
+        created_target: null,
+        affected_parent_keys: [],
+        affected_page_ids: ["page:one"],
+        affected_database_ids: [],
+        affected_view_ids: [],
+        committed_revisions: { "projectGrant:project:test": 3 },
+        change_log_seq: 10,
+        committed_at: "2026-08-04T00:00:00.000Z",
+      },
+      event_sequence: 10,
+      store_epoch: identity.storeEpoch,
+    });
+    const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
+
+    await expect(adapter.read({
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      read: {
+        mode: "resource_project_access",
+        target: { kind: "page", pageId: "page:one" },
+      },
+    })).resolves.toMatchObject({
+      ok: true,
+      value: {
+        value: {
+          kind: "resource_project_access",
+          value: {
+            projects: [{
+              projectId: "project:test",
+              directGrant: { access: "read", revision: 2 },
+              inheritedSources: [{
+                kind: "ancestor_page",
+                pageId: "page:parent",
+              }],
+            }],
+          },
+        },
+      },
+    });
+    await expect(adapter.apply({
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      operationId: "operation:set-access",
+      storeEpoch: identity.storeEpoch,
+      operation: {
+        kind: "set_project_access",
+        target: { kind: "page", pageId: "page:one" },
+        changes: [{
+          projectId: "project:test",
+          access: null,
+          expectedRevision: 2,
+        }],
+      },
+    })).resolves.toMatchObject({
+      ok: true,
+      value: { operationKind: "set_project_access", didMutate: true },
+    });
+    expect(client.reads).toEqual([{
+      kind: "resource_project_access",
+      target: { kind: "page", page_id: "page:one" },
+    }]);
+    expect(client.applies).toEqual([{
+      operationId: "operation:set-access",
+      intent: {
+        kind: "set_project_access",
+        target: { kind: "page", page_id: "page:one" },
+        changes: [{
+          project_id: "project:test",
+          access: null,
+          expected_revision: 2,
+        }],
+      },
     }]);
   });
 

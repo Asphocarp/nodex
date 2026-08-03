@@ -1,13 +1,36 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import type { ComponentProps } from "react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
+import { NodexModalHost } from "@/lib/modal-registry";
+import { renderWithMaitai } from "../../test/dom";
 
 import { LibraryResourceActions } from "./library-resource-actions";
 
 const navigation = vi.hoisted(() => ({
   mutateAsync: vi.fn(),
+  refetchAccess: vi.fn(),
 }));
+
+const projectAccess = {
+  kind: "resource_project_access" as const,
+  value: {
+    target: { kind: "page" as const, pageId: "page-1" },
+    projects: [{
+      projectId: "project-1",
+      projectName: "Product",
+      appearance: {
+        color: "blue" as const,
+        marker: { kind: "icon" as const, icon: "folder" as const },
+      },
+      lifecycle: "active" as const,
+      directGrant: null,
+      inheritedSources: [],
+      effectiveAccess: null,
+    }],
+  },
+};
 
 vi.mock("@/lib/use-library-navigation", () => ({
   useApplyLibraryOperation: () => ({
@@ -18,6 +41,12 @@ vi.mock("@/lib/use-library-navigation", () => ({
   }),
   useLibraryCatalog: () => ({ data: { items: [] } }),
   useLibraryPath: () => ({ data: undefined, isPending: false }),
+  useLibraryResourceProjectAccess: () => ({
+    data: projectAccess,
+    isPending: false,
+    error: null,
+    refetch: navigation.refetchAccess,
+  }),
 }));
 
 const openActions = async (): Promise<void> => {
@@ -29,47 +58,52 @@ const openActions = async (): Promise<void> => {
   });
 };
 
+const renderActions = (
+  props: Partial<ComponentProps<typeof LibraryResourceActions>> = {},
+  onPageRowPointerDown = vi.fn(),
+) => renderWithMaitai(
+  <NodexTooltipProvider>
+    <div data-testid="page-row" onPointerDown={onPageRowPointerDown}>
+      <LibraryResourceActions
+        target={{ kind: "page", pageId: "page-1" }}
+        title="Research"
+        expectedLocationRevision={2}
+        expectedMetadataRevision={3}
+        projects={[{ id: "project-1", name: "Product" }]}
+        onOpenInProject={() => undefined}
+        {...props}
+      />
+    </div>
+    <NodexModalHost />
+  </NodexTooltipProvider>,
+);
+
 describe("Library resource actions", () => {
   beforeEach(() => navigation.mutateAsync.mockReset());
 
   test("uses a plain label for the confirmation-only Archive action", async () => {
-    render(
-      <NodexTooltipProvider>
-        <LibraryResourceActions
-          target={{ kind: "page", pageId: "page-1" }}
-          title="Research"
-          expectedLocationRevision={2}
-          expectedMetadataRevision={3}
-        />
-      </NodexTooltipProvider>,
-    );
+    const onPageRowPointerDown = vi.fn();
+    renderActions({}, onPageRowPointerDown);
 
     await openActions();
     const archiveItem = await screen.findByRole("menuitem", { name: "Archive" });
     expect(screen.queryByRole("menuitem", { name: "Archive…" })).toBeNull();
 
     fireEvent.click(archiveItem);
-    expect(await screen.findByRole("dialog")).not.toBeNull();
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.pointerDown(within(dialog).getByText("Archive this page?"));
+    expect(onPageRowPointerDown).not.toHaveBeenCalled();
   });
 
-  test("does not grant Project access when confirmation is cancelled", async () => {
-    render(
-      <NodexTooltipProvider>
-        <LibraryResourceActions
-          target={{ kind: "page", pageId: "page-1" }}
-          title="Research"
-          expectedLocationRevision={2}
-          expectedMetadataRevision={3}
-          projects={[{ id: "project-1", name: "Product" }]}
-        />
-      </NodexTooltipProvider>,
-    );
+  test("opens the all-Project access manager and preserves changes when cancelled", async () => {
+    renderActions();
 
     await openActions();
     fireEvent.click(await screen.findByRole("menuitem", {
-      name: "Give Project access…",
+      name: "Manage access",
     }));
     expect(await screen.findByRole("dialog")).not.toBeNull();
+    expect(screen.getByText("Product")).not.toBeNull();
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
@@ -77,5 +111,115 @@ describe("Library resource actions", () => {
     });
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(navigation.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  test("saves all edited Project access in one operation", async () => {
+    navigation.mutateAsync.mockResolvedValue({ didMutate: true });
+    renderActions({ expectedMetadataRevision: undefined });
+
+    await openActions();
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Manage access" }));
+    const accessButton = await screen.findByRole("button", { name: "Access for Product" });
+    await act(async () => {
+      fireEvent.pointerDown(accessButton, { button: 0, ctrlKey: false });
+      await Promise.resolve();
+    });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Read & write" }));
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(navigation.mutateAsync).toHaveBeenCalledWith({
+      kind: "set_project_access",
+      target: { kind: "page", pageId: "page-1" },
+      changes: [{
+        projectId: "project-1",
+        access: "read_write",
+        expectedRevision: null,
+      }],
+    }));
+  });
+
+  test("moves the resource from the registry-owned modal", async () => {
+    navigation.mutateAsync.mockResolvedValue({ didMutate: true });
+    renderActions();
+
+    await openActions();
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Move to…" }));
+    const moveButton = await screen.findByRole("button", { name: "Move" });
+    await act(async () => {
+      fireEvent.click(moveButton);
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(navigation.mutateAsync).toHaveBeenCalledWith({
+      kind: "move_block",
+      target: {
+        kind: "page",
+        pageId: "page-1",
+        expectedLocationRevision: 2,
+      },
+      parent: { kind: "library" },
+    }));
+  });
+
+  test("grants and opens the resource from the registry-owned modal", async () => {
+    const onOpenInProject = vi.fn();
+    navigation.mutateAsync.mockResolvedValue({ didMutate: true });
+    renderActions({ onOpenInProject });
+
+    await openActions();
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Open in Project…" }));
+    const grantAndOpenButton = await screen.findByRole("button", { name: "Grant and open" });
+    await act(async () => {
+      fireEvent.click(grantAndOpenButton);
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(navigation.mutateAsync).toHaveBeenCalledWith({
+      kind: "grant_project_access",
+      projectId: "project-1",
+      target: { kind: "page", pageId: "page-1" },
+      access: "read_write",
+    }));
+    expect(onOpenInProject).toHaveBeenCalledWith(
+      "project-1",
+      { kind: "page", pageId: "page-1" },
+      "Research",
+    );
+  });
+
+  test.each([
+    ["Move to…", "Move Research"],
+    ["Manage access", "Manage access"],
+    ["Open in Project…", "Open in Project"],
+  ])("keeps the %s modal outside the draggable Page row", async (menuLabel, title) => {
+    const onPageRowPointerDown = vi.fn();
+    renderActions({}, onPageRowPointerDown);
+
+    await openActions();
+    fireEvent.click(await screen.findByRole("menuitem", { name: menuLabel }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.pointerDown(within(dialog).getByText(title));
+
+    expect(onPageRowPointerDown).not.toHaveBeenCalled();
+  });
+
+  test("keeps Manage access mounted after its Page row unmounts", async () => {
+    const view = renderActions();
+
+    await openActions();
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Manage access" }));
+    expect(await screen.findByRole("dialog")).not.toBeNull();
+
+    view.rerender(
+      <NodexTooltipProvider>
+        <NodexModalHost />
+      </NodexTooltipProvider>,
+    );
+
+    expect(screen.getByRole("dialog")).not.toBeNull();
+    expect(screen.getByText("Manage access")).not.toBeNull();
   });
 });

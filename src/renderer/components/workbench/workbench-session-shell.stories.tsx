@@ -1404,6 +1404,12 @@ function installStoryApi(
                 value: { status: "missing", canvasId: read.canvasId },
               };
             }
+            if (read.mode === "resource_project_access") {
+              return {
+                kind: "resource_project_access",
+                value: { target: read.target, projects: [] },
+              };
+            }
             if (read.mode === "path") {
               return { kind: "path", target: read.target, nodes: [] };
             }

@@ -58,6 +58,60 @@ describe("Library Module transport", () => {
     ).toThrow("libraryId is not supported");
   });
 
+  test("binds and parses the authoritative Project access matrix", () => {
+    expect(bindLibraryModuleRead({
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      read: {
+        mode: "resource_project_access",
+        target: { kind: "page", pageId: "page-1" },
+      },
+    })).toEqual({
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      read: {
+        mode: "resource_project_access",
+        target: { kind: "page", pageId: "page-1" },
+      },
+    });
+
+    expect(parseLibraryModuleReadResult(readResult({
+      kind: "resource_project_access",
+      value: {
+        target: { kind: "page", pageId: "page-1" },
+        projects: [{
+          projectId: "project-1",
+          projectName: "Product",
+          appearance: {
+            color: "blue",
+            marker: { kind: "icon", icon: "folder" },
+          },
+          lifecycle: "active",
+          directGrant: { access: "read_write", revision: 3 },
+          inheritedSources: [{
+            kind: "ancestor_page",
+            pageId: "page-parent",
+            pageTitle: "Strategy",
+            access: "read",
+          }],
+          effectiveAccess: "read_write",
+        }],
+      },
+    }))).toMatchObject({
+      ok: true,
+      value: {
+        value: {
+          kind: "resource_project_access",
+          value: {
+            projects: [{
+              projectId: "project-1",
+              directGrant: { revision: 3 },
+              inheritedSources: [{ kind: "ancestor_page" }],
+            }],
+          },
+        },
+      },
+    });
+  });
+
   test("rejects unbounded and structurally ambiguous requests", () => {
     expect(() =>
       bindLibraryModuleRead({
@@ -350,6 +404,31 @@ describe("Library Module transport", () => {
         canvasId: "canvas:primary:",
       },
     })).toThrow("primary Canvas Block ID");
+  });
+
+  test("binds one revision-fenced Project access batch", () => {
+    const operation = bindLibraryModuleApply({
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      operationId: uuidV7(20),
+      storeEpoch: "epoch-1",
+      operation: {
+        kind: "set_project_access",
+        target: { kind: "page", pageId: "page-1" },
+        changes: [
+          { projectId: "project-1", access: null, expectedRevision: 4 },
+          { projectId: "project-2", access: "read", expectedRevision: null },
+        ],
+      },
+    }).operation;
+
+    expect(operation).toEqual({
+      kind: "set_project_access",
+      target: { kind: "page", pageId: "page-1" },
+      changes: [
+        { projectId: "project-1", access: null, expectedRevision: 4 },
+        { projectId: "project-2", access: "read", expectedRevision: null },
+      ],
+    });
   });
 
   test("parses primary Canvas unavailable, path, and catalog targets", () => {

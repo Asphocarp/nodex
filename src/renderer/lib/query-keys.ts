@@ -121,6 +121,11 @@ export const queryKeys = {
       "canvasTarget",
       canvasId,
     ] as const,
+    resourceProjectAccess: (target: unknown) => [
+      "libraryNavigation",
+      "resourceProjectAccess",
+      target,
+    ] as const,
     pageDetail: (pageId: string) => ["libraryPages", "detail", pageId] as const,
     pageDocument: (pageId: string) => ["libraryPages", "document", pageId] as const,
   },

@@ -37,7 +37,9 @@ pub(super) fn read(
         .map(|project| project.0.as_str());
     let requesting_adapter = &context.adapter;
     match request {
-        LibraryRead::Metadata | LibraryRead::FilterProjectionImpactForProject { .. } => {
+        LibraryRead::Metadata
+        | LibraryRead::ResourceProjectAccess { .. }
+        | LibraryRead::FilterProjectionImpactForProject { .. } => {
             Err(invalid("Read is assembled by the Library Module"))
         }
         LibraryRead::Children {

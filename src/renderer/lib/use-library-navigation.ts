@@ -14,6 +14,7 @@ import {
   type LibraryModuleReadRequest,
   type LibraryNavigationParent,
   type LibraryReadValue,
+  type LibraryResourceTarget,
   type LibraryRouteTarget,
 } from "../../shared/library-module";
 import { libraryContentAccess } from "../../shared/content-access-context";
@@ -146,6 +147,25 @@ export const libraryCanvasTargetQueryOptions = (canvasId: string) =>
     }, "canvas_target"),
     staleTime: 30_000,
   });
+
+export const libraryResourceProjectAccessQueryOptions = (
+  target: Exclude<LibraryResourceTarget, { readonly kind: "canvas" }>,
+) => queryOptions({
+  queryKey: queryKeys.library.resourceProjectAccess(target),
+  queryFn: () => requireReadValue({
+    version: LIBRARY_MODULE_CONTRACT_VERSION,
+    read: { mode: "resource_project_access", target },
+  }, "resource_project_access"),
+  staleTime: 30_000,
+});
+
+export const useLibraryResourceProjectAccess = (
+  target: Exclude<LibraryResourceTarget, { readonly kind: "canvas" }>,
+  enabled = true,
+) => useQuery({
+  ...libraryResourceProjectAccessQueryOptions(target),
+  enabled,
+});
 
 export const useLibraryNavigationInvalidation = (): void => {
   const queryClient = useQueryClient();
