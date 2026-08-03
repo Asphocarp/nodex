@@ -182,6 +182,49 @@ Compose ordinary dialogs from the shared anatomy:
 
 Complex dialogs may keep a purpose-built internal layout while inheriting the default surface. Use `unstyledContent` only when the dialog content is itself a complete surface, such as a full-screen media viewer or a position-sensitive command palette. Keep this exception explicit at the call site.
 
+### Modal ownership follows the React tree
+
+A DOM portal changes placement, not React ownership. Events from portaled
+content still bubble through the component that rendered the portal. Therefore,
+rendering a `NodexDialog` inside a draggable/clickable row, menu trigger, route,
+or other interactive subtree can activate that ancestor even though the dialog
+appears under `document.body`.
+
+Use this ownership decision before implementing any modal:
+
+| Surface | Required owner |
+| --- | --- |
+| Form, chooser, manager, or multi-step dialog whose lifetime is independent of its trigger | Open through `src/renderer/lib/modal-registry.tsx`; render only from the renderer-window `NodexModalHost` |
+| Dialog opened from a dropdown command | Record the pending command in `onSelect`, then call `openModal(...)` from `onCloseAutoFocus` after the dropdown closes |
+| Short confirmation that intentionally belongs to one mounted action boundary | May stay local only when that boundary contains the trigger and its portaled descendants and stops pointer/click activation from reaching an interactive ancestor |
+
+Hard rules:
+
+- Do not render an application modal as JSX beneath the row/menu/route that
+  triggers it. A local `stopPropagation()` patch is not a substitute for correct
+  ownership and still couples the modal lifetime to the trigger subtree.
+- Define registered modal components at module scope. The registry deduplicates
+  by component identity and preserves the mounted entry key when props change.
+  If one component can be retargeted to another resource, key its stateful inner
+  content by that semantic resource identity so draft/confirmation state cannot
+  leak across targets.
+- For a permitted local confirmation, add a containment guard around the whole
+  action boundary—not just the trigger button. Stop `pointerdown`, `mousedown`,
+  and `click`; stop keyboard activation when the ancestor row also handles it.
+- Keep Process Manager, Command Palette, and other independently owned root
+  controllers outside the modal registry; do not use the registry merely
+  because a surface floats.
+
+Required regression coverage for a modal triggered inside an interactive row:
+
+1. Mount the trigger beneath a parent `pointerdown`/activation spy and mount
+   `NodexModalHost` outside that parent.
+2. Open the modal through the real menu workflow and fire `pointerdown` on its
+   title/body; the parent spy must remain untouched.
+3. For a registry-owned modal, unmount the trigger row and prove the modal
+   remains mounted. For a local confirmation, prove its action-boundary guard
+   prevents the same ancestor activation.
+
 ### Menu dividers
 
 Use a **1px line** inside padded wrapper — not a full-width `<hr>`:
@@ -312,3 +355,6 @@ Before shipping any UI, verify:
 - [ ] Icons use `shrink-0` and `currentColor`
 - [ ] No nested bordered containers — flat cards with internal dividers only
 - [ ] Information density is high — no excessive whitespace
+- [ ] Application modals escape row/menu/route trigger subtrees through the renderer-window modal registry
+- [ ] Dropdown-triggered dialogs open from `onCloseAutoFocus`, after the menu closes
+- [ ] Local confirmations have an action-boundary propagation test; registry modals survive trigger unmount in a regression test

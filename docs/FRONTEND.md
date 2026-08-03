@@ -84,7 +84,47 @@
 ## State and Data Access
 - API boundary: always go through `src/renderer/lib/api.ts`.
 - Keep state component-local when it belongs to one mounted interaction: open menus, hover/drag geometry, upload progress, confirmation UI, and other disposable gesture state. Unmount is its cleanup policy; do not retain it merely to make task switching appear continuous.
-- Open application modals through `src/renderer/lib/modal-registry.tsx` when their lifetime must be independent of a menu, row, route, or other trigger subtree. The App-scoped registry deduplicates by component identity, preserves the entry key when replacing props, stacks different modal components, and renders them through the one root host per renderer window. A dropdown-triggered modal opens from `onCloseAutoFocus` after the menu has closed. Keep short-lived confirmations local to their owning action boundary; that boundary must contain the trigger and its portaled descendants and stop pointer/click activation from reaching an interactive parent row.
+
+### Application modal ownership
+
+Modal ownership is determined by the React tree, not the DOM tree. A Radix
+portal changes where the dialog is painted, but its events still bubble through
+the component that rendered it. Never render an application modal beneath a
+draggable/clickable row, dropdown trigger, route, or other transient trigger
+subtree and assume the portal isolates it.
+
+Use `src/renderer/lib/modal-registry.tsx` when a dialog is a form, chooser,
+manager, or multi-step surface whose lifetime must be independent of its
+trigger. The App-scoped registry stores component/props descriptors,
+deduplicates by module-scope component identity, preserves the entry key when
+replacing props, stacks distinct modal components, and renders them through the
+single renderer-window `NodexModalHost`. Project Create/Edit, Page Move/Manage
+access/Open in Project, Rename, and Stable Worktree Status follow this pattern.
+If a registered component can be retargeted while open, key its stateful inner
+content by the semantic target identity so state cannot leak between targets.
+
+For dropdown commands, `onSelect` records only a pending modal intent. Open the
+registry modal from `onCloseAutoFocus`, after the menu has fully closed. Do not
+mount a second dialog while the menu is still the active floating surface.
+
+Short confirmation dialogs such as Archive/Remove may remain local only when
+their lifetime intentionally belongs to the mounted action boundary. That
+boundary must wrap the trigger and its portaled descendants and stop
+`pointerdown`, `mousedown`, `click`, and applicable keyboard activation from
+reaching an interactive parent row. Guarding only the trigger is insufficient,
+because events from the confirmation portal still follow the React owner tree.
+Do not use local propagation guards as a substitute for moving an application
+modal into the registry.
+
+Every modal opened from an interactive row needs a behavioral regression test:
+
+- mount `NodexModalHost` outside a parent row with a pointer/activation spy;
+- open the dialog through the real menu-close workflow and prove interaction
+  with its title/body does not reach the row;
+- for registry-owned modals, unmount the trigger row and prove the modal remains
+  mounted; for local confirmations, prove the action-boundary guard blocks the
+  same ancestor activation.
+
 - Use one Maitai App atom for renderer-window view state shared across routes, including Workbench layout aggregates and renderer-wide preferences. Use Thread, Route, or Composer scoped atoms only when presentation must survive an A → B → A remount for that exact identity. The scope hierarchy is App → Thread (20) → Route (20) → Composer (100), all inside the one renderer Jotai store; nested Jotai stores are forbidden.
 - Use a Maitai persisted atom only for authored drafts or preferences that must survive a renderer restart. Every persisted value needs a versioned codec and an explicit synchronization policy; cross-window live application is a product decision, not an automatic consequence of storage. Never persist DOM nodes, editor instances, `File` objects, promises, runtime handles, or transport clients.
 - Use TanStack Query for low-frequency main/server read models and mutation cache coordination. Keep Codex execution, Browser guests, Terminal sessions, collaborative Documents/Yjs, drag coordination, and approval authority in their deep runtime Modules; atoms may expose presentation projections or read-only external-store bridges but must not become a second writable authority.
