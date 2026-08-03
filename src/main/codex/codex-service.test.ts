@@ -39,6 +39,7 @@ import type {
   CommandPaletteThreadSummary,
   ManagedWorktreeRecord,
   Project,
+  ProjectSession,
   ProjectSessionForkResult,
 } from "../../shared/types";
 import type {
@@ -1630,6 +1631,74 @@ function makeRecordingForkSidePanelTransferLifecycle(
     },
   };
 }
+
+test("keeps parent-linked child threads out of workspace sidebar snapshots", async () => {
+  const projectWorkspace = createTestProjectWorkspace();
+  await projectWorkspace.upsertThread("thread:root", {
+    projectId: null,
+    parentThreadId: null,
+    threadName: "Root chat",
+    threadPreview: "Root chat",
+  });
+  await projectWorkspace.upsertThread("thread:child", {
+    projectId: null,
+    parentThreadId: "thread:root",
+    threadName: "Subagent chat",
+    threadPreview: "Subagent chat",
+  });
+  await projectWorkspace.setThreadPinned("thread:root", true);
+  await projectWorkspace.setThreadPinned("thread:child", true);
+  const service = createService({ projectWorkspace });
+
+  try {
+    const snapshot = await service.syncSidebarThreads({ refresh: false });
+
+    expect(snapshot.items.map((item) => item.threadId)).toEqual(["thread:root"]);
+    expect(snapshot.projectlessThreadIds).toEqual(["thread:root"]);
+    expect(snapshot.pinnedThreadIds).toEqual(["thread:root"]);
+  } finally {
+    await service.shutdown();
+  }
+});
+
+test("repairs a leaked child sidebar Session before returning it", async () => {
+  const baseWorkspace = createTestProjectWorkspace();
+  const updateCalls: Array<{
+    threadId: string;
+    patch: Parameters<DesktopProjectWorkspacePort["updateThread"]>[1];
+  }> = [];
+  const projectWorkspace = {
+    ...baseWorkspace,
+    updateThread: async (
+      threadId: string,
+      patch: Parameters<DesktopProjectWorkspacePort["updateThread"]>[1],
+    ) => {
+      updateCalls.push({ threadId, patch });
+      return await baseWorkspace.updateThread(threadId, patch);
+    },
+  } as DesktopProjectWorkspacePort;
+  await projectWorkspace.upsertThread("thread:child", {
+    projectId: null,
+    parentThreadId: "thread:root",
+    threadName: "Leaked subagent chat",
+    threadPreview: "Leaked subagent chat",
+  });
+  const service = createService({ projectWorkspace });
+
+  try {
+    const repaired = await (service as unknown as {
+      ensureSidebarThreadSession: (threadId: string) => Promise<ProjectSession | null>;
+    }).ensureSidebarThreadSession("thread:child");
+
+    expect(repaired).toBeNull();
+    expect(updateCalls).toEqual([{
+      threadId: "thread:child",
+      patch: { parentThreadId: "thread:root" },
+    }]);
+  } finally {
+    await service.shutdown();
+  }
+});
 
 test("returns after the first sidebar page and serializes a forced refresh at the window boundary", async () => {
   let reconcileCalls = 0;

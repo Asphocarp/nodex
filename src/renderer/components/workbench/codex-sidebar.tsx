@@ -1472,11 +1472,13 @@ export function CodexThreadRow({
   onTogglePinned?: (session: ProjectSession) => void | Promise<void>;
 }) {
   const threadId = session.thread?.threadId ?? session.id;
+  if (session.thread?.parentThreadId) return null;
   const item: CodexSidebarThreadItem = {
     key: `local:${threadId}`,
     kind: "local",
     hostId: "local",
     threadId,
+    parentThreadId: session.thread?.parentThreadId ?? null,
     sessionId: session.id,
     projectId: session.projectId,
     title: session.displayTitle,

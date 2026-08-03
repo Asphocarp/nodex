@@ -78,7 +78,7 @@ fn read_task_window_in_scope(
     }
     let normalized = normalize_request(request)?;
     let fingerprint = cursor::query_fingerprint(&(
-        "workspace_task_window_v2",
+        "workspace_task_window_v3",
         project_id,
         pinned_only,
         include_archived,
@@ -167,7 +167,8 @@ fn read_task_window_in_scope(
                WHERE project.id = session.project_id AND project.library_id = ?2 \
                  AND project.lifecycle <> 'archived'\
              )) \
-             AND (?3 = 1 OR session.archived = 0)\
+             AND (?3 = 1 OR session.archived = 0) \
+             AND (thread.thread_id IS NULL OR thread.parent_thread_id IS NULL)\
          ) \
          SELECT * FROM task_rows {cursor_predicate} \
          ORDER BY pin_bucket, lane_order, session_id LIMIT ?{limit_parameter}"
@@ -418,6 +419,50 @@ mod tests {
                 .iter()
                 .all(|right| left.session.id != right.session.id)
         }));
+    }
+
+    #[test]
+    fn task_windows_defensively_exclude_legacy_child_thread_sessions() {
+        let workspace = seeded_workspace();
+        create_session_thread(
+            &workspace.module,
+            "root-chat",
+            "session:root",
+            "thread:root",
+            None,
+            1,
+        );
+        create_session_thread(
+            &workspace.module,
+            "leaked-child-chat",
+            "session:child",
+            "thread:child",
+            None,
+            2,
+        );
+        workspace
+            .kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "UPDATE codex_threads SET parent_thread_id = 'thread:root' \
+                     WHERE thread_id = 'thread:child'",
+                    [],
+                )?;
+                Ok(())
+            })
+            .expect("seed legacy child sidebar Session");
+
+        let window = task_window(&workspace, None, None, 50);
+        assert_eq!(window.items.len(), 1);
+        assert_eq!(window.items[0].session.id, "session:root");
+        assert_eq!(
+            window.items[0]
+                .thread
+                .as_ref()
+                .map(|thread| thread.thread_id.as_str()),
+            Some("thread:root")
+        );
     }
 
     #[test]

@@ -2016,6 +2016,7 @@ export function makeSidebarSnapshotItemForSession(session: ProjectSession): Code
     kind: "local",
     hostId: "local",
     threadId: session.thread.threadId,
+    parentThreadId: session.thread.parentThreadId ?? null,
     sessionId: session.id,
     projectId: session.projectId,
     title: session.displayTitle,

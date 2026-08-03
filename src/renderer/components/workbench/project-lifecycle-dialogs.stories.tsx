@@ -55,6 +55,7 @@ const ARCHIVEABLE_THREADS: CodexSidebarThreadItem[] = [0, 1, 2].map((index) => (
   kind: "local",
   hostId: "local",
   threadId: `thread-${index}`,
+  parentThreadId: null,
   sessionId: null,
   projectId: ACTIVE_PROJECT.id,
   title: `Chat ${index + 1}`,
