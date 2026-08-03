@@ -1,10 +1,10 @@
 import type { ComponentType } from "react";
 import {
-  CodexFileTabIconSvg,
-  type CodexFileTabIconName,
+  FileTabIconSvg,
+  type FileTabIconName,
 } from "@/components/shared/icons";
 
-export type WorkspaceFileTabIconKey = CodexFileTabIconName;
+export type WorkspaceFileTabIconKey = FileTabIconName;
 
 type WorkspaceFileTabIconComponent = ComponentType<{ className?: string }>;
 
@@ -168,7 +168,7 @@ function makeWorkspaceFileTabIcon(
   iconKey: WorkspaceFileTabIconKey,
 ): WorkspaceFileTabIconComponent {
   const WorkspaceFileTabIcon = ({ className }: { className?: string }) => (
-    <CodexFileTabIconSvg className={className} icon={iconKey} />
+    <FileTabIconSvg className={className} icon={iconKey} />
   );
   WorkspaceFileTabIcon.displayName = `WorkspaceFileTabIcon(${iconKey})`;
   return WorkspaceFileTabIcon;

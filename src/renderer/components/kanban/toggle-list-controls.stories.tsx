@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
-import { Layers3, RotateCcw, SlidersHorizontal } from "lucide-react";
+import { Layers3, RotateCcw, SlidersHorizontal } from "@/components/shared/icons/generic-icons";
 import {
   ToggleListRulesBody,
   ToggleListSummaryBadges,

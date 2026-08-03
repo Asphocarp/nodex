@@ -1,6 +1,6 @@
 import { useState } from "react";
 import {
-  CodexSidePanelPlusIcon,
+  SidePanelPlusIcon,
 } from "@/components/shared/icons";
 import {
   NodexDropdownFlyoutSubmenuItem,
@@ -82,7 +82,7 @@ export function WorkbenchPanelNewTabButton({
           title={title}
           aria-label={title}
         >
-          <CodexSidePanelPlusIcon className="icon-xs" />
+          <SidePanelPlusIcon className="icon-xs" />
         </button>
       )}
     >

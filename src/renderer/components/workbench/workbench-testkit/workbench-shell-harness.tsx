@@ -138,12 +138,12 @@ export let mockThreadStartProgress: unknown = null;
 export let mockConversationHasVisibleTurn = true;
 export let codexHostMessageListener: ((message: CodexHostMessage) => void) | null = null;
 export let pendingWorktreeWarningListener: ((event: CodexPendingWorktreeWarningEvent) => void) | null = null;
-export const CODEX_PANEL_VISIBLE_ICON_PREFIX = "M16.835 8.66301";
-export const CODEX_BOTTOM_PANEL_HIDDEN_ICON_PREFIX = "M13.334 12.2529";
-export const CODEX_EXPAND_PANEL_ICON_PREFIX = "M16.0299 3.0293";
-export const CODEX_RESTORE_PANEL_ICON_PREFIX = "M4.33496 11";
-export const CODEX_NEW_CHAT_ICON_PREFIX = "M2.6687 11.333";
-export const CODEX_TITLEBAR_NEW_CHAT_ICON_PREFIX = "M6.33325 1.88379";
+export const PANEL_VISIBLE_ICON_PREFIX = "M16.835 8.66301";
+export const BOTTOM_PANEL_HIDDEN_ICON_PREFIX = "M13.334 12.2529";
+export const EXPAND_PANEL_ICON_PREFIX = "M16.0299 3.0293";
+export const RESTORE_PANEL_ICON_PREFIX = "M4.33496 11";
+export const NEW_CHAT_ICON_PREFIX = "M2.6687 11.333";
+export const TITLEBAR_NEW_CHAT_ICON_PREFIX = "M6.33325 1.88379";
 
 export type TerminalEventListenerMap = Record<string, (payload: unknown) => void>;
 

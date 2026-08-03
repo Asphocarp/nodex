@@ -1,3 +1,4 @@
+import { ChevronRightIcon } from "@/components/shared/icons";
 import {
   useEffect,
   useId,
@@ -8,7 +9,7 @@ import {
   type MutableRefObject,
   type ReactNode,
 } from "react";
-import { ChevronRight, CircleAlert } from "lucide-react";
+import { CircleAlert } from "@/components/shared/icons/generic-icons";
 import type { Awareness } from "y-protocols/awareness";
 import type {
   PageDocumentEnvelope,
@@ -204,7 +205,7 @@ export function BlockDocumentSurfaceFailureState({
             aria-expanded={detailsOpen}
             onClick={() => setDetailsOpen((current) => !current)}
           >
-            <ChevronRight
+            <ChevronRightIcon
               className={
                 detailsOpen
                   ? "rotate-90 transition-transform duration-150"

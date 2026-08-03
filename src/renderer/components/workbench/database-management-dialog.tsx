@@ -1,20 +1,18 @@
+import { CalendarIcon, DatabaseIcon, PlusIcon } from "@/components/shared/icons";
 import { useEffect, useState, type FormEvent } from "react";
 import {
   ArrowDown,
   ArrowUp,
-  CalendarDays,
   CheckSquare2,
   Columns3,
-  Table2,
   Hash,
   List,
-  Plus,
   SlidersHorizontal,
   Tags,
   TextCursorInput,
   Trash2,
   UserRound,
-} from "lucide-react";
+} from "@/components/shared/icons/generic-icons";
 import type {
   DatabasePropertyOption,
   DatabasePropertyValueType,
@@ -138,7 +136,7 @@ const propertyTypeIcon = (valueType: DatabasePropertyValueType) => {
       return Tags;
     case "date":
     case "datetime":
-      return CalendarDays;
+      return CalendarIcon;
     case "person":
       return UserRound;
     case "text":
@@ -151,7 +149,7 @@ const viewKindIcon = (kind: DatabaseViewKind) => {
     case "kanban":
       return Columns3;
     case "calendar":
-      return CalendarDays;
+      return CalendarIcon;
     case "list":
       return List;
   }
@@ -244,7 +242,7 @@ export function DatabaseManagementSurface({
       <aside className="flex min-h-0 flex-col border-r-[0.5px] border-token-border bg-token-foreground/3 max-sm:hidden">
         <div className="px-3 pb-3 pt-4">
           <h2 className="flex items-center gap-2 text-base font-medium text-token-text-primary">
-            <Table2 className="size-4 shrink-0 text-token-description-foreground" />
+            <DatabaseIcon className="size-4 shrink-0 text-token-description-foreground" />
             Databases
           </h2>
           <p className="mt-1 truncate text-xs text-token-description-foreground">
@@ -276,7 +274,7 @@ export function DatabaseManagementSurface({
                     : "text-token-text-secondary hover:bg-token-foreground/5 hover:text-token-text-primary",
                 )}
               >
-                <Table2 className="size-3.5 shrink-0 opacity-70" />
+                <DatabaseIcon className="size-3.5 shrink-0 opacity-70" />
                 <span className="min-w-0 flex-1 truncate">
                   {candidate.database.name}
                 </span>
@@ -416,7 +414,7 @@ export function DatabaseManagementSurface({
                     },
                   )}
                 >
-                  <Plus className="size-3.5 shrink-0 text-token-description-foreground" />
+                  <PlusIcon className="size-3.5 shrink-0 text-token-description-foreground" />
                   <Input
                     aria-label="New property name"
                     value={propertyName}
@@ -648,7 +646,7 @@ export function DatabaseManagementSurface({
                     },
                   )}
                 >
-                  <Plus className="size-3.5 shrink-0 text-token-description-foreground" />
+                  <PlusIcon className="size-3.5 shrink-0 text-token-description-foreground" />
                   <Input
                     aria-label="New View name"
                     value={viewName}
@@ -690,7 +688,7 @@ export function DatabaseManagementSurface({
           </>
         ) : (
           <div className="flex h-full flex-col items-center justify-center text-center">
-            <Table2 className="mb-2 size-5 shrink-0 text-token-description-foreground" />
+            <DatabaseIcon className="mb-2 size-5 shrink-0 text-token-description-foreground" />
             <p className="text-sm font-medium text-token-text-primary">
               Database unavailable
             </p>

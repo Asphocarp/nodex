@@ -1215,6 +1215,11 @@ describe("review diff panel", () => {
     expect(
       view.container.querySelector('[data-item-type="file"]'),
     ).not.toBeNull();
+    expect(
+      view.container.querySelector(
+        '[data-item-type="file"] [data-icon-token="typescript"]',
+      ),
+    ).not.toBeNull();
     const separator = view.container.querySelector(
       '[role="separator"][aria-orientation="vertical"]',
     );

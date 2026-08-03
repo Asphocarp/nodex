@@ -3,7 +3,7 @@ import { describe, test, expect } from "vitest";
 import { settleAsyncRender, textContent } from "../../test/dom";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import { splitWorkbenchPanelLeaf } from "../../../shared/workbench-panel-layout";
-import { CODEX_TITLEBAR_NEW_CHAT_ICON_PREFIX, executeCommandPaletteCommand, getHeaderShellSlot, getLastTerminalPanelProps, getThreadRow, installReducedMotionMatchMediaForTest, invokeCalls, makeAttachedSession, makeBlankSession, makePanelLayout, makePanels, makeProject, makeSession, makeSessionTab, moveSidebarPointer, pointerActivate, pointerDownAndSettle, renderWorkbench, startThreadForSessionCalls, setInvokeCalls } from "./workbench-testkit/workbench-shell-harness";
+import { TITLEBAR_NEW_CHAT_ICON_PREFIX, executeCommandPaletteCommand, getHeaderShellSlot, getLastTerminalPanelProps, getThreadRow, installReducedMotionMatchMediaForTest, invokeCalls, makeAttachedSession, makeBlankSession, makePanelLayout, makePanels, makeProject, makeSession, makeSessionTab, moveSidebarPointer, pointerActivate, pointerDownAndSettle, renderWorkbench, startThreadForSessionCalls, setInvokeCalls } from "./workbench-testkit/workbench-shell-harness";
 
 describe("workbench session shell / pages-shell-navigation", () => {
   test("panel tab menu creates tabs after opening a collapsed right panel", async () => {
@@ -1647,7 +1647,7 @@ describe("workbench session shell / pages-shell-navigation", () => {
       expect(collapseButton.getAttribute("title")).toBe("Toggle sidebar");
       expect(backButton.hasAttribute("disabled")).toBe(true);
       expect(forwardButton.hasAttribute("disabled")).toBe(true);
-      expect(compactNewChatButton.querySelector("path")?.getAttribute("d")?.startsWith(CODEX_TITLEBAR_NEW_CHAT_ICON_PREFIX)).toBe(true);
+      expect(compactNewChatButton.querySelector("path")?.getAttribute("d")?.startsWith(TITLEBAR_NEW_CHAT_ICON_PREFIX)).toBe(true);
       expect(collapseButton.className.includes("no-drag")).toBe(true);
 
       await moveSidebarPointer(12);

@@ -1,13 +1,19 @@
+import {
+  CalendarIcon,
+  CanvasIcon,
+  BoardIcon,
+  DatabaseIcon,
+} from "@/components/shared/icons";
 import { describe, expect, test, vi } from "vitest";
 import { createRef } from "react";
 import { fireEvent } from "@testing-library/react";
-import { CalendarDays, Shapes, SquareKanban, Table2 } from "lucide-react";
+
 import { render, textContent } from "../../test/dom";
 
 type DbViewToolbarItem = {
   id: string;
   label: string;
-  icon?: typeof SquareKanban;
+  icon?: typeof BoardIcon;
   active?: boolean;
   onSelect: () => void;
 };
@@ -16,26 +22,26 @@ const ITEMS: DbViewToolbarItem[] = [
   {
     id: "kanban",
     label: "Board",
-    icon: SquareKanban,
+    icon: BoardIcon,
     active: true,
     onSelect: () => undefined,
   },
   {
     id: "list",
     label: "Table",
-    icon: Table2,
+    icon: DatabaseIcon,
     onSelect: () => undefined,
   },
   {
     id: "toggle-list",
     label: "Table",
-    icon: Table2,
+    icon: DatabaseIcon,
     onSelect: () => undefined,
   },
   {
     id: "calendar",
     label: "Calendar",
-    icon: CalendarDays,
+    icon: CalendarIcon,
     onSelect: () => undefined,
   },
 ];
@@ -95,7 +101,7 @@ describe("DbViewToolbar", () => {
         destinationItems={[{
           id: "primary-canvas",
           label: "Canvas",
-          icon: Shapes,
+          icon: CanvasIcon,
           onSelect: onOpenCanvas,
         }]}
         activeSearchQuery=""

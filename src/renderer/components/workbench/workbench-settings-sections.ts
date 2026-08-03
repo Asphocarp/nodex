@@ -11,16 +11,16 @@ import {
   Puzzle,
   Shield,
   Type,
-} from "lucide-react";
+} from "@/components/shared/icons/generic-icons";
 import type { SettingsSearchContext } from "@/lib/settings-search";
 import {
-  CodexKeyboardShortcutsIcon,
-  CodexHooksIcon,
-  CodexSettingsAgentIcon,
-  CodexSettingsAppearanceIcon,
-  CodexSettingsGeneralIcon,
-  CodexSettingsLocalEnvironmentsIcon,
-  CodexSettingsWorktreeIcon,
+  KeyboardShortcutsIcon,
+  HooksIcon,
+  SettingsAgentIcon,
+  SettingsAppearanceIcon,
+  SettingsGeneralIcon,
+  SettingsLocalEnvironmentsIcon,
+  SettingsWorktreeIcon,
 } from "../shared/icons";
 import { SETTINGS_SEARCH_CATALOG } from "./workbench-settings-search-catalog";
 
@@ -81,14 +81,14 @@ export const SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
   {
     id: "general-settings",
     label: "General",
-    icon: CodexSettingsGeneralIcon,
+    icon: SettingsGeneralIcon,
     groupKey: "personal",
     searchMessages: SETTINGS_SEARCH_CATALOG["general-settings"].messages,
   },
   {
     id: "appearance",
     label: "Appearance",
-    icon: CodexSettingsAppearanceIcon,
+    icon: SettingsAppearanceIcon,
     groupKey: "personal",
     searchMessages: SETTINGS_SEARCH_CATALOG.appearance.messages,
   },
@@ -137,7 +137,7 @@ export const SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
   {
     id: "agent",
     label: "Agent",
-    icon: CodexSettingsAgentIcon,
+    icon: SettingsAgentIcon,
     groupKey: "personal",
     searchMessages: SETTINGS_SEARCH_CATALOG.agent.messages,
     searchTerms: SETTINGS_SEARCH_CATALOG.agent.searchTerms,
@@ -152,7 +152,7 @@ export const SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
   {
     id: "keyboard-shortcuts",
     label: "Keyboard shortcuts",
-    icon: CodexKeyboardShortcutsIcon,
+    icon: KeyboardShortcutsIcon,
     groupKey: "personal",
     searchMessages: SETTINGS_SEARCH_CATALOG["keyboard-shortcuts"].messages,
   },
@@ -180,14 +180,14 @@ export const SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
   {
     id: "worktrees",
     label: "Worktrees",
-    icon: CodexSettingsWorktreeIcon,
+    icon: SettingsWorktreeIcon,
     groupKey: "coding",
     searchMessages: SETTINGS_SEARCH_CATALOG.worktrees.messages,
   },
   {
     id: "local-environments",
     label: "Local environments",
-    icon: CodexSettingsLocalEnvironmentsIcon,
+    icon: SettingsLocalEnvironmentsIcon,
     groupKey: "coding",
     searchMessages: SETTINGS_SEARCH_CATALOG["local-environments"].messages,
     searchTerms: SETTINGS_SEARCH_CATALOG["local-environments"].searchTerms,
@@ -195,7 +195,7 @@ export const SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
   {
     id: "hooks-settings",
     label: "Hooks",
-    icon: CodexHooksIcon,
+    icon: HooksIcon,
     groupKey: "coding",
     searchMessages: SETTINGS_SEARCH_CATALOG["hooks-settings"].messages,
   },

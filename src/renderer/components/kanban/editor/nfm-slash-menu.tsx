@@ -18,15 +18,8 @@ import {
   type DefaultReactSuggestionItem,
   type SuggestionMenuProps,
 } from "@blocknote/react";
-import {
-  Bell,
-  CalendarDays,
-  Clock,
-  FileText,
-  Shapes,
-  SendHorizontal,
-  Settings2,
-} from "lucide-react";
+import { SendHorizontal, Settings2 } from "@/components/shared/icons/generic-icons";
+import { PageIcon } from "@/components/shared/icons";
 import {
   NodexDropdownActionRow,
   NodexDropdownMessage,
@@ -64,8 +57,12 @@ import {
 import { createEmptyThreadSectionBlock } from "./thread-section";
 import { formatThreadMentionShortUuid } from "@/lib/nfm/thread-mention-display";
 import {
-  CodexThreadIcon,
+  ThreadIcon,
   NfmSideMenuTableHeaderIcon,
+  BellIcon,
+  CalendarIcon,
+  ClockIcon,
+  CanvasIcon,
 } from "@/components/shared/icons";
 import { WORKFLOW_STATUS_LABELS } from "../../../../shared/workflow-status";
 import {
@@ -467,7 +464,7 @@ export function getNfmSlashMenuCustomItems(
         aliases: ["canvas", "whiteboard", "drawing"],
         group: "Basic blocks",
         badge: "/canvas",
-        icon: <Shapes size={16} />,
+        icon: <CanvasIcon className="icon-xs" />,
         onItemClick: () => {
           void (async () => {
             let blockId: string | null = null;
@@ -740,10 +737,10 @@ export function buildNfmDateMentionSuggestionItem(
 ): NfmSuggestionItem {
   const isReminder = match.group === "Reminders";
   const Icon = isReminder
-    ? Bell
+    ? BellIcon
     : match.key === "date:now"
-      ? Clock
-      : CalendarDays;
+      ? ClockIcon
+      : CalendarIcon;
   return {
     key: match.key,
     title: match.title,
@@ -789,7 +786,7 @@ export function buildNfmPageMentionSuggestionItem(
     group: options.group ?? CARD_MENTION_GROUP,
     hint: null,
     tooltipContent: buildMentionTooltipContent(contextText, item.searchPreview),
-    icon: <FileText className="size-4" aria-hidden="true" />,
+    icon: <PageIcon className="size-4" aria-hidden="true" />,
     onItemClick: () => {
       insertBlock(editor, buildNfmPageMentionBlock(item));
     },
@@ -809,7 +806,7 @@ export function buildNfmThreadMentionSuggestionItem(
     group: options.group ?? CHAT_MENTION_GROUP,
     hint: null,
     tooltipContent: buildMentionTooltipContent(contextText, item.searchPreview),
-    icon: <CodexThreadIcon className="size-4" />,
+    icon: <ThreadIcon className="size-4" />,
     onItemClick: () => {
       insertInlineContent(editor, buildNfmThreadMentionInlineContent(item));
     },

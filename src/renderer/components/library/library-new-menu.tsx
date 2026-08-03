@@ -1,6 +1,6 @@
 import type { ReactElement } from "react";
 
-import { CodexDatabaseIcon, CodexPageIcon } from "@/components/shared/icons";
+import { DatabaseIcon, PageIcon } from "@/components/shared/icons";
 import {
   NodexDropdownItem,
   NodexDropdownMenu,
@@ -68,13 +68,13 @@ export function LibraryNewMenu({
       contentWidth="sm"
     >
       <NodexDropdownItem
-        leftSlot={<CodexPageIcon />}
+        leftSlot={<PageIcon />}
         onSelect={() => void createPage()}
       >
         Page
       </NodexDropdownItem>
       <NodexDropdownItem
-        leftSlot={<CodexDatabaseIcon />}
+        leftSlot={<DatabaseIcon />}
         onSelect={() => void createDatabase()}
       >
         Database

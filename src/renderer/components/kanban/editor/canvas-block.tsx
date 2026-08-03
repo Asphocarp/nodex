@@ -1,3 +1,4 @@
+import { CanvasIcon } from "@/components/shared/icons";
 import {
   lazy,
   Suspense,
@@ -9,11 +10,7 @@ import {
   type RefCallback,
 } from "react";
 import { createReactBlockSpec } from "@blocknote/react";
-import {
-  ExternalLink,
-  Pencil,
-  Shapes,
-} from "lucide-react";
+import { ExternalLink, Pencil } from "@/components/shared/icons/generic-icons";
 
 import { CanvasDocumentState } from "@/components/kanban/canvas-document-state";
 import { useBlockReferenceHostRuntime } from "@/components/block-documents/block-reference-runtime-context";
@@ -120,7 +117,7 @@ export function CanvasBlockFrame({
       }}
     >
       <div className="flex min-h-9 items-center gap-2 border-b border-token-border-default px-2.5">
-        <Shapes className="icon-2xs shrink-0 text-token-description-foreground" />
+        <CanvasIcon className="icon-2xs shrink-0 text-token-description-foreground" />
         {renaming ? (
           <input
             autoFocus

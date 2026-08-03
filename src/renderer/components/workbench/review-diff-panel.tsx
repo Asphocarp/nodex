@@ -26,8 +26,9 @@ import {
 import {
   ChevronDownIcon,
   CheckmarkIcon,
-  CodexCloseIcon,
-  CodexSidePanelFilesIcon,
+  CloseIcon,
+  SidePanelFilesIcon,
+  FileIcon,
   FileTreeChevronIcon,
   FileTreeLockIcon,
   ReviewCollapseAllDiffsIcon,
@@ -39,8 +40,6 @@ import {
   ReviewEnableWordWrapIcon,
   ReviewFileToggleChevronIcon,
   ReviewExpandAllDiffsIcon,
-  ReviewFileDocumentIcon,
-  ReviewFullFilesIcon,
   ReviewHideWhitespaceIcon,
   ReviewJumpToFileIcon,
   ReviewOpenInIcon,
@@ -52,9 +51,9 @@ import {
   ReviewWordDiffsIcon,
 } from "../shared/icons";
 import {
-  CodexFileTreeFileIcon,
-  CodexFileTreeIconSprite,
-} from "../shared/codex-file-tree-icons";
+  FileTypeIcon,
+  FileTypeIconSprite,
+} from "@/components/shared/icons";
 import {
   NodexDropdownFlyoutSubmenuItem,
   NodexDropdownItem,
@@ -2498,7 +2497,7 @@ const ReviewFileRow = memo(function ReviewFileRow({
           <div className="group/diff-header text-size-chat @container/diff-header relative flex items-center gap-2 py-0.5 ps-3 pe-2 hover:bg-token-list-hover-background bg-[color-mix(in_srgb,var(--color-token-main-surface-primary)_88%,transparent)] [.dark_&]:bg-[color-mix(in_srgb,var(--color-token-list-active-selection-background)_88%,transparent)] [.electron-dark_&]:bg-[color-mix(in_srgb,var(--color-token-list-active-selection-background)_88%,transparent)] mb-0.5">
             <div className="text-size-chat flex min-w-0 flex-1 items-center text-token-text-primary gap-0.5">
               <div className="flex min-w-0 items-center gap-2 pl-1">
-                <CodexFileTreeFileIcon path={entry.displayPath} />
+                <FileTypeIcon path={entry.displayPath} />
                 <span
                   className="min-w-0"
                   onClick={(event) => event.stopPropagation()}
@@ -3041,7 +3040,7 @@ function ReviewFileTreePane({
               )}
             />
           ) : (
-            <CodexFileTreeFileIcon path={row.path} />
+            <FileTypeIcon path={row.path} />
           )}
         </div>
         <div
@@ -3127,7 +3126,7 @@ function ReviewFileTreePane({
               className="flex size-7 shrink-0 cursor-interaction items-center justify-center rounded-md text-token-input-placeholder-foreground hover:text-token-foreground"
               onClick={() => onFileFilterChange("")}
             >
-              <CodexCloseIcon className="icon-2xs" />
+              <CloseIcon className="icon-2xs" />
             </button>
           ) : null}
         </div>
@@ -4896,7 +4895,7 @@ export function ReviewDiffPanel({
 
   return (
     <div className="relative h-full min-h-0 bg-token-main-surface-primary">
-      <CodexFileTreeIconSprite />
+      <FileTypeIconSprite />
       <div className="relative grid h-full min-h-0 w-full grid-rows-[auto_1fr]">
         <div className="h-toolbar-pane border-b bg-token-main-surface-primary [container-name:review-header] [container-type:inline-size] grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-token-border px-2 py-1 text-token-description-foreground">
           <div className="flex min-w-0 items-center gap-2">
@@ -5078,7 +5077,7 @@ export function ReviewDiffPanel({
               <NodexDropdownItem
                 onSelect={() => setLoadFullFilesEnabled((current) => !current)}
                 leftSlot={
-                  <ReviewFullFilesIcon
+                  <FileIcon
                     className={REVIEW_OPTIONS_MENU_ICON_CLASS_NAME}
                   />
                 }
@@ -5132,7 +5131,7 @@ export function ReviewDiffPanel({
                 onSelect={() => void handleCopyGitApplyCommand()}
                 disabled={!canCopyGitApplyCommand}
                 leftSlot={
-                  <ReviewFileDocumentIcon
+                  <FileIcon
                     className={REVIEW_OPTIONS_MENU_ICON_CLASS_NAME}
                   />
                 }
@@ -5214,7 +5213,7 @@ export function ReviewDiffPanel({
               aria-label={toggleFileTreeLabel}
               onClick={() => setFileTreeOpen((current) => !current)}
             >
-              <CodexSidePanelFilesIcon className="icon-sm" />
+              <SidePanelFilesIcon className="icon-sm" />
             </button>
             <button
               type="button"

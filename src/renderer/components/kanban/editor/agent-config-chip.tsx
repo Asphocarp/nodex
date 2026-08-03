@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { createReactInlineContentSpec } from "@blocknote/react";
-import { AlertTriangle, Bot, Gauge, RotateCcw, Settings2 } from "lucide-react";
+import { AlertTriangle, Bot, Gauge, RotateCcw, Settings2 } from "@/components/shared/icons/generic-icons";
 import {
   NodexDropdownButtonTrigger,
   NodexDropdownChoiceMenu,

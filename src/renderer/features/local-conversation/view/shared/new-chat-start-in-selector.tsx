@@ -1,4 +1,4 @@
-import { CloudOff } from "lucide-react";
+import { CloudOff } from "@/components/shared/icons/generic-icons";
 import { type ReactElement, type ReactNode } from "react";
 import {
   LocalStatusIcon,

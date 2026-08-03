@@ -1,4 +1,10 @@
 import {
+  CalendarIcon,
+  CanvasIcon,
+  BoardIcon,
+  DatabaseIcon,
+} from "@/components/shared/icons";
+import {
   useCallback,
   useEffect,
   useMemo,
@@ -8,12 +14,7 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
-import {
-  CalendarDays,
-  Shapes,
-  SquareKanban,
-  Table2,
-} from "lucide-react";
+
 import {
   CalendarToolbarControls,
   CalendarToolbarMonthLabel,
@@ -62,10 +63,10 @@ const DB_VIEW_TABS: Array<{
   label: string;
   icon: ComponentType<{ className?: string }>;
 }> = [
-  { id: "kanban", label: "Board", icon: SquareKanban },
-  { id: "list", label: "Table", icon: Table2 },
+  { id: "kanban", label: "Board", icon: BoardIcon },
+  { id: "list", label: "Table", icon: DatabaseIcon },
   { id: "toggle-list", label: "List", icon: ToggleListIcon },
-  { id: "calendar", label: "Calendar", icon: CalendarDays },
+  { id: "calendar", label: "Calendar", icon: CalendarIcon },
 ];
 
 const durableDatabaseToolbarItem = (
@@ -77,7 +78,7 @@ const durableDatabaseToolbarItem = (
   return {
     id: model.query.view.kind,
     label: item?.label ?? model.viewName,
-    icon: item?.icon ?? Table2,
+    icon: item?.icon ?? DatabaseIcon,
     active: true,
     onSelect: () => undefined,
   };
@@ -412,7 +413,7 @@ export function DbViewSessionTab({
         destinationItems={[{
           id: "primary-canvas",
           label: "Canvas",
-          icon: Shapes,
+          icon: CanvasIcon,
           onSelect: () => {
             void onOpenCanvasStage(
               projectId,
@@ -433,7 +434,7 @@ export function DbViewSessionTab({
         taskSearchInputRef={taskSearchInputRef}
         managementControl={(
           <NodexIconButton
-            icon={Table2}
+            icon={DatabaseIcon}
             size="sm"
             active={databaseManagerOpen}
             ariaLabel="Manage Databases"
@@ -470,7 +471,7 @@ export function DbViewSessionTab({
         destinationItems={[{
           id: "primary-canvas",
           label: "Canvas",
-          icon: Shapes,
+          icon: CanvasIcon,
           onSelect: () => {
             void onOpenCanvasStage(
               projectId,
@@ -497,7 +498,7 @@ export function DbViewSessionTab({
         calendarControls={calendarToolbarControls}
         managementControl={(
           <NodexIconButton
-            icon={Table2}
+            icon={DatabaseIcon}
             size="sm"
             active={databaseManagerOpen}
             ariaLabel="Manage Databases"

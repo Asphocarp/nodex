@@ -1,6 +1,12 @@
-import { MoreHorizontal, Plus, Shapes } from "lucide-react";
+
 import { useMemo, useState } from "react";
-import { CodexDatabaseIcon, CodexPageIcon } from "@/components/shared/icons";
+import {
+  DatabaseIcon,
+  PageIcon,
+  ProjectActionsIcon,
+  PlusIcon,
+  CanvasIcon,
+} from "@/components/shared/icons";
 import type {
   LibraryResourceTarget,
   LibraryReadValue,
@@ -77,9 +83,9 @@ const nodeTarget = (node: StandaloneRoot): LibraryResourceTarget => {
 const nodeKey = (node: StandaloneRoot): string => rootKey(nodeTarget(node));
 
 const nodeIcon = (node: StandaloneRoot) => {
-  if (node.kind === "page") return <CodexPageIcon />;
-  if (node.kind === "database") return <CodexDatabaseIcon />;
-  return <Shapes className="icon-xs" />;
+  if (node.kind === "page") return <PageIcon />;
+  if (node.kind === "database") return <DatabaseIcon />;
+  return <CanvasIcon className="icon-xs" />;
 };
 
 function SidebarPageRootRow({
@@ -175,7 +181,7 @@ function SidebarPageRootRow({
                   onClick={(event) => event.stopPropagation()}
                   onPointerDown={(event) => event.stopPropagation()}
                 >
-                  <MoreHorizontal className="icon-xs shrink-0" />
+                  <ProjectActionsIcon className="icon-xs shrink-0" />
                 </button>
               )}
             />
@@ -241,7 +247,7 @@ export function SidebarPagesSection({
           }}
           triggerButton={(
             <CodexSidebarActionButton label="New Page or Database">
-              <Plus className="icon-sm" />
+              <PlusIcon className="icon-sm" />
             </CodexSidebarActionButton>
           )}
         />

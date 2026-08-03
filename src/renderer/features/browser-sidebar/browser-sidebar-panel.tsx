@@ -17,7 +17,6 @@ import {
   AlertTriangle,
   ContactRound,
   Download,
-  FolderOpen,
   History,
   Info,
   KeyRound,
@@ -26,7 +25,6 @@ import {
   Minus,
   Pause,
   Play,
-  Plus,
   Printer,
   Puzzle,
   RotateCcw,
@@ -35,7 +33,7 @@ import {
   Trash2,
   WifiOff,
   X,
-} from "lucide-react";
+} from "@/components/shared/icons/generic-icons";
 import {
   BROWSER_SIDEBAR_DEVICE_PRESETS,
   DEFAULT_BROWSER_LOCAL_SERVER_PREFERENCES,
@@ -138,15 +136,17 @@ import {
 import { publishBrowserImageAttachment } from "./browser-image-attachments";
 import { publishBrowserImageDragState } from "./browser-image-drag-state";
 import {
-  CodexBrowserAnnotateIcon,
-  CodexBrowserBackIcon,
-  CodexBrowserExternalIcon,
-  CodexBrowserHideIcon,
-  CodexBrowserLocalServerFilterIcon,
-  CodexBrowserMoreIcon,
-  CodexBrowserReloadIcon,
-  CodexBrowserScreenshotIcon,
+  BrowserAnnotateIcon,
+  BrowserBackIcon,
+  BrowserExternalIcon,
+  BrowserHideIcon,
+  BrowserLocalServerFilterIcon,
+  BrowserMoreIcon,
+  BrowserReloadIcon,
+  BrowserScreenshotIcon,
   StopIcon,
+  FolderOpenIcon,
+  PlusIcon,
 } from "@/components/shared/icons";
 import {
   NodexDropdownButtonTrigger,
@@ -1135,7 +1135,7 @@ export function BrowserSidebarPanel({
               void command({ type: "go-back", ...browserIdentity });
             }}
           >
-            <CodexBrowserBackIcon className="icon-sm" />
+            <BrowserBackIcon className="icon-sm" />
           </BrowserToolbarButton>
           <BrowserToolbarButton
             label="Forward"
@@ -1144,7 +1144,7 @@ export function BrowserSidebarPanel({
               void command({ type: "go-forward", ...browserIdentity });
             }}
           >
-            <CodexBrowserBackIcon className="icon-sm rotate-180" />
+            <BrowserBackIcon className="icon-sm rotate-180" />
           </BrowserToolbarButton>
           <BrowserToolbarButton
             label={snapshot.isLoading ? "Stop" : "Reload"}
@@ -1157,7 +1157,7 @@ export function BrowserSidebarPanel({
               void command({ type: "reload", ...browserIdentity });
             }}
           >
-            {snapshot.isLoading ? <StopIcon className="icon-sm" /> : <CodexBrowserReloadIcon className="icon-sm" />}
+            {snapshot.isLoading ? <StopIcon className="icon-sm" /> : <BrowserReloadIcon className="icon-sm" />}
           </BrowserToolbarButton>
           <form
             className="no-drag flex min-w-0 flex-1 items-center justify-center px-1 text-sm text-token-text-primary"
@@ -1223,7 +1223,7 @@ export function BrowserSidebarPanel({
                 onClick={() => void command({ type: "open-external", ...browserIdentity })}
                 aria-label="Open externally"
               >
-                <CodexBrowserExternalIcon className="icon-xs" />
+                <BrowserExternalIcon className="icon-xs" />
               </button>
             </div>
           </form>
@@ -1237,7 +1237,7 @@ export function BrowserSidebarPanel({
           </div>
           <div className={cn(BROWSER_COLLAPSIBLE_ACTION_CLASS, pageActionsDisabled ? "pointer-events-none max-w-0 opacity-0 -translate-y-0.5" : "max-w-7 opacity-100 translate-y-0")}>
             <BrowserToolbarButton label="Capture screenshot" disabled={pageActionsDisabled} onClick={() => void captureScreenshot()}>
-              <CodexBrowserScreenshotIcon className="icon-sm" />
+              <BrowserScreenshotIcon className="icon-sm" />
             </BrowserToolbarButton>
           </div>
           <div className={cn(BROWSER_COLLAPSIBLE_ACTION_CLASS, pageActionsDisabled ? "pointer-events-none max-w-0 opacity-0 -translate-y-0.5" : commentMode ? "max-w-[112px] opacity-100 translate-y-0" : "max-w-7 opacity-100 translate-y-0")}>
@@ -1259,7 +1259,7 @@ export function BrowserSidebarPanel({
                 });
               }}
             >
-              <CodexBrowserAnnotateIcon className="icon-sm shrink-0" />
+              <BrowserAnnotateIcon className="icon-sm shrink-0" />
               <span className={cn("overflow-hidden whitespace-nowrap text-sm transition-[max-width,opacity] duration-150", commentMode ? "max-w-20 opacity-100" : "max-w-0 opacity-0")}>
                 Annotating
               </span>
@@ -1882,11 +1882,11 @@ function BrowserOverflowMenu({
           className={cn(BROWSER_TOOL_BUTTON_CLASS, disabled && "cursor-default opacity-40")}
           aria-label="Browser options"
         >
-          <CodexBrowserMoreIcon className="icon-sm" />
+          <BrowserMoreIcon className="icon-sm" />
         </button>
       )}
     >
-      <NodexDropdownItem disabled={disabled} leftSlot={<CodexBrowserReloadIcon className="icon-xs" />} onSelect={onHardReload}>
+      <NodexDropdownItem disabled={disabled} leftSlot={<BrowserReloadIcon className="icon-xs" />} onSelect={onHardReload}>
         Force reload
       </NodexDropdownItem>
       <NodexDropdownItem disabled={disabled} leftSlot={<Smartphone className="icon-xs" />} onSelect={onToggleDeviceToolbar}>
@@ -1935,7 +1935,7 @@ function BrowserOverflowMenu({
           onClick={() => onStepZoom(25)}
           aria-label="Zoom in"
         >
-          <Plus className="icon-xs" />
+          <PlusIcon className="icon-xs" />
         </button>
         <button
           type="button"
@@ -2235,7 +2235,7 @@ function BrowserDownloadRow({
                   label="Show in folder"
                   onClick={() => action("show-in-folder")}
                 >
-                  <FolderOpen className="icon-xs" />
+                  <FolderOpenIcon className="icon-xs" />
                 </BrowserDownloadActionButton>
               </>
             ) : null}
@@ -2730,7 +2730,7 @@ export function BrowserNewTabState({
               aria-label="Refresh local servers"
               title="Refresh local servers"
             >
-              <CodexBrowserReloadIcon className="icon-xs" />
+              <BrowserReloadIcon className="icon-xs" />
             </button>
             <NodexDropdownMenu
               align="end"
@@ -2742,7 +2742,7 @@ export function BrowserNewTabState({
                   aria-label="Local server options"
                   title="Local server options"
                 >
-                  <CodexBrowserLocalServerFilterIcon className="icon-xs" />
+                  <BrowserLocalServerFilterIcon className="icon-xs" />
                 </button>
               )}
             >
@@ -2872,7 +2872,7 @@ function LocalServerThumbnail({
       role="img"
     >
       {loading ? (
-        <CodexBrowserReloadIcon className="icon-xs animate-spin motion-reduce:animate-none" />
+        <BrowserReloadIcon className="icon-xs animate-spin motion-reduce:animate-none" />
       ) : online ? (
         <span className="size-1.5 rounded-full bg-token-text-tertiary/50" />
       ) : (
@@ -2953,7 +2953,7 @@ function LocalServerCard({
           aria-label={hiddenMode ? `Unhide ${server.origin}` : `Hide ${server.origin}`}
           onClick={hiddenMode ? onUnhide : onHide}
         >
-          {hiddenMode ? <Check className="icon-xs" /> : <CodexBrowserHideIcon className="icon-xs" />}
+          {hiddenMode ? <Check className="icon-xs" /> : <BrowserHideIcon className="icon-xs" />}
         </button>
       </div>
     </div>

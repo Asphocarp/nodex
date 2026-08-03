@@ -59,9 +59,9 @@ import {
 import type { StableWorktreeEntry } from "./stable-worktree-production";
 import { StableWorktreeSidebarRows } from "./stable-worktree-sidebar-row";
 import {
-  CodexAutomationsIcon,
-  CodexNewChatIcon,
-  CodexThreadIcon,
+  AutomationsIcon,
+  NewChatIcon,
+  ThreadIcon,
   ComposerPluginsIcon,
 } from "@/components/shared/icons";
 import {
@@ -300,7 +300,7 @@ function SidebarPinnedThreadRowsContent({
             return (
               <div className="flex h-[var(--height-token-nav-row)] max-w-80 items-center gap-2 px-2 text-base text-token-foreground">
                 <span className="flex size-5 shrink-0 items-center justify-center">
-                  <CodexThreadIcon className="icon-xs" />
+                  <ThreadIcon className="icon-xs" />
                 </span>
                 <span className="min-w-0 truncate">{item.title}</span>
               </div>
@@ -400,7 +400,7 @@ function SidebarThreadContainerRowsContent({
                     return (
                       <div className="flex h-[var(--height-token-nav-row)] max-w-80 items-center gap-2 px-2 text-base text-token-foreground">
                         <span className="flex size-5 shrink-0 items-center justify-center">
-                          <CodexThreadIcon className="icon-xs" />
+                          <ThreadIcon className="icon-xs" />
                         </span>
                         <span className="min-w-0 truncate">{item.title}</span>
                       </div>
@@ -553,7 +553,7 @@ function SidebarProjectThreadRowsContent({
     return (
       <div className="flex h-[var(--height-token-nav-row)] max-w-80 items-center gap-2 px-2 text-base text-token-foreground">
         <span className="flex size-5 shrink-0 items-center justify-center">
-          <CodexThreadIcon className="icon-xs" />
+          <ThreadIcon className="icon-xs" />
         </span>
         <span className="min-w-0 truncate">{item.title}</span>
       </div>
@@ -1521,7 +1521,7 @@ function SidebarThreadOrganizerSections({
             data-app-action-sidebar-projectless-new-chat=""
             onClick={() => void onStartNewChatInProject(null)}
           >
-            <CodexNewChatIcon />
+            <NewChatIcon />
           </CodexSidebarActionButton>
         )}
       >
@@ -1977,7 +1977,7 @@ export function ProjectSessionSidebar({
                     <div className="flex flex-col gap-px">
                       <CodexSidebarTopActionButton
                         label="Scheduled"
-                        icon={<CodexAutomationsIcon />}
+                        icon={<AutomationsIcon />}
                         active={automationsActive}
                         onClick={() => onOpenAutomations()}
                       />

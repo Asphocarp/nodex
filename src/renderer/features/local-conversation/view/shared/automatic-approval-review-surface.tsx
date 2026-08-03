@@ -12,11 +12,11 @@ import {
 import { CodexShimmerText } from "./codex-shimmer-text";
 import { CODEX_THREAD_ACCORDION_TRANSITION } from "./thread-motion";
 import { ThreadActivityDisclosure } from "./tools/tool-primitives";
-import { CodexAutomaticApprovalReviewIcon } from "./tools/codex-tool-icons";
+import { AutomaticApprovalReviewIcon } from "@/components/shared/icons";
 
 export function AutomaticApprovalReviewShield({ className }: { className?: string }) {
   return (
-    <CodexAutomaticApprovalReviewIcon
+    <AutomaticApprovalReviewIcon
       aria-hidden
       className={cn("icon-xs shrink-0 text-token-input-placeholder-foreground", className)}
     />

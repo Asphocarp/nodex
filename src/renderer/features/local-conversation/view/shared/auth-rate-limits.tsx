@@ -1,5 +1,6 @@
+import { ChevronRightIcon } from "@/components/shared/icons";
 import { useId, useRef, useState } from "react";
-import { ChevronRight } from "lucide-react";
+
 import type {
   CodexAccountSnapshot,
   CodexRateLimitResetCredit,
@@ -320,7 +321,7 @@ export function QuotaResetTooltipSection({
         <span className="min-w-0 flex-1 truncate text-sm font-medium text-(--foreground)">
           {formatQuotaResetAvailability(summary.availableCount)}
         </span>
-        <ChevronRight
+        <ChevronRightIcon
           aria-hidden="true"
           className={`size-4 shrink-0 text-(--foreground-secondary) transition-transform duration-150 ${expanded ? "rotate-90" : ""}`}
         />

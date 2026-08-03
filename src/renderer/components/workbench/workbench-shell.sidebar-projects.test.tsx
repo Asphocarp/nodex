@@ -3,7 +3,7 @@ import { describe, test, expect } from "vitest";
 import { settleAsyncRender, textContent } from "../../test/dom";
 import { within, act, fireEvent, waitFor } from "@testing-library/react";
 import { type CodexSidebarSyncResult, type CodexSidebarThreadItem } from "@/lib/types";
-import { CODEX_NEW_CHAT_ICON_PREFIX, codexHostMessageListener, getSidebarProjectGroup, getSidebarSection, getThreadRow, getThreadRowTitles, invokeCalls, makeAttachedSession, makePanelLayout, makeProject, makeSession, makeSidebarSnapshotItemForSession, openPanelMenu, renderWorkbench } from "./workbench-testkit/workbench-shell-harness";
+import { NEW_CHAT_ICON_PREFIX, codexHostMessageListener, getSidebarProjectGroup, getSidebarSection, getThreadRow, getThreadRowTitles, invokeCalls, makeAttachedSession, makePanelLayout, makeProject, makeSession, makeSidebarSnapshotItemForSession, openPanelMenu, renderWorkbench } from "./workbench-testkit/workbench-shell-harness";
 
 async function ensureProjectRowExpanded(
   container: HTMLElement,
@@ -591,7 +591,7 @@ describe("workbench session shell / sidebar-projects", () => {
 
       const betaAction = screen.getByLabelText("Start new chat in Beta");
       const iconPath = betaAction.querySelector("path")?.getAttribute("d") ?? "";
-      expect(iconPath.startsWith(CODEX_NEW_CHAT_ICON_PREFIX)).toBe(true);
+      expect(iconPath.startsWith(NEW_CHAT_ICON_PREFIX)).toBe(true);
 
       await act(async () => {
         fireEvent.click(betaAction);

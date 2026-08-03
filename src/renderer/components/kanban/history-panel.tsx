@@ -9,13 +9,13 @@ import {
 } from "react";
 import {
   ChevronDown,
-  FileClock,
   GitCommitHorizontal,
   History,
   Route,
   ShieldCheck,
   XIcon,
-} from "lucide-react";
+} from "@/components/shared/icons/generic-icons";
+import { FileIcon } from "@/components/shared/icons";
 
 import { NodexButton } from "@/components/ui/button";
 import {
@@ -886,7 +886,7 @@ function HistoryKindIcon({
   className?: string;
 }) {
   if (entry.kind === "document_version") {
-    return <FileClock className={cn("icon-2xs shrink-0 text-token-description-foreground", className)} />;
+    return <FileIcon className={cn("icon-2xs shrink-0 text-token-description-foreground", className)} />;
   }
   if (entry.kind === "block_relocation") {
     return <Route className={cn("icon-2xs shrink-0 text-token-description-foreground", className)} />;

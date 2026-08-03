@@ -7,7 +7,13 @@ import {
   type ReactNode,
 } from "react";
 import { createReactInlineContentSpec } from "@blocknote/react";
-import { AlertCircle, Archive, CheckCircle2, Copy, Loader2, Play } from "lucide-react";
+import {
+  AlertCircle,
+  CheckCircle2,
+  Copy,
+  Loader2,
+  Play,
+} from "@/components/shared/icons/generic-icons";
 
 import { NodexTooltip } from "@/components/ui/tooltip";
 import {
@@ -25,7 +31,7 @@ import {
 } from "@/lib/nfm/thread-mention-display";
 import { cn } from "@/lib/utils";
 import { threadMentionInlineContentConfig } from "../../../../shared/block-documents/blocknote-schema-config";
-import { CodexThreadIcon } from "@/components/shared/icons";
+import { ThreadIcon, ArchiveIcon } from "@/components/shared/icons";
 import { ThreadMentionInlineVisual } from "../thread-mention-inline-visual";
 
 export interface ThreadMentionProps {
@@ -89,10 +95,10 @@ function ThreadMentionStateIcon({
   if (missing || thread?.statusType === "systemError") {
     return <AlertCircle className="inline-block size-3.5 shrink-0" />;
   }
-  if (thread?.archived) return <Archive className="inline-block size-3.5 shrink-0" />;
+  if (thread?.archived) return <ArchiveIcon className="inline-block size-3.5 shrink-0" />;
   if (thread?.statusType === "active") return <Play className="inline-block size-3.5 shrink-0 fill-current" />;
   if (thread?.statusType === "idle") return <CheckCircle2 className="inline-block size-3.5 shrink-0" />;
-  return <CodexThreadIcon className="inline-block size-3.5 shrink-0" />;
+  return <ThreadIcon className="inline-block size-3.5 shrink-0" />;
 }
 
 export { formatThreadMentionShortUuid };

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CodexSettingsAgentIcon } from "@/components/shared/icons";
+import { SettingsAgentIcon } from "@/components/shared/icons";
 import { toast } from "@/components/ui/toast";
 import type { ThreadStageActions } from "../../thread-stage-types";
 import {
@@ -49,7 +49,7 @@ export function AutoReviewApprovalNudge({
       >
         <div className="flex flex-col gap-5 px-4 pt-4 pb-5">
           <div className="flex items-center gap-2 text-sm text-token-description-foreground">
-            <CodexSettingsAgentIcon className="icon-sm shrink-0" />
+            <SettingsAgentIcon className="icon-sm shrink-0" />
             <span>Want fewer approval prompts?</span>
           </div>
           <div className="text-base leading-6">

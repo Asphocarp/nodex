@@ -1,4 +1,4 @@
-export type CodexFileTreeIconColorName =
+export type FileTreeIconColorName =
   | "blue"
   | "cyan"
   | "gray"
@@ -13,7 +13,7 @@ export type CodexFileTreeIconColorName =
   | "vermilion"
   | "yellow";
 
-export type CodexFileTreeIconToken =
+export type FileTreeIconToken =
   | "astro"
   | "babel"
   | "bash"
@@ -68,13 +68,13 @@ export type CodexFileTreeIconToken =
   | "zig"
   | "zip";
 
-export interface CodexFileTreeIconDescriptor {
-  token: CodexFileTreeIconToken;
-  name: `file-tree-builtin-${CodexFileTreeIconToken}`;
+export interface FileTreeIconDescriptor {
+  token: FileTreeIconToken;
+  name: `file-tree-builtin-${FileTreeIconToken}`;
   viewBox: "0 0 16 16";
 }
 
-const CODEX_FILE_TREE_ICON_COLOR_FALLBACKS = {
+const FILE_TREE_ICON_COLOR_FALLBACKS = {
   blue: "light-dark(#1a85d4, #69b1ff)",
   cyan: "light-dark(#1ca1c7, #68cdf2)",
   gray: "light-dark(#84848a, #adadb1)",
@@ -88,9 +88,9 @@ const CODEX_FILE_TREE_ICON_COLOR_FALLBACKS = {
   teal: "light-dark(#17a5af, #64d1db)",
   vermilion: "light-dark(#ff8c5b, #d5512f)",
   yellow: "light-dark(#d5a910, #ffd452)",
-} satisfies Record<CodexFileTreeIconColorName, string>;
+} satisfies Record<FileTreeIconColorName, string>;
 
-const CODEX_FILE_TREE_ICON_COLOR_BY_TOKEN: Partial<Record<CodexFileTreeIconToken, CodexFileTreeIconColorName>> = {
+const FILE_TREE_ICON_COLOR_BY_TOKEN: Partial<Record<FileTreeIconToken, FileTreeIconColorName>> = {
   astro: "purple",
   babel: "yellow",
   bash: "green",
@@ -143,7 +143,7 @@ const CODEX_FILE_TREE_ICON_COLOR_BY_TOKEN: Partial<Record<CodexFileTreeIconToken
   zip: "orange",
 };
 
-const EXACT_FILE_TOKEN_BY_NAME: Record<string, CodexFileTreeIconToken> = {
+const EXACT_FILE_TOKEN_BY_NAME: Record<string, FileTreeIconToken> = {
   ".babelrc": "babel",
   ".browserslistrc": "browserslist",
   ".dockerignore": "docker",
@@ -202,7 +202,7 @@ const EXACT_FILE_TOKEN_BY_NAME: Record<string, CodexFileTreeIconToken> = {
   yarn: "npm",
 };
 
-const EXTENSION_TOKEN_BY_NAME: Record<string, CodexFileTreeIconToken> = {
+const EXTENSION_TOKEN_BY_NAME: Record<string, FileTreeIconToken> = {
   astro: "astro",
   bash: "bash",
   bmp: "image",
@@ -260,7 +260,7 @@ const EXTENSION_TOKEN_BY_NAME: Record<string, CodexFileTreeIconToken> = {
   yml: "yml",
   zig: "zig",
   zip: "zip",
-} satisfies Record<string, CodexFileTreeIconToken>;
+} satisfies Record<string, FileTreeIconToken>;
 
 function basename(path: string): string {
   const normalized = path.replace(/\\/g, "/");
@@ -274,7 +274,7 @@ function extensionForBasename(name: string): string {
   return name.slice(index + 1);
 }
 
-function resolveByConfigPrefix(lowerName: string): CodexFileTreeIconToken | null {
+function resolveByConfigPrefix(lowerName: string): FileTreeIconToken | null {
   if (lowerName.startsWith("astro.config.")) return "astro";
   if (lowerName.startsWith("babel.config.")) return "babel";
   if (lowerName.startsWith("biome.")) return "biome";
@@ -284,7 +284,7 @@ function resolveByConfigPrefix(lowerName: string): CodexFileTreeIconToken | null
   return null;
 }
 
-export function resolveCodexFileTreeIconToken(path: string): CodexFileTreeIconToken {
+export function resolveFileTreeIconToken(path: string): FileTreeIconToken {
   const name = basename(path).toLowerCase();
   const exactToken = EXACT_FILE_TOKEN_BY_NAME[name];
   if (exactToken) return exactToken;
@@ -297,8 +297,8 @@ export function resolveCodexFileTreeIconToken(path: string): CodexFileTreeIconTo
   return EXTENSION_TOKEN_BY_NAME[extension] ?? "default";
 }
 
-export function resolveCodexFileTreeIcon(path: string): CodexFileTreeIconDescriptor {
-  const token = resolveCodexFileTreeIconToken(path);
+export function resolveFileTreeIcon(path: string): FileTreeIconDescriptor {
+  const token = resolveFileTreeIconToken(path);
   return {
     token,
     name: `file-tree-builtin-${token}`,
@@ -306,16 +306,16 @@ export function resolveCodexFileTreeIcon(path: string): CodexFileTreeIconDescrip
   };
 }
 
-export function getCodexFileTreeIconColor(token: CodexFileTreeIconToken | null | undefined): string {
+export function getFileTreeIconColor(token: FileTreeIconToken | null | undefined): string {
   if (!token) return "var(--color-token-text-tertiary)";
-  const colorName = CODEX_FILE_TREE_ICON_COLOR_BY_TOKEN[token];
+  const colorName = FILE_TREE_ICON_COLOR_BY_TOKEN[token];
   if (!colorName) return "var(--color-token-text-tertiary)";
 
-  const fallback = CODEX_FILE_TREE_ICON_COLOR_FALLBACKS[colorName];
+  const fallback = FILE_TREE_ICON_COLOR_FALLBACKS[colorName];
   return `var(--trees-file-icon-color-${token}, var(--trees-file-icon-color, ${fallback}))`;
 }
 
-export const codexFileTreeIconTestInternals = {
-  CODEX_FILE_TREE_ICON_COLOR_FALLBACKS,
-  CODEX_FILE_TREE_ICON_COLOR_BY_TOKEN,
+export const fileTreeIconTestInternals = {
+  FILE_TREE_ICON_COLOR_FALLBACKS,
+  FILE_TREE_ICON_COLOR_BY_TOKEN,
 };

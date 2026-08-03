@@ -1,8 +1,4 @@
-import {
-  Check,
-  Plus,
-  Search,
-} from "lucide-react";
+import { Check } from "@/components/shared/icons/generic-icons";
 import {
   useEffect,
   useId,
@@ -10,7 +6,7 @@ import {
   useState,
   type KeyboardEvent,
 } from "react";
-import { CodexSpinnerIcon } from "@/components/shared/icons";
+import { ActivitySpinnerIcon, PlusIcon, SearchIcon } from "@/components/shared/icons";
 import { NodexDropdownButtonTrigger } from "@/components/ui/dropdown";
 import {
   NodexPopover,
@@ -64,7 +60,7 @@ function ProjectAgentDockChatIndicatorView({
       aria-hidden={label ? undefined : true}
     >
       {indicator === "running" ? (
-        <CodexSpinnerIcon
+        <ActivitySpinnerIcon
           className="icon-2xs shrink-0"
           animationDurationMs={2_000}
         />
@@ -170,7 +166,7 @@ export function ProjectAgentDockTargetSelector({
           className="group/agent-target max-w-72 px-1.5 text-token-text-tertiary hover:text-token-foreground"
         >
           {model.trigger.kind === "new" ? (
-            <Plus
+            <PlusIcon
               aria-hidden="true"
               className="size-3.5 shrink-0 text-token-description-foreground"
             />
@@ -193,7 +189,7 @@ export function ProjectAgentDockTargetSelector({
         onCloseAutoFocus={(event) => event.preventDefault()}
       >
         <div className="flex h-8 items-center gap-1.5 px-1.5">
-          <Search className="size-3.5 shrink-0 text-token-description-foreground" aria-hidden="true" />
+          <SearchIcon className="size-3.5 shrink-0 text-token-description-foreground" aria-hidden="true" />
           <input
             ref={inputRef}
             role="combobox"
@@ -234,7 +230,7 @@ export function ProjectAgentDockTargetSelector({
               onClick={() => accept(row)}
             >
               {row.kind === "new" ? (
-                <Plus className="size-3.5 shrink-0 text-token-description-foreground" aria-hidden="true" />
+                <PlusIcon className="size-3.5 shrink-0 text-token-description-foreground" aria-hidden="true" />
               ) : (
                 <ProjectAgentDockChatIndicatorView
                   indicator={row.indicator}

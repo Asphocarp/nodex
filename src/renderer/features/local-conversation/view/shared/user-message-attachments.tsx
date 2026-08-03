@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
-import { ChevronLeftIcon, ChevronRightIcon, DownloadIcon, FileIcon, LoaderCircleIcon, SparklesIcon } from "lucide-react";
+import { ChevronLeftIcon, ChevronRightIcon, DownloadIcon, LoaderCircleIcon, SparklesIcon } from "@/components/shared/icons/generic-icons";
+import { FileIcon } from "@/components/shared/icons";
 import {
   NodexDialog as Dialog,
   NodexDialogContent as DialogContent,

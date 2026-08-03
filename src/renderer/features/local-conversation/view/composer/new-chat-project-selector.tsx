@@ -1,5 +1,6 @@
+import { FolderPlusIcon } from "@/components/shared/icons";
 import { useMemo, useState } from "react";
-import { FolderPlus } from "lucide-react";
+
 import { ProjectMarker } from "@/components/workbench/project-marker";
 import {
   filterNewChatProjectSelectorOptions,
@@ -174,7 +175,7 @@ function ProjectSelectorMenuContent({
         <>
           <NodexDropdownSeparator />
           <NodexDropdownItem
-            leftSlot={<FolderPlus className="icon-xs text-token-description-foreground" />}
+            leftSlot={<FolderPlusIcon className="icon-xs text-token-description-foreground" />}
             onSelect={() => {
               actions.onRequestNewChatProjectCreate?.();
             }}

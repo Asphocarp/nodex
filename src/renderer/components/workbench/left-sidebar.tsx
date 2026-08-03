@@ -1,3 +1,4 @@
+import { ChevronRightIcon, ProjectActionsIcon } from "@/components/shared/icons";
 import { useEffect, useMemo, useState, type ComponentType } from "react";
 import * as CollapsiblePrimitive from "@radix-ui/react-collapsible";
 import {
@@ -19,11 +20,9 @@ import {
   ArrowUp,
   Check,
   ChevronDown,
-  ChevronRight,
   EyeOff,
   Hash,
-  MoreHorizontal,
-} from "lucide-react";
+} from "@/components/shared/icons/generic-icons";
 
 export interface StageSidebarItem {
   id: string;
@@ -129,7 +128,7 @@ function SidebarSectionMoreActionsMenu({
             "hover:text-(--sidebar-foreground) focus-visible:opacity-100 focus-visible:ring-(--sidebar-ring)/35",
           )}
         >
-          <MoreHorizontal className="size-4" />
+          <ProjectActionsIcon className="size-4" />
         </NodexDropdownButtonTrigger>
       )}
       onCloseAutoFocus={(event) => event.preventDefault()}
@@ -144,7 +143,7 @@ function SidebarSectionMoreActionsMenu({
             <span className="ml-auto shrink-0 text-xs text-(--sidebar-foreground-tertiary) tabular-nums">
               {itemLimit}
             </span>
-            <ChevronRight className="size-3.5 shrink-0 text-(--sidebar-foreground-tertiary)" />
+            <ChevronRightIcon className="size-3.5 shrink-0 text-(--sidebar-foreground-tertiary)" />
           </div>
         )}
       >

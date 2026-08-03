@@ -1,6 +1,6 @@
 import { lazy, Suspense } from "react";
 import { createReactBlockSpec } from "@blocknote/react";
-import { LayoutTemplate, type LucideIcon } from "lucide-react";
+import { LayoutTemplate, type LucideIcon } from "@/components/shared/icons/generic-icons";
 import {
   isInlineDocumentOwnerCycle,
   useBlockReferenceHostRuntime,

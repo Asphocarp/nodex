@@ -1,11 +1,11 @@
 import { useCallback, useDeferredValue, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import {
   ListFilter,
-} from "lucide-react";
+} from "@/components/shared/icons/generic-icons";
 import {
-  CodexDatabaseIcon,
-  CodexSidePanelSideChatIcon,
-  CodexSidebarVisibleIcon,
+  DatabaseIcon,
+  SidePanelSideChatIcon,
+  SidebarVisibleIcon,
 } from "@/components/shared/icons";
 import {
   areCommandPalettePageFiltersEqual,
@@ -311,7 +311,7 @@ function getCommandGlyph(id: string) {
   if (id === "newThread" || id === "newThreadInProject" || id === "quickChat") return (props: { className?: string }) => (
     <CommandMenuReferenceIcon name="compose" {...props} />
   );
-  if (id === TOGGLE_SIDEBAR_COMMAND_ID) return CodexSidebarVisibleIcon;
+  if (id === TOGGLE_SIDEBAR_COMMAND_ID) return SidebarVisibleIcon;
   if (id === RENAME_THREAD_COMMAND_ID) return (props: { className?: string }) => (
     <CommandMenuReferenceIcon name="compose" {...props} />
   );
@@ -336,8 +336,8 @@ function getCommandGlyph(id: string) {
   if (id === "searchChats" || id === "searchPages" || id === "findInThread") return (props: { className?: string }) => (
     <CommandMenuReferenceIcon name="search" {...props} />
   );
-  if (id === OPEN_DB_VIEW_TAB_COMMAND_ID) return CodexDatabaseIcon;
-  if (id === "openSideChat") return CodexSidePanelSideChatIcon;
+  if (id === OPEN_DB_VIEW_TAB_COMMAND_ID) return DatabaseIcon;
+  if (id === "openSideChat") return SidePanelSideChatIcon;
   if (id === "settings" || id === "showKeyboardShortcuts" || id.endsWith("Settings")) return (props: { className?: string }) => (
     <CommandMenuReferenceIcon name="settings" {...props} />
   );

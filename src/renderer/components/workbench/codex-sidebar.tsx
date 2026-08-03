@@ -15,16 +15,16 @@ import { CSS, useCombinedRefs, type Transform } from "@dnd-kit/utilities";
 import {
   BranchStatusIcon,
   CheckmarkIcon,
-  CodexArchiveIcon,
-  CodexCloseIcon,
-  CodexPinOffIcon,
-  CodexProjectFolderIcon,
-  CodexProjectFolderOpenIcon,
-  CodexProjectActionsIcon,
-  CodexSessionPinFilledIcon,
-  CodexSessionPinIcon,
-  CodexSettingsGeneralIcon,
-  CodexSpinnerIcon,
+  ArchiveIcon,
+  CloseIcon,
+  PinOffIcon,
+  ProjectFolderIcon,
+  ProjectFolderOpenIcon,
+  ProjectActionsIcon,
+  SessionPinFilledIcon,
+  SessionPinIcon,
+  SettingsGeneralIcon,
+  ActivitySpinnerIcon,
   ChevronDownIcon,
   WorktreeStatusIcon,
 } from "@/components/shared/icons";
@@ -486,13 +486,13 @@ export function CodexProjectActionsMenu({
             aria-label={`Project actions for ${project.name}`}
             data-app-action-sidebar-project-actions-menu=""
           >
-            <CodexProjectActionsIcon />
+            <ProjectActionsIcon />
           </button>
         )}
       >
           {onSetProjectPinned ? (
             <NodexDropdownItem
-              leftSlot={project.pinned ? <CodexPinOffIcon className="icon-xs" /> : <CodexSessionPinIcon className="icon-xs" />}
+              leftSlot={project.pinned ? <PinOffIcon className="icon-xs" /> : <SessionPinIcon className="icon-xs" />}
               onSelect={() => {
                 void onSetProjectPinned(project.id, { pinned: !project.pinned });
               }}
@@ -502,7 +502,7 @@ export function CodexProjectActionsMenu({
           ) : null}
           {primaryWorkspaceRoot && sourceRoots.length === 1 ? (
             <NodexDropdownItem
-              leftSlot={<CodexProjectFolderOpenIcon className="icon-xs" />}
+              leftSlot={<ProjectFolderOpenIcon className="icon-xs" />}
               onSelect={() => {
                 void openProjectFolder();
               }}
@@ -522,7 +522,7 @@ export function CodexProjectActionsMenu({
             </NodexDropdownItem>
           ) : null}
           <NodexDropdownItem
-            leftSlot={<CodexSettingsGeneralIcon className="icon-xs" />}
+            leftSlot={<SettingsGeneralIcon className="icon-xs" />}
             onSelect={() => {
               openEditAfterMenuCloseRef.current = true;
             }}
@@ -541,7 +541,7 @@ export function CodexProjectActionsMenu({
             </NodexDropdownItem>
           ) : null}
           <NodexDropdownItem
-            leftSlot={<CodexArchiveIcon className="icon-xs" />}
+            leftSlot={<ArchiveIcon className="icon-xs" />}
             disabled={!onArchiveThreadItem || archiveableItems.length === 0}
             onSelect={() => {
               setMenuOpen(false);
@@ -551,7 +551,7 @@ export function CodexProjectActionsMenu({
             Archive chats
           </NodexDropdownItem>
           <NodexDropdownItem
-            leftSlot={<CodexCloseIcon className="icon-xs" />}
+            leftSlot={<CloseIcon className="icon-xs" />}
             onSelect={() => {
               setMenuOpen(false);
               setRemoveOpen(true);
@@ -786,7 +786,7 @@ export function CodexProjectRow({
     <div className="flex h-[var(--height-token-row)] max-w-80 items-center gap-2 px-2 text-base text-token-foreground">
       <ProjectMarker
         appearance={project.appearance}
-        fallbackIcon={<CodexProjectFolderIcon />}
+        fallbackIcon={<ProjectFolderIcon />}
       />
       <span className="min-w-0 truncate">{project.name}</span>
     </div>
@@ -950,8 +950,8 @@ export function CodexProjectRow({
                   className="group-hover/folder-row:invisible group-has-[:focus-visible]/project-leading-slot:invisible"
                   data-app-action-sidebar-project-marker=""
                   fallbackIcon={expanded
-                    ? <CodexProjectFolderOpenIcon />
-                    : <CodexProjectFolderIcon />}
+                    ? <ProjectFolderOpenIcon />
+                    : <ProjectFolderIcon />}
                 />
                 <button
                   type="button"
@@ -1211,7 +1211,7 @@ function CodexSidebarThreadHoverCard({
         ) : null}
       </div>
       <CodexSidebarThreadHoverCardMetadataRow
-        icon={<CodexProjectFolderIcon className="icon-xs" />}
+        icon={<ProjectFolderIcon className="icon-xs" />}
         label={resolvedProjectLabel}
       />
       {resolvedBranchName ? (
@@ -1433,7 +1433,7 @@ export function CodexSidebarThreadRow({
                       onKeyDown={stopCodexSidebarRowActionPropagation}
                       onClick={handleTogglePinnedClick}
                     >
-                      <CodexSessionPinFilledIcon />
+                      <SessionPinFilledIcon />
                     </button>
                   ) : null}
                   {running ? (
@@ -1445,7 +1445,7 @@ export function CodexSidebarThreadRow({
                       )}
                       data-app-action-sidebar-thread-running-indicator=""
                     >
-                      <CodexSpinnerIcon className="icon-xs shrink-0" animationDurationMs={2_000} />
+                      <ActivitySpinnerIcon className="icon-xs shrink-0" animationDurationMs={2_000} />
                     </span>
                   ) : null}
                 </div>
@@ -1483,7 +1483,7 @@ export function CodexSidebarThreadRow({
                       onKeyDown={stopCodexSidebarRowActionPropagation}
                       onClick={handleTogglePinnedClick}
                     >
-                      {item.pinned ? <CodexSessionPinFilledIcon /> : <CodexSessionPinIcon />}
+                      {item.pinned ? <SessionPinFilledIcon /> : <SessionPinIcon />}
                     </button>
                   )}
                 </div>
@@ -1507,7 +1507,7 @@ export function CodexSidebarThreadRow({
                     void onArchive?.(item);
                   }}
                 >
-                  <CodexArchiveIcon />
+                  <ArchiveIcon />
                 </button>
               ) : null}
             </div>

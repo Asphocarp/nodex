@@ -6,8 +6,8 @@ import {
   useState,
 } from "react";
 import {
-  CodexSessionPinFilledIcon,
-  CodexSessionPinIcon,
+  SessionPinFilledIcon,
+  SessionPinIcon,
   SpinnerIcon,
   TextActionPencilSmallIcon,
 } from "@/components/shared/icons";
@@ -152,8 +152,8 @@ function PendingWorktreeRouteHeader({
         onClick={onTogglePinned}
       >
         {entry.isPinned
-          ? <CodexSessionPinFilledIcon className="icon-xs" />
-          : <CodexSessionPinIcon className="icon-xs" />}
+          ? <SessionPinFilledIcon className="icon-xs" />
+          : <SessionPinIcon className="icon-xs" />}
       </button>
     </div>
   );

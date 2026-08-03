@@ -9,7 +9,7 @@ import {
   useComponentsContext,
   useEditorState,
 } from "./copy-image-button-deps";
-import { Copy } from "lucide-react";
+import { Copy } from "@/components/shared/icons/generic-icons";
 import { useCallback } from "react";
 import { toast } from "@/components/ui/toast";
 

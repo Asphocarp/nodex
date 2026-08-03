@@ -21,7 +21,7 @@ import {
   CornerDownLeft,
   Repeat2,
   X,
-} from "lucide-react";
+} from "@/components/shared/icons/generic-icons";
 import "@blocknote/core/fonts/inter.css";
 import "@blocknote/shadcn/style.css";
 

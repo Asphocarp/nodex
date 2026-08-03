@@ -18,10 +18,10 @@ import {
 } from "../ui/dialog";
 import { NodexSettingsPageSurface as SettingsPageSurface } from "../ui/settings";
 import {
-  CodexKeystrokeSearchIcon,
-  CodexShortcutPencilIcon,
-  CodexShortcutResetIcon,
-  CodexShortcutTrashIcon,
+  KeystrokeSearchIcon,
+  ShortcutPencilIcon,
+  ShortcutResetIcon,
+  ShortcutTrashIcon,
 } from "../shared/icons";
 import {
   findCommandKeybindingConflict,
@@ -273,7 +273,7 @@ export function KeyboardShortcutsSettingsPage() {
             requestAnimationFrame(() => searchInputRef.current?.focus());
           }}
         >
-          <CodexKeystrokeSearchIcon />
+          <KeystrokeSearchIcon />
         </button>
       </div>
 
@@ -443,7 +443,7 @@ function ShortcutTableRow({
               disabled={pending}
               onClick={(event) => onBeginCapture(entry, binding, event)}
             >
-              <CodexShortcutPencilIcon />
+              <ShortcutPencilIcon />
             </button>
           </span>
         </div>
@@ -459,7 +459,7 @@ function ShortcutTableRow({
                 disabled={pending}
                 onClick={() => onRemove(entry, binding)}
               >
-                <CodexShortcutTrashIcon />
+                <ShortcutTrashIcon />
               </button>
             </span>
           ) : null}
@@ -472,7 +472,7 @@ function ShortcutTableRow({
                 disabled={pending}
                 onClick={() => onReset(entry)}
               >
-                <CodexShortcutResetIcon />
+                <ShortcutResetIcon />
               </button>
             </span>
           ) : null}

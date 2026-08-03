@@ -8,21 +8,21 @@ import {
   MessagesSquareIcon,
   SendIcon,
   SplitIcon,
-} from "lucide-react";
+} from "@/components/shared/icons/generic-icons";
 import {
-  CodexFastModeIcon,
-  CodexGoalTargetIcon,
-  CodexSettingsWorktreeIcon,
-  CodexSlashCodeReviewIcon,
-  CodexSlashFeedbackIcon,
-  CodexSlashMcpIcon,
-  CodexSlashMemoriesIcon,
-  CodexSlashModelIcon,
-  CodexSlashPersonalityIcon,
-  CodexSlashPetIcon,
-  CodexSlashReasoningIcon,
-  CodexSlashSideIcon,
-  CodexSlashStatusIcon,
+  FastModeIcon,
+  GoalTargetIcon,
+  SettingsWorktreeIcon,
+  SlashCodeReviewIcon,
+  SlashFeedbackIcon,
+  SlashMcpIcon,
+  SlashMemoriesIcon,
+  SlashModelIcon,
+  SlashPersonalityIcon,
+  SlashPetIcon,
+  SlashReasoningIcon,
+  SlashSideIcon,
+  SlashStatusIcon,
   ComposerPlanModeIcon,
 } from "@/components/shared/icons";
 import {
@@ -108,7 +108,7 @@ export function buildComposerSlashCommands(input: BuildSlashCommandsInput): Comp
       title: "Fast",
       description: "1.5x speed, increased usage",
       group: "Commands",
-      icon: <CodexFastModeIcon className={iconClassName} />,
+      icon: <FastModeIcon className={iconClassName} />,
       requiresEmptyComposer: true,
       onSelect: () => {
         input.setServiceTier(input.serviceTier === "fast" ? null : "fast", "slash_command");
@@ -119,7 +119,7 @@ export function buildComposerSlashCommands(input: BuildSlashCommandsInput): Comp
       title: "Feedback",
       description: "Send feedback about this chat",
       group: "Commands",
-      icon: <CodexSlashFeedbackIcon className={iconClassName} />,
+      icon: <SlashFeedbackIcon className={iconClassName} />,
       requiresEmptyComposer: true,
       isVisible: Boolean(input.actions.onUploadFeedback),
       Content: (props) => (
@@ -135,7 +135,7 @@ export function buildComposerSlashCommands(input: BuildSlashCommandsInput): Comp
       title: "Fork",
       description: "Fork this chat into a new local chat",
       group: "Commands",
-      icon: <CodexSettingsWorktreeIcon className={iconClassName} />,
+      icon: <SettingsWorktreeIcon className={iconClassName} />,
       requiresEmptyComposer: true,
       isVisible: canUseExistingThread && !isSideConversation,
       isEnabled: Boolean(threadId && latestTurnId),
@@ -153,7 +153,7 @@ export function buildComposerSlashCommands(input: BuildSlashCommandsInput): Comp
       title: getThreadGoalMessage("composer.goalSlashCommand.title"),
       description: getThreadGoalMessage("composer.goalSlashCommand.setDescription"),
       group: "Commands",
-      icon: <CodexGoalTargetIcon className={iconClassName} />,
+      icon: <GoalTargetIcon className={iconClassName} />,
       requiresEmptyComposer: false,
       isVisible: canUseGoal,
       onSelect: () => {
@@ -169,7 +169,7 @@ export function buildComposerSlashCommands(input: BuildSlashCommandsInput): Comp
       title: "MCP",
       description: "Show MCP server status",
       group: "Commands",
-      icon: <CodexSlashMcpIcon className={iconClassName} />,
+      icon: <SlashMcpIcon className={iconClassName} />,
       requiresEmptyComposer: true,
       Content: (props) => <McpCommandContent threadId={threadId} {...props} />,
     },
@@ -178,7 +178,7 @@ export function buildComposerSlashCommands(input: BuildSlashCommandsInput): Comp
       title: "Memories",
       description: "Configure memory for this thread",
       group: "Commands",
-      icon: <CodexSlashMemoriesIcon className={iconClassName} />,
+      icon: <SlashMemoriesIcon className={iconClassName} />,
       requiresEmptyComposer: true,
       isVisible: canUseExistingThread && Boolean(input.actions.onSetThreadMemoryMode),
       Content: (props) => (
@@ -194,7 +194,7 @@ export function buildComposerSlashCommands(input: BuildSlashCommandsInput): Comp
       title: "Model",
       description: formatCodexModelLabel(input.model.selectedModel, input.model.availableModels),
       group: "Commands",
-      icon: <CodexSlashModelIcon className={iconClassName} />,
+      icon: <SlashModelIcon className={iconClassName} />,
       requiresEmptyComposer: true,
       Content: (props) => (
         <ModelCommandContent
@@ -213,7 +213,7 @@ export function buildComposerSlashCommands(input: BuildSlashCommandsInput): Comp
           ? "None"
           : "Friendly",
       group: "Commands",
-      icon: <CodexSlashPersonalityIcon className={iconClassName} />,
+      icon: <SlashPersonalityIcon className={iconClassName} />,
       requiresEmptyComposer: true,
       isVisible: Boolean(input.actions.onPersonalityChange),
       Content: (props) => (
@@ -229,7 +229,7 @@ export function buildComposerSlashCommands(input: BuildSlashCommandsInput): Comp
       title: "Pet",
       description: "Wake or tuck away the desktop pet",
       group: "Commands",
-      icon: <CodexSlashPetIcon className={iconClassName} />,
+      icon: <SlashPetIcon className={iconClassName} />,
       requiresEmptyComposer: true,
       onSelect: () => input.onPetToggle(),
     },
@@ -238,7 +238,7 @@ export function buildComposerSlashCommands(input: BuildSlashCommandsInput): Comp
       title: "Side",
       description: "Start a side conversation in an ephemeral fork",
       group: "Commands",
-      icon: <CodexSlashSideIcon className={iconClassName} />,
+      icon: <SlashSideIcon className={iconClassName} />,
       requiresEmptyComposer: true,
       isVisible: canUseExistingThread && !isSideConversation && Boolean(input.actions.onOpenSideChat),
       onSelect: async () => {
@@ -272,7 +272,7 @@ export function buildComposerSlashCommands(input: BuildSlashCommandsInput): Comp
       title: "Reasoning",
       description: formatCodexReasoningEffortLabel(input.model.selectedReasoningEffort),
       group: "Commands",
-      icon: <CodexSlashReasoningIcon className={iconClassName} />,
+      icon: <SlashReasoningIcon className={iconClassName} />,
       requiresEmptyComposer: true,
       Content: (props) => (
         <ReasoningCommandContent
@@ -305,7 +305,7 @@ export function buildComposerSlashCommands(input: BuildSlashCommandsInput): Comp
       title: "Status",
       description: "Show chat id, context usage, and rate limits",
       group: "Commands",
-      icon: <CodexSlashStatusIcon className={iconClassName} />,
+      icon: <SlashStatusIcon className={iconClassName} />,
       requiresEmptyComposer: true,
       isVisible: canUseThread,
       onSelect: () => {
@@ -349,7 +349,7 @@ export function buildComposerSlashCommands(input: BuildSlashCommandsInput): Comp
       title: "Auto review",
       description: "Review pending changes",
       group: "Commands",
-      icon: <CodexSlashCodeReviewIcon className={iconClassName} />,
+      icon: <SlashCodeReviewIcon className={iconClassName} />,
       requiresEmptyComposer: true,
       isVisible: false,
     },

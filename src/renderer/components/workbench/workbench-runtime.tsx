@@ -9,7 +9,7 @@ import {
 } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion, useMotionValue, useReducedMotion, useTransform, type MotionStyle } from "motion/react";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft } from "@/components/shared/icons/generic-icons";
 import { PanelTabPresentationRegistry } from "./panel-tab-presentation-registry";
 import {
   WorkbenchSidebar,
@@ -270,15 +270,15 @@ import {
   useSyncedMotionValue,
 } from "@/lib/resize-observer-motion-values";
 import {
-  CodexCloseIcon,
-  CodexExpandPanelIcon,
-  CodexPanelBottomHiddenIcon,
-  CodexPanelBottomVisibleIcon,
-  CodexPanelRightHiddenIcon,
-  CodexPanelRightVisibleIcon,
-  CodexRestorePanelIcon,
-  CodexSidebarHiddenIcon,
-  CodexSidebarVisibleIcon,
+  CloseIcon,
+  ExpandPanelIcon,
+  PanelBottomHiddenIcon,
+  PanelBottomVisibleIcon,
+  PanelRightHiddenIcon,
+  PanelRightVisibleIcon,
+  RestorePanelIcon,
+  SidebarHiddenIcon,
+  SidebarVisibleIcon,
 } from "@/components/shared/icons";
 import {
   SIDEBAR_COLLAPSED_CHROME_BUTTON_CLASS,
@@ -2622,7 +2622,7 @@ export function WorkbenchRuntime({
         className={SIDEBAR_COLLAPSED_CHROME_BUTTON_CLASS}
         style={{ viewTransitionName: "sidebar-trigger" }}
       >
-        {sidebarLogicalCollapsed ? <CodexSidebarHiddenIcon className="icon-xs" /> : <CodexSidebarVisibleIcon className="icon-xs" />}
+        {sidebarLogicalCollapsed ? <SidebarHiddenIcon className="icon-xs" /> : <SidebarVisibleIcon className="icon-xs" />}
       </button>
     </NodexTooltip>
   );
@@ -2694,7 +2694,7 @@ export function WorkbenchRuntime({
             source: "toolbar",
           })}
         >
-          {bottomPanelOpen ? <CodexPanelBottomVisibleIcon className="icon-sm" /> : <CodexPanelBottomHiddenIcon className="icon-sm" />}
+          {bottomPanelOpen ? <PanelBottomVisibleIcon className="icon-sm" /> : <PanelBottomHiddenIcon className="icon-sm" />}
         </ToolbarIconButton>
       </HeaderAction>
       {!projectSceneOwner ? (
@@ -2705,7 +2705,7 @@ export function WorkbenchRuntime({
           order={300}
         >
           <ToolbarIconButton label="Toggle side panel" pressed={sidePanelOpen} onClick={toggleActiveSidePanel}>
-            {sidePanelOpen ? <CodexPanelRightVisibleIcon className="icon-sm" /> : <CodexPanelRightHiddenIcon className="icon-sm" />}
+            {sidePanelOpen ? <PanelRightVisibleIcon className="icon-sm" /> : <PanelRightHiddenIcon className="icon-sm" />}
           </ToolbarIconButton>
         </HeaderAction>
       ) : null}
@@ -2744,7 +2744,7 @@ export function WorkbenchRuntime({
             pressed={rightPanelFullWidth}
             onClick={toggleActiveRightPanelFullWidth}
           >
-            {rightPanelFullWidth ? <CodexRestorePanelIcon className="icon-xs" /> : <CodexExpandPanelIcon className="icon-xs" />}
+            {rightPanelFullWidth ? <RestorePanelIcon className="icon-xs" /> : <ExpandPanelIcon className="icon-xs" />}
           </ToolbarIconButton>
         </div>
       ) : null}
@@ -2763,7 +2763,7 @@ export function WorkbenchRuntime({
         label="Close"
         onClick={hideActiveBottomPanel}
       >
-        <CodexCloseIcon className="icon-xs" />
+        <CloseIcon className="icon-xs" />
       </ToolbarIconButton>
     </div>
   ) : null;
@@ -2795,7 +2795,7 @@ export function WorkbenchRuntime({
           className={SIDEBAR_COLLAPSED_CHROME_BUTTON_CLASS}
           style={{ viewTransitionName: "sidebar-trigger" }}
         >
-          <CodexSidebarHiddenIcon className="icon-xs" />
+          <SidebarHiddenIcon className="icon-xs" />
         </button>
       </NodexTooltip>
     </motion.div>

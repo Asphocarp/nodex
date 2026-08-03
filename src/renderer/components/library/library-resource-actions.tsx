@@ -1,12 +1,13 @@
-import { MoreHorizontal } from "lucide-react";
+
 import { useState, type ReactElement } from "react";
 
 import {
-  CodexArchiveIcon,
-  CodexMoveToIcon,
-  CodexOpenInIcon,
-  CodexProjectAccessIcon,
+  ArchiveIcon,
+  MoveToIcon,
+  OpenInIcon,
+  ProjectAccessIcon,
   RefreshIcon,
+  ProjectActionsIcon,
 } from "@/components/shared/icons";
 import {
   NodexDialog,
@@ -173,7 +174,7 @@ export function LibraryResourceActions({
       onClick={(event) => event.stopPropagation()}
       onPointerDown={(event) => event.stopPropagation()}
     >
-      <MoreHorizontal className="icon-xs" />
+      <ProjectActionsIcon className="icon-xs" />
     </button>
   );
 
@@ -184,13 +185,13 @@ export function LibraryResourceActions({
         align="end"
       >
         <NodexDropdownItem
-          leftSlot={<CodexMoveToIcon />}
+          leftSlot={<MoveToIcon />}
           onSelect={() => setDialog("move")}
         >
           Move to…
         </NodexDropdownItem>
         <NodexDropdownItem
-          leftSlot={<CodexProjectAccessIcon />}
+          leftSlot={<ProjectAccessIcon />}
           disabled={projects.length === 0}
           onSelect={() => setDialog("grant")}
         >
@@ -198,7 +199,7 @@ export function LibraryResourceActions({
         </NodexDropdownItem>
         {onOpenInProject ? (
           <NodexDropdownItem
-            leftSlot={<CodexOpenInIcon />}
+            leftSlot={<OpenInIcon />}
             disabled={projects.length === 0}
             onSelect={() => setDialog("open_project")}
           >
@@ -208,7 +209,7 @@ export function LibraryResourceActions({
         {expectedMetadataRevision !== undefined ? (
           <NodexDropdownItem
             leftSlot={lifecycle === "active"
-              ? <CodexArchiveIcon />
+              ? <ArchiveIcon />
               : <RefreshIcon />}
             onSelect={() => {
               if (lifecycle === "active") {

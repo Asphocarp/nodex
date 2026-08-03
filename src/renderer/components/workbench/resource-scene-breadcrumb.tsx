@@ -1,5 +1,10 @@
-import { ChevronRight, Shapes } from "lucide-react";
-import { CodexDatabaseIcon, CodexPageIcon } from "@/components/shared/icons";
+
+import {
+  DatabaseIcon,
+  PageIcon,
+  ChevronRightIcon,
+  CanvasIcon,
+} from "@/components/shared/icons";
 import { AppShellHeaderContentRegistrar } from "@/lib/workbench-ui-scopes";
 import { listWorkbenchPanelLeaves } from "../../../shared/workbench-panel-layout";
 import type {
@@ -28,10 +33,10 @@ export function ResourceSceneBreadcrumb({
   if (scene.owner.kind !== "resource") return null;
   const root = scene.owner.root;
   const Icon = root.kind === "page"
-    ? CodexPageIcon
+    ? PageIcon
     : root.kind === "database"
-      ? CodexDatabaseIcon
-      : Shapes;
+      ? DatabaseIcon
+      : CanvasIcon;
   const rootTitle = scene.primary.titleSnapshot.trim()
     || (root.kind === "page"
       ? "Untitled"
@@ -48,7 +53,7 @@ export function ResourceSceneBreadcrumb({
       content={(
         <div className="no-drag flex h-full min-w-0 items-center gap-1.5 text-sm">
           <span className="shrink-0 text-token-text-secondary">Pages</span>
-          <ChevronRight
+          <ChevronRightIcon
             className="icon-2xs shrink-0 text-token-description-foreground"
             aria-hidden
           />
@@ -61,7 +66,7 @@ export function ResourceSceneBreadcrumb({
           </span>
           {childTitle ? (
             <>
-              <ChevronRight
+              <ChevronRightIcon
                 className="icon-2xs shrink-0 text-token-description-foreground"
                 aria-hidden
               />

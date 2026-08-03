@@ -1,6 +1,6 @@
 import { motion } from "motion/react";
 import { useEffect, useId, useMemo, useState } from "react";
-import { CodexPanelRightVisibleIcon } from "@/components/shared/icons";
+import { PanelRightVisibleIcon } from "@/components/shared/icons";
 import { NodexTooltip } from "../../../../../components/ui/tooltip";
 import type {
   CodexMcpToolCallContentBlock,
@@ -477,7 +477,7 @@ function McpResultBody({
                   void onOpenMcpAppSidePanel(buildMcpAppSidePanelInput({ threadId, payload, resource }));
                 }}
               >
-                <CodexPanelRightVisibleIcon />
+                <PanelRightVisibleIcon />
               </button>
             </NodexTooltip>
           ) : null}

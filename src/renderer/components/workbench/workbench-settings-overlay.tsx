@@ -16,7 +16,7 @@ import {
   RotateCcw,
   Sun,
   Trash2,
-} from "lucide-react";
+} from "@/components/shared/icons/generic-icons";
 import { CheckmarkIcon } from "@/components/shared/icons";
 import { NodexButton } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";

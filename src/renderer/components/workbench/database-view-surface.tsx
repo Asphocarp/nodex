@@ -1,10 +1,6 @@
+import { CalendarIcon } from "@/components/shared/icons";
 import { useDeferredValue, useMemo, useState } from "react";
-import {
-  ArrowDown,
-  ArrowUp,
-  CalendarDays,
-  List,
-} from "lucide-react";
+import { ArrowDown, ArrowUp, List } from "@/components/shared/icons/generic-icons";
 import {
   stableStringifyDatabaseJson,
   type DatabaseJsonValue,
@@ -523,7 +519,7 @@ export function DatabaseViewSurface({
             {calendarSections(model, allRows).map((section) => (
               <section key={section.id}>
                 <div className="mb-1 flex h-7 items-center gap-2 px-2 text-xs text-token-description-foreground">
-                  <CalendarDays className="size-3.5" />
+                  <CalendarIcon className="size-3.5" />
                   <span className="min-w-0 flex-1 font-medium text-token-text-primary">{section.label}</span>
                   <span>{section.rows.length}</span>
                 </div>

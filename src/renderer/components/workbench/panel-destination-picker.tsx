@@ -1,6 +1,4 @@
-import {
-  Search,
-} from "lucide-react";
+
 import {
   useCallback,
   useDeferredValue,
@@ -11,10 +9,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
-import {
-  CodexPageIcon,
-  SpinnerIcon,
-} from "@/components/shared/icons";
+import { PageIcon, SpinnerIcon, SearchIcon } from "@/components/shared/icons";
 import { createNfmMoveToSearchIndex } from "@/components/kanban/editor/nfm-move-to-menu-search";
 import {
   resolveQueryFreshAccept,
@@ -94,7 +89,7 @@ function PanelDestinationProjectIcon({
 }
 
 function PanelDestinationRowIcon({ row }: { row: PanelDestinationRow }) {
-  if (row.kind === "page") return <CodexPageIcon />;
+  if (row.kind === "page") return <PageIcon />;
   return (
     <PanelDestinationProjectIcon projectAppearance={row.projectAppearance} />
   );
@@ -513,7 +508,7 @@ export function PanelDestinationPickerSurface({
       contentEditable={false}
     >
       <div className="flex h-[38px] shrink-0 items-center gap-1.5 px-2 py-[5px]">
-        <Search className="size-4 shrink-0 text-token-description-foreground" aria-hidden="true" />
+        <SearchIcon className="size-4 shrink-0 text-token-description-foreground" aria-hidden="true" />
         <input
           id={comboboxId}
           role="combobox"

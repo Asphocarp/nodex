@@ -1,6 +1,7 @@
+import { SearchIcon, PlusIcon } from "@/components/shared/icons";
 import { useState, useMemo, useCallback } from "react";
 import { Sidebar } from "@excalidraw/excalidraw";
-import { Search, Plus, Check } from "lucide-react";
+import { Check } from "@/components/shared/icons/generic-icons";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import type { BoardSummary, DatabasePageSummary } from "@/lib/types";
@@ -72,7 +73,7 @@ export function CanvasCardSidebar({
           <div className="flex h-full flex-col gap-2 p-2">
             {/* Search */}
             <div className="relative">
-              <Search className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-gray-400" />
+              <SearchIcon className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-gray-400" />
               <Input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
@@ -91,7 +92,7 @@ export function CanvasCardSidebar({
                 "transition-colors",
               )}
             >
-              <Plus className="size-3.5" />
+              <PlusIcon className="size-3.5" />
               Create new card
             </button>
 

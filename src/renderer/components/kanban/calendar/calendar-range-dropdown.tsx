@@ -1,3 +1,4 @@
+import { PlusIcon } from "@/components/shared/icons";
 import type { KeyboardEvent, MouseEvent, PointerEvent } from "react";
 import {
   NodexDropdownButtonTrigger,
@@ -15,7 +16,7 @@ import {
   formatCalendarRangeStaticValue,
 } from "@/lib/calendar-range";
 import { cn } from "@/lib/utils";
-import { Minus, Plus } from "lucide-react";
+import { Minus } from "@/components/shared/icons/generic-icons";
 
 interface CalendarRangeDropdownProps {
   range: CalendarRangeState;
@@ -178,7 +179,7 @@ function CalendarRangeEditableRow({
               onPointerDown={handleStepperPointerDown}
               onClick={(event) => handleStepperClick(event, 1)}
             >
-              <Plus className="size-3.5" />
+              <PlusIcon className="size-3.5" />
             </button>
           </span>
         </span>

@@ -4,7 +4,7 @@ import {
   useMemo,
   useState,
 } from "react";
-import { Bot } from "lucide-react";
+import { Bot } from "@/components/shared/icons/generic-icons";
 import { SpinnerIcon } from "@/components/shared/icons";
 import { toast } from "@/components/ui/toast";
 import {

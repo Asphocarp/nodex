@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, type MouseEvent as ReactMouseEvent } from "react";
+import { DatabaseIcon, PageIcon } from "@/components/shared/icons";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  type ComponentType,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 import {
   BlockNoteSchema,
   createCodeBlockSpec,
@@ -9,7 +17,16 @@ import {
 import type { PartialBlock } from "@blocknote/core";
 import { createReactBlockSpec, createReactInlineContentSpec, useCreateBlockNote } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/shadcn";
-import { Bot, BoxSelect, FileText, Link2, ListTree, Paperclip, RefreshCw, Rows3, Settings2, Table2 } from "lucide-react";
+import {
+  Bot,
+  BoxSelect,
+  Link2,
+  ListTree,
+  Paperclip,
+  RefreshCw,
+  Rows3,
+  Settings2,
+} from "@/components/shared/icons/generic-icons";
 
 import { cn } from "@/lib/utils";
 import { parseNfm, nfmToBlockNote } from "@/lib/nfm";
@@ -72,7 +89,7 @@ interface PreviewThreadMentionProps {
 }
 
 interface InertEmbedPlaceholderProps {
-  icon: typeof FileText;
+  icon: ComponentType<{ className?: string }>;
   label: string;
   detail?: string;
 }
@@ -116,7 +133,7 @@ const createReadonlyPageRefBlockSpec = createReactBlockSpec(
 const createReadonlyPageBlockSpec = createReactBlockSpec(pageBlockConfig, {
   render: () => (
     <InertEmbedPlaceholder
-      icon={FileText}
+      icon={PageIcon}
       label="Page"
       detail="Untitled"
     />
@@ -141,7 +158,7 @@ const createReadonlyDatabaseBlockSpec = createReactBlockSpec(
   {
     render: ({ block }) => (
       <InertEmbedPlaceholder
-        icon={Table2}
+        icon={DatabaseIcon}
         label="Database"
         detail={block.id}
       />
@@ -183,7 +200,7 @@ const createReadonlyTemplateRefBlockSpec = createReactBlockSpec(
   {
     render: ({ block }) => (
       <InertEmbedPlaceholder
-        icon={FileText}
+        icon={PageIcon}
         label="Template"
         detail={String(block.props.displayHint || "Reusable content").trim()}
       />
@@ -199,7 +216,7 @@ const createReadonlyThreadSectionBlockSpec = createReactBlockSpec(
       const threadId = String(block.props.threadId || "").trim();
       return (
         <InertEmbedPlaceholder
-          icon={FileText}
+          icon={PageIcon}
           label="Thread section"
           detail={label || threadId || "Snapshot only"}
         />
