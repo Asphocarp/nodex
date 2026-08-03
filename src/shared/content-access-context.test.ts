@@ -1,8 +1,10 @@
 import { describe, expect, test } from "vitest";
 
 import {
+  contentAccessContextKey,
   libraryContentAccess,
   parseContentAccessContext,
+  projectIdFromContentAccessContext,
   projectContentAccess,
 } from "./content-access-context";
 
@@ -27,5 +29,16 @@ describe("ContentAccessContext", () => {
     expect(() =>
       parseContentAccessContext({ kind: "project", projectId: " project-1" }),
     ).toThrow("canonical non-empty identity");
+  });
+
+  test("only exposes a Project identity for Project content authority", () => {
+    expect(
+      projectIdFromContentAccessContext(projectContentAccess("project-1")),
+    ).toBe("project-1");
+    expect(projectIdFromContentAccessContext(libraryContentAccess)).toBeNull();
+    expect(contentAccessContextKey(projectContentAccess("project-1"))).toBe(
+      "project:project-1",
+    );
+    expect(contentAccessContextKey(libraryContentAccess)).toBe("library");
   });
 });

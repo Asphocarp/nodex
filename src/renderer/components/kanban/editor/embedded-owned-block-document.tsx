@@ -6,10 +6,15 @@ import { RegisteredOwnedBlockDocumentBoundary } from "@/components/block-documen
 import type { BlockReferenceHostRuntime } from "@/components/block-documents/block-reference-runtime-context";
 import { NodexButton } from "@/components/ui/button";
 import { resolveOwnedDocumentInlineMode } from "@/lib/owned-document-inline-mode";
+import {
+  blockDocumentSurfaceDependenciesForContentAccess,
+  ownedBlockDocumentQueryDependenciesForContentAccess,
+} from "@/lib/content-access-document-dependencies";
+import { projectContentAccess } from "../../../../shared/content-access-context";
 import { NfmEditor } from "./nfm-editor";
 
 export interface EmbeddedOwnedBlockDocumentProps {
-  readonly projectId: string;
+  readonly documentScopeId: string;
   readonly ownerBlockId: string;
   readonly isActive: boolean;
   readonly hostRuntime: BlockReferenceHostRuntime | null;
@@ -24,15 +29,22 @@ const stopNestedEditorEvent = (event: SyntheticEvent): void => {
  * stop before provider creation: Canvas retains its own editor and view.
  */
 export function EmbeddedOwnedBlockDocument({
-  projectId,
+  documentScopeId,
   ownerBlockId,
   isActive,
   hostRuntime,
 }: EmbeddedOwnedBlockDocumentProps) {
+  const contentAccessContext = hostRuntime?.contentAccessContext
+    ?? projectContentAccess(documentScopeId);
+  const queryDependencies =
+    ownedBlockDocumentQueryDependenciesForContentAccess(contentAccessContext);
+  const surfaceDependencies =
+    blockDocumentSurfaceDependenciesForContentAccess(contentAccessContext);
   return (
     <RegisteredOwnedBlockDocumentBoundary
-      projectId={projectId}
+      projectId={documentScopeId}
       ownerBlockId={ownerBlockId}
+      dependencies={queryDependencies}
     >
       {(model, controls) => {
         if (model.status === "loading") {
@@ -87,8 +99,9 @@ export function EmbeddedOwnedBlockDocument({
 
         return (
           <OwnedBlockDocumentSurface
-            projectId={projectId}
+            projectId={documentScopeId}
             descriptor={{ ...model.descriptor, sync: model.descriptor.sync }}
+            dependencies={surfaceDependencies}
             isActive={isActive}
             onReload={controls.reload}
             localAwarenessState={{
@@ -118,9 +131,8 @@ export function EmbeddedOwnedBlockDocument({
                     />
                   </div>
                   <NfmEditor
-                    contentAccessContext={hostRuntime?.contentAccessContext
-                      ?? { kind: "project", projectId }}
-                    projectId={projectId}
+                    contentAccessContext={contentAccessContext}
+                    documentScopeId={documentScopeId}
                     projectName={hostRuntime?.projectName}
                     projectWorkspacePath={
                       hostRuntime?.projectWorkspacePath ?? undefined

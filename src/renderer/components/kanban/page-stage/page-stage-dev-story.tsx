@@ -250,7 +250,7 @@ export function PageStageDevStoryPage({
               key={descriptionVariant}
               onClose={() => undefined}
               page={stagePage}
-              projectId={PAGE_STAGE_STORY_PROJECT_ID}
+              documentScopeId={PAGE_STAGE_STORY_PROJECT_ID}
               documentAuthority={storyDocument.authority}
               projectWorkspacePath={PAGE_STAGE_STORY_WORKSPACE_PATH}
               availableTags={["ui", "threads", "page-stage", "spacing", "review"]}

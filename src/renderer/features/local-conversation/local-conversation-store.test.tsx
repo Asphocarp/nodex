@@ -16825,6 +16825,37 @@ describe("local-conversation-store", () => {
     expect(String(invokeCalls.filter((call) => call === "codex:threads:list").length)).toBe("1");
   });
 
+  test("does not hydrate a Project task lane without Project authority", async () => {
+    invokeCalls = [];
+    hostMessageListener = null;
+    threadListByProject = {};
+    const {
+      __resetLocalConversationStoreForTests,
+      LocalConversationProvider,
+      useProjectThreadSummaries,
+    } = await import("./local-conversation-store");
+    __resetLocalConversationStoreForTests();
+
+    function Probe() {
+      const summaries = useProjectThreadSummaries(null);
+      return createElement("div", null, String(summaries.length));
+    }
+
+    const { container, rerender } = render(
+      createElement(LocalConversationProvider, null, createElement(Probe)),
+    );
+    await settleAsyncRender();
+    rerender(
+      createElement(LocalConversationProvider, null, createElement(Probe)),
+    );
+    await settleAsyncRender();
+
+    expect(textContent(container)).toBe("0");
+    expect(
+      invokeCalls.filter((call) => call === "codex:threads:list"),
+    ).toEqual([]);
+  });
+
   test("normalizes incoming conversation snapshots before storing them", async () => {
     invokeCalls = [];
     hostMessageListener = null;

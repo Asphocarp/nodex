@@ -51,6 +51,12 @@ explicit Project resource grant.
   store epoch fence.
 - New content APIs must accept `ContentAccessContext` instead of treating a
   `projectId` as both navigation state and content authority.
+- Renderer-local Document scope identifiers are never Project credentials.
+  Project-only Workspace and Codex capabilities derive a real Project ID from
+  `ContentAccessContext` and remain unavailable for Library authority.
+- Nested Page, Database View, and owned-Document reads inherit the containing
+  surface's `ContentAccessContext`; adapter choice, query identity, and
+  projection subscriptions must preserve that authority through every level.
 - App-window sender trust admits a local caller; it does not choose that
   caller's authority. Main validates the explicit context carried by each
   content request and never derives it from the window's current Scene.

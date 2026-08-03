@@ -429,7 +429,7 @@ describe("workbench session shell / pages-shell-navigation", () => {
       kind?: string;
       descriptor?: { projectId?: string; ownerBlockId?: string };
     } | undefined;
-    expect(pageStageProps?.projectId).toBe("beta");
+    expect(pageStageProps?.documentScopeId).toBe("beta");
     expect(pageModel?.page?.id).toBe("card-beta");
     expect(documentAuthority?.kind).toBe("yjs");
     expect(documentAuthority?.descriptor?.projectId).toBe("beta");

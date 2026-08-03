@@ -1,11 +1,18 @@
 import { act, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { PageOwnershipPathsChangedEvent } from "../../shared/page-ownership-path-events";
-import type { ProjectionStreamMessage } from "../../shared/projection-stream";
+import type {
+  ProjectionScope,
+  ProjectionStreamMessage,
+} from "../../shared/projection-stream";
 import { render } from "../test/dom";
 import { TestQueryProvider } from "../test/query";
 import { usePageOwnershipPathReadModel } from "./block-reference-queries";
 import { ProjectionInvalidationRegistry } from "./projection-invalidation-registry";
+import {
+  libraryContentAccess,
+  projectContentAccess,
+} from "../../shared/content-access-context";
 
 const mocks = vi.hoisted(() => ({
   readLibraryModule: vi.fn(),
@@ -39,7 +46,10 @@ vi.mock("./renderer-transport", () => ({
 }));
 
 function OwnershipPathHarness() {
-  const path = usePageOwnershipPathReadModel("host-project", "nested-page");
+  const path = usePageOwnershipPathReadModel(
+    projectContentAccess("host-project"),
+    "nested-page",
+  );
   return (
     <output>
       {path.data?.status === "available"
@@ -49,8 +59,17 @@ function OwnershipPathHarness() {
   );
 }
 
+function LibraryOwnershipPathHarness() {
+  const path = usePageOwnershipPathReadModel(
+    libraryContentAccess,
+    "nested-page",
+  );
+  return <output>{path.data?.status ?? "pending"}</output>;
+}
+
 describe("Page reference queries", () => {
   let projectionListeners: Set<(message: ProjectionStreamMessage) => void>;
+  let projectionScopes: ProjectionScope[];
   let projectionRegistry: ProjectionInvalidationRegistry;
 
   beforeEach(() => {
@@ -67,7 +86,9 @@ describe("Page reference queries", () => {
     mocks.resolvePageOwnershipPath.mockReset();
     mocks.ownershipPathChangeListener = null;
     projectionListeners = new Set();
-    projectionRegistry = new ProjectionInvalidationRegistry((_scope, listener) => {
+    projectionScopes = [];
+    projectionRegistry = new ProjectionInvalidationRegistry((scope, listener) => {
+      projectionScopes.push(scope);
       projectionListeners.add(listener);
       return () => projectionListeners.delete(listener);
     });
@@ -142,5 +163,35 @@ describe("Page reference queries", () => {
       expect(view.getByText("Parent after coarse invalidation")).toBeTruthy();
     });
     expect(mocks.resolvePageOwnershipPath).toHaveBeenCalledTimes(3);
+  });
+
+  test("keeps Library ownership reads on Library authority", async () => {
+    mocks.resolvePageOwnershipPath.mockResolvedValue({
+      libraryId: "library-1",
+      storeEpoch: "epoch-1",
+      changeLogSeq: 1,
+      status: "available",
+      targetPageId: "nested-page",
+      ancestors: [],
+    });
+
+    const view = render(
+      <TestQueryProvider projectionRegistry={projectionRegistry}>
+        <LibraryOwnershipPathHarness />
+      </TestQueryProvider>,
+    );
+
+    await waitFor(() => {
+      expect(view.getByText("available")).toBeTruthy();
+    });
+    expect(mocks.resolvePageOwnershipPath).toHaveBeenCalledWith({
+      accessContext: { kind: "library" },
+      targetPageId: "nested-page",
+    });
+    expect(projectionScopes).toContainEqual({
+      kind: "library",
+      libraryId: "library-1",
+    });
+    expect(mocks.ownershipPathChangeListener).toBeNull();
   });
 });

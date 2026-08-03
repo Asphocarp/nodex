@@ -80,7 +80,8 @@ export interface PageStageProps {
   page: PageStagePageModel | null;
   /** Content authority selected by the mounted Project or Resource surface. */
   contentAccessContext: ContentAccessContext;
-  projectId: string;
+  /** Renderer-local identity for the mounted collaborative Document surface. */
+  documentScopeId: string;
   projectName?: string | null;
   projectWorkspacePath?: string | null;
   availableTags: string[];

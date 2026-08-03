@@ -1,11 +1,9 @@
 import type { Page } from "./page";
+import type { ContentAccessContext } from "./content-access-context";
 
 export interface ResolvePageTargetInput {
-  /**
-   * The Project containing the surface that resolves this target. Page IDs are
-   * globally stable, but the explicit scope is the future authorization seam.
-   */
-  readonly requestingProjectId: string;
+  /** Authority inherited from the content surface containing the reference. */
+  readonly accessContext: ContentAccessContext;
   readonly targetPageId: string;
 }
 

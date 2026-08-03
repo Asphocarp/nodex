@@ -1201,7 +1201,7 @@ describe("Electron native data authority", () => {
         "ship",
       )).resolves.toMatchObject({ archived: false });
       await expect(desktopDatabase.resolveDatabaseViewReference({
-        requestingProjectId: projectId,
+        accessContext: { kind: "project", projectId },
         databaseViewId: primaryView.viewId,
         hostBlockId: copiedDataSourcePageId,
       })).resolves.toMatchObject({
@@ -1216,6 +1216,16 @@ describe("Electron native data authority", () => {
             page: expect.objectContaining({ id: copiedDataSourcePageId }),
           }),
         ]),
+      });
+      await expect(desktopDatabase.resolveDatabaseViewReference({
+        accessContext: { kind: "library" },
+        databaseViewId: primaryView.viewId,
+        hostBlockId: copiedDataSourcePageId,
+      })).resolves.toMatchObject({
+        view: {
+          id: primaryView.viewId,
+          projectId: null,
+        },
       });
       expect(listCurrentProcessFiles()).not.toContain(databasePath);
       const moveDataSourcePageToLibraryIntent = {
@@ -2486,7 +2496,7 @@ describe("Electron native data authority", () => {
         },
       });
       await expect(library.resolvePageTarget({
-        requestingProjectId: projectId,
+        accessContext: { kind: "project", projectId },
         targetPageId: "page:electron-library-adapter",
       })).resolves.toMatchObject({
         status: "available",
@@ -2498,7 +2508,7 @@ describe("Electron native data authority", () => {
         document: { readiness: "ready" },
       });
       await expect(library.resolvePageOwnershipPath({
-        requestingProjectId: projectId,
+        accessContext: { kind: "project", projectId },
         targetPageId: "page:electron-library-adapter",
       })).resolves.toMatchObject({
         libraryId: runtime.rootClient.handshake.library_id,

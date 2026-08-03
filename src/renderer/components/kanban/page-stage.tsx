@@ -57,7 +57,7 @@ async function copyPageDeeplink(pageId: string): Promise<void> {
 
 interface PageStageDescriptionEditorProps {
   readonly contentAccessContext: PageStageProps["contentAccessContext"];
-  readonly projectId: string;
+  readonly documentScopeId: string;
   readonly projectName?: string | null;
   readonly projectWorkspacePath?: string | null;
   readonly pageId: string;
@@ -110,7 +110,7 @@ function CollaborativePageStageRawContent({
 const PageStageDescriptionEditor = memo(
   function PageStageDescriptionEditor({
     contentAccessContext,
-    projectId,
+    documentScopeId,
     projectName,
     projectWorkspacePath,
     pageId,
@@ -143,7 +143,7 @@ const PageStageDescriptionEditor = memo(
     return (
       <NfmEditor
         contentAccessContext={contentAccessContext}
-        projectId={projectId}
+        documentScopeId={documentScopeId}
         projectName={projectName}
         projectWorkspacePath={projectWorkspacePath}
         source={{
@@ -324,7 +324,7 @@ export function PageStage(props: PageStageProps) {
       description={
         <PageStageDescriptionEditor
           contentAccessContext={props.contentAccessContext}
-          projectId={props.projectId}
+          documentScopeId={props.documentScopeId}
           projectName={props.projectName}
           projectWorkspacePath={props.projectWorkspacePath}
           pageId={page.id}
@@ -356,7 +356,7 @@ export function PageStage(props: PageStageProps) {
     />
   );
   const surfaceProps = {
-    projectId: props.projectId,
+    projectId: props.documentScopeId,
     descriptor: props.documentAuthority.descriptor,
     isActive: props.isActivePanelTab ?? true,
     runtimeRef: documentRuntimeRef,

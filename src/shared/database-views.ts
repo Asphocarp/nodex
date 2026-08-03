@@ -12,13 +12,11 @@ import type {
   Estimate,
   Priority,
 } from "./types";
+import type { ContentAccessContext } from "./content-access-context";
 
 export interface ReadDatabaseViewReferenceInput {
-  /**
-   * The Project containing the reference surface. It authorizes the read and
-   * remains the execution scope for actions exposed by the returned model.
-   */
-  readonly requestingProjectId: string;
+  /** Authority inherited from the content surface containing the reference. */
+  readonly accessContext: ContentAccessContext;
   readonly databaseViewId: string;
   /** Host Page identity used only for window-local include/exclude projection. */
   readonly hostBlockId?: string;
@@ -39,7 +37,10 @@ export interface DatabaseViewDefinition<
 > {
   readonly id: string;
   readonly databaseBlockId: string;
-  /** Requesting Project scope; Database/View identity itself is Library-owned. */
+  /**
+   * Execution Project inherited by a Project surface, or null for a
+   * Library-authorized surface. Database/View identity itself is Library-owned.
+   */
   readonly projectId: ProjectScope;
   readonly name: string;
   readonly kind: DatabaseViewKind;
@@ -60,7 +61,7 @@ export interface DatabaseViewReadModel {
   readonly storeEpoch: string;
   readonly changeLogSeq: number;
   readonly dataSourceId: string;
-  readonly view: DatabaseViewDefinition;
+  readonly view: DatabaseViewDefinition<string | null>;
   readonly rows: readonly DatabaseViewPageRow[];
 }
 

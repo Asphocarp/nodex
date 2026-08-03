@@ -239,7 +239,7 @@ export function PageStageSessionTab({
   }, [titleStore, titleStoreKey]);
 
   const ownershipPath = usePageOwnershipPathReadModel(
-    project?.id ?? "",
+    projectContentAccess(project?.id ?? tab.config.projectId),
     tab.config.pageId,
   );
   const ownershipAncestors = ownershipPath.data?.status === "available"
@@ -413,7 +413,7 @@ export function PageStageSessionTab({
             retainEditorSession={tab.preview !== true}
             documentAuthority={documentAuthority}
             page={page}
-            projectId={tab.config.projectId}
+            documentScopeId={tab.config.projectId}
             projectName={project.name}
             projectWorkspacePath={projectWorkspaceRootOrNull(project)}
             availableTags={databaseCapability?.availableTags ?? []}

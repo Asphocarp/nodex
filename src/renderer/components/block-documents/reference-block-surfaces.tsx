@@ -233,6 +233,7 @@ export interface DatabaseViewReferenceSurfaceProps extends ReferenceSurfaceState
   readonly referenceKey: string;
   readonly displayHint: string;
   readonly model: DatabaseViewReadModel | null;
+  readonly documentScopeId?: string;
   readonly loading?: boolean;
   readonly error?: Error | null;
   readonly renderDocument?: ReferencedPageDocumentRenderer;
@@ -245,6 +246,7 @@ export function DatabaseViewReferenceSurface({
   referenceKey,
   displayHint,
   model,
+  documentScopeId,
   loading = false,
   error = null,
   renderDocument,
@@ -287,6 +289,7 @@ export function DatabaseViewReferenceSurface({
   }
 
   const name = model.view.name.trim() || displayHint.trim() || "Database view";
+  const rowDocumentScopeId = documentScopeId ?? model.view.projectId ?? "";
   return (
     <section
       contentEditable={false}
@@ -316,9 +319,13 @@ export function DatabaseViewReferenceSurface({
             <ReferencedCardRow
               key={row.page.id}
               disclosureKey={`${referenceKey}:${row.page.id}`}
-              projectId={model.view.projectId}
+              projectId={rowDocumentScopeId}
               card={row.page}
-              canEdit={!row.page.archived && !referencesAncestor}
+              canEdit={
+                rowDocumentScopeId.length > 0 &&
+                !row.page.archived &&
+                !referencesAncestor
+              }
               archived={row.page.archived}
               inlineEditingDisabledReason={
                 referencesHost

@@ -556,7 +556,7 @@ vi.mock("@/lib/api", () => {
     };
   },
   resolvePageTarget: async (input: {
-    requestingProjectId: string;
+    accessContext: { kind: "library" } | { kind: "project"; projectId: string };
     targetPageId: string;
   }) => {
     invokeCalls.push(["page-target:resolve", input]);
@@ -566,7 +566,7 @@ vi.mock("@/lib/api", () => {
     };
   },
   resolvePageOwnershipPath: async (input: {
-    requestingProjectId: string;
+    accessContext: { kind: "library" } | { kind: "project"; projectId: string };
     targetPageId: string;
   }) => {
     invokeCalls.push(["page-ownership-path:resolve", input]);

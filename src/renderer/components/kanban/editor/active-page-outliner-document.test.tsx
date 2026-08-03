@@ -8,6 +8,7 @@ import {
   restoreRichTitleDomSelection,
 } from "@/lib/rich-title-editor-dom";
 import { render } from "@/test/dom";
+import { projectContentAccess } from "../../../../shared/content-access-context";
 import { ActivePageOutlinerDocument } from "./active-page-outliner-document";
 
 const surfaceState = vi.hoisted(() => ({ value: null as unknown }));
@@ -71,7 +72,8 @@ const target: AvailablePageOutlinerTarget = {
   status: "available",
   relationship: "child",
   targetBlockId: "nested-page",
-  requestingProjectId: "project-a",
+  contentAccessContext: projectContentAccess("project-a"),
+  documentScopeId: "project-a",
   lifecycle: "active",
   inlineMode: "editable",
   fallbackTitle: "Nested Page",
@@ -103,7 +105,7 @@ const rowProps = (expanded: boolean): PageOutlinerRowChromeProps => ({
 
 const hostRuntime = {
   contentAccessContext: { kind: "project", projectId: "project-a" } as const,
-  projectId: "project-a",
+  documentScopeId: "project-a",
   projectName: "Project A",
   projectWorkspacePath: null,
   hostPageId: "host-page",

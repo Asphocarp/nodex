@@ -135,7 +135,7 @@ describe("PageOutlinerBlock", () => {
       <BlockReferenceRuntimeProvider
         value={{
           contentAccessContext: { kind: "project", projectId: "project-a" },
-          projectId: "project-a",
+          documentScopeId: "project-a",
           projectName: "Project A",
           projectWorkspacePath: null,
           hostPageId: "host-page",
@@ -208,7 +208,7 @@ describe("PageOutlinerBlock", () => {
       <BlockReferenceRuntimeProvider
         value={{
           contentAccessContext: { kind: "project", projectId: "project-a" },
-          projectId: "project-a",
+          documentScopeId: "project-a",
           projectName: "Project A",
           projectWorkspacePath: null,
           hostPageId: "host-page",
@@ -255,7 +255,7 @@ describe("PageOutlinerBlock", () => {
       <BlockReferenceRuntimeProvider
         value={{
           contentAccessContext: { kind: "project", projectId: "project-a" },
-          projectId: "project-a",
+          documentScopeId: "project-a",
           projectName: "Project A",
           projectWorkspacePath: null,
           hostPageId: "host-page",
@@ -300,7 +300,7 @@ describe("PageOutlinerBlock", () => {
       <BlockReferenceRuntimeProvider
         value={{
           contentAccessContext: { kind: "project", projectId: "project-a" },
-          projectId: "project-a",
+          documentScopeId: "project-a",
           projectName: "Project A",
           projectWorkspacePath: null,
           hostPageId: "host-page",

@@ -66,12 +66,12 @@ function getCollaborativeFragmentId(fragment: Y.XmlFragment): number {
 }
 
 export function getNfmEditorInstanceKey(input: {
-  readonly projectId: string;
+  readonly documentScopeId: string;
   readonly source: NfmEditorSource;
 }): string {
   return [
     "collaborative-document",
-    input.projectId,
+    input.documentScopeId,
     input.source.documentId,
     input.source.generation,
     getCollaborativeFragmentId(input.source.fragment),
@@ -80,12 +80,14 @@ export function getNfmEditorInstanceKey(input: {
 
 export function resolveNfmEditorBlockActionCapabilities(
   hasSourcePageContext: boolean,
+  executionProjectId: string | null,
 ): {
   readonly canMoveBlocks: boolean;
   readonly canSendBlocksToThread: boolean;
 } {
   return {
-    canMoveBlocks: hasSourcePageContext,
-    canSendBlocksToThread: hasSourcePageContext,
+    canMoveBlocks: hasSourcePageContext && executionProjectId !== null,
+    canSendBlocksToThread:
+      hasSourcePageContext && executionProjectId !== null,
   };
 }

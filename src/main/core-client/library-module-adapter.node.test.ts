@@ -484,7 +484,7 @@ describe("Core Library Module Adapter", () => {
     const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
 
     await expect(adapter.resolvePageTarget({
-      requestingProjectId: "project:test",
+      accessContext: { kind: "project", projectId: "project:test" },
       targetPageId: "page:one",
     })).resolves.toMatchObject({
       status: "available",
@@ -493,7 +493,7 @@ describe("Core Library Module Adapter", () => {
       document: { readiness: "ready", schemaKey: "nodex.page" },
     });
     await expect(adapter.resolvePageOwnershipPath({
-      requestingProjectId: "project:test",
+      accessContext: { kind: "project", projectId: "project:test" },
       targetPageId: "page:one",
     })).resolves.toEqual({
       libraryId: "library:test",
@@ -945,12 +945,14 @@ describe("Core Library Module Adapter", () => {
     }]);
   });
 
-  test("binds reference reads to their Project and locations to the trusted root", async () => {
+  test("binds reference reads to explicit Project or Library authority", async () => {
     const rootClient = new FakeCoreClient();
     const projectClient = new FakeCoreClient();
     projectClient.enqueueRead(pageTargetSnapshot());
     projectClient.enqueueRead(pageOwnershipPathSnapshot());
     projectClient.enqueueRead(pageLifecyclePreflightSnapshot());
+    rootClient.enqueueRead(pageTargetSnapshot());
+    rootClient.enqueueRead(pageOwnershipPathSnapshot());
     rootClient.enqueueRead(pageLocationSnapshot());
     rootClient.enqueueRead(viewLocationSnapshot());
     const requestedProjects: string[] = [];
@@ -970,11 +972,19 @@ describe("Core Library Module Adapter", () => {
     });
 
     await bridge.resolvePageTarget({
-      requestingProjectId: "project:test",
+      accessContext: { kind: "project", projectId: "project:test" },
       targetPageId: "page:one",
     });
     await bridge.resolvePageOwnershipPath({
-      requestingProjectId: "project:test",
+      accessContext: { kind: "project", projectId: "project:test" },
+      targetPageId: "page:one",
+    });
+    await bridge.resolvePageTarget({
+      accessContext: { kind: "library" },
+      targetPageId: "page:one",
+    });
+    await bridge.resolvePageOwnershipPath({
+      accessContext: { kind: "library" },
       targetPageId: "page:one",
     });
     await expect(bridge.readPageLifecyclePreflight(
@@ -987,6 +997,14 @@ describe("Core Library Module Adapter", () => {
     expect(requestedProjects).toEqual(["project:test"]);
     expect(projectClient.reads).toHaveLength(3);
     expect(rootClient.reads).toEqual([
+      {
+        kind: "page_target",
+        page_id: "page:one",
+      },
+      {
+        kind: "page_ownership_path",
+        page_id: "page:one",
+      },
       {
         kind: "page_location",
         page_id: "page:one",

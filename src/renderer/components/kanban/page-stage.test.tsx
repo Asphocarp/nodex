@@ -163,7 +163,7 @@ function renderStage(
         contentAccessContext={projectContentAccess("default")}
         onClose={() => undefined}
         page={page}
-        projectId="default"
+        documentScopeId="default"
         projectName="Default"
         documentAuthority={documentAuthority()}
         availableTags={[]}
@@ -213,6 +213,7 @@ describe("page stage", () => {
       "Mock collaborative editor",
     );
     const source = lastNfmEditorProps?.source as Record<string, unknown>;
+    expect(lastNfmEditorProps?.documentScopeId).toBe("default");
     expect(lastNfmEditorProps?.contentAccessContext).toEqual(
       projectContentAccess("default"),
     );

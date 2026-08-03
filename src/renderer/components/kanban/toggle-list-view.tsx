@@ -334,7 +334,7 @@ export function ToggleListView({
     : undefined;
   const hostRuntime: BlockReferenceHostRuntime = {
     contentAccessContext: projectContentAccess(projectId),
-    projectId,
+    documentScopeId: projectId,
     projectName: null,
     projectWorkspacePath: null,
     hostPageId: null,
@@ -370,7 +370,7 @@ export function ToggleListView({
                 }
               >
                 <EmbeddedReferencedPageDocument
-                  projectId={targetProjectId}
+                  documentScopeId={targetProjectId}
                   card={card}
                   isActive={isActive}
                   hostRuntime={hostRuntime}

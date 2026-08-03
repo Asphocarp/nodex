@@ -9950,11 +9950,19 @@ export function __resetLocalConversationStoreForTests(): void {
   __resetCodexAppServerMessageBusForTests();
 }
 
-export function useProjectThreadSummaries(projectId: string): CodexThreadSummary[] {
+export function useProjectThreadSummaries(
+  projectId: string | null,
+): CodexThreadSummary[] {
   const manager = useDefaultCodexAppServerManager();
   return useExternalSelector(
-    (listener) => manager.subscribeProjectThreadSummaries(projectId, listener),
-    () => manager.readProjectThreadSummaries(projectId),
+    (listener) => {
+      if (projectId === null) return () => undefined;
+      return manager.subscribeProjectThreadSummaries(projectId, listener);
+    },
+    () => {
+      if (projectId === null) return EMPTY_THREADS;
+      return manager.readProjectThreadSummaries(projectId);
+    },
   );
 }
 

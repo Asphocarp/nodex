@@ -326,7 +326,7 @@ export function selectCommandPaletteChatResults({
   threadSearchBatch?: CommandPaletteThreadSearchBatch | null;
   threadLimit?: number;
   preferActiveProject?: boolean;
-  activeProjectId?: string;
+  activeProjectId?: string | null;
 }): CommandPaletteThread[] {
   const normalizedQuery = normalizeCommandPaletteSearchText(query.trimStart());
   if (!normalizedQuery) {

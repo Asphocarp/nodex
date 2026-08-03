@@ -5,7 +5,8 @@ import type { ContentAccessContext } from "../../../shared/content-access-contex
 export interface BlockReferenceHostRuntime {
   /** Authority inherited by every nested content editor in this host chain. */
   readonly contentAccessContext: ContentAccessContext;
-  readonly projectId: string;
+  /** Renderer-local identity for nested collaborative Document surfaces. */
+  readonly documentScopeId: string;
   readonly projectName: string | null;
   readonly projectWorkspacePath: string | null;
   readonly hostPageId: string | null;

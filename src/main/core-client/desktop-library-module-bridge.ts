@@ -192,12 +192,12 @@ export function createDesktopLibraryModuleBridge(
     },
     resolvePageTarget: async (request) => {
       const runtime = await input.authority;
-      return await projectCoreAdapter(runtime, request.requestingProjectId)
+      return await adapterForAccess(runtime, request.accessContext)
         .resolvePageTarget(request);
     },
     resolvePageOwnershipPath: async (request) => {
       const runtime = await input.authority;
-      return await projectCoreAdapter(runtime, request.requestingProjectId)
+      return await adapterForAccess(runtime, request.accessContext)
         .resolvePageOwnershipPath(request);
     },
     findPageLocation: async (pageId) => {

@@ -3,10 +3,10 @@ import { hashKey, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { PageStage } from "./workbench-page-stage";
 import {
-  createLibraryDocumentSyncAdapter,
   prepareLibraryOwnedBlockDocument,
   readLibraryPageDetail,
 } from "../../lib/api";
+import { libraryBlockDocumentSurfaceDependencies } from "../../lib/content-access-document-dependencies";
 import {
   type ReadyPageBlockDocumentDescriptor,
   toLibraryDocumentSurfaceDescriptor,
@@ -20,10 +20,6 @@ import { queryKeys } from "../../lib/query-keys";
 import { invalidateExactQuery } from "../../lib/query-invalidation";
 import { useProjectionInvalidationRegistry } from "../../lib/projection-invalidation-context";
 import { libraryContentAccess } from "../../../shared/content-access-context";
-
-const libraryDocumentSurfaceDependencies = {
-  createAdapter: () => createLibraryDocumentSyncAdapter(),
-} as const;
 
 export function WorkbenchLibraryPageSurface({
   pageId,
@@ -175,7 +171,7 @@ export function WorkbenchLibraryPageSurface({
       retainEditorSession
       page={stagePage}
       autoFocusTitle={stagePage.page.title.trim() === "Untitled"}
-      projectId={document.data.projectId}
+      documentScopeId={document.data.projectId}
       projectName={null}
       availableTags={[]}
       documentAuthority={{
@@ -184,7 +180,7 @@ export function WorkbenchLibraryPageSurface({
         reload: async () => {
           await queryClient.resetQueries({ queryKey: documentQueryKey, exact: true });
         },
-        surfaceDependencies: libraryDocumentSurfaceDependencies,
+        surfaceDependencies: libraryBlockDocumentSurfaceDependencies,
       }}
       onTitleChange={onTitleChange}
       onOpenDatabase={onOpenDatabase}

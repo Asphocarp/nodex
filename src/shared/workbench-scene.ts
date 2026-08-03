@@ -1,7 +1,10 @@
 import type { BrowserSidebarDeviceToolbarState } from "./browser-sidebar";
 import type { CodexForkBrowserSidePanelSnapshot } from "./codex-fork-browser-transfer";
 import type { InitialProjectPresentation } from "./initial-project-welcome";
-import type { ContentAccessContext } from "./content-access-context";
+import {
+  contentAccessContextKey,
+  type ContentAccessContext,
+} from "./content-access-context";
 import type { DatabaseId } from "./database-identities";
 import type { LibraryResourceTarget } from "./library-module";
 import {
@@ -1253,12 +1256,6 @@ export function cloneWorkbenchSceneLayoutForNewWindow<
       ]),
     ),
   };
-}
-
-function contentAccessContextKey(context: ContentAccessContext): string {
-  return context.kind === "project"
-    ? `project:${context.projectId}`
-    : "library";
 }
 
 export function getWorkbenchSurfaceReuseKey(

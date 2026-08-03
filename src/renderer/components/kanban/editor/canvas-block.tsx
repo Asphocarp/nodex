@@ -27,6 +27,7 @@ import { useCanvasInlineFrameHeight } from "@/lib/use-canvas-inline-frame-height
 import { useLibraryCanvasTarget } from "@/lib/use-library-navigation";
 import { canvasBlockConfig } from "../../../../shared/block-documents/blocknote-schema-config";
 import { toast } from "@/components/ui/toast";
+import { projectIdFromContentAccessContext } from "../../../../shared/content-access-context";
 import {
   selectEmbeddedSurfaceShell,
   type EmbeddedSurfaceHostEditor,
@@ -202,7 +203,7 @@ export function CanvasBlock({
   ].join(":");
   const target = useLibraryCanvasTarget(
     canvasBlockId,
-    Boolean(host?.projectId),
+    host !== null,
   );
   const summary = target.data?.value.status === "available"
     ? target.data.value.summary
@@ -246,7 +247,7 @@ export function CanvasBlock({
   const open = useCallback(() => {
     if (!host?.openCanvas || !summary) return;
     void host.openCanvas({
-      projectId: host.projectId,
+      projectId: summary.projectId,
       canvasBlockId,
       titleSnapshot: summary.title,
     });
@@ -274,12 +275,17 @@ export function CanvasBlock({
     return selectHostShell();
   }, [selectHostShell]);
   const targetStatus = target.data?.value.status;
+  const canvasDocumentProjectId = summary?.projectId ?? (
+    host
+      ? projectIdFromContentAccessContext(host.contentAccessContext)
+      : null
+  );
   useEffect(() => {
-    if (targetStatus !== "deleted" || !host?.projectId) return;
+    if (targetStatus !== "deleted" || !canvasDocumentProjectId) return;
     void canvasDocumentSessionRegistry
-      .retireOwner(host.projectId, canvasBlockId)
+      .retireOwner(canvasDocumentProjectId, canvasBlockId)
       .catch(() => undefined);
-  }, [canvasBlockId, host?.projectId, targetStatus]);
+  }, [canvasBlockId, canvasDocumentProjectId, targetStatus]);
   const surfaceKey = host
     ? makeCanvasSceneSurfaceKey(
         "inline",
@@ -326,7 +332,7 @@ export function CanvasBlock({
           }
         >
           <CanvasDocumentSurface
-            projectId={host.projectId}
+            projectId={summary.projectId}
             canvasBlockId={canvasBlockId}
             surfaceKey={surfaceKey}
             viewportPreferenceScope={makeCanvasViewportPreferenceScope({

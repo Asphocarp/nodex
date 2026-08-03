@@ -77,7 +77,7 @@ import { toast } from "@/components/ui/toast";
 import { setCanvasCreatePending } from "./canvas-create-pending-extension";
 
 interface NfmSlashMenuProps {
-  projectId: string;
+  executionProjectId: string | null;
   allowPageReferences?: boolean;
 }
 
@@ -504,7 +504,7 @@ export function getNfmSlashMenuCustomItems(
 }
 
 export function NfmSlashMenu({
-  projectId,
+  executionProjectId,
   allowPageReferences = true,
 }: NfmSlashMenuProps) {
   const editor = useBlockNoteEditor();
@@ -539,7 +539,7 @@ export function NfmSlashMenu({
         suggestionMenuComponent={NfmSuggestionMenuSurface}
       />
       <MentionMenu
-        projectId={projectId}
+        activeProjectId={executionProjectId}
         allowPageReferences={allowPageReferences}
       />
     </>
@@ -895,7 +895,7 @@ export interface NfmMentionGetItemsLoaders {
 
 interface NfmMentionGetItemsInput {
   editor: unknown;
-  projectId: string;
+  activeProjectId: string | null;
   pageItems: CommandPalettePage[];
   pageSearchIndex: ReturnType<typeof useCommandPalettePageSearchIndex>;
   projectIdsForPageSearch: string[];
@@ -930,7 +930,7 @@ function buildNfmMentionAsyncSearchKey({
   projectIdsForPageSearch,
   query,
 }: {
-  activeProjectId: string;
+  activeProjectId: string | null;
   projectIdsForPageSearch: readonly string[];
   query: string;
 }) {
@@ -939,7 +939,7 @@ function buildNfmMentionAsyncSearchKey({
 
 export function useNfmMentionGetItems({
   editor,
-  projectId,
+  activeProjectId,
   pageItems,
   pageSearchIndex,
   projectIdsForPageSearch,
@@ -949,15 +949,15 @@ export function useNfmMentionGetItems({
 ) => Promise<DefaultReactSuggestionItem[]> {
   const [asyncRefreshKey, setAsyncRefreshKey] = useState(0);
   const threadItemsRef = useRef<{
-    activeProjectId: string;
+    activeProjectId: string | null;
     items: CommandPaletteThread[];
   } | null>(null);
   const threadLoadPromiseRef = useRef<{
-    activeProjectId: string;
+    activeProjectId: string | null;
     promise: Promise<CommandPaletteThread[]>;
   } | null>(null);
   const threadSearchIndexRef = useRef<{
-    activeProjectId: string;
+    activeProjectId: string | null;
     items: CommandPaletteThread[];
     index: ReturnType<typeof createCommandPaletteThreadSearchIndex>;
   } | null>(null);
@@ -974,7 +974,7 @@ export function useNfmMentionGetItems({
     id: number;
   } | null>(null);
   const asyncRequestIdRef = useRef(0);
-  const projectIdRef = useRef(projectId);
+  const activeProjectIdRef = useRef(activeProjectId);
   const loadersRef = useRef(loaders);
   const searchStateRef = useRef<NfmMentionSearchState>({
     editor,
@@ -983,7 +983,7 @@ export function useNfmMentionGetItems({
     projectIdsForPageSearch,
   });
 
-  projectIdRef.current = projectId;
+  activeProjectIdRef.current = activeProjectId;
   loadersRef.current = loaders;
   searchStateRef.current = {
     editor,
@@ -999,7 +999,7 @@ export function useNfmMentionGetItems({
   }, []);
 
   const loadThreadItems = useCallback(() => {
-    const activeProjectId = projectIdRef.current;
+    const activeProjectId = activeProjectIdRef.current;
     const cachedThreads = threadItemsRef.current;
     if (cachedThreads?.activeProjectId === activeProjectId) {
       return Promise.resolve(cachedThreads.items);
@@ -1014,7 +1014,7 @@ export function useNfmMentionGetItems({
       .listThreadItems({ activeProjectId })
       .catch(() => [])
       .then((items) => {
-        if (projectIdRef.current !== activeProjectId) {
+        if (activeProjectIdRef.current !== activeProjectId) {
           return items;
         }
 
@@ -1033,7 +1033,7 @@ export function useNfmMentionGetItems({
 
   const getThreadSearchIndex = useCallback(
     (threadItems: CommandPaletteThread[]) => {
-      const activeProjectId = projectIdRef.current;
+      const activeProjectId = activeProjectIdRef.current;
       const cachedIndex = threadSearchIndexRef.current;
       if (
         cachedIndex?.activeProjectId === activeProjectId &&
@@ -1195,7 +1195,7 @@ export function useNfmMentionGetItems({
         projectIdsForPageSearch: currentProjectIdsForPageSearch,
       } = searchStateRef.current;
       const currentLoaders = loadersRef.current;
-      const activeProjectId = projectIdRef.current;
+      const activeProjectId = activeProjectIdRef.current;
       const requestKey = buildNfmMentionAsyncSearchKey({
         activeProjectId,
         projectIdsForPageSearch: currentProjectIdsForPageSearch,
@@ -1280,10 +1280,10 @@ export function useNfmMentionGetItems({
 }
 
 function MentionMenu({
-  projectId,
+  activeProjectId,
   allowPageReferences,
 }: {
-  projectId: string;
+  activeProjectId: string | null;
   allowPageReferences: boolean;
 }) {
   const editor = useBlockNoteEditor();
@@ -1296,7 +1296,7 @@ function MentionMenu({
   );
   const getItems = useNfmMentionGetItems({
     editor,
-    projectId,
+    activeProjectId,
     pageItems,
     pageSearchIndex,
     projectIdsForPageSearch,

@@ -1,5 +1,6 @@
 import type { PageTargetReadModel } from "../../shared/page-targets";
 import type { Page } from "../../shared/page";
+import type { ContentAccessContext } from "../../shared/content-access-context";
 
 export type PageOutlinerRelationship = "child" | "reference";
 
@@ -9,7 +10,8 @@ export interface PageOutlinerTargetInput {
   readonly model: PageTargetReadModel | null;
   readonly loading: boolean;
   readonly error: Error | null;
-  readonly requestingProjectId: string;
+  readonly contentAccessContext: ContentAccessContext;
+  readonly documentScopeId: string;
   readonly hostPageId: string | null;
   readonly ancestorPageIds: readonly string[];
 }
@@ -37,7 +39,8 @@ export type PageOutlinerTarget =
       readonly status: "available";
       readonly relationship: PageOutlinerRelationship;
       readonly targetBlockId: string;
-      readonly requestingProjectId: string;
+      readonly contentAccessContext: ContentAccessContext;
+      readonly documentScopeId: string;
       readonly page: Page;
       readonly fallbackTitle: string;
       readonly lifecycle: "active" | "archived";
@@ -50,7 +53,8 @@ export const resolvePageOutlinerTarget = ({
   model,
   loading,
   error,
-  requestingProjectId,
+  contentAccessContext,
+  documentScopeId,
   hostPageId,
   ancestorPageIds,
 }: PageOutlinerTargetInput): PageOutlinerTarget => {
@@ -121,7 +125,8 @@ export const resolvePageOutlinerTarget = ({
     status: "available",
     relationship,
     targetBlockId: model.page.pageId,
-    requestingProjectId,
+    contentAccessContext,
+    documentScopeId,
     page: model.page,
     fallbackTitle: "Untitled",
     lifecycle: model.page.lifecycle,

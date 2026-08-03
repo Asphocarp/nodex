@@ -1,6 +1,8 @@
+import type { ContentAccessContext } from "./content-access-context";
+
 export interface ResolvePageOwnershipPathInput {
-  /** Project whose current grants authorize the Page hierarchy read. */
-  readonly requestingProjectId: string;
+  /** Authority inherited from the Page surface requesting the breadcrumb. */
+  readonly accessContext: ContentAccessContext;
   readonly targetPageId: string;
 }
 
