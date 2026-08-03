@@ -400,14 +400,26 @@ fn link_thread(
     let upsert_effects = thread_patch
         .map(|patch| upsert_thread_records(connection, library_id, thread_id, patch))
         .transpose()?;
-    let thread_project_id = connection
+    let (thread_project_id, parent_thread_id) = connection
         .query_row(
-            "SELECT project_id FROM codex_threads WHERE thread_id = ?1",
+            "SELECT project_id, parent_thread_id FROM codex_threads WHERE thread_id = ?1",
             [thread_id],
-            |row| row.get::<_, Option<String>>(0),
+            |row| {
+                Ok((
+                    row.get::<_, Option<String>>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                ))
+            },
         )
         .optional()?
         .ok_or_else(|| not_found("Codex Thread is unavailable"))?;
+    if parent_thread_id.is_some() {
+        return Err(StoreError::new(
+            StoreErrorCode::InvalidInput,
+            "Child Codex Threads cannot be linked to sidebar Sessions",
+            false,
+        ));
+    }
     if thread_project_id.as_deref() != expected_project_id {
         return Err(StoreError::new(
             StoreErrorCode::Conflict,

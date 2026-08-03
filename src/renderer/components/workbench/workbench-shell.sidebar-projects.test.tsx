@@ -311,6 +311,43 @@ describe("workbench session shell / sidebar-projects", () => {
     });
   });
 
+  test("keeps projectless subagent sessions out of Chats", async () => {
+    const root = makeAttachedSession({
+      id: "session:projectless:root",
+      projectId: null,
+      threadId: "thread:projectless:root",
+      title: "Root chat",
+    });
+    const childFixture = makeAttachedSession({
+      id: "session:projectless:child",
+      projectId: null,
+      threadId: "thread:projectless:child",
+      title: "Subagent chat",
+    });
+    if (!childFixture.thread) throw new Error("Expected child thread fixture");
+    const child = {
+      ...childFixture,
+      thread: {
+        ...childFixture.thread,
+        parentThreadId: "thread:projectless:root",
+      },
+    };
+    const screen = renderWorkbench({
+      projectlessSessions: [root, child],
+      sidebarSnapshotItems: [root, child].map(makeSidebarSnapshotItemForSession),
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const chatsSection = getSidebarSection(screen.container, "Chats");
+    expect(getThreadRowTitles(chatsSection)).toEqual(["Root chat"]);
+    expect(
+      chatsSection.querySelector(
+        '[data-app-action-sidebar-thread-title="Subagent chat"]',
+      ),
+    ).toBeNull();
+  });
+
   test("new project chats render above older project chats", async () => {
     const olderThread = makeAttachedSession({
       id: "session:alpha:older",
@@ -751,6 +788,7 @@ describe("workbench session shell / sidebar-projects", () => {
       kind: "local",
       hostId: "local",
       threadId: "thread-projectless-pinned",
+      parentThreadId: null,
       sessionId: null,
       projectId: null,
       title: "Pinned Projectless",
@@ -923,6 +961,7 @@ describe("workbench session shell / sidebar-projects", () => {
       pinnedBeforeThreadId: null,
       hostId: "local",
       threadId: "client-new-thread:beta-pending",
+      parentThreadId: null,
       sessionId: null,
       projectId: "beta",
       title: "Pending Beta",

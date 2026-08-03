@@ -44,7 +44,10 @@ import {
   useSidebarThreadReorderController,
   type SidebarThreadDropRequest,
 } from "./sidebar-thread-reorder";
-import { replaceVisibleCodexSidebarThreadKeyOrder } from "@/lib/codex-sidebar-thread-sync";
+import {
+  isCodexSidebarThreadItemVisible,
+  replaceVisibleCodexSidebarThreadKeyOrder,
+} from "@/lib/codex-sidebar-thread-sync";
 import {
   CODEX_SIDEBAR_DEFAULT_PAGER_ROW_CLASS,
   CODEX_SIDEBAR_PAGER_BUTTON_CLASS,
@@ -799,6 +802,7 @@ function CodexProjectSessionRowsHarness() {
 function makeSidebarThreadItem(input: {
   key: string;
   threadId: string;
+  parentThreadId?: string | null;
   title: string;
   projectId?: string | null;
   sessionId?: string | null;
@@ -819,6 +823,7 @@ function makeSidebarThreadItem(input: {
     kind: input.kind ?? "local",
     hostId: input.hostId ?? "local",
     threadId: input.threadId,
+    parentThreadId: input.parentThreadId ?? null,
     sessionId: input.sessionId ?? input.threadId,
     projectId: input.projectId ?? null,
     title: input.title,
@@ -1365,7 +1370,18 @@ function CodexSidebarProjectlessChatsHarness() {
       cwd: "/Users/asc/Downloads",
       updatedAt: 1_780_820_000_000,
     }),
-  ];
+    makeSidebarThreadItem({
+      key: "local:scratch-subagent",
+      threadId: "thread-scratch-subagent",
+      parentThreadId: "thread-scratch",
+      title: "Hidden scratch subagent",
+      sessionId: "session-scratch-subagent",
+      projectId: null,
+      projectless: true,
+      cwd: "/Users/asc/Desktop/scratch",
+      updatedAt: 1_780_810_000_000,
+    }),
+  ].filter(isCodexSidebarThreadItemVisible);
 
   return (
     <SidebarProjectsChrome>

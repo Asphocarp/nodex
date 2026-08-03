@@ -191,6 +191,8 @@ pub(super) fn read_permission_mode(
 pub(super) struct ThreadUpsertEffects {
     pub(super) project_ids: Vec<String>,
     pub(super) session_ids: Vec<String>,
+    pub(super) session_summary_scopes:
+        Vec<nodex_core_contracts::workspace::ProjectSessionInvalidationScope>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -213,7 +215,7 @@ pub(super) fn upsert_thread(
         operation_id,
         request_hash,
         "upsert_thread",
-        Vec::new(),
+        effects.session_summary_scopes,
         effects.project_ids,
         effects.session_ids,
         vec![thread_id.to_owned()],
@@ -241,7 +243,7 @@ pub(super) fn update_thread(
         operation_id,
         request_hash,
         "update_thread",
-        Vec::new(),
+        effects.session_summary_scopes,
         effects.project_ids,
         effects.session_ids,
         vec![thread_id.to_owned()],
@@ -296,6 +298,11 @@ pub(super) fn upsert_thread_records(
     if parent_thread_id.as_deref() == Some(thread_id) {
         return Err(invalid("A Codex Thread cannot be its own parent"));
     }
+    let linked_sidebar_session_ids = if parent_thread_id.is_some() {
+        linked_session_ids(connection, library_id, thread_id, project_id.as_deref())?
+    } else {
+        Vec::new()
+    };
     let thread_name = merge_nullable_text(
         existing.as_ref().and_then(|row| row.thread_name.clone()),
         &patch.thread_name,
@@ -542,15 +549,64 @@ pub(super) fn upsert_thread_records(
         )?;
     }
 
-    let session_ids = linked_session_ids(connection, library_id, thread_id, project_id.as_deref())?;
+    let session_ids = if parent_thread_id.is_some() {
+        retire_child_sidebar_materialization(connection, thread_id, &linked_sidebar_session_ids)?;
+        linked_sidebar_session_ids
+    } else {
+        linked_session_ids(connection, library_id, thread_id, project_id.as_deref())?
+    };
     let project_ids = affected_projects(
         existing.as_ref().and_then(|row| row.project_id.as_deref()),
         project_id.as_deref(),
     );
+    let session_summary_scopes = project_session_scopes(&project_ids, &session_ids);
     Ok(ThreadUpsertEffects {
         project_ids,
         session_ids,
+        session_summary_scopes,
     })
+}
+
+fn retire_child_sidebar_materialization(
+    connection: &Connection,
+    thread_id: &str,
+    session_ids: &[String],
+) -> Result<(), StoreError> {
+    connection.execute(
+        "DELETE FROM codex_pinned_threads WHERE thread_id = ?1",
+        [thread_id],
+    )?;
+    connection.execute(
+        "DELETE FROM codex_unread_threads WHERE thread_id = ?1",
+        [thread_id],
+    )?;
+    if session_ids.is_empty() {
+        return Ok(());
+    }
+
+    let now = sqlite_now(connection)?;
+    for session_id in session_ids {
+        let changed = connection.execute(
+            "UPDATE project_sessions SET archived = 1, archived_at = ?1, pinned = 0, \
+               pinned_order = NULL, unread = 0, updated_at = ?1 WHERE id = ?2",
+            params![now, session_id],
+        )?;
+        if changed != 1 {
+            return Err(corrupt(
+                "Child Codex Thread sidebar Session disappeared during retirement",
+            ));
+        }
+    }
+    let detached = connection.execute(
+        "DELETE FROM project_session_threads WHERE thread_id = ?1",
+        [thread_id],
+    )?;
+    if detached != session_ids.len() {
+        return Err(corrupt(
+            "Child Codex Thread sidebar Session link changed during retirement",
+        ));
+    }
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2088,6 +2144,161 @@ mod tests {
                 ),
             )
             .expect("create Session");
+    }
+
+    #[test]
+    fn child_metadata_retires_an_existing_sidebar_session_without_archiving_the_thread() {
+        let (_directory, kernel, module) = seeded_module();
+        create_thread(
+            &module,
+            "child-retirement-parent",
+            "thread:parent",
+            Some("project:default"),
+            None,
+        );
+        create_thread(
+            &module,
+            "child-retirement-candidate",
+            "thread:candidate",
+            Some("project:default"),
+            None,
+        );
+        create_session(&module, "child-retirement-session", "session:candidate");
+        module
+            .apply(
+                &context(),
+                request(
+                    "child-retirement-link",
+                    ProjectWorkspaceIntent::MutateSession {
+                        session_id: "session:candidate".to_owned(),
+                        intent: ProjectSessionIntent::LinkThread {
+                            thread_id: "thread:candidate".to_owned(),
+                            expected_project_id: Some("project:default".to_owned()),
+                            thread_patch: None,
+                        },
+                    },
+                ),
+            )
+            .expect("link root candidate to sidebar Session");
+        module
+            .apply(
+                &context(),
+                request(
+                    "child-retirement-pin",
+                    ProjectWorkspaceIntent::SetThreadPinned {
+                        thread_id: "thread:candidate".to_owned(),
+                        pinned: true,
+                        placement: None,
+                    },
+                ),
+            )
+            .expect("pin root candidate");
+        module
+            .apply(
+                &context(),
+                request(
+                    "child-retirement-unread",
+                    ProjectWorkspaceIntent::SetThreadUnread {
+                        thread_id: "thread:candidate".to_owned(),
+                        unread: true,
+                    },
+                ),
+            )
+            .expect("mark root candidate unread");
+
+        module
+            .apply(
+                &context(),
+                request(
+                    "child-retirement-classify",
+                    ProjectWorkspaceIntent::UpsertThread {
+                        thread_id: "thread:candidate".to_owned(),
+                        patch: Box::new(ProjectWorkspaceThreadPatch {
+                            parent_thread_id: Some(Some("thread:parent".to_owned())),
+                            ..ProjectWorkspaceThreadPatch::default()
+                        }),
+                    },
+                ),
+            )
+            .expect("classify candidate as child Thread");
+
+        let ProjectWorkspaceReadValue::Thread { thread } = read(
+            &module,
+            ProjectWorkspaceRead::Thread {
+                thread_id: "thread:candidate".to_owned(),
+            },
+        ) else {
+            panic!("child Thread read");
+        };
+        assert_eq!(thread.parent_thread_id.as_deref(), Some("thread:parent"));
+        assert_eq!(thread.session_id, None);
+        assert_eq!(thread.pinned_order, None);
+        assert!(!thread.has_unread_turn);
+        assert!(!thread.archived);
+
+        let retired = kernel
+            .writer()
+            .call(|connection| {
+                Ok(connection.query_row(
+                    "SELECT archived, pinned, unread, \
+                       (SELECT count(*) FROM project_session_threads \
+                        WHERE session_id = 'session:candidate') \
+                     FROM project_sessions WHERE id = 'session:candidate'",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get::<_, i64>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, i64>(2)?,
+                            row.get::<_, i64>(3)?,
+                        ))
+                    },
+                )?)
+            })
+            .expect("retired child sidebar materialization");
+        assert_eq!(retired, (1, 0, 0, 0));
+    }
+
+    #[test]
+    fn child_threads_cannot_be_linked_to_sidebar_sessions() {
+        let (_directory, _kernel, module) = seeded_module();
+        create_thread(
+            &module,
+            "child-link-parent",
+            "thread:parent",
+            Some("project:default"),
+            None,
+        );
+        create_thread(
+            &module,
+            "child-link-child",
+            "thread:child",
+            Some("project:default"),
+            Some("thread:parent"),
+        );
+        create_session(&module, "child-link-session", "session:child");
+
+        let error = module
+            .apply(
+                &context(),
+                request(
+                    "child-link-rejected",
+                    ProjectWorkspaceIntent::MutateSession {
+                        session_id: "session:child".to_owned(),
+                        intent: ProjectSessionIntent::LinkThread {
+                            thread_id: "thread:child".to_owned(),
+                            expected_project_id: Some("project:default".to_owned()),
+                            thread_patch: None,
+                        },
+                    },
+                ),
+            )
+            .expect_err("child Thread link must fail");
+        assert_eq!(error.code, CoreErrorCode::InvalidInput);
+        assert_eq!(
+            error.message,
+            "Child Codex Threads cannot be linked to sidebar Sessions"
+        );
     }
 
     #[test]

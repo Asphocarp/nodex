@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 ### Fixed
+- Fixed parent-linked subagent tasks so they remain in parent-conversation activity without appearing as standalone Project or projectless sidebar chats; any leaked Session is retired when late parent metadata arrives.
 
 ## [0.2.1] - 2026-08-02
 
