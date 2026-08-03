@@ -33,6 +33,7 @@ function makeProject(id: string, name: string): Project {
 function makeThread(input: {
   threadId: string;
   projectId: string | null;
+  parentThreadId?: string | null;
   pinned?: boolean;
   updatedAt?: number;
 }): CodexSidebarThreadItem {
@@ -41,6 +42,7 @@ function makeThread(input: {
     kind: "local",
     hostId: "local",
     threadId: input.threadId,
+    parentThreadId: input.parentThreadId ?? null,
     sessionId: `session:${input.threadId}`,
     projectId: input.projectId,
     title: input.threadId,
@@ -142,6 +144,43 @@ describe("buildSidebarThreadSyncModel", () => {
     expect(JSON.stringify(model.projectGroups[1]?.pinnedThreadKeys)).toBe(JSON.stringify([]));
     expect(JSON.stringify(model.projectGroups[1]?.threadKeys)).toBe(JSON.stringify(["local:thread-beta"]));
     expect(JSON.stringify(model.projectlessThreadKeys)).toBe(JSON.stringify(["local:thread-free"]));
+  });
+
+  test("keeps local child threads out of every sidebar projection", () => {
+    const root = makeThread({ threadId: "thread-root", projectId: null });
+    const child = makeThread({
+      threadId: "thread-child",
+      projectId: null,
+      parentThreadId: "thread-root",
+      pinned: true,
+    });
+    const remote = {
+      ...makeThread({
+        threadId: "thread-remote",
+        projectId: null,
+        parentThreadId: "thread-root",
+      }),
+      kind: "remote" as const,
+    };
+
+    const model = buildSidebarThreadSyncModel({
+      snapshot: makeSnapshot([root, child, remote]),
+      projects: [],
+    });
+
+    expect(model.snapshot.items.map((item) => item.threadId)).toEqual([
+      "thread-root",
+      "thread-remote",
+    ]);
+    expect([...model.threadItemsByKey.keys()]).toEqual([
+      "local:thread-root",
+      "local:thread-remote",
+    ]);
+    expect(model.pinnedThreadKeys).toEqual([]);
+    expect(model.projectlessThreadKeys).toEqual([
+      "local:thread-root",
+      "local:thread-remote",
+    ]);
   });
 
   test("projects pending worktrees with exact phase, attention, pin, and route identity", () => {

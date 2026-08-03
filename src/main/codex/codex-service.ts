@@ -8293,7 +8293,7 @@ export class CodexService extends EventEmitter {
     const tasks = overview.items.filter(
       (task): task is ProjectSessionSummary & {
         thread: NonNullable<ProjectSessionSummary["thread"]>;
-      } => task.thread !== null,
+      } => task.thread !== null && !task.thread.parentThreadId,
     );
     const clientThreadIdByThreadId = new Map(
       listCodexClientThreadIdentities(
@@ -8315,6 +8315,7 @@ export class CodexService extends EventEmitter {
         ...(clientThreadId ? { clientThreadId } : {}),
         hostId: DEFAULT_CODEX_HOST_ID,
         threadId: thread.threadId,
+        parentThreadId: thread.parentThreadId ?? null,
         sessionId: task.id,
         projectId,
         title: task.displayTitle,
@@ -8505,6 +8506,9 @@ export class CodexService extends EventEmitter {
   private async ensureWorkspaceSidebarThreadSession(
     thread: DesktopProjectWorkspaceThread,
   ): Promise<ProjectSession> {
+    if (thread.parentThreadId) {
+      throw new Error(`Child Thread '${thread.threadId}' cannot own a sidebar Session`);
+    }
     if (thread.sessionId) {
       const existing = await this.projectWorkspace.getProjectSession(
         thread.sessionId,
@@ -8870,12 +8874,29 @@ export class CodexService extends EventEmitter {
     if (!thread) return null;
 
     const summary = this.buildWorkspaceThreadSummary(thread);
+    if (thread.parentThreadId) {
+      await this.retireChildSidebarSession(thread);
+      return null;
+    }
     if (this.shouldHidePersistedNonSidebarThread(summary)) {
       await this.hideNonSidebarThreadMaterialization(summary.threadId, "manual");
       return null;
     }
     const session = await this.ensureWorkspaceSidebarThreadSession(thread);
     return session;
+  }
+
+  private async retireChildSidebarSession(
+    thread: DesktopProjectWorkspaceThread,
+  ): Promise<void> {
+    if (!thread.parentThreadId || !thread.sessionId) return;
+    const repaired = await this.projectWorkspace.updateThread(thread.threadId, {
+      parentThreadId: thread.parentThreadId,
+    });
+    if (!repaired) {
+      throw new Error(`Child Thread '${thread.threadId}' disappeared during sidebar repair`);
+    }
+    this.invalidateSidebarSnapshotCache();
   }
 
   private async refreshSidebarThreadsFromAppServer(input: {
@@ -9487,6 +9508,9 @@ export class CodexService extends EventEmitter {
   private async createSidebarThreadSessionFromSummary(
     summary: CodexThreadSummary,
   ): Promise<ProjectSession> {
+    if (summary.source?.parentThreadId) {
+      throw new Error(`Child Thread '${summary.threadId}' cannot own a sidebar Session`);
+    }
     const session = await this.projectWorkspace.createProjectSession({
       projectId: summary.projectId,
       noThreadFallbackTitle: normalizeSidebarSessionFallbackTitle(summary),
@@ -9541,6 +9565,11 @@ export class CodexService extends EventEmitter {
       projectlessChanged: false,
     };
     if (summary.archived || summary.ephemeral || summary.source?.sideConversation) return result;
+    if (summary.source?.parentThreadId) {
+      const child = await this.readWorkspaceThread(summary.threadId);
+      if (child) await this.retireChildSidebarSession(child);
+      return result;
+    }
 
     const thread = await this.readWorkspaceThread(summary.threadId);
     if (!thread?.sessionId) {

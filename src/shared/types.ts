@@ -1173,6 +1173,7 @@ export interface CodexSidebarThreadItem {
   pinnedBeforeThreadId?: string | null;
   hostId: string;
   threadId: string;
+  parentThreadId: string | null;
   sessionId: string | null;
   projectId: string | null;
   title: string;

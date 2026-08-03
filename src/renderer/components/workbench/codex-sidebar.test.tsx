@@ -14,6 +14,7 @@ function makeThreadItem(overrides: Partial<CodexSidebarThreadItem> = {}): CodexS
     kind: "local",
     hostId: "local",
     threadId: "thread-test",
+    parentThreadId: null,
     sessionId: "session-test",
     projectId: "nodex",
     title: "X Plan Codex terminal reverse engineer",

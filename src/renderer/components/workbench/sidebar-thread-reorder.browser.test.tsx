@@ -41,6 +41,7 @@ const THREAD: CodexSidebarThreadItem = {
   kind: "local",
   hostId: "local",
   threadId: "thread-alpha",
+  parentThreadId: null,
   sessionId: "session-alpha",
   projectId: "project-alpha",
   title: "Drag an open rich tooltip",

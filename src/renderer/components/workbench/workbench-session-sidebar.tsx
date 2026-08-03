@@ -91,6 +91,7 @@ import {
 } from "@/lib/codex-sidebar-pagination";
 import {
   buildCodexSidebarPinnedReorderMutation,
+  isCodexSidebarRootThread,
   listReorderableCodexSidebarProjectThreadKeys,
   orderCodexSidebarThreadKeysByManualThreadIds,
   replaceVisibleCodexSidebarThreadKeyOrder,
@@ -888,11 +889,19 @@ function SidebarThreadOrganizerSections({
   onLoadMoreProjects?: () => Promise<void>;
 }) {
   const sessionsByProject = useMemo<Record<string, ProjectSession[]>>(
-    () => projectSessionProjectionsByProject(sessionCollectionsByProject),
+    () => Object.fromEntries(
+      Object.entries(projectSessionProjectionsByProject(sessionCollectionsByProject))
+        .map(([projectId, sessions]) => [
+          projectId,
+          sessions.filter((session) => isCodexSidebarRootThread(session.thread)),
+        ]),
+    ),
     [sessionCollectionsByProject],
   );
   const projectlessSessions = useMemo(
-    () => [...projectlessSessionCollection.projections],
+    () => projectlessSessionCollection.projections.filter(
+      (session) => isCodexSidebarRootThread(session.thread),
+    ),
     [projectlessSessionCollection.projections],
   );
   const [pinnedProjectsExpanded, setPinnedProjectsExpanded] = useState(false);
@@ -952,6 +961,7 @@ function SidebarThreadOrganizerSections({
           kind: "local",
           hostId: "local",
           threadId,
+          parentThreadId: session.thread?.parentThreadId ?? null,
           sessionId: session.id,
           projectId: session.projectId,
           title: session.displayTitle,
@@ -1847,7 +1857,7 @@ export function ProjectSessionSidebar({
         (collection) => collection.projections,
       ),
       ...projectlessSessionCollection.projections,
-    ],
+    ].filter((session) => isCodexSidebarRootThread(session.thread)),
     [projectlessSessionCollection.projections, sessionCollectionsByProject],
   );
   const [sidebarResizing, setSidebarResizing] = useState(false);

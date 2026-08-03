@@ -29,6 +29,18 @@ export interface CodexPendingPinnedBeforeThreadUpdate {
   beforeThreadId: string | null;
 }
 
+export function isCodexSidebarRootThread(
+  thread: { readonly parentThreadId?: string | null } | null | undefined,
+): boolean {
+  return thread?.parentThreadId == null;
+}
+
+export function isCodexSidebarThreadItemVisible(
+  item: CodexSidebarThreadItem,
+): boolean {
+  return item.kind === "remote" || isCodexSidebarRootThread(item);
+}
+
 export function codexSidebarLocalThreadKey(threadIdentity: string): string {
   return `local:${threadIdentity}`;
 }
@@ -84,6 +96,7 @@ export function mergePendingWorktreesIntoSidebarSnapshot(
       pinnedBeforeThreadId: entry.pinnedBeforeThreadId,
       hostId: entry.hostId,
       threadId: entry.clientThreadId,
+      parentThreadId: null,
       sessionId: null,
       projectId,
       title: entry.label,
@@ -423,13 +436,18 @@ export function buildSidebarThreadSyncModel(input: {
   snapshot: CodexSidebarSnapshot;
   projects: readonly Project[];
 }): CodexSidebarThreadSyncModel {
+  const visibleItems = input.snapshot.items.filter(isCodexSidebarThreadItemVisible);
+  const snapshot = {
+    ...input.snapshot,
+    items: visibleItems,
+  };
   const threadItemsByKey = new Map<string, CodexSidebarThreadItem>();
-  for (const item of input.snapshot.items) {
+  for (const item of visibleItems) {
     threadItemsByKey.set(item.key, item);
   }
 
   const pinnedThreadKeys = orderCodexSidebarPinnedThreadKeys({
-    threadKeys: input.snapshot.items.map((item) => item.key),
+    threadKeys: visibleItems.map((item) => item.key),
     pinnedThreadIds: input.snapshot.pinnedThreadIds,
     itemsByKey: threadItemsByKey,
   });
@@ -439,17 +457,17 @@ export function buildSidebarThreadSyncModel(input: {
     pinnedThreadKeys: pinnedThreadKeys.filter((threadKey) => (
       threadItemsByKey.get(threadKey)?.projectId === project.id
     )),
-    threadKeys: input.snapshot.items
+    threadKeys: visibleItems
       .filter((item) => item.projectId === project.id && !item.pinned)
       .map((item) => item.key),
   }));
 
-  const projectlessThreadKeys = input.snapshot.items
+  const projectlessThreadKeys = visibleItems
     .filter((item) => item.projectless && !item.pinned)
     .map((item) => item.key);
 
   return {
-    snapshot: input.snapshot,
+    snapshot,
     threadItemsByKey,
     pinnedThreadKeys,
     projectGroups,
