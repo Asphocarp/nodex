@@ -16,6 +16,7 @@ import {
   type LibraryReadValue,
   type LibraryRouteTarget,
 } from "../../shared/library-module";
+import { libraryContentAccess } from "../../shared/content-access-context";
 import {
   applyLibraryModule,
   readLibraryModule,
@@ -34,7 +35,7 @@ export const libraryModuleQueryKey = queryKeys.library.all();
 export const libraryMetadataQueryOptions = () => queryOptions({
   queryKey: queryKeys.library.metadata(),
   queryFn: async () => {
-    const result = await readLibraryModule({
+    const result = await readLibraryModule(libraryContentAccess, {
       version: LIBRARY_MODULE_CONTRACT_VERSION,
       read: { mode: "metadata" },
     });
@@ -52,7 +53,7 @@ const requireReadValue = async <Kind extends LibraryReadValue["kind"]>(
   readonly storeEpoch: string;
   readonly changeLogSeq: number;
 }> => {
-  const result = await readLibraryModule(request);
+  const result = await readLibraryModule(libraryContentAccess, request);
   if (!result.ok) throw new Error(result.error.message);
   if (result.value.value.kind !== kind) {
     throw new Error(`Library read returned ${result.value.value.kind}, expected ${kind}`);
@@ -183,7 +184,7 @@ export const useApplyLibraryOperation = () => {
   const mutation = useMutation({
     mutationFn: async (operation: LibraryApplyOperation) => {
       if (!metadata.data) throw new Error("Library identity is not ready");
-      const result = await applyLibraryModule({
+      const result = await applyLibraryModule(libraryContentAccess, {
         version: LIBRARY_MODULE_CONTRACT_VERSION,
         operationId: createUuidV7(),
         storeEpoch: metadata.data.storeEpoch,

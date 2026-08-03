@@ -13,6 +13,7 @@ import type {
 } from "@/lib/page-stage-page";
 import type { PageStageBreadcrumbProps } from "./breadcrumb";
 import type { DatabaseId } from "../../../../shared/database-identities";
+import type { ContentAccessContext } from "../../../../shared/content-access-context";
 
 export type { PageStageMetadataMutationResult } from "@/lib/page-stage-page";
 
@@ -77,6 +78,8 @@ export interface PageStageProps {
   sessionSnapshotRef?: MutableRefObject<PageStageSessionSnapshot | null>;
   isActivePanelTab?: boolean;
   page: PageStagePageModel | null;
+  /** Content authority selected by the mounted Project or Resource surface. */
+  contentAccessContext: ContentAccessContext;
   projectId: string;
   projectName?: string | null;
   projectWorkspacePath?: string | null;

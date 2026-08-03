@@ -122,9 +122,11 @@ receipt identity excludes that physical connection; Yjs durability binds the
 renderer's stable logical client session instead. Background producers repeat
 authority admission after asynchronous claim boundaries and return leases for a
 bounded retry if authority changes before external work starts.
-Library reads use the Library connection, writes derive the actor Project from
-the trusted invoking window,
-and committed Core events become renderer Library or Workspace invalidations.
+Library Module reads and writes carry an explicit `ContentAccessContext` from
+the mounted content surface. Main admits only trusted app-window senders,
+strictly parses that context, and selects the Library or Project Core client
+without consulting mutable Window Session navigation. Committed Core events
+become renderer Library or Workspace invalidations.
 Workspace events carry a typed Project-catalog change kind, explicit Session
 summary scopes (`project`, `projectless`, or `all`), and exact Session detail
 identities in addition to audit-oriented affected identities. A Host replay-gap
@@ -162,7 +164,11 @@ retiring provider from changing its replacement's state. Library-scoped live Pag
 Document sync uses the root Core client and an explicit Library transport scope that the
 server accepts only from trusted local Electron, native CLI, and test Adapters;
 Core resolves the Page's local Library identity and read/write lifecycle itself
-and never accepts an Adapter-selected storage Project as Library authority.
+and never accepts an Adapter-selected storage Project as Library authority. The
+Library writer similarly resolves any schema-required compatibility Project
+itself, separately from the optional requesting Project, so an archived
+execution context cannot disable local-user Page, Database, Canvas, or property
+mutations.
 Project-authorized Canvas scene subscribe, full sync, and field/element mutation use the
 same supervised bridge and exact-target lifecycle. Canvas and Yjs
 share one client-session ownership fence, while durable Canvas events carry the

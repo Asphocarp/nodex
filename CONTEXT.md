@@ -320,9 +320,14 @@ Project bindings, and resource grants are different families but share bounded
 validation, caller-retained operation IDs, canonical semantic equality,
 immutable receipts, post-commit acknowledgement, history, and change-log rules.
 
-The host binds Profile, Library, Project, Session, actor, and store epoch; public
-callers cannot forge scope. Every content mutation evaluates current Project
-lifecycle, binding/grant/access revisions, and independent approval policy.
+The host binds Profile, Library, explicit content authority, Session, actor, and
+store epoch; public callers cannot forge scope. Project-scoped mutations
+evaluate current Project lifecycle, binding/grant/access revisions, and
+independent approval policy. Trusted local Library mutations instead evaluate
+Library identity, target lifecycle, and store epoch. When the physical schema
+still needs a private compatibility `project_id`, Core derives that storage and
+event-ledger coordinate inside the writer transaction; it is not caller
+authority and its Project need not be active.
 
 For `nodex_app`, the host also binds one immutable authority snapshot to the
 exact Codex Turn. Ordinary snapshots have Project scope and continue to resolve

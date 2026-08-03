@@ -1830,8 +1830,8 @@ export function registerIpcHandlers(
 
   registerLibraryModuleIpcHandler({
     registerHandle: (channel, listener) => {
-      registerHandle(channel, (event, request) =>
-        listener(event, request) as
+      registerHandle(channel, (event, accessContext, request) =>
+        listener(event, accessContext, request) as
           | IpcApi[typeof channel]["result"]
           | Promise<IpcApi[typeof channel]["result"]>,
       );

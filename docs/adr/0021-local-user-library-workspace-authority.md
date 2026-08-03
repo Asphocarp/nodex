@@ -41,6 +41,9 @@ explicit Project resource grant.
 ## Consequences
 
 - Library content remains reachable after its former active Project is archived.
+- A private compatibility `project_id` used by physical storage or the event
+  ledger is resolved by Core and is never a Library caller credential. Its
+  Project lifecycle cannot gate trusted local Library mutations.
 - A Project cannot inherit access from the currently visible Library UI.
 - The loopback HTTP boundary and Electron app window can expose Library routes
   only after deriving identity from the local store.
@@ -48,3 +51,6 @@ explicit Project resource grant.
   store epoch fence.
 - New content APIs must accept `ContentAccessContext` instead of treating a
   `projectId` as both navigation state and content authority.
+- App-window sender trust admits a local caller; it does not choose that
+  caller's authority. Main validates the explicit context carried by each
+  content request and never derives it from the window's current Scene.

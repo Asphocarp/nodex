@@ -102,6 +102,7 @@ const rowProps = (expanded: boolean): PageOutlinerRowChromeProps => ({
 });
 
 const hostRuntime = {
+  contentAccessContext: { kind: "project", projectId: "project-a" } as const,
   projectId: "project-a",
   projectName: "Project A",
   projectWorkspacePath: null,

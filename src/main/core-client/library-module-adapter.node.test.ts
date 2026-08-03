@@ -379,7 +379,6 @@ describe("Core Library Module Adapter", () => {
     } as unknown as RustDataAuthorityRuntime;
     const bridge = createDesktopLibraryModuleBridge({
       authority: Promise.resolve(runtime),
-      resolveProjectId: () => null,
     });
 
     await expect(bridge.readProjectPageDetail(
@@ -968,7 +967,6 @@ describe("Core Library Module Adapter", () => {
     } as unknown as RustDataAuthorityRuntime;
     const bridge = createDesktopLibraryModuleBridge({
       authority: Promise.resolve(runtime),
-      resolveProjectId: () => null,
     });
 
     await bridge.resolvePageTarget({
@@ -1355,22 +1353,24 @@ describe("Core Library Module Adapter", () => {
     const published: Array<Record<string, unknown>> = [];
     const bridge = createDesktopLibraryModuleBridge({
       authority: Promise.resolve(runtime),
-      resolveProjectId: () => "project:test",
       publishLibraryDocumentCommits: (input) => published.push(input),
     });
 
-    const result = await bridge.apply({
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
-      operationId: "operation:create-inline-canvas",
-      storeEpoch: identity.storeEpoch,
-      operation: {
-        kind: "create_canvas",
-        canvasId,
-        documentId: canvasDocumentId,
-        displayName: "Inline Canvas",
-        destination: { kind: "library" },
+    const result = await bridge.apply(
+      { kind: "project", projectId: "project:test" },
+      {
+        version: LIBRARY_MODULE_CONTRACT_VERSION,
+        operationId: "operation:create-inline-canvas",
+        storeEpoch: identity.storeEpoch,
+        operation: {
+          kind: "create_canvas",
+          canvasId,
+          documentId: canvasDocumentId,
+          displayName: "Inline Canvas",
+          destination: { kind: "library" },
+        },
       },
-    }, {});
+    );
 
     expect(result).toMatchObject({ ok: true });
     expect(published).toEqual([
@@ -1451,37 +1451,6 @@ describe("Core Library Module Adapter", () => {
     expect(client.applies).toHaveLength(1);
   });
 
-  test("fails closed before a Rust write without a trusted window Project", async () => {
-    const runtime = {
-      backend: "rust",
-      identity,
-      rootClient: { handshake: fakeHandshake() },
-      clientForProject: () => {
-        throw new Error("Project client must not be resolved");
-      },
-    } as unknown as RustDataAuthorityRuntime;
-    const bridge = createDesktopLibraryModuleBridge({
-      authority: Promise.resolve(runtime),
-      resolveProjectId: () => null,
-    });
-
-    await expect(bridge.apply({
-      version: LIBRARY_MODULE_CONTRACT_VERSION,
-      operationId: "operation:unbound",
-      storeEpoch: identity.storeEpoch,
-      operation: {
-        kind: "create_page",
-        pageId: "page:unbound",
-        documentId: "document:unbound",
-        title: "Unbound",
-        parent: { kind: "library" },
-      },
-    }, {})).resolves.toMatchObject({
-      ok: false,
-      error: { code: "invalid_request" },
-    });
-  });
-
   test("routes trusted Library writes through the root Core client", async () => {
     const rootClient = new FakeCoreClient();
     rootClient.enqueueApply({
@@ -1520,7 +1489,6 @@ describe("Core Library Module Adapter", () => {
     } as unknown as RustDataAuthorityRuntime;
     const bridge = createDesktopLibraryModuleBridge({
       authority: Promise.resolve(runtime),
-      resolveProjectId: () => null,
     });
     const request = {
       version: LIBRARY_MODULE_CONTRACT_VERSION,
@@ -1535,7 +1503,7 @@ describe("Core Library Module Adapter", () => {
       },
     };
 
-    await expect(bridge.applyTrustedLibrary(request)).resolves.toMatchObject({
+    await expect(bridge.apply({ kind: "library" }, request)).resolves.toMatchObject({
       ok: true,
       value: {
         operationId: request.operationId,

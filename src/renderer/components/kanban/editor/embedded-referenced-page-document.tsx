@@ -90,6 +90,8 @@ export function EmbeddedReferencedPageDocument({
                   />
                 </div>
                 <NfmEditor
+                  contentAccessContext={hostRuntime?.contentAccessContext
+                    ?? { kind: "project", projectId }}
                   projectId={projectId}
                   projectName={targetProject.projectName}
                   projectWorkspacePath={targetProject.projectWorkspacePath}

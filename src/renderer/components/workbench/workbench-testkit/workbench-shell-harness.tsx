@@ -579,9 +579,13 @@ vi.mock("@/lib/api", () => {
   subscribeBoardChanges: () => () => undefined,
   subscribeDatabaseChanges: () => () => undefined,
   subscribeLibraryChanges: () => () => undefined,
-  readLibraryModule: async (request: unknown) => {
-    invokeCalls.push(["library-module:read", request]);
-    const configured = await mockInvokeImpl?.("library-module:read", request);
+  readLibraryModule: async (accessContext: unknown, request: unknown) => {
+    invokeCalls.push(["library-module:read", accessContext, request]);
+    const configured = await mockInvokeImpl?.(
+      "library-module:read",
+      accessContext,
+      request,
+    );
     if (configured !== undefined && configured !== null) return configured;
     const mode = (
       request as { readonly read?: { readonly mode?: string } }
@@ -2368,7 +2372,7 @@ export function renderWorkbench({
   });
   mockInvokeImpl = async (channel, ...args) => {
     if (channel === "library-module:read") {
-      const request = args[0] as {
+      const request = args[1] as {
         readonly read?: {
           readonly mode?: string;
           readonly target?: {

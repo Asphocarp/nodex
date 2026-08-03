@@ -2527,6 +2527,32 @@ describe("Electron native data authority", () => {
         profileId: runtime.rootClient.handshake.generation.profile_id,
         storeEpoch: runtime.rootClient.handshake.store_epoch,
       });
+      const rootCreatedPage = await rootLibrary.apply({
+        version: LIBRARY_MODULE_CONTRACT_VERSION,
+        operationId: "electron-root-library-create",
+        storeEpoch: runtime.rootClient.handshake.store_epoch,
+        operation: {
+          kind: "create_page",
+          pageId: "page:electron-root-library",
+          documentId: "document:electron-root-library",
+          title: "Root Library Page",
+          parent: { kind: "library" },
+        },
+      });
+      if (!rootCreatedPage.ok) {
+        throw new Error(
+          `Root Library create failed: ${rootCreatedPage.error.code}: ${rootCreatedPage.error.message}`,
+        );
+      }
+      expect(rootCreatedPage).toMatchObject({
+        ok: true,
+        value: {
+          createdTarget: {
+            kind: "page",
+            pageId: "page:electron-root-library",
+          },
+        },
+      });
       await expect(rootLibrary.findPageLocation(
         "page:electron-library-adapter",
       )).resolves.toEqual({

@@ -112,6 +112,7 @@ function buildProps(overrides: Partial<PageStageProps> = {}): PageStageProps {
   const page = overrides.page === undefined ? toStageModel(sourcePage) : overrides.page;
   return {
     page,
+    contentAccessContext: { kind: "project", projectId: "project-1" },
     documentAuthority: documentAuthority(),
     projectId: "project-1",
     availableTags: [],

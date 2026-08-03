@@ -10,8 +10,8 @@ use nodex_core_contracts::library::{
     LibraryReceipt, LibraryResourceTarget, LibraryWriteParent,
 };
 use nodex_core_contracts::{
-    BoundModuleContext, CommittedModuleValue, ModuleApplyRequest, ModuleMutationReceipt,
-    ProjectionImpact, StoreEpoch,
+    AdapterKind, BoundModuleContext, CommittedModuleValue, ModuleApplyRequest,
+    ModuleMutationReceipt, ProjectionImpact, StoreEpoch,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::json;
@@ -82,6 +82,13 @@ pub(super) struct ResolvedWriteParent {
     pub(super) project_id: String,
     pub(super) document: Option<ResolvedParentDocument>,
     pub(super) before_block_id: Option<String>,
+}
+
+pub(super) struct LibraryMutationAuthority {
+    // Physical storage and the change ledger still require this private
+    // coordinate. It is derived by Core and is never caller authority.
+    pub(super) compatibility_project_id: String,
+    pub(super) requesting_project_id: Option<String>,
 }
 
 pub(super) struct ResolvedParentDocument {
@@ -565,7 +572,7 @@ fn move_block(
         ));
     }
     let resolved_parent =
-        resolve_write_parent(connection, library_id, bound_project_id(context)?, parent)?;
+        resolve_write_parent_for_context(connection, context, library_id, parent)?;
     if authority.resource_kind == "page"
         && let Some(target_page_id) = &resolved_parent.page_id
     {
@@ -1287,6 +1294,25 @@ pub(super) fn resolve_write_parent(
     resolve_write_parent_with_access(connection, library_id, requesting_project_id, parent, true)
 }
 
+pub(super) fn resolve_write_parent_for_context(
+    connection: &Connection,
+    context: &BoundModuleContext,
+    library_id: &str,
+    parent: &LibraryWriteParent,
+) -> Result<ResolvedWriteParent, StoreError> {
+    let authority = resolve_library_mutation_authority(connection, context, library_id)?;
+    let Some(requesting_project_id) = authority.requesting_project_id.as_deref() else {
+        return resolve_write_parent_with_access(
+            connection,
+            library_id,
+            &authority.compatibility_project_id,
+            parent,
+            false,
+        );
+    };
+    resolve_write_parent(connection, library_id, requesting_project_id, parent)
+}
+
 pub(super) fn resolve_write_parent_prevalidated(
     connection: &Connection,
     library_id: &str,
@@ -1316,7 +1342,9 @@ fn resolve_write_parent_with_access(
         if let Some(anchor) = before {
             validate_library_anchor(connection, library_id, anchor)?;
         }
-        require_project_in_library(connection, requesting_project_id, library_id)?;
+        if require_access {
+            require_project_in_library(connection, requesting_project_id, library_id)?;
+        }
         return Ok(ResolvedWriteParent {
             parent_key: "library".to_owned(),
             page_id: None,
@@ -1600,7 +1628,7 @@ fn create_database(
         ));
     }
     let resolved_parent =
-        resolve_write_parent(connection, library_id, bound_project_id(context)?, parent)?;
+        resolve_write_parent_for_context(connection, context, library_id, parent)?;
     if connection
         .query_row(
             "SELECT 1 WHERE EXISTS (SELECT 1 FROM blocks WHERE id = ?1) \
@@ -1760,7 +1788,7 @@ fn create_page(
         return Err(invalid("Page title exceeds its bound"));
     }
     let resolved_parent =
-        resolve_write_parent(connection, library_id, bound_project_id(context)?, parent)?;
+        resolve_write_parent_for_context(connection, context, library_id, parent)?;
     if connection
         .query_row(
             "SELECT 1 WHERE EXISTS (SELECT 1 FROM blocks WHERE id = ?1) \
@@ -2240,12 +2268,44 @@ pub(super) fn assert_identity(
     ))
 }
 
-fn bound_project_id(context: &BoundModuleContext) -> Result<&str, StoreError> {
-    context
-        .project_id
-        .as_ref()
-        .map(|project_id| project_id.0.as_str())
-        .ok_or_else(|| unauthorized("Library mutation requires a bound Project"))
+pub(super) fn resolve_library_mutation_authority(
+    connection: &Connection,
+    context: &BoundModuleContext,
+    library_id: &str,
+) -> Result<LibraryMutationAuthority, StoreError> {
+    if let Some(project_id) = context.project_id.as_ref() {
+        require_project_in_library(connection, &project_id.0, library_id)?;
+        return Ok(LibraryMutationAuthority {
+            compatibility_project_id: project_id.0.clone(),
+            requesting_project_id: Some(project_id.0.clone()),
+        });
+    }
+    if !matches!(
+        context.adapter,
+        AdapterKind::ElectronHost | AdapterKind::NativeCli | AdapterKind::Test
+    ) {
+        return Err(unauthorized(
+            "Library mutations require a Project or trusted local Library authority",
+        ));
+    }
+    let compatibility_project_id = connection
+        .query_row(
+            "SELECT id FROM projects WHERE library_id = ?1 ORDER BY created, id LIMIT 1",
+            [library_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?
+        .ok_or_else(|| {
+            StoreError::new(
+                StoreErrorCode::NotFound,
+                "The local Library has no compatibility storage Project",
+                false,
+            )
+        })?;
+    Ok(LibraryMutationAuthority {
+        compatibility_project_id,
+        requesting_project_id: None,
+    })
 }
 
 pub(super) fn require_project_in_library(
@@ -2624,8 +2684,8 @@ mod tests {
         LibraryPageWriteDestination, LibraryRead, LibraryReadValue, LibrarySearchSnapshotScope,
     };
     use nodex_core_contracts::{
-        AdapterKind, LibraryId, ModuleReadRequest, OWNED_DOCUMENT_CONTRACT_VERSION, ProfileId,
-        ProjectId,
+        AdapterKind, CoreErrorCode, LibraryId, ModuleReadRequest, OWNED_DOCUMENT_CONTRACT_VERSION,
+        ProfileId, ProjectId,
     };
     use tempfile::tempdir;
 
@@ -2658,6 +2718,16 @@ mod tests {
             library_id: LibraryId("library-1".to_owned()),
             project_id: Some(ProjectId("project-1".to_owned())),
             connection_id: "connection:library-write".to_owned(),
+            adapter: AdapterKind::Test,
+        }
+    }
+
+    fn library_context() -> BoundModuleContext {
+        BoundModuleContext {
+            profile_id: ProfileId("profile-1".to_owned()),
+            library_id: LibraryId("library-1".to_owned()),
+            project_id: None,
+            connection_id: "connection:library-authority".to_owned(),
             adapter: AdapterKind::Test,
         }
     }
@@ -2827,6 +2897,220 @@ mod tests {
             .expect("seed Library identity");
         let module = LibraryModule::new("profile-1", "library-1", &kernel);
         (directory, kernel, module)
+    }
+
+    fn archive_storage_project(kernel: &SqliteStoreKernel) {
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "UPDATE projects SET lifecycle = 'archived' WHERE id = 'project-1'",
+                    [],
+                )?;
+                Ok(())
+            })
+            .expect("archive compatibility storage Project");
+    }
+
+    #[test]
+    fn trusted_library_authority_creates_root_resources_without_an_active_project() {
+        let (_directory, kernel, module) = seeded_library();
+        archive_storage_project(&kernel);
+
+        let page = module
+            .apply(
+                &library_context(),
+                create_request("operation:library-create-page", "Library Page"),
+            )
+            .expect("Library authority creates a Page");
+        assert_eq!(
+            page.committed.receipt.created_target,
+            Some(LibraryResourceTarget::Page {
+                page_id: "page:created".to_owned(),
+            }),
+        );
+
+        let database = module
+            .apply(
+                &library_context(),
+                create_database_request("operation:library-create-database"),
+            )
+            .expect("Library authority creates a Database");
+        assert_eq!(
+            database.committed.receipt.created_target,
+            Some(LibraryResourceTarget::Database {
+                database_id: "018f0000-0000-7000-8000-000000000001".to_owned(),
+            }),
+        );
+    }
+
+    #[test]
+    fn untrusted_projectless_context_cannot_claim_library_authority() {
+        let (_directory, _kernel, module) = seeded_library();
+        for adapter in [AdapterKind::Agent, AdapterKind::LoopbackHttp] {
+            let operation_id = format!("operation:untrusted-library-{adapter:?}");
+            let mut context = library_context();
+            context.adapter = adapter;
+            let error = module
+                .apply(&context, create_request(&operation_id, "Denied Page"))
+                .expect_err("untrusted projectless context must fail closed");
+            assert_eq!(error.code, CoreErrorCode::Unauthorized);
+            assert_eq!(
+                error.message,
+                "Library mutations require a Project or trusted local Library authority",
+            );
+        }
+    }
+
+    #[test]
+    fn trusted_library_authority_owns_the_complete_canvas_lifecycle() {
+        let (_directory, kernel, module) = seeded_library();
+        archive_storage_project(&kernel);
+        let canvas_id = "018f0000-0000-7000-8000-000000000010";
+        let duplicate_id = "018f0000-0000-7000-8000-000000000012";
+
+        module
+            .apply(
+                &library_context(),
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "operation:library-create-canvas".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::CreateCanvas {
+                        canvas_id: canvas_id.to_owned(),
+                        document_id: "018f0000-0000-7000-8000-000000000011".to_owned(),
+                        display_name: "Library Canvas".to_owned(),
+                        destination: LibraryCanvasDestination::Library { before: None },
+                    },
+                },
+            )
+            .expect("Library authority creates a Canvas");
+        module
+            .apply(
+                &library_context(),
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "operation:library-rename-canvas".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::RenameCanvas {
+                        canvas_id: canvas_id.to_owned(),
+                        display_name: "Renamed Canvas".to_owned(),
+                        expected_metadata_revision: 1,
+                    },
+                },
+            )
+            .expect("Library authority renames a Canvas");
+        module
+            .apply(
+                &library_context(),
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "operation:library-duplicate-canvas".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::DuplicateCanvas {
+                        source_canvas_id: canvas_id.to_owned(),
+                        canvas_id: duplicate_id.to_owned(),
+                        document_id: "018f0000-0000-7000-8000-000000000013".to_owned(),
+                        display_name: None,
+                        expected_document_generation: 1,
+                        expected_document_head_seq: 0,
+                        destination: LibraryCanvasDestination::Library { before: None },
+                    },
+                },
+            )
+            .expect("Library authority duplicates a Canvas");
+        module
+            .apply(
+                &library_context(),
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "operation:library-move-canvas".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::MoveCanvas {
+                        canvas_id: canvas_id.to_owned(),
+                        expected_location_revision: 1,
+                        destination: LibraryCanvasDestination::Library { before: None },
+                    },
+                },
+            )
+            .expect("Library authority moves a Canvas");
+        module
+            .apply(
+                &library_context(),
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "operation:library-delete-canvas".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::DeleteCanvas {
+                        canvas_id: canvas_id.to_owned(),
+                        expected_location_revision: 2,
+                        expected_metadata_revision: 2,
+                    },
+                },
+            )
+            .expect("Library authority deletes a Canvas");
+    }
+
+    #[test]
+    fn trusted_library_authority_reorders_a_root_canvas_across_compatibility_projects() {
+        let (_directory, kernel, module) = seeded_library();
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "INSERT INTO projects(id, library_id, name, created, updated) \
+                     VALUES ('project-2', 'library-1', 'Second', \
+                       '2026-02-01T00:00:00.000Z', '2026-02-01T00:00:00.000Z')",
+                    [],
+                )?;
+                Ok(())
+            })
+            .expect("seed second compatibility Project");
+        let mut project_context = context();
+        project_context.project_id = Some(ProjectId("project-2".to_owned()));
+        let canvas_id = "018f0000-0000-7000-8000-000000000020";
+        module
+            .apply(
+                &project_context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "operation:second-project-canvas".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::CreateCanvas {
+                        canvas_id: canvas_id.to_owned(),
+                        document_id: "018f0000-0000-7000-8000-000000000021".to_owned(),
+                        display_name: "Second Project Canvas".to_owned(),
+                        destination: LibraryCanvasDestination::Library { before: None },
+                    },
+                },
+            )
+            .expect("Project creates a root Canvas");
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "UPDATE projects SET lifecycle = 'archived' WHERE id = 'project-2'",
+                    [],
+                )?;
+                Ok(())
+            })
+            .expect("archive Canvas compatibility Project");
+
+        module
+            .apply(
+                &library_context(),
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "operation:reorder-second-project-canvas".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::MoveCanvas {
+                        canvas_id: canvas_id.to_owned(),
+                        expected_location_revision: 1,
+                        destination: LibraryCanvasDestination::Library { before: None },
+                    },
+                },
+            )
+            .expect("Library authority reorders a root Canvas without rehoming storage");
     }
 
     #[test]

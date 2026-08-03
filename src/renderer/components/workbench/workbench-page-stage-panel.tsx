@@ -28,6 +28,7 @@ import {
 } from "@/lib/page-stage-tab-title-store";
 import { fetchPageDetail, usePageDetail } from "@/lib/page-detail-store";
 import { RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE } from "@/lib/right-panel-composer-overlay-reserve";
+import { projectContentAccess } from "../../../shared/content-access-context";
 import type {
   CodexPromptInput,
   CodexThreadSummary,
@@ -407,6 +408,7 @@ export function PageStageSessionTab({
 
         return (
           <PageStage
+            contentAccessContext={projectContentAccess(tab.config.projectId)}
             editorSessionKey={makePageEditorSessionKey(sessionId, tab.id)}
             retainEditorSession={tab.preview !== true}
             documentAuthority={documentAuthority}

@@ -19,6 +19,7 @@ import type { DatabaseId } from "../../../shared/database-identities";
 import { queryKeys } from "../../lib/query-keys";
 import { invalidateExactQuery } from "../../lib/query-invalidation";
 import { useProjectionInvalidationRegistry } from "../../lib/projection-invalidation-context";
+import { libraryContentAccess } from "../../../shared/content-access-context";
 
 const libraryDocumentSurfaceDependencies = {
   createAdapter: () => createLibraryDocumentSyncAdapter(),
@@ -169,6 +170,7 @@ export function WorkbenchLibraryPageSurface({
 
   return (
     <PageStage
+      contentAccessContext={libraryContentAccess}
       editorSessionKey={`library-page:${surfaceId}`}
       retainEditorSession
       page={stagePage}

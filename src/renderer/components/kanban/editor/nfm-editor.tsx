@@ -40,6 +40,7 @@ import { NfmLinkToolbar } from "./nfm-link-toolbar";
 import { NfmLinkToolbarController } from "./nfm-link-toolbar-controller";
 import { toast } from "@/components/ui/toast";
 import { createUuidV7 } from "../../../../shared/uuid-v7";
+import type { ContentAccessContext } from "../../../../shared/content-access-context";
 import {
   NodexPopover,
   NodexPopoverAnchor,
@@ -207,6 +208,7 @@ interface NfmEditorFocusRuntime extends NfmEditorRelocationRuntime {
 }
 
 interface NfmEditorCommonProps {
+  contentAccessContext: ContentAccessContext;
   projectId: string;
   projectName?: string | null;
   projectWorkspacePath?: string | null;
@@ -392,6 +394,7 @@ export function NfmEditor(props: NfmEditorProps) {
 }
 
 function NfmEditorInstance({
+  contentAccessContext,
   projectId,
   projectName = null,
   projectWorkspacePath,
@@ -1795,6 +1798,7 @@ function NfmEditorInstance({
         );
         if (!target.ok) throw new Error(target.error.message);
         await moveCanvasOwnerToPage({
+          accessContext: contentAccessContext,
           canvasBlockId: selectedCanvasBlocks[0]!.id,
           targetPageId: destination.pageId,
           targetDocumentGeneration: target.value.generation,
@@ -1816,6 +1820,7 @@ function NfmEditorInstance({
     },
     [
       appendSendBlockSelectionToCard,
+      contentAccessContext,
       resolveSendBlocksSelection,
       restoreEditorFocus,
       sendBlockSelectionToProject,
@@ -1955,6 +1960,7 @@ function NfmEditorInstance({
               }) => {
                 if (mode === "copy") {
                   await duplicateCanvasInHostPage({
+                    accessContext: contentAccessContext,
                     sourceCanvasBlockId: canvasBlockId,
                     hostPageId: targetPageId,
                     insertion,
@@ -1971,6 +1977,7 @@ function NfmEditorInstance({
                   );
                 }
                 await moveCanvasOwnerBetweenHostPages({
+                  accessContext: contentAccessContext,
                   canvasBlockId,
                   targetPageId,
                   insertion,
@@ -1985,6 +1992,7 @@ function NfmEditorInstance({
     }),
     [
       parentBlockReferenceRuntime?.ancestorPageIds,
+      contentAccessContext,
       projectId,
       source.documentId,
       source.clientSessionId,
@@ -2138,13 +2146,14 @@ function NfmEditorInstance({
         );
       }
       return createCanvasInHostPage({
+        accessContext: contentAccessContext,
         hostPageId: sourcePageContext.pageId,
         replacementBlockId: blockId,
         displayName,
         runtime: surfaceWriteFence,
       });
     },
-    [sourcePageContext, surfaceWriteFence],
+    [contentAccessContext, sourcePageContext, surfaceWriteFence],
   );
 
   const requireCanvasHostRuntime = useCallback(() => {
@@ -2171,6 +2180,7 @@ function NfmEditorInstance({
       const siblingBlockIds = (parent?.children ?? editor.document)
         .map((block) => block.id);
       await duplicateCanvasInHostPage({
+        accessContext: contentAccessContext,
         sourceCanvasBlockId: canvasBlockId,
         hostPageId: host.hostPageId,
         insertion: resolveCanvasInsertionAfterBlock({
@@ -2181,14 +2191,17 @@ function NfmEditorInstance({
         runtime: host.runtime,
       });
     },
-    [editor, requireCanvasHostRuntime],
+    [contentAccessContext, editor, requireCanvasHostRuntime],
   );
 
   const deleteCanvas = useCallback(
     async (canvasBlockId: string) => {
-      await deleteCanvasOwner({ canvasBlockId });
+      await deleteCanvasOwner({
+        accessContext: contentAccessContext,
+        canvasBlockId,
+      });
     },
-    [],
+    [contentAccessContext],
   );
 
   const renameCanvas = useCallback(
@@ -2199,9 +2212,13 @@ function NfmEditorInstance({
       readonly canvasBlockId: string;
       readonly displayName: string;
     }) => {
-      await renameCanvasOwner({ canvasBlockId, displayName });
+      await renameCanvasOwner({
+        accessContext: contentAccessContext,
+        canvasBlockId,
+        displayName,
+      });
     },
-    [],
+    [contentAccessContext],
   );
   canvasCommandHandlersRef.current = {
     duplicate: async (canvasBlockId) => {
@@ -2246,6 +2263,7 @@ function NfmEditorInstance({
       const currentDocumentOwnerBlockId =
         documentOwnerBlockId ?? sourcePageContext?.pageId;
       return {
+        contentAccessContext,
         projectId,
         projectName,
         projectWorkspacePath: projectWorkspacePath ?? null,
@@ -2274,6 +2292,7 @@ function NfmEditorInstance({
       };
     },
     [
+      contentAccessContext,
       documentOwnerBlockId,
       isActivePanelTab,
       onOpenPage,

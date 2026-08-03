@@ -26,7 +26,10 @@ use crate::document::sha256;
 use crate::infrastructure::module_receipts::{NewModuleReceipt, insert_module_receipt};
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
-use super::mutation::{MutationEffects, finish_mutation, refresh_page_intrinsic_projection};
+use super::mutation::{
+    MutationEffects, finish_mutation, refresh_page_intrinsic_projection,
+    resolve_library_mutation_authority,
+};
 use super::{LibraryApplyOutcome, require_page_write_access};
 
 const MODULE_NAME: &str = "library";
@@ -1434,51 +1437,10 @@ fn ledger_project_id(
     context: &BoundModuleContext,
     library_id: &str,
 ) -> Result<String, StoreError> {
-    if let Some(project_id) = context.project_id.as_ref() {
-        return connection
-            .query_row(
-                "SELECT id FROM projects \
-                 WHERE id = ?1 AND library_id = ?2 AND lifecycle = 'active'",
-                params![project_id.0, library_id],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()?
-            .ok_or_else(|| {
-                StoreError::new(
-                    StoreErrorCode::Unauthorized,
-                    "Bound Project is not active in this Library",
-                    false,
-                )
-            });
-    }
-    if !matches!(
-        context.adapter,
-        AdapterKind::ElectronHost
-            | AdapterKind::LoopbackHttp
-            | AdapterKind::NativeCli
-            | AdapterKind::Test
-    ) {
-        return Err(StoreError::new(
-            StoreErrorCode::Unauthorized,
-            "Library Property mutations require trusted local authority",
-            false,
-        ));
-    }
-    connection
-        .query_row(
-            "SELECT id FROM projects WHERE library_id = ?1 AND lifecycle = 'active' \
-             ORDER BY created, id LIMIT 1",
-            [library_id],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()?
-        .ok_or_else(|| {
-            StoreError::new(
-                StoreErrorCode::NotFound,
-                "The local Library has no compatibility storage Project",
-                false,
-            )
-        })
+    Ok(
+        resolve_library_mutation_authority(connection, context, library_id)?
+            .compatibility_project_id,
+    )
 }
 
 fn make_evidence(

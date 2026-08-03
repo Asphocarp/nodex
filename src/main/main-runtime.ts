@@ -14,7 +14,6 @@ import {
   session as electronSession,
   shell,
   systemPreferences,
-  type IpcMainInvokeEvent,
   type MenuItemConstructorOptions,
   type WebContents,
 } from "electron";
@@ -110,7 +109,6 @@ import type {
   WindowSessionRecord,
   WindowSessionSaveLayoutInput,
 } from "../shared/window-session";
-import { getWorkbenchSceneReturnLocation } from "../shared/workbench-layout";
 import { getLogger, shutdownBackendLogger } from "./logging/logger";
 import { AppUpdateService } from "./app-update-service";
 import { createPackagedMacAppUpdater } from "./sparkle-mac-app-updater";
@@ -2615,22 +2613,6 @@ export async function runMainAppStartup(
   });
   const libraryModule = createDesktopLibraryModuleBridge({
     authority: dataAuthority,
-    resolveProjectId: (rawEvent) => {
-      const event = rawEvent as IpcMainInvokeEvent;
-      const layout = windowSessionState
-        ?.getSessionForWindow(event.sender.id)
-        ?.layout;
-      const sceneLocation = layout
-        ? getWorkbenchSceneReturnLocation(layout.location)
-        : null;
-      const projectId = sceneLocation?.kind === "project"
-        ? sceneLocation.projectId.trim()
-        : sceneLocation?.kind === "session"
-          ? sceneLocation.projectContextId?.trim()
-          : null;
-      if (!projectId) return null;
-      return projectId;
-    },
     publishLibraryDocumentCommits: documentSync.publishLibraryDocumentCommits,
   });
   desktopLibraryModule = libraryModule;

@@ -246,6 +246,7 @@ function ActivePageOutlinerContent({
           className="w-full min-w-0"
         >
           <NfmEditor
+            contentAccessContext={hostRuntime.contentAccessContext}
             projectId={target.requestingProjectId}
             projectName={targetProject.projectName}
             projectWorkspacePath={targetProject.projectWorkspacePath}

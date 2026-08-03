@@ -1,7 +1,10 @@
 import { createContext, useContext, type ReactNode } from "react";
 import type { DatabaseId } from "../../../shared/database-identities";
+import type { ContentAccessContext } from "../../../shared/content-access-context";
 
 export interface BlockReferenceHostRuntime {
+  /** Authority inherited by every nested content editor in this host chain. */
+  readonly contentAccessContext: ContentAccessContext;
   readonly projectId: string;
   readonly projectName: string | null;
   readonly projectWorkspacePath: string | null;

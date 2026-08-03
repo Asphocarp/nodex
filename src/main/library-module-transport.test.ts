@@ -6,6 +6,10 @@ import type {
 } from "../shared/library-module";
 import { LIBRARY_MODULE_CONTRACT_VERSION } from "../shared/library-module";
 import {
+  libraryContentAccess,
+  projectContentAccess,
+} from "../shared/content-access-context";
+import {
   LIBRARY_MODULE_APPLY_IPC_CHANNEL,
   LIBRARY_MODULE_READ_IPC_CHANNEL,
   registerLibraryModuleIpcHandler,
@@ -67,17 +71,21 @@ describe("Library Module IPC", () => {
     const received: unknown[] = [];
     const handlers = new Map<
       string,
-      (event: unknown, request: unknown) => Promise<unknown>
+      (
+        event: unknown,
+        accessContext: unknown,
+        request: unknown,
+      ) => Promise<unknown>
     >();
     registerLibraryModuleIpcHandler({
       registerHandle: (channel, handler) => handlers.set(channel, handler),
       isTrustedEvent: (event) => event === "trusted",
-      read: async (request) => {
-        received.push(request);
+      read: async (accessContext, request) => {
+        received.push({ accessContext, request });
         return result();
       },
-      apply: async (request) => {
-        received.push(request);
+      apply: async (accessContext, request) => {
+        received.push({ accessContext, request });
         return applyResult();
       },
     });
@@ -87,14 +95,17 @@ describe("Library Module IPC", () => {
     } as const;
     expect(await handlers.get(LIBRARY_MODULE_READ_IPC_CHANNEL)?.(
       "trusted",
+      libraryContentAccess,
       request,
     )).toEqual(result());
     expect(await handlers.get(LIBRARY_MODULE_READ_IPC_CHANNEL)?.(
       "subframe",
+      libraryContentAccess,
       request,
     )).toMatchObject({ ok: false, error: { code: "invalid_request" } });
     expect(await handlers.get(LIBRARY_MODULE_APPLY_IPC_CHANNEL)?.(
       "trusted",
+      libraryContentAccess,
       applyRequest,
     )).toEqual(applyResult());
     const canvasRequest = {
@@ -120,10 +131,12 @@ describe("Library Module IPC", () => {
     } as const;
     expect(await handlers.get(LIBRARY_MODULE_APPLY_IPC_CHANNEL)?.(
       "trusted",
+      projectContentAccess("project:test"),
       canvasRequest,
     )).toEqual(applyResult());
     expect(await handlers.get(LIBRARY_MODULE_APPLY_IPC_CHANNEL)?.(
       "trusted",
+      projectContentAccess("project:test"),
       {
         ...canvasRequest,
         operation: {
@@ -134,9 +147,23 @@ describe("Library Module IPC", () => {
     )).toMatchObject({ ok: false, error: { code: "invalid_request" } });
     expect(await handlers.get(LIBRARY_MODULE_APPLY_IPC_CHANNEL)?.(
       "subframe",
+      libraryContentAccess,
       applyRequest,
     )).toMatchObject({ ok: false, error: { code: "invalid_request" } });
 
-    expect(received).toEqual([request, applyRequest, canvasRequest]);
+    expect(await handlers.get(LIBRARY_MODULE_APPLY_IPC_CHANNEL)?.(
+      "trusted",
+      { kind: "project", projectId: " project:test" },
+      applyRequest,
+    )).toMatchObject({ ok: false, error: { code: "invalid_request" } });
+
+    expect(received).toEqual([
+      { accessContext: libraryContentAccess, request },
+      { accessContext: libraryContentAccess, request: applyRequest },
+      {
+        accessContext: projectContentAccess("project:test"),
+        request: canvasRequest,
+      },
+    ]);
   });
 });

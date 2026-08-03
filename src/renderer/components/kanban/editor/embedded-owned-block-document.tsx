@@ -118,6 +118,8 @@ export function EmbeddedOwnedBlockDocument({
                     />
                   </div>
                   <NfmEditor
+                    contentAccessContext={hostRuntime?.contentAccessContext
+                      ?? { kind: "project", projectId }}
                     projectId={projectId}
                     projectName={hostRuntime?.projectName}
                     projectWorkspacePath={

@@ -14,6 +14,7 @@ import {
   type PageStageStoryControls,
 } from "./page-stage-dev-story-data";
 import { createPageStageStoryDocument } from "./page-stage-story-document";
+import { projectContentAccess } from "../../../../shared/content-access-context";
 
 export interface PageStageDevStoryPageProps extends PageStageStoryControls {
   renderPreview?: boolean;
@@ -244,6 +245,7 @@ export function PageStageDevStoryPage({
         <section className="min-h-0 flex-1 overflow-hidden rounded-[20px] border border-(--border) bg-(--background) shadow-[0_24px_64px_rgba(0,0,0,0.28)]">
           {renderPreview ? (
             <PageStage
+              contentAccessContext={projectContentAccess(PAGE_STAGE_STORY_PROJECT_ID)}
               key={descriptionVariant}
               onClose={() => undefined}
               page={stagePage}

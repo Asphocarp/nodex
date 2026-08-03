@@ -1,5 +1,6 @@
 import type { ThreadBackgroundTerminal } from "@nodex/codex-app-server-protocol/v2/ThreadBackgroundTerminal";
 import type { GitRepositoryIdentity } from "./git-repository-identity";
+import type { ContentAccessContext } from "./content-access-context";
 import type { LocalPathPresentationContext } from "./local-path-presentation";
 import type {
   ManagedAssetImageBytes,
@@ -667,11 +668,17 @@ export interface IpcApi {
     result: DatabaseApplyResultV2;
   };
   "library-module:read": {
-    args: [request: LibraryModuleReadRequest];
+    args: [
+      accessContext: ContentAccessContext,
+      request: LibraryModuleReadRequest,
+    ];
     result: LibraryModuleReadResult;
   };
   "library-module:apply": {
-    args: [request: LibraryModuleApplyRequest];
+    args: [
+      accessContext: ContentAccessContext,
+      request: LibraryModuleApplyRequest,
+    ];
     result: LibraryModuleApplyResult;
   };
   "library-database-module:read": {

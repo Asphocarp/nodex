@@ -91,6 +91,7 @@ describe("CanvasBlock", () => {
     const openCanvas = vi.fn();
     const renameCanvas = vi.fn(async () => undefined);
     const host = {
+      contentAccessContext: { kind: "project", projectId: "project-1" } as const,
       projectId: "project-1",
       projectName: "Project",
       projectWorkspacePath: null,
@@ -134,6 +135,7 @@ describe("CanvasBlock", () => {
 
   test("auto-admits a bounded set and keeps an engaged Canvas mounted", async () => {
     const host = {
+      contentAccessContext: { kind: "project", projectId: "project-1" } as const,
       projectId: "project-1",
       projectName: "Project",
       projectWorkspacePath: null,
@@ -185,6 +187,7 @@ describe("CanvasBlock", () => {
       focus,
     };
     const host = {
+      contentAccessContext: { kind: "project", projectId: "project-1" } as const,
       projectId: "project-1",
       projectName: "Project",
       projectWorkspacePath: null,
@@ -217,6 +220,7 @@ describe("CanvasBlock", () => {
   test("restores frame height across Page runtime replacement", async () => {
     installMeasuredResizeObserver({ blockSize: 520, inlineSize: 800 });
     const host = {
+      contentAccessContext: { kind: "project", projectId: "project-1" } as const,
       projectId: "project-1",
       projectName: "Project",
       projectWorkspacePath: null,

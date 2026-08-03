@@ -5096,6 +5096,50 @@ mod tests {
                 Ok(())
             })
             .expect("Property authority evidence");
+
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "UPDATE projects SET lifecycle = 'archived' WHERE id = 'project-1'",
+                    [],
+                )?;
+                Ok(())
+            })
+            .expect("archive compatibility storage Project");
+        let mut library_context = persistent_context.clone();
+        library_context.project_id = None;
+        let property_write = module
+            .apply(
+                &library_context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "property:library-authority".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::ApplyBlockPropertyMutation {
+                        mutation: Box::new(LibraryBlockPropertyMutation {
+                            actor: serde_json::json!({ "kind": "test" }),
+                            client_session_id: None,
+                            fields: vec![LibraryBlockPropertyFieldMutation::IntrinsicSet {
+                                block_id: PAGE.to_owned(),
+                                property_key: "run.target".to_owned(),
+                                expected_revision: 2,
+                                value: serde_json::json!("localProject"),
+                            }],
+                        }),
+                    },
+                },
+            )
+            .expect("Library authority writes Properties without an active Project");
+        assert!(matches!(
+            property_write
+                .committed
+                .value
+                .block_property_mutation
+                .as_ref()
+                .map(|receipt| &receipt.outcome),
+            Some(LibraryBlockPropertyMutationOutcome::Committed { .. })
+        ));
     }
 }
 pub(crate) mod agent_authorization;
