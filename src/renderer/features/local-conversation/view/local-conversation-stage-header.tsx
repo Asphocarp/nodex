@@ -26,7 +26,7 @@ interface ThreadStageHeaderProps {
   onErrorMessage: (message: string | null) => void;
 }
 
-const menuIconClassName = "icon-xs shrink-0 opacity-75 group-focus:opacity-100 group-hover:opacity-100";
+const menuIconClassName = "icon-xs shrink-0";
 
 function ThreadStageHeaderComponent({ model, actions, onErrorMessage }: ThreadStageHeaderProps) {
   const [menuOpen, setMenuOpen] = useState(false);

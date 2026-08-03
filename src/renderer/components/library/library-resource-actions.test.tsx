@@ -32,6 +32,26 @@ const openActions = async (): Promise<void> => {
 describe("Library resource actions", () => {
   beforeEach(() => navigation.mutateAsync.mockReset());
 
+  test("uses a plain label for the confirmation-only Archive action", async () => {
+    render(
+      <NodexTooltipProvider>
+        <LibraryResourceActions
+          target={{ kind: "page", pageId: "page-1" }}
+          title="Research"
+          expectedLocationRevision={2}
+          expectedMetadataRevision={3}
+        />
+      </NodexTooltipProvider>,
+    );
+
+    await openActions();
+    const archiveItem = await screen.findByRole("menuitem", { name: "Archive" });
+    expect(screen.queryByRole("menuitem", { name: "Archive…" })).toBeNull();
+
+    fireEvent.click(archiveItem);
+    expect(await screen.findByRole("dialog")).not.toBeNull();
+  });
+
   test("does not grant Project access when confirmation is cancelled", async () => {
     render(
       <NodexTooltipProvider>

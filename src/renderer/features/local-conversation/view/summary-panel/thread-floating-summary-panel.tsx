@@ -1296,8 +1296,6 @@ export function ThreadSummaryPanelSurface({
                         side="left"
                         align="start"
                         sideOffset={4}
-                        contentWidth="menuNarrow"
-                        contentClassName="max-w-[calc(100vw-2rem)]"
                         menuTitle="Continue in"
                         tooltipContent="Select where to run the task"
                         renderTrigger={({ iconKey, title, disabled }) => (

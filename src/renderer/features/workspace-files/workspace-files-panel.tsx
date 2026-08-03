@@ -1025,7 +1025,6 @@ export function WorkspaceFilesPanel({
             </button>
             <NodexDropdownMenu
               align="end"
-              contentWidth="menuNarrow"
               triggerButton={(
                 <button
                   type="button"

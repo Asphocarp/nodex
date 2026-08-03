@@ -26,10 +26,6 @@ import {
 import { TOGGLE_BOTTOM_PANEL_COMMAND_ID } from "../../../shared/workbench-commands";
 import { DEFAULT_PROJECT_APPEARANCE } from "../../../shared/project-appearance";
 
-vi.mock("./page-icon", () => ({
-  PageIcon: ({ className }: { className?: string }) => createElement("span", { className }, "C"),
-}));
-
 vi.mock("./threads-icon", () => ({
   ThreadsIcon: ({ className }: { className?: string }) => createElement("span", { className }, "T"),
 }));

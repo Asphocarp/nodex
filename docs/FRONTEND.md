@@ -218,9 +218,15 @@
   - use `text-token-*`, `bg-token-*`, `border-token-*`, `rounded-*`, `text-size-*`, `font-vscode-editor`, and window-width/padding vars before inventing new colors, spacing, or radii
   - keep theme/color ownership in the generated contract/foundation layers plus the runtime theme bridge, not in feature components
 - Keep app-owned SVG icons centralized:
-  - prefer `lucide-react` for generic stock icons that already exist in the library
+  - treat `src/renderer/components/shared/icons.tsx` as the source of truth for app-shell chrome, compact menus, sidebars, and resource-identity icons; reuse an existing semantic icon or add an original app-owned SVG there before falling back to a stock library
+  - use `lucide-react` only for generic feature/content controls that have no shared semantic equivalent; never place its default 24px / 2px-stroke geometry directly beside app-owned shell icons
   - you MUST keep ALL custom SVGs in `src/renderer/components/shared/icons.tsx`
   - custom side-panel action SVGs belong in that shared icon file and should be reused by both empty-panel action cards and tab headers
+  - compact shell and resource-action menu icons use a fixed `icon-xs` (16px) slot, `shrink-0`, and `currentColor`; do not inherit a library icon's default size or stroke weight
+- Keep dropdown hierarchy and sizing owned by the shared primitives:
+  - `NodexDropdownMenu` uses content-driven width with a compact `172px` minimum and `240px` maximum by default; choose a wider semantic `contentWidth` only when the content type genuinely requires it, never to add empty space
+  - `NodexDropdownItem` owns the muted secondary color for leading icons and promotes them with the row on hover/focus; feature menus should set icon size and semantic accent only, not recreate the default opacity/color treatment
+  - append `…` only when the user must supply missing information or make another choice before the command can complete; do not append it to immediate actions or confirmation-only actions such as `Archive`
 - Prefer shared primitives over bespoke wrappers:
   - if a surface looks like an existing row shell, accordion shell, summary header, fade-mask container, or compact card, reuse or extract a primitive instead of restyling a feature-local wrapper
   - keep visual density aligned to the existing rhythm (`gap-*`, `px-panel`, `var(--conversation-tool-assistant-gap)`) rather than per-component spacing tweaks

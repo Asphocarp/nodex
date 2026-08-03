@@ -1,5 +1,4 @@
 import {
-  FileText,
   Search,
 } from "lucide-react";
 import {
@@ -13,6 +12,7 @@ import {
   type ReactNode,
 } from "react";
 import {
+  CodexPageIcon,
   SpinnerIcon,
 } from "@/components/shared/icons";
 import { createNfmMoveToSearchIndex } from "@/components/kanban/editor/nfm-move-to-menu-search";
@@ -94,7 +94,7 @@ function PanelDestinationProjectIcon({
 }
 
 function PanelDestinationRowIcon({ row }: { row: PanelDestinationRow }) {
-  if (row.kind === "page") return <FileText className="size-4" aria-hidden="true" />;
+  if (row.kind === "page") return <CodexPageIcon />;
   return (
     <PanelDestinationProjectIcon projectAppearance={row.projectAppearance} />
   );

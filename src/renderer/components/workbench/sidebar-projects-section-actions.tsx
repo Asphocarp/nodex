@@ -1,11 +1,11 @@
 import { useState } from "react";
-import { FolderMinus } from "lucide-react";
 import type { Project, ProjectCreateInput } from "@/lib/types";
 import {
   CodexArchiveIcon,
   CodexProjectActionsIcon,
   CodexProjectCollapseAllIcon,
   CodexProjectFolderIcon,
+  CodexProjectRemovedIcon,
   CodexProjectReopenPreviousIcon,
   CodexSidebarCreatedIcon,
   CodexSidebarManualOrderIcon,
@@ -24,9 +24,8 @@ import { CodexSidebarActionButton } from "./codex-sidebar";
 import { SidebarProjectAddButton } from "./sidebar-project-add-button";
 import { RemovedProjectsDialog } from "./removed-projects-dialog";
 
-const PROJECT_SIDEBAR_OPTIONS_CONTENT_CLASS = "min-w-[172px] max-w-[240px]";
 const PROJECT_SIDEBAR_OPTIONS_SUBMENU_CLASS = "min-w-[180px]";
-const PROJECT_SIDEBAR_MENU_ICON_CLASS = "icon-xs opacity-75 group-focus:opacity-100 group-hover:opacity-100";
+const PROJECT_SIDEBAR_MENU_ICON_CLASS = "icon-xs";
 export function SidebarProjectsSectionActions({
   projectGroupCollapseAction,
   onProjectGroupCollapseAction,
@@ -86,7 +85,6 @@ function SidebarProjectOptionsMenu({
       onOpenChange={setOpen}
       side="bottom"
       align="end"
-      contentClassName={PROJECT_SIDEBAR_OPTIONS_CONTENT_CLASS}
       triggerButton={(
         <CodexSidebarActionButton
           label="Project sidebar options"
@@ -104,7 +102,7 @@ function SidebarProjectOptionsMenu({
         Archive all chats
       </NodexDropdownItem>
       <NodexDropdownItem
-        leftSlot={<FolderMinus className={PROJECT_SIDEBAR_MENU_ICON_CLASS} />}
+        leftSlot={<CodexProjectRemovedIcon className={PROJECT_SIDEBAR_MENU_ICON_CLASS} />}
         onSelect={() => {
           setOpen(false);
           onOpenRemovedProjects();

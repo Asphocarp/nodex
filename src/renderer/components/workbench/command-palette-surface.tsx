@@ -2,7 +2,11 @@ import { useCallback, useDeferredValue, useEffect, useId, useMemo, useRef, useSt
 import {
   ListFilter,
 } from "lucide-react";
-import { CodexSidebarVisibleIcon } from "@/components/shared/icons";
+import {
+  CodexDatabaseIcon,
+  CodexSidePanelSideChatIcon,
+  CodexSidebarVisibleIcon,
+} from "@/components/shared/icons";
 import {
   areCommandPalettePageFiltersEqual,
   cloneCommandPalettePageFilters,
@@ -48,7 +52,6 @@ import {
   shouldConsumeStalePickerNavigation,
 } from "../../lib/query-fresh-picker";
 import { cn } from "../../lib/utils";
-import { PageIcon } from "./page-icon";
 import { ProjectMarker } from "./project-marker";
 import { CommandMenuReferenceIcon } from "./command-menu-reference-icons";
 import {
@@ -333,8 +336,8 @@ function getCommandGlyph(id: string) {
   if (id === "searchChats" || id === "searchPages" || id === "findInThread") return (props: { className?: string }) => (
     <CommandMenuReferenceIcon name="search" {...props} />
   );
-  if (id === OPEN_DB_VIEW_TAB_COMMAND_ID) return PageIcon;
-  if (id === "openSideChat") return PageIcon;
+  if (id === OPEN_DB_VIEW_TAB_COMMAND_ID) return CodexDatabaseIcon;
+  if (id === "openSideChat") return CodexSidePanelSideChatIcon;
   if (id === "settings" || id === "showKeyboardShortcuts" || id.endsWith("Settings")) return (props: { className?: string }) => (
     <CommandMenuReferenceIcon name="settings" {...props} />
   );

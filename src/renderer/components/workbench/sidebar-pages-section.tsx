@@ -1,5 +1,6 @@
-import { FileText, MoreHorizontal, Plus, Shapes, Table2 } from "lucide-react";
+import { MoreHorizontal, Plus, Shapes } from "lucide-react";
 import { useMemo, useState } from "react";
+import { CodexDatabaseIcon, CodexPageIcon } from "@/components/shared/icons";
 import type {
   LibraryResourceTarget,
   LibraryReadValue,
@@ -76,8 +77,8 @@ const nodeTarget = (node: StandaloneRoot): LibraryResourceTarget => {
 const nodeKey = (node: StandaloneRoot): string => rootKey(nodeTarget(node));
 
 const nodeIcon = (node: StandaloneRoot) => {
-  if (node.kind === "page") return <FileText className="icon-xs" />;
-  if (node.kind === "database") return <Table2 className="icon-xs" />;
+  if (node.kind === "page") return <CodexPageIcon />;
+  if (node.kind === "database") return <CodexDatabaseIcon />;
   return <Shapes className="icon-xs" />;
 };
 

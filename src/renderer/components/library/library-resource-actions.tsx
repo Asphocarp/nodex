@@ -1,6 +1,13 @@
-import { Archive, FolderInput, MoreHorizontal, RotateCcw, Share2, SquareArrowOutUpRight } from "lucide-react";
+import { MoreHorizontal } from "lucide-react";
 import { useState, type ReactElement } from "react";
 
+import {
+  CodexArchiveIcon,
+  CodexMoveToIcon,
+  CodexOpenInIcon,
+  CodexProjectAccessIcon,
+  RefreshIcon,
+} from "@/components/shared/icons";
 import {
   NodexDialog,
   NodexDialogAction,
@@ -175,16 +182,15 @@ export function LibraryResourceActions({
       <NodexDropdownMenu
         triggerButton={triggerButton ?? defaultTrigger}
         align="end"
-        contentWidth="menuNarrow"
       >
         <NodexDropdownItem
-          leftSlot={<FolderInput className="icon-sm" />}
+          leftSlot={<CodexMoveToIcon />}
           onSelect={() => setDialog("move")}
         >
           Move to…
         </NodexDropdownItem>
         <NodexDropdownItem
-          leftSlot={<Share2 className="icon-sm" />}
+          leftSlot={<CodexProjectAccessIcon />}
           disabled={projects.length === 0}
           onSelect={() => setDialog("grant")}
         >
@@ -192,7 +198,7 @@ export function LibraryResourceActions({
         </NodexDropdownItem>
         {onOpenInProject ? (
           <NodexDropdownItem
-            leftSlot={<SquareArrowOutUpRight className="icon-sm" />}
+            leftSlot={<CodexOpenInIcon />}
             disabled={projects.length === 0}
             onSelect={() => setDialog("open_project")}
           >
@@ -202,8 +208,8 @@ export function LibraryResourceActions({
         {expectedMetadataRevision !== undefined ? (
           <NodexDropdownItem
             leftSlot={lifecycle === "active"
-              ? <Archive className="icon-sm" />
-              : <RotateCcw className="icon-sm" />}
+              ? <CodexArchiveIcon />
+              : <RefreshIcon />}
             onSelect={() => {
               if (lifecycle === "active") {
                 setDialog("archive");
@@ -212,7 +218,7 @@ export function LibraryResourceActions({
               void applyLifecycle();
             }}
           >
-            {lifecycle === "active" ? "Archive…" : "Restore"}
+            {lifecycle === "active" ? "Archive" : "Restore"}
           </NodexDropdownItem>
         ) : null}
       </NodexDropdownMenu>

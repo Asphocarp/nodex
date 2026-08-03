@@ -1,4 +1,5 @@
-import { ChevronRight, FileText, Shapes, Table2 } from "lucide-react";
+import { ChevronRight, Shapes } from "lucide-react";
+import { CodexDatabaseIcon, CodexPageIcon } from "@/components/shared/icons";
 import { AppShellHeaderContentRegistrar } from "@/lib/workbench-ui-scopes";
 import { listWorkbenchPanelLeaves } from "../../../shared/workbench-panel-layout";
 import type {
@@ -27,9 +28,9 @@ export function ResourceSceneBreadcrumb({
   if (scene.owner.kind !== "resource") return null;
   const root = scene.owner.root;
   const Icon = root.kind === "page"
-    ? FileText
+    ? CodexPageIcon
     : root.kind === "database"
-      ? Table2
+      ? CodexDatabaseIcon
       : Shapes;
   const rootTitle = scene.primary.titleSnapshot.trim()
     || (root.kind === "page"

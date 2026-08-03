@@ -2,12 +2,20 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useEffect, useState } from "react";
 import { Check, FolderGit2, Settings2, Shield, Sparkles, SquareKanban, Table2 } from "lucide-react";
 import {
+  CodexArchiveIcon,
+  CodexDatabaseIcon,
+  CodexMoveToIcon,
+  CodexOpenInIcon,
+  CodexPageIcon,
+  CodexProjectAccessIcon,
+  CodexProjectRemovedIcon,
   CodexSidePanelBrowserIcon,
   CodexSidePanelFilesIcon,
   CodexSidePanelReviewIcon,
   CodexSidePanelSideChatIcon,
   ConfigStatusIcon,
   EstimatePickerIcon,
+  RefreshIcon,
 } from "@/components/shared/icons";
 import { NodexButton } from "./button";
 import {
@@ -190,6 +198,38 @@ function PanelActionIconDropdownDemo() {
           leftSlot={<SquareKanban className="icon-sm" />}
         >
           Page Stage
+        </NodexDropdownItem>
+      </NodexDropdownMenu>
+    </StorySurface>
+  );
+}
+
+function LibraryActionIconDropdownDemo() {
+  return (
+    <StorySurface>
+      <NodexDropdownMenu
+        open={true}
+        triggerButton={(
+          <NodexDropdownButtonTrigger className="min-w-32">
+            Library item
+          </NodexDropdownButtonTrigger>
+        )}
+      >
+        <NodexDropdownItem leftSlot={<CodexPageIcon />}>Page</NodexDropdownItem>
+        <NodexDropdownItem leftSlot={<CodexDatabaseIcon />}>Database</NodexDropdownItem>
+        <NodexDropdownSeparator />
+        <NodexDropdownItem leftSlot={<CodexMoveToIcon />}>Move to…</NodexDropdownItem>
+        <NodexDropdownItem leftSlot={<CodexProjectAccessIcon />}>
+          Give Project access…
+        </NodexDropdownItem>
+        <NodexDropdownItem leftSlot={<CodexOpenInIcon />}>Open in Project…</NodexDropdownItem>
+        <NodexDropdownItem leftSlot={<CodexArchiveIcon />}>
+          Archive
+        </NodexDropdownItem>
+        <NodexDropdownItem leftSlot={<RefreshIcon />}>Restore</NodexDropdownItem>
+        <NodexDropdownSeparator />
+        <NodexDropdownItem leftSlot={<CodexProjectRemovedIcon />}>
+          Removed projects…
         </NodexDropdownItem>
       </NodexDropdownMenu>
     </StorySurface>
@@ -518,6 +558,10 @@ export const DropdownIconOnlyTrigger: Story = {
 
 export const DropdownPanelActionIcons: Story = {
   render: () => <PanelActionIconDropdownDemo />,
+};
+
+export const DropdownLibraryActionIcons: Story = {
+  render: () => <LibraryActionIconDropdownDemo />,
 };
 
 export const DropdownLongLabelTrigger: Story = {

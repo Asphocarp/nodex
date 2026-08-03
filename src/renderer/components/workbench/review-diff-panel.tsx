@@ -339,7 +339,7 @@ const REVIEW_FILE_TREE_MAX_WIDTH_RATIO = 0.6;
 const REVIEW_FILE_TREE_SEARCH_INPUT_ID = "review-file-search";
 const REVIEW_FULL_FILE_MAX_BYTES = 5_000_000;
 const REVIEW_OPTIONS_MENU_ICON_CLASS_NAME =
-  "icon-xs shrink-0 opacity-75 group-focus:opacity-100 group-hover:opacity-100";
+  "icon-xs shrink-0";
 const REVIEW_AGGREGATE_DIFF_STATS_CLASS_NAME =
   "text-size-chat mr-1 shrink-0 select-none";
 const REVIEW_EMPTY_STATE_ACTION_BUTTON_CLASS_NAME =

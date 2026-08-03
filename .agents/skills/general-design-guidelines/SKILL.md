@@ -165,6 +165,10 @@ Dropdowns are **frosted glass** with a subtle shadow — they float above conten
 
 Use one shared dropdown chrome system across selector-style surfaces. Radix `Select`, `DropdownMenu`, and selector `Popover` content should share the same surface, row, divider, and motion treatment by default. Triggers can stay context-specific: toolbar pills, dialog fields, and inline chip controls do not need identical trigger chrome as long as their poppers resolve to the same floating menu language.
 
+- Default action menus are content-sized within a compact 172–240px range. Use a wider semantic size only when the content demands it; never use a fixed width that leaves obvious empty space.
+- Shared menu-item primitives own leading-icon hierarchy: 16px, `shrink-0`, secondary color at rest, and primary color on hover/focus. Feature menus only provide the semantic icon or an intentional accent.
+- Use `…` only when completing the command requires missing information or an additional choice. Immediate and confirmation-only commands use plain labels, for example `Archive` rather than `Archive…`.
+
 ## Dialogs
 
 All modal dialogs use the shared Nodex dialog surface by default. `NodexDialogContent` owns the overlay, centered placement, frosted background, hairline ring, shadow, radius, overflow, and close control. Do not introduce provenance- or feature-named chrome variants.
@@ -262,7 +266,9 @@ border-top: 0.5px solid var(--border-token);
 - Size classes: `icon-xxs`, `icon-2xs`, `icon-xs`, `icon-sm`
 - Use `shrink-0` on all icons to prevent flex compression
 - Use `currentColor` for fill/stroke — inherit color from parent
-- Standard menu/dropdown icon: `icon-2xs` (≈14px)
+- Use the shared app-owned icon set for app-shell chrome, compact menus, sidebars, and resource identity. Add original SVGs to the shared icon file before introducing a stock icon beside this high-fidelity chrome.
+- Stock icon libraries are a fallback for generic feature/content controls. Never rely on their default size or stroke weight in app-shell surfaces.
+- Standard compact shell/resource-action menu icon: `icon-xs` (16px). Reserve `icon-2xs` (≈14px) for denser secondary controls and indicators.
 - Standard sidebar/toolbar icon: `icon-sm` (≈20px)
 
 ## Typography

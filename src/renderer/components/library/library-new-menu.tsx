@@ -1,6 +1,6 @@
 import type { ReactElement } from "react";
-import { FileText, Table2 } from "lucide-react";
 
+import { CodexDatabaseIcon, CodexPageIcon } from "@/components/shared/icons";
 import {
   NodexDropdownItem,
   NodexDropdownMenu,
@@ -68,13 +68,13 @@ export function LibraryNewMenu({
       contentWidth="sm"
     >
       <NodexDropdownItem
-        leftSlot={<FileText className="icon-sm" />}
+        leftSlot={<CodexPageIcon />}
         onSelect={() => void createPage()}
       >
         Page
       </NodexDropdownItem>
       <NodexDropdownItem
-        leftSlot={<Table2 className="icon-sm" />}
+        leftSlot={<CodexDatabaseIcon />}
         onSelect={() => void createDatabase()}
       >
         Database
