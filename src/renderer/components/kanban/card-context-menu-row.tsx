@@ -2,7 +2,9 @@ import {
   Copy,
   Image,
   LayoutGrid,
+  MessageCirclePlusIcon,
   PanelRightOpen,
+  SendHorizontal,
   SlidersHorizontal,
   Star,
   Trash2,
@@ -23,8 +25,12 @@ function ActionIcon({ entryId }: { entryId: CardActionMenuEntry["id"] }) {
       return <LayoutGrid className={className} strokeWidth={1.8} />;
     case "property-visibility":
       return <PanelRightOpen className={className} strokeWidth={1.8} />;
-    case "open-in":
+    case "open-page":
       return <PanelRightOpen className={className} strokeWidth={1.8} />;
+    case "open-in-new-chat":
+      return <MessageCirclePlusIcon className={className} strokeWidth={1.8} />;
+    case "send-to-chat":
+      return <SendHorizontal className={className} strokeWidth={1.8} />;
     case "copy-link":
       return <Copy className={className} strokeWidth={1.8} />;
     case "duplicate":

@@ -30,6 +30,16 @@ describe("file link openers", () => {
     }));
   });
 
+  test("parses ranged line and column fragments", () => {
+    expect(parseLocalFileLinkHref(`${EXAMPLE_PARSER_PATH}#L71C3-L76C8`)).toEqual({
+      path: EXAMPLE_PARSER_PATH,
+      line: 71,
+      column: 3,
+      endLine: 76,
+      endColumn: 8,
+    });
+  });
+
   test("ignores non-file links", () => {
     expect(parseLocalFileLinkHref("https://example.com")).toBe(null);
     expect(parseLocalFileLinkHref("parser.ts")).toBe(null);

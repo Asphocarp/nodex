@@ -7,7 +7,7 @@ import {
 } from "../model/review-view-state";
 
 export interface UseOpenReviewOptions {
-  readonly activateReviewTab: () => Promise<void>;
+  readonly activateReviewTab: () => Promise<boolean>;
 }
 
 export function useOpenReview({
@@ -16,9 +16,13 @@ export function useOpenReview({
   const prepareReviewOpen = useSetScopedAtom(prepareReviewOpenAtom);
 
   return useCallback(async (intent: ReviewOpenIntent) => {
-    prepareReviewOpen(intent);
     try {
-      await activateReviewTab();
+      const activated = await activateReviewTab();
+      if (!activated) {
+        toast.danger("Review is unavailable for this conversation.");
+        return;
+      }
+      prepareReviewOpen(intent);
     } catch (error) {
       toast.danger(
         error instanceof Error ? error.message : "Could not open Review.",

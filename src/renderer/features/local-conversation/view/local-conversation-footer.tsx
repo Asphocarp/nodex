@@ -145,6 +145,8 @@ function LocalConversationFooterComponent({
       surface: "preview",
       canEditTurnUserPrefix: false,
       canForkTurn: false,
+      cwd: model.conversation.cwd,
+      projectlessOutputDirectory: model.conversation.projectlessOutputDirectory,
     });
   }, [model.conversation, rightPanelOverlayEnabled]);
   const latestTurnKey = latestTurn?.turnKey ?? null;

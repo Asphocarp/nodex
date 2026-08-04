@@ -30,7 +30,7 @@ const TEST_SECTIONS: SettingsSearchSection<TestSectionId>[] = [
     searchMessages: [
       "Keep awake",
       "Keyboard shortcuts",
-      "Desktop notifications",
+      "Turn completion notifications",
     ],
   },
   {

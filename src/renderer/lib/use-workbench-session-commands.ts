@@ -29,6 +29,7 @@ import {
   getDefaultPanelIdForTabKind,
 } from "./workbench-panel-actions";
 import {
+  resolveLeafIdForPanelTab,
   resolveSessionPanelActiveLeafId,
 } from "./workbench-panel-placement";
 import {
@@ -85,6 +86,12 @@ import type {
 import type {
   CodexBackgroundTerminalProcessRow,
 } from "./codex-background-terminal-processes";
+import { loadPagePromptContext } from "./page-prompt-context";
+import type {
+  OpenPageInNewChatInput,
+  SendPageToChatInput,
+} from "./page-chat-actions";
+import type { WorkbenchSceneNavigator } from "./workbench-scene-navigator";
 import type {
   CodexCollaborationModeKind,
   CodexComposerIntent,
@@ -99,7 +106,8 @@ import type {
 type ProjectSession = WorkbenchSessionRenderProjection;
 type PanelLifecycle = Pick<
   ReturnType<typeof useWorkbenchPanelLifecycle>,
-  "ensureActivePanelOpenWithoutRefresh"
+  | "ensureActivePanelOpenWithoutRefresh"
+  | "setActivePanelTab"
 >;
 type PanelOpeners = Pick<
   ReturnType<typeof useWorkbenchPanelOpeners>,
@@ -121,6 +129,7 @@ interface WorkbenchSessionCommandsInput {
   readonly createSessionViewTab: (
     input: WorkbenchTabCreateInput,
   ) => WorkbenchTabProjection | null;
+  readonly sceneNavigator: WorkbenchSceneNavigator;
   readonly codexControl: ReturnType<typeof useCodexAppServerControl>;
   readonly processManagerConversationsById:
     ReturnType<typeof useConversationSubset>;
@@ -188,6 +197,7 @@ export function useWorkbenchSessionCommands({
   lifecycle,
   panelOpeners,
   createSessionViewTab,
+  sceneNavigator,
   codexControl: workbenchCodexControl,
   processManagerConversationsById,
   threadScopeIdentityRegistry,
@@ -217,12 +227,15 @@ export function useWorkbenchSessionCommands({
   } = controller;
   const {
     ensureActivePanelOpenWithoutRefresh,
+    setActivePanelTab,
   } = lifecycle;
   const {
     openWorkspaceFileTab,
   } = panelOpeners;
+  const pageOpenInFlightRef = useRef<Map<string, Promise<void>>>(new Map());
+  const pageSendInFlightRef = useRef<Map<string, Promise<void>>>(new Map());
 
-const ensureBlankSessionForProject = useCallback(async (
+  const ensureBlankSessionForProject = useCallback(async (
     projectId: string | null,
     options?: { select?: boolean },
   ) => {
@@ -237,6 +250,132 @@ const ensureBlankSessionForProject = useCallback(async (
     selectSession,
     sessionCatalog,
   ]);
+
+  const openPageInNewChat = useCallback(async (
+    input: OpenPageInNewChatInput,
+  ): Promise<void> => {
+    const operationKey = `${input.projectId}:${input.pageId}`;
+    const existing = pageOpenInFlightRef.current.get(operationKey);
+    if (existing) {
+      await existing;
+      return;
+    }
+
+    const operation = (async () => {
+      try {
+        const presentation = await sessionCatalog.createBlank(input.projectId);
+        const result = await sceneNavigator.presentPanelSurface({
+          owner: { kind: "session", sessionId: presentation.domain.id },
+          request: {
+            kind: "page_stage",
+            config: {
+              accessContext: { kind: "project", projectId: input.projectId },
+              pageId: input.pageId,
+              ...(input.titleSnapshot
+                ? { titleSnapshot: input.titleSnapshot }
+                : {}),
+            },
+            titleSnapshot: input.titleSnapshot,
+          },
+          target: { panelId: "right" },
+          mode: "durable",
+          navigation: "select-owner",
+        });
+        if (result.status !== "presented") {
+          throw new Error(result.reason || "Page could not be opened in a new chat");
+        }
+
+        const projected = presentWorkbenchSession(presentation);
+        panelControllerRef.current.durable.patchPanel(
+          projected,
+          "right",
+          {
+            collapsed: false,
+            size: {
+              ...projected.panels.right.size,
+              fullWidth: false,
+            },
+          },
+        );
+        toast.success("Opened Page in new chat", {
+          id: `open-page-in-new-chat:${operationKey}`,
+        });
+      } catch (error) {
+        toast.danger(
+          error instanceof Error
+            ? error.message
+            : "Page could not be opened in a new chat",
+          { id: `open-page-in-new-chat:${operationKey}` },
+        );
+      }
+    })().finally(() => {
+      if (pageOpenInFlightRef.current.get(operationKey) === operation) {
+        pageOpenInFlightRef.current.delete(operationKey);
+      }
+    });
+    pageOpenInFlightRef.current.set(operationKey, operation);
+    await operation;
+  }, [sceneNavigator, sessionCatalog]);
+
+  const sendPageToChat = useCallback(async (
+    input: SendPageToChatInput,
+  ): Promise<void> => {
+    const targetKey = input.target.kind === "thread"
+      ? `thread:${input.target.threadId}`
+      : `new-thread:${input.target.sessionId ?? "project"}`;
+    const operationKey = `${input.projectId}:${input.pageId}:${targetKey}`;
+    const existing = pageSendInFlightRef.current.get(operationKey);
+    if (existing) {
+      await existing;
+      return;
+    }
+
+    const operation = (async () => {
+      const context = await loadPagePromptContext({
+        projectId: input.projectId,
+        pageId: input.pageId,
+        titleSnapshot: input.titleSnapshot,
+      });
+
+      if (input.target.kind === "thread") {
+        await workbenchCodexControl.startTurn(
+          input.target.threadId,
+          context.promptInput.text,
+          {
+            projectId: input.projectId,
+            promptInput: context.promptInput,
+          },
+        );
+      } else {
+        const targetSessionId = input.target.sessionId?.trim()
+          || (await sessionCatalog.ensureBlank(input.projectId)).domain.id;
+        const result = await workbenchCodexControl.startThreadForSession({
+          projectId: input.projectId,
+          sessionId: targetSessionId,
+          prompt: context.promptInput.text,
+          promptInput: context.promptInput,
+          runInTarget: "localProject",
+        });
+        if (result.kind !== "started") {
+          throw new Error("Page chat unexpectedly started in a worktree");
+        }
+        await refreshProjectSessions(input.projectId);
+      }
+
+      toast.success(
+        input.target.kind === "thread"
+          ? "Sent Page to chat"
+          : "Sent Page to new chat",
+        { id: `send-page-to-chat:${operationKey}` },
+      );
+    })().finally(() => {
+      if (pageSendInFlightRef.current.get(operationKey) === operation) {
+        pageSendInFlightRef.current.delete(operationKey);
+      }
+    });
+    pageSendInFlightRef.current.set(operationKey, operation);
+    await operation;
+  }, [refreshProjectSessions, sessionCatalog, workbenchCodexControl]);
 
   const startNewChatInProject = useCallback(async (projectId: string | null) => {
     const session = await ensureBlankSessionForProject(projectId);
@@ -439,11 +578,25 @@ const ensureBlankSessionForProject = useCallback(async (
     kind: Exclude<WorkbenchTabProjection["kind"], "db_view">,
     targetPanelId?: PanelId,
     targetLeafId?: string,
-  ) => {
-    if (!activeSession) return;
+  ): Promise<boolean> => {
+    if (!activeSession) return false;
     const panelId = targetPanelId ?? getDefaultPanelIdForTabKind(kind);
+    if (kind === "review") {
+      const existingReviewTab = activeSession.tabs.find((tab) => tab.kind === "review");
+      if (existingReviewTab) {
+        await setActivePanelTab(existingReviewTab.panelId, existingReviewTab.id, {
+          leafId: resolveLeafIdForPanelTab(
+            activeSession,
+            existingReviewTab.panelId,
+            existingReviewTab.id,
+          ),
+          openPanel: true,
+        });
+        return true;
+      }
+    }
     const draft = makeWorkbenchTabProjectionDraft(activeSession, kind);
-    if (!draft) return;
+    if (!draft) return false;
 
     const createInput: WorkbenchTabCreateInput = {
       sessionId: activeSession.id,
@@ -455,9 +608,16 @@ const ensureBlankSessionForProject = useCallback(async (
       ...draft,
     };
 
-    createSessionViewTab(createInput);
+    const createdTab = createSessionViewTab(createInput);
+    if (!createdTab) return false;
     await ensureActivePanelOpenWithoutRefresh(panelId);
-  }, [activeSession, createSessionViewTab, ensureActivePanelOpenWithoutRefresh]);
+    return true;
+  }, [
+    activeSession,
+    createSessionViewTab,
+    ensureActivePanelOpenWithoutRefresh,
+    setActivePanelTab,
+  ]);
   const activateReviewTab = useCallback(
     () => createManualTab("review", "right"),
     [createManualTab],
@@ -721,6 +881,16 @@ const ensureBlankSessionForProject = useCallback(async (
       title: target.title,
       panelId: "right",
       workspaceRoot: target.workspaceRoot,
+      ...(target.line
+        ? {
+            location: {
+              line: target.line,
+              ...(target.column ? { column: target.column } : {}),
+              ...(target.endLine ? { endLine: target.endLine } : {}),
+              ...(target.endColumn ? { endColumn: target.endColumn } : {}),
+            },
+          }
+        : {}),
     });
   }, [openWorkspaceFileTab]);
   const openSummaryOutputInSidePanel = useCallback<NonNullable<ThreadStageActions["onOpenSummaryOutputInSidePanel"]>>(async (target) => {
@@ -731,6 +901,16 @@ const ensureBlankSessionForProject = useCallback(async (
       title: target.title,
       panelId: "right",
       workspaceRoot: target.workspaceRoot,
+      ...(target.line
+        ? {
+            location: {
+              line: target.line,
+              ...(target.column ? { column: target.column } : {}),
+              ...(target.endLine ? { endLine: target.endLine } : {}),
+              ...(target.endColumn ? { endColumn: target.endColumn } : {}),
+            },
+          }
+        : {}),
     });
   }, [activeSession, openWorkspaceFileTab]);
   const consumeNewThreadComposerIntent = useCallback((sessionId: string, focusNonce: number) => {
@@ -801,6 +981,8 @@ const ensureBlankSessionForProject = useCallback(async (
 
   return {
     ensureBlankSessionForProject,
+    openPageInNewChat,
+    sendPageToChat,
     startNewChatInProject,
     startNewChatWithPrompt,
     openScheduledAutomationChatCreate,

@@ -26,6 +26,7 @@ import {
   type SettingsSectionGroupKey,
   type SettingsSectionId,
 } from "./workbench-settings-sections";
+import { buildSettingsPath } from "./workbench-settings-routes";
 
 interface SettingsSidebarProps {
   activeSectionId: SettingsSectionId;
@@ -58,37 +59,58 @@ function SettingsSidebarItem({
   onClick: () => void;
   sectionId: SettingsSectionId;
 }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      aria-current={active ? "page" : undefined}
-      aria-label={label}
-      data-settings-panel-slug={disabled ? undefined : sectionId}
+  const className = cn(
+    "focus-visible:outline-token-border relative flex h-token-nav-row w-full shrink-0 cursor-interaction items-center gap-2 overflow-hidden rounded-lg px-row-x py-row-y text-left text-sm font-normal focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2",
+    active ? "bg-token-list-hover-background" : "hover:bg-token-list-hover-background",
+    disabled ? "cursor-not-allowed opacity-50" : undefined,
+  );
+  const content = (
+    <div
       className={cn(
-        "focus-visible:outline-token-border relative h-token-nav-row px-row-x py-row-y cursor-interaction shrink-0 items-center overflow-hidden rounded-lg text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50 gap-2 flex w-full",
-        active ? "bg-token-list-hover-background" : "hover:bg-token-list-hover-background",
-        "font-normal",
+        "flex min-w-0 flex-1 items-center gap-2 text-base",
+        active
+          ? "text-token-list-active-selection-foreground"
+          : "text-token-foreground",
       )}
     >
-      <div
+      <Icon
         className={cn(
-          "flex min-w-0 items-center text-base gap-2 flex-1",
-          active
-            ? "text-token-list-active-selection-foreground"
-            : "text-token-foreground",
+          "icon-sm inline-block align-middle",
+          active ? "text-token-list-active-selection-icon-foreground" : undefined,
         )}
+      />
+      <span className="truncate">{label}</span>
+    </div>
+  );
+
+  if (disabled) {
+    return (
+      <button
+        type="button"
+        disabled
+        aria-label={label}
+        className={className}
       >
-        <Icon
-          className={cn(
-            "icon-sm inline-block align-middle",
-            active ? "text-token-list-active-selection-icon-foreground" : undefined,
-          )}
-        />
-        <span className="truncate">{label}</span>
-      </div>
-    </button>
+        {content}
+      </button>
+    );
+  }
+
+  return (
+    <a
+      href={buildSettingsPath(sectionId)}
+      onClick={(event) => {
+        event.preventDefault();
+        onClick();
+      }}
+      aria-current={active ? "page" : undefined}
+      aria-label={label}
+      data-nodex-internal-route="settings"
+      data-settings-panel-slug={sectionId}
+      className={className}
+    >
+      {content}
+    </a>
   );
 }
 
@@ -132,7 +154,6 @@ function SettingsSearchInput({
         type="text"
         value={query}
         onChange={(event) => onQueryChange(event.currentTarget.value)}
-        onInput={(event) => onQueryChange(event.currentTarget.value)}
         onKeyDown={onKeyDown}
         className="ms-1 w-full appearance-none border-none bg-transparent py-0 ps-px pe-1.5 text-token-foreground ring-0 outline-none placeholder:text-token-input-placeholder-foreground focus:border-none focus:ring-0 focus:outline-none"
       />
@@ -253,28 +274,19 @@ export function SettingsSidebar({
     onEscape: () => setQuery(""),
     onSelect: (result) => onSelectSection(result.sectionId),
   });
-  const handleBackKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
-    if (event.key !== "Enter" && event.key !== " ") return;
-
-    event.preventDefault();
-    onBack();
-  };
-
   return (
     <aside className="app-shell-left-panel relative hidden min-h-0 w-token-sidebar shrink-0 flex-col overflow-hidden md:flex">
       <div className="draggable h-toolbar w-full shrink-0" />
       <nav className="flex min-h-0 flex-1 flex-col select-none px-row-x" aria-label="Settings">
         <div className="flex min-h-0 flex-1 flex-col">
-          <div
-            role="link"
-            tabIndex={0}
+          <button
+            type="button"
             onClick={onBack}
-            onKeyDown={handleBackKeyDown}
-            className="group relative mb-2 flex w-full items-center rounded-lg px-row-x py-row-y text-base outline-none gap-2 cursor-interaction text-token-text-secondary hover:bg-token-list-hover-background focus-visible:ring-token-focus focus-visible:ring-1 electron:opacity-75 shrink-0"
+            className="group relative mb-2 flex w-full shrink-0 cursor-interaction items-center gap-2 rounded-lg px-row-x py-row-y text-left text-base text-token-text-secondary outline-none hover:bg-token-list-hover-background focus-visible:ring-1 focus-visible:ring-token-focus electron:opacity-75"
           >
             <BrowserBackIcon />
             Back to app
-          </div>
+          </button>
 
           <SettingsSearchInput
             query={query}
@@ -294,7 +306,7 @@ export function SettingsSidebar({
             ) : (
               <>
                 {groupedSections.map((group) => (
-                  <div key={group.groupKey} className="flex flex-col gap-1 gap-0">
+                  <div key={group.groupKey} className="flex flex-col gap-1">
                     <div className="flex items-center justify-between gap-2 pr-0.5 pl-2">
                       <div className="min-w-0 flex-1 text-base text-token-input-placeholder-foreground opacity-75">
                         {group.label}

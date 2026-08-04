@@ -45,6 +45,7 @@ import type {
   ThreadStageActions,
 } from "../thread-stage-types";
 import { buildThreadUserMessageNavigationItems } from "../projection/thread-user-message-navigation-items";
+import type { ProjectlessOutputScope } from "../projection/projectless-output-scope";
 import {
   LocalConversationVirtualizedTurnList,
   type LocalConversationVirtualizedTurnListApi,
@@ -294,6 +295,7 @@ interface LocalConversationThreadBodyOwnerProps {
   childMemberships: readonly CodexConversationChildMembership[];
   backgroundAgentRows: readonly ThreadComposerShellBackgroundAgentRowModel[];
   projectWorkspacePath?: string | null;
+  projectlessOutputDirectory?: string | null;
   searchOpenTick: number;
   threadStartProgress: {
     runInTarget: PageRunInTarget;
@@ -345,6 +347,7 @@ export function LocalConversationThreadBodyOwner({
   childMemberships,
   backgroundAgentRows,
   projectWorkspacePath,
+  projectlessOutputDirectory,
   threadStartProgress,
   actions,
   isWorktreeThread = false,
@@ -380,6 +383,7 @@ export function LocalConversationThreadBodyOwner({
             threadPreview: "",
             modelProvider: "",
             cwd,
+            projectlessOutputDirectory: projectlessOutputDirectory ?? null,
             statusType: statusType ?? (resumeState === "resumed" ? "idle" : "notLoaded"),
             statusActiveFlags: [],
             archived: false,
@@ -399,7 +403,7 @@ export function LocalConversationThreadBodyOwner({
             capabilityFlags,
           }
         : null,
-    [canonicalRequests, capabilityFlags, childMemberships, cwd, requests, resumeState, statusType, threadId, turnPagination, turns],
+    [canonicalRequests, capabilityFlags, childMemberships, cwd, projectlessOutputDirectory, requests, resumeState, statusType, threadId, turnPagination, turns],
   );
 
   const editableTurnId =
@@ -420,8 +424,11 @@ export function LocalConversationThreadBodyOwner({
     [turnEntries],
   );
   const userMessageNavigationItems = useMemo(
-    () => buildThreadUserMessageNavigationItems(turnEntries),
-    [turnEntries],
+    () => buildThreadUserMessageNavigationItems(turnEntries, {
+      cwd,
+      projectlessOutputDirectory,
+    } satisfies ProjectlessOutputScope),
+    [cwd, projectlessOutputDirectory, turnEntries],
   );
   const currentTurnEntriesRef = useRef(turnEntries);
   currentTurnEntriesRef.current = turnEntries;
@@ -497,6 +504,8 @@ export function LocalConversationThreadBodyOwner({
     () =>
       createLocalConversationSearchSource({
         routeContextId: body.threadId ? `conversation:${body.threadId}` : "unavailable",
+        cwd,
+        projectlessOutputDirectory,
         getTurns: () => currentTurnEntriesRef.current,
         scrollAdapter: {
           scrollToTurn: async (turnKey, options) => {
@@ -531,7 +540,7 @@ export function LocalConversationThreadBodyOwner({
             ) ?? null,
         },
       }),
-    [appHandle, body.threadId, threadId],
+    [appHandle, body.threadId, cwd, projectlessOutputDirectory, threadId],
   );
 
   useEffect(() => {
@@ -835,6 +844,7 @@ export function LocalConversationThreadBodyOwner({
               conversationId={conversation?.threadId ?? body.threadId ?? ""}
               threadCwd={conversation?.cwd ?? null}
               projectWorkspacePath={projectWorkspacePath}
+              projectlessOutputDirectory={projectlessOutputDirectory}
               editableTurnId={editableTurnId}
               canForkFromTurn={canForkFromTurn}
               initialCollapsedAgentBodyByTurnSearchKey={

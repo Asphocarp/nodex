@@ -45,6 +45,10 @@ import {
 } from "./workbench-page-stage-panel";
 import { TerminalPanel } from "./workbench-terminal-panel";
 import { projectSessionThreadLinkToSummary } from "./thread-summary-projection";
+import type {
+  OpenPageInNewChatInput,
+  SendPageToChatInput,
+} from "@/lib/page-chat-actions";
 
 export function WorkbenchTabProjectionPanel({
   tab,
@@ -69,6 +73,8 @@ export function WorkbenchTabProjectionPanel({
   onReminderHandled,
   onLeavePageStage,
   onOpenPageTab,
+  onOpenPageInNewChat,
+  onSendPageToChat,
   onOpenCanvasStage,
   onOpenFileTab,
   onEnsureBlankSessionForProject,
@@ -126,6 +132,8 @@ export function WorkbenchTabProjectionPanel({
   }) => void;
   onLeavePageStage: (snapshot: PageStageSessionSnapshot) => void;
   onOpenPageTab: OpenPageTabHandler;
+  onOpenPageInNewChat?: (input: OpenPageInNewChatInput) => Promise<void> | void;
+  onSendPageToChat?: (input: SendPageToChatInput) => Promise<void> | void;
   onOpenCanvasStage: OpenCanvasStageHandler;
   onOpenFileTab: (input: {
     path: string;
@@ -182,6 +190,8 @@ export function WorkbenchTabProjectionPanel({
         setDbViewPrefs={setDbViewPrefs}
         onReminderHandled={onReminderHandled}
         onOpenPageTab={onOpenPageTab}
+        onOpenPageInNewChat={onOpenPageInNewChat}
+        onSendPageToChat={onSendPageToChat}
         onOpenCanvasStage={onOpenCanvasStage}
         targetLeafId={resolveLeafIdForPanelTab(
           activeSession,

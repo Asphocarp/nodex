@@ -11,6 +11,8 @@ interface CachedSearchTurnState {
 
 export interface LocalConversationSearchSource {
   routeContextId: string;
+  cwd?: string | null;
+  projectlessOutputDirectory?: string | null;
   getTurns: () => LocalConversationSearchSourceTurn[];
   scrollAdapter: {
     scrollToTurn: (
@@ -41,6 +43,8 @@ export function createLocalConversationSearchSource(input: LocalConversationSear
             entry,
             canEditTurnUserPrefix: false,
             canForkTurn: false,
+            cwd: input.cwd,
+            projectlessOutputDirectory: input.projectlessOutputDirectory,
           }).searchUnits;
           cachedUnitsByTurnKey.set(entry.turnKey, { entry, units });
         }

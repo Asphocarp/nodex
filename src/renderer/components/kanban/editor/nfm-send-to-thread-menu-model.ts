@@ -1,14 +1,13 @@
 import type { CodexThreadSummary } from "@/lib/types";
 import type { CommandPaletteThread } from "@/lib/command-palette";
+import type { ChatDestinationTarget } from "@/lib/page-chat-actions";
 import { createCommandPaletteThreadSearchIndex } from "@/lib/command-palette-thread-search";
 import { normalizeSearchText } from "@/lib/search-text";
 import { formatThreadMentionShortUuid } from "@/lib/nfm/thread-mention-display";
 
 export type NfmSendToThreadMode = "send" | "wrap-toggle";
 
-export type NfmSendToThreadTarget =
-  | { kind: "thread"; threadId: string }
-  | { kind: "new-thread"; sessionId?: string };
+export type NfmSendToThreadTarget = ChatDestinationTarget;
 
 export interface NfmSendToThreadRequest {
   target: NfmSendToThreadTarget;

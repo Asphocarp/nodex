@@ -6,7 +6,6 @@ import type {
   ProjectSessionCreateInput,
   WorkbenchProjectionDbViewTabConfig,
   WorkbenchProjectionFilesTabConfig,
-  WorkbenchProjectionProjectScopedTabConfig,
   WorkbenchProjectionTabConfig,
   WorkbenchProjectionTabConfigByKind,
   WorkbenchTabKind,
@@ -21,6 +20,7 @@ import type {
   ProjectSessionForkInput,
 } from "../types";
 import { WorkbenchViewSchema } from "./workbench";
+import { WorkbenchReviewConfigSchema } from "./workbench-review";
 import {
   CodexCollaborationModeKindSchema,
   CodexThreadActiveFlagSchema,
@@ -61,9 +61,7 @@ export const WorkbenchProjectionBrowserTabConfigSchema = z.object({
   deviceToolbarVisible: z.boolean().optional(),
 }).strict() satisfies z.ZodType<WorkbenchProjectionBrowserTabConfig>;
 
-export const WorkbenchProjectionProjectScopedTabConfigSchema = z.object({
-  projectId: z.string().min(1),
-}).strict() satisfies z.ZodType<WorkbenchProjectionProjectScopedTabConfig>;
+export const WorkbenchProjectionReviewTabConfigSchema = WorkbenchReviewConfigSchema;
 
 export const WorkbenchProjectionFilesTabConfigSchema = z.object({
   projectId: z.string().min(1).nullable(),
@@ -91,7 +89,7 @@ export function parseWorkbenchProjectionTabConfig<Kind extends WorkbenchTabKind>
   }
   else if (kind === "terminal") parsed = WorkbenchProjectionTerminalTabConfigSchema.parse(config);
   else if (kind === "browser") parsed = WorkbenchProjectionBrowserTabConfigSchema.parse(config);
-  else if (kind === "review") parsed = WorkbenchProjectionProjectScopedTabConfigSchema.parse(config);
+  else if (kind === "review") parsed = WorkbenchProjectionReviewTabConfigSchema.parse(config);
   else if (kind === "files") parsed = WorkbenchProjectionFilesTabConfigSchema.parse(config);
   else {
     throw new Error(`Unknown project session tab kind: ${String(kind)}`);

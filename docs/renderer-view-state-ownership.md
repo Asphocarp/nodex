@@ -56,7 +56,7 @@ all Context providers to disappear in the first lifecycle cutover.
 | `ThemeProvider` | Theme choice plus OS media query | localStorage; OS events | Theme is an App atom; OS preference is a read-only external atom; the remaining wrapper only applies root DOM classes |
 | `SansFontSizeProvider` | Global font-size preference | Existing renderer storage helper | App atom; the remaining wrapper only applies root CSS variables |
 | `CodeFontSizeProvider` | Global code-font-size preference | Existing renderer storage helper | App atom; the remaining wrapper only applies the root CSS variable |
-| `FileLinkOpenerProvider` | Global file-link opener preference and capability projection | Existing renderer storage/capability checks | Choice is an App atom; the remaining wrapper is the single document event/operation bridge |
+| `FileLinkOpenerProvider` | Configured desktop opener preference | Existing renderer storage helper | Choice is an App atom; file references are routed explicitly by the Workbench `FileReferenceRouter` |
 | NFM autolink settings | Global NFM autolink preferences | Existing renderer storage helper | Direct App atom; Context/Provider deleted |
 | Paste-resource settings | Global paste-resource preferences | Existing renderer storage helper | Direct App atom; Context/Provider deleted |
 | Spellcheck settings | Global spellcheck preference | localStorage | Direct App atom; Context/Provider deleted |

@@ -57,6 +57,10 @@ import { ToggleListIcon } from "./toggle-list-icon";
 import type { OpenPageTabHandler } from "./workbench-page-stage-panel";
 import { primaryCanvasBlockId } from "../../../shared/block-documents";
 import type { OpenCanvasStageHandler } from "@/lib/use-workbench-panel-openers";
+import type {
+  OpenPageInNewChatInput,
+  SendPageToChatInput,
+} from "@/lib/page-chat-actions";
 
 const DB_VIEW_TABS: Array<{
   id: ProjectSessionDbView;
@@ -170,6 +174,8 @@ export function DbViewSessionTab({
   setDbViewPrefs,
   onReminderHandled,
   onOpenPageTab,
+  onOpenPageInNewChat,
+  onSendPageToChat,
   onOpenCanvasStage,
   targetLeafId,
   onUpdateTab,
@@ -208,6 +214,8 @@ export function DbViewSessionTab({
     occurrenceStart: string;
   }) => void;
   onOpenPageTab: OpenPageTabHandler;
+  onOpenPageInNewChat?: (input: OpenPageInNewChatInput) => Promise<void> | void;
+  onSendPageToChat?: (input: SendPageToChatInput) => Promise<void> | void;
   onOpenCanvasStage: OpenCanvasStageHandler;
   targetLeafId: string;
   onUpdateTab: (
@@ -541,6 +549,8 @@ export function DbViewSessionTab({
               openMode: options?.openMode ?? "preview",
             });
           }}
+          onOpenPageInNewChat={onOpenPageInNewChat}
+          onSendPageToChat={onSendPageToChat}
         />
       </div>
     </div>

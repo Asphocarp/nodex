@@ -29,6 +29,7 @@ interface ThreadTurnProps {
   agentBodyCollapsed: boolean;
   onAgentBodyCollapsedChange: (turnId: string, collapsed: boolean) => void;
   projectWorkspacePath?: string | null;
+  projectlessOutputDirectory?: string | null;
   childMemberships?: readonly CodexConversationChildMembership[];
   threadCwd?: string | null;
   onEditLastUserTurn?: (input: { threadId: string; turnId: string; message: string }) => void | Promise<void>;
@@ -135,6 +136,7 @@ function ThreadTurnBody({
   agentBodyCollapsed,
   onAgentBodyCollapsedChange,
   projectWorkspacePath,
+  projectlessOutputDirectory,
   threadCwd,
   onEditLastUserTurn,
   onForkFromTurn,
@@ -170,6 +172,7 @@ function ThreadTurnBody({
       isLatestTurn={turn.isLatestTurn}
       isStreamingTurn={turn.isStreamingTurn}
       projectWorkspacePath={projectWorkspacePath}
+      projectlessOutputDirectory={projectlessOutputDirectory}
       childMemberships={childMemberships}
       threadCwd={threadCwd}
       onEditLastUserTurn={onEditLastUserTurn}
@@ -193,6 +196,7 @@ function ThreadTurnBody({
       isLatestTurn={turn.isLatestTurn}
       isStreamingTurn={turn.isStreamingTurn}
       projectWorkspacePath={projectWorkspacePath}
+      projectlessOutputDirectory={projectlessOutputDirectory}
       childMemberships={childMemberships}
       threadCwd={threadCwd}
       onEditLastUserTurn={onEditLastUserTurn}

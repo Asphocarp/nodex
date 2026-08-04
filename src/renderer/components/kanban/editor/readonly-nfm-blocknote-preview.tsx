@@ -43,6 +43,8 @@ import {
   openNfmResolvedLinkAction,
   resolveNfmLinkAction,
 } from "@/lib/nfm-link-actions";
+import { useFileReferenceRouter } from "@/lib/file-reference-router";
+import { openFileReferenceContextMenu } from "@/components/shared/file-link-anchor";
 import { useTheme } from "@/lib/use-theme";
 import { ThreadMentionInlineVisual } from "../thread-mention-inline-visual";
 import {
@@ -390,6 +392,7 @@ export function ReadonlyNfmBlockNotePreview({
   projectWorkspacePath,
   className,
 }: ReadonlyNfmBlockNotePreviewProps) {
+  const fileReferenceRouter = useFileReferenceRouter();
   const { resolved: themeMode } = useTheme();
   const toggleBlockIdsRef = useRef<string[]>([]);
 
@@ -423,28 +426,104 @@ export function ReadonlyNfmBlockNotePreview({
     [projectId, pageId, historyId, content],
   );
 
-  const handleClickCapture = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+  const openLocalReference = useCallback((
+    action: Extract<ReturnType<typeof resolveNfmLinkAction>, {
+      kind: "local-file" | "workspace-file";
+    }>,
+    options?: Parameters<typeof fileReferenceRouter.open>[1],
+  ) => {
+    void fileReferenceRouter.open(action.target, {
+      cwd: projectWorkspacePath,
+      workspaceRoot: projectWorkspacePath,
+      ...options,
+    });
+  }, [fileReferenceRouter, projectWorkspacePath]);
+
+  const findAnchorAction = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
     const target = event.target;
-    if (!(target instanceof Element)) return;
+    if (!(target instanceof Element)) return null;
 
     const anchor = target.closest("a[href]");
-    if (!(anchor instanceof HTMLAnchorElement)) return;
-    if (!event.currentTarget.contains(anchor)) return;
+    if (!(anchor instanceof HTMLAnchorElement)) return null;
+    if (!event.currentTarget.contains(anchor)) return null;
+
+    return {
+      action: resolveNfmLinkAction(anchor.getAttribute("href") ?? "", projectWorkspacePath),
+      anchor,
+    };
+  }, [projectWorkspacePath]);
+
+  const handleClickCapture = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    const resolved = findAnchorAction(event);
+    if (!resolved?.action) return;
 
     event.preventDefault();
     event.stopPropagation();
 
-    const action = resolveNfmLinkAction(anchor.getAttribute("href") ?? "", projectWorkspacePath);
-    if (!action) return;
+    if (resolved.action.kind === "local-file" || resolved.action.kind === "workspace-file") {
+      openLocalReference(resolved.action, {
+        external: event.metaKey
+          || event.ctrlKey
+          || event.altKey
+          || event.shiftKey,
+        mode: "preview",
+      });
+      return;
+    }
+    void openNfmResolvedLinkAction(resolved.action);
+  }, [findAnchorAction, openLocalReference]);
 
-    void openNfmResolvedLinkAction(action);
-  }, [projectWorkspacePath]);
+  const handleDoubleClickCapture = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    const resolved = findAnchorAction(event);
+    if (!resolved?.action) return;
+    if (resolved.action.kind !== "local-file" && resolved.action.kind !== "workspace-file") return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    openLocalReference(resolved.action, { mode: "durable" });
+  }, [findAnchorAction, openLocalReference]);
+
+  const handleAuxClickCapture = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    if (event.button !== 1) return;
+    const resolved = findAnchorAction(event);
+    if (!resolved?.action) return;
+    if (resolved.action.kind !== "local-file" && resolved.action.kind !== "workspace-file") return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    openLocalReference(resolved.action, { external: true });
+  }, [findAnchorAction, openLocalReference]);
+
+  const handleContextMenuCapture = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    const resolved = findAnchorAction(event);
+    if (!resolved?.action) return;
+    if (resolved.action.kind !== "local-file" && resolved.action.kind !== "workspace-file") return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    const label = resolved.anchor.textContent?.trim() || resolved.action.target.path;
+    void openFileReferenceContextMenu({
+      target: resolved.action.target,
+      label,
+      open: (target, options) => fileReferenceRouter.open(target, {
+        cwd: projectWorkspacePath,
+        workspaceRoot: projectWorkspacePath,
+        title: label,
+        ...options,
+      }),
+      x: event.clientX,
+      y: event.clientY,
+    }).catch(() => undefined);
+  }, [fileReferenceRouter, findAnchorAction, projectWorkspacePath]);
 
   return (
     <div
       className={cn("nfm-editor readonly-nfm-blocknote-preview relative", className)}
       style={{ minHeight: 0 }}
       onClickCapture={handleClickCapture}
+      onDoubleClickCapture={handleDoubleClickCapture}
+      onAuxClickCapture={handleAuxClickCapture}
+      onContextMenuCapture={handleContextMenuCapture}
       spellCheck={false}
       data-testid="readonly-nfm-blocknote-preview"
       data-project-id={projectId}

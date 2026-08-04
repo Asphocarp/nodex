@@ -46,7 +46,6 @@ import {
   GitBranchPlus as LucideGitBranchPlus,
   GitCommitHorizontal as LucideGitCommitHorizontal,
   GitPullRequest as LucideGitPullRequest,
-  Globe2 as LucideGlobe2,
   GripVertical as LucideGripVertical,
   Hash as LucideHash,
   Heading1 as LucideHeading1,
@@ -228,7 +227,6 @@ export const GitBranch: LucideIconType = /* @__PURE__ */ createGenericIcon(Lucid
 export const GitBranchPlus: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideGitBranchPlus, "GitBranchPlus");
 export const GitCommitHorizontal: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideGitCommitHorizontal, "GitCommitHorizontal");
 export const GitPullRequest: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideGitPullRequest, "GitPullRequest");
-export const Globe2: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideGlobe2, "Globe2");
 export const GripVertical: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideGripVertical, "GripVertical");
 export const Hash: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideHash, "Hash");
 export const Heading1: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideHeading1, "Heading1");

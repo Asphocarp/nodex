@@ -132,7 +132,7 @@ describe("NfmRenderer", () => {
 
     await settleAsyncRender();
 
-    const link = container.querySelector("a[href='folder/abc/file']");
+    const link = container.querySelector("button[data-file-reference='true']");
     expect(Boolean(link)).toBe(true);
     expect(link?.getAttribute("aria-disabled") === null).toBe(true);
     expect(link?.getAttribute("title") === null).toBe(true);

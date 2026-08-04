@@ -41,6 +41,7 @@ interface ThreadBlockRendererProps {
   isSearchMatch?: boolean;
   isActiveSearchMatch?: boolean;
   projectWorkspacePath?: string | null;
+  projectlessOutputDirectory?: string | null;
   childMemberships?: readonly CodexConversationChildMembership[];
   threadCwd?: string | null;
   onEditLastUserTurn?: (input: { threadId: string; turnId: string; message: string }) => void | Promise<void>;
@@ -66,6 +67,7 @@ export function ThreadBlockRenderer({
   isSearchMatch = false,
   isActiveSearchMatch = false,
   projectWorkspacePath,
+  projectlessOutputDirectory,
   childMemberships,
   threadCwd,
   onEditLastUserTurn,
@@ -90,6 +92,7 @@ export function ThreadBlockRenderer({
         isLatestTurn={isLatestTurn}
         isStreamingTurn={isStreamingTurn}
         projectWorkspacePath={projectWorkspacePath}
+        projectlessOutputDirectory={projectlessOutputDirectory}
         threadCwd={threadCwd}
         onOpenTurnDiffReview={onOpenTurnDiffReview}
         onOpenTurnDiffFileInSidePanel={onOpenTurnDiffFileInSidePanel}
@@ -126,6 +129,7 @@ export function ThreadBlockRenderer({
         isLatestTurn={isLatestTurn}
         isStreamingTurn={isStreamingTurn}
         projectWorkspacePath={projectWorkspacePath}
+        projectlessOutputDirectory={projectlessOutputDirectory}
         threadCwd={threadCwd}
         onOpenTurnDiffReview={onOpenTurnDiffReview}
         onOpenTurnDiffFileInSidePanel={onOpenTurnDiffFileInSidePanel}
@@ -171,6 +175,7 @@ export function ThreadBlockRenderer({
         isLatestTurn={isLatestTurn}
         isStreamingTurn={isStreamingTurn}
         projectWorkspacePath={projectWorkspacePath}
+        projectlessOutputDirectory={projectlessOutputDirectory}
         threadCwd={threadCwd}
         onOpenTurnDiffReview={onOpenTurnDiffReview}
         onOpenTurnDiffFileInSidePanel={onOpenTurnDiffFileInSidePanel}

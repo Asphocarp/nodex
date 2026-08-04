@@ -131,6 +131,16 @@ describe("nfm link actions", () => {
     ]));
   });
 
+  test("does not hand failed file opens to a file URL", async () => {
+    const action = resolveNfmLinkAction("/Users/asc/repo/abc");
+    await expect(openNfmResolvedLinkAction(
+      action!,
+      "vscode",
+      async () => false,
+    )).resolves.toBe(false);
+    expect(windowOpenCalls).toEqual([]);
+  });
+
   test("opens literal anchors via location.assign", async () => {
     const action = resolveNfmLinkAction("#section");
     await openNfmResolvedLinkAction(action!, "fileManager", async () => true, {

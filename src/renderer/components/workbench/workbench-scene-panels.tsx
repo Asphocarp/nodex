@@ -52,6 +52,7 @@ export interface WorkbenchScenePanelsProps {
     leafId: string,
     destination: PanelDestination,
   ) => Promise<void>;
+  readonly onFocusGroup?: (panelId: PanelId, leafId: string) => void;
   readonly onCloseSurface?: (
     surface: WorkbenchSurfaceDescriptor,
     removeDescriptor: () => void,
@@ -131,6 +132,7 @@ export function buildWorkbenchScenePanels({
   renderSurface,
   onOpenAction,
   onOpenDestination,
+  onFocusGroup,
   onCloseSurface,
 }: WorkbenchScenePanelsProps) {
   const ownerKey = makeWorkbenchSceneKey(scene.owner);
@@ -232,6 +234,7 @@ export function buildWorkbenchScenePanels({
             });
           },
           focusGroup: (leafId) => {
+            onFocusGroup?.(panelId, leafId);
             commands.activateSurface(scene.owner, panelId, leafId);
           },
           activateGroup: (leafId, surfaceId) => {

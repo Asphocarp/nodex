@@ -22,6 +22,21 @@ const LIVE_DIFF = [
   "+next",
 ].join("\n");
 
+const PROJECTLESS_MIXED_DIFF = [
+  "diff --git a/output/inside.ts b/output/inside.ts",
+  "--- a/output/inside.ts",
+  "+++ b/output/inside.ts",
+  "@@ -1 +1 @@",
+  "-old",
+  "+new",
+  "diff --git a/src/outside.ts b/src/outside.ts",
+  "--- a/src/outside.ts",
+  "+++ b/src/outside.ts",
+  "@@ -1 +1 @@",
+  "-old",
+  "+new",
+].join("\n");
+
 function buildTurn(overrides: Partial<CodexConversationTurn> = {}): CodexConversationTurn {
   return {
     threadId: "thread_1",
@@ -557,6 +572,38 @@ describe("buildTurnRenderModel", () => {
     expect(String(rawItem?.unifiedDiff ?? "").includes("+next")).toBe(true);
   });
 
+  test("filters projectless turn diffs before they reach transcript blocks", () => {
+    const model = buildTurnRenderModel({
+      turn: buildTurn({ diff: PROJECTLESS_MIXED_DIFF, itemIds: [], items: [] }),
+      requests: [],
+      isLatestTurn: true,
+      isStreamingTurn: true,
+      cwd: "/workspace",
+      projectlessOutputDirectory: "/workspace/output",
+    });
+
+    const diffBlock = model.aboveComposerBlocks?.find((block) => block.type === "turnDiff");
+    const rawItem = diffBlock?.type === "turnDiff"
+      ? diffBlock.entry.rawItem as { unifiedDiff?: unknown }
+      : null;
+    expect(String(rawItem?.unifiedDiff ?? "")).toContain("output/inside.ts");
+    expect(String(rawItem?.unifiedDiff ?? "")).not.toContain("src/outside.ts");
+  });
+
+  test("hides a projectless turn diff when scope filtering removes every file", () => {
+    const model = buildTurnRenderModel({
+      turn: buildTurn({ diff: LIVE_DIFF, itemIds: [], items: [] }),
+      requests: [],
+      isLatestTurn: true,
+      isStreamingTurn: true,
+      cwd: "/workspace",
+      projectlessOutputDirectory: "/workspace/output",
+    });
+
+    expect(model.aboveComposerBlocks ?? []).toHaveLength(0);
+    expect(model.blocks.some((block) => block.type === "turnDiff")).toBe(false);
+  });
+
   test("never lets a non-latest historical turn own fixed above-composer content", () => {
     const model = buildTurnRenderModel({
       turn: buildTurn({ diff: LIVE_DIFF, itemIds: [], items: [] }),
@@ -871,6 +918,23 @@ describe("buildTurnRenderModel", () => {
 
     expect(model.aboveComposerBlocks?.length ?? 0).toBe(0);
     expect(model.blocks.map((block) => block.type).join(",")).toBe("turnDiff");
+  });
+
+  test("does not duplicate a completed turn diff already represented by an end resource", () => {
+    const model = buildTurnRenderModel({
+      turn: buildTurn({
+        status: "completed",
+        diff: PROJECTLESS_MIXED_DIFF,
+        items: [buildAssistantItem({ markdownText: "See [output](output/inside.ts)" })],
+      }),
+      requests: [],
+      isLatestTurn: true,
+      isStreamingTurn: false,
+      cwd: "/workspace",
+      projectlessOutputDirectory: "/workspace/output",
+    });
+
+    expect(model.blocks.some((block) => block.type === "turnDiff")).toBe(false);
   });
 
   test("inserts active working-for before the first non-user item and suppresses thinking placeholder", () => {

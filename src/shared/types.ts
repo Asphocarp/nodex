@@ -58,6 +58,7 @@ import type {
   ToolRequestUserInputOption as CodexAppServerUserInputOption,
   TurnStatus as CodexAppServerTurnStatus,
 } from "@nodex/codex-app-server-protocol/v2";
+import type { WorkbenchReviewConfig } from "./workbench-review-context";
 import type {
   BrowserSidebarDeviceToolbarState,
   BrowserUsePresentationOrigin,
@@ -709,10 +710,6 @@ export interface TerminalViewLeaseRevokedEvent {
   ownerWindowSessionId: string;
 }
 
-export interface WorkbenchProjectionProjectScopedTabConfig {
-  projectId: string;
-}
-
 export interface WorkbenchProjectionFilesTabConfig {
   projectId: string | null;
   hostId: "local";
@@ -740,7 +737,7 @@ export interface WorkbenchProjectionTabConfigByKind {
   canvas_stage: WorkbenchProjectionCanvasStageTabConfig;
   terminal: WorkbenchProjectionTerminalTabConfig;
   browser: WorkbenchProjectionBrowserTabConfig;
-  review: WorkbenchProjectionProjectScopedTabConfig;
+  review: WorkbenchReviewConfig;
   files: WorkbenchProjectionFilesTabConfig;
 }
 
@@ -1516,12 +1513,6 @@ export interface DesktopNotificationActionInvocation
   activateTabId: string | null;
   requestId: CodexAppServerRequestId | null;
 }
-
-export type SystemNotificationPermissionStatus =
-  | "enabled"
-  | "disabled"
-  | "not-determined"
-  | null;
 
 export interface AppUpdateSettings {
   automaticChecksEnabled: boolean;

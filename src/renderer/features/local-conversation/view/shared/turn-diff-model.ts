@@ -3,9 +3,14 @@ import type { FileDiffMetadata } from "@pierre/diffs/react";
 import { buildCodexFileChangeUnifiedDiff, isCodexFileChange } from "../../../../../shared/codex-file-change";
 import type {
   CodexTranscriptEntry,
-  CodexTurnDiffPatchBatch,
   CodexTurnDiffReviewSource,
 } from "../../../../lib/types";
+import {
+  filterTurnDiffPayload,
+  normalizeTurnDiffPatchBatches,
+  type ProjectlessOutputScope,
+  type TurnDiffPayload,
+} from "../../projection/projectless-output-scope";
 import { canonicalizeReviewPath } from "@/features/review/model/review-path";
 import type {
   CanonicalReviewPath,
@@ -24,13 +29,6 @@ import { classifyContentBudget, type ContentBudgetDecision } from "@/lib/content
 export const TURN_DIFF_DEFAULT_VISIBLE_FILE_COUNT = 3;
 export const TURN_DIFF_MAX_INLINE_LINES = 5000;
 export const TURN_DIFF_MAX_INLINE_BYTES = 256 * 1024;
-
-export interface TurnDiffPayload {
-  unifiedDiff: string;
-  cwd?: string;
-  showRevertButton?: boolean;
-  patchBatches?: CodexTurnDiffPatchBatch[] | null;
-}
 
 export interface TurnDiffFileStat {
   path: string;
@@ -82,23 +80,31 @@ export interface TurnDiffApplyBatch {
   diff: string;
 }
 
-export function extractTurnDiffPayload(item: CodexTranscriptEntry): TurnDiffPayload | null {
+export function extractTurnDiffPayload(
+  item: CodexTranscriptEntry,
+  scope: ProjectlessOutputScope = {},
+): TurnDiffPayload | null {
   const rawItem = item.rawItem;
   if (typeof rawItem !== "object" || rawItem === null) return null;
 
   const unifiedDiff = (rawItem as { unifiedDiff?: unknown }).unifiedDiff;
-  if (typeof unifiedDiff !== "string" || unifiedDiff.trim().length === 0) return null;
+  const patchBatches = (rawItem as { patchBatches?: unknown }).patchBatches;
+  if (
+    (typeof unifiedDiff !== "string" || unifiedDiff.trim().length === 0)
+    && !Array.isArray(patchBatches)
+  ) {
+    return null;
+  }
 
   const cwd = (rawItem as { cwd?: unknown }).cwd;
   const showRevertButton = (rawItem as { showRevertButton?: unknown }).showRevertButton;
-  const patchBatches = (rawItem as { patchBatches?: unknown }).patchBatches;
 
-  return {
-    unifiedDiff,
+  return filterTurnDiffPayload({
+    unifiedDiff: typeof unifiedDiff === "string" ? unifiedDiff : "",
     cwd: typeof cwd === "string" && cwd.trim().length > 0 ? cwd : undefined,
     showRevertButton: showRevertButton === true,
-    patchBatches: Array.isArray(patchBatches) ? normalizePatchBatches(patchBatches) : undefined,
-  };
+    patchBatches: normalizeTurnDiffPatchBatches(patchBatches),
+  }, scope);
 }
 
 export function normalizeTurnDiffBasePath(
@@ -118,8 +124,9 @@ export function buildTurnDiffReviewIntent(input: {
   projectWorkspacePath?: string;
   source?: CodexTurnDiffReviewSource;
   path?: CanonicalReviewPath | null;
+  scope?: ProjectlessOutputScope;
 }): ReviewOpenIntent | null {
-  const payload = extractTurnDiffPayload(input.item);
+  const payload = extractTurnDiffPayload(input.item, input.scope);
   if (!payload || input.item.turnId === null) return null;
 
   return {
@@ -146,6 +153,16 @@ export function parseUnifiedDiffFileStats(diffText: string): TurnDiffFileStat[] 
       currentPath = stripPatchPrefix(nextPath);
       inHunk = false;
       ensureFileStat(stats, currentPath);
+      continue;
+    }
+
+    const unifiedHeaderPath = parseUnifiedFileHeaderPath(line);
+    if (unifiedHeaderPath !== null) {
+      if (line.startsWith("+++ ")) {
+        currentPath = stripPatchPrefix(unifiedHeaderPath);
+        inHunk = false;
+        ensureFileStat(stats, currentPath);
+      }
       continue;
     }
 
@@ -251,8 +268,9 @@ function buildInlineTurnDiffRows(
   item: CodexTranscriptEntry,
   threadCwd: string | undefined,
   projectWorkspacePath: string | undefined,
+  scope: ProjectlessOutputScope,
 ): TurnDiffRowModel[] {
-  const payload = extractTurnDiffPayload(item);
+  const payload = extractTurnDiffPayload(item, scope);
   if (!payload) return [];
 
   const basePath = normalizeTurnDiffBasePath(payload, threadCwd, projectWorkspacePath);
@@ -310,8 +328,9 @@ export function buildTurnDiffModel(
   item: CodexTranscriptEntry,
   threadCwd: string | undefined,
   projectWorkspacePath: string | undefined,
+  scope: ProjectlessOutputScope = {},
 ): TurnDiffModel {
-  const payload = extractTurnDiffPayload(item);
+  const payload = extractTurnDiffPayload(item, scope);
   if (!payload) {
     return { kind: "empty", rows: [], summary: { fileCount: 0, additions: 0, deletions: 0 } };
   }
@@ -326,7 +345,7 @@ export function buildTurnDiffModel(
     };
   }
 
-  const rows = buildInlineTurnDiffRows(item, threadCwd, projectWorkspacePath);
+  const rows = buildInlineTurnDiffRows(item, threadCwd, projectWorkspacePath, scope);
   if (rows.length === 0) {
     return { kind: "empty", rows: [], summary: { fileCount: 0, additions: 0, deletions: 0 } };
   }
@@ -337,8 +356,9 @@ export function buildTurnDiffRows(
   item: CodexTranscriptEntry,
   threadCwd: string | undefined,
   projectWorkspacePath: string | undefined,
+  scope: ProjectlessOutputScope = {},
 ): TurnDiffRowModel[] {
-  const model = buildTurnDiffModel(item, threadCwd, projectWorkspacePath);
+  const model = buildTurnDiffModel(item, threadCwd, projectWorkspacePath, scope);
   return model.kind === "inline" ? [...model.rows] : [];
 }
 
@@ -398,18 +418,6 @@ export function buildTurnDiffApplyBatches(
   return [{ cwd, diff: payload.unifiedDiff }];
 }
 
-function normalizePatchBatches(value: unknown[]): CodexTurnDiffPatchBatch[] {
-  return value.flatMap((batch) => {
-    if (typeof batch !== "object" || batch === null) return [];
-    const cwd = (batch as { cwd?: unknown }).cwd;
-    const changes = (batch as { changes?: unknown }).changes;
-    return [{
-      cwd: typeof cwd === "string" && cwd.trim().length > 0 ? cwd : null,
-      changes: Array.isArray(changes) ? changes : [],
-    }];
-  });
-}
-
 function normalizeApplyCwd(value: string | null | undefined): string | null {
   if (!value) return null;
   const normalizedPath = normalizePathSegments(value);
@@ -442,6 +450,13 @@ function parseDiffGitHeaderPath(line: string): string | null {
   const markerIndex = rest.lastIndexOf(" b/");
   if (markerIndex === -1) return null;
   return rest.slice(markerIndex + " b/".length);
+}
+
+function parseUnifiedFileHeaderPath(line: string): string | null {
+  if (!line.startsWith("--- ") && !line.startsWith("+++ ")) return null;
+  const rawPath = line.slice(4).split("\t", 1)[0] ?? "";
+  if (rawPath === "/dev/null") return null;
+  return rawPath;
 }
 
 function parseQuotedDiffGitPaths(value: string): string[] {

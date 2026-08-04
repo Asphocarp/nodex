@@ -362,7 +362,6 @@ import type {
   UpdateWindowRestoreSettingsInput,
   WindowRestoreSettings,
   DesktopNotificationActionInvocation,
-  SystemNotificationPermissionStatus,
   WorkspaceDirectoryEntriesInput,
   WorkspaceDirectoryEntriesResult,
   WorkspaceFileBinaryReadResult,
@@ -1011,14 +1010,6 @@ export interface IpcApi {
   "settings:thread-notifications:update": {
     args: [input: UpdateThreadNotificationSettingsInput];
     result: ThreadNotificationSettings;
-  };
-  "system-notification-permission:get": {
-    args: [];
-    result: SystemNotificationPermissionStatus;
-  };
-  "system-notification-permission:open-settings": {
-    args: [];
-    result: void;
   };
   "electron-window:focus:get": { args: []; result: boolean };
   "native-context-menu:show": {
@@ -2009,23 +2000,23 @@ export interface IpcApi {
     result: boolean;
   };
   "codex:permission:mode:set": {
-    args: [projectId: string, mode: CodexPermissionMode];
+    args: [projectId: string | null, mode: CodexPermissionMode];
     result: CodexPermissionState;
   };
   "codex:permission:mode:get": {
-    args: [projectId: string];
+    args: [projectId: string | null];
     result: CodexPermissionMode;
   };
   "codex:permission:state:get": {
-    args: [projectId: string];
+    args: [projectId: string | null];
     result: CodexPermissionState;
   };
   "codex:permission:config-value:set": {
-    args: [projectId: string, keyPath: string, value: unknown];
+    args: [projectId: string | null, keyPath: string, value: unknown];
     result: CodexPermissionState;
   };
   "codex:permission:custom-description:get": {
-    args: [projectId: string];
+    args: [projectId: string | null];
     result: string;
   };
 }

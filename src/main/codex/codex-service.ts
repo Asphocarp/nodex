@@ -3028,7 +3028,7 @@ export class CodexService extends EventEmitter {
   private nodexAgentResourceAuthority: NodexAgentResourceAuthorityPort =
     unconfiguredAuthority("Nodex Agent resource authority");
 
-  private readonly permissionStateByProject = new Map<string, CodexPermissionState>();
+  private readonly permissionStateByScope = new Map<string | null, CodexPermissionState>();
   private readonly verifiedPermissionModeByProject = new Map<string, CodexPermissionMode>();
   private readonly collaborationModePresets = new Map<CodexCollaborationModeKind, CodexCollaborationModePreset>();
   private readonly pendingApprovals = new PendingServerRequestRegistry<PendingApproval>();
@@ -6950,26 +6950,32 @@ export class CodexService extends EventEmitter {
   }
 
   private async applyPersistedPermissionModeSelection(
-    projectId: string,
+    projectId: string | null,
     state: CodexPermissionState,
     workspaceRoots: readonly string[],
   ): Promise<CodexPermissionState> {
-    const selection = await this.projectWorkspace.readProjectPermissionMode(
-      projectId,
-    );
+    const selection = await this.readPersistedPermissionMode(projectId);
     if (!selection) {
-      this.verifiedPermissionModeByProject.delete(projectId);
+      if (projectId !== null) {
+        this.verifiedPermissionModeByProject.delete(projectId);
+      }
       return state;
     }
+    if (projectId !== null && selection !== "full-access") {
+      this.verifiedPermissionModeByProject.delete(projectId);
+    }
     if (selection === "custom") {
-      this.verifiedPermissionModeByProject.set(projectId, selection);
       return this.buildFallbackPermissionState(selection, workspaceRoots, state);
     }
     if (!this.permissionStateMatchesSelectedMode(state, selection)) {
-      this.verifiedPermissionModeByProject.delete(projectId);
+      if (projectId !== null) {
+        this.verifiedPermissionModeByProject.delete(projectId);
+      }
       return state;
     }
-    this.verifiedPermissionModeByProject.set(projectId, selection);
+    if (projectId !== null && selection === "full-access") {
+      this.verifiedPermissionModeByProject.set(projectId, selection);
+    }
     return this.buildFallbackPermissionState(selection, workspaceRoots, state);
   }
 
@@ -6983,30 +6989,14 @@ export class CodexService extends EventEmitter {
   }
 
   private async readPermissionState(projectId: string | null): Promise<CodexPermissionState> {
-    if (!projectId) {
-      return {
-        mode: "custom",
-        effectivePreset: "custom",
-        availableModes: ["auto", "guardian-approvals", "full-access", "custom"],
-        approvalPolicy: null,
-        approvalsReviewer: "user",
-        sandboxMode: null,
-        sandbox: null,
-        autoReviewAvailable: false,
-        configTarget: {
-          source: "none",
-          filePath: null,
-        },
-        customDescription: "Codex will use its built-in permission defaults.",
-      };
-    }
-
-    const cached = this.permissionStateByProject.get(projectId);
+    const cached = this.permissionStateByScope.get(projectId);
     if (cached) {
       return cached;
     }
 
-    const project = await this.projectWorkspace.getProject(projectId);
+    const project = projectId === null
+      ? null
+      : await this.projectWorkspace.getProject(projectId);
     const workspaceRoots = project?.sources
       .map((source) => source.root)
       .filter((root) => root.trim().length > 0) ?? [];
@@ -7033,15 +7023,15 @@ export class CodexService extends EventEmitter {
         resolvedState,
         workspaceRoots,
       );
-      this.permissionStateByProject.set(projectId, nextState);
+      this.permissionStateByScope.set(projectId, nextState);
       return nextState;
     } catch {
       const fallbackState = this.buildFallbackPermissionState(
-        this.permissionStateByProject.get(projectId)?.mode ?? "auto",
+        this.permissionStateByScope.get(projectId)?.mode ?? "auto",
         workspaceRoots,
-        this.permissionStateByProject.get(projectId) ?? null,
+        this.permissionStateByScope.get(projectId) ?? null,
       );
-      this.permissionStateByProject.set(projectId, fallbackState);
+      this.permissionStateByScope.set(projectId, fallbackState);
       return fallbackState;
     }
   }
@@ -7115,6 +7105,9 @@ export class CodexService extends EventEmitter {
     if (!mode || mode === permissionState.mode) {
       return permissionState;
     }
+    if (!permissionState.availableModes.includes(mode)) {
+      return permissionState;
+    }
     // Per-request selection controls Codex execution. Nodex Library authority
     // still requires the independently persisted and verified built-in preset.
     return this.buildFallbackPermissionState(mode, workspaceRoots, permissionState);
@@ -7160,21 +7153,41 @@ export class CodexService extends EventEmitter {
   }
 
   private invalidatePermissionState(projectId: string | null): void {
-    if (!projectId) return;
-    this.permissionStateByProject.delete(projectId);
-    this.verifiedPermissionModeByProject.delete(projectId);
+    this.permissionStateByScope.delete(projectId);
+    if (projectId !== null) {
+      this.verifiedPermissionModeByProject.delete(projectId);
+    }
   }
 
-  async getPermissionState(projectId: string): Promise<CodexPermissionState> {
+  private async readPersistedPermissionMode(
+    projectId: string | null,
+  ): Promise<CodexPermissionMode | null> {
+    return projectId === null
+      ? await this.projectWorkspace.readProjectlessPermissionMode()
+      : await this.projectWorkspace.readProjectPermissionMode(projectId);
+  }
+
+  private async setPersistedPermissionMode(
+    projectId: string | null,
+    mode: CodexPermissionMode,
+  ): Promise<void> {
+    if (projectId === null) {
+      await this.projectWorkspace.setProjectlessPermissionMode(mode);
+      return;
+    }
+    await this.projectWorkspace.setProjectPermissionMode(projectId, mode);
+  }
+
+  async getPermissionState(projectId: string | null): Promise<CodexPermissionState> {
     return await this.readPermissionState(projectId);
   }
 
-  async getCustomPermissionModeDescription(projectId: string): Promise<string> {
+  async getCustomPermissionModeDescription(projectId: string | null): Promise<string> {
     const state = await this.readPermissionState(projectId);
     return state.customDescription ?? "Codex will use its built-in permission defaults.";
   }
 
-  async setProjectPermissionMode(projectId: string, mode: CodexPermissionMode): Promise<CodexPermissionState> {
+  async setProjectPermissionMode(projectId: string | null, mode: CodexPermissionMode): Promise<CodexPermissionState> {
     const current = await this.readPermissionState(projectId);
     if (!current.availableModes.includes(mode)) {
       return current;
@@ -7182,11 +7195,9 @@ export class CodexService extends EventEmitter {
 
     const edits = buildPermissionModeConfigEdits(mode);
     if (edits.length === 0) {
-      await this.projectWorkspace.setProjectPermissionMode(projectId, mode);
-      this.verifiedPermissionModeByProject.set(projectId, mode);
-      const nextState = this.buildFallbackPermissionState(mode, [], current);
-      this.permissionStateByProject.set(projectId, nextState);
-      return nextState;
+      await this.setPersistedPermissionMode(projectId, mode);
+      this.invalidatePermissionState(projectId);
+      return await this.readPermissionState(projectId);
     }
 
     const params: ConfigBatchWriteParams = {
@@ -7197,26 +7208,20 @@ export class CodexService extends EventEmitter {
     try {
       await this.client.request("config/batchWrite", params);
     } catch {
-      await this.projectWorkspace.setProjectPermissionMode(projectId, mode);
-      this.verifiedPermissionModeByProject.set(projectId, mode);
-      const nextState = this.buildFallbackPermissionState(mode, [], current);
-      this.permissionStateByProject.set(projectId, nextState);
-      return nextState;
+      return current;
     }
-    await this.projectWorkspace.setProjectPermissionMode(projectId, mode);
+    try {
+      await this.setPersistedPermissionMode(projectId, mode);
+    } catch (error) {
+      this.invalidatePermissionState(projectId);
+      throw error;
+    }
     this.invalidatePermissionState(projectId);
-    const nextState = await this.readPermissionState(projectId);
-    if (mode !== "custom" && nextState.mode !== mode) {
-      const fallbackState = this.buildFallbackPermissionState(mode, [], nextState);
-      this.verifiedPermissionModeByProject.set(projectId, mode);
-      this.permissionStateByProject.set(projectId, fallbackState);
-      return fallbackState;
-    }
-    return nextState;
+    return await this.readPermissionState(projectId);
   }
 
   async setPermissionConfigValue(
-    projectId: string,
+    projectId: string | null,
     keyPath: string,
     value: unknown,
   ): Promise<CodexPermissionState> {
@@ -7231,7 +7236,12 @@ export class CodexService extends EventEmitter {
     } catch {
       return current;
     }
-    await this.projectWorkspace.setProjectPermissionMode(projectId, "custom");
+    try {
+      await this.setPersistedPermissionMode(projectId, "custom");
+    } catch (error) {
+      this.invalidatePermissionState(projectId);
+      throw error;
+    }
     this.invalidatePermissionState(projectId);
     return await this.readPermissionState(projectId);
   }
@@ -7391,7 +7401,7 @@ export class CodexService extends EventEmitter {
     await this.emitSidebarCatalogChangedForThread(thread.id, "host-message");
   }
 
-  async getProjectPermissionMode(projectId: string): Promise<CodexPermissionMode> {
+  async getProjectPermissionMode(projectId: string | null): Promise<CodexPermissionMode> {
     return (await this.readPermissionState(projectId)).mode;
   }
 

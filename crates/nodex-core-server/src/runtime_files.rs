@@ -826,6 +826,11 @@ mod tests {
 
     #[test]
     fn store_format_fingerprints_match_exact_core_schema_inventories() {
+        assert_eq!(
+            i64::from(nodex_core_protocol::CURRENT_STORE_VERSION),
+            nodex_core::infrastructure::schema::CORE_SCHEMA_VERSION,
+            "Core protocol and storage current Store versions must match",
+        );
         let actual = (84..=nodex_core_protocol::CURRENT_STORE_VERSION)
             .map(|version| {
                 (

@@ -13,6 +13,7 @@ import { FileIcon, SidePanelFilesIcon, SearchIcon, ProjectActionsIcon } from "@/
 import { NodexTooltip } from "@/components/ui/tooltip";
 import { toast } from "@/components/ui/toast";
 import {
+  NodexDropdownFlyoutSubmenuItem,
   NodexDropdownItem,
   NodexDropdownMenu,
   NodexDropdownSeparator,
@@ -36,7 +37,13 @@ import type {
 import { cn } from "@/lib/utils";
 import { classifyContentBudget } from "@/lib/content-budget";
 import { writeTextToClipboard } from "@/lib/clipboard";
+import { FILE_LINK_OPENER_ICON_URLS } from "@/lib/file-link-opener-icons";
+import { useFileReferenceRouter } from "@/lib/file-reference-router";
 import { useScopedAtom } from "@/lib/maitai";
+import {
+  FILE_LINK_OPENER_OPTIONS,
+  type FileLinkOpenerId,
+} from "../../../shared/file-link-openers";
 import {
   getWorkspaceFileDomTabId,
   getWorkspaceFileName,
@@ -166,6 +173,7 @@ function WorkspaceFilePreview({
   state,
   presentation,
   document,
+  workspaceRoot,
   onOpenExternal,
   onEdit,
   onUseDisk,
@@ -173,10 +181,12 @@ function WorkspaceFilePreview({
   onRetrySave,
   markdownMode,
   wrap,
+  revealLocation,
 }: {
   state: WorkspaceFilePreviewState;
   presentation: WorkspaceFilePresentation | null;
   document: WorkspaceTextDocumentSnapshot | null;
+  workspaceRoot: string | null;
   onOpenExternal: () => void;
   onEdit: (value: string) => void;
   onUseDisk: () => void;
@@ -184,6 +194,7 @@ function WorkspaceFilePreview({
   onRetrySave: () => void;
   markdownMode: "source" | "rendered";
   wrap: boolean;
+  revealLocation?: WorkspaceFilesTabState["pendingReveal"];
 }) {
   if (state.status === "idle") {
     return (
@@ -261,6 +272,7 @@ function WorkspaceFilePreview({
             sourceIdentity={state.path ?? undefined}
             lineNumbers
             wrap={wrap}
+            revealLocation={revealLocation}
             className="min-h-0 flex-1"
           />
         </div>
@@ -269,7 +281,11 @@ function WorkspaceFilePreview({
 
     return (
       <div className="h-full overflow-auto px-6 py-4">
-        <MarkdownRenderer content={markdownContent} className="max-w-3xl text-sm leading-6" />
+        <MarkdownRenderer
+          content={markdownContent}
+          className="max-w-3xl text-sm leading-6"
+          projectWorkspacePath={workspaceRoot}
+        />
       </div>
     );
   }
@@ -329,6 +345,7 @@ function WorkspaceFilePreview({
           wrap={wrap}
           className="min-h-0 flex-1"
           onChange={onEdit}
+          revealLocation={revealLocation}
         />
         <div className="flex h-6 shrink-0 items-center justify-end border-t-[0.5px] border-token-border px-2 text-[11px] text-token-description-foreground">
           {document.status === "saving"
@@ -360,6 +377,7 @@ function WorkspaceFilePreview({
         sourceIdentity={state.path ?? undefined}
         lineNumbers
         wrap={wrap}
+        revealLocation={revealLocation}
         className="min-h-0 flex-1 bg-token-main-surface-primary"
       />
     </div>
@@ -375,6 +393,7 @@ export function WorkspaceFilesPanel({
   onUpdateTabState,
 }: WorkspaceFilesPanelProps) {
   const workspaceRoot = resolveWorkspaceRoot(tab, project);
+  const fileReferenceRouter = useFileReferenceRouter();
   const hostId = tab.config.hostId ?? "local";
   const selectedPath = tab.config.path ?? null;
   const cwd = tab.config.cwd?.trim()
@@ -412,6 +431,7 @@ export function WorkspaceFilesPanel({
   const [wordWrap, setWordWrap] = useState(
     initialTabStateRef.current.wordWrap ?? true,
   );
+  const revealLocation = initialTabStateRef.current.pendingReveal;
   const [previewState, setPreviewState] = useState<WorkspaceFilePreviewState>(EMPTY_PREVIEW_STATE);
   const [documentSnapshot, setDocumentSnapshot] = useState<WorkspaceTextDocumentSnapshot | null>(null);
   const documentControllerRef = useRef<WorkspaceTextDocumentController | null>(null);
@@ -499,6 +519,42 @@ export function WorkspaceFilesPanel({
     persistedTabStateRef.current = state;
     onUpdateTabStateRef.current?.(state);
   }, []);
+
+  const revealViewerMounted = Boolean(
+    selectedPath
+    && previewState.status === "loaded"
+    && (
+      presentation === "editable-text"
+      || presentation === "readonly-text"
+      || (presentation === "markdown" && markdownMode === "source")
+    )
+    && revealLocation?.line,
+  );
+
+  useEffect(() => {
+    if (!revealViewerMounted) return;
+
+    let clearFrame: number | null = null;
+    const revealFrame = window.requestAnimationFrame(() => {
+      clearFrame = window.requestAnimationFrame(() => {
+        const nextState = { ...persistedTabStateRef.current };
+        delete nextState.pendingReveal;
+        persistTabState(nextState);
+      });
+    });
+
+    return () => {
+      window.cancelAnimationFrame(revealFrame);
+      if (clearFrame !== null) window.cancelAnimationFrame(clearFrame);
+    };
+  }, [
+    persistTabState,
+    revealLocation?.column,
+    revealLocation?.endColumn,
+    revealLocation?.endLine,
+    revealLocation?.line,
+    revealViewerMounted,
+  ]);
 
   useEffect(() => {
     const root = rootRef.current;
@@ -877,12 +933,29 @@ export function WorkspaceFilesPanel({
     });
   }, [publishNavigationState]);
 
-  const openExternal = useCallback(() => {
+  const openExternal = useCallback((opener?: FileLinkOpenerId) => {
     if (!selectedPath) return;
-    void invoke("open-file", { path: selectedPath }, "fileManager").catch(() => {
-      toast.danger("Unable to open file");
+    void fileReferenceRouter.open({
+      path: selectedPath,
+      ...(revealLocation?.line ? {
+        line: revealLocation.line,
+        ...(revealLocation.column ? { column: revealLocation.column } : {}),
+        ...(revealLocation.endLine ? { endLine: revealLocation.endLine } : {}),
+        ...(revealLocation.endColumn ? { endColumn: revealLocation.endColumn } : {}),
+      } : {}),
+    }, {
+      external: true,
+      opener,
+      cwd,
+      workspaceRoot,
+      title: getWorkspaceFileName(selectedPath),
+    }).then((opened) => {
+      if (opened) return;
+      toast.danger("Unable to open file externally");
+    }).catch(() => {
+      toast.danger("Unable to open file externally");
     });
-  }, [selectedPath]);
+  }, [cwd, fileReferenceRouter, revealLocation, selectedPath, workspaceRoot]);
 
   const startResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -1012,7 +1085,7 @@ export function WorkspaceFilesPanel({
             <button
               type="button"
               className="flex h-7 items-center gap-1.5 rounded-md px-2 text-xs text-token-text-secondary hover:bg-token-list-hover-background hover:text-token-text-primary disabled:opacity-40"
-              onClick={openExternal}
+              onClick={() => openExternal()}
               disabled={!selectedPath}
             >
               <ExternalLink className="icon-2xs" />
@@ -1030,6 +1103,30 @@ export function WorkspaceFilesPanel({
                 </button>
               )}
             >
+              <NodexDropdownFlyoutSubmenuItem
+                label="Open with"
+                leftSlot={<ExternalLink className="icon-2xs" />}
+                disabled={!selectedPath}
+              >
+                {FILE_LINK_OPENER_OPTIONS.map((option) => (
+                  <NodexDropdownItem
+                    key={option.id}
+                    data-tab-preview-pin-exempt="true"
+                    leftSlot={(
+                      <img
+                        src={FILE_LINK_OPENER_ICON_URLS[option.id]}
+                        alt=""
+                        className="size-4 shrink-0 object-contain"
+                        aria-hidden="true"
+                      />
+                    )}
+                    onSelect={() => openExternal(option.id)}
+                  >
+                    {option.label}
+                  </NodexDropdownItem>
+                ))}
+              </NodexDropdownFlyoutSubmenuItem>
+              <NodexDropdownSeparator />
               {presentation === "markdown" ? (
                 <>
                   <NodexDropdownItem
@@ -1114,13 +1211,15 @@ export function WorkspaceFilesPanel({
             state={previewState}
             presentation={presentation}
             document={documentSnapshot}
-            onOpenExternal={openExternal}
+            workspaceRoot={workspaceRoot}
+            onOpenExternal={() => openExternal()}
             onEdit={editDocument}
             onUseDisk={useDiskVersion}
             onKeepLocal={keepLocalChanges}
             onRetrySave={retrySave}
             markdownMode={markdownMode}
             wrap={wordWrap}
+            revealLocation={revealLocation}
           />
         </div>
       </div>

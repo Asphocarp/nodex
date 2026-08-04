@@ -3,7 +3,7 @@ import type {
 } from "react";
 import { PendingWorktreeRoute } from "./pending-worktree-route";
 import { WorkbenchAutomationsRouteShell } from "./workbench-automations-overlay";
-import { SettingsRouteShell } from "./workbench-settings-overlay";
+import { SettingsRouteShell } from "./workbench-settings-route-shell";
 
 type SettingsProps = Omit<
   ComponentProps<typeof SettingsRouteShell>,

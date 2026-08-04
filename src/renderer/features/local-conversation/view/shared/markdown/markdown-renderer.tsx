@@ -10,6 +10,8 @@ export interface MarkdownRendererProps {
   parseIncompleteMarkdown?: boolean;
   preserveLineBreaks?: boolean;
   animateStreamingText?: boolean;
+  cwd?: string | null;
+  projectWorkspacePath?: string | null;
 }
 
 function readStreamdownCodeLineText(line: Element): string {
@@ -52,6 +54,8 @@ export function MarkdownRenderer({
   parseIncompleteMarkdown,
   preserveLineBreaks,
   animateStreamingText,
+  cwd,
+  projectWorkspacePath,
 }: MarkdownRendererProps) {
   return (
     <div
@@ -64,6 +68,8 @@ export function MarkdownRenderer({
         parseIncompleteMarkdown={parseIncompleteMarkdown}
         preserveLineBreaks={preserveLineBreaks}
         animateStreamingText={animateStreamingText}
+        cwd={cwd}
+        projectWorkspacePath={projectWorkspacePath}
       />
     </div>
   );

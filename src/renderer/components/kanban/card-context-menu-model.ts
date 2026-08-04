@@ -5,7 +5,9 @@ export interface CardActionMenuEntry {
     | "edit-property"
     | "layout"
     | "property-visibility"
-    | "open-in"
+    | "open-page"
+    | "open-in-new-chat"
+    | "send-to-chat"
     | "copy-link"
     | "duplicate"
     | "delete";
@@ -60,11 +62,19 @@ const CARD_ACTION_MENU_ENTRIES: CardActionMenuEntry[] = [
     keywords: ["property", "visibility", "display"],
   },
   {
-    id: "open-in",
-    label: "Open in",
-    disabled: true,
-    mockReason: MOCK_ACTION_REASON,
-    keywords: ["open", "stage", "panel"],
+    id: "open-page",
+    label: "Open Page",
+    keywords: ["open", "page", "stage", "panel"],
+  },
+  {
+    id: "open-in-new-chat",
+    label: "Open in New Chat",
+    keywords: ["open", "new", "chat", "session", "focus"],
+  },
+  {
+    id: "send-to-chat",
+    label: "Send Page to Chat…",
+    keywords: ["send", "page", "chat", "thread", "agent"],
   },
   {
     id: "copy-link",

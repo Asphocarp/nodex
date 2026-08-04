@@ -1,5 +1,4 @@
 import {
-  buildFileUrl,
   parseLocalFileLinkHref,
   type FileLinkOpenerId,
   type FileLinkTarget,
@@ -58,15 +57,24 @@ function parsePositiveInteger(value: string | undefined): number | undefined {
   return parsed;
 }
 
-function parseLineColumnFragment(fragment: string): Pick<FileLinkTarget, "line" | "column"> {
-  const match = /^L(\d+)(?:C(\d+))?$/i.exec(fragment.trim());
+function parseLineColumnFragment(
+  fragment: string,
+): Pick<FileLinkTarget, "line" | "column" | "endLine" | "endColumn"> {
+  const match = /^L(\d+)(?:C(\d+))?(?:-L?(\d+)(?:C(\d+))?)?$/i.exec(fragment.trim());
   if (!match) return {};
 
   const line = parsePositiveInteger(match[1]);
   const column = parsePositiveInteger(match[2]);
   if (!line) return {};
 
-  return column ? { line, column } : { line };
+  const endLine = parsePositiveInteger(match[3]);
+  const endColumn = parsePositiveInteger(match[4]);
+  return {
+    line,
+    ...(column ? { column } : {}),
+    ...(endLine ? { endLine } : {}),
+    ...(endColumn ? { endColumn } : {}),
+  };
 }
 
 function isWindowsAbsolutePath(value: string): boolean {
@@ -235,6 +243,15 @@ export function resolveNfmLinkTooltipLabel(
 
   if ((action.kind === "local-file" || action.kind === "workspace-file") && showLocalFileTooltip) {
     if (!action.target.line) return action.target.path;
+    if (action.target.endLine) {
+      const start = action.target.column
+        ? `${action.target.line}:${action.target.column}`
+        : `${action.target.line}`;
+      const end = action.target.endColumn
+        ? `${action.target.endLine}:${action.target.endColumn}`
+        : `${action.target.endLine}`;
+      return `${action.target.path} (lines ${start}-${end})`;
+    }
     if (!action.target.column) return `${action.target.path} (line ${action.target.line})`;
     return `${action.target.path} (line ${action.target.line}, column ${action.target.column})`;
   }
@@ -268,12 +285,8 @@ export async function openNfmResolvedLinkAction(
   }
 
   try {
-    const opened = await invokeImpl("shell:open-file-link", action.target, opener) as boolean;
-    if (opened) return true;
+    return await invokeImpl("shell:open-file-link", action.target, opener) as boolean;
   } catch {
-    // Fall through to file URL handoff below.
+    return false;
   }
-
-  navigation.open(buildFileUrl(action.target), "_blank", "noopener,noreferrer");
-  return true;
 }

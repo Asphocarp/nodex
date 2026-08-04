@@ -1,5 +1,7 @@
 export const COMMAND_KEYMAP_VERSION = 1;
 export const COMMAND_KEYBINDINGS_CHANGED_CHANNEL = "command-keybindings:changed";
+export const PREVIOUS_PANEL_TAB_COMMAND_ID = "previousPanelTab";
+export const NEXT_PANEL_TAB_COMMAND_ID = "nextPanelTab";
 
 export type RuntimePlatform = "macOS" | "windows" | "linux";
 export type CommandShortcutScope = "app" | "electron" | "os-global" | "webview";
@@ -148,6 +150,8 @@ export const CODEX_COMMAND_REGISTRY = [
     allowsMultiple: true,
   }),
   command("toggleBottomPanel", "Toggle bottom panel", "Show or hide the bottom panel", 120, "app", ["CmdOrCtrl+J"]),
+  command(PREVIOUS_PANEL_TAB_COMMAND_ID, "Previous panel tab", "Select the previous tab in the focused panel group", 121, "app", ["CmdOrCtrl+Shift+["]),
+  command(NEXT_PANEL_TAB_COMMAND_ID, "Next panel tab", "Select the next tab in the focused panel group", 122, "app", ["CmdOrCtrl+Shift+]"]),
   command("toggleBrowserPanel", "Toggle browser panel", "Show or hide the Browser panel", 130, "app", ["CmdOrCtrl+Shift+B"], {
     available: false,
   }),

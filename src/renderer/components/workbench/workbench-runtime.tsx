@@ -59,8 +59,11 @@ import {
   type ContentSearchOpenRequest,
 } from "@/features/content-search/content-search-context";
 import { ContentSearchSurface } from "@/features/content-search/content-search-surface";
-import { buildSettingsPath } from "./workbench-settings-routes";
-import type { BrowserSettingsDestination } from "@/features/browser-sidebar/browser-settings-pages";
+import {
+  buildSettingsPath,
+  resolveBrowserSettingsDestination,
+} from "./workbench-settings-routes";
+import type { BrowserSettingsDestination } from "./workbench-settings-routes";
 import {
   buildCodexHooksSettingsPath,
   type CodexHooksSettingsTarget,
@@ -139,6 +142,7 @@ import {
   applyForkBrowserTransferToWorkbenchScene,
   makeWorkbenchSceneKey,
   materializeInitialWorkbenchScene,
+  resolveWorkbenchSceneSurface,
   updateWorkbenchSceneSurface,
   type WorkbenchSceneOwner,
   type WorkbenchSceneSnapshot,
@@ -173,6 +177,7 @@ import {
   useWorkbenchPanelOpeners,
   type OpenCanvasStageHandler,
 } from "@/lib/use-workbench-panel-openers";
+import { FileReferenceRouterProvider } from "@/lib/file-reference-router";
 import { useWorkbenchPanelCommandRouter } from "@/lib/use-workbench-panel-command-router";
 import { useWorkbenchSessionCommands } from "@/lib/use-workbench-session-commands";
 import {
@@ -305,8 +310,11 @@ import {
   panelTabCycleRequestDirectionToOffset,
 } from "@/lib/workbench-panel-tab-cycle";
 import {
-  type PanelTabCycleScope,
-} from "@/lib/workbench-panel-shortcut-scope";
+  buildWorkbenchScenePanelTabShortcutProjection,
+  projectWorkbenchPanelTabShortcutProjection,
+  type WorkbenchPanelTabShortcutFocus,
+  type WorkbenchPanelTabShortcutState,
+} from "@/lib/workbench-panel-tab-shortcut";
 import {
   projectWorkspaceRootOrNull,
 } from "@/lib/workbench-workspace-context";
@@ -834,7 +842,8 @@ export function WorkbenchRuntime({
     useState<ContentSearchOpenRequest | null>(null);
   const workbenchRootRef = useRef<HTMLDivElement | null>(null);
   const pinningPreviewTabIdsRef = useRef<Set<string>>(new Set());
-  const focusedPanelGroupRef = useRef<PanelTabCycleScope | null>(null);
+  const focusedPanelGroupRef = useRef<WorkbenchPanelTabShortcutFocus | null>(null);
+  const panelTabShortcutStateRef = useRef<WorkbenchPanelTabShortcutState | null>(null);
   const panelGroupTabsRef = useRef<PanelGroupTabsByPanel>({
     right: { itemsByLeafId: {}, activeTabIdsByLeafId: {} },
     bottom: { itemsByLeafId: {}, activeTabIdsByLeafId: {} },
@@ -1552,13 +1561,13 @@ export function WorkbenchRuntime({
     setSettingsPath(buildSettingsPath("general-settings"));
   }, [closePendingWorktreeRoute, setAutomationsPath, setSettingsPath]);
 
-  const openBrowserSettings = useCallback((sectionId: BrowserSettingsDestination) => {
+  const openBrowserSettings = useCallback((destination: BrowserSettingsDestination) => {
     closePendingWorktreeRoute();
     setAutomationsPath(null);
     setReopenStableWorktreeAfterSettingsId(null);
     setReopenPendingWorktreeAfterSettingsClientThreadId(null);
     setLocalEnvironmentSettingsInitial(null);
-    setSettingsPath(buildSettingsPath(sectionId));
+    setSettingsPath(resolveBrowserSettingsDestination(destination));
   }, [closePendingWorktreeRoute, setAutomationsPath, setSettingsPath]);
 
   const openKeyboardShortcutsSettings = useCallback(() => {
@@ -1868,6 +1877,7 @@ export function WorkbenchRuntime({
     setActivePanelTab,
     pinPreviewTab,
     selectPanelTab,
+    closePanelTab,
     closePlanSidePanel,
   } = panelLifecycle;
   const updateActiveWorkbenchPanel = useCallback(async (
@@ -2061,6 +2071,7 @@ export function WorkbenchRuntime({
     projects,
     rightPanelFullWidth,
     createSessionViewTab,
+    updateTab: updateSessionViewTab,
     refreshProjectSessions,
     openPageStage,
     pendingPageDeepLinkOpen,
@@ -2072,6 +2083,7 @@ export function WorkbenchRuntime({
     openMcpAppSidePanel,
     openPlanSidePanel,
     openAutomationSidePanel,
+    openWorkspaceFileTab,
   } = panelOpeners;
   const openExistingSideChatRef = useRef(openExistingSideChat);
   openExistingSideChatRef.current = openExistingSideChat;
@@ -2088,6 +2100,7 @@ export function WorkbenchRuntime({
     controller: panelController,
     lifecycle: panelLifecycle,
     panelOpeners,
+    sceneNavigator,
     createSessionViewTab,
     codexControl: workbenchCodexControl,
     processManagerConversationsById,
@@ -2113,6 +2126,8 @@ export function WorkbenchRuntime({
   });
   const {
     ensureBlankSessionForProject,
+    openPageInNewChat,
+    sendPageToChat,
     startNewChatInProject,
     startNewChatWithPrompt,
     openScheduledAutomationChatCreate,
@@ -2137,6 +2152,7 @@ export function WorkbenchRuntime({
   } = sessionCommands;
   const panelCommands = useWorkbenchPanelCommandRouter({
     activeSession,
+    activePanelOwnerKey,
     projects,
     windowSessionId,
     isMacPlatform,
@@ -2151,7 +2167,7 @@ export function WorkbenchRuntime({
     openPageStage,
     commandKeymapState,
     focusedPanelGroupRef,
-    panelGroupTabsRef,
+    panelTabShortcutStateRef,
   });
   const {
     cycleFocusedPanelTab,
@@ -3046,6 +3062,8 @@ export function WorkbenchRuntime({
           setDbViewPrefs={setDbViewPrefs}
           onReminderHandled={onReminderHandled}
           onOpenPageTab={openProjectScenePage}
+          onOpenPageInNewChat={openPageInNewChat}
+          onSendPageToChat={sendPageToChat}
           onOpenCanvasStage={openProjectSceneCanvas}
           targetLeafId={leafId}
           onUpdateTab={(surfaceId, patch) => {
@@ -3312,12 +3330,20 @@ export function WorkbenchRuntime({
     }
 
     if (surface.kind === "review") {
-      const reviewProject = projects.find((item) =>
-        item.id === surface.config.projectId
-      ) ?? null;
+      const reviewContext = surface.config.context
+        ?? (surface.config.projectId
+          ? { kind: "project" as const, projectId: surface.config.projectId }
+          : null);
+      const reviewSession = reviewContext?.kind === "session"
+        ? knownSessions.find((session) => session.id === reviewContext.sessionId) ?? null
+        : null;
+      const reviewProjectId = surface.config.projectId ?? reviewSession?.projectId ?? null;
+      const reviewProject = reviewProjectId
+        ? projects.find((item) => item.id === reviewProjectId) ?? null
+        : null;
       return (
         <ConnectedReviewDiffPanel
-          threadId={null}
+          threadId={reviewSession?.thread?.threadId ?? null}
           projectWorkspacePath={projectWorkspaceRootOrNull(reviewProject)}
           searchOpenTick={0}
         />
@@ -3341,6 +3367,7 @@ export function WorkbenchRuntime({
     openProjectSceneCanvas,
     openProjectSceneManualSurface,
     openProjectScenePage,
+    openPageInNewChat,
     pageStageCloseRef,
     pageStageHistoryModal,
     pageStagePersistRef,
@@ -3350,10 +3377,12 @@ export function WorkbenchRuntime({
     projectSceneKey,
     projectSceneOwner,
     projects,
+    knownSessions,
     refreshProjectSessions,
     searchByProject,
     setDbViewPrefs,
     setSearchQuery,
+    sendPageToChat,
     taskSearchOpenTick,
     togglePageStageHistoryModal,
     rightPanelMotion.animatedSize,
@@ -3549,6 +3578,31 @@ export function WorkbenchRuntime({
       }
     }
   }, [projectSceneKey, windowSessionId]);
+  const closeActiveOwnedScenePanelTab = useCallback(async (
+    tabId: string,
+  ): Promise<void> => {
+    if (!activeOwnedScene || !activeOwnedSceneOwner) return;
+    const surface = resolveWorkbenchSceneSurface(activeOwnedScene, tabId);
+    if (!surface) return;
+    const removeDescriptor = () => {
+      panelControllerRef.current.sceneDurable?.removeSurface(
+        activeOwnedSceneOwner,
+        surface.id,
+      );
+    };
+    if (activeOwnedSceneOwner.kind === "project") {
+      await closeProjectSceneSurfaceRuntime(surface, removeDescriptor);
+      return;
+    }
+    if (activeOwnedSceneOwner.kind === "pages") {
+      await closePagesSceneSurfaceRuntime(surface, removeDescriptor);
+    }
+  }, [
+    activeOwnedScene,
+    activeOwnedSceneOwner,
+    closePagesSceneSurfaceRuntime,
+    closeProjectSceneSurfaceRuntime,
+  ]);
   const projectScenePanels = (
     activeProjectScene
     && activeProject
@@ -3573,6 +3627,9 @@ export function WorkbenchRuntime({
     panelTabScrollEndPaddingPx,
     renderSurface: renderProjectSceneSurface,
     onCloseSurface: closeProjectSceneSurfaceRuntime,
+    onFocusGroup: (panelId, leafId) => {
+      panelCommands.rememberFocusedPanelGroup(panelId, leafId);
+    },
     onOpenAction: (panelId, leafId, action) => {
       if (action === "canvas_stage") {
         void openProjectSceneCanvas(
@@ -3682,9 +3739,45 @@ export function WorkbenchRuntime({
       />
     ),
     onCloseSurface: closePagesSceneSurfaceRuntime,
+    onFocusGroup: (panelId, leafId) => {
+      panelCommands.rememberFocusedPanelGroup(panelId, leafId);
+    },
     onOpenAction: () => undefined,
     onOpenDestination: async () => undefined,
   }) : null;
+  const activePanelTabShortcutState: WorkbenchPanelTabShortcutState | null = activePanelOwnerKey
+    ? activeOwnedScene && activeOwnedSceneOwner
+      ? {
+          ownerKey: activePanelOwnerKey,
+          projection: buildWorkbenchScenePanelTabShortcutProjection(
+            activeOwnedScene,
+          ),
+          selectTab: ({ panelId, tabId, leafId }) => {
+            panelControllerRef.current.sceneDurable?.activateSurface(
+              activeOwnedSceneOwner,
+              panelId,
+              leafId,
+              tabId,
+            );
+          },
+          closeTab: ({ tabId }) => {
+            void closeActiveOwnedScenePanelTab(tabId);
+          },
+        }
+      : activeSession
+        ? {
+            ownerKey: activePanelOwnerKey,
+            projection: projectWorkbenchPanelTabShortcutProjection(
+              panelGroupTabs,
+            ),
+            selectTab: ({ panelId, tabId, leafId }) =>
+              selectPanelTab(panelId, tabId, leafId),
+            closeTab: ({ panelId, tabId, leafId }) =>
+              closePanelTab(panelId, tabId, leafId),
+          }
+        : null
+    : null;
+  panelTabShortcutStateRef.current = activePanelTabShortcutState;
   const projectAgentDockLeadingContent = (
     projectAgentDockModel
     && selectedProjectSceneId
@@ -4115,11 +4208,19 @@ export function WorkbenchRuntime({
   return (
     <HeaderActionProvider actions={appShellHeaderActions}>
       <NodexTooltipProvider>
-        <ContentSearchProvider
-          openRequest={
-            contentSearchOpenRequest ?? commandContentSearchOpenRequest
+        <FileReferenceRouterProvider
+          openWorkspaceFileTab={openWorkspaceFileTab}
+          workspaceRoot={
+            projectWorkspaceRootOrNull(activeSessionProject)
+              ?? activeSession?.thread?.cwd
+              ?? null
           }
         >
+          <ContentSearchProvider
+            openRequest={
+              contentSearchOpenRequest ?? commandContentSearchOpenRequest
+            }
+          >
           <ContentSearchSurface />
           {commandPalette}
           <WorkbenchProcessManagerDialog
@@ -4315,7 +4416,8 @@ export function WorkbenchRuntime({
           />
         </div>
           </motion.div>
-        </ContentSearchProvider>
+          </ContentSearchProvider>
+        </FileReferenceRouterProvider>
       </NodexTooltipProvider>
     </HeaderActionProvider>
   );

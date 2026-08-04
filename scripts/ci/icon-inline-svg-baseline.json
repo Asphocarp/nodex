@@ -12,7 +12,7 @@
   "src/renderer/components/workbench/review-diff-panel.tsx": 2,
   "src/renderer/components/workbench/threads-icon.tsx": 1,
   "src/renderer/components/workbench/toggle-list-icon.tsx": 1,
-  "src/renderer/components/workbench/workbench-settings-overlay.tsx": 1,
+  "src/renderer/components/workbench/workbench-settings-route-shell.tsx": 1,
   "src/renderer/features/browser-sidebar/browser-sidebar-panel.stories.tsx": 1,
   "src/renderer/features/local-conversation/view/blocks/local-conversation-block-leaves.tsx": 2,
   "src/renderer/features/local-conversation/view/composer/composer-add-context-menu.tsx": 2,

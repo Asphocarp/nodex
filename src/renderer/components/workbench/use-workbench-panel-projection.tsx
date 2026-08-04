@@ -118,8 +118,10 @@ type SessionCommands = Pick<
   | "activateReviewTab"
   | "createManualTab"
   | "ensureBlankSessionForProject"
+  | "openPageInNewChat"
   | "openAttachedThreadSession"
   | "openAttachedThreadSessionById"
+  | "sendPageToChat"
   | "openSubagentsPanelTab"
   | "openTurnDiffFileInSidePanel"
 >;
@@ -352,8 +354,10 @@ export function useWorkbenchPanelProjection({
     activateReviewTab,
     createManualTab,
     ensureBlankSessionForProject,
+    openPageInNewChat,
     openAttachedThreadSession,
     openAttachedThreadSessionById,
+    sendPageToChat,
     openSubagentsPanelTab,
     openTurnDiffFileInSidePanel,
   } = sessionCommands;
@@ -530,6 +534,7 @@ export function useWorkbenchPanelProjection({
               <PlanSidePanelTab
                 key={`${session.id}:${tab.id}:${tab.stateKey}`}
                 content={tab.content}
+                cwd={tab.cwd}
               />
             );
           }
@@ -672,6 +677,8 @@ export function useWorkbenchPanelProjection({
               pageStageTabTitleStore={pageStageTabTitleStore}
               onOpenCanvasStage={openCanvasStage}
               onOpenPageTab={openPageTab}
+              onOpenPageInNewChat={openPageInNewChat}
+              onSendPageToChat={sendPageToChat}
               onOpenFileTab={openWorkspaceFileTab}
               onEnsureBlankSessionForProject={ensureBlankSessionForProject}
               onRefreshSessions={onRefreshSessions}
@@ -683,8 +690,9 @@ export function useWorkbenchPanelProjection({
                       createBrowserTabToRight(tab, false, request),
                   }
                 : {})}
-              onCreateTerminalTab={(panelId, leafId) =>
-                createManualTab("terminal", panelId, leafId)}
+              onCreateTerminalTab={async (panelId, leafId) => {
+                await createManualTab("terminal", panelId, leafId);
+              }}
               onOpenThread={async (threadId) => {
                 await openAttachedThreadSessionById(threadId);
               }}
@@ -756,6 +764,7 @@ export function useWorkbenchPanelProjection({
     createBrowserTabToRight,
     createManualTab,
     ensureBlankSessionForProject,
+    openPageInNewChat,
     onOpenAutomations,
     onOpenHooksSettings,
     onOpenLocalEnvironmentsSettings,
@@ -768,6 +777,7 @@ export function useWorkbenchPanelProjection({
     openCanvasStage,
     openMcpAppSidePanel,
     openPageTab,
+    sendPageToChat,
     openSubagentsPanelTab,
     openTurnDiffFileInSidePanel,
     openWorkspaceFileTab,

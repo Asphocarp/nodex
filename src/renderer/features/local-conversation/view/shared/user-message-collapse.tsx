@@ -24,6 +24,8 @@ export const DEFAULT_USER_MESSAGE_COLLAPSED_LINES = 20;
 interface UserMessageTextProps {
   text: string;
   collapsedLineCount?: number;
+  cwd?: string | null;
+  projectWorkspacePath?: string | null;
 }
 
 const USER_MESSAGE_COLLAPSED_STYLE: CSSProperties = {
@@ -86,7 +88,10 @@ function LargeUserMessageText({
 function CollapsibleUserMessageText({
   text,
   collapsedLineCount,
-}: Required<UserMessageTextProps>) {
+  cwd,
+  projectWorkspacePath,
+}: Required<Pick<UserMessageTextProps, "text" | "collapsedLineCount">>
+  & Pick<UserMessageTextProps, "cwd" | "projectWorkspacePath">) {
   const contentRef = useRef<HTMLDivElement>(null);
   const [expandedText, setExpandedText] = useState<string | null>(null);
   const { collapsedHeightPx, isOverflowing } = useContentOverflow(
@@ -114,6 +119,8 @@ function CollapsibleUserMessageText({
         <MarkdownRenderer
           content={text}
           preserveLineBreaks
+          cwd={cwd}
+          projectWorkspacePath={projectWorkspacePath}
           className="codex-markdown-user text-size-chat"
         />
       </div>
@@ -140,6 +147,8 @@ function CollapsibleUserMessageText({
 export function UserMessageText({
   text,
   collapsedLineCount = DEFAULT_USER_MESSAGE_COLLAPSED_LINES,
+  cwd,
+  projectWorkspacePath,
 }: UserMessageTextProps) {
   if (text.length > INLINE_TEXT_PREVIEW_MAX_CHARS) {
     return (
@@ -148,6 +157,11 @@ export function UserMessageText({
   }
 
   return (
-    <CollapsibleUserMessageText text={text} collapsedLineCount={collapsedLineCount} />
+    <CollapsibleUserMessageText
+      text={text}
+      collapsedLineCount={collapsedLineCount}
+      cwd={cwd}
+      projectWorkspacePath={projectWorkspacePath}
+    />
   );
 }

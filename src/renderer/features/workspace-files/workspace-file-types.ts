@@ -7,12 +7,20 @@ export interface WorkspaceFilesDraftState {
   updatedAt: string;
 }
 
+export interface WorkspaceFileRevealLocation {
+  line?: number;
+  column?: number;
+  endLine?: number;
+  endColumn?: number;
+}
+
 export interface WorkspaceFilesTabState {
   draft?: WorkspaceFilesDraftState;
   markdownMode?: "source" | "rendered";
   treeVisible?: boolean;
   treeWidth?: number;
   wordWrap?: boolean;
+  pendingReveal?: WorkspaceFileRevealLocation;
 }
 
 export function normalizeWorkspaceFilesTabState(
@@ -43,7 +51,32 @@ export function normalizeWorkspaceFilesTabState(
     ...(typeof candidate.wordWrap === "boolean"
       ? { wordWrap: candidate.wordWrap }
       : {}),
+    ...(isValidRevealLocation(candidate.pendingReveal)
+      ? { pendingReveal: candidate.pendingReveal }
+      : {}),
   };
+}
+
+function isValidRevealLocation(
+  value: unknown,
+): value is WorkspaceFileRevealLocation {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const candidate = value as Record<string, unknown>;
+  const hasValidNumber = (key: string) => {
+    const item = candidate[key];
+    return item === undefined
+      || (typeof item === "number" && Number.isSafeInteger(item) && item > 0);
+  };
+  const line = candidate.line;
+  const endLine = candidate.endLine;
+  const endColumn = candidate.endColumn;
+  return hasValidNumber("line")
+    && hasValidNumber("column")
+    && hasValidNumber("endLine")
+    && hasValidNumber("endColumn")
+    && typeof line === "number"
+    && (typeof endLine !== "number" || endLine >= line)
+    && (typeof endColumn !== "number" || typeof endLine === "number");
 }
 
 export type WorkspaceFilesTab = Omit<

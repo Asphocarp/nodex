@@ -2745,10 +2745,6 @@ function HydratedThreadComposer({
   ]);
 
   useEffect(() => {
-    if (model.projectId === null) {
-      setPermissionState(model.permissionState ?? null);
-      return;
-    }
     let cancelled = false;
 
     void invoke("codex:permission:state:get", model.projectId)

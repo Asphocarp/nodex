@@ -18,7 +18,9 @@ describe("card context menu action row content", () => {
     const actions = getPageActionMenuEntries({ query: "", showMockActions: false });
 
     expect(actions.some((action) => action.mockReason !== undefined)).toBe(false);
-    expect(actions.map((action) => action.id).join(",")).toBe("copy-link,delete");
+    expect(actions.map((action) => action.id).join(",")).toBe(
+      "open-page,open-in-new-chat,send-to-chat,copy-link,delete",
+    );
   });
 
   test("renders dev mock rows with a Mock badge", () => {

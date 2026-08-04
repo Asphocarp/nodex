@@ -1,5 +1,13 @@
-import type { AppShellTabItem } from "@/components/workbench/app-shell-tabs";
 import type { WorkbenchPanelTabCycleDirection } from "../../shared/window-navigation";
+import type { WorkbenchPanelTabShortcutItem } from "./workbench-panel-tab-shortcut";
+import {
+  createCommandKeymapState,
+  getCommandEntry,
+  matchesKeyboardEventToCommand,
+  type CommandKeymapState,
+  NEXT_PANEL_TAB_COMMAND_ID,
+  PREVIOUS_PANEL_TAB_COMMAND_ID,
+} from "../../shared/command-keybindings";
 
 export type PanelTabCycleDirection = -1 | 1;
 
@@ -9,7 +17,31 @@ export function resolvePanelTabCycleDirection(
     "altKey" | "code" | "ctrlKey" | "key" | "metaKey" | "shiftKey"
   >,
   isMac: boolean,
+  commandKeymapState?: CommandKeymapState | null,
 ): PanelTabCycleDirection | null {
+  const state = commandKeymapState
+    ?? createCommandKeymapState({}, isMac ? "macOS" : "windows");
+  const previousEntry = getCommandEntry(state, PREVIOUS_PANEL_TAB_COMMAND_ID);
+  const nextEntry = getCommandEntry(state, NEXT_PANEL_TAB_COMMAND_ID);
+  if (
+    matchesKeyboardEventToCommand(
+      event,
+      state,
+      PREVIOUS_PANEL_TAB_COMMAND_ID,
+    )
+  ) {
+    return -1;
+  }
+  if (
+    matchesKeyboardEventToCommand(
+      event,
+      state,
+      NEXT_PANEL_TAB_COMMAND_ID,
+    )
+  ) {
+    return 1;
+  }
+
   const modifier = isMac ? event.metaKey : event.ctrlKey;
   if (!modifier || event.altKey || !event.shiftKey) return null;
   if (
@@ -17,6 +49,7 @@ export function resolvePanelTabCycleDirection(
     || event.key === "["
     || event.key === "{"
   ) {
+    if (previousEntry?.isCustom === true) return null;
     return -1;
   }
   if (
@@ -24,6 +57,7 @@ export function resolvePanelTabCycleDirection(
     || event.key === "]"
     || event.key === "}"
   ) {
+    if (nextEntry?.isCustom === true) return null;
     return 1;
   }
   return null;
@@ -35,7 +69,14 @@ export function resolvePanelTabCloseShortcut(
     "altKey" | "ctrlKey" | "key" | "metaKey" | "shiftKey"
   >,
   isMac: boolean,
+  commandKeymapState?: CommandKeymapState | null,
 ): boolean {
+  const state = commandKeymapState
+    ?? createCommandKeymapState({}, isMac ? "macOS" : "windows");
+  const closeEntry = getCommandEntry(state, "closeTab");
+  if (matchesKeyboardEventToCommand(event, state, "closeTab")) return true;
+  if (closeEntry?.isCustom === true) return false;
+
   const modifier = isMac ? event.metaKey : event.ctrlKey;
   return modifier
     && !event.altKey
@@ -44,7 +85,7 @@ export function resolvePanelTabCloseShortcut(
 }
 
 export function resolveNextPanelTabId(
-  tabs: readonly AppShellTabItem[],
+  tabs: readonly WorkbenchPanelTabShortcutItem[],
   activeTabId: string | null,
   direction: PanelTabCycleDirection,
 ): string | null {

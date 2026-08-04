@@ -397,8 +397,9 @@ export function NfmSendToThreadMenuSurface({
         mode: showModeSelector ? mode : "send",
       });
       setAcceptingRowId(null);
-    } catch {
-      setAcceptError(SEND_TO_THREAD_ERROR);
+    } catch (error) {
+      const message = error instanceof Error ? error.message.trim() : "";
+      setAcceptError(message || SEND_TO_THREAD_ERROR);
       setAcceptingRowId(null);
     }
   }, [mode, onAccept, showModeSelector]);

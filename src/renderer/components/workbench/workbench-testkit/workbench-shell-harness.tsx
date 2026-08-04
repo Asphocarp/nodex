@@ -40,6 +40,7 @@ import type {
   WorktreeEnvironmentOption,
 } from "@/lib/types";
 import type { LibraryNavigationNode } from "../../../../shared/library-module";
+import type { WorkbenchLayoutSnapshot } from "../../../../shared/workbench-layout";
 import type { WorkbenchSessionRenderProjection } from "@/lib/workbench-session-presentation";
 
 export type ProjectSession = WorkbenchSessionRenderProjection;
@@ -2234,6 +2235,7 @@ export function renderWorkbench({
   codexModels = DEFAULT_TEST_CODEX_MODELS,
   pendingWorktrees = [],
   libraryRoots = [],
+  initialWindowLayoutSnapshot,
 }: {
   projects?: Project[];
   sessionsByProject?: Record<string, ProjectSession[]>;
@@ -2268,6 +2270,7 @@ export function renderWorkbench({
   codexModels?: CodexModelOption[];
   pendingWorktrees?: readonly CodexPendingWorktreeEntry[];
   libraryRoots?: readonly LibraryNavigationNode[];
+  initialWindowLayoutSnapshot?: WorkbenchLayoutSnapshot;
 } = {}) {
   const resolvedInitialSelectedSessionId = initialSelectedSessionId === undefined
     ? Object.values(sessionsByProject).flat()[0]?.id
@@ -3421,7 +3424,8 @@ export function renderWorkbench({
       setRenderedProjects(nextProjects);
     };
     const initialWindowLayoutSnapshotRef = useRef(
-      WorkbenchLayoutSnapshotSchema.parse({
+      initialWindowLayoutSnapshot
+      ?? WorkbenchLayoutSnapshotSchema.parse({
         version: 4 as const,
         location: resolvedInitialSelectedSessionId
           ? {

@@ -408,7 +408,7 @@ describe("CommandToolCall render state", () => {
     expect(Boolean(textContent(container).includes("Shell"))).toBe(false);
     expect(Boolean(container.querySelector("[data-testid='command-tool-summary-toggle']"))).toBe(false);
     expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBe(false);
-    expect(Boolean(container.querySelector("[data-agent-activity-file-link][role='link']"))).toBe(true);
+    expect(Boolean(container.querySelector("[data-agent-activity-file-link]"))).toBe(true);
   });
 
   test("hides an in-progress single read action", () => {
