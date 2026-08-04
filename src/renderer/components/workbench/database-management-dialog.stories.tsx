@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { fireEvent, getByLabelText, getByText, waitFor } from "@testing-library/dom";
 import type {
   DatabaseContainerDescriptorV2,
   DataSourceDescriptorV2,
@@ -201,4 +202,25 @@ export const ScrollingContent: Story = {
 export const Busy: Story = { args: { busy: true } };
 export const ErrorState: Story = {
   args: { error: "View changed in another window. Reloaded current authority." },
+};
+
+export const DeleteConfirmation: Story = {
+  args: { source: overflowSource },
+  play: async ({ canvasElement }) => {
+    fireEvent.click(getByLabelText(canvasElement, "Delete property Additional Status 1"));
+    await waitFor(() => getByText(
+      canvasElement,
+      "Delete this Property and its values from every Page?",
+    ));
+  },
+};
+
+export const DeleteBlockedByView: Story = {
+  play: async ({ canvasElement }) => {
+    fireEvent.click(getByLabelText(canvasElement, "Delete property Due date"));
+    await waitFor(() => getByText(
+      canvasElement,
+      "Used by Upcoming. Remove it from those Views first.",
+    ));
+  },
 };

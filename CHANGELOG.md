@@ -13,6 +13,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 - Fixed parent-linked subagent tasks so they remain in parent-conversation activity without appearing as standalone Project or projectless sidebar chats; any leaked Session is retired when late parent metadata arrives.
+- Fixed Page Detail losing its entire Property surface after an optional Source Property was deleted; remaining and custom Properties now stay editable, schema changes refresh open Pages, and destructive deletion is confirmed with exact View blockers.
 
 ## [0.2.1] - 2026-08-02
 

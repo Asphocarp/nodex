@@ -17,6 +17,8 @@ import {
 import { createUuidV7 } from "../../../shared/uuid-v7";
 import {
   commitDatabaseManagementOperations,
+  DatabaseManagementMutationError,
+  DatabaseManagementReadError,
   readDatabaseManagementAuthority,
   type DatabaseManagementAuthority,
 } from "@/lib/database-management-runtime";
@@ -29,7 +31,6 @@ import {
   readPropertyOptionRegistry,
   withPropertyOptions,
 } from "@/lib/database-property-options-runtime";
-import { useMutationAuditSessionId } from "@/lib/mutation-audit-session";
 import {
   DatabaseManagementDialog,
   type CreateDatabasePropertyDraft,
@@ -45,8 +46,18 @@ interface DatabaseManagementDialogControllerProps {
   readonly onOpenChange: (open: boolean) => void;
 }
 
-const messageForError = (error: unknown): string =>
-  error instanceof Error ? error.message : "Database management failed";
+export const databaseManagementErrorMessage = (error: unknown): string => {
+  if (
+    error instanceof DatabaseManagementMutationError
+    && error.commandError.code === "revision_conflict"
+  ) {
+    return "Database settings changed elsewhere. Review and try again.";
+  }
+  if (error instanceof DatabaseManagementReadError) {
+    return "Couldn’t load database settings. Try again.";
+  }
+  return "Couldn’t save database settings. Try again.";
+};
 
 export function DatabaseManagementDialogController({
   projectId,
@@ -54,7 +65,6 @@ export function DatabaseManagementDialogController({
   open,
   onOpenChange,
 }: DatabaseManagementDialogControllerProps) {
-  const clientSessionId = useMutationAuditSessionId();
   const projectionRegistry = useProjectionInvalidationRegistry();
   const [authority, setAuthority] =
     useState<DatabaseManagementAuthority | null>(null);
@@ -116,7 +126,8 @@ export function DatabaseManagementDialogController({
       setError(null);
     } catch (nextError) {
       if (sequence !== readSequence.current) return;
-      setError(messageForError(nextError));
+      console.error("[database-management:read]", nextError);
+      setError(databaseManagementErrorMessage(nextError));
     }
   }, [applyAuthority, hydratePropertyOptions, projectId]);
 
@@ -180,12 +191,12 @@ export function DatabaseManagementDialogController({
         projectId,
         preferredDatabaseId: selectedDatabaseIdRef.current,
         operationId: crypto.randomUUID(),
-        clientSessionId,
         buildOperations,
       });
       applyAuthority(await hydratePropertyOptions(next));
     } catch (nextError) {
-      setError(messageForError(nextError));
+      console.error("[database-management:mutation]", nextError);
+      setError(databaseManagementErrorMessage(nextError));
       void refresh();
     } finally {
       setBusy(false);

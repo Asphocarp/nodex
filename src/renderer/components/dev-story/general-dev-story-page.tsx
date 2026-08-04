@@ -535,7 +535,7 @@ export function GeneralDevStoryPage({
                     <span className={pageStagePropertyTextSize}>threads</span>
                   </button>
                   <button type="button" className={cn("inline-flex items-center gap-2 px-2 py-1", pageStagePropertyEmptyValueInteractive)}>
-                    <span>Add estimate</span>
+                    <span>Empty</span>
                   </button>
                 </div>
                 <div className="text-sm/relaxed text-(--foreground-secondary)">

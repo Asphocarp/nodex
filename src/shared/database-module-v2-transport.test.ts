@@ -150,6 +150,26 @@ describe("Database Module v2 transport boundary", () => {
     });
   });
 
+  test("rejects a reserved Property with a non-canonical value type", () => {
+    const request = applyRequest();
+    expect(() => bindDatabaseApplyV2(
+      {
+        ...request,
+        operations: [{
+          kind: "put_property",
+          dataSourceId: "source-1",
+          propertyId: "status",
+          expectedDataSourceRevision: 2,
+          expectedPropertyRevision: 3,
+          name: "Workflow",
+          schema: { kind: "multi_select" },
+        }],
+      },
+      "project-1",
+      { actor: { kind: "test" } },
+    )).toThrow("reserved Property status must use select");
+  });
+
   test("rejects legacy inline config and the removed Property key", () => {
     const request = applyRequest();
     const property = request.operations[0];
@@ -316,6 +336,40 @@ describe("Database Module v2 transport boundary", () => {
       query: "blocked",
       window: { first: 25 },
     });
+
+    const unfiltered = bindDatabaseModuleReadV2({
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      projectId: "project-1",
+      read: {
+        target: { kind: "data_source", dataSourceId: "source-1" },
+        mode: "relation_candidate_window",
+        window: { first: 25 },
+      },
+    }, "project-1").read;
+    expect(unfiltered.mode).toBe("relation_candidate_window");
+    expect("query" in unfiltered).toBe(false);
+    expect(() => bindDatabaseModuleReadV2({
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      projectId: "project-1",
+      read: {
+        target: { kind: "data_source", dataSourceId: "source-1" },
+        mode: "relation_candidate_window",
+        query: "",
+      },
+    }, "project-1")).toThrow(
+      "databaseModuleReadV2.read.query must be a canonical non-empty string",
+    );
+    expect(() => bindDatabaseModuleReadV2({
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      projectId: "project-1",
+      read: {
+        target: { kind: "data_source", dataSourceId: "source-1" },
+        mode: "relation_candidate_window",
+        query: "€".repeat(171),
+      },
+    }, "project-1")).toThrow(
+      "databaseModuleReadV2.read.query must be at most 512 UTF-8 bytes",
+    );
   });
 
   test("matches Core Relation replacement and patch cardinality limits", () => {

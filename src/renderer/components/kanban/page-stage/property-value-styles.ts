@@ -8,12 +8,12 @@ export const pageStagePropertyInputChrome =
   "border-none bg-transparent focus:border-transparent";
 
 export const pageStagePropertyInputPlaceholder =
-  "placeholder:text-sm placeholder:leading-5 placeholder:font-normal placeholder:text-[var(--foreground-tertiary)]";
+  "placeholder:text-sm placeholder:leading-5 placeholder:font-normal placeholder:text-[var(--foreground-secondary)]";
 
 export const pageStagePropertyTextSize = "text-sm leading-5";
 
 export const pageStagePropertyEmptyValue =
-  "text-sm leading-5 font-normal text-[var(--foreground-tertiary)]";
+  "text-sm leading-5 font-normal text-[var(--foreground-secondary)]";
 
 export const pageStagePropertyEmptyValueInteractive =
-  "text-sm leading-5 font-normal text-[var(--foreground-tertiary)] transition-colors duration-100 hover:text-[var(--foreground-secondary)]";
+  "text-sm leading-5 font-normal text-[var(--foreground-secondary)]";

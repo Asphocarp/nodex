@@ -5,12 +5,15 @@ import {
   parseDataSourceId,
   parseDataSourceOptionId,
   parseDataSourcePropertyId,
+  isBuiltInDataSourcePropertyId,
   type DatabaseId,
   type DatabaseViewId,
   type DataSourceId,
   type DataSourceOptionId,
   type DataSourcePropertyId,
+  type BuiltInDataSourcePropertyId,
 } from "./database-identities";
+import { BUILT_IN_DATA_SOURCE_PROPERTY_DEFINITIONS } from "./data-source-built-ins";
 import {
   DATABASE_MODULE_V2_CONTRACT_VERSION,
   MAX_DATABASE_MODULE_V2_BULK_ENTRIES,
@@ -104,6 +107,16 @@ const readOptionalString = (
   maximumLength = MAX_ID_LENGTH,
 ): string | undefined =>
   value === undefined ? undefined : readString(value, label, maximumLength);
+
+const readUtf8String = (
+  value: unknown,
+  label: string,
+  maximumBytes: number,
+): string => {
+  const parsed = readString(value, label, maximumBytes);
+  if (new TextEncoder().encode(parsed).byteLength <= maximumBytes) return parsed;
+  throw new TypeError(`${label} must be at most ${maximumBytes} UTF-8 bytes`);
+};
 
 const readRevision = (value: unknown, label: string): number => {
   if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) {
@@ -236,26 +249,15 @@ const readViewKind = (value: unknown, label: string): DatabaseViewKind => {
   throw new TypeError(`${label} is unsupported`);
 };
 
-const BUILT_IN_PROPERTY_VALUE_TYPES: Readonly<
-  Partial<Record<string, DatabasePropertyValueType>>
-> = {
-  status: "select",
-  priority: "select",
-  estimate: "select",
-  tags: "multi_select",
-  due_date: "date",
-  scheduled_start: "datetime",
-  scheduled_end: "datetime",
-  assignee: "person",
-};
-
 const validateBuiltInPropertyValueType = (
   propertyId: DataSourcePropertyId,
   valueType: DatabasePropertyValueType,
   label: string,
 ): void => {
-  const expected = BUILT_IN_PROPERTY_VALUE_TYPES[propertyId];
-  if (expected === undefined || expected === valueType) return;
+  if (!isBuiltInDataSourcePropertyId(propertyId)) return;
+  const builtInPropertyId = propertyId as BuiltInDataSourcePropertyId;
+  const expected = BUILT_IN_DATA_SOURCE_PROPERTY_DEFINITIONS[builtInPropertyId].valueType;
+  if (expected === valueType) return;
   throw new TypeError(
     `${label} reserved Property ${propertyId} must use ${expected}`,
   );
@@ -929,7 +931,7 @@ export const bindDatabaseModuleReadV2 = (
     );
     const query = read.query === undefined
       ? undefined
-      : readString(read.query, "databaseModuleReadV2.read.query", 512);
+      : readUtf8String(read.query, "databaseModuleReadV2.read.query", 512);
     const window = parseReadWindow(read.window, "Relation candidate");
     return {
       version: DATABASE_MODULE_V2_CONTRACT_VERSION,

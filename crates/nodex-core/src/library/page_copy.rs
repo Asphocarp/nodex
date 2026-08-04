@@ -740,21 +740,18 @@ pub(crate) fn clone_page_for_occurrence(
             ))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    let mut required = BTreeSet::new();
+    let mut required_schedule = BTreeSet::new();
     for (property_id, value_type, value_json) in database_values {
         let next_value = match property_id.as_str() {
-            "status" => {
-                required.insert("status");
-                serde_json::to_string(input.status)
-                    .map_err(|_| internal("Occurrence status JSON"))?
-            }
+            "status" => serde_json::to_string(input.status)
+                .map_err(|_| internal("Occurrence status JSON"))?,
             "scheduled_start" => {
-                required.insert("scheduled_start");
+                required_schedule.insert("scheduled_start");
                 serde_json::to_string(input.scheduled_start)
                     .map_err(|_| internal("Occurrence start JSON"))?
             }
             "scheduled_end" => {
-                required.insert("scheduled_end");
+                required_schedule.insert("scheduled_end");
                 serde_json::to_string(input.scheduled_end)
                     .map_err(|_| internal("Occurrence end JSON"))?
             }
@@ -785,7 +782,7 @@ pub(crate) fn clone_page_for_occurrence(
          WHERE edge.source_data_source_id = ?3 AND edge.source_membership_id = ?4",
         params![membership_id, input.now, source.8, source.7],
     )?;
-    if required.len() != 3 {
+    if required_schedule.len() != 2 {
         return Err(corrupt(
             "Occurrence source Page is missing required schedule properties",
         ));

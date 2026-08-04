@@ -29,7 +29,9 @@ import type { LibraryPageDetail, PageDetail } from "../../shared/page-detail";
 import { testPropertySemantics } from "../../shared/testing/database-property-record";
 import {
   commitLibraryPageDetailMetadataPatch,
+  commitLibraryPageDetailPropertyEdit,
   commitPageDetailMetadataPatch,
+  commitPageDetailPropertyEdit,
   type LibraryPageDetailMetadataRuntimeDependencies,
   type PageDetailMetadataRuntimeDependencies,
 } from "./page-detail-metadata-runtime";
@@ -40,6 +42,7 @@ const dataSourceId = parseDataSourceId("019f714b-0000-7000-8000-000000000022");
 const viewId = parseDatabaseViewId("019f714b-0000-7000-8000-000000000023");
 const priorityPropertyId = parseDataSourcePropertyId("priority");
 const tagsPropertyId = parseDataSourcePropertyId("tags");
+const confidencePropertyId = parseDataSourcePropertyId("p_C0nf1d3n");
 const uiOptionId = "o_AAAAAAAA";
 const backendOptionId = "o_BBBBBBBB";
 
@@ -77,6 +80,7 @@ const detail = (member = true): PageDetail => {
     property("scheduled_start", "datetime"),
     property("scheduled_end", "datetime"),
     property("assignee", "person"),
+    property("p_C0nf1d3n", "number"),
   ];
   return {
     version: 3,
@@ -161,6 +165,12 @@ const detail = (member = true): PageDetail => {
               valueType: "multi_select",
               value: [uiOptionId],
               revision: 4,
+            },
+            p_C0nf1d3n: {
+              propertyId: confidencePropertyId,
+              valueType: "number",
+              value: 0.5,
+              revision: 2,
             },
           },
         }
@@ -335,7 +345,6 @@ describe("Page Detail metadata runtime", () => {
     expect(databaseRequests).toHaveLength(1);
     expect(databaseRequests[0]).toMatchObject({
       operationId: "library-set-priority",
-      clientSessionId: "library-window",
       operations: [{
         kind: "edit_property_values",
         edits: [{
@@ -352,6 +361,7 @@ describe("Page Detail metadata runtime", () => {
     });
     expect("projectId" in databaseRequests[0]!).toBe(false);
     expect("actor" in databaseRequests[0]!).toBe(false);
+    expect("clientSessionId" in databaseRequests[0]!).toBe(false);
     expect(refreshes).toEqual(["page-1"]);
   });
 
@@ -377,6 +387,7 @@ describe("Page Detail metadata runtime", () => {
       projectId: "project-1",
       pageId: "page-1",
       operationId: "set-priority",
+      clientSessionId: "page-stage-metadata",
       patch: { priority: "p1-high" },
       dependencies: dependencies({ requests, databaseRequests, refreshes }),
     });
@@ -403,7 +414,130 @@ describe("Page Detail metadata runtime", () => {
         }],
       }],
     });
+    expect("clientSessionId" in databaseRequests[0]!).toBe(false);
     expect(refreshes).toEqual(["page-1"]);
+  });
+
+  test("keeps the value revision seen by the editor instead of overwriting newer authority", async () => {
+    const databaseRequests: DatabaseApplyV2[] = [];
+    const result = await commitPageDetailPropertyEdit({
+      projectId: "project-1",
+      pageId: "page-1",
+      propertyId: "p_C0nf1d3n",
+      operationId: "set-confidence",
+      clientSessionId: "page-stage-1",
+      edit: { kind: "replace", value: 0.82, expectedValueRevision: 1 },
+      dependencies: dependencies({ databaseRequests }),
+    });
+
+    expect(result).toEqual({ status: "updated", didMutate: true });
+    expect(databaseRequests[0]).toMatchObject({
+      operationId: "set-confidence",
+      actor: { kind: "page_stage" },
+      operations: [{
+        kind: "edit_property_values",
+        edits: [{
+          pageId: "page-1",
+          dataSourceId,
+          propertyId: "p_C0nf1d3n",
+          edit: {
+            kind: "replace",
+            expectedValueRevision: 1,
+            value: { kind: "number", value: 0.82 },
+          },
+        }],
+      }],
+    });
+    expect("clientSessionId" in databaseRequests[0]!).toBe(false);
+  });
+
+  test("keeps renderer session identity out of direct Library Database applies", async () => {
+    const requests: LibraryBlockPropertyMutationRequestV2[] = [];
+    const databaseRequests: LibraryDatabaseApplyV2[] = [];
+    const result = await commitLibraryPageDetailPropertyEdit({
+      pageId: "page-1",
+      propertyId: "p_C0nf1d3n",
+      operationId: "library-set-confidence",
+      clientSessionId: "library-page-stage",
+      edit: { kind: "replace", value: 0.82, expectedValueRevision: 1 },
+      dependencies: libraryDependencies({ requests, databaseRequests }),
+    });
+
+    expect(result).toEqual({ status: "updated", didMutate: true });
+    expect(databaseRequests).toHaveLength(1);
+    expect("clientSessionId" in databaseRequests[0]!).toBe(false);
+  });
+
+  test("creates and selects a custom option through one ordered Database apply", async () => {
+    const databaseRequests: DatabaseApplyV2[] = [];
+    const result = await commitPageDetailPropertyEdit({
+      projectId: "project-1",
+      pageId: "page-1",
+      propertyId: "tags",
+      operationId: "create-tag",
+      edit: {
+        kind: "create_option_and_select",
+        optionId: "o_CCCCCCCC",
+        name: "research",
+        color: "blue",
+        expectedPropertyRevision: 1,
+        expectedValueRevision: 6,
+      },
+      dependencies: dependencies({ databaseRequests }),
+    });
+
+    expect(result).toEqual({ status: "updated", didMutate: true });
+    expect(databaseRequests[0]?.operations).toMatchObject([
+      {
+        kind: "put_option",
+        propertyId: "tags",
+        optionId: "o_CCCCCCCC",
+        expectedPropertyRevision: 1,
+      },
+      {
+        kind: "edit_property_values",
+        edits: [{
+          edit: {
+            kind: "patch_set",
+            delta: { addOptionIds: ["o_CCCCCCCC"], removeOptionIds: [] },
+          },
+        }],
+      },
+    ]);
+  });
+
+  test("compiles a multi-select interaction as an explicit delta against fresh authority", async () => {
+    const databaseRequests: DatabaseApplyV2[] = [];
+    const result = await commitPageDetailPropertyEdit({
+      projectId: "project-1",
+      pageId: "page-1",
+      propertyId: "tags",
+      operationId: "add-tag",
+      edit: {
+        kind: "patch_multi_select",
+        addOptionIds: [backendOptionId],
+        removeOptionIds: [],
+      },
+      dependencies: dependencies({ databaseRequests }),
+    });
+
+    expect(result).toEqual({ status: "updated", didMutate: true });
+    expect(databaseRequests[0]?.operations).toEqual([{
+      kind: "edit_property_values",
+      edits: [{
+        pageId: "page-1",
+        dataSourceId,
+        propertyId: "tags",
+        edit: {
+          kind: "patch_set",
+          delta: {
+            kind: "multi_select",
+            addOptionIds: [backendOptionId],
+            removeOptionIds: [],
+          },
+        },
+      }],
+    }]);
   });
 
   test("writes Page intrinsic fields without inventing Data Source coordinates", async () => {

@@ -163,7 +163,6 @@ describe("Database Page drag runtime", () => {
 
     await expect(commitDatabasePageDrag({
       projectId: "project-1",
-      clientSessionId: "window-1",
       operationId: "drag-1",
       snapshot: snapshot(),
       move: {
@@ -175,10 +174,7 @@ describe("Database Page drag runtime", () => {
     })).resolves.toBe(true);
     expect(requests).toHaveLength(2);
     expect(requests[0]).toBe(requests[1]);
-    expect(requests[0]?.actor).toEqual({
-      kind: "renderer_page_drag",
-      clientSessionId: "window-1",
-    });
+    expect(requests[0]?.actor).toEqual({ kind: "renderer_page_drag" });
     expect(requests[0]?.operations.map((operation) => operation.kind)).toEqual([
       "edit_property_values",
       "position_page",

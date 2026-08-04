@@ -54,10 +54,11 @@ export const buildPageDetailStoryResult = (
     key: string,
     valueType: DatabasePropertyValueType,
     config: Readonly<Record<string, DatabaseJsonValue>> = {},
+    name: string = key,
   ): DataSourcePropertyRecordV2 => ({
     propertyId: parseDataSourcePropertyId(key),
     dataSourceId,
-    name: key,
+    name,
     ...testPropertySemantics(
       valueType,
       Array.isArray(config.options) ? config.options.length : 0,
@@ -71,14 +72,38 @@ export const buildPageDetailStoryResult = (
     updatedAt: page.created.toISOString(),
   });
   const properties = [
-    property("status", "select", { options: [] }),
-    property("priority", "select", { options: [] }),
-    property("estimate", "select", { options: [] }),
-    property("tags", "multi_select", { options: [] }),
+    property("status", "select", { options: [
+      { id: "triage", name: "Triage" },
+      { id: "plan", name: "Plan" },
+      { id: "build", name: "Build" },
+      { id: "review", name: "Review" },
+      { id: "ship", name: "Ship" },
+    ] }),
+    property("priority", "select", { options: [
+      { id: "p0-critical", name: "Critical" },
+      { id: "p1-high", name: "High" },
+      { id: "p2-medium", name: "Medium" },
+      { id: "p3-low", name: "Low" },
+      { id: "p4-later", name: "Later" },
+    ] }),
+    property("estimate", "select", { options: [
+      { id: "xs", name: "XS" },
+      { id: "s", name: "S" },
+      { id: "m", name: "M" },
+      { id: "l", name: "L" },
+      { id: "xl", name: "XL" },
+    ] }),
+    property("tags", "multi_select", { options: page.tags.map((tag) => ({
+      id: tag,
+      name: tag,
+    })) }),
     property("due_date", "date"),
     property("scheduled_start", "datetime"),
     property("scheduled_end", "datetime"),
     property("assignee", "person"),
+    property("p_C0nf1d3n", "number", {}, "Confidence"),
+    property("p_Appr0v3d", "checkbox", {}, "Approved"),
+    property("p_N0t3sxxx", "text", {}, "Notes"),
   ];
   const values: Record<string, DataSourcePageValueV2> = {};
   const putValue = (key: string, value: DatabaseJsonValue): void => {
@@ -101,6 +126,9 @@ export const buildPageDetailStoryResult = (
   putValue("scheduled_start", page.scheduledStart?.toISOString() ?? null);
   putValue("scheduled_end", page.scheduledEnd?.toISOString() ?? null);
   putValue("assignee", page.assignee ?? null);
+  putValue("p_C0nf1d3n", 0.82);
+  putValue("p_Appr0v3d", true);
+  putValue("p_N0t3sxxx", "Ready for design review");
   const timestamp = page.created.toISOString();
   return {
     ok: true,

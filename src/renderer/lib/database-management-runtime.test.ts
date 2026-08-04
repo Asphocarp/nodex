@@ -174,7 +174,6 @@ describe("canonical Database management runtime", () => {
     const authority = await commitDatabaseManagementOperations({
       projectId,
       operationId: "operation-1",
-      clientSessionId: "window-1",
       buildOperations: (current) => [{
         kind: "delete_property",
         dataSourceId: current.selectedDataSource.dataSourceId,
@@ -194,10 +193,7 @@ describe("canonical Database management runtime", () => {
 
     expect(requests).toHaveLength(2);
     expect(requests[0]).toBe(requests[1]);
-    expect(requests[0]?.actor).toEqual({
-      kind: "renderer_database_management",
-      clientSessionId: "window-1",
-    });
+    expect(requests[0]?.actor).toEqual({ kind: "renderer_database_management" });
     expect(authority.snapshot.changeLogSeq).toBe(5);
   });
 

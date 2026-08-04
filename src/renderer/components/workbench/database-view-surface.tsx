@@ -1,5 +1,5 @@
 import { CalendarIcon } from "@/components/shared/icons";
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, List } from "@/components/shared/icons/generic-icons";
 import {
   stableStringifyDatabaseJson,
@@ -19,6 +19,7 @@ import {
   buildDatabaseViewPropertyValueOperations,
   canMoveDatabaseViewPage,
   commitDatabaseViewOperations,
+  DatabaseViewMutationError,
 } from "@/lib/database-view-row-mutations";
 import type {
   DatabaseViewRenderColumn,
@@ -26,20 +27,27 @@ import type {
   DatabaseViewRenderRow,
 } from "@/lib/database-view-render-model";
 import { readDatabasePropertyOptions } from "@/lib/database-view-authoring";
-import { readPropertyOptionRegistry } from "@/lib/database-property-options-runtime";
-import { useMutationAuditSessionId } from "@/lib/mutation-audit-session";
 import { normalizeSearchText } from "@/lib/search-text";
+import { dataSourceCalendarDateKey } from "@/lib/data-source-property-date";
 import { cn } from "@/lib/utils";
 import { parseDataSourcePropertyId } from "../../../shared/database-identities";
-import { DATABASE_MODULE_V2_CONTRACT_VERSION } from "../../../shared/database-module-v2";
 import {
-  readDatabaseModule,
-  readLibraryDatabaseModule,
-} from "@/lib/api";
+  buildDataSourceCreateOptionAndSelectOperations,
+  buildDataSourceMultiSelectPatchOperations,
+} from "@/lib/data-source-property-value-operations";
 import {
-  RelationPropertyEditor,
   readRelationValuePreview,
-} from "./relation-property-editor";
+  type RelationTargetWindow,
+} from "@/lib/data-source-relation-value";
+import { DataSourcePropertyValueEditor } from "../database/data-source-property-value-editor";
+import { PropertyEditorFeedback } from "../database/property-editor-feedback";
+import type { DataSourcePropertyOptionRegistryState } from "../database/data-source-property-editor-binding";
+import { usePropertyOptionRegistries } from "../database/use-property-option-registries";
+import {
+  readDataSourceRelationTargets,
+  readDataSourceRelationTargetDescriptor,
+  searchDataSourceRelationCandidates,
+} from "@/lib/data-source-relation-runtime";
 
 interface DatabaseViewSurfaceProps {
   readonly model: DatabaseViewRenderModel;
@@ -54,11 +62,6 @@ interface DatabaseViewSurfaceProps {
   readonly onCommitted?: () => void | Promise<void>;
   readonly commitOperations?: typeof commitDatabaseViewOperations;
 }
-
-const valueInputClass = cn(
-  "h-6 min-w-0 rounded-md border border-transparent bg-token-foreground/5 px-1.5 text-[11px]",
-  "text-token-text-secondary outline-none hover:bg-token-foreground/8 focus:border-token-focus-border",
-);
 
 const rowByPageId = (
   model: DatabaseViewRenderModel,
@@ -83,181 +86,6 @@ const searchablePropertyValues = (
     .join(" ");
 };
 
-const scalarString = (value: DatabaseJsonValue | undefined): string =>
-  typeof value === "string" ? value : "";
-
-const datetimeLocalValue = (value: DatabaseJsonValue | undefined): string => {
-  if (typeof value !== "string") return "";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return "";
-  const offset = parsed.getTimezoneOffset() * 60_000;
-  return new Date(parsed.getTime() - offset).toISOString().slice(0, 16);
-};
-
-function DatabasePropertyValueEditor({
-  property,
-  value,
-  revision,
-  disabled,
-  onChange,
-  relationCandidates,
-  options,
-  onPatchRelation,
-  onLoadRelationTargets,
-  onSearchRelationCandidates,
-}: {
-  readonly property: DataSourcePropertyRecordV2;
-  readonly value: DatabaseJsonValue | undefined;
-  readonly revision: number;
-  readonly disabled: boolean;
-  readonly onChange: (value: DatabaseJsonValue) => void;
-  readonly relationCandidates: readonly { readonly pageId: string; readonly title: string }[];
-  readonly options: readonly DatabasePropertyOption[];
-  readonly onPatchRelation: (delta: {
-    readonly addPageIds: readonly string[];
-    readonly removePageIds: readonly string[];
-  }) => void;
-  readonly onLoadRelationTargets: (after: string | null) => Promise<{
-    readonly targets: readonly import("./relation-property-editor").RelationTargetPreview[];
-    readonly nextCursor: string | null;
-  }>;
-  readonly onSearchRelationCandidates: (query: string) => Promise<readonly {
-    readonly pageId: string;
-    readonly title: string;
-  }[]>;
-}) {
-  const label = `${property.name} value`;
-  if (property.valueType === "relation") {
-    return (
-      <RelationPropertyEditor
-        label={property.name}
-        value={value}
-        candidates={relationCandidates}
-        disabled={disabled}
-        targetMatchesCurrentSource={
-          property.schema?.kind === "relation"
-          && property.schema.targetDataSourceId === property.dataSourceId
-        }
-        onPatch={onPatchRelation}
-        onClear={() => onChange([])}
-        onLoadMore={onLoadRelationTargets}
-        onSearchCandidates={onSearchRelationCandidates}
-      />
-    );
-  }
-  if (property.valueType === "checkbox") {
-    return (
-      <label className="inline-flex h-6 items-center gap-1.5 text-[11px] text-token-description-foreground">
-        <input
-          type="checkbox"
-          aria-label={label}
-          checked={value === true}
-          disabled={disabled}
-          onChange={(event) => onChange(event.target.checked)}
-          className="size-3.5 accent-(--accent-blue)"
-        />
-        {property.name}
-      </label>
-    );
-  }
-  if (property.valueType === "select") {
-    return (
-      <label className="inline-flex min-w-0 items-center gap-1 text-[11px] text-token-description-foreground">
-        <span className="shrink-0">{property.name}</span>
-        <select
-          aria-label={label}
-          value={scalarString(value)}
-          disabled={disabled}
-          onChange={(event) => onChange(event.target.value || null)}
-          className={cn(valueInputClass, "max-w-32")}
-        >
-          <option value="">None</option>
-          {options.map((option) => (
-            <option key={option.id} value={option.id}>{option.name}</option>
-          ))}
-        </select>
-      </label>
-    );
-  }
-  if (property.valueType === "multi_select") {
-    const selected = new Set(
-      Array.isArray(value)
-        ? value.filter((entry): entry is string => typeof entry === "string")
-        : [],
-    );
-    return (
-      <fieldset className="flex min-w-0 flex-wrap items-center gap-1" aria-label={label}>
-        <legend className="sr-only">{property.name}</legend>
-        <span className="text-[11px] text-token-description-foreground">{property.name}</span>
-        {options.map((option) => {
-          const active = selected.has(option.id);
-          return (
-            <button
-              key={option.id}
-              type="button"
-              aria-pressed={active}
-              disabled={disabled}
-              onClick={() => {
-                const next = new Set(selected);
-                if (active) next.delete(option.id);
-                else next.add(option.id);
-                onChange([...next].sort());
-              }}
-              className={cn(
-                "h-6 rounded-md px-1.5 text-[11px]",
-                active
-                  ? "bg-(--accent-blue)/12 text-(--accent-blue)"
-                  : "bg-token-foreground/5 text-token-description-foreground hover:bg-token-foreground/8",
-              )}
-            >
-              {option.name}
-            </button>
-          );
-        })}
-      </fieldset>
-    );
-  }
-
-  const inputType = property.valueType === "number"
-    ? "number"
-    : property.valueType === "date"
-      ? "date"
-      : property.valueType === "datetime"
-        ? "datetime-local"
-        : "text";
-  const initialValue = property.valueType === "datetime"
-    ? datetimeLocalValue(value)
-    : property.valueType === "number"
-      ? typeof value === "number" ? String(value) : ""
-      : scalarString(value);
-  return (
-    <label className="inline-flex min-w-0 items-center gap-1 text-[11px] text-token-description-foreground">
-      <span className="shrink-0">{property.name}</span>
-      <input
-        key={`${property.propertyId}:${revision}:${initialValue}`}
-        type={inputType}
-        aria-label={label}
-        defaultValue={initialValue}
-        disabled={disabled}
-        onBlur={(event) => {
-          if (event.currentTarget.value === initialValue) return;
-          if (property.valueType === "number") {
-            onChange(event.currentTarget.value === "" ? null : Number(event.currentTarget.value));
-            return;
-          }
-          if (property.valueType === "datetime") {
-            const parsed = new Date(event.currentTarget.value);
-            onChange(Number.isNaN(parsed.getTime()) ? null : parsed.toISOString());
-            return;
-          }
-          onChange(event.currentTarget.value || null);
-        }}
-        className={cn(valueInputClass, property.valueType === "text" || property.valueType === "person" ? "w-32" : "w-28")}
-      />
-    </label>
-  );
-}
-
 const displayedProperties = (
   model: DatabaseViewRenderModel,
 ): readonly DataSourcePropertyRecordV2[] => {
@@ -269,25 +97,61 @@ const displayedProperties = (
   );
 };
 
+export const databaseViewMutationErrorMessage = (
+  error: unknown,
+  pageMutation: boolean,
+): string => {
+  if (
+    error instanceof DatabaseViewMutationError
+    && error.commandError.code === "revision_conflict"
+  ) {
+    return pageMutation
+      ? "Page position changed elsewhere. Review and try again."
+      : "Value changed elsewhere. Review and try again.";
+  }
+  if (
+    error instanceof DatabaseViewMutationError
+    && error.commandError.code === "resource_not_found"
+  ) {
+    return pageMutation
+      ? "This page is no longer available."
+      : "This property is no longer available.";
+  }
+  return pageMutation
+    ? "Couldn’t move this page. Try again."
+    : "Couldn’t save this property. Try again.";
+};
+
 function DurablePageSurface({
   model,
   row,
   compact,
-  busy,
+  pendingMutationKeys,
+  mutationErrors,
   canMoveUp,
   canMoveDown,
   onOpenPage,
   onSetValue,
+  onPatchOptions,
   onPatchRelation,
+  onCreateOption,
   onLoadRelationTargets,
   onSearchRelationCandidates,
+  onLoadRelationTargetDescriptor,
+  onRelationValueStale,
+  onRequestOptions,
+  onRequestMoreOptions,
   optionRegistries,
+  optionRegistryStates,
+  optionRegistryHasMore,
+  optionRegistryLoadingMore,
   onMove,
 }: {
   readonly model: DatabaseViewRenderModel;
   readonly row: DatabaseViewRenderRow;
   readonly compact: boolean;
-  readonly busy: boolean;
+  readonly pendingMutationKeys: ReadonlyMap<string, number>;
+  readonly mutationErrors: ReadonlyMap<string, string>;
   readonly canMoveUp: boolean;
   readonly canMoveDown: boolean;
   readonly onOpenPage: DatabaseViewSurfaceProps["onOpenPage"];
@@ -301,25 +165,49 @@ function DurablePageSurface({
     propertyId: string,
     delta: { readonly addPageIds: readonly string[]; readonly removePageIds: readonly string[] },
   ) => void;
+  readonly onPatchOptions: (
+    pageId: string,
+    property: DataSourcePropertyRecordV2,
+    delta: {
+      readonly addOptionIds: readonly string[];
+      readonly removeOptionIds: readonly string[];
+    },
+  ) => void;
+  readonly onCreateOption: (
+    pageId: string,
+    property: DataSourcePropertyRecordV2,
+    option: { readonly optionId: string; readonly name: string; readonly color?: string },
+  ) => Promise<void>;
   readonly onLoadRelationTargets: (
     pageId: string,
     propertyId: string,
     after: string | null,
-  ) => Promise<{
-    readonly targets: readonly import("./relation-property-editor").RelationTargetPreview[];
-    readonly nextCursor: string | null;
-  }>;
+  ) => Promise<RelationTargetWindow>;
   readonly onSearchRelationCandidates: (
     property: DataSourcePropertyRecordV2,
     query: string,
-  ) => Promise<readonly { readonly pageId: string; readonly title: string }[]>;
+    after?: string | null,
+  ) => ReturnType<typeof searchDataSourceRelationCandidates>;
+  readonly onLoadRelationTargetDescriptor: (
+    property: DataSourcePropertyRecordV2,
+  ) => ReturnType<typeof readDataSourceRelationTargetDescriptor>;
+  readonly onRelationValueStale: () => void;
+  readonly onRequestOptions: (property: DataSourcePropertyRecordV2) => void;
+  readonly onRequestMoreOptions: (property: DataSourcePropertyRecordV2) => void;
   readonly optionRegistries: Readonly<Record<string, readonly DatabasePropertyOption[]>>;
+  readonly optionRegistryStates: Readonly<Record<
+    string,
+    DataSourcePropertyOptionRegistryState
+  >>;
+  readonly optionRegistryHasMore: Readonly<Record<string, boolean>>;
+  readonly optionRegistryLoadingMore: Readonly<Record<string, boolean>>;
   readonly onMove: (pageId: string, direction: "up" | "down") => void;
 }) {
   const authority = rowByPageId(model, row.pageId);
   if (!authority) return null;
   const properties = displayedProperties(model);
   const showTitle = model.query.view.config.display.showTitle;
+  const movePending = pendingMutationKeys.has(`page:${row.pageId}`);
   return (
     <article className={cn(
       "group/card min-w-0 rounded-lg bg-token-foreground/5",
@@ -343,14 +231,14 @@ function DurablePageSurface({
               icon={ArrowUp}
               size="xs"
               ariaLabel={`Move ${row.title} up`}
-              disabled={busy || !canMoveUp}
+              disabled={movePending || !canMoveUp}
               onClick={() => onMove(row.pageId, "up")}
             />
             <NodexIconButton
               icon={ArrowDown}
               size="xs"
               ariaLabel={`Move ${row.title} down`}
-              disabled={busy || !canMoveDown}
+              disabled={movePending || !canMoveDown}
               onClick={() => onMove(row.pageId, "down")}
             />
           </div>
@@ -360,31 +248,63 @@ function DurablePageSurface({
         <div className={cn("mt-1.5 flex min-w-0 flex-wrap gap-x-2 gap-y-1", compact && "flex-col items-start")}>
           {properties.map((property) => {
             const current = authority.values[property.propertyId];
+            const propertyError = mutationErrors.get(
+              `value:${row.pageId}:${property.propertyId}`,
+            );
             return (
-              <DatabasePropertyValueEditor
-                key={property.propertyId}
-                property={property}
-                value={current?.value}
-                revision={current?.revision ?? 0}
-                disabled={busy}
-                options={optionRegistries[property.propertyId]
-                  ?? readDatabasePropertyOptions(property)}
-                relationCandidates={model.query.rows.map((candidate) => ({
-                  pageId: candidate.page.pageId,
-                  title: candidate.page.title,
-                }))}
-                onChange={(value) =>
-                  onSetValue(row.pageId, property.propertyId, value)}
-                onPatchRelation={(delta) =>
-                  onPatchRelation(row.pageId, property.propertyId, delta)}
-                onLoadRelationTargets={(after) =>
-                  onLoadRelationTargets(row.pageId, property.propertyId, after)}
-                onSearchRelationCandidates={(query) =>
-                  onSearchRelationCandidates(property, query)}
-              />
+              <div key={property.propertyId} className="min-w-0">
+                <DataSourcePropertyValueEditor
+                  property={property}
+                  value={current?.value}
+                  revision={current?.revision ?? 0}
+                  disabled={false}
+                  pending={
+                    pendingMutationKeys.has(`value:${row.pageId}:${property.propertyId}`)
+                    || pendingMutationKeys.has(`property:${property.propertyId}`)
+                  }
+                  options={optionRegistries[property.propertyId]
+                    ?? readDatabasePropertyOptions(property)}
+                  optionRegistryState={optionRegistryStates[property.propertyId] ?? "ready"}
+                  optionRegistryHasMore={optionRegistryHasMore[property.propertyId] ?? false}
+                  optionRegistryLoadingMore={
+                    optionRegistryLoadingMore[property.propertyId] ?? false
+                  }
+                  onRequestOptions={() => onRequestOptions(property)}
+                  onRequestMoreOptions={() => onRequestMoreOptions(property)}
+                  relationCandidates={model.query.rows.map((candidate) => ({
+                    pageId: candidate.page.pageId,
+                    title: candidate.page.title,
+                  }))}
+                  onChange={(value) =>
+                    onSetValue(row.pageId, property.propertyId, value)}
+                  onCreateOption={(option) =>
+                    onCreateOption(row.pageId, property, option)}
+                  onPatchOptions={(delta) =>
+                    onPatchOptions(row.pageId, property, delta)}
+                  onPatchRelation={(delta) =>
+                    onPatchRelation(row.pageId, property.propertyId, delta)}
+                  onLoadRelationTargets={(after) =>
+                    onLoadRelationTargets(row.pageId, property.propertyId, after)}
+                  onSearchRelationCandidates={(query, after) =>
+                    onSearchRelationCandidates(property, query, after)}
+                  onLoadRelationTargetDescriptor={() =>
+                    onLoadRelationTargetDescriptor(property)}
+                  onOpenRelationPage={(pageId, title) => onOpenPage(pageId, title)}
+                  onRelationValueStale={onRelationValueStale}
+                />
+                {propertyError ? (
+                  <PropertyEditorFeedback message={propertyError} />
+                ) : null}
+              </div>
             );
           })}
         </div>
+      ) : null}
+      {mutationErrors.get(`page:${row.pageId}`) ? (
+        <PropertyEditorFeedback
+          message={mutationErrors.get(`page:${row.pageId}`)!}
+          className="mt-1"
+        />
       ) : null}
     </article>
   );
@@ -412,8 +332,10 @@ const calendarDateKey = (
   if (!property) return null;
   const value = rowByPageId(model, row.pageId)
     ?.values[property.propertyId]?.value;
-  if (typeof value !== "string" || value.length < 10) return null;
-  return value.slice(0, 10);
+  return dataSourceCalendarDateKey(
+    value,
+    property.valueType === "datetime" ? "datetime" : "date",
+  );
 };
 
 const calendarSections = (
@@ -451,42 +373,25 @@ export function DatabaseViewSurface({
   onCommitted,
   commitOperations = commitDatabaseViewOperations,
 }: DatabaseViewSurfaceProps) {
-  const clientSessionId = useMutationAuditSessionId();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [optionRegistries, setOptionRegistries] = useState<Readonly<Record<
+  const [pendingMutationKeys, setPendingMutationKeys] = useState<ReadonlyMap<
     string,
-    readonly DatabasePropertyOption[]
-  >>>({});
-  useEffect(() => {
-    const properties = model.query.properties.filter((property) =>
-      property.lifecycle === "active"
-      && (property.valueType === "select" || property.valueType === "multi_select")
-      && property.optionCount !== undefined
-      && readDatabasePropertyOptions(property).length < property.optionCount);
-    let cancelled = false;
-    if (properties.length === 0) {
-      setOptionRegistries({});
-      return () => {
-        cancelled = true;
-      };
-    }
-    void Promise.all(properties.map(async (property) => [
-      property.propertyId,
-      await readPropertyOptionRegistry(model.accessContext, property),
-    ] as const)).then((entries) => {
-      if (!cancelled) setOptionRegistries(Object.fromEntries(entries));
-    }).catch((nextError: unknown) => {
-      if (!cancelled) {
-        setError(nextError instanceof Error
-          ? nextError.message
-          : "Property options could not be loaded");
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [model.accessContext, model.changeLogSeq, model.query.properties]);
+    number
+  >>(() => new Map());
+  const [mutationErrors, setMutationErrors] = useState<ReadonlyMap<string, string>>(
+    () => new Map(),
+  );
+  const propertyOptionRegistries = usePropertyOptionRegistries({
+    accessContext: model.accessContext,
+    properties: model.query.properties,
+  });
+  const {
+    options: optionRegistries,
+    states: optionRegistryStates,
+    hasMore: optionRegistryHasMore,
+    loadingMore: optionRegistryLoadingMore,
+    requestOptions,
+    requestMoreOptions,
+  } = propertyOptionRegistries;
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const searchTokens = useMemo(
     () => tokenizeSearchQuery(deferredSearchQuery),
@@ -536,22 +441,49 @@ export function DatabaseViewSurface({
 
   const commit = async (
     operations: Parameters<typeof commitDatabaseViewOperations>[0]["operations"],
+    mutationKeys: readonly string[],
+    propagateError = false,
   ) => {
     if (operations.length === 0) return;
-    setBusy(true);
-    setError(null);
+    setPendingMutationKeys((current) => {
+      const next = new Map(current);
+      for (const key of mutationKeys) next.set(key, (next.get(key) ?? 0) + 1);
+      return next;
+    });
+    setMutationErrors((current) => {
+      const next = new Map(current);
+      for (const key of mutationKeys) next.delete(key);
+      return next;
+    });
     try {
       await commitOperations({
         model,
         operations,
-        clientSessionId,
       });
       await onCommitted?.();
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Database View mutation failed");
+      console.error("[database-view:mutation]", nextError);
+      const pageMutation = mutationKeys.some((key) => key.startsWith("page:"));
+      const message = databaseViewMutationErrorMessage(nextError, pageMutation);
+      if (!propagateError) {
+        setMutationErrors((current) => {
+          const next = new Map(current);
+          for (const key of mutationKeys) next.set(key, message);
+          return next;
+        });
+      }
       await onCommitted?.();
+      if (propagateError) throw nextError;
     } finally {
-      setBusy(false);
+      setPendingMutationKeys((current) => {
+        const next = new Map(current);
+        for (const key of mutationKeys) {
+          const count = next.get(key) ?? 0;
+          if (count <= 1) next.delete(key);
+          else next.set(key, count - 1);
+        }
+        return next;
+      });
     }
   };
 
@@ -559,106 +491,127 @@ export function DatabaseViewSurface({
     pageId: string,
     propertyId: string,
     value: DatabaseJsonValue,
-  ) => void commit(buildDatabaseViewPropertyValueOperations({
-    model,
-    pageId,
-    propertyId,
-    value,
-  }));
+  ) => void commit(
+    buildDatabaseViewPropertyValueOperations({ model, pageId, propertyId, value }),
+    [`value:${pageId}:${propertyId}`],
+  );
   const move = (pageId: string, direction: "up" | "down") =>
-    void commit(buildDatabaseViewMoveOperations({ model, pageId, direction }));
+    void commit(
+      buildDatabaseViewMoveOperations({ model, pageId, direction }),
+      [`page:${pageId}`],
+    );
   const patchRelation = (
     pageId: string,
     propertyId: string,
     delta: { readonly addPageIds: readonly string[]; readonly removePageIds: readonly string[] },
-  ) => void commit([{
-    kind: "edit_property_values",
-    edits: [{
+  ) => void commit(
+    [{
+      kind: "edit_property_values",
+      edits: [{
+        pageId,
+        dataSourceId: model.query.dataSource.dataSourceId,
+        propertyId: parseDataSourcePropertyId(propertyId),
+        edit: {
+          kind: "patch_set",
+          delta: { kind: "relation", ...delta },
+        },
+      }],
+    }],
+    [`value:${pageId}:${propertyId}`],
+  );
+  const patchOptions = (
+    pageId: string,
+    property: DataSourcePropertyRecordV2,
+    delta: {
+      readonly addOptionIds: readonly string[];
+      readonly removeOptionIds: readonly string[];
+    },
+  ) => void commit(
+    buildDataSourceMultiSelectPatchOperations({
       pageId,
       dataSourceId: model.query.dataSource.dataSourceId,
-      propertyId: parseDataSourcePropertyId(propertyId),
-      edit: {
-        kind: "patch_set",
-        delta: { kind: "relation", ...delta },
+      property,
+      ...delta,
+    }),
+    [`value:${pageId}:${property.propertyId}`],
+  );
+  const createOption = (
+    pageId: string,
+    property: DataSourcePropertyRecordV2,
+    option: { readonly optionId: string; readonly name: string; readonly color?: string },
+  ) => commit(
+    buildDataSourceCreateOptionAndSelectOperations({
+      pageId,
+      dataSourceId: model.query.dataSource.dataSourceId,
+      property,
+      current: rowByPageId(model, pageId)?.values[property.propertyId],
+      option: {
+        id: option.optionId,
+        name: option.name,
+        ...(option.color === undefined ? {} : { color: option.color }),
       },
-    }],
-  }]);
+    }),
+    [`property:${property.propertyId}`, `value:${pageId}:${property.propertyId}`],
+    true,
+  );
   const loadRelationTargets = async (
     pageId: string,
     propertyId: string,
     after: string | null,
   ) => {
-    const read = {
-      target: {
-        kind: "page_property" as const,
-        pageId,
-        dataSourceId: model.dataSourceId,
-        propertyId: parseDataSourcePropertyId(propertyId),
-      },
-      mode: "relation_target_window" as const,
-      window: { after, first: 100 },
-    };
-    const result = model.accessContext.kind === "project"
-      ? await readDatabaseModule(model.accessContext.projectId, {
-          version: DATABASE_MODULE_V2_CONTRACT_VERSION,
-          projectId: model.accessContext.projectId,
-          read,
-        })
-      : await readLibraryDatabaseModule({
-          version: DATABASE_MODULE_V2_CONTRACT_VERSION,
-          read,
-        });
-    if (!result.ok) throw new Error(result.error.message);
-    if (result.value.value.kind !== "relation_target_window") {
-      throw new Error("Database returned a non-Relation window");
-    }
-    return {
-      targets: result.value.value.value.targets,
-      nextCursor: result.value.value.value.nextCursor,
-    };
+    const property = model.query.properties.find(
+      (candidate) => candidate.propertyId === propertyId,
+    );
+    if (!property) throw new Error(`Property is unavailable: ${propertyId}`);
+    return await readDataSourceRelationTargets({
+      accessContext: model.accessContext,
+      pageId,
+      property,
+      after,
+    });
   };
   const searchRelationCandidates = async (
     property: DataSourcePropertyRecordV2,
     query: string,
+    after?: string | null,
   ) => {
-    if (property.schema?.kind !== "relation") return [];
-    const candidateRead = {
-      target: {
-        kind: "data_source" as const,
-        dataSourceId: property.schema.targetDataSourceId,
-      },
-      mode: "relation_candidate_window" as const,
+    return await searchDataSourceRelationCandidates({
+      accessContext: model.accessContext,
+      property,
       query,
-      window: { first: 100 },
-    };
-    const candidateResult = model.accessContext.kind === "project"
-      ? await readDatabaseModule(model.accessContext.projectId, {
-          version: DATABASE_MODULE_V2_CONTRACT_VERSION,
-          projectId: model.accessContext.projectId,
-          read: candidateRead,
-        })
-      : await readLibraryDatabaseModule({
-          version: DATABASE_MODULE_V2_CONTRACT_VERSION,
-          read: candidateRead,
-        });
-    if (!candidateResult.ok) throw new Error(candidateResult.error.message);
-    if (candidateResult.value.value.kind !== "relation_candidate_window") {
-      throw new Error("Database returned a non-candidate Relation window");
-    }
-    return candidateResult.value.value.value.candidates;
+      after,
+    });
   };
+  const loadRelationTargetDescriptor = async (
+    property: DataSourcePropertyRecordV2,
+  ) => await readDataSourceRelationTargetDescriptor({
+    accessContext: model.accessContext,
+    property,
+  });
   const pageProps = (row: DatabaseViewRenderRow) => ({
       model,
       row,
-      busy,
+      pendingMutationKeys,
+      mutationErrors,
       canMoveUp: canMoveDatabaseViewPage({ model, pageId: row.pageId, direction: "up" }),
       canMoveDown: canMoveDatabaseViewPage({ model, pageId: row.pageId, direction: "down" }),
       onOpenPage,
       onSetValue: setValue,
+      onPatchOptions: patchOptions,
       onPatchRelation: patchRelation,
+      onCreateOption: createOption,
       onLoadRelationTargets: loadRelationTargets,
       onSearchRelationCandidates: searchRelationCandidates,
+      onLoadRelationTargetDescriptor: loadRelationTargetDescriptor,
+      onRelationValueStale: () => {
+        void onCommitted?.();
+      },
+      onRequestOptions: requestOptions,
+      onRequestMoreOptions: requestMoreOptions,
       optionRegistries,
+      optionRegistryStates,
+      optionRegistryHasMore,
+      optionRegistryLoadingMore,
       onMove: move,
     } as const);
 
@@ -667,18 +620,13 @@ export function DatabaseViewSurface({
       className="flex h-full min-h-0 flex-col bg-token-main-surface-primary"
       data-database-view-id={model.databaseViewId}
     >
-      {error ? (
-        <div role="alert" className="mx-3 mt-2 rounded-lg bg-token-error-background/30 px-2.5 py-1.5 text-xs text-token-error-foreground">
-          {error} — refreshed from current authority.
-        </div>
-      ) : null}
       {failedContinuations.length > 0 && onLoadMoreGroup ? (
         <div
           role="alert"
           className="mx-3 mt-2 flex min-h-8 items-center gap-2 rounded-md bg-token-error-background/20 px-2.5 text-xs text-token-error-foreground"
         >
           <span className="min-w-0 flex-1 truncate">
-            {failedContinuations[0]?.error}
+            Couldn’t load more pages
           </span>
           <button
             type="button"

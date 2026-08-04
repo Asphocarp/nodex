@@ -15,12 +15,18 @@ import type { PageStageSessionSnapshot } from "@/components/kanban/page-stage/ty
 import { NodexButton } from "@/components/ui/button";
 import { useCodexAppServerControl } from "@/features/local-conversation";
 import { usePageOwnershipPathReadModel } from "@/lib/block-reference-queries";
-import { commitPageDetailMetadataPatch } from "@/lib/page-detail-metadata-runtime";
+import {
+  commitPageDetailMetadataPatch,
+  commitPageDetailPropertyEdit,
+} from "@/lib/page-detail-metadata-runtime";
 import { makePageEditorSessionKey } from "@/lib/page-editor-session-registry";
 import {
   projectPageDetailToStageModel,
-  type PageStageDatabaseProperties,
 } from "@/lib/page-stage-page";
+import {
+  pageStageSemanticValues,
+  type PageStageSemanticValues,
+} from "@/lib/page-stage-properties";
 import { readPageStageContentWidthPreference } from "@/lib/page-stage-layout";
 import {
   makePageStageTabTitleKey,
@@ -67,9 +73,8 @@ export interface PageStageHistoryModalContext {
 }
 
 interface PageStageDatabaseCapability {
-  readonly availableTags: string[];
-  readonly onDelete: (pageId: string) => Promise<void>;
-  readonly onMove: (
+  readonly onDelete?: (pageId: string) => Promise<void>;
+  readonly onMove?: (
     pageId: string,
     toStatus: DatabasePage["status"],
   ) => Promise<void>;
@@ -91,7 +96,7 @@ function PageStageDatabaseCapabilityBoundary({
 }: {
   projectId: string;
   sessionId: string;
-  properties: PageStageDatabaseProperties | null;
+  properties: PageStageSemanticValues | null;
   children: (capability: PageStageDatabaseCapability | null) => ReactNode;
 }) {
   const kanban = useKanban({
@@ -99,31 +104,21 @@ function PageStageDatabaseCapabilityBoundary({
     sessionId,
     enabled: properties !== null,
   });
-  const availableTags = useMemo(() => {
-    const tags = new Set<string>();
-    for (const column of kanban.board?.columns ?? []) {
-      for (const card of column.cards) {
-        card.tags.forEach((tag) => tags.add(tag));
-      }
-    }
-    return [...tags].sort((left, right) => left.localeCompare(right));
-  }, [kanban.board?.columns]);
-
   if (!properties) return children(null);
+  const status = properties.status;
   return children({
-    availableTags,
-    onDelete: async (pageId) => {
-      const deleted = await kanban.deletePage(properties.status, pageId);
+    onDelete: async (pageId: string) => {
+      const deleted = await kanban.deletePage(status, pageId);
       if (!deleted) throw new Error(`Page ${pageId} delete did not commit`);
     },
-    onMove: async (pageId, toStatus) => {
-      await kanban.movePage({
-        fromStatus: properties.status,
-        pageId,
-        toStatus,
-      });
-      await fetchPageDetail(projectId, pageId);
-    },
+    ...(status
+      ? {
+          onMove: async (pageId: string, toStatus: DatabasePage["status"]) => {
+            await kanban.movePage({ fromStatus: status, pageId, toStatus });
+            await fetchPageDetail(projectId, pageId);
+          },
+        }
+      : {}),
     onCompleteOccurrence: async (pageId, occurrenceStart) => {
       await kanban.completeOccurrence({
         pageId,
@@ -351,8 +346,8 @@ export function PageStageSessionTab({
     );
   }
 
-  const compatibilityDatabase = page.databaseContext.kind === "member"
-    ? page.databaseContext.compatibilityProperties
+  const semanticValues = page.databaseContext.kind === "member"
+    ? pageStageSemanticValues(page.databaseContext.semanticProperties)
     : null;
   const renderDocumentSurface = (
     databaseCapability: PageStageDatabaseCapability | null,
@@ -416,7 +411,6 @@ export function PageStageSessionTab({
             documentScopeId={tab.config.projectId}
             projectName={project.name}
             projectWorkspacePath={projectWorkspaceRootOrNull(project)}
-            availableTags={databaseCapability?.availableTags ?? []}
             closeRef={closeRef as MutableRefObject<
               (() => Promise<void>) | null
             >}
@@ -438,12 +432,27 @@ export function PageStageSessionTab({
                 clientSessionId: tab.id,
                 patch: updates,
               })}
+            onUpdateProperty={async (pageId, propertyId, edit) =>
+              await commitPageDetailPropertyEdit({
+                projectId: tab.config.projectId,
+                pageId,
+                propertyId,
+                edit,
+                operationId: crypto.randomUUID(),
+                clientSessionId: tab.id,
+              })}
+            onRefreshProperties={async () => {
+              await fetchPageDetail(tab.config.projectId, tab.config.pageId);
+            }}
+            {...(databaseCapability?.onDelete
+              ? { onDelete: databaseCapability.onDelete }
+              : {})}
+            {...(databaseCapability?.onMove
+              ? { onMove: databaseCapability.onMove }
+              : {})}
             {...(databaseCapability
               ? {
-                  onDelete: databaseCapability.onDelete,
-                  onMove: databaseCapability.onMove,
-                  onCompleteOccurrence:
-                    databaseCapability.onCompleteOccurrence,
+                  onCompleteOccurrence: databaseCapability.onCompleteOccurrence,
                   onSkipOccurrence: databaseCapability.onSkipOccurrence,
                 }
               : {})}
@@ -506,7 +515,7 @@ export function PageStageSessionTab({
     <PageStageDatabaseCapabilityBoundary
       projectId={tab.config.projectId}
       sessionId={tab.id}
-      properties={compatibilityDatabase}
+      properties={semanticValues}
     >
       {renderDocumentSurface}
     </PageStageDatabaseCapabilityBoundary>

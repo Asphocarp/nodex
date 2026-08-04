@@ -983,6 +983,14 @@ const visitViewPropertyIds = (
   config.display.propertyIds.forEach(visit);
 };
 
+export const databaseViewReferencedPropertyIds = (
+  config: DatabaseViewConfigV2,
+): readonly string[] => {
+  const propertyIds = new Set<string>();
+  visitViewPropertyIds(config, (propertyId) => propertyIds.add(propertyId));
+  return [...propertyIds];
+};
+
 export const parseDatabaseViewConfigV2 = (
   value: unknown,
 ): DatabaseViewConfigV2 => {

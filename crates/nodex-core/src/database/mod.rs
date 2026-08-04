@@ -250,8 +250,9 @@ mod tests {
     use nodex_core_contracts::collection::CollectionWindowRequest;
     use nodex_core_contracts::database::{
         DatabaseAgentQuery, DatabaseGroupScope, DatabaseIntent, DatabasePagePropertyAddress,
-        DatabasePropertySchema, DatabasePropertyValueEdit, DatabasePropertyValueInput,
-        DatabasePropertyValueMutation, DatabaseReadMode, DatabaseTarget, DatabaseTransferTarget,
+        DatabasePropertySchema, DatabasePropertySetDelta, DatabasePropertyValueEdit,
+        DatabasePropertyValueInput, DatabasePropertyValueMutation, DatabaseReadMode,
+        DatabaseTarget, DatabaseTransferTarget,
     };
     use nodex_core_contracts::library::{
         LIBRARY_CONTRACT_VERSION, LibraryIntent, LibraryWriteParent,
@@ -298,6 +299,261 @@ mod tests {
             connection_id: "connection:database-library".to_owned(),
             adapter,
         }
+    }
+
+    #[test]
+    fn creates_option_and_selects_it_atomically() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open(&home).expect("fresh store");
+        kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    transaction.execute(
+                        "INSERT INTO profiles(id, created_at, updated_at) VALUES ('profile-1', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO libraries(id, profile_id, created_at, updated_at) \
+                         VALUES ('library-1', 'profile-1', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO projects(id, library_id, name, created, updated) \
+                         VALUES ('project-1', 'library-1', 'Atomic options', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO block_store_metadata(id, store_epoch, created_at, updated_at) \
+                         VALUES (1, 'epoch-1', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    Ok(())
+                })
+            })
+            .expect("seed identity");
+        let library = LibraryModule::new("profile-1", "library-1", &kernel);
+        library
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "operation:atomic-option-database".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::CreateDatabase {
+                        database_id: DATABASE_ID.to_owned(),
+                        data_source_id: SOURCE_ID.to_owned(),
+                        view_id: VIEW_ID.to_owned(),
+                        name: "Product work".to_owned(),
+                        parent: LibraryWriteParent::Library { before: None },
+                    },
+                },
+            )
+            .expect("create Database");
+        library
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "operation:atomic-option-page".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::CreatePage {
+                        page_id: "page:atomic-option".to_owned(),
+                        document_id: "document:atomic-option".to_owned(),
+                        title: "Atomic option".to_owned(),
+                        parent: LibraryWriteParent::Library { before: None },
+                    },
+                },
+            )
+            .expect("create Page");
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "UPDATE projects SET database_block_id = ?1 WHERE id = 'project-1'",
+                    [DATABASE_ID],
+                )?;
+                Ok(())
+            })
+            .expect("bind Project Database");
+
+        let module = DatabaseModule::new("profile-1", "library-1", &kernel);
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:atomic-option-membership".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::TransferPage {
+                        page_id: "page:atomic-option".to_owned(),
+                        expected_parent_revision: 1,
+                        expected_active_membership_revision: 0,
+                        target: DatabaseTransferTarget::DataSource {
+                            data_source_id: SOURCE_ID.to_owned(),
+                        },
+                    }],
+                },
+            )
+            .expect("add Page to Data Source");
+
+        let applied = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:create-and-select-option".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![
+                        DatabaseIntent::PutOption {
+                            data_source_id: SOURCE_ID.to_owned(),
+                            property_id: "tags".to_owned(),
+                            option_id: "o_atomic1".to_owned(),
+                            name: "Atomic".to_owned(),
+                            color: Some("blue".to_owned()),
+                            expected_property_revision: 1,
+                        },
+                        DatabaseIntent::EditPropertyValues {
+                            edits: vec![DatabasePropertyValueMutation {
+                                address: DatabasePagePropertyAddress {
+                                    page_id: "page:atomic-option".to_owned(),
+                                    data_source_id: SOURCE_ID.to_owned(),
+                                    property_id: "tags".to_owned(),
+                                },
+                                edit: DatabasePropertyValueEdit::PatchSet {
+                                    delta: DatabasePropertySetDelta::MultiSelect {
+                                        add_option_ids: vec!["o_atomic1".to_owned()],
+                                        remove_option_ids: Vec::new(),
+                                    },
+                                },
+                            }],
+                        },
+                    ],
+                },
+            )
+            .expect("create and select option in one transaction");
+        assert_eq!(applied.committed.value.operation_count, 2);
+
+        let replayed = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:create-and-select-option".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![
+                        DatabaseIntent::PutOption {
+                            data_source_id: SOURCE_ID.to_owned(),
+                            property_id: "tags".to_owned(),
+                            option_id: "o_atomic1".to_owned(),
+                            name: "Atomic".to_owned(),
+                            color: Some("blue".to_owned()),
+                            expected_property_revision: 1,
+                        },
+                        DatabaseIntent::EditPropertyValues {
+                            edits: vec![DatabasePropertyValueMutation {
+                                address: DatabasePagePropertyAddress {
+                                    page_id: "page:atomic-option".to_owned(),
+                                    data_source_id: SOURCE_ID.to_owned(),
+                                    property_id: "tags".to_owned(),
+                                },
+                                edit: DatabasePropertyValueEdit::PatchSet {
+                                    delta: DatabasePropertySetDelta::MultiSelect {
+                                        add_option_ids: vec!["o_atomic1".to_owned()],
+                                        remove_option_ids: Vec::new(),
+                                    },
+                                },
+                            }],
+                        },
+                    ],
+                },
+            )
+            .expect("replay the atomic operation receipt");
+        assert_eq!(replayed.committed.value.operation_count, 2);
+
+        let noncanonical_tag = module.apply(
+            &context(),
+            ModuleApplyRequest {
+                contract_version: DATABASE_CONTRACT_VERSION,
+                operation_id: "operation:reject-noncanonical-tag".to_owned(),
+                store_epoch: StoreEpoch("epoch-1".to_owned()),
+                intent: vec![DatabaseIntent::PutOption {
+                    data_source_id: SOURCE_ID.to_owned(),
+                    property_id: "tags".to_owned(),
+                    option_id: "o_noncanonical".to_owned(),
+                    name: "Cafe\u{301}".to_owned(),
+                    color: None,
+                    expected_property_revision: 2,
+                }],
+            },
+        );
+        assert!(
+            noncanonical_tag.is_err(),
+            "Tags option names must already be Unicode NFC"
+        );
+
+        let failed = module.apply(
+            &context(),
+            ModuleApplyRequest {
+                contract_version: DATABASE_CONTRACT_VERSION,
+                operation_id: "operation:create-and-select-option-fails".to_owned(),
+                store_epoch: StoreEpoch("epoch-1".to_owned()),
+                intent: vec![
+                    DatabaseIntent::PutOption {
+                        data_source_id: SOURCE_ID.to_owned(),
+                        property_id: "tags".to_owned(),
+                        option_id: "o_atomic2".to_owned(),
+                        name: "Must roll back".to_owned(),
+                        color: None,
+                        expected_property_revision: 2,
+                    },
+                    DatabaseIntent::EditPropertyValues {
+                        edits: vec![DatabasePropertyValueMutation {
+                            address: DatabasePagePropertyAddress {
+                                page_id: "page:missing".to_owned(),
+                                data_source_id: SOURCE_ID.to_owned(),
+                                property_id: "tags".to_owned(),
+                            },
+                            edit: DatabasePropertyValueEdit::PatchSet {
+                                delta: DatabasePropertySetDelta::MultiSelect {
+                                    add_option_ids: vec!["o_atomic2".to_owned()],
+                                    remove_option_ids: Vec::new(),
+                                },
+                            },
+                        }],
+                    },
+                ],
+            },
+        );
+        assert!(
+            failed.is_err(),
+            "an invalid selection must fail the whole apply"
+        );
+
+        kernel
+            .readers()
+            .read_default(|connection| {
+                let config = connection.query_row(
+                    "SELECT config_json FROM data_source_properties \
+                     WHERE data_source_id = ?1 AND id = 'tags'",
+                    [SOURCE_ID],
+                    |row| row.get::<_, String>(0),
+                )?;
+                let value = connection.query_row(
+                    "SELECT value.value_json FROM data_source_property_values value \
+                     JOIN data_source_page_memberships membership ON membership.id = value.membership_id \
+                     WHERE value.data_source_id = ?1 AND value.property_id = 'tags' \
+                       AND membership.page_block_id = 'page:atomic-option'",
+                    [SOURCE_ID],
+                    |row| row.get::<_, String>(0),
+                )?;
+                assert!(config.contains("o_atomic1"));
+                assert!(!config.contains("o_atomic2"));
+                assert_eq!(value, "[\"o_atomic1\"]");
+                Ok(())
+            })
+            .expect("option registry and value commit together");
     }
 
     #[test]
@@ -1211,7 +1467,37 @@ mod tests {
             panic!("Property option window");
         };
         assert_eq!(options.items.len(), 1);
-        assert!(options.next_cursor.is_some());
+        assert_eq!(options.items[0]["id"], "triage");
+        let second_option = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    read: DatabaseRead {
+                        target: DatabaseTarget::Property {
+                            data_source_id: SOURCE_ID.to_owned(),
+                            property_id: "status".to_owned(),
+                        },
+                        mode: DatabaseReadMode::OptionWindow,
+                        filter: None,
+                        sort: None,
+                        window: Some(CollectionWindowRequest {
+                            after: options.next_cursor,
+                            first: Some(1),
+                        }),
+                        page_ids: None,
+                        group_scope: None,
+                    },
+                },
+            )
+            .expect("read next Property option in config order");
+        let DatabaseReadValue::OptionWindow {
+            options: second_option,
+        } = second_option.value
+        else {
+            panic!("second Property option window");
+        };
+        assert_eq!(second_option.items[0]["id"], "plan");
         let row_window = module
             .read(
                 &context(),
@@ -1766,6 +2052,131 @@ mod tests {
             })
             .expect("place Database rows");
         DatabaseModule::new("profile-1", "library-1", kernel)
+    }
+
+    #[test]
+    fn schedule_index_follows_direct_property_edits_and_schema_deletion() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open(&home).expect("fresh store");
+        let module = seed_grouped_fixture(
+            &kernel,
+            vec![GroupRowSpec {
+                page_id: "page:schedule-row",
+                title: "Scheduled row",
+                value_json: Some("\"triage\""),
+                position: Some(("triage", "a")),
+            }],
+        );
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "INSERT INTO scheduled_page_index( \
+                       page_block_id, project_id, lifecycle, scheduled_start, scheduled_end, \
+                       is_all_day, recurrence_json, reminders_json, schedule_timezone, \
+                       source_metadata_revision, updated_at \
+                     ) VALUES ('page:schedule-row', 'project-1', 'active', NULL, NULL, 0, \
+                       'null', '[]', NULL, 1, ?1)",
+                    [NOW],
+                )?;
+                Ok(())
+            })
+            .expect("seed schedule index");
+
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:set-schedule-pair".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::EditPropertyValues {
+                        edits: vec![
+                            DatabasePropertyValueMutation {
+                                address: DatabasePagePropertyAddress {
+                                    page_id: "page:schedule-row".to_owned(),
+                                    data_source_id: SOURCE_ID.to_owned(),
+                                    property_id: "scheduled_start".to_owned(),
+                                },
+                                edit: DatabasePropertyValueEdit::Replace {
+                                    expected_value_revision: 0,
+                                    value: DatabasePropertyValueInput::Datetime {
+                                        value: "2026-08-04T09:00:00.000Z".to_owned(),
+                                    },
+                                },
+                            },
+                            DatabasePropertyValueMutation {
+                                address: DatabasePagePropertyAddress {
+                                    page_id: "page:schedule-row".to_owned(),
+                                    data_source_id: SOURCE_ID.to_owned(),
+                                    property_id: "scheduled_end".to_owned(),
+                                },
+                                edit: DatabasePropertyValueEdit::Replace {
+                                    expected_value_revision: 0,
+                                    value: DatabasePropertyValueInput::Datetime {
+                                        value: "2026-08-04T10:00:00.000Z".to_owned(),
+                                    },
+                                },
+                            },
+                        ],
+                    }],
+                },
+            )
+            .expect("write schedule pair through Database Property authority");
+
+        let indexed = kernel
+            .writer()
+            .call(|connection| {
+                connection
+                    .query_row(
+                        "SELECT scheduled_start, scheduled_end FROM scheduled_page_index \
+                         WHERE page_block_id = 'page:schedule-row'",
+                        [],
+                        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                    )
+                    .map_err(StoreError::from)
+            })
+            .expect("read updated schedule index");
+        assert_eq!(
+            indexed,
+            (
+                "2026-08-04T09:00:00.000Z".to_owned(),
+                "2026-08-04T10:00:00.000Z".to_owned(),
+            )
+        );
+
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:delete-schedule-start".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::DeleteProperty {
+                        data_source_id: SOURCE_ID.to_owned(),
+                        property_id: "scheduled_start".to_owned(),
+                        expected_data_source_revision: 1,
+                        expected_property_revision: 1,
+                    }],
+                },
+            )
+            .expect("delete one schedule Property");
+
+        let indexed_start = kernel
+            .writer()
+            .call(|connection| {
+                connection
+                    .query_row(
+                        "SELECT scheduled_start FROM scheduled_page_index \
+                         WHERE page_block_id = 'page:schedule-row'",
+                        [],
+                        |row| row.get::<_, Option<String>>(0),
+                    )
+                    .map_err(StoreError::from)
+            })
+            .expect("read degraded schedule index");
+        assert_eq!(indexed_start, None);
     }
 
     #[test]

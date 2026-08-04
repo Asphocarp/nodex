@@ -1688,6 +1688,11 @@ mod tests {
                     "UPDATE projects SET database_block_id = ?1 WHERE id = 'project-1'",
                     [DATABASE],
                 )?;
+                connection.execute(
+                    "UPDATE data_source_properties SET lifecycle = 'deleted' \
+                     WHERE data_source_id = ?1 AND id IN ('due_date', 'assignee')",
+                    [SOURCE],
+                )?;
                 Ok(())
             })
             .expect("bind default Database");
@@ -1817,6 +1822,11 @@ mod tests {
                         if value.id == "triage" && value.name == "Triage"
                 )
         }));
+        assert!(
+            !metadata.properties.iter().any(|property| {
+                matches!(property.property_id.as_str(), "due_date" | "assignee")
+            })
+        );
         assert!(meta_file.content.starts_with(&format!(
             "id: \"{PAGE}\"\ntitle: \"Native lifecycle\"\nproperties:\n"
         )));

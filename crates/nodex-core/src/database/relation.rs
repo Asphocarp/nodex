@@ -392,7 +392,7 @@ pub(crate) fn candidate_window(
             .and_then(Value::as_str)
             .unwrap_or_default()
             .trim()
-            .to_lowercase(),
+            .to_ascii_lowercase(),
         _ => return Err(invalid("Relation candidate filter must contain only query")),
     };
     if query.len() > MAX_RELATION_CANDIDATE_QUERY_BYTES {

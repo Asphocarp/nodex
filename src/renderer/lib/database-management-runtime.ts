@@ -217,7 +217,6 @@ export const commitDatabaseManagementOperations = async (input: {
   readonly projectId: string;
   readonly preferredDatabaseId?: string | null;
   readonly operationId: string;
-  readonly clientSessionId?: string;
   readonly buildOperations: (
     authority: DatabaseManagementAuthority,
   ) => readonly DatabaseApplyOperationV2[];
@@ -236,12 +235,7 @@ export const commitDatabaseManagementOperations = async (input: {
     operationId: input.operationId,
     projectId: input.projectId,
     storeEpoch: authority.snapshot.storeEpoch,
-    actor: {
-      kind: "renderer_database_management",
-      ...(input.clientSessionId
-        ? { clientSessionId: input.clientSessionId }
-        : {}),
-    },
+    actor: { kind: "renderer_database_management" },
     operations,
   };
   const result = await applyExactRequest(

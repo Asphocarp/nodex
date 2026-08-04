@@ -27,17 +27,6 @@ const MAX_READ_LIMIT: u32 = 20_000;
 const MAX_REMINDER_OFFSET_MINUTES: i32 = 365 * 24 * 60;
 const UNPOSITIONED_PAGE_ORDER: i64 = 9_007_199_254_740_991;
 
-const DATABASE_PROPERTY_KEYS: [&str; 8] = [
-    "status",
-    "priority",
-    "estimate",
-    "tags",
-    "due_date",
-    "scheduled_start",
-    "scheduled_end",
-    "assignee",
-];
-
 pub(super) struct OccurrenceWindowQuery<'a> {
     pub project_id: &'a str,
     pub window_start_ms: i64,
@@ -586,7 +575,7 @@ fn validate_and_project(
     let database = read_database_properties(connection, membership_id, data_source_id)?;
     let intrinsic = read_intrinsic_properties(connection, &row.page_id, &row.storage_project_id)?;
 
-    let status = required_string(&database, "status")?;
+    let status = optional_string(&database, "status")?.unwrap_or_else(|| "triage".to_owned());
     let status_name = status_label(&status)
         .ok_or_else(|| corrupt("Scheduled Page status is invalid"))?
         .to_owned();
@@ -595,15 +584,22 @@ fn validate_and_project(
     let assignee = optional_string(&database, "assignee")?;
     let due_date = optional_string(&database, "due_date")?;
     if let Some(value) = due_date.as_deref() {
-        parse_timestamp(value)?;
+        let parsed = NaiveDate::parse_from_str(value, "%Y-%m-%d")
+            .map_err(|_| corrupt("Scheduled Page due date is invalid"))?;
+        if parsed.format("%Y-%m-%d").to_string() != value {
+            return Err(corrupt("Scheduled Page due date is invalid"));
+        }
     }
-    let tags = resolve_tags(
-        required_value(&database, "tags")?,
-        &database
-            .get("tags")
-            .ok_or_else(|| corrupt("Scheduled Page tags are unavailable"))?
-            .config,
-    )?;
+    let tags = database
+        .get("tags")
+        .map(|property| {
+            if property.value.is_null() {
+                return Ok(Vec::new());
+            }
+            resolve_tags(&property.value, &property.config)
+        })
+        .transpose()?
+        .unwrap_or_default();
     let run_in_target = Some(required_string(&intrinsic, "run.target")?);
     if !matches!(
         run_in_target.as_deref(),
@@ -709,23 +705,16 @@ fn read_database_properties(
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let mut values = BTreeMap::new();
     for (key, config_json, value_json) in rows {
-        let value_json = value_json
-            .ok_or_else(|| corrupt("Scheduled Page is missing a Data Source property value"))?;
         values.insert(
             key,
             PropertyValue {
-                value: parse_json(&value_json, "Scheduled Page Data Source property")?,
+                value: value_json
+                    .map(|value| parse_json(&value, "Scheduled Page Data Source property"))
+                    .transpose()?
+                    .unwrap_or(Value::Null),
                 config: parse_json(&config_json, "Scheduled Page Data Source configuration")?,
             },
         );
-    }
-    if DATABASE_PROPERTY_KEYS
-        .iter()
-        .any(|key| !values.contains_key(*key))
-    {
-        return Err(corrupt(
-            "Scheduled Page is missing a required Data Source property",
-        ));
     }
     Ok(values)
 }
@@ -1246,7 +1235,9 @@ fn optional_string(
     values: &BTreeMap<String, PropertyValue>,
     key: &str,
 ) -> Result<Option<String>, StoreError> {
-    let value = required_value(values, key)?;
+    let Some(value) = values.get(key).map(|value| &value.value) else {
+        return Ok(None);
+    };
     if value.is_null() {
         return Ok(None);
     }

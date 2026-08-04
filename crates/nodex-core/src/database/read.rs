@@ -1078,8 +1078,30 @@ fn option_window(
     request: &CollectionWindowRequest,
 ) -> Result<CollectionWindow<Value>, StoreError> {
     let normalized = normalize_request(request)?;
-    let fingerprint =
-        cursor::query_fingerprint(&("database_property_options_v1", data_source_id, property_id))?;
+    let (value_type, config_json, property_revision) = connection
+        .query_row(
+            "SELECT value_type, config_json, schema_revision FROM data_source_properties \
+             WHERE data_source_id = ?1 AND id = ?2 AND lifecycle = 'active'",
+            params![data_source_id, property_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            },
+        )
+        .optional()?
+        .ok_or_else(|| not_found("Property is unavailable"))?;
+    if !matches!(value_type.as_str(), "select" | "multi_select") {
+        return Err(invalid("Property is not option-backed"));
+    }
+    let fingerprint = cursor::query_fingerprint(&(
+        "database_property_options_v2",
+        data_source_id,
+        property_id,
+        property_revision,
+    ))?;
     let subject = CollectionCursorSubject {
         kind: "database_property_options",
         library_id,
@@ -1090,25 +1112,17 @@ fn option_window(
         .map(|encoded| cursor::decode(connection, encoded, subject))
         .transpose()?
         .map(|(direction, coordinate)| {
-            if direction != CursorDirection::Forward || !coordinate.values.is_empty() {
+            let [cursor::KeysetValue::Integer { value: ordinal }] = coordinate.values.as_slice()
+            else {
+                return Err(invalid("Property option cursor is incompatible"));
+            };
+            if direction != CursorDirection::Forward || *ordinal < 0 {
                 return Err(invalid("Property option cursor is incompatible"));
             }
-            Ok(coordinate.stable_id)
+            usize::try_from(*ordinal).map_err(|_| invalid("Property option cursor is incompatible"))
         })
         .transpose()?;
-    let (value_type, config_json) = connection
-        .query_row(
-            "SELECT value_type, config_json FROM data_source_properties \
-             WHERE data_source_id = ?1 AND id = ?2 AND lifecycle = 'active'",
-            params![data_source_id, property_id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-        )
-        .optional()?
-        .ok_or_else(|| not_found("Property is unavailable"))?;
-    if !matches!(value_type.as_str(), "select" | "multi_select") {
-        return Err(invalid("Property is not option-backed"));
-    }
-    let mut options = parse_json(config_json, "Property config")?
+    let options = parse_json(config_json, "Property config")?
         .get("options")
         .and_then(Value::as_array)
         .cloned()
@@ -1116,21 +1130,20 @@ fn option_window(
     if options.len() > super::MAX_PROPERTY_OPTIONS {
         return Err(corrupt("Property option registry exceeds its bound"));
     }
-    options.sort_by(|left, right| option_id(left).cmp(option_id(right)));
     let candidates = options
         .into_iter()
-        .filter(|option| {
-            after
-                .as_deref()
-                .is_none_or(|after| option_id(option) > after)
-        })
+        .enumerate()
+        .filter(|(ordinal, _)| after.is_none_or(|after| *ordinal > after))
         .take(normalized.first.saturating_add(1))
-        .map(|option| {
+        .map(|(ordinal, option)| {
             let id = option_id(&option).to_owned();
             WindowCandidate {
                 item: option,
                 coordinate: KeysetCoordinate {
-                    values: Vec::new(),
+                    values: vec![cursor::KeysetValue::Integer {
+                        value: i64::try_from(ordinal)
+                            .expect("Property option ordinals stay within their fixed bound"),
+                    }],
                     stable_id: id,
                 },
             }

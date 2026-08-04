@@ -14,6 +14,7 @@ use nodex_core_contracts::{
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
+use unicode_normalization::UnicodeNormalization;
 
 use crate::document::{read_store_epoch, sha256};
 use crate::domain::fractional_rank::{
@@ -196,6 +197,7 @@ pub(crate) fn apply_in_transaction(
             &mut effects,
         )?;
     }
+    refresh_scheduled_page_indexes(connection, &effects.page_ids, &now)?;
     commit(
         connection,
         context,
@@ -668,6 +670,16 @@ fn delete_property(
          WHERE data_source_id = ?2 AND id = ?3",
         params![now, data_source_id, property_id],
     )?;
+    if matches!(property_id, "scheduled_start" | "scheduled_end") {
+        let page_ids = connection
+            .prepare(
+                "SELECT page_block_id FROM data_source_page_memberships \
+                 WHERE data_source_id = ?1 AND removed_at IS NULL",
+            )?
+            .query_map([data_source_id], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        effects.page_ids.extend(page_ids);
+    }
     connection.execute(
         "UPDATE data_sources SET schema_revision = schema_revision + 1, updated_at = ?1 \
          WHERE id = ?2",
@@ -700,7 +712,8 @@ fn put_option(
     library_scope: bool,
 ) -> Result<(), StoreError> {
     validate_id(option_id, "option_id", MAX_PROPERTY_ID_LENGTH)?;
-    let name = validate_name(name, "Option name")?;
+    let raw_name = name;
+    let name = validate_name(raw_name, "Option name")?;
     if color.is_some_and(|value| value.is_empty() || value.len() > 128) {
         return Err(invalid("Option color must contain between 1 and 128 bytes"));
     }
@@ -713,6 +726,11 @@ fn put_option(
         library_scope,
     )?;
     let property = active_property(connection, data_source_id, property_id)?;
+    if property_id == "tags" && (name != raw_name || !name.nfc().eq(name.chars())) {
+        return Err(invalid(
+            "Tags option names must already be Unicode NFC with no surrounding whitespace",
+        ));
+    }
     require_revision(
         expected_property_revision,
         property.revision,
@@ -4401,24 +4419,86 @@ fn active_view_references_property(
         .query_map([data_source_id], |row| row.get::<_, String>(0))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     for config in configs {
-        if json_contains_string(&parse_json(&config, "Database View config")?, property_id) {
+        let config = parse_json(&config, "Database View config")?;
+        if collect_view_property_ids(&config)?.contains(property_id) {
             return Ok(true);
         }
     }
     Ok(false)
 }
 
-fn json_contains_string(value: &Value, needle: &str) -> bool {
-    match value {
-        Value::String(value) => value == needle,
-        Value::Array(values) => values
-            .iter()
-            .any(|value| json_contains_string(value, needle)),
-        Value::Object(values) => values
-            .values()
-            .any(|value| json_contains_string(value, needle)),
-        _ => false,
+fn active_page_schedule_value(
+    connection: &Connection,
+    page_id: &str,
+    property_id: &str,
+) -> Result<Option<String>, StoreError> {
+    let value_json = connection
+        .query_row(
+            "SELECT value.value_json FROM pages page \
+             JOIN data_source_page_memberships membership \
+               ON membership.page_block_id = page.block_id \
+               AND membership.data_source_id = page.parent_id \
+               AND membership.removed_at IS NULL \
+             JOIN data_source_properties property \
+               ON property.data_source_id = membership.data_source_id \
+               AND property.id = ?2 AND property.lifecycle = 'active' \
+             LEFT JOIN data_source_property_values value \
+               ON value.data_source_id = membership.data_source_id \
+               AND value.membership_id = membership.id \
+               AND value.property_id = property.id \
+             WHERE page.block_id = ?1 AND page.parent_kind = 'data_source' \
+             LIMIT 1",
+            params![page_id, property_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()?
+        .flatten();
+    let Some(value_json) = value_json else {
+        return Ok(None);
+    };
+    let value = parse_json(&value_json, "Scheduled Page Property value")?;
+    if value.is_null() {
+        return Ok(None);
     }
+    value
+        .as_str()
+        .map(|value| Some(value.to_owned()))
+        .ok_or_else(|| corrupt("Scheduled Page Property value is not a string"))
+}
+
+fn refresh_scheduled_page_indexes(
+    connection: &Connection,
+    page_ids: &BTreeSet<String>,
+    now: &str,
+) -> Result<(), StoreError> {
+    for page_id in page_ids {
+        let scheduled_start = active_page_schedule_value(connection, page_id, "scheduled_start")?;
+        let scheduled_end = active_page_schedule_value(connection, page_id, "scheduled_end")?;
+        let metadata_revision = connection
+            .query_row(
+                "SELECT metadata_revision FROM blocks WHERE id = ?1 AND type = 'page'",
+                [page_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?;
+        let Some(metadata_revision) = metadata_revision else {
+            continue;
+        };
+        connection.execute(
+            "UPDATE scheduled_page_index SET scheduled_start = ?1, scheduled_end = ?2, \
+               is_all_day = CASE WHEN ?1 IS NOT NULL AND ?2 IS NOT NULL \
+                 THEN is_all_day ELSE 0 END, source_metadata_revision = ?3, updated_at = ?4 \
+             WHERE page_block_id = ?5",
+            params![
+                scheduled_start,
+                scheduled_end,
+                metadata_revision,
+                now,
+                page_id
+            ],
+        )?;
+    }
+    Ok(())
 }
 
 fn option_config(property: &PropertyRow) -> Result<OptionConfig, StoreError> {
@@ -5286,7 +5366,9 @@ fn internal(message: impl Into<String>) -> StoreError {
 
 #[cfg(test)]
 mod tests {
-    use super::ensure_collection_capacity;
+    use serde_json::json;
+
+    use super::{collect_view_property_ids, ensure_collection_capacity};
 
     #[test]
     fn fixed_schema_collection_allows_the_last_slot_and_rejects_growth() {
@@ -5294,5 +5376,26 @@ mod tests {
         let error = ensure_collection_capacity(200, 200, "schema")
             .expect_err("the fixed collection bound must reject another identity");
         assert_eq!(error.code, super::StoreErrorCode::InvalidInput);
+    }
+
+    #[test]
+    fn view_property_references_ignore_filter_values() {
+        let property_ids = collect_view_property_ids(&json!({
+            "schemaKey": "nodex.database-view",
+            "schemaVersion": 2,
+            "filter": {
+                "kind": "clause",
+                "propertyId": "status",
+                "operator": "equals",
+                "value": "due_date"
+            },
+            "sort": [],
+            "group": null,
+            "display": { "propertyIds": [], "showTitle": true }
+        }))
+        .expect("valid View config");
+
+        assert!(property_ids.contains("status"));
+        assert!(!property_ids.contains("due_date"));
     }
 }

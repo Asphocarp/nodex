@@ -86,12 +86,16 @@ const toCoreTarget = (target: DatabaseReadV2["target"]): DatabaseRead["target"] 
   return { kind: target.kind, view_id: target.viewId };
 };
 
+const toCoreFilter = (read: DatabaseReadV2): DatabaseRead["filter"] => {
+  if (read.mode !== "relation_candidate_window") return null;
+  if (read.query === undefined) return null;
+  return { query: read.query };
+};
+
 const toCoreRead = (read: DatabaseReadV2): DatabaseRead => ({
   target: toCoreTarget(read.target),
   mode: read.mode,
-  filter: read.mode === "relation_candidate_window"
-    ? { query: read.query ?? "" }
-    : null,
+  filter: toCoreFilter(read),
   sort: null,
   ...(
     read.mode === "relation_target_window"

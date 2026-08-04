@@ -9,23 +9,27 @@ import { readDatabaseModule, readLibraryDatabaseModule } from "./api";
 
 const assertOptionWindow = (
   result: DatabaseModuleReadResultV2 | Awaited<ReturnType<typeof readLibraryDatabaseModule>>,
-): readonly DatabasePropertyOption[] => {
+) => {
   if (!result.ok) throw new Error(result.error.message);
   if (result.value.value.kind !== "option_window") {
     throw new Error("Database returned a non-option Property window");
   }
-  if (result.value.value.value.nextCursor !== null) {
-    throw new Error("Property option registry exceeded its bounded read");
-  }
-  return result.value.value.value.options;
+  return result.value.value.value;
 };
 
-export const readPropertyOptionRegistry = async (
+export interface PropertyOptionWindow {
+  readonly options: readonly DatabasePropertyOption[];
+  readonly nextCursor: string | null;
+  readonly projectionRevision: number;
+}
+
+export const readPropertyOptionWindow = async (
   accessContext: DatabaseViewAccessContext,
   property: DataSourcePropertyRecordV2,
-): Promise<readonly DatabasePropertyOption[]> => {
+  after: string | null,
+): Promise<PropertyOptionWindow> => {
   if (property.valueType !== "select" && property.valueType !== "multi_select") {
-    return [];
+    return { options: [], nextCursor: null, projectionRevision: 0 };
   }
   const read = {
     target: {
@@ -34,19 +38,78 @@ export const readPropertyOptionRegistry = async (
       propertyId: property.propertyId,
     },
     mode: "option_window" as const,
-    window: { first: 100 },
+    window: { after, first: 100 },
   };
-  if (accessContext.kind === "library") {
-    return assertOptionWindow(await readLibraryDatabaseModule({
-      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
-      read,
-    }));
+  const result = accessContext.kind === "library"
+    ? await readLibraryDatabaseModule({
+        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+        read,
+      })
+    : await readDatabaseModule(accessContext.projectId, {
+        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+        projectId: accessContext.projectId,
+        read,
+      });
+  return assertOptionWindow(result);
+};
+
+export const mergePropertyOptionPages = (
+  current: readonly DatabasePropertyOption[],
+  incoming: readonly DatabasePropertyOption[],
+): readonly DatabasePropertyOption[] => {
+  const byId = new Map(current.map((option) => [option.id, option]));
+  for (const option of incoming) byId.set(option.id, option);
+  return [...byId.values()];
+};
+
+export const propertyOptionWindowMatchesProjection = (
+  expectedProjectionRevision: number | null,
+  actualProjectionRevision: number,
+): boolean => expectedProjectionRevision === null
+  || expectedProjectionRevision === actualProjectionRevision;
+
+export const readPropertyOptionRegistry = async (
+  accessContext: DatabaseViewAccessContext,
+  property: DataSourcePropertyRecordV2,
+): Promise<readonly DatabasePropertyOption[]> => {
+  if (property.valueType !== "select" && property.valueType !== "multi_select") {
+    return [];
   }
-  return assertOptionWindow(await readDatabaseModule(accessContext.projectId, {
-    version: DATABASE_MODULE_V2_CONTRACT_VERSION,
-    projectId: accessContext.projectId,
-    read,
-  }));
+  let restartCount = 0;
+  let totalPageCount = 0;
+  while (restartCount <= 3) {
+    let after: string | null = null;
+    let options: readonly DatabasePropertyOption[] = [];
+    let projectionRevision: number | null = null;
+    const seenCursors = new Set<string>();
+    let shouldRestart = false;
+    do {
+      const page = await readPropertyOptionWindow(accessContext, property, after);
+      totalPageCount += 1;
+      if (!propertyOptionWindowMatchesProjection(
+        projectionRevision,
+        page.projectionRevision,
+      )) {
+        restartCount += 1;
+        shouldRestart = true;
+        break;
+      }
+      projectionRevision = page.projectionRevision;
+      options = mergePropertyOptionPages(options, page.options);
+      after = page.nextCursor;
+      if (!after) return options;
+      if (seenCursors.has(after)) {
+        throw new Error("Property option registry returned a repeated cursor");
+      }
+      seenCursors.add(after);
+    } while (
+      totalPageCount < 100
+      && options.length <= Math.max(property.optionCount, 10_000)
+    );
+    if (shouldRestart) continue;
+    break;
+  }
+  throw new Error("Property option registry exceeded its declared bound");
 };
 
 export const withPropertyOptions = (

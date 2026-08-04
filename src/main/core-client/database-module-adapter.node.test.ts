@@ -243,6 +243,41 @@ describe("Core Database Module Adapter", () => {
     });
   });
 
+  test("maps an omitted Relation query to an unfiltered Core window", async () => {
+    const client = new FakeCoreClient();
+    client.enqueueDatabaseRead({
+      contract_version: 6,
+      store_epoch: identity.storeEpoch,
+      event_head: 22,
+      value: {
+        kind: "relation_candidate_window",
+        candidates: {
+          items: [],
+          next_cursor: null,
+          authority: { projection_revision: 22 },
+        },
+      },
+    });
+    const adapter = createCoreDatabaseModuleAdapter({ client, ...identity });
+    await adapter.read({
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      projectId: identity.projectId,
+      read: {
+        target: {
+          kind: "data_source",
+          dataSourceId: parseDataSourceId("source:test"),
+        },
+        mode: "relation_candidate_window",
+        window: { first: 25 },
+      },
+    });
+    expect(client.databaseReads[0]).toMatchObject({
+      mode: "relation_candidate_window",
+      filter: null,
+      window: { first: 25 },
+    });
+  });
+
   test("maps typed Property descriptors without option-window N+1 reads", async () => {
     const client = new FakeCoreClient();
     const base = {

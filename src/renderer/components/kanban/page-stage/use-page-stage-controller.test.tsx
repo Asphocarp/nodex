@@ -6,7 +6,10 @@ import type {
   DatabasePage,
   PageInput,
 } from "@/lib/types";
-import type { PageStagePageModel } from "@/lib/page-stage-page";
+import {
+  projectPageDetailToStageModel,
+  type PageStagePageModel,
+} from "@/lib/page-stage-page";
 import { renderWithMaitai as render, settleAsyncRender } from "@/test/dom";
 import {
   PAGE_DOCUMENT_SCHEMA_VERSION,
@@ -17,6 +20,7 @@ import {
   type PageStageControllerDependencies,
 } from "./use-page-stage-controller";
 import type { PageStageProps, PageStageSessionSnapshot } from "./types";
+import { buildPageDetailStoryResult } from "./page-stage-story-page-detail";
 
 type PageStageController = ReturnType<typeof usePageStageController>;
 
@@ -46,44 +50,9 @@ function updatedResult(
 }
 
 function toStageModel(page: DatabasePage): PageStagePageModel {
-  return {
-    page: {
-      id: page.id,
-      archived: page.archived,
-      title: page.title,
-      richTitle: page.richTitle,
-      isAllDay: Boolean(page.isAllDay),
-      recurrence: page.recurrence,
-      reminders: page.reminders ?? [],
-      scheduleTimezone: page.scheduleTimezone,
-      runInTarget: page.runInTarget,
-      runInLocalPath: page.runInLocalPath,
-      runInBaseBranch: page.runInBaseBranch,
-      runInWorktreePath: page.runInWorktreePath,
-      runInEnvironmentPath: page.runInEnvironmentPath,
-      revision: page.revision ?? 1,
-      created: page.created,
-    },
-    databaseContext: {
-      kind: "member",
-      membership: {
-        id: "membership-1",
-        dataSourceId: "source-1",
-        databaseId: "database-1",
-        revision: 1,
-      },
-      compatibilityProperties: {
-        status: page.status,
-        priority: page.priority,
-        estimate: page.estimate,
-        tags: page.tags,
-        dueDate: page.dueDate,
-        scheduledStart: page.scheduledStart,
-        scheduledEnd: page.scheduledEnd,
-        assignee: page.assignee,
-      },
-    },
-  };
+  const detail = buildPageDetailStoryResult("project-1", page);
+  if (!detail.ok) throw new Error(detail.error.message);
+  return projectPageDetailToStageModel(detail.value);
 }
 
 function documentAuthority(): PageStageProps["documentAuthority"] {
@@ -115,10 +84,10 @@ function buildProps(overrides: Partial<PageStageProps> = {}): PageStageProps {
     contentAccessContext: { kind: "project", projectId: "project-1" },
     documentAuthority: documentAuthority(),
     documentScopeId: "project-1",
-    availableTags: [],
     onClose: () => undefined,
     onUpdate: async (_pageId, updates) =>
       updatedResult(sourcePage, updates),
+    onUpdateProperty: async () => ({ status: "updated", didMutate: true }),
     onDelete: async () => undefined,
     onMove: async () => undefined,
     ...overrides,
@@ -167,7 +136,7 @@ describe("usePageStageController", () => {
       onUpdate: async (_pageId, patch) => updatedResult(initialPage, patch),
     }));
     await settleAsyncRender();
-    const settledRenderCount = result.renderCount;
+    act(() => result.controller.handleDocumentTitleChange("Live collaborative title"));
 
     const equivalentPage = buildPage();
     await act(async () => {
@@ -179,7 +148,7 @@ describe("usePageStageController", () => {
     });
     await settleAsyncRender();
 
-    expect(result.renderCount - settledRenderCount).toBe(1);
+    expect(result.controller.title).toBe("Live collaborative title");
   });
 
   test("keeps collaborative title changes out of metadata writes", async () => {
@@ -227,61 +196,80 @@ describe("usePageStageController", () => {
     expect(snapshots).toEqual([]);
   });
 
-  test("persists freeform metadata without title or description fields", async () => {
+  test("commits a generic Property edit without writing whole-page metadata", async () => {
     const updates: Partial<PageInput>[] = [];
+    const propertyUpdates: Array<{ propertyId: string; value: unknown }> = [];
     const result = renderController(buildProps({
       onUpdate: async (_pageId, patch) => {
         updates.push(patch);
         return updatedResult(buildPage(), patch);
       },
+      onUpdateProperty: async (_pageId, propertyId, edit) => {
+        propertyUpdates.push({
+          propertyId,
+          value: edit.kind === "replace" ? edit.value : edit,
+        });
+        return { status: "updated", didMutate: true };
+      },
     }));
     await settleAsyncRender();
 
-    act(() => result.controller.handleAssigneeChange("alex"));
-    await settleAsyncRender();
-    act(() => result.controller.handleAssigneeBlur());
-    await settleAsyncRender();
+    const assignee = result.controller.propertyControls.properties.find(
+      (item) => item.property.propertyId === "assignee",
+    );
+    if (!assignee) throw new Error("Expected Assignee Property");
+    await act(async () => {
+      await result.controller.propertyControls.edit(assignee, {
+        kind: "replace",
+        value: "alex",
+        expectedValueRevision: assignee.valueRevision,
+      });
+    });
 
-    expect(updates.length).toBe(1);
-    expect(updates[0]?.assignee).toBe("alex");
-    expect(Object.hasOwn(updates[0] ?? {}, "title")).toBe(false);
-    expect(Object.hasOwn(updates[0] ?? {}, "description")).toBe(false);
+    expect(propertyUpdates).toEqual([{ propertyId: "assignee", value: "alex" }]);
+    expect(updates).toEqual([]);
   });
 
-  test("does not offer or perform a stale whole-page overwrite after a property conflict", async () => {
-    const updates: Partial<PageInput>[] = [];
-    const latest = buildPage({ priority: "p0-critical", revision: 4 });
+  test("isolates a Property conflict without exposing a whole-page overwrite", async () => {
+    const propertyUpdates: string[] = [];
     const result = renderController(buildProps({
-      onUpdate: async (_pageId, patch) => {
-        updates.push(patch);
+      onUpdateProperty: async (_pageId, propertyId) => {
+        propertyUpdates.push(propertyId);
         return {
           status: "conflict",
-          projectId: "project-1",
-          pageId: latest.id,
-          revision: 4,
-          page: latest,
-          conflictedFields: ["priority"],
+          error: "Property changed elsewhere",
         };
       },
     }));
     await settleAsyncRender();
 
-    act(() => result.controller.handlePriorityChange("p1-high"));
-    await settleAsyncRender();
+    const priority = result.controller.propertyControls.properties.find(
+      (item) => item.property.propertyId === "priority",
+    );
+    if (!priority) throw new Error("Expected Priority Property");
+    await act(async () => {
+      await result.controller.propertyControls.edit(priority, {
+        kind: "replace",
+        value: "p1-high",
+        expectedValueRevision: priority.valueRevision,
+      });
+    });
 
-    expect(updates.length).toBe(1);
-    expect(updates[0]?.priority).toBe("p1-high");
+    expect(propertyUpdates).toEqual(["priority"]);
+    expect(result.controller.propertyControls.errors.priority).toBe(
+      "Value changed elsewhere. Review and try again.",
+    );
     expect("handleOverwriteMine" in result.controller).toBe(false);
   });
 
-  test("flushes metadata and the owned Document together on close", async () => {
-    const updates: Partial<PageInput>[] = [];
+  test("keeps committed Property edits separate while flushing the Document on close", async () => {
+    const propertyUpdates: string[] = [];
     let persisted = 0;
     const result = renderController(
       buildProps({
-        onUpdate: async (_pageId, patch) => {
-          updates.push(patch);
-          return updatedResult(buildPage(), patch);
+        onUpdateProperty: async (_pageId, propertyId) => {
+          propertyUpdates.push(propertyId);
+          return { status: "updated", didMutate: true };
         },
       }),
       {
@@ -292,14 +280,20 @@ describe("usePageStageController", () => {
     );
     await settleAsyncRender();
 
-    act(() => result.controller.handleAssigneeChange("alex"));
-    await settleAsyncRender();
+    const assignee = result.controller.propertyControls.properties.find(
+      (item) => item.property.propertyId === "assignee",
+    );
+    if (!assignee) throw new Error("Expected Assignee Property");
+    await act(async () => {
+      await result.controller.propertyControls.edit(assignee, {
+        kind: "replace",
+        value: "alex",
+        expectedValueRevision: assignee.valueRevision,
+      });
+    });
     await act(async () => result.controller.handleClose());
 
     expect(persisted).toBe(1);
-    expect(updates.length).toBe(1);
-    expect(updates[0]?.assignee).toBe("alex");
-    expect(Object.hasOwn(updates[0] ?? {}, "title")).toBe(false);
-    expect(Object.hasOwn(updates[0] ?? {}, "description")).toBe(false);
+    expect(propertyUpdates).toEqual(["assignee"]);
   });
 });

@@ -14,6 +14,7 @@ import type {
 import type { PageStageBreadcrumbProps } from "./breadcrumb";
 import type { DatabaseId } from "../../../../shared/database-identities";
 import type { ContentAccessContext } from "../../../../shared/content-access-context";
+import type { PageStagePropertyEdit } from "@/lib/page-stage-properties";
 
 export type { PageStageMetadataMutationResult } from "@/lib/page-stage-page";
 
@@ -84,11 +85,17 @@ export interface PageStageProps {
   documentScopeId: string;
   projectName?: string | null;
   projectWorkspacePath?: string | null;
-  availableTags: string[];
   onUpdate: (
     pageId: string,
     updates: Partial<PageInput>,
   ) => Promise<PageStageMetadataMutationResult | void>;
+  onUpdateProperty: (
+    pageId: string,
+    propertyId: string,
+    edit: PageStagePropertyEdit,
+  ) => Promise<PageStageMetadataMutationResult | void>;
+  /** Re-reads current Page/Property authority after a stale read window. */
+  onRefreshProperties?: () => Promise<void>;
   onDelete?: (pageId: string) => Promise<void>;
   onMove?: (pageId: string, toStatus: WorkflowStatus) => Promise<void>;
   onCompleteOccurrence?: (pageId: string, occurrenceStart: Date) => Promise<void>;
