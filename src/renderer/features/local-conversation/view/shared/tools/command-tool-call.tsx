@@ -7,9 +7,9 @@ import {
 } from "../../../../../../shared/codex-command-execution";
 import type { CodexCommandAction, CodexTranscriptEntry } from "../../../../../lib/types";
 import { resolveCodexThreadDetailLevel } from "../../../../../lib/codex-thread-settings";
-import { invoke } from "../../../../../lib/api";
 import { useCodexThreadSettings } from "../../../../../lib/use-codex-thread-settings";
 import { cn } from "../../../../../lib/utils";
+import { FileLinkAnchor } from "../../../../../components/shared/file-link-anchor";
 import { CODEX_THREAD_ACCORDION_TRANSITION } from "../thread-motion";
 import { useMeasuredElementHeight } from "../use-measured-element-height";
 import { CodexShimmerText } from "../codex-shimmer-text";
@@ -469,24 +469,14 @@ function SingleExplorationActionRow({
   const label = readPath && action.type === "read" && !isSkillDefinitionReadAction(action) ? (
     <>
       <span>Read </span>
-      <span
-        data-agent-activity-file-link
-        role="link"
-        tabIndex={0}
-        className="pointer-events-auto inline-block max-w-full cursor-interaction truncate align-bottom text-inherit underline decoration-dotted decoration-[0.5px] underline-offset-2 group-hover/activity-header:!text-token-foreground hover:!text-token-foreground"
-        onClick={(event) => {
-          event.stopPropagation();
-          void invoke("shell:open-file-link", { path: readPath }, itemIdForFileOpen(action));
-        }}
-        onKeyDown={(event) => {
-          if (event.key !== "Enter" && event.key !== " ") return;
-          event.stopPropagation();
-          event.preventDefault();
-          void invoke("shell:open-file-link", { path: readPath }, itemIdForFileOpen(action));
-        }}
+      <FileLinkAnchor
+        href={readPath}
+        projectWorkspacePath={cwd}
+        showLocalFileTooltip
+        className="pointer-events-auto max-w-full truncate align-bottom text-inherit underline decoration-dotted decoration-[0.5px] underline-offset-2 group-hover/activity-header:!text-token-foreground hover:!text-token-foreground"
       >
         {(action.name || action.path).replace(/^\.\//, "")}
-      </span>
+      </FileLinkAnchor>
     </>
   ) : plainLabel;
   if (!label) return null;
@@ -512,10 +502,6 @@ function SingleExplorationActionRow({
         : null}
     </ThreadActivityDisclosure>
   );
-}
-
-function itemIdForFileOpen(action: Extract<CodexCommandAction, { type: "read" }>): string {
-  return action.path || action.name;
 }
 
 function CommandFooter({
@@ -602,7 +588,7 @@ export function CommandToolCall({
       <SingleExplorationActionRow
         action={singleExplorationAction}
         automaticApprovalReviews={automaticApprovalReviews}
-        cwd={item.cwd ?? undefined}
+        cwd={item.cwd ?? threadCwd ?? undefined}
         effectiveStatus={explorationStatus}
         summaryIcon={<ToolActivityIcon descriptor={resolveCommandHeaderIcon([singleExplorationAction], true)} />}
         threadDetailLevel={threadDetailLevel}

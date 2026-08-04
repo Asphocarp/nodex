@@ -81,7 +81,7 @@ function buildTelemetrySettings(overrides: Partial<TelemetrySettings> = {}): Tel
 }
 
 async function renderOverlay(path = buildSettingsPath("backups")) {
-  const { SettingsRouteShell } = await import("./workbench-settings-overlay");
+  const { SettingsRouteShell } = await import("./workbench-settings-route-shell");
   return render(
     <AppProviders>
       <SettingsRouteShell

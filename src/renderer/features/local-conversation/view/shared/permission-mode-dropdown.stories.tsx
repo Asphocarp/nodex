@@ -29,6 +29,12 @@ type Story = StoryObj<typeof meta>;
 
 export const Closed: Story = {};
 
+export const SettingsTrigger: Story = {
+  args: {
+    triggerStyle: "settings",
+  },
+};
+
 export const FullAccessMenuOpen: Story = {
   play: async ({ canvasElement }) => {
     const trigger = getByRole(canvasElement, "button", { name: "Permission mode" });

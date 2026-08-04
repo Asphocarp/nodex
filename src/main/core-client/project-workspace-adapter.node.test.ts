@@ -668,6 +668,54 @@ describe("Core Project Workspace adapter", () => {
     }]);
   });
 
+  test("reads and persists the projectless permission mode as a global scope", async () => {
+    const client = new FakeCoreClient();
+    client.enqueueWorkspaceRead({
+      contract_version: 4,
+      event_head: 11,
+      store_epoch: "epoch:test",
+      value: { kind: "projectless_permission_mode", mode: null },
+    });
+    client.enqueueWorkspaceApply({
+      value: {
+        affected_project_ids: [],
+        affected_session_ids: [],
+        affected_thread_ids: [],
+      },
+      receipt: {
+        operation_id: "operation:projectless-permission-mode",
+        duplicate: false,
+        affected_project_ids: [],
+        affected_session_ids: [],
+      },
+      event_sequence: 12,
+      store_epoch: "epoch:test",
+    });
+    client.enqueueWorkspaceRead({
+      contract_version: 4,
+      event_head: 12,
+      store_epoch: "epoch:test",
+      value: { kind: "projectless_permission_mode", mode: "full-access" },
+    });
+    const adapter = createCoreProjectWorkspaceAdapter(client);
+
+    await expect(adapter.readProjectlessPermissionMode()).resolves.toBeNull();
+    await expect(
+      adapter.setProjectlessPermissionMode("full-access"),
+    ).resolves.toBe("full-access");
+    expect(client.workspaceReads).toEqual([
+      { kind: "projectless_permission_mode" },
+      { kind: "projectless_permission_mode" },
+    ]);
+    expect(client.workspaceApplies).toEqual([{
+      operationId: expect.any(String),
+      intent: {
+        kind: "set_projectless_permission_mode",
+        mode: "full-access",
+      },
+    }]);
+  });
+
   test("maps presence-sensitive Thread materialization and existing-only metadata updates", async () => {
     const client = new FakeCoreClient();
     for (const [operationId, eventSequence, persisted] of [

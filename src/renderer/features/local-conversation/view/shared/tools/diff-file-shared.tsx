@@ -156,7 +156,7 @@ export function FilenameButton({
   className,
 }: {
   displayPath: string;
-  onOpen: (() => void) | null;
+  onOpen: ((intent?: FilenameOpenIntent) => void) | null;
   dataState?: "open" | "closed";
   className: string;
 }) {
@@ -166,7 +166,20 @@ export function FilenameButton({
       className={className}
       onClick={(event) => {
         event.stopPropagation();
-        onOpen?.();
+        onOpen?.(event.metaKey || event.ctrlKey || event.altKey || event.shiftKey
+          ? "external"
+          : "primary");
+      }}
+      onDoubleClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onOpen?.("durable");
+      }}
+      onAuxClick={(event) => {
+        if (event.button !== 1) return;
+        event.preventDefault();
+        event.stopPropagation();
+        onOpen?.("external");
       }}
       data-state={dataState}
       disabled={!onOpen}
@@ -186,3 +199,5 @@ export function FilenameButton({
     </NodexTooltip>
   );
 }
+
+export type FilenameOpenIntent = "primary" | "durable" | "external";

@@ -1,58 +1,49 @@
 import type { ComponentType } from "react";
-import {
-  ContactRound,
-  Download,
-  GitBranch,
-  Globe2,
-  History,
-  KeyRound,
-  LayoutTemplate,
-  MonitorCog,
-  Puzzle,
-  Shield,
-  Type,
-} from "@/components/shared/icons/generic-icons";
 import type { SettingsSearchContext } from "@/lib/settings-search";
 import {
-  KeyboardShortcutsIcon,
+  ArchiveIcon,
   HooksIcon,
+  KeyboardShortcutsIcon,
+  PageIcon,
   SettingsAgentIcon,
   SettingsAppearanceIcon,
+  SettingsBrowserIcon,
+  SettingsComputerUseIcon,
   SettingsGeneralIcon,
+  SettingsGitIcon,
+  SettingsImportIcon,
   SettingsLocalEnvironmentsIcon,
   SettingsWorktreeIcon,
 } from "../shared/icons";
 import { SETTINGS_SEARCH_CATALOG } from "./workbench-settings-search-catalog";
+import type { SettingsPageKey } from "./workbench-settings-page-registry";
 
 export type SettingsSectionId =
   | "general-settings"
-  | "appearance"
-  | "keyboard-shortcuts"
-  | "browser-settings"
-  | "browser-passwords"
-  | "browser-contact-info"
-  | "browser-history"
-  | "browser-extensions"
-  | "computer-use"
-  | "agent"
   | "agent-import"
-  | "editor"
-  | "page"
-  | "git"
-  | "worktrees"
-  | "local-environments"
+  | "appearance"
+  | "agent"
+  | "keyboard-shortcuts"
+  | "browser"
+  | "computer-use"
   | "hooks-settings"
+  | "git"
+  | "local-environments"
+  | "worktrees"
+  | "page"
   | "backups";
 
 export type SettingsSectionGroupKey =
   | "personal"
   | "integrations"
   | "coding"
-  | "archived";
+  | "workspace"
+  | "data";
 
 export interface SettingsSectionDefinition {
   id: SettingsSectionId;
   label: string;
+  pageKey: SettingsPageKey;
   icon: ComponentType<{ className?: string }>;
   groupKey: SettingsSectionGroupKey;
   searchMessages: readonly string[];
@@ -64,146 +55,126 @@ export interface SettingsSectionDefinition {
 }
 
 export const SETTINGS_SECTION_GROUP_LABELS: Record<SettingsSectionGroupKey, string> = {
-  archived: "Archived",
   coding: "Coding",
+  data: "Data & recovery",
   integrations: "Integrations",
   personal: "Personal",
+  workspace: "Workspace",
 };
 
 export const SETTINGS_SECTION_GROUP_ORDER: readonly SettingsSectionGroupKey[] = [
   "personal",
   "integrations",
   "coding",
-  "archived",
+  "workspace",
+  "data",
 ];
 
 export const SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
   {
     id: "general-settings",
     label: "General",
+    pageKey: "general",
     icon: SettingsGeneralIcon,
     groupKey: "personal",
     searchMessages: SETTINGS_SEARCH_CATALOG["general-settings"].messages,
   },
   {
+    id: "agent-import",
+    label: "Import",
+    pageKey: "import",
+    icon: SettingsImportIcon,
+    groupKey: "personal",
+    searchMessages: SETTINGS_SEARCH_CATALOG["agent-import"].messages,
+  },
+  {
     id: "appearance",
     label: "Appearance",
+    pageKey: "appearance",
     icon: SettingsAppearanceIcon,
     groupKey: "personal",
     searchMessages: SETTINGS_SEARCH_CATALOG.appearance.messages,
   },
   {
-    id: "browser-settings",
-    label: "Browser",
-    icon: Globe2,
-    groupKey: "personal",
-    searchMessages: SETTINGS_SEARCH_CATALOG["browser-settings"].messages,
-  },
-  {
-    id: "browser-passwords",
-    label: "Passwords",
-    icon: KeyRound,
-    groupKey: "personal",
-    searchMessages: SETTINGS_SEARCH_CATALOG["browser-passwords"].messages,
-  },
-  {
-    id: "browser-contact-info",
-    label: "Contact info",
-    icon: ContactRound,
-    groupKey: "personal",
-    searchMessages: SETTINGS_SEARCH_CATALOG["browser-contact-info"].messages,
-  },
-  {
-    id: "browser-history",
-    label: "History",
-    icon: History,
-    groupKey: "personal",
-    searchMessages: SETTINGS_SEARCH_CATALOG["browser-history"].messages,
-  },
-  {
-    id: "browser-extensions",
-    label: "Extensions",
-    icon: Puzzle,
-    groupKey: "integrations",
-    searchMessages: SETTINGS_SEARCH_CATALOG["browser-extensions"].messages,
-  },
-  {
-    id: "computer-use",
-    label: "Computer use",
-    icon: MonitorCog,
-    groupKey: "integrations",
-    searchMessages: SETTINGS_SEARCH_CATALOG["computer-use"].messages,
-  },
-  {
     id: "agent",
     label: "Agent",
+    pageKey: "agent",
     icon: SettingsAgentIcon,
     groupKey: "personal",
     searchMessages: SETTINGS_SEARCH_CATALOG.agent.messages,
     searchTerms: SETTINGS_SEARCH_CATALOG.agent.searchTerms,
   },
   {
-    id: "agent-import",
-    label: "Import",
-    icon: Download,
-    groupKey: "integrations",
-    searchMessages: SETTINGS_SEARCH_CATALOG["agent-import"].messages,
-  },
-  {
     id: "keyboard-shortcuts",
     label: "Keyboard shortcuts",
+    pageKey: "keyboard-shortcuts",
     icon: KeyboardShortcutsIcon,
     groupKey: "personal",
     searchMessages: SETTINGS_SEARCH_CATALOG["keyboard-shortcuts"].messages,
   },
   {
-    id: "editor",
-    label: "Editor",
-    icon: Type,
-    groupKey: "coding",
-    searchMessages: SETTINGS_SEARCH_CATALOG.editor.messages,
+    id: "browser",
+    label: "Browser",
+    pageKey: "browser",
+    icon: SettingsBrowserIcon,
+    groupKey: "integrations",
+    searchMessages: SETTINGS_SEARCH_CATALOG.browser.messages,
   },
   {
-    id: "page",
-    label: "Page",
-    icon: LayoutTemplate,
+    id: "computer-use",
+    label: "Computer use",
+    pageKey: "computer-use",
+    icon: SettingsComputerUseIcon,
+    groupKey: "integrations",
+    searchMessages: SETTINGS_SEARCH_CATALOG["computer-use"].messages,
+  },
+  {
+    id: "hooks-settings",
+    label: "Hooks",
+    pageKey: "hooks",
+    icon: HooksIcon,
     groupKey: "coding",
-    searchMessages: SETTINGS_SEARCH_CATALOG.page.messages,
+    searchMessages: SETTINGS_SEARCH_CATALOG["hooks-settings"].messages,
   },
   {
     id: "git",
     label: "Git",
-    icon: GitBranch,
+    pageKey: "git",
+    icon: SettingsGitIcon,
     groupKey: "coding",
     searchMessages: SETTINGS_SEARCH_CATALOG.git.messages,
   },
   {
-    id: "worktrees",
-    label: "Worktrees",
-    icon: SettingsWorktreeIcon,
-    groupKey: "coding",
-    searchMessages: SETTINGS_SEARCH_CATALOG.worktrees.messages,
-  },
-  {
     id: "local-environments",
-    label: "Local environments",
+    label: "Environments",
+    pageKey: "local-environments",
     icon: SettingsLocalEnvironmentsIcon,
     groupKey: "coding",
     searchMessages: SETTINGS_SEARCH_CATALOG["local-environments"].messages,
     searchTerms: SETTINGS_SEARCH_CATALOG["local-environments"].searchTerms,
   },
   {
-    id: "hooks-settings",
-    label: "Hooks",
-    icon: HooksIcon,
+    id: "worktrees",
+    label: "Worktrees",
+    pageKey: "worktrees",
+    icon: SettingsWorktreeIcon,
     groupKey: "coding",
-    searchMessages: SETTINGS_SEARCH_CATALOG["hooks-settings"].messages,
+    searchMessages: SETTINGS_SEARCH_CATALOG.worktrees.messages,
+  },
+  {
+    id: "page",
+    label: "Pages",
+    pageKey: "page",
+    icon: PageIcon,
+    groupKey: "workspace",
+    searchMessages: SETTINGS_SEARCH_CATALOG.page.messages,
   },
   {
     id: "backups",
     label: "Backups",
-    icon: Shield,
-    groupKey: "archived",
+    pageKey: "backups",
+    icon: ArchiveIcon,
+    groupKey: "data",
     searchMessages: SETTINGS_SEARCH_CATALOG.backups.messages,
   },
 ];

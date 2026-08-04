@@ -640,6 +640,17 @@ describe("WorkbenchScene", () => {
       stateKey: 0,
       state: null,
     })).toBe("review:session:session-1");
+    expect(getWorkbenchSurfaceReuseKey({
+      id: "review-projectless-session",
+      kind: "review",
+      titleSnapshot: "Review",
+      config: {
+        projectId: null,
+        context: { kind: "session", sessionId: "session-projectless" },
+      },
+      stateKey: 0,
+      state: null,
+    })).toBe("review:session:session-projectless");
     expect(getWorkbenchSurfaceReuseKey(browserSurface())).toBeNull();
   });
 });

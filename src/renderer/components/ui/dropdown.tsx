@@ -306,15 +306,17 @@ export const NodexDropdownContent = forwardRef<
   );
 });
 
+export type NodexDropdownButtonTriggerProps = ComponentPropsWithoutRef<"button"> & {
+  size?: "xs" | "sm" | "default" | "settings";
+  muted?: boolean;
+  showChevron?: boolean;
+  chrome?: "filled" | "transparent" | "outline";
+  shape?: "default" | "pill";
+};
+
 export const NodexDropdownButtonTrigger = forwardRef<
   HTMLButtonElement,
-  ComponentPropsWithoutRef<"button"> & {
-    size?: "xs" | "sm" | "default";
-    muted?: boolean;
-    showChevron?: boolean;
-    chrome?: "filled" | "transparent";
-    shape?: "default" | "pill";
-  }
+  NodexDropdownButtonTriggerProps
 >(function NodexDropdownButtonTrigger(
   {
     className,
@@ -335,7 +337,11 @@ export const NodexDropdownButtonTrigger = forwardRef<
       type={type}
       className={cn(
         "inline-flex min-w-0 items-center justify-between gap-1 border border-transparent outline-hidden disabled:cursor-not-allowed disabled:opacity-40",
-        chrome === "filled" ? "bg-token-foreground/5 hover:bg-token-foreground/10" : "bg-transparent hover:bg-token-foreground/5",
+        chrome === "outline"
+          ? "border-token-border bg-token-bg-fog hover:bg-token-list-hover-background"
+          : chrome === "filled"
+            ? "bg-token-foreground/5 hover:bg-token-foreground/10"
+            : "bg-transparent hover:bg-token-foreground/5",
         "focus-visible:ring-token-focus focus-visible:ring-2",
         muted ? "text-token-description-foreground" : "text-token-foreground",
         "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg]:text-token-description-foreground",
@@ -343,6 +349,8 @@ export const NodexDropdownButtonTrigger = forwardRef<
           ? "h-6 rounded-md px-2 py-0 text-xs [&_svg]:size-3"
           : size === "sm"
             ? "h-7 rounded-lg px-2 py-0 text-sm/4.5"
+          : size === "settings"
+            ? "h-token-button-composer rounded-lg px-3 py-0 text-base leading-[18px]"
             : "h-7 rounded-lg px-2 py-0 text-sm/4.5",
         shape === "pill" && "rounded-full",
         className,
@@ -355,6 +363,13 @@ export const NodexDropdownButtonTrigger = forwardRef<
       {showChevron ? <ChevronDownIcon className="icon-2xs" /> : null}
     </button>
   );
+});
+
+export const NodexSettingsDropdownTrigger = forwardRef<
+  HTMLButtonElement,
+  Omit<NodexDropdownButtonTriggerProps, "chrome" | "size">
+>(function NodexSettingsDropdownTrigger(props, ref) {
+  return <NodexDropdownButtonTrigger ref={ref} chrome="outline" size="settings" {...props} />;
 });
 
 export interface NodexDropdownItemProps
@@ -936,6 +951,7 @@ export const NodexDropdown = {
   Menu: NodexDropdownMenu,
   Content: NodexDropdownContent,
   ButtonTrigger: NodexDropdownButtonTrigger,
+  SettingsTrigger: NodexSettingsDropdownTrigger,
   Item: NodexDropdownItem,
   RadioGroup: NodexDropdownRadioGroup,
   RadioItem: NodexDropdownRadioItem,

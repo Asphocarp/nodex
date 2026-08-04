@@ -1,5 +1,4 @@
 import type { CodexConversationItem, CodexConversationTurn } from "../../../lib/types";
-import { hasUnifiedDiffChanges } from "../../../lib/unified-diff-summary";
 import type { CodexTurnScopedConversationRequest } from "../conversation-request-helpers";
 import type { VisibleConversationTurnEntry } from "../selectors";
 import { bucketizeTurnItems } from "./bucketize-turn-items";
@@ -7,6 +6,14 @@ import {
   buildRendererItemStream,
   buildRendererItemStreamProjection,
 } from "./build-renderer-item-stream";
+import {
+  filterTurnDiffPayload,
+  hasTurnDiffPayloadChanges,
+  normalizeTurnDiffPatchBatches,
+  shouldSuppressTurnDiffByEndResources,
+  type ProjectlessOutputScope,
+  type TurnDiffPayload,
+} from "./projectless-output-scope";
 import { collectTurnEndResourcePaths } from "./thread-summary-panel-output-model";
 import { buildTurnViewModel } from "./build-turn-view-model";
 import type {
@@ -27,6 +34,8 @@ export interface BuildTurnRenderModelInput {
   canForkTurn?: boolean;
   backgroundAgents?: readonly ThreadComposerShellBackgroundAgentRowModel[];
   turnKey?: string;
+  cwd?: string | null;
+  projectlessOutputDirectory?: string | null;
 }
 
 export type TurnRenderSurface = "main" | "preview";
@@ -37,6 +46,8 @@ export interface SelectTurnRenderModelInput {
   canEditTurnUserPrefix?: boolean;
   canForkTurn?: boolean;
   backgroundAgents?: readonly ThreadComposerShellBackgroundAgentRowModel[];
+  cwd?: string | null;
+  projectlessOutputDirectory?: string | null;
 }
 
 type TurnRenderModelBuilder = (input: BuildTurnRenderModelInput) => ThreadTurnModel;
@@ -59,21 +70,39 @@ function isTranscriptTurnDiffItem(entry: CodexConversationItem): boolean {
   return false;
 }
 
-function hasTranscriptTurnDiffChanges(entry: CodexConversationItem): boolean {
-  if (!isTranscriptTurnDiffItem(entry)) return false;
-  if (typeof entry.rawItem !== "object" || entry.rawItem === null) return false;
-  const unifiedDiff = (entry.rawItem as { unifiedDiff?: unknown }).unifiedDiff;
-  return typeof unifiedDiff === "string" && hasUnifiedDiffChanges(unifiedDiff);
+function readTurnDiffPayload(entry: CodexConversationItem): TurnDiffPayload | null {
+  if (!isTranscriptTurnDiffItem(entry)) return null;
+  if (typeof entry.rawItem !== "object" || entry.rawItem === null) return null;
+  const rawItem = entry.rawItem as {
+    unifiedDiff?: unknown;
+    cwd?: unknown;
+    showRevertButton?: unknown;
+    patchBatches?: unknown;
+  };
+  const patchBatches = normalizeTurnDiffPatchBatches(rawItem.patchBatches);
+  return filterTurnDiffPayload({
+    unifiedDiff: typeof rawItem.unifiedDiff === "string" ? rawItem.unifiedDiff : "",
+    cwd: typeof rawItem.cwd === "string" && rawItem.cwd.trim().length > 0
+      ? rawItem.cwd
+      : undefined,
+    showRevertButton: rawItem.showRevertButton === true,
+    patchBatches,
+  }, {});
 }
 
 function buildDerivedTurnDiffEntry(
   turn: CodexConversationTurn,
   entries: readonly CodexConversationItem[],
+  scope: ProjectlessOutputScope,
 ): CodexConversationItem | null {
-  const unifiedDiff = turn.diff?.trim();
-  if (!unifiedDiff) return null;
-  if (!hasUnifiedDiffChanges(unifiedDiff)) return null;
-  if (entries.some(hasTranscriptTurnDiffChanges)) return null;
+  const payload = filterTurnDiffPayload({
+    unifiedDiff: turn.diff ?? "",
+    cwd: scope.cwd ?? undefined,
+    patchBatches: [],
+    showRevertButton: true,
+  }, scope);
+  if (!payload || !hasTurnDiffPayloadChanges(payload)) return null;
+  if (entries.some(isTranscriptTurnDiffItem)) return null;
 
   const timestamp = turn.completedAt ?? turn.startedAt ?? turn.turnStartedAtMs ?? Date.now();
   const itemId = `turn-diff:${turn.turnId}`;
@@ -88,22 +117,56 @@ function buildDerivedTurnDiffEntry(
     status: turn.status,
     rawItem: {
       type: "turn-diff",
-      unifiedDiff: turn.diff,
-      patchBatches: [],
-      showRevertButton: true,
+      unifiedDiff: payload.unifiedDiff,
+      ...(payload.patchBatches === undefined ? {} : { patchBatches: payload.patchBatches }),
+      showRevertButton: payload.showRevertButton === true,
+      ...(payload.cwd ? { cwd: payload.cwd } : {}),
     },
     createdAt: timestamp,
     updatedAt: timestamp,
   };
 }
 
-function appendDerivedTurnDiffEntry(turn: CodexConversationTurn): CodexConversationItem[] {
-  const renderableEntries = turn.items.filter((entry) => (
-    !isTranscriptTurnDiffItem(entry) || hasTranscriptTurnDiffChanges(entry)
-  ));
-  const derived = buildDerivedTurnDiffEntry(turn, renderableEntries);
-  if (!derived) return renderableEntries;
-  return [...renderableEntries, derived];
+function appendDerivedTurnDiffEntry(
+  turn: CodexConversationTurn,
+  scope: ProjectlessOutputScope,
+  endResourcePaths: readonly string[],
+): CodexConversationItem[] {
+  const renderableEntries = turn.items.flatMap((entry) => {
+    if (!isTranscriptTurnDiffItem(entry)) return [entry];
+    const payload = readTurnDiffPayload(entry);
+    if (!payload || !hasTurnDiffPayloadChanges(payload)) return [];
+    const filtered = filterTurnDiffPayload(payload, scope);
+    if (!filtered || !hasTurnDiffPayloadChanges(filtered)) return [];
+    return [{
+      ...entry,
+      rawItem: {
+        ...(entry.rawItem as Record<string, unknown>),
+        unifiedDiff: filtered.unifiedDiff,
+        ...(filtered.patchBatches === undefined ? {} : { patchBatches: filtered.patchBatches }),
+        ...(filtered.cwd ? { cwd: filtered.cwd } : {}),
+      },
+    }];
+  });
+  const derived = buildDerivedTurnDiffEntry(turn, renderableEntries, scope);
+  const turnDiffEntries = [
+    ...renderableEntries.filter(isTranscriptTurnDiffItem),
+    ...(derived ? [derived] : []),
+  ];
+  const suppressDuplicate = turnDiffEntries.length > 0
+    && turnDiffEntries.every((entry) => {
+      const payload = readTurnDiffPayload(entry);
+      return payload !== null && shouldSuppressTurnDiffByEndResources({
+        payload,
+        endResourcePaths,
+        scope,
+      });
+    });
+  const visibleEntries = suppressDuplicate
+    ? renderableEntries.filter((entry) => !isTranscriptTurnDiffItem(entry))
+    : renderableEntries;
+  if (!derived || suppressDuplicate) return visibleEntries;
+  return [...visibleEntries, derived];
 }
 
 function resolveFiniteTimestamp(value: number | null | undefined): number | null {
@@ -239,7 +302,15 @@ export function buildTurnRenderModel(
   if (turnKey === null) {
     throw new Error("A nullable local turn requires its occurrence key");
   }
-  const entries = appendDerivedTurnDiffEntry(input.turn);
+  const scope: ProjectlessOutputScope = {
+    cwd: input.cwd,
+    projectlessOutputDirectory: input.projectlessOutputDirectory,
+  };
+  const endResourcePaths = collectTurnEndResourcePaths(input.turn, {
+    cwd: input.cwd,
+    projectlessOutputDirectory: input.projectlessOutputDirectory,
+  });
+  const entries = appendDerivedTurnDiffEntry(input.turn, scope, endResourcePaths);
   const rendererProjection = buildRendererItemStreamProjection({
     entries,
     requests: input.requests,
@@ -286,7 +357,7 @@ export function buildTurnRenderModel(
     subagentActivityState: rendererProjection.subagentActivityState,
     canEditTurnUserPrefix: input.turn.turnId !== null && input.canEditTurnUserPrefix,
     canForkTurn: input.turn.turnId !== null && input.canForkTurn,
-    endResourcePaths: collectTurnEndResourcePaths(input.turn),
+    endResourcePaths,
   });
 }
 
@@ -303,6 +374,8 @@ export function createTurnRenderModelSelector(
       surface,
       canEditTurnUserPrefix,
       canForkTurn,
+      input.cwd,
+      input.projectlessOutputDirectory,
       input.entry.turnKey,
       (input.backgroundAgents ?? []).map((row) => [
         row.conversationId,
@@ -327,6 +400,8 @@ export function createTurnRenderModelSelector(
       canForkTurn,
       backgroundAgents: input.backgroundAgents,
       turnKey: input.entry.turnKey,
+      cwd: input.cwd,
+      projectlessOutputDirectory: input.projectlessOutputDirectory,
     });
     const nextModels = cachedModels ?? new Map<string, ThreadTurnModel>();
     nextModels.set(cacheKey, model);

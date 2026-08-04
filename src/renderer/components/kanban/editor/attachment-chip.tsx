@@ -21,6 +21,7 @@ import {
 import { NodexTooltip } from "@/components/ui/tooltip";
 import { readManagedAssetPreview } from "@/lib/assets";
 import { invoke } from "@/lib/api";
+import { useFileReferenceRouter } from "@/lib/file-reference-router";
 import { useFileLinkOpener } from "@/lib/use-file-link-opener";
 import { cn } from "@/lib/utils";
 import { attachmentInlineContentConfig } from "../../../../shared/block-documents/blocknote-schema-config";
@@ -295,7 +296,7 @@ function AttachmentInlineContent({
   const [open, setOpen] = useState(false);
   const label = useMemo(() => getAttachmentLabel(inlineContent.props), [inlineContent.props]);
   const tooltipLines = getAttachmentTooltipLines(inlineContent.props);
-  const { opener } = useFileLinkOpener();
+  const fileReferenceRouter = useFileReferenceRouter();
 
   const resolvePrimaryPath = useCallback(async (): Promise<string | null> => {
     if (inlineContent.props.mode === "link") return inlineContent.props.source || null;
@@ -306,8 +307,8 @@ function AttachmentInlineContent({
   const handlePrimaryOpen = useCallback(async () => {
     const path = await resolvePrimaryPath();
     if (!path) return;
-    await invoke("shell:open-file-link", { path }, opener);
-  }, [opener, resolvePrimaryPath]);
+    await fileReferenceRouter.open({ path }, { title: label });
+  }, [fileReferenceRouter, label, resolvePrimaryPath]);
 
   const Icon = getAttachmentIcon(inlineContent.props.kind, inlineContent.props.mode);
 

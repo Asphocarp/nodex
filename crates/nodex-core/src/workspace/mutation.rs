@@ -41,12 +41,15 @@ use super::{
 const MODULE_NAME: &str = "project_workspace";
 const MAX_ID_LENGTH: usize = 512;
 const MAX_PROJECT_NAME_CHARS: usize = 256;
+const MAX_PROJECT_RESOURCE_NAME_CHARS: usize = 256;
 const MAX_PROJECT_DESCRIPTION_BYTES: usize = 100_000;
 const MAX_SOURCE_ROOTS: usize = 128;
 const MAX_SOURCE_ROOT_BYTES: usize = 4_096;
 const MAX_PROJECT_ORDER_SIZE: usize = 100_000;
 const MAX_UNARCHIVED_PROJECTS: usize = 200;
 const INITIAL_RANK_KEY: &str = "7fffffffffffffffffffffffffffffff";
+const PROJECT_DATABASE_NAME_SUFFIX: &str = " DB";
+const PROJECT_CANVAS_NAME_SUFFIX: &str = " Canvas";
 
 struct ProjectAggregateIdentities {
     database_id: String,
@@ -187,6 +190,7 @@ pub(super) fn apply(
             if !matches!(
                 &request.intent,
                 ProjectWorkspaceIntent::CreateInitialProject { .. }
+                    | ProjectWorkspaceIntent::SetProjectlessPermissionMode { .. }
             ) && project_catalog_is_empty(transaction, &library_id)?
             {
                 return Err(conflict(
@@ -637,6 +641,17 @@ pub(super) fn apply(
                         &request.operation_id,
                         &request_hash,
                         project_id,
+                        *mode,
+                    )
+                }
+                ProjectWorkspaceIntent::SetProjectlessPermissionMode { mode } => {
+                    thread::set_projectless_permission_mode(
+                        transaction,
+                        &library_id,
+                        &context,
+                        &store_epoch,
+                        &request.operation_id,
+                        &request_hash,
                         *mode,
                     )
                 }
@@ -1373,6 +1388,8 @@ fn create_project_records(
             false,
         ));
     }
+    let database_name = derive_project_resource_name(name, PROJECT_DATABASE_NAME_SUFFIX);
+    let canvas_name = derive_project_resource_name(name, PROJECT_CANVAS_NAME_SUFFIX);
     let now = sqlite_now(connection)?;
     let appearance_storage = project_appearance_storage(appearance);
     connection.execute("UPDATE project_order SET \"order\" = \"order\" + 1", [])?;
@@ -1423,7 +1440,7 @@ fn create_project_records(
         &identities.database_id,
         &identities.data_source_id,
         &identities.view_id,
-        "Cards",
+        &database_name,
         &now,
     )?;
     connection.execute(
@@ -1462,7 +1479,7 @@ fn create_project_records(
             )
         })
         .transpose()?;
-    let canvas = create_primary_canvas(connection, project_id, &now, assets_root)?;
+    let canvas = create_primary_canvas(connection, project_id, &canvas_name, &now, assets_root)?;
     Ok(CreatedProjectAggregate {
         identities,
         canvas,
@@ -1565,6 +1582,18 @@ fn normalize_project_name(name: &str, sources: &[ProjectSource]) -> Result<Strin
         return Err(invalid("Project name is invalid"));
     }
     Ok(value)
+}
+
+fn derive_project_resource_name(project_name: &str, suffix: &str) -> String {
+    let suffix_chars = suffix.chars().count();
+    let project_name_chars = project_name.chars().count();
+    if project_name_chars + suffix_chars <= MAX_PROJECT_RESOURCE_NAME_CHARS {
+        return format!("{project_name}{suffix}");
+    }
+
+    let prefix_chars = MAX_PROJECT_RESOURCE_NAME_CHARS.saturating_sub(suffix_chars + 1);
+    let prefix = project_name.chars().take(prefix_chars).collect::<String>();
+    format!("{}…{suffix}", prefix.trim_end())
 }
 
 fn normalize_source_roots(values: &[String]) -> Result<Vec<ProjectSource>, StoreError> {
@@ -1689,6 +1718,100 @@ mod tests {
     use crate::workspace::ProjectWorkspaceModule;
 
     const NOW: &str = "2026-07-19T04:00:00.000Z";
+
+    #[test]
+    fn derives_project_resource_names_with_suffixes_and_bounds() {
+        assert_eq!(
+            super::derive_project_resource_name("Research", super::PROJECT_DATABASE_NAME_SUFFIX),
+            "Research DB"
+        );
+        assert_eq!(
+            super::derive_project_resource_name("研究 🚀", super::PROJECT_CANVAS_NAME_SUFFIX),
+            "研究 🚀 Canvas"
+        );
+
+        let database_boundary = "x".repeat(
+            super::MAX_PROJECT_RESOURCE_NAME_CHARS
+                - super::PROJECT_DATABASE_NAME_SUFFIX.chars().count(),
+        );
+        assert_eq!(
+            super::derive_project_resource_name(
+                &database_boundary,
+                super::PROJECT_DATABASE_NAME_SUFFIX,
+            ),
+            format!("{database_boundary} DB")
+        );
+
+        let canvas_boundary = "x".repeat(
+            super::MAX_PROJECT_RESOURCE_NAME_CHARS
+                - super::PROJECT_CANVAS_NAME_SUFFIX.chars().count(),
+        );
+        assert_eq!(
+            super::derive_project_resource_name(
+                &canvas_boundary,
+                super::PROJECT_CANVAS_NAME_SUFFIX
+            ),
+            format!("{canvas_boundary} Canvas")
+        );
+
+        let oversized_database = super::derive_project_resource_name(
+            &"x".repeat(super::MAX_PROJECT_RESOURCE_NAME_CHARS),
+            super::PROJECT_DATABASE_NAME_SUFFIX,
+        );
+        assert_eq!(
+            oversized_database.chars().count(),
+            super::MAX_PROJECT_RESOURCE_NAME_CHARS
+        );
+        assert!(oversized_database.ends_with(super::PROJECT_DATABASE_NAME_SUFFIX));
+        assert!(oversized_database.contains('…'));
+
+        let oversized_canvas = super::derive_project_resource_name(
+            &"🚀".repeat(super::MAX_PROJECT_RESOURCE_NAME_CHARS),
+            super::PROJECT_CANVAS_NAME_SUFFIX,
+        );
+        assert_eq!(
+            oversized_canvas.chars().count(),
+            super::MAX_PROJECT_RESOURCE_NAME_CHARS
+        );
+        assert!(oversized_canvas.ends_with(super::PROJECT_CANVAS_NAME_SUFFIX));
+        assert!(oversized_canvas.contains('…'));
+
+        let truncated_at_space = format!("{} suffix", "x".repeat(251));
+        assert_eq!(
+            super::derive_project_resource_name(
+                &truncated_at_space,
+                super::PROJECT_DATABASE_NAME_SUFFIX,
+            ),
+            format!("{}… DB", "x".repeat(251))
+        );
+    }
+
+    fn read_project_resource_names(
+        connection: &rusqlite::Connection,
+        project_id: &str,
+    ) -> rusqlite::Result<(String, String, String)> {
+        connection.query_row(
+            "SELECT \
+                (SELECT name FROM database_containers \
+                 WHERE block_id = project.database_block_id), \
+                (SELECT name FROM data_sources \
+                 WHERE home_database_block_id = project.database_block_id \
+                 ORDER BY rank_key LIMIT 1), \
+                (SELECT json_extract(value_json, '$') FROM block_properties \
+                 WHERE block_id = 'canvas:primary:' || project.id \
+                   AND property_key = 'document.display_name') \
+             FROM projects project \
+             WHERE project.id = ?1",
+            [project_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            },
+        )
+    }
 
     fn context() -> BoundModuleContext {
         BoundModuleContext {
@@ -2160,7 +2283,9 @@ mod tests {
                 if matches!(
                     value.as_ref(),
                     nodex_core_contracts::library::LibraryCanvasTarget::Available { summary }
-                        if summary.canvas_id == canvas_id && summary.is_primary
+                        if summary.canvas_id == canvas_id
+                            && summary.title == "Native project Canvas"
+                            && summary.is_primary
                 )
         ));
 
@@ -2185,9 +2310,11 @@ mod tests {
             Some(
             nodex_core_contracts::library::LibraryNavigationNode::Canvas {
                 canvas_id: candidate,
+                title,
                 is_primary: true,
                 ..
             }) if candidate == canvas_id
+                && title == "Native project Canvas"
         ));
 
         let deletion = library
@@ -2462,6 +2589,20 @@ mod tests {
         assert_eq!(bootstrap.0, bootstrap.1);
         assert_eq!(bootstrap.2, 0);
         assert_eq!(bootstrap.3, 1);
+        let bootstrap_resource_names = kernel
+            .writer()
+            .call(|connection| {
+                read_project_resource_names(connection, "project:default").map_err(Into::into)
+            })
+            .expect("read bootstrapped resource names");
+        assert_eq!(
+            bootstrap_resource_names,
+            (
+                "Nodex DB".to_owned(),
+                "Nodex DB".to_owned(),
+                "Nodex Canvas".to_owned(),
+            )
+        );
 
         let request = create_request("workspace-create-1", "project-native");
         let outcome = module
@@ -2572,6 +2713,21 @@ mod tests {
         assert_eq!(stored.11, 1);
         assert_eq!(stored.12, 1);
 
+        let created_resource_names = kernel
+            .writer()
+            .call(|connection| {
+                read_project_resource_names(connection, "project-native").map_err(Into::into)
+            })
+            .expect("read created resource names");
+        assert_eq!(
+            created_resource_names,
+            (
+                "Native project DB".to_owned(),
+                "Native project DB".to_owned(),
+                "Native project Canvas".to_owned(),
+            )
+        );
+
         let divergent = module
             .apply(
                 &context(),
@@ -2644,6 +2800,20 @@ mod tests {
         assert_eq!(
             replay.committed.event_sequence,
             updated.committed.event_sequence
+        );
+        let resource_names_after_rename = kernel
+            .writer()
+            .call(|connection| {
+                read_project_resource_names(connection, "project-native").map_err(Into::into)
+            })
+            .expect("read resource names after Project rename");
+        assert_eq!(
+            resource_names_after_rename,
+            (
+                "Native project DB".to_owned(),
+                "Native project DB".to_owned(),
+                "Native project Canvas".to_owned(),
+            )
         );
 
         let stale = module

@@ -85,6 +85,7 @@ export interface ThreadLeafBlockProps {
   isSearchMatch?: boolean;
   isActiveSearchMatch?: boolean;
   projectWorkspacePath?: string | null;
+  projectlessOutputDirectory?: string | null;
   childMemberships?: readonly CodexConversationChildMembership[];
   threadCwd?: string | null;
   onEditLastUserTurn?: (input: { threadId: string; turnId: string; message: string }) => void | Promise<void>;
@@ -109,6 +110,7 @@ export interface ThreadSpecialBlockProps {
   isLatestTurn: boolean;
   isStreamingTurn: boolean;
   projectWorkspacePath?: string | null;
+  projectlessOutputDirectory?: string | null;
   childMemberships?: readonly CodexConversationChildMembership[];
   threadCwd?: string | null;
   onOpenTurnDiffReview?: (intent: ReviewOpenIntent) => void | Promise<void>;
@@ -240,6 +242,7 @@ function renderCollapsedActivityEntry({
   isLatestTurn,
   isStreamingTurn,
   projectWorkspacePath,
+  projectlessOutputDirectory,
   threadCwd,
   onOpenTurnDiffReview,
   onOpenTurnDiffFileInSidePanel,
@@ -252,6 +255,7 @@ function renderCollapsedActivityEntry({
   isLatestTurn: boolean;
   isStreamingTurn: boolean;
   projectWorkspacePath?: string | null;
+  projectlessOutputDirectory?: string | null;
   threadCwd?: string | null;
   onOpenTurnDiffReview?: (intent: ReviewOpenIntent) => void | Promise<void>;
   onOpenTurnDiffFileInSidePanel?: ThreadStageActions["onOpenTurnDiffFileInSidePanel"];
@@ -264,6 +268,7 @@ function renderCollapsedActivityEntry({
     isLatestTurn,
     isStreamingTurn,
     projectWorkspacePath,
+    projectlessOutputDirectory,
     threadCwd,
     onOpenTurnDiffReview,
     onOpenTurnDiffFileInSidePanel,
@@ -398,6 +403,7 @@ export function ThreadAgentActivityGroupBlock({
   isLatestTurn,
   isStreamingTurn,
   projectWorkspacePath,
+  projectlessOutputDirectory,
   threadCwd,
   onOpenTurnDiffReview,
   onOpenTurnDiffFileInSidePanel,
@@ -457,6 +463,7 @@ export function ThreadAgentActivityGroupBlock({
             isLatestTurn,
             isStreamingTurn,
             projectWorkspacePath,
+            projectlessOutputDirectory,
             threadCwd,
             onOpenTurnDiffReview,
             onOpenTurnDiffFileInSidePanel,
@@ -539,6 +546,7 @@ export function ThreadTurnDiffBlock({
   isLatestTurn,
   isStreamingTurn,
   projectWorkspacePath,
+  projectlessOutputDirectory,
   threadCwd,
   onOpenTurnDiffReview,
   onOpenTurnDiffFileInSidePanel,
@@ -556,6 +564,7 @@ export function ThreadTurnDiffBlock({
       isInProgress={isStreamingTurn}
       projectWorkspacePath={projectWorkspacePath ?? undefined}
       threadCwd={threadCwd ?? undefined}
+      projectlessOutputDirectory={projectlessOutputDirectory}
       reviewSource={isLatestTurn ? "last-turn" : "selected-turn"}
       onOpenReview={onOpenTurnDiffReview}
       onOpenFileInSidePanel={onOpenTurnDiffFileInSidePanel}
@@ -706,6 +715,7 @@ export function UserMessageBubble({
   isSearchMatch = false,
   isActiveSearchMatch = false,
   onEditLastUserTurn,
+  projectWorkspacePath,
   threadCwd,
 }: ThreadLeafBlockProps) {
   const content = block.entry.markdownText ?? "";
@@ -832,7 +842,11 @@ export function UserMessageBubble({
             data-thread-selected-text-target="true"
             className={THREAD_VISUAL_TOKENS.userBubble}
           >
-            <UserMessageText text={content} />
+            <UserMessageText
+              text={content}
+              cwd={threadCwd}
+              projectWorkspacePath={projectWorkspacePath}
+            />
           </div>
         )}
         {shouldRenderFooter ? (
@@ -901,6 +915,8 @@ export function ThreadReasoningBlock({
   block,
   isLatestTurn,
   isStreamingTurn,
+  projectWorkspacePath,
+  threadCwd,
 }: ThreadLeafBlockProps) {
   const item = block.entry;
 
@@ -908,6 +924,8 @@ export function ThreadReasoningBlock({
     <ReasoningSurface
       item={item}
       parseIncompleteMarkdown={isStreamingTurn && (item.status === "inProgress" || isLatestTurn)}
+      cwd={threadCwd}
+      projectWorkspacePath={projectWorkspacePath}
     />
   );
 }
@@ -916,6 +934,7 @@ export function ThreadPlanCardBlock({
   block,
   isLatestTurn,
   isStreamingTurn,
+  projectWorkspacePath,
   threadCwd,
   onOpenPlanInSidePanel,
   onClosePlanSidePanel,
@@ -942,6 +961,8 @@ export function ThreadPlanCardBlock({
         content={item.markdownText ?? ""}
         completed={!isInProgress}
         parseIncompleteMarkdown={shouldParseIncompleteMarkdown}
+        cwd={threadCwd}
+        projectWorkspacePath={projectWorkspacePath}
         isSidePanelActive={isSidePanelActive}
         onOpenInSidePanel={
           !isInProgress
@@ -1163,6 +1184,8 @@ export function ThreadAssistantBodyBlock({
   isStreamingTurn,
   isSearchMatch = false,
   isActiveSearchMatch = false,
+  projectWorkspacePath,
+  threadCwd,
   onForkFromTurn,
   assistantAfter,
   alwaysShowAssistantMessageActions = false,
@@ -1217,6 +1240,8 @@ export function ThreadAssistantBodyBlock({
             animateStreamingText={isAssistantItemStreaming}
             sourceAriaLabel="Assistant message source"
             sourceIdentity={block.entry.entryId}
+            cwd={threadCwd}
+            projectWorkspacePath={projectWorkspacePath}
           />
         </div>
         {assistantAfter ? (
@@ -1293,7 +1318,11 @@ export function ThreadMcpServerElicitationBlock({ block }: ThreadLeafBlockProps)
   return <CompletedRequestActivitySurface view={view} />;
 }
 
-export function ThreadPlanImplementationBlock({ block }: ThreadLeafBlockProps) {
+export function ThreadPlanImplementationBlock({
+  block,
+  projectWorkspacePath,
+  threadCwd,
+}: ThreadLeafBlockProps) {
   if (block.type !== "planImplementation") return null;
 
   const content = block.entry.markdownText?.trim() ?? "";
@@ -1304,6 +1333,8 @@ export function ThreadPlanImplementationBlock({ block }: ThreadLeafBlockProps) {
       content={content}
       completed={block.status === "completed"}
       parseIncompleteMarkdown={false}
+      cwd={threadCwd}
+      projectWorkspacePath={projectWorkspacePath}
     />
   );
 }

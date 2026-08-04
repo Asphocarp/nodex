@@ -16,7 +16,6 @@ import {
 } from "@/components/shared/inline-markdown-code";
 import { ChevronRightIcon } from "@/components/shared/icons";
 import { FileLinkAnchor } from "@/components/shared/file-link-anchor";
-import { parseLocalFileLinkHref } from "../../shared/file-link-openers";
 import {
   groupOrderedListItems,
   type OrderedListGroup,
@@ -134,31 +133,17 @@ export const streamdownComponents: Components = {
   },
   a: ({ href, children, className, node }) => {
     void node;
-
-    if (href && parseLocalFileLinkHref(href)) {
-      return (
-        <FileLinkAnchor
-          href={href}
-          className={className}
-          showLocalFileTooltip
-        >
-          {children}
-        </FileLinkAnchor>
-      );
-    }
-
     return (
-      <a
+      <FileLinkAnchor
         href={href}
         className={cn(
           "decoration-opacity-50 text-token-text-link-foreground underline decoration-current decoration-[0.5px]",
           className,
         )}
-        target="_blank"
-        rel="noopener noreferrer"
+        showLocalFileTooltip
       >
         {children}
-      </a>
+      </FileLinkAnchor>
     );
   },
   h1: createHeadingComponent("h1"),

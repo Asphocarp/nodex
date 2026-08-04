@@ -7,6 +7,10 @@ import type { DbViewPrefs } from "../../lib/db-view-prefs";
 import type { CalendarViewState } from "@/lib/calendar-view-state";
 import type { Project } from "@/lib/types";
 import type { WorkbenchView } from "@/lib/use-workbench-profile-preferences";
+import type {
+  OpenPageInNewChatInput,
+  SendPageToChatInput,
+} from "@/lib/page-chat-actions";
 
 interface MainViewHostProps {
   projectId: string;
@@ -39,6 +43,8 @@ interface MainViewHostProps {
     titleSnapshot?: string,
     options?: OpenPageStageOptions,
   ) => void;
+  onOpenPageInNewChat?: (input: OpenPageInNewChatInput) => Promise<void> | void;
+  onSendPageToChat?: (input: SendPageToChatInput) => Promise<void> | void;
   scrollStateKey?: string | null;
 }
 
@@ -60,6 +66,8 @@ export function MainViewHost({
   onCalendarAnchorDateChange,
   onReminderHandled,
   openPageStage,
+  onOpenPageInNewChat,
+  onSendPageToChat,
   scrollStateKey,
 }: MainViewHostProps) {
   if (view === "kanban") {
@@ -71,6 +79,8 @@ export function MainViewHost({
         searchQuery={searchQuery}
         dbViewPrefs={dbViewPrefs}
         openPageStage={openPageStage}
+        onOpenPageInNewChat={onOpenPageInNewChat}
+        onSendPageToChat={onSendPageToChat}
         pageStagePageId={pageStagePageId}
         activePanelPageStagePageIds={activePanelPageStagePageIds}
         pageStageCloseRef={pageStageCloseRef}

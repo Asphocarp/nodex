@@ -1,19 +1,28 @@
 import { render } from "@testing-library/react";
-import { describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
+import { forwardRef, useImperativeHandle } from "react";
+import { settleAsyncRender } from "../../test/dom";
+import { installAsyncRequestAnimationFrame } from "../../test/browser-globals";
 import { SourceViewer } from "./source-viewer";
+
+const codeViewHandle = vi.hoisted(() => ({
+  scrollTo: vi.fn(),
+  setSelectedLines: vi.fn(),
+}));
 
 vi.mock("@/lib/use-theme", () => ({
   useTheme: () => ({ resolved: "dark" }),
 }));
 
 vi.mock("@pierre/diffs/react", () => ({
-  CodeView: ({ items, options }: {
+  CodeView: forwardRef(({ items, options }: {
     items: Array<{
       file: { contents: string; name: string };
       version: number;
     }>;
     options: { disableLineNumbers?: boolean; overflow?: string };
-  }) => {
+  }, ref) => {
+    useImperativeHandle(ref, () => codeViewHandle);
     const file = items[0]?.file;
     return (
       <pre
@@ -26,8 +35,14 @@ vi.mock("@pierre/diffs/react", () => ({
         {file?.contents}
       </pre>
     );
-  },
+  }),
 }));
+
+beforeEach(() => {
+  installAsyncRequestAnimationFrame();
+  codeViewHandle.scrollTo.mockClear();
+  codeViewHandle.setSelectedLines.mockClear();
+});
 
 describe("SourceViewer", () => {
   test("renders exact read-only source through the shared Pierre surface", () => {
@@ -66,5 +81,31 @@ describe("SourceViewer", () => {
     expect(view.getByTestId("pierre-file").getAttribute("data-version")).not.toBe(
       firstVersion,
     );
+  });
+
+  test("reveals and selects a line range in the read-only surface", async () => {
+    render(
+      <SourceViewer
+        value={"first\nsecond\nthird\nfourth"}
+        ariaLabel="Workspace source"
+        filename="example.ts"
+        sourceIdentity="/repo/example.ts"
+        revealLocation={{ line: 2, column: 3, endLine: 4, endColumn: 8 }}
+      />,
+    );
+
+    await settleAsyncRender();
+
+    expect(codeViewHandle.setSelectedLines).toHaveBeenCalledWith({
+      id: "/repo/example.ts",
+      range: { start: 2, end: 4 },
+    });
+    expect(codeViewHandle.scrollTo).toHaveBeenCalledWith({
+      type: "range",
+      id: "/repo/example.ts",
+      range: { start: 2, end: 4 },
+      align: "center",
+      behavior: "instant",
+    });
   });
 });

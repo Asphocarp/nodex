@@ -18,12 +18,14 @@ function CanvasBlockFrameStory({
   status = "populated",
   readOnly = false,
   narrow = false,
+  initialTitle = "Launch architecture",
 }: {
   readonly status?: StoryStatus;
   readonly readOnly?: boolean;
   readonly narrow?: boolean;
+  readonly initialTitle?: string;
 }) {
-  const [title, setTitle] = useState("Launch architecture");
+  const [title, setTitle] = useState(initialTitle);
   const active =
     status === "empty"
     || status === "populated"
@@ -119,6 +121,10 @@ export const ActiveEmpty: Story = {
 };
 
 export const ActivePopulated: Story = {};
+
+export const ProjectDefaultName: Story = {
+  args: { initialTitle: "Research Canvas" },
+};
 
 export const RestoredTall: Story = {
   args: { status: "restored-tall" },

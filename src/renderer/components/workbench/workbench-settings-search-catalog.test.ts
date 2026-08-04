@@ -38,9 +38,13 @@ describe("workbench settings search catalog", () => {
   test("indexes setting row descriptions and option labels across panels", () => {
     expect(hasSectionResult("masked session replays", "general-settings")).toBe(true);
     expect(hasSectionResult("third-party notices", "general-settings")).toBe(true);
+    expect(hasSectionResult("password manager", "browser")).toBe(true);
+    expect(hasSectionResult("contact info", "browser")).toBe(true);
+    expect(hasSectionResult("browsing history", "browser")).toBe(true);
     expect(hasSectionResult("force fixed theme", "appearance")).toBe(true);
     expect(hasSectionResult("danger-full-access", "agent")).toBe(true);
-    expect(hasSectionResult("materialize inflating note", "editor")).toBe(true);
+    expect(hasSectionResult("materialize inflating note", "general-settings")).toBe(true);
+    expect(hasSectionResult("smart parse", "page")).toBe(true);
     expect(hasSectionResult("more-properties toggle", "page")).toBe(true);
     expect(hasSectionResult("auto-create branch detached", "worktrees")).toBe(true);
     expect(hasSectionResult("CODEX_SOURCE_TREE_PATH", "local-environments")).toBe(true);
@@ -53,7 +57,7 @@ describe("workbench settings search catalog", () => {
 
     expect(results.length).toBe(1);
     expect(results[0]?.sectionId).toBe("local-environments");
-    expect(results[0]?.label).toBe("Local environments");
+    expect(results[0]?.label).toBe("Environments");
   });
 
   test("does not index the retired sidebar section preferences", () => {

@@ -4,7 +4,7 @@ use utoipa::ToSchema;
 use crate::collection::{CollectionWindow, CollectionWindowRequest};
 use crate::{ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const PROJECT_WORKSPACE_CONTRACT_VERSION: u32 = 9;
+pub const PROJECT_WORKSPACE_CONTRACT_VERSION: u32 = 10;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -23,6 +23,7 @@ pub enum ProjectWorkspaceRead {
     ProjectPermissionMode {
         project_id: String,
     },
+    ProjectlessPermissionMode,
     TaskWindow {
         project_id: Option<String>,
         include_archived: Option<bool>,
@@ -79,6 +80,9 @@ pub enum ProjectWorkspaceReadValue {
         projection_revision: i64,
     },
     ProjectPermissionMode {
+        mode: Option<CodexPermissionMode>,
+    },
+    ProjectlessPermissionMode {
         mode: Option<CodexPermissionMode>,
     },
     TaskWindow {
@@ -772,6 +776,9 @@ pub enum ProjectWorkspaceIntent {
     },
     SetProjectPermissionMode {
         project_id: String,
+        mode: CodexPermissionMode,
+    },
+    SetProjectlessPermissionMode {
         mode: CodexPermissionMode,
     },
     MutateSession {

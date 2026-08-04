@@ -1,0 +1,741 @@
+import {
+  startTransition,
+  useCallback,
+  useEffect,
+  useState,
+} from "react";
+import { AppUpdateSettingsControl } from "./app-update-settings-control";
+import { AgentImportSettingsPage } from "./agent-import-settings-page";
+import { ComputerUseSettingsPage } from "./computer-use-settings-page";
+import { KeyboardShortcutsSettingsPage } from "./keyboard-shortcuts-settings-page";
+import { LocalEnvironmentsSettingsPage } from "./local-environments-settings-page";
+import { WorkbenchHooksSettingsPage } from "./workbench-hooks-settings-page";
+import {
+  BrowserSettingsPage,
+} from "@/features/browser-sidebar/browser-settings-pages";
+import {
+  FULL_ACCESS_PERMISSION_DESCRIPTION,
+  PermissionModeDropdown,
+} from "@/features/local-conversation/view/shared/permission-mode-dropdown";
+import { NodexButton } from "@/components/ui/button";
+import { toast } from "@/components/ui/toast";
+import { isCodexGitSettings } from "../../../shared/codex-git-settings";
+import type {
+  CodexGitSettings,
+  CodexPermissionState,
+} from "../../lib/types";
+import { invoke } from "./workbench-settings-overlay-deps";
+import {
+  BackupSettingsControl,
+  CardPropertyPositionSettingControl,
+  CodeFontSizeSettingControl,
+  ComposerEnterBehaviorControl,
+  ConfigValueDropdown,
+  DiagnosticsSettingControl,
+  FileLinkOpenerSettingControl,
+  formatApprovalPolicyLabel,
+  formatSandboxModeLabel,
+  ManagedWorktreesSettingControl,
+  NfmAutolinkBareDomainsSettingControl,
+  NfmAutolinkPasteSettingControl,
+  NfmAutolinkTypingSettingControl,
+  PageStageCollapsedPropertiesSettingControl,
+  PasteResourceDescriptionSoftLimitSettingControl,
+  PasteResourceTextThresholdSettingControl,
+  SansFontSizeSettingControl,
+  ServiceTierSettingControl,
+  SmartPrefixParsingSettingControl,
+  SpellcheckSettingControl,
+  StripSmartPrefixFromTitleSettingControl,
+  ThemeSettingControl,
+  ThreadDetailLevelSettingControl,
+  ThreadNotificationSettingControl,
+  ThreadQueueFollowUpsSettingControl,
+  TogglePill,
+  TelemetrySettingControl,
+  WindowRestoreSettingControl,
+  WorktreeAutoBranchPrefixSettingControl,
+  WorktreeStartModeSettingControl,
+} from "./workbench-settings-route-shell";
+import type {
+  SettingsPageComponentRegistry,
+  SettingsSectionPageProps,
+} from "./workbench-settings-page-registry";
+import { OPEN_SOURCE_LICENSES_SETTINGS_PATH } from "./workbench-settings-routes";
+import {
+  NodexSettingsPageSurface as SettingsPageSurface,
+  NodexSettingsRow as SettingRow,
+  NodexSettingsSection as SectionBlock,
+} from "../ui/settings";
+
+function usePermissionSettings(
+  activeProjectId: string | null,
+  open: boolean,
+) {
+  const [permissionState, setPermissionState] = useState<CodexPermissionState | null>(null);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadPermissionState = useCallback(async () => {
+    const nextState = (await invoke(
+      "codex:permission:state:get",
+      activeProjectId,
+    )) as CodexPermissionState;
+    setPermissionState(nextState);
+  }, [activeProjectId]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    void loadPermissionState().catch((err) => {
+      setError(err instanceof Error ? err.message : "Could not load agent settings.");
+    });
+  }, [activeProjectId, loadPermissionState, open]);
+
+  const writeConfigValue = useCallback(async (keyPath: string, value: unknown) => {
+    setBusyKey(keyPath);
+    setError(null);
+    try {
+      const nextState = (await invoke(
+        "codex:permission:config-value:set",
+        activeProjectId,
+        keyPath,
+        value,
+      )) as CodexPermissionState;
+      setPermissionState(nextState);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save config setting.");
+    } finally {
+      setBusyKey(null);
+    }
+  }, [activeProjectId]);
+
+  const handlePermissionModeChange = useCallback(async (
+    mode: "auto" | "guardian-approvals" | "full-access" | "custom",
+  ) => {
+    setBusyKey("permission-mode");
+    setError(null);
+    try {
+      const nextState = (await invoke(
+        "codex:permission:mode:set",
+        activeProjectId,
+        mode,
+      )) as CodexPermissionState;
+      setPermissionState(nextState);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save permission mode.");
+    } finally {
+      setBusyKey(null);
+    }
+  }, [activeProjectId]);
+
+  return {
+    busyKey,
+    error,
+    handlePermissionModeChange,
+    permissionState,
+    writeConfigValue,
+  };
+}
+
+export function GeneralSettingsPage({
+  activeProjectId,
+  composerEnterBehavior,
+  isMacPlatform,
+  onComposerEnterBehaviorChange,
+  onPathChange,
+  onThreadQueueFollowUpsEnabledChange,
+  open,
+  threadQueueFollowUpsEnabled,
+}: SettingsSectionPageProps) {
+  const {
+    handlePermissionModeChange,
+    permissionState,
+    error: permissionError,
+  } = usePermissionSettings(activeProjectId, open);
+
+  return (
+    <SettingsPageSurface
+      title="General"
+      subtitle="App-wide shell behavior and notifications."
+    >
+      <SectionBlock id="permissions" title="Permissions">
+        <SettingRow
+          label="Default permissions mode"
+          description={permissionState?.mode === "full-access"
+            ? FULL_ACCESS_PERMISSION_DESCRIPTION
+            : "Choose the preset used for new local Codex threads."}
+        >
+          <PermissionModeDropdown
+            selectedMode={permissionState?.mode ?? "custom"}
+            customDescription={permissionState?.customDescription ?? null}
+            availableModes={permissionState?.availableModes}
+            autoReviewAvailable={permissionState?.autoReviewAvailable ?? false}
+            triggerStyle="settings"
+            onSelect={(mode) => {
+              void handlePermissionModeChange(mode);
+            }}
+          />
+        </SettingRow>
+      </SectionBlock>
+
+      <SectionBlock id="general" title="General">
+        <SettingRow
+          label="Restore windows"
+          description="Choose which workbench windows reopen after quitting Nodex."
+        >
+          <WindowRestoreSettingControl />
+        </SettingRow>
+        <SettingRow
+          label="Service tier"
+          description="Choose the default speed for new thread requests. Standard is the default; Fast opts into the faster tier."
+        >
+          <ServiceTierSettingControl />
+        </SettingRow>
+        <SettingRow
+          label="App updates"
+          description="Packaged macOS builds can check, download, and install stable updates in the background."
+        >
+          <AppUpdateSettingsControl open={open} />
+        </SettingRow>
+        <SettingRow
+          label="Diagnostics"
+          description="Optionally send crash diagnostics and masked session replays to Sentry. Prompts, transcripts, card text, and local payloads are scrubbed before upload."
+        >
+          <DiagnosticsSettingControl open={open} />
+        </SettingRow>
+        <SettingRow
+          label="Telemetry"
+          description="Optionally send anonymous product events and filtered technical web analytics to Statsig. Prompts, transcripts, card text, and file paths are not sent."
+        >
+          <TelemetrySettingControl open={open} />
+        </SettingRow>
+        <SettingRow
+          label="Open source licenses"
+          description="Third-party notices for bundled dependencies"
+        >
+          <NodexButton
+            variant="secondary"
+            size="xs"
+            onClick={() => {
+              startTransition(() => {
+                onPathChange(OPEN_SOURCE_LICENSES_SETTINGS_PATH);
+              });
+            }}
+          >
+            View
+          </NodexButton>
+        </SettingRow>
+      </SectionBlock>
+
+      <SectionBlock id="composer" title="Composer">
+        <SettingRow
+          label="Thread detail"
+          description="Choose how much command output to show in threads."
+        >
+          <ThreadDetailLevelSettingControl />
+        </SettingRow>
+        <SettingRow label="Spellcheck" description="Inline text correction for editable writing surfaces.">
+          <SpellcheckSettingControl />
+        </SettingRow>
+        <SettingRow
+          label="Auto-link while typing"
+          description="Turn typed URLs into links as you finish the token."
+        >
+          <NfmAutolinkTypingSettingControl />
+        </SettingRow>
+        <SettingRow
+          label="Auto-link on paste"
+          description="Recognize links in pasted text, including inline URL spans inside longer content."
+        >
+          <NfmAutolinkPasteSettingControl />
+        </SettingRow>
+        <SettingRow
+          label="Recognize bare domains"
+          description="Link plain domains like example.com. Leave off to avoid filename-like text such as .md paths."
+        >
+          <NfmAutolinkBareDomainsSettingControl />
+        </SettingRow>
+        <SettingRow
+          label="Large paste text threshold"
+          description="Prompt when pasted plain text reaches this many characters, so you can materialize it instead of inflating the note."
+        >
+          <PasteResourceTextThresholdSettingControl />
+        </SettingRow>
+        <SettingRow
+          label="Large paste description soft limit"
+          description="Prompt before pasted plain text pushes the note near its description size ceiling."
+        >
+          <PasteResourceDescriptionSoftLimitSettingControl />
+        </SettingRow>
+        <SettingRow
+          label={`${isMacPlatform ? "Cmd" : "Ctrl"}+Enter to send long prompts`}
+          description="Single-line prompts still send on Enter. Multiline prompts switch to the modifier chord when this is enabled."
+        >
+          <ComposerEnterBehaviorControl
+            value={composerEnterBehavior}
+            onChange={onComposerEnterBehaviorChange}
+          />
+        </SettingRow>
+        <SettingRow
+          label="Queue follow-ups"
+          description="While a thread is running, use queue as the default submit action instead of immediate steering."
+        >
+          <ThreadQueueFollowUpsSettingControl
+            value={threadQueueFollowUpsEnabled}
+            onChange={onThreadQueueFollowUpsEnabledChange}
+          />
+        </SettingRow>
+      </SectionBlock>
+
+      <SectionBlock id="files-and-links" title="Files & links">
+        <SettingRow
+          label="Markdown file links"
+          description="Choose which desktop app handles absolute local file links in rendered markdown."
+        >
+          <FileLinkOpenerSettingControl />
+        </SettingRow>
+      </SectionBlock>
+
+      <SectionBlock id="notifications" title="Notifications">
+        <ThreadNotificationSettingControl open={open} />
+      </SectionBlock>
+
+      {permissionError ? (
+        <div className="text-sm text-[var(--red-text)]">{permissionError}</div>
+      ) : null}
+    </SettingsPageSurface>
+  );
+}
+
+export function AppearanceSettingsPage() {
+  return (
+    <SettingsPageSurface
+      title="Appearance"
+      subtitle="Theme and typography tokens used across the app."
+    >
+      <SectionBlock title="Theme">
+        <SettingRow label="Theme" description="Match system mode or force a fixed theme.">
+          <ThemeSettingControl />
+        </SettingRow>
+        <SettingRow
+          label="Sans font size"
+          description="Scales shared sans typography tokens and chat body text across the app."
+        >
+          <SansFontSizeSettingControl />
+        </SettingRow>
+        <SettingRow
+          label="Code font size"
+          description="Sets editor/code typography globally via --vscode-editor-font-size."
+        >
+          <CodeFontSizeSettingControl />
+        </SettingRow>
+      </SectionBlock>
+    </SettingsPageSurface>
+  );
+}
+
+export function AgentSettingsPage({
+  activeProjectId,
+  open,
+}: SettingsSectionPageProps) {
+  const {
+    busyKey,
+    error,
+    permissionState,
+    writeConfigValue,
+  } = usePermissionSettings(activeProjectId, open);
+
+  const openConfigToml = useCallback(async () => {
+    const configPath = permissionState?.configTarget.filePath?.trim();
+    if (!configPath) {
+      return;
+    }
+
+    await invoke("shell:open-file-link", { path: configPath }, "fileManager");
+  }, [permissionState?.configTarget.filePath]);
+
+  const approvalPolicyValue = formatApprovalPolicyLabel(permissionState?.approvalPolicy ?? null);
+  const sandboxModeValue = formatSandboxModeLabel(permissionState?.sandboxMode ?? null);
+  const networkAccessValue = permissionState?.sandbox?.type === "workspaceWrite"
+    ? permissionState.sandbox.networkAccess
+    : false;
+
+  return (
+    <SettingsPageSurface
+      title="Agent"
+      subtitle="Configuration and raw config.toml settings."
+    >
+      <SectionBlock title="Configuration">
+        <SettingRow label="Approval policy" description="Raw `approval_policy` value for this config target.">
+          <ConfigValueDropdown
+            value={approvalPolicyValue}
+            disabled={busyKey !== null}
+            onSelect={(value) => {
+              void writeConfigValue("approval_policy", value);
+            }}
+            options={[
+              { value: "untrusted", label: "untrusted" },
+              { value: "on-request", label: "on-request" },
+              { value: "never", label: "never" },
+            ]}
+          />
+        </SettingRow>
+        <SettingRow label="Sandbox settings" description="Raw `sandbox_mode` value for this config target.">
+          <ConfigValueDropdown
+            value={sandboxModeValue}
+            disabled={busyKey !== null}
+            onSelect={(value) => {
+              void writeConfigValue("sandbox_mode", value);
+            }}
+            options={[
+              { value: "read-only", label: "read-only" },
+              { value: "workspace-write", label: "workspace-write" },
+              { value: "danger-full-access", label: "danger-full-access" },
+            ]}
+          />
+        </SettingRow>
+        <SettingRow label="Allow network access" description="Controls `sandbox_workspace_write.network_access`.">
+          <TogglePill
+            ariaLabel="Allow network access"
+            value={networkAccessValue}
+            disabled={busyKey !== null || permissionState?.sandboxMode !== "workspace-write"}
+            onChange={(value) => {
+              void writeConfigValue("sandbox_workspace_write.network_access", value);
+            }}
+          />
+        </SettingRow>
+        <SettingRow label="config.toml" description={permissionState?.configTarget.filePath ?? "No writable config target"}>
+          <NodexButton
+            type="button"
+            variant="secondary"
+            size="sm"
+            disabled={!permissionState?.configTarget.filePath}
+            onClick={() => {
+              void openConfigToml();
+            }}
+          >
+            Reveal
+          </NodexButton>
+        </SettingRow>
+      </SectionBlock>
+
+      {error ? (
+        <div className="text-sm text-[var(--red-text)]">{error}</div>
+      ) : null}
+    </SettingsPageSurface>
+  );
+}
+
+export function PageSettingsPage({
+  onSmartPrefixParsingEnabledChange,
+  onStripSmartPrefixFromTitleEnabledChange,
+  smartPrefixParsingEnabled,
+  stripSmartPrefixFromTitleEnabled,
+}: SettingsSectionPageProps) {
+  return (
+    <SettingsPageSurface
+      title="Pages"
+      subtitle="Kanban card and page-stage presentation."
+    >
+      <SectionBlock id="cards-and-page-stage" title="Cards & Page Stage">
+        <SettingRow
+          label="Kanban card properties"
+          description="Choose whether priority, estimate, tags, assignee, and run-in metadata render above the title, inline with it, or below the card body."
+        >
+          <CardPropertyPositionSettingControl />
+        </SettingRow>
+        <SettingRow
+          label="Page Stage collapsed properties"
+          description="Choose which page-stage property rows start behind the more-properties toggle."
+        >
+          <PageStageCollapsedPropertiesSettingControl />
+        </SettingRow>
+      </SectionBlock>
+      <SectionBlock id="block-import" title="Block import">
+        <SettingRow
+          label="Smart parse block prefixes"
+          description="Interpret shorthand like 1XL(tag) during block-to-card import."
+        >
+          <SmartPrefixParsingSettingControl
+            value={smartPrefixParsingEnabled}
+            onChange={onSmartPrefixParsingEnabledChange}
+          />
+        </SettingRow>
+        <SettingRow
+          label="Strip parsed prefix from title"
+          description="Remove matched shorthand from imported Page titles after parsing."
+        >
+          <StripSmartPrefixFromTitleSettingControl
+            value={stripSmartPrefixFromTitleEnabled}
+            onChange={onStripSmartPrefixFromTitleEnabledChange}
+            disabled={!smartPrefixParsingEnabled}
+          />
+        </SettingRow>
+      </SectionBlock>
+    </SettingsPageSurface>
+  );
+}
+
+export function WorktreesSettingsPage({
+  onWorktreeStartModeChange,
+  open,
+  worktreeStartMode,
+}: SettingsSectionPageProps) {
+  return (
+    <SettingsPageSurface
+      title="Worktrees"
+      subtitle="Managed worktree creation, naming, and cleanup."
+    >
+      <SectionBlock title="Defaults">
+        <SettingRow
+          label="Worktree start mode"
+          description="Choose whether new worktree threads auto-create a branch or start detached."
+        >
+          <WorktreeStartModeSettingControl
+            value={worktreeStartMode}
+            onChange={onWorktreeStartModeChange}
+          />
+        </SettingRow>
+      </SectionBlock>
+      <SectionBlock title="Managed worktrees">
+        <div className="flex flex-col gap-1 p-3">
+          <div className="text-sm text-token-text-primary">
+            Managed worktrees
+          </div>
+          <div className="text-token-text-secondary text-sm">
+            Worktrees created by card threads. Hover a row to remove.
+          </div>
+          <ManagedWorktreesSettingControl open={open} />
+        </div>
+      </SectionBlock>
+    </SettingsPageSurface>
+  );
+}
+
+function GitInstructionSettingControl({
+  ariaLabel,
+  description,
+  label,
+  onSave,
+  placeholder,
+  value,
+}: {
+  ariaLabel: string;
+  description: string;
+  label: string;
+  onSave: (value: string) => Promise<void>;
+  placeholder: string;
+  value: string;
+}) {
+  const [draft, setDraft] = useState(value);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => setDraft(value), [value]);
+
+  const changed = draft !== value;
+  const save = useCallback(async () => {
+    if (!changed || saving) return;
+    setSaving(true);
+    try {
+      await onSave(draft);
+    } finally {
+      setSaving(false);
+    }
+  }, [changed, draft, onSave, saving]);
+
+  return (
+    <SectionBlock title={label}>
+      <div className="flex items-start justify-between gap-4 p-3 pb-0">
+        <p className="text-sm text-token-text-secondary">{description}</p>
+        <NodexButton
+          variant="secondary"
+          size="sm"
+          disabled={!changed || saving}
+          onClick={() => void save()}
+        >
+          {saving ? "Saving…" : "Save"}
+        </NodexButton>
+      </div>
+      <div className="p-3 pt-2">
+        <textarea
+          aria-label={ariaLabel}
+          className="mt-1.5 w-full resize-y rounded-md border border-token-input-border bg-token-input-background px-2.5 py-2 text-sm text-token-input-foreground outline-none placeholder:text-token-input-placeholder-foreground focus:border-token-focus-border disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={saving}
+          onChange={(event) => setDraft(event.target.value)}
+          placeholder={placeholder}
+          rows={6}
+          value={draft}
+        />
+      </div>
+    </SectionBlock>
+  );
+}
+
+export function GitSettingsPage({
+  onWorktreeAutoBranchPrefixChange,
+  open,
+  worktreeAutoBranchPrefix,
+}: SettingsSectionPageProps) {
+  const [settings, setSettings] = useState<CodexGitSettings>({
+    branchPrefix: worktreeAutoBranchPrefix,
+    commitInstructions: "",
+    pullRequestInstructions: "",
+  });
+  const [branchSaving, setBranchSaving] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    let disposed = false;
+    void invoke("settings:git:get")
+      .then((next) => {
+        if (disposed) return;
+        if (!isCodexGitSettings(next)) throw new Error("Git settings are unavailable");
+        setSettings((current) =>
+          current.branchPrefix === next.branchPrefix
+            && current.commitInstructions === next.commitInstructions
+            && current.pullRequestInstructions === next.pullRequestInstructions
+            ? current
+            : next
+        );
+      })
+      .catch(() => {
+        if (!disposed) toast.danger("Failed to load Git settings");
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [open]);
+
+  const saveBranchPrefix = useCallback(async (branchPrefix: string) => {
+    if (branchSaving) return;
+    setBranchSaving(true);
+    try {
+      const next = await invoke("settings:git:update", { branchPrefix });
+      if (!isCodexGitSettings(next)) throw new Error("Git settings are unavailable");
+      setSettings(next);
+      onWorktreeAutoBranchPrefixChange(next.branchPrefix);
+      toast.success("Saved branch prefix");
+    } catch {
+      toast.danger("Failed to save branch prefix");
+    } finally {
+      setBranchSaving(false);
+    }
+  }, [branchSaving, onWorktreeAutoBranchPrefixChange]);
+
+  const saveInstructions = useCallback(async (
+    patch: Pick<CodexGitSettings, "commitInstructions"> | Pick<CodexGitSettings, "pullRequestInstructions">,
+    successMessage: string,
+    errorMessage: string,
+  ) => {
+    try {
+      const next = await invoke("settings:git:update", patch);
+      if (!isCodexGitSettings(next)) throw new Error("Git settings are unavailable");
+      setSettings(next);
+      toast.success(successMessage);
+    } catch {
+      toast.danger(errorMessage);
+    }
+  }, []);
+
+  return (
+    <SettingsPageSurface
+      title="Git"
+      subtitle="Branch naming and instructions used by Codex for Git operations."
+    >
+      <SectionBlock title="Branches">
+        <SettingRow
+          label="Branch prefix"
+          description="Prefix used when Codex creates new branches."
+        >
+          <WorktreeAutoBranchPrefixSettingControl
+            disabled={branchSaving}
+            value={settings.branchPrefix}
+            onChange={(branchPrefix) => void saveBranchPrefix(branchPrefix)}
+          />
+        </SettingRow>
+      </SectionBlock>
+      <GitInstructionSettingControl
+        ariaLabel="Commit instructions"
+        description="Added to commit message generation prompts."
+        label="Commit instructions"
+        onSave={(commitInstructions) => saveInstructions(
+          { commitInstructions },
+          "Saved commit instructions",
+          "Failed to save commit instructions",
+        )}
+        placeholder="Add commit message guidance…"
+        value={settings.commitInstructions}
+      />
+      <GitInstructionSettingControl
+        ariaLabel="Pull request instructions"
+        description="Added to PR title and description generation prompts."
+        label="Pull request instructions"
+        onSave={(pullRequestInstructions) => saveInstructions(
+          { pullRequestInstructions },
+          "Saved pull request instructions",
+          "Failed to save pull request instructions",
+        )}
+        placeholder="Add pull request guidance…"
+        value={settings.pullRequestInstructions}
+      />
+    </SettingsPageSurface>
+  );
+}
+
+export function LocalEnvironmentsSettingsSectionPage({
+  activeProjectId,
+  initialLocalEnvironmentConfigPath,
+  initialLocalEnvironmentProjectId,
+  onRequestProjectPickerOpen,
+  open,
+  projects,
+}: SettingsSectionPageProps) {
+  return (
+    <LocalEnvironmentsSettingsPage
+      open={open}
+      active
+      projects={projects}
+      activeProjectId={activeProjectId}
+      initialProjectId={initialLocalEnvironmentProjectId}
+      initialConfigPath={initialLocalEnvironmentConfigPath}
+      onAddProject={onRequestProjectPickerOpen}
+      renderShell={({ title, subtitle, backSlot, children }) => (
+        <SettingsPageSurface
+          title={title}
+          subtitle={subtitle}
+          backSlot={backSlot}
+        >
+          {children}
+        </SettingsPageSurface>
+      )}
+    />
+  );
+}
+
+export function BackupsSettingsPage({ open }: SettingsSectionPageProps) {
+  return (
+    <SettingsPageSurface
+      title="Backups"
+      subtitle="Snapshot cadence, retention, and restore operations."
+    >
+      <BackupSettingsControl open={open} />
+    </SettingsPageSurface>
+  );
+}
+
+export const SETTINGS_PAGE_COMPONENTS: SettingsPageComponentRegistry = {
+  general: GeneralSettingsPage,
+  appearance: AppearanceSettingsPage,
+  browser: BrowserSettingsPage,
+  "computer-use": ComputerUseSettingsPage,
+  "keyboard-shortcuts": KeyboardShortcutsSettingsPage,
+  agent: AgentSettingsPage,
+  import: AgentImportSettingsPage,
+  page: PageSettingsPage,
+  git: GitSettingsPage,
+  worktrees: WorktreesSettingsPage,
+  "local-environments": LocalEnvironmentsSettingsSectionPage,
+  hooks: WorkbenchHooksSettingsPage,
+  backups: BackupsSettingsPage,
+};

@@ -10,6 +10,12 @@ import {
   NodexDialogHeader,
   NodexDialogTitle,
 } from "@/components/ui/dialog";
+import {
+  NodexDropdownItem,
+  NodexDropdownMenu,
+  NodexDropdownSelectedIcon,
+  NodexSettingsDropdownTrigger,
+} from "@/components/ui/dropdown";
 import { invoke } from "@/lib/api";
 import type {
   BrowserProfileCapabilities,
@@ -139,6 +145,9 @@ export function BrowserProfileImportDialog({
     || !selectedProfile
     || (!importCookies && !importPasswords)
     || selectedProfile.sourceBrowserOpen;
+  const selectedProfileLabel = selectedProfile
+    ? `${selectedProfile.appName} — ${selectedProfile.profileName}${selectedProfile.userName ? ` (${selectedProfile.userName})` : ""}`
+    : "No importable profiles found";
 
   return (
     <NodexDialog open={open} onOpenChange={onOpenChange}>
@@ -159,21 +168,34 @@ export function BrowserProfileImportDialog({
             ) : null}
             <label className="flex flex-col gap-1.5 text-sm text-token-text-primary">
               Profile
-              <select
-                className="h-9 rounded-lg border border-token-border bg-token-main-surface-primary px-3 text-sm outline-none focus-visible:ring-1 focus-visible:ring-token-focus"
-                value={selectedProfilePath}
+              <NodexDropdownMenu
                 disabled={loading || profiles.length === 0}
-                onChange={(event) => setSelectedProfilePath(event.target.value)}
+                contentWidth="menu"
+                triggerButton={(
+                  <NodexSettingsDropdownTrigger
+                    aria-label="Profile"
+                    className="h-9 w-full"
+                  >
+                    <span className="truncate">{selectedProfileLabel}</span>
+                  </NodexSettingsDropdownTrigger>
+                )}
               >
-                {profiles.length === 0 ? (
-                  <option value="">No importable profiles found</option>
-                ) : profiles.map((profile) => (
-                  <option key={`${profile.source}:${profile.profilePath}`} value={profile.profilePath}>
-                    {profile.appName} — {profile.profileName}
-                    {profile.userName ? ` (${profile.userName})` : ""}
-                  </option>
-                ))}
-              </select>
+                {profiles.map((profile) => {
+                  const profileLabel = `${profile.appName} — ${profile.profileName}${profile.userName ? ` (${profile.userName})` : ""}`;
+
+                  return (
+                    <NodexDropdownItem
+                      key={`${profile.source}:${profile.profilePath}`}
+                      onSelect={() => setSelectedProfilePath(profile.profilePath)}
+                      rightSlot={profile.profilePath === selectedProfilePath
+                        ? <NodexDropdownSelectedIcon />
+                        : null}
+                    >
+                      {profileLabel}
+                    </NodexDropdownItem>
+                  );
+                })}
+              </NodexDropdownMenu>
             </label>
             {selectedProfile?.sourceBrowserOpen ? (
               <BrowserImportNotice tone="warning">

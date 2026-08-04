@@ -89,6 +89,8 @@ function resolveStoryAboveComposerBlocks(
     requests: turnRequestsByTurnId.get(activeTurnId) ?? [],
     isLatestTurn: model.bodyModel.body.latestTurnId === activeTurnId,
     isStreamingTurn: true,
+    cwd: conversation.cwd,
+    projectlessOutputDirectory: conversation.projectlessOutputDirectory,
     canEditTurnUserPrefix: false,
     canForkTurn: false,
   }).aboveComposerBlocks ?? [];
@@ -438,6 +440,69 @@ function buildLiveDraftedEditDiffModel({
   });
 }
 
+function buildProjectlessScopedDiffModel() {
+  const controls: ThreadStageStoryControls = {
+    ...STORY_CONTROLS,
+    preset: "streaming",
+  };
+  const scenario = buildThreadStageStoryScenario(controls);
+  const cwd = "/workspace/nodex";
+  const projectlessOutputDirectory = `${cwd}/outputs/story`;
+  const unifiedDiff = [
+    "--- a/outputs/story/generated.ts",
+    "+++ b/outputs/story/generated.ts",
+    "@@ -1 +1 @@",
+    "-old generated output",
+    "+new generated output",
+    "--- a/src/renderer/features/local-conversation/view/shared/turn-diff-surface.tsx",
+    "+++ b/src/renderer/features/local-conversation/view/shared/turn-diff-surface.tsx",
+    "@@ -1 +1 @@",
+    "-old unrelated workspace edit",
+    "+new unrelated workspace edit",
+  ].join("\n");
+  const conversation = buildStoryConversation({
+    projectId: null,
+    cwd,
+    projectlessOutputDirectory,
+    statusType: "active",
+    turns: [
+      buildStoryConversationTurn({
+        turnId: "turn_story_projectless_scoped_diff",
+        status: "inProgress",
+        diff: unifiedDiff,
+        items: [
+          buildStoryConversationItem({
+            turnId: "turn_story_projectless_scoped_diff",
+            itemId: "user_story_projectless_scoped_diff",
+            type: "user_message",
+            kind: "userMessage",
+            semanticKind: "userMessage",
+            role: "user",
+            markdownText: "Generate an output artifact without surfacing unrelated workspace edits in the Review affordance.",
+            createdAt: 10_000,
+            updatedAt: 10_000,
+          }),
+        ],
+      }),
+    ],
+    queuedFollowUps: [],
+    pendingSteers: [],
+    backgroundTerminalRows: [],
+    childMemberships: [],
+    requests: [],
+  });
+
+  return buildThreadStageStorySurfaceModels(scenario, controls, {
+    ...scenario.runtime,
+    activeThreadId: conversation.threadId,
+    activeThreadSummary: conversation,
+    conversation,
+    knownConversationsById: {
+      [conversation.threadId]: conversation,
+    },
+  });
+}
+
 function AboveComposerStoryFrame({
   model = buildShellModel(),
   title,
@@ -499,6 +564,7 @@ function AboveComposerStoryFrame({
                 isLatestTurn={model.bodyModel.body.latestTurnId === model.bodyModel.body.activeTurnId}
                 isStreamingTurn={true}
                 projectWorkspacePath={model.bodyModel.projectWorkspacePath}
+                projectlessOutputDirectory={model.footerModel.conversation?.projectlessOutputDirectory ?? null}
                 threadCwd={model.footerModel.conversation?.cwd ?? null}
               />
               <TestThreadRouteScopePath>
@@ -703,6 +769,16 @@ export const LiveDraftedEditDiffWithFileChange: Story = {
     title: "Live Drafted Edit Diff With FileChange",
     description:
       "Parity fixture for the live patchUpdated path: the fileChange row exists in the turn, but the active turn/diff files-changed pill remains in the fixed above-composer portal.",
+  },
+  render: (args) => <AboveComposerStoryFrame {...args} />,
+};
+
+export const ProjectlessScopedOutputDiff: Story = {
+  args: {
+    model: buildProjectlessScopedDiffModel(),
+    title: "Projectless Scoped Output Diff",
+    description:
+      "Projectless parity fixture: only edits under the generated output directory remain in the above-composer Review affordance; unrelated workspace edits are filtered out.",
   },
   render: (args) => <AboveComposerStoryFrame {...args} />,
 };

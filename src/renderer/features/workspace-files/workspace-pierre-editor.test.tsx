@@ -1,6 +1,23 @@
 import { render } from "@testing-library/react";
-import { describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
+import { forwardRef, useImperativeHandle } from "react";
+import { settleAsyncRender } from "../../test/dom";
+import { installAsyncRequestAnimationFrame } from "../../test/browser-globals";
 import { WorkspacePierreEditor } from "./workspace-pierre-editor";
+
+const { editor, codeViewHandle } = vi.hoisted(() => {
+  const editor = {
+    setSelections: vi.fn(),
+  };
+  return {
+    editor,
+    codeViewHandle: {
+      getEditor: vi.fn(() => editor),
+      scrollTo: vi.fn(),
+      setSelectedLines: vi.fn(),
+    },
+  };
+});
 
 vi.mock("@/lib/use-theme", () => ({
   useTheme: () => ({ resolved: "dark" }),
@@ -8,7 +25,7 @@ vi.mock("@/lib/use-theme", () => ({
 
 vi.mock("@pierre/diffs/react", () => ({
   EditProvider: ({ children }: { children: React.ReactNode }) => children,
-  CodeView: ({
+  CodeView: forwardRef(({
     items,
     onItemEditChange,
   }: {
@@ -17,20 +34,31 @@ vi.mock("@pierre/diffs/react", () => ({
       item: unknown,
       file: { contents: string; name: string },
     ) => void;
-  }) => (
-    <button
-      type="button"
-      data-testid="editable-pierre-file"
-      data-editable={items[0]?.edit}
-      onClick={() => onItemEditChange(items[0], {
-        name: items[0]?.file.name ?? "file",
-        contents: "edited",
-      })}
-    >
-      {items[0]?.file.contents}
-    </button>
-  ),
+  }, ref) => {
+    useImperativeHandle(ref, () => codeViewHandle);
+    return (
+      <button
+        type="button"
+        data-testid="editable-pierre-file"
+        data-editable={items[0]?.edit}
+        onClick={() => onItemEditChange(items[0], {
+          name: items[0]?.file.name ?? "file",
+          contents: "edited",
+        })}
+      >
+        {items[0]?.file.contents}
+      </button>
+    );
+  }),
 }));
+
+beforeEach(() => {
+  installAsyncRequestAnimationFrame();
+  editor.setSelections.mockClear();
+  codeViewHandle.getEditor.mockClear();
+  codeViewHandle.scrollTo.mockClear();
+  codeViewHandle.setSelectedLines.mockClear();
+});
 
 describe("WorkspacePierreEditor", () => {
   test("renders an editable Pierre item and delivers exact document changes", () => {
@@ -51,5 +79,36 @@ describe("WorkspacePierreEditor", () => {
     expect(editor.getAttribute("data-editable")).toBe("true");
     editor.click();
     expect(onChange).toHaveBeenCalledWith("edited");
+  });
+
+  test("reveals and selects a line range in the editable surface", async () => {
+    render(
+      <WorkspacePierreEditor
+        value={"first\nsecond\nthird\nfourth"}
+        filename="index.ts"
+        language="typescript"
+        sourceIdentity="/repo/index.ts"
+        documentVersion={0}
+        ariaLabel="Editor"
+        revealLocation={{ line: 2, column: 3, endLine: 4, endColumn: 8 }}
+        onChange={() => undefined}
+      />,
+    );
+
+    await settleAsyncRender();
+
+    expect(editor.setSelections).toHaveBeenCalledWith([{
+      start: { line: 1, character: 2 },
+      end: { line: 3, character: 7 },
+      direction: "forward",
+    }]);
+    expect(codeViewHandle.setSelectedLines).toHaveBeenCalledWith(null);
+    expect(codeViewHandle.scrollTo).toHaveBeenCalledWith({
+      type: "range",
+      id: "/repo/index.ts",
+      range: { start: 2, end: 4 },
+      align: "center",
+      behavior: "instant",
+    });
   });
 });

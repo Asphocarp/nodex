@@ -16402,6 +16402,24 @@
               {
                 "type": "object",
                 "required": [
+                  "mode",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "set_projectless_permission_mode"
+                    ]
+                  },
+                  "mode": {
+                    "$ref": "#/components/schemas/CodexPermissionMode"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
                   "session_id",
                   "intent",
                   "kind"
@@ -18479,6 +18497,20 @@
                   },
                   "project_id": {
                     "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "projectless_permission_mode"
+                    ]
                   }
                 }
               },
@@ -23734,6 +23766,30 @@
                             "type": "string",
                             "enum": [
                               "project_permission_mode"
+                            ]
+                          },
+                          "mode": {
+                            "oneOf": [
+                              {
+                                "type": "null"
+                              },
+                              {
+                                "$ref": "#/components/schemas/CodexPermissionMode"
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "projectless_permission_mode"
                             ]
                           },
                           "mode": {

@@ -63,6 +63,13 @@ export function isFocusedPanelTabShortcutTargetBlocked(
   );
 }
 
+export function isWorkbenchPanelTabShortcutTargetBlocked(
+  target: EventTarget | null,
+): boolean {
+  return isCodexTerminalShortcutTarget(target)
+    || isFocusedPanelTabShortcutTargetBlocked(target);
+}
+
 export function resolveFocusedPanelTabCycleScope(
   target: EventTarget | null,
 ): PanelTabCycleScope | null {

@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { Streamdown } from "streamdown";
 import { MARKDOWN_CONTENT_CLASS_NAME } from "@/components/shared/inline-markdown-code";
+import { FileLinkWorkspaceProvider } from "@/components/shared/file-link-anchor";
 import {
   StreamdownMermaidError,
   streamdownComponents,
@@ -13,6 +14,8 @@ interface MarkdownCoreProps {
   parseIncompleteMarkdown?: boolean;
   preserveLineBreaks?: boolean;
   animateStreamingText?: boolean;
+  cwd?: string | null;
+  projectWorkspacePath?: string | null;
 }
 
 function normalizeMarkdown(content: string): string {
@@ -29,45 +32,49 @@ export function MarkdownCore({
   parseIncompleteMarkdown = false,
   preserveLineBreaks = false,
   animateStreamingText = false,
+  cwd,
+  projectWorkspacePath,
 }: MarkdownCoreProps) {
   const normalizedContent = useMemo(() => normalizeMarkdown(content), [content]);
   const shouldAnimateStreamingText = animateStreamingText && parseIncompleteMarkdown;
 
   return (
-    <Streamdown
-      components={streamdownComponents}
-      plugins={streamdownPlugins}
-      remarkPlugins={preserveLineBreaks ? streamdownRemarkPluginsWithBreaks : undefined}
-      mermaid={{ errorComponent: StreamdownMermaidError }}
-      parseIncompleteMarkdown={parseIncompleteMarkdown}
-      mode={parseIncompleteMarkdown ? "streaming" : "static"}
-      animated={
-        shouldAnimateStreamingText
-          ? {
-              animation: "fadeIn",
-              sep: "word",
-              duration: 200,
-              easing: "cubic-bezier(.37, .55, .86, .88)",
-            }
-          : undefined
-      }
-      isAnimating={shouldAnimateStreamingText}
-      lineNumbers={false}
-      className={`
-        [&>*:first-child]:mt-0
-        [&>*:last-child]:mb-0
-        ${MARKDOWN_CONTENT_CLASS_NAME}
-      `}
-      controls={{
-        table: false,
-        code: {
-          copy: true,
-          download: false,
-        },
-        mermaid: true,
-      }}
-    >
-      {normalizedContent}
-    </Streamdown>
+    <FileLinkWorkspaceProvider cwd={cwd} workspacePath={projectWorkspacePath}>
+      <Streamdown
+        components={streamdownComponents}
+        plugins={streamdownPlugins}
+        remarkPlugins={preserveLineBreaks ? streamdownRemarkPluginsWithBreaks : undefined}
+        mermaid={{ errorComponent: StreamdownMermaidError }}
+        parseIncompleteMarkdown={parseIncompleteMarkdown}
+        mode={parseIncompleteMarkdown ? "streaming" : "static"}
+        animated={
+          shouldAnimateStreamingText
+            ? {
+                animation: "fadeIn",
+                sep: "word",
+                duration: 200,
+                easing: "cubic-bezier(.37, .55, .86, .88)",
+              }
+            : undefined
+        }
+        isAnimating={shouldAnimateStreamingText}
+        lineNumbers={false}
+        className={`
+          [&>*:first-child]:mt-0
+          [&>*:last-child]:mb-0
+          ${MARKDOWN_CONTENT_CLASS_NAME}
+        `}
+        controls={{
+          table: false,
+          code: {
+            copy: true,
+            download: false,
+          },
+          mermaid: true,
+        }}
+      >
+        {normalizedContent}
+      </Streamdown>
+    </FileLinkWorkspaceProvider>
   );
 }

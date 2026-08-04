@@ -863,6 +863,16 @@ BEGIN
 END;
 "#;
 
+const V101_PROJECTLESS_PERMISSION_MODE_SCHEMA_SQL: &str = r#"
+CREATE TABLE codex_projectless_permission_mode_selection (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  mode TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  CHECK (mode IN ('auto', 'guardian-approvals', 'full-access', 'custom')),
+  CHECK (length(updated_at) > 0)
+) WITHOUT ROWID, STRICT;
+"#;
+
 const V94_PROJECT_APPEARANCE_SCHEMA_SQL: &str = r#"
 ALTER TABLE projects ADD COLUMN appearance_color TEXT NOT NULL DEFAULT 'black'
   CHECK (appearance_color IN ('black', 'red', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink'));
@@ -1251,6 +1261,7 @@ fn upgrade_owned_store(
         97 => validate_exact_v97_schema(connection)?,
         98 => validate_exact_v98_schema(connection)?,
         99 => validate_exact_v99_schema(connection)?,
+        100 => validate_exact_v100_schema(connection)?,
         _ => return Err(corrupt("Rust Core forward-migration source is unsupported")),
     }
 
@@ -1307,6 +1318,9 @@ fn upgrade_owned_store(
         }
         if source_version < 100 {
             ensure_v100_relation_properties_schema(transaction)?;
+        }
+        if source_version < 101 {
+            ensure_v101_projectless_permission_mode_schema(transaction)?;
         }
         let updated = transaction.execute(
             "UPDATE core_store_metadata SET store_format_version = ?1 \
@@ -1560,6 +1574,7 @@ fn publish_current_store(
         ensure_v98_yjs_integrity_schema(transaction)?;
         ensure_v99_owner_scoped_scenes_schema(transaction)?;
         ensure_v100_relation_properties_schema(transaction)?;
+        ensure_v101_projectless_permission_mode_schema(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
@@ -1592,6 +1607,7 @@ fn create_fresh_store(
         ensure_v98_yjs_integrity_schema(transaction)?;
         ensure_v99_owner_scoped_scenes_schema(transaction)?;
         ensure_v100_relation_properties_schema(transaction)?;
+        ensure_v101_projectless_permission_mode_schema(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
@@ -1861,6 +1877,13 @@ fn ensure_v100_relation_properties_schema(connection: &Connection) -> Result<(),
         ));
     }
     validate_database_relation_invariants(connection)
+}
+
+fn ensure_v101_projectless_permission_mode_schema(
+    connection: &Connection,
+) -> Result<(), StoreError> {
+    connection.execute_batch(V101_PROJECTLESS_PERMISSION_MODE_SCHEMA_SQL)?;
+    Ok(())
 }
 
 fn ensure_v95_canvas_incremental_schema(connection: &Connection) -> Result<(), StoreError> {
@@ -3247,6 +3270,10 @@ fn validate_exact_v99_schema(connection: &Connection) -> Result<(), StoreError> 
     validate_exact_core_schema(connection, true, true, true, true, true, true, true, 99)
 }
 
+fn validate_exact_v100_schema(connection: &Connection) -> Result<(), StoreError> {
+    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 100)
+}
+
 fn validate_exact_current_schema(connection: &Connection) -> Result<(), StoreError> {
     validate_exact_core_schema(
         connection,
@@ -3317,6 +3344,9 @@ fn validate_exact_core_schema(
     }
     if schema_version >= 100 {
         ensure_v100_relation_properties_schema(&expected)?;
+    }
+    if schema_version >= 101 {
+        ensure_v101_projectless_permission_mode_schema(&expected)?;
     }
 
     let expected_inventory = read_schema_inventory(&expected)?;
@@ -3403,6 +3433,9 @@ pub fn expected_store_schema_fingerprint(version: i64) -> Result<String, StoreEr
     }
     if version >= 100 {
         ensure_v100_relation_properties_schema(&expected)?;
+    }
+    if version >= 101 {
+        ensure_v101_projectless_permission_mode_schema(&expected)?;
     }
     read_schema_inventory(&expected).map(|inventory| schema_inventory_fingerprint(&inventory))
 }
@@ -4120,7 +4153,7 @@ mod tests {
         seed_owned_v99_store_with_property_value(&home);
 
         let upgraded = SqliteStoreKernel::open(&home).expect("upgrade v99 Core store");
-        assert_eq!(upgraded.preparation().schema_version, 100);
+        assert_eq!(upgraded.preparation().schema_version, CORE_SCHEMA_VERSION);
         assert_eq!(upgraded.preparation().migrated_from_version, Some(99));
         let backup_path = upgraded
             .preparation()
@@ -4196,8 +4229,8 @@ mod tests {
             .expect("verify v100 Relation authority");
 
         drop(upgraded);
-        let reopened = SqliteStoreKernel::open(&home).expect("reopen exact v100 Store");
-        assert_eq!(reopened.preparation().schema_version, 100);
+        let reopened = SqliteStoreKernel::open(&home).expect("reopen exact current Store");
+        assert_eq!(reopened.preparation().schema_version, CORE_SCHEMA_VERSION);
         assert_eq!(reopened.preparation().migrated_from_version, None);
     }
 

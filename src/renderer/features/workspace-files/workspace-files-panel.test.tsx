@@ -100,7 +100,7 @@ vi.mock("@/lib/api", () => ({
     if (channel === "write-file") {
       return { outcome: "saved", mtimeMs: Date.parse(CREATED_AT) + 1 };
     }
-    if (channel === "open-file") return true;
+    if (channel === "open-file" || channel === "shell:open-file-link") return true;
     throw new Error(`Unexpected channel: ${channel}`);
   },
   subscribeBoardChanges: () => () => undefined,
@@ -307,9 +307,9 @@ describe("WorkspaceFilesPanel", () => {
     await settleAsyncRender();
 
     expect(JSON.stringify(invokeCalls.at(-1))).toBe(JSON.stringify([
-      "open-file",
+      "shell:open-file-link",
       { path: `${WORKSPACE_ROOT}/archive.zip` },
-      "fileManager",
+      "vscode",
     ]));
   });
 

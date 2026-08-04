@@ -143,25 +143,31 @@ export function NodexSwitch({
       role="switch"
       aria-label={ariaLabel}
       aria-checked={checked}
+      data-state={checked ? "checked" : "unchecked"}
       disabled={disabled}
       onClick={() => onCheckedChange(!checked)}
       className={cn(
-        "relative inline-flex h-6 w-10 items-center rounded-full transition-colors outline-hidden",
-        "focus-visible:ring-token-focus focus-visible:ring-2",
-        disabled
-          ? "cursor-not-allowed bg-token-foreground/8 opacity-60"
-          : checked
-            ? "bg-(--accent-blue)"
-            : "bg-token-foreground/8",
+        "inline-flex items-center text-sm outline-hidden",
+        "focus-visible:rounded-full focus-visible:ring-token-focus-border focus-visible:ring-2",
+        disabled ? "cursor-not-allowed opacity-60" : "cursor-interaction",
         className,
       )}
     >
       <span
         className={cn(
-          "absolute left-0.5 size-5 rounded-full bg-token-main-surface-primary transition-transform",
-          checked ? "translate-x-4" : "translate-x-0",
+          "relative inline-flex h-5 w-8 shrink-0 items-center rounded-full transition-colors duration-200 ease-out",
+          checked ? "bg-token-charts-blue" : "bg-token-foreground/10",
         )}
-      />
+        data-state={checked ? "checked" : "unchecked"}
+      >
+        <span
+          className={cn(
+            "h-4 w-4 rounded-full border border-[color:var(--gray-0)] bg-[color:var(--gray-0)] shadow-sm transition-transform duration-200 ease-out",
+            checked ? "translate-x-[14px]" : "translate-x-[2px]",
+          )}
+          data-state={checked ? "checked" : "unchecked"}
+        />
+      </span>
     </button>
   );
 }

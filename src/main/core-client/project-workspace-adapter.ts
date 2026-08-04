@@ -204,8 +204,12 @@ export interface DesktopProjectWorkspacePort {
   readProjectPermissionMode(
     projectId: string,
   ): Promise<CodexPermissionMode | null>;
+  readProjectlessPermissionMode(): Promise<CodexPermissionMode | null>;
   setProjectPermissionMode(
     projectId: string,
+    mode: CodexPermissionMode,
+  ): Promise<CodexPermissionMode>;
+  setProjectlessPermissionMode(
     mode: CodexPermissionMode,
   ): Promise<CodexPermissionMode>;
   createInitialProject(
@@ -918,6 +922,22 @@ export function createCoreProjectWorkspaceAdapter(
     return snapshot.value.mode ?? null;
   };
 
+  const readProjectlessPermissionMode = async (): Promise<CodexPermissionMode | null> => {
+    let snapshot: ProjectWorkspaceReadSnapshot;
+    try {
+      snapshot = await client.workspaceRead({
+        kind: "projectless_permission_mode",
+      });
+    } catch (error) {
+      if (isNotFound(error)) return null;
+      throw error;
+    }
+    if (snapshot.value.kind !== "projectless_permission_mode") {
+      throw new Error("Core returned the wrong Project Workspace read variant");
+    }
+    return snapshot.value.mode ?? null;
+  };
+
   const listBackgroundProcesses = async (
     threadId?: string | null,
   ): Promise<CodexBackgroundProcessRecord[]> => {
@@ -1007,6 +1027,7 @@ export function createCoreProjectWorkspaceAdapter(
     readProjectActivitySummaries,
     getProject,
     readProjectPermissionMode,
+    readProjectlessPermissionMode,
     setProjectPermissionMode: async (projectId, mode) => {
       await apply({
         kind: "set_project_permission_mode",
@@ -1016,6 +1037,17 @@ export function createCoreProjectWorkspaceAdapter(
       const selected = await readProjectPermissionMode(projectId);
       if (!selected) {
         throw new Error(`Updated Project permission mode not found: ${projectId}`);
+      }
+      return selected;
+    },
+    setProjectlessPermissionMode: async (mode) => {
+      await apply({
+        kind: "set_projectless_permission_mode",
+        mode,
+      });
+      const selected = await readProjectlessPermissionMode();
+      if (!selected) {
+        throw new Error("Updated projectless permission mode not found");
       }
       return selected;
     },

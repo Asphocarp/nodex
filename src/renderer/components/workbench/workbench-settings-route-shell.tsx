@@ -17,13 +17,13 @@ import {
   Sun,
   Trash2,
 } from "@/components/shared/icons/generic-icons";
-import { CheckmarkIcon } from "@/components/shared/icons";
-import { NodexButton } from "@/components/ui/button";
-import { toast } from "@/components/ui/toast";
+import { NodexButton, NodexSwitch } from "@/components/ui/button";
 import {
   NodexDropdownButtonTrigger,
   NodexDropdownItem,
   NodexDropdownMenu,
+  NodexDropdownSelectedIcon,
+  NodexSettingsDropdownTrigger,
 } from "@/components/ui/dropdown";
 import { Input } from "../ui/input";
 import { invoke } from "./workbench-settings-overlay-deps";
@@ -55,19 +55,6 @@ import {
 } from "../../lib/sans-font-size";
 import { useCodeFontSize } from "../../lib/use-code-font-size";
 import { useNfmAutolinkSettings } from "../../lib/use-nfm-autolink-settings";
-import { AppUpdateSettingsControl } from "./app-update-settings-control";
-import { AgentImportSettingsPage } from "./agent-import-settings-page";
-import { ComputerUseSettingsPage } from "./computer-use-settings-page";
-import { KeyboardShortcutsSettingsPage } from "./keyboard-shortcuts-settings-page";
-import { LocalEnvironmentsSettingsPage } from "./local-environments-settings-page";
-import { WorkbenchHooksSettingsPage } from "./workbench-hooks-settings-page";
-import {
-  BrowserContactInfoSettingsPage,
-  BrowserExtensionsSettingsPage,
-  BrowserHistorySettingsPage,
-  BrowserPasswordsSettingsPage,
-  BrowserSettingsPage,
-} from "@/features/browser-sidebar/browser-settings-pages";
 import {
   DEFAULT_DESCRIPTION_SOFT_LIMIT,
   DEFAULT_TEXT_PROMPT_CHAR_THRESHOLD,
@@ -87,7 +74,6 @@ import { useThreadNotificationSettings } from "../../lib/use-thread-notification
 import { useWindowRestoreSettings } from "../../lib/use-window-restore-settings";
 import { isDiagnosticsSettings } from "../../../shared/diagnostics/diagnostics-settings";
 import { isTelemetrySettings } from "../../../shared/diagnostics/telemetry-settings";
-import { isCodexGitSettings } from "../../../shared/codex-git-settings";
 import { formatCodexThreadDetailLevelLabel } from "../../lib/codex-thread-settings";
 import type {
   BackupRecord,
@@ -101,10 +87,9 @@ import type {
   UpdateTelemetrySettingsInput,
   WorktreeStartMode,
   CodexPermissionState,
-  CodexGitSettings,
   CodexThreadDetailLevel,
+  ThreadNotificationSettings,
   ThreadNotificationTurnMode,
-  SystemNotificationPermissionStatus,
   WindowRestorePolicy,
 } from "../../lib/types";
 import { cn } from "../../lib/utils";
@@ -124,20 +109,18 @@ import {
   type SettingsSectionDefinition,
   type SettingsSectionId,
 } from "./workbench-settings-sections";
+import { SETTINGS_PAGE_COMPONENTS } from "./workbench-settings-section-pages";
 import {
   CODEX_SETTINGS_SHELL_STYLE,
+  NodexSettingsNumberInput,
   NodexSettingsSection as SectionBlock,
   NodexSettingsRow as SettingRow,
   NodexSettingsPageSurface as SettingsPageSurface,
 } from "../ui/settings";
-import {
-  FULL_ACCESS_PERMISSION_DESCRIPTION,
-  PermissionModeDropdown,
-} from "@/features/local-conversation/view/shared/permission-mode-dropdown";
 import { SettingsSidebar } from "./workbench-settings-sidebar";
 import {
+  buildBrowserSettingsPath,
   buildSettingsPath,
-  OPEN_SOURCE_LICENSES_SETTINGS_PATH,
   resolveSettingsShellState,
 } from "./workbench-settings-routes";
 
@@ -277,65 +260,39 @@ function ToggleGroup<T extends string>({
   );
 }
 
-function TogglePill({
+export function TogglePill({
+  ariaLabel,
   value,
   onChange,
   disabled = false,
 }: {
+  ariaLabel?: string;
   value: boolean;
   onChange: (value: boolean) => void;
   disabled?: boolean;
-  onLabel?: string;
-  offLabel?: string;
 }) {
-  const handleToggle = useCallback(() => {
-    if (disabled) return;
-    onChange(!value);
-  }, [disabled, onChange, value]);
-
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={value}
-      onClick={handleToggle}
+    <NodexSwitch
+      ariaLabel={ariaLabel}
+      checked={value}
       disabled={disabled}
-      className={cn(
-        "flex items-center gap-2 text-sm focus-visible:rounded-full focus-visible:ring-2 focus-visible:ring-(--accent-blue)/50 focus-visible:outline-none",
-        disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer",
-      )}
-    >
-      <span
-        className={cn(
-          "relative inline-flex h-5 w-8 shrink-0 items-center rounded-full transition-colors duration-200 ease-out",
-          value
-            ? "bg-(--accent-blue)"
-            : "bg-foreground-10",
-        )}
-      >
-        <span
-          className={cn(
-            "size-4 rounded-full border border-white bg-white shadow-sm transition-transform duration-200 ease-out",
-            value ? "translate-x-3.25" : "translate-x-0.75",
-          )}
-        />
-      </span>
-    </button>
+      onCheckedChange={onChange}
+    />
   );
 }
 
-function formatApprovalPolicyLabel(value: CodexPermissionState["approvalPolicy"]): string {
+export function formatApprovalPolicyLabel(value: CodexPermissionState["approvalPolicy"]): string {
   if (typeof value === "string") {
     return value;
   }
   return "granular";
 }
 
-function formatSandboxModeLabel(value: CodexPermissionState["sandboxMode"]): string {
+export function formatSandboxModeLabel(value: CodexPermissionState["sandboxMode"]): string {
   return value ?? "unset";
 }
 
-function ConfigValueDropdown({
+export function ConfigValueDropdown({
   value,
   options,
   onSelect,
@@ -351,14 +308,19 @@ function ConfigValueDropdown({
   return (
     <NodexDropdownMenu
       disabled={disabled}
-      triggerButton={<NodexDropdownButtonTrigger>{selectedLabel}</NodexDropdownButtonTrigger>}
+      triggerButton={(
+        <NodexSettingsDropdownTrigger className="min-w-36">
+          <span className="truncate">{selectedLabel}</span>
+        </NodexSettingsDropdownTrigger>
+      )}
       align="end"
+      contentWidth="sm"
     >
       {options.map((option) => (
         <NodexDropdownItem
           key={option.value}
           onSelect={() => onSelect(option.value)}
-          rightSlot={option.value === value ? <CheckmarkIcon className="size-4" /> : null}
+          rightSlot={option.value === value ? <NodexDropdownSelectedIcon /> : null}
         >
           {option.label}
         </NodexDropdownItem>
@@ -367,7 +329,54 @@ function ConfigValueDropdown({
   );
 }
 
-function ThemeSettingControl() {
+const THREAD_NOTIFICATION_TURN_MODE_OPTIONS: Array<{
+  value: ThreadNotificationTurnMode;
+  label: string;
+}> = [
+  { value: "off", label: "Never" },
+  { value: "unfocused", label: "Only when unfocused" },
+  { value: "always", label: "Always" },
+];
+
+function ThreadNotificationTurnModeControl({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: ThreadNotificationTurnMode;
+  onChange: (value: ThreadNotificationTurnMode) => void;
+  disabled: boolean;
+}) {
+  const selectedLabel = THREAD_NOTIFICATION_TURN_MODE_OPTIONS.find(
+    (option) => option.value === value,
+  )?.label ?? "Only when unfocused";
+
+  return (
+    <NodexDropdownMenu
+      disabled={disabled}
+      contentWidth="menuWide"
+      align="end"
+      triggerButton={(
+        <NodexSettingsDropdownTrigger className="min-w-52">
+          <span className="truncate">{selectedLabel}</span>
+        </NodexSettingsDropdownTrigger>
+      )}
+    >
+      {THREAD_NOTIFICATION_TURN_MODE_OPTIONS.map((option) => (
+        <NodexDropdownItem
+          key={option.value}
+          aria-label={option.label}
+          onSelect={() => onChange(option.value)}
+          rightSlot={option.value === value ? <NodexDropdownSelectedIcon /> : null}
+        >
+          <span className="truncate">{option.label}</span>
+        </NodexDropdownItem>
+      ))}
+    </NodexDropdownMenu>
+  );
+}
+
+export function ThemeSettingControl() {
   const { theme, setTheme } = useTheme();
 
   return (
@@ -383,50 +392,20 @@ function ThemeSettingControl() {
   );
 }
 
-function ThreadNotificationSettingControl({ open }: { open: boolean }) {
+export function ThreadNotificationSettingControl({ open }: { open: boolean }) {
   const { settings, isLoading, reloadSettings, updateSettings } = useThreadNotificationSettings();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [systemPermissionStatus, setSystemPermissionStatus] =
-    useState<SystemNotificationPermissionStatus>(null);
-  const systemSettingsPlatformSupported = typeof navigator !== "undefined"
-    && /MAC|WIN/u.test(navigator.platform.toUpperCase());
-
-  const refreshSystemPermissionStatus = useCallback(async () => {
-    try {
-      const status = await invoke("system-notification-permission:get");
-      if (
-        status === "enabled"
-        || status === "disabled"
-        || status === "not-determined"
-        || status === null
-      ) setSystemPermissionStatus(status);
-    } catch {
-      setSystemPermissionStatus(null);
-    }
-  }, []);
 
   useEffect(() => {
     if (!open) return;
     void reloadSettings().catch((err) => {
       setError(err instanceof Error ? err.message : "Could not load thread notification settings.");
     });
-    void refreshSystemPermissionStatus();
-    const handleWindowFocus = () => {
-      void refreshSystemPermissionStatus();
-    };
-    window.addEventListener("focus", handleWindowFocus);
-    return () => {
-      window.removeEventListener("focus", handleWindowFocus);
-    };
-  }, [open, refreshSystemPermissionStatus, reloadSettings]);
+  }, [open, reloadSettings]);
 
   const handleChange = useCallback(
-    async (nextSettings: {
-      turnMode: ThreadNotificationTurnMode;
-      permissionsEnabled: boolean;
-      questionsEnabled: boolean;
-    }) => {
+    async (nextSettings: ThreadNotificationSettings) => {
       setBusy(true);
       setError(null);
 
@@ -442,92 +421,64 @@ function ThreadNotificationSettingControl({ open }: { open: boolean }) {
   );
 
   return (
-    <div className="flex min-w-72 flex-col items-end gap-3">
-      <SegmentedControl<ThreadNotificationTurnMode>
-        value={settings.turnMode}
-        onChange={(turnMode) => {
-          void handleChange({
-            ...settings,
-            turnMode,
-          });
-        }}
-        options={[
-          { value: "off", label: "Never" },
-          { value: "unfocused", label: "Only when unfocused" },
-          { value: "always", label: "Always" },
-        ]}
-      />
-      <div className="flex w-full max-w-80 flex-col gap-2">
-        <div className="flex items-center justify-between gap-4">
-          <span className="text-right text-sm text-(--foreground-secondary)">
-            Approval requests
-          </span>
-          <TogglePill
-            value={settings.permissionsEnabled}
-            onChange={(permissionsEnabled) => {
-              void handleChange({
-                ...settings,
-                permissionsEnabled,
-              });
-            }}
-            disabled={busy || isLoading}
-          />
-        </div>
-        <div className="flex items-center justify-between gap-4">
-          <span className="text-right text-sm text-(--foreground-secondary)">
-            Questions
-          </span>
-          <TogglePill
-            value={settings.questionsEnabled}
-            onChange={(questionsEnabled) => {
-              void handleChange({
-                ...settings,
-                questionsEnabled,
-              });
-            }}
-            disabled={busy || isLoading}
-          />
-        </div>
-        {systemPermissionStatus !== null || systemSettingsPlatformSupported ? (
-          <div className="flex items-center justify-between gap-4 pt-1">
-          <span className="text-right text-xs text-(--foreground-secondary)">
-            System permission: {
-              systemPermissionStatus === "not-determined"
-                ? "Not requested"
-                : systemPermissionStatus === "enabled"
-                  ? "Enabled"
-                  : systemPermissionStatus === "disabled"
-                    ? "Disabled"
-                    : "Unavailable"
-            }
-          </span>
-          <NodexButton
-            size="sm"
-            variant="secondary"
-            onClick={() => {
-              void invoke("system-notification-permission:open-settings")
-                .catch((err) => {
-                  setError(err instanceof Error
-                    ? err.message
-                    : "Could not open system notification settings.");
-                });
-            }}
-          >
-            System settings
-          </NodexButton>
-          </div>
-        ) : null}
-      </div>
+    <>
+      <SettingRow
+        label="Turn completion notifications"
+        description="Set when agent alerts you that it's finished"
+      >
+        <ThreadNotificationTurnModeControl
+          value={settings.turnMode}
+          onChange={(turnMode) => {
+            void handleChange({
+              ...settings,
+              turnMode,
+            });
+          }}
+          disabled={busy || isLoading}
+        />
+      </SettingRow>
+      <SettingRow
+        label="Enable permission notifications"
+        description="Show alerts when notification permissions are required"
+      >
+        <TogglePill
+          ariaLabel="Enable permission notifications"
+          value={settings.permissionsEnabled}
+          onChange={(permissionsEnabled) => {
+            void handleChange({
+              ...settings,
+              permissionsEnabled,
+            });
+          }}
+          disabled={busy || isLoading}
+        />
+      </SettingRow>
+      <SettingRow
+        label="Enable question notifications"
+        description="Show alerts when input is needed to continue"
+      >
+        <TogglePill
+          ariaLabel="Enable question notifications"
+          value={settings.questionsEnabled}
+          onChange={(questionsEnabled) => {
+            void handleChange({
+              ...settings,
+              questionsEnabled,
+            });
+          }}
+          disabled={busy || isLoading}
+        />
+      </SettingRow>
       {error ? (
-        <span className="max-w-80 text-right text-xs text-(--red-text)">
+        <div role="alert" className="px-4 pb-3 text-xs text-token-error-foreground">
           {error}
-        </span>
+        </div>
       ) : null}
-    </div>
+    </>
   );
 }
 
-function ServiceTierSettingControl() {
+export function ServiceTierSettingControl() {
   const { serviceTierSettings, setServiceTier } = useCodexServiceTierSettings();
   const selectedValue = serviceTierSettings.serviceTier === "fast" ? "fast" : "standard";
 
@@ -545,7 +496,7 @@ function ServiceTierSettingControl() {
   );
 }
 
-function WindowRestoreSettingControl() {
+export function WindowRestoreSettingControl() {
   const { settings, isLoading, updateSettings } = useWindowRestoreSettings();
   const selectedValue = isLoading ? "all" : settings.policy;
 
@@ -592,7 +543,7 @@ function toDiagnosticsUpdateInput(
   };
 }
 
-function DiagnosticsSettingControl({ open }: { open: boolean }) {
+export function DiagnosticsSettingControl({ open }: { open: boolean }) {
   const [settings, setSettings] = useState<DiagnosticsSettings>(DEFAULT_DIAGNOSTICS_SETTINGS);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -692,6 +643,7 @@ function DiagnosticsSettingControl({ open }: { open: boolean }) {
             Share crash reports
           </span>
           <TogglePill
+            ariaLabel="Share crash reports"
             value={settings.enabled}
             disabled={busy || settings.envOverrides.enabled}
             onChange={(enabled) => {
@@ -709,6 +661,7 @@ function DiagnosticsSettingControl({ open }: { open: boolean }) {
             Share session replays
           </span>
           <TogglePill
+            ariaLabel="Share session replays"
             value={settings.replayEnabled && settings.enabled}
             disabled={replayDisabled}
             onChange={(replayEnabled) => {
@@ -749,7 +702,7 @@ function toTelemetryUpdateInput(
   };
 }
 
-function TelemetrySettingControl({ open }: { open: boolean }) {
+export function TelemetrySettingControl({ open }: { open: boolean }) {
   const [settings, setSettings] = useState<TelemetrySettings>(DEFAULT_TELEMETRY_SETTINGS);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -849,6 +802,7 @@ function TelemetrySettingControl({ open }: { open: boolean }) {
             Share product telemetry
           </span>
           <TogglePill
+            ariaLabel="Share product telemetry"
             value={settings.enabled}
             disabled={busy || settings.envOverrides.enabled}
             onChange={(enabled) => {
@@ -866,6 +820,7 @@ function TelemetrySettingControl({ open }: { open: boolean }) {
             Share web analytics
           </span>
           <TogglePill
+            ariaLabel="Share web analytics"
             value={settings.autoCaptureEnabled && settings.enabled}
             disabled={autoCaptureDisabled}
             onChange={(autoCaptureEnabled) => {
@@ -886,40 +841,43 @@ function TelemetrySettingControl({ open }: { open: boolean }) {
   );
 }
 
-function SpellcheckSettingControl() {
+export function SpellcheckSettingControl() {
   const { spellcheck, toggleSpellcheck } = useSpellcheck();
 
-  return <TogglePill value={spellcheck} onChange={() => toggleSpellcheck()} />;
+  return <TogglePill ariaLabel="Spellcheck" value={spellcheck} onChange={() => toggleSpellcheck()} />;
 }
 
-function NfmAutolinkTypingSettingControl() {
+export function NfmAutolinkTypingSettingControl() {
   const { settings, updateSettings } = useNfmAutolinkSettings();
 
   return (
     <TogglePill
+      ariaLabel="Autolink while typing"
       value={settings.autoLinkWhileTyping}
       onChange={(value) => updateSettings({ autoLinkWhileTyping: value })}
     />
   );
 }
 
-function NfmAutolinkPasteSettingControl() {
+export function NfmAutolinkPasteSettingControl() {
   const { settings, updateSettings } = useNfmAutolinkSettings();
 
   return (
     <TogglePill
+      ariaLabel="Autolink on paste"
       value={settings.autoLinkOnPaste}
       onChange={(value) => updateSettings({ autoLinkOnPaste: value })}
     />
   );
 }
 
-function NfmAutolinkBareDomainsSettingControl() {
+export function NfmAutolinkBareDomainsSettingControl() {
   const { settings, updateSettings } = useNfmAutolinkSettings();
   const disabled = !settings.autoLinkWhileTyping && !settings.autoLinkOnPaste;
 
   return (
     <TogglePill
+      ariaLabel="Linkify bare domains"
       value={settings.linkifyBareDomains}
       onChange={(value) => updateSettings({ linkifyBareDomains: value })}
       disabled={disabled}
@@ -985,7 +943,7 @@ function PasteResourceNumberSettingControl({
   );
 }
 
-function PasteResourceTextThresholdSettingControl() {
+export function PasteResourceTextThresholdSettingControl() {
   const { settings, updateSettings } = usePasteResourceSettings();
 
   return (
@@ -1000,7 +958,7 @@ function PasteResourceTextThresholdSettingControl() {
   );
 }
 
-function PasteResourceDescriptionSoftLimitSettingControl() {
+export function PasteResourceDescriptionSoftLimitSettingControl() {
   const { settings, updateSettings } = usePasteResourceSettings();
 
   return (
@@ -1037,7 +995,7 @@ const THREAD_DETAIL_LEVEL_OPTIONS: Array<{
     },
   ];
 
-function ThreadDetailLevelSettingControl() {
+export function ThreadDetailLevelSettingControl() {
   const { settings, setThreadDetailLevel } = useCodexThreadSettings();
   const selectedValue = settings.detailLevel ?? "STEPS_COMMANDS";
   const selectedOption = THREAD_DETAIL_LEVEL_OPTIONS.find((option) => option.value === selectedValue)
@@ -1046,12 +1004,12 @@ function ThreadDetailLevelSettingControl() {
   return (
     <NodexDropdownMenu
       triggerButton={(
-        <NodexDropdownButtonTrigger
+        <NodexSettingsDropdownTrigger
           aria-label="Thread detail"
           className="min-w-56 text-base/4.5"
         >
           <span className="truncate">{formatCodexThreadDetailLevelLabel(selectedOption.value)}</span>
-        </NodexDropdownButtonTrigger>
+        </NodexSettingsDropdownTrigger>
       )}
       align="end"
       contentWidth="workspace"
@@ -1061,7 +1019,7 @@ function ThreadDetailLevelSettingControl() {
         <NodexDropdownItem
           key={option.value}
           onSelect={() => setThreadDetailLevel(option.value)}
-          rightSlot={option.value === selectedValue ? <CheckmarkIcon className="shrink-0 text-token-foreground" /> : null}
+          rightSlot={option.value === selectedValue ? <NodexDropdownSelectedIcon /> : null}
           subText={option.description}
           allowWrap
         >
@@ -1072,91 +1030,102 @@ function ThreadDetailLevelSettingControl() {
   );
 }
 
-function SansFontSizeSettingControl() {
+function FontSizeSettingControl({
+  ariaLabel,
+  defaultValue,
+  max,
+  min,
+  onChangeValue,
+  value,
+}: {
+  ariaLabel: string;
+  defaultValue: number;
+  max: number;
+  min: number;
+  onChangeValue: (value: number) => void;
+  value: number;
+}) {
+  const [draft, setDraft] = useState(String(value));
+  const isDefault = value === defaultValue;
+
+  useEffect(() => {
+    setDraft(String(value));
+  }, [value]);
+
+  const commit = useCallback(() => {
+    const parsed = Number.parseInt(draft, 10);
+    if (!Number.isFinite(parsed)) {
+      setDraft(String(value));
+      return;
+    }
+
+    onChangeValue(parsed);
+  }, [draft, onChangeValue, value]);
+
+  return (
+    <div className="flex items-center gap-2.5">
+      <NodexSettingsNumberInput
+        aria-label={ariaLabel}
+        className="w-16"
+        max={max}
+        min={min}
+        onBlur={commit}
+        onChange={(event) => setDraft(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter") return;
+          event.preventDefault();
+          commit();
+          event.currentTarget.blur();
+        }}
+        step={1}
+        value={draft}
+      />
+      <span className="text-sm text-token-text-secondary">px</span>
+      <NodexButton
+        variant="ghost"
+        size="xs"
+        disabled={isDefault}
+        onClick={() => onChangeValue(defaultValue)}
+        className="gap-1 text-token-text-secondary"
+      >
+        <RotateCcw className="size-3.5" />
+        <span>Default</span>
+      </NodexButton>
+    </div>
+  );
+}
+
+export function SansFontSizeSettingControl() {
   const { sansFontSize, setSansFontSize } = useSansFontSize();
-  const isDefault = sansFontSize === DEFAULT_SANS_FONT_SIZE;
 
   return (
-    <div className="flex items-center gap-3">
-      <span className="w-10 text-right text-sm text-(--foreground-secondary) tabular-nums">
-        {sansFontSize}px
-      </span>
-      <input
-        type="range"
-        min={MIN_SANS_FONT_SIZE}
-        max={MAX_SANS_FONT_SIZE}
-        step={1}
-        value={sansFontSize}
-        onChange={(event) => {
-          const nextValue = Number.parseInt(event.target.value, 10);
-          if (!Number.isFinite(nextValue)) return;
-          setSansFontSize(nextValue);
-        }}
-        aria-label="Sans font size"
-        className="w-28 accent-(--accent-blue)"
-      />
-      <button
-        type="button"
-        onClick={() => setSansFontSize(DEFAULT_SANS_FONT_SIZE)}
-        disabled={isDefault}
-        className={cn(
-          "inline-flex h-7 items-center gap-1 rounded-full border px-2 py-0.5 text-sm transition-colors",
-          isDefault
-            ? "border-transparent bg-foreground-5 text-(--foreground-secondary) opacity-60"
-            : "border-(--border) text-(--foreground-secondary) hover:bg-foreground-5 hover:text-(--foreground)",
-          "disabled:cursor-not-allowed",
-        )}
-      >
-        <RotateCcw className="size-3.5" />
-        <span>Default</span>
-      </button>
-    </div>
+    <FontSizeSettingControl
+      ariaLabel="Sans font size"
+      defaultValue={DEFAULT_SANS_FONT_SIZE}
+      max={MAX_SANS_FONT_SIZE}
+      min={MIN_SANS_FONT_SIZE}
+      onChangeValue={setSansFontSize}
+      value={sansFontSize}
+    />
   );
 }
 
-function CodeFontSizeSettingControl() {
+export function CodeFontSizeSettingControl() {
   const { codeFontSize, setCodeFontSize } = useCodeFontSize();
-  const isDefault = codeFontSize === DEFAULT_CODE_FONT_SIZE;
 
   return (
-    <div className="flex items-center gap-3">
-      <span className="w-10 text-right text-sm text-(--foreground-secondary) tabular-nums">
-        {codeFontSize}px
-      </span>
-      <input
-        type="range"
-        min={MIN_CODE_FONT_SIZE}
-        max={MAX_CODE_FONT_SIZE}
-        step={1}
-        value={codeFontSize}
-        onChange={(event) => {
-          const nextValue = Number.parseInt(event.target.value, 10);
-          if (!Number.isFinite(nextValue)) return;
-          setCodeFontSize(nextValue);
-        }}
-        aria-label="Code font size"
-        className="w-28 accent-(--accent-blue)"
-      />
-      <button
-        type="button"
-        onClick={() => setCodeFontSize(DEFAULT_CODE_FONT_SIZE)}
-        disabled={isDefault}
-        className={cn(
-          "inline-flex h-7 items-center gap-1 rounded-full border px-2 py-0.5 text-sm transition-colors",
-          isDefault
-            ? "border-transparent bg-foreground-5 text-(--foreground-secondary) opacity-60"
-            : "border-(--border) text-(--foreground-secondary) hover:bg-foreground-5 hover:text-(--foreground)",
-          "disabled:cursor-not-allowed",
-        )}
-      >
-        <RotateCcw className="size-3.5" />
-        <span>Default</span>
-      </button>
-    </div>
+    <FontSizeSettingControl
+      ariaLabel="Code font size"
+      defaultValue={DEFAULT_CODE_FONT_SIZE}
+      max={MAX_CODE_FONT_SIZE}
+      min={MIN_CODE_FONT_SIZE}
+      onChangeValue={setCodeFontSize}
+      value={codeFontSize}
+    />
   );
 }
 
-function FileLinkOpenerSettingControl() {
+export function FileLinkOpenerSettingControl() {
   const { opener, setOpener } = useFileLinkOpener();
   const selectedOption = FILE_LINK_OPENER_OPTIONS.find((option) => option.id === opener)
     ?? FILE_LINK_OPENER_OPTIONS[0];
@@ -1164,7 +1133,7 @@ function FileLinkOpenerSettingControl() {
   return (
     <NodexDropdownMenu
       triggerButton={(
-        <NodexDropdownButtonTrigger
+        <NodexSettingsDropdownTrigger
           aria-label={`Open markdown file links in ${selectedOption.label}`}
           className="min-w-50 text-base/4.5"
         >
@@ -1177,7 +1146,7 @@ function FileLinkOpenerSettingControl() {
             />
             <span className="truncate">{selectedOption.label}</span>
           </span>
-        </NodexDropdownButtonTrigger>
+        </NodexSettingsDropdownTrigger>
       )}
       align="end"
       contentWidth="sm"
@@ -1195,7 +1164,7 @@ function FileLinkOpenerSettingControl() {
               aria-hidden="true"
             />
           )}
-          rightSlot={option.id === selectedOption.id ? <CheckmarkIcon className="shrink-0 text-token-foreground" /> : null}
+          rightSlot={option.id === selectedOption.id ? <NodexDropdownSelectedIcon /> : null}
         >
           {option.label}
         </NodexDropdownItem>
@@ -1204,7 +1173,7 @@ function FileLinkOpenerSettingControl() {
   );
 }
 
-function CardPropertyPositionSettingControl() {
+export function CardPropertyPositionSettingControl() {
   const { position, setPosition } = useCardPropertyPosition();
 
   return (
@@ -1220,7 +1189,7 @@ function CardPropertyPositionSettingControl() {
   );
 }
 
-function PageStageCollapsedPropertiesSettingControl() {
+export function PageStageCollapsedPropertiesSettingControl() {
   const { collapsedProperties, toggleCollapsedProperty } = usePageStageCollapsedProperties();
 
   return (
@@ -1235,7 +1204,7 @@ function PageStageCollapsedPropertiesSettingControl() {
   );
 }
 
-function WorktreeStartModeSettingControl({
+export function WorktreeStartModeSettingControl({
   value,
   onChange,
 }: {
@@ -1254,7 +1223,7 @@ function WorktreeStartModeSettingControl({
   );
 }
 
-function WorktreeAutoBranchPrefixSettingControl({
+export function WorktreeAutoBranchPrefixSettingControl({
   disabled = false,
   value,
   onChange,
@@ -1316,7 +1285,7 @@ function formatWorktreeTime(ts: string): string {
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-function ManagedWorktreesSettingControl({ open }: { open: boolean }) {
+export function ManagedWorktreesSettingControl({ open }: { open: boolean }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [records, setRecords] = useState<ManagedWorktreeRecord[]>([]);
@@ -1486,17 +1455,17 @@ function ManagedWorktreesSettingControl({ open }: { open: boolean }) {
   );
 }
 
-function SmartPrefixParsingSettingControl({
+export function SmartPrefixParsingSettingControl({
   value,
   onChange,
 }: {
   value: boolean;
   onChange: (value: boolean) => void;
 }) {
-  return <TogglePill value={value} onChange={onChange} />;
+  return <TogglePill ariaLabel="Smart prefix parsing" value={value} onChange={onChange} />;
 }
 
-function StripSmartPrefixFromTitleSettingControl({
+export function StripSmartPrefixFromTitleSettingControl({
   value,
   onChange,
   disabled = false,
@@ -1505,10 +1474,10 @@ function StripSmartPrefixFromTitleSettingControl({
   onChange: (value: boolean) => void;
   disabled?: boolean;
 }) {
-  return <TogglePill value={value} onChange={onChange} disabled={disabled} />;
+  return <TogglePill ariaLabel="Strip smart prefix from title" value={value} onChange={onChange} disabled={disabled} />;
 }
 
-function ComposerEnterBehaviorControl({
+export function ComposerEnterBehaviorControl({
   value,
   onChange,
 }: {
@@ -1517,20 +1486,21 @@ function ComposerEnterBehaviorControl({
 }) {
   return (
     <TogglePill
+      ariaLabel="Use Cmd/Ctrl+Enter for multiline prompts"
       value={value === "cmdIfMultiline"}
       onChange={(enabled) => onChange(enabled ? "cmdIfMultiline" : "enter")}
     />
   );
 }
 
-function ThreadQueueFollowUpsSettingControl({
+export function ThreadQueueFollowUpsSettingControl({
   value,
   onChange,
 }: {
   value: boolean;
   onChange: (value: boolean) => void;
 }) {
-  return <TogglePill value={value} onChange={onChange} />;
+  return <TogglePill ariaLabel="Queue follow-up prompts" value={value} onChange={onChange} />;
 }
 
 function formatBackupSize(bytes: number): string {
@@ -1554,7 +1524,7 @@ function formatBackupTimestamp(value: string): string {
   });
 }
 
-function BackupSettingsControl({ open }: { open: boolean }) {
+export function BackupSettingsControl({ open }: { open: boolean }) {
   const [settings, setSettings] = useState<BackupSettings | null>(null);
   const [historySettings, setHistorySettings] = useState<HistorySettings | null>(null);
   const [backups, setBackups] = useState<BackupRecord[]>([]);
@@ -1796,6 +1766,7 @@ function BackupSettingsControl({ open }: { open: boolean }) {
       <SectionBlock title="Automatic snapshots">
         <SettingRow label="Auto backups" description="Schedule background snapshots for the local store.">
           <TogglePill
+            ariaLabel="Auto backups"
             value={scheduleValues.autoEnabled}
             onChange={(value) => scheduleForm.setFieldValue("autoEnabled", value)}
             disabled={Boolean(settings?.envOverrides.autoEnabled)}
@@ -1803,26 +1774,24 @@ function BackupSettingsControl({ open }: { open: boolean }) {
         </SettingRow>
         <SettingRow label="Frequency" description="Minimum is one hour.">
           <div className="flex items-center gap-2">
-            <Input
-              type="number"
+            <NodexSettingsNumberInput
+              className="w-16"
               min={1}
               value={scheduleValues.intervalHours}
               disabled={Boolean(settings?.envOverrides.intervalHours)}
               onChange={(event) => scheduleForm.setFieldValue("intervalHours", event.target.value)}
-              className="w-16 text-right"
             />
             <span className="text-sm text-token-text-secondary">hours</span>
           </div>
         </SettingRow>
         <SettingRow label="Retention" description="Snapshots kept before pruning.">
           <div className="flex items-center gap-2">
-            <Input
-              type="number"
+            <NodexSettingsNumberInput
+              className="w-16"
               min={0}
               value={scheduleValues.retentionCount}
               disabled={Boolean(settings?.envOverrides.retentionCount)}
               onChange={(event) => scheduleForm.setFieldValue("retentionCount", event.target.value)}
-              className="w-16 text-right"
             />
             <span className="text-sm text-token-text-secondary">max</span>
           </div>
@@ -1858,13 +1827,12 @@ function BackupSettingsControl({ open }: { open: boolean }) {
           description="Newest deleted Block records kept per Project before safe collection. Use 0 to collect every unreferenced tombstone."
         >
           <div className="flex items-center gap-2">
-            <Input
-              type="number"
+            <NodexSettingsNumberInput
+              className="w-20"
               min={0}
               value={historyValues.retentionCount}
               disabled={Boolean(historySettings?.envOverrides.retentionCount)}
               onChange={(event) => historyForm.setFieldValue("retentionCount", event.target.value)}
-              className="w-20 text-right"
             />
             <span className="text-sm text-token-text-secondary">records</span>
           </div>
@@ -1910,15 +1878,11 @@ function BackupSettingsControl({ open }: { open: boolean }) {
           label="Safety backup"
           description="Create a fresh snapshot before restoring an older one."
         >
-          <label className="inline-flex items-center gap-1.5 text-sm text-token-text-secondary">
-            <input
-              type="checkbox"
-              checked={createSafetyBackup}
-              onChange={(event) => setCreateSafetyBackup(event.target.checked)}
-              className="size-3.5 rounded-sm accent-(--accent-blue)"
-            />
-            Safety backup
-          </label>
+          <NodexSwitch
+            ariaLabel="Safety backup"
+            checked={createSafetyBackup}
+            onCheckedChange={setCreateSafetyBackup}
+          />
         </SettingRow>
         <div className="flex flex-col">
           {backups.length === 0 ? (
@@ -2025,679 +1989,6 @@ export interface SettingsRouteShellProps {
   onStripSmartPrefixFromTitleEnabledChange: (value: boolean) => void;
 }
 
-interface SettingsSectionPageProps extends Pick<
-  SettingsRouteShellProps,
-  | "activeProjectId"
-  | "composerEnterBehavior"
-  | "initialLocalEnvironmentConfigPath"
-  | "initialLocalEnvironmentProjectId"
-  | "onRequestProjectPickerOpen"
-  | "onComposerEnterBehaviorChange"
-  | "onSmartPrefixParsingEnabledChange"
-  | "onStripSmartPrefixFromTitleEnabledChange"
-  | "onThreadQueueFollowUpsEnabledChange"
-  | "onWorktreeAutoBranchPrefixChange"
-  | "onWorktreeStartModeChange"
-  | "projects"
-  | "smartPrefixParsingEnabled"
-  | "stripSmartPrefixFromTitleEnabled"
-  | "threadQueueFollowUpsEnabled"
-  | "worktreeAutoBranchPrefix"
-  | "worktreeStartMode"
-> {
-  isMacPlatform: boolean;
-  open: boolean;
-  path: string;
-  onPathChange: (path: string) => void;
-}
-
-function GeneralSettingsPage({ open, onPathChange }: SettingsSectionPageProps) {
-  return (
-    <SettingsPageSurface
-      title="General"
-      subtitle="App-wide shell behavior and notifications."
-    >
-      <SectionBlock title="App">
-        <SettingRow
-          label="Restore windows"
-          description="Choose which workbench windows reopen after quitting Nodex."
-        >
-          <WindowRestoreSettingControl />
-        </SettingRow>
-        <SettingRow
-          label="Desktop notifications"
-          description="Configure turn-complete, approval, and request-user-input notifications."
-        >
-          <ThreadNotificationSettingControl open={open} />
-        </SettingRow>
-        <SettingRow
-          label="Service tier"
-          description="Choose the default speed for new thread requests. Standard is the default; Fast opts into the faster tier."
-        >
-          <ServiceTierSettingControl />
-        </SettingRow>
-        <SettingRow
-          label="App updates"
-          description="Packaged macOS builds can check, download, and install stable updates in the background."
-        >
-          <AppUpdateSettingsControl open={open} />
-        </SettingRow>
-        <SettingRow
-          label="Diagnostics"
-          description="Optionally send crash diagnostics and masked session replays to Sentry. Prompts, transcripts, card text, and local payloads are scrubbed before upload."
-        >
-          <DiagnosticsSettingControl open={open} />
-        </SettingRow>
-        <SettingRow
-          label="Telemetry"
-          description="Optionally send anonymous product events and filtered technical web analytics to Statsig. Prompts, transcripts, card text, and file paths are not sent."
-        >
-          <TelemetrySettingControl open={open} />
-        </SettingRow>
-        <SettingRow
-          label="Open source licenses"
-          description="Third-party notices for bundled dependencies"
-        >
-          <NodexButton
-            variant="secondary"
-            size="xs"
-            onClick={() => {
-              startTransition(() => {
-                onPathChange(OPEN_SOURCE_LICENSES_SETTINGS_PATH);
-              });
-            }}
-          >
-            View
-          </NodexButton>
-        </SettingRow>
-      </SectionBlock>
-    </SettingsPageSurface>
-  );
-}
-
-function AppearanceSettingsPage() {
-  return (
-    <SettingsPageSurface
-      title="Appearance"
-      subtitle="Theme and typography tokens used across the app."
-    >
-      <SectionBlock title="Theme">
-        <SettingRow label="Theme" description="Match system mode or force a fixed theme.">
-          <ThemeSettingControl />
-        </SettingRow>
-        <SettingRow
-          label="Sans font size"
-          description="Scales shared sans typography tokens and chat body text across the app."
-        >
-          <SansFontSizeSettingControl />
-        </SettingRow>
-        <SettingRow
-          label="Code font size"
-          description="Sets editor/code typography globally via --vscode-editor-font-size."
-        >
-          <CodeFontSizeSettingControl />
-        </SettingRow>
-      </SectionBlock>
-    </SettingsPageSurface>
-  );
-}
-
-function AgentSettingsPage({
-  activeProjectId,
-  open,
-}: SettingsSectionPageProps) {
-  const [permissionState, setPermissionState] = useState<CodexPermissionState | null>(null);
-  const [busyKey, setBusyKey] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const loadPermissionState = useCallback(async () => {
-    if (!activeProjectId) {
-      setPermissionState(null);
-      return;
-    }
-
-    const nextState = (await invoke("codex:permission:state:get", activeProjectId)) as CodexPermissionState;
-    setPermissionState(nextState);
-  }, [activeProjectId]);
-
-  useEffect(() => {
-    if (!open || !activeProjectId) {
-      return;
-    }
-
-    void loadPermissionState().catch((err) => {
-      setError(err instanceof Error ? err.message : "Could not load agent settings.");
-    });
-  }, [activeProjectId, loadPermissionState, open]);
-
-  const writeConfigValue = useCallback(async (keyPath: string, value: unknown) => {
-    if (!activeProjectId) {
-      return;
-    }
-
-    setBusyKey(keyPath);
-    setError(null);
-    try {
-      const nextState = (await invoke(
-        "codex:permission:config-value:set",
-        activeProjectId,
-        keyPath,
-        value,
-      )) as CodexPermissionState;
-      setPermissionState(nextState);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save config setting.");
-    } finally {
-      setBusyKey(null);
-    }
-  }, [activeProjectId]);
-
-  const handlePermissionModeChange = useCallback(async (mode: "auto" | "guardian-approvals" | "full-access" | "custom") => {
-    if (!activeProjectId) {
-      return;
-    }
-
-    setBusyKey("permission-mode");
-    setError(null);
-    try {
-      const nextState = (await invoke("codex:permission:mode:set", activeProjectId, mode)) as CodexPermissionState;
-      setPermissionState(nextState);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save permission mode.");
-    } finally {
-      setBusyKey(null);
-    }
-  }, [activeProjectId]);
-
-  const openConfigToml = useCallback(async () => {
-    const configPath = permissionState?.configTarget.filePath?.trim();
-    if (!configPath) {
-      return;
-    }
-
-    await invoke("shell:open-file-link", { path: configPath }, "fileManager");
-  }, [permissionState?.configTarget.filePath]);
-
-  if (!activeProjectId) {
-    return (
-      <SettingsPageSurface
-        title="Agent"
-        subtitle="Permissions presets and raw config.toml settings."
-      >
-        <SectionBlock title="Agent">
-          <div className="p-3 text-sm text-token-text-secondary">
-            Open a project workspace to edit agent permissions.
-          </div>
-        </SectionBlock>
-      </SettingsPageSurface>
-    );
-  }
-
-  const approvalPolicyValue = formatApprovalPolicyLabel(permissionState?.approvalPolicy ?? null);
-  const sandboxModeValue = formatSandboxModeLabel(permissionState?.sandboxMode ?? null);
-  const networkAccessValue = permissionState?.sandbox?.type === "workspaceWrite"
-    ? permissionState.sandbox.networkAccess
-    : false;
-
-  return (
-    <SettingsPageSurface
-      title="Agent"
-      subtitle="Permissions presets and raw config.toml settings."
-    >
-      <SectionBlock title="Permissions modes">
-        <SettingRow
-          label="Default permissions mode"
-          description={permissionState?.mode === "full-access"
-            ? FULL_ACCESS_PERMISSION_DESCRIPTION
-            : "Choose the preset used for new local Codex threads."}
-        >
-          <PermissionModeDropdown
-            selectedMode={permissionState?.mode ?? "custom"}
-            customDescription={permissionState?.customDescription ?? null}
-            availableModes={permissionState?.availableModes}
-            autoReviewAvailable={permissionState?.autoReviewAvailable ?? false}
-            onSelect={(mode) => {
-              void handlePermissionModeChange(mode);
-            }}
-          />
-        </SettingRow>
-      </SectionBlock>
-
-      <SectionBlock title="Custom config.toml settings">
-        <SettingRow label="Approval policy" description="Raw `approval_policy` value for this config target.">
-          <ConfigValueDropdown
-            value={approvalPolicyValue}
-            disabled={busyKey !== null}
-            onSelect={(value) => {
-              void writeConfigValue("approval_policy", value);
-            }}
-            options={[
-              { value: "untrusted", label: "untrusted" },
-              { value: "on-request", label: "on-request" },
-              { value: "never", label: "never" },
-            ]}
-          />
-        </SettingRow>
-        <SettingRow label="Sandbox settings" description="Raw `sandbox_mode` value for this config target.">
-          <ConfigValueDropdown
-            value={sandboxModeValue}
-            disabled={busyKey !== null}
-            onSelect={(value) => {
-              void writeConfigValue("sandbox_mode", value);
-            }}
-            options={[
-              { value: "read-only", label: "read-only" },
-              { value: "workspace-write", label: "workspace-write" },
-              { value: "danger-full-access", label: "danger-full-access" },
-            ]}
-          />
-        </SettingRow>
-        <SettingRow label="Allow network access" description="Controls `sandbox_workspace_write.network_access`.">
-          <TogglePill
-            value={networkAccessValue}
-            disabled={busyKey !== null || permissionState?.sandboxMode !== "workspace-write"}
-            onChange={(value) => {
-              void writeConfigValue("sandbox_workspace_write.network_access", value);
-            }}
-          />
-        </SettingRow>
-        <SettingRow label="config.toml" description={permissionState?.configTarget.filePath ?? "No writable config target"}>
-          <NodexButton
-            type="button"
-            variant="secondary"
-            size="sm"
-            disabled={!permissionState?.configTarget.filePath}
-            onClick={() => {
-              void openConfigToml();
-            }}
-          >
-            Reveal
-          </NodexButton>
-        </SettingRow>
-      </SectionBlock>
-
-      {error ? (
-        <div className="text-sm text-[var(--red-text)]">{error}</div>
-      ) : null}
-    </SettingsPageSurface>
-  );
-}
-
-function EditorSettingsPage({
-  composerEnterBehavior,
-  isMacPlatform,
-  onComposerEnterBehaviorChange,
-  onSmartPrefixParsingEnabledChange,
-  onStripSmartPrefixFromTitleEnabledChange,
-  onThreadQueueFollowUpsEnabledChange,
-  smartPrefixParsingEnabled,
-  stripSmartPrefixFromTitleEnabled,
-  threadQueueFollowUpsEnabled,
-}: SettingsSectionPageProps) {
-  return (
-    <SettingsPageSurface
-      title="Editor"
-      subtitle="Thread detail, composer behavior, and editing defaults."
-    >
-      <SectionBlock title="Thread composer">
-        <SettingRow
-          label="Thread detail"
-          description="Choose how much command output to show in threads."
-        >
-          <ThreadDetailLevelSettingControl />
-        </SettingRow>
-        <SettingRow label="Spellcheck" description="Inline text correction for editable writing surfaces.">
-          <SpellcheckSettingControl />
-        </SettingRow>
-        <SettingRow
-          label="Auto-link while typing"
-          description="Turn typed URLs into links as you finish the token."
-        >
-          <NfmAutolinkTypingSettingControl />
-        </SettingRow>
-        <SettingRow
-          label="Auto-link on paste"
-          description="Recognize links in pasted text, including inline URL spans inside longer content."
-        >
-          <NfmAutolinkPasteSettingControl />
-        </SettingRow>
-        <SettingRow
-          label="Recognize bare domains"
-          description="Link plain domains like example.com. Leave off to avoid filename-like text such as .md paths."
-        >
-          <NfmAutolinkBareDomainsSettingControl />
-        </SettingRow>
-        <SettingRow
-          label="Large paste text threshold"
-          description="Prompt when pasted plain text reaches this many characters, so you can materialize it instead of inflating the note."
-        >
-          <PasteResourceTextThresholdSettingControl />
-        </SettingRow>
-        <SettingRow
-          label="Large paste description soft limit"
-          description="Prompt before pasted plain text pushes the note near its description size ceiling."
-        >
-          <PasteResourceDescriptionSoftLimitSettingControl />
-        </SettingRow>
-        <SettingRow
-          label="Markdown file links"
-          description="Choose which desktop app handles absolute local file links in rendered markdown."
-        >
-          <FileLinkOpenerSettingControl />
-        </SettingRow>
-        <SettingRow
-          label="Smart parse block prefixes"
-          description="Interpret shorthand like 1XL(tag) during block-to-card import."
-        >
-          <SmartPrefixParsingSettingControl
-            value={smartPrefixParsingEnabled}
-            onChange={onSmartPrefixParsingEnabledChange}
-          />
-        </SettingRow>
-        <SettingRow
-          label="Strip parsed prefix from title"
-          description="Remove matched shorthand from imported Page titles after parsing."
-        >
-          <StripSmartPrefixFromTitleSettingControl
-            value={stripSmartPrefixFromTitleEnabled}
-            onChange={onStripSmartPrefixFromTitleEnabledChange}
-            disabled={!smartPrefixParsingEnabled}
-          />
-        </SettingRow>
-        <SettingRow
-          label={`${isMacPlatform ? "Cmd" : "Ctrl"}+Enter to send long prompts`}
-          description="Single-line prompts still send on Enter. Multiline prompts switch to the modifier chord when this is enabled."
-        >
-          <ComposerEnterBehaviorControl
-            value={composerEnterBehavior}
-            onChange={onComposerEnterBehaviorChange}
-          />
-        </SettingRow>
-        <SettingRow
-          label="Queue follow-ups"
-          description="While a thread is running, use queue as the default submit action instead of immediate steering."
-        >
-          <ThreadQueueFollowUpsSettingControl
-            value={threadQueueFollowUpsEnabled}
-            onChange={onThreadQueueFollowUpsEnabledChange}
-          />
-        </SettingRow>
-      </SectionBlock>
-    </SettingsPageSurface>
-  );
-}
-
-function PageSettingsPage() {
-  return (
-    <SettingsPageSurface
-      title="Page"
-      subtitle="Kanban card and page-stage presentation."
-    >
-      <SectionBlock title="Pages">
-        <SettingRow
-          label="Kanban card properties"
-          description="Choose whether priority, estimate, tags, assignee, and run-in metadata render above the title, inline with it, or below the card body."
-        >
-          <CardPropertyPositionSettingControl />
-        </SettingRow>
-        <SettingRow
-          label="Page Stage collapsed properties"
-          description="Choose which page-stage property rows start behind the more-properties toggle."
-        >
-          <PageStageCollapsedPropertiesSettingControl />
-        </SettingRow>
-      </SectionBlock>
-    </SettingsPageSurface>
-  );
-}
-
-function WorktreesSettingsPage({
-  onWorktreeStartModeChange,
-  open,
-  worktreeStartMode,
-}: SettingsSectionPageProps) {
-  return (
-    <SettingsPageSurface
-      title="Worktrees"
-      subtitle="Managed worktree creation, naming, and cleanup."
-    >
-      <SectionBlock title="Defaults">
-        <SettingRow
-          label="Worktree start mode"
-          description="Choose whether new worktree threads auto-create a branch or start detached."
-        >
-          <WorktreeStartModeSettingControl
-            value={worktreeStartMode}
-            onChange={onWorktreeStartModeChange}
-          />
-        </SettingRow>
-      </SectionBlock>
-      <SectionBlock title="Managed worktrees">
-        <div className="flex flex-col gap-1 p-3">
-          <div className="text-sm text-token-text-primary">
-            Managed worktrees
-          </div>
-          <div className="text-token-text-secondary text-sm">
-            Worktrees created by card threads. Hover a row to remove.
-          </div>
-          <ManagedWorktreesSettingControl open={open} />
-        </div>
-      </SectionBlock>
-    </SettingsPageSurface>
-  );
-}
-
-function GitInstructionSettingControl({
-  ariaLabel,
-  description,
-  label,
-  onSave,
-  placeholder,
-  value,
-}: {
-  ariaLabel: string;
-  description: string;
-  label: string;
-  onSave: (value: string) => Promise<void>;
-  placeholder: string;
-  value: string;
-}) {
-  const [draft, setDraft] = useState(value);
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => setDraft(value), [value]);
-
-  const changed = draft !== value;
-  const save = useCallback(async () => {
-    if (!changed || saving) return;
-    setSaving(true);
-    try {
-      await onSave(draft);
-    } finally {
-      setSaving(false);
-    }
-  }, [changed, draft, onSave, saving]);
-
-  return (
-    <SectionBlock title={label}>
-      <div className="flex items-start justify-between gap-4 p-3 pb-0">
-        <p className="text-sm text-token-text-secondary">{description}</p>
-        <NodexButton
-          variant="secondary"
-          size="sm"
-          disabled={!changed || saving}
-          onClick={() => void save()}
-        >
-          {saving ? "Saving…" : "Save"}
-        </NodexButton>
-      </div>
-      <div className="p-3 pt-2">
-        <textarea
-          aria-label={ariaLabel}
-          className="mt-1.5 w-full resize-y rounded-md border border-token-input-border bg-token-input-background px-2.5 py-2 text-sm text-token-input-foreground outline-none placeholder:text-token-input-placeholder-foreground focus:border-token-focus-border disabled:cursor-not-allowed disabled:opacity-50"
-          disabled={saving}
-          onChange={(event) => setDraft(event.target.value)}
-          placeholder={placeholder}
-          rows={6}
-          value={draft}
-        />
-      </div>
-    </SectionBlock>
-  );
-}
-
-function GitSettingsPage({
-  onWorktreeAutoBranchPrefixChange,
-  open,
-  worktreeAutoBranchPrefix,
-}: SettingsSectionPageProps) {
-  const [settings, setSettings] = useState<CodexGitSettings>({
-    branchPrefix: worktreeAutoBranchPrefix,
-    commitInstructions: "",
-    pullRequestInstructions: "",
-  });
-  const [branchSaving, setBranchSaving] = useState(false);
-
-  useEffect(() => {
-    if (!open) return;
-    let disposed = false;
-    void invoke("settings:git:get")
-      .then((next) => {
-        if (disposed) return;
-        if (!isCodexGitSettings(next)) throw new Error("Git settings are unavailable");
-        setSettings((current) =>
-          current.branchPrefix === next.branchPrefix
-            && current.commitInstructions === next.commitInstructions
-            && current.pullRequestInstructions === next.pullRequestInstructions
-            ? current
-            : next
-        );
-      })
-      .catch(() => {
-        if (!disposed) toast.danger("Failed to load Git settings");
-      });
-    return () => {
-      disposed = true;
-    };
-  }, [open]);
-
-  const saveBranchPrefix = useCallback(async (branchPrefix: string) => {
-    if (branchSaving) return;
-    setBranchSaving(true);
-    try {
-      const next = await invoke("settings:git:update", { branchPrefix });
-      if (!isCodexGitSettings(next)) throw new Error("Git settings are unavailable");
-      setSettings(next);
-      onWorktreeAutoBranchPrefixChange(next.branchPrefix);
-      toast.success("Saved branch prefix");
-    } catch {
-      toast.danger("Failed to save branch prefix");
-    } finally {
-      setBranchSaving(false);
-    }
-  }, [branchSaving, onWorktreeAutoBranchPrefixChange]);
-
-  const saveInstructions = useCallback(async (
-    patch: Pick<CodexGitSettings, "commitInstructions"> | Pick<CodexGitSettings, "pullRequestInstructions">,
-    successMessage: string,
-    errorMessage: string,
-  ) => {
-    try {
-      const next = await invoke("settings:git:update", patch);
-      if (!isCodexGitSettings(next)) throw new Error("Git settings are unavailable");
-      setSettings(next);
-      toast.success(successMessage);
-    } catch {
-      toast.danger(errorMessage);
-    }
-  }, []);
-
-  return (
-    <SettingsPageSurface
-      title="Git"
-      subtitle="Branch naming and instructions used by Codex for Git operations."
-    >
-      <SectionBlock title="Branches">
-        <SettingRow
-          label="Branch prefix"
-          description="Prefix used when Codex creates new branches."
-        >
-          <WorktreeAutoBranchPrefixSettingControl
-            disabled={branchSaving}
-            value={settings.branchPrefix}
-            onChange={(branchPrefix) => void saveBranchPrefix(branchPrefix)}
-          />
-        </SettingRow>
-      </SectionBlock>
-      <GitInstructionSettingControl
-        ariaLabel="Commit instructions"
-        description="Added to commit message generation prompts."
-        label="Commit instructions"
-        onSave={(commitInstructions) => saveInstructions(
-          { commitInstructions },
-          "Saved commit instructions",
-          "Failed to save commit instructions",
-        )}
-        placeholder="Add commit message guidance…"
-        value={settings.commitInstructions}
-      />
-      <GitInstructionSettingControl
-        ariaLabel="Pull request instructions"
-        description="Added to PR title and description generation prompts."
-        label="Pull request instructions"
-        onSave={(pullRequestInstructions) => saveInstructions(
-          { pullRequestInstructions },
-          "Saved pull request instructions",
-          "Failed to save pull request instructions",
-        )}
-        placeholder="Add pull request guidance…"
-        value={settings.pullRequestInstructions}
-      />
-    </SettingsPageSurface>
-  );
-}
-
-function LocalEnvironmentsSettingsSectionPage({
-  activeProjectId,
-  initialLocalEnvironmentConfigPath,
-  initialLocalEnvironmentProjectId,
-  onRequestProjectPickerOpen,
-  open,
-  projects,
-}: SettingsSectionPageProps) {
-  return (
-    <LocalEnvironmentsSettingsPage
-      open={open}
-      active
-      projects={projects}
-      activeProjectId={activeProjectId}
-      initialProjectId={initialLocalEnvironmentProjectId}
-      initialConfigPath={initialLocalEnvironmentConfigPath}
-      onAddProject={onRequestProjectPickerOpen}
-      renderShell={({ title, subtitle, backSlot, children }) => (
-        <SettingsPageSurface
-          title={title}
-          subtitle={subtitle}
-          backSlot={backSlot}
-        >
-          {children}
-        </SettingsPageSurface>
-      )}
-    />
-  );
-}
-
-function BackupsSettingsPage({ open }: SettingsSectionPageProps) {
-  return (
-    <SettingsPageSurface
-      title="Backups"
-      subtitle="Snapshot cadence, retention, and restore operations."
-    >
-      <BackupSettingsControl open={open} />
-    </SettingsPageSurface>
-  );
-}
-
 function SettingsPlaceholderPage({
   label,
   message,
@@ -2713,27 +2004,6 @@ function SettingsPlaceholderPage({
     </SettingsPageSurface>
   );
 }
-
-const SETTINGS_SECTION_COMPONENTS: Record<SettingsSectionId, ComponentType<SettingsSectionPageProps>> = {
-  "general-settings": GeneralSettingsPage,
-  appearance: AppearanceSettingsPage,
-  "browser-settings": BrowserSettingsPage,
-  "browser-passwords": BrowserPasswordsSettingsPage,
-  "browser-contact-info": BrowserContactInfoSettingsPage,
-  "browser-history": BrowserHistorySettingsPage,
-  "browser-extensions": BrowserExtensionsSettingsPage,
-  "computer-use": ComputerUseSettingsPage,
-  "keyboard-shortcuts": KeyboardShortcutsSettingsPage,
-  agent: AgentSettingsPage,
-  "agent-import": AgentImportSettingsPage,
-  editor: EditorSettingsPage,
-  page: PageSettingsPage,
-  git: GitSettingsPage,
-  worktrees: WorktreesSettingsPage,
-  "local-environments": LocalEnvironmentsSettingsSectionPage,
-  "hooks-settings": WorkbenchHooksSettingsPage,
-  backups: BackupsSettingsPage,
-};
 
 function isEditableEscapeElement(element: Element | null): boolean {
   return Boolean(
@@ -2802,7 +2072,7 @@ function SettingsMobileHeader({
             key={section.id}
             disabled={section.disabled}
             onSelect={() => onSelectSection(section.id)}
-            rightSlot={section.id === activeSectionId ? <CheckmarkIcon className="size-4" /> : null}
+            rightSlot={section.id === activeSectionId ? <NodexDropdownSelectedIcon /> : null}
           >
             {section.label}
           </NodexDropdownItem>
@@ -2840,8 +2110,10 @@ export function SettingsRouteShell({
   const shellRef = useRef<HTMLDivElement>(null);
   const {
     activeSectionId,
+    browserAnchor,
+    browserDetail,
     detailPageId,
-    redirectPath,
+    settingsAnchor,
     visibleSections,
   } = resolveSettingsShellState(path);
   const activeSection = visibleSections.find((section) => section.id === activeSectionId) ?? null;
@@ -2853,16 +2125,6 @@ export function SettingsRouteShell({
       projectNames: projects.map((project) => project.name),
     };
   }, [activeProjectId, projects]);
-
-  useEffect(() => {
-    if (!redirectPath) {
-      return;
-    }
-
-    startTransition(() => {
-      onPathChange(redirectPath);
-    });
-  }, [onPathChange, redirectPath]);
 
   useEffect(() => {
     shellRef.current?.focus();
@@ -2879,7 +2141,14 @@ export function SettingsRouteShell({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onBackToApp]);
 
-  const ActiveSectionComponent = SETTINGS_SECTION_COMPONENTS[activeSectionId];
+  useEffect(() => {
+    if (!settingsAnchor || settingsAnchor === browserAnchor) return;
+    document.getElementById(settingsAnchor)?.scrollIntoView({ block: "start" });
+  }, [browserAnchor, path, settingsAnchor]);
+
+  const ActiveSectionComponent = activeSection
+    ? SETTINGS_PAGE_COMPONENTS[activeSection.pageKey]
+    : null;
   const shouldRenderPlaceholder = !ActiveSectionComponent
     || activeSection?.placeholderKind === "unavailable"
     || activeSection?.placeholderKind === "external";
@@ -2944,6 +2213,15 @@ export function SettingsRouteShell({
                 open={true}
                 path={path}
                 onPathChange={onPathChange}
+                browserAnchor={browserAnchor}
+                browserDetail={browserDetail}
+                onOpenBrowserDetail={(destination, anchor) => {
+                  startTransition(() => {
+                    onPathChange(destination === "browser"
+                      ? buildBrowserSettingsPath(undefined, anchor)
+                      : buildBrowserSettingsPath(destination));
+                  });
+                }}
                 isMacPlatform={isMacPlatform}
                 projects={projects}
                 activeProjectId={activeProjectId}

@@ -149,6 +149,10 @@ export interface ThreadTurnDiffFileSidePanelTarget {
   path: string;
   title: string;
   workspaceRoot?: string | null;
+  line?: number;
+  column?: number;
+  endLine?: number;
+  endColumn?: number;
 }
 
 export interface ThreadSummaryPanelOutputSidePanelTarget {
@@ -156,6 +160,10 @@ export interface ThreadSummaryPanelOutputSidePanelTarget {
   path: string;
   title: string;
   workspaceRoot?: string | null;
+  line?: number;
+  column?: number;
+  endLine?: number;
+  endColumn?: number;
 }
 
 export interface ThreadPlanSidePanelTarget {
@@ -960,6 +968,7 @@ export interface ThreadBodySurfaceModel {
   childMemberships: readonly CodexConversationChildMembership[];
   backgroundAgentRows?: readonly ThreadComposerShellBackgroundAgentRowModel[];
   projectWorkspacePath?: string | null;
+  projectlessOutputDirectory?: string | null;
   searchOpenTick: number;
   threadStartProgress: {
     runInTarget: PageRunInTarget;

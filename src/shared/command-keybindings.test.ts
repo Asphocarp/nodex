@@ -11,6 +11,8 @@ import {
   matchesKeyboardEventToCommand,
   matchesMouseEventToCommand,
   normalizeAccelerator,
+  NEXT_PANEL_TAB_COMMAND_ID,
+  PREVIOUS_PANEL_TAB_COMMAND_ID,
   resolveRuntimePlatform,
   toElectronAccelerator,
   type KeyboardShortcutEventLike,
@@ -54,6 +56,13 @@ describe("command keybindings", () => {
   test("keeps close-tab and close-window defaults distinct", () => {
     const macState = createCommandKeymapState({}, "macOS");
 
+    expect(getPrimaryCommandAccelerator(macState, PREVIOUS_PANEL_TAB_COMMAND_ID))
+      .toBe("CmdOrCtrl+Shift+[");
+    expect(getPrimaryCommandAccelerator(macState, NEXT_PANEL_TAB_COMMAND_ID))
+      .toBe("CmdOrCtrl+Shift+]");
+    expect(toElectronAccelerator(
+      getPrimaryCommandAccelerator(macState, NEXT_PANEL_TAB_COMMAND_ID),
+    )).toBe("CommandOrControl+Shift+]");
     expect(getPrimaryCommandAccelerator(macState, "closeTab")).toBe("CmdOrCtrl+W");
     expect(getPrimaryCommandAccelerator(macState, "closeWindow")).toBe("CmdOrCtrl+Shift+W");
     expect(toElectronAccelerator(getPrimaryCommandAccelerator(macState, "closeWindow"))).toBe("CommandOrControl+Shift+W");

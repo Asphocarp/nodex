@@ -1,5 +1,9 @@
 import { describe, expect, test } from "vitest";
 import {
+  createCommandKeymapState,
+  PREVIOUS_PANEL_TAB_COMMAND_ID,
+} from "../../shared/command-keybindings";
+import {
   panelTabCycleRequestDirectionToOffset,
   resolveNextPanelTabId,
   resolvePanelTabCloseShortcut,
@@ -60,6 +64,29 @@ describe("workbench panel tab cycle", () => {
     expect(resolvePanelTabCloseShortcut(
       keyEvent({ key: "w", ctrlKey: true, shiftKey: true }),
       false,
+    )).toBe(false);
+  });
+
+  test("honors custom and explicitly unassigned command bindings", () => {
+    const customPrevious = createCommandKeymapState({
+      [PREVIOUS_PANEL_TAB_COMMAND_ID]: ["CmdOrCtrl+Alt+P"],
+    }, "macOS");
+    expect(resolvePanelTabCycleDirection(
+      keyEvent({ key: "p", metaKey: true, altKey: true }),
+      true,
+      customPrevious,
+    )).toBe(-1);
+    expect(resolvePanelTabCycleDirection(
+      keyEvent({ key: "[", code: "BracketLeft", metaKey: true, shiftKey: true }),
+      true,
+      customPrevious,
+    )).toBeNull();
+
+    const unassignedClose = createCommandKeymapState({ closeTab: [] }, "macOS");
+    expect(resolvePanelTabCloseShortcut(
+      keyEvent({ key: "w", metaKey: true }),
+      true,
+      unassignedClose,
     )).toBe(false);
   });
 });

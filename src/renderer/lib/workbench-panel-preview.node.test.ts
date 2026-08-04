@@ -46,7 +46,13 @@ describe("workbench panel preview", () => {
     expect(makeWorkbenchTabProjectionDraft(projectless, "files"))
       .toBeNull();
     expect(makeWorkbenchTabProjectionDraft(projectless, "review"))
-      .toBeNull();
+      .toMatchObject({
+        kind: "review",
+        config: {
+          projectId: null,
+          context: { kind: "session", sessionId: "session-1" },
+        },
+      });
     expect(makeWorkbenchTabProjectionDraft(projectless, "terminal"))
       .toBeNull();
 
@@ -106,6 +112,22 @@ describe("workbench panel preview", () => {
     );
     expect(first.id).toContain("leaf-1:files:src/a.ts");
     expect(differentLeaf.id).not.toBe(first.id);
+  });
+
+  test("carries a file reference reveal location into preview state", () => {
+    const session = makeTestWorkbenchSession();
+    const preview = makePreviewWorkspaceFileTab(session, "right", {
+      cwd: "/workspace",
+      leafId: "leaf-1",
+      path: "/workspace/src/a.ts",
+      title: "a.ts",
+      workspaceRoot: "/workspace",
+      location: { line: 12, column: 3, endLine: 14, endColumn: 2 },
+    });
+
+    expect(preview.state).toEqual({
+      pendingReveal: { line: 12, column: 3, endLine: 14, endColumn: 2 },
+    });
   });
 
   test("creates new Page preview identity and preserves it on promotion", () => {

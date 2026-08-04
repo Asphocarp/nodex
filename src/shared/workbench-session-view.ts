@@ -22,6 +22,7 @@ import {
   type WorkbenchPanelSplitSide,
 } from "./workbench-panel-layout";
 import type { BrowserSidebarDeviceToolbarState } from "./browser-sidebar";
+import type { WorkbenchReviewConfig } from "./workbench-review-context";
 
 export const WORKBENCH_SESSION_VIEW_VERSION = 3 as const;
 export const WORKBENCH_SESSION_VIEW_MAX_TABS = 2_048;
@@ -89,9 +90,7 @@ export interface WorkbenchBrowserTabConfig {
   deviceToolbarState?: BrowserSidebarDeviceToolbarState;
 }
 
-export interface WorkbenchReviewTabConfig {
-  projectId: string;
-}
+export type WorkbenchReviewTabConfig = WorkbenchReviewConfig;
 
 export interface WorkbenchFilesTabConfig {
   projectId: string | null;

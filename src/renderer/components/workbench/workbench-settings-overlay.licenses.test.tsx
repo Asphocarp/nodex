@@ -6,7 +6,7 @@ import { __resetThreadNotificationSettingsForTests } from "@/lib/use-thread-noti
 import { __resetWindowRestoreSettingsForTests } from "@/lib/use-window-restore-settings";
 import { installWindowApi } from "@/test/browser-globals";
 import { render, settleAsyncRender } from "@/test/dom";
-import { SettingsRouteShell } from "./workbench-settings-overlay";
+import { SettingsRouteShell } from "./workbench-settings-route-shell";
 import {
   buildSettingsPath,
   OPEN_SOURCE_LICENSES_SETTINGS_PATH,

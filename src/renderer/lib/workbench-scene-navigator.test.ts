@@ -208,6 +208,45 @@ describe("WorkbenchSceneNavigator", () => {
     });
   });
 
+  test("presents a Page in a selected Session owner without creating a Thread", async () => {
+    const harness = createHarness();
+    const owner = { kind: "session" as const, sessionId: "session:one" };
+    const input = {
+      owner,
+      request: {
+        kind: "page_stage" as const,
+        config: {
+          accessContext: { kind: "project" as const, projectId: "alpha" },
+          pageId: "page:one",
+        },
+        titleSnapshot: "Page One",
+      },
+      target: { panelId: "right" as const },
+      mode: "durable" as const,
+      navigation: "select-owner" as const,
+    };
+
+    const first = await harness.navigator.presentPanelSurface(input);
+    const second = await harness.navigator.presentPanelSurface(input);
+    const scene = harness.scenes[makeWorkbenchSceneKey(owner)];
+
+    expect(first).toMatchObject({ status: "presented", reused: false });
+    expect(second).toMatchObject({
+      status: "presented",
+      reused: true,
+      surfaceId: first.status === "presented" ? first.surfaceId : "",
+    });
+    expect(scene.primary?.kind).toBe("conversation");
+    expect(scene.panels.right.collapsed).toBe(false);
+    expect(scene.panels.right.size.fullWidth).toBe(false);
+    expect(Object.values(scene.panelSurfacesById)).toHaveLength(1);
+    expect(harness.selectLocation).toHaveBeenLastCalledWith({
+      kind: "session",
+      sessionId: "session:one",
+      projectContextId: null,
+    });
+  });
+
   test("opens the singleton Pages Scene", () => {
     const harness = createHarness();
 

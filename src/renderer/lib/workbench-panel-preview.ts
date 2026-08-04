@@ -10,6 +10,7 @@ import {
   isProjectSessionFilesPreviewTab,
   type ProjectSessionFilesPreviewTab,
 } from "@/lib/workbench-panel-tab-model";
+import type { WorkspaceFileRevealLocation } from "@/features/workspace-files/workspace-file-types";
 import { normalizeOptionalPath } from "@/lib/workbench-workspace-context";
 
 const PREVIEWABLE_PROJECT_SESSION_TAB_KINDS = [
@@ -95,6 +96,22 @@ export function makeWorkbenchTabProjectionDraft(
     };
   }
 
+  if (kind === "review") {
+    return {
+      kind,
+      title: "Review",
+      config: projectId
+        ? {
+            projectId,
+            context: { kind: "project", projectId },
+          }
+        : {
+            projectId: null,
+            context: { kind: "session", sessionId: session.id },
+          },
+    };
+  }
+
   if (projectId === null) return null;
 
   if (kind === "files") {
@@ -107,14 +124,6 @@ export function makeWorkbenchTabProjectionDraft(
         workspaceRoot: null,
         cwd: session.thread?.cwd ?? null,
       },
-    };
-  }
-
-  if (kind === "review") {
-    return {
-      kind,
-      title: "Review",
-      config: { projectId },
     };
   }
 
@@ -131,8 +140,9 @@ export function makePreviewWorkbenchTabProjection(
     projectId === null
     && draft.kind !== "browser"
     && draft.kind !== "terminal"
+    && draft.kind !== "review"
   ) {
-    throw new Error("Projectless sessions cannot own project-scoped tabs");
+    throw new Error("Projectless sessions cannot own this workbench tab");
   }
   const now = new Date().toISOString();
   const base = {
@@ -256,6 +266,7 @@ export function makePreviewWorkspaceFileTab(
     path: string;
     title: string;
     workspaceRoot: string | null;
+    location?: WorkspaceFileRevealLocation;
   },
 ): ProjectSessionFilesPreviewTab {
   const now = new Date().toISOString();
@@ -277,7 +288,7 @@ export function makePreviewWorkspaceFileTab(
       path: input.path,
     },
     stateKey: 0,
-    state: {},
+    state: input.location ? { pendingReveal: input.location } : {},
     preview: true,
     createdAt: now,
     updatedAt: now,

@@ -40,6 +40,7 @@ fn workspace_policy(read: &ProjectWorkspaceRead) -> ReadBudgetPolicy {
         ProjectWorkspaceRead::ProjectBootstrap
         | ProjectWorkspaceRead::Project { .. }
         | ProjectWorkspaceRead::ProjectPermissionMode { .. }
+        | ProjectWorkspaceRead::ProjectlessPermissionMode
         | ProjectWorkspaceRead::Session { .. }
         | ProjectWorkspaceRead::Thread { .. }
         | ProjectWorkspaceRead::ExecutionContext { .. }

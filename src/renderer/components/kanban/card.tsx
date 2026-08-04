@@ -19,6 +19,10 @@ import { cn } from "@/lib/utils";
 import { mergePageDraftOverlay, usePageDraftOverlay } from "../../lib/page-draft-store";
 import { ChipPropertyEditor } from "./editor/chip-property-editor";
 import { CardContextMenu } from "./card-context-menu";
+import type {
+  OpenPageInNewChatInput,
+  SendPageToChatInput,
+} from "@/lib/page-chat-actions";
 import {
   buildKanbanCardDropTargetData,
   canDropOnKanbanCard,
@@ -69,6 +73,9 @@ interface CardProps {
     currentProjectName: string;
     onDelete: (input: { pageId: string; columnId: string }) => Promise<void> | void;
     onCopyLink: (input: { pageId: string; projectId: string }) => Promise<void> | void;
+    onOpenPage?: (input: OpenPageInNewChatInput) => Promise<void> | void;
+    onOpenPageInNewChat?: (input: OpenPageInNewChatInput) => Promise<void> | void;
+    onSendPageToChat?: (input: SendPageToChatInput) => Promise<void> | void;
     onMenuOpen?: () => void;
   };
 }
@@ -712,6 +719,9 @@ export function Card({
           currentProjectName={contextMenu.currentProjectName}
           onDelete={contextMenu.onDelete}
           onCopyLink={contextMenu.onCopyLink}
+          onOpenPage={contextMenu.onOpenPage}
+          onOpenPageInNewChat={contextMenu.onOpenPageInNewChat}
+          onSendPageToChat={contextMenu.onSendPageToChat}
           onMenuOpen={contextMenu.onMenuOpen}
         >
           {surface}

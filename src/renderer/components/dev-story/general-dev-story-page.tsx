@@ -485,7 +485,7 @@ export function GeneralDevStoryPage({
             <ShowcaseCard
               title="Dense settings rows"
               description="Flat rows with internal dividers, matching the current route-based settings shell pages."
-              source="src/renderer/components/workbench/workbench-settings-overlay.tsx"
+              source="src/renderer/components/workbench/workbench-settings-route-shell.tsx"
             >
               <PreviewSurface className="p-0">
                 <div className="flex w-full flex-col divide-y divide-[color-mix(in_srgb,var(--border)_70%,transparent)] rounded-2xl border-[0.5px] border-[color-mix(in_srgb,var(--border)_75%,transparent)] bg-[color-mix(in_srgb,var(--foreground)_3%,transparent)]">

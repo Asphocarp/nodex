@@ -1,6 +1,6 @@
 import type { SupportedLanguages } from "@pierre/diffs";
-import { CodeView } from "@pierre/diffs/react";
-import { useMemo } from "react";
+import { CodeView, type CodeViewHandle } from "@pierre/diffs/react";
+import { useEffect, useMemo, useRef } from "react";
 import {
   NODEX_SOURCE_HOST_CLASS,
   getNodexDiffHostStyle,
@@ -9,6 +9,10 @@ import {
 import { useTheme } from "@/lib/use-theme";
 import { cn } from "@/lib/utils";
 import { getSourceContentVersion } from "@/lib/source-content-version";
+import {
+  buildWorkspaceFileLineSelection,
+  buildWorkspaceFileScrollTarget,
+} from "@/lib/workspace-file-reveal";
 
 export interface SourceViewerProps {
   readonly value: string;
@@ -19,6 +23,12 @@ export interface SourceViewerProps {
   readonly wrap?: boolean;
   readonly sourceIdentity?: string;
   readonly className?: string;
+  readonly revealLocation?: {
+    line?: number;
+    column?: number;
+    endLine?: number;
+    endColumn?: number;
+  };
 }
 
 export function SourceViewer({
@@ -30,7 +40,9 @@ export function SourceViewer({
   wrap = false,
   sourceIdentity,
   className,
+  revealLocation,
 }: SourceViewerProps) {
+  const codeViewRef = useRef<CodeViewHandle<undefined>>(null);
   const { resolved } = useTheme();
   const contentVersion = useMemo(() => getSourceContentVersion(value), [value]);
   const file = useMemo(() => ({
@@ -54,6 +66,19 @@ export function SourceViewer({
   );
   const style = useMemo(() => getNodexDiffHostStyle(resolved), [resolved]);
 
+  useEffect(() => {
+    if (!revealLocation?.line) return;
+    const frame = window.requestAnimationFrame(() => {
+      const id = sourceIdentity ?? filename;
+      const codeView = codeViewRef.current;
+      if (!codeView) return;
+      codeView.setSelectedLines(buildWorkspaceFileLineSelection(id, revealLocation));
+      const target = buildWorkspaceFileScrollTarget(id, revealLocation);
+      if (target) codeView.scrollTo(target);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [filename, revealLocation, sourceIdentity]);
+
   return (
     <section
       role="region"
@@ -63,6 +88,7 @@ export function SourceViewer({
       data-source-identity={sourceIdentity}
     >
       <CodeView
+        ref={codeViewRef}
         items={items}
         options={options}
         disableWorkerPool

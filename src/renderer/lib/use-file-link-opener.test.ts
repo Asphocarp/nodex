@@ -1,83 +1,18 @@
 import { describe, expect, test } from "vitest";
-import { fileLinkOpenerTestHelpers } from "./use-file-link-opener";
+import { readFileLinkOpener, writeFileLinkOpener } from "./file-link-opener-settings";
 
-const EXAMPLE_FILE_LINK = "/workspace/nodex/src/renderer/lib/nfm/parser.ts#L71";
-
-describe("use-file-link-opener helpers", () => {
-  test("deduplicates click opens that immediately follow a handled mouseup", () => {
-    expect(fileLinkOpenerTestHelpers.shouldSkipDuplicateClickOpen(
-      { at: 100, href: EXAMPLE_FILE_LINK },
-      EXAMPLE_FILE_LINK,
-      200,
-    )).toBe(true);
-
-    expect(fileLinkOpenerTestHelpers.shouldSkipDuplicateClickOpen(
-      { at: 100, href: EXAMPLE_FILE_LINK },
-      "/workspace/nodex/src/renderer/lib/nfm/parser.ts#L72",
-      200,
-    )).toBe(false);
-
-    expect(fileLinkOpenerTestHelpers.shouldSkipDuplicateClickOpen(
-      { at: 100, href: EXAMPLE_FILE_LINK },
-      EXAMPLE_FILE_LINK,
-      400,
-    )).toBe(false);
-  });
-
-  test("resolves text-node click targets to their parent element", () => {
-    class FakeElement {
-      parentElement: FakeElement | null = null;
-    }
-    class FakeNode {
-      constructor(readonly parentElement: FakeElement | null) {}
-    }
-
-    const globals = globalThis as {
-      Element?: typeof FakeElement;
-      Node?: typeof FakeNode;
-    };
-    const previousElement = globals.Element;
-    const previousNode = globals.Node;
-    globals.Element = FakeElement;
-    globals.Node = FakeNode;
-
+describe("file-link opener preference", () => {
+  test("persists and normalizes the selected opener", () => {
+    const previous = localStorage.getItem("nodex-markdown-file-link-opener-v1");
     try {
-      const anchor = new FakeElement();
-      const text = new FakeNode(anchor);
-      expect(fileLinkOpenerTestHelpers.resolveElementFromEventTarget(text as unknown as EventTarget)).toBe(anchor);
+      expect(writeFileLinkOpener("fileManager")).toBe("fileManager");
+      expect(readFileLinkOpener()).toBe("fileManager");
     } finally {
-      if (previousElement) {
-        globals.Element = previousElement;
+      if (previous === null) {
+        localStorage.removeItem("nodex-markdown-file-link-opener-v1");
       } else {
-        delete globals.Element;
-      }
-      if (previousNode) {
-        globals.Node = previousNode;
-      } else {
-        delete globals.Node;
+        localStorage.setItem("nodex-markdown-file-link-opener-v1", previous);
       }
     }
-  });
-
-  test("consumes handled file link clicks so editors cannot also open the href", () => {
-    let preventDefaultCalls = 0;
-    let stopPropagationCalls = 0;
-    let stopImmediatePropagationCalls = 0;
-
-    fileLinkOpenerTestHelpers.consumeHandledFileLinkEvent({
-      preventDefault: () => {
-        preventDefaultCalls += 1;
-      },
-      stopPropagation: () => {
-        stopPropagationCalls += 1;
-      },
-      stopImmediatePropagation: () => {
-        stopImmediatePropagationCalls += 1;
-      },
-    });
-
-    expect(preventDefaultCalls).toBe(1);
-    expect(stopPropagationCalls).toBe(1);
-    expect(stopImmediatePropagationCalls).toBe(1);
   });
 });

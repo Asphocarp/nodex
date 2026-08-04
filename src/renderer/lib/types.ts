@@ -385,7 +385,6 @@ export type {
   DesktopNotificationHideSelector,
   DesktopNotificationKind,
   DesktopNotificationPayload,
-  SystemNotificationPermissionStatus,
   AppUpdateSettings,
   UpdateAppUpdateSettingsInput,
   AppUpdateStatus,

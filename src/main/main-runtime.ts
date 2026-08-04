@@ -90,7 +90,6 @@ import {
 } from "./codex-scheduled-automation-scheduler";
 import { DesktopNotificationManager } from "./desktop-notification-manager";
 import { CodexThreadNotificationCoordinator } from "./codex/codex-thread-notification-coordinator";
-import { SystemNotificationPermissionService } from "./system-notification-permission-service";
 import { composerAppshotService } from "./composer-appshot-service";
 import {
   parsePageDeepLink,
@@ -163,6 +162,8 @@ import {
 import { recordDevRuntimeMetricCounter } from "./dev-runtime-metrics";
 import {
   getPrimaryCommandAccelerator,
+  NEXT_PANEL_TAB_COMMAND_ID,
+  PREVIOUS_PANEL_TAB_COMMAND_ID,
   toElectronAccelerator,
 } from "../shared/command-keybindings";
 import {
@@ -292,13 +293,6 @@ let storeAdministrationMaintenanceScheduler:
 let reminderResumeHandlerRegistered = false;
 const logger = getLogger({ subsystem: "app" });
 const desktopNotificationManager = new DesktopNotificationManager({ logger });
-const systemNotificationPermissionService = new SystemNotificationPermissionService({
-  notificationApi: Notification as unknown as {
-    getPermissionStatus?: () => unknown | Promise<unknown>;
-  },
-  openExternal: (url) => shell.openExternal(url),
-  logger,
-});
 
 const isCoreAuthorityReady = (): boolean => coreAuthorityStatus.kind === "ready";
 
@@ -725,14 +719,14 @@ function configureApplicationMenus(
         { type: "separator" },
         {
           label: "Previous Panel Tab",
-          accelerator: "CommandOrControl+Shift+[",
+          accelerator: menuAccelerator(PREVIOUS_PANEL_TAB_COMMAND_ID),
           click: () => {
             sendNavigationMessage(CYCLE_PANEL_TAB_PREVIOUS_HOST_CHANNEL);
           },
         },
         {
           label: "Next Panel Tab",
-          accelerator: "CommandOrControl+Shift+]",
+          accelerator: menuAccelerator(NEXT_PANEL_TAB_COMMAND_ID),
           click: () => {
             sendNavigationMessage(CYCLE_PANEL_TAB_NEXT_HOST_CHANNEL);
           },
@@ -2748,7 +2742,6 @@ export async function runMainAppStartup(
     libraryModule,
     databaseModule,
     rendererClientRouter,
-    systemNotificationPermissionService,
     onHeartbeatAutomationsEnabledChanged: (input) => {
       scheduledAutomationScheduler?.setHeartbeatAutomationsEnabled(input.enabled);
     },

@@ -20,6 +20,7 @@ The visible proof is the right or bottom panel add menu. For a project-backed se
 - [x] (2026-07-22 03:34Z) Added focused Rust, Main, shared, renderer, pure-helper, workflow, and Storybook coverage.
 - [x] (2026-07-22 03:34Z) Updated architecture, product, frontend, reliability, ownership, shortcut, and release documentation.
 - [x] (2026-07-22 03:34Z) Ran targeted and handoff checks, resolved contract-test drift and React workflow failures, and prepared the final conventional commit with a clean-worktree requirement.
+- [x] (2026-08-05) Closed the remaining projectless permission-scope gap: projectless chats now load and persist a Library-level default through Core instead of falling back to `Custom` or skipping null-scope IPC.
 
 ## Surprises & Discoveries
 
@@ -65,6 +66,13 @@ The visible proof is the right or bottom panel add menu. For a project-backed se
   Rationale: The app-server thread, fork, and execution contracts are bounded by thread identity and working directory. A fake Project leaks into permission lookups, navigation paths, archive refresh, and durable ownership, producing incorrect behavior.
   Date/Author: 2026-07-21 / Codex and user-approved plan.
 
+- Decision: Model projectless permission selection as a persisted Library-level
+  scope alongside Project-scoped selections.
+  Rationale: A nullable Project is a valid execution scope, not an instruction
+  to discard user choice. One projectless default keeps new and resumed chats
+  consistent across renderer restarts without fabricating Project ownership.
+  Date/Author: 2026-08-05 / Codex.
+
 ## Outcomes & Retrospective
 
 Implementation is complete. Projectless sessions now expose Side chat, Browser, and Terminal from one capability matrix: an attached thread with cwd receives all three; an attached thread without cwd receives Side chat and Browser; a blank projectless chat receives Browser only. Side chat remains renderer-local and ephemeral, Terminal and Browser are portable durable tabs, and exact projectless Output files can be pinned without enabling the generic Files tree.
@@ -85,7 +93,7 @@ The database currently begins from the frozen `crates/nodex-core/schema/v84.sql`
 
 The renderer's central integration point is `src/renderer/components/workbench/workbench-shell.tsx`. It currently defines panel actions, constructs durable tab drafts, starts Side chats, dispatches shortcuts and command-palette actions, renders Terminal panels, and synthesizes the conversation surface. The new pure helper belongs under `src/renderer/lib/workbench-panel-capabilities.ts`, with action availability based on Project ownership, attached-thread state, a non-empty thread `cwd`, target panel, and singleton tabs already open. The existing visual menu chrome should not change.
 
-At the start of this work, conversation stage contracts in `src/renderer/features/local-conversation/thread-stage-types.ts`, `connected-thread-stage.tsx`, the body owner, body, and composer required a string Project identifier even though downstream permission APIs already understood null. These types now honestly carry `string | null`. A projectless composer consumes the manager's default permission state and never sends `codex:permission:state:get(null)`.
+At the start of this work, conversation stage contracts in `src/renderer/features/local-conversation/thread-stage-types.ts`, `connected-thread-stage.tsx`, the body owner, body, and composer required a string Project identifier even though downstream permission APIs already understood null. These types now honestly carry `string | null`. A projectless composer loads the persisted projectless permission scope through the same manager path as a Project composer.
 
 ## Plan of Work
 
@@ -99,7 +107,7 @@ In `src/main/codex/codex-service.ts`, make `startSideChat` load and validate the
 
 In the renderer, add the capability resolver and use it in the right and bottom add menus, empty panel, command palette, header action, `/side`, selected-text action, and both global and panel shortcuts. Put execution behind one dispatcher. Unavailable keyboard actions return before suppressing the key. Project-backed action order remains the existing order; projectless order is Side chat, Browser, Terminal. Construct a projectless Terminal only when an attached thread has a non-empty cwd, and send the exact cwd plus conversation and Project-session identities. Remove Project from Terminal panel and hook props. Keep exact-file Output opening on its dedicated path so it can create and later pin a projectless Files preview even though generic Files is unavailable.
 
-Finally, change all conversation-stage Project identifiers to `string | null` and delete the conversation surface's `fallbackProjectId` and `surfaceProjectId`. Projectless Side-chat navigation is `session:<id>/thread:<id>`, never `project:null`. A blank projectless composer uses the Session identity, or `projectless:new-thread` without a Session. Projectless permission reads use the existing default state; archive/unarchive refreshes projectless summaries instead of loading an arbitrary Project. Add focused tests and a Storybook story for an attached projectless session, update source-of-truth documentation, and run the validation suite.
+Finally, change all conversation-stage Project identifiers to `string | null` and delete the conversation surface's `fallbackProjectId` and `surfaceProjectId`. Projectless Side-chat navigation is `session:<id>/thread:<id>`, never `project:null`. A blank projectless composer uses the Session identity, or `projectless:new-thread` without a Session. Projectless permission reads and writes use the persisted projectless default; archive/unarchive refreshes projectless summaries instead of loading an arbitrary Project. Add focused tests and a Storybook story for an attached projectless session, update source-of-truth documentation, and run the validation suite.
 
 ## Concrete Steps
 

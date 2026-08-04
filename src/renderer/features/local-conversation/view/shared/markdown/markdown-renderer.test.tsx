@@ -114,7 +114,7 @@ describe("MarkdownRenderer", () => {
     expect(orderedLists[1]?.getAttribute("start")).toBe("100");
   });
 
-  test("renders local file links as anchors", async () => {
+  test("renders local file links as semantic file references", async () => {
     const { container } = render(
       <NodexTooltipProvider>
         <MarkdownRenderer content={"- [/tmp/example.ts#L12](/tmp/example.ts#L12)"} />
@@ -123,7 +123,7 @@ describe("MarkdownRenderer", () => {
 
     await settleAsyncRender();
 
-    const link = container.querySelector('a[href="/tmp/example.ts#L12"]');
+    const link = container.querySelector("button[data-file-reference='true']");
     expect(Boolean(link)).toBe(true);
     expect(link?.textContent).toBe("/tmp/example.ts#L12");
   });

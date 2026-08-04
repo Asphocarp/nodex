@@ -8,6 +8,10 @@ import {
 import type { DatabaseId } from "./database-identities";
 import type { LibraryResourceTarget } from "./library-module";
 import {
+  resolveWorkbenchReviewContext,
+  type WorkbenchReviewConfig,
+} from "./workbench-review-context";
+import {
   activateWorkbenchSessionViewTab,
   cloneWorkbenchLayoutForNewWindow as cloneLegacyWorkbenchLayoutForNewWindow,
   createEmptyWorkbenchSessionView,
@@ -156,18 +160,7 @@ export interface WorkbenchBrowserSurfaceConfig {
   readonly deviceToolbarState?: BrowserSidebarDeviceToolbarState;
 }
 
-export interface WorkbenchReviewSurfaceConfig {
-  readonly projectId: string;
-  readonly context?:
-    | {
-        readonly kind: "project";
-        readonly projectId: string;
-      }
-    | {
-        readonly kind: "session";
-        readonly sessionId: string;
-      };
-}
+export type WorkbenchReviewSurfaceConfig = WorkbenchReviewConfig;
 
 export interface WorkbenchFilesSurfaceConfig {
   readonly projectId: string | null;
@@ -1323,8 +1316,8 @@ export function getWorkbenchSurfaceReuseKey(
     case "canvas_stage":
       return `canvas:${contentAccessContextKey(surface.config.accessContext)}:${surface.config.canvasBlockId}`;
     case "review": {
-      const context = surface.config.context;
-      if (!context) return `review:project:${surface.config.projectId}`;
+      const context = resolveWorkbenchReviewContext(surface.config);
+      if (!context) return null;
       return context.kind === "project"
         ? `review:project:${context.projectId}`
         : `review:session:${context.sessionId}`;

@@ -15,6 +15,8 @@ import { useMeasuredElementHeight } from "./use-measured-element-height";
 interface ReasoningSurfaceProps {
   item: Pick<CodexTranscriptEntry, "markdownText"> & { status?: CodexTranscriptEntry["status"] };
   parseIncompleteMarkdown?: boolean;
+  cwd?: string | null;
+  projectWorkspacePath?: string | null;
 }
 
 interface ReasoningSections {
@@ -147,6 +149,8 @@ function resolveReasoningHeaderLabel(isInProgress: boolean, elapsedLabel: string
 export function ReasoningSurface({
   item,
   parseIncompleteMarkdown = false,
+  cwd,
+  projectWorkspacePath,
 }: ReasoningSurfaceProps) {
   const content = item.markdownText ?? "";
   const isInProgress = item.status === "inProgress";
@@ -256,6 +260,8 @@ export function ReasoningSurface({
               <BudgetedMarkdownRenderer
                 content={renderedBody}
                 parseIncompleteMarkdown={parseIncompleteMarkdown}
+                cwd={cwd}
+                projectWorkspacePath={projectWorkspacePath}
                 sourceAriaLabel="Reasoning source"
                 className={cn(
                   "break-words text-size-chat text-token-foreground/60 [&_*]:text-size-chat [&_*]:text-token-foreground/50 [&_h1]:m-0 [&_h1]:mt-2 [&_h1]:font-semibold [&_h1+*]:mt-1 [&_h2]:m-0 [&_h2]:mt-2 [&_h2]:font-semibold [&_h2+*]:mt-1 [&_h3]:m-0 [&_h3]:mt-2 [&_h3]:font-semibold [&_h3+*]:mt-1 [&_li]:m-0 [&_ol]:my-0 [&_ol]:list-decimal [&_ol]:pl-4 [&_p]:m-0 [&_p]:has-[.inline-markdown]:py-0.5 [&_p+p]:mt-1 [&_ul]:my-0 [&_ul]:list-disc [&_ul]:pl-4",

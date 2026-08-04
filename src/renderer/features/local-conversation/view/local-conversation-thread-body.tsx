@@ -87,6 +87,7 @@ function LocalConversationThreadBodyLayout({
             childMemberships={model.childMemberships}
             backgroundAgentRows={model.backgroundAgentRows ?? []}
             projectWorkspacePath={model.projectWorkspacePath}
+            projectlessOutputDirectory={model.projectlessOutputDirectory}
             searchOpenTick={model.searchOpenTick}
             threadStartProgress={model.threadStartProgress}
             actions={actions}
@@ -198,6 +199,7 @@ export const LocalConversationThreadBody = memo(
     && left.turnDiffHoverPreviewDisabled === right.turnDiffHoverPreviewDisabled
     && left.model.searchOpenTick === right.model.searchOpenTick
     && left.model.projectWorkspacePath === right.model.projectWorkspacePath
+    && left.model.projectlessOutputDirectory === right.model.projectlessOutputDirectory
     && left.model.childMemberships === right.model.childMemberships
     && left.model.backgroundAgentRows === right.model.backgroundAgentRows
     && left.model.threadStartProgress === right.model.threadStartProgress

@@ -23,6 +23,7 @@ import {
 } from "../workbench-scene";
 import { BrowserSidebarDeviceToolbarStateSchema } from "../browser/browser-schemas";
 import { WorkbenchViewSchema } from "./workbench";
+import { WorkbenchReviewConfigSchema } from "./workbench-review";
 import {
   MAX_WORKBENCH_SESSION_VIEW_JSON_BYTES,
   WorkbenchPanelStateSchema,
@@ -152,19 +153,7 @@ const WorkbenchBrowserSurfaceConfigSchema = z.object({
   deviceToolbarState: BrowserSidebarDeviceToolbarStateSchema.optional(),
 }).strict();
 
-const WorkbenchReviewSurfaceConfigSchema = z.object({
-  projectId: idSchema,
-  context: z.discriminatedUnion("kind", [
-    z.object({
-      kind: z.literal("project"),
-      projectId: idSchema,
-    }).strict(),
-    z.object({
-      kind: z.literal("session"),
-      sessionId: idSchema,
-    }).strict(),
-  ]).optional(),
-}).strict();
+const WorkbenchReviewSurfaceConfigSchema = WorkbenchReviewConfigSchema;
 
 const WorkbenchFilesSurfaceConfigSchema = z.object({
   projectId: idSchema.nullable(),
