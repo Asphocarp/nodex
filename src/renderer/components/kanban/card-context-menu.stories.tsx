@@ -31,12 +31,16 @@ function CardContextMenuStory() {
         card={{
           id: "card-1",
           created: new Date("2026-03-21T14:20:00.000Z"),
+          title: "Release plan",
         }}
         currentColumnId="inbox"
         currentProjectId="project-a"
         currentProjectName="Alpha workspace"
         onDelete={() => {}}
         onCopyLink={() => {}}
+        onOpenPage={() => {}}
+        onOpenPageInNewChat={() => {}}
+        onSendPageToChat={() => Promise.resolve()}
         showMockActions
       >
         <button

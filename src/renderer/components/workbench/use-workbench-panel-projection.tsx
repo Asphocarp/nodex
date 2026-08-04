@@ -118,8 +118,10 @@ type SessionCommands = Pick<
   | "activateReviewTab"
   | "createManualTab"
   | "ensureBlankSessionForProject"
+  | "openPageInNewChat"
   | "openAttachedThreadSession"
   | "openAttachedThreadSessionById"
+  | "sendPageToChat"
   | "openSubagentsPanelTab"
   | "openTurnDiffFileInSidePanel"
 >;
@@ -352,8 +354,10 @@ export function useWorkbenchPanelProjection({
     activateReviewTab,
     createManualTab,
     ensureBlankSessionForProject,
+    openPageInNewChat,
     openAttachedThreadSession,
     openAttachedThreadSessionById,
+    sendPageToChat,
     openSubagentsPanelTab,
     openTurnDiffFileInSidePanel,
   } = sessionCommands;
@@ -672,6 +676,8 @@ export function useWorkbenchPanelProjection({
               pageStageTabTitleStore={pageStageTabTitleStore}
               onOpenCanvasStage={openCanvasStage}
               onOpenPageTab={openPageTab}
+              onOpenPageInNewChat={openPageInNewChat}
+              onSendPageToChat={sendPageToChat}
               onOpenFileTab={openWorkspaceFileTab}
               onEnsureBlankSessionForProject={ensureBlankSessionForProject}
               onRefreshSessions={onRefreshSessions}
@@ -756,6 +762,7 @@ export function useWorkbenchPanelProjection({
     createBrowserTabToRight,
     createManualTab,
     ensureBlankSessionForProject,
+    openPageInNewChat,
     onOpenAutomations,
     onOpenHooksSettings,
     onOpenLocalEnvironmentsSettings,
@@ -768,6 +775,7 @@ export function useWorkbenchPanelProjection({
     openCanvasStage,
     openMcpAppSidePanel,
     openPageTab,
+    sendPageToChat,
     openSubagentsPanelTab,
     openTurnDiffFileInSidePanel,
     openWorkspaceFileTab,

@@ -15,6 +15,10 @@ import {
   UNGROUPED_SCOPE_KEY,
 } from "@/lib/kanban-store";
 import { buildPageDeepLink } from "@/lib/page-deeplink";
+import type {
+  OpenPageInNewChatInput,
+  SendPageToChatInput,
+} from "@/lib/page-chat-actions";
 import {
   getKanbanColumnLayout,
   readKanbanColumnLayoutPrefs,
@@ -96,6 +100,8 @@ interface KanbanBoardProps {
     titleSnapshot?: string,
     options?: OpenPageStageOptions,
   ) => void;
+  onOpenPageInNewChat?: (input: OpenPageInNewChatInput) => Promise<void> | void;
+  onSendPageToChat?: (input: SendPageToChatInput) => Promise<void> | void;
   pageStagePageId: string | undefined;
   activePanelPageStagePageIds?: ReadonlySet<string>;
   pageStageCloseRef?: React.MutableRefObject<(() => Promise<void>) | null>;
@@ -109,6 +115,8 @@ export function KanbanBoard({
   searchQuery,
   dbViewPrefs,
   openPageStage,
+  onOpenPageInNewChat,
+  onSendPageToChat,
   pageStagePageId,
   activePanelPageStagePageIds,
   pageStageCloseRef,
@@ -601,6 +609,12 @@ export function KanbanBoard({
     projectId,
   ]);
 
+  const openPageFromMenu = useCallback(async (input: OpenPageInNewChatInput) => {
+    await openPageStage(input.projectId, input.pageId, input.titleSnapshot, {
+      openMode: "durable",
+    });
+  }, [openPageStage]);
+
   const handleEditCard = useCallback((
     columnId: string,
     card: CardType,
@@ -775,6 +789,9 @@ export function KanbanBoard({
               onWidthChange={(columnId, width) => updateColumnLayout(columnId, { width })}
               onDeletePageFromMenu={handleDeletePageFromMenu}
               onCopyCardLinkFromMenu={handleCopyCardLinkFromMenu}
+              onOpenPageFromMenu={openPageFromMenu}
+              onOpenPageInNewChatFromMenu={onOpenPageInNewChat}
+              onSendPageToChatFromMenu={onSendPageToChat}
               onOpenPageMenu={handleCardMenuOpen}
               cardDropDisabled={!dropCapabilities.allowPageTargets}
               columnDropDisabled={!dropCapabilities.allowColumnTargets}

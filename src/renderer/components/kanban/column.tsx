@@ -16,6 +16,10 @@ import type { DatabasePageSummary, PageCreatePlacement, BoardSummaryColumn, Page
 import { cn } from "../../lib/utils";
 import type { KanbanCardDragData } from "./pragmatic-drag-data";
 import { bindKanbanColumnDropSurface } from "./column-drop-surface";
+import type {
+  OpenPageInNewChatInput,
+  SendPageToChatInput,
+} from "@/lib/page-chat-actions";
 
 export { columnStyles } from "../../lib/status-chip";
 
@@ -50,6 +54,9 @@ interface ColumnProps {
     pageId: string;
     projectId: string;
   }) => Promise<void> | void;
+  onOpenPageFromMenu?: (input: OpenPageInNewChatInput) => Promise<void> | void;
+  onOpenPageInNewChatFromMenu?: (input: OpenPageInNewChatInput) => Promise<void> | void;
+  onSendPageToChatFromMenu?: (input: SendPageToChatInput) => Promise<void> | void;
   onOpenPageMenu?: (pageId: string) => void;
   dragDisabled?: boolean;
   cardDropDisabled?: boolean;
@@ -93,6 +100,9 @@ export const Column = memo(function Column({
   onWidthChange,
   onDeletePageFromMenu,
   onCopyCardLinkFromMenu,
+  onOpenPageFromMenu,
+  onOpenPageInNewChatFromMenu,
+  onSendPageToChatFromMenu,
   onOpenPageMenu,
   dragDisabled = false,
   cardDropDisabled = false,
@@ -376,6 +386,9 @@ export const Column = memo(function Column({
                           pageId,
                           projectId,
                         }),
+                        onOpenPage: onOpenPageFromMenu,
+                        onOpenPageInNewChat: onOpenPageInNewChatFromMenu,
+                        onSendPageToChat: onSendPageToChatFromMenu,
                         onMenuOpen: onOpenPageMenu ? () => onOpenPageMenu(card.id) : undefined,
                       }}
                     />

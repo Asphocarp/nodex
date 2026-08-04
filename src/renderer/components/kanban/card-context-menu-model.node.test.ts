@@ -9,6 +9,9 @@ describe("card context menu model", () => {
 
     expect(actions.map((action) => action.label).join(",")).toBe(
       [
+        "Open Page",
+        "Open in New Chat",
+        "Send Page to Chat…",
         "Copy deeplink",
         "Delete",
       ].join(","),
@@ -27,7 +30,9 @@ describe("card context menu model", () => {
         "Edit property",
         "Layout",
         "Property visibility",
-        "Open in",
+        "Open Page",
+        "Open in New Chat",
+        "Send Page to Chat…",
         "Copy deeplink",
         "Duplicate",
         "Delete",
@@ -50,6 +55,17 @@ describe("card context menu model", () => {
     const actions = getPageActionMenuEntries({ query: "link", showMockActions: false });
 
     expect(actions.map((action) => action.label).join(",")).toBe("Copy deeplink");
+  });
+
+  test("keeps the new chat actions searchable by their intent", () => {
+    expect(
+      getPageActionMenuEntries({ query: "new chat", showMockActions: false })
+        .map((action) => action.id),
+    ).toEqual(["open-in-new-chat"]);
+    expect(
+      getPageActionMenuEntries({ query: "send", showMockActions: false })
+        .map((action) => action.id),
+    ).toEqual(["send-to-chat"]);
   });
 
   test("filters mock action entries only when mock actions are visible", () => {

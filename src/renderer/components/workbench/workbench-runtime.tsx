@@ -2094,6 +2094,7 @@ export function WorkbenchRuntime({
     controller: panelController,
     lifecycle: panelLifecycle,
     panelOpeners,
+    sceneNavigator,
     createSessionViewTab,
     codexControl: workbenchCodexControl,
     processManagerConversationsById,
@@ -2119,6 +2120,8 @@ export function WorkbenchRuntime({
   });
   const {
     ensureBlankSessionForProject,
+    openPageInNewChat,
+    sendPageToChat,
     startNewChatInProject,
     startNewChatWithPrompt,
     openScheduledAutomationChatCreate,
@@ -3053,6 +3056,8 @@ export function WorkbenchRuntime({
           setDbViewPrefs={setDbViewPrefs}
           onReminderHandled={onReminderHandled}
           onOpenPageTab={openProjectScenePage}
+          onOpenPageInNewChat={openPageInNewChat}
+          onSendPageToChat={sendPageToChat}
           onOpenCanvasStage={openProjectSceneCanvas}
           targetLeafId={leafId}
           onUpdateTab={(surfaceId, patch) => {
@@ -3348,6 +3353,7 @@ export function WorkbenchRuntime({
     openProjectSceneCanvas,
     openProjectSceneManualSurface,
     openProjectScenePage,
+    openPageInNewChat,
     pageStageCloseRef,
     pageStageHistoryModal,
     pageStagePersistRef,
@@ -3361,6 +3367,7 @@ export function WorkbenchRuntime({
     searchByProject,
     setDbViewPrefs,
     setSearchQuery,
+    sendPageToChat,
     taskSearchOpenTick,
     togglePageStageHistoryModal,
     rightPanelMotion.animatedSize,

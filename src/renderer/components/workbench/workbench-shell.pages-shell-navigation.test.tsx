@@ -6,6 +6,36 @@ import { splitWorkbenchPanelLeaf } from "../../../shared/workbench-panel-layout"
 import { TITLEBAR_NEW_CHAT_ICON_PREFIX, executeCommandPaletteCommand, getHeaderShellSlot, getLastTerminalPanelProps, getThreadRow, installReducedMotionMatchMediaForTest, invokeCalls, makeAttachedSession, makeBlankSession, makePanelLayout, makePanels, makeProject, makeSession, makeSessionTab, moveSidebarPointer, pointerActivate, pointerDownAndSettle, renderWorkbench, startThreadForSessionCalls, setInvokeCalls } from "./workbench-testkit/workbench-shell-harness";
 
 describe("workbench session shell / pages-shell-navigation", () => {
+  test("opens a Page in a fresh Session Scene without starting a Thread", async () => {
+    const screen = renderWorkbench();
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const props = (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
+    expect(typeof props?.onOpenPageInNewChat).toBe("function");
+    await act(async () => {
+      await (props?.onOpenPageInNewChat as (input: {
+        projectId: string;
+        pageId: string;
+        titleSnapshot?: string;
+      }) => Promise<void>)({
+        projectId: "alpha",
+        pageId: "card-1",
+        titleSnapshot: "Card One",
+      });
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(invokeCalls.some((call) => (
+      call[0] === "project-sessions:create"
+      && JSON.stringify(call[1]).includes('"projectId":"alpha"')
+    ))).toBe(true);
+    expect(startThreadForSessionCalls).toHaveLength(0);
+    expect(screen.getByRole("tab", { name: "Card One" }) !== null).toBe(true);
+    expect(screen.container.querySelector('[data-app-shell-tab-preview="true"]')).toBe(null);
+  });
+
   test("panel tab menu creates tabs after opening a collapsed right panel", async () => {
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [makeSession({ rightCollapsed: true })] },
