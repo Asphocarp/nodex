@@ -23,6 +23,8 @@ interface PlanMessageProps {
   content: string;
   completed?: boolean;
   parseIncompleteMarkdown?: boolean;
+  cwd?: string | null;
+  projectWorkspacePath?: string | null;
   isSidePanelActive?: boolean;
   onOpenInSidePanel?: () => void | Promise<void>;
   onCloseSidePanel?: () => void | Promise<void>;
@@ -32,6 +34,8 @@ export function PlanMessage({
   content,
   completed = true,
   parseIncompleteMarkdown = false,
+  cwd,
+  projectWorkspacePath,
   isSidePanelActive = false,
   onOpenInSidePanel,
   onCloseSidePanel,
@@ -157,6 +161,8 @@ export function PlanMessage({
             content={content}
             parseIncompleteMarkdown={parseIncompleteMarkdown}
             animateStreamingText={!completed && parseIncompleteMarkdown}
+            cwd={cwd}
+            projectWorkspacePath={projectWorkspacePath}
             className="codex-markdown-plan text-size-chat"
             sourceAriaLabel="Plan source"
           />

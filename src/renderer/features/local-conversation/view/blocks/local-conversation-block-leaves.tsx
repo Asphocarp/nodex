@@ -706,6 +706,7 @@ export function UserMessageBubble({
   isSearchMatch = false,
   isActiveSearchMatch = false,
   onEditLastUserTurn,
+  projectWorkspacePath,
   threadCwd,
 }: ThreadLeafBlockProps) {
   const content = block.entry.markdownText ?? "";
@@ -832,7 +833,11 @@ export function UserMessageBubble({
             data-thread-selected-text-target="true"
             className={THREAD_VISUAL_TOKENS.userBubble}
           >
-            <UserMessageText text={content} />
+            <UserMessageText
+              text={content}
+              cwd={threadCwd}
+              projectWorkspacePath={projectWorkspacePath}
+            />
           </div>
         )}
         {shouldRenderFooter ? (
@@ -901,6 +906,8 @@ export function ThreadReasoningBlock({
   block,
   isLatestTurn,
   isStreamingTurn,
+  projectWorkspacePath,
+  threadCwd,
 }: ThreadLeafBlockProps) {
   const item = block.entry;
 
@@ -908,6 +915,8 @@ export function ThreadReasoningBlock({
     <ReasoningSurface
       item={item}
       parseIncompleteMarkdown={isStreamingTurn && (item.status === "inProgress" || isLatestTurn)}
+      cwd={threadCwd}
+      projectWorkspacePath={projectWorkspacePath}
     />
   );
 }
@@ -916,6 +925,7 @@ export function ThreadPlanCardBlock({
   block,
   isLatestTurn,
   isStreamingTurn,
+  projectWorkspacePath,
   threadCwd,
   onOpenPlanInSidePanel,
   onClosePlanSidePanel,
@@ -942,6 +952,8 @@ export function ThreadPlanCardBlock({
         content={item.markdownText ?? ""}
         completed={!isInProgress}
         parseIncompleteMarkdown={shouldParseIncompleteMarkdown}
+        cwd={threadCwd}
+        projectWorkspacePath={projectWorkspacePath}
         isSidePanelActive={isSidePanelActive}
         onOpenInSidePanel={
           !isInProgress
@@ -1163,6 +1175,8 @@ export function ThreadAssistantBodyBlock({
   isStreamingTurn,
   isSearchMatch = false,
   isActiveSearchMatch = false,
+  projectWorkspacePath,
+  threadCwd,
   onForkFromTurn,
   assistantAfter,
   alwaysShowAssistantMessageActions = false,
@@ -1217,6 +1231,8 @@ export function ThreadAssistantBodyBlock({
             animateStreamingText={isAssistantItemStreaming}
             sourceAriaLabel="Assistant message source"
             sourceIdentity={block.entry.entryId}
+            cwd={threadCwd}
+            projectWorkspacePath={projectWorkspacePath}
           />
         </div>
         {assistantAfter ? (
@@ -1293,7 +1309,11 @@ export function ThreadMcpServerElicitationBlock({ block }: ThreadLeafBlockProps)
   return <CompletedRequestActivitySurface view={view} />;
 }
 
-export function ThreadPlanImplementationBlock({ block }: ThreadLeafBlockProps) {
+export function ThreadPlanImplementationBlock({
+  block,
+  projectWorkspacePath,
+  threadCwd,
+}: ThreadLeafBlockProps) {
   if (block.type !== "planImplementation") return null;
 
   const content = block.entry.markdownText?.trim() ?? "";
@@ -1304,6 +1324,8 @@ export function ThreadPlanImplementationBlock({ block }: ThreadLeafBlockProps) {
       content={content}
       completed={block.status === "completed"}
       parseIncompleteMarkdown={false}
+      cwd={threadCwd}
+      projectWorkspacePath={projectWorkspacePath}
     />
   );
 }

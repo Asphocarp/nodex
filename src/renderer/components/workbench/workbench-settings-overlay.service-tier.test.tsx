@@ -5,7 +5,7 @@ import { render, settleAsyncRender } from "@/test/dom";
 import { installWindowApi } from "@/test/browser-globals";
 import { __resetWindowRestoreSettingsForTests } from "@/lib/use-window-restore-settings";
 import { __resetThreadNotificationSettingsForTests } from "@/lib/use-thread-notification-settings";
-import { SettingsRouteShell } from "./workbench-settings-overlay";
+import { SettingsRouteShell } from "./workbench-settings-route-shell";
 import { buildSettingsPath } from "./workbench-settings-routes";
 
 const PROJECTS = [

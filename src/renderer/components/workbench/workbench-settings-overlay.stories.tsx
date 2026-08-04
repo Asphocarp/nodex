@@ -12,11 +12,14 @@ import type {
   UpdateWorktreeEnvironmentConfigInput,
   WorktreeEnvironmentSettingsSnapshot,
 } from "@/lib/types";
-import { SettingsRouteShell } from "./workbench-settings-overlay";
+import { SettingsRouteShell } from "./workbench-settings-route-shell";
 import {
+  buildBrowserSettingsPath,
   buildSettingsPath,
+  buildSettingsAnchorPath,
   OPEN_SOURCE_LICENSES_SETTINGS_PATH,
 } from "./workbench-settings-routes";
+import { DEFAULT_BROWSER_USE_POLICY } from "../../../shared/browser-use-policy";
 import {
   applyCommandKeybindingUpdate,
   createCommandKeymapState,
@@ -244,6 +247,41 @@ function ensureStorybookElectronBridge({
         case "codex:permission:mode:set":
         case "codex:permission:config-value:set":
           return permissionState;
+        case "browser-profile-capabilities":
+          return {
+            contactInfo: { available: true, provider: "storybook" },
+            credentialVault: { available: true, provider: "storybook" },
+            extensions: { available: true, provider: "storybook" },
+            history: { available: true, provider: "storybook" },
+            profileImport: { available: true, provider: "storybook" },
+            siteInfo: { available: true, provider: "storybook" },
+          };
+        case "browser-use-policy-get":
+          return DEFAULT_BROWSER_USE_POLICY;
+        case "browser-use-policy-update-modes":
+        case "browser-use-policy-update-origin-rule":
+          return { ...DEFAULT_BROWSER_USE_POLICY, ...(args[0] as object) };
+        case "browser-browsing-data-clear":
+        case "browser-credential-remove":
+        case "browser-contact-info-remove":
+        case "browser-extension-remove":
+        case "browser-download-history-clear":
+          return { ok: true };
+        case "browser-credentials-list-all":
+          return [];
+        case "browser-contact-info-list":
+          return [];
+        case "browser-history-list":
+          return { entries: [] };
+        case "browser-extensions-list":
+          return {
+            capability: { available: true, provider: "storybook" },
+            extensions: [],
+          };
+        case "browser-downloads-list":
+          return { downloads: [] };
+        case "browser-download-action":
+          return { ok: true };
         case "settings:app-updates:get":
           return { automaticChecksEnabled: true };
         case "app:update:status":
@@ -624,7 +662,7 @@ export const SearchNoResults: Story = {
 export const SearchLongResultLabel: Story = {
   render: () => (
     <SettingsRouteShellStory
-      initialPath={buildSettingsPath("editor")}
+      initialPath={buildSettingsAnchorPath("general-settings", "composer")}
       initialSettingsSearchQuery="large paste description soft limit"
     />
   ),
@@ -651,6 +689,30 @@ export const GeneralFastTier: Story = {
 
 export const Agent: Story = {
   render: () => <SettingsRouteShellStory initialPath={buildSettingsPath("agent")} />,
+};
+
+export const Browser: Story = {
+  render: () => <SettingsRouteShellStory initialPath={buildBrowserSettingsPath()} />,
+};
+
+export const BrowserPasswordManager: Story = {
+  render: () => <SettingsRouteShellStory initialPath={buildBrowserSettingsPath("passwords")} />,
+};
+
+export const BrowserContactInfo: Story = {
+  render: () => <SettingsRouteShellStory initialPath={buildBrowserSettingsPath("contact-info")} />,
+};
+
+export const BrowserHistory: Story = {
+  render: () => <SettingsRouteShellStory initialPath={buildBrowserSettingsPath("history")} />,
+};
+
+export const BrowserExtensions: Story = {
+  render: () => <SettingsRouteShellStory initialPath={buildBrowserSettingsPath("extensions")} />,
+};
+
+export const BrowserDownloads: Story = {
+  render: () => <SettingsRouteShellStory initialPath={buildBrowserSettingsPath("downloads")} />,
 };
 
 export const LocalEnvironments: Story = {
@@ -681,7 +743,7 @@ export const Git: Story = {
   render: () => <SettingsRouteShellStory initialPath={buildSettingsPath("git")} />,
 };
 
-export const InvalidSectionRedirect: Story = {
+export const InvalidSectionFallback: Story = {
   render: () => <SettingsRouteShellStory initialPath="/settings/not-real" />,
 };
 

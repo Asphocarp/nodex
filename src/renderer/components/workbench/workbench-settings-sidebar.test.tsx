@@ -48,6 +48,29 @@ async function pressSearchKey(input: HTMLInputElement, key: string) {
 }
 
 describe("SettingsSidebar search", () => {
+  test("exposes canonical section links and a keyboard-native back action", () => {
+    const view = renderSidebar();
+
+    const generalLink = view.getByRole("link", { name: "General" });
+    expect(generalLink.getAttribute("href")).toBe("/settings/general-settings");
+    expect(generalLink.getAttribute("aria-current")).toBe("page");
+    expect(generalLink.getAttribute("data-nodex-internal-route")).toBe("settings");
+    expect(view.getByRole("button", { name: "Back to app" })).not.toBe(null);
+  });
+
+  test("clicking a section link delegates to the in-app route handler", () => {
+    const view = renderSidebar();
+    const link = view.getByRole("link", { name: "Appearance" });
+    const event = new MouseEvent("click", { bubbles: true, cancelable: true });
+
+    act(() => {
+      link.dispatchEvent(event);
+    });
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(view.selectedSectionId()).toBe("appearance");
+  });
+
   test("renders the settings searchbox", () => {
     const view = renderSidebar();
 

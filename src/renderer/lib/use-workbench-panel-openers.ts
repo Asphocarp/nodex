@@ -75,9 +75,11 @@ import type {
   CodexCollaborationModeKind,
   PanelId,
   Project,
+  WorkbenchTabUpdateInput,
   WorkbenchTabCreateInput,
   WorkbenchTabProjection,
 } from "./types";
+import type { WorkspaceFileRevealLocation } from "@/features/workspace-files/workspace-file-types";
 import type {
   useWorkbenchPanelLifecycle,
 } from "./use-workbench-panel-lifecycle";
@@ -128,6 +130,10 @@ interface WorkbenchPanelOpenersInput {
   readonly createSessionViewTab: (
     input: WorkbenchTabCreateInput,
   ) => WorkbenchTabProjection | null;
+  readonly updateTab: (
+    tabId: string,
+    patch: WorkbenchTabUpdateInput,
+  ) => WorkbenchTabProjection | null;
   readonly refreshProjectSessions: (
     projectId: string | null,
   ) => Promise<unknown>;
@@ -161,6 +167,7 @@ export function useWorkbenchPanelOpeners({
   projects,
   rightPanelFullWidth,
   createSessionViewTab,
+  updateTab,
   refreshProjectSessions,
   openPageStage,
   pendingPageDeepLinkOpen,
@@ -534,6 +541,7 @@ const openSideChat = useCallback(async (
     panelId: PanelId;
     mode?: "preview" | "durable";
     workspaceRoot?: string | null;
+    location?: WorkspaceFileRevealLocation;
   }) => {
     if (!activeSession) return false;
     const sessionProjectId = activeSession.projectId;
@@ -600,11 +608,54 @@ const openSideChat = useCallback(async (
       workspaceRoot,
       path: input.path,
     } as const;
+    const applyRevealToDurableTab = (tabId: string) => {
+      if (!input.location) return;
+      const currentTab = activeSession.tabs.find((tab) => tab.id === tabId);
+      const currentState = currentTab?.state;
+      const state = typeof currentState === "object"
+        && currentState !== null
+        && !Array.isArray(currentState)
+        ? currentState as Record<string, unknown>
+        : {};
+      updateTab(tabId, {
+        state: {
+          ...state,
+          pendingReveal: input.location,
+        },
+        stateKey: (currentTab?.stateKey ?? 0) + 1,
+      });
+    };
+    const applyRevealToPreviewTab = (slotKey: string) => {
+      if (!input.location) return;
+      panelControllerRef.current.updatePreviewTabsByPanel((current) => {
+        const previewTab = current[slotKey];
+        if (!previewTab || previewTab.kind !== "files") return current;
+        const currentState = previewTab.state;
+        const state = typeof currentState === "object"
+          && currentState !== null
+          && !Array.isArray(currentState)
+          ? currentState as Record<string, unknown>
+          : {};
+        return {
+          ...current,
+          [slotKey]: {
+            ...previewTab,
+            state: {
+              ...state,
+              pendingReveal: input.location,
+            },
+            stateKey: previewTab.stateKey + 1,
+          },
+        };
+      });
+    };
     if (decision.kind === "focus-durable") {
       await setActivePanelTab(input.panelId, decision.tabId, { openPanel: true });
+      applyRevealToDurableTab(decision.tabId);
       return true;
     }
     if (decision.kind === "focus-preview") {
+      applyRevealToPreviewTab(makeWorkbenchSessionPanelSlotKey(activeSession.id, input.panelId, leafId));
       await ensureActivePanelOpenWithoutRefresh(input.panelId);
       return true;
     }
@@ -618,6 +669,7 @@ const openSideChat = useCallback(async (
         config: fileConfig,
       });
       if (!created) return false;
+      applyRevealToDurableTab(created.id);
       await closeTab(decision.emptyTabId, {
         preferredActiveLeafId: leafId,
         preferredActiveTabId: created.id,
@@ -626,6 +678,7 @@ const openSideChat = useCallback(async (
       return true;
     }
     if (decision.kind === "pin-preview") {
+      applyRevealToPreviewTab(makeWorkbenchSessionPanelSlotKey(activeSession.id, input.panelId, leafId));
       await pinPreviewTab(input.panelId, decision.tabId, leafId);
       return true;
     }
@@ -644,7 +697,7 @@ const openSideChat = useCallback(async (
     }
 
     if (decision.kind === "create-durable") {
-      createSessionViewTab({
+      const created = createSessionViewTab({
         sessionId: activeSession.id,
         panelId: input.panelId,
         targetLeafId: leafId,
@@ -652,6 +705,7 @@ const openSideChat = useCallback(async (
         title: input.title || getWorkspaceFileName(input.path),
         config: fileConfig,
       });
+      if (created) applyRevealToDurableTab(created.id);
       await ensureActivePanelOpenWithoutRefresh(input.panelId);
       return true;
     }
@@ -664,6 +718,7 @@ const openSideChat = useCallback(async (
         title: input.title || getWorkspaceFileName(input.path),
         cwd,
         workspaceRoot,
+        location: input.location,
       }),
     }));
     await ensureActivePanelOpenWithoutRefresh(input.panelId);
@@ -679,6 +734,7 @@ const openSideChat = useCallback(async (
     projects,
     refreshProjectSessions,
     setActivePanelTab,
+    updateTab,
   ]);
 
   const openPageTab = useCallback<OpenPageTabHandler>(async (projectId, pageId, titleSnapshot, options) => {

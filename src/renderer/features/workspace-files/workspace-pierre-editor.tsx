@@ -3,10 +3,11 @@ import { Editor, type EditorOptions } from "@pierre/diffs/edit";
 import {
   CodeView,
   EditProvider,
+  type CodeViewHandle,
   type CodeViewItem,
   type FileContents,
 } from "@pierre/diffs/react";
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import {
   NODEX_SOURCE_HOST_CLASS,
   getNodexDiffHostStyle,
@@ -14,6 +15,11 @@ import {
 } from "@/lib/diff-presentation";
 import { useTheme } from "@/lib/use-theme";
 import { cn } from "@/lib/utils";
+import {
+  buildWorkspaceFileEditorSelection,
+  buildWorkspaceFileLineSelection,
+  buildWorkspaceFileScrollTarget,
+} from "@/lib/workspace-file-reveal";
 
 interface WorkspacePierreEditorProps {
   readonly value: string;
@@ -25,6 +31,12 @@ interface WorkspacePierreEditorProps {
   readonly wrap?: boolean;
   readonly className?: string;
   readonly onChange: (value: string) => void;
+  readonly revealLocation?: {
+    line?: number;
+    column?: number;
+    endLine?: number;
+    endColumn?: number;
+  };
 }
 
 function createWorkspaceEditor(
@@ -43,7 +55,9 @@ export function WorkspacePierreEditor({
   wrap = true,
   className,
   onChange,
+  revealLocation,
 }: WorkspacePierreEditorProps) {
+  const codeViewRef = useRef<CodeViewHandle<undefined>>(null);
   const { resolved } = useTheme();
   const items = useMemo<CodeViewItem[]>(() => [{
     id: sourceIdentity,
@@ -72,6 +86,27 @@ export function WorkspacePierreEditor({
     onChange(file.contents);
   };
 
+  useEffect(() => {
+    if (!revealLocation?.line) return;
+    const frame = window.requestAnimationFrame(() => {
+      const codeView = codeViewRef.current;
+      if (!codeView) return;
+
+      const editor = codeView.getEditor(sourceIdentity) as Editor<undefined> | undefined;
+      const editorSelection = buildWorkspaceFileEditorSelection(revealLocation);
+      if (editor && editorSelection) {
+        codeView.setSelectedLines(null);
+        editor.setSelections([editorSelection]);
+      } else {
+        codeView.setSelectedLines(buildWorkspaceFileLineSelection(sourceIdentity, revealLocation));
+      }
+
+      const target = buildWorkspaceFileScrollTarget(sourceIdentity, revealLocation);
+      if (target) codeView.scrollTo(target);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [revealLocation, sourceIdentity]);
+
   return (
     <section
       role="region"
@@ -81,6 +116,7 @@ export function WorkspacePierreEditor({
     >
       <EditProvider createEditor={createWorkspaceEditor}>
         <CodeView
+          ref={codeViewRef}
           items={items}
           options={options}
           editorOptions={{

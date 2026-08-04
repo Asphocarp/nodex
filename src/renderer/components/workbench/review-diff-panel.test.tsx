@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import { createElement, useEffect, useRef, type ComponentProps } from "react";
 import {
   act,
@@ -13,6 +13,7 @@ import {
   NodexToastProvider,
 } from "../ui/toast";
 import { NodexTooltipProvider } from "../ui/tooltip";
+import { FileReferenceRouterProvider } from "@/lib/file-reference-router";
 import { NODEX_REVIEW_DIFF_EXPANSION_LINE_COUNT } from "../../lib/diff-presentation";
 import { buildReviewFileTreeVisibleState } from "@/lib/review-file-tree-model";
 import type {
@@ -51,6 +52,7 @@ const startThreadPromptCalls: Array<{ threadId: string; prompt: string }> = [];
 const clipboardWrites: string[] = [];
 let mockInvokeImpl: ((...args: unknown[]) => Promise<unknown>) | null = null;
 let lastFileDiffProps: FileDiffProps<unknown> | null = null;
+const openWorkspaceFileTab = vi.fn(async () => true);
 
 function PrepareReviewOpen({ intent }: { readonly intent: ReviewOpenIntent }) {
   const prepareOpen = useSetScopedAtom(prepareReviewOpenAtom);
@@ -764,6 +766,7 @@ beforeEach(() => {
   clipboardWrites.length = 0;
   mockInvokeImpl = null;
   lastFileDiffProps = null;
+  openWorkspaceFileTab.mockClear();
   __resetReviewFullContentStoreForTests();
   __resetReviewCatFileBatcherForTests();
   __resetReviewDiffCommentAttachmentStoreForTests();
@@ -794,15 +797,19 @@ async function loadReviewDiffPanelModule() {
       props;
     return (
       <TestQueryProvider>
-        <ReviewDiffPanel
-          {...panelProps}
-          conversationProjection={
-            conversationProjection ??
-            buildReviewConversationProjection(conversation)
-          }
-          deps={{ ...reviewDiffPanelTestDeps, ...deps }}
-          onStartThreadPrompt={recordStartThreadPrompt}
-        />
+        <FileReferenceRouterProvider
+          openWorkspaceFileTab={openWorkspaceFileTab}
+        >
+          <ReviewDiffPanel
+            {...panelProps}
+            conversationProjection={
+              conversationProjection ??
+              buildReviewConversationProjection(conversation)
+            }
+            deps={{ ...reviewDiffPanelTestDeps, ...deps }}
+            onStartThreadPrompt={recordStartThreadPrompt}
+          />
+        </FileReferenceRouterProvider>
       </TestQueryProvider>
     );
   }
@@ -951,6 +958,47 @@ describe("review diff panel", () => {
     expect(
       container.querySelector('[data-file-diff="src/example.ts"]'),
     ).not.toBeNull();
+  });
+
+  test("routes review filenames to Files and preserves durable activation", async () => {
+    const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
+    const view = render(
+      <NodexTooltipProvider>
+        <ReviewDiffPanel
+          conversation={buildConversation()}
+          projectWorkspacePath="/tmp/codex"
+        />
+      </NodexTooltipProvider>,
+    );
+
+    await settleAsyncRender();
+    const filename = view.getByRole("button", { name: "example.ts" });
+
+    fireEvent.click(filename);
+    await settleAsyncRender();
+    expect(openWorkspaceFileTab).toHaveBeenLastCalledWith({
+      cwd: "/tmp/codex",
+      hostId: "local",
+      path: "/tmp/codex/src/example.ts",
+      title: "src/example.ts",
+      panelId: "right",
+      mode: "preview",
+      workspaceRoot: "/tmp/codex",
+      location: { line: 1 },
+    });
+
+    fireEvent.doubleClick(filename);
+    await settleAsyncRender();
+    expect(openWorkspaceFileTab).toHaveBeenLastCalledWith({
+      cwd: "/tmp/codex",
+      hostId: "local",
+      path: "/tmp/codex/src/example.ts",
+      title: "src/example.ts",
+      panelId: "right",
+      mode: "durable",
+      workspaceRoot: "/tmp/codex",
+      location: { line: 1 },
+    });
   });
 
   test("passes Codex review diff options to rendered file diffs", async () => {

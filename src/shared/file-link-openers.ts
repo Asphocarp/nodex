@@ -31,6 +31,8 @@ export interface FileLinkTarget {
   path: string;
   line?: number;
   column?: number;
+  endLine?: number;
+  endColumn?: number;
 }
 
 export const DEFAULT_FILE_LINK_OPENER_ID: FileLinkOpenerId = "vscode";
@@ -73,15 +75,24 @@ function isAbsoluteLocalPath(value: string): boolean {
   return /^[a-zA-Z]:[\\/]/.test(value);
 }
 
-function parseLineColumnFragment(fragment: string): Pick<FileLinkTarget, "line" | "column"> {
-  const match = /^L(\d+)(?:C(\d+))?$/i.exec(fragment.trim());
+function parseLineColumnFragment(
+  fragment: string,
+): Pick<FileLinkTarget, "line" | "column" | "endLine" | "endColumn"> {
+  const match = /^L(\d+)(?:C(\d+))?(?:-L?(\d+)(?:C(\d+))?)?$/i.exec(fragment.trim());
   if (!match) return {};
 
   const line = parsePositiveInteger(match[1]);
   const column = parsePositiveInteger(match[2]);
   if (!line) return {};
 
-  return column ? { line, column } : { line };
+  const endLine = parsePositiveInteger(match[3]);
+  const endColumn = parsePositiveInteger(match[4]);
+  return {
+    line,
+    ...(column ? { column } : {}),
+    ...(endLine ? { endLine } : {}),
+    ...(endColumn ? { endColumn } : {}),
+  };
 }
 
 function decodeFileUrlPath(value: string): string | null {
@@ -152,13 +163,16 @@ export function parseLocalFileLinkHref(href: string): FileLinkTarget | null {
 export function formatFileLinkLocation(target: FileLinkTarget): string {
   const lineSuffix = target.line ? `:${target.line}` : "";
   const columnSuffix = target.line && target.column ? `:${target.column}` : "";
-  return `${target.path}${lineSuffix}${columnSuffix}`;
+  const endLineSuffix = target.endLine
+    ? `-${target.endLine}${target.endColumn ? `:${target.endColumn}` : ""}`
+    : "";
+  return `${target.path}${lineSuffix}${columnSuffix}${endLineSuffix}`;
 }
 
 export function buildFileUrl(target: FileLinkTarget): string {
   const encodedPath = encodeURI(target.path);
   const fragment = target.line
-    ? `#L${target.line}${target.column ? `C${target.column}` : ""}`
+    ? `#L${target.line}${target.column ? `C${target.column}` : ""}${target.endLine ? `-L${target.endLine}${target.endColumn ? `C${target.endColumn}` : ""}` : ""}`
     : "";
   if (/^[a-zA-Z]:[\\/]/.test(target.path)) {
     return `file:///${encodedPath.replace(/\\/g, "/")}${fragment}`;

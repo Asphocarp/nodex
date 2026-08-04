@@ -1231,8 +1231,8 @@ export function BrowserSidebarPanel({
             <BrowserCredentialMenu
               identity={browserIdentity}
               disabled={pageActionsDisabled}
-              onOpenPasswords={() => onOpenBrowserSettings?.("browser-passwords")}
-              onOpenContactInfo={() => onOpenBrowserSettings?.("browser-contact-info")}
+              onOpenPasswords={() => onOpenBrowserSettings?.("passwords")}
+              onOpenContactInfo={() => onOpenBrowserSettings?.("contact-info")}
             />
           </div>
           <div className={cn(BROWSER_COLLAPSIBLE_ACTION_CLASS, pageActionsDisabled ? "pointer-events-none max-w-0 opacity-0 -translate-y-0.5" : "max-w-7 opacity-100 translate-y-0")}>
@@ -1963,31 +1963,31 @@ function BrowserOverflowMenu({
       <NodexDropdownSeparator />
       <NodexDropdownItem
         leftSlot={<KeyRound className="icon-xs" />}
-        onSelect={() => onOpenSettings("browser-passwords")}
+        onSelect={() => onOpenSettings("passwords")}
       >
         Passwords
       </NodexDropdownItem>
       <NodexDropdownItem
         leftSlot={<ContactRound className="icon-xs" />}
-        onSelect={() => onOpenSettings("browser-contact-info")}
+        onSelect={() => onOpenSettings("contact-info")}
       >
         Contact info
       </NodexDropdownItem>
       <NodexDropdownItem
         leftSlot={<History className="icon-xs" />}
-        onSelect={() => onOpenSettings("browser-history")}
+        onSelect={() => onOpenSettings("history")}
       >
         History
       </NodexDropdownItem>
       <NodexDropdownItem
         leftSlot={<Puzzle className="icon-xs" />}
-        onSelect={() => onOpenSettings("browser-extensions")}
+        onSelect={() => onOpenSettings("extensions")}
       >
         Extensions
       </NodexDropdownItem>
       <NodexDropdownItem
         leftSlot={<Settings2 className="icon-xs" />}
-        onSelect={() => onOpenSettings("browser-settings")}
+        onSelect={() => onOpenSettings("browser")}
       >
         Browser settings
       </NodexDropdownItem>

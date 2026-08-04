@@ -534,6 +534,7 @@ export function useWorkbenchPanelProjection({
               <PlanSidePanelTab
                 key={`${session.id}:${tab.id}:${tab.stateKey}`}
                 content={tab.content}
+                cwd={tab.cwd}
               />
             );
           }

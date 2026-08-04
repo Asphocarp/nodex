@@ -857,6 +857,16 @@ export function useWorkbenchSessionCommands({
       title: target.title,
       panelId: "right",
       workspaceRoot: target.workspaceRoot,
+      ...(target.line
+        ? {
+            location: {
+              line: target.line,
+              ...(target.column ? { column: target.column } : {}),
+              ...(target.endLine ? { endLine: target.endLine } : {}),
+              ...(target.endColumn ? { endColumn: target.endColumn } : {}),
+            },
+          }
+        : {}),
     });
   }, [openWorkspaceFileTab]);
   const openSummaryOutputInSidePanel = useCallback<NonNullable<ThreadStageActions["onOpenSummaryOutputInSidePanel"]>>(async (target) => {
@@ -867,6 +877,16 @@ export function useWorkbenchSessionCommands({
       title: target.title,
       panelId: "right",
       workspaceRoot: target.workspaceRoot,
+      ...(target.line
+        ? {
+            location: {
+              line: target.line,
+              ...(target.column ? { column: target.column } : {}),
+              ...(target.endLine ? { endLine: target.endLine } : {}),
+              ...(target.endColumn ? { endColumn: target.endColumn } : {}),
+            },
+          }
+        : {}),
     });
   }, [activeSession, openWorkspaceFileTab]);
   const consumeNewThreadComposerIntent = useCallback((sessionId: string, focusNonce: number) => {

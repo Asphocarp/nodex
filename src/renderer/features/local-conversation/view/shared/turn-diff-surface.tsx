@@ -77,6 +77,10 @@ export interface TurnDiffFileSidePanelTarget {
   path: string;
   title: string;
   workspaceRoot?: string | null;
+  line?: number;
+  column?: number;
+  endLine?: number;
+  endColumn?: number;
 }
 
 const TURN_DIFF_PREVIEW_TOOLTIP_WIDTH =
@@ -218,6 +222,7 @@ function TurnDiffFileRow({
             path: row.openPath,
             title: row.fileName,
             workspaceRoot,
+            ...(row.openLine ? { line: row.openLine } : {}),
           });
           return;
         }

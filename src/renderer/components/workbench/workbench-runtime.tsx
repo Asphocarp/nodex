@@ -59,8 +59,11 @@ import {
   type ContentSearchOpenRequest,
 } from "@/features/content-search/content-search-context";
 import { ContentSearchSurface } from "@/features/content-search/content-search-surface";
-import { buildSettingsPath } from "./workbench-settings-routes";
-import type { BrowserSettingsDestination } from "@/features/browser-sidebar/browser-settings-pages";
+import {
+  buildSettingsPath,
+  resolveBrowserSettingsDestination,
+} from "./workbench-settings-routes";
+import type { BrowserSettingsDestination } from "./workbench-settings-routes";
 import {
   buildCodexHooksSettingsPath,
   type CodexHooksSettingsTarget,
@@ -174,6 +177,7 @@ import {
   useWorkbenchPanelOpeners,
   type OpenCanvasStageHandler,
 } from "@/lib/use-workbench-panel-openers";
+import { FileReferenceRouterProvider } from "@/lib/file-reference-router";
 import { useWorkbenchPanelCommandRouter } from "@/lib/use-workbench-panel-command-router";
 import { useWorkbenchSessionCommands } from "@/lib/use-workbench-session-commands";
 import {
@@ -1557,13 +1561,13 @@ export function WorkbenchRuntime({
     setSettingsPath(buildSettingsPath("general-settings"));
   }, [closePendingWorktreeRoute, setAutomationsPath, setSettingsPath]);
 
-  const openBrowserSettings = useCallback((sectionId: BrowserSettingsDestination) => {
+  const openBrowserSettings = useCallback((destination: BrowserSettingsDestination) => {
     closePendingWorktreeRoute();
     setAutomationsPath(null);
     setReopenStableWorktreeAfterSettingsId(null);
     setReopenPendingWorktreeAfterSettingsClientThreadId(null);
     setLocalEnvironmentSettingsInitial(null);
-    setSettingsPath(buildSettingsPath(sectionId));
+    setSettingsPath(resolveBrowserSettingsDestination(destination));
   }, [closePendingWorktreeRoute, setAutomationsPath, setSettingsPath]);
 
   const openKeyboardShortcutsSettings = useCallback(() => {
@@ -2067,6 +2071,7 @@ export function WorkbenchRuntime({
     projects,
     rightPanelFullWidth,
     createSessionViewTab,
+    updateTab: updateSessionViewTab,
     refreshProjectSessions,
     openPageStage,
     pendingPageDeepLinkOpen,
@@ -2078,6 +2083,7 @@ export function WorkbenchRuntime({
     openMcpAppSidePanel,
     openPlanSidePanel,
     openAutomationSidePanel,
+    openWorkspaceFileTab,
   } = panelOpeners;
   const openExistingSideChatRef = useRef(openExistingSideChat);
   openExistingSideChatRef.current = openExistingSideChat;
@@ -4193,11 +4199,19 @@ export function WorkbenchRuntime({
   return (
     <HeaderActionProvider actions={appShellHeaderActions}>
       <NodexTooltipProvider>
-        <ContentSearchProvider
-          openRequest={
-            contentSearchOpenRequest ?? commandContentSearchOpenRequest
+        <FileReferenceRouterProvider
+          openWorkspaceFileTab={openWorkspaceFileTab}
+          workspaceRoot={
+            projectWorkspaceRootOrNull(activeSessionProject)
+              ?? activeSession?.thread?.cwd
+              ?? null
           }
         >
+          <ContentSearchProvider
+            openRequest={
+              contentSearchOpenRequest ?? commandContentSearchOpenRequest
+            }
+          >
           <ContentSearchSurface />
           {commandPalette}
           <WorkbenchProcessManagerDialog
@@ -4393,7 +4407,8 @@ export function WorkbenchRuntime({
           />
         </div>
           </motion.div>
-        </ContentSearchProvider>
+          </ContentSearchProvider>
+        </FileReferenceRouterProvider>
       </NodexTooltipProvider>
     </HeaderActionProvider>
   );

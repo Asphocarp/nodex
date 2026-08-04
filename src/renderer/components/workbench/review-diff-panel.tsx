@@ -152,7 +152,7 @@ import {
   filterReviewCodeCommentsForPath,
   type ReviewCodeComment,
 } from "@/lib/review-code-comments";
-import { useFileLinkOpener } from "@/lib/use-file-link-opener";
+import { useFileReferenceRouter } from "@/lib/file-reference-router";
 import type {
   CodexTurnDiffPatchBatch,
   GitReviewBranchCommit,
@@ -1852,7 +1852,8 @@ interface ReviewFileRowProps {
   loadFullFilesEnabled: boolean;
   canLoadFullContent: boolean;
   expanded: boolean;
-  openerId: string;
+  cwd: string | null;
+  workspaceRoot: string | null;
   fullContentKey: string;
   loadFullContents: (entry: ReviewFileEntry) => Promise<ReviewFullFileContents>;
   comments: ReviewCodeComment[];
@@ -1938,7 +1939,8 @@ function areReviewFileRowPropsEqual(
     left.loadFullFilesEnabled === right.loadFullFilesEnabled &&
     left.canLoadFullContent === right.canLoadFullContent &&
     left.expanded === right.expanded &&
-    left.openerId === right.openerId &&
+    left.cwd === right.cwd &&
+    left.workspaceRoot === right.workspaceRoot &&
     left.fullContentKey === right.fullContentKey &&
     left.loadFullContents === right.loadFullContents &&
     areShallowArraysEqual(left.comments, right.comments) &&
@@ -1962,7 +1964,8 @@ const ReviewFileRow = memo(function ReviewFileRow({
   loadFullFilesEnabled,
   canLoadFullContent,
   expanded,
-  openerId,
+  cwd,
+  workspaceRoot,
   fullContentKey,
   loadFullContents,
   comments,
@@ -1973,7 +1976,8 @@ const ReviewFileRow = memo(function ReviewFileRow({
   onToggleExpandedKey,
 }: ReviewFileRowProps) {
   recordReviewRuntimeEvent({ type: "row-render", path: entry.displayPath });
-  const { invoke, useTheme, FileDiff } = deps;
+  const { useTheme, FileDiff } = deps;
+  const fileReferenceRouter = useFileReferenceRouter();
   const { resolved } = useTheme();
   const rowRef = useRef<HTMLElement | null>(null);
   const fullContentState = useReviewFullContentState(fullContentKey);
@@ -2463,16 +2467,19 @@ const ReviewFileRow = memo(function ReviewFileRow({
           ? "unavailable"
           : "partial";
 
-  const openFile = () => {
+  const openFile = (intent: "primary" | "durable" | "external" = "primary") => {
     if (!entry.openPath) return;
-    void invoke(
-      "shell:open-file-link",
-      {
-        path: entry.openPath,
-        ...(entry.openLine ? { line: entry.openLine } : {}),
-      },
-      openerId,
-    );
+    const target = {
+      path: entry.openPath,
+      ...(entry.openLine ? { line: entry.openLine } : {}),
+    };
+    void fileReferenceRouter.open(target, {
+      cwd,
+      workspaceRoot,
+      title: entry.displayPath,
+      mode: intent === "durable" ? "durable" : "preview",
+      ...(intent === "external" ? { external: true } : {}),
+    });
   };
 
   return (
@@ -2547,7 +2554,7 @@ const ReviewFileRow = memo(function ReviewFileRow({
                   aria-label="Open in"
                   onClick={(event) => {
                     event.stopPropagation();
-                    openFile();
+                    openFile("external");
                   }}
                 >
                   <ReviewOpenInIcon className="icon-2xs" />
@@ -3205,7 +3212,6 @@ export function ReviewDiffPanel({
   const { invoke, parsePatchFiles } = resolvedDeps;
   const gitWorkerClient = resolvedDeps.gitWorkerClient ?? getGitWorkerClient();
   const reviewConversation = conversationProjection;
-  const { opener } = useFileLinkOpener();
   const reviewContentRootRef = useRef<HTMLDivElement | null>(null);
   const reviewSplitRootRef = useRef<HTMLDivElement | null>(null);
   const [preferences, setPreferences] = useScopedAtom(reviewDiffPreferencesAtom);
@@ -4506,7 +4512,8 @@ export function ReviewDiffPanel({
           diffExpansionOverrides.get(entry.key) ??
           (routeState.allDiffsExpanded && entry.gitStatus !== "deleted")
         }
-        openerId={opener}
+        cwd={reviewCwd}
+        workspaceRoot={projectWorkspacePath ?? reviewCwd}
         fullContentKey={
           reviewFullContentKeysByPath.get(entry.displayPath) ?? entry.key
         }

@@ -99,24 +99,36 @@ const SETTINGS_SEARCH_PANELS = {
     subtitle: "App-wide shell behavior and notifications.",
     groups: [
       {
-        title: "App",
+        title: "Permissions",
+        entries: [
+          entry(
+            "Default permissions mode",
+            "Choose the preset used for new local Codex threads.",
+            [
+              "Ask for approval",
+              "Approve for me",
+              "Default permissions",
+              "Auto-review",
+              "Full access",
+              "Custom (config.toml)",
+              "guardian-approvals",
+              "full-access",
+              "custom",
+              "sandbox",
+              "Nodex Library",
+              "without approval prompts",
+              "elevated requests",
+            ],
+          ),
+        ],
+      },
+      {
+        title: "General",
         entries: [
           entry(
             "Restore windows",
             "Choose which workbench windows reopen after quitting Nodex.",
             ["All", "Last", "None", "quit", "reopen"],
-          ),
-          entry(
-            "Desktop notifications",
-            "Configure turn-complete, approval, and request-user-input notifications.",
-            [
-              "Turn complete",
-              "Approval requests",
-              "Questions",
-              "Never",
-              "Only when unfocused",
-              "Always",
-            ],
           ),
           entry(
             "Service tier",
@@ -142,6 +154,85 @@ const SETTINGS_SEARCH_PANELS = {
             "Open source licenses",
             "Third-party notices for bundled dependencies.",
             ["open source", "licenses", "dependencies"],
+          ),
+        ],
+      },
+      {
+        title: "Composer",
+        entries: [
+          entry(
+            "Thread detail",
+            "Choose how much command output to show in threads.",
+            [
+              "Steps",
+              "Steps with code commands",
+              "Steps with code output",
+              "Hide commands and outputs.",
+              "Show commands, collapse output.",
+              "Show commands and expand output.",
+            ],
+          ),
+          entry("Spellcheck", "Inline text correction for editable writing surfaces."),
+          entry(
+            "Auto-link while typing",
+            "Turn typed URLs into links as you finish the token.",
+          ),
+          entry(
+            "Auto-link on paste",
+            "Recognize links in pasted text, including inline URL spans inside longer content.",
+          ),
+          entry(
+            "Recognize bare domains",
+            "Link plain domains like example.com. Leave off to avoid filename-like text such as .md paths.",
+          ),
+          entry(
+            "Large paste text threshold",
+            "Prompt when pasted plain text reaches this many characters, so you can materialize it instead of inflating the note.",
+            ["Paste resource text threshold"],
+          ),
+          entry(
+            "Large paste description soft limit",
+            "Prompt before pasted plain text pushes the note near its description size ceiling.",
+            ["Paste resource description soft limit"],
+          ),
+          entry(
+            "Cmd+Enter to send long prompts",
+            "Single-line prompts still send on Enter. Multiline prompts switch to the modifier chord when this is enabled.",
+            ["Ctrl+Enter to send long prompts", "modifier chord"],
+          ),
+          entry(
+            "Queue follow-ups",
+            "While a thread is running, use queue as the default submit action instead of immediate steering.",
+          ),
+        ],
+      },
+      {
+        title: "Files & links",
+        entries: [
+          entry(
+            "Markdown file links",
+            "Choose which desktop app handles absolute local file links in rendered markdown.",
+            [
+              "Open markdown file links in",
+              ...FILE_LINK_OPENER_OPTIONS.map((option) => option.label),
+            ],
+          ),
+        ],
+      },
+      {
+        title: "Notifications",
+        entries: [
+          entry(
+            "Desktop notifications",
+            "Configure turn-complete, approval, and request-user-input notifications.",
+            [
+              "Turn complete",
+              "Approval requests",
+              "Questions",
+              "Never",
+              "Only when unfocused",
+              "Always",
+            ],
           ),
         ],
       },
@@ -175,7 +266,7 @@ const SETTINGS_SEARCH_PANELS = {
   },
   agent: {
     title: "Agent",
-    subtitle: "Permissions presets and raw config.toml settings.",
+    subtitle: "Configuration and raw config.toml settings.",
     groups: [
       {
         title: "Agent",
@@ -184,30 +275,6 @@ const SETTINGS_SEARCH_PANELS = {
           "Could not load agent settings.",
           "Could not save permission mode.",
           "Could not save config setting.",
-        ],
-      },
-      {
-        title: "Permissions modes",
-        entries: [
-          entry(
-            "Default permissions mode",
-            "Choose the preset used for new local Codex threads.",
-            [
-              "Ask for approval",
-              "Approve for me",
-              "Default permissions",
-              "Auto-review",
-              "Full access",
-              "Custom (config.toml)",
-              "guardian-approvals",
-              "full-access",
-              "custom",
-              "sandbox",
-              "Nodex Library",
-              "without approval prompts",
-              "elevated requests",
-            ],
-          ),
         ],
       },
       {
@@ -293,83 +360,12 @@ const SETTINGS_SEARCH_PANELS = {
       },
     ],
   },
-  editor: {
-    title: "Editor",
-    subtitle: "Thread detail, composer behavior, and editing defaults.",
-    groups: [
-      {
-        title: "Thread composer",
-        entries: [
-          entry(
-            "Thread detail",
-            "Choose how much command output to show in threads.",
-            [
-              "Steps",
-              "Steps with code commands",
-              "Steps with code output",
-              "Hide commands and outputs.",
-              "Show commands, collapse output.",
-              "Show commands and expand output.",
-            ],
-          ),
-          entry("Spellcheck", "Inline text correction for editable writing surfaces."),
-          entry(
-            "Auto-link while typing",
-            "Turn typed URLs into links as you finish the token.",
-          ),
-          entry(
-            "Auto-link on paste",
-            "Recognize links in pasted text, including inline URL spans inside longer content.",
-          ),
-          entry(
-            "Recognize bare domains",
-            "Link plain domains like example.com. Leave off to avoid filename-like text such as .md paths.",
-          ),
-          entry(
-            "Large paste text threshold",
-            "Prompt when pasted plain text reaches this many characters, so you can materialize it instead of inflating the note.",
-            ["Paste resource text threshold"],
-          ),
-          entry(
-            "Large paste description soft limit",
-            "Prompt before pasted plain text pushes the note near its description size ceiling.",
-            ["Paste resource description soft limit"],
-          ),
-          entry(
-            "Markdown file links",
-            "Choose which desktop app handles absolute local file links in rendered markdown.",
-            [
-              "Open markdown file links in",
-              ...FILE_LINK_OPENER_OPTIONS.map((option) => option.label),
-            ],
-          ),
-          entry(
-            "Smart parse block prefixes",
-            "Interpret shorthand like 1XL(tag) during block-to-card import.",
-          ),
-          entry(
-            "Strip parsed prefix from title",
-            "Remove matched shorthand from imported Page titles after parsing.",
-          ),
-          entry(
-            "Cmd+Enter to send long prompts",
-            "Single-line prompts still send on Enter. Multiline prompts switch to the modifier chord when this is enabled.",
-            ["Ctrl+Enter to send long prompts", "modifier chord"],
-          ),
-          entry(
-            "Queue follow-ups",
-            "While a thread is running, use queue as the default submit action instead of immediate steering.",
-          ),
-        ],
-      },
-    ],
-  },
   page: {
-    title: "Page",
+    title: "Pages",
     subtitle: "Kanban card and page-stage presentation.",
     groups: [
       {
-        title: "Pages",
+        title: "Cards & Page Stage",
         entries: [
           entry(
             "Kanban card properties",
@@ -382,6 +378,19 @@ const SETTINGS_SEARCH_PANELS = {
             PAGE_STAGE_COLLAPSIBLE_PROPERTIES.map(
               (property) => PAGE_STAGE_COLLAPSIBLE_PROPERTY_LABELS[property],
             ),
+          ),
+        ],
+      },
+      {
+        title: "Block import",
+        entries: [
+          entry(
+            "Smart parse block prefixes",
+            "Interpret shorthand like 1XL(tag) during block-to-card import.",
+          ),
+          entry(
+            "Strip parsed prefix from title",
+            "Remove matched shorthand from imported Page titles after parsing.",
           ),
         ],
       },
@@ -614,7 +623,7 @@ export const SETTINGS_SEARCH_CATALOG = {
   appearance: {
     messages: materializePanelSearchMessages(SETTINGS_SEARCH_PANELS.appearance),
   },
-  "browser-settings": {
+  browser: {
     messages: [
       "Browser",
       "Built-in Browser Profile",
@@ -624,41 +633,37 @@ export const SETTINGS_SEARCH_CATALOG = {
       "Cache",
       "Download history",
       "Provider availability",
-    ],
-  },
-  "browser-passwords": {
-    messages: [
-      "Passwords",
+      "General",
+      "Autofill and passwords",
       "Saved passwords",
+      "Password manager",
       "Credential storage",
       "Import from your browser",
       "Remove password",
-    ],
-  },
-  "browser-contact-info": {
-    messages: [
       "Contact info",
       "Autofill",
       "Name",
       "Email",
       "Phone",
       "Address",
-    ],
-  },
-  "browser-history": {
-    messages: [
       "History",
       "Search history",
       "Clear Browser history",
       "Visited pages",
-    ],
-  },
-  "browser-extensions": {
-    messages: [
       "Extensions",
+      "Extension manager",
       "Load unpacked",
       "Remove extension",
       "Shared Browser Profile",
+      "Downloads",
+      "Permissions",
+      "Website access",
+      "Browsing history",
+      "Uploads",
+      "Site permissions",
+      "Remembered origins",
+      "Developer mode",
+      "Full CDP access",
     ],
   },
   "computer-use": {
@@ -683,9 +688,6 @@ export const SETTINGS_SEARCH_CATALOG = {
   },
   "keyboard-shortcuts": {
     messages: materializePanelSearchMessages(SETTINGS_SEARCH_PANELS["keyboard-shortcuts"]),
-  },
-  editor: {
-    messages: materializePanelSearchMessages(SETTINGS_SEARCH_PANELS.editor),
   },
   page: {
     messages: materializePanelSearchMessages(SETTINGS_SEARCH_PANELS.page),

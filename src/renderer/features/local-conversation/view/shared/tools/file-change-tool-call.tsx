@@ -20,13 +20,12 @@ import {
   type CodexUnifiedDiffSummary,
 } from "../../../../../../shared/codex-file-change";
 import { buildTextPreview, INLINE_TEXT_PREVIEW_MAX_CHARS } from "../../../../../lib/text-preview";
-import { invoke } from "../../../../../lib/api";
 import {
   NODEX_DIFF_HOST_CLASS,
   getNodexDiffHostStyle,
   getNodexDiffOptions,
 } from "../../../../../lib/diff-presentation";
-import { useFileLinkOpener } from "../../../../../lib/use-file-link-opener";
+import { useFileReferenceRouter } from "../../../../../lib/file-reference-router";
 import { useTheme } from "../../../../../lib/use-theme";
 import type { CodexFileChange, CodexTranscriptEntry } from "../../../../../lib/types";
 import type { ThreadStageActions } from "../../../thread-stage-types";
@@ -43,6 +42,7 @@ import {
   DiffStats,
   FilenameButton,
   resolveOpenPath,
+  type FilenameOpenIntent,
 } from "./diff-file-shared";
 import { InlineFileDiff } from "./inline-file-diff";
 import { semanticToolIcon, ToolActivityIcon } from "./tool-call-icons";
@@ -305,7 +305,7 @@ function PatchFrame({
   diffHostClassName: string;
   diffHostStyle: CSSProperties;
   diffOptions: ReturnType<typeof getNodexDiffOptions>;
-  onOpenFile: (() => void) | null;
+  onOpenFile: ((intent?: FilenameOpenIntent) => void) | null;
   isShortView: boolean;
 }) {
   const preview = row.preview.kind === "diff" ? (
@@ -387,7 +387,7 @@ function PatchPathLink({
   onOpen,
 }: {
   displayPath: string;
-  onOpen: (modifiedClick: boolean) => void;
+  onOpen: (intent?: FilenameOpenIntent) => void;
 }) {
   return (
     <NodexTooltip
@@ -403,13 +403,26 @@ function PatchPathLink({
         className="pointer-events-auto inline-block max-w-full cursor-interaction truncate align-bottom text-inherit underline decoration-dotted decoration-[0.5px] underline-offset-2 group-hover/activity-header:!text-token-foreground hover:!text-token-foreground"
         onClick={(event) => {
           event.stopPropagation();
-          onOpen(event.metaKey || event.ctrlKey);
+          onOpen(event.metaKey || event.ctrlKey || event.altKey || event.shiftKey
+            ? "external"
+            : "primary");
+        }}
+        onDoubleClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onOpen("durable");
+        }}
+        onAuxClick={(event) => {
+          if (event.button !== 1) return;
+          event.preventDefault();
+          event.stopPropagation();
+          onOpen("external");
         }}
         onKeyDown={(event) => {
           if (event.key !== "Enter" && event.key !== " ") return;
           event.stopPropagation();
           event.preventDefault();
-          onOpen(false);
+          onOpen("primary");
         }}
       >
         {basename(displayPath)}
@@ -423,7 +436,6 @@ function FileChangeRow({
   diffHostClassName,
   diffHostStyle,
   diffOptions,
-  openerId,
   onOpenFileInSidePanel,
   summaryIcon,
 }: {
@@ -431,32 +443,61 @@ function FileChangeRow({
   diffHostClassName: string;
   diffHostStyle: CSSProperties;
   diffOptions: ReturnType<typeof getNodexDiffOptions>;
-  openerId: string;
   onOpenFileInSidePanel?: ThreadStageActions["onOpenTurnDiffFileInSidePanel"];
   summaryIcon: ReactNode;
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const fileReferenceRouter = useFileReferenceRouter();
   const { elementHeightPx, elementRef } = useMeasuredElementHeight();
 
   function openExternalFile() {
     if (!row.openPath) return;
-    void invoke("shell:open-file-link", {
+    void fileReferenceRouter.open({
       path: row.openPath,
       ...(row.openLine ? { line: row.openLine } : {}),
-    }, openerId);
+    }, {
+      external: true,
+      title: basename(row.displayPath),
+      cwd: row.workspaceRoot,
+      workspaceRoot: row.workspaceRoot,
+    });
   }
 
-  function openCollapsedFile(modifiedClick: boolean) {
+  function openCollapsedFile(intent: FilenameOpenIntent = "primary") {
     if (!row.openPath) return;
-    if (!modifiedClick && onOpenFileInSidePanel) {
+    if (intent === "primary" && onOpenFileInSidePanel) {
       void onOpenFileInSidePanel({
         path: row.openPath,
         title: basename(row.displayPath),
         workspaceRoot: row.workspaceRoot,
+        ...(row.openLine ? { line: row.openLine } : {}),
       });
       return;
     }
-    openExternalFile();
+    if (intent === "external") {
+      openExternalFile();
+      return;
+    }
+    if (intent === "primary") {
+      void fileReferenceRouter.open({
+        path: row.openPath,
+        ...(row.openLine ? { line: row.openLine } : {}),
+      }, {
+        title: basename(row.displayPath),
+        cwd: row.workspaceRoot,
+        workspaceRoot: row.workspaceRoot,
+      });
+      return;
+    }
+    void fileReferenceRouter.open({
+      path: row.openPath,
+      ...(row.openLine ? { line: row.openLine } : {}),
+    }, {
+      mode: "durable",
+      title: basename(row.displayPath),
+      cwd: row.workspaceRoot,
+      workspaceRoot: row.workspaceRoot,
+    });
   }
 
   const useExpandedSettledHeader = isExpanded && row.expandedLabel !== null;
@@ -492,7 +533,7 @@ function FileChangeRow({
         diffHostClassName={diffHostClassName}
         diffHostStyle={diffHostStyle}
         diffOptions={diffOptions}
-        onOpenFile={row.openPath && row.openLine ? openExternalFile : null}
+        onOpenFile={row.openPath ? (intent) => openCollapsedFile(intent) : null}
         isShortView={row.state === "pending"}
       />
     </div>
@@ -587,7 +628,6 @@ export function FileChangeToolCall({
 }: FileChangeToolCallProps) {
   const { resolved } = useTheme();
   const { wrap } = useScopedAtomValue(reviewDiffPreferencesAtom);
-  const { opener } = useFileLinkOpener();
   const rows = useMemo(() => buildFileChangeRows(
     item,
     threadCwd,
@@ -631,7 +671,6 @@ export function FileChangeToolCall({
           diffHostClassName={diffHostClassName}
           diffHostStyle={diffHostStyle}
           diffOptions={diffOptions}
-          openerId={opener}
           onOpenFileInSidePanel={onOpenFileInSidePanel}
           summaryIcon={summaryIcon}
         />

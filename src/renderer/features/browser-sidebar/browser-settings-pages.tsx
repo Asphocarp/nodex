@@ -14,6 +14,11 @@ import {
 } from "@/components/ui/settings";
 import { invoke } from "@/lib/api";
 import type {
+  BrowserDownloadAction,
+  BrowserDownloadRecord,
+  BrowserDownloadsSnapshot,
+} from "../../../shared/browser-download";
+import type {
   BrowserCapabilityStatus,
   BrowserContactInfo,
   BrowserContactInfoUpsertInput,
@@ -30,13 +35,13 @@ import {
   type BrowserUsePolicySnapshot,
 } from "../../../shared/browser-use-policy";
 import { BrowserProfileImportDialog } from "./browser-profile-import-dialog";
+import type {
+  BrowserSettingsAnchor,
+  BrowserSettingsDestination,
+  BrowserSettingsDetail,
+} from "@/components/workbench/workbench-settings-routes";
 
-export type BrowserSettingsDestination =
-  | "browser-settings"
-  | "browser-passwords"
-  | "browser-contact-info"
-  | "browser-history"
-  | "browser-extensions";
+export type { BrowserSettingsDestination } from "@/components/workbench/workbench-settings-routes";
 
 const EMPTY_CAPABILITY: BrowserCapabilityStatus = {
   available: false,
@@ -52,7 +57,54 @@ const EMPTY_CAPABILITIES: BrowserProfileCapabilities = {
   siteInfo: EMPTY_CAPABILITY,
 };
 
-export function BrowserSettingsPage({ open }: { open: boolean }) {
+export function BrowserSettingsPage({
+  browserAnchor,
+  browserDetail,
+  onOpenBrowserDetail,
+  open,
+}: {
+  browserAnchor: BrowserSettingsAnchor | null;
+  browserDetail: BrowserSettingsDetail | null;
+  onOpenBrowserDetail: (
+    destination: BrowserSettingsDestination,
+    anchor?: BrowserSettingsAnchor,
+  ) => void;
+  open: boolean;
+}) {
+  if (browserDetail) {
+    return (
+      <BrowserSettingsDetailPage
+        detail={browserDetail}
+        onBack={() => onOpenBrowserDetail(
+          "browser",
+          browserAnchor ?? BROWSER_DETAIL_ANCHORS[browserDetail],
+        )}
+        open={open}
+      />
+    );
+  }
+
+  return (
+    <BrowserSettingsOverview
+      anchor={browserAnchor}
+      onOpenBrowserDetail={onOpenBrowserDetail}
+      open={open}
+    />
+  );
+}
+
+function BrowserSettingsOverview({
+  anchor,
+  onOpenBrowserDetail,
+  open,
+}: {
+  anchor: BrowserSettingsAnchor | null;
+  onOpenBrowserDetail: (
+    destination: BrowserSettingsDestination,
+    anchor?: BrowserSettingsAnchor,
+  ) => void;
+  open: boolean;
+}) {
   const [capabilities, setCapabilities] =
     useState<BrowserProfileCapabilities>(EMPTY_CAPABILITIES);
   const [importOpen, setImportOpen] = useState(false);
@@ -70,6 +122,11 @@ export function BrowserSettingsPage({ open }: { open: boolean }) {
     });
   }, [open]);
 
+  useEffect(() => {
+    if (!open || !anchor) return;
+    document.getElementById(anchor)?.scrollIntoView({ block: "start" });
+  }, [anchor, open]);
+
   const clearData = async (
     kind: "cache" | "cookies" | "downloads" | "history" | "site-data",
   ) => {
@@ -80,9 +137,10 @@ export function BrowserSettingsPage({ open }: { open: boolean }) {
   return (
     <NodexSettingsPageSurface
       title="Browser"
-      subtitle="Shared Profile data, imports, and provider availability."
+      subtitle="Manage the built-in Browser and its shared Profile."
     >
-      <NodexSettingsSection title="Profile">
+      <BrowserOverviewSection anchor="general" title="General">
+        <CapabilityRow label="Profile import" capability={capabilities.profileImport} />
         <NodexSettingsRow
           label="Import browser data"
           description="Import cookies and saved passwords from a local Chrome or ChatGPT Atlas Profile."
@@ -97,13 +155,6 @@ export function BrowserSettingsPage({ open }: { open: boolean }) {
             Import
           </NodexButton>
         </NodexSettingsRow>
-        <CapabilityRow label="Credential storage" capability={capabilities.credentialVault} />
-        <CapabilityRow label="Contact info" capability={capabilities.contactInfo} />
-        <CapabilityRow label="Site information" capability={capabilities.siteInfo} />
-        <CapabilityRow label="History" capability={capabilities.history} />
-        <CapabilityRow label="Extensions" capability={capabilities.extensions} />
-      </NodexSettingsSection>
-      <NodexSettingsSection title="Browsing data">
         <NodexSettingsRow
           label="Cookies"
           description="Signs out sites across every built-in Browser window."
@@ -125,19 +176,96 @@ export function BrowserSettingsPage({ open }: { open: boolean }) {
             Clear
           </NodexButton>
         </NodexSettingsRow>
-        <NodexSettingsRow label="History">
-          <NodexButton size="sm" variant="secondary" onClick={() => void clearData("history")}>
+        <NodexSettingsRow
+          label="Browsing history"
+          description={capabilities.history.available
+            ? "Review and remove visits from the shared Browser Profile."
+            : capabilities.history.reason ?? "Browsing history is unavailable."}
+        >
+          <NodexButton
+            size="sm"
+            variant="secondary"
+            aria-label="Manage Browsing history"
+            disabled={!capabilities.history.available}
+            onClick={() => onOpenBrowserDetail("history", "general")}
+          >
+            Manage
+          </NodexButton>
+          <NodexButton size="sm" variant="ghost" onClick={() => void clearData("history")}>
             Clear
           </NodexButton>
         </NodexSettingsRow>
-        <NodexSettingsRow label="Download history">
-          <NodexButton size="sm" variant="secondary" onClick={() => void clearData("downloads")}>
+      </BrowserOverviewSection>
+      <BrowserOverviewSection anchor="autofill-and-passwords" title="Autofill and passwords">
+        <CapabilityRow label="Credential storage" capability={capabilities.credentialVault} />
+        <CapabilityRow label="Contact info" capability={capabilities.contactInfo} />
+        <NodexSettingsRow
+          label="Password manager"
+          description="Review saved passwords without revealing their secret values."
+        >
+          <NodexButton
+            size="sm"
+            variant="secondary"
+            aria-label="Manage Password manager"
+            disabled={!capabilities.credentialVault.available}
+            onClick={() => onOpenBrowserDetail("passwords", "autofill-and-passwords")}
+          >
+            Manage
+          </NodexButton>
+        </NodexSettingsRow>
+        <NodexSettingsRow
+          label="Contact info"
+          description="Manage saved autofill contact information."
+        >
+          <NodexButton
+            size="sm"
+            variant="secondary"
+            aria-label="Manage Contact info"
+            disabled={!capabilities.contactInfo.available}
+            onClick={() => onOpenBrowserDetail("contact-info", "autofill-and-passwords")}
+          >
+            Manage
+          </NodexButton>
+        </NodexSettingsRow>
+      </BrowserOverviewSection>
+      <BrowserOverviewSection anchor="extensions" title="Extensions">
+        <CapabilityRow label="Extension manager" capability={capabilities.extensions} />
+        <NodexSettingsRow
+          label="Manage extensions"
+          description="Load and remove unpacked extensions from the shared Browser Profile."
+        >
+          <NodexButton
+            size="sm"
+            variant="secondary"
+            aria-label="Manage extensions"
+            disabled={!capabilities.extensions.available}
+            onClick={() => onOpenBrowserDetail("extensions", "extensions")}
+          >
+            Manage
+          </NodexButton>
+        </NodexSettingsRow>
+      </BrowserOverviewSection>
+      <BrowserOverviewSection anchor="downloads" title="Downloads">
+        <NodexSettingsRow
+          label="Download history"
+          description="Review active and completed downloads from the built-in Browser."
+        >
+          <NodexButton
+            size="sm"
+            variant="secondary"
+            aria-label="Manage Download history"
+            onClick={() => onOpenBrowserDetail("downloads", "downloads")}
+          >
+            Manage
+          </NodexButton>
+          <NodexButton size="sm" variant="ghost" onClick={() => void clearData("downloads")}>
             Clear
           </NodexButton>
         </NodexSettingsRow>
-      </NodexSettingsSection>
+      </BrowserOverviewSection>
       <BrowserUsePolicySettings
         policy={usePolicy}
+        siteInfo={capabilities.siteInfo}
         onChange={setUsePolicy}
         onStatus={setStatus}
       />
@@ -147,12 +275,219 @@ export function BrowserSettingsPage({ open }: { open: boolean }) {
   );
 }
 
+function BrowserOverviewSection({
+  anchor,
+  children,
+  title,
+}: {
+  anchor: BrowserSettingsAnchor;
+  children: ReactNode;
+  title: string;
+}) {
+  return <NodexSettingsSection id={anchor} title={title}>{children}</NodexSettingsSection>;
+}
+
+const BROWSER_DETAIL_LABELS: Record<BrowserSettingsDetail, string> = {
+  passwords: "Password manager",
+  "contact-info": "Contact info",
+  history: "Browsing history",
+  extensions: "Extension manager",
+  downloads: "Download history",
+};
+
+const BROWSER_DETAIL_ANCHORS: Record<BrowserSettingsDetail, BrowserSettingsAnchor> = {
+  passwords: "autofill-and-passwords",
+  "contact-info": "autofill-and-passwords",
+  history: "general",
+  extensions: "extensions",
+  downloads: "downloads",
+};
+
+function BrowserSettingsDetailPage({
+  detail,
+  onBack,
+  open,
+}: {
+  detail: BrowserSettingsDetail;
+  onBack: () => void;
+  open: boolean;
+}) {
+  const backSlot = (
+    <BrowserSettingsBreadcrumb
+      label={BROWSER_DETAIL_LABELS[detail]}
+      onBack={onBack}
+    />
+  );
+
+  if (detail === "passwords") {
+    return <BrowserPasswordsSettingsPage backSlot={backSlot} open={open} />;
+  }
+  if (detail === "contact-info") {
+    return <BrowserContactInfoSettingsPage backSlot={backSlot} open={open} />;
+  }
+  if (detail === "history") {
+    return <BrowserHistorySettingsPage backSlot={backSlot} open={open} />;
+  }
+  if (detail === "extensions") {
+    return <BrowserExtensionsSettingsPage backSlot={backSlot} open={open} />;
+  }
+  return <BrowserDownloadsSettingsPage backSlot={backSlot} open={open} />;
+}
+
+function BrowserSettingsBreadcrumb({
+  label,
+  onBack,
+}: {
+  label: string;
+  onBack: () => void;
+}) {
+  return (
+    <div className="flex min-w-0 items-center gap-1 text-sm">
+      <span className="text-token-text-tertiary">Settings</span>
+      <span aria-hidden className="text-token-text-tertiary">›</span>
+      <button
+        type="button"
+        className="max-w-40 truncate rounded-md px-1 py-0.5 text-token-text-secondary hover:bg-token-list-hover-background hover:text-token-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-token-focus"
+        onClick={onBack}
+      >
+        Browser
+      </button>
+      <span aria-hidden className="text-token-text-tertiary">›</span>
+      <span className="max-w-48 truncate text-token-text-primary">{label}</span>
+    </div>
+  );
+}
+
+function BrowserDownloadsSettingsPage({
+  backSlot,
+  open,
+}: {
+  backSlot: ReactNode;
+  open: boolean;
+}) {
+  const [snapshot, setSnapshot] = useState<BrowserDownloadsSnapshot>({ downloads: [] });
+  const [status, setStatus] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    setSnapshot(await invoke("browser-downloads-list"));
+  }, []);
+
+  useEffect(() => {
+    if (open) void refresh();
+  }, [open, refresh]);
+
+  const runAction = async (downloadId: string, action: BrowserDownloadAction) => {
+    const result = await invoke("browser-download-action", { downloadId, action });
+    setStatus(result.ok ? null : result.message);
+    if (result.ok) await refresh();
+  };
+
+  const clearHistory = async () => {
+    const result = await invoke("browser-download-history-clear");
+    setStatus(result.ok ? "Download history cleared." : result.message);
+    if (result.ok) await refresh();
+  };
+
+  return (
+    <NodexSettingsPageSurface
+      title="Download history"
+      subtitle="Active and completed downloads from the built-in Browser."
+      backSlot={backSlot}
+      action={(
+        <NodexButton
+          size="sm"
+          variant="secondary"
+          disabled={snapshot.downloads.length === 0}
+          onClick={() => void clearHistory()}
+        >
+          Clear history
+        </NodexButton>
+      )}
+    >
+      <NodexSettingsSection>
+        {snapshot.downloads.length === 0 ? (
+          <EmptySettingsRow message="Downloaded files will appear here." />
+        ) : snapshot.downloads.map((download) => (
+          <BrowserDownloadSettingsRow
+            key={download.id}
+            download={download}
+            onAction={runAction}
+          />
+        ))}
+      </NodexSettingsSection>
+      {status ? <SettingsStatus>{status}</SettingsStatus> : null}
+    </NodexSettingsPageSurface>
+  );
+}
+
+function BrowserDownloadSettingsRow({
+  download,
+  onAction,
+}: {
+  download: BrowserDownloadRecord;
+  onAction: (downloadId: string, action: BrowserDownloadAction) => Promise<void>;
+}) {
+  const active = download.status === "starting"
+    || download.status === "progressing"
+    || download.status === "paused";
+
+  return (
+    <NodexSettingsRow
+      label={download.fileName}
+      description={`${download.sourceOrigin} · ${formatDownloadStatus(download)}`}
+    >
+      {download.status === "completed" ? (
+        <>
+          <NodexButton size="xs" variant="ghost" onClick={() => void onAction(download.id, "open")}>
+            Open
+          </NodexButton>
+          <NodexButton size="xs" variant="ghost" onClick={() => void onAction(download.id, "show-in-folder")}>
+            Show in folder
+          </NodexButton>
+        </>
+      ) : null}
+      {active ? (
+        <NodexButton
+          size="xs"
+          variant="ghost"
+          onClick={() => void onAction(download.id, download.status === "paused" ? "resume" : "pause")}
+        >
+          {download.status === "paused" ? "Resume" : "Pause"}
+        </NodexButton>
+      ) : null}
+      {active ? (
+        <NodexButton size="xs" variant="ghost" onClick={() => void onAction(download.id, "cancel")}>
+          Cancel
+        </NodexButton>
+      ) : null}
+      <NodexButton size="xs" variant="ghost" onClick={() => void onAction(download.id, "remove")}>
+        Remove
+      </NodexButton>
+    </NodexSettingsRow>
+  );
+}
+
+function formatDownloadStatus(download: BrowserDownloadRecord): string {
+  if (download.status === "completed" && download.completedAt) {
+    return `Completed ${new Intl.DateTimeFormat(undefined, {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(new Date(download.completedAt))}`;
+  }
+  if (download.status === "interrupted" && download.interruptReason) {
+    return `Interrupted: ${download.interruptReason}`;
+  }
+  return download.status;
+}
+
 function BrowserUsePolicySettings({
   policy,
+  siteInfo,
   onChange,
   onStatus,
 }: {
   policy: BrowserUsePolicySnapshot;
+  siteInfo: BrowserCapabilityStatus;
   onChange: (policy: BrowserUsePolicySnapshot) => void;
   onStatus: (status: string) => void;
 }) {
@@ -191,7 +526,8 @@ function BrowserUsePolicySettings({
 
   return (
     <>
-      <NodexSettingsSection title="Browser Use">
+      <NodexSettingsSection id="permissions" title="Permissions">
+        <CapabilityRow label="Site information" capability={siteInfo} />
         <ApprovalModeRow
           label="Website access"
           description="Ask before Browser Use accesses a site without a remembered decision."
@@ -219,19 +555,8 @@ function BrowserUsePolicySettings({
           onChange={(uploadApprovalMode) =>
             void updateModes({ uploadApprovalMode })}
         />
-        <NodexSettingsRow
-          label="Full CDP access"
-          description="Expose raw Chrome DevTools Protocol only when the bundled runtime and enterprise policy also allow it."
-        >
-          <NodexSwitch
-            ariaLabel="Full CDP access"
-            checked={policy.fullCdpAccessEnabled}
-            onCheckedChange={(fullCdpAccessEnabled) =>
-              void updateModes({ fullCdpAccessEnabled })}
-          />
-        </NodexSettingsRow>
       </NodexSettingsSection>
-      <NodexSettingsSection title="Remembered origins">
+      <NodexSettingsSection id="site-permissions" title="Site permissions">
         <div className="flex flex-wrap items-center gap-2 p-3">
           <input
             className="h-8 min-w-48 flex-1 rounded-lg border border-token-border bg-token-main-surface-primary px-2 text-sm outline-none focus-visible:ring-1 focus-visible:ring-token-focus"
@@ -272,6 +597,19 @@ function BrowserUsePolicySettings({
           </NodexButton>
         </div>
         <OriginRuleRows policy={policy} onRemove={updateRule} />
+      </NodexSettingsSection>
+      <NodexSettingsSection id="developer-mode" title="Developer mode">
+        <NodexSettingsRow
+          label="Full CDP access"
+          description="Expose raw Chrome DevTools Protocol only when the bundled runtime and enterprise policy also allow it."
+        >
+          <NodexSwitch
+            ariaLabel="Full CDP access"
+            checked={policy.fullCdpAccessEnabled}
+            onCheckedChange={(fullCdpAccessEnabled) =>
+              void updateModes({ fullCdpAccessEnabled })}
+          />
+        </NodexSettingsRow>
       </NodexSettingsSection>
     </>
   );
@@ -408,7 +746,13 @@ function resourceLabel(resource: BrowserUsePolicyResource): string {
   return "Full CDP";
 }
 
-export function BrowserPasswordsSettingsPage({ open }: { open: boolean }) {
+export function BrowserPasswordsSettingsPage({
+  backSlot,
+  open,
+}: {
+  backSlot?: ReactNode;
+  open: boolean;
+}) {
   const [credentials, setCredentials] = useState<BrowserCredentialSummary[]>([]);
   const [capability, setCapability] =
     useState<BrowserCapabilityStatus>(EMPTY_CAPABILITY);
@@ -435,8 +779,9 @@ export function BrowserPasswordsSettingsPage({ open }: { open: boolean }) {
 
   return (
     <NodexSettingsPageSurface
-      title="Passwords"
+      title="Password manager"
       subtitle="Saved passwords stay encrypted and are revealed only to the selected site’s guest page."
+      backSlot={backSlot}
       action={(
         <NodexButton
           size="sm"
@@ -485,7 +830,13 @@ export function BrowserPasswordsSettingsPage({ open }: { open: boolean }) {
   );
 }
 
-export function BrowserContactInfoSettingsPage({ open }: { open: boolean }) {
+export function BrowserContactInfoSettingsPage({
+  backSlot,
+  open,
+}: {
+  backSlot?: ReactNode;
+  open: boolean;
+}) {
   const [contacts, setContacts] = useState<BrowserContactInfo[]>([]);
   const [capability, setCapability] =
     useState<BrowserCapabilityStatus>(EMPTY_CAPABILITY);
@@ -527,6 +878,7 @@ export function BrowserContactInfoSettingsPage({ open }: { open: boolean }) {
     <NodexSettingsPageSurface
       title="Contact info"
       subtitle="Choose a saved contact from Browser chrome to fill recognized form fields."
+      backSlot={backSlot}
       action={capability.available ? (
         <NodexButton
           size="sm"
@@ -589,7 +941,13 @@ export function BrowserContactInfoSettingsPage({ open }: { open: boolean }) {
   );
 }
 
-export function BrowserHistorySettingsPage({ open }: { open: boolean }) {
+export function BrowserHistorySettingsPage({
+  backSlot,
+  open,
+}: {
+  backSlot?: ReactNode;
+  open: boolean;
+}) {
   const [entries, setEntries] = useState<BrowserHistoryRecord[]>([]);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<string | null>(null);
@@ -619,8 +977,9 @@ export function BrowserHistorySettingsPage({ open }: { open: boolean }) {
 
   return (
     <NodexSettingsPageSurface
-      title="History"
+      title="Browsing history"
       subtitle="Visits from the shared built-in Browser Profile."
+      backSlot={backSlot}
       action={(
         <NodexButton size="sm" variant="secondary" onClick={() => void clear()}>
           <Trash2 />
@@ -662,7 +1021,13 @@ export function BrowserHistorySettingsPage({ open }: { open: boolean }) {
   );
 }
 
-export function BrowserExtensionsSettingsPage({ open }: { open: boolean }) {
+export function BrowserExtensionsSettingsPage({
+  backSlot,
+  open,
+}: {
+  backSlot?: ReactNode;
+  open: boolean;
+}) {
   const [snapshot, setSnapshot] = useState<BrowserExtensionsSnapshot>({
     capability: EMPTY_CAPABILITY,
     extensions: [],
@@ -693,8 +1058,9 @@ export function BrowserExtensionsSettingsPage({ open }: { open: boolean }) {
 
   return (
     <NodexSettingsPageSurface
-      title="Extensions"
+      title="Extension manager"
       subtitle="Unpacked extensions loaded into the shared built-in Browser Profile."
+      backSlot={backSlot}
       action={snapshot.capability.available ? (
         <NodexButton size="sm" variant="secondary" onClick={() => void load()}>
           <Puzzle />

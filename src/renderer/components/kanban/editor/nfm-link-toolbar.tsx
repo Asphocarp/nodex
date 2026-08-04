@@ -34,6 +34,7 @@ import {
   type LinkToolbarProps,
   type NfmResolvedLinkAction,
 } from "./nfm-link-toolbar-deps";
+import { useFileReferenceRouter } from "@/lib/file-reference-router";
 import {
   useNfmLinkEditorState,
 } from "./nfm-edit-link-menu-items";
@@ -280,6 +281,7 @@ export function NfmLinkToolbar(props: NfmLinkToolbarProps) {
   const editor = useBlockNoteEditor();
   const dict = useDictionary();
   const { opener } = useFileLinkOpener();
+  const fileReferenceRouter = useFileReferenceRouter();
   const { deleteLink } = useExtension(LinkToolbarExtension);
   const [isEditing, setIsEditing] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -426,6 +428,13 @@ export function NfmLinkToolbar(props: NfmLinkToolbarProps) {
       disabledReason={!canOpen ? tooltip : undefined}
       onOpenLink={() => {
         if (!canOpen) return;
+        if (action?.kind === "local-file" || action?.kind === "workspace-file") {
+          void fileReferenceRouter.open(action.target, {
+            cwd: props.projectWorkspacePath,
+            workspaceRoot: props.projectWorkspacePath,
+          });
+          return;
+        }
         void openNfmResolvedLinkAction(action, opener);
       }}
       onCopyLink={() => {
