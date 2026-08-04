@@ -5,6 +5,12 @@ import {
 } from "./database-identities";
 import type { DatabaseViewKind } from "./database-kernel";
 import {
+  BLOCK_PROPERTY_MUTATION_V2_CONTRACT_VERSION,
+  parseBlockPropertyMutationRequestV2,
+} from "./block-property-mutations-v2";
+import { DATABASE_MODULE_V2_CONTRACT_VERSION } from "./database-module-v2";
+import { bindDatabaseApplyV2 } from "./database-module-v2-transport";
+import {
   assertExistingCanvasBlockId,
   assertExistingCanvasDocumentId,
 } from "./block-documents/canvas-document-identity";
@@ -719,6 +725,58 @@ export const bindLibraryModuleApply = (
           "libraryModuleApply.operation.target",
         ),
         changes,
+      },
+    };
+  }
+  if (operation.kind === "apply_page_metadata_properties") {
+    exactKeys(
+      operation,
+      "libraryModuleApply.operation",
+      ["kind", "databaseOperations", "intrinsicFields"],
+      ["clientSessionId"],
+    );
+    const database = bindDatabaseApplyV2(
+      {
+        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+        operationId,
+        projectId: "library-page-metadata-boundary",
+        storeEpoch,
+        actor: {},
+        operations: operation.databaseOperations,
+      },
+      "library-page-metadata-boundary",
+      { actor: { kind: "page_metadata" } },
+    );
+    if (database.operations.some((candidate) => candidate.kind !== "edit_property_values")) {
+      throw new TypeError(
+        "libraryModuleApply.operation.databaseOperations only supports Page Property value edits",
+      );
+    }
+    const intrinsic = parseBlockPropertyMutationRequestV2({
+      version: BLOCK_PROPERTY_MUTATION_V2_CONTRACT_VERSION,
+      mutationId: operationId,
+      projectId: "library-page-metadata-boundary",
+      storeEpoch,
+      actor: { kind: "page_metadata" },
+      ...(operation.clientSessionId === undefined
+        ? {}
+        : { clientSessionId: operation.clientSessionId }),
+      fields: operation.intrinsicFields,
+    });
+    return {
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      operationId,
+      storeEpoch,
+      operation: {
+        kind: operation.kind,
+        ...(intrinsic.clientSessionId === undefined
+          ? {}
+          : { clientSessionId: intrinsic.clientSessionId }),
+        databaseOperations: database.operations as readonly Extract<
+          (typeof database.operations)[number],
+          { readonly kind: "edit_property_values" }
+        >[],
+        intrinsicFields: intrinsic.fields,
       },
     };
   }
@@ -1626,6 +1684,7 @@ const parseApplyReceipt = (value: unknown): LibraryModuleApplyReceipt => {
     "restore_resource",
     "grant_project_access",
     "set_project_access",
+    "apply_page_metadata_properties",
   ]);
   if (typeof receipt.operationKind !== "string" || !operationKinds.has(receipt.operationKind)) {
     throw new TypeError("libraryModuleApplyResult.value.operationKind is unsupported");

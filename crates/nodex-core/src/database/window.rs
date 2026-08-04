@@ -1134,13 +1134,21 @@ fn compile_filter(
         } => {
             validate_property_id(property_id)?;
             let path = bind(parameters, SqlValue::Text(json_path(property_id)));
+            let edge_property = bind(parameters, SqlValue::Text(property_id.clone()));
             let current = format!("json_extract(model.database_values_json, {path})");
             let current_type = format!("json_type(model.database_values_json, {path})");
-            let empty = format!(
+            let scalar_empty = format!(
                 "({current_type} IS NULL OR {current_type} = 'null' \
                  OR ({current_type} = 'text' AND {current} = '') \
                  OR ({current_type} = 'array' AND json_array_length({current}) = 0))"
             );
+            let edge_exists = format!(
+                "EXISTS(SELECT 1 FROM data_source_relation_edges relation_edge \
+                  WHERE relation_edge.source_data_source_id = membership.data_source_id \
+                    AND relation_edge.source_membership_id = membership.id \
+                    AND relation_edge.property_id = {edge_property})"
+            );
+            let empty = format!("({scalar_empty} AND NOT {edge_exists})");
             match operator {
                 FilterOperator::IsEmpty => Ok(empty),
                 FilterOperator::IsNotEmpty => Ok(format!("NOT {empty}")),
@@ -1173,7 +1181,13 @@ fn compile_filter(
                               CAST(json_extract({expected}, '$') AS TEXT)) > 0) \
                           OR ({current_type} = 'array' \
                             AND EXISTS (SELECT 1 FROM json_each({current}) item \
-                              WHERE item.value IS json_extract({expected}, '$'))))"
+                              WHERE item.value IS json_extract({expected}, '$'))) \
+                          OR EXISTS(SELECT 1 FROM data_source_relation_edges relation_edge \
+                            WHERE relation_edge.source_data_source_id = membership.data_source_id \
+                              AND relation_edge.source_membership_id = membership.id \
+                              AND relation_edge.property_id = {edge_property} \
+                              AND relation_edge.target_page_block_id \
+                                IS json_extract({expected}, '$')))"
                     );
                     Ok(match operator {
                         FilterOperator::Contains => contains,

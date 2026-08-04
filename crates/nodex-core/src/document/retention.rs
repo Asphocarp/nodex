@@ -26,7 +26,7 @@ const DOCUMENT_BEARING_BLOCK_TYPES: [&str; 4] = [
     CANVAS_OWNER_TYPE,
 ];
 
-const KNOWN_INBOUND_AUTHORITY_TABLES: [&str; 30] = [
+const KNOWN_INBOUND_AUTHORITY_TABLES: [&str; 32] = [
     "block_asset_refs",
     "block_documents",
     "block_properties",
@@ -41,6 +41,8 @@ const KNOWN_INBOUND_AUTHORITY_TABLES: [&str; 30] = [
     "canvas_scene_mutation_receipts",
     "canvas_scenes",
     "data_source_page_memberships",
+    "data_source_relation_edges",
+    "data_source_relation_properties",
     "database_view_page_positions",
     "document_block_index",
     "document_materializations",
@@ -711,12 +713,33 @@ fn has_relational_reference(
         [database_view_ids_json],
         |row| row.get::<_, i64>(0),
     )?;
+    let external_relation_edges = connection.query_row(
+        "SELECT count(*) FROM data_source_relation_edges edge \
+         JOIN data_source_page_memberships source_membership \
+           ON source_membership.data_source_id = edge.source_data_source_id \
+           AND source_membership.id = edge.source_membership_id \
+         WHERE edge.target_page_block_id IN (SELECT value FROM json_each(?1)) \
+           AND source_membership.page_block_id NOT IN (SELECT value FROM json_each(?1))",
+        [block_ids_json],
+        |row| row.get::<_, i64>(0),
+    )?;
+    let external_relation_definitions = connection.query_row(
+        "SELECT count(*) FROM data_source_relation_properties relation \
+         JOIN data_sources target ON target.id = relation.target_data_source_id \
+         JOIN data_sources source ON source.id = relation.data_source_id \
+         WHERE target.home_database_block_id IN (SELECT value FROM json_each(?1)) \
+           AND source.home_database_block_id NOT IN (SELECT value FROM json_each(?1))",
+        [block_ids_json],
+        |row| row.get::<_, i64>(0),
+    )?;
     Ok(top_level != 0
         || active_memberships != 0
         || positions != 0
         || external_index != 0
         || active_database_dependents != 0
-        || dangling_view_positions != 0)
+        || dangling_view_positions != 0
+        || external_relation_edges != 0
+        || external_relation_definitions != 0)
 }
 
 fn has_page_behavior_reference(
@@ -1309,6 +1332,142 @@ mod tests {
                 Ok(())
             })
             .expect("retain unknown reference");
+    }
+
+    #[test]
+    fn an_external_relation_edge_retains_its_deleted_target_page() {
+        let fixture = Fixture::new();
+        fixture
+            .kernel
+            .writer()
+            .call(|connection| {
+                let old = "2026-01-01T00:00:00.000Z";
+                connection.execute(
+                    "INSERT INTO blocks(\
+                       id, project_id, type, lifecycle, location_kind, created_at, updated_at\
+                     ) VALUES ('database:relation-retention', ?1, 'database', 'active', \
+                       'space', ?2, ?2)",
+                    params![PROJECT_ID, old],
+                )?;
+                connection.execute(
+                    "INSERT INTO database_containers(\
+                       block_id, library_id, name, lifecycle, created_at, updated_at\
+                     ) VALUES ('database:relation-retention', 'library:block-retention', \
+                       'Relations', 'active', ?1, ?1)",
+                    [old],
+                )?;
+                connection.execute(
+                    "INSERT INTO data_sources(\
+                       id, library_id, home_database_block_id, name, schema_key, lifecycle, \
+                       rank_key, created_at, updated_at\
+                     ) VALUES ('source:relation-retention', 'library:block-retention', \
+                       'database:relation-retention', 'Relations', 'nodex.database', 'active', \
+                       'a', ?1, ?1)",
+                    [old],
+                )?;
+                for (page_id, document_id) in [
+                    ("page:relation-source", "document:relation-source"),
+                    ("page:relation-target", "document:relation-target"),
+                ] {
+                    connection.execute(
+                        "INSERT INTO blocks(\
+                           id, project_id, type, lifecycle, location_kind, \
+                           containing_database_id, created_at, updated_at\
+                         ) VALUES (?1, ?2, 'page', 'active', 'database', \
+                           'database:relation-retention', ?3, ?3)",
+                        params![page_id, PROJECT_ID, old],
+                    )?;
+                    connection.execute(
+                        "INSERT INTO documents(\
+                           id, project_id, schema_key, schema_version, created_at, updated_at\
+                         ) VALUES (?1, ?2, 'nodex.page', 2, ?3, ?3)",
+                        params![document_id, PROJECT_ID, old],
+                    )?;
+                    connection.execute(
+                        "INSERT INTO block_documents(block_id, document_id, project_id, created_at) \
+                         VALUES (?1, ?2, ?3, ?4)",
+                        params![page_id, document_id, PROJECT_ID, old],
+                    )?;
+                    connection.execute(
+                        "INSERT INTO pages(\
+                           block_id, library_id, document_id, parent_kind, parent_id, lifecycle, \
+                           created_at, updated_at\
+                         ) VALUES (?1, 'library:block-retention', ?2, 'data_source', \
+                           'source:relation-retention', 'active', ?3, ?3)",
+                        params![page_id, document_id, old],
+                    )?;
+                }
+                connection.execute(
+                    "INSERT INTO data_source_page_memberships(\
+                       id, data_source_id, page_block_id, revision, created_at, removed_at\
+                     ) VALUES \
+                       ('membership:relation-source', 'source:relation-retention', \
+                         'page:relation-source', 1, ?1, NULL), \
+                       ('membership:relation-target', 'source:relation-retention', \
+                         'page:relation-target', 1, ?1, NULL)",
+                    [old],
+                )?;
+                connection.execute(
+                    "INSERT INTO data_source_properties(\
+                       data_source_id, id, name, value_type, config_json, rank_key, lifecycle, \
+                       schema_revision, created_at, updated_at\
+                     ) VALUES ('source:relation-retention', 'blocked_by', 'Blocked by', \
+                       'relation', '{}', 'z', 'active', 1, ?1, ?1)",
+                    [old],
+                )?;
+                connection.execute(
+                    "INSERT INTO data_source_relation_properties(\
+                       data_source_id, property_id, target_data_source_id\
+                     ) VALUES ('source:relation-retention', 'blocked_by', \
+                       'source:relation-retention')",
+                    [],
+                )?;
+                connection.execute(
+                    "INSERT INTO data_source_property_values(\
+                       data_source_id, membership_id, property_id, value_type, value_json, \
+                       revision, updated_at\
+                     ) VALUES ('source:relation-retention', 'membership:relation-source', \
+                       'blocked_by', 'relation', 'null', 1, ?1)",
+                    [old],
+                )?;
+                connection.execute(
+                    "INSERT INTO data_source_relation_edges(\
+                       source_data_source_id, source_membership_id, property_id, \
+                       target_page_block_id, created_at\
+                     ) VALUES ('source:relation-retention', 'membership:relation-source', \
+                       'blocked_by', 'page:relation-target', ?1)",
+                    [old],
+                )?;
+                connection.execute(
+                    "UPDATE data_source_page_memberships SET removed_at = ?1 \
+                     WHERE id = 'membership:relation-target'",
+                    [old],
+                )?;
+                connection.execute(
+                    "UPDATE pages SET lifecycle = 'deleted', updated_at = ?1 \
+                     WHERE block_id = 'page:relation-target'",
+                    [old],
+                )?;
+                connection.execute(
+                    "UPDATE blocks SET lifecycle = 'deleted', updated_at = ?1 \
+                     WHERE id = 'page:relation-target'",
+                    [old],
+                )?;
+
+                let summary = run_block_retention_pass(connection, 0)?;
+                assert_eq!(summary.retained_candidates, 1);
+                assert_eq!(summary.collected_blocks, 0);
+                assert_eq!(
+                    connection.query_row(
+                        "SELECT count(*) FROM blocks WHERE id = 'page:relation-target'",
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )?,
+                    1
+                );
+                Ok(())
+            })
+            .expect("retain Relation target");
     }
 
     #[test]

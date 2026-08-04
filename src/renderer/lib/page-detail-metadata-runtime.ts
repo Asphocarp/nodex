@@ -13,12 +13,31 @@ import {
   parseDataSourcePropertyId,
   type DataSourceOptionId,
 } from "../../shared/database-identities";
+import { BUILT_IN_DATA_SOURCE_PROPERTY_DEFINITIONS } from "../../shared/data-source-built-ins";
+import {
+  DATABASE_MODULE_V2_CONTRACT_VERSION,
+  type DatabaseApplyOperationV2,
+  type DatabaseApplyResultV2,
+  type DatabaseApplyV2,
+  type DatabasePropertyValueInputV2,
+  type LibraryDatabaseApplyResultV2,
+  type LibraryDatabaseApplyV2,
+} from "../../shared/database-module-v2";
+import {
+  LIBRARY_MODULE_CONTRACT_VERSION,
+  type LibraryModuleApplyRequest,
+  type LibraryModuleApplyResult,
+} from "../../shared/library-module";
+import {
+  libraryContentAccess,
+  projectContentAccess,
+} from "../../shared/content-access-context";
 import { isWorkflowStatus } from "../../shared/workflow-status";
 import type {
   DatabaseJsonValue,
+  DatabasePropertyOption,
   DatabasePropertyValueType,
 } from "../../shared/database-kernel";
-import { parseDatabasePropertyConfig } from "../../shared/database-kernel";
 import type {
   LibraryPageDetail,
   PageDetail,
@@ -30,12 +49,24 @@ import type {
   Priority,
 } from "../../shared/types";
 import {
+  applyDatabaseModule,
+  applyLibraryModule,
+  applyLibraryDatabaseModule,
   mutateBlockProperties,
   mutateLibraryBlockProperties,
   readLibraryPageDetail,
 } from "./api";
+import { readPropertyOptionRegistry } from "./database-property-options-runtime";
+import { readDatabasePropertyOptions } from "./database-view-authoring";
 import { fetchPageDetail } from "./page-detail-store";
 import type { PageStageMetadataMutationResult } from "./page-stage-page";
+import {
+  buildDataSourceCreateOptionAndSelectOperations,
+  buildDataSourceMultiSelectPatchOperations,
+  buildDataSourcePropertyValueOperations,
+  buildDataSourceRelationPatchOperations,
+} from "./data-source-property-value-operations";
+import type { PageStagePropertyEdit } from "./page-stage-properties";
 
 type MetadataPatch = Partial<PageInput>;
 type PageDetailMetadataSource = PageDetail | LibraryPageDetail;
@@ -53,6 +84,14 @@ export interface PageDetailMetadataRuntimeDependencies {
     projectId: string,
     request: BlockPropertyMutationRequestV2,
   ) => Promise<BlockPropertyMutationCommandResultV2>;
+  readonly applyDatabase: (
+    projectId: string,
+    request: DatabaseApplyV2,
+  ) => Promise<DatabaseApplyResultV2>;
+  readonly applyMetadataProperties: (
+    projectId: string,
+    request: LibraryModuleApplyRequest,
+  ) => Promise<LibraryModuleApplyResult>;
   readonly refreshDetail: (
     projectId: string,
     pageId: string,
@@ -62,6 +101,9 @@ export interface PageDetailMetadataRuntimeDependencies {
 const DEFAULT_DEPENDENCIES: PageDetailMetadataRuntimeDependencies = {
   readDetail: fetchPageDetail,
   mutateProperties: mutateBlockProperties,
+  applyDatabase: applyDatabaseModule,
+  applyMetadataProperties: (projectId, request) =>
+    applyLibraryModule(projectContentAccess(projectId), request),
   refreshDetail: fetchPageDetail,
 };
 
@@ -70,6 +112,12 @@ export interface LibraryPageDetailMetadataRuntimeDependencies {
   readonly mutateProperties: (
     request: LibraryBlockPropertyMutationRequestV2,
   ) => Promise<LibraryBlockPropertyMutationCommandResultV2>;
+  readonly applyDatabase: (
+    request: LibraryDatabaseApplyV2,
+  ) => Promise<LibraryDatabaseApplyResultV2>;
+  readonly applyMetadataProperties: (
+    request: LibraryModuleApplyRequest,
+  ) => Promise<LibraryModuleApplyResult>;
   readonly refreshDetail: (pageId: string) => Promise<unknown>;
 }
 
@@ -83,18 +131,27 @@ const readLibraryDetail = async (
 const DEFAULT_LIBRARY_DEPENDENCIES: LibraryPageDetailMetadataRuntimeDependencies = {
   readDetail: readLibraryDetail,
   mutateProperties: mutateLibraryBlockProperties,
+  applyDatabase: applyLibraryDatabaseModule,
+  applyMetadataProperties: (request) =>
+    applyLibraryModule(libraryContentAccess, request),
   refreshDetail: readLibraryDetail,
 };
 
 const DATABASE_FIELDS = {
-  status: { key: "status", valueType: "select" },
-  priority: { key: "priority", valueType: "select" },
-  estimate: { key: "estimate", valueType: "select" },
-  tags: { key: "tags", valueType: "multi_select" },
-  dueDate: { key: "due_date", valueType: "date" },
-  scheduledStart: { key: "scheduled_start", valueType: "datetime" },
-  scheduledEnd: { key: "scheduled_end", valueType: "datetime" },
-  assignee: { key: "assignee", valueType: "person" },
+  status: { key: "status", ...BUILT_IN_DATA_SOURCE_PROPERTY_DEFINITIONS.status },
+  priority: { key: "priority", ...BUILT_IN_DATA_SOURCE_PROPERTY_DEFINITIONS.priority },
+  estimate: { key: "estimate", ...BUILT_IN_DATA_SOURCE_PROPERTY_DEFINITIONS.estimate },
+  tags: { key: "tags", ...BUILT_IN_DATA_SOURCE_PROPERTY_DEFINITIONS.tags },
+  dueDate: { key: "due_date", ...BUILT_IN_DATA_SOURCE_PROPERTY_DEFINITIONS.due_date },
+  scheduledStart: {
+    key: "scheduled_start",
+    ...BUILT_IN_DATA_SOURCE_PROPERTY_DEFINITIONS.scheduled_start,
+  },
+  scheduledEnd: {
+    key: "scheduled_end",
+    ...BUILT_IN_DATA_SOURCE_PROPERTY_DEFINITIONS.scheduled_end,
+  },
+  assignee: { key: "assignee", ...BUILT_IN_DATA_SOURCE_PROPERTY_DEFINITIONS.assignee },
 } as const satisfies Partial<
   Record<
     keyof PageInput,
@@ -262,20 +319,12 @@ const intrinsicValue = (
 const resolveTagOptionIds = (
   property: DataSourceProperty,
   tagNames: readonly string[],
+  options: readonly DatabasePropertyOption[],
 ): readonly DataSourceOptionId[] => {
   const propertyId = parseDataSourcePropertyId(property.propertyId);
-  const config = parseDatabasePropertyConfig(property.valueType, property.config);
-  if (!Array.isArray(config.options)) {
-    throw new Error(`Data Source Property ${property.propertyId} has no option registry`);
-  }
   const byName = new Map<string, string>();
   const optionIds = new Set<string>();
-  for (const candidate of config.options) {
-    if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) {
-      continue;
-    }
-    const option = candidate as Readonly<Record<string, DatabaseJsonValue>>;
-    if (typeof option.id !== "string" || typeof option.name !== "string") continue;
+  for (const option of options) {
     if (byName.has(option.name)) {
       throw new Error(
         `Data Source Property ${property.propertyId} has ambiguous option name ${option.name}`,
@@ -295,10 +344,17 @@ const resolveTagOptionIds = (
   }))].sort();
 };
 
-const compileDataSourceFields = (
+type PagePropertyValueOperation = Extract<
+  DatabaseApplyOperationV2,
+  { readonly kind: "edit_property_values" }
+>;
+
+const compileDataSourceFields = async (
   detail: PageDetailMetadataSource,
   patch: MetadataPatch,
-): readonly BlockPropertyFieldMutationV2[] => {
+  accessContext: { readonly kind: "project"; readonly projectId: string }
+    | { readonly kind: "library" },
+): Promise<readonly PagePropertyValueOperation[]> => {
   const entries = Object.entries(DATABASE_FIELDS) as Array<
     [
       keyof typeof DATABASE_FIELDS,
@@ -311,10 +367,10 @@ const compileDataSourceFields = (
     throw new Error("This Page has no Data Source properties");
   }
   const context = detail.dataSourceContext;
-  return requested.flatMap<BlockPropertyFieldMutationV2>(([
-    field,
-    definition,
-  ]) => {
+  const edits: Extract<DatabaseApplyOperationV2, {
+    readonly kind: "edit_property_values";
+  }>["edits"][number][] = [];
+  for (const [field, definition] of requested) {
     const property = context.properties.find(
       (candidate) => candidate.propertyId === definition.key,
     );
@@ -338,7 +394,11 @@ const compileDataSourceFields = (
       if (!Array.isArray(requestedValue)) {
         throw new Error(`Data Source Property ${property.propertyId} requires option names`);
       }
-      const value = resolveTagOptionIds(property, requestedValue);
+      const embeddedOptions = readDatabasePropertyOptions(property);
+      const options = embeddedOptions.length >= property.optionCount
+        ? embeddedOptions
+        : await readPropertyOptionRegistry(accessContext, property);
+      const value = resolveTagOptionIds(property, requestedValue, options);
       if (!Array.isArray(currentValue) || !currentValue.every((entry) => typeof entry === "string")) {
         throw new Error(`Data Source Property ${property.propertyId} has a corrupt value`);
       }
@@ -349,31 +409,55 @@ const compileDataSourceFields = (
       const nextSet = new Set(value);
       const add = value.filter((optionId) => !currentSet.has(optionId));
       const remove = currentIds.filter((optionId) => !nextSet.has(optionId));
-      if (add.length === 0 && remove.length === 0) return [];
-      return [{
-        scope: "data_source" as const,
+      if (add.length === 0 && remove.length === 0) continue;
+      edits.push({
         pageId: detail.page.pageId,
         dataSourceId,
         propertyId,
-        operation: "add_remove" as const,
-        add,
-        remove,
-      }];
+        edit: {
+          kind: "patch_set",
+          delta: {
+            kind: "multi_select",
+            addOptionIds: add,
+            removeOptionIds: remove,
+          },
+        },
+      });
+      continue;
     }
     if (typeof requestedValue !== "string" && requestedValue !== null) {
       throw new Error(`Data Source Property ${property.propertyId} requires a scalar value`);
     }
-    if (stableEqual(currentValue, requestedValue)) return [];
-    return [{
-      scope: "data_source" as const,
+    if (stableEqual(currentValue, requestedValue)) continue;
+    let value: DatabasePropertyValueInputV2;
+    if (requestedValue === null) {
+      value = { kind: "empty" };
+    } else if (property.valueType === "select") {
+      value = {
+        kind: "select",
+        optionId: parseDataSourceOptionId({ propertyId, value: requestedValue }),
+      };
+    } else if (property.valueType === "date") {
+      value = { kind: "date", value: requestedValue };
+    } else if (property.valueType === "datetime") {
+      value = { kind: "datetime", value: requestedValue };
+    } else if (property.valueType === "person") {
+      value = { kind: "person", personId: requestedValue };
+    } else {
+      throw new Error(`Page Detail cannot edit ${property.valueType} Property ${property.propertyId}`);
+    }
+    edits.push({
       pageId: detail.page.pageId,
       dataSourceId,
       propertyId,
-      operation: "set" as const,
-      expectedRevision: current?.revision ?? 0,
-      value: requestedValue,
-    }];
-  });
+      edit: {
+        kind: "replace",
+        expectedValueRevision: current?.revision ?? 0,
+        value,
+      },
+    });
+  }
+  return edits.length === 0 ? [] : [{ kind: "edit_property_values", edits }];
 };
 
 const compileIntrinsicFields = (
@@ -415,6 +499,34 @@ const retryPropertyMutation = async (
   return await dependencies.mutateProperties(projectId, request);
 };
 
+const retryDatabaseMutation = async (
+  projectId: string,
+  request: DatabaseApplyV2,
+  dependencies: PageDetailMetadataRuntimeDependencies,
+): Promise<DatabaseApplyResultV2> => {
+  try {
+    const result = await dependencies.applyDatabase(projectId, request);
+    if (result.ok || !result.error.retryable) return result;
+  } catch {
+    // Database operation identity makes one exact retry transport-safe.
+  }
+  return await dependencies.applyDatabase(projectId, request);
+};
+
+const retryMetadataPropertiesMutation = async (
+  projectId: string,
+  request: LibraryModuleApplyRequest,
+  dependencies: PageDetailMetadataRuntimeDependencies,
+): Promise<LibraryModuleApplyResult> => {
+  try {
+    const result = await dependencies.applyMetadataProperties(projectId, request);
+    if (result.ok || !result.error.retryable) return result;
+  } catch {
+    // The Library operation identity makes one exact retry transport-safe.
+  }
+  return await dependencies.applyMetadataProperties(projectId, request);
+};
+
 export const commitPageDetailMetadataPatch = async (input: {
   readonly projectId: string;
   readonly pageId: string;
@@ -429,15 +541,79 @@ export const commitPageDetailMetadataPatch = async (input: {
   }
   const detail = await dependencies.readDetail(input.projectId, input.pageId);
   if (!detail) return { status: "not_found" };
-  const dataSourceFields = compileDataSourceFields(detail, input.patch);
+  const dataSourceOperations = await compileDataSourceFields(
+    detail,
+    input.patch,
+    { kind: "project", projectId: input.projectId },
+  );
   const intrinsicFields = compileIntrinsicFields(detail, input.patch);
-  const fields = [...dataSourceFields, ...intrinsicFields];
-  if (fields.length === 0) {
+  if (dataSourceOperations.length === 0 && intrinsicFields.length === 0) {
     await dependencies.refreshDetail(input.projectId, input.pageId);
     return { status: "updated", didMutate: false };
   }
 
-  const result = await retryPropertyMutation(
+  if (dataSourceOperations.length > 0 && intrinsicFields.length > 0) {
+    const result = await retryMetadataPropertiesMutation(
+      input.projectId,
+      {
+        version: LIBRARY_MODULE_CONTRACT_VERSION,
+        operationId: input.operationId,
+        storeEpoch: detail.storeEpoch,
+        operation: {
+          kind: "apply_page_metadata_properties",
+          ...(input.clientSessionId
+            ? { clientSessionId: input.clientSessionId }
+            : {}),
+          databaseOperations: dataSourceOperations,
+          intrinsicFields,
+        },
+      },
+      dependencies,
+    );
+    if (!result.ok) {
+      if (result.error.code === "revision_conflict") {
+        await dependencies.refreshDetail(input.projectId, input.pageId);
+        return { status: "conflict" };
+      }
+      if (result.error.code === "resource_not_found") {
+        return { status: "not_found" };
+      }
+      return { status: "error", error: result.error.message };
+    }
+    await dependencies.refreshDetail(input.projectId, input.pageId);
+    return { status: "updated", didMutate: result.value.didMutate };
+  }
+
+  if (dataSourceOperations.length > 0) {
+    const databaseResult = await retryDatabaseMutation(
+      input.projectId,
+      {
+        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+        operationId: input.operationId,
+        projectId: input.projectId,
+        storeEpoch: detail.storeEpoch,
+        actor: { kind: "page_stage" },
+        operations: dataSourceOperations,
+      },
+      dependencies,
+    );
+    if (!databaseResult.ok) {
+      if (databaseResult.error.code === "revision_conflict") {
+        await dependencies.refreshDetail(input.projectId, input.pageId);
+        return { status: "conflict" };
+      }
+      if (
+        databaseResult.error.code === "resource_not_found"
+        || databaseResult.error.code === "authorization_denied"
+      ) {
+        return { status: "not_found" };
+      }
+      return { status: "error", error: databaseResult.error.message };
+    }
+  }
+
+  if (intrinsicFields.length > 0) {
+    const result = await retryPropertyMutation(
       input.projectId,
       {
         version: 2,
@@ -446,7 +622,7 @@ export const commitPageDetailMetadataPatch = async (input: {
         storeEpoch: detail.storeEpoch,
         ...(input.clientSessionId ? { clientSessionId: input.clientSessionId } : {}),
         actor: { kind: "page_stage" },
-        fields,
+        fields: intrinsicFields,
       },
       dependencies,
     );
@@ -455,20 +631,138 @@ export const commitPageDetailMetadataPatch = async (input: {
         await dependencies.refreshDetail(input.projectId, input.pageId);
         return { status: "conflict" };
       }
-      if (
-        result.error.code === "block_not_found" ||
-        result.error.code === "data_source_not_found" ||
-        result.error.code === "membership_not_found" ||
-        result.error.code === "property_not_found" ||
-        result.error.code === "project_not_found"
-      ) {
+      if (result.error.code === "block_not_found" || result.error.code === "project_not_found") {
         return { status: "not_found" };
       }
       return { status: "error", error: result.error.message };
     }
+  }
 
   await dependencies.refreshDetail(input.projectId, input.pageId);
   return { status: "updated", didMutate: true };
+};
+
+const compileDirectPropertyEdit = (
+  detail: PageDetailMetadataSource,
+  propertyId: string,
+  edit: PageStagePropertyEdit,
+): readonly DatabaseApplyOperationV2[] => {
+  if (detail.dataSourceContext.kind !== "member") {
+    throw new Error("This Page has no Data Source properties");
+  }
+  const context = detail.dataSourceContext;
+  const property = context.properties.find(
+    (candidate) => candidate.propertyId === propertyId,
+  );
+  if (!property) {
+    throw new Error(
+      `Property ${propertyId} is no longer active in Data Source ${context.dataSource.dataSourceId}`,
+    );
+  }
+  if (edit.kind === "patch_relation") {
+    return buildDataSourceRelationPatchOperations({
+      pageId: detail.page.pageId,
+      dataSourceId: context.dataSource.dataSourceId,
+      property,
+      addPageIds: edit.addPageIds,
+      removePageIds: edit.removePageIds,
+    });
+  }
+  if (edit.kind === "patch_multi_select") {
+    return buildDataSourceMultiSelectPatchOperations({
+      pageId: detail.page.pageId,
+      dataSourceId: context.dataSource.dataSourceId,
+      property,
+      addOptionIds: edit.addOptionIds,
+      removeOptionIds: edit.removeOptionIds,
+    });
+  }
+  if (edit.kind === "create_option_and_select") {
+    return buildDataSourceCreateOptionAndSelectOperations({
+      pageId: detail.page.pageId,
+      dataSourceId: context.dataSource.dataSourceId,
+      property: { ...property, revision: edit.expectedPropertyRevision },
+      current: {
+        propertyId: property.propertyId,
+        valueType: property.valueType,
+        revision: edit.expectedValueRevision,
+        value: context.values[property.propertyId]?.value ?? null,
+      },
+      option: {
+        id: edit.optionId,
+        name: edit.name,
+        ...(edit.color === undefined ? {} : { color: edit.color }),
+      },
+    });
+  }
+  return buildDataSourcePropertyValueOperations({
+    pageId: detail.page.pageId,
+    dataSourceId: context.dataSource.dataSourceId,
+    property,
+    current: {
+      propertyId: property.propertyId,
+      valueType: property.valueType,
+      revision: edit.expectedValueRevision,
+      value: context.values[property.propertyId]?.value ?? null,
+    },
+    value: edit.value,
+  });
+};
+
+const propertyMutationResult = async (
+  result: DatabaseApplyResultV2 | LibraryDatabaseApplyResultV2,
+  refresh: () => Promise<unknown>,
+): Promise<PageStageMetadataMutationResult> => {
+  if (!result.ok) {
+    if (result.error.code === "revision_conflict") {
+      await refresh();
+      return { status: "conflict" };
+    }
+    if (result.error.code === "resource_not_found") {
+      await refresh();
+      return { status: "not_found" };
+    }
+    return { status: "error", error: result.error.message };
+  }
+  await refresh();
+  return { status: "updated", didMutate: true };
+};
+
+export const commitPageDetailPropertyEdit = async (input: {
+  readonly projectId: string;
+  readonly pageId: string;
+  readonly propertyId: string;
+  readonly operationId: string;
+  readonly clientSessionId?: string;
+  readonly edit: PageStagePropertyEdit;
+  readonly dependencies?: PageDetailMetadataRuntimeDependencies;
+}): Promise<PageStageMetadataMutationResult> => {
+  const dependencies = input.dependencies ?? DEFAULT_DEPENDENCIES;
+  const detail = await dependencies.readDetail(input.projectId, input.pageId);
+  if (!detail) return { status: "not_found" };
+  const operations = compileDirectPropertyEdit(
+    detail,
+    input.propertyId,
+    input.edit,
+  );
+  const refresh = () => dependencies.refreshDetail(input.projectId, input.pageId);
+  if (operations.length === 0) {
+    await refresh();
+    return { status: "updated", didMutate: false };
+  }
+  const result = await retryDatabaseMutation(
+    input.projectId,
+    {
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      operationId: input.operationId,
+      projectId: input.projectId,
+      storeEpoch: detail.storeEpoch,
+      actor: { kind: "page_stage" },
+      operations,
+    },
+    dependencies,
+  );
+  return await propertyMutationResult(result, refresh);
 };
 
 const retryLibraryPropertyMutation = async (
@@ -482,6 +776,32 @@ const retryLibraryPropertyMutation = async (
     // Durable mutation identity makes one exact retry transport-safe.
   }
   return await dependencies.mutateProperties(request);
+};
+
+const retryLibraryDatabaseMutation = async (
+  request: LibraryDatabaseApplyV2,
+  dependencies: LibraryPageDetailMetadataRuntimeDependencies,
+): Promise<LibraryDatabaseApplyResultV2> => {
+  try {
+    const result = await dependencies.applyDatabase(request);
+    if (result.ok || !result.error.retryable) return result;
+  } catch {
+    // Database operation identity makes one exact retry transport-safe.
+  }
+  return await dependencies.applyDatabase(request);
+};
+
+const retryLibraryMetadataPropertiesMutation = async (
+  request: LibraryModuleApplyRequest,
+  dependencies: LibraryPageDetailMetadataRuntimeDependencies,
+): Promise<LibraryModuleApplyResult> => {
+  try {
+    const result = await dependencies.applyMetadataProperties(request);
+    if (result.ok || !result.error.retryable) return result;
+  } catch {
+    // The Library operation identity makes one exact retry transport-safe.
+  }
+  return await dependencies.applyMetadataProperties(request);
 };
 
 export const commitLibraryPageDetailMetadataPatch = async (input: {
@@ -502,44 +822,110 @@ export const commitLibraryPageDetailMetadataPatch = async (input: {
   }
   const detail = await dependencies.readDetail(input.pageId);
   if (!detail) return { status: "not_found" };
-  const fields = [
-    ...compileDataSourceFields(detail, input.patch),
-    ...compileIntrinsicFields(detail, input.patch),
-  ];
-  if (fields.length === 0) {
+  const dataSourceOperations = await compileDataSourceFields(
+    detail,
+    input.patch,
+    { kind: "library" },
+  );
+  const intrinsicFields = compileIntrinsicFields(detail, input.patch);
+  if (dataSourceOperations.length === 0 && intrinsicFields.length === 0) {
     await dependencies.refreshDetail(input.pageId);
     return { status: "updated", didMutate: false };
   }
 
-  const result = await retryLibraryPropertyMutation(
-    {
+  if (dataSourceOperations.length > 0 && intrinsicFields.length > 0) {
+    const result = await retryLibraryMetadataPropertiesMutation({
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      operationId: input.operationId,
+      storeEpoch: detail.storeEpoch,
+      operation: {
+        kind: "apply_page_metadata_properties",
+        ...(input.clientSessionId
+          ? { clientSessionId: input.clientSessionId }
+          : {}),
+        databaseOperations: dataSourceOperations,
+        intrinsicFields,
+      },
+    }, dependencies);
+    if (!result.ok) {
+      if (result.error.code === "revision_conflict") {
+        await dependencies.refreshDetail(input.pageId);
+        return { status: "conflict" };
+      }
+      if (result.error.code === "resource_not_found") {
+        return { status: "not_found" };
+      }
+      return { status: "error", error: result.error.message };
+    }
+    await dependencies.refreshDetail(input.pageId);
+    return { status: "updated", didMutate: result.value.didMutate };
+  }
+
+  if (dataSourceOperations.length > 0) {
+    const databaseResult = await retryLibraryDatabaseMutation({
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      operationId: input.operationId,
+      storeEpoch: detail.storeEpoch,
+      operations: dataSourceOperations,
+    }, dependencies);
+    if (!databaseResult.ok) {
+      if (databaseResult.error.code === "revision_conflict") {
+        await dependencies.refreshDetail(input.pageId);
+        return { status: "conflict" };
+      }
+      if (databaseResult.error.code === "resource_not_found") return { status: "not_found" };
+      return { status: "error", error: databaseResult.error.message };
+    }
+  }
+
+  if (intrinsicFields.length > 0) {
+    const result = await retryLibraryPropertyMutation({
       version: 2,
       mutationId: input.operationId,
       storeEpoch: detail.storeEpoch,
-      ...(input.clientSessionId
-        ? { clientSessionId: input.clientSessionId }
-        : {}),
-      fields,
-    },
-    dependencies,
-  );
-  if (!result.ok) {
-    if (result.error.code === "property_conflict") {
-      await dependencies.refreshDetail(input.pageId);
-      return { status: "conflict" };
+      ...(input.clientSessionId ? { clientSessionId: input.clientSessionId } : {}),
+      fields: intrinsicFields,
+    }, dependencies);
+    if (!result.ok) {
+      if (result.error.code === "property_conflict") {
+        await dependencies.refreshDetail(input.pageId);
+        return { status: "conflict" };
+      }
+      if (result.error.code === "block_not_found") return { status: "not_found" };
+      return { status: "error", error: result.error.message };
     }
-    if (
-      result.error.code === "block_not_found" ||
-      result.error.code === "data_source_not_found" ||
-      result.error.code === "membership_not_found" ||
-      result.error.code === "property_not_found" ||
-      result.error.code === "project_not_found"
-    ) {
-      return { status: "not_found" };
-    }
-    return { status: "error", error: result.error.message };
   }
 
   await dependencies.refreshDetail(input.pageId);
   return { status: "updated", didMutate: true };
+};
+
+export const commitLibraryPageDetailPropertyEdit = async (input: {
+  readonly pageId: string;
+  readonly propertyId: string;
+  readonly operationId: string;
+  readonly clientSessionId?: string;
+  readonly edit: PageStagePropertyEdit;
+  readonly dependencies?: LibraryPageDetailMetadataRuntimeDependencies;
+}): Promise<PageStageMetadataMutationResult> => {
+  const dependencies = input.dependencies ?? DEFAULT_LIBRARY_DEPENDENCIES;
+  const detail = await dependencies.readDetail(input.pageId);
+  if (!detail) return { status: "not_found" };
+  const operations = compileDirectPropertyEdit(
+    detail,
+    input.propertyId,
+    input.edit,
+  );
+  const refresh = () => dependencies.refreshDetail(input.pageId);
+  if (operations.length === 0) {
+    await refresh();
+    return { status: "updated", didMutate: false };
+  }
+  const result = await retryLibraryDatabaseMutation({
+    version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+    operationId: input.operationId,
+    storeEpoch: detail.storeEpoch,
+    operations,
+  }, dependencies);
+  return await propertyMutationResult(result, refresh);
 };

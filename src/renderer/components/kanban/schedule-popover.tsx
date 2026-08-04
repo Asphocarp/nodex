@@ -10,6 +10,7 @@ import {
   NodexPopoverTrigger,
 } from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
+import { PropertyEmptyValue } from "@/components/database/property-empty-value";
 import { cn } from "@/lib/utils";
 import type { RecurrenceFrequency } from "@/lib/types";
 import type {
@@ -57,10 +58,10 @@ export function SchedulePopover({ schedule, page }: SchedulePopoverProps) {
         <NodexPopover open={open} onOpenChange={setOpen}>
           <NodexPopoverTrigger asChild>
             <button
+              type="button"
               className={cn(
-                "flex flex-wrap items-center gap-1 rounded-sm px-0.5 py-0.5 transition-colors",
+                "flex flex-wrap items-center gap-1 rounded-sm px-1 py-0.5 transition-colors",
                 "hover:bg-(--background-tertiary)",
-                !hasSchedule && "text-(--foreground-tertiary) hover:text-(--foreground-secondary)",
               )}
               aria-label={hasSchedule ? "Edit schedule" : "Set schedule"}
             >
@@ -82,7 +83,7 @@ export function SchedulePopover({ schedule, page }: SchedulePopoverProps) {
                   )}
                 </>
               ) : (
-                <span className="text-sm/5">Empty</span>
+                <PropertyEmptyValue className="text-sm/5" />
               )}
             </button>
           </NodexPopoverTrigger>

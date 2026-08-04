@@ -6,8 +6,10 @@ import type {
 import type { DatabaseViewKind } from "./database-kernel";
 import type { RelocationDocumentCommit } from "./block-documents/contracts";
 import type { ProjectAppearance } from "./project-appearance";
+import type { BlockPropertyFieldMutationV2 } from "./block-property-mutations-v2";
+import type { DatabaseApplyOperationV2 } from "./database-module-v2";
 
-export const LIBRARY_MODULE_CONTRACT_VERSION = 6 as const;
+export const LIBRARY_MODULE_CONTRACT_VERSION = 7 as const;
 export const DEFAULT_LIBRARY_READ_LIMIT = 20 as const;
 export const MAX_LIBRARY_READ_LIMIT = 100 as const;
 export const MAX_LIBRARY_CURSOR_LENGTH = 2_048 as const;
@@ -414,6 +416,16 @@ export interface SetLibraryProjectAccessOperation {
   }[];
 }
 
+export interface ApplyPageMetadataPropertiesOperation {
+  readonly kind: "apply_page_metadata_properties";
+  readonly clientSessionId?: string;
+  readonly databaseOperations: readonly Extract<
+    DatabaseApplyOperationV2,
+    { readonly kind: "edit_property_values" }
+  >[];
+  readonly intrinsicFields: readonly BlockPropertyFieldMutationV2[];
+}
+
 export type LibraryApplyOperation =
   | CreateLibraryPageOperation
   | CreateLibraryDatabaseOperation
@@ -426,7 +438,8 @@ export type LibraryApplyOperation =
   | ArchiveLibraryResourceOperation
   | RestoreLibraryResourceOperation
   | GrantLibraryResourceToProjectOperation
-  | SetLibraryProjectAccessOperation;
+  | SetLibraryProjectAccessOperation
+  | ApplyPageMetadataPropertiesOperation;
 
 export interface LibraryModuleApplyRequest {
   readonly version: typeof LIBRARY_MODULE_CONTRACT_VERSION;

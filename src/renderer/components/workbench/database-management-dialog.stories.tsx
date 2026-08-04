@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { fireEvent, getByLabelText, getByText, waitFor } from "@testing-library/dom";
 import type {
   DatabaseContainerDescriptorV2,
   DataSourceDescriptorV2,
@@ -9,6 +10,7 @@ import {
   parseDataSourceId,
   parseDataSourcePropertyId,
 } from "../../../shared/database-identities";
+import { testPropertySemantics } from "../../../shared/testing/database-property-record";
 import { DatabaseManagementDialog } from "./database-management-dialog";
 
 const timestamp = "2026-07-16T00:00:00.000Z";
@@ -95,6 +97,7 @@ const source: DataSourceDescriptorV2 = {
       propertyId: parseDataSourcePropertyId("status"),
       dataSourceId,
       name: "Status",
+      ...testPropertySemantics("select", 2),
       valueType: "select",
       config: { options: [{ id: "draft", name: "Draft" }, { id: "done", name: "Done" }] },
       rankKey: "a",
@@ -107,6 +110,7 @@ const source: DataSourceDescriptorV2 = {
       propertyId: parseDataSourcePropertyId("priority"),
       dataSourceId,
       name: "Priority",
+      ...testPropertySemantics("select", 1),
       valueType: "select",
       config: { options: [{ id: "high", name: "High" }] },
       rankKey: "b",
@@ -119,6 +123,7 @@ const source: DataSourceDescriptorV2 = {
       propertyId: parseDataSourcePropertyId("tags"),
       dataSourceId,
       name: "Tags",
+      ...testPropertySemantics("multi_select", 1),
       valueType: "multi_select",
       config: { options: [{ id: "o_AAAAAAAA", name: "Agent" }] },
       rankKey: "c",
@@ -131,6 +136,7 @@ const source: DataSourceDescriptorV2 = {
       propertyId: parseDataSourcePropertyId("due_date"),
       dataSourceId,
       name: "Due date",
+      ...testPropertySemantics("date"),
       valueType: "date",
       config: {},
       rankKey: "d",
@@ -139,6 +145,22 @@ const source: DataSourceDescriptorV2 = {
       createdAt: timestamp,
       updatedAt: timestamp,
     },
+  ],
+};
+
+const overflowSource: DataSourceDescriptorV2 = {
+  ...source,
+  properties: [
+    ...source.properties,
+    ...Array.from({ length: 8 }, (_, index) => {
+      const template = source.properties[index % source.properties.length]!;
+      return {
+        ...template,
+        propertyId: parseDataSourcePropertyId(`overflow_${index}`),
+        name: `Additional ${template.name} ${index + 1}`,
+        rankKey: `overflow-${index}`,
+      };
+    }),
   ],
 };
 
@@ -167,7 +189,38 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const SingleSource: Story = {};
+export const ScrollingContent: Story = {
+  args: { source: overflowSource },
+  parameters: {
+    docs: {
+      description: {
+        story: "A long schema keeps the Database manager bounded while its detail pane scrolls.",
+      },
+    },
+  },
+};
 export const Busy: Story = { args: { busy: true } };
 export const ErrorState: Story = {
   args: { error: "View changed in another window. Reloaded current authority." },
+};
+
+export const DeleteConfirmation: Story = {
+  args: { source: overflowSource },
+  play: async ({ canvasElement }) => {
+    fireEvent.click(getByLabelText(canvasElement, "Delete property Additional Status 1"));
+    await waitFor(() => getByText(
+      canvasElement,
+      "Delete this Property and its values from every Page?",
+    ));
+  },
+};
+
+export const DeleteBlockedByView: Story = {
+  play: async ({ canvasElement }) => {
+    fireEvent.click(getByLabelText(canvasElement, "Delete property Due date"));
+    await waitFor(() => getByText(
+      canvasElement,
+      "Used by Upcoming. Remove it from those Views first.",
+    ));
+  },
 };

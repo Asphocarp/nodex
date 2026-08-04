@@ -12,12 +12,9 @@ import {
   type LibraryDatabaseApplyResultV2,
   type LibraryDatabaseApplyV2,
 } from "../../shared/database-module-v2";
-import { parseDataSourceOptionId } from "../../shared/database-identities";
-import {
-  stableStringifyDatabaseJson,
-  type DatabaseJsonValue,
-} from "../../shared/database-kernel";
+import type { DatabaseJsonValue } from "../../shared/database-kernel";
 import { applyDatabaseModule, applyLibraryDatabaseModule } from "./api";
+import { buildDataSourcePropertyValueOperations } from "./data-source-property-value-operations";
 import type { DatabaseViewRenderModel } from "./database-view-render-model";
 
 export class DatabaseViewMutationError extends Error {
@@ -60,13 +57,6 @@ const findProperty = (
   );
 };
 
-const stringSet = (value: DatabaseJsonValue | undefined): ReadonlySet<string> =>
-  new Set(
-    Array.isArray(value)
-      ? value.filter((entry): entry is string => typeof entry === "string")
-      : [],
-  );
-
 export const buildDatabaseViewPropertyValueOperations = (input: {
   readonly model: DatabaseViewRenderModel;
   readonly pageId: string;
@@ -76,49 +66,18 @@ export const buildDatabaseViewPropertyValueOperations = (input: {
   const row = findRow(input.model, input.pageId);
   const property = findProperty(input.model, input.propertyId);
   const current = row.values[property.propertyId];
-  if (
-    stableStringifyDatabaseJson(current?.value ?? null)
-    === stableStringifyDatabaseJson(input.value)
-  ) {
-    return [];
-  }
-
-  if (property.valueType === "multi_select") {
-    const before = stringSet(current?.value);
-    const after = stringSet(input.value);
-    const add = [...after]
-      .filter((entry) => !before.has(entry))
-      .sort()
-      .map((value) => parseDataSourceOptionId({
-        propertyId: property.propertyId,
-        value,
-      }));
-    const remove = [...before]
-      .filter((entry) => !after.has(entry))
-      .sort()
-      .map((value) => parseDataSourceOptionId({
-        propertyId: property.propertyId,
-        value,
-      }));
-    if (add.length === 0 && remove.length === 0) return [];
-    return [{
-      kind: "add_remove_value",
+  try {
+    return buildDataSourcePropertyValueOperations({
       pageId: row.page.pageId,
       dataSourceId: input.model.dataSourceId,
-      propertyId: property.propertyId,
-      add,
-      remove,
-    }];
+      property,
+      current,
+      value: input.value,
+    });
+  } catch (error) {
+    if (error instanceof TypeError) throw localError(error.message);
+    throw error;
   }
-
-  return [{
-    kind: "set_value",
-    pageId: row.page.pageId,
-    dataSourceId: input.model.dataSourceId,
-    propertyId: property.propertyId,
-    expectedValueRevision: current?.revision ?? 0,
-    value: input.value,
-  }];
 };
 
 const hasEmptyAndFilter = (model: DatabaseViewRenderModel): boolean =>
@@ -229,7 +188,6 @@ export type DatabaseViewMutationReceipt =
 export const commitDatabaseViewOperations = async (input: {
   readonly model: DatabaseViewRenderModel;
   readonly operations: readonly DatabaseApplyOperationV2[];
-  readonly clientSessionId?: string;
   readonly operationId?: string;
   readonly dependencies?: DatabaseViewMutationDependencies;
 }): Promise<DatabaseViewMutationReceipt | null> => {
@@ -246,12 +204,7 @@ export const commitDatabaseViewOperations = async (input: {
     : dependencies.applyProject(input.model.accessContext.projectId, {
         ...commonRequest,
         projectId: input.model.accessContext.projectId,
-        actor: {
-          kind: "renderer_database_view" as const,
-          ...(input.clientSessionId
-            ? { clientSessionId: input.clientSessionId }
-            : {}),
-        },
+        actor: { kind: "renderer_database_view" as const },
       });
   let result: DatabaseApplyResultV2 | LibraryDatabaseApplyResultV2;
   let retried = false;

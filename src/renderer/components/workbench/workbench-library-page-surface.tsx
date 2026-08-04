@@ -14,12 +14,19 @@ import {
   validateLibraryOwnedBlockDocumentDescriptor,
 } from "../../lib/owned-block-document";
 import { projectPageDetailToStageModel } from "../../lib/page-stage-page";
-import { commitLibraryPageDetailMetadataPatch } from "../../lib/page-detail-metadata-runtime";
+import {
+  commitLibraryPageDetailMetadataPatch,
+  commitLibraryPageDetailPropertyEdit,
+} from "../../lib/page-detail-metadata-runtime";
 import type { DatabaseId } from "../../../shared/database-identities";
 import { queryKeys } from "../../lib/query-keys";
 import { invalidateExactQuery } from "../../lib/query-invalidation";
 import { useProjectionInvalidationRegistry } from "../../lib/projection-invalidation-context";
 import { libraryContentAccess } from "../../../shared/content-access-context";
+import {
+  pageDetailDataDependencies,
+  pageDetailDocumentDependencies,
+} from "../../lib/page-detail-projection-dependencies";
 
 export function WorkbenchLibraryPageSurface({
   pageId,
@@ -88,41 +95,51 @@ export function WorkbenchLibraryPageSurface({
   useEffect(() => {
     const authority = detail.data;
     if (!authority) return;
-    return projectionRegistry.register({
+    const getCursor = () => {
+      const currentDetail = queryClient.getQueryData<typeof authority>(detailQueryKey);
+      const currentDocument =
+        queryClient.getQueryData<ReadyPageBlockDocumentDescriptor>(documentQueryKey);
+      if (!currentDetail || !currentDocument) return null;
+      if (
+        currentDetail.storeEpoch !== currentDocument.storeEpoch
+        || currentDetail.page.documentGeneration !== currentDocument.generation
+        || currentDetail.page.documentHeadSeq !== currentDocument.headSeq
+      ) return null;
+      return {
+        storeEpoch: currentDetail.storeEpoch,
+        changeLogSeq: currentDetail.changeLogSeq,
+      };
+    };
+    const unregisterDetail = projectionRegistry.register({
       scope: { kind: "library", libraryId: authority.libraryId },
-      consumerKey: hashKey(["projection", detailQueryKey, documentQueryKey]),
+      consumerKey: hashKey(["projection", detailQueryKey]),
       getDependencies: () => {
-        const currentDocument =
-          queryClient.getQueryData<ReadyPageBlockDocumentDescriptor>(
-            documentQueryKey,
-          );
-        return {
-          pageIds: [pageId],
-          documentIds: currentDocument ? [currentDocument.documentId] : [],
-        };
+        const currentDetail = queryClient.getQueryData<typeof authority>(
+          detailQueryKey,
+        );
+        return pageDetailDataDependencies(currentDetail ?? null, pageId);
       },
-      getCursor: () => {
-        const currentDetail = queryClient.getQueryData<typeof authority>(detailQueryKey);
-        const currentDocument =
-          queryClient.getQueryData<ReadyPageBlockDocumentDescriptor>(documentQueryKey);
-        if (!currentDetail || !currentDocument) return null;
-        if (
-          currentDetail.storeEpoch !== currentDocument.storeEpoch
-          || currentDetail.page.documentGeneration !== currentDocument.generation
-          || currentDetail.page.documentHeadSeq !== currentDocument.headSeq
-        ) return null;
-        return {
-          storeEpoch: currentDetail.storeEpoch,
-          changeLogSeq: currentDetail.changeLogSeq,
-        };
-      },
+      getCursor,
       invalidate: async () => {
-        await Promise.all([
-          invalidateExactQuery(queryClient, detailQueryKey),
-          invalidateExactQuery(queryClient, documentQueryKey),
-        ]);
+        await invalidateExactQuery(queryClient, detailQueryKey);
       },
     });
+    const unregisterDocument = projectionRegistry.register({
+      scope: { kind: "library", libraryId: authority.libraryId },
+      consumerKey: hashKey(["projection", documentQueryKey]),
+      getDependencies: () => pageDetailDocumentDependencies(
+        queryClient.getQueryData<typeof authority>(detailQueryKey) ?? null,
+        pageId,
+      ),
+      getCursor,
+      invalidate: async () => {
+        await invalidateExactQuery(queryClient, documentQueryKey);
+      },
+    });
+    return () => {
+      unregisterDetail();
+      unregisterDocument();
+    };
   }, [
     detail.data,
     detailQueryKey,
@@ -173,7 +190,6 @@ export function WorkbenchLibraryPageSurface({
       autoFocusTitle={stagePage.page.title.trim() === "Untitled"}
       documentScopeId={document.data.projectId}
       projectName={null}
-      availableTags={[]}
       documentAuthority={{
         kind: "yjs",
         descriptor: document.data,
@@ -203,6 +219,20 @@ export function WorkbenchLibraryPageSurface({
           operationId: crypto.randomUUID(),
           clientSessionId: `library-page:${pageId}`,
           patch,
+        });
+        await queryClient.invalidateQueries({
+          queryKey: detailQueryKey,
+          exact: true,
+        });
+        return result;
+      }}
+      onUpdateProperty={async (targetPageId, propertyId, edit) => {
+        const result = await commitLibraryPageDetailPropertyEdit({
+          pageId: targetPageId,
+          propertyId,
+          edit,
+          operationId: crypto.randomUUID(),
+          clientSessionId: `library-page:${pageId}`,
         });
         await queryClient.invalidateQueries({
           queryKey: detailQueryKey,

@@ -11,11 +11,17 @@ import {
   parseDataSourceId,
   parseDataSourcePropertyId,
 } from "../../../shared/database-identities";
+import { testPropertySemantics } from "../../../shared/testing/database-property-record";
+import {
+  DatabaseManagementMutationError,
+  DatabaseManagementReadError,
+} from "@/lib/database-management-runtime";
 import { render } from "../../test/dom";
 import {
   DatabaseManagementSurface,
   type DatabaseManagementSurfaceProps,
 } from "./database-management-dialog";
+import { databaseManagementErrorMessage } from "./database-management-dialog-controller";
 
 const timestamp = "2026-07-12T00:00:00.000Z";
 const libraryId = "library-1";
@@ -23,6 +29,17 @@ const databaseId = parseDatabaseId("database-primary");
 const dataSourceId = parseDataSourceId("source-primary");
 const primaryViewId = parseDatabaseViewId("view-primary");
 const listViewId = parseDatabaseViewId("view-list");
+
+test("maps database management failures without leaking authority details", () => {
+  expect(databaseManagementErrorMessage(
+    new DatabaseManagementReadError("databaseModuleReadV2 leaked detail", false),
+  )).toBe("Couldn’t load database settings. Try again.");
+  expect(databaseManagementErrorMessage(new DatabaseManagementMutationError({
+    code: "revision_conflict",
+    message: "databaseApplyV2 leaked detail",
+    retryable: false,
+  }))).toBe("Database settings changed elsewhere. Review and try again.");
+});
 
 const databases: readonly DatabaseContainerDescriptorV2[] = [{
   database: {
@@ -104,6 +121,7 @@ const source: DataSourceDescriptorV2 = {
     propertyId: parseDataSourcePropertyId("tags"),
     dataSourceId,
     name: "Tags",
+    ...testPropertySemantics("multi_select", 1),
     valueType: "multi_select",
     config: {
       options: [{ id: "o_AAAAAAAA", name: "Page first" }],
@@ -209,5 +227,49 @@ describe("DatabaseManagementSurface", () => {
       name: "Focused list",
       kind: "list",
     });
+  });
+
+  test("requires confirmation before deleting a Property", async () => {
+    const deleted: unknown[] = [];
+    const screen = render(
+      <DatabaseManagementSurface
+        {...baseProps()}
+        databases={[{
+          ...databases[0]!,
+          views: databases[0]!.views.map((view) => ({
+            ...view,
+            config: {
+              ...view.config,
+              display: { ...view.config.display, propertyIds: [] },
+            },
+          })),
+        }]}
+        onDeleteProperty={(...args) => {
+          deleted.push(args);
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText("Delete property Tags"));
+    expect(deleted).toEqual([]);
+    expect(screen.getByText("Delete this Property and its values from every Page?"))
+      .toBeTruthy();
+
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText("Confirm delete property Tags"));
+      await Promise.resolve();
+    });
+    expect(deleted).toEqual([[dataSourceId, "tags"]]);
+  });
+
+  test("names Views that block Property deletion", () => {
+    const screen = render(<DatabaseManagementSurface {...baseProps()} />);
+
+    fireEvent.click(screen.getByLabelText("Delete property Tags"));
+
+    expect(screen.getByRole("alert").textContent).toContain(
+      "Used by Board. Remove it from those Views first.",
+    );
+    expect(screen.queryByLabelText("Confirm delete property Tags")).toBeNull();
   });
 });

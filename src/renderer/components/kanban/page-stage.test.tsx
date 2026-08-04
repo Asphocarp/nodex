@@ -8,7 +8,11 @@ import {
   writePageStageShowRawContentPreference,
 } from "@/lib/page-stage-layout";
 import type { DatabasePage } from "@/lib/types";
-import type { PageStagePageModel } from "@/lib/page-stage-page";
+import {
+  projectPageDetailToStageModel,
+  type PageStagePageModel,
+} from "@/lib/page-stage-page";
+import { readPageStageSemanticProperties } from "@/lib/page-stage-properties";
 import type { PageStageProps } from "./page-stage/types";
 import {
   renderWithMaitai as render,
@@ -22,6 +26,7 @@ import {
 } from "../../../shared/block-documents";
 import { populateBlockDocumentBodyFromNfm } from "../../../shared/block-documents/block-document-codec";
 import { projectContentAccess } from "../../../shared/content-access-context";
+import { buildPageDetailStoryResult } from "./page-stage/page-stage-story-page-detail";
 
 let lastNfmEditorProps: Record<string, unknown> | null = null;
 let publishCollaborativeTitle: ((title: string) => void) | null = null;
@@ -103,29 +108,19 @@ function buildPage(overrides: Partial<DatabasePage> = {}): DatabasePage {
 }
 
 function toStageModel(page: DatabasePage): PageStagePageModel {
+  const detail = buildPageDetailStoryResult("default", page);
+  if (!detail.ok) throw new Error(detail.error.message);
+  const projected = projectPageDetailToStageModel(detail.value);
+  if (projected.databaseContext.kind !== "member") return projected;
+  const properties = projected.databaseContext.properties.filter((item) =>
+    item.property.valueType !== "select"
+    && item.property.valueType !== "multi_select");
   return {
-    page: {
-      id: page.id,
-      archived: page.archived,
-      title: page.title,
-      richTitle: page.richTitle,
-      isAllDay: Boolean(page.isAllDay),
-      reminders: page.reminders ?? [],
-      revision: page.revision ?? 1,
-      created: page.created,
-    },
+    ...projected,
     databaseContext: {
-      kind: "member",
-      membership: {
-        id: "membership-1",
-        dataSourceId: "source-1",
-        databaseId: "database-1",
-        revision: 1,
-      },
-      compatibilityProperties: {
-        status: page.status,
-        tags: page.tags,
-      },
+      ...projected.databaseContext,
+      properties,
+      semanticProperties: readPageStageSemanticProperties(properties),
     },
   };
 }
@@ -166,8 +161,8 @@ function renderStage(
         documentScopeId="default"
         projectName="Default"
         documentAuthority={documentAuthority()}
-        availableTags={[]}
         onUpdate={async () => ({ status: "updated", didMutate: true })}
+        onUpdateProperty={async () => ({ status: "updated", didMutate: true })}
         {...titleCallbacks}
         {...breadcrumbProps}
         {...(page.databaseContext.kind === "member"
@@ -204,10 +199,11 @@ describe("page stage", () => {
     loadedPageStage = await import("./page-stage");
   });
 
-  test("mounts the rich editor only from the collaborative Document source", () => {
+  test("mounts the rich editor only from the collaborative Document source", async () => {
     writePageStageContentWidthPreference(true);
     writePageStageShowRawContentPreference(false);
     const { container, getByText } = renderStage();
+    await settleAsyncRender();
 
     expect(getByText("Mock collaborative editor").textContent).toBe(
       "Mock collaborative editor",

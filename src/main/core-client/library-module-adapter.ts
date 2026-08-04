@@ -2,7 +2,6 @@ import {
   parseDatabaseId,
   parseDatabaseViewId,
   parseDataSourceId,
-  parseDataSourcePropertyId,
 } from "../../shared/database-identities";
 import type { DatabaseViewKind } from "../../shared/database-kernel";
 import type {
@@ -64,6 +63,10 @@ import type {
 } from "../../shared/page-ownership-paths";
 import { isWorkflowStatus } from "../../shared/workflow-status";
 import { CoreModuleResponseError } from "./core-client";
+import {
+  mapCorePropertyDescriptor,
+  toCoreDatabaseIntent,
+} from "./database-module-adapter";
 import type {
   CoreClientPort,
   CoreModuleError,
@@ -350,6 +353,16 @@ const toCoreIntent = (operation: LibraryApplyOperation): LibraryIntent => {
           access: change.access,
           expected_revision: change.expectedRevision,
         })),
+      };
+    case "apply_page_metadata_properties":
+      return {
+        kind: operation.kind,
+        database_intents: operation.databaseOperations.map(toCoreDatabaseIntent),
+        intrinsic_mutation: toCoreBlockPropertyMutation(
+          operation.intrinsicFields,
+          { kind: "page_metadata" },
+          operation.clientSessionId,
+        ),
       };
   }
 };
@@ -720,7 +733,7 @@ const mapPageDataSourceContext = (
     },
     database: context.database,
     dataSource: context.data_source,
-    properties: context.properties,
+    properties: context.properties.map(mapCorePropertyDescriptor),
     values: context.values,
   };
 };
@@ -941,6 +954,19 @@ const mapLifecycleTagsProperty = (value: unknown) => {
   };
 };
 
+const mapLifecycleDefaultView = (
+  value: unknown,
+): Readonly<Record<string, unknown>> => {
+  const defaultView = coreRecord(value, "Page lifecycle default View");
+  if (!Array.isArray(defaultView.properties)) {
+    throw new Error("Core Page lifecycle default View has no Property descriptors");
+  }
+  return {
+    ...defaultView,
+    properties: defaultView.properties.map(mapCorePropertyDescriptor),
+  };
+};
+
 const mapLifecycleParent = (
   parent: CorePageLifecyclePreflight["page"] extends infer Page
     ? NonNullable<Page> extends { parent: infer Parent }
@@ -1047,7 +1073,7 @@ const mapPageLifecyclePreflight = (
   input: CorePageLifecyclePreflight,
 ) => ({
   version: input.version,
-  defaultView: input.default_view,
+  defaultView: mapLifecycleDefaultView(input.default_view),
   tagsProperty: mapLifecycleTagsProperty(input.tags_property),
   reservedBlockType: input.reserved_block_type ?? null,
   page: input.page ? mapLifecyclePage(input.page) : null,
@@ -1148,6 +1174,7 @@ const mapCoreError = (error: CoreModuleError): LibraryModuleError => {
       case "idempotency_key_reused":
         return "identity_conflict";
       case "not_found":
+      case "unauthorized":
         return "resource_not_found";
       case "revision_conflict":
         return "revision_conflict";
@@ -1263,63 +1290,29 @@ const toCoreBlockPropertyMutation = (
 ): CoreBlockPropertyMutation => ({
   actor,
   client_session_id: clientSessionId ?? null,
-  fields: fields.map((field) => {
-    if (field.scope === "intrinsic") {
-      return {
-        kind: "intrinsic_set",
-        block_id: field.blockId,
-        property_key: field.propertyKey,
-        expected_revision: field.expectedRevision,
-        value: field.value,
-      };
-    }
-    if (field.operation === "set") {
-      return {
-        kind: "data_source_set",
-        page_id: field.pageId,
-        data_source_id: field.dataSourceId,
-        property_id: field.propertyId,
-        expected_revision: field.expectedRevision,
-        value: field.value,
-      };
-    }
-    return {
-      kind: "data_source_add_remove",
-      page_id: field.pageId,
-      data_source_id: field.dataSourceId,
-      property_id: field.propertyId,
-      add: [...field.add],
-      remove: [...field.remove],
-    };
-  }),
+  fields: fields.map((field) => ({
+    kind: "intrinsic_set" as const,
+    block_id: field.blockId,
+    property_key: field.propertyKey,
+    expected_revision: field.expectedRevision,
+    value: field.value,
+  })),
 });
 
 const fromCoreBlockPropertyField = (
   field: Extract<CoreBlockPropertyOutcome, { status: "committed" }>["fields"][number],
 ): BlockPropertyMutationFieldResultV2 => {
-  if (field.scope === "intrinsic") {
-    return {
-      path: field.path,
-      scope: "intrinsic",
-      blockId: field.block_id,
-      propertyKey: field.property_key,
-      operation: "set",
-      revision: field.revision,
-      value: field.value as BlockPropertyMutationFieldResultV2["value"],
-    };
+  if (field.scope !== "intrinsic") {
+    throw new Error("Core returned retired Data Source Property mutation evidence");
   }
   return {
     path: field.path,
-    scope: "data_source",
+    scope: "intrinsic",
     blockId: field.block_id,
-    dataSourceId: parseDataSourceId(field.data_source_id),
-    propertyId: parseDataSourcePropertyId(field.property_id),
-    operation: field.operation === "add_remove" ? "add_remove" : "set",
+    propertyKey: field.property_key,
+    operation: "set",
     revision: field.revision,
-    value: field.value as Extract<
-      BlockPropertyMutationFieldResultV2,
-      { readonly scope: "data_source" }
-    >["value"],
+    value: field.value as BlockPropertyMutationFieldResultV2["value"],
   };
 };
 

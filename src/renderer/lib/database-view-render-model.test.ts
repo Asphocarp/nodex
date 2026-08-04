@@ -11,6 +11,7 @@ import {
   parseDataSourceId,
   parseDataSourcePropertyId,
 } from "../../shared/database-identities";
+import { testPropertySemantics } from "../../shared/testing/database-property-record";
 import { buildDatabaseViewRenderModel } from "./database-view-render-model";
 
 const timestamp = "2026-07-12T00:00:00.000Z";
@@ -84,6 +85,7 @@ const makeSnapshot = (input: {
       propertyId: statusPropertyId,
       dataSourceId,
       name: "Status",
+      ...testPropertySemantics("select"),
       valueType: "select" as const,
       config: {},
       rankKey: "a",
@@ -96,6 +98,7 @@ const makeSnapshot = (input: {
       propertyId: tagsPropertyId,
       dataSourceId,
       name: "Tags",
+      ...testPropertySemantics("multi_select"),
       valueType: "multi_select" as const,
       config: {},
       rankKey: "b",

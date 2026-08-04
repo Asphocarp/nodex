@@ -1,23 +1,19 @@
 import { CalendarIcon, DatabaseIcon, PlusIcon } from "@/components/shared/icons";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   ArrowDown,
   ArrowUp,
-  CheckSquare2,
   Columns3,
-  Hash,
   List,
   SlidersHorizontal,
-  Tags,
-  TextCursorInput,
   Trash2,
-  UserRound,
 } from "@/components/shared/icons/generic-icons";
-import type {
-  DatabasePropertyOption,
-  DatabasePropertyValueType,
-  DatabaseViewConfigV2,
-  DatabaseViewKind,
+import {
+  databaseViewReferencedPropertyIds,
+  type DatabasePropertyOption,
+  type DatabasePropertyValueType,
+  type DatabaseViewConfigV2,
+  type DatabaseViewKind,
 } from "../../../shared/database-kernel";
 import type {
   DatabaseContainerDescriptorV2,
@@ -39,11 +35,16 @@ import {
 } from "@/lib/database-view-authoring";
 import { cn } from "@/lib/utils";
 import { DatabaseViewConfigEditor } from "./database-view-config-editor";
+import {
+  DATA_SOURCE_PROPERTY_TYPE_LABELS,
+  dataSourcePropertyTypeIcon,
+} from "../database/data-source-property-presentation";
 
 export interface CreateDatabasePropertyDraft {
   readonly dataSourceId: string;
   readonly name: string;
   readonly valueType: DatabasePropertyValueType;
+  readonly targetDataSourceId?: string;
 }
 
 export interface CreateDatabaseViewDraft {
@@ -106,14 +107,10 @@ const PROPERTY_TYPES: readonly {
   readonly value: DatabasePropertyValueType;
   readonly label: string;
 }[] = [
-  { value: "text", label: "Text" },
-  { value: "number", label: "Number" },
-  { value: "checkbox", label: "Checkbox" },
-  { value: "select", label: "Select" },
-  { value: "multi_select", label: "Multi-select" },
-  { value: "date", label: "Date" },
-  { value: "datetime", label: "Date & time" },
-  { value: "person", label: "Person" },
+  ...Object.entries(DATA_SOURCE_PROPERTY_TYPE_LABELS).map(([value, label]) => ({
+    value: value as DatabasePropertyValueType,
+    label,
+  })),
 ];
 
 const VIEW_KINDS: readonly {
@@ -124,25 +121,6 @@ const VIEW_KINDS: readonly {
   { value: "kanban", label: "Board" },
   { value: "calendar", label: "Calendar" },
 ];
-
-const propertyTypeIcon = (valueType: DatabasePropertyValueType) => {
-  switch (valueType) {
-    case "number":
-      return Hash;
-    case "checkbox":
-      return CheckSquare2;
-    case "select":
-    case "multi_select":
-      return Tags;
-    case "date":
-    case "datetime":
-      return CalendarIcon;
-    case "person":
-      return UserRound;
-    case "text":
-      return TextCursorInput;
-  }
-};
 
 const viewKindIcon = (kind: DatabaseViewKind) => {
   switch (kind) {
@@ -205,6 +183,8 @@ export function DatabaseManagementSurface({
   const [propertyName, setPropertyName] = useState("");
   const [propertyType, setPropertyType] =
     useState<DatabasePropertyValueType>("text");
+  const [relationTargetDataSourceId, setRelationTargetDataSourceId] =
+    useState<string>("");
   const [viewName, setViewName] = useState("");
   const [viewKind, setViewKind] = useState<DatabaseViewKind>("list");
   const [viewDrafts, setViewDrafts] = useState<Readonly<Record<
@@ -221,6 +201,9 @@ export function DatabaseManagementSurface({
     string,
     string
   >>>({});
+  const [pendingDeletePropertyId, setPendingDeletePropertyId] = useState<
+    string | null
+  >(null);
 
   useEffect(() => {
     if (!descriptor) return;
@@ -228,14 +211,25 @@ export function DatabaseManagementSurface({
     onSelectDatabase(descriptor.database.databaseId);
   }, [descriptor, onSelectDatabase, selectedDatabaseId]);
 
-  const activeProperties = source?.properties.filter(
-    (property) => property.lifecycle === "active",
-  ) ?? [];
+  const activeProperties = useMemo(
+    () => source?.properties.filter(
+      (property) => property.lifecycle === "active",
+    ) ?? [],
+    [source?.properties],
+  );
   const activeViews = descriptor?.views.filter(
     (view) =>
       view.lifecycle === "active"
       && view.dataSourceId === source?.dataSource.dataSourceId,
   ) ?? [];
+
+  useEffect(() => {
+    if (!pendingDeletePropertyId) return;
+    if (activeProperties.some(
+      (property) => property.propertyId === pendingDeletePropertyId,
+    )) return;
+    setPendingDeletePropertyId(null);
+  }, [activeProperties, pendingDeletePropertyId]);
 
   return (
     <div className="grid min-h-0 flex-1 grid-cols-[220px_minmax(0,1fr)] max-sm:grid-cols-1">
@@ -314,8 +308,14 @@ export function DatabaseManagementSurface({
               </h3>
               <div className="divide-y-[0.5px] divide-token-border border-y-[0.5px] border-token-border">
                 {activeProperties.map((property) => {
-                  const Icon = propertyTypeIcon(property.valueType);
+                  const Icon = dataSourcePropertyTypeIcon(property.valueType);
                   const options = readDatabasePropertyOptions(property);
+                  const deletePending = pendingDeletePropertyId
+                    === property.propertyId;
+                  const blockingViews = activeViews.filter((view) =>
+                    databaseViewReferencedPropertyIds(view.config).includes(
+                      property.propertyId,
+                    ));
                   return (
                     <div key={property.propertyId} className="group py-2.5">
                       <div className="flex min-h-7 items-center gap-2">
@@ -335,12 +335,51 @@ export function DatabaseManagementSurface({
                           ariaLabel={`Delete property ${property.name}`}
                           disabled={busy}
                           className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-                          onClick={() => void onDeleteProperty(
-                            source.dataSource.dataSourceId,
-                            property.propertyId,
+                          onClick={() => setPendingDeletePropertyId(
+                            deletePending ? null : property.propertyId,
                           )}
                         />
                       </div>
+                      {deletePending ? (
+                        <div
+                          role={blockingViews.length > 0 ? "alert" : "group"}
+                          aria-label={`Confirm deletion of property ${property.name}`}
+                          className="ml-5 mt-1.5 flex min-h-8 items-center gap-2 border-l-2 border-token-error-foreground/35 pl-2"
+                        >
+                          <p className="min-w-0 flex-1 text-xs text-token-description-foreground">
+                            {blockingViews.length > 0
+                              ? `Used by ${blockingViews.map((view) => view.name).join(", ")}. Remove it from those Views first.`
+                              : "Delete this Property and its values from every Page?"}
+                          </p>
+                          <NodexButton
+                            type="button"
+                            size="xs"
+                            variant="ghost"
+                            disabled={busy}
+                            onClick={() => setPendingDeletePropertyId(null)}
+                          >
+                            Cancel
+                          </NodexButton>
+                          {blockingViews.length === 0 ? (
+                            <NodexButton
+                              type="button"
+                              size="xs"
+                              variant="destructive"
+                              disabled={busy}
+                              aria-label={`Confirm delete property ${property.name}`}
+                              onClick={() => {
+                                setPendingDeletePropertyId(null);
+                                void onDeleteProperty(
+                                  source.dataSource.dataSourceId,
+                                  property.propertyId,
+                                );
+                              }}
+                            >
+                              Delete
+                            </NodexButton>
+                          ) : null}
+                        </div>
+                      ) : null}
                       {property.valueType === "select"
                         || property.valueType === "multi_select" ? (
                         <div className="ml-5 mt-2 flex flex-wrap items-center gap-1.5">
@@ -409,6 +448,12 @@ export function DatabaseManagementSurface({
                         dataSourceId: source.dataSource.dataSourceId,
                         name,
                         valueType: propertyType,
+                        ...(propertyType === "relation"
+                          ? {
+                              targetDataSourceId: relationTargetDataSourceId
+                                || source.dataSource.dataSourceId,
+                            }
+                          : {}),
                       });
                       setPropertyName("");
                     },
@@ -436,6 +481,25 @@ export function DatabaseManagementSurface({
                       <option key={type.value} value={type.value}>{type.label}</option>
                     ))}
                   </select>
+                  {propertyType === "relation" ? (
+                    <select
+                      aria-label="Relation target database"
+                      value={relationTargetDataSourceId || source.dataSource.dataSourceId}
+                      disabled={busy}
+                      onChange={(event) => setRelationTargetDataSourceId(event.target.value)}
+                      className="h-8 max-w-40 rounded-md border border-transparent bg-transparent px-2 text-xs text-token-text-secondary outline-none hover:bg-token-foreground/5 focus:border-token-focus-border"
+                    >
+                      {databases.flatMap((database) =>
+                        database.dataSources
+                          .filter((dataSource) => dataSource.lifecycle === "active")
+                          .map((dataSource) => (
+                            <option key={dataSource.dataSourceId} value={dataSource.dataSourceId}>
+                              {database.database.name}
+                            </option>
+                          ))
+                      )}
+                    </select>
+                  ) : null}
                   <NodexButton
                     type="submit"
                     size="xs"
@@ -715,7 +779,7 @@ export function DatabaseManagementDialog({
   return (
     <NodexDialog open={open} onOpenChange={onOpenChange}>
       <NodexDialogContent
-        className="h-[min(680px,calc(100vh-2rem))] max-h-[calc(100vh-2rem)] w-[min(900px,calc(100vw-2rem))] max-w-none sm:max-w-none"
+        className="flex h-[min(680px,calc(100vh-2rem))] max-h-[calc(100vh-2rem)] w-[min(900px,calc(100vw-2rem))] max-w-none sm:max-w-none"
         closeButtonAriaLabel="Close Database manager"
       >
         <NodexDialogTitle className="sr-only">Manage Databases</NodexDialogTitle>

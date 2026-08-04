@@ -163,15 +163,14 @@ export const parsePageLifecyclePreflightResultV2 = (
   const canonicalTags = parsedQuery.value.value.value.properties.find(
     (property) => property.propertyId === "tags",
   );
+  stableStringifyBlockPropertyJson(tags.config);
   if (
     !canonicalTags ||
     tags.propertyId !== canonicalTags.propertyId ||
     tags.dataSourceId !== canonicalTags.dataSourceId ||
     tags.valueType !== "multi_select" ||
     tags.lifecycle !== "active" ||
-    tags.revision !== canonicalTags.revision ||
-    stableStringifyBlockPropertyJson(tags.config) !==
-      stableStringifyBlockPropertyJson(canonicalTags.config)
+    tags.revision !== canonicalTags.revision
   ) {
     throw new TypeError(
       "Page lifecycle v2 tags Property diverges from the default View query",

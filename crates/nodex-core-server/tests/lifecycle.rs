@@ -569,7 +569,7 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
             "expected_data_source_revision": 1,
             "expected_property_revision": 0,
             "name": "Risk",
-            "value_type": "select",
+            "schema": { "kind": "select" },
             "before_property_id": null
         }]
     })

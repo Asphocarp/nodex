@@ -57,6 +57,20 @@ const meta = {
     standalone: {
       control: "boolean",
     },
+    schemaVariant: {
+      control: "inline-radio",
+      options: [
+        "default",
+        "sparse-custom",
+        "missing-due-date",
+        "missing-assignee",
+        "missing-status",
+        "status-only-primary",
+        "single-schedule-boundary",
+        "empty-values",
+        "corrupt-property",
+      ],
+    },
     descriptionVariant: {
       control: "inline-radio",
       options: ["default", "heading-rail", "few-headings"],
@@ -116,6 +130,80 @@ export const NestedPageWithoutProperties: Story = {
         story: "A nested standalone Page omits the Properties section when no property rows are available.",
       },
     },
+  },
+};
+
+export const SparseCustomProperties: Story = {
+  args: {
+    ...resolvePageStageStoryPreset("overview").controls,
+    schemaVariant: "sparse-custom",
+    threadDensity: "none",
+    previewMode: "none",
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "Page Detail remains editable after optional built-in Properties are removed and renders custom number, checkbox, and text Properties from the active Source schema.",
+      },
+    },
+  },
+};
+
+export const MissingDueDate: Story = {
+  args: {
+    ...resolvePageStageStoryPreset("overview").controls,
+    schemaVariant: "missing-due-date",
+  },
+};
+
+export const MissingAssignee: Story = {
+  args: {
+    ...resolvePageStageStoryPreset("overview").controls,
+    schemaVariant: "missing-assignee",
+  },
+};
+
+export const MissingStatus: Story = {
+  args: {
+    ...resolvePageStageStoryPreset("overview").controls,
+    schemaVariant: "missing-status",
+  },
+};
+
+export const StatusOnlyPrimary: Story = {
+  args: {
+    ...resolvePageStageStoryPreset("overview").controls,
+    schemaVariant: "status-only-primary",
+  },
+};
+
+export const SingleScheduleBoundary: Story = {
+  args: {
+    ...resolvePageStageStoryPreset("overview").controls,
+    schemaVariant: "single-schedule-boundary",
+  },
+};
+
+export const EmptyPropertyValues: Story = {
+  args: {
+    ...resolvePageStageStoryPreset("overview").controls,
+    schemaVariant: "empty-values",
+    threadDensity: "none",
+    previewMode: "none",
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "Unset Page Properties share one secondary Empty presentation and one value-column alignment while populated Status keeps its focused presenter.",
+      },
+    },
+  },
+};
+
+export const CorruptPropertyIsolated: Story = {
+  args: {
+    ...resolvePageStageStoryPreset("overview").controls,
+    schemaVariant: "corrupt-property",
   },
 };
 

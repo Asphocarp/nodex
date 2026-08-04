@@ -4,8 +4,9 @@ use std::path::Path;
 
 use nodex_core_contracts::collection::{CollectionWindowRequest, MAX_COLLECTION_WINDOW_ITEMS};
 use nodex_core_contracts::database::{
-    DatabaseGroupScope, DatabaseRead, DatabaseReadMode, DatabaseReadValue, DatabaseTarget,
-    DatabaseViewContext, DatabaseViewContextRow,
+    DatabaseGroupScope, DatabasePropertyDescriptor, DatabasePropertySchema, DatabaseRead,
+    DatabaseReadMode, DatabaseReadValue, DatabaseTarget, DatabaseViewContext,
+    DatabaseViewContextRow,
 };
 use nodex_core_contracts::workspace::ProjectWorkspaceProject;
 use nodex_core_protocol::client::CoreClient;
@@ -59,7 +60,8 @@ pub(crate) fn query(
     let DatabaseReadValue::ViewContext { value } = snapshot.value else {
         return Err(internal("Core returned the wrong saved View context"));
     };
-    let output = project_context(value)?;
+    let labels = read_group_labels(client, &project.id, &value)?;
+    let output = project_context(value, labels)?;
     if json_output {
         return serde_json::to_value(output)
             .map(CommandOutput::Json)
@@ -215,7 +217,7 @@ struct ViewQueryOutput {
     database: NamedIdentity,
     data_source: NamedIdentity,
     view: ViewIdentity,
-    properties: Vec<Value>,
+    properties: Vec<DatabasePropertyDescriptor>,
     grouped: bool,
     total_rows: i64,
     groups_truncated: bool,
@@ -284,7 +286,75 @@ struct ViewPageInfo {
     projection_revision: i64,
 }
 
-fn project_context(context: DatabaseViewContext) -> Result<ViewQueryOutput, CliError> {
+fn read_group_labels(
+    client: &CoreClient,
+    project_id: &str,
+    context: &DatabaseViewContext,
+) -> Result<BTreeMap<String, String>, CliError> {
+    let Some(property_id) = context
+        .view
+        .pointer("/config/group/propertyId")
+        .and_then(Value::as_str)
+    else {
+        return Ok(BTreeMap::new());
+    };
+    let Some(property) = context
+        .properties
+        .iter()
+        .find(|property| property.property_id == property_id)
+    else {
+        return Err(internal("Core View grouping Property is missing"));
+    };
+    if !matches!(
+        property.schema,
+        DatabasePropertySchema::Select | DatabasePropertySchema::MultiSelect
+    ) {
+        return Ok(BTreeMap::new());
+    }
+    let mut labels = BTreeMap::new();
+    let mut after = None;
+    loop {
+        let snapshot = unwrap_database(client.database_read(
+            Some(project_id),
+            DatabaseRead {
+                target: DatabaseTarget::Property {
+                    data_source_id: property.data_source_id.clone(),
+                    property_id: property.property_id.clone(),
+                },
+                mode: DatabaseReadMode::OptionWindow,
+                filter: None,
+                sort: None,
+                window: Some(CollectionWindowRequest {
+                    after,
+                    first: Some(MAX_COLLECTION_WINDOW_ITEMS),
+                }),
+                page_ids: None,
+                group_scope: None,
+            },
+        ))?;
+        let DatabaseReadValue::OptionWindow { options } = snapshot.value else {
+            return Err(internal("Core returned the wrong Property option window"));
+        };
+        for option in options.items {
+            let Some(id) = option.get("id").and_then(Value::as_str) else {
+                return Err(internal("Core Property option omitted id"));
+            };
+            let Some(name) = option.get("name").and_then(Value::as_str) else {
+                return Err(internal("Core Property option omitted name"));
+            };
+            labels.insert(id.to_owned(), name.to_owned());
+        }
+        let Some(cursor) = options.next_cursor else {
+            return Ok(labels);
+        };
+        after = Some(cursor);
+    }
+}
+
+fn project_context(
+    context: DatabaseViewContext,
+    labels: BTreeMap<String, String>,
+) -> Result<ViewQueryOutput, CliError> {
     let database = NamedIdentity {
         id: required_string(&context.database, "/databaseId")?,
         name: required_string(&context.database, "/name")?,
@@ -298,7 +368,6 @@ fn project_context(context: DatabaseViewContext) -> Result<ViewQueryOutput, CliE
         .pointer("/config/group/propertyId")
         .and_then(Value::as_str)
         .map(str::to_owned);
-    let labels = group_labels(&context.properties, grouping_property_id.as_deref());
     let groups = context
         .groups
         .groups
@@ -372,29 +441,6 @@ fn project_row(row: DatabaseViewContextRow) -> ViewRowOutput {
     }
 }
 
-fn group_labels(
-    properties: &[Value],
-    grouping_property_id: Option<&str>,
-) -> BTreeMap<String, String> {
-    let Some(property_id) = grouping_property_id else {
-        return BTreeMap::new();
-    };
-    properties
-        .iter()
-        .find(|property| property.get("propertyId").and_then(Value::as_str) == Some(property_id))
-        .and_then(|property| property.pointer("/config/options"))
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|option| {
-            Some((
-                option.get("id")?.as_str()?.to_owned(),
-                option.get("name")?.as_str()?.to_owned(),
-            ))
-        })
-        .collect()
-}
-
 fn render_human(output: &ViewQueryOutput) -> String {
     let mut rendered = format!(
         "{} (@{}) · {} row{}\n",
@@ -421,7 +467,8 @@ fn internal(error: impl std::fmt::Display) -> CliError {
 mod tests {
     use nodex_core_contracts::collection::{CollectionWindow, CollectionWindowAuthority};
     use nodex_core_contracts::database::{
-        DatabaseRowSummary, DatabaseViewGroupSummary, DatabaseViewGroups,
+        DatabasePropertyCapabilities, DatabasePropertyFilterOperator, DatabaseRowSummary,
+        DatabaseViewGroupSummary, DatabaseViewGroups,
     };
     use serde_json::json;
 
@@ -458,11 +505,30 @@ mod tests {
                     "display": { "propertyIds": ["status"], "showTitle": true }
                 }
             }),
-            properties: vec![json!({
-                "propertyId": "status",
-                "name": "Status",
-                "config": { "options": [{ "id": "triage", "name": "Triage" }] }
-            })],
+            properties: vec![DatabasePropertyDescriptor {
+                property_id: "status".to_owned(),
+                data_source_id: "source-1".to_owned(),
+                name: "Status".to_owned(),
+                schema: DatabasePropertySchema::Select,
+                capabilities: DatabasePropertyCapabilities {
+                    replace: true,
+                    patch_set_member: None,
+                    filter_operators: vec![
+                        DatabasePropertyFilterOperator::Equals,
+                        DatabasePropertyFilterOperator::NotEquals,
+                        DatabasePropertyFilterOperator::IsEmpty,
+                        DatabasePropertyFilterOperator::IsNotEmpty,
+                    ],
+                    sortable: true,
+                    groupable: true,
+                },
+                option_count: 1,
+                rank_key: "a".to_owned(),
+                lifecycle: "active".to_owned(),
+                revision: 1,
+                created_at: "2026-08-04T00:00:00.000Z".to_owned(),
+                updated_at: "2026-08-04T00:00:00.000Z".to_owned(),
+            }],
             groups: DatabaseViewGroups {
                 database_id: "database-1".to_owned(),
                 data_source_id: "source-1".to_owned(),
@@ -487,7 +553,11 @@ mod tests {
             },
         };
 
-        let output = project_context(context).expect("project View context");
+        let output = project_context(
+            context,
+            BTreeMap::from([("triage".to_owned(), "Triage".to_owned())]),
+        )
+        .expect("project View context");
         assert_eq!(output.groups[0].key.as_deref(), Some("triage"));
         assert_eq!(output.groups[0].label, "Triage");
         assert_eq!(output.rows[0].etags.r#move, "nxe1.move");

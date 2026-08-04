@@ -17,6 +17,7 @@ import type {
   DatabasePageSummary,
 } from "./types";
 import { CoreApiError } from "./api";
+import { testPropertySemantics } from "../../shared/testing/database-property-record";
 import {
   createKanbanStoreRegistry,
   type KanbanStoreDependencies,
@@ -103,6 +104,7 @@ function createDatabaseViewSnapshot(
     propertyId: statusPropertyId,
     dataSourceId,
     name: "Status",
+    ...testPropertySemantics("select"),
     valueType: "select" as const,
     config: {},
     rankKey: "a",

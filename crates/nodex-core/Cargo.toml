@@ -23,6 +23,7 @@ sha2.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 unicode-segmentation.workspace = true
+unicode-normalization.workspace = true
 yrs.workspace = true
 
 [dev-dependencies]

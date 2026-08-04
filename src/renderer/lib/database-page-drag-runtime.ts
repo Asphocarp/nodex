@@ -49,7 +49,6 @@ export const databaseViewRenderModelToDragSnapshot = (
 
 const commitCompiledDrag = async (input: {
   readonly projectId: string;
-  readonly clientSessionId?: string;
   readonly operationId: string;
   readonly compile: (
     snapshot: DatabaseModuleReadSnapshotV2,
@@ -62,12 +61,7 @@ const commitCompiledDrag = async (input: {
     operationId: input.operationId,
     projectId: input.projectId,
     storeEpoch: input.snapshot.storeEpoch,
-    actor: {
-      kind: "renderer_page_drag",
-      ...(input.clientSessionId
-        ? { clientSessionId: input.clientSessionId }
-        : {}),
-    },
+    actor: { kind: "renderer_page_drag" },
     operations: input.compile(input.snapshot),
   };
 
@@ -88,7 +82,6 @@ const commitCompiledDrag = async (input: {
 
 export const commitDatabasePageDrag = async (input: {
   readonly projectId: string;
-  readonly clientSessionId?: string;
   readonly operationId: string;
   readonly move: MovePageInput;
   readonly snapshot: DatabaseModuleReadSnapshotV2;
@@ -96,9 +89,6 @@ export const commitDatabasePageDrag = async (input: {
 }): Promise<boolean> =>
   await commitCompiledDrag({
     projectId: input.projectId,
-    ...(input.clientSessionId
-      ? { clientSessionId: input.clientSessionId }
-      : {}),
     operationId: input.operationId,
     snapshot: input.snapshot,
     compile: (snapshot) =>
@@ -108,7 +98,6 @@ export const commitDatabasePageDrag = async (input: {
 
 export const commitDatabasePagesDrag = async (input: {
   readonly projectId: string;
-  readonly clientSessionId?: string;
   readonly operationId: string;
   readonly move: MovePagesInput;
   readonly snapshot: DatabaseModuleReadSnapshotV2;
@@ -116,9 +105,6 @@ export const commitDatabasePagesDrag = async (input: {
 }): Promise<boolean> =>
   await commitCompiledDrag({
     projectId: input.projectId,
-    ...(input.clientSessionId
-      ? { clientSessionId: input.clientSessionId }
-      : {}),
     operationId: input.operationId,
     snapshot: input.snapshot,
     compile: (snapshot) =>

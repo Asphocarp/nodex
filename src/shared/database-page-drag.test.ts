@@ -51,8 +51,17 @@ const querySnapshot = (input: {
       propertyId: parseDataSourcePropertyId("status"),
       dataSourceId: dataSource.dataSourceId,
       name: "Status",
+      schema: { kind: "select" as const },
+      capabilities: {
+        replace: true,
+        patchSetMember: null,
+        filterOperators: ["equals", "not_equals", "is_empty", "is_not_empty"] as const,
+        sortable: true,
+        groupable: true,
+      },
       valueType: "select" as const,
       config: {},
+      optionCount: 0,
       rankKey: "a",
       lifecycle: "active" as const,
       revision: 1,
@@ -63,8 +72,17 @@ const querySnapshot = (input: {
       propertyId: parseDataSourcePropertyId("priority"),
       dataSourceId: dataSource.dataSourceId,
       name: "Priority",
+      schema: { kind: "select" as const },
+      capabilities: {
+        replace: true,
+        patchSetMember: null,
+        filterOperators: ["equals", "not_equals", "is_empty", "is_not_empty"] as const,
+        sortable: true,
+        groupable: true,
+      },
       valueType: "select" as const,
       config: {},
+      optionCount: 0,
       rankKey: "b",
       lifecycle: "active" as const,
       revision: 1,
@@ -211,12 +229,12 @@ describe("Database Page drag compiler", () => {
     });
 
     expect(compiled.operations.map((operation) => operation.kind)).toEqual([
-      "set_values",
+      "edit_property_values",
       "position_page",
     ]);
     const values = compiled.operations[0];
-    if (values?.kind !== "set_values") throw new Error("Missing value run");
-    expect(values.values.map((value) => ({
+    if (values?.kind !== "edit_property_values") throw new Error("Missing value run");
+    expect(values.edits.map((value) => ({
       pageId: value.pageId,
       dataSourceId: value.dataSourceId,
       propertyId: value.propertyId,

@@ -133,6 +133,7 @@ pub(super) fn read(
                     store_epoch,
                     event_head,
                     &page_id,
+                    requesting_project_id,
                 )?),
             })
         }
@@ -213,8 +214,14 @@ pub(super) fn read(
                 },
                 AgentProjectResourceAction::Read,
             )?;
-            let value =
-                agent_block_target(connection, library_id, store_epoch, event_head, &block_id)?;
+            let value = agent_block_target(
+                connection,
+                library_id,
+                store_epoch,
+                event_head,
+                &block_id,
+                requesting_project_id,
+            )?;
             Ok(LibraryReadValue::AgentBlockTarget { value })
         }
         LibraryRead::AgentSearch {
@@ -493,6 +500,7 @@ fn agent_block_target(
     store_epoch: &str,
     event_head: i64,
     block_id: &str,
+    requesting_project_id: Option<&str>,
 ) -> Result<Option<LibraryAgentBlockTarget>, StoreError> {
     validate_identity(block_id, "Agent Block target")?;
     let row = connection
@@ -546,6 +554,7 @@ fn agent_block_target(
         store_epoch,
         event_head,
         &owner_page_id,
+        requesting_project_id,
     )?;
     Ok(Some(LibraryAgentBlockTarget {
         block_id,
@@ -881,6 +890,7 @@ fn page_detail(
     store_epoch: &str,
     event_head: i64,
     page_id: &str,
+    requesting_project_id: Option<&str>,
 ) -> Result<LibraryPageDetail, StoreError> {
     if page_id.is_empty() || page_id.len() > 512 || page_id.trim() != page_id {
         return Err(invalid("Page detail requires a canonical bounded identity"));
@@ -946,8 +956,13 @@ fn page_detail(
     let data_source_context = match document.1.as_str() {
         "library" | "page" => LibraryPageDataSourceContext::Standalone,
         "data_source" => {
-            let projection =
-                page_data_source_projection(connection, library_id, page_id, &document.2)?;
+            let projection = page_data_source_projection(
+                connection,
+                library_id,
+                page_id,
+                &document.2,
+                requesting_project_id,
+            )?;
             LibraryPageDataSourceContext::Member {
                 membership: LibraryPageMembership {
                     membership_id: projection.membership_id,
@@ -964,7 +979,7 @@ fn page_detail(
         _ => return Err(corrupt("Library Page has an invalid parent kind")),
     };
     Ok(LibraryPageDetail {
-        version: 2,
+        version: 3,
         library_id: library_id.to_owned(),
         store_epoch: store_epoch.to_owned(),
         change_log_seq: event_head,

@@ -17,6 +17,8 @@ import {
 import { createUuidV7 } from "../../../shared/uuid-v7";
 import {
   commitDatabaseManagementOperations,
+  DatabaseManagementMutationError,
+  DatabaseManagementReadError,
   readDatabaseManagementAuthority,
   type DatabaseManagementAuthority,
 } from "@/lib/database-management-runtime";
@@ -25,7 +27,10 @@ import {
   emptyDatabaseViewConfig,
   readDatabasePropertyOptions,
 } from "@/lib/database-view-authoring";
-import { useMutationAuditSessionId } from "@/lib/mutation-audit-session";
+import {
+  readPropertyOptionRegistry,
+  withPropertyOptions,
+} from "@/lib/database-property-options-runtime";
 import {
   DatabaseManagementDialog,
   type CreateDatabasePropertyDraft,
@@ -41,8 +46,18 @@ interface DatabaseManagementDialogControllerProps {
   readonly onOpenChange: (open: boolean) => void;
 }
 
-const messageForError = (error: unknown): string =>
-  error instanceof Error ? error.message : "Database management failed";
+export const databaseManagementErrorMessage = (error: unknown): string => {
+  if (
+    error instanceof DatabaseManagementMutationError
+    && error.commandError.code === "revision_conflict"
+  ) {
+    return "Database settings changed elsewhere. Review and try again.";
+  }
+  if (error instanceof DatabaseManagementReadError) {
+    return "Couldn’t load database settings. Try again.";
+  }
+  return "Couldn’t save database settings. Try again.";
+};
 
 export function DatabaseManagementDialogController({
   projectId,
@@ -50,7 +65,6 @@ export function DatabaseManagementDialogController({
   open,
   onOpenChange,
 }: DatabaseManagementDialogControllerProps) {
-  const clientSessionId = useMutationAuditSessionId();
   const projectionRegistry = useProjectionInvalidationRegistry();
   const [authority, setAuthority] =
     useState<DatabaseManagementAuthority | null>(null);
@@ -62,6 +76,31 @@ export function DatabaseManagementDialogController({
   const authorityRef = useRef<DatabaseManagementAuthority | null>(null);
   const selectedDatabaseIdRef = useRef(selectedDatabaseId);
   selectedDatabaseIdRef.current = selectedDatabaseId;
+
+  const hydratePropertyOptions = useCallback(async (
+    next: DatabaseManagementAuthority,
+  ): Promise<DatabaseManagementAuthority> => {
+    const optionProperties = next.source.properties.filter((property) =>
+      property.lifecycle === "active"
+      && (property.valueType === "select" || property.valueType === "multi_select")
+      && property.optionCount !== undefined
+      && readDatabasePropertyOptions(property).length < property.optionCount);
+    if (optionProperties.length === 0) return next;
+    const registries = new Map(await Promise.all(optionProperties.map(async (property) => [
+      property.propertyId,
+      await readPropertyOptionRegistry({ kind: "project", projectId }, property),
+    ] as const)));
+    return {
+      ...next,
+      source: {
+        ...next.source,
+        properties: next.source.properties.map((property) => {
+          const options = registries.get(property.propertyId);
+          return options ? withPropertyOptions(property, options) : property;
+        }),
+      },
+    };
+  }, [projectId]);
 
   const applyAuthority = useCallback((next: DatabaseManagementAuthority) => {
     const nextDatabaseId = next.selectedDatabase.database.databaseId;
@@ -83,13 +122,14 @@ export function DatabaseManagementDialogController({
         preferredDatabaseId ?? selectedDatabaseIdRef.current,
       );
       if (sequence !== readSequence.current) return;
-      applyAuthority(next);
+      applyAuthority(await hydratePropertyOptions(next));
       setError(null);
     } catch (nextError) {
       if (sequence !== readSequence.current) return;
-      setError(messageForError(nextError));
+      console.error("[database-management:read]", nextError);
+      setError(databaseManagementErrorMessage(nextError));
     }
-  }, [applyAuthority, projectId]);
+  }, [applyAuthority, hydratePropertyOptions, projectId]);
 
   useEffect(() => {
     if (!open) return;
@@ -151,12 +191,12 @@ export function DatabaseManagementDialogController({
         projectId,
         preferredDatabaseId: selectedDatabaseIdRef.current,
         operationId: crypto.randomUUID(),
-        clientSessionId,
         buildOperations,
       });
-      applyAuthority(next);
+      applyAuthority(await hydratePropertyOptions(next));
     } catch (nextError) {
-      setError(messageForError(nextError));
+      console.error("[database-management:mutation]", nextError);
+      setError(databaseManagementErrorMessage(nextError));
       void refresh();
     } finally {
       setBusy(false);
@@ -176,8 +216,14 @@ export function DatabaseManagementDialogController({
         expectedDataSourceRevision: current.selectedDataSource.schemaRevision,
         expectedPropertyRevision: 0,
         name: draft.name,
-        valueType: draft.valueType,
-        config: {},
+        schema: draft.valueType === "relation"
+          ? {
+              kind: "relation",
+              targetDataSourceId: parseDataSourceId(
+                draft.targetDataSourceId ?? draft.dataSourceId,
+              ),
+            }
+          : { kind: draft.valueType },
       }];
     });
   };

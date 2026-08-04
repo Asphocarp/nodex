@@ -109,11 +109,33 @@ pub fn expand_database_coordinates(
     else {
         return Ok(impact);
     };
+    let original_page_ids = page_ids.clone();
+    let mut pages = page_ids.into_iter().collect::<BTreeSet<_>>();
     let mut databases = database_ids.into_iter().collect::<BTreeSet<_>>();
     let mut data_sources = data_source_ids.into_iter().collect::<BTreeSet<_>>();
     let mut views = view_ids.into_iter().collect::<BTreeSet<_>>();
 
-    for page_id in &page_ids {
+    for target_page_id in &original_page_ids {
+        let inbound = connection
+            .prepare(
+                "SELECT DISTINCT membership.page_block_id, edge.source_data_source_id \
+                 FROM data_source_relation_edges edge \
+                 JOIN data_source_page_memberships membership \
+                   ON membership.data_source_id = edge.source_data_source_id \
+                   AND membership.id = edge.source_membership_id \
+                 WHERE edge.target_page_block_id = ?1",
+            )?
+            .query_map([target_page_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        for (source_page_id, source_data_source_id) in inbound {
+            pages.insert(source_page_id);
+            data_sources.insert(source_data_source_id);
+        }
+    }
+
+    for page_id in &pages {
         let data_source_id = connection
             .query_row(
                 "WITH RECURSIVE ancestors(page_id, parent_kind, parent_id, path) AS ( \
@@ -182,7 +204,7 @@ pub fn expand_database_coordinates(
     }
 
     canonicalize(ProjectionImpact::Resources {
-        page_ids,
+        page_ids: pages.into_iter().collect(),
         database_ids: databases.into_iter().collect(),
         data_source_ids: data_sources.into_iter().collect(),
         view_ids: views.into_iter().collect(),

@@ -336,10 +336,11 @@ export function WorkbenchDatabaseViewSurface({
         error: null,
       }));
     } catch (error) {
+      console.error("[database-view:continuation]", error);
       setContinuations((states) => new Map(states).set(scopeKey, {
         windows: states.get(scopeKey)?.windows ?? [],
         loading: false,
-        error: error instanceof Error ? error.message : "More rows could not be loaded",
+        error: "Couldn’t load more pages",
       }));
     } finally {
       inFlightScopesRef.current.delete(scopeKey);
@@ -360,6 +361,11 @@ export function WorkbenchDatabaseViewSurface({
       ? "⌘F"
       : "Ctrl+F";
 
+  useEffect(() => {
+    if (!query.error) return;
+    console.error("[database-view:read]", query.error);
+  }, [query.error]);
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-token-main-surface-primary">
       <div className="flex min-h-0 flex-1 flex-col">
@@ -369,9 +375,7 @@ export function WorkbenchDatabaseViewSurface({
             className="mx-3 mt-2 flex min-h-8 items-center gap-2 rounded-md bg-token-error-background/20 px-2.5 text-xs text-token-error-foreground"
           >
             <span className="min-w-0 flex-1 truncate">
-              {query.error instanceof Error
-                ? query.error.message
-                : "Database refresh failed"}
+              Couldn’t refresh this database
             </span>
             <button
               type="button"
@@ -389,9 +393,7 @@ export function WorkbenchDatabaseViewSurface({
         ) : query.error && !model ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-sm text-token-description-foreground">
             <span role="alert">
-              {query.error instanceof Error
-                ? query.error.message
-                : "Database is unavailable."}
+              Couldn’t open this database
             </span>
             <button
               type="button"
