@@ -5,7 +5,10 @@ import { PageStage } from "./page-stage-dev-story-deps";
 import { ReadonlyNfmBlockNotePreview } from "../editor/readonly-nfm-blocknote-preview";
 import { usePageStageCollapsedProperties } from "../../../lib/use-page-stage-collapsed-properties";
 import type { PageInput } from "../../../lib/types";
-import type { PageStagePageModel } from "../../../lib/page-stage-page";
+import {
+  projectPageDetailToStageModel,
+  type PageStagePageModel,
+} from "../../../lib/page-stage-page";
 import {
   buildPageStageStoryPage,
   buildPageStageStoryCollapsedProperties,
@@ -16,11 +19,23 @@ import {
 } from "./page-stage-dev-story-data";
 import { createPageStageStoryDocument } from "./page-stage-story-document";
 import { projectContentAccess } from "../../../../shared/content-access-context";
+import { buildPageDetailStoryResult } from "./page-stage-story-page-detail";
+import { readPageStageSemanticProperties } from "../../../lib/page-stage-properties";
 
 export interface PageStageDevStoryPageProps extends PageStageStoryControls {
   renderPreview?: boolean;
   descriptionVariant?: "default" | "heading-rail" | "few-headings";
   standalone?: boolean;
+  schemaVariant?:
+    | "default"
+    | "sparse-custom"
+    | "missing-due-date"
+    | "missing-assignee"
+    | "missing-status"
+    | "status-only-primary"
+    | "single-schedule-boundary"
+    | "empty-values"
+    | "corrupt-property";
 }
 
 const headingRailDescription = [
@@ -72,6 +87,7 @@ export function PageStageDevStoryPage({
   renderPreview = true,
   descriptionVariant = "default",
   standalone = false,
+  schemaVariant = "default",
 }: PageStageDevStoryPageProps) {
   const [extraThreadCount, setExtraThreadCount] = useState(0);
   const [historyPanelActive, setHistoryPanelActive] = useState(initialHistoryPanelActive);
@@ -91,6 +107,7 @@ export function PageStageDevStoryPage({
     runInTarget,
     showNewThreadAction,
     standalone,
+    schemaVariant,
     threadDensity,
   ]);
 
@@ -114,56 +131,65 @@ export function PageStageDevStoryPage({
     return {
       ...page,
       description,
+      ...(schemaVariant === "empty-values"
+        ? {
+            priority: undefined,
+            estimate: undefined,
+            tags: [],
+            dueDate: undefined,
+            scheduledStart: undefined,
+            scheduledEnd: undefined,
+            assignee: undefined,
+          }
+        : {}),
     };
-  }, [page, descriptionVariant]);
-  const stagePage = useMemo((): PageStagePageModel => ({
-    page: {
-      id: displayPage.id,
-      archived: displayPage.archived,
-      title: displayPage.title,
-      richTitle: displayPage.richTitle,
-      isAllDay: Boolean(displayPage.isAllDay),
-      ...(displayPage.recurrence ? { recurrence: displayPage.recurrence } : {}),
-      reminders: displayPage.reminders ?? [],
-      ...(displayPage.scheduleTimezone
-        ? { scheduleTimezone: displayPage.scheduleTimezone }
-        : {}),
-      ...(displayPage.runInTarget ? { runInTarget: displayPage.runInTarget } : {}),
-      ...(displayPage.runInLocalPath ? { runInLocalPath: displayPage.runInLocalPath } : {}),
-      ...(displayPage.runInBaseBranch ? { runInBaseBranch: displayPage.runInBaseBranch } : {}),
-      ...(displayPage.runInWorktreePath ? { runInWorktreePath: displayPage.runInWorktreePath } : {}),
-      ...(displayPage.runInEnvironmentPath
-        ? { runInEnvironmentPath: displayPage.runInEnvironmentPath }
-        : {}),
-      revision: displayPage.revision ?? 1,
-      created: displayPage.created,
-    },
-    databaseContext: standalone
-      ? { kind: "standalone" }
-      : {
-          kind: "member",
-          membership: {
-            id: "story-membership",
-            dataSourceId: "story-source",
-            databaseId: "story-database",
-            revision: 1,
-          },
-          compatibilityProperties: {
-            status: displayPage.status,
-            ...(displayPage.priority ? { priority: displayPage.priority } : {}),
-            ...(displayPage.estimate ? { estimate: displayPage.estimate } : {}),
-            tags: displayPage.tags,
-            ...(displayPage.dueDate ? { dueDate: displayPage.dueDate } : {}),
-            ...(displayPage.scheduledStart
-              ? { scheduledStart: displayPage.scheduledStart }
-              : {}),
-            ...(displayPage.scheduledEnd
-              ? { scheduledEnd: displayPage.scheduledEnd }
-              : {}),
-            ...(displayPage.assignee ? { assignee: displayPage.assignee } : {}),
-          },
-        },
-  }), [displayPage, standalone]);
+  }, [page, descriptionVariant, schemaVariant]);
+  const stagePage = useMemo((): PageStagePageModel => {
+    const result = buildPageDetailStoryResult(
+      PAGE_STAGE_STORY_PROJECT_ID,
+      displayPage,
+    );
+    if (!result.ok) throw new Error(result.error.message);
+    const projected = projectPageDetailToStageModel(result.value);
+    if (standalone) {
+      return { ...projected, databaseContext: { kind: "standalone" } };
+    }
+    if (
+      schemaVariant === "default"
+      || schemaVariant === "empty-values"
+      || projected.databaseContext.kind !== "member"
+    ) {
+      return projected;
+    }
+    const omittedByVariant: Readonly<Record<Exclude<
+      NonNullable<PageStageDevStoryPageProps["schemaVariant"]>,
+      "default" | "empty-values" | "corrupt-property"
+    >, readonly string[]>> = {
+      "sparse-custom": ["priority", "tags", "due_date", "assignee"],
+      "missing-due-date": ["due_date"],
+      "missing-assignee": ["assignee"],
+      "missing-status": ["status"],
+      "status-only-primary": ["priority", "estimate", "due_date"],
+      "single-schedule-boundary": ["scheduled_end"],
+    };
+    const omitted = new Set(
+      schemaVariant === "corrupt-property" ? [] : omittedByVariant[schemaVariant],
+    );
+    const properties = projected.databaseContext.properties
+      .filter((item) => !omitted.has(item.property.propertyId))
+      .map((item) => schemaVariant === "corrupt-property"
+          && item.property.propertyId === "due_date"
+        ? { ...item, value: "not-a-date", error: "Expected an ISO date" }
+        : item);
+    return {
+      ...projected,
+      databaseContext: {
+        ...projected.databaseContext,
+        properties,
+        semanticProperties: readPageStageSemanticProperties(properties),
+      },
+    };
+  }, [displayPage, schemaVariant, standalone]);
   const storyDocument = useMemo(
     () => createPageStageStoryDocument({
       projectId: PAGE_STAGE_STORY_PROJECT_ID,
@@ -253,8 +279,11 @@ export function PageStageDevStoryPage({
               documentScopeId={PAGE_STAGE_STORY_PROJECT_ID}
               documentAuthority={storyDocument.authority}
               projectWorkspacePath={PAGE_STAGE_STORY_WORKSPACE_PATH}
-              availableTags={["ui", "threads", "page-stage", "spacing", "review"]}
               onUpdate={handleUpdate}
+              onUpdateProperty={async () => ({
+                status: "updated",
+                didMutate: true,
+              })}
               {...(stagePage.databaseContext.kind === "member"
                 ? {
                     onDelete: async () => {

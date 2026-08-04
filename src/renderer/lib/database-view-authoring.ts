@@ -143,6 +143,10 @@ export const removeDatabaseViewFilterNode = (
 export const filterOperatorsForProperty = (
   property: DatabaseAuthoringProperty,
 ): readonly DatabaseViewFilterOperator[] => {
+  if (property.capabilities) return property.capabilities.filterOperators;
+  if (property.valueType === "relation") {
+    return ["contains", "not_contains", "is_empty", "is_not_empty"];
+  }
   const common = ["equals", "not_equals", "is_empty", "is_not_empty"] as const;
   if (
     property.valueType === "text" ||
@@ -183,12 +187,10 @@ export const defaultDatabaseFilterValue = (
 
 export const createDatabaseViewFilterClause = (
   property: DatabaseAuthoringProperty,
-): DatabaseViewFilterClause => ({
-  kind: "clause",
-  propertyId: authoringPropertyId(property),
-  operator: "equals",
-  value: defaultDatabaseFilterValue(property, "equals"),
-});
+): DatabaseViewFilterClause => databaseFilterClauseWithOperator(
+  property,
+  filterOperatorsForProperty(property)[0] ?? "is_empty",
+);
 
 export const databaseFilterClauseWithOperator = (
   property: DatabaseAuthoringProperty,

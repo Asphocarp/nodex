@@ -740,21 +740,18 @@ pub(crate) fn clone_page_for_occurrence(
             ))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    let mut required = BTreeSet::new();
+    let mut required_schedule = BTreeSet::new();
     for (property_id, value_type, value_json) in database_values {
         let next_value = match property_id.as_str() {
-            "status" => {
-                required.insert("status");
-                serde_json::to_string(input.status)
-                    .map_err(|_| internal("Occurrence status JSON"))?
-            }
+            "status" => serde_json::to_string(input.status)
+                .map_err(|_| internal("Occurrence status JSON"))?,
             "scheduled_start" => {
-                required.insert("scheduled_start");
+                required_schedule.insert("scheduled_start");
                 serde_json::to_string(input.scheduled_start)
                     .map_err(|_| internal("Occurrence start JSON"))?
             }
             "scheduled_end" => {
-                required.insert("scheduled_end");
+                required_schedule.insert("scheduled_end");
                 serde_json::to_string(input.scheduled_end)
                     .map_err(|_| internal("Occurrence end JSON"))?
             }
@@ -774,7 +771,18 @@ pub(crate) fn clone_page_for_occurrence(
             ],
         )?;
     }
-    if required.len() != 3 {
+    connection.execute(
+        "INSERT INTO data_source_relation_edges(\
+           source_data_source_id, source_membership_id, property_id, \
+           target_page_block_id, created_at\
+         ) \
+         SELECT edge.source_data_source_id, ?1, edge.property_id, \
+           edge.target_page_block_id, ?2 \
+         FROM data_source_relation_edges edge \
+         WHERE edge.source_data_source_id = ?3 AND edge.source_membership_id = ?4",
+        params![membership_id, input.now, source.8, source.7],
+    )?;
+    if required_schedule.len() != 2 {
         return Err(corrupt(
             "Occurrence source Page is missing required schedule properties",
         ));
@@ -3573,6 +3581,57 @@ mod tests {
             .expect_err("reject stale Data Source copy");
         assert_eq!(stale.code, CoreErrorCode::RevisionConflict);
 
+        let relation_target_page_id = result.page_id.clone();
+        let seeded_relation_target_page_id = relation_target_page_id.clone();
+        kernel
+            .writer()
+            .call(move |connection| {
+                let data_source_id = "018f0000-0000-7000-8000-000000000102";
+                let property_id = "blocked_by";
+                connection.execute(
+                    "INSERT INTO data_source_properties(\
+                       data_source_id, id, name, value_type, config_json, rank_key, lifecycle, \
+                       schema_revision, created_at, updated_at\
+                     ) VALUES (?1, ?2, 'Blocked by', 'relation', '{}', \
+                       'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz', 'active', 1, ?3, ?3)",
+                    params![data_source_id, property_id, NOW],
+                )?;
+                connection.execute(
+                    "INSERT INTO data_source_relation_properties(\
+                       data_source_id, property_id, target_data_source_id\
+                     ) VALUES (?1, ?2, ?1)",
+                    params![data_source_id, property_id],
+                )?;
+                let membership_id = connection.query_row(
+                    "SELECT id FROM data_source_page_memberships \
+                     WHERE data_source_id = ?1 AND page_block_id = ?2 AND removed_at IS NULL",
+                    params![data_source_id, seeded_relation_target_page_id],
+                    |row| row.get::<_, String>(0),
+                )?;
+                connection.execute(
+                    "INSERT INTO data_source_property_values(\
+                       data_source_id, membership_id, property_id, value_type, value_json, \
+                       revision, updated_at\
+                     ) VALUES (?1, ?2, ?3, 'relation', ?4, 1, ?5)",
+                    params![data_source_id, membership_id, property_id, "null", NOW],
+                )?;
+                connection.execute(
+                    "INSERT INTO data_source_relation_edges(\
+                       source_data_source_id, source_membership_id, property_id, \
+                       target_page_block_id, created_at\
+                     ) VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![
+                        data_source_id,
+                        membership_id,
+                        property_id,
+                        seeded_relation_target_page_id,
+                        NOW,
+                    ],
+                )?;
+                Ok(())
+            })
+            .expect("seed Relation value");
+
         let copied_again = module
             .apply(
                 &context(),
@@ -3717,6 +3776,27 @@ mod tests {
                     },
                 )?;
                 assert_eq!(copied_value, ("\"ship\"".to_owned(), 1, 1, 2, 2));
+                let copied_relation = connection.query_row(
+                    "SELECT value.value_json, edge.target_page_block_id \
+                     FROM data_source_page_memberships membership \
+                     JOIN data_source_property_values value ON value.membership_id = membership.id \
+                       AND value.data_source_id = membership.data_source_id \
+                       AND value.property_id = 'blocked_by' \
+                     JOIN data_source_relation_edges edge \
+                       ON edge.source_data_source_id = membership.data_source_id \
+                      AND edge.source_membership_id = membership.id \
+                      AND edge.property_id = value.property_id \
+                     WHERE membership.page_block_id = ?1 AND membership.removed_at IS NULL",
+                    [&copied_again_id],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                )?;
+                assert_eq!(
+                    copied_relation,
+                    (
+                        "null".to_owned(),
+                        relation_target_page_id.clone(),
+                    )
+                );
                 Ok(())
             })
             .expect("durable Data Source copy evidence");

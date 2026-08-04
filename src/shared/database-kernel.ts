@@ -26,7 +26,8 @@ export type DatabasePropertyValueType =
   | "multi_select"
   | "date"
   | "datetime"
-  | "person";
+  | "person"
+  | "relation";
 export type DatabaseViewKind = "kanban" | "list" | "calendar";
 
 export function databaseGroupValueFromKey(
@@ -657,6 +658,8 @@ export const normalizeDatabasePropertyValue = (
     case "person":
       if (typeof value === "string") return value;
       return invalid(`${definition.valueType} requires a string or null value`);
+    case "relation":
+      return invalid("relation values require the typed Database edit contract");
     case "date": {
       if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
         return invalid("date requires an ISO date or null value");
@@ -978,6 +981,14 @@ const visitViewPropertyIds = (
   }
   if (config.group) visit(config.group.propertyId);
   config.display.propertyIds.forEach(visit);
+};
+
+export const databaseViewReferencedPropertyIds = (
+  config: DatabaseViewConfigV2,
+): readonly string[] => {
+  const propertyIds = new Set<string>();
+  visitViewPropertyIds(config, (propertyId) => propertyIds.add(propertyId));
+  return [...propertyIds];
 };
 
 export const parseDatabaseViewConfigV2 = (

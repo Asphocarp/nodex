@@ -68,14 +68,47 @@ const toCoreTarget = (target: DatabaseReadV2["target"]): DatabaseRead["target"] 
   if (target.kind === "data_source") {
     return { kind: target.kind, data_source_id: target.dataSourceId };
   }
+  if (target.kind === "property") {
+    return {
+      kind: target.kind,
+      data_source_id: target.dataSourceId,
+      property_id: target.propertyId,
+    };
+  }
+  if (target.kind === "page_property") {
+    return {
+      kind: target.kind,
+      page_id: target.pageId,
+      data_source_id: target.dataSourceId,
+      property_id: target.propertyId,
+    };
+  }
   return { kind: target.kind, view_id: target.viewId };
+};
+
+const toCoreFilter = (read: DatabaseReadV2): DatabaseRead["filter"] => {
+  if (read.mode !== "relation_candidate_window") return null;
+  if (read.query === undefined) return null;
+  return { query: read.query };
 };
 
 const toCoreRead = (read: DatabaseReadV2): DatabaseRead => ({
   target: toCoreTarget(read.target),
   mode: read.mode,
-  filter: null,
+  filter: toCoreFilter(read),
   sort: null,
+  ...(
+    read.mode === "relation_target_window"
+    || read.mode === "relation_candidate_window"
+    || read.mode === "option_window"
+    || read.mode === "catalog_window"
+    ? {
+        window: {
+          after: read.window?.after ?? null,
+          first: read.window?.first ?? 100,
+        },
+      }
+    : {}),
 });
 
 const mapCoreError = (
@@ -171,7 +204,7 @@ const toCoreTransferTarget = (
   return { kind: target.kind, data_source_id: target.dataSourceId };
 };
 
-const toCoreIntent = (
+export const toCoreDatabaseIntent = (
   operation: DatabaseApplyOperationV2,
 ): CoreDatabaseIntent => {
   switch (operation.kind) {
@@ -183,7 +216,12 @@ const toCoreIntent = (
         expected_data_source_revision: operation.expectedDataSourceRevision,
         expected_property_revision: operation.expectedPropertyRevision,
         name: operation.name,
-        value_type: operation.valueType,
+        schema: operation.schema.kind === "relation"
+          ? {
+              kind: "relation",
+              target_data_source_id: operation.schema.targetDataSourceId,
+            }
+          : operation.schema,
         before_property_id: operation.beforePropertyId ?? null,
       };
     case "delete_property":
@@ -212,34 +250,51 @@ const toCoreIntent = (
         option_id: operation.optionId,
         expected_property_revision: operation.expectedPropertyRevision,
       };
-    case "set_value":
+    case "edit_property_values":
       return {
         kind: operation.kind,
-        page_id: operation.pageId,
-        data_source_id: operation.dataSourceId,
-        property_id: operation.propertyId,
-        expected_value_revision: operation.expectedValueRevision,
-        value: operation.value,
-      };
-    case "set_values":
-      return {
-        kind: operation.kind,
-        values: operation.values.map((value) => ({
-          page_id: value.pageId,
-          data_source_id: value.dataSourceId,
-          property_id: value.propertyId,
-          expected_value_revision: value.expectedValueRevision,
-          value: value.value,
+        edits: operation.edits.map((mutation) => ({
+          address: {
+            page_id: mutation.pageId,
+            data_source_id: mutation.dataSourceId,
+            property_id: mutation.propertyId,
+          },
+          edit: mutation.edit.kind === "replace"
+            ? {
+                kind: "replace" as const,
+                expected_value_revision: mutation.edit.expectedValueRevision,
+                value: (() => {
+                  const value = mutation.edit.value;
+                  if (value.kind === "select") {
+                    return { kind: value.kind, option_id: value.optionId };
+                  }
+                  if (value.kind === "multi_select") {
+                    return { kind: value.kind, option_ids: value.optionIds };
+                  }
+                  if (value.kind === "person") {
+                    return { kind: value.kind, person_id: value.personId };
+                  }
+                  if (value.kind === "relation") {
+                    return { kind: value.kind, page_ids: value.pageIds };
+                  }
+                  return value;
+                })(),
+              }
+            : {
+                kind: "patch_set" as const,
+                delta: mutation.edit.delta.kind === "multi_select"
+                  ? {
+                      kind: "multi_select" as const,
+                      add_option_ids: mutation.edit.delta.addOptionIds,
+                      remove_option_ids: mutation.edit.delta.removeOptionIds,
+                    }
+                  : {
+                      kind: "relation" as const,
+                      add_page_ids: mutation.edit.delta.addPageIds,
+                      remove_page_ids: mutation.edit.delta.removePageIds,
+                    },
+              },
         })),
-      };
-    case "add_remove_value":
-      return {
-        kind: operation.kind,
-        page_id: operation.pageId,
-        data_source_id: operation.dataSourceId,
-        property_id: operation.propertyId,
-        add: operation.add,
-        remove: operation.remove,
       };
     case "transfer_page":
       return {
@@ -375,60 +430,70 @@ const requireString = (
   throw new Error(`${label} has no ${key}`);
 };
 
-const hydrateCoreProperty = async (
-  client: CoreClientPort,
+export const mapCorePropertyDescriptor = (
   input: unknown,
-): Promise<DataSourcePropertyRecordV2> => {
+): DataSourcePropertyRecordV2 => {
   const property = requireRecord(input, "Core Property descriptor");
-  const rawConfig = property.config;
-  const metadata = Object.fromEntries(
-    Object.entries(property).filter(
-      ([key]) => key !== "optionCount" && key !== "config",
-    ),
-  );
-  const valueType = requireString(property, "valueType", "Core Property");
-  if (valueType !== "select" && valueType !== "multi_select") {
-    return {
-      ...metadata,
-      config: requireRecord(rawConfig, "Core Property config"),
-    } as unknown as DataSourcePropertyRecordV2;
+  const schema = requireRecord(property.schema, "Core Property schema");
+  const schemaKind = requireString(schema, "kind", "Core Property schema");
+  if (![
+    "text",
+    "number",
+    "checkbox",
+    "select",
+    "multi_select",
+    "date",
+    "datetime",
+    "person",
+    "relation",
+  ].includes(schemaKind)) {
+    throw new Error("Core Property schema is unsupported");
   }
-  const dataSourceId = requireString(
-    property,
-    "dataSourceId",
-    "Core Property",
-  );
-  const propertyId = requireString(property, "propertyId", "Core Property");
-  const options = await readAllCoreWindow(
-    client,
-    100,
-    (after) => ({
-      target: {
-        kind: "property",
-        data_source_id: dataSourceId,
-        property_id: propertyId,
-      },
-      mode: "option_window",
-      filter: null,
-      sort: null,
-      page_ids: null,
-      window: { after, first: 200 },
-    }),
-    (snapshot) => {
-      if (snapshot.value.kind !== "option_window") {
-        throw new Error("Core returned a non-option Database window");
-      }
-      return snapshot.value.options;
-    },
+  const capabilities = requireRecord(
+    property.capabilities,
+    "Core Property capabilities",
   );
   return {
-    ...metadata,
-    config: {
-      ...requireRecord(rawConfig, "Core Property config"),
-      options,
+    propertyId: requireString(property, "property_id", "Core Property"),
+    dataSourceId: requireString(property, "data_source_id", "Core Property"),
+    name: requireString(property, "name", "Core Property"),
+    schema: schemaKind === "relation"
+      ? {
+          kind: "relation",
+          targetDataSourceId: requireString(
+            schema,
+            "target_data_source_id",
+            "Core Relation schema",
+          ),
+        }
+      : { kind: schemaKind },
+    capabilities: {
+      replace: capabilities.replace === true,
+      patchSetMember: capabilities.patch_set_member === "option"
+          || capabilities.patch_set_member === "page"
+        ? capabilities.patch_set_member
+        : null,
+      filterOperators: Array.isArray(capabilities.filter_operators)
+        ? capabilities.filter_operators as NonNullable<DataSourcePropertyRecordV2["capabilities"]>["filterOperators"]
+        : [],
+      sortable: capabilities.sortable === true,
+      groupable: capabilities.groupable === true,
     },
+    valueType: schemaKind,
+    config: {},
+    optionCount: Number(property.option_count),
+    rankKey: requireString(property, "rank_key", "Core Property"),
+    lifecycle: requireString(property, "lifecycle", "Core Property") as DataSourcePropertyRecordV2["lifecycle"],
+    revision: Number(property.revision),
+    createdAt: requireString(property, "created_at", "Core Property"),
+    updatedAt: requireString(property, "updated_at", "Core Property"),
   } as unknown as DataSourcePropertyRecordV2;
 };
+
+const hydrateCoreProperty = async (
+  _client: CoreClientPort,
+  input: unknown,
+): Promise<DataSourcePropertyRecordV2> => mapCorePropertyDescriptor(input);
 
 const hydrateCoreDataSource = async (
   client: CoreClientPort,
@@ -530,6 +595,20 @@ const hydrateCoreReadValue = async (
   client: CoreClientPort,
   value: DatabaseReadSnapshot["value"],
 ): Promise<unknown> => {
+  if (value.kind === "catalog_window") {
+    const databases: DatabaseContainerDescriptorV2[] = [];
+    for (const compact of value.databases.items) {
+      databases.push(await hydrateCoreDatabase(client, compact));
+    }
+    return {
+      kind: value.kind,
+      value: {
+        databases,
+        nextCursor: value.databases.next_cursor ?? null,
+        projectionRevision: value.databases.authority.projection_revision,
+      },
+    };
+  }
   if (value.kind === "database") {
     return {
       kind: value.kind,
@@ -540,6 +619,60 @@ const hydrateCoreReadValue = async (
     return {
       kind: value.kind,
       value: await hydrateCoreDataSource(client, value.value),
+    };
+  }
+  if (value.kind === "relation_target_window") {
+    return {
+      kind: value.kind,
+      value: {
+        valueRevision: value.value.value_revision,
+        totalCount: value.value.total_count,
+        targets: value.value.targets.items.map((target) => target.kind === "restricted"
+          ? { kind: "restricted" as const }
+          : {
+              kind: "visible" as const,
+              pageId: target.page_id,
+              title: target.title,
+              lifecycle: target.lifecycle,
+              membershipState: target.membership_state,
+            }),
+        nextCursor: value.value.targets.next_cursor ?? null,
+        projectionRevision: value.value.targets.authority.projection_revision,
+      },
+    };
+  }
+  if (value.kind === "option_window") {
+    return {
+      kind: value.kind,
+      value: {
+        options: value.options.items.map((candidate) => {
+          const option = requireRecord(candidate, "Core Property option");
+          const color = option.color;
+          if (color !== undefined && color !== null && typeof color !== "string") {
+            throw new Error("Core Property option color is invalid");
+          }
+          return {
+            id: requireString(option, "id", "Core Property option"),
+            name: requireString(option, "name", "Core Property option"),
+            ...(typeof color === "string" ? { color } : {}),
+          };
+        }),
+        nextCursor: value.options.next_cursor ?? null,
+        projectionRevision: value.options.authority.projection_revision,
+      },
+    };
+  }
+  if (value.kind === "relation_candidate_window") {
+    return {
+      kind: value.kind,
+      value: {
+        candidates: value.candidates.items.map((candidate) => ({
+          pageId: candidate.page_id,
+          title: candidate.title,
+        })),
+        nextCursor: value.candidates.next_cursor ?? null,
+        projectionRevision: value.candidates.authority.projection_revision,
+      },
     };
   }
   return value;
@@ -617,7 +750,7 @@ export const createCoreDatabaseModuleAdapter = (
       try {
         const committed = await input.client.databaseApply({
           operationId: request.operationId,
-          intent: request.operations.map(toCoreIntent),
+          intent: request.operations.map(toCoreDatabaseIntent),
         });
         if (committed.store_epoch !== input.storeEpoch) {
           throw new Error("Core Database apply crossed its Store epoch boundary");
@@ -686,7 +819,7 @@ export const createCoreLibraryDatabaseModuleAdapter = (
     try {
       const committed = await input.client.databaseApply({
         operationId: request.operationId,
-        intent: request.operations.map(toCoreIntent),
+        intent: request.operations.map(toCoreDatabaseIntent),
       });
       if (committed.store_epoch !== input.storeEpoch) {
         throw new Error("Core Library Database apply crossed its Store epoch boundary");

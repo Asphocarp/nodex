@@ -1,0 +1,624 @@
+import { useDeferredValue, useEffect, useId, useRef, useState } from "react";
+import {
+  CloseIcon,
+  PageIcon,
+  PlusIcon,
+  SearchIcon,
+} from "@/components/shared/icons";
+import {
+  NodexPopover,
+  NodexPopoverContent,
+  NodexPopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  readRelationValuePreview,
+  type RelationCandidateWindow,
+  type RelationTargetPreview,
+  type RelationTargetWindow,
+} from "@/lib/data-source-relation-value";
+import { foldDataSourceRelationSearchText } from "@/lib/data-source-relation-runtime";
+import { cn } from "@/lib/utils";
+import { PropertyEmptyValue } from "./property-empty-value";
+
+const mergeCandidates = (
+  left: readonly { readonly pageId: string; readonly title: string }[],
+  right: readonly { readonly pageId: string; readonly title: string }[],
+) => {
+  const byId = new Map(left.map((candidate) => [candidate.pageId, candidate]));
+  for (const candidate of right) byId.set(candidate.pageId, candidate);
+  return [...byId.values()];
+};
+
+const mergeTargets = (
+  left: readonly RelationTargetPreview[],
+  right: readonly RelationTargetPreview[],
+) => {
+  const visibleIds = new Set(
+    left.flatMap((target) => target.kind === "visible" ? [target.pageId] : []),
+  );
+  return [
+    ...left,
+    ...right.filter((target) =>
+      target.kind === "restricted" || !visibleIds.has(target.pageId)
+    ),
+  ];
+};
+
+export function RelationPropertyEditor({
+  label,
+  value,
+  candidates,
+  disabled,
+  pending = false,
+  targetMatchesCurrentSource,
+  onPatch,
+  onClear,
+  onLoadMore,
+  onSearchCandidates,
+  onLoadTargetDescriptor,
+  onOpenPage,
+  onValueStale,
+  showLabel = true,
+  presentation = "compact",
+}: {
+  readonly label: string;
+  readonly value: unknown;
+  readonly candidates: readonly { readonly pageId: string; readonly title: string }[];
+  readonly disabled: boolean;
+  readonly pending?: boolean;
+  readonly targetMatchesCurrentSource: boolean;
+  readonly onPatch: (delta: {
+    readonly addPageIds: readonly string[];
+    readonly removePageIds: readonly string[];
+  }) => void;
+  readonly onClear: () => void;
+  readonly onLoadMore?: (after: string | null) => Promise<RelationTargetWindow>;
+  readonly onSearchCandidates?: (
+    query: string,
+    after?: string | null,
+  ) => Promise<RelationCandidateWindow>;
+  readonly onLoadTargetDescriptor?: () => Promise<{ readonly name: string } | null>;
+  readonly onOpenPage?: (pageId: string, title: string) => void;
+  readonly onValueStale?: () => void;
+  readonly showLabel?: boolean;
+  readonly presentation?: "compact" | "page";
+}) {
+  const parsedPreview = readRelationValuePreview(value);
+  const invalidPreview = value != null && parsedPreview === null;
+  const preview = parsedPreview ?? {
+    valueRevision: 0,
+    totalCount: 0,
+    targets: [],
+    restrictedCount: 0,
+    hasMore: false,
+  };
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const deferredQuery = useDeferredValue(query);
+  const [targetName, setTargetName] = useState<string | null>(null);
+  const [targetDescriptorLoaded, setTargetDescriptorLoaded] = useState(false);
+  const [expandedTargets, setExpandedTargets] = useState<readonly RelationTargetPreview[] | null>(null);
+  const [targetCursor, setTargetCursor] = useState<string | null>(null);
+  const [targetProjectionRevision, setTargetProjectionRevision] = useState<number | null>(null);
+  const [candidateResults, setCandidateResults] = useState<readonly {
+    readonly pageId: string;
+    readonly title: string;
+  }[]>([]);
+  const [candidateQuery, setCandidateQuery] = useState<string | null>(null);
+  const [candidateCursor, setCandidateCursor] = useState<string | null>(null);
+  const [candidateProjectionRevision, setCandidateProjectionRevision] = useState<number | null>(null);
+  const [loadingTargets, setLoadingTargets] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const [confirmingClear, setConfirmingClear] = useState(false);
+  const [activeCandidateIndex, setActiveCandidateIndex] = useState(0);
+  const [candidateErrorQuery, setCandidateErrorQuery] = useState<string | null>(null);
+  const [targetError, setTargetError] = useState(false);
+  const [searchRetry, setSearchRetry] = useState(0);
+  const targetGeneration = useRef(0);
+  const descriptorGeneration = useRef(0);
+  const searchGeneration = useRef(0);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const searchCandidatesRef = useRef(onSearchCandidates);
+  const loadTargetDescriptorRef = useRef(onLoadTargetDescriptor);
+  searchCandidatesRef.current = onSearchCandidates;
+  loadTargetDescriptorRef.current = onLoadTargetDescriptor;
+  const canSearchCandidates = onSearchCandidates !== undefined;
+  const canLoadTargetDescriptor = onLoadTargetDescriptor !== undefined;
+  const selectedHeadingId = useId();
+  const candidateHeadingId = useId();
+  const candidateListboxId = useId();
+  const visibleTargets = (expandedTargets ?? preview.targets).filter(
+    (target): target is Extract<RelationTargetPreview, { readonly kind: "visible" }> =>
+      target.kind === "visible",
+  );
+  const selectedIds = new Set(visibleTargets.map((target) => target.pageId));
+  const normalizedQuery = foldDataSourceRelationSearchText(query.trim());
+  const seedCandidates = targetMatchesCurrentSource
+    ? candidates.filter((candidate) =>
+        !normalizedQuery
+        || foldDataSourceRelationSearchText(candidate.title).includes(normalizedQuery)
+      )
+    : [];
+  const activeCandidateResults = candidateQuery === query
+    ? candidateResults
+    : [];
+  const activeCandidateCursor = candidateQuery === query
+    ? candidateCursor
+    : null;
+  const candidateError = candidateErrorQuery === query;
+  const candidateSearchPending = searching || query !== deferredQuery;
+  const available = mergeCandidates(seedCandidates, activeCandidateResults)
+    .filter((candidate) => !selectedIds.has(candidate.pageId));
+
+  useEffect(() => {
+    setActiveCandidateIndex((current) =>
+      Math.min(current, Math.max(0, available.length - 1))
+    );
+  }, [available.length]);
+
+  useEffect(() => {
+    targetGeneration.current += 1;
+    descriptorGeneration.current += 1;
+    searchGeneration.current += 1;
+    setExpandedTargets(null);
+    setTargetCursor(null);
+    setTargetProjectionRevision(null);
+    setCandidateResults([]);
+    setCandidateQuery(null);
+    setCandidateCursor(null);
+    setCandidateProjectionRevision(null);
+    setLoadingTargets(false);
+    setSearching(false);
+    setConfirmingClear(false);
+    setTargetName(null);
+    setTargetDescriptorLoaded(false);
+    setCandidateErrorQuery(null);
+    setTargetError(false);
+  }, [label, preview.valueRevision]);
+
+  const readOnly = disabled || invalidPreview;
+  const actionDisabled = readOnly || pending;
+
+  useEffect(() => {
+    if (!readOnly) return;
+    setOpen(false);
+  }, [readOnly]);
+
+  useEffect(() => {
+    if (!open || !loadTargetDescriptorRef.current) return;
+    const generation = ++descriptorGeneration.current;
+    void loadTargetDescriptorRef.current()
+      .then((descriptor) => {
+        if (generation !== descriptorGeneration.current) return;
+        setTargetName(descriptor?.name ?? null);
+        setTargetDescriptorLoaded(true);
+      })
+      .catch(() => {
+        if (generation !== descriptorGeneration.current) return;
+        setTargetName(null);
+        setTargetDescriptorLoaded(true);
+      });
+  }, [canLoadTargetDescriptor, open]);
+
+  useEffect(() => {
+    const searchCandidates = searchCandidatesRef.current;
+    if (!open || !searchCandidates) return;
+    const generation = ++searchGeneration.current;
+    setSearching(true);
+    setCandidateErrorQuery(null);
+    void searchCandidates(deferredQuery, null)
+      .then((window) => {
+        if (generation !== searchGeneration.current) return;
+        setCandidateResults(window.candidates);
+        setCandidateQuery(deferredQuery);
+        setCandidateCursor(window.nextCursor);
+        setCandidateProjectionRevision(window.projectionRevision);
+      })
+      .catch((cause: unknown) => {
+        if (generation !== searchGeneration.current) return;
+        console.error("[relation-property:candidates]", cause);
+        setCandidateResults([]);
+        setCandidateQuery(null);
+        setCandidateCursor(null);
+        setCandidateErrorQuery(deferredQuery);
+      })
+      .finally(() => {
+        if (generation === searchGeneration.current) setSearching(false);
+      });
+  }, [canSearchCandidates, deferredQuery, open, preview.valueRevision, searchRetry]);
+
+  const loadSelectedTargets = () => {
+    if (!onLoadMore || loadingTargets || readOnly) return;
+    const generation = ++targetGeneration.current;
+    setLoadingTargets(true);
+    setTargetError(false);
+    const after = expandedTargets === null ? null : targetCursor;
+    const acceptWindow = (window: RelationTargetWindow, replace: boolean) => {
+      if (generation !== targetGeneration.current) return false;
+      if (window.valueRevision !== preview.valueRevision) {
+        setExpandedTargets(null);
+        setTargetCursor(null);
+        setTargetError(false);
+        onValueStale?.();
+        return false;
+      }
+      setExpandedTargets((current) => replace || current === null
+        ? window.targets
+        : mergeTargets(current, window.targets));
+      setTargetCursor(window.nextCursor);
+      setTargetProjectionRevision(window.projectionRevision);
+      return true;
+    };
+    void onLoadMore(after)
+      .then(async (window) => {
+        if (generation !== targetGeneration.current) return;
+        if (
+          after !== null
+          && targetProjectionRevision !== null
+          && window.projectionRevision !== targetProjectionRevision
+        ) {
+          const refreshed = await onLoadMore(null);
+          acceptWindow(refreshed, true);
+          return;
+        }
+        acceptWindow(window, after === null);
+      })
+      .catch(async (cause: unknown) => {
+        if (generation !== targetGeneration.current) return;
+        if (after === null) {
+          console.error("[relation-property:selected]", cause);
+          setTargetError(true);
+          return;
+        }
+        try {
+          const refreshed = await onLoadMore(null);
+          acceptWindow(refreshed, true);
+        } catch (refreshError) {
+          if (generation === targetGeneration.current) {
+            console.error("[relation-property:selected]", refreshError);
+            setTargetError(true);
+          }
+        }
+      })
+      .finally(() => {
+        if (generation === targetGeneration.current) setLoadingTargets(false);
+      });
+  };
+
+  const loadMoreCandidates = () => {
+    if (
+      !onSearchCandidates
+      || !activeCandidateCursor
+      || searching
+      || readOnly
+    ) return;
+    const generation = searchGeneration.current;
+    setSearching(true);
+    const acceptFirstWindow = (window: RelationCandidateWindow) => {
+      if (generation !== searchGeneration.current) return;
+      setCandidateResults(window.candidates);
+      setCandidateQuery(deferredQuery);
+      setCandidateCursor(window.nextCursor);
+      setCandidateProjectionRevision(window.projectionRevision);
+      setCandidateErrorQuery(null);
+    };
+    const refreshFirstWindow = async () => {
+      const refreshed = await onSearchCandidates(deferredQuery, null);
+      acceptFirstWindow(refreshed);
+    };
+    void onSearchCandidates(deferredQuery, activeCandidateCursor)
+      .then(async (window) => {
+        if (generation !== searchGeneration.current) return;
+        if (
+          candidateProjectionRevision !== null
+          && window.projectionRevision !== candidateProjectionRevision
+        ) {
+          setCandidateCursor(null);
+          await refreshFirstWindow();
+          return;
+        }
+        setCandidateResults((current) => mergeCandidates(current, window.candidates));
+        setCandidateCursor(window.nextCursor);
+      })
+      .catch(async (cause: unknown) => {
+        if (generation !== searchGeneration.current) return;
+        try {
+          await refreshFirstWindow();
+        } catch (refreshError) {
+          if (generation === searchGeneration.current) {
+            console.error("[relation-property:candidates]", cause, refreshError);
+            setCandidateErrorQuery(deferredQuery);
+          }
+        }
+      })
+      .finally(() => {
+        if (generation === searchGeneration.current) setSearching(false);
+      });
+  };
+
+  return (
+    <span className="inline-flex min-w-0 items-center gap-1">
+      {showLabel ? (
+        <span className={cn(
+          "shrink-0 text-token-description-foreground",
+          presentation === "page" ? "text-sm" : "text-[11px]",
+        )}>{label}</span>
+      ) : null}
+      <NodexPopover open={open} onOpenChange={(next) => {
+        if (next && actionDisabled) return;
+        setOpen(next);
+        if (!next) {
+          searchGeneration.current += 1;
+          targetGeneration.current += 1;
+          descriptorGeneration.current += 1;
+          setSearching(false);
+          setLoadingTargets(false);
+          setQuery("");
+          setConfirmingClear(false);
+        }
+      }}>
+        <NodexPopoverTrigger asChild disabled={actionDisabled}>
+          <button
+            type="button"
+            aria-label={`Edit ${label} relation`}
+            className={cn(
+              "inline-flex min-h-6 min-w-0 max-w-full flex-wrap items-center gap-1 rounded-md px-1 text-left outline-hidden",
+              "hover:bg-token-foreground/5 focus-visible:ring-2 focus-visible:ring-token-focus disabled:opacity-50",
+              presentation === "page" ? "text-sm" : "text-[11px]",
+            )}
+          >
+            {visibleTargets.slice(0, 3).map((target) => (
+              <span key={target.pageId} className="inline-flex h-5.5 min-w-0 max-w-36 items-center gap-1 rounded-md bg-token-foreground/8 px-1.5 text-token-text-secondary">
+                <PageIcon className="icon-2xs shrink-0" />
+                <span className="truncate">{target.title || "Untitled"}</span>
+              </span>
+            ))}
+            {preview.restrictedCount > 0 ? (
+              <span className="text-token-description-foreground">{preview.restrictedCount} restricted</span>
+            ) : null}
+            {preview.totalCount > visibleTargets.slice(0, 3).length + preview.restrictedCount ? (
+              <span className="text-token-description-foreground">
+                +{preview.totalCount - visibleTargets.slice(0, 3).length - preview.restrictedCount}
+              </span>
+            ) : null}
+            {invalidPreview ? (
+              <span className="text-token-error-foreground">Invalid relation value</span>
+            ) : preview.totalCount === 0 ? (
+              <PropertyEmptyValue />
+            ) : null}
+            {preview.totalCount > 0 ? (
+              <PlusIcon className="icon-2xs shrink-0 text-token-description-foreground" />
+            ) : null}
+          </button>
+        </NodexPopoverTrigger>
+        <NodexPopoverContent align="start" className="w-[min(360px,calc(100vw-16px))] overflow-hidden p-0">
+          <div className="px-2 pb-1 pt-2">
+            <div className="flex h-8 items-center gap-1.5 rounded-lg bg-token-foreground/5 px-2">
+              <SearchIcon className="icon-2xs shrink-0 text-token-description-foreground" />
+              <input
+                ref={searchInputRef}
+                autoFocus
+                role="combobox"
+                aria-autocomplete="list"
+                aria-expanded={open}
+                aria-controls={candidateListboxId}
+                aria-activedescendant={available[activeCandidateIndex]
+                  ? `${candidateListboxId}-${activeCandidateIndex}`
+                  : undefined}
+                aria-label={`Search ${label} target pages`}
+                value={query}
+                disabled={readOnly}
+                onChange={(event) => setQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    setOpen(false);
+                    return;
+                  }
+                  if (event.key === "Home") {
+                    event.preventDefault();
+                    if (available.length > 0) setActiveCandidateIndex(0);
+                    return;
+                  }
+                  if (event.key === "End") {
+                    event.preventDefault();
+                    if (available.length > 0) {
+                      setActiveCandidateIndex(available.length - 1);
+                    }
+                    return;
+                  }
+                  if (event.key === "ArrowDown") {
+                    event.preventDefault();
+                    if (available.length === 0) return;
+                    setActiveCandidateIndex((current) =>
+                      Math.min(available.length - 1, current + 1)
+                    );
+                    return;
+                  }
+                  if (event.key === "ArrowUp") {
+                    event.preventDefault();
+                    setActiveCandidateIndex((current) => Math.max(0, current - 1));
+                    return;
+                  }
+                  if (event.key !== "Enter") return;
+                  event.preventDefault();
+                  const candidate = available[activeCandidateIndex];
+                  if (!candidate || actionDisabled) return;
+                  onPatch({ addPageIds: [candidate.pageId], removePageIds: [] });
+                }}
+                placeholder="Search pages…"
+                className="h-full min-w-0 flex-1 bg-transparent text-sm text-token-foreground outline-hidden placeholder:text-token-description-foreground"
+              />
+            </div>
+            <p className="mt-1 truncate px-1 text-xs text-token-description-foreground">
+              {targetName
+                ? `In ${targetName}`
+                : targetDescriptorLoaded
+                  ? "Target source unavailable"
+                  : "Target source"}
+            </p>
+          </div>
+          <div className="h-px bg-token-foreground/8" />
+          <div className="max-h-[320px] overflow-y-auto p-1">
+            {visibleTargets.length > 0
+            || preview.restrictedCount > 0
+            || (expandedTargets === null ? preview.hasMore : targetCursor !== null) ? (
+              <section aria-labelledby={selectedHeadingId}>
+                <h3 id={selectedHeadingId} className="px-2 py-1 text-xs text-token-description-foreground">Selected</h3>
+                {visibleTargets.map((target) => (
+                  <div key={target.pageId} className="group flex min-h-8 items-center gap-2 rounded-lg px-2 hover:bg-token-list-hover-background">
+                    <PageIcon className="icon-xs shrink-0 text-token-text-secondary" />
+                    {onOpenPage ? (
+                      <button
+                        type="button"
+                        className="min-w-0 flex-1 truncate text-left text-sm text-token-text-primary outline-hidden"
+                        disabled={readOnly}
+                        onClick={() => {
+                          if (readOnly) return;
+                          onOpenPage(target.pageId, target.title);
+                        }}
+                      >
+                        {target.title || "Untitled"}
+                      </button>
+                    ) : (
+                      <span className="min-w-0 flex-1 truncate text-sm text-token-text-primary">{target.title || "Untitled"}</span>
+                    )}
+                    <button
+                      type="button"
+                      aria-label={`Remove ${target.title || "Untitled"}`}
+                      disabled={actionDisabled}
+                      onClick={() => {
+                        if (actionDisabled) return;
+                        onPatch({ addPageIds: [], removePageIds: [target.pageId] });
+                      }}
+                      className="grid size-6 shrink-0 place-items-center rounded-md text-token-description-foreground opacity-70 hover:bg-token-foreground/10 hover:text-token-foreground group-hover:opacity-100 focus-visible:opacity-100"
+                    >
+                      <CloseIcon className="icon-xxs" />
+                    </button>
+                  </div>
+                ))}
+                {preview.restrictedCount > 0 ? (
+                  <p className="px-2 py-1 text-xs text-token-description-foreground">
+                    {preview.restrictedCount} restricted {preview.restrictedCount === 1 ? "page" : "pages"}
+                  </p>
+                ) : null}
+                {(expandedTargets === null ? preview.hasMore : targetCursor !== null)
+                  && onLoadMore
+                  && !targetError ? (
+                  <button
+                    type="button"
+                    disabled={readOnly || loadingTargets}
+                    onClick={loadSelectedTargets}
+                    className="flex min-h-7 w-full items-center rounded-lg px-2 text-left text-xs text-token-text-secondary hover:bg-token-list-hover-background disabled:opacity-50"
+                  >
+                    {loadingTargets ? "Loading…" : "Load more selected"}
+                  </button>
+                ) : null}
+                {targetError && onLoadMore ? (
+                  <div role="alert" aria-atomic="true">
+                    <button
+                      type="button"
+                      aria-label="Couldn’t load selected pages. Retry"
+                      onClick={loadSelectedTargets}
+                      className="flex min-h-7 w-full items-center justify-between rounded-lg px-2 text-left text-xs text-token-error-foreground hover:bg-token-error-background/20"
+                    >
+                      <span>Couldn’t load selected pages</span>
+                      <span className="font-medium">Retry</span>
+                    </button>
+                  </div>
+                ) : null}
+              </section>
+            ) : null}
+            <section aria-labelledby={candidateHeadingId}>
+              <h3 id={candidateHeadingId} className="px-2 py-1 text-xs text-token-description-foreground">Select a page</h3>
+              <div id={candidateListboxId} role="listbox">
+                {available.map((candidate, index) => (
+                  <button
+                    key={candidate.pageId}
+                    id={`${candidateListboxId}-${index}`}
+                    type="button"
+                    role="option"
+                    aria-selected={false}
+                    aria-posinset={index + 1}
+                    aria-setsize={activeCandidateCursor ? -1 : available.length}
+                    disabled={actionDisabled}
+                    onMouseEnter={() => setActiveCandidateIndex(index)}
+                    onPointerDown={(event) => event.preventDefault()}
+                    onClick={() => {
+                      if (actionDisabled) return;
+                      onPatch({ addPageIds: [candidate.pageId], removePageIds: [] });
+                      requestAnimationFrame(() => searchInputRef.current?.focus());
+                    }}
+                    className="flex min-h-8 w-full items-center gap-2 rounded-lg px-2 text-left hover:bg-token-list-hover-background disabled:opacity-50"
+                  >
+                    <PageIcon className="icon-xs shrink-0 text-token-text-secondary" />
+                    <span className="min-w-0 flex-1 truncate text-sm text-token-text-primary">{candidate.title || "Untitled"}</span>
+                    <PlusIcon className="icon-2xs shrink-0 text-token-description-foreground" />
+                  </button>
+                ))}
+              </div>
+              {candidateSearchPending && available.length === 0 ? (
+                <p className="px-2 py-2 text-sm text-token-description-foreground">Searching…</p>
+              ) : null}
+              {!candidateSearchPending && available.length === 0 && !candidateError ? (
+                <p className="px-2 py-2 text-sm text-token-description-foreground">No pages found</p>
+              ) : null}
+              {activeCandidateCursor && !candidateError ? (
+                <button
+                  type="button"
+                  disabled={readOnly || candidateSearchPending}
+                  onClick={loadMoreCandidates}
+                  className="flex min-h-7 w-full items-center rounded-lg px-2 text-left text-xs text-token-text-secondary hover:bg-token-list-hover-background disabled:opacity-50"
+                >
+                  {candidateSearchPending ? "Loading…" : "Load more"}
+                </button>
+              ) : null}
+              {candidateError ? (
+                <div role="alert" aria-atomic="true">
+                  <button
+                    type="button"
+                    aria-label={available.length > 0
+                      ? "Couldn’t load more pages. Retry"
+                      : "Couldn’t load pages. Retry"}
+                    onClick={() => setSearchRetry((current) => current + 1)}
+                    className="flex min-h-8 w-full items-center justify-between rounded-lg px-2 text-left text-sm text-token-error-foreground hover:bg-token-error-background/20"
+                  >
+                    <span>{available.length > 0 ? "Couldn’t load more pages" : "Couldn’t load pages"}</span>
+                    <span className="text-xs font-medium">Retry</span>
+                  </button>
+                </div>
+              ) : null}
+            </section>
+          </div>
+          {preview.totalCount > 0 ? (
+            <div className="border-t-[0.5px] border-token-border p-1">
+              {confirmingClear ? (
+                <div className="rounded-lg bg-token-error-background/20 p-2">
+                  <p className="text-xs text-token-text-secondary">
+                    Clear all {preview.totalCount} relations, including restricted or unloaded pages?
+                  </p>
+                  <div className="mt-1 flex justify-end gap-1">
+                    <button type="button" disabled={readOnly} onClick={() => setConfirmingClear(false)} className="h-7 rounded-md px-2 text-xs text-token-text-secondary hover:bg-token-foreground/5 disabled:opacity-50">Cancel</button>
+                    <button type="button" disabled={actionDisabled} onClick={() => { if (actionDisabled) return; onClear(); setConfirmingClear(false); setOpen(false); }} className="h-7 rounded-md bg-token-error-background/40 px-2 text-xs text-token-error-foreground hover:bg-token-error-background/55 disabled:opacity-50">Clear all</button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  disabled={actionDisabled}
+                  onClick={() => {
+                    if (actionDisabled) return;
+                    setConfirmingClear(true);
+                  }}
+                  className="flex min-h-7 w-full items-center rounded-lg px-2 text-left text-sm text-token-description-foreground hover:bg-token-list-hover-background"
+                >
+                  Clear all…
+                </button>
+              )}
+            </div>
+          ) : null}
+        </NodexPopoverContent>
+      </NodexPopover>
+    </span>
+  );
+}

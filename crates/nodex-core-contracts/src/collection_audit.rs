@@ -56,7 +56,9 @@ fn database_policy(mode: DatabaseReadMode) -> ReadBudgetPolicy {
         | DatabaseReadMode::ViewDescriptorWindow
         | DatabaseReadMode::AgentQuery
         | DatabaseReadMode::ViewWindow
-        | DatabaseReadMode::ViewContext => ReadBudgetPolicy::CollectionWindow,
+        | DatabaseReadMode::ViewContext
+        | DatabaseReadMode::RelationTargetWindow
+        | DatabaseReadMode::RelationCandidateWindow => ReadBudgetPolicy::CollectionWindow,
         DatabaseReadMode::RowsById => ReadBudgetPolicy::BoundedBatch,
         // Group summaries are capped at MAX_VIEW_GROUP_SUMMARIES with an
         // explicit truncation flag, so the response cardinality is finite.
@@ -125,6 +127,7 @@ fn library_policy(read: &LibraryRead) -> ReadBudgetPolicy {
             ReadBudgetPolicy::LargeObject
         }
         LibraryRead::Metadata
+        | LibraryRead::ResourceProjectAccess { .. }
         | LibraryRead::FilterProjectionImpactForProject { .. }
         | LibraryRead::PageDetail { .. }
         | LibraryRead::PageDraftProjection { .. }

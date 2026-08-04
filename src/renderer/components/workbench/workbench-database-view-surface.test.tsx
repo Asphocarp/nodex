@@ -212,4 +212,27 @@ describe("WorkbenchDatabaseViewSurface", () => {
     );
     expect(api.readLibraryDatabaseViewGroups).not.toHaveBeenCalled();
   });
+
+  test("hides read transport details behind a recoverable database error", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    api.readLibraryDatabaseViewGroups.mockRejectedValueOnce(
+      new Error("databaseModuleReadV2 leaked detail"),
+    );
+    try {
+      render(
+        <TestQueryProvider>
+          <WorkbenchDatabaseViewSurface
+            accessContext={{ kind: "library" }}
+            target={{ kind: "database-default", databaseId }}
+            onOpenPage={vi.fn()}
+          />
+        </TestQueryProvider>,
+      );
+      expect(await screen.findByText("Couldn’t open this database")).toBeTruthy();
+      expect(screen.queryByText(/databaseModuleReadV2/)).toBeNull();
+      expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
 });

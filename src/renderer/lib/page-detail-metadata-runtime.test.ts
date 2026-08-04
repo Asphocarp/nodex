@@ -7,17 +7,31 @@ import type {
   LibraryBlockPropertyMutationCommandResultV2,
   LibraryBlockPropertyMutationRequestV2,
 } from "../../shared/block-property-mutations-v2";
-import type { DataSourcePropertyRecordV2 } from "../../shared/database-module-v2";
+import type {
+  DatabaseApplyResultV2,
+  DatabaseApplyV2,
+  DataSourcePropertyRecordV2,
+  LibraryDatabaseApplyResultV2,
+  LibraryDatabaseApplyV2,
+} from "../../shared/database-module-v2";
 import {
   parseDatabaseId,
   parseDatabaseViewId,
   parseDataSourceId,
   parseDataSourcePropertyId,
 } from "../../shared/database-identities";
+import {
+  LIBRARY_MODULE_CONTRACT_VERSION,
+  type LibraryModuleApplyRequest,
+  type LibraryModuleApplyResult,
+} from "../../shared/library-module";
 import type { LibraryPageDetail, PageDetail } from "../../shared/page-detail";
+import { testPropertySemantics } from "../../shared/testing/database-property-record";
 import {
   commitLibraryPageDetailMetadataPatch,
+  commitLibraryPageDetailPropertyEdit,
   commitPageDetailMetadataPatch,
+  commitPageDetailPropertyEdit,
   type LibraryPageDetailMetadataRuntimeDependencies,
   type PageDetailMetadataRuntimeDependencies,
 } from "./page-detail-metadata-runtime";
@@ -28,6 +42,7 @@ const dataSourceId = parseDataSourceId("019f714b-0000-7000-8000-000000000022");
 const viewId = parseDatabaseViewId("019f714b-0000-7000-8000-000000000023");
 const priorityPropertyId = parseDataSourcePropertyId("priority");
 const tagsPropertyId = parseDataSourcePropertyId("tags");
+const confidencePropertyId = parseDataSourcePropertyId("p_C0nf1d3n");
 const uiOptionId = "o_AAAAAAAA";
 const backendOptionId = "o_BBBBBBBB";
 
@@ -38,6 +53,7 @@ const property = (
   propertyId: parseDataSourcePropertyId(key),
   dataSourceId,
   name: key,
+  ...testPropertySemantics(valueType, valueType === "multi_select" ? 2 : 0),
   valueType,
   config: valueType === "multi_select"
     ? {
@@ -64,9 +80,10 @@ const detail = (member = true): PageDetail => {
     property("scheduled_start", "datetime"),
     property("scheduled_end", "datetime"),
     property("assignee", "person"),
+    property("p_C0nf1d3n", "number"),
   ];
   return {
-    version: 2,
+    version: 3,
     projectId: "project-1",
     libraryId: "library-1",
     storeEpoch: "epoch-1",
@@ -149,6 +166,12 @@ const detail = (member = true): PageDetail => {
               value: [uiOptionId],
               revision: 4,
             },
+            p_C0nf1d3n: {
+              propertyId: confidencePropertyId,
+              valueType: "number",
+              value: 0.5,
+              revision: 2,
+            },
           },
         }
       : { kind: "standalone" },
@@ -178,16 +201,70 @@ const mutationSuccess = (
   },
 });
 
+const metadataSuccess = (
+  request: LibraryModuleApplyRequest,
+): Extract<LibraryModuleApplyResult, { readonly ok: true }> => ({
+  ok: true,
+  value: {
+    version: LIBRARY_MODULE_CONTRACT_VERSION,
+    operationId: request.operationId,
+    storeEpoch: request.storeEpoch,
+    libraryId: "library-1",
+    operationKind: request.operation.kind,
+    duplicate: false,
+    didMutate: true,
+    createdTarget: null,
+    canvasMutation: null,
+    affectedParentKeys: [],
+    affectedPageIds: ["page-1"],
+    affectedDatabaseIds: [databaseId],
+    affectedViewIds: [],
+    committedRevisions: {},
+    changeLogSeq: 5,
+    committedAt: timestamp,
+  },
+});
+
 const dependencies = (input: {
   readonly detail?: PageDetail;
   readonly requests?: BlockPropertyMutationRequestV2[];
   readonly refreshes?: string[];
   readonly results?: BlockPropertyMutationCommandResultV2[];
+  readonly databaseRequests?: DatabaseApplyV2[];
+  readonly databaseResults?: DatabaseApplyResultV2[];
+  readonly metadataRequests?: LibraryModuleApplyRequest[];
+  readonly metadataResults?: LibraryModuleApplyResult[];
 } = {}): PageDetailMetadataRuntimeDependencies => ({
   readDetail: async () => input.detail ?? detail(),
   mutateProperties: async (_projectId, request) => {
     input.requests?.push(request);
     return input.results?.shift() ?? mutationSuccess(request);
+  },
+  applyDatabase: async (_projectId, request) => {
+    input.databaseRequests?.push(request);
+    return input.databaseResults?.shift() ?? {
+      ok: true,
+      value: {
+        version: 4,
+        operationId: request.operationId,
+        projectId: request.projectId,
+        libraryId: "library-1",
+        storeEpoch: request.storeEpoch,
+        duplicate: false,
+        operationKinds: request.operations.map((operation) => operation.kind),
+        affectedDatabaseIds: [databaseId],
+        affectedDataSourceIds: [dataSourceId],
+        affectedPageIds: ["page-1"],
+        affectedViewIds: [],
+        committedRevisions: {},
+        changeLogSeq: 5,
+        committedAt: timestamp,
+      },
+    };
+  },
+  applyMetadataProperties: async (_projectId, request) => {
+    input.metadataRequests?.push(request);
+    return input.metadataResults?.shift() ?? metadataSuccess(request);
   },
   refreshDetail: async (_projectId, pageId) => {
     input.refreshes?.push(pageId);
@@ -196,6 +273,9 @@ const dependencies = (input: {
 
 const libraryDependencies = (input: {
   readonly requests: LibraryBlockPropertyMutationRequestV2[];
+  readonly databaseRequests?: LibraryDatabaseApplyV2[];
+  readonly metadataRequests?: LibraryModuleApplyRequest[];
+  readonly metadataResults?: LibraryModuleApplyResult[];
   readonly refreshes?: string[];
 }): LibraryPageDetailMetadataRuntimeDependencies => ({
   readDetail: async () => libraryDetail(),
@@ -216,6 +296,32 @@ const libraryDependencies = (input: {
       },
     } satisfies LibraryBlockPropertyMutationCommandResultV2;
   },
+  applyDatabase: async (request): Promise<LibraryDatabaseApplyResultV2> => {
+    input.databaseRequests?.push(request);
+    return {
+      ok: true,
+      value: {
+        version: 4,
+        operationId: request.operationId,
+        accessContext: { kind: "library" },
+        libraryId: "library-1",
+        storeEpoch: request.storeEpoch,
+        duplicate: false,
+        operationKinds: request.operations.map((operation) => operation.kind),
+        affectedDatabaseIds: [databaseId],
+        affectedDataSourceIds: [dataSourceId],
+        affectedPageIds: ["page-1"],
+        affectedViewIds: [],
+        committedRevisions: {},
+        changeLogSeq: 5,
+        committedAt: timestamp,
+      },
+    };
+  },
+  applyMetadataProperties: async (request) => {
+    input.metadataRequests?.push(request);
+    return input.metadataResults?.shift() ?? metadataSuccess(request);
+  },
   refreshDetail: async (pageId) => {
     input.refreshes?.push(pageId);
   },
@@ -224,31 +330,38 @@ const libraryDependencies = (input: {
 describe("Page Detail metadata runtime", () => {
   test("writes through Library scope without renderer-authored Project or actor fields", async () => {
     const requests: LibraryBlockPropertyMutationRequestV2[] = [];
+    const databaseRequests: LibraryDatabaseApplyV2[] = [];
     const refreshes: string[] = [];
     const result = await commitLibraryPageDetailMetadataPatch({
       pageId: "page-1",
       operationId: "library-set-priority",
       clientSessionId: "library-window",
       patch: { priority: "p1-high" },
-      dependencies: libraryDependencies({ requests, refreshes }),
+      dependencies: libraryDependencies({ requests, databaseRequests, refreshes }),
     });
 
     expect(result).toEqual({ status: "updated", didMutate: true });
-    expect(requests).toHaveLength(1);
-    expect(requests[0]).toMatchObject({
-      mutationId: "library-set-priority",
-      clientSessionId: "library-window",
-      fields: [{
-        scope: "data_source",
-        pageId: "page-1",
-        dataSourceId,
-        propertyId: "priority",
-        expectedRevision: 7,
-        value: "p1-high",
+    expect(requests).toHaveLength(0);
+    expect(databaseRequests).toHaveLength(1);
+    expect(databaseRequests[0]).toMatchObject({
+      operationId: "library-set-priority",
+      operations: [{
+        kind: "edit_property_values",
+        edits: [{
+          pageId: "page-1",
+          dataSourceId,
+          propertyId: "priority",
+          edit: {
+            kind: "replace",
+            expectedValueRevision: 7,
+            value: { kind: "select", optionId: "p1-high" },
+          },
+        }],
       }],
     });
-    expect("projectId" in requests[0]!).toBe(false);
-    expect("actor" in requests[0]!).toBe(false);
+    expect("projectId" in databaseRequests[0]!).toBe(false);
+    expect("actor" in databaseRequests[0]!).toBe(false);
+    expect("clientSessionId" in databaseRequests[0]!).toBe(false);
     expect(refreshes).toEqual(["page-1"]);
   });
 
@@ -267,34 +380,164 @@ describe("Page Detail metadata runtime", () => {
 
   test("writes Data Source values with the Page Detail value revision", async () => {
     const requests: BlockPropertyMutationRequestV2[] = [];
+    const databaseRequests: DatabaseApplyV2[] = [];
     const refreshes: string[] = [];
 
     const result = await commitPageDetailMetadataPatch({
       projectId: "project-1",
       pageId: "page-1",
       operationId: "set-priority",
+      clientSessionId: "page-stage-metadata",
       patch: { priority: "p1-high" },
-      dependencies: dependencies({ requests, refreshes }),
+      dependencies: dependencies({ requests, databaseRequests, refreshes }),
     });
 
     expect(result).toEqual({ status: "updated", didMutate: true });
-    expect(requests).toHaveLength(1);
-    expect(requests[0]).toMatchObject({
-      version: 2,
-      mutationId: "set-priority",
+    expect(requests).toHaveLength(0);
+    expect(databaseRequests).toHaveLength(1);
+    expect(databaseRequests[0]).toMatchObject({
+      version: 4,
+      operationId: "set-priority",
       projectId: "project-1",
       storeEpoch: "epoch-1",
-      fields: [{
-        scope: "data_source",
-        pageId: "page-1",
-        dataSourceId,
-        propertyId: "priority",
-        operation: "set",
-        expectedRevision: 7,
-        value: "p1-high",
+      operations: [{
+        kind: "edit_property_values",
+        edits: [{
+          pageId: "page-1",
+          dataSourceId,
+          propertyId: "priority",
+          edit: {
+            kind: "replace",
+            expectedValueRevision: 7,
+            value: { kind: "select", optionId: "p1-high" },
+          },
+        }],
       }],
     });
+    expect("clientSessionId" in databaseRequests[0]!).toBe(false);
     expect(refreshes).toEqual(["page-1"]);
+  });
+
+  test("keeps the value revision seen by the editor instead of overwriting newer authority", async () => {
+    const databaseRequests: DatabaseApplyV2[] = [];
+    const result = await commitPageDetailPropertyEdit({
+      projectId: "project-1",
+      pageId: "page-1",
+      propertyId: "p_C0nf1d3n",
+      operationId: "set-confidence",
+      clientSessionId: "page-stage-1",
+      edit: { kind: "replace", value: 0.82, expectedValueRevision: 1 },
+      dependencies: dependencies({ databaseRequests }),
+    });
+
+    expect(result).toEqual({ status: "updated", didMutate: true });
+    expect(databaseRequests[0]).toMatchObject({
+      operationId: "set-confidence",
+      actor: { kind: "page_stage" },
+      operations: [{
+        kind: "edit_property_values",
+        edits: [{
+          pageId: "page-1",
+          dataSourceId,
+          propertyId: "p_C0nf1d3n",
+          edit: {
+            kind: "replace",
+            expectedValueRevision: 1,
+            value: { kind: "number", value: 0.82 },
+          },
+        }],
+      }],
+    });
+    expect("clientSessionId" in databaseRequests[0]!).toBe(false);
+  });
+
+  test("keeps renderer session identity out of direct Library Database applies", async () => {
+    const requests: LibraryBlockPropertyMutationRequestV2[] = [];
+    const databaseRequests: LibraryDatabaseApplyV2[] = [];
+    const result = await commitLibraryPageDetailPropertyEdit({
+      pageId: "page-1",
+      propertyId: "p_C0nf1d3n",
+      operationId: "library-set-confidence",
+      clientSessionId: "library-page-stage",
+      edit: { kind: "replace", value: 0.82, expectedValueRevision: 1 },
+      dependencies: libraryDependencies({ requests, databaseRequests }),
+    });
+
+    expect(result).toEqual({ status: "updated", didMutate: true });
+    expect(databaseRequests).toHaveLength(1);
+    expect("clientSessionId" in databaseRequests[0]!).toBe(false);
+  });
+
+  test("creates and selects a custom option through one ordered Database apply", async () => {
+    const databaseRequests: DatabaseApplyV2[] = [];
+    const result = await commitPageDetailPropertyEdit({
+      projectId: "project-1",
+      pageId: "page-1",
+      propertyId: "tags",
+      operationId: "create-tag",
+      edit: {
+        kind: "create_option_and_select",
+        optionId: "o_CCCCCCCC",
+        name: "research",
+        color: "blue",
+        expectedPropertyRevision: 1,
+        expectedValueRevision: 6,
+      },
+      dependencies: dependencies({ databaseRequests }),
+    });
+
+    expect(result).toEqual({ status: "updated", didMutate: true });
+    expect(databaseRequests[0]?.operations).toMatchObject([
+      {
+        kind: "put_option",
+        propertyId: "tags",
+        optionId: "o_CCCCCCCC",
+        expectedPropertyRevision: 1,
+      },
+      {
+        kind: "edit_property_values",
+        edits: [{
+          edit: {
+            kind: "patch_set",
+            delta: { addOptionIds: ["o_CCCCCCCC"], removeOptionIds: [] },
+          },
+        }],
+      },
+    ]);
+  });
+
+  test("compiles a multi-select interaction as an explicit delta against fresh authority", async () => {
+    const databaseRequests: DatabaseApplyV2[] = [];
+    const result = await commitPageDetailPropertyEdit({
+      projectId: "project-1",
+      pageId: "page-1",
+      propertyId: "tags",
+      operationId: "add-tag",
+      edit: {
+        kind: "patch_multi_select",
+        addOptionIds: [backendOptionId],
+        removeOptionIds: [],
+      },
+      dependencies: dependencies({ databaseRequests }),
+    });
+
+    expect(result).toEqual({ status: "updated", didMutate: true });
+    expect(databaseRequests[0]?.operations).toEqual([{
+      kind: "edit_property_values",
+      edits: [{
+        pageId: "page-1",
+        dataSourceId,
+        propertyId: "tags",
+        edit: {
+          kind: "patch_set",
+          delta: {
+            kind: "multi_select",
+            addOptionIds: [backendOptionId],
+            removeOptionIds: [],
+          },
+        },
+      }],
+    }]);
   });
 
   test("writes Page intrinsic fields without inventing Data Source coordinates", async () => {
@@ -337,16 +580,13 @@ describe("Page Detail metadata runtime", () => {
       patch: { priority: "p1-high" },
       dependencies: dependencies({
         refreshes,
-        results: [{
+        databaseResults: [{
           ok: false,
           error: {
-            code: "property_conflict",
+            code: "revision_conflict",
             message: "stale value",
             retryable: false,
-            mutationId: "stale-priority",
-            fieldPath: "data_source/source-1/page-1/priority",
-            expectedRevision: 7,
-            actualRevision: 8,
+            operationId: "stale-priority",
           },
         }],
       }),
@@ -382,48 +622,64 @@ describe("Page Detail metadata runtime", () => {
     expect(refreshes).toEqual(["page-1"]);
   });
 
-  test("commits Data Source and intrinsic fields atomically", async () => {
+  test("commits Data Source and intrinsic fields through one atomic Library operation", async () => {
     const requests: BlockPropertyMutationRequestV2[] = [];
+    const databaseRequests: DatabaseApplyV2[] = [];
+    const metadataRequests: LibraryModuleApplyRequest[] = [];
     const result = await commitPageDetailMetadataPatch({
       projectId: "project-1",
       pageId: "page-1",
       operationId: "atomic-metadata",
       patch: { priority: "p1-high", runInBaseBranch: "main" },
-      dependencies: dependencies({ requests }),
+      dependencies: dependencies({ requests, databaseRequests, metadataRequests }),
     });
 
     expect(result).toEqual({ status: "updated", didMutate: true });
-    expect(requests).toHaveLength(1);
-    expect(requests[0]?.fields).toEqual(expect.arrayContaining([
-      expect.objectContaining({ scope: "data_source", propertyId: "priority" }),
-      expect.objectContaining({ scope: "intrinsic", propertyKey: "run.baseBranch" }),
-    ]));
+    expect(requests).toHaveLength(0);
+    expect(databaseRequests).toHaveLength(0);
+    expect(metadataRequests).toHaveLength(1);
+    expect(metadataRequests[0]?.operation).toMatchObject({
+      kind: "apply_page_metadata_properties",
+      databaseOperations: [expect.objectContaining({ kind: "edit_property_values" })],
+      intrinsicFields: [
+        expect.objectContaining({ scope: "intrinsic", propertyKey: "run.baseBranch" }),
+      ],
+    });
   });
 
   test("translates tag display names into source-scoped option IDs", async () => {
     const requests: BlockPropertyMutationRequestV2[] = [];
+    const databaseRequests: DatabaseApplyV2[] = [];
     const result = await commitPageDetailMetadataPatch({
       projectId: "project-1",
       pageId: "page-1",
       operationId: "set-tags",
       patch: { tags: ["backend"] },
-      dependencies: dependencies({ requests }),
+      dependencies: dependencies({ requests, databaseRequests }),
     });
 
     expect(result).toEqual({ status: "updated", didMutate: true });
-    expect(requests[0]?.fields).toEqual([
+    expect(requests).toHaveLength(0);
+    expect(databaseRequests[0]?.operations).toEqual([{
+      kind: "edit_property_values",
+      edits: [
       expect.objectContaining({
-        scope: "data_source",
         propertyId: "tags",
-        operation: "add_remove",
-        add: [backendOptionId],
-        remove: [uiOptionId],
+        edit: {
+          kind: "patch_set",
+          delta: {
+            kind: "multi_select",
+            addOptionIds: [backendOptionId],
+            removeOptionIds: [uiOptionId],
+          },
+        },
       }),
-    ]);
+    ]}]);
   });
 
   test("retries the exact v2 request once after a retryable outage", async () => {
     const requests: BlockPropertyMutationRequestV2[] = [];
+    const databaseRequests: DatabaseApplyV2[] = [];
     const result = await commitPageDetailMetadataPatch({
       projectId: "project-1",
       pageId: "page-1",
@@ -431,20 +687,22 @@ describe("Page Detail metadata runtime", () => {
       patch: { priority: "p1-high" },
       dependencies: dependencies({
         requests,
-        results: [{
+        databaseRequests,
+        databaseResults: [{
           ok: false,
           error: {
             code: "unknown",
             message: "worker unavailable",
             retryable: true,
-            mutationId: "retry-priority",
+            operationId: "retry-priority",
           },
         }],
       }),
     });
 
     expect(result).toEqual({ status: "updated", didMutate: true });
-    expect(requests).toHaveLength(2);
-    expect(requests[1]).toEqual(requests[0]);
+    expect(requests).toHaveLength(0);
+    expect(databaseRequests).toHaveLength(2);
+    expect(databaseRequests[1]).toEqual(databaseRequests[0]);
   });
 });

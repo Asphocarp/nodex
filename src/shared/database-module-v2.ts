@@ -7,7 +7,6 @@ import type {
   DatabaseViewRecord as DatabaseViewRecordV1,
   DataSourcePageRow as DataSourcePageRowV1,
   DataSourcePageValue as DataSourcePageValueV1,
-  DataSourcePropertyRecord as DataSourcePropertyRecordV1,
   DataSourceRecord as DataSourceRecordV1,
 } from "./database-module";
 import type {
@@ -19,12 +18,13 @@ import type {
 } from "./database-identities";
 import type {
   DatabaseJsonValue,
+  DatabasePropertyOption,
   DatabasePropertyValueType,
   DatabaseViewConfigV2,
   DatabaseViewKind,
 } from "./database-kernel";
 
-export const DATABASE_MODULE_V2_CONTRACT_VERSION = 3 as const;
+export const DATABASE_MODULE_V2_CONTRACT_VERSION = 4 as const;
 export const MAX_DATABASE_MODULE_V2_OPERATIONS = 64 as const;
 export const MAX_DATABASE_MODULE_V2_BULK_ENTRIES = 100 as const;
 
@@ -40,13 +40,51 @@ export interface DataSourceRecordV2
   readonly homeDatabaseId: DatabaseId;
 }
 
-export interface DataSourcePropertyRecordV2
-  extends Omit<
-    DataSourcePropertyRecordV1,
-    "propertyId" | "dataSourceId" | "key"
-  > {
+export type DatabasePropertySchemaV2 =
+  | { readonly kind: "text" }
+  | { readonly kind: "number" }
+  | { readonly kind: "checkbox" }
+  | { readonly kind: "select" }
+  | { readonly kind: "multi_select" }
+  | { readonly kind: "date" }
+  | { readonly kind: "datetime" }
+  | { readonly kind: "person" }
+  | {
+      readonly kind: "relation";
+      readonly targetDataSourceId: DataSourceId;
+    };
+
+export interface DatabasePropertyCapabilitiesV2 {
+  readonly replace: boolean;
+  readonly patchSetMember: "option" | "page" | null;
+  readonly filterOperators: readonly (
+    | "equals"
+    | "not_equals"
+    | "contains"
+    | "not_contains"
+    | "is_empty"
+    | "is_not_empty"
+  )[];
+  readonly sortable: boolean;
+  readonly groupable: boolean;
+}
+
+export interface DataSourcePropertyRecordV2 {
   readonly propertyId: DataSourcePropertyId;
   readonly dataSourceId: DataSourceId;
+  readonly name: string;
+  readonly schema: DatabasePropertySchemaV2;
+  readonly capabilities: DatabasePropertyCapabilitiesV2;
+  /** Derived presentation discriminator; schema is the authority. */
+  readonly valueType: DatabasePropertyValueType;
+  /** Option registries are fetched through OptionWindow when an editor opens. */
+  readonly config: Readonly<Record<string, DatabaseJsonValue>>;
+  readonly optionCount: number;
+  readonly rankKey: string;
+  readonly lifecycle: "active" | "archived" | "deleted";
+  readonly revision: number;
+  readonly createdAt: string;
+  readonly updatedAt: string;
 }
 
 export interface DatabaseViewRecordV2
@@ -117,10 +155,54 @@ export interface DataSourceQueryResultV2 {
   readonly rows: readonly DataSourcePageRowV2[];
 }
 
+export type DatabaseRelationTargetV2 =
+  | {
+      readonly kind: "visible";
+      readonly pageId: string;
+      readonly title: string;
+      readonly lifecycle: string;
+      readonly membershipState: string;
+    }
+  | { readonly kind: "restricted" };
+
+export interface DatabaseRelationTargetWindowV2 {
+  readonly valueRevision: number;
+  readonly totalCount: number;
+  readonly targets: readonly DatabaseRelationTargetV2[];
+  readonly nextCursor: string | null;
+  readonly projectionRevision: number;
+}
+
+export interface DatabasePropertyOptionWindowV2 {
+  readonly options: readonly DatabasePropertyOption[];
+  readonly nextCursor: string | null;
+  readonly projectionRevision: number;
+}
+
+export interface DatabaseCatalogWindowV2 {
+  readonly databases: readonly DatabaseContainerDescriptorV2[];
+  readonly nextCursor: string | null;
+  readonly projectionRevision: number;
+}
+
+export interface DatabaseRelationCandidateWindowV2 {
+  readonly candidates: readonly {
+    readonly pageId: string;
+    readonly title: string;
+  }[];
+  readonly nextCursor: string | null;
+  readonly projectionRevision: number;
+}
+
 export type DatabaseReadV2 =
   | {
       readonly target: { readonly kind: "project_default" };
       readonly mode: "database";
+    }
+  | {
+      readonly target: { readonly kind: "project_default" };
+      readonly mode: "catalog_window";
+      readonly window?: { readonly after?: string | null; readonly first?: number };
     }
   | {
       readonly target: {
@@ -138,13 +220,45 @@ export type DatabaseReadV2 =
     }
   | {
       readonly target: {
+        readonly kind: "data_source";
+        readonly dataSourceId: DataSourceId;
+      };
+      readonly mode: "relation_candidate_window";
+      readonly query?: string;
+      readonly window?: { readonly after?: string | null; readonly first?: number };
+    }
+  | {
+      readonly target: {
         readonly kind: "view";
         readonly viewId: DatabaseViewId;
       };
       readonly mode: "view";
+    }
+  | {
+      readonly target: {
+        readonly kind: "page_property";
+        readonly pageId: string;
+        readonly dataSourceId: DataSourceId;
+        readonly propertyId: DataSourcePropertyId;
+      };
+      readonly mode: "relation_target_window";
+      readonly window?: { readonly after?: string | null; readonly first?: number };
+    }
+  | {
+      readonly target: {
+        readonly kind: "property";
+        readonly dataSourceId: DataSourceId;
+        readonly propertyId: DataSourcePropertyId;
+      };
+      readonly mode: "option_window";
+      readonly window?: { readonly after?: string | null; readonly first?: number };
     };
 
 export type DatabaseReadValueV2 =
+  | {
+      readonly kind: "catalog_window";
+      readonly value: DatabaseCatalogWindowV2;
+    }
   | {
       readonly kind: "database";
       readonly value: DatabaseContainerDescriptorV2;
@@ -155,6 +269,18 @@ export type DatabaseReadValueV2 =
   | {
       readonly kind: "data_source_query";
       readonly value: DataSourceQueryResultV2;
+    }
+  | {
+      readonly kind: "relation_target_window";
+      readonly value: DatabaseRelationTargetWindowV2;
+    }
+  | {
+      readonly kind: "option_window";
+      readonly value: DatabasePropertyOptionWindowV2;
+    }
+  | {
+      readonly kind: "relation_candidate_window";
+      readonly value: DatabaseRelationCandidateWindowV2;
     };
 
 export interface DatabaseModuleReadRequestV2
@@ -221,13 +347,7 @@ export interface PutDataSourcePropertyOperationV2 {
   readonly expectedDataSourceRevision: number;
   readonly expectedPropertyRevision: number;
   readonly name: string;
-  readonly valueType: DatabasePropertyValueType;
-  /**
-   * Updates preserve the existing option registry. Create, rename, and schema
-   * updates use an empty object; option membership changes only through the
-   * explicit option operations in the same ordered apply request.
-   */
-  readonly config: DataSourcePropertyMutationConfigV2;
+  readonly schema: DatabasePropertySchemaV2;
   readonly beforePropertyId?: DataSourcePropertyId;
 }
 
@@ -257,27 +377,49 @@ export interface DeleteDataSourceOptionOperationV2 {
   readonly expectedPropertyRevision: number;
 }
 
-export interface SetDataSourcePageValueOperationV2 {
-  readonly kind: "set_value";
+export type DatabasePropertyValueInputV2 =
+  | { readonly kind: "empty" }
+  | { readonly kind: "text"; readonly value: string }
+  | { readonly kind: "number"; readonly value: number }
+  | { readonly kind: "checkbox"; readonly value: boolean }
+  | { readonly kind: "select"; readonly optionId: DataSourceOptionId }
+  | {
+      readonly kind: "multi_select";
+      readonly optionIds: readonly DataSourceOptionId[];
+    }
+  | { readonly kind: "date"; readonly value: string }
+  | { readonly kind: "datetime"; readonly value: string }
+  | { readonly kind: "person"; readonly personId: string }
+  | { readonly kind: "relation"; readonly pageIds: readonly string[] };
+
+export type DatabasePropertySetDeltaV2 =
+  | {
+      readonly kind: "multi_select";
+      readonly addOptionIds: readonly DataSourceOptionId[];
+      readonly removeOptionIds: readonly DataSourceOptionId[];
+    }
+  | {
+      readonly kind: "relation";
+      readonly addPageIds: readonly string[];
+      readonly removePageIds: readonly string[];
+    };
+
+export interface DatabasePropertyValueMutationV2 {
   readonly pageId: string;
   readonly dataSourceId: DataSourceId;
   readonly propertyId: DataSourcePropertyId;
-  readonly expectedValueRevision: number;
-  readonly value: DatabaseJsonValue;
+  readonly edit:
+    | {
+        readonly kind: "replace";
+        readonly expectedValueRevision: number;
+        readonly value: DatabasePropertyValueInputV2;
+      }
+    | { readonly kind: "patch_set"; readonly delta: DatabasePropertySetDeltaV2 };
 }
 
-export interface SetDataSourcePageValuesOperationV2 {
-  readonly kind: "set_values";
-  readonly values: readonly Omit<SetDataSourcePageValueOperationV2, "kind">[];
-}
-
-export interface AddRemoveDataSourcePageValueOperationV2 {
-  readonly kind: "add_remove_value";
-  readonly pageId: string;
-  readonly dataSourceId: DataSourceId;
-  readonly propertyId: DataSourcePropertyId;
-  readonly add: readonly DataSourceOptionId[];
-  readonly remove: readonly DataSourceOptionId[];
+export interface EditDataSourcePageValuesOperationV2 {
+  readonly kind: "edit_property_values";
+  readonly edits: readonly DatabasePropertyValueMutationV2[];
 }
 
 export interface TransferDataSourcePageOperationV2 {
@@ -336,9 +478,7 @@ export type DatabaseApplyOperationV2 =
   | DeleteDataSourcePropertyOperationV2
   | PutDataSourceOptionOperationV2
   | DeleteDataSourceOptionOperationV2
-  | SetDataSourcePageValueOperationV2
-  | SetDataSourcePageValuesOperationV2
-  | AddRemoveDataSourcePageValueOperationV2
+  | EditDataSourcePageValuesOperationV2
   | TransferDataSourcePageOperationV2
   | PutDatabaseViewOperationV2
   | DeleteDatabaseViewOperationV2

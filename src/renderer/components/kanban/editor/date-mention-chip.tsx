@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { createReactInlineContentSpec } from "@blocknote/react";
-import { DayFlag, DayPicker, SelectionState, UI, type DateRange } from "react-day-picker";
+import { DayPicker, type DateRange } from "react-day-picker";
 import {
   NodexDropdownChoiceMenu,
   NodexDropdownSeparator,
@@ -17,10 +17,13 @@ import {
   BellIcon,
   CalendarIcon,
   CheckmarkIcon,
-  ChevronRightIcon,
   ClockIcon,
   SmallChevronDownIcon,
 } from "@/components/shared/icons";
+import {
+  NODEX_DAY_PICKER_CLASS_NAMES,
+  NodexDateCalendarHeader,
+} from "@/components/ui/date-calendar";
 import {
   addIsoDateDays,
   createDateMentionPayload,
@@ -99,31 +102,6 @@ const REMINDER_OPTIONS: NodexDropdownChoiceOption[] = [
   })),
 ];
 
-const DAY_PICKER_CLASS_NAMES = {
-  [UI.Root]: "notion-date-property-menu notranslate date-mention-day-picker w-full select-none px-2 pb-2",
-  [UI.Months]: "flex w-full flex-col",
-  [UI.Month]: "w-full",
-  [UI.MonthCaption]: "sr-only",
-  [UI.CaptionLabel]: "sr-only",
-  [UI.MonthGrid]: "w-full table-fixed border-separate border-spacing-0",
-  [UI.Weekdays]: "grid grid-cols-7",
-  [UI.Weekday]: "flex h-6 items-center justify-center text-[11px] font-normal text-token-description-foreground",
-  [UI.Weeks]: "block",
-  [UI.Week]: "grid grid-cols-7",
-  [UI.Day]: "rdp-day flex size-8 items-center justify-center p-0 text-center text-sm leading-none",
-  [UI.DayButton]: cn(
-    "flex size-7 items-center justify-center rounded-md text-sm leading-none outline-hidden",
-    "hover:bg-token-list-hover-background focus-visible:ring-token-focus focus-visible:ring-2",
-  ),
-  [DayFlag.outside]: "rdp-day_outside [&>button]:text-token-description-foreground/55",
-  [DayFlag.today]: "rdp-day_today [&>button]:font-medium [&>button]:ring-[0.5px] [&>button]:ring-token-border",
-  [DayFlag.focused]: "rdp-day_focused",
-  [SelectionState.selected]: "rdp-day_selected [&>button]:bg-token-charts-blue [&>button]:text-white [&>button]:ring-0",
-  [SelectionState.range_start]: "rdp-day_start [&>button]:bg-token-charts-blue [&>button]:text-white [&>button]:ring-0",
-  [SelectionState.range_middle]: "rdp-day_range_middle [&>button]:bg-token-charts-blue/10 [&>button]:text-token-charts-blue [&>button]:ring-0",
-  [SelectionState.range_end]: "rdp-day_end [&>button]:bg-token-charts-blue [&>button]:text-white [&>button]:ring-0",
-} as const;
-
 function normalizeDateMentionProps(input: Partial<DateMentionProps> | undefined): DateMentionProps {
   return {
     ...EMPTY_DATE_MENTION_PROPS,
@@ -178,47 +156,6 @@ export function buildDateMentionUpdate(
     type: "dateMention",
     props: dateMentionPayloadToProps(nextPayload),
   };
-}
-
-function DateMentionHeader({
-  month,
-  onMonthChange,
-  onToday,
-}: {
-  month: Date;
-  onMonthChange: (month: Date) => void;
-  onToday: () => void;
-}) {
-  return (
-    <div className="flex h-9 items-center gap-1 px-2">
-      <button
-        type="button"
-        className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-sm text-token-foreground hover:bg-token-list-hover-background focus-visible:ring-token-focus focus-visible:ring-2 focus-visible:outline-hidden"
-        onClick={onToday}
-      >
-        Today
-      </button>
-      <div className="min-w-0 flex-1 text-center text-sm font-medium text-token-foreground">
-        {new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" }).format(month)}
-      </div>
-      <button
-        type="button"
-        aria-label="Previous month"
-        className="flex size-7 items-center justify-center rounded-md text-token-description-foreground hover:bg-token-list-hover-background hover:text-token-foreground focus-visible:ring-token-focus focus-visible:ring-2 focus-visible:outline-hidden"
-        onClick={() => onMonthChange(addMonth(month, -1))}
-      >
-        <ChevronRightIcon className="icon-2xs rotate-180" />
-      </button>
-      <button
-        type="button"
-        aria-label="Next month"
-        className="flex size-7 items-center justify-center rounded-md text-token-description-foreground hover:bg-token-list-hover-background hover:text-token-foreground focus-visible:ring-token-focus focus-visible:ring-2 focus-visible:outline-hidden"
-        onClick={() => onMonthChange(addMonth(month, 1))}
-      >
-        <ChevronRightIcon className="icon-2xs" />
-      </button>
-    </div>
-  );
 }
 
 function DateMentionSwitch({
@@ -499,7 +436,7 @@ function DateMentionPopoverBody({
         </div>
       </div>
 
-      <DateMentionHeader
+      <NodexDateCalendarHeader
         month={month}
         onMonthChange={setMonth}
         onToday={() => {
@@ -519,7 +456,7 @@ function DateMentionPopoverBody({
           showOutsideDays
           fixedWeeks
           hideNavigation
-          classNames={DAY_PICKER_CLASS_NAMES}
+          classNames={NODEX_DAY_PICKER_CLASS_NAMES}
         />
       ) : (
         <DayPicker
@@ -531,7 +468,7 @@ function DateMentionPopoverBody({
           showOutsideDays
           fixedWeeks
           hideNavigation
-          classNames={DAY_PICKER_CLASS_NAMES}
+          classNames={NODEX_DAY_PICKER_CLASS_NAMES}
         />
       )}
 
@@ -753,8 +690,4 @@ export function createDateMentionInlineContentSpec() {
       },
     },
   );
-}
-
-function addMonth(date: Date, delta: number): Date {
-  return new Date(date.getFullYear(), date.getMonth() + delta, 1);
 }

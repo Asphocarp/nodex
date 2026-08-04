@@ -23,7 +23,7 @@ const statusPropertyId = parseDataSourcePropertyId("status");
 const memberResult = (): PageDetailResult => ({
   ok: true,
   value: {
-    version: 2,
+    version: 3,
     projectId: "project-1",
     libraryId: "library-1",
     storeEpoch: "epoch-1",
@@ -86,8 +86,22 @@ const memberResult = (): PageDetailResult => ({
         propertyId: statusPropertyId,
         dataSourceId,
         name: "Status",
+        schema: { kind: "select" },
+        capabilities: {
+          replace: true,
+          patchSetMember: null,
+          filterOperators: [
+            "equals",
+            "not_equals",
+            "is_empty",
+            "is_not_empty",
+          ],
+          sortable: true,
+          groupable: true,
+        },
         valueType: "select",
-        config: { options: [{ id: "triage", name: "Triage" }] },
+        config: {},
+        optionCount: 1,
         rankKey: "a0",
         lifecycle: "active",
         revision: 1,

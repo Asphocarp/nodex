@@ -205,8 +205,6 @@ export const blockPropertyMutationHttpStatusV2 = (
   if (
     error.code === "project_not_found" ||
     error.code === "block_not_found" ||
-    error.code === "data_source_not_found" ||
-    error.code === "membership_not_found" ||
     error.code === "property_not_found"
   ) {
     return 404;

@@ -306,7 +306,7 @@ export function useKanban(options: UseKanbanOptions) {
   );
 
   const deletePage = useCallback(
-    async (columnId: string, pageId: string): Promise<boolean> => {
+    async (columnId: string | undefined, pageId: string): Promise<boolean> => {
       if (!requireWritableSelectedView()) return false;
       const operationId = crypto.randomUUID();
       const outcome = await store.runOptimisticMutation<boolean>({
@@ -351,7 +351,6 @@ export function useKanban(options: UseKanbanOptions) {
         apply: buildMovePageTransform(input),
         runRemote: async () => await commitDatabasePageDrag({
           projectId,
-          clientSessionId: sessionId,
           operationId,
           move: input,
           snapshot: dragSnapshot,
@@ -365,7 +364,7 @@ export function useKanban(options: UseKanbanOptions) {
       onMutation?.();
       return true;
     },
-    [onMutation, projectId, requireWritableSelectedView, sessionId, store],
+    [onMutation, projectId, requireWritableSelectedView, store],
   );
 
   const movePages = useCallback(
@@ -384,7 +383,6 @@ export function useKanban(options: UseKanbanOptions) {
         apply: buildMovePagesTransform(input),
         runRemote: async () => await commitDatabasePagesDrag({
           projectId,
-          clientSessionId: sessionId,
           operationId,
           move: input,
           snapshot: dragSnapshot,
@@ -398,7 +396,7 @@ export function useKanban(options: UseKanbanOptions) {
       onMutation?.();
       return true;
     },
-    [onMutation, projectId, requireWritableSelectedView, sessionId, store],
+    [onMutation, projectId, requireWritableSelectedView, store],
   );
 
   const listPageOccurrences = useCallback(

@@ -6,6 +6,10 @@ import {
   readPageDetail,
 } from "./api";
 import { useProjectionInvalidationRegistry } from "./projection-invalidation-context";
+import {
+  pageDetailDataDependencies,
+  pageDetailDocumentDependencies,
+} from "./page-detail-projection-dependencies";
 
 export interface PageDetailSnapshot {
   readonly detail: PageDetail | null;
@@ -216,16 +220,18 @@ export const usePageDetail = (
   }, [pageId, projectId]);
 
   const snapshot = key ? (entries.get(key) ?? EMPTY_DETAIL) : EMPTY_DETAIL;
-  const documentId = snapshot.detail?.page.documentId ?? null;
   useEffect(() => {
     if (!projectId || !pageId || !libraryId) return;
     return registry.register({
       scope: { kind: "project", libraryId, projectId },
       consumerKey: `page-detail:${projectId}:${pageId}`,
-      getDependencies: () => ({
-        pageIds: [pageId],
-        documentIds: documentId ? [documentId] : [],
-      }),
+      getDependencies: () => {
+        const detail = getPageDetail(projectId, pageId);
+        return {
+          ...pageDetailDataDependencies(detail, pageId),
+          ...pageDetailDocumentDependencies(detail, pageId),
+        };
+      },
       getCursor: () => {
         const detail = getPageDetail(projectId, pageId);
         return detail
@@ -237,7 +243,7 @@ export const usePageDetail = (
       },
       invalidate: (cause) => requestPageDetailRefresh(projectId, pageId, cause),
     });
-  }, [documentId, libraryId, pageId, projectId, registry]);
+  }, [libraryId, pageId, projectId, registry]);
 
   return snapshot;
 };

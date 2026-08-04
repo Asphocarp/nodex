@@ -8,7 +8,63 @@ use crate::agent::AgentExecutionAuthorization;
 use crate::collection::{CollectionWindow, CollectionWindowRequest};
 use crate::{ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const DATABASE_CONTRACT_VERSION: u32 = 5;
+pub const DATABASE_CONTRACT_VERSION: u32 = 6;
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum DatabasePropertySchema {
+    Text,
+    Number,
+    Checkbox,
+    Select,
+    MultiSelect,
+    Date,
+    Datetime,
+    Person,
+    Relation { target_data_source_id: String },
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DatabasePropertySetMemberKind {
+    Option,
+    Page,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DatabasePropertyFilterOperator {
+    Equals,
+    NotEquals,
+    Contains,
+    NotContains,
+    IsEmpty,
+    IsNotEmpty,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct DatabasePropertyCapabilities {
+    pub replace: bool,
+    pub patch_set_member: Option<DatabasePropertySetMemberKind>,
+    pub filter_operators: Vec<DatabasePropertyFilterOperator>,
+    pub sortable: bool,
+    pub groupable: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct DatabasePropertyDescriptor {
+    pub property_id: String,
+    pub data_source_id: String,
+    pub name: String,
+    pub schema: DatabasePropertySchema,
+    pub capabilities: DatabasePropertyCapabilities,
+    pub option_count: u32,
+    pub rank_key: String,
+    pub lifecycle: String,
+    pub revision: i64,
+    pub created_at: String,
+    pub updated_at: String,
+}
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -29,6 +85,11 @@ pub enum DatabaseTarget {
     },
     Page {
         page_id: String,
+    },
+    PageProperty {
+        page_id: String,
+        data_source_id: String,
+        property_id: String,
     },
     AgentDataSource {
         data_source_id: String,
@@ -57,6 +118,8 @@ pub enum DatabaseReadMode {
     ViewContext,
     RowsById,
     RowDetail,
+    RelationTargetWindow,
+    RelationCandidateWindow,
 }
 
 /// Restricts a `ViewWindow` read to a single group of a grouped View, so each
@@ -103,7 +166,7 @@ pub enum DatabaseReadValue {
         value: Value,
     },
     PropertyWindow {
-        properties: CollectionWindow<Value>,
+        properties: CollectionWindow<DatabasePropertyDescriptor>,
     },
     OptionWindow {
         options: CollectionWindow<Value>,
@@ -132,6 +195,46 @@ pub enum DatabaseReadValue {
     RowDetail {
         value: Box<DatabaseRowDetail>,
     },
+    RelationTargetWindow {
+        value: DatabaseRelationTargetWindow,
+    },
+    RelationCandidateWindow {
+        candidates: CollectionWindow<DatabaseRelationCandidate>,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct DatabaseRelationCandidate {
+    pub page_id: String,
+    pub title: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum DatabaseRelationTargetItem {
+    Visible {
+        page_id: String,
+        title: String,
+        lifecycle: String,
+        membership_state: String,
+    },
+    Restricted,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct DatabaseRelationTargetWindow {
+    pub value_revision: i64,
+    pub total_count: i64,
+    pub targets: CollectionWindow<DatabaseRelationTargetItem>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct DatabaseRelationValuePreview {
+    pub value_revision: i64,
+    pub total_count: i64,
+    pub targets: Vec<DatabaseRelationTargetItem>,
+    pub restricted_count: i64,
+    pub has_more: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -171,7 +274,7 @@ pub struct DatabaseViewContext {
     pub database: Value,
     pub data_source: Value,
     pub view: Value,
-    pub properties: Vec<Value>,
+    pub properties: Vec<DatabasePropertyDescriptor>,
     pub groups: DatabaseViewGroups,
     pub rows: CollectionWindow<DatabaseViewContextRow>,
 }
@@ -230,7 +333,7 @@ pub enum DatabaseIntent {
         expected_data_source_revision: i64,
         expected_property_revision: i64,
         name: String,
-        value_type: String,
+        schema: DatabasePropertySchema,
         before_property_id: Option<String>,
     },
     DeleteProperty {
@@ -253,22 +356,8 @@ pub enum DatabaseIntent {
         option_id: String,
         expected_property_revision: i64,
     },
-    SetValue {
-        page_id: String,
-        data_source_id: String,
-        property_id: String,
-        expected_value_revision: i64,
-        value: Value,
-    },
-    SetValues {
-        values: Vec<DatabasePageValue>,
-    },
-    AddRemoveValue {
-        page_id: String,
-        data_source_id: String,
-        property_id: String,
-        add: Vec<String>,
-        remove: Vec<String>,
+    EditPropertyValues {
+        edits: Vec<DatabasePropertyValueMutation>,
     },
     TransferPage {
         page_id: String,
@@ -308,12 +397,56 @@ pub enum DatabaseIntent {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
-pub struct DatabasePageValue {
+pub struct DatabasePagePropertyAddress {
     pub page_id: String,
     pub data_source_id: String,
     pub property_id: String,
-    pub expected_value_revision: i64,
-    pub value: Value,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum DatabasePropertyValueInput {
+    Empty,
+    Text { value: String },
+    Number { value: f64 },
+    Checkbox { value: bool },
+    Select { option_id: String },
+    MultiSelect { option_ids: Vec<String> },
+    Date { value: String },
+    Datetime { value: String },
+    Person { person_id: String },
+    Relation { page_ids: Vec<String> },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum DatabasePropertySetDelta {
+    MultiSelect {
+        add_option_ids: Vec<String>,
+        remove_option_ids: Vec<String>,
+    },
+    Relation {
+        add_page_ids: Vec<String>,
+        remove_page_ids: Vec<String>,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum DatabasePropertyValueEdit {
+    Replace {
+        expected_value_revision: i64,
+        value: DatabasePropertyValueInput,
+    },
+    PatchSet {
+        delta: DatabasePropertySetDelta,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
+pub struct DatabasePropertyValueMutation {
+    pub address: DatabasePagePropertyAddress,
+    pub edit: DatabasePropertyValueEdit,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]

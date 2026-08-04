@@ -342,10 +342,8 @@ fn create_page(
     )?;
     let source = read_create_source(connection, library_id, data_source_id)?;
     let mut properties = read_create_properties(connection, data_source_id)?;
-    let (selected_tags, tags_config_json) = {
-        let tags_property = properties
-            .get_mut("tags")
-            .ok_or_else(|| corrupt("Data Source has no active tags Property"))?;
+    let (selected_tags, tags_config_json) = if let Some(tags_property) = properties.get_mut("tags")
+    {
         if tags_property.schema_revision != *expected_tags_property_revision {
             return Err(conflict("Tags Property revision changed"));
         }
@@ -355,7 +353,14 @@ fn create_page(
         let tags_config_json = serde_json::to_string(&tags_config)
             .map_err(|_| corrupt("Tags Property registry cannot encode"))?;
         tags_property.config_json = tags_config_json.clone();
-        (selected_tags, tags_config_json)
+        (selected_tags, Some(tags_config_json))
+    } else {
+        if !tag_option_ids.is_empty() || !new_tag_options.is_empty() {
+            return Err(invalid(
+                "Page tags cannot be selected when the Data Source has no tags Property",
+            ));
+        }
+        (Value::Array(Vec::new()), None)
     };
     let values = validate_create_values(
         &properties,
@@ -373,10 +378,11 @@ fn create_page(
         .pointer("/group/propertyId")
         .and_then(Value::as_str)
     {
-        let value = values
+        values
             .get(property_id)
-            .ok_or_else(|| corrupt("Default View group Property is unavailable"))?;
-        database_group_key(value)?
+            .map(database_group_key)
+            .transpose()?
+            .flatten()
     } else {
         None
     };
@@ -417,6 +423,9 @@ fn create_page(
     )?;
     let now = sqlite_now(connection)?;
     if !new_tag_options.is_empty() {
+        let tags_config_json = tags_config_json
+            .as_ref()
+            .ok_or_else(|| corrupt("Tags Property disappeared during Page creation"))?;
         let changed = connection.execute(
             "UPDATE data_source_properties SET config_json = ?1, \
                schema_revision = schema_revision + 1, updated_at = ?2 \
@@ -440,6 +449,14 @@ fn create_page(
             params![rank_key, now, source.view_id, positioned_page_id],
         )?;
     }
+    let indexed_scheduled_start = values
+        .get("scheduled_start")
+        .and_then(|(_, value)| value.as_str());
+    let indexed_scheduled_end = values
+        .get("scheduled_end")
+        .and_then(|(_, value)| value.as_str());
+    let indexed_is_all_day =
+        *is_all_day && indexed_scheduled_start.is_some() && indexed_scheduled_end.is_some();
     connection.execute(
         "INSERT INTO blocks( \
            id, project_id, type, lifecycle, location_kind, containing_document_id, \
@@ -553,9 +570,9 @@ fn create_page(
         params![
             page_id,
             project_id,
-            scheduled_start,
-            scheduled_end,
-            i64::from(*is_all_day),
+            indexed_scheduled_start,
+            indexed_scheduled_end,
+            i64::from(indexed_is_all_day),
             serde_json::to_string(recurrence.as_ref().unwrap_or(&Value::Null))
                 .map_err(|_| corrupt("Page recurrence cannot encode"))?,
             serde_json::to_string(reminders)
@@ -596,10 +613,14 @@ fn create_page(
         library_rank_key: None,
         view_rank_key: Some(view_rank_key.rank_key),
         created_block_ids: created_block_ids.clone(),
-        created_tag_option_ids: new_tag_options
-            .iter()
-            .map(|option| option.option_id.clone())
-            .collect(),
+        created_tag_option_ids: if tags_config_json.is_some() {
+            new_tag_options
+                .iter()
+                .map(|option| option.option_id.clone())
+                .collect()
+        } else {
+            Vec::new()
+        },
         delete_evidence: None,
     };
     super::mutation::finish_mutation(
@@ -622,16 +643,21 @@ fn create_page(
             affected_database_ids: vec![source.database_id.clone()],
             affected_view_ids: vec![source.view_id.clone()],
             affected_document_ids: vec![document_id],
-            committed_revisions: BTreeMap::from([
-                (format!("blockMetadata:{page_id}"), 1),
-                (format!("blockLocation:{page_id}"), 1),
-                (format!("membership:{membership_id}"), 1),
-                (format!("position:{}:{page_id}", source.view_id), 1),
-                (
-                    format!("property:{data_source_id}:tags"),
-                    expected_tags_property_revision + i64::from(!new_tag_options.is_empty()),
-                ),
-            ]),
+            committed_revisions: {
+                let mut revisions = BTreeMap::from([
+                    (format!("blockMetadata:{page_id}"), 1),
+                    (format!("blockLocation:{page_id}"), 1),
+                    (format!("membership:{membership_id}"), 1),
+                    (format!("position:{}:{page_id}", source.view_id), 1),
+                ]);
+                if tags_config_json.is_some() {
+                    revisions.insert(
+                        format!("property:{data_source_id}:tags"),
+                        expected_tags_property_revision + i64::from(!new_tag_options.is_empty()),
+                    );
+                }
+                revisions
+            },
             page_create: None,
             page_copy: None,
             canvas_mutation: None,
@@ -845,10 +871,11 @@ fn validate_create_values(
     ]);
     inputs
         .into_iter()
-        .map(|(property_id, (expected_type, value))| {
-            let property = properties.get(property_id).ok_or_else(|| {
-                corrupt(&format!("Data Source is missing Property {property_id}"))
-            })?;
+        .filter_map(|(property_id, (expected_type, value))| {
+            let property = properties.get(property_id)?;
+            Some((property_id, expected_type, value, property))
+        })
+        .map(|(property_id, expected_type, value, property)| {
             if property.value_type != expected_type {
                 return Err(corrupt(&format!(
                     "Data Source Property {property_id} has the wrong type"
@@ -2855,4 +2882,58 @@ fn unauthorized(message: &str) -> StoreError {
 
 fn corrupt(message: &str) -> StoreError {
     StoreError::new(StoreErrorCode::StoreCorrupt, message, false)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use serde_json::{Value, json};
+
+    use super::{CreateProperty, LibraryPageWorkflowStatus, validate_create_values};
+
+    #[test]
+    fn create_values_follow_the_active_sparse_schema() {
+        let properties = BTreeMap::from([
+            (
+                "status".to_owned(),
+                CreateProperty {
+                    property_id: "status".to_owned(),
+                    value_type: "select".to_owned(),
+                    config_json: json!({
+                        "options": [{ "id": "build", "name": "Build" }]
+                    })
+                    .to_string(),
+                    schema_revision: 1,
+                },
+            ),
+            (
+                "confidence".to_owned(),
+                CreateProperty {
+                    property_id: "confidence".to_owned(),
+                    value_type: "number".to_owned(),
+                    config_json: "{}".to_owned(),
+                    schema_revision: 1,
+                },
+            ),
+        ]);
+
+        let values = validate_create_values(
+            &properties,
+            LibraryPageWorkflowStatus::Build,
+            Some("p1-high"),
+            Some("m"),
+            Some("2026-08-04"),
+            None,
+            None,
+            Some("alex"),
+            Value::Array(Vec::new()),
+        )
+        .expect("sparse schema should accept absent optional semantics");
+
+        assert_eq!(values.len(), 1);
+        assert_eq!(values["status"].1, Value::String("build".to_owned()));
+        assert!(!values.contains_key("due_date"));
+        assert!(!values.contains_key("assignee"));
+    }
 }

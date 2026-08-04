@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use chrono::{DateTime, NaiveDate};
 pub use nodex_core_contracts::library::{
     PageMetaProjectionV1, ProjectedIdentityV1, ProjectedPropertyTypeV1, ProjectedPropertyV1,
-    ProjectedPropertyValueV1, ProjectedScheduleV1,
+    ProjectedPropertyValueV1, ProjectedRelationSummaryV1, ProjectedScheduleV1,
 };
 use serde_json::Number;
 use yaml_rust2::parser::{Event, MarkedEventReceiver, Parser};
@@ -566,6 +566,7 @@ fn validate_property(
         "date" => ProjectedPropertyTypeV1::Date,
         "datetime" => ProjectedPropertyTypeV1::Datetime,
         "person" => ProjectedPropertyTypeV1::Person,
+        "relation" => ProjectedPropertyTypeV1::Relation,
         _ => return Err(invalid("unsupported Property type").at_path(type_path)),
     };
     let value_path = format!("{path}.value");
@@ -627,6 +628,71 @@ fn validate_property_value(
                 .collect::<Result<Vec<_>, _>>()
                 .map(ProjectedPropertyValueV1::Identities)
         }
+        (ProjectedPropertyTypeV1::Relation, Value::Mapping(mut summary)) => {
+            expect_exact_keys(
+                &summary,
+                &["targets", "total_count", "restricted_count", "has_more"],
+                span,
+                path,
+            )?;
+            let targets_path = format!("{path}.targets");
+            let targets_node = take(&mut summary, "targets", path)?;
+            let targets_span = targets_node.span;
+            let Value::Sequence(targets) = targets_node.value else {
+                return Err(at_span(
+                    invalid("relation targets must be a sequence").at_path(targets_path),
+                    targets_span,
+                ));
+            };
+            if targets.len() > 3 {
+                return Err(at_span(
+                    invalid("relation summary exposes at most three targets").at_path(targets_path),
+                    targets_span,
+                ));
+            }
+            let targets = targets
+                .into_iter()
+                .enumerate()
+                .map(|(index, target)| {
+                    let item_path = format!("{targets_path}[{index}]");
+                    let item_span = target.span;
+                    let map = expect_mapping(target, &item_path, "relation target")?;
+                    validate_identity(map, item_span, &item_path)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            let total_count = expect_nonnegative_i64(
+                take(&mut summary, "total_count", path)?,
+                &format!("{path}.total_count"),
+            )?;
+            let restricted_count = expect_nonnegative_i64(
+                take(&mut summary, "restricted_count", path)?,
+                &format!("{path}.restricted_count"),
+            )?;
+            let has_more_node = take(&mut summary, "has_more", path)?;
+            let has_more = match has_more_node.value {
+                Value::Bool(value) => value,
+                _ => {
+                    return Err(at_span(
+                        invalid("relation has_more must be boolean")
+                            .at_path(format!("{path}.has_more")),
+                        has_more_node.span,
+                    ));
+                }
+            };
+            if total_count < restricted_count + targets.len() as i64
+                || has_more != (total_count > targets.len() as i64)
+            {
+                return Err(invalid("relation summary counts are inconsistent").at_path(path));
+            }
+            Ok(ProjectedPropertyValueV1::Relation(
+                ProjectedRelationSummaryV1 {
+                    targets,
+                    total_count,
+                    restricted_count,
+                    has_more,
+                },
+            ))
+        }
         (ProjectedPropertyTypeV1::Date, Value::String(value)) => {
             NaiveDate::parse_from_str(&value, "%Y-%m-%d")
                 .map_err(|_| invalid("date value must use YYYY-MM-DD").at_path(path))?;
@@ -638,6 +704,22 @@ fn validate_property_value(
         }
         _ => Err(at_span(
             invalid("Property value does not match its declared type").at_path(path),
+            span,
+        )),
+    }
+}
+
+fn expect_nonnegative_i64(value: SpannedValue, path: &str) -> Result<i64, CliError> {
+    let span = value.span;
+    match value.value {
+        Value::Number(value) => value.as_i64().filter(|value| *value >= 0).ok_or_else(|| {
+            at_span(
+                invalid("count must be a non-negative integer").at_path(path),
+                span,
+            )
+        }),
+        _ => Err(at_span(
+            invalid("count must be a non-negative integer").at_path(path),
             span,
         )),
     }
@@ -880,6 +962,55 @@ id: page_1
                 name: "Triage".to_owned(),
             })
         );
+    }
+
+    #[test]
+    fn parses_relation_summary_without_exposing_restricted_identities() {
+        let metadata = parse(
+            br#"id: "page_1"
+title: "Blocked task"
+properties:
+  "blocked_by":
+    name: "Blocked by"
+    type: relation
+    value:
+      targets:
+        - id: "page_visible"
+          name: "Visible dependency"
+      total_count: 3
+      restricted_count: 1
+      has_more: true
+schedule: null
+"#,
+        )
+        .expect("Relation summary metadata");
+        assert_eq!(
+            metadata.properties[0].value,
+            ProjectedPropertyValueV1::Relation(ProjectedRelationSummaryV1 {
+                targets: vec![ProjectedIdentityV1 {
+                    id: "page_visible".to_owned(),
+                    name: "Visible dependency".to_owned(),
+                }],
+                total_count: 3,
+                restricted_count: 1,
+                has_more: true,
+            })
+        );
+
+        let inconsistent = br#"id: page
+title: title
+properties:
+  blocked_by:
+    name: Blocked by
+    type: relation
+    value:
+      targets: []
+      total_count: 1
+      restricted_count: 0
+      has_more: false
+schedule: null
+"#;
+        assert!(parse(inconsistent).is_err());
     }
 
     #[test]

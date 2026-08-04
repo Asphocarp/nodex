@@ -206,19 +206,7 @@ function PageStageContent({
       <div className="h-2" />
 
       {controller.hasDatabaseProperties ? (
-        <PageStageInlinePropertyStrip
-          priority={controller.priority}
-          estimate={controller.estimate}
-          dueDate={controller.dueDate}
-          currentColumnId={controller.currentColumnId}
-          currentColumnName={controller.currentColumnName}
-          onPriorityChange={controller.handlePriorityChange}
-          onEstimateChange={controller.handleEstimateChange}
-          onDueDateChange={controller.handleDueDateChange}
-          onClearDueDate={controller.handleClearDueDate}
-          onSetDueDateToday={controller.handleSetDueDateToday}
-          onColumnChange={controller.handleColumnChange}
-        />
+        <PageStageInlinePropertyStrip controls={controller.propertyControls} />
       ) : null}
 
       <PageStagePropertiesSection controller={controller} />
