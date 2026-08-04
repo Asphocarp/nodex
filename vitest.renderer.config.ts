@@ -4,6 +4,17 @@ import {
   rendererViteCss,
   rendererViteResolve,
 } from "./config/renderer-vite-shared";
+import { selectTieredTestFiles } from "./config/vitest-test-tier";
+
+const testFiles = selectTieredTestFiles({
+  defaultExclude: [
+    "src/renderer/**/*.browser.test.{ts,tsx}",
+    "src/renderer/**/*.node.test.{ts,tsx}",
+    "src/renderer/**/*.integration.ts",
+  ],
+  defaultInclude: ["src/renderer/**/*.test.{ts,tsx}"],
+  stressInclude: ["src/renderer/**/*.stress.test.{ts,tsx}"],
+});
 
 export default defineConfig({
   plugins: createRendererVitePlugins(),
@@ -15,16 +26,14 @@ export default defineConfig({
     environmentOptions: {
       jsdom: { url: "http://renderer.test/" },
     },
-    exclude: [
-      "src/renderer/**/*.browser.test.{ts,tsx}",
-      "src/renderer/**/*.node.test.{ts,tsx}",
-      "src/renderer/**/*.integration.ts",
-    ],
-    include: ["src/renderer/**/*.test.{ts,tsx}"],
+    exclude: testFiles.exclude,
+    include: testFiles.include,
     pool: "forks",
-    maxWorkers: 3,
+    maxWorkers: testFiles.isStress ? 1 : 2,
+    fileParallelism: !testFiles.isStress,
+    passWithNoTests: testFiles.isStress,
     setupFiles: ["./src/renderer/test/setup.ts"],
-    hookTimeout: 30_000,
-    testTimeout: 30_000,
+    hookTimeout: testFiles.isStress ? 60_000 : 30_000,
+    testTimeout: testFiles.isStress ? 60_000 : 30_000,
   },
 });

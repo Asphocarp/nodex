@@ -1,24 +1,40 @@
 import { defineConfig } from "vitest/config";
 import { rendererViteResolve } from "./config/renderer-vite-shared";
+import { selectTieredTestFiles } from "./config/vitest-test-tier";
+
+const testFiles = selectTieredTestFiles({
+  defaultExclude: [
+    "packages/landing/src/download-cta.test.ts",
+    "third_party/**",
+  ],
+  defaultInclude: [
+    "config/**/*.test.ts",
+    "scripts/**/*.test.ts",
+    "src/shared/**/*.test.ts",
+    "src/main/core-client/**/*.node.test.ts",
+    "src/renderer/**/*.node.test.{ts,tsx}",
+    "packages/landing/src/**/*.test.ts",
+  ],
+  stressInclude: [
+    "config/**/*.stress.test.ts",
+    "scripts/**/*.stress.test.ts",
+    "src/shared/**/*.stress.test.ts",
+    "src/main/core-client/**/*.stress.node.test.ts",
+    "src/renderer/**/*.stress.node.test.{ts,tsx}",
+    "packages/landing/src/**/*.stress.test.ts",
+  ],
+});
 
 export default defineConfig({
   resolve: rendererViteResolve,
   test: {
     env: { TZ: "UTC" },
     environment: "node",
-    include: [
-      "config/**/*.test.ts",
-      "scripts/**/*.test.ts",
-      "src/shared/**/*.test.ts",
-      "src/main/core-client/**/*.node.test.ts",
-      "src/renderer/**/*.node.test.{ts,tsx}",
-      "packages/landing/src/**/*.test.ts",
-    ],
-    exclude: [
-      "packages/landing/src/download-cta.test.ts",
-      "third_party/**",
-    ],
-    maxWorkers: 4,
-    testTimeout: 30_000,
+    include: testFiles.include,
+    exclude: testFiles.exclude,
+    maxWorkers: testFiles.isStress ? 1 : 4,
+    fileParallelism: !testFiles.isStress,
+    passWithNoTests: testFiles.isStress,
+    testTimeout: testFiles.isStress ? 60_000 : 30_000,
   },
 });
