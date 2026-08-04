@@ -35,6 +35,7 @@ import {
   isCodexTerminalShortcutTarget,
   isDocumentLevelShortcutTarget,
   isFocusedPanelTabShortcutTargetBlocked,
+  isWorkbenchPanelTabShortcutTargetBlocked,
   isWorkbenchNewChatShortcutTargetEditable,
   type PanelTabCycleScope,
 } from "./workbench-panel-shortcut-scope";
@@ -70,9 +71,6 @@ import type {
   PanelDestination,
 } from "@/components/workbench/panel-destination-picker-model";
 import type {
-  AppShellTabItem,
-} from "@/components/workbench/app-shell-tabs";
-import type {
   OpenPageStageOptions,
 } from "@/components/kanban/open-page-stage";
 import type {
@@ -84,6 +82,11 @@ import type {
   WorkbenchTabCreateInput,
   WorkbenchTabProjection,
 } from "./types";
+import type {
+  WorkbenchPanelTabShortcutFocus,
+  WorkbenchPanelTabShortcutState,
+  WorkbenchPanelTabShortcutTarget,
+} from "./workbench-panel-tab-shortcut";
 import { primaryCanvasBlockId } from "../../shared/block-documents";
 
 type ProjectSession = WorkbenchSessionRenderProjection;
@@ -109,19 +112,9 @@ type SessionCommands = Pick<
   "createManualTab"
 >;
 
-interface PanelGroupTabsByPanel {
-  readonly right: {
-    readonly itemsByLeafId: Record<string, AppShellTabItem[]>;
-    readonly activeTabIdsByLeafId: Record<string, string | null>;
-  };
-  readonly bottom: {
-    readonly itemsByLeafId: Record<string, AppShellTabItem[]>;
-    readonly activeTabIdsByLeafId: Record<string, string | null>;
-  };
-}
-
 interface WorkbenchPanelCommandRouterInput {
   readonly activeSession: ProjectSession | null;
+  readonly activePanelOwnerKey: string | null;
   readonly projects: readonly Project[];
   readonly windowSessionId: string;
   readonly isMacPlatform: boolean;
@@ -145,9 +138,9 @@ interface WorkbenchPanelCommandRouterInput {
   ) => void;
   readonly commandKeymapState?: CommandKeymapState | null;
   readonly focusedPanelGroupRef:
-    MutableRefObject<PanelTabCycleScope | null>;
-  readonly panelGroupTabsRef:
-    MutableRefObject<PanelGroupTabsByPanel>;
+    MutableRefObject<WorkbenchPanelTabShortcutFocus | null>;
+  readonly panelTabShortcutStateRef:
+    MutableRefObject<WorkbenchPanelTabShortcutState | null>;
 }
 
 function findDbViewTabForProject(
@@ -181,6 +174,7 @@ function findDbViewTabForDatabaseView(
  */
 export function useWorkbenchPanelCommandRouter({
   activeSession,
+  activePanelOwnerKey,
   projects,
   windowSessionId,
   isMacPlatform,
@@ -195,7 +189,7 @@ export function useWorkbenchPanelCommandRouter({
   openPageStage,
   commandKeymapState,
   focusedPanelGroupRef,
-  panelGroupTabsRef,
+  panelTabShortcutStateRef,
 }: WorkbenchPanelCommandRouterInput) {
   const panelControllerRef = useRef(controller);
   panelControllerRef.current = controller;
@@ -205,10 +199,8 @@ export function useWorkbenchPanelCommandRouter({
   const {
     activatePanelGroup,
     clearPanelPreviewTab,
-    closePanelTab,
     ensureActivePanelOpenWithoutRefresh,
     pinPreviewTab,
-    selectPanelTab,
     setActivePanelCollapsed,
     setActivePanelTab,
   } = lifecycle;
@@ -588,85 +580,116 @@ export function useWorkbenchPanelCommandRouter({
   ]);
 
   const rememberFocusedPanelGroup = useCallback((panelId: PanelId, leafId: string) => {
-    focusedPanelGroupRef.current = { panelId, leafId };
-  }, [focusedPanelGroupRef]);
+    if (!activePanelOwnerKey) {
+      focusedPanelGroupRef.current = null;
+      return;
+    }
+    focusedPanelGroupRef.current = { panelId, leafId, ownerKey: activePanelOwnerKey };
+  }, [activePanelOwnerKey, focusedPanelGroupRef]);
+
+  const resolvePanelShortcutScope = useCallback((
+    scope: PanelTabCycleScope | null,
+  ): WorkbenchPanelTabShortcutFocus | null => {
+    const state = panelTabShortcutStateRef.current;
+    if (!state || !activePanelOwnerKey || state.ownerKey !== activePanelOwnerKey) {
+      return null;
+    }
+    if (scope) return { ...scope, ownerKey: activePanelOwnerKey };
+    const focusedScope = focusedPanelGroupRef.current;
+    if (focusedScope?.ownerKey !== activePanelOwnerKey) return null;
+    return focusedScope;
+  }, [
+    activePanelOwnerKey,
+    focusedPanelGroupRef,
+    panelTabShortcutStateRef,
+  ]);
 
   useEffect(() => {
     focusedPanelGroupRef.current = null;
-  }, [activeSession?.id, focusedPanelGroupRef]);
+  }, [activePanelOwnerKey, focusedPanelGroupRef]);
 
   const cycleFocusedPanelTab = useCallback((
     direction: PanelTabCycleDirection,
     scope: PanelTabCycleScope | null,
     options: { respectActiveElementGuard?: boolean } = {},
   ): boolean => {
-    if (!activeSession) return false;
     if (
       options.respectActiveElementGuard
       && typeof document !== "undefined"
-      && isFocusedPanelTabShortcutTargetBlocked(document.activeElement)
+      && isWorkbenchPanelTabShortcutTargetBlocked(document.activeElement)
     ) {
       return false;
     }
 
-    const targetScope = scope ?? focusedPanelGroupRef.current;
+    const targetScope = resolvePanelShortcutScope(scope);
     if (!targetScope) return false;
 
-    const panelTabs = panelGroupTabsRef.current[targetScope.panelId];
+    const state = panelTabShortcutStateRef.current;
+    if (!state) return false;
+    const panelTabs = state.projection[targetScope.panelId];
     if (!(targetScope.leafId in panelTabs.itemsByLeafId)) return false;
 
     const tabs = panelTabs.itemsByLeafId[targetScope.leafId] ?? [];
     const activeTabId = panelTabs.activeTabIdsByLeafId[targetScope.leafId] ?? null;
     const nextTabId = resolveNextPanelTabId(tabs, activeTabId, direction);
     if (nextTabId) {
-      void selectPanelTab(targetScope.panelId, nextTabId, targetScope.leafId);
+      const target: WorkbenchPanelTabShortcutTarget = {
+        panelId: targetScope.panelId,
+        tabId: nextTabId,
+        leafId: targetScope.leafId,
+      };
+      void state.selectTab(target);
     }
     return true;
   }, [
-    activeSession,
-    focusedPanelGroupRef,
-    panelGroupTabsRef,
-    selectPanelTab,
+    panelTabShortcutStateRef,
+    resolvePanelShortcutScope,
   ]);
 
   const closeFocusedPanelTab = useCallback((
     scope: PanelTabCycleScope | null,
     options: { respectActiveElementGuard?: boolean } = {},
   ): boolean => {
-    if (!activeSession) return false;
     if (
       options.respectActiveElementGuard
       && typeof document !== "undefined"
-      && isFocusedPanelTabShortcutTargetBlocked(document.activeElement)
+      && isWorkbenchPanelTabShortcutTargetBlocked(document.activeElement)
     ) {
       return false;
     }
 
-    const targetScope = scope ?? focusedPanelGroupRef.current;
+    const targetScope = resolvePanelShortcutScope(scope);
     if (!targetScope) return false;
 
-    const panelTabs = panelGroupTabsRef.current[targetScope.panelId];
+    const state = panelTabShortcutStateRef.current;
+    if (!state) return false;
+    const panelTabs = state.projection[targetScope.panelId];
     if (!(targetScope.leafId in panelTabs.itemsByLeafId)) return false;
 
     const tabs = panelTabs.itemsByLeafId[targetScope.leafId] ?? [];
     const activeTabId = panelTabs.activeTabIdsByLeafId[targetScope.leafId] ?? null;
     const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? null;
     if (activeTab?.closable === true) {
-      void closePanelTab(targetScope.panelId, activeTab.id, targetScope.leafId);
+      void state.closeTab({
+        panelId: targetScope.panelId,
+        tabId: activeTab.id,
+        leafId: targetScope.leafId,
+      });
     }
     return true;
   }, [
-    activeSession,
-    closePanelTab,
-    focusedPanelGroupRef,
-    panelGroupTabsRef,
+    panelTabShortcutStateRef,
+    resolvePanelShortcutScope,
   ]);
 
   const handleRightPanelShortcut = useEffectEvent((event: KeyboardEvent): boolean => {
-    if (!activeSession) return false;
     if (isCodexTerminalShortcutTarget(event.target)) return false;
 
-    const cycleDirection = resolvePanelTabCycleDirection(event, isMacPlatform);
+    const cycleDirection = resolvePanelTabCycleDirection(
+      event,
+      isMacPlatform,
+      commandKeymapState,
+    );
     if (cycleDirection) {
       if (isFocusedPanelTabShortcutTargetBlocked(event.target)) return false;
       const scope = resolveFocusedPanelTabCycleScope(event.target);
@@ -678,7 +701,11 @@ export function useWorkbenchPanelCommandRouter({
       return cycleFocusedPanelTab(cycleDirection, null);
     }
 
-    if (resolvePanelTabCloseShortcut(event, isMacPlatform)) {
+    if (resolvePanelTabCloseShortcut(
+      event,
+      isMacPlatform,
+      commandKeymapState,
+    )) {
       if (isFocusedPanelTabShortcutTargetBlocked(event.target)) return false;
       const scope = resolveFocusedPanelTabCycleScope(event.target);
       if (scope) {
@@ -690,6 +717,8 @@ export function useWorkbenchPanelCommandRouter({
     }
 
     if (isWorkbenchNewChatShortcutTargetEditable(event.target)) return false;
+
+    if (!activeSession) return false;
 
     const action = PANEL_NEW_TAB_ACTIONS.find((candidate) =>
       matchesPanelActionShortcut(event, candidate, isMacPlatform, commandKeymapState),

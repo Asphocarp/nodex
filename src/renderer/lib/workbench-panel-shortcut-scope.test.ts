@@ -3,6 +3,7 @@ import {
   isCodexTerminalShortcutTarget,
   isDocumentLevelShortcutTarget,
   isFocusedPanelTabShortcutTargetBlocked,
+  isWorkbenchPanelTabShortcutTargetBlocked,
   isWorkbenchNewChatShortcutTargetEditable,
   resolveFocusedPanelTabCycleScope,
 } from "./workbench-panel-shortcut-scope";
@@ -71,5 +72,13 @@ describe("workbench panel shortcut scope", () => {
     expect(isFocusedPanelTabShortcutTargetBlocked(blockNoteChild))
       .toBe(true);
     expect(isFocusedPanelTabShortcutTargetBlocked(nfmChild)).toBe(false);
+
+    const terminal = document.createElement("div");
+    terminal.dataset.codexTerminal = "true";
+    const terminalChild = document.createElement("span");
+    terminal.append(terminalChild);
+    document.body.append(terminal);
+    expect(isWorkbenchPanelTabShortcutTargetBlocked(terminalChild)).toBe(true);
+    expect(isWorkbenchPanelTabShortcutTargetBlocked(nfmChild)).toBe(false);
   });
 });
