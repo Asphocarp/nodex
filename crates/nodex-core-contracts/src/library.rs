@@ -8,11 +8,11 @@ use crate::agent::{
     AgentResourceAccessOverlay, AgentResourceAccessPlan, AgentResourceGrantSpec,
     AgentResourceIntent, AgentTurnProvenance,
 };
-use crate::database::DatabaseGroupScope;
+use crate::database::{DatabaseGroupScope, DatabaseIntent, DatabasePropertyDescriptor};
 use crate::workspace::{ProjectAppearance, ProjectLifecycle};
 use crate::{CommittedModuleValue, ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const LIBRARY_CONTRACT_VERSION: u32 = 8;
+pub const LIBRARY_CONTRACT_VERSION: u32 = 9;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -1008,20 +1008,6 @@ pub enum LibraryBlockPropertyFieldMutation {
         expected_revision: i64,
         value: Value,
     },
-    DataSourceSet {
-        page_id: String,
-        data_source_id: String,
-        property_id: String,
-        expected_revision: i64,
-        value: Option<String>,
-    },
-    DataSourceAddRemove {
-        page_id: String,
-        data_source_id: String,
-        property_id: String,
-        add: Vec<String>,
-        remove: Vec<String>,
-    },
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -1040,8 +1026,6 @@ pub enum LibraryBlockPropertyMutationErrorCode {
     BlockNotFound,
     BlockNotActive,
     BlockTypeMismatch,
-    DataSourceNotFound,
-    MembershipNotFound,
     PropertyNotFound,
     PropertyTypeMismatch,
     PropertyValueInvalid,
@@ -1067,15 +1051,6 @@ pub enum LibraryBlockPropertyFieldResult {
         path: String,
         block_id: String,
         property_key: String,
-        operation: String,
-        revision: i64,
-        value: Value,
-    },
-    DataSource {
-        path: String,
-        block_id: String,
-        data_source_id: String,
-        property_id: String,
         operation: String,
         revision: i64,
         value: Value,
@@ -1129,7 +1104,7 @@ pub enum LibraryPageDataSourceContext {
         membership: LibraryPageMembership,
         database: Value,
         data_source: Value,
-        properties: Vec<Value>,
+        properties: Vec<DatabasePropertyDescriptor>,
         values: std::collections::BTreeMap<String, Value>,
     },
 }
@@ -1197,12 +1172,21 @@ pub enum ProjectedPropertyTypeV1 {
     Date,
     Datetime,
     Person,
+    Relation,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct ProjectedIdentityV1 {
     pub id: String,
     pub name: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ProjectedRelationSummaryV1 {
+    pub targets: Vec<ProjectedIdentityV1>,
+    pub total_count: i64,
+    pub restricted_count: i64,
+    pub has_more: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
@@ -1214,6 +1198,7 @@ pub enum ProjectedPropertyValueV1 {
     Checkbox(bool),
     Identity(ProjectedIdentityV1),
     Identities(Vec<ProjectedIdentityV1>),
+    Relation(ProjectedRelationSummaryV1),
     Date(String),
     Datetime(String),
 }
@@ -1822,7 +1807,7 @@ pub enum LibraryReadValue {
     },
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum LibraryIntent {
     CreatePage {
@@ -1913,6 +1898,10 @@ pub enum LibraryIntent {
     },
     ApplyBlockPropertyMutation {
         mutation: Box<LibraryBlockPropertyMutation>,
+    },
+    ApplyPageMetadataProperties {
+        database_intents: Vec<DatabaseIntent>,
+        intrinsic_mutation: Box<LibraryBlockPropertyMutation>,
     },
     GrantProjectAccess {
         project_id: String,

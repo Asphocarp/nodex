@@ -16,6 +16,7 @@ import {
   MAX_DATABASE_MODULE_V2_BULK_ENTRIES,
   MAX_DATABASE_MODULE_V2_OPERATIONS,
   type DatabaseApplyOperationV2,
+  type DatabasePropertyValueInputV2,
   type DatabaseApplyResultV2,
   type DatabaseApplyV2,
   type DatabaseContainerDescriptorV2,
@@ -41,7 +42,6 @@ import {
   type DataSourceRecordV2,
 } from "./database-module-v2";
 import {
-  parseDatabasePropertyConfig,
   parseDatabaseViewConfigV2,
   type DatabaseJsonValue,
   type DatabasePropertyValueType,
@@ -217,7 +217,8 @@ const readPropertyValueType = (
     value === "multi_select" ||
     value === "date" ||
     value === "datetime" ||
-    value === "person"
+    value === "person" ||
+    value === "relation"
   ) {
     return value;
   }
@@ -260,43 +261,15 @@ const validateBuiltInPropertyValueType = (
   );
 };
 
-const parsePropertyMutationConfig = (
-  value: unknown,
-  label: string,
-): Readonly<Record<string, never>> => {
-  const config = readJsonRecord(value, label);
-  const key = Object.keys(config)[0];
-  if (key === undefined) return {};
-  if (key === "options") {
-    throw new TypeError(
-      `${label}.options is not supported; use put_option or delete_option`,
-    );
-  }
-  throw new TypeError(`${label}.${key} is not supported by Property schema v2`);
-};
-
 const parseStoredPropertyConfig = (
-  propertyId: DataSourcePropertyId,
-  valueType: DatabasePropertyValueType,
+  _propertyId: DataSourcePropertyId,
+  _valueType: DatabasePropertyValueType,
   value: unknown,
   label: string,
 ): Readonly<Record<string, DatabaseJsonValue>> => {
-  const parsed = parseDatabasePropertyConfig(
-    valueType,
-    readJsonRecord(value, label),
-  );
-  const options = parsed.options;
-  if (Array.isArray(options)) {
-    for (const [index, rawOption] of options.entries()) {
-      const option = readRecord(rawOption, `${label}.options[${index}]`);
-      readOptionId(
-        propertyId,
-        option.id,
-        `${label}.options[${index}].id`,
-      );
-    }
-  }
-  return parsed;
+  const parsed = readJsonRecord(value, label);
+  assertExactKeys(parsed, label, []);
+  return {};
 };
 
 const readOptionIdArray = (
@@ -318,22 +291,95 @@ const readOptionIdArray = (
   return parsed;
 };
 
-const parseSetValueFields = (
-  value: Readonly<Record<string, unknown>>,
+const parsePropertySchema = (
+  value: unknown,
   label: string,
-): Omit<
-  Extract<DatabaseApplyOperationV2, { readonly kind: "set_value" }>,
-  "kind"
-> => ({
-  pageId: readString(value.pageId, `${label}.pageId`),
-  dataSourceId: readDataSourceId(value.dataSourceId, `${label}.dataSourceId`),
-  propertyId: readPropertyId(value.propertyId, `${label}.propertyId`),
-  expectedValueRevision: readRevision(
-    value.expectedValueRevision,
-    `${label}.expectedValueRevision`,
-  ),
-  value: readJsonValue(value.value, `${label}.value`),
-});
+): NonNullable<DataSourcePropertyRecordV2["schema"]> => {
+  const schema = readRecord(value, label);
+  const kind = schema.kind;
+  if (kind === "relation") {
+    assertExactKeys(schema, label, ["kind", "targetDataSourceId"]);
+    return {
+      kind,
+      targetDataSourceId: readDataSourceId(
+        schema.targetDataSourceId,
+        `${label}.targetDataSourceId`,
+      ),
+    };
+  }
+  if (
+    kind === "text" || kind === "number" || kind === "checkbox"
+    || kind === "select" || kind === "multi_select" || kind === "date"
+    || kind === "datetime" || kind === "person"
+  ) {
+    assertExactKeys(schema, label, ["kind"]);
+    return { kind };
+  }
+  throw new TypeError(`${label}.kind is unsupported`);
+};
+
+const readIdentityArray = (
+  value: unknown,
+  label: string,
+  maximum: number,
+): readonly string[] => {
+  if (!Array.isArray(value) || value.length > maximum) {
+    throw new TypeError(`${label} must contain at most ${maximum} identities`);
+  }
+  const ids = value.map((entry, index) => readString(entry, `${label}[${index}]`));
+  if (new Set(ids).size !== ids.length) {
+    throw new TypeError(`${label} must contain unique identities`);
+  }
+  return ids;
+};
+
+const parsePropertyValueInput = (
+  value: unknown,
+  propertyId: DataSourcePropertyId,
+  label: string,
+): DatabasePropertyValueInputV2 => {
+  const input = readRecord(value, label);
+  const kind = input.kind;
+  if (kind === "empty") {
+    assertExactKeys(input, label, ["kind"]);
+    return { kind };
+  }
+  if (kind === "text" || kind === "date" || kind === "datetime") {
+    assertExactKeys(input, label, ["kind", "value"]);
+    return { kind, value: readString(input.value, `${label}.value`, 64 * 1024) };
+  }
+  if (kind === "number") {
+    assertExactKeys(input, label, ["kind", "value"]);
+    if (typeof input.value !== "number" || !Number.isFinite(input.value)) {
+      throw new TypeError(`${label}.value must be finite`);
+    }
+    return { kind, value: input.value };
+  }
+  if (kind === "checkbox") {
+    assertExactKeys(input, label, ["kind", "value"]);
+    return { kind, value: readBoolean(input.value, `${label}.value`) };
+  }
+  if (kind === "select") {
+    assertExactKeys(input, label, ["kind", "optionId"]);
+    return { kind, optionId: readOptionId(propertyId, input.optionId, `${label}.optionId`) };
+  }
+  if (kind === "multi_select") {
+    assertExactKeys(input, label, ["kind", "optionIds"]);
+    return { kind, optionIds: readOptionIdArray(input.optionIds, propertyId, `${label}.optionIds`) };
+  }
+  if (kind === "person") {
+    assertExactKeys(input, label, ["kind", "personId"]);
+    return { kind, personId: readString(input.personId, `${label}.personId`) };
+  }
+  if (kind === "relation") {
+    assertExactKeys(input, label, ["kind", "pageIds"]);
+    return {
+      kind,
+      pageIds: readIdentityArray(input.pageIds, `${label}.pageIds`, 10_000),
+    };
+  }
+  throw new TypeError(`${label}.kind is unsupported`);
+};
 
 const parseApplyOperation = (
   value: unknown,
@@ -353,17 +399,13 @@ const parseApplyOperation = (
         "expectedDataSourceRevision",
         "expectedPropertyRevision",
         "name",
-        "valueType",
-        "config",
+        "schema",
       ],
       ["beforePropertyId"],
     );
     const propertyId = readPropertyId(operation.propertyId, `${label}.propertyId`);
-    const valueType = readPropertyValueType(
-      operation.valueType,
-      `${label}.valueType`,
-    );
-    validateBuiltInPropertyValueType(propertyId, valueType, label);
+    const schema = parsePropertySchema(operation.schema, `${label}.schema`);
+    validateBuiltInPropertyValueType(propertyId, schema.kind, label);
     const beforePropertyId = operation.beforePropertyId === undefined
       ? undefined
       : readPropertyId(operation.beforePropertyId, `${label}.beforePropertyId`);
@@ -380,8 +422,7 @@ const parseApplyOperation = (
         `${label}.expectedPropertyRevision`,
       ),
       name: readString(operation.name, `${label}.name`, MAX_NAME_LENGTH),
-      valueType,
-      config: parsePropertyMutationConfig(operation.config, `${label}.config`),
+      schema,
       ...(beforePropertyId === undefined ? {} : { beforePropertyId }),
     };
   }
@@ -460,76 +501,88 @@ const parseApplyOperation = (
     };
   }
 
-  if (operation.kind === "set_value") {
-    assertExactKeys(operation, label, [
-      "kind",
-      "pageId",
-      "dataSourceId",
-      "propertyId",
-      "expectedValueRevision",
-      "value",
-    ]);
-    return { kind: "set_value", ...parseSetValueFields(operation, label) };
-  }
-
-  if (operation.kind === "set_values") {
-    assertExactKeys(operation, label, ["kind", "values"]);
-    if (
-      !Array.isArray(operation.values) ||
-      operation.values.length < 1 ||
-      operation.values.length > MAX_DATABASE_MODULE_V2_BULK_ENTRIES
-    ) {
-      throw new TypeError(
-        `${label}.values must contain between 1 and ${MAX_DATABASE_MODULE_V2_BULK_ENTRIES} entries`,
-      );
+  if (operation.kind === "edit_property_values") {
+    assertExactKeys(operation, label, ["kind", "edits"]);
+    if (!Array.isArray(operation.edits) || operation.edits.length < 1
+      || operation.edits.length > MAX_DATABASE_MODULE_V2_BULK_ENTRIES) {
+      throw new TypeError(`${label}.edits must be a non-empty bounded array`);
     }
-    const values = operation.values.map((entry, valueIndex) => {
-      const valueLabel = `${label}.values[${valueIndex}]`;
-      const record = readRecord(entry, valueLabel);
-      assertExactKeys(record, valueLabel, [
-        "pageId",
-        "dataSourceId",
-        "propertyId",
-        "expectedValueRevision",
-        "value",
-      ]);
-      return parseSetValueFields(record, valueLabel);
+    const edits = operation.edits.map((rawEdit, editIndex) => {
+      const editLabel = `${label}.edits[${editIndex}]`;
+      const mutation = readRecord(rawEdit, editLabel);
+      assertExactKeys(mutation, editLabel, ["pageId", "dataSourceId", "propertyId", "edit"]);
+      const propertyId = readPropertyId(mutation.propertyId, `${editLabel}.propertyId`);
+      const edit = readRecord(mutation.edit, `${editLabel}.edit`);
+      if (edit.kind === "replace") {
+        assertExactKeys(edit, `${editLabel}.edit`, ["kind", "expectedValueRevision", "value"]);
+        return {
+          pageId: readString(mutation.pageId, `${editLabel}.pageId`),
+          dataSourceId: readDataSourceId(mutation.dataSourceId, `${editLabel}.dataSourceId`),
+          propertyId,
+          edit: {
+            kind: "replace" as const,
+            expectedValueRevision: readRevision(edit.expectedValueRevision, `${editLabel}.edit.expectedValueRevision`),
+            value: parsePropertyValueInput(edit.value, propertyId, `${editLabel}.edit.value`),
+          },
+        };
+      }
+      if (edit.kind !== "patch_set") {
+        throw new TypeError(`${editLabel}.edit.kind is unsupported`);
+      }
+      assertExactKeys(edit, `${editLabel}.edit`, ["kind", "delta"]);
+      const delta = readRecord(edit.delta, `${editLabel}.edit.delta`);
+      let parsedDelta;
+      if (delta.kind === "multi_select") {
+        assertExactKeys(delta, `${editLabel}.edit.delta`, ["kind", "addOptionIds", "removeOptionIds"]);
+        parsedDelta = {
+          kind: "multi_select" as const,
+          addOptionIds: readOptionIdArray(delta.addOptionIds, propertyId, `${editLabel}.edit.delta.addOptionIds`),
+          removeOptionIds: readOptionIdArray(delta.removeOptionIds, propertyId, `${editLabel}.edit.delta.removeOptionIds`),
+        };
+      } else if (delta.kind === "relation") {
+        assertExactKeys(delta, `${editLabel}.edit.delta`, ["kind", "addPageIds", "removePageIds"]);
+        parsedDelta = {
+          kind: "relation" as const,
+          addPageIds: readIdentityArray(
+            delta.addPageIds,
+            `${editLabel}.edit.delta.addPageIds`,
+            MAX_DATABASE_MODULE_V2_BULK_ENTRIES,
+          ),
+          removePageIds: readIdentityArray(
+            delta.removePageIds,
+            `${editLabel}.edit.delta.removePageIds`,
+            MAX_DATABASE_MODULE_V2_BULK_ENTRIES,
+          ),
+        };
+      } else {
+        throw new TypeError(`${editLabel}.edit.delta.kind is unsupported`);
+      }
+      const add = parsedDelta.kind === "multi_select" ? parsedDelta.addOptionIds : parsedDelta.addPageIds;
+      const remove = parsedDelta.kind === "multi_select" ? parsedDelta.removeOptionIds : parsedDelta.removePageIds;
+      if (add.some((entry) => remove.includes(entry))) {
+        throw new TypeError(`${editLabel}.edit.delta add/remove sets must be disjoint`);
+      }
+      if (
+        parsedDelta.kind === "relation"
+        && parsedDelta.addPageIds.length + parsedDelta.removePageIds.length
+          > MAX_DATABASE_MODULE_V2_BULK_ENTRIES
+      ) {
+        throw new TypeError(
+          `${editLabel}.edit.delta may change at most ${MAX_DATABASE_MODULE_V2_BULK_ENTRIES} Relation targets`,
+        );
+      }
+      return {
+        pageId: readString(mutation.pageId, `${editLabel}.pageId`),
+        dataSourceId: readDataSourceId(mutation.dataSourceId, `${editLabel}.dataSourceId`),
+        propertyId,
+        edit: { kind: "patch_set" as const, delta: parsedDelta },
+      };
     });
-    const addresses = values.map(
-      (entry) => `${entry.dataSourceId}\u0000${entry.pageId}\u0000${entry.propertyId}`,
-    );
+    const addresses = edits.map((entry) => `${entry.dataSourceId}\u0000${entry.pageId}\u0000${entry.propertyId}`);
     if (new Set(addresses).size !== addresses.length) {
-      throw new TypeError(`${label}.values repeats a Page Property address`);
+      throw new TypeError(`${label}.edits repeats a Page Property address`);
     }
-    return { kind: "set_values", values };
-  }
-
-  if (operation.kind === "add_remove_value") {
-    assertExactKeys(operation, label, [
-      "kind",
-      "pageId",
-      "dataSourceId",
-      "propertyId",
-      "add",
-      "remove",
-    ]);
-    const propertyId = readPropertyId(operation.propertyId, `${label}.propertyId`);
-    const add = readOptionIdArray(operation.add, propertyId, `${label}.add`);
-    const remove = readOptionIdArray(operation.remove, propertyId, `${label}.remove`);
-    if (add.some((entry) => remove.includes(entry))) {
-      throw new TypeError(`${label}.add and remove must be disjoint`);
-    }
-    if (add.length === 0 && remove.length === 0) {
-      throw new TypeError(`${label} must change at least one option`);
-    }
-    return {
-      kind: "add_remove_value",
-      pageId: readString(operation.pageId, `${label}.pageId`),
-      dataSourceId: readDataSourceId(operation.dataSourceId, `${label}.dataSourceId`),
-      propertyId,
-      add,
-      remove,
-    };
+    return { kind: "edit_property_values", edits };
   }
 
   if (operation.kind === "transfer_page") {
@@ -804,14 +857,27 @@ export const bindDatabaseModuleReadV2 = (
 
   if (target.kind === "project_default") {
     assertExactKeys(target, "databaseModuleReadV2.read.target", ["kind"]);
-    assertExactKeys(read, "databaseModuleReadV2.read", ["target", "mode"]);
-    if (mode !== "database") {
+    if (mode === "database") {
+      assertExactKeys(read, "databaseModuleReadV2.read", ["target", "mode"]);
+      return {
+        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+        projectId,
+        read: { target: { kind: "project_default" }, mode },
+      };
+    }
+    if (mode !== "catalog_window") {
       throw new TypeError("Project-default Database read v2 mode is unsupported");
     }
+    assertExactKeys(read, "databaseModuleReadV2.read", ["target", "mode"], ["window"]);
+    const window = parseReadWindow(read.window, "Database catalog");
     return {
       version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       projectId,
-      read: { target: { kind: "project_default" }, mode },
+      read: {
+        target: { kind: "project_default" },
+        mode,
+        ...(window === undefined ? {} : { window }),
+      },
     };
   }
 
@@ -853,6 +919,36 @@ export const bindDatabaseModuleReadV2 = (
     };
   }
 
+  if (target.kind === "data_source" && mode === "relation_candidate_window") {
+    assertExactKeys(target, "databaseModuleReadV2.read.target", ["kind", "dataSourceId"]);
+    assertExactKeys(
+      read,
+      "databaseModuleReadV2.read",
+      ["target", "mode"],
+      ["query", "window"],
+    );
+    const query = read.query === undefined
+      ? undefined
+      : readString(read.query, "databaseModuleReadV2.read.query", 512);
+    const window = parseReadWindow(read.window, "Relation candidate");
+    return {
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      projectId,
+      read: {
+        target: {
+          kind: "data_source",
+          dataSourceId: readDataSourceId(
+            target.dataSourceId,
+            "databaseModuleReadV2.dataSourceId",
+          ),
+        },
+        mode,
+        ...(query === undefined ? {} : { query }),
+        ...(window === undefined ? {} : { window }),
+      },
+    };
+  }
+
   if (target.kind === "view" && mode === "view") {
     assertExactKeys(target, "databaseModuleReadV2.read.target", ["kind", "viewId"]);
     assertExactKeys(read, "databaseModuleReadV2.read", ["target", "mode"]);
@@ -869,7 +965,106 @@ export const bindDatabaseModuleReadV2 = (
     };
   }
 
+  if (target.kind === "page_property" && mode === "relation_target_window") {
+    assertExactKeys(target, "databaseModuleReadV2.read.target", [
+      "kind", "pageId", "dataSourceId", "propertyId",
+    ]);
+    assertExactKeys(read, "databaseModuleReadV2.read", ["target", "mode"], ["window"]);
+    let window;
+    if (read.window !== undefined) {
+      const rawWindow = readRecord(read.window, "databaseModuleReadV2.read.window");
+      assertExactKeys(rawWindow, "databaseModuleReadV2.read.window", [], ["after", "first"]);
+      const first = rawWindow.first === undefined
+        ? undefined
+        : readRevision(rawWindow.first, "databaseModuleReadV2.read.window.first");
+      if (first !== undefined && (first < 1 || first > 100)) {
+        throw new TypeError("Relation target window first must be between 1 and 100");
+      }
+      const after = rawWindow.after === undefined || rawWindow.after === null
+        ? rawWindow.after
+        : readString(rawWindow.after, "databaseModuleReadV2.read.window.after", 4096);
+      window = {
+        ...(after === undefined ? {} : { after }),
+        ...(first === undefined ? {} : { first }),
+      };
+    }
+    return {
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      projectId,
+      read: {
+        target: {
+          kind: "page_property",
+          pageId: readString(target.pageId, "databaseModuleReadV2.pageId"),
+          dataSourceId: readDataSourceId(target.dataSourceId, "databaseModuleReadV2.dataSourceId"),
+          propertyId: readPropertyId(target.propertyId, "databaseModuleReadV2.propertyId"),
+        },
+        mode,
+        ...(window === undefined ? {} : { window }),
+      },
+    };
+  }
+
+  if (target.kind === "property" && mode === "option_window") {
+    assertExactKeys(target, "databaseModuleReadV2.read.target", [
+      "kind", "dataSourceId", "propertyId",
+    ]);
+    assertExactKeys(read, "databaseModuleReadV2.read", ["target", "mode"], ["window"]);
+    let window;
+    if (read.window !== undefined) {
+      const rawWindow = readRecord(read.window, "databaseModuleReadV2.read.window");
+      assertExactKeys(rawWindow, "databaseModuleReadV2.read.window", [], ["after", "first"]);
+      const first = rawWindow.first === undefined
+        ? undefined
+        : readRevision(rawWindow.first, "databaseModuleReadV2.read.window.first");
+      if (first !== undefined && (first < 1 || first > 100)) {
+        throw new TypeError("Property option window first must be between 1 and 100");
+      }
+      const after = rawWindow.after === undefined || rawWindow.after === null
+        ? rawWindow.after
+        : readString(rawWindow.after, "databaseModuleReadV2.read.window.after", 4096);
+      window = {
+        ...(after === undefined ? {} : { after }),
+        ...(first === undefined ? {} : { first }),
+      };
+    }
+    return {
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      projectId,
+      read: {
+        target: {
+          kind: "property",
+          dataSourceId: readDataSourceId(target.dataSourceId, "databaseModuleReadV2.dataSourceId"),
+          propertyId: readPropertyId(target.propertyId, "databaseModuleReadV2.propertyId"),
+        },
+        mode,
+        ...(window === undefined ? {} : { window }),
+      },
+    };
+  }
+
   throw new TypeError("Database Module v2 read target and mode are incompatible");
+};
+
+const parseReadWindow = (
+  value: unknown,
+  label: string,
+): { readonly after?: string | null; readonly first?: number } | undefined => {
+  if (value === undefined) return undefined;
+  const window = readRecord(value, "databaseModuleReadV2.read.window");
+  assertExactKeys(window, "databaseModuleReadV2.read.window", [], ["after", "first"]);
+  const first = window.first === undefined
+    ? undefined
+    : readRevision(window.first, "databaseModuleReadV2.read.window.first");
+  if (first !== undefined && (first < 1 || first > 100)) {
+    throw new TypeError(`${label} window first must be between 1 and 100`);
+  }
+  const after = window.after === undefined || window.after === null
+    ? window.after
+    : readString(window.after, "databaseModuleReadV2.read.window.after", 4096);
+  return {
+    ...(after === undefined ? {} : { after }),
+    ...(first === undefined ? {} : { first }),
+  };
 };
 
 export const bindLibraryDatabaseModuleReadV2 = (
@@ -1057,8 +1252,11 @@ const parsePropertyRecord = (
     "propertyId",
     "dataSourceId",
     "name",
+    "schema",
+    "capabilities",
     "valueType",
     "config",
+    "optionCount",
     "rankKey",
     "lifecycle",
     "revision",
@@ -1067,11 +1265,42 @@ const parsePropertyRecord = (
   ]);
   const propertyId = readPropertyId(record.propertyId, `${label}.propertyId`);
   const valueType = readPropertyValueType(record.valueType, `${label}.valueType`);
+  const schema = parsePropertySchema(record.schema, `${label}.schema`);
+  if (schema.kind !== valueType) {
+    throw new TypeError(`${label}.schema diverges from its derived valueType`);
+  }
+  const capabilities = readRecord(record.capabilities, `${label}.capabilities`);
+  assertExactKeys(capabilities, `${label}.capabilities`, [
+    "replace",
+    "patchSetMember",
+    "filterOperators",
+    "sortable",
+    "groupable",
+  ]);
+  const patchSetMember = capabilities.patchSetMember;
+  if (patchSetMember !== null && patchSetMember !== "option" && patchSetMember !== "page") {
+    throw new TypeError(`${label}.capabilities.patchSetMember is invalid`);
+  }
+  if (!Array.isArray(capabilities.filterOperators)
+    || capabilities.filterOperators.some((operator) => ![
+      "equals", "not_equals", "contains", "not_contains", "is_empty", "is_not_empty",
+    ].includes(String(operator)))) {
+    throw new TypeError(`${label}.capabilities.filterOperators is invalid`);
+  }
+  const optionCount = readRevision(record.optionCount, `${label}.optionCount`);
   validateBuiltInPropertyValueType(propertyId, valueType, label);
   return {
     propertyId,
     dataSourceId: readDataSourceId(record.dataSourceId, `${label}.dataSourceId`),
     name: readString(record.name, `${label}.name`, MAX_NAME_LENGTH),
+    schema,
+    capabilities: {
+      replace: readBoolean(capabilities.replace, `${label}.capabilities.replace`),
+      patchSetMember,
+      filterOperators: capabilities.filterOperators as NonNullable<DataSourcePropertyRecordV2["capabilities"]>["filterOperators"],
+      sortable: readBoolean(capabilities.sortable, `${label}.capabilities.sortable`),
+      groupable: readBoolean(capabilities.groupable, `${label}.capabilities.groupable`),
+    },
     valueType,
     config: parseStoredPropertyConfig(
       propertyId,
@@ -1079,6 +1308,7 @@ const parsePropertyRecord = (
       record.config,
       `${label}.config`,
     ),
+    optionCount,
     rankKey: readString(record.rankKey, `${label}.rankKey`),
     lifecycle: readLifecycle(record.lifecycle, `${label}.lifecycle`, [
       "active",
@@ -1359,6 +1589,30 @@ const parseDataSourceQueryResult = (
 const parseReadValue = (value: unknown): DatabaseReadValueV2 => {
   const result = readRecord(value, "databaseModuleReadV2.value");
   assertExactKeys(result, "databaseModuleReadV2.value", ["kind", "value"]);
+  if (result.kind === "catalog_window") {
+    const window = readRecord(result.value, "databaseModuleReadV2.value.value");
+    assertExactKeys(window, "databaseModuleReadV2.value.value", [
+      "databases", "nextCursor", "projectionRevision",
+    ]);
+    if (!Array.isArray(window.databases) || window.databases.length > 100) {
+      throw new TypeError("Database catalog must be a bounded array");
+    }
+    return {
+      kind: "catalog_window",
+      value: {
+        databases: window.databases.map((database, index) =>
+          parseContainerDescriptor(database, `databaseCatalog.databases[${index}]`)
+        ),
+        nextCursor: window.nextCursor === null
+          ? null
+          : readString(window.nextCursor, "databaseCatalog.nextCursor", 4096),
+        projectionRevision: readRevision(
+          window.projectionRevision,
+          "databaseCatalog.projectionRevision",
+        ),
+      },
+    };
+  }
   if (result.kind === "database") {
     return { kind: "database", value: parseContainerDescriptor(result.value, "databaseModuleReadV2.value.value") };
   }
@@ -1373,6 +1627,116 @@ const parseReadValue = (value: unknown): DatabaseReadValueV2 => {
   }
   if (result.kind === "data_source_query") {
     return { kind: "data_source_query", value: parseDataSourceQueryResult(result.value, "databaseModuleReadV2.value.value") };
+  }
+  if (result.kind === "relation_target_window") {
+    const window = readRecord(result.value, "databaseModuleReadV2.value.value");
+    assertExactKeys(window, "databaseModuleReadV2.value.value", [
+      "valueRevision", "totalCount", "targets", "nextCursor", "projectionRevision",
+    ]);
+    if (!Array.isArray(window.targets)) {
+      throw new TypeError("Relation target window targets must be an array");
+    }
+    const targets = window.targets.map((rawTarget, index) => {
+      const target = readRecord(rawTarget, `relationTargetWindow.targets[${index}]`);
+      if (target.kind === "restricted") {
+        assertExactKeys(target, `relationTargetWindow.targets[${index}]`, ["kind"]);
+        return { kind: "restricted" as const };
+      }
+      assertExactKeys(target, `relationTargetWindow.targets[${index}]`, [
+        "kind", "pageId", "title", "lifecycle", "membershipState",
+      ]);
+      if (target.kind !== "visible") {
+        throw new TypeError("Relation target kind is unsupported");
+      }
+      return {
+        kind: "visible" as const,
+        pageId: readString(target.pageId, `relationTargetWindow.targets[${index}].pageId`),
+        title: typeof target.title === "string" ? target.title : "",
+        lifecycle: readString(target.lifecycle, `relationTargetWindow.targets[${index}].lifecycle`),
+        membershipState: readString(target.membershipState, `relationTargetWindow.targets[${index}].membershipState`),
+      };
+    });
+    return {
+      kind: "relation_target_window",
+      value: {
+        valueRevision: readRevision(window.valueRevision, "relationTargetWindow.valueRevision"),
+        totalCount: readRevision(window.totalCount, "relationTargetWindow.totalCount"),
+        targets,
+        nextCursor: window.nextCursor === null
+          ? null
+          : readString(window.nextCursor, "relationTargetWindow.nextCursor", 4096),
+        projectionRevision: readRevision(window.projectionRevision, "relationTargetWindow.projectionRevision"),
+      },
+    };
+  }
+  if (result.kind === "option_window") {
+    const window = readRecord(result.value, "databaseModuleReadV2.value.value");
+    assertExactKeys(window, "databaseModuleReadV2.value.value", [
+      "options", "nextCursor", "projectionRevision",
+    ]);
+    if (!Array.isArray(window.options) || window.options.length > 100) {
+      throw new TypeError("Property option window options must be a bounded array");
+    }
+    const options = window.options.map((rawOption, index) => {
+      const option = readRecord(rawOption, `optionWindow.options[${index}]`);
+      assertExactKeys(option, `optionWindow.options[${index}]`, ["id", "name"], ["color"]);
+      const color = option.color === undefined
+        ? undefined
+        : readString(option.color, `optionWindow.options[${index}].color`, MAX_NAME_LENGTH);
+      return {
+        id: readString(option.id, `optionWindow.options[${index}].id`),
+        name: readString(option.name, `optionWindow.options[${index}].name`, MAX_NAME_LENGTH),
+        ...(color === undefined ? {} : { color }),
+      };
+    });
+    if (new Set(options.map((option) => option.id)).size !== options.length) {
+      throw new TypeError("Property option window contains duplicate identities");
+    }
+    return {
+      kind: "option_window",
+      value: {
+        options,
+        nextCursor: window.nextCursor === null
+          ? null
+          : readString(window.nextCursor, "optionWindow.nextCursor", 4096),
+        projectionRevision: readRevision(window.projectionRevision, "optionWindow.projectionRevision"),
+      },
+    };
+  }
+  if (result.kind === "relation_candidate_window") {
+    const window = readRecord(result.value, "databaseModuleReadV2.value.value");
+    assertExactKeys(window, "databaseModuleReadV2.value.value", [
+      "candidates", "nextCursor", "projectionRevision",
+    ]);
+    if (!Array.isArray(window.candidates) || window.candidates.length > 100) {
+      throw new TypeError("Relation candidate window must be a bounded array");
+    }
+    const candidates = window.candidates.map((rawCandidate, index) => {
+      const candidate = readRecord(rawCandidate, `relationCandidateWindow.candidates[${index}]`);
+      assertExactKeys(candidate, `relationCandidateWindow.candidates[${index}]`, [
+        "pageId", "title",
+      ]);
+      return {
+        pageId: readString(candidate.pageId, `relationCandidateWindow.candidates[${index}].pageId`),
+        title: typeof candidate.title === "string" ? candidate.title : "",
+      };
+    });
+    if (new Set(candidates.map((candidate) => candidate.pageId)).size !== candidates.length) {
+      throw new TypeError("Relation candidate window contains duplicate Page identities");
+    }
+    return {
+      kind: "relation_candidate_window",
+      value: {
+        candidates,
+        nextCursor: window.nextCursor === null
+          ? null
+          : readString(window.nextCursor, "relationCandidateWindow.nextCursor", 4096),
+        projectionRevision: readRevision(
+          window.projectionRevision,
+          "relationCandidateWindow.projectionRevision",
+        ),
+      },
+    };
   }
   throw new TypeError("Database Module v2 read value kind is unsupported");
 };
@@ -1447,9 +1811,7 @@ const OPERATION_KINDS = new Set<DatabaseApplyOperationV2["kind"]>([
   "delete_property",
   "put_option",
   "delete_option",
-  "set_value",
-  "set_values",
-  "add_remove_value",
+  "edit_property_values",
   "transfer_page",
   "put_view",
   "delete_view",

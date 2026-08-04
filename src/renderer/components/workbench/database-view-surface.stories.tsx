@@ -8,6 +8,7 @@ import {
   parseDataSourceId,
   parseDataSourcePropertyId,
 } from "../../../shared/database-identities";
+import { testPropertySemantics } from "../../../shared/testing/database-property-record";
 import { DatabaseViewSurface } from "./database-view-surface";
 import { DatabaseViewTabSurface } from "./workbench-db-view-panel";
 
@@ -82,6 +83,7 @@ const model: DatabaseViewRenderModel = {
         propertyId: statusPropertyId,
         dataSourceId,
         name: "Status",
+        ...testPropertySemantics("select", 2),
         valueType: "select",
         config: { options: [{ id: "build", name: "Build" }, { id: "ship", name: "Ship" }] },
         rankKey: "a",
@@ -94,6 +96,7 @@ const model: DatabaseViewRenderModel = {
         propertyId: tagsPropertyId,
         dataSourceId,
         name: "Tags",
+        ...testPropertySemantics("multi_select", 1),
         valueType: "multi_select",
         config: { options: [{ id: "o_AAAAAAAA", name: "Page first" }] },
         rankKey: "b",

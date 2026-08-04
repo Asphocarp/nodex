@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::Path;
 
 #[cfg(test)]
@@ -465,9 +465,68 @@ pub(super) fn apply(
                         &store_epoch,
                         &library_id,
                         &request.operation_id,
-                        &request_hash,
                         mutation,
+                        super::page_property_mutation::PagePropertyApplySupplement {
+                            core_request_hash: &request_hash,
+                            database_receipt: None,
+                        },
                     )
+                }
+                LibraryIntent::ApplyPageMetadataProperties {
+                    database_intents,
+                    intrinsic_mutation,
+                } => {
+                    validate_page_metadata_property_intents(
+                        database_intents,
+                        intrinsic_mutation,
+                    )?;
+                    let database_outcome = crate::database::apply_intents_in_transaction(
+                        transaction,
+                        &profile_id,
+                        &library_id,
+                        &context,
+                        &ModuleApplyRequest {
+                            contract_version: nodex_core_contracts::DATABASE_CONTRACT_VERSION,
+                            operation_id: request.operation_id.clone(),
+                            store_epoch: request.store_epoch.clone(),
+                            intent: database_intents.clone(),
+                        },
+                    )?;
+                    if database_outcome.committed.receipt.mutation.duplicate {
+                        return Err(StoreError::new(
+                            StoreErrorCode::IdempotencyKeyReused,
+                            "operation_id is already bound to an independent Database mutation",
+                            false,
+                        ));
+                    }
+                    let outcome = super::page_property_mutation::apply(
+                        transaction,
+                        &context,
+                        &store_epoch,
+                        &library_id,
+                        &request.operation_id,
+                        intrinsic_mutation,
+                        super::page_property_mutation::PagePropertyApplySupplement {
+                            core_request_hash: &request_hash,
+                            database_receipt: Some(&database_outcome.committed.receipt),
+                        },
+                    )?;
+                    if let Some(receipt) = &outcome.committed.value.block_property_mutation
+                        && let nodex_core_contracts::library::LibraryBlockPropertyMutationOutcome::Rejected { error } = &receipt.outcome
+                    {
+                        let code = match error.code {
+                            nodex_core_contracts::library::LibraryBlockPropertyMutationErrorCode::MutationIdCollision => StoreErrorCode::IdempotencyKeyReused,
+                            nodex_core_contracts::library::LibraryBlockPropertyMutationErrorCode::ProjectNotFound
+                            | nodex_core_contracts::library::LibraryBlockPropertyMutationErrorCode::BlockNotFound
+                            | nodex_core_contracts::library::LibraryBlockPropertyMutationErrorCode::PropertyNotFound => StoreErrorCode::NotFound,
+                            nodex_core_contracts::library::LibraryBlockPropertyMutationErrorCode::PropertyConflict => StoreErrorCode::RevisionConflict,
+                            nodex_core_contracts::library::LibraryBlockPropertyMutationErrorCode::PropertyValueCorrupt => StoreErrorCode::StoreCorrupt,
+                            nodex_core_contracts::library::LibraryBlockPropertyMutationErrorCode::Unknown => StoreErrorCode::Internal,
+                            _ => StoreErrorCode::InvalidInput,
+                        };
+                        return Err(StoreError::new(code, error.message.clone(), error.retryable));
+                    }
+                    Ok(outcome)
                 }
                 LibraryIntent::GrantProjectAccess {
                     project_id,
@@ -547,6 +606,43 @@ pub(super) fn apply(
             }
         })
     })
+}
+
+fn validate_page_metadata_property_intents(
+    database_intents: &[nodex_core_contracts::database::DatabaseIntent],
+    intrinsic_mutation: &nodex_core_contracts::library::LibraryBlockPropertyMutation,
+) -> Result<(), StoreError> {
+    let mut database_page_ids = BTreeSet::new();
+    for intent in database_intents {
+        let nodex_core_contracts::database::DatabaseIntent::EditPropertyValues { edits } = intent
+        else {
+            return Err(StoreError::new(
+                StoreErrorCode::InvalidInput,
+                "Page metadata orchestration only accepts Database property-value edits",
+                false,
+            ));
+        };
+        database_page_ids.extend(edits.iter().map(|edit| edit.address.page_id.clone()));
+    }
+
+    let intrinsic_page_ids = intrinsic_mutation
+        .fields
+        .iter()
+        .map(|field| match field {
+            nodex_core_contracts::library::LibraryBlockPropertyFieldMutation::IntrinsicSet {
+                block_id,
+                ..
+            } => block_id.clone(),
+        })
+        .collect::<BTreeSet<_>>();
+    if database_page_ids.is_empty() || database_page_ids != intrinsic_page_ids {
+        return Err(StoreError::new(
+            StoreErrorCode::InvalidInput,
+            "Page metadata orchestration requires Database and intrinsic edits for the same non-empty Page set",
+            false,
+        ));
+    }
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1260,10 +1356,10 @@ fn mutate_direct_project_access(
     now: &str,
 ) -> Result<DirectGrantMutation, StoreError> {
     validate_id("project_id", project_id)?;
-    if let DirectGrantRevisionFence::Exact(Some(revision)) = revision_fence {
-        if revision < 1 {
-            return Err(invalid("Project grant revision must be positive"));
-        }
+    if let DirectGrantRevisionFence::Exact(Some(revision)) = revision_fence
+        && revision < 1
+    {
+        return Err(invalid("Project grant revision must be positive"));
     }
     let project = connection
         .query_row(
@@ -1302,14 +1398,14 @@ fn mutate_direct_project_access(
     let active_revision = existing
         .as_ref()
         .and_then(|(_, _, lifecycle, revision)| (lifecycle == "active").then_some(*revision));
-    if let DirectGrantRevisionFence::Exact(expected_revision) = revision_fence {
-        if active_revision != expected_revision {
-            return Err(StoreError::new(
-                StoreErrorCode::RevisionConflict,
-                "Project access changed while the dialog was open",
-                true,
-            ));
-        }
+    if let DirectGrantRevisionFence::Exact(expected_revision) = revision_fence
+        && active_revision != expected_revision
+    {
+        return Err(StoreError::new(
+            StoreErrorCode::RevisionConflict,
+            "Project access changed while the dialog was open",
+            true,
+        ));
     }
 
     if access.is_some() && project_lifecycle != "active" {

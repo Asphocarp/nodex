@@ -29,8 +29,7 @@ const applyRequest = () => ({
       expectedDataSourceRevision: 1,
       expectedPropertyRevision: 0,
       name: "Teams",
-      valueType: "multi_select",
-      config: {},
+      schema: { kind: "multi_select" },
     },
     {
       kind: "put_option",
@@ -42,12 +41,20 @@ const applyRequest = () => ({
       expectedPropertyRevision: 0,
     },
     {
-      kind: "add_remove_value",
-      pageId: "page-1",
-      dataSourceId: "source-1",
-      propertyId: CUSTOM_PROPERTY_ID,
-      add: [CUSTOM_OPTION_ID],
-      remove: [],
+      kind: "edit_property_values",
+      edits: [{
+        pageId: "page-1",
+        dataSourceId: "source-1",
+        propertyId: CUSTOM_PROPERTY_ID,
+        edit: {
+          kind: "patch_set",
+          delta: {
+            kind: "multi_select",
+            addOptionIds: [CUSTOM_OPTION_ID],
+            removeOptionIds: [],
+          },
+        },
+      }],
     },
   ],
 });
@@ -69,10 +76,17 @@ const propertyRecord = () => ({
   propertyId: CUSTOM_PROPERTY_ID,
   dataSourceId: "source-1",
   name: "Teams",
-  valueType: "multi_select",
-  config: {
-    options: [{ id: CUSTOM_OPTION_ID, name: "Platform", color: "blue" }],
+  schema: { kind: "multi_select" },
+  capabilities: {
+    replace: true,
+    patchSetMember: "option",
+    filterOperators: ["contains", "not_contains", "is_empty", "is_not_empty"],
+    sortable: true,
+    groupable: true,
   },
+  valueType: "multi_select",
+  config: {},
+  optionCount: 1,
   rankKey: "a",
   lifecycle: "active",
   revision: 2,
@@ -83,7 +97,7 @@ const propertyRecord = () => ({
 describe("Database Module v2 transport boundary", () => {
   test("is additive and keeps the active v1 contract untouched", () => {
     expect(DATABASE_MODULE_CONTRACT_VERSION).toBe(1);
-    expect(DATABASE_MODULE_V2_CONTRACT_VERSION).toBe(3);
+    expect(DATABASE_MODULE_V2_CONTRACT_VERSION).toBe(4);
   });
 
   test("binds ordered option creation and value writes under one apply", () => {
@@ -98,7 +112,7 @@ describe("Database Module v2 transport boundary", () => {
     expect(bound.operations.map((operation) => operation.kind)).toEqual([
       "put_property",
       "put_option",
-      "add_remove_value",
+      "edit_property_values",
     ]);
     expect(bound.operations[1]).toMatchObject({
       propertyId: CUSTOM_PROPERTY_ID,
@@ -120,8 +134,7 @@ describe("Database Module v2 transport boundary", () => {
             expectedDataSourceRevision: 2,
             expectedPropertyRevision: 3,
             name: "Workflow",
-            valueType: "select",
-            config: {},
+            schema: { kind: "select" },
           },
         ],
       },
@@ -133,11 +146,11 @@ describe("Database Module v2 transport boundary", () => {
       kind: "put_property",
       propertyId: "status",
       expectedPropertyRevision: 3,
-      config: {},
+      schema: { kind: "select" },
     });
   });
 
-  test("rejects inline option registries and the removed Property key", () => {
+  test("rejects legacy inline config and the removed Property key", () => {
     const request = applyRequest();
     const property = request.operations[0];
 
@@ -157,7 +170,7 @@ describe("Database Module v2 transport boundary", () => {
         "project-1",
         { actor: { kind: "test" } },
       ),
-    ).toThrow("use put_option or delete_option");
+    ).toThrow(".config is not supported");
 
     expect(() =>
       bindDatabaseApplyV2(
@@ -278,7 +291,94 @@ describe("Database Module v2 transport boundary", () => {
     ).toThrow("target and mode are incompatible");
   });
 
-  test("parses stored option registries while rejecting the removed key field", () => {
+  test("binds catalog and source-scoped Relation candidate windows", () => {
+    expect(bindDatabaseModuleReadV2({
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      projectId: "project-1",
+      read: {
+        target: { kind: "project_default" },
+        mode: "catalog_window",
+        window: { first: 100 },
+      },
+    }, "project-1").read.mode).toBe("catalog_window");
+
+    expect(bindDatabaseModuleReadV2({
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      projectId: "project-1",
+      read: {
+        target: { kind: "data_source", dataSourceId: "source-1" },
+        mode: "relation_candidate_window",
+        query: "blocked",
+        window: { first: 25 },
+      },
+    }, "project-1").read).toMatchObject({
+      mode: "relation_candidate_window",
+      query: "blocked",
+      window: { first: 25 },
+    });
+  });
+
+  test("matches Core Relation replacement and patch cardinality limits", () => {
+    const replacementIds = Array.from(
+      { length: 101 },
+      (_, index) => `page-${index}`,
+    );
+    const replacement = bindDatabaseApplyV2({
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      operationId: "relation-replace",
+      projectId: "project-1",
+      storeEpoch: "epoch-1",
+      actor: {},
+      operations: [{
+        kind: "edit_property_values",
+        edits: [{
+          pageId: "page-source",
+          dataSourceId: "source-1",
+          propertyId: CUSTOM_PROPERTY_ID,
+          edit: {
+            kind: "replace",
+            expectedValueRevision: 1,
+            value: { kind: "relation", pageIds: replacementIds },
+          },
+        }],
+      }],
+    }, "project-1", { actor: { kind: "test" } });
+    expect(
+      replacement.operations[0]?.kind === "edit_property_values"
+        ? replacement.operations[0].edits[0]?.edit.kind === "replace"
+          ? replacement.operations[0].edits[0].edit.value
+          : null
+        : null,
+    ).toMatchObject({ kind: "relation", pageIds: replacementIds });
+
+    expect(() => bindDatabaseApplyV2({
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      operationId: "relation-patch",
+      projectId: "project-1",
+      storeEpoch: "epoch-1",
+      actor: {},
+      operations: [{
+        kind: "edit_property_values",
+        edits: [{
+          pageId: "page-source",
+          dataSourceId: "source-1",
+          propertyId: CUSTOM_PROPERTY_ID,
+          edit: {
+            kind: "patch_set",
+            delta: {
+              kind: "relation",
+              addPageIds: Array.from({ length: 60 }, (_, index) => `add-${index}`),
+              removePageIds: Array.from({ length: 41 }, (_, index) => `remove-${index}`),
+            },
+          },
+        }],
+      }],
+    }, "project-1", { actor: { kind: "test" } })).toThrow(
+      "may change at most 100 Relation targets",
+    );
+  });
+
+  test("parses typed Property descriptors while rejecting the removed key field", () => {
     const result = {
       ok: true,
       value: {
@@ -345,7 +445,7 @@ describe("Database Module v2 transport boundary", () => {
         libraryId: "library-1",
         storeEpoch: "epoch-1",
         duplicate: false,
-        operationKinds: ["put_option", "add_remove_value"],
+        operationKinds: ["put_option", "edit_property_values"],
         affectedDatabaseIds: ["database-1"],
         affectedDataSourceIds: ["source-1"],
         affectedPageIds: ["page-1"],

@@ -44,6 +44,7 @@ export interface CreateDatabasePropertyDraft {
   readonly dataSourceId: string;
   readonly name: string;
   readonly valueType: DatabasePropertyValueType;
+  readonly targetDataSourceId?: string;
 }
 
 export interface CreateDatabaseViewDraft {
@@ -114,6 +115,7 @@ const PROPERTY_TYPES: readonly {
   { value: "date", label: "Date" },
   { value: "datetime", label: "Date & time" },
   { value: "person", label: "Person" },
+  { value: "relation", label: "Relation" },
 ];
 
 const VIEW_KINDS: readonly {
@@ -141,6 +143,8 @@ const propertyTypeIcon = (valueType: DatabasePropertyValueType) => {
       return UserRound;
     case "text":
       return TextCursorInput;
+    case "relation":
+      return DatabaseIcon;
   }
 };
 
@@ -205,6 +209,8 @@ export function DatabaseManagementSurface({
   const [propertyName, setPropertyName] = useState("");
   const [propertyType, setPropertyType] =
     useState<DatabasePropertyValueType>("text");
+  const [relationTargetDataSourceId, setRelationTargetDataSourceId] =
+    useState<string>("");
   const [viewName, setViewName] = useState("");
   const [viewKind, setViewKind] = useState<DatabaseViewKind>("list");
   const [viewDrafts, setViewDrafts] = useState<Readonly<Record<
@@ -409,6 +415,12 @@ export function DatabaseManagementSurface({
                         dataSourceId: source.dataSource.dataSourceId,
                         name,
                         valueType: propertyType,
+                        ...(propertyType === "relation"
+                          ? {
+                              targetDataSourceId: relationTargetDataSourceId
+                                || source.dataSource.dataSourceId,
+                            }
+                          : {}),
                       });
                       setPropertyName("");
                     },
@@ -436,6 +448,25 @@ export function DatabaseManagementSurface({
                       <option key={type.value} value={type.value}>{type.label}</option>
                     ))}
                   </select>
+                  {propertyType === "relation" ? (
+                    <select
+                      aria-label="Relation target database"
+                      value={relationTargetDataSourceId || source.dataSource.dataSourceId}
+                      disabled={busy}
+                      onChange={(event) => setRelationTargetDataSourceId(event.target.value)}
+                      className="h-8 max-w-40 rounded-md border border-transparent bg-transparent px-2 text-xs text-token-text-secondary outline-none hover:bg-token-foreground/5 focus:border-token-focus-border"
+                    >
+                      {databases.flatMap((database) =>
+                        database.dataSources
+                          .filter((dataSource) => dataSource.lifecycle === "active")
+                          .map((dataSource) => (
+                            <option key={dataSource.dataSourceId} value={dataSource.dataSourceId}>
+                              {database.database.name}
+                            </option>
+                          ))
+                      )}
+                    </select>
+                  ) : null}
                   <NodexButton
                     type="submit"
                     size="xs"
@@ -715,7 +746,7 @@ export function DatabaseManagementDialog({
   return (
     <NodexDialog open={open} onOpenChange={onOpenChange}>
       <NodexDialogContent
-        className="h-[min(680px,calc(100vh-2rem))] max-h-[calc(100vh-2rem)] w-[min(900px,calc(100vw-2rem))] max-w-none sm:max-w-none"
+        className="flex h-[min(680px,calc(100vh-2rem))] max-h-[calc(100vh-2rem)] w-[min(900px,calc(100vw-2rem))] max-w-none sm:max-w-none"
         closeButtonAriaLabel="Close Database manager"
       >
         <NodexDialogTitle className="sr-only">Manage Databases</NodexDialogTitle>

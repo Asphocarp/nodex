@@ -616,6 +616,253 @@ CREATE UNIQUE INDEX idx_project_session_threads_thread
   ON project_session_threads(thread_id);
 "#;
 
+const V100_RELATION_PROPERTIES_SCHEMA_SQL: &str = r#"
+CREATE TABLE data_source_properties_v100 (
+  data_source_id TEXT NOT NULL REFERENCES data_sources(id) ON DELETE CASCADE,
+  id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  value_type TEXT NOT NULL,
+  config_json TEXT NOT NULL DEFAULT '{}',
+  rank_key TEXT NOT NULL,
+  lifecycle TEXT NOT NULL DEFAULT 'active',
+  schema_revision INTEGER NOT NULL DEFAULT 1 CHECK (schema_revision >= 1),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (data_source_id, id),
+  CHECK (length(id) BETWEEN 1 AND 128),
+  CHECK (length(name) BETWEEN 1 AND 256),
+  CHECK (value_type IN (
+    'text', 'number', 'checkbox', 'select', 'multi_select',
+    'date', 'datetime', 'person', 'relation'
+  )),
+  CHECK (lifecycle IN ('active', 'deleted')),
+  CHECK (json_valid(config_json) AND json_type(config_json) = 'object')
+) WITHOUT ROWID;
+
+CREATE TABLE data_source_property_values_v100 (
+  data_source_id TEXT NOT NULL,
+  membership_id TEXT NOT NULL,
+  property_id TEXT NOT NULL,
+  value_type TEXT NOT NULL,
+  value_json TEXT NOT NULL,
+  revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (data_source_id, membership_id, property_id),
+  FOREIGN KEY (membership_id, data_source_id)
+    REFERENCES data_source_page_memberships(id, data_source_id)
+    ON UPDATE CASCADE ON DELETE CASCADE,
+  FOREIGN KEY (data_source_id, property_id)
+    REFERENCES data_source_properties_v100(data_source_id, id)
+    ON UPDATE CASCADE ON DELETE CASCADE,
+  CHECK (value_type IN (
+    'text', 'number', 'checkbox', 'select', 'multi_select',
+    'date', 'datetime', 'person', 'relation'
+  )),
+  CHECK (json_valid(value_json)),
+  CHECK (value_type <> 'relation' OR json_type(value_json) = 'null')
+) WITHOUT ROWID;
+
+INSERT INTO data_source_properties_v100(
+  data_source_id, id, name, value_type, config_json, rank_key, lifecycle,
+  schema_revision, created_at, updated_at
+)
+SELECT
+  data_source_id, id, name, value_type, config_json, rank_key, lifecycle,
+  schema_revision, created_at, updated_at
+FROM data_source_properties;
+
+INSERT INTO data_source_property_values_v100(
+  data_source_id, membership_id, property_id, value_type, value_json,
+  revision, updated_at
+)
+SELECT
+  data_source_id, membership_id, property_id, value_type, value_json,
+  revision, updated_at
+FROM data_source_property_values;
+
+DROP TRIGGER data_source_property_values_require_matching_type_insert;
+DROP TRIGGER data_source_property_values_require_matching_type_update;
+DROP INDEX idx_data_source_properties_order;
+DROP INDEX idx_data_source_property_values_property;
+
+ALTER TABLE data_source_property_values RENAME TO data_source_property_values_v99;
+ALTER TABLE data_source_properties RENAME TO data_source_properties_v99;
+ALTER TABLE data_source_properties_v100 RENAME TO data_source_properties;
+ALTER TABLE data_source_property_values_v100 RENAME TO data_source_property_values;
+
+DROP TABLE data_source_property_values_v99;
+DROP TABLE data_source_properties_v99;
+
+CREATE INDEX idx_data_source_properties_order
+  ON data_source_properties(data_source_id, lifecycle, rank_key, id);
+
+CREATE INDEX idx_data_source_property_values_property
+  ON data_source_property_values(data_source_id, property_id, membership_id);
+
+CREATE TRIGGER data_source_property_values_require_matching_type_insert
+BEFORE INSERT ON data_source_property_values
+WHEN NOT EXISTS (
+  SELECT 1 FROM data_source_properties property
+  WHERE property.data_source_id = NEW.data_source_id
+    AND property.id = NEW.property_id
+    AND property.value_type = NEW.value_type
+    AND property.lifecycle = 'active'
+)
+BEGIN
+  SELECT RAISE(ABORT, 'Data Source Property value must match an active Property type');
+END;
+
+CREATE TRIGGER data_source_property_values_require_matching_type_update
+BEFORE UPDATE OF data_source_id, property_id, value_type
+ON data_source_property_values
+WHEN NOT EXISTS (
+  SELECT 1 FROM data_source_properties property
+  WHERE property.data_source_id = NEW.data_source_id
+    AND property.id = NEW.property_id
+    AND property.value_type = NEW.value_type
+    AND property.lifecycle = 'active'
+)
+BEGIN
+  SELECT RAISE(ABORT, 'Data Source Property value must match an active Property type');
+END;
+
+CREATE TABLE data_source_relation_properties (
+  data_source_id TEXT NOT NULL,
+  property_id TEXT NOT NULL,
+  target_data_source_id TEXT NOT NULL,
+  PRIMARY KEY (data_source_id, property_id),
+  FOREIGN KEY (data_source_id, property_id)
+    REFERENCES data_source_properties(data_source_id, id)
+    ON UPDATE CASCADE ON DELETE CASCADE,
+  FOREIGN KEY (target_data_source_id)
+    REFERENCES data_sources(id)
+    ON UPDATE CASCADE ON DELETE NO ACTION
+    DEFERRABLE INITIALLY DEFERRED
+) WITHOUT ROWID, STRICT;
+
+CREATE TABLE data_source_relation_edges (
+  source_data_source_id TEXT NOT NULL,
+  source_membership_id TEXT NOT NULL,
+  property_id TEXT NOT NULL,
+  target_page_block_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (
+    source_data_source_id,
+    source_membership_id,
+    property_id,
+    target_page_block_id
+  ),
+  FOREIGN KEY (source_data_source_id, property_id)
+    REFERENCES data_source_relation_properties(data_source_id, property_id)
+    ON UPDATE CASCADE ON DELETE CASCADE,
+  FOREIGN KEY (source_data_source_id, source_membership_id, property_id)
+    REFERENCES data_source_property_values(
+      data_source_id,
+      membership_id,
+      property_id
+    ) ON UPDATE CASCADE ON DELETE CASCADE,
+  FOREIGN KEY (target_page_block_id)
+    REFERENCES blocks(id)
+    ON UPDATE CASCADE ON DELETE NO ACTION
+    DEFERRABLE INITIALLY DEFERRED,
+  CHECK (length(created_at) > 0)
+) WITHOUT ROWID, STRICT;
+
+CREATE INDEX idx_data_source_relation_properties_target
+  ON data_source_relation_properties(
+    target_data_source_id,
+    data_source_id,
+    property_id
+  );
+
+CREATE INDEX idx_data_source_relation_edges_property_target
+  ON data_source_relation_edges(
+    source_data_source_id,
+    property_id,
+    target_page_block_id,
+    source_membership_id
+  );
+
+CREATE INDEX idx_data_source_relation_edges_target
+  ON data_source_relation_edges(
+    target_page_block_id,
+    source_data_source_id,
+    property_id,
+    source_membership_id
+  );
+
+CREATE TRIGGER data_source_relation_properties_validate_insert
+BEFORE INSERT ON data_source_relation_properties
+WHEN NOT EXISTS (
+  SELECT 1
+  FROM data_source_properties property
+  JOIN data_sources source ON source.id = property.data_source_id
+  JOIN data_sources target ON target.id = NEW.target_data_source_id
+  WHERE property.data_source_id = NEW.data_source_id
+    AND property.id = NEW.property_id
+    AND property.value_type = 'relation'
+    AND property.config_json = '{}'
+    AND property.lifecycle = 'active'
+    AND source.lifecycle = 'active'
+    AND target.lifecycle = 'active'
+    AND source.library_id = target.library_id
+)
+BEGIN
+  SELECT RAISE(ABORT, 'Relation Property must target an active Data Source in the same Library');
+END;
+
+CREATE TRIGGER data_source_relation_properties_are_immutable
+BEFORE UPDATE ON data_source_relation_properties
+BEGIN
+  SELECT RAISE(ABORT, 'Relation Property target is immutable');
+END;
+
+CREATE TRIGGER data_source_relation_property_type_is_stable
+BEFORE UPDATE OF value_type ON data_source_properties
+WHEN NEW.value_type <> 'relation'
+  AND EXISTS (
+    SELECT 1 FROM data_source_relation_properties relation
+    WHERE relation.data_source_id = OLD.data_source_id
+      AND relation.property_id = OLD.id
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'Relation Property type is immutable');
+END;
+
+CREATE TRIGGER data_source_relation_edges_validate_insert
+BEFORE INSERT ON data_source_relation_edges
+WHEN NOT EXISTS (
+  SELECT 1
+  FROM data_source_relation_properties relation
+  JOIN data_source_property_values value
+    ON value.data_source_id = NEW.source_data_source_id
+    AND value.membership_id = NEW.source_membership_id
+    AND value.property_id = NEW.property_id
+  JOIN blocks target_block ON target_block.id = NEW.target_page_block_id
+  JOIN pages target_page ON target_page.block_id = target_block.id
+  JOIN data_source_page_memberships target_membership
+    ON target_membership.page_block_id = target_block.id
+    AND target_membership.data_source_id = relation.target_data_source_id
+    AND target_membership.removed_at IS NULL
+  WHERE relation.data_source_id = NEW.source_data_source_id
+    AND relation.property_id = NEW.property_id
+    AND value.value_type = 'relation'
+    AND json_type(value.value_json) = 'null'
+    AND target_block.type = 'page'
+    AND target_block.lifecycle = 'active'
+    AND target_page.lifecycle = 'active'
+)
+BEGIN
+  SELECT RAISE(ABORT, 'Relation edge requires an active target Page in the configured Data Source');
+END;
+
+CREATE TRIGGER data_source_relation_edges_are_immutable
+BEFORE UPDATE ON data_source_relation_edges
+BEGIN
+  SELECT RAISE(ABORT, 'Relation edge identity is immutable');
+END;
+"#;
+
 const V94_PROJECT_APPEARANCE_SCHEMA_SQL: &str = r#"
 ALTER TABLE projects ADD COLUMN appearance_color TEXT NOT NULL DEFAULT 'black'
   CHECK (appearance_color IN ('black', 'red', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink'));
@@ -828,6 +1075,7 @@ pub fn prepare_profile_store_with_observer(
         validate_codex_thread_timestamp_invariants(connection)?;
         validate_canonical_text_timestamp_invariants(connection)?;
         validate_database_view_kind_invariants(connection)?;
+        validate_database_relation_invariants(connection)?;
         return Ok(StorePreparation {
             schema_version: CORE_SCHEMA_VERSION,
             created_fresh: true,
@@ -852,6 +1100,7 @@ pub fn prepare_profile_store_with_observer(
         validate_codex_thread_timestamp_invariants(connection)?;
         validate_canonical_text_timestamp_invariants(connection)?;
         validate_database_view_kind_invariants(connection)?;
+        validate_database_relation_invariants(connection)?;
         return Ok(StorePreparation {
             schema_version: CORE_SCHEMA_VERSION,
             created_fresh: false,
@@ -904,6 +1153,7 @@ pub fn prepare_profile_store_with_observer(
     validate_codex_thread_timestamp_invariants(connection)?;
     validate_canonical_text_timestamp_invariants(connection)?;
     validate_database_view_kind_invariants(connection)?;
+    validate_database_relation_invariants(connection)?;
     Ok(StorePreparation {
         schema_version: CORE_SCHEMA_VERSION,
         created_fresh: false,
@@ -957,6 +1207,7 @@ pub(crate) fn prepare_legacy_import_candidate(
     validate_codex_thread_timestamp_invariants(connection)?;
     validate_canonical_text_timestamp_invariants(connection)?;
     validate_database_view_kind_invariants(connection)?;
+    validate_database_relation_invariants(connection)?;
     Ok(StorePreparation {
         schema_version: CORE_SCHEMA_VERSION,
         created_fresh: false,
@@ -999,6 +1250,7 @@ fn upgrade_owned_store(
         96 => validate_exact_v96_schema(connection)?,
         97 => validate_exact_v97_schema(connection)?,
         98 => validate_exact_v98_schema(connection)?,
+        99 => validate_exact_v99_schema(connection)?,
         _ => return Err(corrupt("Rust Core forward-migration source is unsupported")),
     }
 
@@ -1053,6 +1305,9 @@ fn upgrade_owned_store(
         if source_version < 99 {
             ensure_v99_owner_scoped_scenes_schema(transaction)?;
         }
+        if source_version < 100 {
+            ensure_v100_relation_properties_schema(transaction)?;
+        }
         let updated = transaction.execute(
             "UPDATE core_store_metadata SET store_format_version = ?1 \
              WHERE id = 1 AND schema_owner = ?2 AND store_format_version = ?3",
@@ -1073,6 +1328,7 @@ fn upgrade_owned_store(
     validate_codex_thread_timestamp_invariants(connection)?;
     validate_canonical_text_timestamp_invariants(connection)?;
     validate_database_view_kind_invariants(connection)?;
+    validate_database_relation_invariants(connection)?;
     Ok(StorePreparation {
         schema_version: CORE_SCHEMA_VERSION,
         created_fresh: false,
@@ -1303,6 +1559,7 @@ fn publish_current_store(
         ensure_v97_canvas_owners_schema(transaction)?;
         ensure_v98_yjs_integrity_schema(transaction)?;
         ensure_v99_owner_scoped_scenes_schema(transaction)?;
+        ensure_v100_relation_properties_schema(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
@@ -1334,6 +1591,7 @@ fn create_fresh_store(
         ensure_v97_canvas_owners_schema(transaction)?;
         ensure_v98_yjs_integrity_schema(transaction)?;
         ensure_v99_owner_scoped_scenes_schema(transaction)?;
+        ensure_v100_relation_properties_schema(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
@@ -1590,6 +1848,21 @@ fn ensure_v99_owner_scoped_scenes_schema(connection: &Connection) -> Result<(), 
     Ok(())
 }
 
+fn ensure_v100_relation_properties_schema(connection: &Connection) -> Result<(), StoreError> {
+    connection.pragma_update(None, "defer_foreign_keys", true)?;
+    connection.execute_batch(V100_RELATION_PROPERTIES_SCHEMA_SQL)?;
+    let foreign_key_violation = connection
+        .prepare("PRAGMA foreign_key_check")?
+        .query_row([], |_| Ok(()))
+        .optional()?;
+    if foreign_key_violation.is_some() {
+        return Err(corrupt(
+            "v100 Relation Property migration produced a foreign-key violation",
+        ));
+    }
+    validate_database_relation_invariants(connection)
+}
+
 fn ensure_v95_canvas_incremental_schema(connection: &Connection) -> Result<(), StoreError> {
     connection.execute_batch(V95_CANVAS_INCREMENTAL_STAGING_SCHEMA_SQL)?;
     let document_ids = connection
@@ -1716,6 +1989,93 @@ fn validate_database_view_kind_invariants(connection: &Connection) -> Result<(),
     Err(corrupt(
         "Database View authority contains a retired presentation kind",
     ))
+}
+
+fn validate_database_relation_invariants(connection: &Connection) -> Result<(), StoreError> {
+    let relation_table_count: i64 = connection.query_row(
+        "SELECT count(*) FROM sqlite_schema \
+         WHERE type = 'table' AND name IN (\
+           'data_source_relation_properties', 'data_source_relation_edges'\
+         )",
+        [],
+        |row| row.get(0),
+    )?;
+    if relation_table_count == 0 {
+        return Ok(());
+    }
+    if relation_table_count != 2 {
+        return Err(corrupt("Relation Property authority tables are incomplete"));
+    }
+
+    let invalid_definitions: i64 = connection.query_row(
+        "SELECT count(*) \
+         FROM data_source_relation_properties relation \
+         LEFT JOIN data_source_properties property \
+           ON property.data_source_id = relation.data_source_id \
+           AND property.id = relation.property_id \
+         LEFT JOIN data_sources source ON source.id = relation.data_source_id \
+         LEFT JOIN data_sources target ON target.id = relation.target_data_source_id \
+         WHERE property.value_type IS NOT 'relation' \
+           OR property.config_json <> '{}' \
+           OR source.library_id IS NULL \
+           OR target.library_id IS NULL \
+           OR source.library_id <> target.library_id",
+        [],
+        |row| row.get(0),
+    )?;
+    let missing_definitions: i64 = connection.query_row(
+        "SELECT count(*) FROM data_source_properties property \
+         WHERE property.value_type = 'relation' \
+           AND NOT EXISTS (\
+             SELECT 1 FROM data_source_relation_properties relation \
+             WHERE relation.data_source_id = property.data_source_id \
+               AND relation.property_id = property.id\
+           )",
+        [],
+        |row| row.get(0),
+    )?;
+    let invalid_headers: i64 = connection.query_row(
+        "SELECT count(*) FROM data_source_property_values value \
+         WHERE value.value_type = 'relation' \
+           AND json_type(value.value_json) IS NOT 'null'",
+        [],
+        |row| row.get(0),
+    )?;
+    let invalid_edges: i64 = connection.query_row(
+        "SELECT count(*) \
+         FROM data_source_relation_edges edge \
+         JOIN data_source_relation_properties relation \
+           ON relation.data_source_id = edge.source_data_source_id \
+           AND relation.property_id = edge.property_id \
+         LEFT JOIN data_source_property_values value \
+           ON value.data_source_id = edge.source_data_source_id \
+           AND value.membership_id = edge.source_membership_id \
+           AND value.property_id = edge.property_id \
+         LEFT JOIN blocks target_block ON target_block.id = edge.target_page_block_id \
+         LEFT JOIN pages target_page ON target_page.block_id = edge.target_page_block_id \
+         WHERE value.value_type IS NOT 'relation' \
+           OR json_type(value.value_json) IS NOT 'null' \
+           OR target_block.type IS NOT 'page' \
+           OR target_page.block_id IS NULL \
+           OR NOT EXISTS (\
+             SELECT 1 FROM data_source_page_memberships target_membership \
+             WHERE target_membership.page_block_id = edge.target_page_block_id \
+               AND target_membership.data_source_id = relation.target_data_source_id\
+           )",
+        [],
+        |row| row.get(0),
+    )?;
+    let invalid = invalid_definitions
+        .checked_add(missing_definitions)
+        .and_then(|count| count.checked_add(invalid_headers))
+        .and_then(|count| count.checked_add(invalid_edges))
+        .ok_or_else(|| corrupt("Relation Property invariant count overflowed"))?;
+    if invalid == 0 {
+        return Ok(());
+    }
+    Err(corrupt(format!(
+        "Relation Property authority contains {invalid} inconsistent records"
+    )))
 }
 
 fn migrate_v95_canvas_scene(connection: &Connection, document_id: &str) -> Result<(), StoreError> {
@@ -2883,6 +3243,10 @@ fn validate_exact_v98_schema(connection: &Connection) -> Result<(), StoreError> 
     validate_exact_core_schema(connection, true, true, true, true, true, true, true, 98)
 }
 
+fn validate_exact_v99_schema(connection: &Connection) -> Result<(), StoreError> {
+    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 99)
+}
+
 fn validate_exact_current_schema(connection: &Connection) -> Result<(), StoreError> {
     validate_exact_core_schema(
         connection,
@@ -2950,6 +3314,9 @@ fn validate_exact_core_schema(
     }
     if schema_version >= 99 {
         ensure_v99_owner_scoped_scenes_schema(&expected)?;
+    }
+    if schema_version >= 100 {
+        ensure_v100_relation_properties_schema(&expected)?;
     }
 
     let expected_inventory = read_schema_inventory(&expected)?;
@@ -3033,6 +3400,9 @@ pub fn expected_store_schema_fingerprint(version: i64) -> Result<String, StoreEr
     }
     if version >= 99 {
         ensure_v99_owner_scoped_scenes_schema(&expected)?;
+    }
+    if version >= 100 {
+        ensure_v100_relation_properties_schema(&expected)?;
     }
     read_schema_inventory(&expected).map(|inventory| schema_inventory_fingerprint(&inventory))
 }
@@ -3158,6 +3528,118 @@ mod tests {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("tests/fixtures/yjs-yrs")
             .join(name)
+    }
+
+    fn seed_owned_v99_store_with_property_value(home: &Path) {
+        let mut connection = open_writer(&home.join("nodex.db")).expect("v99 writer");
+        install_v84_schema(&connection).expect("v84 schema");
+        with_immediate_transaction(&mut connection, |transaction| {
+            transaction.execute_batch(V85_SCHEMA_SQL)?;
+            transaction.execute_batch(V85_EXECUTION_SCHEMA_SQL)?;
+            ensure_automation_definition_revision(transaction)?;
+            ensure_automation_run_revision(transaction)?;
+            ensure_v86_execution_profile_schema(transaction)?;
+            ensure_v87_project_session_tabs_schema(transaction)?;
+            transaction.execute(
+                "INSERT INTO core_store_metadata(\
+                   id, schema_owner, store_format_version, migrated_from_version, \
+                   migration_backup_name, migrated_at_unix_ms\
+                 ) VALUES (1, ?1, 99, NULL, NULL, 1)",
+                [CORE_SCHEMA_OWNER],
+            )?;
+            ensure_v88_projection_impact_schema(transaction)?;
+            repair_v89_codex_thread_timestamps(transaction)?;
+            ensure_v90_window_owned_session_views_schema(transaction)?;
+            ensure_v91_workspace_sidebar_lanes_schema(transaction)?;
+            ensure_v92_canonical_text_timestamps(transaction)?;
+            ensure_v93_database_starter_sessions_schema(transaction)?;
+            ensure_v94_project_appearance_schema(transaction)?;
+            ensure_v95_canvas_incremental_schema(transaction)?;
+            ensure_v96_canvas_tombstone_bytes_schema(transaction)?;
+            ensure_v97_canvas_owners_schema(transaction)?;
+            ensure_v98_yjs_integrity_schema(transaction)?;
+            ensure_v99_owner_scoped_scenes_schema(transaction)?;
+
+            let now = "2026-08-04T00:00:00.000Z";
+            transaction.execute(
+                "INSERT INTO profiles(id, created_at, updated_at) \
+                 VALUES ('profile:v99', ?1, ?1)",
+                [now],
+            )?;
+            transaction.execute(
+                "INSERT INTO libraries(id, profile_id, created_at, updated_at) \
+                 VALUES ('library:v99', 'profile:v99', ?1, ?1)",
+                [now],
+            )?;
+            transaction.execute(
+                "INSERT INTO projects(id, name, created, updated, library_id) \
+                 VALUES ('project:v99', 'Migration', '2026-08-04', '2026-08-04', 'library:v99')",
+                [],
+            )?;
+            transaction.execute(
+                "INSERT INTO blocks(\
+                   id, project_id, type, lifecycle, location_kind, created_at, updated_at\
+                 ) VALUES (\
+                   'database:v99', 'project:v99', 'database', 'active', 'space', ?1, ?1\
+                 )",
+                [now],
+            )?;
+            transaction.execute(
+                "INSERT INTO database_containers(\
+                   block_id, library_id, name, lifecycle, created_at, updated_at\
+                 ) VALUES (\
+                   'database:v99', 'library:v99', 'Migration', 'active', ?1, ?1\
+                 )",
+                [now],
+            )?;
+            transaction.execute(
+                "INSERT INTO data_sources(\
+                   id, library_id, home_database_block_id, name, schema_key, lifecycle, \
+                   rank_key, created_at, updated_at\
+                 ) VALUES (\
+                   'source:v99', 'library:v99', 'database:v99', 'Migration', \
+                   'nodex.database', 'active', 'a', ?1, ?1\
+                 )",
+                [now],
+            )?;
+            transaction.execute(
+                "INSERT INTO data_source_properties(\
+                   data_source_id, id, name, value_type, config_json, rank_key, lifecycle, \
+                   schema_revision, created_at, updated_at\
+                 ) VALUES (\
+                   'source:v99', 'note', 'Note', 'text', '{}', 'a', 'active', 7, ?1, ?1\
+                 )",
+                [now],
+            )?;
+            transaction.execute(
+                "INSERT INTO blocks(\
+                   id, project_id, type, lifecycle, location_kind, containing_database_id, \
+                   created_at, updated_at\
+                 ) VALUES (\
+                   'page:v99', 'project:v99', 'page', 'active', 'database', 'database:v99', ?1, ?1\
+                 )",
+                [now],
+            )?;
+            transaction.execute(
+                "INSERT INTO data_source_page_memberships(\
+                   id, data_source_id, page_block_id, revision, created_at, removed_at\
+                 ) VALUES ('membership:v99', 'source:v99', 'page:v99', 3, ?1, NULL)",
+                [now],
+            )?;
+            transaction.execute(
+                "INSERT INTO data_source_property_values(\
+                   data_source_id, membership_id, property_id, value_type, value_json, \
+                   revision, updated_at\
+                 ) VALUES (\
+                   'source:v99', 'membership:v99', 'note', 'text', '\"preserve me\"', 11, ?1\
+                 )",
+                [now],
+            )?;
+            transaction.pragma_update(None, "user_version", 99)?;
+            Ok(())
+        })
+        .expect("seed v99 Store");
+        validate_exact_v99_schema(&connection).expect("exact v99 Store");
     }
 
     fn seed_v84_page(home: &Path) {
@@ -3629,6 +4111,94 @@ mod tests {
         drop(kernel);
         let reopened = SqliteStoreKernel::open(&home).expect("reopen current store");
         assert!(!reopened.preparation().created_fresh);
+    }
+
+    #[test]
+    fn v99_upgrade_preserves_property_values_and_publishes_relation_authority() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        seed_owned_v99_store_with_property_value(&home);
+
+        let upgraded = SqliteStoreKernel::open(&home).expect("upgrade v99 Core store");
+        assert_eq!(upgraded.preparation().schema_version, 100);
+        assert_eq!(upgraded.preparation().migrated_from_version, Some(99));
+        let backup_path = upgraded
+            .preparation()
+            .migration_backup_path
+            .as_ref()
+            .expect("v99 migration backup");
+        let backup = open_immutable_reader(backup_path).expect("backup opens");
+        assert_eq!(
+            backup
+                .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+                .expect("backup schema version"),
+            99
+        );
+        assert_eq!(
+            backup
+                .query_row(
+                    "SELECT value_json, revision FROM data_source_property_values \
+                     WHERE data_source_id = 'source:v99' \
+                       AND membership_id = 'membership:v99' AND property_id = 'note'",
+                    [],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+                )
+                .expect("backup Property value"),
+            ("\"preserve me\"".to_owned(), 11)
+        );
+
+        upgraded
+            .readers()
+            .read_default(|connection| {
+                let value = connection.query_row(
+                    "SELECT property.name, property.value_type, property.schema_revision, \
+                            value.value_json, value.revision \
+                     FROM data_source_properties property \
+                     JOIN data_source_property_values value \
+                       ON value.data_source_id = property.data_source_id \
+                       AND value.property_id = property.id \
+                     WHERE property.data_source_id = 'source:v99' AND property.id = 'note'",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, i64>(2)?,
+                            row.get::<_, String>(3)?,
+                            row.get::<_, i64>(4)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(
+                    value,
+                    (
+                        "Note".to_owned(),
+                        "text".to_owned(),
+                        7,
+                        "\"preserve me\"".to_owned(),
+                        11,
+                    )
+                );
+                let relation_objects: i64 = connection.query_row(
+                    "SELECT count(*) FROM sqlite_schema WHERE name IN (\
+                       'data_source_relation_properties', \
+                       'data_source_relation_edges', \
+                       'idx_data_source_relation_properties_target', \
+                       'idx_data_source_relation_edges_property_target', \
+                       'idx_data_source_relation_edges_target'\
+                     )",
+                    [],
+                    |row| row.get(0),
+                )?;
+                assert_eq!(relation_objects, 5);
+                validate_database_relation_invariants(connection)
+            })
+            .expect("verify v100 Relation authority");
+
+        drop(upgraded);
+        let reopened = SqliteStoreKernel::open(&home).expect("reopen exact v100 Store");
+        assert_eq!(reopened.preparation().schema_version, 100);
+        assert_eq!(reopened.preparation().migrated_from_version, None);
     }
 
     #[test]

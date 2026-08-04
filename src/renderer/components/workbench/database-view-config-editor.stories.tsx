@@ -6,6 +6,7 @@ import {
   parseDataSourceId,
   parseDataSourcePropertyId,
 } from "../../../shared/database-identities";
+import { testPropertySemantics } from "../../../shared/testing/database-property-record";
 import { DatabaseViewConfigEditor } from "./database-view-config-editor";
 
 const timestamp = "2026-07-12T00:00:00.000Z";
@@ -14,6 +15,7 @@ const properties: readonly DataSourcePropertyRecordV2[] = [
     propertyId: parseDataSourcePropertyId("status"),
     dataSourceId: parseDataSourceId("source-1"),
     name: "Status",
+    ...testPropertySemantics("select", 2),
     valueType: "select",
     config: { options: [{ id: "todo", name: "Todo" }, { id: "doing", name: "Doing" }] },
     rankKey: "a",
@@ -26,6 +28,7 @@ const properties: readonly DataSourcePropertyRecordV2[] = [
     propertyId: parseDataSourcePropertyId("assignee"),
     dataSourceId: parseDataSourceId("source-1"),
     name: "Owner",
+    ...testPropertySemantics("person"),
     valueType: "person",
     config: {},
     rankKey: "b",

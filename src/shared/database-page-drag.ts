@@ -5,10 +5,10 @@ import {
   type DatabaseViewQueryResultV2,
   type DataSourcePageRowV2,
   type DataSourcePropertyRecordV2,
-  type SetDataSourcePageValueOperationV2,
+  type DatabasePropertyValueMutationV2,
 } from "./database-module-v2";
 import type { DatabaseJsonValue } from "./database-kernel";
-import type { DataSourceId } from "./database-identities";
+import { parseDataSourceOptionId, type DataSourceId } from "./database-identities";
 import type { MovePageInput, MovePagesInput } from "./types";
 
 export type DatabasePageDragErrorCode =
@@ -98,14 +98,25 @@ const compileValue = (input: {
   readonly property: DataSourcePropertyRecordV2;
   readonly current: DataSourcePageRowV2["values"][string] | undefined;
   readonly value: DatabaseJsonValue;
-}): Omit<SetDataSourcePageValueOperationV2, "kind"> | null => {
+}): DatabasePropertyValueMutationV2 | null => {
   if (sameJsonValue(input.current?.value, input.value)) return null;
   return {
     pageId: input.pageId,
     dataSourceId: input.dataSourceId,
     propertyId: input.property.propertyId,
-    expectedValueRevision: input.current?.revision ?? 0,
-    value: input.value,
+    edit: {
+      kind: "replace",
+      expectedValueRevision: input.current?.revision ?? 0,
+      value: input.value === null
+        ? { kind: "empty" }
+        : {
+            kind: "select",
+            optionId: parseDataSourceOptionId({
+              propertyId: input.property.propertyId,
+              value: input.value,
+            }),
+          },
+    },
   };
 };
 
@@ -201,7 +212,7 @@ const compilePageRun = (input: {
     },
   );
 
-  const values: Omit<SetDataSourcePageValueOperationV2, "kind">[] = [];
+  const values: DatabasePropertyValueMutationV2[] = [];
   rows.forEach((row) => {
     const statusValue = compileValue({
       pageId: row.page.pageId,
@@ -270,10 +281,8 @@ const compilePageRun = (input: {
   };
 
   const operations: DatabaseApplyOperationV2[] = [];
-  if (values.length === 1 && values[0]) {
-    operations.push({ kind: "set_value", ...values[0] });
-  } else if (values.length > 1) {
-    operations.push({ kind: "set_values", values });
+  if (values.length > 0) {
+    operations.push({ kind: "edit_property_values", edits: values });
   }
   if (manualSort && positionChanged) {
     const beforePageId = remainingTargetOrder[targetIndex];

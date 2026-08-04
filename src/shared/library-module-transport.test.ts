@@ -431,6 +431,72 @@ describe("Library Module transport", () => {
     });
   });
 
+  test("binds one atomic Page metadata operation from owning-module payloads", () => {
+    const operation = bindLibraryModuleApply({
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      operationId: uuidV7(21),
+      storeEpoch: "epoch-1",
+      operation: {
+        kind: "apply_page_metadata_properties",
+        clientSessionId: "window-1",
+        databaseOperations: [{
+          kind: "edit_property_values",
+          edits: [{
+            pageId: "page-1",
+            dataSourceId: "source-1",
+            propertyId: "priority",
+            edit: {
+              kind: "replace",
+              expectedValueRevision: 3,
+              value: { kind: "select", optionId: "p1-high" },
+            },
+          }],
+        }],
+        intrinsicFields: [{
+          scope: "intrinsic",
+          blockId: "page-1",
+          propertyKey: "schedule.isAllDay",
+          operation: "set",
+          expectedRevision: 2,
+          value: true,
+        }],
+      },
+    }).operation;
+
+    expect(operation).toMatchObject({
+      kind: "apply_page_metadata_properties",
+      clientSessionId: "window-1",
+      databaseOperations: [{ kind: "edit_property_values" }],
+      intrinsicFields: [{
+        scope: "intrinsic",
+        propertyKey: "schedule.isAllDay",
+      }],
+    });
+    expect(() => bindLibraryModuleApply({
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      operationId: uuidV7(22),
+      storeEpoch: "epoch-1",
+      operation: {
+        kind: "apply_page_metadata_properties",
+        databaseOperations: [{
+          kind: "delete_property",
+          dataSourceId: "source-1",
+          propertyId: "priority",
+          expectedDataSourceRevision: 1,
+          expectedPropertyRevision: 1,
+        }],
+        intrinsicFields: [{
+          scope: "intrinsic",
+          blockId: "page-1",
+          propertyKey: "schedule.isAllDay",
+          operation: "set",
+          expectedRevision: 2,
+          value: true,
+        }],
+      },
+    })).toThrow("only supports Page Property value edits");
+  });
+
   test("parses primary Canvas unavailable, path, and catalog targets", () => {
     for (const value of [
       {

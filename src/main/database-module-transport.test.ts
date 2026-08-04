@@ -8,6 +8,7 @@ import { DATABASE_MODULE_V2_CONTRACT_VERSION } from "../shared/database-module-v
 import {
   parseDatabaseId,
   parseDataSourceId,
+  parseDataSourceOptionId,
   parseDataSourcePropertyId,
 } from "../shared/database-identities";
 import {
@@ -24,12 +25,23 @@ const applyRequest = (): DatabaseApplyV2 => ({
   actor: { kind: "spoofed" },
   operations: [
     {
-      kind: "set_value",
-      pageId: "page-1",
-      dataSourceId: parseDataSourceId("source-1"),
-      propertyId: parseDataSourcePropertyId("status"),
-      expectedValueRevision: 1,
-      value: "Done",
+      kind: "edit_property_values",
+      edits: [{
+        pageId: "page-1",
+        dataSourceId: parseDataSourceId("source-1"),
+        propertyId: parseDataSourcePropertyId("status"),
+        edit: {
+          kind: "replace",
+          expectedValueRevision: 1,
+          value: {
+            kind: "select",
+            optionId: parseDataSourceOptionId({
+              propertyId: parseDataSourcePropertyId("status"),
+              value: "ship",
+            }),
+          },
+        },
+      }],
     },
   ],
 });
@@ -124,7 +136,10 @@ describe("Database Module IPC", () => {
     )) as DatabaseApplyResultV2;
     expect(!untrusted.ok && untrusted.error.code).toBe("invalid_request");
 
-    expect(received[0]?.actor.kind).toBe("electron_renderer");
+    expect(received[0]?.actor).toEqual({
+      kind: "electron_renderer",
+      clientId: "window-1",
+    });
     expect(received).toHaveLength(1);
   });
 

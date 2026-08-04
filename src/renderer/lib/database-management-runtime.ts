@@ -80,6 +80,42 @@ const activeSource = (
 ): DataSourceRecordV2 | null =>
   descriptor.dataSources.find((source) => source.lifecycle === "active") ?? null;
 
+const readDatabaseCatalog = async (
+  projectId: string,
+  storeEpoch: string,
+  dependencies: DatabaseManagementRuntimeDependencies,
+): Promise<readonly DatabaseContainerDescriptorV2[]> => {
+  const databases: DatabaseContainerDescriptorV2[] = [];
+  const seen = new Set<string>();
+  let after: string | null = null;
+  do {
+    const snapshot = await readSnapshot(projectId, {
+      target: { kind: "project_default" },
+      mode: "catalog_window",
+      window: { after, first: 100 },
+    }, dependencies);
+    if (snapshot.storeEpoch !== storeEpoch || snapshot.value.kind !== "catalog_window") {
+      throw new DatabaseManagementReadError(
+        "Database catalog crossed its authority boundary",
+        true,
+      );
+    }
+    for (const database of snapshot.value.value.databases) {
+      const id = database.database.databaseId;
+      if (seen.has(id)) {
+        throw new DatabaseManagementReadError(
+          "Database catalog repeated a Database identity",
+          true,
+        );
+      }
+      seen.add(id);
+      databases.push(database);
+    }
+    after = snapshot.value.value.nextCursor;
+  } while (after !== null);
+  return databases;
+};
+
 export const readDatabaseManagementAuthority = async (
   projectId: string,
   preferredDatabaseId?: string | null,
@@ -111,7 +147,19 @@ export const readDatabaseManagementAuthority = async (
       false,
     );
   }
-  const databases = [selectedDatabase];
+  const databases = await readDatabaseCatalog(
+    projectId,
+    snapshot.storeEpoch,
+    dependencies,
+  );
+  if (!databases.some((database) =>
+    database.database.databaseId === selectedDatabase.database.databaseId
+  )) {
+    throw new DatabaseManagementReadError(
+      "Selected Database is no longer present in the authorized catalog",
+      true,
+    );
+  }
   const selectedDataSource = activeSource(selectedDatabase);
   if (!selectedDataSource) {
     throw new DatabaseManagementReadError(

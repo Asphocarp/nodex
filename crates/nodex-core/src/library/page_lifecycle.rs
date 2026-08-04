@@ -5,7 +5,7 @@ use nodex_core_contracts::library::{
     LibraryPageWorkflowStatus,
 };
 use rusqlite::{Connection, OptionalExtension, params};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use crate::database;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
@@ -55,9 +55,13 @@ pub(super) fn read_preflight(
             |row| row.get::<_, Option<String>>(0),
         )?
         .ok_or_else(|| corrupt("Project default Database has no default View"))?;
-    let default_view =
-        database::read::view_descriptor_query(connection, library_id, &default_view_id)?;
-    let tags_property = read_tags_property(&default_view)?;
+    let default_view = database::read::view_descriptor_query(
+        connection,
+        library_id,
+        Some(project_id),
+        &default_view_id,
+    )?;
+    let tags_property = read_tags_property(connection, &default_view)?;
     let Some(row) = read_page_authority(connection, page_id)? else {
         return Ok(LibraryPageLifecyclePreflight {
             version: 2,
@@ -87,7 +91,7 @@ pub(super) fn read_preflight(
     })
 }
 
-fn read_tags_property(default_view: &Value) -> Result<Value, StoreError> {
+fn read_tags_property(connection: &Connection, default_view: &Value) -> Result<Value, StoreError> {
     let data_source_id = default_view
         .pointer("/dataSource/dataSourceId")
         .and_then(Value::as_str)
@@ -96,16 +100,39 @@ fn read_tags_property(default_view: &Value) -> Result<Value, StoreError> {
         .get("properties")
         .and_then(Value::as_array)
         .ok_or_else(|| corrupt("Project default Database query has no Property schema"))?;
-    properties
+    let property = properties
         .iter()
         .find(|property| {
-            property.get("propertyId").and_then(Value::as_str) == Some("tags")
-                && property.get("dataSourceId").and_then(Value::as_str) == Some(data_source_id)
-                && property.get("valueType").and_then(Value::as_str) == Some("multi_select")
+            property.get("property_id").and_then(Value::as_str) == Some("tags")
+                && property.get("data_source_id").and_then(Value::as_str) == Some(data_source_id)
+                && property.pointer("/schema/kind").and_then(Value::as_str) == Some("multi_select")
                 && property.get("lifecycle").and_then(Value::as_str) == Some("active")
         })
-        .cloned()
-        .ok_or_else(|| corrupt("Project default Data Source has no active tags Property"))
+        .ok_or_else(|| corrupt("Project default Data Source has no active tags Property"))?;
+    let revision = property
+        .get("revision")
+        .and_then(Value::as_i64)
+        .ok_or_else(|| corrupt("Project default tags Property has no revision"))?;
+    let config_json = connection
+        .query_row(
+            "SELECT config_json FROM data_source_properties \
+             WHERE data_source_id = ?1 AND id = 'tags' AND value_type = 'multi_select' \
+               AND lifecycle = 'active'",
+            [data_source_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?
+        .ok_or_else(|| corrupt("Project default Data Source has no active tags Property"))?;
+    let config = serde_json::from_str::<Value>(&config_json)
+        .map_err(|_| corrupt("Project default tags Property config is invalid"))?;
+    Ok(json!({
+        "propertyId": "tags",
+        "dataSourceId": data_source_id,
+        "valueType": "multi_select",
+        "lifecycle": "active",
+        "revision": revision,
+        "config": config,
+    }))
 }
 
 fn read_page_authority(

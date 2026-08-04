@@ -14,6 +14,7 @@ import {
   parseDataSourceId,
   parseDataSourcePropertyId,
 } from "../../shared/database-identities";
+import { testPropertySemantics } from "../../shared/testing/database-property-record";
 import {
   commitDatabaseManagementOperations,
   DatabaseManagementMutationError,
@@ -85,6 +86,7 @@ const source = (): DataSourceDescriptorV2 => ({
     propertyId: parseDataSourcePropertyId("status"),
     dataSourceId,
     name: "Status",
+    ...testPropertySemantics("select"),
     valueType: "select",
     config: {},
     rankKey: "a",
@@ -142,10 +144,19 @@ const readDependency = (
   request,
 ) => request.read.mode === "database"
   ? readResult({ kind: "database", value: descriptor() }, changeLogSeq)
-  : readResult({ kind: "data_source", value: source() }, changeLogSeq);
+  : request.read.mode === "catalog_window"
+    ? readResult({
+        kind: "catalog_window",
+        value: {
+          databases: [descriptor()],
+          nextCursor: null,
+          projectionRevision: changeLogSeq,
+        },
+      }, changeLogSeq)
+    : readResult({ kind: "data_source", value: source() }, changeLogSeq);
 
 describe("canonical Database management runtime", () => {
-  test("reads one selected Container and its initial Data Source", async () => {
+  test("reads the authorized Database catalog and selected Data Source", async () => {
     const authority = await readDatabaseManagementAuthority(projectId, null, {
       read: readDependency(),
       apply: async () => {

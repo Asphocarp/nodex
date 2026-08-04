@@ -34,13 +34,13 @@ const identity = {
 const fakeHandshake = () => createFakeCoreHandshake(identity);
 
 const pageDetailSnapshot = () => ({
-  contract_version: 2 as const,
+  contract_version: 9 as const,
   store_epoch: identity.storeEpoch,
   event_head: 9,
   value: {
     kind: "page_detail" as const,
     value: {
-      version: 2,
+      version: 3,
       library_id: identity.libraryId,
       store_epoch: identity.storeEpoch,
       change_log_seq: 9,
@@ -205,13 +205,44 @@ const lifecycleTagsProperty = () => ({
   propertyId: "tags",
   dataSourceId: "source:test",
   name: "Tags",
+  schema: { kind: "multi_select" as const },
+  capabilities: {
+    replace: true,
+    patchSetMember: "option" as const,
+    filterOperators: ["contains", "not_contains", "is_empty", "is_not_empty"] as const,
+    sortable: true,
+    groupable: true,
+  },
   valueType: "multi_select",
-  config: { options: [] },
+  config: {
+    options: [{ id: "o_AAAAAAAA", name: "Release", color: "blue" }],
+  },
+  optionCount: 0,
   rankKey: "b",
   lifecycle: "active",
   revision: 1,
   createdAt: "2026-07-19T18:00:00.000Z",
   updatedAt: "2026-07-19T18:00:00.000Z",
+});
+
+const lifecycleCoreTagsProperty = () => ({
+  property_id: "tags",
+  data_source_id: "source:test",
+  name: "Tags",
+  schema: { kind: "multi_select" as const },
+  capabilities: {
+    replace: true,
+    patch_set_member: "option" as const,
+    filter_operators: ["contains", "not_contains", "is_empty", "is_not_empty"] as const,
+    sortable: true,
+    groupable: true,
+  },
+  option_count: 0,
+  rank_key: "b",
+  lifecycle: "active",
+  revision: 1,
+  created_at: "2026-07-19T18:00:00.000Z",
+  updated_at: "2026-07-19T18:00:00.000Z",
 });
 
 const lifecycleDefaultView = () => ({
@@ -263,7 +294,7 @@ const lifecycleDefaultView = () => ({
     createdAt: "2026-07-19T18:00:00.000Z",
     updatedAt: "2026-07-19T18:00:00.000Z",
   },
-  properties: [lifecycleTagsProperty()],
+  properties: [lifecycleCoreTagsProperty()],
   rows: [],
 });
 
@@ -667,11 +698,11 @@ describe("Core Library Module Adapter", () => {
     }]);
   });
 
-  test("maps mixed Page Property mutations through one native Library intent", async () => {
+  test("maps intrinsic Page Property mutations through one native Library intent", async () => {
     const client = new FakeCoreClient();
     client.enqueueApply({
       value: {
-        affected_resource_ids: ["page:one", "database:test"],
+        affected_resource_ids: ["page:one"],
         page_copy: null,
         block_transfer: null,
         page_lifecycle: null,
@@ -686,15 +717,6 @@ describe("Core Library Module Adapter", () => {
               operation: "set",
               revision: 2,
               value: "cloud",
-            }, {
-              scope: "data_source",
-              path: "data_source/source%3Atest/page%3Aone/status",
-              block_id: "page:one",
-              data_source_id: "source:test",
-              property_id: "status",
-              operation: "set",
-              revision: 3,
-              value: "build",
             }],
             block_metadata_revisions: { "page:one": 7 },
           },
@@ -708,11 +730,10 @@ describe("Core Library Module Adapter", () => {
         created_target: null,
         affected_parent_keys: [],
         affected_page_ids: ["page:one"],
-        affected_database_ids: ["database:test"],
-        affected_view_ids: ["view:test"],
+        affected_database_ids: [],
+        affected_view_ids: [],
         committed_revisions: {
           "intrinsic/page%3Aone/run.target": 2,
-          "data_source/source%3Atest/page%3Aone/status": 3,
         },
         change_log_seq: 21,
         committed_at: "2026-07-20T12:00:00.000Z",
@@ -735,14 +756,6 @@ describe("Core Library Module Adapter", () => {
         operation: "set",
         expectedRevision: 1,
         value: "cloud",
-      }, {
-        scope: "data_source",
-        pageId: "page:one",
-        dataSourceId: parseDataSourceId("source:test"),
-        propertyId: parseDataSourcePropertyId("status"),
-        operation: "set",
-        expectedRevision: 2,
-        value: "build",
       }],
     };
 
@@ -762,15 +775,6 @@ describe("Core Library Module Adapter", () => {
           operation: "set",
           revision: 2,
           value: "cloud",
-        }, {
-          scope: "data_source",
-          path: "data_source/source%3Atest/page%3Aone/status",
-          blockId: "page:one",
-          dataSourceId: "source:test",
-          propertyId: "status",
-          operation: "set",
-          revision: 3,
-          value: "build",
         }],
         blockMetadataRevisions: { "page:one": 7 },
         changeLogSeq: 21,
@@ -790,13 +794,122 @@ describe("Core Library Module Adapter", () => {
             property_key: "run.target",
             expected_revision: 1,
             value: "cloud",
-          }, {
-            kind: "data_source_set",
-            page_id: "page:one",
-            data_source_id: "source:test",
-            property_id: "status",
+          }],
+        },
+      },
+    }]);
+  });
+
+  test("maps atomic Page metadata writes to Database and intrinsic native intents", async () => {
+    const client = new FakeCoreClient();
+    const dataSourceId = parseDataSourceId("source:test");
+    const propertyId = parseDataSourcePropertyId("priority");
+    const optionId = parseDataSourceOptionId({ propertyId, value: "p1-high" });
+    client.enqueueApply({
+      value: {
+        affected_resource_ids: ["page:one", dataSourceId],
+        page_copy: null,
+        block_transfer: null,
+        page_lifecycle: null,
+        block_property_mutation: {
+          outcome: {
+            status: "committed",
+            fields: [{
+              scope: "intrinsic",
+              path: "intrinsic/page%3Aone/schedule.isAllDay",
+              block_id: "page:one",
+              property_key: "schedule.isAllDay",
+              operation: "set",
+              revision: 3,
+              value: true,
+            }],
+            block_metadata_revisions: { "page:one": 8 },
+          },
+        },
+      },
+      receipt: {
+        operation_id: "property:metadata",
+        duplicate: false,
+        operation_kind: "property_batch",
+        did_mutate: true,
+        created_target: null,
+        affected_parent_keys: [],
+        affected_page_ids: ["page:one"],
+        affected_database_ids: [],
+        affected_view_ids: [],
+        committed_revisions: {},
+        change_log_seq: 22,
+        committed_at: "2026-07-20T12:10:00.000Z",
+      },
+      event_sequence: 22,
+      store_epoch: identity.storeEpoch,
+    });
+    const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
+
+    await expect(adapter.apply({
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      operationId: "property:metadata",
+      storeEpoch: identity.storeEpoch,
+      operation: {
+        kind: "apply_page_metadata_properties",
+        clientSessionId: "window:one",
+        databaseOperations: [{
+          kind: "edit_property_values",
+          edits: [{
+            pageId: "page:one",
+            dataSourceId,
+            propertyId,
+            edit: {
+              kind: "replace",
+              expectedValueRevision: 4,
+              value: { kind: "select", optionId },
+            },
+          }],
+        }],
+        intrinsicFields: [{
+          scope: "intrinsic",
+          blockId: "page:one",
+          propertyKey: "schedule.isAllDay",
+          operation: "set",
+          expectedRevision: 2,
+          value: true,
+        }],
+      },
+    })).resolves.toMatchObject({
+      ok: true,
+      value: {
+        operationKind: "apply_page_metadata_properties",
+        didMutate: true,
+      },
+    });
+    expect(client.applies).toEqual([{
+      operationId: "property:metadata",
+      intent: {
+        kind: "apply_page_metadata_properties",
+        database_intents: [{
+          kind: "edit_property_values",
+          edits: [{
+            address: {
+              page_id: "page:one",
+              data_source_id: dataSourceId,
+              property_id: propertyId,
+            },
+            edit: {
+              kind: "replace",
+              expected_value_revision: 4,
+              value: { kind: "select", option_id: optionId },
+            },
+          }],
+        }],
+        intrinsic_mutation: {
+          actor: { kind: "page_metadata" },
+          client_session_id: "window:one",
+          fields: [{
+            kind: "intrinsic_set",
+            block_id: "page:one",
+            property_key: "schedule.isAllDay",
             expected_revision: 2,
-            value: "build",
+            value: true,
           }],
         },
       },

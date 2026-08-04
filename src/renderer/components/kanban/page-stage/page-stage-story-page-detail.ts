@@ -19,6 +19,7 @@ import type {
   PageIntrinsicProperty,
 } from "../../../../shared/page-detail";
 import type { DatabasePage } from "@/lib/types";
+import { testPropertySemantics } from "../../../../shared/testing/database-property-record";
 
 /** Storybook-only bridge from visual Kanban fixtures to canonical Page Detail. */
 export const buildPageDetailStoryResult = (
@@ -57,6 +58,10 @@ export const buildPageDetailStoryResult = (
     propertyId: parseDataSourcePropertyId(key),
     dataSourceId,
     name: key,
+    ...testPropertySemantics(
+      valueType,
+      Array.isArray(config.options) ? config.options.length : 0,
+    ),
     valueType,
     config,
     rankKey: key,
@@ -100,7 +105,7 @@ export const buildPageDetailStoryResult = (
   return {
     ok: true,
     value: {
-      version: 2,
+      version: 3,
       projectId,
       libraryId,
       storeEpoch: "store-epoch:storybook",

@@ -1,5 +1,7 @@
 # Nodex Domain Context
 
+Data Source Properties use a typed schema owned by the Database Module. A `relation` Property targets one Data Source in the same Library and stores a one-way, unordered set of stable Page IDs as normalized non-owning edges. Relation never changes Page ownership or grants access. Reads return authorization-safe bounded previews; complete values use a separate bounded window. Relation supports membership/empty filters and is neither sortable nor groupable.
+
 This document defines the canonical domain language for Nodex. ADR 0017 moves
 durable content from Project-owned Spaces to the local Profile's Library,
 renames the document-like content entity from Card to Page, and separates

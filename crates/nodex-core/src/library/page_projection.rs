@@ -2,7 +2,8 @@ use chrono::{DateTime, NaiveDate};
 use nodex_core_contracts::library::{
     LibraryPageDraftProjection, LibraryPageFileKind, LibraryPageFileProjection,
     LibraryPageFileValidators, LibraryPagePrepareKind, PageMetaProjectionV1, ProjectedIdentityV1,
-    ProjectedPropertyTypeV1, ProjectedPropertyV1, ProjectedPropertyValueV1, ProjectedScheduleV1,
+    ProjectedPropertyTypeV1, ProjectedPropertyV1, ProjectedPropertyValueV1,
+    ProjectedRelationSummaryV1, ProjectedScheduleV1,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Value, json};
@@ -113,7 +114,12 @@ pub(super) fn page_file(
             let projection = PageMetaProjectionV1 {
                 id: page.page_id.clone(),
                 title_markdown: render_title_markdown(&page.rich_title)?,
-                properties: project_properties(connection, library_id, page_id)?,
+                properties: project_properties(
+                    connection,
+                    library_id,
+                    page_id,
+                    requesting_project_id,
+                )?,
                 schedule: project_schedule(
                     connection,
                     page_id,
@@ -375,6 +381,7 @@ fn project_properties(
     connection: &Connection,
     library_id: &str,
     page_id: &str,
+    requesting_project_id: Option<&str>,
 ) -> Result<Vec<ProjectedPropertyV1>, StoreError> {
     let parent = connection
         .query_row(
@@ -392,20 +399,25 @@ fn project_properties(
         return Err(corrupt("Library Page has an invalid parent kind"));
     }
     let projection = super::super::database::read::page_data_source_projection(
-        connection, library_id, page_id, &parent.1,
+        connection,
+        library_id,
+        page_id,
+        &parent.1,
+        requesting_project_id,
     )?;
     projection
         .properties
         .iter()
         .map(|property| {
-            let property_id = required_string(property, "propertyId", "Property identity")?;
+            let property_id = property.property_id.as_str();
             bounded_identity(property_id, "Property identity")?;
-            let name = required_string(property, "name", "Property name")?;
+            let name = property.name.as_str();
             bounded_name(name, "Property name")?;
-            let raw_type = required_string(property, "valueType", "Property type")?;
+            let raw_type = crate::database::property_semantics::value_type(&property.schema);
             let value_type = property_type(raw_type)?;
-            let config = property
-                .get("config")
+            let config = projection
+                .property_configs
+                .get(property_id)
                 .ok_or_else(|| corrupt("Property projection is missing config"))?;
             let null = Value::Null;
             let raw_value = match projection.values.get(property_id) {
@@ -444,6 +456,7 @@ fn property_type(value: &str) -> Result<ProjectedPropertyTypeV1, StoreError> {
         "date" => Ok(ProjectedPropertyTypeV1::Date),
         "datetime" => Ok(ProjectedPropertyTypeV1::Datetime),
         "person" => Ok(ProjectedPropertyTypeV1::Person),
+        "relation" => Ok(ProjectedPropertyTypeV1::Relation),
         _ => Err(corrupt("Property projection has an unsupported type")),
     }
 }
@@ -513,6 +526,59 @@ fn project_property_value(
                 id: id.to_owned(),
                 name: id.to_owned(),
             }))
+        }
+        ProjectedPropertyTypeV1::Relation => {
+            let preview = value
+                .get("value")
+                .filter(|_| value.get("kind").and_then(Value::as_str) == Some("relation"))
+                .ok_or_else(|| corrupt("Relation Property preview is invalid"))?;
+            let targets = preview
+                .get("targets")
+                .and_then(Value::as_array)
+                .ok_or_else(|| corrupt("Relation Property preview targets are invalid"))?
+                .iter()
+                .map(|target| {
+                    if target.get("kind").and_then(Value::as_str) != Some("visible") {
+                        return Err(corrupt(
+                            "Relation Property preview exposed an invalid target",
+                        ));
+                    }
+                    let id = target
+                        .get("page_id")
+                        .and_then(Value::as_str)
+                        .ok_or_else(|| corrupt("Relation target identity is missing"))?;
+                    let name = target
+                        .get("title")
+                        .and_then(Value::as_str)
+                        .ok_or_else(|| corrupt("Relation target title is missing"))?;
+                    bounded_identity(id, "Relation target identity")?;
+                    bounded_name(name, "Relation target name")?;
+                    Ok(ProjectedIdentityV1 {
+                        id: id.to_owned(),
+                        name: name.to_owned(),
+                    })
+                })
+                .collect::<Result<Vec<_>, StoreError>>()?;
+            let total_count = preview
+                .get("total_count")
+                .and_then(Value::as_i64)
+                .ok_or_else(|| corrupt("Relation Property total count is invalid"))?;
+            let restricted_count = preview
+                .get("restricted_count")
+                .and_then(Value::as_i64)
+                .ok_or_else(|| corrupt("Relation Property restricted count is invalid"))?;
+            let has_more = preview
+                .get("has_more")
+                .and_then(Value::as_bool)
+                .ok_or_else(|| corrupt("Relation Property continuation marker is invalid"))?;
+            let summary = ProjectedRelationSummaryV1 {
+                targets,
+                total_count,
+                restricted_count,
+                has_more,
+            };
+            validate_relation_summary(&summary)?;
+            Ok(ProjectedPropertyValueV1::Relation(summary))
         }
     }
 }
@@ -694,6 +760,28 @@ fn render_value(output: &mut String, value: &ProjectedPropertyValueV1) -> Result
                 render_identity(output, value, "      ", true)?;
             }
         }
+        ProjectedPropertyValueV1::Relation(summary) => {
+            validate_relation_summary(summary)?;
+            output.push_str("\n      targets:");
+            if summary.targets.is_empty() {
+                output.push_str(" []\n");
+            } else {
+                output.push('\n');
+                for target in &summary.targets {
+                    render_identity(output, target, "        ", true)?;
+                }
+            }
+            output.push_str("      total_count: ");
+            output.push_str(&summary.total_count.to_string());
+            output.push_str("\n      restricted_count: ");
+            output.push_str(&summary.restricted_count.to_string());
+            output.push_str("\n      has_more: ");
+            output.push_str(if summary.has_more {
+                "true\n"
+            } else {
+                "false\n"
+            });
+        }
     }
     Ok(())
 }
@@ -714,11 +802,11 @@ fn render_identity(
     }
     output.push_str(&quoted(&identity.id)?);
     output.push('\n');
-    output.push_str(if sequence {
-        "        name: "
-    } else {
-        "      name: "
-    });
+    output.push_str(indent);
+    if sequence {
+        output.push_str("  ");
+    }
+    output.push_str("name: ");
     output.push_str(&quoted(&identity.name)?);
     output.push('\n');
     Ok(())
@@ -747,6 +835,9 @@ fn validate_projected_value(
                 ProjectedPropertyTypeV1::MultiSelect,
                 ProjectedPropertyValueV1::Identities(_)
             ) | (
+                ProjectedPropertyTypeV1::Relation,
+                ProjectedPropertyValueV1::Relation(_)
+            ) | (
                 ProjectedPropertyTypeV1::Date,
                 ProjectedPropertyValueV1::Date(_)
             ) | (
@@ -770,7 +861,24 @@ fn validate_projected_value(
         ProjectedPropertyValueV1::Datetime(value) => {
             validate_datetime(value, "Projected datetime")?;
         }
+        ProjectedPropertyValueV1::Relation(summary) => validate_relation_summary(summary)?,
         _ => {}
+    }
+    Ok(())
+}
+
+fn validate_relation_summary(value: &ProjectedRelationSummaryV1) -> Result<(), StoreError> {
+    if value.total_count < 0
+        || value.restricted_count < 0
+        || value.targets.len() > 3
+        || value.total_count < value.restricted_count + value.targets.len() as i64
+        || value.has_more != (value.total_count > value.targets.len() as i64)
+    {
+        return Err(corrupt("Projected Relation summary is inconsistent"));
+    }
+    for target in &value.targets {
+        bounded_identity(&target.id, "Relation target identity")?;
+        bounded_name(&target.name, "Relation target name")?;
     }
     Ok(())
 }
@@ -800,6 +908,7 @@ fn property_type_name(value: ProjectedPropertyTypeV1) -> &'static str {
         ProjectedPropertyTypeV1::Date => "date",
         ProjectedPropertyTypeV1::Datetime => "datetime",
         ProjectedPropertyTypeV1::Person => "person",
+        ProjectedPropertyTypeV1::Relation => "relation",
     }
 }
 
@@ -923,6 +1032,20 @@ mod tests {
                         name: "Native".to_owned(),
                     }]),
                 },
+                ProjectedPropertyV1 {
+                    property_id: "blocked_by".to_owned(),
+                    name: "Blocked by".to_owned(),
+                    value_type: ProjectedPropertyTypeV1::Relation,
+                    value: ProjectedPropertyValueV1::Relation(ProjectedRelationSummaryV1 {
+                        targets: vec![ProjectedIdentityV1 {
+                            id: "page:dependency".to_owned(),
+                            name: "Dependency".to_owned(),
+                        }],
+                        total_count: 4,
+                        restricted_count: 1,
+                        has_more: true,
+                    }),
+                },
             ],
             schedule: Some(ProjectedScheduleV1 {
                 start: "2026-07-20T09:00:00+08:00".to_owned(),
@@ -950,6 +1073,16 @@ mod tests {
                 "    value:\n",
                 "      - id: \"native\"\n",
                 "        name: \"Native\"\n",
+                "  \"blocked_by\":\n",
+                "    name: \"Blocked by\"\n",
+                "    type: relation\n",
+                "    value:\n",
+                "      targets:\n",
+                "        - id: \"page:dependency\"\n",
+                "          name: \"Dependency\"\n",
+                "      total_count: 4\n",
+                "      restricted_count: 1\n",
+                "      has_more: true\n",
                 "schedule:\n",
                 "  start: \"2026-07-20T09:00:00+08:00\"\n",
                 "  end: \"2026-07-20T10:00:00+08:00\"\n",

@@ -13,6 +13,7 @@ import {
   parseDataSourceId,
   parseDataSourcePropertyId,
 } from "../../shared/database-identities";
+import { testPropertySemantics } from "../../shared/testing/database-property-record";
 import {
   appendDatabaseViewFilterChild,
   createDatabaseViewFilterClause,
@@ -33,6 +34,10 @@ const property = (
   propertyId: parseDataSourcePropertyId("p_AAAAAAAA"),
   dataSourceId: parseDataSourceId("source-1"),
   name: valueType,
+  ...testPropertySemantics(
+    valueType,
+    valueType === "select" || valueType === "multi_select" ? 1 : 0,
+  ),
   valueType,
   config: valueType === "select" || valueType === "multi_select"
     ? { options: [{ id: "o_AAAAAAAA", name: "One" }] }

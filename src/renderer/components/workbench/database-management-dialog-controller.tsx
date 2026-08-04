@@ -25,6 +25,10 @@ import {
   emptyDatabaseViewConfig,
   readDatabasePropertyOptions,
 } from "@/lib/database-view-authoring";
+import {
+  readPropertyOptionRegistry,
+  withPropertyOptions,
+} from "@/lib/database-property-options-runtime";
 import { useMutationAuditSessionId } from "@/lib/mutation-audit-session";
 import {
   DatabaseManagementDialog,
@@ -63,6 +67,31 @@ export function DatabaseManagementDialogController({
   const selectedDatabaseIdRef = useRef(selectedDatabaseId);
   selectedDatabaseIdRef.current = selectedDatabaseId;
 
+  const hydratePropertyOptions = useCallback(async (
+    next: DatabaseManagementAuthority,
+  ): Promise<DatabaseManagementAuthority> => {
+    const optionProperties = next.source.properties.filter((property) =>
+      property.lifecycle === "active"
+      && (property.valueType === "select" || property.valueType === "multi_select")
+      && property.optionCount !== undefined
+      && readDatabasePropertyOptions(property).length < property.optionCount);
+    if (optionProperties.length === 0) return next;
+    const registries = new Map(await Promise.all(optionProperties.map(async (property) => [
+      property.propertyId,
+      await readPropertyOptionRegistry({ kind: "project", projectId }, property),
+    ] as const)));
+    return {
+      ...next,
+      source: {
+        ...next.source,
+        properties: next.source.properties.map((property) => {
+          const options = registries.get(property.propertyId);
+          return options ? withPropertyOptions(property, options) : property;
+        }),
+      },
+    };
+  }, [projectId]);
+
   const applyAuthority = useCallback((next: DatabaseManagementAuthority) => {
     const nextDatabaseId = next.selectedDatabase.database.databaseId;
     selectedDatabaseIdRef.current = nextDatabaseId;
@@ -83,13 +112,13 @@ export function DatabaseManagementDialogController({
         preferredDatabaseId ?? selectedDatabaseIdRef.current,
       );
       if (sequence !== readSequence.current) return;
-      applyAuthority(next);
+      applyAuthority(await hydratePropertyOptions(next));
       setError(null);
     } catch (nextError) {
       if (sequence !== readSequence.current) return;
       setError(messageForError(nextError));
     }
-  }, [applyAuthority, projectId]);
+  }, [applyAuthority, hydratePropertyOptions, projectId]);
 
   useEffect(() => {
     if (!open) return;
@@ -154,7 +183,7 @@ export function DatabaseManagementDialogController({
         clientSessionId,
         buildOperations,
       });
-      applyAuthority(next);
+      applyAuthority(await hydratePropertyOptions(next));
     } catch (nextError) {
       setError(messageForError(nextError));
       void refresh();
@@ -176,8 +205,14 @@ export function DatabaseManagementDialogController({
         expectedDataSourceRevision: current.selectedDataSource.schemaRevision,
         expectedPropertyRevision: 0,
         name: draft.name,
-        valueType: draft.valueType,
-        config: {},
+        schema: draft.valueType === "relation"
+          ? {
+              kind: "relation",
+              targetDataSourceId: parseDataSourceId(
+                draft.targetDataSourceId ?? draft.dataSourceId,
+              ),
+            }
+          : { kind: draft.valueType },
       }];
     });
   };

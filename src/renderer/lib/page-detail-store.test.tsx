@@ -28,7 +28,7 @@ const detail = (
   headSeq: number,
   storeEpoch = "epoch-1",
 ): PageDetail => ({
-  version: 2,
+  version: 3,
   projectId: "project-1",
   libraryId: "library-1",
   storeEpoch,

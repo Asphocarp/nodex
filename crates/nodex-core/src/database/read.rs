@@ -6,7 +6,8 @@ use nodex_core_contracts::collection::{
     CollectionWindow, CollectionWindowAuthority, CollectionWindowRequest,
 };
 use nodex_core_contracts::database::{
-    DatabaseRead, DatabaseReadMode, DatabaseReadValue, DatabaseTarget, DatabaseViewContext,
+    DatabasePropertyDescriptor, DatabaseRead, DatabaseReadMode, DatabaseReadValue, DatabaseTarget,
+    DatabaseViewContext,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Map, Value, json};
@@ -27,8 +28,48 @@ pub(crate) struct PageDataSourceProjection {
     pub membership_created_at: String,
     pub database: Value,
     pub data_source: Value,
-    pub properties: Vec<Value>,
+    pub properties: Vec<DatabasePropertyDescriptor>,
+    pub property_configs: BTreeMap<String, Value>,
     pub values: BTreeMap<String, Value>,
+}
+
+struct PropertyDescriptorRow {
+    property_id: String,
+    data_source_id: String,
+    name: String,
+    value_type: String,
+    option_count: usize,
+    rank_key: String,
+    lifecycle: String,
+    revision: i64,
+    created_at: String,
+    updated_at: String,
+}
+
+fn property_descriptor(
+    connection: &Connection,
+    row: PropertyDescriptorRow,
+) -> Result<DatabasePropertyDescriptor, StoreError> {
+    let schema = super::property_semantics::schema_from_storage(
+        connection,
+        &row.data_source_id,
+        &row.property_id,
+        &row.value_type,
+    )?;
+    Ok(DatabasePropertyDescriptor {
+        property_id: row.property_id,
+        data_source_id: row.data_source_id,
+        name: row.name,
+        capabilities: super::property_semantics::capabilities(&schema),
+        schema,
+        option_count: u32::try_from(row.option_count)
+            .map_err(|_| corrupt("Property option count overflowed"))?,
+        rank_key: row.rank_key,
+        lifecycle: row.lifecycle,
+        revision: row.revision,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+    })
 }
 
 pub(crate) fn page_data_source_projection(
@@ -36,6 +77,7 @@ pub(crate) fn page_data_source_projection(
     library_id: &str,
     page_id: &str,
     data_source_id: &str,
+    project_id: Option<&str>,
 ) -> Result<PageDataSourceProjection, StoreError> {
     let memberships = connection
         .prepare(
@@ -72,6 +114,17 @@ pub(crate) fn page_data_source_projection(
     if database.get("lifecycle").and_then(Value::as_str) == Some("deleted") {
         return Err(corrupt("Data Source Page belongs to a deleted Database"));
     }
+    let mut values = read_values(connection, data_source_id, membership_id)?
+        .into_iter()
+        .collect();
+    super::relation::hydrate_projection_values(
+        connection,
+        library_id,
+        project_id,
+        data_source_id,
+        membership_id,
+        &mut values,
+    )?;
     Ok(PageDataSourceProjection {
         membership_id: membership_id.clone(),
         data_source_id: membership_source_id.clone(),
@@ -80,9 +133,8 @@ pub(crate) fn page_data_source_projection(
         database,
         data_source,
         properties: property_records(connection, data_source_id, true)?,
-        values: read_values(connection, data_source_id, membership_id)?
-            .into_iter()
-            .collect(),
+        property_configs: read_property_configs(connection, data_source_id)?,
+        values,
     })
 }
 
@@ -129,7 +181,7 @@ pub(crate) fn read_at_event_head(
         .map(|project_id| project_primary_database(connection, library_id, project_id))
         .transpose()?
         .flatten();
-    match (&request.target, request.mode) {
+    let mut value = match (&request.target, request.mode) {
         (DatabaseTarget::ProjectDefault, DatabaseReadMode::ViewWindow) => {
             let database_id =
                 primary_database_id.ok_or_else(|| not_found("Project has no primary Database"))?;
@@ -142,6 +194,7 @@ pub(crate) fn read_at_event_head(
                 &database_id,
             )?;
             let view_id = default_view_for_database(connection, &database_id)?;
+            validate_view_filter_access_by_id(connection, library_id, Some(project_id), &view_id)?;
             Ok(DatabaseReadValue::ViewWindow {
                 value: super::window::view_window(
                     connection,
@@ -231,6 +284,7 @@ pub(crate) fn read_at_event_head(
                 database_id,
             )?;
             let view_id = default_view_for_database(connection, database_id)?;
+            validate_view_filter_access_by_id(connection, library_id, project_id, &view_id)?;
             Ok(DatabaseReadValue::ViewWindow {
                 value: super::window::view_window(
                     connection,
@@ -277,6 +331,7 @@ pub(crate) fn read_at_event_head(
                     connection,
                     library_id,
                     event_head,
+                    project_id,
                     database_id,
                     request
                         .window
@@ -311,6 +366,31 @@ pub(crate) fn read_at_event_head(
                     library_id,
                     event_head,
                     data_source_id,
+                    request
+                        .window
+                        .as_ref()
+                        .unwrap_or(&CollectionWindowRequest::default()),
+                )?,
+            })
+        }
+        (
+            DatabaseTarget::DataSource { data_source_id },
+            DatabaseReadMode::RelationCandidateWindow,
+        ) => {
+            let database_id = database_for_source(connection, library_id, data_source_id)?;
+            authorize_required(
+                connection,
+                project_id,
+                primary_database_id.as_deref(),
+                &database_id,
+            )?;
+            Ok(DatabaseReadValue::RelationCandidateWindow {
+                candidates: super::relation::candidate_window(
+                    connection,
+                    library_id,
+                    event_head,
+                    data_source_id,
+                    request.filter.as_ref(),
                     request
                         .window
                         .as_ref()
@@ -355,7 +435,7 @@ pub(crate) fn read_at_event_head(
                 &database_id,
             )?;
             Ok(DatabaseReadValue::View {
-                value: view_record(connection, view_id)?,
+                value: view_record(connection, library_id, project_id, view_id)?,
             })
         }
         (DatabaseTarget::View { view_id }, DatabaseReadMode::ViewWindow) => {
@@ -366,6 +446,7 @@ pub(crate) fn read_at_event_head(
                 primary_database_id.as_deref(),
                 &database_id,
             )?;
+            validate_view_filter_access_by_id(connection, library_id, project_id, view_id)?;
             Ok(DatabaseReadValue::ViewWindow {
                 value: super::window::view_window(
                     connection,
@@ -413,18 +494,13 @@ pub(crate) fn read_at_event_head(
                 .collect::<BTreeSet<_>>();
             let properties = property_records(connection, &projection.data_source_id, true)?
                 .into_iter()
-                .filter(|property| {
-                    property
-                        .get("propertyId")
-                        .and_then(Value::as_str)
-                        .is_some_and(|property_id| property_ids.contains(property_id))
-                })
+                .filter(|property| property_ids.contains(property.property_id.as_str()))
                 .collect();
             Ok(DatabaseReadValue::ViewContext {
                 value: DatabaseViewContext {
                     database: container_record(connection, library_id, &projection.database_id)?,
                     data_source: source_record(connection, library_id, &projection.data_source_id)?,
-                    view: view_record(connection, view_id)?,
+                    view: view_record(connection, library_id, Some(project_id), view_id)?,
                     properties,
                     groups: projection.groups,
                     rows: projection.rows,
@@ -536,6 +612,7 @@ pub(crate) fn read_at_event_head(
                 &database_id,
             )?;
             let view_id = default_view_for_database(connection, &database_id)?;
+            validate_view_filter_access_by_id(connection, library_id, Some(project_id), &view_id)?;
             Ok(DatabaseReadValue::ViewGroups {
                 value: super::window::view_groups(connection, library_id, &view_id)?,
             })
@@ -548,6 +625,7 @@ pub(crate) fn read_at_event_head(
                 database_id,
             )?;
             let view_id = default_view_for_database(connection, database_id)?;
+            validate_view_filter_access_by_id(connection, library_id, project_id, &view_id)?;
             Ok(DatabaseReadValue::ViewGroups {
                 value: super::window::view_groups(connection, library_id, &view_id)?,
             })
@@ -560,12 +638,138 @@ pub(crate) fn read_at_event_head(
                 primary_database_id.as_deref(),
                 &database_id,
             )?;
+            validate_view_filter_access_by_id(connection, library_id, project_id, view_id)?;
             Ok(DatabaseReadValue::ViewGroups {
                 value: super::window::view_groups(connection, library_id, view_id)?,
             })
         }
+        (
+            DatabaseTarget::PageProperty {
+                page_id,
+                data_source_id,
+                property_id,
+            },
+            DatabaseReadMode::RelationTargetWindow,
+        ) => {
+            let database_id = database_for_source(connection, library_id, data_source_id)?;
+            authorize_required(
+                connection,
+                project_id,
+                primary_database_id.as_deref(),
+                &database_id,
+            )?;
+            Ok(DatabaseReadValue::RelationTargetWindow {
+                value: super::relation::target_window(
+                    connection,
+                    library_id,
+                    event_head,
+                    project_id,
+                    &nodex_core_contracts::database::DatabasePagePropertyAddress {
+                        page_id: page_id.clone(),
+                        data_source_id: data_source_id.clone(),
+                        property_id: property_id.clone(),
+                    },
+                    request
+                        .window
+                        .as_ref()
+                        .unwrap_or(&CollectionWindowRequest::default()),
+                )?,
+            })
+        }
         _ => Err(invalid("Database target and read mode are incompatible")),
+    }?;
+    hydrate_relation_previews(connection, library_id, project_id, &mut value)?;
+    Ok(value)
+}
+
+fn hydrate_relation_previews(
+    connection: &Connection,
+    library_id: &str,
+    project_id: Option<&str>,
+    value: &mut DatabaseReadValue,
+) -> Result<(), StoreError> {
+    match value {
+        DatabaseReadValue::ViewWindow { value } | DatabaseReadValue::AgentQuery { value } => {
+            super::relation::hydrate_row_previews(
+                connection,
+                library_id,
+                project_id,
+                &value.data_source_id,
+                &mut value.rows.items,
+            )
+        }
+        DatabaseReadValue::ViewContext { value } => {
+            let data_source_id = value
+                .data_source
+                .get("dataSourceId")
+                .and_then(Value::as_str)
+                .ok_or_else(|| corrupt("Database View context has no Data Source identity"))?;
+            let mut summaries = value
+                .rows
+                .items
+                .iter_mut()
+                .map(|row| &mut row.summary)
+                .collect::<Vec<_>>();
+            hydrate_summary_refs(
+                connection,
+                library_id,
+                project_id,
+                data_source_id,
+                &mut summaries,
+            )
+        }
+        DatabaseReadValue::RowsById { value } => {
+            hydrate_summary_rows(connection, library_id, project_id, &mut value.rows)
+        }
+        DatabaseReadValue::RowDetail { value } => hydrate_summary_rows(
+            connection,
+            library_id,
+            project_id,
+            std::slice::from_mut(&mut value.summary),
+        ),
+        _ => Ok(()),
     }
+}
+
+fn hydrate_summary_rows(
+    connection: &Connection,
+    library_id: &str,
+    project_id: Option<&str>,
+    rows: &mut [nodex_core_contracts::database::DatabaseRowSummary],
+) -> Result<(), StoreError> {
+    let Some(first) = rows.first() else {
+        return Ok(());
+    };
+    let data_source_id = connection
+        .query_row(
+            "SELECT data_source_id FROM data_source_page_memberships WHERE id = ?1",
+            [&first.membership_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?
+        .ok_or_else(|| corrupt("Database row membership is unavailable"))?;
+    super::relation::hydrate_row_previews(connection, library_id, project_id, &data_source_id, rows)
+}
+
+fn hydrate_summary_refs(
+    connection: &Connection,
+    library_id: &str,
+    project_id: Option<&str>,
+    data_source_id: &str,
+    rows: &mut [&mut nodex_core_contracts::database::DatabaseRowSummary],
+) -> Result<(), StoreError> {
+    let mut owned = rows.iter().map(|row| (*row).clone()).collect::<Vec<_>>();
+    super::relation::hydrate_row_previews(
+        connection,
+        library_id,
+        project_id,
+        data_source_id,
+        &mut owned,
+    )?;
+    for (target, hydrated) in rows.iter_mut().zip(owned) {
+        target.database_values = hydrated.database_values;
+    }
+    Ok(())
 }
 
 fn catalog_window(
@@ -708,6 +912,7 @@ fn view_descriptor_window(
     connection: &Connection,
     library_id: &str,
     event_head: i64,
+    project_id: Option<&str>,
     database_id: &str,
     request: &CollectionWindowRequest,
 ) -> Result<CollectionWindow<Value>, StoreError> {
@@ -752,7 +957,7 @@ fn view_descriptor_window(
         .into_iter()
         .map(|(id, bucket, rank)| {
             Ok(WindowCandidate {
-                item: view_record(connection, &id)?,
+                item: view_record(connection, library_id, project_id, &id)?,
                 coordinate: KeysetCoordinate {
                     values: vec![
                         cursor::KeysetValue::Integer { value: bucket },
@@ -778,7 +983,7 @@ fn property_window(
     event_head: i64,
     data_source_id: &str,
     request: &CollectionWindowRequest,
-) -> Result<CollectionWindow<Value>, StoreError> {
+) -> Result<CollectionWindow<DatabasePropertyDescriptor>, StoreError> {
     let normalized = normalize_request(request)?;
     let fingerprint = cursor::query_fingerprint(&("database_properties_v1", data_source_id))?;
     let subject = CollectionCursorSubject {
@@ -793,7 +998,7 @@ fn property_window(
     } = decode_rank_cursor(connection, subject, normalized.after)?;
     let query_limit = i64::try_from(normalized.first.saturating_add(1))
         .map_err(|_| invalid("Property window limit overflowed"))?;
-    let candidates = connection
+    let candidate_rows = connection
         .prepare(
             "SELECT id, data_source_id, name, value_type, config_json, rank_key, lifecycle, \
                schema_revision, created_at, updated_at, \
@@ -819,34 +1024,42 @@ fn property_window(
                 let id = row.get::<_, String>(0)?;
                 let value_type = row.get::<_, String>(3)?;
                 let config = parse_json(row.get::<_, String>(4)?, "Property config")?;
-                let (config, option_count) = compact_property_config(config, &value_type)?;
+                let (_, option_count) = compact_property_config(config, &value_type)?;
                 let rank = row.get::<_, String>(5)?;
                 let bucket = row.get::<_, i64>(10)?;
-                Ok(WindowCandidate {
-                    item: json!({
-                        "propertyId": id,
-                        "dataSourceId": row.get::<_, String>(1)?,
-                        "name": row.get::<_, String>(2)?,
-                        "valueType": value_type,
-                        "config": config,
-                        "optionCount": option_count,
-                        "rankKey": rank,
-                        "lifecycle": row.get::<_, String>(6)?,
-                        "revision": row.get::<_, i64>(7)?,
-                        "createdAt": row.get::<_, String>(8)?,
-                        "updatedAt": row.get::<_, String>(9)?,
-                    }),
-                    coordinate: KeysetCoordinate {
+                Ok((
+                    PropertyDescriptorRow {
+                        property_id: id.clone(),
+                        data_source_id: row.get::<_, String>(1)?,
+                        name: row.get::<_, String>(2)?,
+                        value_type,
+                        option_count,
+                        rank_key: rank.clone(),
+                        lifecycle: row.get::<_, String>(6)?,
+                        revision: row.get::<_, i64>(7)?,
+                        created_at: row.get::<_, String>(8)?,
+                        updated_at: row.get::<_, String>(9)?,
+                    },
+                    KeysetCoordinate {
                         values: vec![
                             cursor::KeysetValue::Integer { value: bucket },
                             cursor::KeysetValue::Text { value: rank },
                         ],
                         stable_id: id,
                     },
-                })
+                ))
             },
         )?
         .collect::<rusqlite::Result<Vec<_>>>()?;
+    let candidates = candidate_rows
+        .into_iter()
+        .map(|(row, coordinate)| {
+            Ok(WindowCandidate {
+                item: property_descriptor(connection, row)?,
+                coordinate,
+            })
+        })
+        .collect::<Result<Vec<_>, StoreError>>()?;
     assemble_database_window(
         connection,
         subject,
@@ -932,13 +1145,13 @@ fn option_window(
     )
 }
 
-fn assemble_database_window(
+fn assemble_database_window<T: serde::Serialize>(
     connection: &Connection,
     subject: CollectionCursorSubject<'_>,
     event_head: i64,
     first: usize,
-    candidates: Vec<WindowCandidate<Value>>,
-) -> Result<CollectionWindow<Value>, StoreError> {
+    candidates: Vec<WindowCandidate<T>>,
+) -> Result<CollectionWindow<T>, StoreError> {
     assemble(
         candidates,
         first,
@@ -1185,7 +1398,7 @@ fn property_records(
     connection: &Connection,
     data_source_id: &str,
     active_only: bool,
-) -> Result<Vec<Value>, StoreError> {
+) -> Result<Vec<DatabasePropertyDescriptor>, StoreError> {
     let lifecycle = if active_only {
         "AND lifecycle = 'active'"
     } else {
@@ -1197,24 +1410,48 @@ fn property_records(
          WHERE data_source_id = ?1 {lifecycle} \
          ORDER BY CASE lifecycle WHEN 'active' THEN 0 ELSE 1 END, rank_key, id"
     );
-    connection
+    let rows = connection
         .prepare(&sql)?
         .query_map([data_source_id], |row| {
+            let property_id = row.get::<_, String>(0)?;
+            let value_type = row.get::<_, String>(3)?;
             let config = parse_json(row.get::<_, String>(4)?, "Property config")?;
-            Ok(json!({
-                "propertyId": row.get::<_, String>(0)?,
-                "dataSourceId": row.get::<_, String>(1)?,
-                "name": row.get::<_, String>(2)?,
-                "valueType": row.get::<_, String>(3)?,
-                "config": config,
-                "rankKey": row.get::<_, String>(5)?,
-                "lifecycle": row.get::<_, String>(6)?,
-                "revision": row.get::<_, i64>(7)?,
-                "createdAt": row.get::<_, String>(8)?,
-                "updatedAt": row.get::<_, String>(9)?,
-            }))
+            let (_, option_count) = compact_property_config(config, &value_type)?;
+            Ok(PropertyDescriptorRow {
+                property_id,
+                data_source_id: row.get::<_, String>(1)?,
+                name: row.get::<_, String>(2)?,
+                value_type,
+                option_count,
+                rank_key: row.get::<_, String>(5)?,
+                lifecycle: row.get::<_, String>(6)?,
+                revision: row.get::<_, i64>(7)?,
+                created_at: row.get::<_, String>(8)?,
+                updated_at: row.get::<_, String>(9)?,
+            })
         })?
-        .collect::<rusqlite::Result<Vec<_>>>()
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    rows.into_iter()
+        .map(|row| property_descriptor(connection, row))
+        .collect()
+}
+
+fn read_property_configs(
+    connection: &Connection,
+    data_source_id: &str,
+) -> Result<BTreeMap<String, Value>, StoreError> {
+    connection
+        .prepare(
+            "SELECT id, config_json FROM data_source_properties \
+             WHERE data_source_id = ?1 AND lifecycle = 'active' ORDER BY id",
+        )?
+        .query_map([data_source_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                parse_json(row.get::<_, String>(1)?, "Property config")?,
+            ))
+        })?
+        .collect::<rusqlite::Result<BTreeMap<_, _>>>()
         .map_err(StoreError::from)
 }
 
@@ -1222,34 +1459,44 @@ fn property_record(
     connection: &Connection,
     data_source_id: &str,
     property_id: &str,
-) -> Result<Value, StoreError> {
-    connection
+) -> Result<DatabasePropertyDescriptor, StoreError> {
+    let row = connection
         .query_row(
             "SELECT id, data_source_id, name, value_type, config_json, rank_key, lifecycle, \
                schema_revision, created_at, updated_at FROM data_source_properties \
              WHERE data_source_id = ?1 AND id = ?2",
             params![data_source_id, property_id],
             |row| {
-                Ok(json!({
-                    "propertyId": row.get::<_, String>(0)?,
-                    "dataSourceId": row.get::<_, String>(1)?,
-                    "name": row.get::<_, String>(2)?,
-                    "valueType": row.get::<_, String>(3)?,
-                    "config": parse_json(row.get::<_, String>(4)?, "Property config")?,
-                    "rankKey": row.get::<_, String>(5)?,
-                    "lifecycle": row.get::<_, String>(6)?,
-                    "revision": row.get::<_, i64>(7)?,
-                    "createdAt": row.get::<_, String>(8)?,
-                    "updatedAt": row.get::<_, String>(9)?,
-                }))
+                let property_id = row.get::<_, String>(0)?;
+                let value_type = row.get::<_, String>(3)?;
+                let config = parse_json(row.get::<_, String>(4)?, "Property config")?;
+                let (_, option_count) = compact_property_config(config, &value_type)?;
+                Ok(PropertyDescriptorRow {
+                    property_id,
+                    data_source_id: row.get::<_, String>(1)?,
+                    name: row.get::<_, String>(2)?,
+                    value_type,
+                    option_count,
+                    rank_key: row.get::<_, String>(5)?,
+                    lifecycle: row.get::<_, String>(6)?,
+                    revision: row.get::<_, i64>(7)?,
+                    created_at: row.get::<_, String>(8)?,
+                    updated_at: row.get::<_, String>(9)?,
+                })
             },
         )
         .optional()?
-        .ok_or_else(|| not_found("Property is unavailable"))
+        .ok_or_else(|| not_found("Property is unavailable"))?;
+    property_descriptor(connection, row)
 }
 
-fn view_record(connection: &Connection, view_id: &str) -> Result<Value, StoreError> {
-    connection
+fn view_record(
+    connection: &Connection,
+    library_id: &str,
+    project_id: Option<&str>,
+    view_id: &str,
+) -> Result<Value, StoreError> {
+    let view = connection
         .query_row(
             "SELECT view.id, view.database_block_id, view.data_source_id, view.name, view.kind, \
                view.config_json, view.revision, view.rank_key, view.lifecycle, view.created_at, \
@@ -1278,22 +1525,59 @@ fn view_record(connection: &Connection, view_id: &str) -> Result<Value, StoreErr
             },
         )
         .optional()?
-        .ok_or_else(|| not_found("Database View is unavailable"))
+        .ok_or_else(|| not_found("Database View is unavailable"))?;
+    let data_source_id = required_str(&view, "dataSourceId")?;
+    let config = view
+        .get("config")
+        .ok_or_else(|| corrupt("Database View config is missing"))?;
+    super::relation::validate_view_filter_read_access(
+        connection,
+        library_id,
+        project_id,
+        data_source_id,
+        config,
+    )?;
+    Ok(view)
+}
+
+fn validate_view_filter_access_by_id(
+    connection: &Connection,
+    library_id: &str,
+    project_id: Option<&str>,
+    view_id: &str,
+) -> Result<(), StoreError> {
+    let (data_source_id, config_json) = connection
+        .query_row(
+            "SELECT data_source_id, config_json FROM database_views WHERE id = ?1",
+            [view_id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )
+        .optional()?
+        .ok_or_else(|| not_found("Database View is unavailable"))?;
+    let config = parse_json(config_json, "View config")?;
+    super::relation::validate_view_filter_read_access(
+        connection,
+        library_id,
+        project_id,
+        &data_source_id,
+        &config,
+    )
 }
 
 pub(crate) fn view_descriptor_query(
     connection: &Connection,
     library_id: &str,
+    project_id: Option<&str>,
     view_id: &str,
 ) -> Result<Value, StoreError> {
-    let view = view_record(connection, view_id)?;
+    let view = view_record(connection, library_id, project_id, view_id)?;
     if view.get("lifecycle").and_then(Value::as_str) != Some("active") {
         return Err(not_found("Database View is not active"));
     }
     let database_id = required_str(&view, "databaseId")?;
     let data_source_id = required_str(&view, "dataSourceId")?;
     let tags_property = property_record(connection, data_source_id, "tags")?;
-    if tags_property.get("lifecycle").and_then(Value::as_str) != Some("active") {
+    if tags_property.lifecycle != "active" {
         return Err(not_found(
             "Default Data Source tags Property is unavailable",
         ));
@@ -1302,7 +1586,8 @@ pub(crate) fn view_descriptor_query(
         "database": container_record(connection, library_id, database_id)?,
         "dataSource": source_record(connection, library_id, data_source_id)?,
         "view": view,
-        "properties": [tags_property],
+        "properties": [serde_json::to_value(tags_property)
+            .map_err(|_| corrupt("Property descriptor cannot encode"))?],
         "rows": [],
     }))
 }

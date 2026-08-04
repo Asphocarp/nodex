@@ -20,16 +20,6 @@ const baseRequest = {
   actor: { type: "agent", nested: { b: 2, a: 1 } },
 };
 
-const tagField = {
-  scope: "data_source" as const,
-  pageId: "page / one",
-  dataSourceId: "source / one",
-  propertyId: "p_AAAAAAAA",
-  operation: "add_remove" as const,
-  add: ["o_BBBBBBBB", "o_AAAAAAAA", "o_AAAAAAAA"],
-  remove: ["o_CCCCCCCC", "o_CCCCCCCC"],
-};
-
 const intrinsicField = {
   scope: "intrinsic" as const,
   blockId: "page / one",
@@ -45,40 +35,24 @@ describe("Block Property mutation v2 contract", () => {
     expect(BLOCK_PROPERTY_MUTATION_V2_CONTRACT_VERSION).toBe(2);
   });
 
-  test("canonicalizes Source-scoped fields and option sets deterministically", () => {
+  test("canonicalizes intrinsic fields deterministically", () => {
+    const secondField = {
+      ...intrinsicField,
+      propertyKey: "run.target",
+      value: "cloud",
+    };
     const left = {
       ...baseRequest,
-      fields: [tagField, intrinsicField],
+      fields: [secondField, intrinsicField],
     };
     const right = {
       ...baseRequest,
       actor: { nested: { a: 1, b: 2 }, type: "agent" },
-      fields: [
-        intrinsicField,
-        {
-          ...tagField,
-          add: ["o_AAAAAAAA", "o_BBBBBBBB"],
-          remove: ["o_CCCCCCCC"],
-        },
-      ],
+      fields: [intrinsicField, secondField],
     };
 
     const parsed = parseBlockPropertyMutationRequestV2(left);
-    const dataSourceField = parsed.fields.find(
-      (field) => field.scope === "data_source",
-    );
-    expect(dataSourceField?.scope).toBe("data_source");
-    if (!dataSourceField || dataSourceField.scope !== "data_source") {
-      throw new Error("Expected a Data Source field");
-    }
-    expect(makeBlockPropertyFieldPathV2(dataSourceField)).toBe(
-      "data_source/source%20%2F%20one/page%20%2F%20one/p_AAAAAAAA",
-    );
-    if (dataSourceField.operation !== "add_remove") {
-      throw new Error("Expected an add_remove field");
-    }
-    expect(dataSourceField.add).toEqual(["o_AAAAAAAA", "o_BBBBBBBB"]);
-    expect(dataSourceField.remove).toEqual(["o_CCCCCCCC"]);
+    expect(makeBlockPropertyFieldPathV2(parsed.fields[0]!)).toMatch(/^intrinsic\//u);
     expect(canonicalizeBlockPropertyMutationRequestV2(left)).toBe(
       canonicalizeBlockPropertyMutationRequestV2(right),
     );
@@ -87,98 +61,39 @@ describe("Block Property mutation v2 contract", () => {
     );
   });
 
-  test("accepts reserved Property IDs while rejecting v1 coordinates and invalid compact IDs", () => {
-    expect(
-      parseBlockPropertyMutationRequestV2({
-        ...baseRequest,
-        fields: [
-          {
-            scope: "data_source",
-            pageId: "page-1",
-            dataSourceId: "source-1",
-            propertyId: "status",
-            operation: "set",
-            expectedRevision: 1,
-            value: "triage",
-          },
-        ],
-      }).fields[0],
-    ).toMatchObject({ propertyId: "status", dataSourceId: "source-1" });
-
+  test("rejects retired Data Source and v1 coordinates", () => {
     expect(() =>
       parseBlockPropertyMutationRequestV2({
         ...baseRequest,
-        fields: [{ ...tagField, scope: "database", databaseBlockId: "db-1" }],
+        fields: [{
+          scope: "data_source",
+          pageId: "page-1",
+          dataSourceId: "source-1",
+          propertyId: "status",
+          operation: "set",
+          expectedRevision: 1,
+          value: "triage",
+        }],
       }),
     ).toThrow(BlockPropertyMutationV2ContractError);
     expect(() =>
       parseBlockPropertyMutationRequestV2({
         ...baseRequest,
-        fields: [
-          {
-            ...tagField,
-            propertyId: "database:project:primary:property:tags",
-          },
-        ],
+        fields: [{ ...intrinsicField, scope: "database", databaseBlockId: "db-1" }],
       }),
-    ).toThrow(/compact or reserved/u);
-    expect(() =>
-      parseBlockPropertyMutationRequestV2({
-        ...baseRequest,
-        fields: [{ ...tagField, add: ["not-an-option"] }],
-      }),
-    ).toThrow(/valid option ID/u);
-    expect(() =>
-      parseBlockPropertyMutationRequestV2({
-        ...baseRequest,
-        fields: [
-          {
-            ...tagField,
-            unsupported: true,
-          },
-        ],
-      }),
-    ).toThrow(/not supported/u);
-    expect(() =>
-      parseBlockPropertyMutationRequestV2({
-        ...baseRequest,
-        fields: [
-          {
-            scope: "data_source",
-            pageId: "page-1",
-            dataSourceId: "source-1",
-            propertyId: "status",
-            operation: "set",
-            expectedRevision: 1,
-            value: "not-a-workflow-status",
-          },
-        ],
-      }),
-    ).toThrow(/valid option ID/u);
+    ).toThrow(BlockPropertyMutationV2ContractError);
   });
 
-  test("rejects duplicate paths and ambiguous option set intent", () => {
+  test("rejects duplicate paths", () => {
     expect(() =>
       parseBlockPropertyMutationRequestV2({
         ...baseRequest,
         fields: [intrinsicField, intrinsicField],
       }),
     ).toThrow(/duplicate property path/u);
-    expect(() =>
-      parseBlockPropertyMutationRequestV2({
-        ...baseRequest,
-        fields: [
-          {
-            ...tagField,
-            add: ["o_AAAAAAAA"],
-            remove: ["o_AAAAAAAA"],
-          },
-        ],
-      }),
-    ).toThrow(/same option/u);
   });
 
-  test("strictly validates Source-scoped committed results", () => {
+  test("strictly validates intrinsic committed results", () => {
     const value = {
       version: 2,
       mutationId: "mutation-v2",
@@ -187,14 +102,13 @@ describe("Block Property mutation v2 contract", () => {
       duplicate: false,
       fields: [
         {
-          path: "data_source/source-1/page-1/p_AAAAAAAA",
-          scope: "data_source",
+          path: "intrinsic/page-1/run.target",
+          scope: "intrinsic",
           blockId: "page-1",
-          dataSourceId: "source-1",
-          propertyId: "p_AAAAAAAA",
-          operation: "add_remove",
+          propertyKey: "run.target",
+          operation: "set",
           revision: 2,
-          value: ["o_AAAAAAAA", "o_BBBBBBBB"],
+          value: "cloud",
         },
       ],
       blockMetadataRevisions: { "page-1": 3 },
@@ -204,9 +118,8 @@ describe("Block Property mutation v2 contract", () => {
 
     const parsed = parseBlockPropertyMutationResultV2(value);
     expect(parsed.fields[0]).toMatchObject({
-      scope: "data_source",
-      dataSourceId: "source-1",
-      propertyId: "p_AAAAAAAA",
+      scope: "intrinsic",
+      propertyKey: "run.target",
     });
     expect(
       parseBlockPropertyMutationCommandResultV2({ ok: true, value }),
@@ -215,26 +128,15 @@ describe("Block Property mutation v2 contract", () => {
     expect(() =>
       parseBlockPropertyMutationResultV2({
         ...value,
-        fields: [{ ...value.fields[0], dataSourceId: undefined }],
+        fields: [{ ...value.fields[0], propertyKey: undefined }],
       }),
-    ).toThrow(/dataSourceId/u);
+    ).toThrow(/propertyKey/u);
     expect(() =>
       parseBlockPropertyMutationResultV2({
         ...value,
-        fields: [{ ...value.fields[0], path: "data_source/wrong/page-1/p_AAAAAAAA" }],
+        fields: [{ ...value.fields[0], path: "intrinsic/wrong/run.target" }],
       }),
     ).toThrow(/path does not match/u);
-    expect(() =>
-      parseBlockPropertyMutationResultV2({
-        ...value,
-        fields: [
-          {
-            ...value.fields[0],
-            value: ["o_BBBBBBBB", "o_AAAAAAAA"],
-          },
-        ],
-      }),
-    ).toThrow(/sorted unique/u);
   });
 
   test("strictly parses v2 errors and requires complete conflict evidence", () => {
@@ -243,7 +145,7 @@ describe("Block Property mutation v2 contract", () => {
       message: "Property changed",
       retryable: false,
       mutationId: "mutation-v2",
-      fieldPath: "data_source/source-1/page-1/p_AAAAAAAA",
+      fieldPath: "intrinsic/page-1/run.target",
       expectedRevision: 1,
       actualRevision: 2,
     };

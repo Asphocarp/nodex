@@ -14,14 +14,10 @@ import {
   parseDataSourceId,
   parseDataSourcePropertyId,
 } from "./database-identities";
-import {
-  parseDatabasePropertyConfig,
-  type DatabaseJsonValue,
-  type DatabasePropertyValueType,
-} from "./database-kernel";
+import type { DatabasePropertyValueType } from "./database-kernel";
 import { parsePage, type Page } from "./page";
 
-export const PAGE_DETAIL_CONTRACT_VERSION = 2 as const;
+export const PAGE_DETAIL_CONTRACT_VERSION = 3 as const;
 
 export interface PageIntrinsicProperty {
   readonly key: string;
@@ -189,7 +185,8 @@ const valueType = (
     value === "multi_select" ||
     value === "date" ||
     value === "datetime" ||
-    value === "person"
+    value === "person" ||
+    value === "relation"
   ) {
     return value;
   }
@@ -330,8 +327,11 @@ const parseProperty = (
     "propertyId",
     "dataSourceId",
     "name",
+    "schema",
+    "capabilities",
     "valueType",
     "config",
+    "optionCount",
     "rankKey",
     "lifecycle",
     "revision",
@@ -349,20 +349,19 @@ const parseProperty = (
     );
   }
   const propertyValueType = valueType(value.valueType, `${label}.valueType`);
+  const schema = portableJson(value.schema, `${label}.schema`);
+  const capabilities = portableJson(value.capabilities, `${label}.capabilities`);
+  if (!isRecord(schema) || schema.kind !== propertyValueType || !isRecord(capabilities)) {
+    throw new PageDetailContractError(`${label} typed semantics are invalid`);
+  }
   const rawConfig = portableJson(value.config, `${label}.config`);
   if (!isRecord(rawConfig)) {
     throw new PageDetailContractError(`${label}.config must be an object`);
   }
-  let config: Readonly<Record<string, DatabaseJsonValue>>;
-  try {
-    config = parseDatabasePropertyConfig(
-      propertyValueType,
-      rawConfig as Readonly<Record<string, DatabaseJsonValue>>,
+  if (Object.keys(rawConfig).length > 0) {
+    throw new PageDetailContractError(
+      `${label}.config must not inline an option registry`,
     );
-  } catch (error) {
-    throw new PageDetailContractError(`${label}.config is invalid`, {
-      cause: error,
-    });
   }
   return {
     propertyId: scopedIdentity(
@@ -372,8 +371,11 @@ const parseProperty = (
     ),
     dataSourceId: propertyDataSourceId,
     name: boundedText(value.name, `${label}.name`),
+    schema: schema as DataSourcePropertyRecordV2["schema"],
+    capabilities: capabilities as unknown as DataSourcePropertyRecordV2["capabilities"],
     valueType: propertyValueType,
-    config,
+    config: {},
+    optionCount: revision(value.optionCount, `${label}.optionCount`),
     rankKey: identity(value.rankKey, `${label}.rankKey`),
     lifecycle: "active",
     revision: revision(value.revision, `${label}.revision`),

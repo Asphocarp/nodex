@@ -9,11 +9,6 @@ import {
   parseLibraryBlockPropertyMutationCommandResultV2,
   toLibraryBlockPropertyMutationCommandResultV2,
 } from "./block-property-mutations-v2";
-import {
-  parseDataSourceOptionId,
-  parseDataSourcePropertyId,
-} from "./database-identities";
-
 const request = {
   version: 2,
   mutationId: "mutation-v2-1",
@@ -23,32 +18,26 @@ const request = {
   actor: { kind: "spoofed", userId: "admin" },
   fields: [
     {
-      scope: "data_source",
-      pageId: "page-1",
-      dataSourceId: "source-1",
-      propertyId: "tags",
-      operation: "add_remove",
-      add: ["o_AAAAAAAA"],
-      remove: [],
+      scope: "intrinsic",
+      blockId: "page-1",
+      propertyKey: "run.target",
+      operation: "set",
+      expectedRevision: 1,
+      value: "cloud",
     },
   ],
 } as const;
 
 describe("Block property mutation v2 transport binding", () => {
   test("exposes strict Library receipts without compatibility Project identity", () => {
-    const propertyId = parseDataSourcePropertyId("tags");
     const field = {
-      path: "data_source/source-1/page-1/tags",
-      scope: "data_source" as const,
+      path: "intrinsic/page-1/run.target",
+      scope: "intrinsic" as const,
       blockId: "page-1",
-      dataSourceId: "source-1",
-      propertyId,
-      operation: "add_remove" as const,
+      propertyKey: "run.target",
+      operation: "set" as const,
       revision: 1,
-      value: [parseDataSourceOptionId({
-        propertyId,
-        value: "o_AAAAAAAA",
-      })],
+      value: "cloud",
     };
     const exposed = toLibraryBlockPropertyMutationCommandResultV2({
       ok: true,
@@ -130,13 +119,12 @@ describe("Block property mutation v2 transport binding", () => {
       actor: { kind: "electron", clientId: "renderer-7" },
       fields: [
         {
-          scope: "data_source",
-          pageId: "page-1",
-          dataSourceId: "source-1",
-          propertyId: "tags",
-          operation: "add_remove",
-          add: ["o_AAAAAAAA"],
-          remove: [],
+          scope: "intrinsic",
+          blockId: "page-1",
+          propertyKey: "run.target",
+          operation: "set",
+          expectedRevision: 1,
+          value: "cloud",
         },
       ],
     });
@@ -190,7 +178,7 @@ describe("Block property mutation v2 transport binding", () => {
   test("preserves v2 HTTP and writer-failure semantics", () => {
     expect(
       blockPropertyMutationHttpStatusV2({
-        code: "data_source_not_found",
+        code: "block_not_found",
         message: "missing",
         retryable: false,
       }),

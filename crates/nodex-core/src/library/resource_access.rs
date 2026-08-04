@@ -117,14 +117,14 @@ pub(super) fn read(
             .transpose()?;
 
         let mut inherited_sources = Vec::new();
-        if let Some((database_id, database_name)) = &coordinates.owning_database {
-            if primary_database_id.as_deref() == Some(database_id.as_str()) {
-                inherited_sources.push(LibraryInheritedProjectAccessSource::PrimaryDatabase {
-                    database_id: database_id.clone(),
-                    database_name: database_name.clone(),
-                    access: LibraryAccess::ReadWrite,
-                });
-            }
+        if let Some((database_id, database_name)) = &coordinates.owning_database
+            && primary_database_id.as_deref() == Some(database_id.as_str())
+        {
+            inherited_sources.push(LibraryInheritedProjectAccessSource::PrimaryDatabase {
+                database_id: database_id.clone(),
+                database_name: database_name.clone(),
+                access: LibraryAccess::ReadWrite,
+            });
         }
         for (kind, id, access, _) in &grants {
             let access = parse_access(access)?;
@@ -141,18 +141,15 @@ pub(super) fn read(
                 }
                 continue;
             }
-            if kind == "database" {
-                if let Some((database_id, database_name)) = &coordinates.owning_database {
-                    if id == database_id {
-                        inherited_sources.push(
-                            LibraryInheritedProjectAccessSource::DatabaseGrant {
-                                database_id: database_id.clone(),
-                                database_name: database_name.clone(),
-                                access,
-                            },
-                        );
-                    }
-                }
+            if kind == "database"
+                && let Some((database_id, database_name)) = &coordinates.owning_database
+                && id == database_id
+            {
+                inherited_sources.push(LibraryInheritedProjectAccessSource::DatabaseGrant {
+                    database_id: database_id.clone(),
+                    database_name: database_name.clone(),
+                    access,
+                });
             }
         }
         inherited_sources.sort_by_key(|source| match source_access(source) {

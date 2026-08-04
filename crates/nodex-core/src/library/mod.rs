@@ -855,6 +855,10 @@ mod tests {
         AgentProjectResourceAction, AgentResourceAccessPlan, AgentResourceGrantRoot,
         AgentResourceGrantSpec, AgentResourceIntent, AgentTurnProvenance,
     };
+    use nodex_core_contracts::database::{
+        DatabaseIntent, DatabasePagePropertyAddress, DatabasePropertyValueEdit,
+        DatabasePropertyValueInput, DatabasePropertyValueMutation,
+    };
     use nodex_core_contracts::document::{
         DocumentBlockOperation as ContractDocumentBlockOperation, DocumentBlockUpdatePatch,
         DocumentOptionalValue, OwnedDocumentIntent,
@@ -875,12 +879,14 @@ mod tests {
         ProjectWorkspaceTurnAuthoritySource,
     };
     use nodex_core_contracts::{
-        AdapterKind, LibraryId, OWNED_DOCUMENT_CONTRACT_VERSION, ProfileId, ProjectId,
+        AdapterKind, DATABASE_CONTRACT_VERSION, LibraryId, OWNED_DOCUMENT_CONTRACT_VERSION,
+        ProfileId, ProjectId,
     };
     use rusqlite::params;
     use sha2::{Digest, Sha256};
     use tempfile::tempdir;
 
+    use crate::database::DatabaseModule;
     use crate::document::OwnedDocumentModule;
     use crate::infrastructure::sqlite::with_immediate_transaction;
     use crate::infrastructure::store::SqliteStoreKernel;
@@ -4846,7 +4852,7 @@ mod tests {
     }
 
     #[test]
-    fn page_property_batch_commits_mixed_fields_and_replays_rejections() {
+    fn page_property_batch_commits_intrinsic_fields_and_replays_rejections() {
         const NOW: &str = "2026-07-20T12:00:00.000Z";
         const DATABASE: &str = "019c1000-0000-7000-8000-000000000001";
         const SOURCE: &str = "019c1000-0000-7000-8000-000000000002";
@@ -4969,25 +4975,17 @@ mod tests {
                     actor: serde_json::json!({ "kind": "test" }),
                     client_session_id: Some("session:property".to_owned()),
                     fields: vec![
-                        LibraryBlockPropertyFieldMutation::DataSourceSet {
-                            page_id: PAGE.to_owned(),
-                            data_source_id: SOURCE.to_owned(),
-                            property_id: "status".to_owned(),
-                            expected_revision: 1,
-                            value: Some("build".to_owned()),
-                        },
                         LibraryBlockPropertyFieldMutation::IntrinsicSet {
                             block_id: PAGE.to_owned(),
                             property_key: "run.target".to_owned(),
                             expected_revision: 1,
                             value: serde_json::json!("cloud"),
                         },
-                        LibraryBlockPropertyFieldMutation::DataSourceAddRemove {
-                            page_id: PAGE.to_owned(),
-                            data_source_id: SOURCE.to_owned(),
-                            property_id: "tags".to_owned(),
-                            add: Vec::new(),
-                            remove: vec!["o_AAAAAAAA".to_owned()],
+                        LibraryBlockPropertyFieldMutation::IntrinsicSet {
+                            block_id: PAGE.to_owned(),
+                            property_key: "run.localPath".to_owned(),
+                            expected_revision: 1,
+                            value: serde_json::json!("/tmp/nodex"),
                         },
                     ],
                 }),
@@ -5009,7 +5007,7 @@ mod tests {
         else {
             panic!("Property mutation committed")
         };
-        assert_eq!(fields.len(), 3);
+        assert_eq!(fields.len(), 2);
         assert_eq!(block_metadata_revisions.get(PAGE), Some(&2));
         assert!(committed.event.is_some());
         assert_eq!(committed.committed.receipt.operation_kind, "property_batch");
@@ -5056,41 +5054,6 @@ mod tests {
         ));
         assert!(rejected.event.is_none());
 
-        let invalid_schedule = module
-            .apply(
-                &persistent_context,
-                ModuleApplyRequest {
-                    contract_version: LIBRARY_CONTRACT_VERSION,
-                    operation_id: "property:invalid-schedule".to_owned(),
-                    store_epoch: StoreEpoch("epoch-1".to_owned()),
-                    intent: LibraryIntent::ApplyBlockPropertyMutation {
-                        mutation: Box::new(LibraryBlockPropertyMutation {
-                            actor: serde_json::json!({ "kind": "test" }),
-                            client_session_id: None,
-                            fields: vec![LibraryBlockPropertyFieldMutation::DataSourceSet {
-                                page_id: PAGE.to_owned(),
-                                data_source_id: SOURCE.to_owned(),
-                                property_id: "scheduled_start".to_owned(),
-                                expected_revision: 1,
-                                value: Some("2026-07-21T01:00:00.000Z".to_owned()),
-                            }],
-                        }),
-                    },
-                },
-            )
-            .expect("invalid schedule has a durable rejected outcome");
-        assert!(matches!(
-            invalid_schedule
-                .committed
-                .value
-                .block_property_mutation
-                .as_ref()
-                .map(|receipt| &receipt.outcome),
-            Some(LibraryBlockPropertyMutationOutcome::Rejected { error })
-                if error.code == LibraryBlockPropertyMutationErrorCode::PropertyValueInvalid
-        ));
-        assert!(invalid_schedule.event.is_none());
-
         let invalid_actor_request = ModuleApplyRequest {
             contract_version: LIBRARY_CONTRACT_VERSION,
             operation_id: "property:invalid-actor".to_owned(),
@@ -5133,24 +5096,17 @@ mod tests {
             .read_default(|connection| {
                 let evidence = connection.query_row(
                     "SELECT block.metadata_revision, intrinsic.value_json, intrinsic.revision, \
-                       status.value_json, status.revision, position.group_key, \
+                       local_path.value_json, local_path.revision, \
                        (SELECT count(*) FROM change_log WHERE operation_id = 'property:mixed'), \
                        (SELECT count(*) FROM change_log WHERE operation_id = 'property:conflict'), \
-                       (SELECT outcome FROM block_mutations WHERE mutation_id = 'property:conflict'), \
-                       (SELECT count(*) FROM change_log WHERE operation_id = 'property:invalid-schedule'), \
-                       (SELECT outcome FROM block_mutations WHERE mutation_id = 'property:invalid-schedule') \
+                       (SELECT outcome FROM block_mutations WHERE mutation_id = 'property:conflict') \
                      FROM blocks block \
                      JOIN block_properties intrinsic ON intrinsic.block_id = block.id \
                        AND intrinsic.property_key = 'run.target' \
-                     JOIN data_source_page_memberships membership ON membership.page_block_id = block.id \
-                       AND membership.removed_at IS NULL \
-                     JOIN data_source_property_values status ON status.membership_id = membership.id \
-                       AND status.data_source_id = membership.data_source_id \
-                       AND status.property_id = 'status' \
-                     JOIN database_view_page_positions position ON position.page_block_id = block.id \
-                       AND position.view_id = ?1 \
-                     WHERE block.id = ?2",
-                    params![VIEW, PAGE],
+                     JOIN block_properties local_path ON local_path.block_id = block.id \
+                       AND local_path.property_key = 'run.localPath' \
+                     WHERE block.id = ?1",
+                    [PAGE],
                     |row| {
                         Ok((
                             row.get::<_, i64>(0)?,
@@ -5158,12 +5114,9 @@ mod tests {
                             row.get::<_, i64>(2)?,
                             row.get::<_, String>(3)?,
                             row.get::<_, i64>(4)?,
-                            row.get::<_, Option<String>>(5)?,
+                            row.get::<_, i64>(5)?,
                             row.get::<_, i64>(6)?,
-                            row.get::<_, i64>(7)?,
-                            row.get::<_, String>(8)?,
-                            row.get::<_, i64>(9)?,
-                            row.get::<_, String>(10)?,
+                            row.get::<_, String>(7)?,
                         ))
                     },
                 )?;
@@ -5173,12 +5126,9 @@ mod tests {
                         2,
                         "\"cloud\"".to_owned(),
                         2,
-                        "\"build\"".to_owned(),
+                        "\"/tmp/nodex\"".to_owned(),
                         2,
-                        Some("build".to_owned()),
                         1,
-                        0,
-                        "rejected".to_owned(),
                         0,
                         "rejected".to_owned(),
                     )
@@ -5196,6 +5146,213 @@ mod tests {
                 Ok(())
             })
             .expect("Property authority evidence");
+
+        let metadata_request = ModuleApplyRequest {
+            contract_version: LIBRARY_CONTRACT_VERSION,
+            operation_id: "property:metadata-orchestration".to_owned(),
+            store_epoch: StoreEpoch("epoch-1".to_owned()),
+            intent: LibraryIntent::ApplyPageMetadataProperties {
+                database_intents: vec![DatabaseIntent::EditPropertyValues {
+                    edits: [
+                        ("scheduled_start", "2026-07-21T01:00:00.000Z"),
+                        ("scheduled_end", "2026-07-21T02:00:00.000Z"),
+                    ]
+                    .into_iter()
+                    .map(|(property_id, value)| DatabasePropertyValueMutation {
+                        address: DatabasePagePropertyAddress {
+                            page_id: PAGE.to_owned(),
+                            data_source_id: SOURCE.to_owned(),
+                            property_id: property_id.to_owned(),
+                        },
+                        edit: DatabasePropertyValueEdit::Replace {
+                            expected_value_revision: 1,
+                            value: DatabasePropertyValueInput::Datetime {
+                                value: value.to_owned(),
+                            },
+                        },
+                    })
+                    .collect(),
+                }],
+                intrinsic_mutation: Box::new(LibraryBlockPropertyMutation {
+                    actor: serde_json::json!({ "kind": "test" }),
+                    client_session_id: None,
+                    fields: vec![LibraryBlockPropertyFieldMutation::IntrinsicSet {
+                        block_id: PAGE.to_owned(),
+                        property_key: "schedule.isAllDay".to_owned(),
+                        expected_revision: 1,
+                        value: serde_json::json!(true),
+                    }],
+                }),
+            },
+        };
+        let metadata = module
+            .apply(&persistent_context, metadata_request.clone())
+            .expect("commit atomic Page metadata Properties");
+        assert!(metadata.event.is_some());
+        let replay = module
+            .apply(&persistent_context, metadata_request)
+            .expect("replay atomic Page metadata Properties");
+        assert!(replay.committed.receipt.mutation.duplicate);
+
+        let arbitrary_database_intent = module
+            .apply(
+                &persistent_context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "property:metadata-arbitrary-database".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::ApplyPageMetadataProperties {
+                        database_intents: vec![DatabaseIntent::DeleteView {
+                            database_id: DATABASE.to_owned(),
+                            view_id: VIEW.to_owned(),
+                            expected_revision: 1,
+                        }],
+                        intrinsic_mutation: Box::new(LibraryBlockPropertyMutation {
+                            actor: serde_json::json!({ "kind": "test" }),
+                            client_session_id: None,
+                            fields: vec![LibraryBlockPropertyFieldMutation::IntrinsicSet {
+                                block_id: PAGE.to_owned(),
+                                property_key: "schedule.isAllDay".to_owned(),
+                                expected_revision: 2,
+                                value: serde_json::json!(false),
+                            }],
+                        }),
+                    },
+                },
+            )
+            .expect_err("Page metadata orchestration rejects schema and View intents");
+        assert_eq!(arbitrary_database_intent.code, CoreErrorCode::InvalidInput);
+
+        let collision_database_intents = vec![DatabaseIntent::EditPropertyValues {
+            edits: vec![DatabasePropertyValueMutation {
+                address: DatabasePagePropertyAddress {
+                    page_id: PAGE.to_owned(),
+                    data_source_id: SOURCE.to_owned(),
+                    property_id: "scheduled_end".to_owned(),
+                },
+                edit: DatabasePropertyValueEdit::Replace {
+                    expected_value_revision: 2,
+                    value: DatabasePropertyValueInput::Datetime {
+                        value: "2026-07-21T04:00:00.000Z".to_owned(),
+                    },
+                },
+            }],
+        }];
+        DatabaseModule::new("profile-1", "library-1", &kernel)
+            .apply(
+                &persistent_context,
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "property:metadata-cross-module-collision".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: collision_database_intents.clone(),
+                },
+            )
+            .expect("persist an independent Database receipt");
+        let cross_module_collision = module
+            .apply(
+                &persistent_context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "property:metadata-cross-module-collision".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::ApplyPageMetadataProperties {
+                        database_intents: collision_database_intents,
+                        intrinsic_mutation: Box::new(LibraryBlockPropertyMutation {
+                            actor: serde_json::json!({ "kind": "test" }),
+                            client_session_id: None,
+                            fields: vec![LibraryBlockPropertyFieldMutation::IntrinsicSet {
+                                block_id: PAGE.to_owned(),
+                                property_key: "schedule.isAllDay".to_owned(),
+                                expected_revision: 2,
+                                value: serde_json::json!(false),
+                            }],
+                        }),
+                    },
+                },
+            )
+            .expect_err("Library cannot claim an independent Database receipt");
+        assert_eq!(
+            cross_module_collision.code,
+            CoreErrorCode::IdempotencyKeyReused
+        );
+
+        let rejected_metadata = module
+            .apply(
+                &persistent_context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "property:metadata-rollback".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::ApplyPageMetadataProperties {
+                        database_intents: vec![DatabaseIntent::EditPropertyValues {
+                            edits: vec![DatabasePropertyValueMutation {
+                                address: DatabasePagePropertyAddress {
+                                    page_id: PAGE.to_owned(),
+                                    data_source_id: SOURCE.to_owned(),
+                                    property_id: "scheduled_start".to_owned(),
+                                },
+                                edit: DatabasePropertyValueEdit::Replace {
+                                    expected_value_revision: 2,
+                                    value: DatabasePropertyValueInput::Datetime {
+                                        value: "2026-07-22T01:00:00.000Z".to_owned(),
+                                    },
+                                },
+                            }],
+                        }],
+                        intrinsic_mutation: Box::new(LibraryBlockPropertyMutation {
+                            actor: serde_json::json!({ "kind": "test" }),
+                            client_session_id: None,
+                            fields: vec![LibraryBlockPropertyFieldMutation::IntrinsicSet {
+                                block_id: PAGE.to_owned(),
+                                property_key: "schedule.timezone".to_owned(),
+                                expected_revision: 1,
+                                value: serde_json::json!(42),
+                            }],
+                        }),
+                    },
+                },
+            )
+            .expect_err("invalid intrinsic metadata rolls back Database edits");
+        assert_eq!(rejected_metadata.code, CoreErrorCode::InvalidInput);
+        kernel
+            .readers()
+            .read_default(|connection| {
+                let evidence = connection.query_row(
+                    "SELECT start.value_json, start.revision, all_day.value_json, all_day.revision, \
+                       (SELECT count(*) FROM core_module_receipts \
+                         WHERE operation_id = 'property:metadata-rollback') \
+                     FROM data_source_page_memberships membership \
+                     JOIN data_source_property_values start ON start.membership_id = membership.id \
+                       AND start.data_source_id = membership.data_source_id \
+                       AND start.property_id = 'scheduled_start' \
+                     JOIN block_properties all_day ON all_day.block_id = membership.page_block_id \
+                       AND all_day.property_key = 'schedule.isAllDay' \
+                     WHERE membership.page_block_id = ?1 AND membership.removed_at IS NULL",
+                    [PAGE],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, i64>(3)?,
+                            row.get::<_, i64>(4)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(
+                    evidence,
+                    (
+                        "\"2026-07-21T01:00:00.000Z\"".to_owned(),
+                        2,
+                        "true".to_owned(),
+                        2,
+                        0,
+                    )
+                );
+                Ok(())
+            })
+            .expect("atomic Page metadata evidence");
 
         kernel
             .writer()

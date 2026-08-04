@@ -1,5 +1,9 @@
 # Security
 
+## Relation references
+
+Relation is non-authorizing. Creating a definition requires source schema authority and readable target Data Source; adding an edge requires source write plus independent target Page read. Incremental removal and non-empty replacement reauthorize every supplied Page ID so guessed IDs cannot probe relation membership; clearing restricted references uses an explicit revision-fenced empty replacement. Project reads authorize every projected target, and saved Relation filter operands are reauthorized on every View descriptor/window/context/group read after grants change. A restricted item contains neither Page ID, title, Document, parent, nor Data Source metadata. Relation target cursors contain only an ordinal plus a constant marker, and target-not-found/unauthorized failures share a non-oracular boundary. Library-trusted local reads do not materialize grants.
+
 ## Threat Model
 Nodex is local-first. Main risks are malformed local inputs, accidental data loss, renderer capability abuse, and unsafe command/file-change approvals during Codex thread execution.
 

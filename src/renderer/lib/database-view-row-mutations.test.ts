@@ -13,6 +13,7 @@ import {
   parseDataSourceId,
   parseDataSourcePropertyId,
 } from "../../shared/database-identities";
+import { testPropertySemantics } from "../../shared/testing/database-property-record";
 import type { DatabaseViewRenderModel } from "./database-view-render-model";
 import {
   buildDatabaseViewMoveOperations,
@@ -34,6 +35,7 @@ const model = (): DatabaseViewRenderModel => {
       propertyId: scorePropertyId,
       dataSourceId,
       name: "Score",
+      ...testPropertySemantics("number"),
       valueType: "number",
       config: {},
       rankKey: "a",
@@ -46,6 +48,7 @@ const model = (): DatabaseViewRenderModel => {
       propertyId: tagsPropertyId,
       dataSourceId,
       name: "Tags",
+      ...testPropertySemantics("multi_select", 2),
       valueType: "multi_select",
       config: {
         options: [
@@ -188,18 +191,28 @@ describe("selected Database View Page mutations", () => {
       value: ["o_BBBBBBBB"],
     });
     expect(scalar[0]).toMatchObject({
-      kind: "set_value",
-      pageId: "page-a",
-      dataSourceId,
-      expectedValueRevision: 3,
+      kind: "edit_property_values",
+      edits: [{
+        pageId: "page-a",
+        dataSourceId,
+        edit: { kind: "replace", expectedValueRevision: 3 },
+      }],
     });
     expect(setLike[0]).toEqual({
-      kind: "add_remove_value",
-      pageId: "page-a",
-      dataSourceId,
-      propertyId: tagsPropertyId,
-      add: ["o_BBBBBBBB"],
-      remove: ["o_AAAAAAAA"],
+      kind: "edit_property_values",
+      edits: [{
+        pageId: "page-a",
+        dataSourceId,
+        propertyId: tagsPropertyId,
+        edit: {
+          kind: "patch_set",
+          delta: {
+            kind: "multi_select",
+            addOptionIds: ["o_BBBBBBBB"],
+            removeOptionIds: ["o_AAAAAAAA"],
+          },
+        },
+      }],
     });
   });
 
@@ -230,7 +243,7 @@ describe("selected Database View Page mutations", () => {
       propertyId: scorePropertyId,
       value: 2,
     });
-    const result: DatabaseApplyResultV2 = {
+    const result = {
       ok: true,
       value: {
         version: DATABASE_MODULE_V2_CONTRACT_VERSION,
@@ -239,7 +252,7 @@ describe("selected Database View Page mutations", () => {
         libraryId,
         storeEpoch: "epoch-1",
         duplicate: false,
-        operationKinds: ["set_value"],
+        operationKinds: ["edit_property_values"],
         affectedDatabaseIds: [databaseId],
         affectedDataSourceIds: [dataSourceId],
         affectedPageIds: ["page-a"],
@@ -248,7 +261,7 @@ describe("selected Database View Page mutations", () => {
         changeLogSeq: 5,
         committedAt: timestamp,
       },
-    };
+    } satisfies DatabaseApplyResultV2;
     const receipt = await commitDatabaseViewOperations({
       model: model(),
       operations,
@@ -304,7 +317,7 @@ describe("selected Database View Page mutations", () => {
               libraryId,
               storeEpoch: "epoch-1",
               duplicate: false,
-              operationKinds: ["set_value"],
+              operationKinds: ["edit_property_values"],
               affectedDatabaseIds: [databaseId],
               affectedDataSourceIds: [dataSourceId],
               affectedPageIds: ["page-a"],

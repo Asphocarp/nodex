@@ -12,6 +12,7 @@ import {
   parseDataSourceId,
   parseDataSourcePropertyId,
 } from "../../shared/database-identities";
+import { testPropertySemantics } from "../../shared/testing/database-property-record";
 import {
   commitDatabasePageDrag,
   DatabasePageDragMutationError,
@@ -81,6 +82,7 @@ const snapshot = (): DatabaseModuleReadSnapshotV2 => ({
         propertyId: parseDataSourcePropertyId("status"),
         dataSourceId: parseDataSourceId("source-1"),
         name: "Status",
+        ...testPropertySemantics("select"),
         valueType: "select",
         config: {},
         rankKey: "a",
@@ -178,7 +180,7 @@ describe("Database Page drag runtime", () => {
       clientSessionId: "window-1",
     });
     expect(requests[0]?.operations.map((operation) => operation.kind)).toEqual([
-      "set_value",
+      "edit_property_values",
       "position_page",
     ]);
   });

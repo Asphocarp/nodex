@@ -179,8 +179,7 @@ describe("Electron native data authority", () => {
           expectedDataSourceRevision: primaryDataSource.schemaRevision,
           expectedPropertyRevision: 0,
           name: "Native Core",
-          valueType: "text",
-          config: {},
+          schema: { kind: "text" },
         }],
       } as const;
       const databaseEvents: CoreEventEnvelope[] = [];
@@ -285,8 +284,7 @@ describe("Electron native data authority", () => {
             libraryDataSource.value.value.value.dataSource.schemaRevision,
           expectedPropertyRevision: 0,
           name: "Library Core",
-          valueType: "text",
-          config: {},
+          schema: { kind: "text" },
         }],
       });
       expect(libraryDatabaseWrite).toMatchObject({
@@ -1010,6 +1008,29 @@ describe("Electron native data authority", () => {
         storeEpoch: runtime.rootClient.handshake.store_epoch,
         actor: { kind: "electron_renderer", clientId: "rust-authority-test" },
       };
+      const databasePropertyMutation = await database.apply({
+        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+        operationId: "electron-page-property-database",
+        projectId,
+        storeEpoch: runtime.rootClient.handshake.store_epoch,
+        actor: lifecycleRequestBase.actor,
+        operations: [{
+          kind: "edit_property_values",
+          edits: [{
+            pageId: copiedDataSourcePageId,
+            dataSourceId: primaryDataSource.dataSourceId,
+            propertyId: parseDataSourcePropertyId("assignee"),
+            edit: {
+              kind: "replace",
+              expectedValueRevision: 1,
+              value: { kind: "person", personId: "native-core" },
+            },
+          }],
+        }],
+      });
+      if (!databasePropertyMutation.ok) {
+        throw new Error(databasePropertyMutation.error.message);
+      }
       const propertyMutation = await lifecycleLibrary.applyBlockPropertyMutation({
         version: 2,
         mutationId: "electron-page-property-mixed",
@@ -1024,14 +1045,6 @@ describe("Electron native data authority", () => {
           operation: "set",
           expectedRevision: 1,
           value: "cloud",
-        }, {
-          scope: "data_source",
-          pageId: copiedDataSourcePageId,
-          dataSourceId: primaryDataSource.dataSourceId,
-          propertyId: parseDataSourcePropertyId("assignee"),
-          operation: "set",
-          expectedRevision: 1,
-          value: "native-core",
         }],
       });
       if (!propertyMutation.ok) {
@@ -1043,12 +1056,29 @@ describe("Electron native data authority", () => {
         ok: true,
         value: {
           duplicate: false,
-          fields: [
-            { scope: "data_source", propertyId: "assignee", revision: 2 },
-            { scope: "intrinsic", propertyKey: "run.target", revision: 2 },
-          ],
+          fields: [{ scope: "intrinsic", propertyKey: "run.target", revision: 2 }],
         },
       });
+      await expect(database.apply({
+        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+        operationId: "electron-page-property-database",
+        projectId,
+        storeEpoch: runtime.rootClient.handshake.store_epoch,
+        actor: lifecycleRequestBase.actor,
+        operations: [{
+          kind: "edit_property_values",
+          edits: [{
+            pageId: copiedDataSourcePageId,
+            dataSourceId: primaryDataSource.dataSourceId,
+            propertyId: parseDataSourcePropertyId("assignee"),
+            edit: {
+              kind: "replace",
+              expectedValueRevision: 1,
+              value: { kind: "person", personId: "native-core" },
+            },
+          }],
+        }],
+      })).resolves.toMatchObject({ ok: true, value: { duplicate: true } });
       const propertyReplay = await lifecycleLibrary.applyBlockPropertyMutation({
         version: 2,
         mutationId: "electron-page-property-mixed",
@@ -1063,14 +1093,6 @@ describe("Electron native data authority", () => {
           operation: "set",
           expectedRevision: 1,
           value: "cloud",
-        }, {
-          scope: "data_source",
-          pageId: copiedDataSourcePageId,
-          dataSourceId: primaryDataSource.dataSourceId,
-          propertyId: parseDataSourcePropertyId("assignee"),
-          operation: "set",
-          expectedRevision: 1,
-          value: "native-core",
         }],
       });
       expect(propertyReplay).toMatchObject({

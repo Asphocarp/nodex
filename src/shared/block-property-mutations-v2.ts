@@ -1,17 +1,8 @@
-import {
-  BUILT_IN_DATA_SOURCE_OPTION_IDS,
-  parseDataSourceOptionId,
-  parseDataSourcePropertyId,
-  type DataSourceOptionId,
-  type DataSourcePropertyId,
-} from "./database-identities";
-
 export const BLOCK_PROPERTY_MUTATION_V2_CONTRACT_VERSION = 2 as const;
 export const MAX_BLOCK_PROPERTY_MUTATION_V2_FIELDS = 256;
 
 const MAX_ID_LENGTH = 512;
 const MAX_PROPERTY_KEY_LENGTH = 128;
-const MAX_SET_MEMBERS = 10_000;
 const MAX_JSON_DEPTH = 32;
 const MAX_JSON_NODES = 100_000;
 const MAX_JSON_KEY_LENGTH = 512;
@@ -36,30 +27,7 @@ export interface SetIntrinsicBlockPropertyV2 {
   readonly value: BlockPropertyJsonValueV2;
 }
 
-export interface SetDataSourceScalarPropertyV2 {
-  readonly scope: "data_source";
-  readonly pageId: string;
-  readonly dataSourceId: string;
-  readonly propertyId: DataSourcePropertyId;
-  readonly operation: "set";
-  readonly expectedRevision: number;
-  readonly value: string | null;
-}
-
-export interface UpdateDataSourceSetPropertyV2 {
-  readonly scope: "data_source";
-  readonly pageId: string;
-  readonly dataSourceId: string;
-  readonly propertyId: DataSourcePropertyId;
-  readonly operation: "add_remove";
-  readonly add: readonly DataSourceOptionId[];
-  readonly remove: readonly DataSourceOptionId[];
-}
-
-export type BlockPropertyFieldMutationV2 =
-  | SetIntrinsicBlockPropertyV2
-  | SetDataSourceScalarPropertyV2
-  | UpdateDataSourceSetPropertyV2;
+export type BlockPropertyFieldMutationV2 = SetIntrinsicBlockPropertyV2;
 
 export interface BlockPropertyMutationRequestV2 {
   readonly version: typeof BLOCK_PROPERTY_MUTATION_V2_CONTRACT_VERSION;
@@ -86,20 +54,8 @@ export interface IntrinsicBlockPropertyMutationFieldResultV2 {
   readonly value: BlockPropertyJsonValueV2;
 }
 
-export interface DataSourceBlockPropertyMutationFieldResultV2 {
-  readonly path: string;
-  readonly scope: "data_source";
-  readonly blockId: string;
-  readonly dataSourceId: string;
-  readonly propertyId: DataSourcePropertyId;
-  readonly operation: "set" | "add_remove";
-  readonly revision: number;
-  readonly value: string | null | readonly DataSourceOptionId[];
-}
-
 export type BlockPropertyMutationFieldResultV2 =
-  | IntrinsicBlockPropertyMutationFieldResultV2
-  | DataSourceBlockPropertyMutationFieldResultV2;
+  IntrinsicBlockPropertyMutationFieldResultV2;
 
 export interface BlockPropertyMutationResultV2 {
   readonly version: typeof BLOCK_PROPERTY_MUTATION_V2_CONTRACT_VERSION;
@@ -126,8 +82,6 @@ export type BlockPropertyMutationErrorCodeV2 =
   | "block_not_found"
   | "block_not_active"
   | "block_type_mismatch"
-  | "data_source_not_found"
-  | "membership_not_found"
   | "property_not_found"
   | "property_type_mismatch"
   | "property_value_invalid"
@@ -360,84 +314,6 @@ const readActor = (
   );
 };
 
-const readPropertyId = (
-  value: unknown,
-  label: string,
-): DataSourcePropertyId => {
-  try {
-    return parseDataSourcePropertyId(value);
-  } catch {
-    throw new BlockPropertyMutationV2ContractError(
-      `${label} must be a compact or reserved Data Source Property ID`,
-    );
-  }
-};
-
-const readOptionId = (
-  propertyId: DataSourcePropertyId,
-  value: unknown,
-  label: string,
-): DataSourceOptionId => {
-  try {
-    return parseDataSourceOptionId({ propertyId, value });
-  } catch {
-    throw new BlockPropertyMutationV2ContractError(
-      `${label} must be a valid option ID for Property ${propertyId}`,
-    );
-  }
-};
-
-const readOptionSet = (
-  value: unknown,
-  propertyId: DataSourcePropertyId,
-  label: string,
-  state: JsonReadState,
-): readonly DataSourceOptionId[] => {
-  if (!Array.isArray(value) || value.length > MAX_SET_MEMBERS) {
-    throw new BlockPropertyMutationV2ContractError(
-      `${label} must be a bounded option ID array`,
-    );
-  }
-  const members = value.map((entry, index) =>
-    readOptionId(propertyId, entry, `${label}[${index}]`),
-  );
-  state.nodes += members.length;
-  state.characters += members.reduce(
-    (total, member) => total + member.length,
-    0,
-  );
-  if (
-    state.nodes > MAX_JSON_NODES ||
-    state.characters > MAX_CANONICAL_REQUEST_LENGTH
-  ) {
-    throw new BlockPropertyMutationV2ContractError(
-      `${label} exceeds the request budget`,
-    );
-  }
-  return [...new Set(members)].sort(compareStrings);
-};
-
-const readDataSourceScalar = (
-  value: unknown,
-  propertyId: DataSourcePropertyId,
-  label: string,
-  state: JsonReadState,
-): string | null => {
-  const scalar = parseJsonValue(value, label, state);
-  if (scalar !== null && typeof scalar !== "string") {
-    throw new BlockPropertyMutationV2ContractError(
-      `${label} must be a string or null`,
-    );
-  }
-  if (
-    scalar !== null &&
-    Object.hasOwn(BUILT_IN_DATA_SOURCE_OPTION_IDS, propertyId)
-  ) {
-    return readOptionId(propertyId, scalar, label);
-  }
-  return scalar;
-};
-
 const parseField = (
   value: unknown,
   index: number,
@@ -473,88 +349,15 @@ const parseField = (
       value: parseJsonValue(field.value, `${label}.value`, state),
     };
   }
-  if (field.scope !== "data_source") {
-    throw new BlockPropertyMutationV2ContractError(
-      `${label}.scope must be intrinsic or data_source`,
-    );
-  }
-  const propertyId = readPropertyId(field.propertyId, `${label}.propertyId`);
-  if (field.operation === "set") {
-    assertExactKeys(field, label, [
-      "scope",
-      "pageId",
-      "dataSourceId",
-      "propertyId",
-      "operation",
-      "expectedRevision",
-      "value",
-    ]);
-    const scalar = readDataSourceScalar(
-      field.value,
-      propertyId,
-      `${label}.value`,
-      state,
-    );
-    return {
-      scope: "data_source",
-      pageId: readBoundedString(field, "pageId", label),
-      dataSourceId: readBoundedString(field, "dataSourceId", label),
-      propertyId,
-      operation: "set",
-      expectedRevision: readSafeInteger(field, "expectedRevision", label, 0),
-      value: scalar,
-    };
-  }
-  if (field.operation !== "add_remove") {
-    throw new BlockPropertyMutationV2ContractError(
-      `${label}.operation must be set or add_remove`,
-    );
-  }
-  assertExactKeys(field, label, [
-    "scope",
-    "pageId",
-    "dataSourceId",
-    "propertyId",
-    "operation",
-    "add",
-    "remove",
-  ]);
-  const add = readOptionSet(field.add, propertyId, `${label}.add`, state);
-  const remove = readOptionSet(
-    field.remove,
-    propertyId,
-    `${label}.remove`,
-    state,
+  throw new BlockPropertyMutationV2ContractError(
+    `${label}.scope must be intrinsic`,
   );
-  if (add.length === 0 && remove.length === 0) {
-    throw new BlockPropertyMutationV2ContractError(
-      `${label} must add or remove at least one option`,
-    );
-  }
-  const removed = new Set(remove);
-  if (add.some((member) => removed.has(member))) {
-    throw new BlockPropertyMutationV2ContractError(
-      `${label} cannot add and remove the same option`,
-    );
-  }
-  return {
-    scope: "data_source",
-    pageId: readBoundedString(field, "pageId", label),
-    dataSourceId: readBoundedString(field, "dataSourceId", label),
-    propertyId,
-    operation: "add_remove",
-    add,
-    remove,
-  };
 };
 
 export const makeBlockPropertyFieldPathV2 = (
   field: BlockPropertyFieldMutationV2,
 ): string => {
-  if (field.scope === "intrinsic") {
-    return `intrinsic/${encodeURIComponent(field.blockId)}/${encodeURIComponent(field.propertyKey)}`;
-  }
-  return `data_source/${encodeURIComponent(field.dataSourceId)}/${encodeURIComponent(field.pageId)}/${encodeURIComponent(field.propertyId)}`;
+  return `intrinsic/${encodeURIComponent(field.blockId)}/${encodeURIComponent(field.propertyKey)}`;
 };
 
 const stableStringifyJson = (value: BlockPropertyJsonValueV2): string => {
@@ -701,83 +504,9 @@ const parseFieldResult = (
       value: parseJsonValue(field.value, `${label}.value`),
     };
   }
-  if (field.scope !== "data_source") {
-    throw new BlockPropertyMutationV2ContractError(
-      `${label}.scope must be intrinsic or data_source`,
-    );
-  }
-  assertExactKeys(field, label, [
-    "path",
-    "scope",
-    "blockId",
-    "dataSourceId",
-    "propertyId",
-    "operation",
-    "revision",
-    "value",
-  ]);
-  if (field.operation !== "set" && field.operation !== "add_remove") {
-    throw new BlockPropertyMutationV2ContractError(
-      `${label}.operation must be set or add_remove`,
-    );
-  }
-  const blockId = readBoundedString(field, "blockId", label);
-  const dataSourceId = readBoundedString(field, "dataSourceId", label);
-  const propertyId = readPropertyId(field.propertyId, `${label}.propertyId`);
-  const path = readBoundedString(field, "path", label, MAX_FIELD_PATH_LENGTH);
-  const expectedPath = makeBlockPropertyFieldPathV2({
-    scope: "data_source",
-    pageId: blockId,
-    dataSourceId,
-    propertyId,
-    operation: "set",
-    expectedRevision: 0,
-    value: null,
-  });
-  if (path !== expectedPath) {
-    throw new BlockPropertyMutationV2ContractError(
-      `${label}.path does not match its scope identifiers`,
-    );
-  }
-  if (field.operation === "set") {
-    const scalar = readDataSourceScalar(
-      field.value,
-      propertyId,
-      `${label}.value`,
-      newJsonReadState(),
-    );
-    return {
-      path,
-      scope: "data_source",
-      blockId,
-      dataSourceId,
-      propertyId,
-      operation: "set",
-      revision: readSafeInteger(field, "revision", label, 1),
-      value: scalar,
-    };
-  }
-  const members = readOptionSet(
-    field.value,
-    propertyId,
-    `${label}.value`,
-    newJsonReadState(),
+  throw new BlockPropertyMutationV2ContractError(
+    `${label}.scope must be intrinsic`,
   );
-  if (JSON.stringify(field.value) !== JSON.stringify(members)) {
-    throw new BlockPropertyMutationV2ContractError(
-      `${label}.value must be a sorted unique option set`,
-    );
-  }
-  return {
-    path,
-    scope: "data_source",
-    blockId,
-    dataSourceId,
-    propertyId,
-    operation: "add_remove",
-    revision: readSafeInteger(field, "revision", label, 1),
-    value: members,
-  };
 };
 
 const readBlockMetadataRevisions = (
@@ -929,8 +658,6 @@ const SUPPORTED_ERROR_CODES: readonly BlockPropertyMutationErrorCodeV2[] = [
   "block_not_found",
   "block_not_active",
   "block_type_mismatch",
-  "data_source_not_found",
-  "membership_not_found",
   "property_not_found",
   "property_type_mismatch",
   "property_value_invalid",

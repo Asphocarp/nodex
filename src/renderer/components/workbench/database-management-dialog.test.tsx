@@ -11,6 +11,7 @@ import {
   parseDataSourceId,
   parseDataSourcePropertyId,
 } from "../../../shared/database-identities";
+import { testPropertySemantics } from "../../../shared/testing/database-property-record";
 import { render } from "../../test/dom";
 import {
   DatabaseManagementSurface,
@@ -104,6 +105,7 @@ const source: DataSourceDescriptorV2 = {
     propertyId: parseDataSourcePropertyId("tags"),
     dataSourceId,
     name: "Tags",
+    ...testPropertySemantics("multi_select", 1),
     valueType: "multi_select",
     config: {
       options: [{ id: "o_AAAAAAAA", name: "Page first" }],

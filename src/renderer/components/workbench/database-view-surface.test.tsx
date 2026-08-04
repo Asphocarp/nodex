@@ -9,6 +9,7 @@ import {
   parseDataSourceId,
   parseDataSourcePropertyId,
 } from "../../../shared/database-identities";
+import { testPropertySemantics } from "../../../shared/testing/database-property-record";
 import { render } from "../../test/dom";
 import { DatabaseViewSurface } from "./database-view-surface";
 import { DatabaseViewTabSurface } from "./workbench-db-view-panel";
@@ -81,6 +82,7 @@ const model: DatabaseViewRenderModel = {
       propertyId: tagsPropertyId,
       dataSourceId,
       name: "Tags",
+      ...testPropertySemantics("multi_select", 2),
       valueType: "multi_select",
       config: {
         options: [
@@ -181,12 +183,20 @@ describe("DatabaseViewSurface", () => {
       await Promise.resolve();
     });
     expect(operations[0]).toEqual({
-      kind: "add_remove_value",
-      pageId: "page-focused",
-      dataSourceId,
-      propertyId: tagsPropertyId,
-      add: ["o_BBBBBBBB"],
-      remove: [],
+      kind: "edit_property_values",
+      edits: [{
+        pageId: "page-focused",
+        dataSourceId,
+        propertyId: tagsPropertyId,
+        edit: {
+          kind: "patch_set",
+          delta: {
+            kind: "multi_select",
+            addOptionIds: ["o_BBBBBBBB"],
+            removeOptionIds: [],
+          },
+        },
+      }],
     });
   });
 });

@@ -478,6 +478,12 @@ export function DatabaseViewConfigEditor({
   onChange,
 }: DatabaseViewConfigEditorProps) {
   const properties = activeProperties(allProperties);
+  const sortableProperties = properties.filter((property) =>
+    property.capabilities?.sortable ?? property.valueType !== "relation"
+  );
+  const groupableProperties = properties.filter((property) =>
+    property.capabilities?.groupable ?? property.valueType !== "relation"
+  );
   const updateFilter = (
     path: DatabaseViewFilterPath,
     node: DatabaseViewFilterNode,
@@ -553,7 +559,7 @@ export function DatabaseViewConfigEditor({
       <ConfigSection title="Sort" detail="First rule wins">
         <SortEditor
           sorts={config.sort}
-          properties={properties}
+          properties={sortableProperties}
           disabled={disabled}
           onChange={(sort) => onChange({ ...config, sort })}
         />
@@ -571,7 +577,7 @@ export function DatabaseViewConfigEditor({
           className={cn(selectClass, "w-52")}
         >
           <option value="">No grouping</option>
-          {properties.map((property) => (
+          {groupableProperties.map((property) => (
             <option key={property.propertyId} value={property.propertyId}>{property.name}</option>
           ))}
         </select>

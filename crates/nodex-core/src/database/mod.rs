@@ -1,7 +1,9 @@
 pub(crate) mod authorization;
 mod genesis;
 mod mutation;
+pub(crate) mod property_semantics;
 pub(crate) mod read;
+mod relation;
 mod window;
 
 pub(crate) const MAX_PROPERTY_OPTIONS: usize = 100;
@@ -9,14 +11,13 @@ pub(crate) const MAX_DATA_SOURCE_PROPERTIES: usize = 200;
 pub(crate) const MAX_DATABASE_VIEWS: usize = 200;
 
 pub(crate) use genesis::create_database_authority_records;
+pub(crate) use mutation::apply_in_transaction as apply_intents_in_transaction;
 pub(crate) use mutation::{
     ExistingPageTransferTarget, PageCopyDataSourceDestination, PageCopyPositionAnchor,
-    PageCopyValueDraft, PageCopyViewPlacement, PageValueProjectionEffects,
-    StagedPagePlacementRevisions, active_property, authorize_page_value_write,
+    PageCopyValueDraft, PageCopyViewPlacement, StagedPagePlacementRevisions, active_property,
     finalize_agent_moved_pages_in_data_source_prevalidated, normalize_value,
     place_copied_page_in_data_source, place_copied_page_in_data_source_prevalidated,
     place_staged_page_in_data_source, place_staged_page_in_data_source_prevalidated,
-    refresh_page_value_projection,
     refresh_transferred_page_projection as refresh_copied_page_projection,
     resolve_page_copy_data_source_project, resolve_page_copy_data_source_project_prevalidated,
     resolve_page_copy_data_source_source, resolve_page_transfer_data_source_destination,
@@ -242,13 +243,15 @@ fn corrupt(message: &str) -> StoreError {
 
 #[cfg(test)]
 mod tests {
+    use base64::prelude::{BASE64_URL_SAFE_NO_PAD, Engine as _};
     use std::collections::BTreeMap;
 
     use nodex_core_contracts::agent::{AgentExecutionAuthorization, AgentTurnProvenance};
     use nodex_core_contracts::collection::CollectionWindowRequest;
     use nodex_core_contracts::database::{
-        DatabaseAgentQuery, DatabaseGroupScope, DatabaseIntent, DatabaseReadMode, DatabaseTarget,
-        DatabaseTransferTarget,
+        DatabaseAgentQuery, DatabaseGroupScope, DatabaseIntent, DatabasePagePropertyAddress,
+        DatabasePropertySchema, DatabasePropertyValueEdit, DatabasePropertyValueInput,
+        DatabasePropertyValueMutation, DatabaseReadMode, DatabaseTarget, DatabaseTransferTarget,
     };
     use nodex_core_contracts::library::{
         LIBRARY_CONTRACT_VERSION, LibraryIntent, LibraryWriteParent,
@@ -263,7 +266,7 @@ mod tests {
         ProjectionImpact, StoreEpoch,
     };
     use rusqlite::params;
-    use serde_json::{Value, json};
+    use serde_json::json;
     use tempfile::tempdir;
 
     use crate::infrastructure::sqlite::with_immediate_transaction;
@@ -963,7 +966,7 @@ mod tests {
                     expected_data_source_revision: 1,
                     expected_property_revision: 0,
                     name: "Risk".to_owned(),
-                    value_type: "select".to_owned(),
+                    schema: DatabasePropertySchema::Select,
                     before_property_id: Some("tags".to_owned()),
                 },
                 DatabaseIntent::PutOption {
@@ -974,12 +977,20 @@ mod tests {
                     color: Some("red".to_owned()),
                     expected_property_revision: 1,
                 },
-                DatabaseIntent::SetValue {
-                    page_id: "page:database-row".to_owned(),
-                    data_source_id: SOURCE_ID.to_owned(),
-                    property_id: "risk".to_owned(),
-                    expected_value_revision: 0,
-                    value: json!("high"),
+                DatabaseIntent::EditPropertyValues {
+                    edits: vec![DatabasePropertyValueMutation {
+                        address: DatabasePagePropertyAddress {
+                            page_id: "page:database-row".to_owned(),
+                            data_source_id: SOURCE_ID.to_owned(),
+                            property_id: "risk".to_owned(),
+                        },
+                        edit: DatabasePropertyValueEdit::Replace {
+                            expected_value_revision: 0,
+                            value: DatabasePropertyValueInput::Select {
+                                option_id: "high".to_owned(),
+                            },
+                        },
+                    }],
                 },
             ],
         };
@@ -998,7 +1009,7 @@ mod tests {
         );
         assert_eq!(
             applied.committed.receipt.operation_kinds,
-            ["put_property", "put_option", "set_value"]
+            ["put_property", "put_option", "edit_property_values"]
         );
         assert_eq!(
             applied.committed.receipt.committed_revisions,
@@ -1057,12 +1068,18 @@ mod tests {
         assert!(replayed.event.is_none());
 
         let mut divergent = request;
-        divergent.intent.push(DatabaseIntent::SetValue {
-            page_id: "page:database-row".to_owned(),
-            data_source_id: SOURCE_ID.to_owned(),
-            property_id: "risk".to_owned(),
-            expected_value_revision: 1,
-            value: Value::Null,
+        divergent.intent.push(DatabaseIntent::EditPropertyValues {
+            edits: vec![DatabasePropertyValueMutation {
+                address: DatabasePagePropertyAddress {
+                    page_id: "page:database-row".to_owned(),
+                    data_source_id: SOURCE_ID.to_owned(),
+                    property_id: "risk".to_owned(),
+                },
+                edit: DatabasePropertyValueEdit::Replace {
+                    expected_value_revision: 1,
+                    value: DatabasePropertyValueInput::Empty,
+                },
+            }],
         });
         let collision = module
             .apply(&context(), divergent)
@@ -1083,15 +1100,23 @@ mod tests {
                             expected_data_source_revision: 3,
                             expected_property_revision: 0,
                             name: "Score".to_owned(),
-                            value_type: "number".to_owned(),
+                            schema: DatabasePropertySchema::Number,
                             before_property_id: None,
                         },
-                        DatabaseIntent::SetValue {
-                            page_id: "page:database-row".to_owned(),
-                            data_source_id: SOURCE_ID.to_owned(),
-                            property_id: "status".to_owned(),
-                            expected_value_revision: 99,
-                            value: json!("build"),
+                        DatabaseIntent::EditPropertyValues {
+                            edits: vec![DatabasePropertyValueMutation {
+                                address: DatabasePagePropertyAddress {
+                                    page_id: "page:database-row".to_owned(),
+                                    data_source_id: SOURCE_ID.to_owned(),
+                                    property_id: "status".to_owned(),
+                                },
+                                edit: DatabasePropertyValueEdit::Replace {
+                                    expected_value_revision: 99,
+                                    value: DatabasePropertyValueInput::Select {
+                                        option_id: "build".to_owned(),
+                                    },
+                                },
+                            }],
                         },
                     ],
                 },
@@ -1149,19 +1174,16 @@ mod tests {
             properties
                 .items
                 .iter()
-                .all(|value| value["propertyId"] != "score")
+                .all(|value| value.property_id != "score")
         );
         let status = properties
             .items
             .iter()
-            .find(|value| value["propertyId"] == "status")
+            .find(|value| value.property_id == "status")
             .expect("status Property");
-        assert_eq!(status["config"]["options"], json!([]));
-        assert!(
-            status["optionCount"]
-                .as_u64()
-                .is_some_and(|count| count > 0)
-        );
+        assert_eq!(status.schema, DatabasePropertySchema::Select);
+        assert!(status.option_count > 0);
+        assert!(status.capabilities.sortable);
         let options = module
             .read(
                 &context(),
@@ -1568,7 +1590,7 @@ mod tests {
                         expected_data_source_revision: 3,
                         expected_property_revision: 0,
                         name: "Library note".to_owned(),
-                        value_type: "text".to_owned(),
+                        schema: DatabasePropertySchema::Text,
                         before_property_id: None,
                     }],
                 },
@@ -1746,6 +1768,407 @@ mod tests {
         DatabaseModule::new("profile-1", "library-1", kernel)
     }
 
+    #[test]
+    fn relation_property_persists_edges_and_reads_preview_and_full_window() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open(&home).expect("fresh store");
+        let module = seed_grouped_fixture(
+            &kernel,
+            vec![
+                GroupRowSpec {
+                    page_id: "page:relation-row",
+                    title: "Define Relation",
+                    value_json: Some("\"backlog\""),
+                    position: None,
+                },
+                GroupRowSpec {
+                    page_id: "page:target-a",
+                    title: "Target A",
+                    value_json: None,
+                    position: None,
+                },
+                GroupRowSpec {
+                    page_id: "page:target-b",
+                    title: "Target B",
+                    value_json: None,
+                    position: None,
+                },
+                GroupRowSpec {
+                    page_id: "page:target-c",
+                    title: "Target C",
+                    value_json: None,
+                    position: None,
+                },
+                GroupRowSpec {
+                    page_id: "page:target-d",
+                    title: "Target D",
+                    value_json: None,
+                    position: None,
+                },
+            ],
+        );
+        let source_revision = kernel
+            .writer()
+            .call(|connection| {
+                connection
+                    .query_row(
+                        "SELECT schema_revision FROM data_sources WHERE id = ?1",
+                        [SOURCE_ID],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .map_err(StoreError::from)
+            })
+            .expect("source revision");
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:put-relation".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::PutProperty {
+                        data_source_id: SOURCE_ID.to_owned(),
+                        property_id: "blocked_by".to_owned(),
+                        expected_data_source_revision: source_revision,
+                        expected_property_revision: 0,
+                        name: "Blocked by".to_owned(),
+                        schema: DatabasePropertySchema::Relation {
+                            target_data_source_id: SOURCE_ID.to_owned(),
+                        },
+                        before_property_id: None,
+                    }],
+                },
+            )
+            .expect("create Relation Property");
+        let write = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:set-relation".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::EditPropertyValues {
+                        edits: vec![DatabasePropertyValueMutation {
+                            address: DatabasePagePropertyAddress {
+                                page_id: "page:relation-row".to_owned(),
+                                data_source_id: SOURCE_ID.to_owned(),
+                                property_id: "blocked_by".to_owned(),
+                            },
+                            edit: DatabasePropertyValueEdit::Replace {
+                                expected_value_revision: 0,
+                                value: DatabasePropertyValueInput::Relation {
+                                    page_ids: [
+                                        "page:relation-row",
+                                        "page:target-a",
+                                        "page:target-b",
+                                        "page:target-c",
+                                        "page:target-d",
+                                    ]
+                                    .into_iter()
+                                    .map(str::to_owned)
+                                    .collect(),
+                                },
+                            },
+                        }],
+                    }],
+                },
+            )
+            .expect("write Relation edge");
+        assert_eq!(
+            write
+                .committed
+                .receipt
+                .committed_revisions
+                .values()
+                .filter(|revision| **revision == 1)
+                .count(),
+            1
+        );
+        kernel
+            .writer()
+            .call(|connection| {
+                let authority = connection.query_row(
+                    "SELECT value.value_json, value.revision, count(edge.target_page_block_id) \
+                     FROM data_source_property_values value \
+                     LEFT JOIN data_source_relation_edges edge \
+                       ON edge.source_data_source_id = value.data_source_id \
+                       AND edge.source_membership_id = value.membership_id \
+                       AND edge.property_id = value.property_id \
+                     WHERE value.data_source_id = ?1 AND value.property_id = 'blocked_by'",
+                    [SOURCE_ID],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, i64>(2)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(authority, ("null".to_owned(), 1, 5));
+                Ok(())
+            })
+            .expect("inspect normalized Relation authority");
+        let no_op = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:patch-relation-no-op".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::EditPropertyValues {
+                        edits: vec![DatabasePropertyValueMutation {
+                            address: DatabasePagePropertyAddress {
+                                page_id: "page:relation-row".to_owned(),
+                                data_source_id: SOURCE_ID.to_owned(),
+                                property_id: "blocked_by".to_owned(),
+                            },
+                            edit: DatabasePropertyValueEdit::PatchSet {
+                                delta: nodex_core_contracts::database::DatabasePropertySetDelta::Relation {
+                                    add_page_ids: vec!["page:relation-row".to_owned()],
+                                    remove_page_ids: Vec::new(),
+                                },
+                            },
+                        }],
+                    }],
+                },
+            )
+            .expect("Relation patch no-op");
+        assert!(no_op.committed.receipt.committed_revisions.is_empty());
+        let revision_after_no_op = kernel
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .query_row(
+                        "SELECT revision FROM data_source_property_values \
+                         WHERE data_source_id = ?1 AND property_id = 'blocked_by'",
+                        [SOURCE_ID],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .map_err(StoreError::from)
+            })
+            .expect("Relation revision after no-op");
+        assert_eq!(revision_after_no_op, 1);
+        let guessed_remove = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:patch-relation-guessed-remove".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::EditPropertyValues {
+                        edits: vec![DatabasePropertyValueMutation {
+                            address: DatabasePagePropertyAddress {
+                                page_id: "page:relation-row".to_owned(),
+                                data_source_id: SOURCE_ID.to_owned(),
+                                property_id: "blocked_by".to_owned(),
+                            },
+                            edit: DatabasePropertyValueEdit::PatchSet {
+                                delta: nodex_core_contracts::database::DatabasePropertySetDelta::Relation {
+                                    add_page_ids: Vec::new(),
+                                    remove_page_ids: vec!["page:already-absent".to_owned()],
+                                },
+                            },
+                        }],
+                    }],
+                },
+            )
+            .expect_err("Relation removal cannot probe an unknown Page identity");
+        assert_eq!(
+            guessed_remove.code,
+            CoreErrorCode::NotFound,
+            "{guessed_remove:?}"
+        );
+        let stale_replace = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:replace-relation-stale".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::EditPropertyValues {
+                        edits: vec![DatabasePropertyValueMutation {
+                            address: DatabasePagePropertyAddress {
+                                page_id: "page:relation-row".to_owned(),
+                                data_source_id: SOURCE_ID.to_owned(),
+                                property_id: "blocked_by".to_owned(),
+                            },
+                            edit: DatabasePropertyValueEdit::Replace {
+                                expected_value_revision: 0,
+                                value: DatabasePropertyValueInput::Relation {
+                                    page_ids: Vec::new(),
+                                },
+                            },
+                        }],
+                    }],
+                },
+            )
+            .expect_err("stale Relation replacement");
+        assert_eq!(stale_replace.code, CoreErrorCode::RevisionConflict);
+        let (view_revision, mut view_config) = kernel
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .query_row(
+                        "SELECT revision, config_json FROM database_views WHERE id = ?1",
+                        [VIEW_ID],
+                        |row| {
+                            Ok((
+                                row.get::<_, i64>(0)?,
+                                serde_json::from_str::<serde_json::Value>(
+                                    &row.get::<_, String>(1)?,
+                                )
+                                .map_err(|error| {
+                                    rusqlite::Error::FromSqlConversionFailure(
+                                        1,
+                                        rusqlite::types::Type::Text,
+                                        Box::new(error),
+                                    )
+                                })?,
+                            ))
+                        },
+                    )
+                    .map_err(StoreError::from)
+            })
+            .expect("read Relation filter View");
+        view_config["filter"] = json!({
+            "kind": "clause",
+            "propertyId": "blocked_by",
+            "operator": "contains",
+            "value": "page:relation-row"
+        });
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    operation_id: "operation:filter-relation".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::PutView {
+                        database_id: DATABASE_ID.to_owned(),
+                        data_source_id: SOURCE_ID.to_owned(),
+                        view_id: VIEW_ID.to_owned(),
+                        expected_revision: view_revision,
+                        name: "Workflow".to_owned(),
+                        view_kind: "kanban".to_owned(),
+                        config: view_config,
+                        is_default: true,
+                        before_view_id: None,
+                    }],
+                },
+            )
+            .expect("save authorized Relation membership filter");
+        let filtered = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    read: DatabaseRead {
+                        target: DatabaseTarget::View {
+                            view_id: VIEW_ID.to_owned(),
+                        },
+                        mode: DatabaseReadMode::ViewWindow,
+                        filter: None,
+                        sort: None,
+                        window: Some(Default::default()),
+                        page_ids: None,
+                        group_scope: None,
+                    },
+                },
+            )
+            .expect("query Relation membership filter");
+        let DatabaseReadValue::ViewWindow { value: filtered } = filtered.value else {
+            panic!("Relation filtered View");
+        };
+        assert_eq!(filtered.rows.items.len(), 1);
+        let preview = &filtered.rows.items[0].database_values["blocked_by"]["value"];
+        assert_eq!(preview["total_count"], 5);
+        assert_eq!(preview["targets"].as_array().map(Vec::len), Some(3));
+        assert_eq!(preview["restricted_count"], 0);
+        assert_eq!(preview["has_more"], true);
+        let snapshot = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    read: DatabaseRead {
+                        target: DatabaseTarget::PageProperty {
+                            page_id: "page:relation-row".to_owned(),
+                            data_source_id: SOURCE_ID.to_owned(),
+                            property_id: "blocked_by".to_owned(),
+                        },
+                        mode: DatabaseReadMode::RelationTargetWindow,
+                        filter: None,
+                        sort: None,
+                        window: Some(CollectionWindowRequest {
+                            after: None,
+                            first: Some(1),
+                        }),
+                        page_ids: None,
+                        group_scope: None,
+                    },
+                },
+            )
+            .expect("read Relation window");
+        let DatabaseReadValue::RelationTargetWindow { value } = snapshot.value else {
+            panic!("Relation window");
+        };
+        assert_eq!(value.value_revision, 1);
+        assert_eq!(value.total_count, 5);
+        assert!(matches!(
+            value.targets.items.as_slice(),
+            [nodex_core_contracts::database::DatabaseRelationTargetItem::Visible {
+                page_id,
+                ..
+            }] if page_id == "page:relation-row"
+        ));
+        let cursor = value.targets.next_cursor.expect("Relation continuation");
+        let encoded_payload = cursor.split('.').nth(1).expect("cursor payload");
+        let payload = String::from_utf8(
+            BASE64_URL_SAFE_NO_PAD
+                .decode(encoded_payload)
+                .expect("base64 cursor payload"),
+        )
+        .expect("JSON cursor payload");
+        assert!(payload.contains("relation_target"));
+        for page_id in [
+            "page:relation-row",
+            "page:target-a",
+            "page:target-b",
+            "page:target-c",
+            "page:target-d",
+        ] {
+            assert!(!payload.contains(page_id));
+        }
+        let candidates = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: DATABASE_CONTRACT_VERSION,
+                    read: DatabaseRead {
+                        target: DatabaseTarget::DataSource {
+                            data_source_id: SOURCE_ID.to_owned(),
+                        },
+                        mode: DatabaseReadMode::RelationCandidateWindow,
+                        filter: Some(json!({ "query": "define" })),
+                        sort: None,
+                        window: Some(CollectionWindowRequest {
+                            after: None,
+                            first: Some(10),
+                        }),
+                        page_ids: None,
+                        group_scope: None,
+                    },
+                },
+            )
+            .expect("search Relation candidates");
+        let DatabaseReadValue::RelationCandidateWindow { candidates } = candidates.value else {
+            panic!("Relation candidate window");
+        };
+        assert_eq!(candidates.items.len(), 1);
+        assert_eq!(candidates.items[0].page_id, "page:relation-row");
+    }
+
     fn read_view_window(
         module: &DatabaseModule,
         first: u32,
@@ -1847,7 +2270,7 @@ mod tests {
             first
                 .properties
                 .iter()
-                .any(|property| property["propertyId"] == "status")
+                .any(|property| property.property_id == "status")
         );
         assert_eq!(first.groups.total_rows, 2);
         assert_eq!(first.rows.items.len(), 1);

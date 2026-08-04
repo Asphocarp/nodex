@@ -102,22 +102,70 @@ export const buildDatabaseViewPropertyValueOperations = (input: {
       }));
     if (add.length === 0 && remove.length === 0) return [];
     return [{
-      kind: "add_remove_value",
-      pageId: row.page.pageId,
-      dataSourceId: input.model.dataSourceId,
-      propertyId: property.propertyId,
-      add,
-      remove,
+      kind: "edit_property_values",
+      edits: [{
+        pageId: row.page.pageId,
+        dataSourceId: input.model.dataSourceId,
+        propertyId: property.propertyId,
+        edit: {
+          kind: "patch_set",
+          delta: {
+            kind: "multi_select",
+            addOptionIds: add,
+            removeOptionIds: remove,
+          },
+        },
+      }],
     }];
   }
 
+  const value = (() => {
+    if (input.value === null) return { kind: "empty" as const };
+    switch (property.valueType) {
+      case "text":
+      case "date":
+      case "datetime":
+        if (typeof input.value === "string") {
+          return { kind: property.valueType, value: input.value };
+        }
+        break;
+      case "number":
+        if (typeof input.value === "number") return { kind: "number" as const, value: input.value };
+        break;
+      case "checkbox":
+        if (typeof input.value === "boolean") return { kind: "checkbox" as const, value: input.value };
+        break;
+      case "select":
+        if (typeof input.value === "string") {
+          return {
+            kind: "select" as const,
+            optionId: parseDataSourceOptionId({ propertyId: property.propertyId, value: input.value }),
+          };
+        }
+        break;
+      case "person":
+        if (typeof input.value === "string") return { kind: "person" as const, personId: input.value };
+        break;
+      case "relation":
+        if (Array.isArray(input.value) && input.value.every((entry) => typeof entry === "string")) {
+          return { kind: "relation" as const, pageIds: input.value };
+        }
+        break;
+    }
+    throw localError(`Value is incompatible with Property ${property.propertyId}`);
+  })();
   return [{
-    kind: "set_value",
-    pageId: row.page.pageId,
-    dataSourceId: input.model.dataSourceId,
-    propertyId: property.propertyId,
-    expectedValueRevision: current?.revision ?? 0,
-    value: input.value,
+    kind: "edit_property_values",
+    edits: [{
+      pageId: row.page.pageId,
+      dataSourceId: input.model.dataSourceId,
+      propertyId: property.propertyId,
+      edit: {
+        kind: "replace",
+        expectedValueRevision: current?.revision ?? 0,
+        value,
+      },
+    }],
   }];
 };
 

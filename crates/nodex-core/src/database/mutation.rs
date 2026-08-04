@@ -2,7 +2,10 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use nodex_core_contracts::database::{
     DatabaseCommitValue, DatabaseEvent, DatabaseEventKind, DatabaseIntent, DatabasePagePosition,
-    DatabasePageValue, DatabaseReceipt, DatabaseTransferTarget,
+    DatabasePagePropertyAddress, DatabasePropertyCapabilities, DatabasePropertyFilterOperator,
+    DatabasePropertySchema, DatabasePropertySetDelta, DatabasePropertyValueEdit,
+    DatabasePropertyValueInput, DatabasePropertyValueMutation, DatabaseReceipt,
+    DatabaseTransferTarget,
 };
 use nodex_core_contracts::{
     BoundModuleContext, CommittedModuleValue, CoreModuleEventPayload, ModuleApplyRequest,
@@ -32,6 +35,7 @@ use crate::infrastructure::writer::StoreWriter;
 
 use super::DatabaseApplyOutcome;
 use super::is_trusted_library_database_context;
+use super::relation::RelationValueEdit as RelationEdit;
 
 const MODULE_NAME: &str = "database";
 const MAX_OPERATIONS: usize = 64;
@@ -127,72 +131,81 @@ pub(super) fn apply(
     let context = context.clone();
     writer.call(move |connection| {
         with_immediate_transaction(connection, |transaction| {
-            assert_identity(transaction, &profile_id, &library_id)?;
-            let authority = mutation_authority(transaction, &library_id, &context)?;
-            let store_epoch = read_store_epoch(transaction)?;
-            if request.store_epoch.0 != store_epoch {
-                return Err(StoreError::new(
-                    StoreErrorCode::StaleStoreEpoch,
-                    "Database mutation targets a stale store epoch",
-                    true,
-                ));
-            }
-            let fingerprint = serde_json::to_vec(&(
-                &context.profile_id,
-                &context.library_id,
-                &context.project_id,
-                &context.adapter,
-                request.contract_version,
-                &request.store_epoch,
-                &request.intent,
-            ))
-            .map_err(|_| internal("Database mutation cannot be fingerprinted"))?;
-            let request_hash = sha256(&fingerprint);
-            if let Some(stored) =
-                read_module_receipt(transaction, MODULE_NAME, &request.operation_id)?
-            {
-                if stored.request_hash != request_hash {
-                    return Err(StoreError::new(
-                        StoreErrorCode::IdempotencyKeyReused,
-                        "operation_id is already bound to another Database intent",
-                        false,
-                    ));
-                }
-                let mut committed = serde_json::from_value::<
-                    CommittedModuleValue<DatabaseCommitValue, DatabaseReceipt>,
-                >(stored.result)
-                .map_err(|_| corrupt("Stored Database receipt is invalid"))?;
-                committed.receipt.mutation.duplicate = true;
-                return Ok(DatabaseApplyOutcome {
-                    committed,
-                    event: None,
-                });
-            }
-
-            let now = sqlite_now(transaction)?;
-            let mut effects = MutationEffects::default();
-            for intent in &request.intent {
-                apply_intent(
-                    transaction,
-                    &library_id,
-                    &authority,
-                    intent,
-                    &now,
-                    &mut effects,
-                )?;
-            }
-            commit(
-                transaction,
-                &context,
-                &request,
-                &store_epoch,
-                &request_hash,
-                &authority,
-                &now,
-                effects,
-            )
+            apply_in_transaction(transaction, &profile_id, &library_id, &context, &request)
         })
     })
+}
+
+pub(crate) fn apply_in_transaction(
+    connection: &Connection,
+    profile_id: &str,
+    library_id: &str,
+    context: &BoundModuleContext,
+    request: &ModuleApplyRequest<Vec<DatabaseIntent>>,
+) -> Result<DatabaseApplyOutcome, StoreError> {
+    validate_request(request)?;
+    assert_identity(connection, profile_id, library_id)?;
+    let authority = mutation_authority(connection, library_id, context)?;
+    let store_epoch = read_store_epoch(connection)?;
+    if request.store_epoch.0 != store_epoch {
+        return Err(StoreError::new(
+            StoreErrorCode::StaleStoreEpoch,
+            "Database mutation targets a stale store epoch",
+            true,
+        ));
+    }
+    let fingerprint = serde_json::to_vec(&(
+        &context.profile_id,
+        &context.library_id,
+        &context.project_id,
+        &context.adapter,
+        request.contract_version,
+        &request.store_epoch,
+        &request.intent,
+    ))
+    .map_err(|_| internal("Database mutation cannot be fingerprinted"))?;
+    let request_hash = sha256(&fingerprint);
+    if let Some(stored) = read_module_receipt(connection, MODULE_NAME, &request.operation_id)? {
+        if stored.request_hash != request_hash {
+            return Err(StoreError::new(
+                StoreErrorCode::IdempotencyKeyReused,
+                "operation_id is already bound to another Database intent",
+                false,
+            ));
+        }
+        let mut committed = serde_json::from_value::<
+            CommittedModuleValue<DatabaseCommitValue, DatabaseReceipt>,
+        >(stored.result)
+        .map_err(|_| corrupt("Stored Database receipt is invalid"))?;
+        committed.receipt.mutation.duplicate = true;
+        return Ok(DatabaseApplyOutcome {
+            committed,
+            event: None,
+        });
+    }
+
+    let now = sqlite_now(connection)?;
+    let mut effects = MutationEffects::default();
+    for intent in &request.intent {
+        apply_intent(
+            connection,
+            library_id,
+            &authority,
+            intent,
+            &now,
+            &mut effects,
+        )?;
+    }
+    commit(
+        connection,
+        context,
+        request,
+        &store_epoch,
+        &request_hash,
+        &authority,
+        &now,
+        effects,
+    )
 }
 
 fn validate_request(request: &ModuleApplyRequest<Vec<DatabaseIntent>>) -> Result<(), StoreError> {
@@ -203,11 +216,11 @@ fn validate_request(request: &ModuleApplyRequest<Vec<DatabaseIntent>>) -> Result
         )));
     }
     for intent in &request.intent {
-        if let DatabaseIntent::SetValues { values } = intent
-            && (values.is_empty() || values.len() > MAX_BULK_VALUES)
+        if let DatabaseIntent::EditPropertyValues { edits } = intent
+            && (edits.is_empty() || edits.len() > MAX_BULK_VALUES)
         {
             return Err(invalid(format!(
-                "set_values requires between 1 and {MAX_BULK_VALUES} values"
+                "edit_property_values requires between 1 and {MAX_BULK_VALUES} edits"
             )));
         }
     }
@@ -220,9 +233,7 @@ fn database_intent_kind(intent: &DatabaseIntent) -> &'static str {
         DatabaseIntent::DeleteProperty { .. } => "delete_property",
         DatabaseIntent::PutOption { .. } => "put_option",
         DatabaseIntent::DeleteOption { .. } => "delete_option",
-        DatabaseIntent::SetValue { .. } => "set_value",
-        DatabaseIntent::SetValues { .. } => "set_values",
-        DatabaseIntent::AddRemoveValue { .. } => "add_remove_value",
+        DatabaseIntent::EditPropertyValues { .. } => "edit_property_values",
         DatabaseIntent::TransferPage { .. } => "transfer_page",
         DatabaseIntent::PutView { .. } => "put_view",
         DatabaseIntent::DeleteView { .. } => "delete_view",
@@ -248,7 +259,7 @@ fn apply_intent(
             expected_data_source_revision,
             expected_property_revision,
             name,
-            value_type,
+            schema,
             before_property_id,
         } => put_property(
             connection,
@@ -259,7 +270,7 @@ fn apply_intent(
             *expected_data_source_revision,
             *expected_property_revision,
             name,
-            value_type,
+            schema,
             before_property_id.as_deref(),
             now,
             effects,
@@ -320,34 +331,24 @@ fn apply_intent(
             effects,
             library_scope,
         ),
-        DatabaseIntent::SetValue {
-            page_id,
-            data_source_id,
-            property_id,
-            expected_value_revision,
-            value,
-        } => set_value(
-            connection,
-            library_id,
-            project_id,
-            &DatabasePageValue {
-                page_id: page_id.clone(),
-                data_source_id: data_source_id.clone(),
-                property_id: property_id.clone(),
-                expected_value_revision: *expected_value_revision,
-                value: value.clone(),
-            },
-            now,
-            effects,
-            library_scope,
-        ),
-        DatabaseIntent::SetValues { values } => {
-            for value in values {
-                set_value(
+        DatabaseIntent::EditPropertyValues { edits } => {
+            let mut addresses = HashSet::with_capacity(edits.len());
+            for edit in edits {
+                let address_key = (
+                    edit.address.page_id.as_str(),
+                    edit.address.data_source_id.as_str(),
+                    edit.address.property_id.as_str(),
+                );
+                if !addresses.insert(address_key) {
+                    return Err(invalid(
+                        "edit_property_values contains a duplicate Page Property address",
+                    ));
+                }
+                edit_property_value(
                     connection,
                     library_id,
                     project_id,
-                    value,
+                    edit,
                     now,
                     effects,
                     library_scope,
@@ -355,25 +356,6 @@ fn apply_intent(
             }
             Ok(())
         }
-        DatabaseIntent::AddRemoveValue {
-            page_id,
-            data_source_id,
-            property_id,
-            add,
-            remove,
-        } => add_remove_value(
-            connection,
-            library_id,
-            project_id,
-            page_id,
-            data_source_id,
-            property_id,
-            add,
-            remove,
-            now,
-            effects,
-            library_scope,
-        ),
         DatabaseIntent::PutView {
             database_id,
             data_source_id,
@@ -486,7 +468,7 @@ fn put_property(
     expected_source_revision: i64,
     expected_property_revision: i64,
     name: &str,
-    value_type: &str,
+    schema: &DatabasePropertySchema,
     before_property_id: Option<&str>,
     now: &str,
     effects: &mut MutationEffects,
@@ -495,7 +477,17 @@ fn put_property(
     validate_id(data_source_id, "data_source_id", MAX_ID_LENGTH)?;
     validate_id(property_id, "property_id", MAX_PROPERTY_ID_LENGTH)?;
     let name = validate_name(name, "Property name")?;
-    validate_value_type(value_type)?;
+    let value_type = super::property_semantics::value_type(schema);
+    if let DatabasePropertySchema::Relation {
+        target_data_source_id,
+    } = schema
+    {
+        validate_id(
+            target_data_source_id,
+            "target_data_source_id",
+            MAX_ID_LENGTH,
+        )?;
+    }
     let source = require_source(connection, library_id, data_source_id)?;
     authorize_write(
         connection,
@@ -504,6 +496,18 @@ fn put_property(
         DatabaseWriteAction::ManageSchema,
         library_scope,
     )?;
+    if let DatabasePropertySchema::Relation {
+        target_data_source_id,
+    } = schema
+    {
+        authorize_relation_target_read(
+            connection,
+            library_id,
+            project_id,
+            target_data_source_id,
+            library_scope,
+        )?;
+    }
     require_revision(
         expected_source_revision,
         source.revision,
@@ -531,13 +535,7 @@ fn put_property(
             "Data Source Property collection",
         )?;
     }
-    let config = property_config_for_put(
-        connection,
-        data_source_id,
-        property_id,
-        value_type,
-        existing.as_ref(),
-    )?;
+    let config = property_config_for_put(value_type, existing.as_ref())?;
     let preserve_rank = existing
         .as_ref()
         .filter(|property| property.lifecycle == "active" && before_property_id.is_none())
@@ -571,6 +569,37 @@ fn put_property(
             now,
         ],
     )?;
+    if let DatabasePropertySchema::Relation {
+        target_data_source_id,
+    } = schema
+    {
+        let existing_target = connection
+            .query_row(
+                "SELECT target_data_source_id FROM data_source_relation_properties \
+                 WHERE data_source_id = ?1 AND property_id = ?2",
+                params![data_source_id, property_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        match existing_target {
+            Some(existing_target) if existing_target == *target_data_source_id => {}
+            Some(_) => {
+                return Err(StoreError::new(
+                    StoreErrorCode::Conflict,
+                    "Relation Property target is immutable",
+                    false,
+                ));
+            }
+            None => {
+                connection.execute(
+                    "INSERT INTO data_source_relation_properties(\
+                       data_source_id, property_id, target_data_source_id\
+                     ) VALUES (?1, ?2, ?3)",
+                    params![data_source_id, property_id, target_data_source_id],
+                )?;
+            }
+        }
+    }
     if preserve_rank.is_none() {
         reorder_properties(connection, data_source_id, property_id, before_property_id)?;
     }
@@ -808,16 +837,122 @@ fn delete_option(
     Ok(())
 }
 
-fn set_value(
+fn edit_property_value(
     connection: &Connection,
     library_id: &str,
     project_id: &str,
-    input: &DatabasePageValue,
+    input: &DatabasePropertyValueMutation,
     now: &str,
     effects: &mut MutationEffects,
     library_scope: bool,
 ) -> Result<(), StoreError> {
-    let source = require_source(connection, library_id, &input.data_source_id)?;
+    match &input.edit {
+        DatabasePropertyValueEdit::Replace {
+            expected_value_revision,
+            value,
+        } => {
+            if let DatabasePropertyValueInput::Relation { page_ids } = value {
+                return edit_relation_value(
+                    connection,
+                    library_id,
+                    project_id,
+                    &input.address,
+                    RelationEdit::Replace {
+                        expected_value_revision: *expected_value_revision,
+                        page_ids,
+                    },
+                    now,
+                    effects,
+                    library_scope,
+                );
+            }
+            let value = property_value_input_json(value)?;
+            set_value(
+                connection,
+                library_id,
+                project_id,
+                &input.address,
+                *expected_value_revision,
+                &value,
+                now,
+                effects,
+                library_scope,
+            )
+        }
+        DatabasePropertyValueEdit::PatchSet { delta } => match delta {
+            DatabasePropertySetDelta::MultiSelect {
+                add_option_ids,
+                remove_option_ids,
+            } => add_remove_value(
+                connection,
+                library_id,
+                project_id,
+                &input.address.page_id,
+                &input.address.data_source_id,
+                &input.address.property_id,
+                add_option_ids,
+                remove_option_ids,
+                now,
+                effects,
+                library_scope,
+            ),
+            DatabasePropertySetDelta::Relation {
+                add_page_ids,
+                remove_page_ids,
+            } => edit_relation_value(
+                connection,
+                library_id,
+                project_id,
+                &input.address,
+                RelationEdit::Patch {
+                    add_page_ids,
+                    remove_page_ids,
+                },
+                now,
+                effects,
+                library_scope,
+            ),
+        },
+    }
+}
+
+fn property_value_input_json(input: &DatabasePropertyValueInput) -> Result<Value, StoreError> {
+    let value = match input {
+        DatabasePropertyValueInput::Empty => Value::Null,
+        DatabasePropertyValueInput::Text { value }
+        | DatabasePropertyValueInput::Date { value }
+        | DatabasePropertyValueInput::Datetime { value } => Value::String(value.clone()),
+        DatabasePropertyValueInput::Number { value } => {
+            if !value.is_finite() {
+                return Err(invalid("Number Property requires a finite value"));
+            }
+            json!(value)
+        }
+        DatabasePropertyValueInput::Checkbox { value } => Value::Bool(*value),
+        DatabasePropertyValueInput::Select { option_id } => Value::String(option_id.clone()),
+        DatabasePropertyValueInput::MultiSelect { option_ids } => {
+            Value::Array(option_ids.iter().cloned().map(Value::String).collect())
+        }
+        DatabasePropertyValueInput::Person { person_id } => Value::String(person_id.clone()),
+        DatabasePropertyValueInput::Relation { .. } => {
+            return Err(invalid("Relation Property requires the Relation edit path"));
+        }
+    };
+    Ok(value)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn edit_relation_value(
+    connection: &Connection,
+    library_id: &str,
+    project_id: &str,
+    address: &DatabasePagePropertyAddress,
+    edit: RelationEdit<'_>,
+    now: &str,
+    effects: &mut MutationEffects,
+    library_scope: bool,
+) -> Result<(), StoreError> {
+    let source = require_source(connection, library_id, &address.data_source_id)?;
     authorize_write(
         connection,
         project_id,
@@ -825,12 +960,95 @@ fn set_value(
         DatabaseWriteAction::Write,
         library_scope,
     )?;
-    let property = active_property(connection, &input.data_source_id, &input.property_id)?;
+    let property = active_property(connection, &address.data_source_id, &address.property_id)?;
+    if property.value_type != "relation" {
+        return Err(invalid("Relation value edit requires a Relation Property"));
+    }
+    let added_page_ids = match &edit {
+        RelationEdit::Replace { page_ids, .. } => *page_ids,
+        RelationEdit::Patch { add_page_ids, .. } => *add_page_ids,
+    };
+    if !added_page_ids.is_empty() {
+        let target_data_source_id = super::relation::target_data_source_id(
+            connection,
+            &address.data_source_id,
+            &address.property_id,
+        )?;
+        authorize_relation_target_read(
+            connection,
+            library_id,
+            project_id,
+            &target_data_source_id,
+            library_scope,
+        )?;
+    }
+    let outcome = super::relation::apply_value_edit(
+        connection,
+        library_id,
+        (!library_scope).then_some(project_id),
+        address,
+        edit,
+        now,
+    )?;
+    if !outcome.changed {
+        return Ok(());
+    }
+    let metadata_revision = bump_page_metadata_revision(connection, &address.page_id, now)?;
+    refresh_value_projection(
+        connection,
+        &address.page_id,
+        &address.property_id,
+        &Value::Null,
+        outcome.value_revision,
+        metadata_revision,
+        &property,
+        now,
+    )?;
+    touch_source(effects, &source);
+    effects.page_ids.insert(address.page_id.clone());
+    effects.revisions.insert(
+        format!(
+            "value:{}:{}:{}",
+            address.data_source_id, outcome.membership_id, address.property_id
+        ),
+        outcome.value_revision,
+    );
+    effects.revisions.insert(
+        format!("page:{}:metadata", address.page_id),
+        metadata_revision,
+    );
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn set_value(
+    connection: &Connection,
+    library_id: &str,
+    project_id: &str,
+    address: &DatabasePagePropertyAddress,
+    expected_value_revision: i64,
+    input_value: &Value,
+    now: &str,
+    effects: &mut MutationEffects,
+    library_scope: bool,
+) -> Result<(), StoreError> {
+    let source = require_source(connection, library_id, &address.data_source_id)?;
+    authorize_write(
+        connection,
+        project_id,
+        &source.database_id,
+        DatabaseWriteAction::Write,
+        library_scope,
+    )?;
+    let property = active_property(connection, &address.data_source_id, &address.property_id)?;
+    if property.value_type == "relation" {
+        return Err(invalid("Relation Property requires a Relation value edit"));
+    }
     let membership = connection
         .query_row(
             "SELECT id FROM data_source_page_memberships \
              WHERE data_source_id = ?1 AND page_block_id = ?2 AND removed_at IS NULL",
-            params![input.data_source_id, input.page_id],
+            params![address.data_source_id, address.page_id],
             |row| row.get::<_, String>(0),
         )
         .optional()?
@@ -839,7 +1057,7 @@ fn set_value(
         .query_row(
             "SELECT 1 FROM pages WHERE block_id = ?1 AND parent_kind = 'data_source' \
              AND parent_id = ?2 AND lifecycle = 'active'",
-            params![input.page_id, input.data_source_id],
+            params![address.page_id, address.data_source_id],
             |_| Ok(()),
         )
         .optional()?;
@@ -850,17 +1068,17 @@ fn set_value(
         .query_row(
             "SELECT revision FROM data_source_property_values \
              WHERE data_source_id = ?1 AND membership_id = ?2 AND property_id = ?3",
-            params![input.data_source_id, membership, input.property_id],
+            params![address.data_source_id, membership, address.property_id],
             |row| row.get::<_, i64>(0),
         )
         .optional()?
         .unwrap_or(0);
     require_revision(
-        input.expected_value_revision,
+        expected_value_revision,
         existing_revision,
         "Property value revision changed",
     )?;
-    let value = normalize_value(&property, &input.value)?;
+    let value = normalize_value(&property, input_value)?;
     let revision = existing_revision + 1;
     connection.execute(
         "INSERT INTO data_source_property_values(\
@@ -870,9 +1088,9 @@ fn set_value(
            value_type = excluded.value_type, value_json = excluded.value_json, \
            revision = excluded.revision, updated_at = excluded.updated_at",
         params![
-            input.data_source_id,
+            address.data_source_id,
             membership,
-            input.property_id,
+            address.property_id,
             property.value_type,
             serde_json::to_string(&value).map_err(|_| internal("Property value"))?,
             revision,
@@ -881,18 +1099,18 @@ fn set_value(
     )?;
     update_grouped_positions(
         connection,
-        &input.data_source_id,
-        &input.property_id,
-        &input.page_id,
+        &address.data_source_id,
+        &address.property_id,
+        &address.page_id,
         &value,
         now,
         effects,
     )?;
-    let metadata_revision = bump_page_metadata_revision(connection, &input.page_id, now)?;
+    let metadata_revision = bump_page_metadata_revision(connection, &address.page_id, now)?;
     refresh_value_projection(
         connection,
-        &input.page_id,
-        &input.property_id,
+        &address.page_id,
+        &address.property_id,
         &value,
         revision,
         metadata_revision,
@@ -900,16 +1118,16 @@ fn set_value(
         now,
     )?;
     touch_source(effects, &source);
-    effects.page_ids.insert(input.page_id.clone());
+    effects.page_ids.insert(address.page_id.clone());
     effects.revisions.insert(
         format!(
             "value:{}:{membership}:{}",
-            input.data_source_id, input.property_id
+            address.data_source_id, address.property_id
         ),
         revision,
     );
     effects.revisions.insert(
-        format!("page:{}:metadata", input.page_id),
+        format!("page:{}:metadata", address.page_id),
         metadata_revision,
     );
     Ok(())
@@ -990,13 +1208,13 @@ fn add_remove_value(
         connection,
         library_id,
         project_id,
-        &DatabasePageValue {
+        &DatabasePagePropertyAddress {
             page_id: page_id.to_owned(),
             data_source_id: data_source_id.to_owned(),
             property_id: property_id.to_owned(),
-            expected_value_revision: existing.as_ref().map_or(0, |(_, revision)| *revision),
-            value: Value::Array(selection.into_iter().map(Value::String).collect()),
         },
+        existing.as_ref().map_or(0, |(_, revision)| *revision),
+        &Value::Array(selection.into_iter().map(Value::String).collect()),
         now,
         effects,
         library_scope,
@@ -1668,6 +1886,12 @@ fn place_staged_page_in_data_source_with_access(
         now,
         None,
     )?;
+    if let Some(source_membership) = source_membership
+        .as_ref()
+        .filter(|membership| membership.data_source_id == destination.data_source_id)
+    {
+        copy_same_source_property_values(connection, source_membership, &membership_id, now)?;
+    }
     let parent_revision = connection
         .query_row(
             "UPDATE pages SET parent_kind = 'data_source', parent_id = ?1, \
@@ -1713,13 +1937,13 @@ fn place_staged_page_in_data_source_with_access(
             connection,
             library_id,
             requesting_project_id,
-            &DatabasePageValue {
+            &DatabasePagePropertyAddress {
                 page_id: staged_page_id.to_owned(),
                 data_source_id: destination.data_source_id.clone(),
                 property_id: value.property_id.clone(),
-                expected_value_revision,
-                value: value.value.clone(),
             },
+            expected_value_revision,
+            &value.value,
             now,
             &mut effects,
             false,
@@ -1958,13 +2182,13 @@ fn transfer_existing_page_for_structural_move(
                 connection,
                 library_id,
                 requesting_project_id,
-                &DatabasePageValue {
+                &DatabasePagePropertyAddress {
                     page_id: page_id.to_owned(),
                     data_source_id: destination.data_source_id.clone(),
                     property_id: value.property_id.clone(),
-                    expected_value_revision,
-                    value: value.value.clone(),
                 },
+                expected_value_revision,
+                &value.value,
                 now,
                 &mut effects,
                 preauthorized_library_scope,
@@ -2085,13 +2309,13 @@ pub(crate) fn finalize_agent_moved_pages_in_data_source_prevalidated(
                 connection,
                 library_id,
                 requesting_project_id,
-                &DatabasePageValue {
+                &DatabasePagePropertyAddress {
                     page_id: page_id.clone(),
                     data_source_id: destination.data_source_id.clone(),
                     property_id: value.property_id.clone(),
-                    expected_value_revision,
-                    value: value.value.clone(),
                 },
+                expected_value_revision,
+                &value.value,
                 now,
                 &mut effects,
                 false,
@@ -2132,13 +2356,13 @@ pub(crate) fn finalize_agent_moved_pages_in_data_source_prevalidated(
                     connection,
                     library_id,
                     requesting_project_id,
-                    &DatabasePageValue {
+                    &DatabasePagePropertyAddress {
                         page_id: page_id.clone(),
                         data_source_id: destination.data_source_id.clone(),
                         property_id: property_id.to_owned(),
-                        expected_value_revision,
-                        value: value.clone(),
                     },
+                    expected_value_revision,
+                    &value,
                     now,
                     &mut effects,
                     false,
@@ -2610,6 +2834,52 @@ fn ensure_transferred_built_in_values(
     Ok(())
 }
 
+fn copy_same_source_property_values(
+    connection: &Connection,
+    source_membership: &ActiveMembership,
+    target_membership_id: &str,
+    now: &str,
+) -> Result<(), StoreError> {
+    connection.execute(
+        "INSERT INTO data_source_property_values(\
+           data_source_id, membership_id, property_id, value_type, value_json, revision, updated_at\
+         ) \
+         SELECT value.data_source_id, ?1, value.property_id, value.value_type, value.value_json, 1, ?2 \
+         FROM data_source_property_values value \
+         JOIN data_source_properties property ON property.data_source_id = value.data_source_id \
+           AND property.id = value.property_id AND property.lifecycle = 'active' \
+         WHERE value.data_source_id = ?3 AND value.membership_id = ?4 \
+           AND NOT EXISTS (\
+             SELECT 1 FROM data_source_property_values existing \
+             WHERE existing.data_source_id = value.data_source_id \
+               AND existing.membership_id = ?1 AND existing.property_id = value.property_id\
+           )",
+        params![
+            target_membership_id,
+            now,
+            source_membership.data_source_id,
+            source_membership.id,
+        ],
+    )?;
+    connection.execute(
+        "INSERT INTO data_source_relation_edges(\
+           source_data_source_id, source_membership_id, property_id, \
+           target_page_block_id, created_at\
+         ) \
+         SELECT edge.source_data_source_id, ?1, edge.property_id, \
+           edge.target_page_block_id, ?2 \
+         FROM data_source_relation_edges edge \
+         WHERE edge.source_data_source_id = ?3 AND edge.source_membership_id = ?4",
+        params![
+            target_membership_id,
+            now,
+            source_membership.data_source_id,
+            source_membership.id,
+        ],
+    )?;
+    Ok(())
+}
+
 fn transfer_value(
     connection: &Connection,
     source_membership: Option<&ActiveMembership>,
@@ -3038,7 +3308,14 @@ fn put_view(
             false,
         ));
     }
-    validate_view_config(connection, data_source_id, config)?;
+    validate_view_config(
+        connection,
+        library_id,
+        project_id,
+        data_source_id,
+        config,
+        library_scope,
+    )?;
     let encoded_config = serde_json::to_string(config)
         .map_err(|_| invalid("Database View config cannot be encoded"))?;
     if encoded_config.len() > 262_144 {
@@ -3378,8 +3655,11 @@ fn position_pages(
 
 fn validate_view_config(
     connection: &Connection,
+    library_id: &str,
+    project_id: &str,
     data_source_id: &str,
     config: &Value,
+    library_scope: bool,
 ) -> Result<(), StoreError> {
     let object = config
         .as_object()
@@ -3446,22 +3726,188 @@ fn validate_view_config(
         return Err(invalid("Database View display exceeds its Property bound"));
     }
     let property_ids = collect_view_property_ids(config)?;
-    let known = connection
+    let property_records = connection
         .prepare(
-            "SELECT id FROM data_source_properties \
+            "SELECT id, value_type FROM data_source_properties \
              WHERE data_source_id = ?1 AND lifecycle = 'active'",
         )?
-        .query_map([data_source_id], |row| row.get::<_, String>(0))?
-        .collect::<rusqlite::Result<HashSet<_>>>()?;
-    if property_ids
+        .query_map([data_source_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut property_capabilities = BTreeMap::new();
+    for (property_id, value_type) in property_records {
+        let schema = super::property_semantics::schema_from_storage(
+            connection,
+            data_source_id,
+            &property_id,
+            &value_type,
+        )?;
+        property_capabilities.insert(
+            property_id,
+            super::property_semantics::capabilities(&schema),
+        );
+    }
+    if !property_ids
         .iter()
-        .all(|property_id| known.contains(property_id))
+        .all(|property_id| property_capabilities.contains_key(property_id))
     {
+        return Err(invalid(
+            "Database View references a missing Data Source Property",
+        ));
+    }
+    validate_view_property_capabilities(
+        connection,
+        library_id,
+        project_id,
+        data_source_id,
+        config,
+        &property_capabilities,
+        library_scope,
+    )
+}
+
+fn validate_view_property_capabilities(
+    connection: &Connection,
+    library_id: &str,
+    project_id: &str,
+    data_source_id: &str,
+    config: &Value,
+    property_capabilities: &BTreeMap<String, DatabasePropertyCapabilities>,
+    library_scope: bool,
+) -> Result<(), StoreError> {
+    if view_group_property(config).is_some_and(|property_id| {
+        property_capabilities
+            .get(property_id)
+            .is_some_and(|capabilities| !capabilities.groupable)
+    }) {
+        return Err(invalid("Property cannot group a Database View"));
+    }
+    let sort = config
+        .get("sort")
+        .and_then(Value::as_array)
+        .ok_or_else(|| invalid("Database View sort must be an array"))?;
+    for rule in sort {
+        let property_id = rule
+            .get("field")
+            .and_then(Value::as_object)
+            .filter(|field| field.get("kind").and_then(Value::as_str) == Some("property"))
+            .and_then(|field| field.get("propertyId"))
+            .and_then(Value::as_str);
+        if property_id.is_some_and(|property_id| {
+            property_capabilities
+                .get(property_id)
+                .is_some_and(|capabilities| !capabilities.sortable)
+        }) {
+            return Err(invalid("Property cannot sort a Database View"));
+        }
+    }
+    validate_filter_capabilities(
+        connection,
+        library_id,
+        project_id,
+        data_source_id,
+        config
+            .get("filter")
+            .ok_or_else(|| invalid("Database View filter is missing"))?,
+        property_capabilities,
+        library_scope,
+    )
+}
+
+fn validate_filter_capabilities(
+    connection: &Connection,
+    library_id: &str,
+    project_id: &str,
+    data_source_id: &str,
+    filter: &Value,
+    property_capabilities: &BTreeMap<String, DatabasePropertyCapabilities>,
+    library_scope: bool,
+) -> Result<(), StoreError> {
+    let object = filter
+        .as_object()
+        .ok_or_else(|| invalid("Database View filter node must be an object"))?;
+    if object.get("kind").and_then(Value::as_str) == Some("group") {
+        for child in object
+            .get("children")
+            .and_then(Value::as_array)
+            .ok_or_else(|| invalid("Database View filter group children are invalid"))?
+        {
+            validate_filter_capabilities(
+                connection,
+                library_id,
+                project_id,
+                data_source_id,
+                child,
+                property_capabilities,
+                library_scope,
+            )?;
+        }
         return Ok(());
     }
-    Err(invalid(
-        "Database View references a missing Data Source Property",
-    ))
+    let property_id = object
+        .get("propertyId")
+        .and_then(Value::as_str)
+        .ok_or_else(|| invalid("Database View filter clause is invalid"))?;
+    let operator_name = object
+        .get("operator")
+        .and_then(Value::as_str)
+        .ok_or_else(|| invalid("Database View filter clause is invalid"))?;
+    let operator = match operator_name {
+        "equals" => DatabasePropertyFilterOperator::Equals,
+        "not_equals" => DatabasePropertyFilterOperator::NotEquals,
+        "contains" => DatabasePropertyFilterOperator::Contains,
+        "not_contains" => DatabasePropertyFilterOperator::NotContains,
+        "is_empty" => DatabasePropertyFilterOperator::IsEmpty,
+        "is_not_empty" => DatabasePropertyFilterOperator::IsNotEmpty,
+        _ => return Err(invalid("Database View filter operator is unsupported")),
+    };
+    let capabilities = property_capabilities
+        .get(property_id)
+        .ok_or_else(|| invalid("Database View filter references a missing Property"))?;
+    if !capabilities.filter_operators.contains(&operator) {
+        return Err(invalid("Property filter operator is unsupported"));
+    }
+    if matches!(
+        operator,
+        DatabasePropertyFilterOperator::Contains | DatabasePropertyFilterOperator::NotContains
+    ) && object
+        .get("value")
+        .and_then(Value::as_str)
+        .is_none_or(str::is_empty)
+    {
+        return Err(invalid("Property membership filter requires an identity"));
+    }
+    if capabilities.patch_set_member
+        == Some(nodex_core_contracts::database::DatabasePropertySetMemberKind::Page)
+        && matches!(
+            operator,
+            DatabasePropertyFilterOperator::Contains | DatabasePropertyFilterOperator::NotContains
+        )
+    {
+        let page_id = object
+            .get("value")
+            .and_then(Value::as_str)
+            .ok_or_else(|| invalid("Relation Property filter requires a Page identity"))?;
+        let target_data_source_id =
+            super::relation::target_data_source_id(connection, data_source_id, property_id)?;
+        authorize_relation_target_read(
+            connection,
+            library_id,
+            project_id,
+            &target_data_source_id,
+            library_scope,
+        )?;
+        if !library_scope {
+            crate::library::require_page_read_access(connection, library_id, project_id, page_id)?;
+        }
+        super::relation::validate_active_targets(
+            connection,
+            &target_data_source_id,
+            &[page_id.to_owned()],
+        )?;
+    }
+    Ok(())
 }
 
 fn validate_view_filter(value: &Value, depth: usize, nodes: &mut usize) -> Result<(), StoreError> {
@@ -3872,29 +4318,18 @@ fn view_row(connection: &Connection, view_id: &str) -> Result<Option<ViewRow>, S
 }
 
 fn property_config_for_put(
-    connection: &Connection,
-    data_source_id: &str,
-    property_id: &str,
     value_type: &str,
     existing: Option<&PropertyRow>,
 ) -> Result<Value, StoreError> {
     if let Some(existing) = existing {
-        if existing.value_type == value_type {
-            return parse_json(&existing.config_json, "Property config");
-        }
-        let count = connection.query_row(
-            "SELECT count(*) FROM data_source_property_values \
-             WHERE data_source_id = ?1 AND property_id = ?2",
-            params![data_source_id, property_id],
-            |row| row.get::<_, i64>(0),
-        )?;
-        if count > 0 {
+        if existing.value_type != value_type {
             return Err(StoreError::new(
                 StoreErrorCode::Conflict,
-                "Property value type cannot change while values exist",
+                "Property schema is immutable",
                 false,
             ));
         }
+        return parse_json(&existing.config_json, "Property config");
     }
     if matches!(value_type, "select" | "multi_select") {
         return Ok(json!({ "options": [] }));
@@ -4496,6 +4931,30 @@ fn require_source(
     Ok(source)
 }
 
+fn authorize_relation_target_read(
+    connection: &Connection,
+    library_id: &str,
+    project_id: &str,
+    target_data_source_id: &str,
+    library_scope: bool,
+) -> Result<(), StoreError> {
+    let target = require_source(connection, library_id, target_data_source_id)?;
+    if library_scope {
+        return Ok(());
+    }
+    let primary =
+        super::authorization::project_primary_database(connection, library_id, project_id)?;
+    if super::authorization::authorize_database(
+        connection,
+        project_id,
+        primary.as_deref(),
+        &target.database_id,
+    )? {
+        return Ok(());
+    }
+    Err(not_found("Relation target is unavailable"))
+}
+
 fn property_row(
     connection: &Connection,
     data_source_id: &str,
@@ -4631,69 +5090,6 @@ fn authorize_write(
     Err(unauthorized("Project cannot mutate this Database"))
 }
 
-pub(crate) fn authorize_page_value_write(
-    connection: &Connection,
-    project_id: &str,
-    database_id: &str,
-    library_scope: bool,
-) -> Result<(), StoreError> {
-    authorize_write(
-        connection,
-        project_id,
-        database_id,
-        DatabaseWriteAction::Write,
-        library_scope,
-    )
-}
-
-#[derive(Default)]
-pub(crate) struct PageValueProjectionEffects {
-    pub(crate) view_ids: Vec<String>,
-    pub(crate) committed_revisions: BTreeMap<String, i64>,
-}
-
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn refresh_page_value_projection(
-    connection: &Connection,
-    page_id: &str,
-    data_source_id: &str,
-    property_id: &str,
-    value: &Value,
-    value_revision: i64,
-    metadata_revision: i64,
-    now: &str,
-) -> Result<PageValueProjectionEffects, StoreError> {
-    let property = active_property(connection, data_source_id, property_id)?;
-    let mut effects = MutationEffects::default();
-    update_grouped_positions(
-        connection,
-        data_source_id,
-        property_id,
-        page_id,
-        value,
-        now,
-        &mut effects,
-    )?;
-    refresh_value_projection(
-        connection,
-        page_id,
-        property_id,
-        value,
-        value_revision,
-        metadata_revision,
-        &property,
-        now,
-    )?;
-    Ok(PageValueProjectionEffects {
-        view_ids: effects.view_ids.into_iter().collect(),
-        committed_revisions: effects
-            .revisions
-            .into_iter()
-            .filter(|(key, _)| key.starts_with("position:"))
-            .collect(),
-    })
-}
-
 fn mutation_authority(
     connection: &Connection,
     library_id: &str,
@@ -4775,16 +5171,6 @@ fn validate_name<'a>(value: &'a str, label: &str) -> Result<&'a str, StoreError>
     Err(invalid(format!(
         "{label} must contain between 1 and {MAX_NAME_LENGTH} bytes"
     )))
-}
-
-fn validate_value_type(value_type: &str) -> Result<(), StoreError> {
-    if matches!(
-        value_type,
-        "text" | "number" | "checkbox" | "select" | "multi_select" | "date" | "datetime" | "person"
-    ) {
-        return Ok(());
-    }
-    Err(invalid("Property value_type is unsupported"))
 }
 
 fn require_revision(expected: i64, actual: i64, message: &str) -> Result<(), StoreError> {

@@ -132,7 +132,118 @@ describe("Core Database Module Adapter", () => {
     }]);
   });
 
-  test("assembles legacy Property options only from bounded Core windows", async () => {
+  test("hydrates authorized catalog entries and maps Relation candidates", async () => {
+    const catalogClient = new FakeCoreClient();
+    catalogClient.enqueueDatabaseRead({
+      contract_version: 6,
+      store_epoch: identity.storeEpoch,
+      event_head: 21,
+      value: {
+        kind: "catalog_window",
+        databases: {
+          items: [{ database: databaseRecord() }],
+          next_cursor: null,
+          authority: { projection_revision: 21 },
+        },
+      },
+    });
+    catalogClient.enqueueDatabaseRead({
+      ...emptyDataSourceWindowSnapshot(),
+      event_head: 21,
+      value: {
+        ...emptyDataSourceWindowSnapshot().value,
+        data_sources: {
+          ...emptyDataSourceWindowSnapshot().value.data_sources,
+          authority: { projection_revision: 21 },
+        },
+      },
+    });
+    catalogClient.enqueueDatabaseRead({
+      ...emptyViewDescriptorWindowSnapshot(),
+      event_head: 21,
+      value: {
+        ...emptyViewDescriptorWindowSnapshot().value,
+        views: {
+          ...emptyViewDescriptorWindowSnapshot().value.views,
+          authority: { projection_revision: 21 },
+        },
+      },
+    });
+    const catalogAdapter = createCoreDatabaseModuleAdapter({
+      client: catalogClient,
+      ...identity,
+    });
+    const catalog = await catalogAdapter.read({
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      projectId: identity.projectId,
+      read: {
+        target: { kind: "project_default" },
+        mode: "catalog_window",
+        window: { first: 100 },
+      },
+    });
+    expect(catalog).toMatchObject({
+      ok: true,
+      value: {
+        value: {
+          kind: "catalog_window",
+          value: {
+            databases: [{ database: { databaseId: "database:test" } }],
+            nextCursor: null,
+          },
+        },
+      },
+    });
+
+    const candidateClient = new FakeCoreClient();
+    candidateClient.enqueueDatabaseRead({
+      contract_version: 6,
+      store_epoch: identity.storeEpoch,
+      event_head: 22,
+      value: {
+        kind: "relation_candidate_window",
+        candidates: {
+          items: [{ page_id: "page:one", title: "Blocked task" }],
+          next_cursor: null,
+          authority: { projection_revision: 22 },
+        },
+      },
+    });
+    const candidateAdapter = createCoreDatabaseModuleAdapter({
+      client: candidateClient,
+      ...identity,
+    });
+    await expect(candidateAdapter.read({
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      projectId: identity.projectId,
+      read: {
+        target: {
+          kind: "data_source",
+          dataSourceId: parseDataSourceId("source:test"),
+        },
+        mode: "relation_candidate_window",
+        query: "blocked",
+        window: { first: 25 },
+      },
+    })).resolves.toMatchObject({
+      ok: true,
+      value: {
+        value: {
+          kind: "relation_candidate_window",
+          value: {
+            candidates: [{ pageId: "page:one", title: "Blocked task" }],
+          },
+        },
+      },
+    });
+    expect(candidateClient.databaseReads[0]).toMatchObject({
+      mode: "relation_candidate_window",
+      filter: { query: "blocked" },
+      window: { first: 25 },
+    });
+  });
+
+  test("maps typed Property descriptors without option-window N+1 reads", async () => {
     const client = new FakeCoreClient();
     const base = {
       contract_version: 4 as const,
@@ -165,17 +276,23 @@ describe("Core Database Module Adapter", () => {
         kind: "property_window" as const,
         properties: {
           items: [{
-            propertyId: "status",
-            dataSourceId: "source:test",
+            property_id: "status",
+            data_source_id: "source:test",
             name: "Status",
-            valueType: "select",
-            config: { options: [] },
-            optionCount: 1,
-            rankKey: "a",
+            schema: { kind: "select" },
+            capabilities: {
+              replace: true,
+              patch_set_member: null,
+              filter_operators: ["equals", "not_equals", "is_empty", "is_not_empty"],
+              sortable: true,
+              groupable: true,
+            },
+            option_count: 1,
+            rank_key: "a",
             lifecycle: "active",
             revision: 2,
-            createdAt: "2026-07-25T00:00:00.000Z",
-            updatedAt: "2026-07-25T00:00:00.000Z",
+            created_at: "2026-07-25T00:00:00.000Z",
+            updated_at: "2026-07-25T00:00:00.000Z",
           }],
           next_cursor: "property:next",
           authority: { projection_revision: 19 },
@@ -188,29 +305,24 @@ describe("Core Database Module Adapter", () => {
         kind: "property_window" as const,
         properties: {
           items: [{
-            propertyId: "p_abcdefgh",
-            dataSourceId: "source:test",
+            property_id: "p_abcdefgh",
+            data_source_id: "source:test",
             name: "Notes",
-            valueType: "text",
-            config: {},
-            optionCount: 0,
-            rankKey: "b",
+            schema: { kind: "text" },
+            capabilities: {
+              replace: true,
+              patch_set_member: null,
+              filter_operators: ["equals", "not_equals", "contains", "not_contains", "is_empty", "is_not_empty"],
+              sortable: true,
+              groupable: true,
+            },
+            option_count: 0,
+            rank_key: "b",
             lifecycle: "active",
             revision: 1,
-            createdAt: "2026-07-25T00:00:00.000Z",
-            updatedAt: "2026-07-25T00:00:00.000Z",
+            created_at: "2026-07-25T00:00:00.000Z",
+            updated_at: "2026-07-25T00:00:00.000Z",
           }],
-          next_cursor: null,
-          authority: { projection_revision: 19 },
-        },
-      },
-    });
-    client.enqueueDatabaseRead({
-      ...base,
-      value: {
-        kind: "option_window" as const,
-        options: {
-          items: [{ id: "build", name: "Build", color: "green" }],
           next_cursor: null,
           authority: { projection_revision: 19 },
         },
@@ -239,7 +351,8 @@ describe("Core Database Module Adapter", () => {
             properties: [
               {
                 propertyId: "status",
-                config: { options: [{ id: "build" }] },
+                schema: { kind: "select" },
+                config: {},
               },
               { propertyId: "p_abcdefgh", config: {} },
             ],
@@ -251,7 +364,6 @@ describe("Core Database Module Adapter", () => {
       "data_source",
       "property_window",
       "property_window",
-      "option_window",
     ]);
   });
 
@@ -282,9 +394,7 @@ describe("Core Database Module Adapter", () => {
       "delete_property",
       "put_option",
       "delete_option",
-      "set_value",
-      "set_values",
-      "add_remove_value",
+      "edit_property_values",
       "transfer_page",
       "put_view",
       "delete_view",
@@ -324,8 +434,7 @@ describe("Core Database Module Adapter", () => {
           expectedDataSourceRevision: 1,
           expectedPropertyRevision: 0,
           name: "Priority",
-          valueType: "text",
-          config: {},
+          schema: { kind: "text" },
           beforePropertyId: propertyId,
         },
         {
@@ -352,30 +461,20 @@ describe("Core Database Module Adapter", () => {
           expectedPropertyRevision: 2,
         },
         {
-          kind: "set_value",
-          pageId: "page:test",
-          dataSourceId,
-          propertyId,
-          expectedValueRevision: 0,
-          value: { nested: ["preserved"] },
-        },
-        {
-          kind: "set_values",
-          values: [{
+          kind: "edit_property_values",
+          edits: [{
             pageId: "page:test",
             dataSourceId,
             propertyId,
-            expectedValueRevision: 1,
-            value: null,
+            edit: {
+              kind: "patch_set",
+              delta: {
+                kind: "multi_select",
+                addOptionIds: [optionId],
+                removeOptionIds: [],
+              },
+            },
           }],
-        },
-        {
-          kind: "add_remove_value",
-          pageId: "page:test",
-          dataSourceId,
-          propertyId,
-          add: [optionId],
-          remove: [],
         },
         {
           kind: "transfer_page",
@@ -446,7 +545,7 @@ describe("Core Database Module Adapter", () => {
           expected_data_source_revision: 1,
           expected_property_revision: 0,
           name: "Priority",
-          value_type: "text",
+          schema: { kind: "text" },
           before_property_id: propertyId,
         },
         {
@@ -473,30 +572,22 @@ describe("Core Database Module Adapter", () => {
           expected_property_revision: 2,
         },
         {
-          kind: "set_value",
-          page_id: "page:test",
-          data_source_id: dataSourceId,
-          property_id: propertyId,
-          expected_value_revision: 0,
-          value: { nested: ["preserved"] },
-        },
-        {
-          kind: "set_values",
-          values: [{
-            page_id: "page:test",
-            data_source_id: dataSourceId,
-            property_id: propertyId,
-            expected_value_revision: 1,
-            value: null,
+          kind: "edit_property_values",
+          edits: [{
+            address: {
+              page_id: "page:test",
+              data_source_id: dataSourceId,
+              property_id: propertyId,
+            },
+            edit: {
+              kind: "patch_set",
+              delta: {
+                kind: "multi_select",
+                add_option_ids: [optionId],
+                remove_option_ids: [],
+              },
+            },
           }],
-        },
-        {
-          kind: "add_remove_value",
-          page_id: "page:test",
-          data_source_id: dataSourceId,
-          property_id: propertyId,
-          add: [optionId],
-          remove: [],
         },
         {
           kind: "transfer_page",
@@ -582,8 +673,7 @@ describe("Core Database Module Adapter", () => {
         expectedDataSourceRevision: 1,
         expectedPropertyRevision: 0,
         name: "Library",
-        valueType: "text",
-        config: {},
+        schema: { kind: "text" },
       }],
     })).resolves.toMatchObject({
       ok: true,
