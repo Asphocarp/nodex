@@ -148,6 +148,20 @@ const source: DataSourceDescriptorV2 = {
   ],
 };
 
+const projectDefaultDatabases = databases.map((descriptor) => ({
+  ...descriptor,
+  database: { ...descriptor.database, name: "Research DB" },
+  dataSources: descriptor.dataSources.map((dataSource) => ({
+    ...dataSource,
+    name: "Research DB",
+  })),
+}));
+
+const projectDefaultSource: DataSourceDescriptorV2 = {
+  ...source,
+  dataSource: { ...source.dataSource, name: "Research DB" },
+};
+
 const overflowSource: DataSourceDescriptorV2 = {
   ...source,
   properties: [
@@ -189,6 +203,19 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const SingleSource: Story = {};
+export const ProjectDefaultNames: Story = {
+  args: {
+    databases: projectDefaultDatabases,
+    source: projectDefaultSource,
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "Project-created Database containers and their initial Data Source share the `<project-name> DB` display name.",
+      },
+    },
+  },
+};
 export const ScrollingContent: Story = {
   args: { source: overflowSource },
   parameters: {

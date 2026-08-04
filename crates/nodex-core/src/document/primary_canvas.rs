@@ -31,6 +31,7 @@ pub(crate) fn is_primary_canvas_block_id(canvas_id: &str, project_id: &str) -> b
 pub(crate) fn create_primary_canvas(
     connection: &Connection,
     project_id: &str,
+    display_name: &str,
     now: &str,
     assets_root: &Path,
 ) -> Result<PrimaryCanvasIdentity, StoreError> {
@@ -67,7 +68,8 @@ pub(crate) fn create_primary_canvas(
         params![
             identity.block_id,
             project_id,
-            serde_json::to_string("Canvas").map_err(|_| internal("Canvas display name"))?,
+            serde_json::to_string(display_name)
+                .map_err(|_| internal("Primary Canvas display name"))?,
             now
         ],
     )?;
