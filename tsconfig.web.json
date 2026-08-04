@@ -5,6 +5,8 @@
     "moduleResolution": "bundler",
     "strict": true,
     "noEmit": true,
+    "incremental": true,
+    "tsBuildInfoFile": ".cache/typescript/web.tsbuildinfo",
     "esModuleInterop": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
