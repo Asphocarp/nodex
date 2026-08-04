@@ -137,6 +137,8 @@ pnpm run verify:source
 
 The test commands follow production boundaries:
 
+- `pnpm test` runs the ordinary deterministic test tier across the Node, main,
+  renderer, and integration runtimes.
 - `pnpm test:unit` runs pure shared, script, configuration, and renderer helper
   logic in Node. Renderer tests use the `.node.test.ts` suffix when they do not
   require DOM behavior.
@@ -144,9 +146,33 @@ The test commands follow production boundaries:
 - `pnpm test:renderer` runs ordinary React and DOM behavior in jsdom.
 - `pnpm test:browser` runs browser-sensitive renderer contracts in Chromium.
 - `pnpm test:integration` runs integration tests in Electron's Node runtime.
+- `pnpm run test:stress` runs volume, repeated-lifecycle, and concurrency
+  contracts in every runtime. It executes one worker at a time, independently
+  of the ordinary suite.
+- `pnpm run test:complete` runs both ordinary and stress tiers without the
+  full Electron end-to-end suite.
+- `pnpm run test:performance` runs hardware-sensitive latency gates. Run it
+  manually on a stable machine; do not use its raw timing thresholds as a
+  shared-CI gate.
 - `pnpm run core:fmt`, `pnpm run core:clippy`, and `pnpm run core:test` validate the native authority.
 - `pnpm run core:protocol:verify` and `pnpm run core:module-boundaries` verify generated contracts and the Rust-only production boundary.
 - `pnpm test:e2e` builds and exercises the complete Electron/preload/IPC/Core chain.
+
+Use the `.stress.` filename segment for a test that intentionally exercises
+high volume, repeated lifecycle work, concurrent calls, or resource pressure:
+
+```text
+feature.stress.test.tsx
+feature.stress.node.test.ts
+feature.stress.integration.ts
+feature.stress.browser.test.tsx
+```
+
+Keep a test in the ordinary tier when a single oversized input validates a
+product boundary cheaply and deterministically. Move a case into the stress
+tier when its scale or concurrency is the behavior under test. Keep
+hardware-dependent timing and memory thresholds in explicit benchmark or
+performance commands instead of either Vitest tier.
 
 Use the matching runtime when running one test file:
 
@@ -162,15 +188,19 @@ pnpm test:main <test-file>
 
 # Electron integration behavior
 pnpm test:integration <test-file>
+
+# A specific stress test in its owning runtime
+NODEX_TEST_TIER=stress pnpm test:renderer <stress-test-file>
 ```
 
 Do not run `vitest.main.config.ts` or `vitest.integration.config.ts` directly.
 Those configs fail fast outside Electron so that host Node cannot reach an
 Electron-built native addon.
 
-During implementation, run the narrow test file or runtime suite affected by the
-change. Run `verify:source` once after a broad final edit set is stable. On
-macOS, release/runtime changes additionally run:
+During implementation, run the narrow ordinary or stress test file affected by
+the change. Run `verify:source` once after a broad final edit set is stable; it
+includes the stress tier, browser suite, and Electron E2E coverage. On macOS,
+release/runtime changes additionally run:
 
 ```bash
 pnpm run verify:runtime:mac

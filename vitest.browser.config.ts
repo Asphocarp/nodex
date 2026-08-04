@@ -5,6 +5,12 @@ import {
   rendererViteCss,
   rendererViteResolve,
 } from "./config/renderer-vite-shared";
+import { selectTieredTestFiles } from "./config/vitest-test-tier";
+
+const testFiles = selectTieredTestFiles({
+  defaultInclude: ["src/renderer/**/*.browser.test.{ts,tsx}"],
+  stressInclude: ["src/renderer/**/*.stress.browser.test.{ts,tsx}"],
+});
 
 export default defineConfig({
   plugins: createRendererVitePlugins(),
@@ -17,7 +23,11 @@ export default defineConfig({
       instances: [{ browser: "chromium" }],
       provider: playwright(),
     },
-    include: ["src/renderer/**/*.browser.test.{ts,tsx}"],
+    exclude: testFiles.exclude,
+    include: testFiles.include,
+    fileParallelism: false,
+    passWithNoTests: testFiles.isStress,
     setupFiles: ["./src/renderer/test/setup-browser.ts"],
+    ...(testFiles.isStress ? { testTimeout: 60_000 } : {}),
   },
 });
