@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -143,65 +143,6 @@ describe("GitWorkerModule", () => {
       failureReason: "not-a-repository",
       errorMessage: null,
     });
-    module.dispose();
-  });
-
-  it("shares one bounded untracked scan across a complete read wave", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "nodex-git-module-wave-"));
-    temporaryDirectories.push(root);
-    await execFileAsync("git", ["init", "-q", "-b", "main", root]);
-    await execFileAsync("git", ["-C", root, "config", "user.email", "test@example.com"]);
-    await execFileAsync("git", ["-C", root, "config", "user.name", "Nodex Test"]);
-    await writeFile(path.join(root, "tracked.txt"), "initial\n", "utf8");
-    await execFileAsync("git", ["-C", root, "add", "tracked.txt"]);
-    await execFileAsync("git", ["-C", root, "commit", "-q", "-m", "initial"]);
-    const bulk = path.join(root, "bulk");
-    await mkdir(bulk);
-    await Promise.all(Array.from({ length: 270 }, (_, index) =>
-      writeFile(path.join(bulk, `file-${index}.txt`), `${index}\n`, "utf8")));
-    const metrics: import("../../shared/git-worker-protocol").GitPerformanceOperationMetric[] = [];
-    const module = new GitWorkerModule({
-      publish: (event) => {
-        if (event.type === "git-performance-operation") metrics.push(event.metric);
-      },
-    });
-
-    const [status, summary, branchStats] = await Promise.all([
-      module.execute(
-        request("status-summary", { cwd: root, includeUntrackedFiles: true }),
-        new AbortController().signal,
-      ),
-      module.execute(
-        request("review-summary", {
-          cwd: root,
-          source: "unstaged",
-          includeUntrackedFiles: true,
-        }),
-        new AbortController().signal,
-      ),
-      module.execute(
-        request("branch-diff-stats", {
-          cwd: root,
-          includeUntrackedFiles: true,
-        }),
-        new AbortController().signal,
-      ),
-    ]);
-
-    expect(status).toMatchObject({ type: "success", untrackedCount: 270 });
-    expect(summary).toMatchObject({
-      type: "success",
-      untrackedFilesOmitted: 14,
-    });
-    expect(branchStats).toMatchObject({
-      fileCount: 270,
-      untrackedFilesOmitted: 14,
-    });
-    expect(metrics.reduce(
-      (total, metric) => total + metric.fullUntrackedScanCount,
-      0,
-    )).toBe(1);
-    expect(Math.max(...metrics.map((metric) => metric.peakConcurrency))).toBe(1);
     module.dispose();
   });
 

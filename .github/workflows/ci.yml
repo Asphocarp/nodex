@@ -132,6 +132,26 @@ jobs:
       - run: cargo build -p nodex-core-server --all-targets
       - run: xvfb-run --auto-servernum pnpm test
 
+  stress-tests:
+    name: stress tests
+    if: needs.classify.outputs.app == 'true'
+    needs: classify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.1
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: cargo build -p nodex-core-server --all-targets
+      - run: xvfb-run --auto-servernum pnpm run test:stress
+
   browser-e2e:
     name: browser and Electron E2E
     if: needs.classify.outputs.app == 'true'
@@ -192,6 +212,7 @@ jobs:
       - static-contracts
       - rust
       - app-tests
+      - stress-tests
       - browser-e2e
       - runtime-contracts
     runs-on: ubuntu-latest
@@ -208,6 +229,7 @@ jobs:
           RUNTIME_RESULT: ${{ needs.runtime-contracts.result }}
           RUST_RESULT: ${{ needs.rust.result }}
           STATIC_RESULT: ${{ needs.static-contracts.result }}
+          STRESS_TESTS_RESULT: ${{ needs.stress-tests.result }}
         shell: bash
         run: |
           set -euo pipefail
@@ -226,6 +248,7 @@ jobs:
           fi
           if [[ "${APP}" == "true" ]]; then
             require_success app-tests "${APP_TESTS_RESULT}"
+            require_success stress-tests "${STRESS_TESTS_RESULT}"
             require_success browser-e2e "${BROWSER_E2E_RESULT}"
           fi
           if [[ "${RUNTIME}" == "true" ]]; then
