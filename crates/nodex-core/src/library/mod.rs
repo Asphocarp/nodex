@@ -5305,7 +5305,7 @@ mod tests {
                                 edit: DatabasePropertyValueEdit::Replace {
                                     expected_value_revision: 2,
                                     value: DatabasePropertyValueInput::Datetime {
-                                        value: "2026-07-22T01:00:00.000Z".to_owned(),
+                                        value: "2026-07-21T01:30:00.000Z".to_owned(),
                                     },
                                 },
                             }],
