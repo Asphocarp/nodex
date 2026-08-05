@@ -213,11 +213,13 @@ function AboveComposerFixedContentLayer({
   blocks,
   projectWorkspacePath,
   threadCwd,
+  projectlessOutputDirectory,
   onOpenTurnDiffReview,
 }: {
   blocks: AboveComposerFixedBlock[];
   projectWorkspacePath?: string | null;
   threadCwd?: string | null;
+  projectlessOutputDirectory?: string | null;
   onOpenTurnDiffReview?: (intent: ReviewOpenIntent) => void | Promise<void>;
 }) {
   const reducedMotion = useReducedMotion();
@@ -232,12 +234,16 @@ function AboveComposerFixedContentLayer({
           turnDiffCandidate.entry,
           threadCwd ?? undefined,
           projectWorkspacePath ?? undefined,
+          { cwd: threadCwd, projectlessOutputDirectory },
         )
       : null,
-    [projectWorkspacePath, threadCwd, turnDiffCandidate],
+    [projectlessOutputDirectory, projectWorkspacePath, threadCwd, turnDiffCandidate],
   );
   const turnDiffBlock = turnDiffCandidate
-    && extractTurnDiffPayload(turnDiffCandidate.entry)
+    && extractTurnDiffPayload(turnDiffCandidate.entry, {
+      cwd: threadCwd,
+      projectlessOutputDirectory,
+    })
     && turnDiffModel?.kind !== "empty"
     ? turnDiffCandidate
     : null;
@@ -302,6 +308,7 @@ function AboveComposerFixedContentLayer({
                       model={turnDiffModel ?? undefined}
                       projectWorkspacePath={projectWorkspacePath ?? undefined}
                       threadCwd={threadCwd ?? undefined}
+                      projectlessOutputDirectory={projectlessOutputDirectory}
                       onOpenReview={onOpenTurnDiffReview}
                       showLeadingSeparator={todoBlock !== null}
                     />
@@ -323,6 +330,7 @@ interface LocalConversationAboveComposerPortalProps {
   isStreamingTurn: boolean;
   projectWorkspacePath?: string | null;
   threadCwd?: string | null;
+  projectlessOutputDirectory?: string | null;
   onOpenTurnDiffReview?: (intent: ReviewOpenIntent) => void | Promise<void>;
   onOpenTurnDiffFileInSidePanel?: ThreadStageActions["onOpenTurnDiffFileInSidePanel"];
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
@@ -342,6 +350,7 @@ export function LocalConversationAboveComposerPortal({
   isStreamingTurn,
   projectWorkspacePath,
   threadCwd,
+  projectlessOutputDirectory,
   onOpenTurnDiffReview,
 }: LocalConversationAboveComposerPortalProps) {
   const host = usePortalHost({
@@ -361,6 +370,7 @@ export function LocalConversationAboveComposerPortal({
       blocks={fixedBlocks}
       projectWorkspacePath={projectWorkspacePath}
       threadCwd={threadCwd}
+      projectlessOutputDirectory={projectlessOutputDirectory}
       onOpenTurnDiffReview={onOpenTurnDiffReview}
     />,
     host,

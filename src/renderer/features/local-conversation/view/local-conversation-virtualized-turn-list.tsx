@@ -158,6 +158,7 @@ interface LocalConversationVirtualizedTurnListProps {
   backgroundAgentRows?: readonly ThreadComposerShellBackgroundAgentRowModel[];
   threadCwd: string | null;
   projectWorkspacePath?: string | null;
+  projectlessOutputDirectory?: string | null;
   editableTurnId: string | null;
   canForkFromTurn: boolean;
   initialCollapsedAgentBodyByTurnSearchKey?: Readonly<Record<string, boolean>>;
@@ -268,6 +269,7 @@ interface MeasuredTurnProps {
   backgroundAgentRows?: readonly ThreadComposerShellBackgroundAgentRowModel[];
   threadCwd: string | null;
   projectWorkspacePath?: string | null;
+  projectlessOutputDirectory?: string | null;
   initialCollapsedOverride?: boolean;
   canEditTurnUserPrefix: boolean;
   canForkTurn: boolean;
@@ -305,6 +307,7 @@ function MeasuredTurnComponent({
   backgroundAgentRows,
   threadCwd,
   projectWorkspacePath,
+  projectlessOutputDirectory,
   initialCollapsedOverride,
   canEditTurnUserPrefix,
   canForkTurn,
@@ -368,6 +371,7 @@ function MeasuredTurnComponent({
         canEditTurnUserPrefix={canEditTurnUserPrefix}
         canForkTurn={canForkTurn}
         projectWorkspacePath={projectWorkspacePath}
+        projectlessOutputDirectory={projectlessOutputDirectory}
         threadCwd={threadCwd}
         onEditLastTurnMessage={onEditLastTurnMessage}
         onForkTurnMessage={onForkTurnMessage}
@@ -403,6 +407,7 @@ const MeasuredTurn = memo(
     && left.backgroundAgentRows === right.backgroundAgentRows
     && left.threadCwd === right.threadCwd
     && left.projectWorkspacePath === right.projectWorkspacePath
+    && left.projectlessOutputDirectory === right.projectlessOutputDirectory
     && left.initialCollapsedOverride === right.initialCollapsedOverride
     && left.canEditTurnUserPrefix === right.canEditTurnUserPrefix
     && left.canForkTurn === right.canForkTurn
@@ -431,6 +436,7 @@ function LocalConversationVirtualizedTurnListCore({
   backgroundAgentRows,
   threadCwd,
   projectWorkspacePath,
+  projectlessOutputDirectory,
   editableTurnId,
   canForkFromTurn,
   initialCollapsedAgentBodyByTurnSearchKey,
@@ -1251,6 +1257,7 @@ function LocalConversationVirtualizedTurnListCore({
               backgroundAgentRows={backgroundAgentRows}
               threadCwd={threadCwd}
               projectWorkspacePath={projectWorkspacePath}
+              projectlessOutputDirectory={projectlessOutputDirectory}
               initialCollapsedOverride={
                 initialCollapsedAgentBodyByTurnSearchKey?.[entry.turnSearchKey]
               }

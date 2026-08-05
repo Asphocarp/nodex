@@ -3330,12 +3330,20 @@ export function WorkbenchRuntime({
     }
 
     if (surface.kind === "review") {
-      const reviewProject = projects.find((item) =>
-        item.id === surface.config.projectId
-      ) ?? null;
+      const reviewContext = surface.config.context
+        ?? (surface.config.projectId
+          ? { kind: "project" as const, projectId: surface.config.projectId }
+          : null);
+      const reviewSession = reviewContext?.kind === "session"
+        ? knownSessions.find((session) => session.id === reviewContext.sessionId) ?? null
+        : null;
+      const reviewProjectId = surface.config.projectId ?? reviewSession?.projectId ?? null;
+      const reviewProject = reviewProjectId
+        ? projects.find((item) => item.id === reviewProjectId) ?? null
+        : null;
       return (
         <ConnectedReviewDiffPanel
-          threadId={null}
+          threadId={reviewSession?.thread?.threadId ?? null}
           projectWorkspacePath={projectWorkspaceRootOrNull(reviewProject)}
           searchOpenTick={0}
         />
@@ -3369,6 +3377,7 @@ export function WorkbenchRuntime({
     projectSceneKey,
     projectSceneOwner,
     projects,
+    knownSessions,
     refreshProjectSessions,
     searchByProject,
     setDbViewPrefs,

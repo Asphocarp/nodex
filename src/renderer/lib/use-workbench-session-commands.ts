@@ -29,6 +29,7 @@ import {
   getDefaultPanelIdForTabKind,
 } from "./workbench-panel-actions";
 import {
+  resolveLeafIdForPanelTab,
   resolveSessionPanelActiveLeafId,
 } from "./workbench-panel-placement";
 import {
@@ -105,7 +106,8 @@ import type {
 type ProjectSession = WorkbenchSessionRenderProjection;
 type PanelLifecycle = Pick<
   ReturnType<typeof useWorkbenchPanelLifecycle>,
-  "ensureActivePanelOpenWithoutRefresh"
+  | "ensureActivePanelOpenWithoutRefresh"
+  | "setActivePanelTab"
 >;
 type PanelOpeners = Pick<
   ReturnType<typeof useWorkbenchPanelOpeners>,
@@ -225,6 +227,7 @@ export function useWorkbenchSessionCommands({
   } = controller;
   const {
     ensureActivePanelOpenWithoutRefresh,
+    setActivePanelTab,
   } = lifecycle;
   const {
     openWorkspaceFileTab,
@@ -575,11 +578,25 @@ export function useWorkbenchSessionCommands({
     kind: Exclude<WorkbenchTabProjection["kind"], "db_view">,
     targetPanelId?: PanelId,
     targetLeafId?: string,
-  ) => {
-    if (!activeSession) return;
+  ): Promise<boolean> => {
+    if (!activeSession) return false;
     const panelId = targetPanelId ?? getDefaultPanelIdForTabKind(kind);
+    if (kind === "review") {
+      const existingReviewTab = activeSession.tabs.find((tab) => tab.kind === "review");
+      if (existingReviewTab) {
+        await setActivePanelTab(existingReviewTab.panelId, existingReviewTab.id, {
+          leafId: resolveLeafIdForPanelTab(
+            activeSession,
+            existingReviewTab.panelId,
+            existingReviewTab.id,
+          ),
+          openPanel: true,
+        });
+        return true;
+      }
+    }
     const draft = makeWorkbenchTabProjectionDraft(activeSession, kind);
-    if (!draft) return;
+    if (!draft) return false;
 
     const createInput: WorkbenchTabCreateInput = {
       sessionId: activeSession.id,
@@ -591,9 +608,16 @@ export function useWorkbenchSessionCommands({
       ...draft,
     };
 
-    createSessionViewTab(createInput);
+    const createdTab = createSessionViewTab(createInput);
+    if (!createdTab) return false;
     await ensureActivePanelOpenWithoutRefresh(panelId);
-  }, [activeSession, createSessionViewTab, ensureActivePanelOpenWithoutRefresh]);
+    return true;
+  }, [
+    activeSession,
+    createSessionViewTab,
+    ensureActivePanelOpenWithoutRefresh,
+    setActivePanelTab,
+  ]);
   const activateReviewTab = useCallback(
     () => createManualTab("review", "right"),
     [createManualTab],

@@ -22,6 +22,7 @@ interface LocalConversationTurnEntryProps {
   canEditTurnUserPrefix: boolean;
   canForkTurn: boolean;
   projectWorkspacePath?: string | null;
+  projectlessOutputDirectory?: string | null;
   threadCwd?: string | null;
   onEditLastTurnMessage?: (input: {
     threadId: string;
@@ -58,6 +59,7 @@ function LocalConversationTurnEntryComponent({
   canEditTurnUserPrefix,
   canForkTurn,
   projectWorkspacePath,
+  projectlessOutputDirectory,
   threadCwd,
   onEditLastTurnMessage,
   onForkTurnMessage,
@@ -83,12 +85,16 @@ function LocalConversationTurnEntryComponent({
         canEditTurnUserPrefix,
         canForkTurn,
         backgroundAgents: backgroundAgentRows,
+        cwd: threadCwd,
+        projectlessOutputDirectory,
       }),
     [
       canEditTurnUserPrefix,
       canForkTurn,
       backgroundAgentRows,
       entry,
+      projectlessOutputDirectory,
+      threadCwd,
     ],
   );
 
@@ -100,6 +106,7 @@ function LocalConversationTurnEntryComponent({
         isLatestTurn={entry.isMostRecentTurn}
         isStreamingTurn={turn.status === "inProgress"}
         projectWorkspacePath={projectWorkspacePath}
+        projectlessOutputDirectory={projectlessOutputDirectory}
         threadCwd={threadCwd}
         onOpenTurnDiffReview={onOpenTurnDiffReview}
         onOpenTurnDiffFileInSidePanel={onOpenTurnDiffFileInSidePanel}
@@ -126,6 +133,7 @@ function LocalConversationTurnEntryComponent({
             onSetCollapsed?.(collapsed);
           }}
           projectWorkspacePath={projectWorkspacePath}
+          projectlessOutputDirectory={projectlessOutputDirectory}
           childMemberships={childMemberships}
           threadCwd={threadCwd}
           onEditLastUserTurn={onEditLastTurnMessage}
@@ -164,6 +172,7 @@ export const LocalConversationTurnEntry = memo(
     && left.canEditTurnUserPrefix === right.canEditTurnUserPrefix
     && left.canForkTurn === right.canForkTurn
     && left.projectWorkspacePath === right.projectWorkspacePath
+    && left.projectlessOutputDirectory === right.projectlessOutputDirectory
     && left.threadCwd === right.threadCwd
     && left.onEditLastTurnMessage === right.onEditLastTurnMessage
     && left.onForkTurnMessage === right.onForkTurnMessage

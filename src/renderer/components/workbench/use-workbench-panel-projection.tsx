@@ -690,8 +690,9 @@ export function useWorkbenchPanelProjection({
                       createBrowserTabToRight(tab, false, request),
                   }
                 : {})}
-              onCreateTerminalTab={(panelId, leafId) =>
-                createManualTab("terminal", panelId, leafId)}
+              onCreateTerminalTab={async (panelId, leafId) => {
+                await createManualTab("terminal", panelId, leafId);
+              }}
               onOpenThread={async (threadId) => {
                 await openAttachedThreadSessionById(threadId);
               }}

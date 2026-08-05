@@ -11,6 +11,7 @@ import {
   WORKBENCH_SESSION_VIEW_VERSION,
 } from "../workbench-session-view";
 import { WorkbenchViewSchema } from "./workbench";
+import { WorkbenchReviewConfigSchema } from "./workbench-review";
 import { BrowserSidebarDeviceToolbarStateSchema } from "../browser/browser-schemas";
 import { primaryCanvasBlockId } from "../block-documents/canvas-document-identity";
 
@@ -133,9 +134,7 @@ const WorkbenchBrowserTabConfigSchema = z.object({
   deviceToolbarState: BrowserSidebarDeviceToolbarStateSchema.optional(),
 }).strict();
 
-const WorkbenchReviewTabConfigSchema = z.object({
-  projectId: z.string().min(1),
-}).strict();
+const WorkbenchReviewTabConfigSchema = WorkbenchReviewConfigSchema;
 
 const WorkbenchFilesTabConfigSchema = z.object({
   projectId: z.string().min(1).nullable(),

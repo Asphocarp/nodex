@@ -1,6 +1,11 @@
 import type { ThreadItem } from "@nodex/codex-app-server-protocol/v2";
 import type { CodexConversationItem, CodexConversationTurn } from "../../../lib/types";
 import { getCodexFileChangeEntries } from "../../../../shared/codex-file-change";
+import {
+  isResourceInsideProjectlessOutputDirectory,
+  normalizePathSegments,
+  resolveOutputPath,
+} from "./projectless-output-scope";
 
 type ProtocolImageGenerationItem = Extract<ThreadItem, { type: "imageGeneration" }>;
 type ProtocolImageViewItem = Extract<ThreadItem, { type: "imageView" }>;
@@ -192,40 +197,6 @@ function decodeUriComponent(value: string): string {
   }
 }
 
-function isAbsolutePath(path: string): boolean {
-  return path.startsWith("/")
-    || path.startsWith("~/")
-    || /^[A-Za-z]:[\\/]/u.test(path);
-}
-
-function normalizePathSegments(path: string): string {
-  const normalized = path.replace(/\\/gu, "/");
-  const prefix = normalized.startsWith("/") ? "/" : "";
-  const segments: string[] = [];
-
-  for (const segment of normalized.split("/")) {
-    if (segment.length === 0 || segment === ".") continue;
-    if (segment === "..") {
-      if (segments.length > 0 && segments[segments.length - 1] !== "..") {
-        segments.pop();
-        continue;
-      }
-      if (!prefix) segments.push(segment);
-      continue;
-    }
-    segments.push(segment);
-  }
-
-  return `${prefix}${segments.join("/")}` || prefix || ".";
-}
-
-function resolveOutputPath(path: string, cwd: string | null | undefined): string {
-  const normalizedPath = normalizePathSegments(path);
-  if (isAbsolutePath(normalizedPath) || !cwd) return normalizedPath;
-
-  return normalizePathSegments(`${cwd}/${normalizedPath}`);
-}
-
 function normalizeArtifactPath(rawPath: string): string | null {
   const trimmed = rawPath.trim();
   if (!trimmed) return null;
@@ -236,24 +207,6 @@ function normalizeArtifactPath(rawPath: string): string | null {
   if (/^[a-z][a-z0-9+.-]*:/iu.test(decoded) && !/^[A-Za-z]:[\\/]/u.test(decoded)) return null;
 
   return normalizePathSegments(decoded);
-}
-
-function normalizeComparableResourcePath(path: string, cwd: string | null | undefined): string {
-  return normalizePathSegments(resolveOutputPath(path, cwd)).replace(/\/+$/u, "");
-}
-
-function isResourceInsideProjectlessOutputDirectory(input: {
-  cwd: string | null | undefined;
-  projectlessOutputDirectory: string | null | undefined;
-  resourcePath: string;
-}): boolean {
-  if (!input.projectlessOutputDirectory) return true;
-
-  const root = normalizeComparableResourcePath(input.projectlessOutputDirectory, input.cwd);
-  if (!root) return false;
-
-  const resource = normalizeComparableResourcePath(input.resourcePath, input.cwd);
-  return resource === root || resource.startsWith(`${root}/`);
 }
 
 function isHttpUrl(value: string): boolean {

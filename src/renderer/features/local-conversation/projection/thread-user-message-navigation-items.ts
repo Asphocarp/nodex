@@ -1,6 +1,7 @@
 import type { CodexConversationItem } from "../../../lib/types";
 import { getCodexFileChangePaths } from "../../../../shared/codex-file-change";
 import { selectTurnRenderModel } from "./build-turn-render-model";
+import type { ProjectlessOutputScope } from "./projectless-output-scope";
 import type { VisibleConversationTurnEntry } from "../selectors";
 import type {
   ThreadBlockModel,
@@ -274,6 +275,7 @@ function isHeartbeatUserMessage(block: ThreadTranscriptBlockModel): boolean {
 
 export function buildThreadUserMessageNavigationItems(
   entries: readonly VisibleConversationTurnEntry[],
+  scope: ProjectlessOutputScope = {},
 ): ThreadUserMessageNavigationItem[] {
   const items: ThreadUserMessageNavigationItem[] = [];
 
@@ -282,6 +284,8 @@ export function buildThreadUserMessageNavigationItems(
       entry,
       canEditTurnUserPrefix: false,
       canForkTurn: false,
+      cwd: scope.cwd,
+      projectlessOutputDirectory: scope.projectlessOutputDirectory,
     });
     const blocks = flattenThreadBlocks(turnModel.blocks);
     const userBlocks = blocks

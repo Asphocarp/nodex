@@ -4,9 +4,7 @@ import {
   useCodexConversationValue,
 } from "../local-conversation-store";
 import { ReviewDiffPanel } from "@/components/workbench/review-diff-panel";
-import type {
-  CodexConversationSnapshot,
-} from "@/lib/types";
+import type { CodexConversationSnapshot } from "@/lib/types";
 import { useScopedAtomValue } from "@/lib/maitai";
 import {
   reviewRouteStateAtom,
@@ -17,6 +15,10 @@ import {
   areReviewConversationProjectionsEqual,
   createReviewConversationProjectionSelector,
 } from "@/features/review/model/review-conversation-projection";
+import {
+  filterTurnDiffPayload,
+  normalizeTurnDiffPatchBatches,
+} from "@/features/local-conversation/projection/projectless-output-scope";
 import { recordReviewRuntimeEvent } from "@/features/review/testing/review-runtime-probe";
 
 interface ConnectedReviewDiffPanelProps {
@@ -39,48 +41,51 @@ function refreshSelectedTurnDiffTarget(
     (candidate) =>
       (candidate.entryId ?? candidate.itemId) === selectedTurn.entryId,
   );
-  if (!item || item.rawItem === null || typeof item.rawItem !== "object") return null;
+  const rawItem = item?.rawItem;
+  const itemPayload = rawItem !== null && typeof rawItem === "object"
+    ? filterTurnDiffPayload({
+        unifiedDiff: typeof (rawItem as { unifiedDiff?: unknown }).unifiedDiff === "string"
+          ? (rawItem as { unifiedDiff: string }).unifiedDiff
+          : "",
+        cwd: typeof (rawItem as { cwd?: unknown }).cwd === "string"
+          ? (rawItem as { cwd: string }).cwd
+          : conversation.cwd ?? projectWorkspacePath ?? undefined,
+        showRevertButton: (rawItem as { showRevertButton?: unknown }).showRevertButton === true,
+        patchBatches: normalizeTurnDiffPatchBatches(
+          (rawItem as { patchBatches?: unknown }).patchBatches,
+        ),
+      }, {
+        cwd: conversation.cwd ?? projectWorkspacePath,
+        projectlessOutputDirectory: conversation.projectlessOutputDirectory,
+      })
+    : null;
+  const derivedTurnPayload =
+    selectedTurn.entryId === `turn-diff:${turn?.turnId ?? ""}` && turn
+      ? filterTurnDiffPayload(
+          {
+            unifiedDiff: turn.diff ?? "",
+            cwd: conversation.cwd ?? projectWorkspacePath ?? undefined,
+            patchBatches: [],
+          },
+          {
+            cwd: conversation.cwd ?? projectWorkspacePath,
+            projectlessOutputDirectory: conversation.projectlessOutputDirectory,
+          },
+        )
+      : null;
+  const payload = itemPayload ?? derivedTurnPayload;
+  if (!payload) return null;
 
-  const rawItem = item.rawItem as {
-    unifiedDiff?: unknown;
-    cwd?: unknown;
-    showRevertButton?: unknown;
-    patchBatches?: unknown;
-  };
-  if (
-    typeof rawItem.unifiedDiff !== "string" ||
-    rawItem.unifiedDiff.trim().length === 0
-  ) {
-    return null;
-  }
-
-  const cwd = typeof rawItem.cwd === "string" && rawItem.cwd.trim().length > 0
-    ? rawItem.cwd
-    : conversation.cwd ?? projectWorkspacePath;
+  const cwd = payload.cwd ?? conversation.cwd ?? projectWorkspacePath;
 
   return {
     threadId: selectedTurn.threadId,
     turnId: selectedTurn.turnId,
     entryId: selectedTurn.entryId,
-    patch: rawItem.unifiedDiff,
+    patch: payload.unifiedDiff,
     cwd: cwd ?? null,
-    showRevertButton: rawItem.showRevertButton === true,
-    patchBatches: Array.isArray(rawItem.patchBatches)
-      ? rawItem.patchBatches.flatMap((batch) => {
-          if (typeof batch !== "object" || batch === null) return [];
-          const batchCwd = (batch as { cwd?: unknown }).cwd;
-          const changes = (batch as { changes?: unknown }).changes;
-          return [
-            {
-              cwd:
-                typeof batchCwd === "string" && batchCwd.trim().length > 0
-                  ? batchCwd
-                  : null,
-              changes: Array.isArray(changes) ? changes : [],
-            },
-          ];
-        })
-      : undefined,
+    showRevertButton: payload.showRevertButton === true,
+    patchBatches: payload.patchBatches ?? undefined,
   };
 }
 

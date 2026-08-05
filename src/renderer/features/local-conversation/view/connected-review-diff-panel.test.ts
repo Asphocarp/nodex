@@ -177,4 +177,87 @@ describe("connected review diff panel", () => {
     expect(refreshed?.patch.includes("+new") ?? false).toBe(true);
     expect(refreshed?.showRevertButton ?? false).toBe(true);
   });
+
+  test("applies the projectless output scope to the Review projection", () => {
+    const mixed = [
+      "diff --git a/output/inside.ts b/output/inside.ts",
+      "--- a/output/inside.ts",
+      "+++ b/output/inside.ts",
+      "@@ -1 +1 @@",
+      "-old",
+      "+new",
+      "diff --git a/src/outside.ts b/src/outside.ts",
+      "--- a/src/outside.ts",
+      "+++ b/src/outside.ts",
+      "@@ -1 +1 @@",
+      "-old",
+      "+new",
+    ].join("\n");
+    const projection = buildReviewConversationProjection({
+      ...buildConversation(mixed),
+      projectId: null,
+      projectlessOutputDirectory: "/workspace/nodex/output",
+    });
+
+    expect(projection.lastTurnPatch).toContain("output/inside.ts");
+    expect(projection.lastTurnPatch).not.toContain("src/outside.ts");
+  });
+
+  test("resolves a selected derived turn diff when no transcript item exists", () => {
+    const base = buildConversation("");
+    const turn = base.turns[0];
+    if (!turn) throw new Error("Expected a turn");
+    const conversation: CodexConversationSnapshot = {
+      ...base,
+      turns: [{
+        ...turn,
+        itemIds: [],
+        items: [],
+        diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+new",
+      }],
+    };
+    const refreshed = connectedReviewDiffPanelTestHelpers.refreshSelectedTurnDiffTarget(
+      {
+        threadId: "thread-1",
+        turnId: "turn-1",
+        entryId: "turn-diff:turn-1",
+      },
+      conversation,
+      null,
+    );
+
+    expect(refreshed?.patch).toContain("+new");
+  });
+
+  test("falls back to the derived turn diff when a matching item is empty", () => {
+    const base = buildConversation("");
+    const turn = base.turns[0];
+    if (!turn) throw new Error("Expected a turn");
+    const conversation: CodexConversationSnapshot = {
+      ...base,
+      turns: [{
+        ...turn,
+        diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+new",
+        items: [{
+          ...turn.items[0],
+          rawItem: {
+            type: "turn-diff",
+            unifiedDiff: "",
+          },
+        }],
+      }],
+    };
+
+    const refreshed = connectedReviewDiffPanelTestHelpers.refreshSelectedTurnDiffTarget(
+      {
+        threadId: "thread-1",
+        turnId: "turn-1",
+        entryId: "turn-diff:turn-1",
+      },
+      conversation,
+      null,
+    );
+
+    expect(refreshed?.patch).toContain("+new");
+  });
 });

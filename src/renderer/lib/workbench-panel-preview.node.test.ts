@@ -46,7 +46,13 @@ describe("workbench panel preview", () => {
     expect(makeWorkbenchTabProjectionDraft(projectless, "files"))
       .toBeNull();
     expect(makeWorkbenchTabProjectionDraft(projectless, "review"))
-      .toBeNull();
+      .toMatchObject({
+        kind: "review",
+        config: {
+          projectId: null,
+          context: { kind: "session", sessionId: "session-1" },
+        },
+      });
     expect(makeWorkbenchTabProjectionDraft(projectless, "terminal"))
       .toBeNull();
 

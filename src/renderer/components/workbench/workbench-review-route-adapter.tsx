@@ -9,7 +9,7 @@ export function ReviewRouteOpenAdapter({
   activateReviewTab,
   children,
 }: {
-  activateReviewTab: () => Promise<void>;
+  activateReviewTab: () => Promise<boolean>;
   children: (actions: {
     onOpenTurnDiffReview: ThreadStageActions["onOpenTurnDiffReview"];
     onOpenSummaryGitReview: NonNullable<

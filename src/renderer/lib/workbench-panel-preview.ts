@@ -96,6 +96,22 @@ export function makeWorkbenchTabProjectionDraft(
     };
   }
 
+  if (kind === "review") {
+    return {
+      kind,
+      title: "Review",
+      config: projectId
+        ? {
+            projectId,
+            context: { kind: "project", projectId },
+          }
+        : {
+            projectId: null,
+            context: { kind: "session", sessionId: session.id },
+          },
+    };
+  }
+
   if (projectId === null) return null;
 
   if (kind === "files") {
@@ -108,14 +124,6 @@ export function makeWorkbenchTabProjectionDraft(
         workspaceRoot: null,
         cwd: session.thread?.cwd ?? null,
       },
-    };
-  }
-
-  if (kind === "review") {
-    return {
-      kind,
-      title: "Review",
-      config: { projectId },
     };
   }
 
@@ -132,8 +140,9 @@ export function makePreviewWorkbenchTabProjection(
     projectId === null
     && draft.kind !== "browser"
     && draft.kind !== "terminal"
+    && draft.kind !== "review"
   ) {
-    throw new Error("Projectless sessions cannot own project-scoped tabs");
+    throw new Error("Projectless sessions cannot own this workbench tab");
   }
   const now = new Date().toISOString();
   const base = {

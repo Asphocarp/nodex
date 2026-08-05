@@ -42,6 +42,7 @@ import type {
   GitApplyPatchResult,
 } from "../../../../lib/types";
 import type { ReviewOpenIntent } from "@/features/review/model/review-view-state";
+import type { ProjectlessOutputScope } from "../../projection/projectless-output-scope";
 import { cn } from "../../../../lib/utils";
 import {
   TURN_DIFF_DEFAULT_VISIBLE_FILE_COUNT,
@@ -334,6 +335,7 @@ export function TurnDiffInProgressInlineSummary({
   model,
   projectWorkspacePath,
   threadCwd,
+  projectlessOutputDirectory,
   reviewSource = "last-turn",
   onOpenReview,
   showLeadingSeparator = false,
@@ -343,18 +345,23 @@ export function TurnDiffInProgressInlineSummary({
   model?: TurnDiffModel;
   projectWorkspacePath?: string;
   threadCwd?: string;
+  projectlessOutputDirectory?: string | null;
   reviewSource?: CodexTurnDiffReviewSource;
   onOpenReview?: (intent: ReviewOpenIntent) => void | Promise<void>;
   showLeadingSeparator?: boolean;
 }) {
-  const payload = extractTurnDiffPayload(item);
+  const scope = useMemo<ProjectlessOutputScope>(
+    () => ({ cwd: threadCwd, projectlessOutputDirectory }),
+    [projectlessOutputDirectory, threadCwd],
+  );
+  const payload = extractTurnDiffPayload(item, scope);
   const resolvedModel = useMemo<TurnDiffModel>(
     () => model ?? (rows
       ? rows.length > 0
         ? { kind: "inline", rows, summary: summarizeTurnDiffRows(rows) }
         : { kind: "empty", rows: [], summary: { fileCount: 0, additions: 0, deletions: 0 } }
-      : buildTurnDiffModel(item, threadCwd, projectWorkspacePath)),
-    [item, model, projectWorkspacePath, rows, threadCwd],
+      : buildTurnDiffModel(item, threadCwd, projectWorkspacePath, scope)),
+    [item, model, projectWorkspacePath, rows, scope, threadCwd],
   );
   const summary = resolvedModel.summary;
   const reviewIntent = useMemo(
@@ -363,8 +370,9 @@ export function TurnDiffInProgressInlineSummary({
       threadCwd,
       projectWorkspacePath,
       source: reviewSource,
+      scope,
     }),
-    [item, projectWorkspacePath, reviewSource, threadCwd],
+    [item, projectWorkspacePath, reviewSource, scope, threadCwd],
   );
 
   if (!payload || resolvedModel.kind === "empty" || summary.fileCount === 0) return null;
@@ -489,6 +497,7 @@ export function TurnDiffSurface({
   isInProgress,
   projectWorkspacePath,
   threadCwd,
+  projectlessOutputDirectory,
   reviewSource = "last-turn",
   onOpenReview,
   onOpenFileInSidePanel,
@@ -500,6 +509,7 @@ export function TurnDiffSurface({
   isInProgress: boolean;
   projectWorkspacePath?: string;
   threadCwd?: string;
+  projectlessOutputDirectory?: string | null;
   reviewSource?: CodexTurnDiffReviewSource;
   onOpenReview?: (intent: ReviewOpenIntent) => void | Promise<void>;
   onOpenFileInSidePanel?: (target: TurnDiffFileSidePanelTarget) => void | Promise<void>;
@@ -507,10 +517,14 @@ export function TurnDiffSurface({
   deferOffscreenRendering?: boolean;
   gitWorkerClient?: Pick<GitWorkerQueryClient, "request">;
 }) {
-  const payload = extractTurnDiffPayload(item);
+  const scope = useMemo<ProjectlessOutputScope>(
+    () => ({ cwd: threadCwd, projectlessOutputDirectory }),
+    [projectlessOutputDirectory, threadCwd],
+  );
+  const payload = extractTurnDiffPayload(item, scope);
   const model = useMemo(
-    () => buildTurnDiffModel(item, threadCwd, projectWorkspacePath),
-    [item, projectWorkspacePath, threadCwd],
+    () => buildTurnDiffModel(item, threadCwd, projectWorkspacePath, scope),
+    [item, projectWorkspacePath, scope, threadCwd],
   );
   const rows = model.rows;
   const summary = model.summary;
@@ -520,8 +534,9 @@ export function TurnDiffSurface({
       threadCwd,
       projectWorkspacePath,
       source: reviewSource,
+      scope,
     }),
-    [item, projectWorkspacePath, reviewSource, threadCwd],
+    [item, projectWorkspacePath, reviewSource, scope, threadCwd],
   );
   const basePath = useMemo(() => normalizeTurnDiffBasePath(payload, threadCwd, projectWorkspacePath), [payload, projectWorkspacePath, threadCwd]);
   const applyBatches = useMemo(() => buildTurnDiffApplyBatches(payload, basePath), [basePath, payload]);

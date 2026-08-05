@@ -559,15 +559,13 @@ export function useWorkbenchPanelCommandRouter({
     }
     if (!isWorkbenchTabKind(kind)) return false;
     if (kind === "files") {
-      await createManualTab(kind, panelId, options.leafId);
-      return true;
+      return await createManualTab(kind, panelId, options.leafId);
     }
     if (isPreviewableWorkbenchTabKind(kind)) {
       await openPreviewTab(kind, panelId, options.leafId);
       return true;
     }
-    await createManualTab(kind, panelId, options.leafId);
-    return true;
+    return await createManualTab(kind, panelId, options.leafId);
   }, [
     activeSession?.projectId,
     createManualTab,

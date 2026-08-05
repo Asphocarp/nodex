@@ -85,6 +85,7 @@ export interface ThreadLeafBlockProps {
   isSearchMatch?: boolean;
   isActiveSearchMatch?: boolean;
   projectWorkspacePath?: string | null;
+  projectlessOutputDirectory?: string | null;
   childMemberships?: readonly CodexConversationChildMembership[];
   threadCwd?: string | null;
   onEditLastUserTurn?: (input: { threadId: string; turnId: string; message: string }) => void | Promise<void>;
@@ -109,6 +110,7 @@ export interface ThreadSpecialBlockProps {
   isLatestTurn: boolean;
   isStreamingTurn: boolean;
   projectWorkspacePath?: string | null;
+  projectlessOutputDirectory?: string | null;
   childMemberships?: readonly CodexConversationChildMembership[];
   threadCwd?: string | null;
   onOpenTurnDiffReview?: (intent: ReviewOpenIntent) => void | Promise<void>;
@@ -240,6 +242,7 @@ function renderCollapsedActivityEntry({
   isLatestTurn,
   isStreamingTurn,
   projectWorkspacePath,
+  projectlessOutputDirectory,
   threadCwd,
   onOpenTurnDiffReview,
   onOpenTurnDiffFileInSidePanel,
@@ -252,6 +255,7 @@ function renderCollapsedActivityEntry({
   isLatestTurn: boolean;
   isStreamingTurn: boolean;
   projectWorkspacePath?: string | null;
+  projectlessOutputDirectory?: string | null;
   threadCwd?: string | null;
   onOpenTurnDiffReview?: (intent: ReviewOpenIntent) => void | Promise<void>;
   onOpenTurnDiffFileInSidePanel?: ThreadStageActions["onOpenTurnDiffFileInSidePanel"];
@@ -264,6 +268,7 @@ function renderCollapsedActivityEntry({
     isLatestTurn,
     isStreamingTurn,
     projectWorkspacePath,
+    projectlessOutputDirectory,
     threadCwd,
     onOpenTurnDiffReview,
     onOpenTurnDiffFileInSidePanel,
@@ -398,6 +403,7 @@ export function ThreadAgentActivityGroupBlock({
   isLatestTurn,
   isStreamingTurn,
   projectWorkspacePath,
+  projectlessOutputDirectory,
   threadCwd,
   onOpenTurnDiffReview,
   onOpenTurnDiffFileInSidePanel,
@@ -457,6 +463,7 @@ export function ThreadAgentActivityGroupBlock({
             isLatestTurn,
             isStreamingTurn,
             projectWorkspacePath,
+            projectlessOutputDirectory,
             threadCwd,
             onOpenTurnDiffReview,
             onOpenTurnDiffFileInSidePanel,
@@ -539,6 +546,7 @@ export function ThreadTurnDiffBlock({
   isLatestTurn,
   isStreamingTurn,
   projectWorkspacePath,
+  projectlessOutputDirectory,
   threadCwd,
   onOpenTurnDiffReview,
   onOpenTurnDiffFileInSidePanel,
@@ -556,6 +564,7 @@ export function ThreadTurnDiffBlock({
       isInProgress={isStreamingTurn}
       projectWorkspacePath={projectWorkspacePath ?? undefined}
       threadCwd={threadCwd ?? undefined}
+      projectlessOutputDirectory={projectlessOutputDirectory}
       reviewSource={isLatestTurn ? "last-turn" : "selected-turn"}
       onOpenReview={onOpenTurnDiffReview}
       onOpenFileInSidePanel={onOpenTurnDiffFileInSidePanel}

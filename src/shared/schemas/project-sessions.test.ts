@@ -101,3 +101,30 @@ describe("project session Files config", () => {
     });
   });
 });
+
+describe("project session Review config", () => {
+  test("persists a projectless Review with explicit session ownership", () => {
+    expect(parseWorkbenchProjectionTabConfig("review", {
+      projectId: null,
+      context: { kind: "session", sessionId: "session-1" },
+    })).toEqual({
+      projectId: null,
+      context: { kind: "session", sessionId: "session-1" },
+    });
+  });
+
+  test("normalizes legacy project-only Review config at the boundary", () => {
+    expect(parseWorkbenchProjectionTabConfig("review", {
+      projectId: "alpha",
+    })).toEqual({
+      projectId: "alpha",
+      context: { kind: "project", projectId: "alpha" },
+    });
+  });
+
+  test("rejects a projectless Review without a session owner", () => {
+    expect(() => parseWorkbenchProjectionTabConfig("review", {
+      projectId: null,
+    })).toThrow();
+  });
+});

@@ -968,6 +968,7 @@ export interface ThreadBodySurfaceModel {
   childMemberships: readonly CodexConversationChildMembership[];
   backgroundAgentRows?: readonly ThreadComposerShellBackgroundAgentRowModel[];
   projectWorkspacePath?: string | null;
+  projectlessOutputDirectory?: string | null;
   searchOpenTick: number;
   threadStartProgress: {
     runInTarget: PageRunInTarget;
