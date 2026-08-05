@@ -4,7 +4,7 @@ import type {
   BlockId,
   BlockLocation,
   DocumentId,
-  RelocationDocumentCommit,
+  DocumentCommitRef,
 } from "./block-documents/contracts";
 
 /** Exact writer request/receipt protocol. */
@@ -73,7 +73,7 @@ export interface BlockTransferDocumentHead {
 
 export interface BlockTransferPreparation {
   readonly request: BlockTransferRequest;
-  readonly leaseDocuments: readonly BlockTransferDocumentHead[];
+  readonly documentHeads: readonly BlockTransferDocumentHead[];
 }
 
 export type BlockTransferSource =
@@ -163,7 +163,7 @@ export interface BlockTransferReceipt {
   readonly transformationEvidence: readonly BlockTransferTransformationEvidence[];
   readonly finalLocations: Readonly<Record<BlockId, BlockLocation>>;
   readonly finalLocationRevisions: Readonly<Record<BlockId, number>>;
-  readonly documentCommits: readonly RelocationDocumentCommit[];
+  readonly documentCommits: readonly DocumentCommitRef[];
   readonly affectedDatabaseBlockIds: readonly BlockId[];
   readonly changeLogSeq: number;
   readonly committedAt: string;
@@ -185,7 +185,6 @@ export type BlockTransferErrorCode =
   | "invalid_target"
   | "transfer_cycle"
   | "unsupported_transfer"
-  | "transfer_lease_timeout"
   | "recovery_required"
   | "unknown";
 

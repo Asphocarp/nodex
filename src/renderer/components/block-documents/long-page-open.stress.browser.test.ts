@@ -90,17 +90,6 @@ class LongCardAdapter implements DocumentSyncAdapter {
     ok: true,
     value: { accepted: true },
   });
-
-  respondToRelocationLease: DocumentSyncAdapter["respondToRelocationLease"] =
-    async (request) => ({
-      ok: true,
-      value: {
-        accepted: true,
-        leaseId: request.leaseId,
-        documentId: request.documentId,
-        status: request.response === "ack" ? "frozen" : "cancelled",
-      },
-    });
 }
 
 const deleteCheckpointDatabase = (): Promise<void> =>

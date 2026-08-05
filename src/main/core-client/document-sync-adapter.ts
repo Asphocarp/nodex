@@ -139,11 +139,9 @@ export interface CoreDocumentSyncAdapter extends DocumentSyncAdapter {
   ): Promise<DocumentHistoryCommandResult<DocumentVersionDetail>>;
   restoreVersion(
     request: PrepareDocumentVersionRestore,
-    writeFencePrepared?: boolean,
   ): Promise<DocumentOperationCommandResult>;
   applyDocumentMutation(
     request: DocumentMutationRequest,
-    writeFencePrepared?: boolean,
   ): Promise<DocumentOperationCommandResult>;
 }
 
@@ -511,9 +509,6 @@ const documentMutationAdapterFailure = (
     case "idempotency_key_reused":
       return failure("mutation_id_collision");
     case "revision_conflict":
-      if (error.message.toLowerCase().includes("write fence")) {
-        return failure("write_fence_required", { retryable: true });
-      }
       return failure("unknown", { retryable: error.coreError.retryable });
     case "invalid_document_schema":
     case "schema_unsupported":
@@ -587,7 +582,6 @@ const coreDocumentOperation = (
 
 const coreDocumentMutationIntent = (
   request: DocumentMutationRequest,
-  writeFencePrepared: boolean,
 ): OwnedDocumentIntent => {
   if ("operations" in request) {
     return {
@@ -597,7 +591,6 @@ const coreDocumentMutationIntent = (
       expected_head_seq: request.expectedHeadSeq,
       operations: request.operations.map(coreDocumentOperation),
       actor: request.actor,
-      write_fence_prepared: writeFencePrepared,
     };
   }
   if ("nfm" in request) {
@@ -611,7 +604,6 @@ const coreDocumentMutationIntent = (
         ? {}
         : { rich_title: request.richTitle }),
       actor: request.actor,
-      write_fence_prepared: writeFencePrepared,
     };
   }
   return {
@@ -621,7 +613,6 @@ const coreDocumentMutationIntent = (
     generation: request.generation,
     expected_head_seq: request.expectedHeadSeq,
     actor: request.actor,
-    write_fence_prepared: writeFencePrepared,
   };
 };
 
@@ -788,7 +779,6 @@ export const createCoreDocumentSyncAdapter = (
 
   const applyDocumentMutation = async (
     rawRequest: DocumentMutationRequest,
-    writeFencePrepared = false,
   ): Promise<DocumentOperationCommandResult> => {
     let request: DocumentMutationRequest;
     try {
@@ -808,7 +798,7 @@ export const createCoreDocumentSyncAdapter = (
         operationId: request.mutationId,
         clientSessionId:
           request.clientSessionId ?? "electron:document-mutation",
-        intent: coreDocumentMutationIntent(request, writeFencePrepared),
+        intent: coreDocumentMutationIntent(request),
       });
       if (
         committed.store_epoch !== request.storeEpoch
@@ -1122,8 +1112,7 @@ export const createCoreDocumentSyncAdapter = (
       }
     },
     applyDocumentMutation,
-    restoreVersion: async (request, writeFencePrepared = false) =>
-      await applyDocumentMutation(request, writeFencePrepared),
+    restoreVersion: async (request) => await applyDocumentMutation(request),
     sync,
     applyUpdate,
     subscribeWithLifecycle,
@@ -1142,8 +1131,6 @@ export const createCoreDocumentSyncAdapter = (
         return failure(error);
       }
     },
-    respondToRelocationLease: async () =>
-      failure(new Error("Core relocation leases remain internal to the Module")),
   };
 };
 

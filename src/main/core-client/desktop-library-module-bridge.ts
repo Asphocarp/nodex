@@ -37,7 +37,7 @@ import type {
   LibraryBlockPropertyMutationCommandResultV2,
   LibraryBlockPropertyMutationRequestV2,
 } from "../../shared/block-property-mutations-v2";
-import type { RelocationDocumentCommit } from "../../shared/block-documents/contracts";
+import type { DocumentCommitRef } from "../../shared/block-documents/contracts";
 import type { DesktopDataAuthorityRuntime } from "./desktop-data-authority";
 import {
   createCoreLibraryModuleAdapter,
@@ -48,7 +48,7 @@ export interface DesktopLibraryModuleBridgeInput {
   readonly authority: Promise<DesktopDataAuthorityRuntime>;
   readonly publishLibraryDocumentCommits?: (input: {
     readonly storeEpoch: string;
-    readonly commits: readonly RelocationDocumentCommit[];
+    readonly commits: readonly DocumentCommitRef[];
     readonly clientSessionId: string;
   }) => void;
 }
@@ -65,10 +65,12 @@ export interface DesktopLibraryModuleBridge {
   readProjectPageDetail(
     projectId: string,
     pageId: string,
+    minimumCommitSeq?: number,
   ): Promise<PageDetailResult>;
   readLibraryPageDetail(
     pageId: string,
     accessActor?: "app_window" | "http_loopback",
+    minimumCommitSeq?: number,
   ): Promise<LibraryPageDetailResult>;
   listPageHistory(
     request: ListPageHistoryRequest,
@@ -172,14 +174,18 @@ export function createDesktopLibraryModuleBridge(
       publishCanvasDocumentCommits(result);
       return result;
     },
-    readProjectPageDetail: async (projectId, pageId) => {
+    readProjectPageDetail: async (projectId, pageId, minimumCommitSeq) => {
       const runtime = await input.authority;
       return await projectCoreAdapter(runtime, projectId)
-        .readProjectPageDetail(projectId, pageId);
+        .readProjectPageDetail(projectId, pageId, minimumCommitSeq);
     },
-    readLibraryPageDetail: async (pageId) => {
+    readLibraryPageDetail: async (pageId, accessActor, minimumCommitSeq) => {
       const runtime = await input.authority;
-      return await rootAdapter(runtime).readLibraryPageDetail(pageId);
+      void accessActor;
+      return await rootAdapter(runtime).readLibraryPageDetail(
+        pageId,
+        minimumCommitSeq,
+      );
     },
     listPageHistory: async (request) => {
       const runtime = await input.authority;

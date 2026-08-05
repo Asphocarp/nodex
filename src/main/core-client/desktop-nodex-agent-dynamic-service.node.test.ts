@@ -25,10 +25,10 @@ const nativeAgentIdentity = {
 const nativeAgentHandshake = () => createFakeCoreHandshake(nativeAgentIdentity);
 
 const documentSync = {
-  coordinateNodexAgentLeasedMutation: async (options: {
+  executeNodexAgentMutation: async (options: {
     readonly execute: () => Promise<unknown>;
   }) => await options.execute(),
-} as unknown as Pick<DesktopDocumentSyncPort, "coordinateNodexAgentLeasedMutation">;
+} as unknown as Pick<DesktopDocumentSyncPort, "executeNodexAgentMutation">;
 
 const context = {
   threadId: "thread-native-agent",
@@ -279,16 +279,8 @@ describe("native desktop Nodex Agent dynamic service", () => {
       };
     });
     const coordinate = vi.fn(async (options: {
-      readonly leaseDocuments: readonly unknown[];
       readonly execute: () => Promise<unknown>;
-    }) => {
-      expect(options.leaseDocuments).toEqual([{
-        documentId: "document-create-target",
-        generation: 2,
-        expectedHeadSeq: 4,
-      }]);
-      return await options.execute();
-    });
+    }) => await options.execute());
     const runtime = {
       backend: "rust" as const,
       identity: nativeAgentIdentity,
@@ -302,8 +294,8 @@ describe("native desktop Nodex Agent dynamic service", () => {
       projectWorkspace: {} as DesktopProjectWorkspacePort,
       databaseModule: {} as DesktopDatabaseModuleBridge,
       documentSync: {
-        coordinateNodexAgentLeasedMutation: coordinate,
-      } as unknown as Pick<DesktopDocumentSyncPort, "coordinateNodexAgentLeasedMutation">,
+        executeNodexAgentMutation: coordinate,
+      } as unknown as Pick<DesktopDocumentSyncPort, "executeNodexAgentMutation">,
     });
 
     const result = await service.registry.execute({
@@ -471,16 +463,8 @@ describe("native desktop Nodex Agent dynamic service", () => {
       };
     });
     const coordinate = vi.fn(async (options: {
-      readonly leaseDocuments: readonly unknown[];
       readonly execute: () => Promise<unknown>;
-    }) => {
-      expect(options.leaseDocuments).toEqual([{
-        documentId: "document-move-target",
-        generation: 3,
-        expectedHeadSeq: 8,
-      }]);
-      return await options.execute();
-    });
+    }) => await options.execute());
     const runtime = {
       backend: "rust" as const,
       identity: nativeAgentIdentity,
@@ -494,8 +478,8 @@ describe("native desktop Nodex Agent dynamic service", () => {
       projectWorkspace: {} as DesktopProjectWorkspacePort,
       databaseModule: {} as DesktopDatabaseModuleBridge,
       documentSync: {
-        coordinateNodexAgentLeasedMutation: coordinate,
-      } as unknown as Pick<DesktopDocumentSyncPort, "coordinateNodexAgentLeasedMutation">,
+        executeNodexAgentMutation: coordinate,
+      } as unknown as Pick<DesktopDocumentSyncPort, "executeNodexAgentMutation">,
     });
 
     const result = await service.registry.execute({
@@ -656,29 +640,10 @@ describe("native desktop Nodex Agent dynamic service", () => {
     const coordinate = vi.fn(async (options: {
       readonly projectId: string;
       readonly storeEpoch: string;
-      readonly leaseDocuments: readonly {
-        readonly documentId: string;
-        readonly generation: number;
-        readonly expectedHeadSeq: number;
-      }[];
       readonly execute: () => Promise<unknown>;
     }) => {
       expect(options.projectId).toBe("project-native-agent");
       expect(options.storeEpoch).toBe("store-native-agent");
-      expect(options.leaseDocuments).toEqual([{
-        documentId: "document-copy-source",
-        generation: 1,
-        expectedHeadSeq: 5,
-      }, {
-        documentId: "document-copy-child",
-        generation: 1,
-        expectedHeadSeq: 2,
-      }, {
-        documentId: "document-copy-target",
-        generation: 3,
-        expectedHeadSeq: 8,
-      }]);
-      expect(libraryApply).not.toHaveBeenCalled();
       return await options.execute();
     });
     const runtime = {
@@ -694,8 +659,8 @@ describe("native desktop Nodex Agent dynamic service", () => {
       projectWorkspace: {} as DesktopProjectWorkspacePort,
       databaseModule: {} as DesktopDatabaseModuleBridge,
       documentSync: {
-        coordinateNodexAgentLeasedMutation: coordinate,
-      } as unknown as Pick<DesktopDocumentSyncPort, "coordinateNodexAgentLeasedMutation">,
+        executeNodexAgentMutation: coordinate,
+      } as unknown as Pick<DesktopDocumentSyncPort, "executeNodexAgentMutation">,
     });
 
     const result = await service.registry.execute({

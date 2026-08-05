@@ -125,6 +125,7 @@ const readBoundedDatabaseViewWindow = async <
     read: DatabaseReadV2,
   ) => Promise<DescriptorReadResult>;
 }): Promise<DatabaseViewWindowSnapshot<ProjectScope>> => {
+  const minimumCommitSeq = input.windowInput.minimumCommitSeq ?? 0;
   const snapshot = await input.readCore({
     target: input.windowInput.databaseViewId
       ? { kind: "view", view_id: input.windowInput.databaseViewId }
@@ -142,7 +143,7 @@ const readBoundedDatabaseViewWindow = async <
     ...(input.windowInput.groupScope
       ? { group_scope: input.windowInput.groupScope }
       : {}),
-  });
+  }, minimumCommitSeq);
   if (snapshot.value.kind !== "view_window") {
     throw new Error("Database Core returned a non-window View snapshot");
   }
@@ -154,6 +155,7 @@ const readBoundedDatabaseViewWindow = async <
         viewId: parseDatabaseViewId(value.view_id),
       },
       mode: "view",
+      minimumCommitSeq,
     }),
     input.readDescriptor({
       target: {
@@ -161,6 +163,7 @@ const readBoundedDatabaseViewWindow = async <
         databaseId: parseDatabaseId(value.database_id),
       },
       mode: "database",
+      minimumCommitSeq,
     }),
     input.readDescriptor({
       target: {
@@ -168,6 +171,7 @@ const readBoundedDatabaseViewWindow = async <
         dataSourceId: parseDataSourceId(value.data_source_id),
       },
       mode: "data_source",
+      minimumCommitSeq,
     }),
   ]);
   if (!viewResult.ok) {
@@ -247,6 +251,7 @@ const readBoundedDatabaseViewGroups = async <
   readonly groupsInput: DatabaseViewGroupsInput;
   readonly readCore: CoreDatabaseModuleAdapter["readCore"];
 }): Promise<DatabaseViewGroupsSnapshot<ProjectScope>> => {
+  const minimumCommitSeq = input.groupsInput.minimumCommitSeq ?? 0;
   const snapshot = await input.readCore({
     target: input.groupsInput.databaseViewId
       ? { kind: "view", view_id: input.groupsInput.databaseViewId }
@@ -258,7 +263,7 @@ const readBoundedDatabaseViewGroups = async <
     sort: null,
     page_ids: null,
     window: null,
-  });
+  }, minimumCommitSeq);
   if (snapshot.value.kind !== "view_groups") {
     throw new Error("Database Core returned a non-groups View snapshot");
   }

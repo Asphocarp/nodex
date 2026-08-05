@@ -14,7 +14,6 @@ import {
 import type { DocumentSyncClientTarget } from "../document-sync-transport";
 import type { ExecuteNodexAgentDuplicatePageResult } from "../../shared/nodex-agent-tools";
 import { DuplicatePageV3OutputSchema } from "../../shared/nodex-agent-tools/v3-write-schemas";
-import { CoreModuleResponseError } from "./core-client";
 import {
   createDesktopDocumentSyncBridge,
 } from "./desktop-document-sync-bridge";
@@ -129,27 +128,6 @@ class ControlledOpeningDocumentStreamClient extends FakeCoreClient {
       fail: rejectOpening,
     });
     return opening;
-  }
-}
-
-class CanvasCompactionFenceClient extends FakeCoreClient {
-  compactionAttempts = 0;
-
-  override documentApply(
-    ...args: Parameters<FakeCoreClient["documentApply"]>
-  ): ReturnType<FakeCoreClient["documentApply"]> {
-    if (args[0].intent.kind === "compact_canvas_tombstones") {
-      this.compactionAttempts += 1;
-      if (this.compactionAttempts === 1) {
-        throw new CoreModuleResponseError({
-          code: "revision_conflict",
-          message: "Canvas compaction requires a write fence",
-          retryable: true,
-          recovery: { kind: "none" },
-        });
-      }
-    }
-    return super.documentApply(...args);
   }
 }
 
@@ -687,25 +665,29 @@ describe("Desktop Document sync bridge", () => {
     }]);
   });
 
-  test("flushes and freezes exact native participants before restore, then replays without refencing", async () => {
+  test("commits a destructive Document mutation at the exact local head", async () => {
     const rootClient = new FakeCoreClient();
     const projectClient = new FakeCoreClient();
-    projectClient.enqueueDocumentSync({
-      documentId: subscribeRequest.documentId,
+    const request = {
+      version: 1 as const,
+      mutationId: "restore:native",
+      projectId: "project:one",
       storeEpoch: "epoch:test",
+      documentId: subscribeRequest.documentId,
+      versionId: documentVersionSummary().versionId,
       generation: 1,
-      headSeq: 2,
-      update: new Uint8Array(),
-      stateVector: new Uint8Array(),
-    });
-    const committed = (duplicate: boolean) => ({
-      store_epoch: "epoch:test",
+      expectedHeadSeq: 2,
+      clientSessionId: subscribeRequest.clientSessionId,
+      actor: { kind: "electron_renderer" },
+    };
+    projectClient.enqueueDocumentApply({
+      store_epoch: request.storeEpoch,
       event_sequence: 9,
       value: {
-        document_id: subscribeRequest.documentId,
+        document_id: request.documentId,
         generation: 1,
         head_seq: 3,
-        outcome: "committed" as const,
+        outcome: "committed",
         committed_at: "2026-07-19T21:18:00.000Z",
         mutation_effect: {
           base_head_seq: 2,
@@ -716,135 +698,40 @@ describe("Desktop Document sync bridge", () => {
           moved_block_ids: [],
           write_fence_block_ids: ["page:one"],
           title_changed: true,
-          coordination: "write_fence" as const,
+          coordination: "write_fence",
         },
       },
       receipt: {
-        operation_id: "restore:native",
-        duplicate,
-        document_id: subscribeRequest.documentId,
+        operation_id: request.mutationId,
+        duplicate: false,
+        document_id: request.documentId,
         generation: 1,
         head_seq: 3,
       },
     });
-    let applyCount = 0;
-    vi.spyOn(projectClient, "documentApply").mockImplementation(async (input) => {
-      projectClient.documentApplies.push(input);
-      applyCount += 1;
-      if (applyCount === 1) {
-        throw new CoreModuleResponseError({
-          code: "revision_conflict",
-          message: "Document restore requires a trusted current-head write fence",
-          retryable: true,
-          recovery: { kind: "none" },
-        });
-      }
-      return committed(applyCount === 3);
-    });
     const bridge = createDesktopDocumentSyncBridge({
       authority: Promise.resolve(rustRuntime(rootClient, projectClient)),
     });
-    const target = new FakeTarget(1);
-    const attacker = new FakeTarget(2);
-    const scope = { kind: "project", projectId: "project:one" } as const;
-    await bridge.subscribe(scope, target, subscribeRequest);
-    await bridge.sync(scope, target, {
-      ...subscribeRequest,
-      stateVector: new Uint8Array(),
-    });
-    const request = {
-      version: 1 as const,
-      mutationId: "restore:native",
-      projectId: scope.projectId,
-      storeEpoch: "epoch:test",
-      documentId: subscribeRequest.documentId,
-      versionId: documentVersionSummary().versionId,
-      generation: 1,
-      expectedHeadSeq: 2,
-      clientSessionId: subscribeRequest.clientSessionId,
-      actor: { kind: "electron_renderer" },
-    };
-
-    const pending = bridge.restoreVersion(request);
-    await vi.waitFor(() => {
-      expect(target.sent.some((delivery) =>
-        typeof delivery.payload === "object"
-        && delivery.payload !== null
-        && "kind" in delivery.payload
-        && delivery.payload.kind === "relocation-lease-prepare"
-      )).toBe(true);
-    });
-    const prepare = target.sent
-      .map((delivery) => delivery.payload)
-      .find((event) =>
-        typeof event === "object"
-        && event !== null
-        && "kind" in event
-        && event.kind === "relocation-lease-prepare"
-      ) as {
-        readonly leaseId: string;
-        readonly documentId: string;
-        readonly clientSessionId: string;
-        readonly storeEpoch: string;
-        readonly generation: number;
-        readonly expectedHeadSeq: number;
-      };
-    const response = {
-      response: "ack" as const,
-      leaseId: prepare.leaseId,
-      documentId: prepare.documentId,
-      clientSessionId: prepare.clientSessionId,
-      storeEpoch: prepare.storeEpoch,
-      generation: prepare.generation,
-      headSeq: prepare.expectedHeadSeq,
-    };
-    await expect(bridge.respondToRelocationLease(
-      scope,
-      attacker,
-      response,
-    )).resolves.toMatchObject({ ok: false, error: { code: "unauthorized" } });
-    await expect(bridge.respondToRelocationLease(
-      scope,
-      target,
-      response,
-    )).resolves.toMatchObject({ ok: true, value: { status: "frozen" } });
-    await expect(pending).resolves.toMatchObject({
-      ok: true,
-      value: { mutationId: request.mutationId, headSeq: 3, duplicate: false },
-    });
-    expect(projectClient.documentApplies.map((input) =>
-      input.intent.kind === "restore_version"
-        ? input.intent.write_fence_prepared
-        : undefined
-    )).toEqual([false, true]);
-    const prepareCount = target.sent
-      .map((delivery) => delivery.payload)
-      .filter((event) =>
-        typeof event === "object"
-        && event !== null
-        && "kind" in event
-        && event.kind === "relocation-lease-prepare"
-      ).length;
-    expect(target.sent.some((delivery) =>
-      typeof delivery.payload === "object"
-      && delivery.payload !== null
-      && "kind" in delivery.payload
-      && delivery.payload.kind === "relocation-lease-release"
-    )).toBe(true);
 
     await expect(bridge.restoreVersion(request)).resolves.toMatchObject({
       ok: true,
-      value: { duplicate: true, headSeq: 3 },
+      value: {
+        mutationId: request.mutationId,
+        baseHeadSeq: 2,
+        headSeq: 3,
+        coordination: "write_fence",
+        duplicate: false,
+      },
     });
-    expect(projectClient.documentApplies).toHaveLength(3);
-    expect(target.sent
-      .map((delivery) => delivery.payload)
-      .filter((event) =>
-        typeof event === "object"
-        && event !== null
-        && "kind" in event
-        && event.kind === "relocation-lease-prepare"
-      )).toHaveLength(prepareCount);
+    expect(projectClient.documentApplies).toHaveLength(1);
+    expect(projectClient.documentApplies[0]?.intent).toMatchObject({
+      kind: "restore_version",
+      document_id: request.documentId,
+      expected_head_seq: 2,
+    });
+    expect(projectClient.documentApplies[0]?.intent).not.toHaveProperty(
+      "write_fence_prepared",
+    );
   });
 
   test("commits a merge-friendly public Document operation without a lease", async () => {
@@ -914,11 +801,10 @@ describe("Desktop Document sync bridge", () => {
     expect(projectClient.documentApplies).toHaveLength(1);
     expect(projectClient.documentApplies[0]?.intent).toMatchObject({
       kind: "apply_operation_batch",
-      write_fence_prepared: false,
     });
   });
 
-  test("coordinates a native Block transfer across every leased Document", async () => {
+  test("commits a native Block transfer without renderer lease acknowledgements", async () => {
     const rootClient = new FakeCoreClient();
     const projectClient = new FakeCoreClient();
     const transferIntent: BlockTransferIntent = {
@@ -933,37 +819,6 @@ describe("Desktop Document sync bridge", () => {
       source: { kind: "page", pageId: "page:source" },
       target: { kind: "page", pageId: "page:target" },
     };
-    const preparation = {
-      source_document_id: "document:source",
-      source_database_id: null,
-      target_document_id: "document:target",
-      target_database_id: null,
-      write_fence: {
-        documents: [{
-          document_id: "document:source",
-          generation: 1,
-          expected_head_seq: 2,
-        }, {
-          document_id: "document:target",
-          generation: 1,
-          expected_head_seq: 5,
-        }],
-        location_revisions: { "block:root": 1 },
-        source_memberships: {},
-      },
-    } as const;
-    const preparedSnapshot = {
-      contract_version: 1 as const,
-      store_epoch: "epoch:test",
-      event_head: 8,
-      value: {
-        kind: "block_transfer_plan" as const,
-        value: { kind: "prepared" as const, preparation },
-      },
-    };
-    projectClient.enqueueRead(preparedSnapshot);
-    projectClient.enqueueRead(preparedSnapshot);
-    projectClient.enqueueRead(preparedSnapshot);
     const transferResult = {
       mode: "move" as const,
       source_root_block_ids: ["block:root"],
@@ -1037,56 +892,7 @@ describe("Desktop Document sync bridge", () => {
       clientSessionId: "renderer:target",
     });
 
-    const pending = bridge.transferBlocks(transferIntent);
-    await vi.waitFor(() => {
-      expect(sourceTarget.sent.some((delivery) =>
-        typeof delivery.payload === "object"
-        && delivery.payload !== null
-        && "kind" in delivery.payload
-        && delivery.payload.kind === "relocation-lease-prepare"
-      )).toBe(true);
-      expect(targetTarget.sent.some((delivery) =>
-        typeof delivery.payload === "object"
-        && delivery.payload !== null
-        && "kind" in delivery.payload
-        && delivery.payload.kind === "relocation-lease-prepare"
-      )).toBe(true);
-    });
-    const acknowledge = async (target: FakeTarget): Promise<void> => {
-      const event = target.sent
-        .map((delivery) => delivery.payload)
-        .find((payload) =>
-          typeof payload === "object"
-          && payload !== null
-          && "kind" in payload
-          && payload.kind === "relocation-lease-prepare"
-        );
-      if (
-        typeof event !== "object"
-        || event === null
-        || !("leaseId" in event)
-        || !("documentId" in event)
-        || !("clientSessionId" in event)
-        || !("storeEpoch" in event)
-        || !("generation" in event)
-        || !("expectedHeadSeq" in event)
-      ) {
-        throw new Error("Expected native Block transfer lease preparation");
-      }
-      await expect(bridge.respondToRelocationLease(scope, target, {
-        response: "ack",
-        leaseId: String(event.leaseId),
-        documentId: String(event.documentId),
-        clientSessionId: String(event.clientSessionId),
-        storeEpoch: String(event.storeEpoch),
-        generation: Number(event.generation),
-        headSeq: Number(event.expectedHeadSeq),
-      })).resolves.toMatchObject({ ok: true, value: { status: "frozen" } });
-    };
-    await acknowledge(sourceTarget);
-    await acknowledge(targetTarget);
-
-    const result = await pending;
+    const result = await bridge.transferBlocks(transferIntent);
     if (!result.ok) throw new Error(JSON.stringify(result.error));
     expect(result).toMatchObject({
       ok: true,
@@ -1095,22 +901,12 @@ describe("Desktop Document sync bridge", () => {
         finalLocationRevisions: { "block:root": 2 },
       },
     });
-    expect(projectClient.reads).toHaveLength(3);
+    expect(projectClient.reads).toHaveLength(0);
     expect(projectClient.applies[0]).toMatchObject({
       operationId: transferIntent.operationId,
       intent: {
         kind: "transfer_blocks",
-        write_fence: {
-          documents: [{
-            document_id: "document:source",
-            expected_head_seq: 2,
-          }, {
-            document_id: "document:target",
-            expected_head_seq: 5,
-          }],
-          location_revisions: { "block:root": 1 },
-          source_memberships: {},
-        },
+        write_fence: null,
       },
     });
     for (const target of [sourceTarget, targetTarget]) {
@@ -1125,11 +921,11 @@ describe("Desktop Document sync bridge", () => {
         && delivery.payload !== null
         && "kind" in delivery.payload
         && delivery.payload.kind === "relocation-lease-release"
-      )).toBe(true);
+      )).toBe(false);
     }
   });
 
-  test("freezes a live Document before a native Agent mutation and fans out its commit", async () => {
+  test("executes a native Agent mutation and fans out its Core Document commit", async () => {
     const rootClient = new FakeCoreClient();
     const projectClient = new FakeCoreClient();
     const bridge = createDesktopDocumentSyncBridge({
@@ -1166,85 +962,30 @@ describe("Desktop Document sync bridge", () => {
         changeLogSeq: 14,
       },
     }));
-    const pending = bridge.coordinateNodexAgentLeasedMutation({
+
+    const result = await bridge.executeNodexAgentMutation({
       projectId: "project:one",
       storeEpoch: "epoch:test",
-      leaseDocuments: [{
-        documentId: "document:agent-target",
-        generation: 2,
-        expectedHeadSeq: 7,
-      }],
       execute,
-      failure: (message, recovery = "none") => ({
+      failure: (message) => ({
         ok: false,
         error: {
-          code: recovery === "get_block_again" ? "conflict" : "internal_error",
+          code: "internal_error",
           message,
           retryable: false,
-          recovery,
+          recovery: "none",
         },
       }),
       operationLabel: "Agent Page duplicate",
       conflictMessage: "Destination changed",
     });
-
-    await vi.waitFor(() => {
-      expect(target.sent.some((delivery) =>
-        typeof delivery.payload === "object"
-        && delivery.payload !== null
-        && "kind" in delivery.payload
-        && delivery.payload.kind === "relocation-lease-prepare"
-      )).toBe(true);
-    });
-    expect(execute).not.toHaveBeenCalled();
-    const prepare = target.sent
-      .map((delivery) => delivery.payload)
-      .find((payload) =>
-        typeof payload === "object"
-        && payload !== null
-        && "kind" in payload
-        && payload.kind === "relocation-lease-prepare"
-      );
-    if (
-      typeof prepare !== "object"
-      || prepare === null
-      || !("leaseId" in prepare)
-      || !("documentId" in prepare)
-      || !("clientSessionId" in prepare)
-      || !("storeEpoch" in prepare)
-      || !("generation" in prepare)
-      || !("expectedHeadSeq" in prepare)
-    ) {
-      throw new Error("Expected native Agent mutation lease preparation");
-    }
-    await expect(bridge.respondToRelocationLease(scope, target, {
-      response: "ack",
-      leaseId: String(prepare.leaseId),
-      documentId: String(prepare.documentId),
-      clientSessionId: String(prepare.clientSessionId),
-      storeEpoch: String(prepare.storeEpoch),
-      generation: Number(prepare.generation),
-      headSeq: Number(prepare.expectedHeadSeq),
-    })).resolves.toMatchObject({ ok: true, value: { status: "frozen" } });
-
-    const result = await pending;
-    if (!result.ok) throw new Error(JSON.stringify(result.error));
-    expect(result).toMatchObject({
-      ok: true,
-      value: { changeLogSeq: 14 },
-    });
+    expect(result).toMatchObject({ ok: true, value: { changeLogSeq: 14 } });
     expect(execute).toHaveBeenCalledOnce();
     expect(target.sent.some((delivery) =>
       typeof delivery.payload === "object"
       && delivery.payload !== null
       && "kind" in delivery.payload
       && delivery.payload.kind === "document-update"
-    )).toBe(true);
-    expect(target.sent.some((delivery) =>
-      typeof delivery.payload === "object"
-      && delivery.payload !== null
-      && "kind" in delivery.payload
-      && delivery.payload.kind === "relocation-lease-release"
     )).toBe(true);
   });
 
@@ -1417,8 +1158,8 @@ describe("Desktop Document sync bridge", () => {
     });
   });
 
-  test("freezes the closing Canvas subscriber before committing idle maintenance", async () => {
-    const projectClient = new CanvasCompactionFenceClient();
+  test("commits Canvas maintenance directly through Core", async () => {
+    const projectClient = new FakeCoreClient();
     const storeEpoch = "epoch:canvas";
     Object.assign(projectClient, {
       handshake: createFakeCoreHandshake({
@@ -1490,113 +1231,16 @@ describe("Desktop Document sync bridge", () => {
     await expect(
       bridge.subscribeCanvasScene(target, canvasSubscribeRequest),
     ).resolves.toEqual({ ok: true, value: { subscribed: true } });
-    const pending = bridge.compactCanvasScene(target, {
+    const result = await bridge.compactCanvasScene(target, {
       ...canvasSubscribeRequest,
       version: CANVAS_SCENE_MAINTENANCE_VERSION,
       mutationId: operationId,
       trigger: "automatic_idle",
     });
-    await vi.waitFor(() => {
-      expect(target.sent.some((delivery) =>
-        typeof delivery.payload === "object"
-        && delivery.payload !== null
-        && "kind" in delivery.payload
-        && delivery.payload.kind === "relocation-lease-prepare"
-      )).toBe(true);
-    });
-    expect(projectClient.compactionAttempts).toBe(1);
-    const prepare = target.sent
-      .map((delivery) => delivery.payload)
-      .find((payload) =>
-        typeof payload === "object"
-        && payload !== null
-        && "kind" in payload
-        && payload.kind === "relocation-lease-prepare"
-      );
-    if (
-      typeof prepare !== "object"
-      || prepare === null
-      || !("leaseId" in prepare)
-      || !("documentId" in prepare)
-      || !("clientSessionId" in prepare)
-      || !("storeEpoch" in prepare)
-      || !("generation" in prepare)
-      || !("expectedHeadSeq" in prepare)
-    ) {
-      throw new Error("Expected Canvas compaction lease preparation");
-    }
-    await expect(bridge.respondToRelocationLease(
-      { kind: "project", projectId: canvasSubscribeRequest.projectId },
-      target,
-      {
-        response: "ack",
-        leaseId: String(prepare.leaseId),
-        documentId: String(prepare.documentId),
-        clientSessionId: String(prepare.clientSessionId),
-        storeEpoch: String(prepare.storeEpoch),
-        generation: Number(prepare.generation),
-        headSeq: Number(prepare.expectedHeadSeq),
-      },
-    )).resolves.toMatchObject({ ok: true, value: { status: "frozen" } });
-    await expect(pending).resolves.toEqual({ ok: true, value: compactionValue });
-    expect(projectClient.compactionAttempts).toBe(2);
+    expect(result).toEqual({ ok: true, value: compactionValue });
     expect(projectClient.documentApplies[0]?.intent).toMatchObject({
       kind: "compact_canvas_tombstones",
-      write_fence_prepared: true,
     });
-    expect(target.sent.some((delivery) =>
-      typeof delivery.payload === "object"
-      && delivery.payload !== null
-      && "kind" in delivery.payload
-      && delivery.payload.kind === "relocation-lease-cancel"
-    )).toBe(true);
-  });
-
-  test("defers Canvas maintenance while another surface is subscribed", async () => {
-    const projectClient = new CanvasCompactionFenceClient();
-    Object.assign(projectClient, {
-      handshake: createFakeCoreHandshake({
-        connectionBinding: "binding:canvas",
-        libraryId: "library:test",
-        profileId: "profile:test",
-        storeEpoch: "epoch:canvas",
-      }),
-    });
-    const bridge = createDesktopDocumentSyncBridge({
-      authority: Promise.resolve(rustRuntime(new FakeCoreClient(), projectClient)),
-    });
-    const targetA = new FakeTarget(21);
-    const targetB = new FakeTarget(22);
-    const requestB = {
-      ...canvasSubscribeRequest,
-      clientSessionId: "renderer:canvas:second",
-    };
-    await expect(
-      bridge.subscribeCanvasScene(targetA, canvasSubscribeRequest),
-    ).resolves.toEqual({ ok: true, value: { subscribed: true } });
-    await expect(
-      bridge.subscribeCanvasScene(targetB, requestB),
-    ).resolves.toEqual({ ok: true, value: { subscribed: true } });
-
-    await expect(bridge.compactCanvasScene(targetA, {
-      ...canvasSubscribeRequest,
-      version: CANVAS_SCENE_MAINTENANCE_VERSION,
-      mutationId: "canvas-maintenance:deferred",
-      trigger: "automatic_idle",
-    })).resolves.toMatchObject({
-      ok: false,
-      error: {
-        code: "write_fence_required",
-        retryable: true,
-      },
-    });
-    expect(projectClient.compactionAttempts).toBe(0);
-    expect([...targetA.sent, ...targetB.sent].some((delivery) =>
-      typeof delivery.payload === "object"
-      && delivery.payload !== null
-      && "kind" in delivery.payload
-      && delivery.payload.kind === "relocation-lease-prepare"
-    )).toBe(false);
   });
 
   test("does not open a late subscription for a destroyed startup target", async () => {

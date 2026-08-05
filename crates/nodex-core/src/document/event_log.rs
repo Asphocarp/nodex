@@ -63,6 +63,8 @@ struct DocumentEventMetadata {
     event_delta: Option<Value>,
     #[serde(default)]
     reason: Option<String>,
+    #[serde(default)]
+    local_commit_id: Option<String>,
 }
 
 pub(crate) fn replay_document_events(
@@ -170,6 +172,7 @@ pub(crate) fn reconstruct_document_event(
     {
         return Err(corrupt("Owned Document event metadata is inconsistent"));
     }
+    let local_commit_id = metadata.local_commit_id.clone();
     let payload = match metadata.kind.as_str() {
         "document_initialized" | "document_updated" => {
             let update_id = metadata
@@ -327,11 +330,12 @@ pub(crate) fn reconstruct_document_event(
         .as_deref()
         .ok_or_else(|| corrupt("Owned Document projection impact is missing"))
         .and_then(decode_projection_impact)?;
+    let operation_id = local_commit_id.or_else(|| row.operation_id.clone());
     Ok(Some(CommittedCoreModuleEvent {
         event_version: CORE_EVENT_VERSION,
         sequence: row.sequence,
         store_epoch: StoreEpoch(row.store_epoch.clone()),
-        operation_id: row.operation_id.clone(),
+        operation_id,
         committed_at: row.committed_at.clone(),
         projection_impact,
         payload: CoreModuleEventPayload::OwnedDocument(payload),

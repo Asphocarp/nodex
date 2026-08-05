@@ -608,7 +608,6 @@ describe("Core Document sync adapter", () => {
         generation: request.generation,
         expected_head_seq: request.expectedHeadSeq,
         actor: request.actor,
-        write_fence_prepared: false,
       },
     }]);
 
@@ -702,7 +701,7 @@ describe("Core Document sync adapter", () => {
       },
     });
 
-    await expect(adapter.applyDocumentMutation(request, true)).resolves.toMatchObject({
+    await expect(adapter.applyDocumentMutation(request)).resolves.toMatchObject({
       ok: true,
       value: {
         mutationKind: "document_operation_batch",
@@ -731,7 +730,6 @@ describe("Core Document sync adapter", () => {
           },
         }],
         actor: request.actor,
-        write_fence_prepared: true,
       },
     }]);
   });

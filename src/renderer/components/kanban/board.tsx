@@ -144,6 +144,7 @@ export function KanbanBoard({
     movePage,
     movePages,
     refresh,
+    refreshAtLeast,
     groupPagination,
     loadMoreGroup,
   } =
@@ -360,9 +361,9 @@ export function KanbanBoard({
         toast.danger(result.error.message);
         return;
       }
-      await refresh();
+      await refreshAtLeast(result.value.changeLogSeq);
     },
-    [databaseView, filteredBoard, projectId, refresh],
+    [databaseView, filteredBoard, projectId, refreshAtLeast],
   );
 
   const performCardDrop = useCallback(async (

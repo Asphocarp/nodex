@@ -172,7 +172,7 @@ import { useTheme } from "@/lib/use-theme";
 import { usePasteResourceSettings } from "@/lib/use-paste-resource-settings";
 import { cn } from "@/lib/utils";
 import { useCommandPaletteThreadItems } from "@/lib/command-palette-chat-search";
-import type { BlockDocumentSurfaceWriteFence } from "@/lib/block-document-surface-runtime";
+import type { BlockDocumentMutationBarrier } from "@/lib/block-document-surface-runtime";
 import {
   createCanvasInHostPage,
   deleteCanvasOwner,
@@ -186,7 +186,6 @@ import {
   resolveCanvasInsertionAfterBlock,
 } from "@/lib/canvas-host-operations";
 import type { PageEditorSession } from "@/lib/page-editor-session-registry";
-import { useBlockDocumentSurfaceWriteFrozen } from "@/lib/use-block-document-surface-write-fence";
 import {
   useCodexPermissionState,
   useDefaultCodexAppServerManager,
@@ -201,15 +200,9 @@ import {
   type NfmEditorSource,
 } from "./nfm-editor-source";
 import {
-  applyNfmEditorWriteFence,
-  prepareNfmEditorForRelocation,
-  type NfmEditorRelocationRuntime,
+  prepareNfmEditorForMutation,
+  type NfmEditorMutationRuntime,
 } from "./nfm-editor-relocation";
-
-interface NfmEditorFocusRuntime extends NfmEditorRelocationRuntime {
-  isFocused?: () => boolean;
-  isWithinEditor?: (element: Element) => boolean;
-}
 
 interface NfmEditorCommonProps {
   contentAccessContext: ContentAccessContext;
@@ -254,7 +247,7 @@ interface NfmEditorCommonProps {
   };
   placeholder?: string;
   className?: string;
-  surfaceWriteFence?: BlockDocumentSurfaceWriteFence;
+  surfaceMutationBarrier?: BlockDocumentMutationBarrier;
   embeddedBoundary?: {
     navigationRef: Ref<NfmEditorBoundaryHandle>;
     onBoundaryArrow: (direction: VerticalArrowDirection) => boolean;
@@ -421,14 +414,13 @@ function NfmEditorInstance({
   headingRail,
   placeholder = "Add a description...",
   className,
-  surfaceWriteFence,
+  surfaceMutationBarrier,
   embeddedBoundary,
   editorSession,
 }: NfmEditorInstanceProps) {
   const executionProjectId = projectIdFromContentAccessContext(
     contentAccessContext,
   );
-  const writeFrozen = useBlockDocumentSurfaceWriteFrozen(surfaceWriteFence);
   const parentBlockReferenceRuntime = useBlockReferenceHostRuntime();
   const { resolved: themeMode } = useTheme();
   const { spellcheck } = useSpellcheck();
@@ -1365,18 +1357,18 @@ function NfmEditorInstance({
   useEffect(() => {
     if (
       !sourcePageContext
-      || !isCanvasHostDocumentRuntime(surfaceWriteFence)
+      || !isCanvasHostDocumentRuntime(surfaceMutationBarrier)
     ) {
       return;
     }
     return registerCanvasHostDocumentRuntime(
       source.clientSessionId,
-      surfaceWriteFence,
+      surfaceMutationBarrier,
     );
   }, [
     source.clientSessionId,
     sourcePageContext,
-    surfaceWriteFence,
+    surfaceMutationBarrier,
   ]);
 
   useImperativeHandle(
@@ -1390,23 +1382,6 @@ function NfmEditorInstance({
     }),
     [editor],
   );
-
-  useEffect(() => {
-    if (!surfaceWriteFence) return;
-    return surfaceWriteFence.registerRelocationPreparer(async () => {
-      const container = containerRef.current;
-      if (!container) return;
-      await prepareNfmEditorForRelocation(
-        editor as unknown as NfmEditorRelocationRuntime,
-        container,
-      );
-    });
-  }, [editor, surfaceWriteFence]);
-
-  useEffect(() => {
-    const runtimeEditor = editor as unknown as NfmEditorFocusRuntime;
-    applyNfmEditorWriteFence(runtimeEditor, writeFrozen);
-  }, [editor, writeFrozen]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -1736,16 +1711,20 @@ function NfmEditorInstance({
           "Moving Blocks between Pages in different Projects is not available yet.",
         );
       }
-      if (!surfaceWriteFence) {
+      if (!surfaceMutationBarrier) {
         throw new Error(
           "The collaborative Page surface changed; reopen it before moving Blocks.",
         );
       }
-      if (surfaceWriteFence.getWriteFrozen()) {
-        throw new Error(
-          "This Page is already completing another Block move.",
-        );
+      const container = containerRef.current;
+      if (!container) {
+        throw new Error("The Page editor is not ready for a Block move.");
       }
+      await prepareNfmEditorForMutation(
+        editor as unknown as NfmEditorMutationRuntime,
+        container,
+      );
+      await surfaceMutationBarrier.prepareLocalMutation();
 
       const preparedTarget = await prepareOwnedBlockDocument(
         targetProjectId,
@@ -1776,10 +1755,11 @@ function NfmEditorInstance({
       if (!result.ok) throw new Error(result.error.message);
     },
     [
+      editor,
       executionProjectId,
       source,
       sourcePageContext,
-      surfaceWriteFence,
+      surfaceMutationBarrier,
     ],
   );
 
@@ -1816,7 +1796,7 @@ function NfmEditorInstance({
         ) {
           throw new Error("Choose another Page in this Project.");
         }
-        if (!isCanvasHostDocumentRuntime(surfaceWriteFence)) {
+        if (!isCanvasHostDocumentRuntime(surfaceMutationBarrier)) {
           throw new Error(
             "The Page Document is not ready to move this Canvas.",
           );
@@ -1833,7 +1813,7 @@ function NfmEditorInstance({
           targetDocumentGeneration: target.value.generation,
           targetDocumentHeadSeq: target.value.headSeq,
           insertion: { kind: "append" },
-          sourceRuntime: surfaceWriteFence,
+          sourceRuntime: surfaceMutationBarrier,
         });
         restoreEditorFocus();
         return;
@@ -1855,7 +1835,7 @@ function NfmEditorInstance({
       sendBlockSelectionToProject,
       executionProjectId,
       sourcePageContext,
-      surfaceWriteFence,
+      surfaceMutationBarrier,
     ],
   );
 
@@ -1974,7 +1954,7 @@ function NfmEditorInstance({
         createOperationId: () => crypto.randomUUID(),
         transfer: (intent: Parameters<typeof transferBlocks>[1]) =>
           transferBlocks(executionProjectId, intent),
-        ...(sourcePageContext && isCanvasHostDocumentRuntime(surfaceWriteFence)
+        ...(sourcePageContext && isCanvasHostDocumentRuntime(surfaceMutationBarrier)
           ? {
               transferCanvas: async ({
                 canvasBlockId,
@@ -1998,7 +1978,7 @@ function NfmEditorInstance({
                     sourceCanvasBlockId: canvasBlockId,
                     hostPageId: targetPageId,
                     insertion,
-                    runtime: surfaceWriteFence,
+                    runtime: surfaceMutationBarrier,
                   });
                   return;
                 }
@@ -2016,7 +1996,7 @@ function NfmEditorInstance({
                   targetPageId,
                   insertion,
                   sourceRuntime,
-                  targetRuntime: surfaceWriteFence,
+                    targetRuntime: surfaceMutationBarrier,
                 });
               },
             }
@@ -2032,7 +2012,7 @@ function NfmEditorInstance({
     source.clientSessionId,
     source.storeEpoch,
     sourcePageContext,
-    surfaceWriteFence,
+    surfaceMutationBarrier,
   ]);
 
   useEditorDragBehaviors({
@@ -2175,7 +2155,7 @@ function NfmEditorInstance({
       if (!sourcePageContext) {
         throw new Error("Canvas can only be added inside a Page.");
       }
-      if (!isCanvasHostDocumentRuntime(surfaceWriteFence)) {
+      if (!isCanvasHostDocumentRuntime(surfaceMutationBarrier)) {
         throw new Error(
           "The Page Document is not ready to create a Canvas.",
         );
@@ -2185,24 +2165,24 @@ function NfmEditorInstance({
         hostPageId: sourcePageContext.pageId,
         replacementBlockId: blockId,
         displayName,
-        runtime: surfaceWriteFence,
+        runtime: surfaceMutationBarrier,
       });
     },
-    [contentAccessContext, sourcePageContext, surfaceWriteFence],
+    [contentAccessContext, sourcePageContext, surfaceMutationBarrier],
   );
 
   const requireCanvasHostRuntime = useCallback(() => {
     if (!sourcePageContext) {
       throw new Error("Canvas can only be changed inside a Page.");
     }
-    if (!isCanvasHostDocumentRuntime(surfaceWriteFence)) {
+    if (!isCanvasHostDocumentRuntime(surfaceMutationBarrier)) {
       throw new Error("The Page Document is not ready for a Canvas change.");
     }
     return {
       hostPageId: sourcePageContext.pageId,
-      runtime: surfaceWriteFence,
+      runtime: surfaceMutationBarrier,
     };
-  }, [sourcePageContext, surfaceWriteFence]);
+  }, [sourcePageContext, surfaceMutationBarrier]);
 
   const duplicateCanvasAfter = useCallback(
     async (canvasBlockId: string) => {
@@ -2316,7 +2296,7 @@ function NfmEditorInstance({
         ...(onOpenPage ? { openPage: onOpenPage } : {}),
         ...(onOpenDatabase ? { openDatabase: onOpenDatabase } : {}),
         ...(onOpenCanvas ? { openCanvas: onOpenCanvas } : {}),
-        ...(sourcePageContext && isCanvasHostDocumentRuntime(surfaceWriteFence)
+        ...(sourcePageContext && isCanvasHostDocumentRuntime(surfaceMutationBarrier)
           ? {
               createCanvasAtEmptyParagraph,
               deleteCanvas,
@@ -2340,7 +2320,7 @@ function NfmEditorInstance({
       parentBlockReferenceRuntime?.ancestorDocumentOwnerBlockIds,
       sourcePageContext,
       source.clientSessionId,
-      surfaceWriteFence,
+      surfaceMutationBarrier,
       createCanvasAtEmptyParagraph,
       deleteCanvas,
       duplicateCanvasAfter,
@@ -2565,7 +2545,7 @@ function NfmEditorInstance({
                     onEditorViewUnmount={() => {
                       editorSession?.captureSelection(editor);
                     }}
-                    editable={!writeFrozen}
+                    editable
                     onChange={handleChange}
                     theme={themeMode}
                     formattingToolbar={false}
@@ -2574,9 +2554,6 @@ function NfmEditorInstance({
                     sideMenu={false}
                     tableHandles={false}
                     data-theming-css-variables-demo
-                    data-relocation-write-frozen={
-                      writeFrozen ? "true" : "false"
-                    }
                   >
                     <NfmSideMenuOpenProvider>
                       <NfmSideMenuShortcutController />

@@ -3,7 +3,6 @@ import { EventEmitter } from "node:events";
 import * as Y from "yjs";
 import type {
   DocumentAwarenessPublishRequest,
-  DocumentRelocationLeaseResponseRequest,
   DocumentSyncApplyAck,
   DocumentSyncApplyRequest,
   DocumentSyncCommandResult,
@@ -73,19 +72,6 @@ class MemoryDurableBackend {
     );
   };
 
-  lookupCommittedRelocation = async () => ({
-    ok: true as const,
-    value: null,
-  });
-
-  prepareRelocationCommand = async () => {
-    throw new Error("Relocation is not exercised by this sync transport test");
-  };
-
-  relocateBlocks = async () => {
-    throw new Error("Relocation is not exercised by this sync transport test");
-  };
-
   destroy(): void {
     this.document.destroy();
   }
@@ -98,7 +84,6 @@ type MemoryRealtimePort = Pick<
   | "sync"
   | "applyUpdate"
   | "publishAwareness"
-  | "respondToRelocationLease"
   | "subscribeCanvasScene"
   | "syncCanvasScene"
   | "applyCanvasSceneMutation"
@@ -181,17 +166,6 @@ class MemoryDocumentRealtime implements MemoryRealtimePort {
     }
     return success({ accepted: true });
   };
-
-  respondToRelocationLease: MemoryRealtimePort["respondToRelocationLease"] = async (
-    _scope,
-    _target,
-    request: DocumentRelocationLeaseResponseRequest,
-  ) => success({
-    accepted: true,
-    leaseId: request.leaseId,
-    documentId: request.documentId,
-    status: request.response === "ack" ? "frozen" : "cancelled",
-  });
 
   subscribeCanvasScene: MemoryRealtimePort["subscribeCanvasScene"] = async () => ({
     ok: false,

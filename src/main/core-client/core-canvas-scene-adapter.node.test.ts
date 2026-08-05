@@ -402,13 +402,12 @@ describe("Core Canvas scene adapter", () => {
       },
     });
     await expect(
-      adapter.compact(request, eligibility.value, true),
+      adapter.compact(request, eligibility.value),
     ).resolves.toEqual({ ok: true, value: compactionResult });
     expect(client.documentApplies[0]?.intent).toMatchObject({
       kind: "compact_canvas_tombstones",
       generation: 1,
       expected_head_seq: 9,
-      write_fence_prepared: true,
     });
 
     client.emit({

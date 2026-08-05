@@ -6,10 +6,17 @@ export const LIBRARY_PAGE_DETAIL_IPC_CHANNEL =
 export interface LibraryPageDetailIpcDependencies {
   readonly registerHandle: (
     channel: typeof LIBRARY_PAGE_DETAIL_IPC_CHANNEL,
-    listener: (event: unknown, pageId: string) => Promise<LibraryPageDetailResult>,
+    listener: (
+      event: unknown,
+      pageId: string,
+      minimumCommitSeq?: number,
+    ) => Promise<LibraryPageDetailResult>,
   ) => void;
   readonly isTrustedEvent: (event: unknown) => boolean;
-  readonly read: (pageId: string) => Promise<LibraryPageDetailResult>;
+  readonly read: (
+    pageId: string,
+    minimumCommitSeq?: number,
+  ) => Promise<LibraryPageDetailResult>;
 }
 
 export const registerLibraryPageDetailIpcHandler = (
@@ -17,7 +24,7 @@ export const registerLibraryPageDetailIpcHandler = (
 ): void => {
   dependencies.registerHandle(
     LIBRARY_PAGE_DETAIL_IPC_CHANNEL,
-    async (event, pageId) => {
+    async (event, pageId, minimumCommitSeq) => {
       if (!dependencies.isTrustedEvent(event)) {
         return {
           ok: false,
@@ -29,7 +36,7 @@ export const registerLibraryPageDetailIpcHandler = (
         };
       }
       try {
-        return await dependencies.read(pageId);
+        return await dependencies.read(pageId, minimumCommitSeq);
       } catch (error) {
         return {
           ok: false,

@@ -97,7 +97,13 @@ export class ProjectionInvalidationRouter {
     for (const state of this.#scopes.values()) {
       waits.push(this.#enqueue(state, async () => {
         if (state.scope.kind === "library") {
-          this.#publishChanged(state, cursor, impact);
+          this.#publishChanged(
+            state,
+            cursor,
+            impact,
+            envelope.event.operation_id,
+            envelope.event.committed_at,
+          );
           return;
         }
         try {
@@ -106,7 +112,13 @@ export class ProjectionInvalidationRouter {
             impact,
           );
           if (filtered.kind === "none") return;
-          this.#publishChanged(state, cursor, filtered);
+          this.#publishChanged(
+            state,
+            cursor,
+            filtered,
+            envelope.event.operation_id,
+            envelope.event.committed_at,
+          );
         } catch (error) {
           this.#onAuthorizationError?.(error, state.scope);
           this.#publishResync(
@@ -153,6 +165,8 @@ export class ProjectionInvalidationRouter {
     state: ScopeState,
     cursor: ProjectionCursor,
     impact: ProjectionImpact,
+    operationId?: string | null,
+    committedAt?: string,
   ): void {
     this.#publish(state, {
       version: 1,
@@ -160,6 +174,8 @@ export class ProjectionInvalidationRouter {
       scope: state.scope,
       cursor,
       impact,
+      ...(operationId === undefined ? {} : { operationId }),
+      ...(committedAt === undefined ? {} : { committedAt }),
     });
   }
 

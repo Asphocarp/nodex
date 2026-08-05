@@ -4,7 +4,7 @@ import type {
   DataSourceId,
 } from "./database-identities";
 import type { DatabaseViewKind } from "./database-kernel";
-import type { RelocationDocumentCommit } from "./block-documents/contracts";
+import type { DocumentCommitRef } from "./block-documents/contracts";
 import type { ProjectAppearance } from "./project-appearance";
 import type { BlockPropertyFieldMutationV2 } from "./block-property-mutations-v2";
 import type { DatabaseApplyOperationV2 } from "./database-module-v2";
@@ -455,7 +455,7 @@ export interface LibraryCanvasMutationResult {
   readonly sourceCanvasId: string | null;
   readonly locationRevision: number;
   readonly metadataRevision: number;
-  readonly documentCommits: readonly RelocationDocumentCommit[];
+  readonly documentCommits: readonly DocumentCommitRef[];
 }
 
 export interface LibraryModuleApplyReceipt {

@@ -80,11 +80,15 @@ export interface DatabaseViewWindowInput {
   readonly after?: string;
   readonly first?: number;
   readonly groupScope?: DatabaseViewGroupScopeInput;
+  /** Do not return a projection snapshot older than this local commit. */
+  readonly minimumCommitSeq?: number;
 }
 
 export interface DatabaseViewGroupsInput {
   readonly databaseViewId?: string;
   readonly databaseId?: string;
+  /** Do not return a projection snapshot older than this local commit. */
+  readonly minimumCommitSeq?: number;
 }
 
 export interface DatabaseViewGroupSummarySnapshot {

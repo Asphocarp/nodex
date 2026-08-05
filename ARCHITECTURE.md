@@ -159,10 +159,10 @@ session while opening, acknowledges it only after the authenticated Core stream
 is physically open, and serializes replacement behind predecessor teardown. One
 logical subscription supervises retryable physical UDS interruptions from the
 last delivered cursor; dependent commands wait for its current connection,
-and a typed lost-lease recovery invalidates a stale physical stream before one
-safe command retry. A fatal stream end atomically releases the renderer binding and
-relocation-lease participant. Session-qualified connection events prevent a
-retiring provider from changing its replacement's state. Library-scoped live Page
+and a typed stream recovery invalidates a stale physical stream before one
+safe/idempotent command retry. A fatal stream end atomically releases the
+renderer binding. Session-qualified connection events prevent a retiring
+provider from changing its replacement's state. Library-scoped live Page
 Document sync uses the root Core client and an explicit Library transport scope that the
 server accepts only from trusted local Electron, native CLI, and test Adapters;
 Core resolves the Page's local Library identity and read/write lifecycle itself
@@ -173,16 +173,16 @@ execution context cannot disable local-user Page, Database, Canvas, or property
 mutations.
 Project-authorized Canvas scene subscribe, full sync, and field/element mutation use the
 same supervised bridge and exact-target lifecycle. Canvas and Yjs
-share one client-session ownership fence, while durable Canvas events carry the
-actual pre-commit authority head so replayed scene deltas retain their causal
-boundary even when a stale non-conflicting intent merges. Canvas tombstone
-compaction is invisible idle maintenance: Store metadata decides eligibility in
-O(1), and the last closing surface may proceed only when its outbox is empty and
-the Host proves it is the Document's sole subscriber. The common write fence
-then pins the complete old scene and atomically starts the next generation at
-head one. Offline, pending, concurrent-surface, and fence failures defer without
-blocking close. The generation event makes old outbox intent terminal rather
-than replaying it into the compacted scene.
+share one client-session identity, while durable Canvas events carry the actual
+pre-commit authority head so replayed scene deltas retain their causal boundary
+even when a stale non-conflicting intent merges. Canvas tombstone compaction is
+invisible idle maintenance: Store metadata decides eligibility in O(1), and the
+last closing surface may proceed only when its outbox is empty and Core can
+validate the current Document head. Core commits the safety revision and the
+next generation atomically; the Host only forwards the resulting boundary to
+open surfaces. Offline, concurrent-surface, and stale-generation failures defer
+without blocking close. The generation event makes old outbox intent terminal
+rather than replaying it into the compacted scene.
 Canvas collaborator presence branches at the Electron Host instead of entering
 Core. A bounded in-memory hub accepts publications only from an exact active
 Canvas target at its synchronized generation, derives collaborator identity
@@ -214,39 +214,36 @@ summary and distinguishes operation replay from an already-existing identical
 version. Pagination carries the full `(baseHeadSeq, createdAt, versionId)`
 cursor and Core verifies all three coordinates against the retained row before
 reading the next page. The Adapter validates every returned summary against its
-Project, Document, metadata, and materialization boundary. Forward restore uses
-a receipt-first two-phase command: Core returns an existing durable mutation
-without reacquiring a lease, but a first execution fails with
-`write_fence_required`. The native bridge then asks every exact Yjs or Canvas
-subscription for a bounded flush/freeze ACK, rejects a resolved head that moved
-past the request, and only then resubmits with trusted write-fence evidence.
-Core commits the forward update, before/after restore checkpoints, semantic
-Block effect, change event, canonical timestamp, and exact-retry receipt in one
-writer transaction. Release carries the committed head back to each frozen
-provider. Renderer/connection audit identity and the host lease are excluded
-from semantic retry identity, so a reconnect or later head cannot hide an
-already-committed receipt.
+Project, Document, metadata, and materialization boundary. Forward restore
+validates the current generation/head and commits the forward update,
+before/after restore checkpoints, semantic Block effect, change event, canonical
+timestamp, and exact-retry receipt in one writer transaction. Mounted surfaces
+first flush their local durable updates through a causal barrier when the
+command consumes their content, but they are never frozen and do not supply
+authority proofs. The receipt carries the committed Document boundary back to
+the owning bridge; renderer/connection identity is excluded from semantic
+retry identity, so a reconnect or later head cannot hide an already-committed
+receipt.
 Public stable-ID Document batches and whole-NFM replacements use the same native
 boundary. The Adapter translates the established renderer contract into typed
 Core operations, including an explicit absent/value wrapper for nullable Block
 content. Core prepares the relative Yrs update at the exact generation/head,
-derives the semantic Block effect, and requests a host fence only when the
-operation invalidates existing Yjs structs; merge-friendly insertion commits
-without freezing providers. Every committed public operation records its
-attributed `operation` checkpoint and receipt with the update/event in the same
-transaction. Mutation identity excludes the renewable connection, actor, and
-fence proof so reconnect replay returns the original audit/effect rather than
-executing again.
+derives the semantic Block effect, and commits the update, event, projection
+impact, and receipt in the same transaction. The renderer may use a
+surface-scoped causal barrier to flush local Yjs work before a structural
+command, but mutation authority remains Core's generation/head CAS. Mutation
+identity excludes the renewable connection and actor, so reconnect replay
+returns the original audit/effect rather than executing again.
 Public ordinary-Block move/copy between Page-owned or directly addressed Yjs
 Documents also uses this native boundary. Exact physical ownership is sufficient;
 otherwise Core authorizes Page-owned Documents through the requesting Project's
 canonical recursive Page/Database grant. Copy requires source read and target
 write authority, while Move requires write authority on both sides. The Library
-Module first returns the exact sorted Document lease closure and root location
-revisions without mutating, then exact-compares the refreshed host write fence
-before applying portable Yrs subtree updates, relocating or renewing registry
-identities, and committing Document updates, structural evidence, operation
-checkpoints, the Library event, and one reconnect-safe transfer receipt atomically.
+Module resolves the exact source and target Document heads inside Core, applies
+portable Yrs subtree updates, relocates or renews registry identities, and
+commits Document updates, structural evidence, operation checkpoints, the
+Library event, projection impact, and one reconnect-safe transfer receipt
+atomically.
 A cross-storage Move rehomes the complete ordinary-Block registry closure to the
 target Document's compatibility Project and records general mutation evidence;
 same-storage movement retains the stricter relocation ledger. Same-Document move
@@ -257,7 +254,7 @@ Document, and commits the source edit plus Page genesis under one Library writer
 transaction. Library placement creates both Library/Project ranks; Data Source
 placement reuses the Database Module's membership, built-in value, grouped-View
 position, and projection kernels and reports the affected Database. These
-branches lease only the existing source Document because the target Document is
+branches touch only the existing source Document because the target Document is
 created inside the transaction. Existing Page Move retains identity and its
 recursively owned Documents while changing only the canonical parent and any
 containing Page shells. Page Copy clones the complete
@@ -1114,7 +1111,7 @@ or the Electron client from reaching the local store.
 - `ipc-handlers.ts`: exposes Core operations and Host-owned capabilities through typed IPC, including bounded managed-asset writes/reads/previews and dictation. Privileged filesystem/asset/dictation channels validate that the sender is the top-level frame of an owned app window. Project remove/restore delegates to `project-lifecycle-service.ts`, which owns runtime preflight and post-commit Browser cleanup. Backup IPC is registered through `store-administration-ipc-handlers.ts` against the same authority-selected port used by the host scheduler; a native restore schedules a controlled Electron relaunch after its receipt returns.
 - `core-client/*` and `data-authority.ts`: the only production data-authority Adapter. They launch or reuse the detached Core, authenticate the UDS connection, bind Host/Project/Library identity, map the six generated Module contracts, and fail closed when Core is unavailable. Electron owns no SQLite connection, Y.Doc cache, schema repair, or semantic writer.
 - `library-module-ipc.ts` and `document-sync-transport.ts`: trusted Electron Adapters over the Core Library and Document ports. A successful subscription response proves the first exact Core stream is open. Retryable physical interruptions reconnect under the same logical subscription and cursor while commands wait; terminal failure or connection teardown closes only the exact native subscription and releases its binding. Durable Yjs/Canvas events preserve their Core head/epoch, and Awareness stays ephemeral.
-- `block-transfer-coordinator.ts`: a Host-only flush/freeze coordinator for mounted editor surfaces. It contributes bounded presentation evidence to a prepared Core command but never owns a Document transaction or persistence state.
+- `core-client/block-transfer-adapter.ts` and `desktop-document-sync-bridge.ts`: the typed BlockTransfer boundary. They submit one semantic Core mutation, fan out receipt-carried Document commit refs to matching providers, and leave ownership, membership, projection, and retry authority in Core; no Host flush/freeze coordinator exists.
 - `block-transfer-ipc.ts`: trusted Adapter for logical same-Library parent Move/Copy. It replaces caller audit/scope identity, evaluates Project access to source and target, and returns binary Document commits through structured-clone IPC.
 - `additional-document-command-ipc.ts`: trusted renderer boundary for Additional Document commands. It rejects unavailable capabilities, validates scope, replaces caller attribution with trusted host identity, and preserves typed outcomes.
 - `ipc-safe-send.ts`: centralized one-way renderer notification helper for main-process IPC fanout. It checks `BrowserWindow`/`webContents` lifetime before sending, treats disposed-frame races as debug-only lifecycle skips, and rate-limits unexpected send warnings.
@@ -1328,9 +1325,10 @@ Workbench reopen flow:
 - Page lifecycle/import boundaries must pass shared Page limits; generic property
   and Document commands validate their own bounded typed contracts.
 - Block/Page-domain writes must enter the owning Rust Core Module. Electron may
-  bind trusted identity, coordinate mounted-surface flush/freeze, and map typed
-  results, but it must not open SQLite, reconstruct Yjs authority, or implement
-  a fallback transaction. Project removal archives execution authority and
+  bind trusted identity, request a surface-scoped causal flush when a command
+  consumes local editor updates, and map typed results, but it must not open
+  SQLite, reconstruct Yjs authority, or implement a fallback transaction.
+  Project removal archives execution authority and
   revokes runtime access only; Library content remains.
 - Agent-facing Project reads capture effective grant scope, content, and
   pagination authority in one Core read snapshot. Search access and

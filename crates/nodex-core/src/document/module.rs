@@ -531,7 +531,6 @@ impl OwnedDocumentModule {
                 expected_head_seq,
                 operations,
                 actor,
-                write_fence_prepared,
             } => self.apply_operation_batch(
                 context,
                 request.operation_id,
@@ -541,7 +540,6 @@ impl OwnedDocumentModule {
                 expected_head_seq,
                 operations,
                 actor,
-                write_fence_prepared,
             ),
             OwnedDocumentIntent::ReplaceFromNfm {
                 document_id,
@@ -550,7 +548,6 @@ impl OwnedDocumentModule {
                 nfm,
                 rich_title,
                 actor,
-                write_fence_prepared,
             } => self.replace_from_nfm(
                 context,
                 request.operation_id,
@@ -561,7 +558,6 @@ impl OwnedDocumentModule {
                 nfm,
                 rich_title,
                 actor,
-                write_fence_prepared,
             ),
             OwnedDocumentIntent::ExecutePreparedAgentSemanticMutation {
                 authorization,
@@ -596,7 +592,6 @@ impl OwnedDocumentModule {
                 generation,
                 expected_head_seq,
                 actor,
-                write_fence_prepared,
             } => self.compact_canvas_tombstones(
                 context,
                 request.operation_id,
@@ -605,7 +600,6 @@ impl OwnedDocumentModule {
                 generation,
                 expected_head_seq,
                 actor,
-                write_fence_prepared,
             ),
             OwnedDocumentIntent::CreateCheckpoint {
                 document_id,
@@ -637,7 +631,6 @@ impl OwnedDocumentModule {
                 generation,
                 expected_head_seq,
                 actor,
-                write_fence_prepared,
             } => self.restore_version(
                 context,
                 request.operation_id,
@@ -647,7 +640,6 @@ impl OwnedDocumentModule {
                 generation,
                 expected_head_seq,
                 actor,
-                write_fence_prepared,
             ),
             OwnedDocumentIntent::ApplyOwnerCommand { command } => self.apply_owner_command(
                 context,
@@ -1570,6 +1562,7 @@ impl OwnedDocumentModule {
                                     state_vector: &state_vector,
                                     store_epoch: &store_epoch,
                                     operation_id: &operation_id,
+                                    local_commit_id: None,
                                     event_kind: "document_updated",
                                     write_fence_block_ids: &prepared.write_fence_block_ids,
                                     title_write_fence_required: prepared.title_write_fence_required,
@@ -1822,7 +1815,6 @@ impl OwnedDocumentModule {
         generation: i64,
         expected_head_seq: i64,
         actor: Value,
-        write_fence_prepared: bool,
     ) -> Result<OwnedDocumentApplyOutcome, CoreError> {
         validate_document_actor(&actor)?;
         let fingerprint = serde_json::to_vec(&CanvasCompactionFingerprint {
@@ -1905,9 +1897,6 @@ impl OwnedDocumentModule {
                     ));
                 }
                 let prepared = prepare_canvas_compaction(&transaction, &authority)?;
-                if prepared.stats.tombstone_count > 0 {
-                    require_restore_write_fence(write_fence_prepared)?;
-                }
                 let now = sqlite_now(&transaction)?;
                 let changed = prepared.stats.tombstone_count > 0;
                 let (next_authority, checkpoint_version_id) = if changed {
@@ -2324,7 +2313,6 @@ impl OwnedDocumentModule {
         expected_head_seq: i64,
         contract_operations: Vec<ContractDocumentBlockOperation>,
         actor: Value,
-        write_fence_prepared: bool,
     ) -> Result<OwnedDocumentApplyOutcome, CoreError> {
         validate_document_actor(&actor)?;
         let fingerprint = serde_json::to_vec(&(
@@ -2387,7 +2375,6 @@ impl OwnedDocumentModule {
                     authority,
                     &mutation_effect.created_block_ids,
                 )?;
-                require_document_write_fence(mutation_effect.coordination, write_fence_prepared)?;
                 Ok(PreparedUpdate::Apply {
                     base_head_seq: authority.head.head_seq,
                     update_id,
@@ -2420,7 +2407,6 @@ impl OwnedDocumentModule {
         nfm: String,
         contract_rich_title: Option<Vec<Value>>,
         actor: Value,
-        write_fence_prepared: bool,
     ) -> Result<OwnedDocumentApplyOutcome, CoreError> {
         validate_document_actor(&actor)?;
         let fingerprint = serde_json::to_vec(&(
@@ -2490,7 +2476,6 @@ impl OwnedDocumentModule {
                     authority,
                     &mutation_effect.created_block_ids,
                 )?;
-                require_document_write_fence(mutation_effect.coordination, write_fence_prepared)?;
                 Ok(PreparedUpdate::Apply {
                     base_head_seq: authority.head.head_seq,
                     update_id,
@@ -2684,7 +2669,6 @@ impl OwnedDocumentModule {
         generation: i64,
         expected_head_seq: i64,
         actor: Value,
-        write_fence_prepared: bool,
     ) -> Result<OwnedDocumentApplyOutcome, CoreError> {
         validate_document_actor(&actor)?;
         let sync_engine = self
@@ -2705,7 +2689,6 @@ impl OwnedDocumentModule {
                 generation,
                 expected_head_seq,
                 actor,
-                write_fence_prepared,
             ),
             DocumentSyncEngine::CanvasScene => self.restore_canvas_version(
                 context,
@@ -2716,7 +2699,6 @@ impl OwnedDocumentModule {
                 generation,
                 expected_head_seq,
                 actor,
-                write_fence_prepared,
             ),
         }
     }
@@ -2732,7 +2714,6 @@ impl OwnedDocumentModule {
         generation: i64,
         expected_head_seq: i64,
         actor: Value,
-        write_fence_prepared: bool,
     ) -> Result<OwnedDocumentApplyOutcome, CoreError> {
         let fingerprint = serde_json::to_vec(&(
             &context.profile_id,
@@ -2771,7 +2752,6 @@ impl OwnedDocumentModule {
             },
             move |connection, authority, engine, materialization, _store_epoch| {
                 assert_document_head(authority, generation, expected_head_seq)?;
-                require_restore_write_fence(write_fence_prepared)?;
                 let Some(prepared) =
                     prepare_version_restore(connection, authority, engine, &version_id)?
                 else {
@@ -2830,7 +2810,6 @@ impl OwnedDocumentModule {
         generation: i64,
         expected_head_seq: i64,
         actor: Value,
-        write_fence_prepared: bool,
     ) -> Result<OwnedDocumentApplyOutcome, CoreError> {
         let fingerprint = serde_json::to_vec(&(
             &context.profile_id,
@@ -2894,7 +2873,6 @@ impl OwnedDocumentModule {
                     DocumentAccessKind::Write,
                 )?;
                 assert_document_head(&authority, generation, expected_head_seq)?;
-                require_restore_write_fence(write_fence_prepared)?;
                 let loaded = load_canvas_scene(&transaction, &authority)?;
                 let version = get_document_version(&transaction, &authority, &version_id)?
                     .ok_or_else(|| not_found("Canvas Document version was not found"))?;
@@ -3326,6 +3304,7 @@ impl OwnedDocumentModule {
                         state_vector: &state_vector,
                         store_epoch: &store_epoch,
                         operation_id: &job.operation_id,
+                        local_commit_id: None,
                         event_kind: match job.publication {
                             UpdatePublication::Updated => "document_updated",
                             UpdatePublication::Invalidated(
@@ -3752,24 +3731,6 @@ fn validate_document_actor(actor: &Value) -> Result<(), CoreError> {
     Err(invalid(
         "Document mutation actor must be a bounded portable object",
     ))
-}
-
-fn require_document_write_fence(
-    coordination: DocumentMutationCoordination,
-    prepared: bool,
-) -> Result<(), StoreError> {
-    if coordination == DocumentMutationCoordination::MergeFriendly || prepared {
-        return Ok(());
-    }
-    Err(StoreError::new(
-        StoreErrorCode::RevisionConflict,
-        "Document mutation requires a trusted current-head write fence",
-        true,
-    ))
-}
-
-fn require_restore_write_fence(prepared: bool) -> Result<(), StoreError> {
-    require_document_write_fence(DocumentMutationCoordination::WriteFence, prepared)
 }
 
 fn restore_checkpoint_actor(
@@ -6456,7 +6417,6 @@ mod tests {
                         generation: 1,
                         expected_head_seq: 5,
                         actor: json!({ "kind": "test" }),
-                        write_fence_prepared: true,
                     },
                 },
             )
@@ -6731,7 +6691,7 @@ mod tests {
             "maintenance eligibility must read only persisted Canvas counters"
         );
 
-        let mut request = ModuleApplyRequest {
+        let request = ModuleApplyRequest {
             contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
             operation_id: "canvas:compact:apply".to_owned(),
             store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
@@ -6740,22 +6700,8 @@ mod tests {
                 generation: 1,
                 expected_head_seq: 2,
                 actor: json!({ "kind": "test" }),
-                write_fence_prepared: false,
             },
         };
-        let unfenced = seeded
-            .module
-            .apply(&context(), request.clone())
-            .expect_err("Canvas compaction must freeze mounted writers");
-        assert_eq!(unfenced.code, CoreErrorCode::RevisionConflict);
-        let OwnedDocumentIntent::CompactCanvasTombstones {
-            write_fence_prepared,
-            ..
-        } = &mut request.intent
-        else {
-            panic!("expected Canvas compaction request")
-        };
-        *write_fence_prepared = true;
         let compacted = seeded
             .module
             .apply(&context(), request.clone())
@@ -6857,7 +6803,6 @@ mod tests {
                         generation: 2,
                         expected_head_seq: 1,
                         actor: json!({ "kind": "test" }),
-                        write_fence_prepared: true,
                     },
                 },
             )
@@ -6883,7 +6828,6 @@ mod tests {
                         generation: 1,
                         expected_head_seq: 2,
                         actor: json!({ "kind": "test" }),
-                        write_fence_prepared: true,
                     },
                 },
             )
@@ -8377,23 +8321,8 @@ mod tests {
                 generation: 1,
                 expected_head_seq: 2,
                 actor: json!({ "kind": "test" }),
-                write_fence_prepared: true,
             },
         };
-        let mut unfenced_request = restore_request.clone();
-        let OwnedDocumentIntent::RestoreVersion {
-            write_fence_prepared,
-            ..
-        } = &mut unfenced_request.intent
-        else {
-            unreachable!()
-        };
-        *write_fence_prepared = false;
-        let unfenced = seeded
-            .module
-            .apply(&context(), unfenced_request)
-            .expect_err("a first restore requires host write-fence proof");
-        assert_eq!(unfenced.code, CoreErrorCode::RevisionConflict);
         let restored = seeded
             .module
             .apply(&context(), restore_request.clone())
@@ -8435,14 +8364,6 @@ mod tests {
             unreachable!()
         };
         *actor = json!({ "kind": "replacement-audit-identity" });
-        let OwnedDocumentIntent::RestoreVersion {
-            write_fence_prepared,
-            ..
-        } = &mut replay_request.intent
-        else {
-            unreachable!()
-        };
-        *write_fence_prepared = false;
         let replayed = seeded
             .module
             .apply(&context_for("renderer-session:reconnected"), replay_request)
@@ -8467,7 +8388,6 @@ mod tests {
                         generation: 1,
                         expected_head_seq: 3,
                         actor: json!({ "kind": "test" }),
-                        write_fence_prepared: true,
                     },
                 },
             )
@@ -8540,7 +8460,6 @@ mod tests {
                     before_block_id: None,
                 }],
                 actor: json!({ "kind": "electron_renderer", "clientId": "renderer:test" }),
-                write_fence_prepared: false,
             },
         };
         let inserted = seeded
@@ -8585,28 +8504,12 @@ mod tests {
                     },
                 }],
                 actor: json!({ "kind": "electron_renderer", "clientId": "renderer:test" }),
-                write_fence_prepared: false,
             },
         };
-        let unfenced = seeded
-            .module
-            .apply(&context(), update_request.clone())
-            .expect_err("content replacement requires a fence");
-        assert_eq!(unfenced.code, CoreErrorCode::RevisionConflict);
-
-        let mut fenced_update = update_request.clone();
-        let OwnedDocumentIntent::ApplyOperationBatch {
-            write_fence_prepared,
-            ..
-        } = &mut fenced_update.intent
-        else {
-            unreachable!()
-        };
-        *write_fence_prepared = true;
         let updated = seeded
             .module
-            .apply(&context(), fenced_update)
-            .expect("fenced content replacement");
+            .apply(&context(), update_request.clone())
+            .expect("content replacement at the exact head");
         let update_effect = updated
             .committed
             .value
@@ -8664,27 +8567,12 @@ mod tests {
                     "styles": {},
                 })]),
                 actor: json!({ "kind": "electron_renderer", "clientId": "renderer:test" }),
-                write_fence_prepared: false,
             },
         };
-        let unfenced_nfm = seeded
-            .module
-            .apply(&context(), nfm_request.clone())
-            .expect_err("whole-NFM replacement requires a fence");
-        assert_eq!(unfenced_nfm.code, CoreErrorCode::RevisionConflict);
-        let mut fenced_nfm = nfm_request;
-        let OwnedDocumentIntent::ReplaceFromNfm {
-            write_fence_prepared,
-            ..
-        } = &mut fenced_nfm.intent
-        else {
-            unreachable!()
-        };
-        *write_fence_prepared = true;
         let replaced = seeded
             .module
-            .apply(&context(), fenced_nfm)
-            .expect("fenced whole-NFM replacement");
+            .apply(&context(), nfm_request)
+            .expect("whole-NFM replacement at the exact head");
         let replace_effect = replaced
             .committed
             .value
@@ -8753,7 +8641,6 @@ mod tests {
                             before_block_id: None,
                         }],
                         actor: json!({ "kind": "test" }),
-                        write_fence_prepared: false,
                     },
                 },
             )
@@ -8774,7 +8661,6 @@ mod tests {
                             block_id: original_block_id.clone(),
                         }],
                         actor: json!({ "kind": "test" }),
-                        write_fence_prepared: true,
                     },
                 },
             )
@@ -8797,7 +8683,6 @@ mod tests {
                             before_block_id: None,
                         }],
                         actor: json!({ "kind": "test" }),
-                        write_fence_prepared: false,
                     },
                 },
             )
@@ -9647,7 +9532,6 @@ mod tests {
                             },
                         }],
                         actor: json!({ "kind": "electron_renderer" }),
-                        write_fence_prepared: true,
                     },
                 },
             )

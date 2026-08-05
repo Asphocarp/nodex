@@ -67,6 +67,7 @@ pub(crate) struct PersistYjsCommit<'a> {
     pub state_vector: &'a [u8],
     pub store_epoch: &'a str,
     pub operation_id: &'a str,
+    pub local_commit_id: Option<&'a str>,
     pub event_kind: &'a str,
     pub write_fence_block_ids: &'a [String],
     pub title_write_fence_required: bool,
@@ -368,6 +369,7 @@ pub(crate) fn persist_yjs_commit(
         "updateId": input.update_id,
         "updateHash": update_hash,
         "updateByteLength": input.update.len(),
+        "localCommitId": input.local_commit_id,
     });
     let page_impact = input.authority.page_impact();
     let projection_impact = impact_for_page_document(

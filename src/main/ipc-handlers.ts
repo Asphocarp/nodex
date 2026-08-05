@@ -123,10 +123,6 @@ import { captureMainException } from "./observability/sentry-main";
 import { getLogger } from "./logging/logger";
 import type { IpcApi, IpcEvents } from "../shared/ipc-api";
 import type {
-  DocumentRelocationLeaseResponseRequest,
-  ProjectScopedDocumentRelocationLeaseResponseRequest,
-} from "../shared/block-documents/document-sync";
-import type {
   WindowSessionBootstrap,
   WindowSessionBounds,
   WindowSessionNewWindowRequest,
@@ -655,28 +651,6 @@ const omitProjectScope = <Request extends { readonly projectId: string }>(
   const { projectId, ...unscoped } = request;
   void projectId;
   return unscoped;
-};
-
-const omitRelocationLeaseProjectScope = (
-  request: ProjectScopedDocumentRelocationLeaseResponseRequest,
-): DocumentRelocationLeaseResponseRequest => {
-  const boundary = {
-    leaseId: request.leaseId,
-    documentId: request.documentId,
-    clientSessionId: request.clientSessionId,
-    storeEpoch: request.storeEpoch,
-    generation: request.generation,
-    headSeq: request.headSeq,
-  };
-  if (request.response === "ack") {
-    return { ...boundary, response: "ack" };
-  }
-  return {
-    ...boundary,
-    response: "nack",
-    reason: request.reason,
-    message: request.message,
-  };
 };
 
 function ensureBrowserSidebarEventBridge(): void {
@@ -1706,17 +1680,6 @@ export function registerIpcHandlers(
       omitProjectScope(request),
     );
   });
-  registerHandle("document-sync:relocation-lease:respond", async (event, request) => {
-    const target = resolveDocumentSyncTarget(event);
-    if (!target) {
-      return documentSyncUnauthorized();
-    }
-    return await documentSync.respondToRelocationLease(
-      { kind: "project", projectId: request.projectId },
-      target,
-      omitRelocationLeaseProjectScope(request),
-    );
-  });
   registerHandle("library-document-sync:subscribe", async (event, request) => {
     const target = resolveDocumentSyncTarget(event);
     if (!target) return documentSyncUnauthorized();
@@ -1743,18 +1706,6 @@ export function registerIpcHandlers(
       const target = resolveDocumentSyncTarget(event);
       if (!target) return documentSyncUnauthorized();
       return await documentSync.publishAwareness(
-        { kind: "library" },
-        target,
-        request,
-      );
-    },
-  );
-  registerHandle(
-    "library-document-sync:relocation-lease:respond",
-    async (event, request) => {
-      const target = resolveDocumentSyncTarget(event);
-      if (!target) return documentSyncUnauthorized();
-      return await documentSync.respondToRelocationLease(
         { kind: "library" },
         target,
         request,
@@ -1853,8 +1804,8 @@ export function registerIpcHandlers(
 
   registerPageDetailIpcHandler({
     registerHandle: (channel, listener) => {
-      registerHandle(channel, (event, projectId, pageId) =>
-        listener(event, projectId, pageId),
+      registerHandle(channel, (event, projectId, pageId, minimumCommitSeq) =>
+        listener(event, projectId, pageId, minimumCommitSeq),
       );
     },
     isTrustedEvent: (rawEvent) =>
@@ -1864,11 +1815,17 @@ export function registerIpcHandlers(
 
   registerLibraryPageDetailIpcHandler({
     registerHandle: (channel, listener) => {
-      registerHandle(channel, (event, pageId) => listener(event, pageId));
+      registerHandle(channel, (event, pageId, minimumCommitSeq) =>
+        listener(event, pageId, minimumCommitSeq));
     },
     isTrustedEvent: (rawEvent) =>
       resolveDocumentSyncTarget(rawEvent as IpcMainInvokeEvent) !== null,
-    read: libraryModule.readLibraryPageDetail,
+    read: (pageId, minimumCommitSeq) =>
+      libraryModule.readLibraryPageDetail(
+        pageId,
+        undefined,
+        minimumCommitSeq,
+      ),
   });
 
   registerPageLifecyclePreflightIpcHandler({

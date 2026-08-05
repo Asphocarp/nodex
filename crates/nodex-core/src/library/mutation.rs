@@ -11,7 +11,7 @@ use nodex_core_contracts::library::{
 };
 use nodex_core_contracts::{
     AdapterKind, BoundModuleContext, CommittedModuleValue, ModuleApplyRequest,
-    ModuleMutationReceipt, ProjectionImpact, StoreEpoch,
+    ModuleMutationReceipt, PageDocumentHeadImpact, ProjectionImpact, StoreEpoch,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::json;
@@ -193,9 +193,13 @@ pub(super) fn apply(
                 >(stored.result)
                 .map_err(|_| corrupt("Stored Library receipt is invalid"))?;
                 committed.receipt.mutation.duplicate = true;
+                let event = load_committed_event_by_sequence(
+                    transaction,
+                    committed.event_sequence,
+                )?;
                 return Ok(LibraryApplyOutcome {
                     committed,
-                    event: None,
+                    event: Some(event),
                 });
             }
 
@@ -1903,6 +1907,7 @@ pub(super) fn persist_parent_operations_detailed(
             state_vector: &state_vector,
             store_epoch,
             operation_id: &update_id,
+            local_commit_id: Some(operation_id),
             event_kind: "document_updated",
             write_fence_block_ids: &prepared.write_fence_block_ids,
             title_write_fence_required: prepared.title_write_fence_required,
@@ -2464,17 +2469,26 @@ pub(super) fn finish_mutation(
         .filter_map(|key| key.strip_prefix("data_source:"))
         .map(str::to_owned)
         .collect();
+    let document_heads = document_head_impacts(connection, &effects.affected_document_ids)?;
+    let mut affected_page_ids = effects.affected_page_ids.clone();
+    for head in &document_heads {
+        if !affected_page_ids.contains(&head.page_id) {
+            affected_page_ids.push(head.page_id.clone());
+        }
+    }
+    affected_page_ids.sort();
+    affected_page_ids.dedup();
     let projection_impact = if changes_project_visibility(effects.operation_kind) {
         ProjectionImpact::All
     } else {
         expand_database_coordinates(
             connection,
             ProjectionImpact::Resources {
-                page_ids: effects.affected_page_ids.clone(),
+                page_ids: affected_page_ids,
                 database_ids: effects.affected_database_ids.clone(),
                 data_source_ids,
                 view_ids: effects.affected_view_ids.clone(),
-                document_heads: Vec::new(),
+                document_heads,
             },
         )?
     };
@@ -2549,6 +2563,42 @@ pub(super) fn finish_mutation(
         committed,
         event: Some(event),
     })
+}
+
+fn document_head_impacts(
+    connection: &Connection,
+    document_ids: &[String],
+) -> Result<Vec<PageDocumentHeadImpact>, StoreError> {
+    let mut impacts = Vec::new();
+    for document_id in document_ids {
+        let impact = connection
+            .query_row(
+                "SELECT page.block_id, document.generation, document.head_seq \
+                 FROM pages page \
+                 JOIN documents document ON document.id = page.document_id \
+                 WHERE page.document_id = ?1",
+                [document_id],
+                |row| {
+                    Ok(PageDocumentHeadImpact {
+                        page_id: row.get(0)?,
+                        document_id: document_id.clone(),
+                        generation: row.get(1)?,
+                        head_seq: row.get(2)?,
+                    })
+                },
+            )
+            .optional()?;
+        if let Some(impact) = impact {
+            impacts.push(impact);
+        }
+    }
+    impacts.sort_by(|left, right| {
+        left.page_id
+            .cmp(&right.page_id)
+            .then(left.document_id.cmp(&right.document_id))
+    });
+    impacts.dedup_by(|left, right| left.document_id == right.document_id);
+    Ok(impacts)
 }
 
 fn changes_project_visibility(operation_kind: &str) -> bool {
@@ -3456,7 +3506,10 @@ mod tests {
 
         assert!(first.event.is_some());
         assert!(!first.committed.receipt.mutation.duplicate);
-        assert!(replay.event.is_none());
+        assert_eq!(
+            replay.event.as_ref().map(|event| event.sequence),
+            Some(first.committed.event_sequence)
+        );
         assert!(replay.committed.receipt.mutation.duplicate);
         assert_eq!(
             first.committed.event_sequence,
@@ -3584,7 +3637,10 @@ mod tests {
             )
             .expect("retry Database");
         assert!(database.event.is_some());
-        assert!(database_replay.event.is_none());
+        assert_eq!(
+            database_replay.event.as_ref().map(|event| event.sequence),
+            Some(database_replay.committed.event_sequence),
+        );
         assert!(database_replay.committed.receipt.mutation.duplicate);
 
         let views = module
@@ -5263,7 +5319,10 @@ mod tests {
             .apply(&retry_context, request("## Work\n\nNative placement."))
             .expect("exact Data Source Page replay");
         assert!(replay.committed.receipt.mutation.duplicate);
-        assert!(replay.event.is_none());
+        assert_eq!(
+            replay.event.as_ref().map(|event| event.sequence),
+            Some(replay.committed.event_sequence)
+        );
         assert_eq!(replay.committed.value.page_create, Some(created));
         let collision = module
             .apply(&context(), request("Changed body"))

@@ -1,13 +1,13 @@
 import type {
   DocumentMutationRequest,
   DocumentOperationResult,
-  RelocationDocumentCommit,
+  DocumentCommitRef,
 } from "../block-documents";
 import type { ToolFailure } from "./base-schemas";
 import type { AgentDocumentEditEffects } from "./document-edit-compiler";
 import type {
   NodexAgentCallIdentity,
-  NodexAgentLeaseDocument,
+  NodexAgentDocumentHead,
   NodexAgentTransferAuthorizationEvidence,
   NodexAgentTransferCommand,
   PreparedNodexAgentCreateDestination,
@@ -107,7 +107,7 @@ export type PrepareNodexAgentCreatePagesResult =
         | {
             readonly kind: "prepared";
             readonly command: NodexAgentCreatePagesCommand;
-            readonly leaseDocuments: readonly NodexAgentLeaseDocument[];
+            readonly documentHeads: readonly NodexAgentDocumentHead[];
             readonly previews: readonly {
               readonly pageId: string;
               readonly title: string;
@@ -124,7 +124,7 @@ export type ExecuteNodexAgentCreatePagesResult =
       readonly value: {
         readonly output: z.infer<typeof CreatePagesV3OutputSchema>;
         readonly duplicate: boolean;
-        readonly documentCommits: readonly RelocationDocumentCommit[];
+        readonly documentCommits: readonly DocumentCommitRef[];
         readonly affectedDatabaseBlockIds: readonly string[];
         readonly changeLogSeq: number;
       };
@@ -171,7 +171,7 @@ export type ExecuteNodexAgentDuplicatePageResult =
       readonly value: {
         readonly output: z.infer<typeof DuplicatePageV3OutputSchema>;
         readonly duplicate: boolean;
-        readonly documentCommits: readonly RelocationDocumentCommit[];
+        readonly documentCommits: readonly DocumentCommitRef[];
         readonly affectedDatabaseBlockIds: readonly string[];
         readonly changeLogSeq: number;
       };
@@ -214,7 +214,7 @@ export interface NodexAgentMovePagesCommand extends NodexAgentCallIdentity {
   readonly input: z.infer<typeof MovePagesV3InputSchema>;
   readonly destination: PreparedNodexAgentCreateDestination;
   readonly transfers: readonly NodexAgentMovePageTransferStep[];
-  readonly leaseDocuments: readonly NodexAgentLeaseDocument[];
+  readonly documentHeads: readonly NodexAgentDocumentHead[];
 }
 
 export interface PrepareNodexAgentMovePagesRequest extends NodexAgentCallIdentity {
@@ -244,7 +244,7 @@ export type ExecuteNodexAgentMovePagesResult =
       readonly value: {
         readonly output: z.infer<typeof MovePagesV3OutputSchema>;
         readonly duplicate: boolean;
-        readonly documentCommits: readonly RelocationDocumentCommit[];
+        readonly documentCommits: readonly DocumentCommitRef[];
         readonly affectedDatabaseBlockIds: readonly string[];
         readonly changeLogSeq: number;
       };

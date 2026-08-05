@@ -13,7 +13,7 @@ const emptyScene = {
   preview: "",
 };
 
-test("Electron Canvas adapter awaits subscription and carries lease responses", async () => {
+test("Electron Canvas adapter awaits subscription and carries presence", async () => {
   const calls: string[] = [];
   const listeners = new Set<(...args: unknown[]) => void>();
   const presenceEvents: unknown[] = [];
@@ -43,17 +43,6 @@ test("Electron Canvas adapter awaits subscription and carries lease responses", 
           },
         };
       }
-      if (channel === "document-sync:relocation-lease:respond") {
-        return {
-          ok: true,
-          value: {
-            accepted: true,
-            leaseId: "lease-1",
-            documentId: request.documentId,
-            status: "frozen",
-          },
-        };
-      }
       if (channel === "canvas-scene:presence:publish") {
         return { ok: true, value: { accepted: true, applied: true } };
       }
@@ -69,7 +58,7 @@ test("Electron Canvas adapter awaits subscription and carries lease responses", 
     projectId: "project-1",
     documentId: "canvas-1",
     clientSessionId: "client-1",
-  }, () => undefined, undefined, (event) => presenceEvents.push(event));
+  }, () => undefined, (event) => presenceEvents.push(event));
   const result = await adapter.sync({
     version: 1,
     syncRequestId: "sync-1",
@@ -79,16 +68,6 @@ test("Electron Canvas adapter awaits subscription and carries lease responses", 
   });
   expect(result.ok).toBe(true);
   expect(calls.slice(0, 2)).toEqual(["canvas-scene:subscribe", "canvas-scene:sync"]);
-  const lease = await adapter.respondToRelocationLease?.({
-    response: "ack",
-    leaseId: "lease-1",
-    documentId: "canvas-1",
-    clientSessionId: "client-1",
-    storeEpoch: "store-1",
-    generation: 1,
-    headSeq: 0,
-  });
-  expect(lease?.ok).toBe(true);
   listeners.forEach((listener) => listener({
     type: "canvas_presence_snapshot",
     version: 1,

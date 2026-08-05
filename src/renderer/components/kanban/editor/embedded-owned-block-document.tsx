@@ -148,7 +148,7 @@ export function EmbeddedOwnedBlockDocument({
                       user: { name: "You", color: "#3b82f6" },
                       provider: { awareness: surface.awareness },
                     }}
-                    surfaceWriteFence={surface.runtime}
+                    surfaceMutationBarrier={surface.runtime}
                     onOpenPage={hostRuntime?.openPage}
                     onOpenCanvas={hostRuntime?.openCanvas}
                     isActivePanelTab={isActive}

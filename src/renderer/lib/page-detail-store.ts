@@ -120,10 +120,22 @@ export const resetPageDetailStoreForTests = (): void => {
 export const fetchPageDetail = async (
   projectId: string,
   pageId: string,
+  options: { readonly minimumCommitSeq?: number } = {},
 ): Promise<PageDetail | null> => {
   const key = detailKey(projectId, pageId);
+  const minimumCommitSeq = options.minimumCommitSeq ?? 0;
   const existingRequest = inFlight.get(key);
-  if (existingRequest) return existingRequest;
+  if (existingRequest) {
+    const detail = await existingRequest;
+    if (!detail) return null;
+    if (
+      minimumCommitSeq <= 0
+      || detail.changeLogSeq >= minimumCommitSeq
+    ) {
+      return detail;
+    }
+    return await fetchPageDetail(projectId, pageId, { minimumCommitSeq });
+  }
 
   const current = entries.get(key) ?? EMPTY_DETAIL;
   entries.set(key, {
@@ -136,7 +148,7 @@ export const fetchPageDetail = async (
   const requestGeneration = storeGeneration;
   const request = (async (): Promise<PageDetail | null> => {
     try {
-      const result = await readPageDetail(projectId, pageId);
+      const result = await readPageDetail(projectId, pageId, minimumCommitSeq);
       if (requestGeneration !== storeGeneration) return null;
       if (!result.ok) {
         entries.set(key, {
@@ -197,7 +209,9 @@ const requestPageDetailRefresh = (
     ) {
       return;
     }
-    await fetchPageDetail(projectId, pageId);
+    await fetchPageDetail(projectId, pageId, {
+      minimumCommitSeq: cause.kind === "resync" ? 0 : cause.cursor.changeLogSeq,
+    });
   })();
 };
 

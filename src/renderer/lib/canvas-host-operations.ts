@@ -71,15 +71,12 @@ export async function prepareCanvasHost(
   runtime: CanvasHostDocumentRuntime,
 ): Promise<PreparedCanvasHost> {
   const before = runtime.getStatus();
-  if (before.writeFrozen) {
-    throw new Error("This Page is already completing another Block change.");
-  }
   if (!before.ready || before.reloadRequired) {
     throw new Error("The Page Document is not ready for a Canvas change.");
   }
 
   const status = await runtime.prepareDurableMutation();
-  if (!status.ready || status.reloadRequired || status.writeFrozen) {
+  if (!status.ready || status.reloadRequired) {
     throw new Error("The Page Document changed while preparing Canvas.");
   }
   const storeEpoch = status.descriptor.storeEpoch;

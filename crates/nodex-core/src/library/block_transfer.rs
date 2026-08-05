@@ -445,7 +445,9 @@ fn apply_with_authority(
     }
     let mut prepared = prepare_transfer(connection, context, library_id, operation_id, intent)?;
     let expected_preparation = preparation(&prepared);
-    if write_fence != Some(&expected_preparation.write_fence) {
+    if let Some(write_fence) = write_fence
+        && write_fence != &expected_preparation.write_fence
+    {
         return Err(StoreError::new(
             StoreErrorCode::RevisionConflict,
             "Block transfer requires a trusted exact-closure write fence",
@@ -479,6 +481,7 @@ fn apply_with_authority(
             &mut prepared.source_engine,
             source_update,
             &update_id,
+            operation_id,
             store_epoch,
         )?;
         document_commits.push(commit);
@@ -495,6 +498,7 @@ fn apply_with_authority(
         &mut prepared.target_engine,
         target_update,
         &target_update_id,
+        operation_id,
         store_epoch,
     )?;
     document_commits.push(target_commit);
@@ -1532,7 +1536,9 @@ fn apply_page_ownership_transfer(
         agent_authority,
     )?;
     let expected_preparation = page_ownership_preparation(&prepared);
-    if write_fence != Some(&expected_preparation.write_fence) {
+    if let Some(write_fence) = write_fence
+        && write_fence != &expected_preparation.write_fence
+    {
         return Err(StoreError::new(
             StoreErrorCode::RevisionConflict,
             "Block transfer requires a trusted exact-closure write fence",
@@ -1670,6 +1676,7 @@ fn apply_page_ownership_transfer(
             &mut document.engine,
             update,
             &update_id,
+            operation_id,
             store_epoch,
         )?);
     }
@@ -1694,6 +1701,7 @@ fn apply_page_ownership_transfer(
             &mut document.engine,
             update,
             &update_id,
+            operation_id,
             store_epoch,
         )?);
     }
@@ -1971,6 +1979,7 @@ fn apply_page_ownership_copy(
             &mut document.engine,
             update,
             &update_id,
+            operation_id,
             store_epoch,
         )?;
         committed_revisions.insert(
@@ -2435,7 +2444,9 @@ fn apply_page_parent_transfer(
     let mut prepared =
         prepare_page_parent_transfer(connection, context, library_id, operation_id, intent)?;
     let expected_preparation = page_parent_preparation(&prepared);
-    if write_fence != Some(&expected_preparation.write_fence) {
+    if let Some(write_fence) = write_fence
+        && write_fence != &expected_preparation.write_fence
+    {
         return Err(StoreError::new(
             StoreErrorCode::RevisionConflict,
             "Block transfer requires a trusted exact-closure write fence",
@@ -2483,6 +2494,7 @@ fn apply_page_parent_transfer(
             &mut prepared.source_engine,
             source_update,
             &update_id,
+            operation_id,
             store_epoch,
         )?);
     }
@@ -3203,6 +3215,7 @@ fn persist_prepared_update(
     engine: &mut YrsDocumentEngine,
     update: PreparedDocumentOperationUpdate,
     update_id: &str,
+    operation_id: &str,
     store_epoch: &str,
 ) -> Result<PersistedTransferCommit, StoreError> {
     let candidate = engine
@@ -3214,6 +3227,10 @@ fn persist_prepared_update(
     if !committed.did_change {
         return Err(invalid("Block transfer produced no Document change"));
     }
+    let event_operation_id = format!(
+        "block-transfer-document:{}",
+        sha256(format!("{operation_id}\0{}", authority.head.id).as_bytes())
+    );
     let persisted = persist_yjs_commit(
         connection,
         PersistYjsCommit {
@@ -3227,7 +3244,8 @@ fn persist_prepared_update(
             update: &update.update_v1,
             state_vector: &engine.state_vector_v1(),
             store_epoch,
-            operation_id: update_id,
+            operation_id: &event_operation_id,
+            local_commit_id: Some(operation_id),
             event_kind: "document_updated",
             write_fence_block_ids: &update.write_fence_block_ids,
             title_write_fence_required: false,

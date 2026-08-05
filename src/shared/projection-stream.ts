@@ -28,6 +28,9 @@ export type ProjectionStreamMessage =
       readonly scope: ProjectionScope;
       readonly cursor: ProjectionCursor;
       readonly impact: ProjectionImpact;
+      /** Top-level durable mutation identity when this event came from a commit. */
+      readonly operationId?: string | null;
+      readonly committedAt?: string;
     }
   | {
       readonly version: 1;

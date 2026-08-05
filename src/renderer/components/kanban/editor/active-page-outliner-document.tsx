@@ -234,7 +234,6 @@ function ActivePageOutlinerContent({
           <CollaborativePageTitle
             ref={titleRef}
             title={surface.title}
-            surfaceWriteFence={surface.runtime}
             className="px-0 py-0 text-[1em] leading-6 font-normal"
             aria-label={`Edit ${target.page.title.trim() || target.fallbackTitle} title`}
             onKeyDown={handleTitleKeyDown}
@@ -269,7 +268,7 @@ function ActivePageOutlinerContent({
               pageId: target.page.pageId,
             }}
             documentOwnerBlockId={target.page.pageId}
-            surfaceWriteFence={surface.runtime}
+            surfaceMutationBarrier={surface.runtime}
             onOpenPage={hostRuntime.openPage}
             onOpenCanvas={hostRuntime.openCanvas}
             isActivePanelTab={hostRuntime.isActiveSurface}

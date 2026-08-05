@@ -1,8 +1,6 @@
 import type {
   DocumentAwarenessPublishAck,
   DocumentAwarenessPublishRequest,
-  DocumentRelocationLeaseResponseAck,
-  DocumentRelocationLeaseResponseRequest,
   DocumentSyncApplyAck,
   DocumentSyncApplyRequest,
   DocumentSyncCommandError,
@@ -252,37 +250,6 @@ const normalizeApplyResult = (
   };
 };
 
-const normalizeRelocationLeaseResponse = (
-  result: DocumentSyncCommandResult<DocumentRelocationLeaseResponseAck>,
-): DocumentSyncCommandResult<DocumentRelocationLeaseResponseAck> => {
-  if (!result.ok) return result;
-  const value = result.value as unknown;
-  if (
-    !isRecord(value) ||
-    value.accepted !== true ||
-    typeof value.leaseId !== "string" ||
-    typeof value.documentId !== "string" ||
-    (value.status !== "preparing" &&
-      value.status !== "frozen" &&
-      value.status !== "released" &&
-      value.status !== "cancelled")
-  ) {
-    return {
-      ok: false,
-      error: invalidResponseError("Invalid relocation lease response"),
-    };
-  }
-  return {
-    ok: true,
-    value: {
-      accepted: true,
-      leaseId: value.leaseId,
-      documentId: value.documentId,
-      status: value.status,
-    },
-  };
-};
-
 const normalizeRealtimeEvent = (
   value: unknown,
 ): DocumentSyncRealtimeEvent | null => {
@@ -358,64 +325,6 @@ const normalizeRealtimeEvent = (
       clientSessionId: value.clientSessionId,
       update,
     };
-  }
-  if (value.kind === "relocation-lease-prepare") {
-    if (
-      typeof value.leaseId !== "string" ||
-      typeof value.clientSessionId !== "string" ||
-      typeof value.storeEpoch !== "string" ||
-      typeof value.generation !== "number" ||
-      typeof value.expectedHeadSeq !== "number" ||
-      typeof value.deadlineAt !== "number"
-    ) {
-      return null;
-    }
-    return {
-      kind: value.kind,
-      leaseId: value.leaseId,
-      clientSessionId: value.clientSessionId,
-      documentId: value.documentId,
-      storeEpoch: value.storeEpoch,
-      generation: value.generation,
-      expectedHeadSeq: value.expectedHeadSeq,
-      deadlineAt: value.deadlineAt,
-    };
-  }
-  if (
-    value.kind === "relocation-lease-release" ||
-    value.kind === "relocation-lease-cancel"
-  ) {
-    if (
-      typeof value.leaseId !== "string" ||
-      typeof value.clientSessionId !== "string" ||
-      typeof value.storeEpoch !== "string" ||
-      typeof value.generation !== "number" ||
-      typeof value.headSeq !== "number" ||
-      (value.kind === "relocation-lease-cancel" &&
-        typeof value.reason !== "string")
-    ) {
-      return null;
-    }
-    return value.kind === "relocation-lease-release"
-      ? {
-          kind: value.kind,
-          leaseId: value.leaseId,
-          clientSessionId: value.clientSessionId,
-          documentId: value.documentId,
-          storeEpoch: value.storeEpoch,
-          generation: value.generation,
-          headSeq: value.headSeq,
-        }
-      : {
-          kind: value.kind,
-          leaseId: value.leaseId,
-          clientSessionId: value.clientSessionId,
-          documentId: value.documentId,
-          storeEpoch: value.storeEpoch,
-          generation: value.generation,
-          headSeq: value.headSeq,
-          reason: value.reason as string,
-        };
   }
   if (value.kind !== "resync-required") {
     return null;
@@ -537,21 +446,6 @@ const createScopedElectronDocumentSyncAdapter = (
         scope(request),
       );
     },
-    respondToRelocationLease: async (
-      request: DocumentRelocationLeaseResponseRequest,
-    ) => {
-      const blocked =
-        await requireRemoteSubscription<DocumentRelocationLeaseResponseAck>(
-          request,
-        );
-      if (blocked) return blocked;
-      return normalizeRelocationLeaseResponse(
-        await invokeCommand<DocumentRelocationLeaseResponseAck>(
-          channel("relocation-lease:respond"),
-          scope(request),
-        ),
-      );
-    },
     subscribe: (request, listener) => {
       const key = subscriptionKey(request);
       let entry = subscriptions.get(key);
@@ -567,10 +461,7 @@ const createScopedElectronDocumentSyncAdapter = (
               return;
             }
             if (
-              (event.kind === "connection" ||
-                event.kind === "relocation-lease-prepare" ||
-                event.kind === "relocation-lease-release" ||
-                event.kind === "relocation-lease-cancel") &&
+              event.kind === "connection" &&
               event.clientSessionId !== request.clientSessionId
             ) {
               return;

@@ -15249,7 +15249,6 @@
                   "expected_head_seq",
                   "operations",
                   "actor",
-                  "write_fence_prepared",
                   "kind"
                 ],
                 "properties": {
@@ -15276,9 +15275,6 @@
                     "items": {
                       "$ref": "#/components/schemas/DocumentBlockOperation"
                     }
-                  },
-                  "write_fence_prepared": {
-                    "type": "boolean"
                   }
                 }
               },
@@ -15290,7 +15286,6 @@
                   "expected_head_seq",
                   "nfm",
                   "actor",
-                  "write_fence_prepared",
                   "kind"
                 ],
                 "properties": {
@@ -15321,9 +15316,6 @@
                       "null"
                     ],
                     "items": {}
-                  },
-                  "write_fence_prepared": {
-                    "type": "boolean"
                   }
                 }
               },
@@ -15386,7 +15378,6 @@
                   "generation",
                   "expected_head_seq",
                   "actor",
-                  "write_fence_prepared",
                   "kind"
                 ],
                 "properties": {
@@ -15407,9 +15398,6 @@
                     "enum": [
                       "compact_canvas_tombstones"
                     ]
-                  },
-                  "write_fence_prepared": {
-                    "type": "boolean"
                   }
                 }
               },
@@ -15484,7 +15472,6 @@
                   "generation",
                   "expected_head_seq",
                   "actor",
-                  "write_fence_prepared",
                   "kind"
                 ],
                 "properties": {
@@ -15508,9 +15495,6 @@
                   },
                   "version_id": {
                     "type": "string"
-                  },
-                  "write_fence_prepared": {
-                    "type": "boolean"
                   }
                 }
               },

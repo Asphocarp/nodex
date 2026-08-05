@@ -112,9 +112,6 @@ interface EncodedRealtimeEvent {
   readonly updateId?: string;
   readonly clientSessionId?: string;
   readonly update?: string;
-  readonly leaseId?: string;
-  readonly expectedHeadSeq?: number;
-  readonly deadlineAt?: number;
   readonly reason?: string;
 }
 
@@ -1079,18 +1076,6 @@ export const decodeDocumentRealtimeSseEvent = (
       ),
     };
   }
-  if (kind === "relocation-lease-prepare") {
-    return {
-      kind,
-      documentId,
-      storeEpoch,
-      generation,
-      leaseId: readString(record, "leaseId"),
-      clientSessionId: readString(record, "clientSessionId"),
-      expectedHeadSeq: readInteger(record, "expectedHeadSeq", 0),
-      deadlineAt: readInteger(record, "deadlineAt", 0),
-    };
-  }
   const headSeq = readInteger(record, "headSeq", 0);
   if (kind === "document-update") {
     return {
@@ -1123,29 +1108,6 @@ export const decodeDocumentRealtimeSseEvent = (
       generation,
       headSeq,
       reason,
-    };
-  }
-  if (kind === "relocation-lease-release") {
-    return {
-      kind,
-      documentId,
-      storeEpoch,
-      generation,
-      headSeq,
-      leaseId: readString(record, "leaseId"),
-      clientSessionId: readString(record, "clientSessionId"),
-    };
-  }
-  if (kind === "relocation-lease-cancel") {
-    return {
-      kind,
-      documentId,
-      storeEpoch,
-      generation,
-      headSeq,
-      leaseId: readString(record, "leaseId"),
-      clientSessionId: readString(record, "clientSessionId"),
-      reason: readString(record, "reason"),
     };
   }
   throw new DocumentHttpWireError(

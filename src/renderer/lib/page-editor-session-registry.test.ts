@@ -54,7 +54,6 @@ function createRuntime(input: {
     phase: ready ? "ready" : "connecting",
     ready,
     reloadRequired: false,
-    writeFrozen: false,
     descriptor: runtimeDescriptor,
     provider: {
       phase: ready ? "synced" : "connecting",

@@ -185,7 +185,6 @@ export const blockTransferHttpStatus = (
   ) {
     return 409;
   }
-  if (error.code === "transfer_lease_timeout") return 503;
   if (error.code === "unknown") return error.retryable ? 503 : 500;
   return 400;
 };

@@ -154,7 +154,7 @@ describe("NodexAgentV3DynamicService", () => {
               ? { resourceAccess: request.resourceAccess }
               : {}),
           },
-          leaseDocuments: [],
+          documentHeads: [],
           previews: [{
             pageId: "page-created",
             title: "Launch plan",

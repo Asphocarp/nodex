@@ -111,9 +111,6 @@ export interface ProjectScopedDocumentAwarenessPublishRequest
   readonly projectId: string;
 }
 
-export type ProjectScopedDocumentRelocationLeaseResponseRequest =
-  DocumentRelocationLeaseResponseRequest & { readonly projectId: string };
-
 export type DocumentAccessKind = "read" | "write";
 
 export interface DocumentAccessRequest {
@@ -160,134 +157,6 @@ export interface DocumentAwarenessPublishAck {
   readonly accepted: true;
 }
 
-export type DocumentRelocationLeaseParticipantStatus =
-  | "preparing"
-  | "frozen"
-  | "released"
-  | "cancelled";
-
-export type DocumentRelocationLeaseNackReason =
-  | "surface_prepare_failed"
-  | "durable_flush_failed"
-  | "deadline_elapsed"
-  | "boundary_mismatch"
-  | "foreign_lease_event"
-  | "local_update_after_freeze"
-  | "provider_disconnected"
-  | "provider_destroyed";
-
-interface DocumentRelocationLeaseResponseBoundary {
-  readonly leaseId: string;
-  readonly documentId: DocumentId;
-  readonly clientSessionId: string;
-  readonly storeEpoch: string;
-  readonly generation: number;
-  readonly headSeq: number;
-}
-
-export type DocumentRelocationLeaseResponseRequest =
-  | (DocumentRelocationLeaseResponseBoundary & {
-      readonly response: "ack";
-    })
-  | (DocumentRelocationLeaseResponseBoundary & {
-      readonly response: "nack";
-      readonly reason: DocumentRelocationLeaseNackReason;
-      readonly message: string;
-    });
-
-export interface DocumentRelocationLeaseResponseAck {
-  readonly accepted: true;
-  readonly leaseId: string;
-  readonly documentId: DocumentId;
-  readonly status: DocumentRelocationLeaseParticipantStatus;
-}
-
-const RELOCATION_LEASE_NACK_REASONS = new Set<DocumentRelocationLeaseNackReason>([
-  "surface_prepare_failed",
-  "durable_flush_failed",
-  "deadline_elapsed",
-  "boundary_mismatch",
-  "foreign_lease_event",
-  "local_update_after_freeze",
-  "provider_disconnected",
-  "provider_destroyed",
-]);
-
-const isRelocationLeaseIdentity = (value: unknown): value is string =>
-  typeof value === "string" &&
-  value.length > 0 &&
-  value.length <= 512 &&
-  value === value.trim();
-
-export const parseDocumentRelocationLeaseResponseRequest = (
-  value: unknown,
-): DocumentRelocationLeaseResponseRequest => {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new TypeError("Relocation lease response must be an object");
-  }
-  const record = value as Readonly<Record<string, unknown>>;
-  const commonKeys = [
-    "response",
-    "leaseId",
-    "documentId",
-    "clientSessionId",
-    "storeEpoch",
-    "generation",
-    "headSeq",
-  ] as const;
-  const allowedKeys = new Set([
-    ...commonKeys,
-    ...(record.response === "nack" ? ["reason", "message"] : []),
-  ]);
-  if (
-    Object.keys(record).some((key) => !allowedKeys.has(key)) ||
-    commonKeys.some(
-      (key) => !Object.prototype.hasOwnProperty.call(record, key),
-    ) ||
-    !isRelocationLeaseIdentity(record.leaseId) ||
-    !isRelocationLeaseIdentity(record.documentId) ||
-    !isRelocationLeaseIdentity(record.clientSessionId) ||
-    !isRelocationLeaseIdentity(record.storeEpoch) ||
-    typeof record.generation !== "number" ||
-    !Number.isSafeInteger(record.generation) ||
-    record.generation < 1 ||
-    typeof record.headSeq !== "number" ||
-    !Number.isSafeInteger(record.headSeq) ||
-    record.headSeq < 0
-  ) {
-    throw new TypeError("Relocation lease response boundary is invalid");
-  }
-  const boundary = {
-    leaseId: record.leaseId,
-    documentId: record.documentId,
-    clientSessionId: record.clientSessionId,
-    storeEpoch: record.storeEpoch,
-    generation: record.generation,
-    headSeq: record.headSeq,
-  };
-  if (record.response === "ack") {
-    return { response: "ack", ...boundary };
-  }
-  if (
-    record.response !== "nack" ||
-    typeof record.reason !== "string" ||
-    !RELOCATION_LEASE_NACK_REASONS.has(
-      record.reason as DocumentRelocationLeaseNackReason,
-    ) ||
-    typeof record.message !== "string" ||
-    record.message.trim().length < 1 ||
-    record.message.length > 2_048
-  ) {
-    throw new TypeError("Relocation lease NACK is invalid");
-  }
-  return {
-    response: "nack",
-    ...boundary,
-    reason: record.reason as DocumentRelocationLeaseNackReason,
-    message: record.message,
-  };
-};
-
 export type DocumentSyncRealtimeEvent =
   | {
       readonly kind: "connection";
@@ -328,35 +197,7 @@ export type DocumentSyncRealtimeEvent =
       readonly reason:
         "event-gap" | "history-compacted" | "transport-reconnected";
     }
-  | {
-      readonly kind: "relocation-lease-prepare";
-      readonly leaseId: string;
-      readonly documentId: DocumentId;
-      readonly clientSessionId: string;
-      readonly storeEpoch: string;
-      readonly generation: number;
-      readonly expectedHeadSeq: number;
-      readonly deadlineAt: number;
-    }
-  | {
-      readonly kind: "relocation-lease-release";
-      readonly leaseId: string;
-      readonly documentId: DocumentId;
-      readonly clientSessionId: string;
-      readonly storeEpoch: string;
-      readonly generation: number;
-      readonly headSeq: number;
-    }
-  | {
-      readonly kind: "relocation-lease-cancel";
-      readonly leaseId: string;
-      readonly documentId: DocumentId;
-      readonly clientSessionId: string;
-      readonly storeEpoch: string;
-      readonly generation: number;
-      readonly headSeq: number;
-      readonly reason: string;
-    };
+  ;
 
 /**
  * Transport boundary consumed by renderer-side collaborative document
@@ -377,7 +218,4 @@ export interface DocumentSyncAdapter {
   publishAwareness: (
     request: DocumentAwarenessPublishRequest,
   ) => Promise<DocumentSyncCommandResult<DocumentAwarenessPublishAck>>;
-  respondToRelocationLease: (
-    request: DocumentRelocationLeaseResponseRequest,
-  ) => Promise<DocumentSyncCommandResult<DocumentRelocationLeaseResponseAck>>;
 }

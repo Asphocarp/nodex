@@ -6,13 +6,6 @@ import {
   type PortableRichText,
 } from "../../../shared/block-documents";
 import { CollaborativePageTitle } from "./collaborative-page-title";
-import type { BlockDocumentSurfaceWriteFence } from "@/lib/block-document-surface-runtime";
-
-const FROZEN_STORY_FENCE: BlockDocumentSurfaceWriteFence = {
-  getWriteFrozen: () => true,
-  subscribe: () => () => undefined,
-  registerRelocationPreparer: () => () => undefined,
-};
 
 const RICH_TITLE: PortableRichText = [
   { type: "text", text: "Designing a ", styles: {} },
@@ -23,11 +16,9 @@ const RICH_TITLE: PortableRichText = [
 ];
 
 function CollaborativePageTitleStory({
-  frozen = false,
   rich = false,
   long = false,
 }: {
-  frozen?: boolean;
   rich?: boolean;
   long?: boolean;
 }) {
@@ -52,12 +43,9 @@ function CollaborativePageTitleStory({
       <div className="mx-auto w-full max-w-(--page-stage-body-max-width)">
         <CollaborativePageTitle
           title={pageDocument.title}
-          surfaceWriteFence={frozen ? FROZEN_STORY_FENCE : undefined}
         />
         <p className="mt-2 text-sm text-token-description-foreground">
-          {frozen
-            ? "Editing is briefly paused while this Page moves between documents."
-            : "This story uses the same Y.Text input and local-only undo path as a collaborative Page surface."}
+          This story uses the same Y.Text input and local-only undo path as a collaborative Page surface.
         </p>
       </div>
     </div>
@@ -83,8 +71,4 @@ export const RichFormattingAndAtoms: Story = {
 
 export const LongWrappingTitle: Story = {
   render: () => <CollaborativePageTitleStory long />,
-};
-
-export const RelocationFrozen: Story = {
-  render: () => <CollaborativePageTitleStory frozen />,
 };

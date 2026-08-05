@@ -3807,7 +3807,6 @@ export interface components {
                 /** @enum {string} */
                 readonly kind: "apply_operation_batch";
                 readonly operations: readonly components["schemas"]["DocumentBlockOperation"][];
-                readonly write_fence_prepared: boolean;
             } | {
                 readonly actor: unknown;
                 readonly document_id: string;
@@ -3819,7 +3818,6 @@ export interface components {
                 readonly kind: "replace_from_nfm";
                 readonly nfm: string;
                 readonly rich_title?: readonly unknown[] | null;
-                readonly write_fence_prepared: boolean;
             } | {
                 readonly authorization: components["schemas"]["AgentPreparedExecution"];
                 /** @enum {string} */
@@ -3843,7 +3841,6 @@ export interface components {
                 readonly generation: number;
                 /** @enum {string} */
                 readonly kind: "compact_canvas_tombstones";
-                readonly write_fence_prepared: boolean;
             } | {
                 readonly actor: unknown;
                 readonly cause: string;
@@ -3869,7 +3866,6 @@ export interface components {
                 /** @enum {string} */
                 readonly kind: "restore_version";
                 readonly version_id: string;
-                readonly write_fence_prepared: boolean;
             } | {
                 readonly command: components["schemas"]["DocumentOwnerCommand"];
                 /** @enum {string} */

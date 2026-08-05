@@ -88,8 +88,12 @@ export interface CoreLibraryModuleAdapter {
   readProjectPageDetail(
     projectId: string,
     pageId: string,
+    minimumCommitSeq?: number,
   ): Promise<PageDetailResult>;
-  readLibraryPageDetail(pageId: string): Promise<LibraryPageDetailResult>;
+  readLibraryPageDetail(
+    pageId: string,
+    minimumCommitSeq?: number,
+  ): Promise<LibraryPageDetailResult>;
   listPageHistory(
     request: ListPageHistoryRequest,
   ): Promise<PageHistoryCommandResult>;
@@ -1384,23 +1388,32 @@ const fromCoreBlockPropertyOutcome = (
 export const createCoreLibraryModuleAdapter = (
   input: CoreLibraryModuleAdapterInput,
 ): CoreLibraryModuleAdapter => {
-  const readPageDetail = async (pageId: string): Promise<CorePageDetail> => {
-    const snapshot = await input.client.libraryRead({
-      kind: "page_detail",
-      page_id: pageId,
-    });
-    if (snapshot.value.kind !== "page_detail") {
-      throw new Error("Core returned a non-Page-detail Library read value");
+  const readPageDetail = async (
+    pageId: string,
+    minimumCommitSeq = 0,
+  ): Promise<CorePageDetail> => {
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      const snapshot = await input.client.libraryRead({
+        kind: "page_detail",
+        page_id: pageId,
+      });
+      if (snapshot.value.kind !== "page_detail") {
+        throw new Error("Core returned a non-Page-detail Library read value");
+      }
+      const detail = snapshot.value.value;
+      if (
+        detail.library_id !== input.libraryId
+        || detail.store_epoch !== snapshot.store_epoch
+        || detail.change_log_seq !== snapshot.event_head
+      ) {
+        throw new Error("Core Page Detail escaped its Library snapshot boundary");
+      }
+      if (snapshot.event_head >= minimumCommitSeq) return detail;
+      await new Promise<void>((resolve) => setTimeout(resolve, 5));
     }
-    const detail = snapshot.value.value;
-    if (
-      detail.library_id !== input.libraryId
-      || detail.store_epoch !== snapshot.store_epoch
-      || detail.change_log_seq !== snapshot.event_head
-    ) {
-      throw new Error("Core Page Detail escaped its Library snapshot boundary");
-    }
-    return detail;
+    throw new Error(
+      `Core Page Detail read did not reach local commit ${minimumCommitSeq}`,
+    );
   };
 
   const applyBlockProperty = async (request: {
@@ -1563,22 +1576,25 @@ export const createCoreLibraryModuleAdapter = (
         return failure(error);
       }
     },
-    readProjectPageDetail: async (projectId, pageId) => {
+    readProjectPageDetail: async (projectId, pageId, minimumCommitSeq) => {
       try {
         return parsePageDetailResult({
           ok: true,
-          value: { ...mapPageDetail(await readPageDetail(pageId)), projectId },
+          value: {
+            ...mapPageDetail(await readPageDetail(pageId, minimumCommitSeq)),
+            projectId,
+          },
         });
       } catch (error) {
         return { ok: false, error: pageDetailError(error) };
       }
     },
-    readLibraryPageDetail: async (pageId) => {
+    readLibraryPageDetail: async (pageId, minimumCommitSeq) => {
       try {
         return parseLibraryPageDetailResult({
           ok: true,
           value: {
-            ...mapPageDetail(await readPageDetail(pageId)),
+            ...mapPageDetail(await readPageDetail(pageId, minimumCommitSeq)),
             accessContext: { kind: "library" },
           },
         });

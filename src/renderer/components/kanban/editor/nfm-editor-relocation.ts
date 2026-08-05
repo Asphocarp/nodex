@@ -1,12 +1,11 @@
-export interface NfmEditorRelocationRuntime {
+export interface NfmEditorMutationRuntime {
   readonly isFocused?: () => boolean;
   readonly isWithinEditor?: (element: Element) => boolean;
   readonly blur?: () => void;
-  isEditable?: boolean;
 }
 
-export const prepareNfmEditorForRelocation = async (
-  editor: NfmEditorRelocationRuntime,
+export const prepareNfmEditorForMutation = async (
+  editor: NfmEditorMutationRuntime,
   container: HTMLElement,
 ): Promise<void> => {
   const activeElement = container.ownerDocument.activeElement;
@@ -17,13 +16,4 @@ export const prepareNfmEditorForRelocation = async (
   if (ownsFocus && activeElement instanceof HTMLElement) activeElement.blur();
   if (ownsFocus || editor.isFocused?.()) editor.blur?.();
   await Promise.resolve();
-  editor.isEditable = false;
-  await Promise.resolve();
-};
-
-export const applyNfmEditorWriteFence = (
-  editor: NfmEditorRelocationRuntime,
-  frozen: boolean,
-): void => {
-  editor.isEditable = !frozen;
 };

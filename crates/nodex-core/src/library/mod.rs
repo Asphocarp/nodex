@@ -1428,7 +1428,10 @@ mod tests {
             .apply(&persistent_context, archive_request)
             .expect("replay archive");
         assert!(replay.committed.receipt.mutation.duplicate);
-        assert!(replay.event.is_none());
+        assert_eq!(
+            replay.event.as_ref().map(|event| event.sequence),
+            Some(archived.committed.event_sequence)
+        );
 
         let unarchived = module
             .apply(
@@ -1753,7 +1756,10 @@ mod tests {
             .apply(&persistent_context, create_request)
             .expect("replay Page create");
         assert!(replay.committed.receipt.mutation.duplicate);
-        assert!(replay.event.is_none());
+        assert_eq!(
+            replay.event.as_ref().map(|event| event.sequence),
+            Some(created.committed.event_sequence)
+        );
         let LibraryReadValue::PageContent { value } = module
             .read(
                 &persistent_context,
@@ -3086,11 +3092,12 @@ mod tests {
             .read_default(|connection| {
                 let mut statement = connection.prepare(
                     "SELECT kind FROM change_log \
-                     WHERE kind LIKE 'owned_document.%' AND operation_id LIKE 'relocation:%' \
+                     WHERE kind LIKE 'owned_document.%' \
+                       AND json_extract(payload_json, '$.localCommitId') = ?1 \
                      ORDER BY seq",
                 )?;
                 statement
-                    .query_map([], |row| row.get::<_, String>(0))?
+                    .query_map(["move-transfer-root"], |row| row.get::<_, String>(0))?
                     .collect::<rusqlite::Result<Vec<_>>>()
                     .map_err(Into::into)
             })
@@ -3816,7 +3823,6 @@ mod tests {
                             },
                         ],
                         actor: serde_json::json!({ "kind": "test" }),
-                        write_fence_prepared: true,
                     },
                 },
             )
@@ -3863,7 +3869,6 @@ mod tests {
                             },
                         ],
                         actor: serde_json::json!({ "kind": "test" }),
-                        write_fence_prepared: true,
                     },
                 },
             )
@@ -5025,7 +5030,10 @@ mod tests {
             .apply(&persistent_context, request)
             .expect("replay mixed Properties");
         assert!(replay.committed.receipt.mutation.duplicate);
-        assert!(replay.event.is_none());
+        assert_eq!(
+            replay.event.as_ref().map(|event| event.sequence),
+            Some(committed.committed.event_sequence)
+        );
 
         let rejected = module
             .apply(

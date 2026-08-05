@@ -56,7 +56,9 @@ const waitUntil = async (
 ): Promise<void> => {
   const deadline = Date.now() + 5_000;
   while (Date.now() < deadline) {
-    if (predicate()) return;
+    if (predicate()) {
+      return;
+    }
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
   throw new Error(message);
@@ -496,17 +498,7 @@ describe("Electron native data authority", () => {
           blockId: nativeContentBlockId,
         }],
       };
-      await expect(projectDocuments.applyDocumentMutation(
-        changeRequest,
-        false,
-      )).resolves.toMatchObject({
-        ok: false,
-        error: { code: "write_fence_required", retryable: true },
-      });
-      const changed = await projectDocuments.applyDocumentMutation(
-        changeRequest,
-        true,
-      );
+      const changed = await projectDocuments.applyDocumentMutation(changeRequest);
       expect(changed).toMatchObject({
         ok: true,
         value: {
@@ -531,17 +523,7 @@ describe("Electron native data authority", () => {
           clientId: "renderer:electron-document-history",
         },
       };
-      await expect(projectDocuments.restoreVersion(
-        restoreRequest,
-        false,
-      )).resolves.toMatchObject({
-        ok: false,
-        error: { code: "write_fence_required", retryable: true },
-      });
-      const restored = await projectDocuments.restoreVersion(
-        restoreRequest,
-        true,
-      );
+      const restored = await projectDocuments.restoreVersion(restoreRequest);
       expect(restored).toMatchObject({
         ok: true,
         value: {
@@ -554,10 +536,7 @@ describe("Electron native data authority", () => {
           duplicate: false,
         },
       });
-      await expect(projectDocuments.restoreVersion(
-        restoreRequest,
-        false,
-      )).resolves.toMatchObject({
+      await expect(projectDocuments.restoreVersion(restoreRequest)).resolves.toMatchObject({
         ok: true,
         value: {
           mutationId: restoreRequest.mutationId,
@@ -671,27 +650,7 @@ describe("Electron native data authority", () => {
           beforeBlockId: nativeTargetAnchorBlockId,
         },
       };
-      const preparedTransfer = await transferAdapter.prepare(transferIntent);
-      if (!preparedTransfer.ok) {
-        throw new Error(
-          `Core Block transfer preparation failed: ${preparedTransfer.error.code}: ${preparedTransfer.error.message}`,
-        );
-      }
-      expect(preparedTransfer.value.leaseDocuments).toEqual([
-        {
-          documentId: nativeSourceDocumentId,
-          generation: 1,
-          expectedHeadSeq: 3,
-        },
-        {
-          documentId: nativeTargetDocumentId,
-          generation: 1,
-          expectedHeadSeq: 1,
-        },
-      ].sort((left, right) => left.documentId.localeCompare(right.documentId)));
-      const transferred = await transferAdapter.apply(
-        preparedTransfer.value.request,
-      );
+      const transferred = await transferAdapter.commit(transferIntent);
       if (!transferred.ok) {
         throw new Error(
           `Core Block transfer failed: ${transferred.error.code}: ${transferred.error.message}`,
@@ -721,7 +680,7 @@ describe("Electron native data authority", () => {
           }),
         ]),
       });
-      await expect(transferAdapter.lookupCommitted(transferIntent)).resolves
+      await expect(transferAdapter.commit(transferIntent)).resolves
         .toMatchObject({
           ok: true,
           value: {
@@ -742,21 +701,8 @@ describe("Electron native data authority", () => {
           libraryId: runtime.rootClient.handshake.library_id,
         },
       };
-      const preparedLibraryPromotion = await transferAdapter.prepare(
+      const promotedToLibrary = await transferAdapter.commit(
         promoteToLibraryIntent,
-      );
-      if (!preparedLibraryPromotion.ok) {
-        throw new Error(
-          `Core Library promotion preparation failed: ${preparedLibraryPromotion.error.code}: ${preparedLibraryPromotion.error.message}`,
-        );
-      }
-      expect(preparedLibraryPromotion.value.leaseDocuments).toEqual([{
-        documentId: nativeTargetDocumentId,
-        generation: 1,
-        expectedHeadSeq: 2,
-      }]);
-      const promotedToLibrary = await transferAdapter.apply(
-        preparedLibraryPromotion.value.request,
       );
       if (!promotedToLibrary.ok) {
         throw new Error(
@@ -814,32 +760,8 @@ describe("Electron native data authority", () => {
           groupKey: "ship",
         },
       };
-      const preparedDataSourceCopy = await transferAdapter.prepare(
+      const copiedToDataSource = await transferAdapter.commit(
         copyToDataSourceIntent,
-      );
-      if (!preparedDataSourceCopy.ok) {
-        throw new Error(
-          `Core Data Source copy preparation failed: ${preparedDataSourceCopy.error.code}: ${preparedDataSourceCopy.error.message}`,
-        );
-      }
-      expect(preparedDataSourceCopy.value).toMatchObject({
-        leaseDocuments: [{
-          documentId: nativeTargetDocumentId,
-          generation: 1,
-          expectedHeadSeq: 3,
-        }],
-        request: {
-          target: {
-            kind: "database",
-            databaseBlockId: primaryDatabase.database.databaseId,
-            dataSourceId: primaryDataSource.dataSourceId,
-            viewId: primaryView.viewId,
-            groupKey: "ship",
-          },
-        },
-      });
-      const copiedToDataSource = await transferAdapter.apply(
-        preparedDataSourceCopy.value.request,
       );
       if (!copiedToDataSource.ok) {
         throw new Error(
@@ -1264,36 +1186,8 @@ describe("Electron native data authority", () => {
           libraryId: runtime.rootClient.handshake.library_id,
         },
       };
-      const preparedPageMove = await transferAdapter.prepare(
+      const movedPageToLibrary = await transferAdapter.commit(
         moveDataSourcePageToLibraryIntent,
-      );
-      if (!preparedPageMove.ok) {
-        throw new Error(
-          `Core Data Source Page move preparation failed: ${preparedPageMove.error.code}: ${preparedPageMove.error.message}`,
-        );
-      }
-      expect(preparedPageMove.value).toMatchObject({
-        leaseDocuments: [],
-        request: {
-          source: {
-            kind: "database",
-            databaseBlockId: primaryDatabase.database.databaseId,
-            dataSourceId: primaryDataSource.dataSourceId,
-            memberships: {
-              [copiedDataSourcePageId]: {
-                membershipId: expect.any(String),
-                revision: restoredMembershipRevision,
-              },
-            },
-          },
-          target: {
-            kind: "space",
-            libraryId: runtime.rootClient.handshake.library_id,
-          },
-        },
-      });
-      const movedPageToLibrary = await transferAdapter.apply(
-        preparedPageMove.value.request,
       );
       if (!movedPageToLibrary.ok) {
         throw new Error(
@@ -1328,29 +1222,8 @@ describe("Electron native data authority", () => {
           groupKey: "ship",
         },
       };
-      const preparedPageReturn = await transferAdapter.prepare(
+      const returnedPageToDataSource = await transferAdapter.commit(
         moveLibraryPageToDataSourceIntent,
-      );
-      if (!preparedPageReturn.ok) {
-        throw new Error(
-          `Core Library Page move preparation failed: ${preparedPageReturn.error.code}: ${preparedPageReturn.error.message}`,
-        );
-      }
-      expect(preparedPageReturn.value).toMatchObject({
-        leaseDocuments: [],
-        request: {
-          source: {
-            kind: "space",
-            libraryId: runtime.rootClient.handshake.library_id,
-          },
-          target: {
-            kind: "database",
-            databaseBlockId: primaryDatabase.database.databaseId,
-          },
-        },
-      });
-      const returnedPageToDataSource = await transferAdapter.apply(
-        preparedPageReturn.value.request,
       );
       if (!returnedPageToDataSource.ok) {
         throw new Error(
@@ -1381,33 +1254,8 @@ describe("Electron native data authority", () => {
           pageId: nativeContentBlockId,
         },
       };
-      const preparedPageNesting = await transferAdapter.prepare(
+      const nestedPage = await transferAdapter.commit(
         moveDataSourcePageIntoPageIntent,
-      );
-      if (!preparedPageNesting.ok) {
-        throw new Error(
-          `Core Page nesting preparation failed: ${preparedPageNesting.error.code}: ${preparedPageNesting.error.message}`,
-        );
-      }
-      expect(preparedPageNesting.value).toMatchObject({
-        leaseDocuments: [{ documentId: expect.any(String) }],
-        request: {
-          source: {
-            kind: "database",
-            memberships: {
-              [copiedDataSourcePageId]: {
-                revision: restoredMembershipRevision + 2,
-              },
-            },
-          },
-          target: {
-            kind: "document",
-            pageId: nativeContentBlockId,
-          },
-        },
-      });
-      const nestedPage = await transferAdapter.apply(
-        preparedPageNesting.value.request,
       );
       if (!nestedPage.ok) {
         throw new Error(
@@ -1440,17 +1288,8 @@ describe("Electron native data authority", () => {
           libraryId: runtime.rootClient.handshake.library_id,
         },
       };
-      const preparedRecursivePageCopy = await transferAdapter.prepare(
+      const copiedRecursivePage = await transferAdapter.commit(
         copyRecursivePageIntent,
-      );
-      if (!preparedRecursivePageCopy.ok) {
-        throw new Error(
-          `Core recursive Page copy preparation failed: ${preparedRecursivePageCopy.error.code}: ${preparedRecursivePageCopy.error.message}`,
-        );
-      }
-      expect(preparedRecursivePageCopy.value.leaseDocuments.length).toBeGreaterThanOrEqual(2);
-      const copiedRecursivePage = await transferAdapter.apply(
-        preparedRecursivePageCopy.value.request,
       );
       if (!copiedRecursivePage.ok) {
         throw new Error(
@@ -1493,20 +1332,8 @@ describe("Electron native data authority", () => {
           parentBlockId: nestedCopyParentBlockId,
         },
       };
-      const preparedNestedMultiPageCopy = await transferAdapter.prepare(
+      const nestedMultiPageCopy = await transferAdapter.commit(
         nestedMultiPageCopyIntent,
-      );
-      if (!preparedNestedMultiPageCopy.ok) {
-        throw new Error(
-          `Core nested multi-Page copy preparation failed: ${preparedNestedMultiPageCopy.error.code}: ${preparedNestedMultiPageCopy.error.message}`,
-        );
-      }
-      const nestedCopyTarget = preparedNestedMultiPageCopy.value.request.target;
-      if (nestedCopyTarget.kind !== "document") {
-        throw new Error("Core nested multi-Page copy omitted its target Document");
-      }
-      const nestedMultiPageCopy = await transferAdapter.apply(
-        preparedNestedMultiPageCopy.value.request,
       );
       if (!nestedMultiPageCopy.ok) {
         throw new Error(
@@ -1514,6 +1341,12 @@ describe("Electron native data authority", () => {
         );
       }
       expect(nestedMultiPageCopy.value.resultRootBlockIds).toHaveLength(2);
+      const nestedCopyTarget = nestedMultiPageCopy.value.finalLocations[
+        nestedMultiPageCopy.value.resultRootBlockIds[0]!
+      ];
+      if (nestedCopyTarget?.kind !== "document") {
+        throw new Error("Core nested multi-Page copy omitted its target Document");
+      }
       for (const resultPageId of nestedMultiPageCopy.value.resultRootBlockIds) {
         expect(nestedMultiPageCopy.value.finalLocations[resultPageId]).toEqual({
           kind: "document",
@@ -1537,16 +1370,8 @@ describe("Electron native data authority", () => {
           libraryId: runtime.rootClient.handshake.library_id,
         },
       };
-      const preparedNestedReturn = await transferAdapter.prepare(
+      const returnedNestedPage = await transferAdapter.commit(
         moveNestedPageToLibraryIntent,
-      );
-      if (!preparedNestedReturn.ok) {
-        throw new Error(
-          `Core nested Page return preparation failed: ${preparedNestedReturn.error.code}: ${preparedNestedReturn.error.message}`,
-        );
-      }
-      const returnedNestedPage = await transferAdapter.apply(
-        preparedNestedReturn.value.request,
       );
       if (!returnedNestedPage.ok) {
         throw new Error(

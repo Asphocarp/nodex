@@ -677,7 +677,7 @@ describe("kanban store", () => {
 
     expect(requests).toEqual([
       { first: 50 },
-      { after: "cursor-1", first: 50 },
+      { after: "cursor-1", first: 50, minimumCommitSeq: 1 },
     ]);
     expect([...store.getSnapshot().pageIndex.keys()]).toEqual([
       "card-1",
@@ -715,8 +715,8 @@ describe("kanban store", () => {
 
     expect(requests).toEqual([
       { first: 50 },
-      { after: "cursor-1", first: 50 },
-      { first: 50 },
+      { after: "cursor-1", first: 50, minimumCommitSeq: 1 },
+      { first: 50, minimumCommitSeq: 1 },
     ]);
     expect(store.getSnapshot().error).toBe(null);
     expect(store.getSnapshot().loadingMore).toBe(false);
@@ -1348,9 +1348,8 @@ describe("kanban store", () => {
     expect(store.getSnapshot().pageIndex.has("card-1")).toBe(true);
   });
 
-  test("patches local board events and cooldowns ambiguous refreshes", async () => {
+  test("patches local board events and uses the event cursor for ambiguous refreshes", async () => {
     const board = createBoard();
-    let currentTime = 1_000;
     const callbacks: { onBoardChange?: (event: BoardChangeEvent) => void } = {};
     let boardFetchCount = 0;
 
@@ -1363,7 +1362,6 @@ describe("kanban store", () => {
         callbacks.onBoardChange = callback;
         return () => {};
       },
-      now: () => currentTime,
     });
 
     const store = registry.getStore("default");
@@ -1396,15 +1394,13 @@ describe("kanban store", () => {
       changeLogSeq: 3,
     };
 
-    store.markMutation();
-    callbacks.onBoardChange?.(ambiguousEvent);
-    await waitForMicrotasks();
-    expect(boardFetchCount).toBe(1);
-
-    currentTime = 1_700;
     callbacks.onBoardChange?.(ambiguousEvent);
     await waitForMicrotasks();
     expect(boardFetchCount).toBe(2);
+
+    callbacks.onBoardChange?.(ambiguousEvent);
+    await waitForMicrotasks();
+    expect(boardFetchCount).toBe(3);
 
     unsubscribe();
   });

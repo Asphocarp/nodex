@@ -129,8 +129,7 @@ function createSurface() {
       awareness: {},
       runtime: {
         subscribe: () => () => undefined,
-        getWriteFrozen: () => false,
-        registerRelocationPreparer: () => () => undefined,
+        prepareLocalMutation: async () => undefined,
       },
       status: { provider: "synced" },
     },

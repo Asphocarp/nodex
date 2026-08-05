@@ -33,9 +33,11 @@ import {
   type DatabaseViewRenderModel,
 } from "./database-view-render-model";
 import { getActiveProjectionInvalidationRegistry } from "./projection-invalidation-context";
-import type { ProjectionInvalidationRegistry } from "./projection-invalidation-registry";
+import type {
+  ProjectionInvalidationRegistry,
+} from "./projection-invalidation-registry";
+import type { ProjectionStreamMessage } from "../../shared/projection-stream";
 
-const MUTATION_COOLDOWN_MS = 500;
 const DEFAULT_BOARD_FRESHNESS_MS = 30_000;
 const GROUP_WINDOW_FIRST = 50;
 const GROUP_WINDOW_MAX_FIRST = 200;
@@ -345,9 +347,11 @@ class KanbanProjectStore {
 
   private unsubscribeProjectionInvalidation: (() => void) | null = null;
 
-  private refreshRequestedWhileFetching = false;
+  private requiredMinimumCommitSeq = 0;
 
-  private lastMutationAt = 0;
+  private requiredRefreshGeneration = 0;
+
+  private completedRefreshGeneration = 0;
 
   private lastFetchedAt = 0;
 
@@ -376,16 +380,22 @@ class KanbanProjectStore {
     };
   };
 
-  private windowInputBase(): DatabaseViewWindowInput {
+  private windowInputBase(minimumCommitSeq = 0): DatabaseViewWindowInput {
     return this.databaseViewId
-      ? { databaseViewId: this.databaseViewId }
-      : {};
+      ? {
+          databaseViewId: this.databaseViewId,
+          ...(minimumCommitSeq > 0 ? { minimumCommitSeq } : {}),
+        }
+      : minimumCommitSeq > 0 ? { minimumCommitSeq } : {};
   }
 
-  private groupsInput(): DatabaseViewGroupsInput {
+  private groupsInput(minimumCommitSeq = 0): DatabaseViewGroupsInput {
     return this.databaseViewId
-      ? { databaseViewId: this.databaseViewId }
-      : {};
+      ? {
+          databaseViewId: this.databaseViewId,
+          ...(minimumCommitSeq > 0 ? { minimumCommitSeq } : {}),
+        }
+      : minimumCommitSeq > 0 ? { minimumCommitSeq } : {};
   }
 
   /** Span-preserving first-window size: a refresh re-reads what was loaded. */
@@ -401,9 +411,10 @@ class KanbanProjectStore {
     scope: GroupWindowScope,
     first: number,
     after?: string,
+    minimumCommitSeq = 0,
   ): Promise<DatabaseViewWindowSnapshot> {
     return await this.dependencies.readViewWindow(this.projectId, {
-      ...this.windowInputBase(),
+      ...this.windowInputBase(minimumCommitSeq),
       ...(scope.scope ? { groupScope: scope.scope } : {}),
       ...(after ? { after } : {}),
       first,
@@ -421,9 +432,10 @@ class KanbanProjectStore {
       : null;
   }
 
-  fetchBoard = async (): Promise<void> => {
-    if (this.inFlightFetch) return this.inFlightFetch;
-
+  private fetchBoardOnce = async (
+    minimumCommitSeq: number,
+    refreshGeneration: number,
+  ): Promise<void> => {
     const hasReadableBase = this.databaseViewId
       ? this.baseDatabaseView !== null
       : this.baseBoard !== null;
@@ -435,83 +447,114 @@ class KanbanProjectStore {
       });
     }
 
-    this.inFlightFetch = (async () => {
-      try {
-        const groups = await this.dependencies.readViewGroups(
-          this.projectId,
-          this.groupsInput(),
-        );
-        const scopes = scopesFromGroups(groups);
-        // An empty grouped View still needs one window for its descriptor.
-        const fetchScopes: GroupWindowScope[] = scopes.length > 0
-          ? scopes
-          : [{ scopeKey: UNGROUPED_SCOPE_KEY, scope: null }];
-        const windows = await Promise.all(fetchScopes.map(async (scope) => ({
+    try {
+      const groups = await this.dependencies.readViewGroups(
+        this.projectId,
+        this.groupsInput(minimumCommitSeq),
+      );
+      const scopes = scopesFromGroups(groups);
+      // An empty grouped View still needs one window for its descriptor.
+      const fetchScopes: GroupWindowScope[] = scopes.length > 0
+        ? scopes
+        : [{ scopeKey: UNGROUPED_SCOPE_KEY, scope: null }];
+      const windows = await Promise.all(fetchScopes.map(async (scope) => ({
+        scope,
+        snapshot: await this.readScopedWindow(
           scope,
-          snapshot: await this.readScopedWindow(
-            scope,
-            this.firstForScope(scope.scopeKey),
-          ),
-        })));
-        const currentAuthority = this.baseBoardAuthority;
-        const incomingSeq = Math.min(
-          ...windows.map((window) => window.snapshot.changeLogSeq),
+          this.firstForScope(scope.scopeKey),
+          undefined,
+          minimumCommitSeq,
+        ),
+      })));
+      const currentAuthority = this.baseBoardAuthority;
+      const incomingSeq = Math.min(
+        ...windows.map((window) => window.snapshot.changeLogSeq),
+      );
+      if (incomingSeq < minimumCommitSeq) {
+        throw new Error(
+          `Database View read did not reach local commit ${minimumCommitSeq}`,
         );
-        if (
-          currentAuthority
-          && windows[0]
-          && windows[0].snapshot.storeEpoch === currentAuthority.storeEpoch
-          && incomingSeq < currentAuthority.changeLogSeq
-        ) {
-          // Every fetched window predates what is already on screen; keep the
-          // newer state and only refresh bookkeeping.
-          this.lastFetchedAt = this.dependencies.now();
-          this.stale = false;
-          this.ensureProjectionSubscription();
-          this.recomputeSnapshot({ loading: false, error: null });
-          return;
-        }
-        this.groupsSnapshot = groups;
-        this.groupWindows = new Map(windows.map(({ scope, snapshot }) => [
-          scope.scopeKey,
-          {
-            scope: scope.scope,
-            snapshot,
-            loadingMore: false,
-            inlineError: null,
-          },
-        ]));
-        this.rebuildFromGroups();
+      }
+      if (
+        currentAuthority
+        && windows[0]
+        && windows[0].snapshot.storeEpoch === currentAuthority.storeEpoch
+        && incomingSeq < currentAuthority.changeLogSeq
+      ) {
+        // Every fetched window predates what is already on screen; keep the
+        // newer state and only refresh bookkeeping.
         this.lastFetchedAt = this.dependencies.now();
         this.stale = false;
         this.ensureProjectionSubscription();
-        this.recomputeSnapshot({
-          loading: false,
-          error: null,
-        });
-      } catch (error) {
-        this.stale = true;
-        if (this.databaseViewId) {
-          this.baseDatabaseView = null;
-          this.baseBoard = null;
-          this.baseBoardAuthority = null;
-          this.groupWindows = new Map();
-          this.groupsSnapshot = null;
-        }
-        this.recomputeSnapshot({
-          loading: false,
-          error: toError(error).message,
-        });
-      } finally {
-        this.inFlightFetch = null;
-        if (this.refreshRequestedWhileFetching && this.listeners.size > 0) {
-          this.refreshRequestedWhileFetching = false;
-          void this.fetchBoard();
+        this.recomputeSnapshot({ loading: false, error: null });
+        return;
+      }
+      this.groupsSnapshot = groups;
+      this.groupWindows = new Map(windows.map(({ scope, snapshot }) => [
+        scope.scopeKey,
+        {
+          scope: scope.scope,
+          snapshot,
+          loadingMore: false,
+          inlineError: null,
+        },
+      ]));
+      this.rebuildFromGroups();
+      this.lastFetchedAt = this.dependencies.now();
+      this.stale = false;
+      this.ensureProjectionSubscription();
+      this.recomputeSnapshot({
+        loading: false,
+        error: null,
+      });
+    } catch (error) {
+      this.stale = true;
+      if (this.databaseViewId) {
+        this.baseDatabaseView = null;
+        this.baseBoard = null;
+        this.baseBoardAuthority = null;
+        this.groupWindows = new Map();
+        this.groupsSnapshot = null;
+      }
+      this.recomputeSnapshot({
+        loading: false,
+        error: toError(error).message,
+      });
+    } finally {
+      this.completedRefreshGeneration = Math.max(
+        this.completedRefreshGeneration,
+        refreshGeneration,
+      );
+    }
+  };
+
+  fetchBoard = async (minimumCommitSeq = 0): Promise<void> => {
+    this.requiredMinimumCommitSeq = Math.max(
+      this.requiredMinimumCommitSeq,
+      minimumCommitSeq,
+    );
+    while (true) {
+      const requestedMinimumCommitSeq = this.requiredMinimumCommitSeq;
+      const requestedRefreshGeneration = this.requiredRefreshGeneration;
+      if (this.inFlightFetch) {
+        await this.inFlightFetch;
+      } else {
+        const inFlight = this.fetchBoardOnce(
+          requestedMinimumCommitSeq,
+          requestedRefreshGeneration,
+        );
+        this.inFlightFetch = inFlight;
+        try {
+          await inFlight;
+        } finally {
+          if (this.inFlightFetch === inFlight) this.inFlightFetch = null;
         }
       }
-    })();
-
-    return this.inFlightFetch;
+      if (
+        this.requiredMinimumCommitSeq <= requestedMinimumCommitSeq
+        && this.completedRefreshGeneration >= requestedRefreshGeneration
+      ) return;
+    }
   };
 
   /**
@@ -528,6 +571,8 @@ class KanbanProjectStore {
       const snapshot = await this.readScopedWindow(
         { scopeKey, scope: group.scope },
         this.firstForScope(scopeKey),
+        undefined,
+        group.snapshot.changeLogSeq,
       );
       const current = this.groupWindows.get(scopeKey);
       if (!current) return;
@@ -566,6 +611,7 @@ class KanbanProjectStore {
         { scopeKey, scope: group.scope },
         GROUP_WINDOW_FIRST,
         after,
+        group.snapshot.changeLogSeq,
       );
       const current = this.groupWindows.get(scopeKey);
       if (!current || current.snapshot.nextCursor !== after) return;
@@ -630,11 +676,14 @@ class KanbanProjectStore {
     await this.fetchBoard();
   };
 
+  refreshBoardAtLeast = async (minimumCommitSeq = 0): Promise<void> => {
+    this.stale = true;
+    this.requiredRefreshGeneration += 1;
+    await this.fetchBoard(minimumCommitSeq);
+  };
+
   refreshBoard = async (): Promise<void> => {
-    if (this.inFlightFetch) {
-      await this.inFlightFetch;
-    }
-    await this.fetchBoard();
+    await this.refreshBoardAtLeast();
   };
 
   setError = (message: string): void => {
@@ -654,10 +703,6 @@ class KanbanProjectStore {
     this.recomputeSnapshot({
       lastMutationError: null,
     });
-  };
-
-  markMutation = (): void => {
-    this.lastMutationAt = this.dependencies.now();
   };
 
   applyRemoteCard = (card: DatabasePage): void => {
@@ -725,7 +770,6 @@ class KanbanProjectStore {
   };
 
   runOptimisticMutation = async <T,>(options: RunOptimisticMutationOptions<T>): Promise<OptimisticMutationResult<T>> => {
-    this.markMutation();
     this.supersedeConflicts(options.conflictKeys);
     const entry = this.createEntry({
       ...options,
@@ -973,24 +1017,24 @@ class KanbanProjectStore {
     }
   }
 
-  private shouldSkipRealtimeRefresh(): boolean {
-    return this.dependencies.now() - this.lastMutationAt < MUTATION_COOLDOWN_MS;
+  private requestRealtimeRefresh(minimumCommitSeq = 0): void {
+    this.stale = true;
+    void this.fetchBoard(minimumCommitSeq);
   }
 
-  private requestRealtimeRefresh(): void {
+  private refreshFromProjection = async (
+    cause: ProjectionStreamMessage,
+  ): Promise<void> => {
     this.stale = true;
-    if (this.inFlightFetch) {
-      this.refreshRequestedWhileFetching = true;
-      return;
+    if (cause.kind === "resync") {
+      // A new Store epoch has a new cursor origin; never carry an old
+      // minimumCommitSeq into that coordinate space.
+      this.requiredMinimumCommitSeq = 0;
     }
-    void this.fetchBoard();
-  }
-
-  private refreshFromProjection = async (): Promise<void> => {
-    this.stale = true;
-    if (this.inFlightFetch) await this.inFlightFetch;
     if (this.listeners.size === 0) return;
-    await this.fetchBoard();
+    await this.fetchBoard(
+      cause.kind === "resync" ? 0 : cause.cursor.changeLogSeq,
+    );
   };
 
   private ensureRealtimeSubscription(): void {
@@ -999,9 +1043,15 @@ class KanbanProjectStore {
         this.projectId,
         (event) => {
           if (this.databaseViewId) {
+            if (
+              this.baseBoardAuthority
+              && event.storeEpoch
+              && event.storeEpoch !== this.baseBoardAuthority.storeEpoch
+            ) {
+              this.requiredMinimumCommitSeq = 0;
+            }
             this.stale = true;
-            if (this.shouldSkipRealtimeRefresh()) return;
-            this.requestRealtimeRefresh();
+            this.requestRealtimeRefresh(event.changeLogSeq ?? 0);
             return;
           }
           const authority = this.baseBoardAuthority;
@@ -1012,8 +1062,7 @@ class KanbanProjectStore {
             || event.storeEpoch !== authority.storeEpoch
             || event.changeLogSeq < authority.changeLogSeq
           ) {
-            if (this.shouldSkipRealtimeRefresh()) return;
-            this.requestRealtimeRefresh();
+            this.requestRealtimeRefresh(event.changeLogSeq ?? 0);
             return;
           }
           const nextBoard = applyBoardChangeEventToBoard(
@@ -1034,8 +1083,7 @@ class KanbanProjectStore {
             }
             return;
           }
-          if (this.shouldSkipRealtimeRefresh()) return;
-          this.requestRealtimeRefresh();
+          this.requestRealtimeRefresh(event.changeLogSeq ?? 0);
         },
       );
     }
@@ -1081,7 +1129,6 @@ class KanbanProjectStore {
     this.unsubscribeProjectionInvalidation?.();
     this.unsubscribeBoardChanges = null;
     this.unsubscribeProjectionInvalidation = null;
-    this.refreshRequestedWhileFetching = false;
   }
 }
 

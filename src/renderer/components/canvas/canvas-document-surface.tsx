@@ -386,9 +386,6 @@ function CanvasEditor({
     const unsubscribePresence = documentSession.subscribePresence(
       presence.receive,
     );
-    const unregisterWriteLeasePreparer = provider.registerWriteLeasePreparer(
-      binding.flushCommitted,
-    );
     const runtime = canvasSceneSurfaceRegistry.acquire({
       key: surfaceKey,
       descriptor,
@@ -416,7 +413,6 @@ function CanvasEditor({
         });
       },
       disposeSubscriptions: () => {
-        unregisterWriteLeasePreparer();
         unsubscribeScene();
         unsubscribePresence();
         unsubscribeStatus();
