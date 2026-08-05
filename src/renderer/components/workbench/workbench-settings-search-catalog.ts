@@ -223,12 +223,13 @@ const SETTINGS_SEARCH_PANELS = {
         title: "Notifications",
         entries: [
           entry(
-            "Desktop notifications",
-            "Configure turn-complete, approval, and request-user-input notifications.",
+            "Turn completion notifications",
+            "Set when agent alerts you that it's finished.",
             [
-              "Turn complete",
-              "Approval requests",
-              "Questions",
+              "Enable permission notifications",
+              "Enable question notifications",
+              "Show alerts when notification permissions are required",
+              "Show alerts when input is needed to continue",
               "Never",
               "Only when unfocused",
               "Always",

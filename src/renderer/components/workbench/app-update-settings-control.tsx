@@ -207,6 +207,7 @@ export function AppUpdateSettingsControl({ open }: { open: boolean }) {
           Auto check
         </span>
         <NodexSwitch
+          ariaLabel="Auto check"
           disabled={busy || !status.supported}
           checked={settings.automaticChecksEnabled}
           onCheckedChange={(nextValue) => {

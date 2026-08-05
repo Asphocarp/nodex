@@ -171,6 +171,7 @@ export function GeneralSettingsPage({
             customDescription={permissionState?.customDescription ?? null}
             availableModes={permissionState?.availableModes}
             autoReviewAvailable={permissionState?.autoReviewAvailable ?? false}
+            triggerStyle="settings"
             onSelect={(mode) => {
               void handlePermissionModeChange(mode);
             }}
@@ -297,12 +298,7 @@ export function GeneralSettingsPage({
       </SectionBlock>
 
       <SectionBlock id="notifications" title="Notifications">
-        <SettingRow
-          label="Desktop notifications"
-          description="Configure turn-complete, approval, and request-user-input notifications."
-        >
-          <ThreadNotificationSettingControl open={open} />
-        </SettingRow>
+        <ThreadNotificationSettingControl open={open} />
       </SectionBlock>
 
       {permissionError ? (
@@ -401,6 +397,7 @@ export function AgentSettingsPage({
         </SettingRow>
         <SettingRow label="Allow network access" description="Controls `sandbox_workspace_write.network_access`.">
           <TogglePill
+            ariaLabel="Allow network access"
             value={networkAccessValue}
             disabled={busyKey !== null || permissionState?.sandboxMode !== "workspace-write"}
             onChange={(value) => {

@@ -228,6 +228,22 @@ Every modal opened from an interactive row needs a behavioral regression test:
 - For Card Stage rich-editor typing performance, follow `docs/card-stage-rich-editor-performance.md`.
 
 ## Styling Conventions
+
+### Settings controls
+
+Settings controls use explicit semantics instead of relying on operating-system
+native painting. Bounded numeric preferences use
+`NodexSettingsNumberInput` from
+`src/renderer/components/ui/settings.tsx`; it exposes a native number input
+with the shared settings geometry, `min`, `max`, and `step` constraints. A
+binary preference that turns one behavior on or off uses `NodexSwitch` from
+`src/renderer/components/ui/button.tsx` with `role="switch"` and
+`aria-checked`. A checkbox is reserved for selecting an item or option inside
+a group and uses `NodexCheckbox` from the shared settings primitives with
+`role="checkbox"` and `aria-checked`. Do not add one-off `accent-*` native
+checkboxes or range controls to a Settings row; introduce a shared primitive
+when a new control type is genuinely needed.
+
 - A scroll container does not bound browser work: `max-height`, `overflow`, and line clamping can still leave every text, DOM, and accessibility node mounted. Never use those styles as the sole large-content strategy.
 - Exact large source belongs in `VirtualizedTextViewer` through `LazyVirtualizedTextViewer`, which keeps selection and search while mounting only viewport-scale CodeMirror DOM. Rich Markdown, diff, JSON, and other tree-building representations must pass their feature budget before parsing; over-budget content uses exact source or an explicit domain rejection. Small inline previews may use `buildTextPreview`, but their full/copy action must read the canonical value lazily rather than silently truncating it.
 - Global styles in `src/renderer/globals.css`.
@@ -383,6 +399,7 @@ Every modal opened from an interactive row needs a behavioral regression test:
   - section navigation uses canonical `/settings/:section` hrefs with SPA interception; each Settings link prevents native document navigation and carries `data-nodex-internal-route="settings"` so the file-link opener cannot treat `/settings/...` as a local file; Browser detail navigation uses `/settings/browser/<detail>`, and search results remain action buttons that preserve the active query after navigation
   - in-app route anchors own their navigation through their local click handler; file references use `FileLinkAnchor`/`FileReferenceRouter` and are never intercepted by a document-level listener
   - shared settings surfaces use one semantic `main`/`h1` page hierarchy, `h2`/`region` section boundaries, a centered `max-w-3xl` content column, hairline dividers, and Codex-sized row insets; descriptions must wrap instead of truncating the settings form's explanatory copy
+  - shared settings rows use the Codex control hierarchy: a medium-weight primary label, compact secondary description, end-aligned control, and one inset hairline between adjacent rows; preference-specific controls should use the shared dropdown and switch primitives rather than local visual variants
   - settings-specific artwork belongs in `components/shared/icons/app-icons.tsx`; generic icon-library glyphs are not valid substitutes for Codex-parity entries such as Import, Browser, Computer use, or Git
 - Keep renderer forms boundary-led: use TanStack Form with a colocated zod schema module when a form has structural validation, type coercion, or multi-field constraints. For simple single-field inputs, keep local state and a submit-time guard instead of introducing a separate schema module.
 - For thread search, project stable user/assistant search units in the view model and attach them to rendered blocks; do not implement `Find in thread` by scraping arbitrary DOM text from the whole turn.

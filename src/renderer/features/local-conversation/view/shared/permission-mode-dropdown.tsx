@@ -1,4 +1,3 @@
-import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import type { CodexPermissionMode } from "../../../../lib/types";
 import {
   ChevronDownIcon,
@@ -7,7 +6,13 @@ import {
   PermissionAskForApprovalIcon,
   PermissionFullAccessIcon,
 } from "@/components/shared/icons";
-import { NodexDropdownMenu } from "@/components/ui/dropdown";
+import {
+  NodexDropdownItem,
+  NodexDropdownMenu,
+  NodexDropdownSelectedIcon,
+  NodexDropdownTitle,
+  NodexSettingsDropdownTrigger,
+} from "@/components/ui/dropdown";
 import { cn } from "@/lib/utils";
 import {
   COMPOSER_FOOTER_COMPACT_GHOST_BUTTON_CLASS_NAME,
@@ -57,16 +62,6 @@ const PERMISSION_MODE_ITEMS: PermissionModeDropdownItem[] = [
 const PERMISSIONS_LEARN_MORE_URL =
   "https://developers.openai.com/codex/concepts/sandboxing#how-you-control-it";
 
-const PERMISSION_MENU_TITLE_CLASS_NAME =
-  "text-token-description-foreground flex min-h-6 items-center truncate px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm leading-4";
-const PERMISSION_MENU_ITEM_CLASS_NAME =
-  "no-drag text-token-foreground outline-hidden rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm group hover:bg-token-list-hover-background focus:bg-token-list-hover-background cursor-interaction flex flex-col";
-const PERMISSION_MENU_DISABLED_ITEM_CLASS_NAME =
-  "cursor-default opacity-50 hover:bg-transparent focus:bg-transparent";
-const PERMISSION_MENU_ICON_CLASS_NAME =
-  "icon-sm shrink-0 opacity-75 group-focus:opacity-100 group-hover:opacity-100";
-const PERMISSION_MENU_CHECK_CLASS_NAME =
-  "icon-xs shrink-0 opacity-75 group-focus:opacity-100 group-hover:opacity-100";
 const FULL_ACCESS_ACCENT_CLASS_NAME = "text-token-editor-warning-foreground";
 
 function formatPermissionModeLabel(mode: CodexPermissionMode): string {
@@ -92,17 +87,6 @@ function PermissionModeMenuIcon({
   return <SettingsGeneralIcon className={className} />;
 }
 
-function PermissionModeCheckIcon({ className }: { className?: string }) {
-  return (
-    <svg width="17" height="17" viewBox="0 0 17 17" className={className} fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <path
-        d="M12.8961 3.64101C13.1297 3.41418 13.4984 3.37523 13.7779 3.56581C14.0571 3.75635 14.1554 4.11331 14.0299 4.41347L13.9615 4.53847L7.71151 13.7045C7.59411 13.8767 7.4063 13.9877 7.19881 14.0072C6.99136 14.0267 6.78564 13.9533 6.63826 13.806L2.88826 10.056L2.79842 9.9457C2.6192 9.67407 2.64927 9.30496 2.88826 9.06581C3.12738 8.82669 3.49647 8.79676 3.76815 8.97597L3.8785 9.06581L7.03084 12.2182L12.8053 3.74941L12.8961 3.64101Z"
-        fill="currentColor"
-      />
-    </svg>
-  );
-}
-
 function PermissionModeOption({
   item,
   description,
@@ -119,7 +103,7 @@ function PermissionModeOption({
   const accentClass = resolvePermissionModeAccentClass(item.value);
 
   return (
-    <DropdownMenuPrimitive.Item
+    <NodexDropdownItem
       disabled={disabled}
       onSelect={(event) => {
         if (disabled) {
@@ -131,35 +115,22 @@ function PermissionModeOption({
           event.preventDefault();
         }
       }}
-      className={cn(
-        PERMISSION_MENU_ITEM_CLASS_NAME,
-        disabled && PERMISSION_MENU_DISABLED_ITEM_CLASS_NAME,
-      )}
-    >
-      <div className="flex w-full items-center gap-3">
+      leftSlot={(
         <PermissionModeMenuIcon
           mode={item.value}
-          className={cn(PERMISSION_MENU_ICON_CLASS_NAME, accentClass)}
+          className={cn("icon-sm", accentClass)}
         />
-        <span className="flex min-w-0 flex-1 flex-col">
-          <span className={cn("min-w-0 whitespace-normal", accentClass)}>
-            {item.optionLabel}
-          </span>
-          <span className="min-w-0 truncate">
-            <span className={cn("text-token-description-foreground", accentClass)}>
-              {disabled && item.disabledDescription ? item.disabledDescription : description}
-            </span>
-          </span>
+      )}
+      rightSlot={selected ? <NodexDropdownSelectedIcon className={accentClass} /> : null}
+      subText={(
+        <span className={accentClass}>
+          {disabled && item.disabledDescription ? item.disabledDescription : description}
         </span>
-        {selected
-          ? (
-              <PermissionModeCheckIcon
-                className={cn(PERMISSION_MENU_CHECK_CLASS_NAME, accentClass)}
-              />
-            )
-          : null}
-      </div>
-    </DropdownMenuPrimitive.Item>
+      )}
+      allowWrap
+    >
+      <span className={accentClass}>{item.optionLabel}</span>
+    </NodexDropdownItem>
   );
 }
 
@@ -169,6 +140,7 @@ export function PermissionModeDropdown({
   availableModes,
   autoReviewAvailable = false,
   triggerVariant = "label",
+  triggerStyle = "composer",
   onSelect,
 }: {
   selectedMode: CodexPermissionMode;
@@ -176,39 +148,60 @@ export function PermissionModeDropdown({
   availableModes?: CodexPermissionMode[];
   autoReviewAvailable?: boolean;
   triggerVariant?: "label" | "icon";
+  triggerStyle?: "composer" | "settings";
   onSelect: (mode: CodexPermissionMode) => void;
 }) {
   const allowedModes = new Set(availableModes ?? ["auto", "full-access", "custom"]);
   const currentModeAccentClass = resolvePermissionModeAccentClass(selectedMode);
+  const triggerLabel = formatPermissionModeLabel(selectedMode);
 
   return (
     <NodexDropdownMenu
       triggerButton={(
-        <button
-          type="button"
-          aria-label="Permission mode"
-          className={triggerVariant === "icon"
-            ? COMPOSER_FOOTER_GHOST_ICON_BUTTON_CLASS_NAME
-            : COMPOSER_FOOTER_COMPACT_GHOST_BUTTON_CLASS_NAME}
-        >
-          <PermissionModeMenuIcon
-            mode={selectedMode}
-            className={cn("icon-xs shrink-0", currentModeAccentClass)}
-          />
-          {triggerVariant === "label" ? (
-            <>
+        triggerStyle === "settings" ? (
+          <NodexSettingsDropdownTrigger
+            aria-label="Permission mode"
+            className={triggerVariant === "icon" ? "size-8 justify-center px-0" : "min-w-56"}
+            showChevron={triggerVariant === "label"}
+          >
+            <PermissionModeMenuIcon
+              mode={selectedMode}
+              className={cn("icon-xs", currentModeAccentClass)}
+            />
+            {triggerVariant === "label" ? (
               <span className={cn("max-w-40 truncate whitespace-nowrap text-left", currentModeAccentClass)}>
-                {formatPermissionModeLabel(selectedMode)}
+                {triggerLabel}
               </span>
-              <ChevronDownIcon className={cn("icon-2xs shrink-0", currentModeAccentClass ?? "text-token-input-placeholder-foreground")} />
-            </>
-          ) : null}
-        </button>
+            ) : null}
+          </NodexSettingsDropdownTrigger>
+        ) : (
+          <button
+            type="button"
+            aria-label="Permission mode"
+            className={triggerVariant === "icon"
+              ? COMPOSER_FOOTER_GHOST_ICON_BUTTON_CLASS_NAME
+              : COMPOSER_FOOTER_COMPACT_GHOST_BUTTON_CLASS_NAME}
+          >
+            <PermissionModeMenuIcon
+              mode={selectedMode}
+              className={cn("icon-xs shrink-0", currentModeAccentClass)}
+            />
+            {triggerVariant === "label" ? (
+              <>
+                <span className={cn("max-w-40 truncate whitespace-nowrap text-left", currentModeAccentClass)}>
+                  {triggerLabel}
+                </span>
+                <ChevronDownIcon className={cn("icon-2xs shrink-0", currentModeAccentClass ?? "text-token-input-placeholder-foreground")} />
+              </>
+            ) : null}
+          </button>
+        )
       )}
-      side="top"
-      align="start"
+      side={triggerStyle === "settings" ? "bottom" : "top"}
+      align={triggerStyle === "settings" ? "end" : "start"}
+      contentWidth="menu"
     >
-      <div className={PERMISSION_MENU_TITLE_CLASS_NAME}>
+      <NodexDropdownTitle>
         <div className="flex items-center justify-between gap-8">
           <span>How should Agent actions be approved?</span>
           <button
@@ -223,7 +216,7 @@ export function PermissionModeDropdown({
             Learn more
           </button>
         </div>
-      </div>
+      </NodexDropdownTitle>
       {PERMISSION_MODE_ITEMS
         .filter((item) =>
           item.value === "custom"

@@ -185,7 +185,6 @@ import type { CoreReadResult } from "../shared/core-read-result";
 import type { DesktopAutomationModulePort } from "./core-client/desktop-automation-module-bridge";
 import type { DesktopStoreAdministrationPort } from "./core-client/desktop-store-administration-bridge";
 import type { GitWorkerHost } from "./git-worker-host";
-import type { SystemNotificationPermissionService } from "./system-notification-permission-service";
 import { readGitRepositoryIdentity } from "./git-repository-identity-service";
 import {
   cancelGitAction,
@@ -941,10 +940,6 @@ interface RegisterIpcHandlersOptions {
   onAppUpdateSettingsChanged?: (settings: AppUpdateSettings) => void;
   onCommandKeybindingsChanged?: (state: CommandKeymapState) => void;
   rendererClientRouter?: RendererClientRouter;
-  systemNotificationPermissionService?: Pick<
-    SystemNotificationPermissionService,
-    "getNotificationPermissionStatus" | "openNotificationSettings"
-  >;
   onHeartbeatAutomationsEnabledChanged?: (
     input: CodexHeartbeatAutomationsEnabledChangedInput,
   ) => void;
@@ -2419,15 +2414,6 @@ export function registerIpcHandlers(
   registerHandle("settings:thread-notifications:update", (_, input) =>
     updateThreadNotificationSettings(input),
   );
-
-  registerHandle("system-notification-permission:get", () =>
-    options.systemNotificationPermissionService
-      ?.getNotificationPermissionStatus() ?? Promise.resolve(null),
-  );
-
-  registerHandle("system-notification-permission:open-settings", async () => {
-    await options.systemNotificationPermissionService?.openNotificationSettings();
-  });
 
   registerHandle("settings:codex-developer:get", () =>
     getCodexDeveloperInstructionSettings(),

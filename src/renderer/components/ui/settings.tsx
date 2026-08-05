@@ -1,4 +1,5 @@
-import { useId, type CSSProperties, type ReactNode } from "react";
+import { useId, type ComponentProps, type CSSProperties, type ReactNode } from "react";
+import { CheckmarkIcon } from "@/components/shared/icons";
 import { cn } from "@/lib/utils";
 
 export const CODEX_SETTINGS_SHELL_STYLE = {
@@ -16,26 +17,95 @@ export const CODEX_SETTINGS_SHELL_STYLE = {
   "--cursor-interaction": "pointer",
 } as CSSProperties;
 
+export type NodexSettingsNumberInputProps = Omit<ComponentProps<"input">, "type">;
+
+export function NodexSettingsNumberInput({
+  className,
+  ...props
+}: NodexSettingsNumberInputProps) {
+  return (
+    <input
+      {...props}
+      type="number"
+      data-slot="settings-number-input"
+      className={cn(
+        "h-token-button-composer rounded-lg border border-token-border bg-token-input-background px-2 py-0 text-right text-sm text-token-text-primary shadow-sm outline-none",
+        "focus-visible:ring-2",
+        "disabled:cursor-not-allowed disabled:opacity-50",
+        className,
+      )}
+    />
+  );
+}
+
+export interface NodexCheckboxProps {
+  ariaLabel?: string;
+  checked: boolean;
+  className?: string;
+  disabled?: boolean;
+  id?: string;
+  onCheckedChange: (checked: boolean) => void;
+}
+
+export function NodexCheckbox({
+  ariaLabel,
+  checked,
+  className,
+  disabled = false,
+  id,
+  onCheckedChange,
+}: NodexCheckboxProps) {
+  return (
+    <button
+      id={id}
+      type="button"
+      role="checkbox"
+      aria-label={ariaLabel}
+      aria-checked={checked}
+      data-state={checked ? "checked" : "unchecked"}
+      disabled={disabled}
+      onClick={() => onCheckedChange(!checked)}
+      className={cn(
+        "border-token-border peer inline-flex items-center justify-center",
+        "data-[state=checked]:bg-token-checkbox-background data-[state=checked]:text-token-checkbox-foreground",
+        "data-[state=checked]:border-token-border",
+        "focus-visible:border-token-border focus-visible:ring-token-checkbox-background/50 focus-visible:ring-1",
+        "aria-invalid:ring-2 aria-invalid:ring-token-error-foreground/20 aria-invalid:border-token-error-foreground",
+        "icon-2xs rounded-xs shrink-0 border shadow-sm outline-none transition-[background-color,border-color,box-shadow]",
+        "disabled:cursor-not-allowed",
+        !disabled && "hover:bg-token-editor-background",
+        className,
+      )}
+    >
+      {checked ? <CheckmarkIcon className="icon-xxs flex-shrink-0" /> : null}
+    </button>
+  );
+}
+
 export interface NodexSettingsRowProps {
   label: string;
   description?: string;
+  className?: string;
   children: ReactNode;
 }
 
 export function NodexSettingsRow({
   label,
   description,
+  className,
   children,
 }: NodexSettingsRowProps) {
   return (
-    <div className="flex items-start justify-between gap-6 px-4 py-3">
-      <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <div className="min-w-0 text-sm text-token-text-primary">{label}</div>
-        {description ? (
-          <div className="min-w-0 break-words text-sm text-token-text-secondary">
-            {description}
-          </div>
-        ) : null}
+    <div className={cn("flex items-center justify-between gap-6 px-4 py-3", className)}>
+      <div className="flex min-w-0 flex-1 items-center gap-3">
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <div className="min-w-0 text-sm font-medium text-token-text-primary">{label}</div>
+          {description ? (
+            <div className="min-w-0 break-words text-xs leading-4 text-balance text-token-text-secondary">
+              {description}
+            </div>
+          ) : null}
+        </div>
       </div>
       <div className="flex max-w-full shrink-0 items-center gap-2">{children}</div>
     </div>
@@ -68,7 +138,11 @@ export function NodexSettingsSection({
       <div className="flex flex-col gap-1.5">
         <div
           className={cn(
-            "border-token-border bg-token-bg-fog flex flex-col divide-y-[0.5px] divide-token-border overflow-hidden rounded-2xl border-[0.5px]",
+            "flex flex-col overflow-hidden rounded-2xl border border-token-border",
+            "[&>*:not(:last-child)]:relative [&>*:not(:last-child)]:after:pointer-events-none",
+            "[&>*:not(:last-child)]:after:absolute [&>*:not(:last-child)]:after:inset-x-4",
+            "[&>*:not(:last-child)]:after:bottom-0 [&>*:not(:last-child)]:after:h-[0.5px]",
+            "[&>*:not(:last-child)]:after:bg-token-border [&>*:not(:last-child)]:after:content-['']",
             cardClassName,
           )}
           style={{ backgroundColor: "var(--color-background-panel, var(--color-token-bg-fog))" }}

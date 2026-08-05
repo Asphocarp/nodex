@@ -362,7 +362,6 @@ import type {
   UpdateWindowRestoreSettingsInput,
   WindowRestoreSettings,
   DesktopNotificationActionInvocation,
-  SystemNotificationPermissionStatus,
   WorkspaceDirectoryEntriesInput,
   WorkspaceDirectoryEntriesResult,
   WorkspaceFileBinaryReadResult,
@@ -1011,14 +1010,6 @@ export interface IpcApi {
   "settings:thread-notifications:update": {
     args: [input: UpdateThreadNotificationSettingsInput];
     result: ThreadNotificationSettings;
-  };
-  "system-notification-permission:get": {
-    args: [];
-    result: SystemNotificationPermissionStatus;
-  };
-  "system-notification-permission:open-settings": {
-    args: [];
-    result: void;
   };
   "electron-window:focus:get": { args: []; result: boolean };
   "native-context-menu:show": {

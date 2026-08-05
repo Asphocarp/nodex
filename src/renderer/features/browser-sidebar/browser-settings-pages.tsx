@@ -8,11 +8,18 @@ import {
 } from "@/components/shared/icons/generic-icons";
 import { NodexButton, NodexSwitch } from "@/components/ui/button";
 import {
+  NodexDropdownItem,
+  NodexDropdownMenu,
+  NodexDropdownSelectedIcon,
+  NodexSettingsDropdownTrigger,
+} from "@/components/ui/dropdown";
+import {
   NodexSettingsPageSurface,
   NodexSettingsRow,
   NodexSettingsSection,
 } from "@/components/ui/settings";
 import { invoke } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import type {
   BrowserDownloadAction,
   BrowserDownloadRecord,
@@ -56,6 +63,23 @@ const EMPTY_CAPABILITIES: BrowserProfileCapabilities = {
   profileImport: EMPTY_CAPABILITY,
   siteInfo: EMPTY_CAPABILITY,
 };
+
+const BROWSER_USE_RESOURCE_OPTIONS = [
+  { value: "origin", label: "Website" },
+  { value: "download", label: "Download" },
+  { value: "upload", label: "Upload" },
+  { value: "fullCdp", label: "Full CDP" },
+] as const;
+
+const BROWSER_USE_DECISION_OPTIONS = [
+  { value: "allowed", label: "Allow" },
+  { value: "denied", label: "Deny" },
+] as const;
+
+const BROWSER_USE_APPROVAL_OPTIONS = [
+  { value: "alwaysAsk", label: "Always ask" },
+  { value: "neverAsk", label: "Never ask" },
+] as const;
 
 export function BrowserSettingsPage({
   browserAnchor,
@@ -566,23 +590,19 @@ function BrowserUsePolicySettings({
           />
           <PolicySelect
             ariaLabel="Browser Use resource"
+            className="min-w-28"
+            options={BROWSER_USE_RESOURCE_OPTIONS}
             value={resource}
             onChange={(value) => setResource(value as BrowserUsePolicyResource)}
-          >
-            <option value="origin">Website</option>
-            <option value="download">Download</option>
-            <option value="upload">Upload</option>
-            <option value="fullCdp">Full CDP</option>
-          </PolicySelect>
+          />
           <PolicySelect
             ariaLabel="Browser Use origin decision"
+            className="min-w-20"
+            options={BROWSER_USE_DECISION_OPTIONS}
             value={kind}
             onChange={(value) =>
               setKind(value as BrowserUseOriginRuleUpdate["kind"])}
-          >
-            <option value="allowed">Allow</option>
-            <option value="denied">Deny</option>
-          </PolicySelect>
+          />
           <NodexButton
             size="sm"
             disabled={!origin.trim()}
@@ -630,36 +650,53 @@ function ApprovalModeRow({
     <NodexSettingsRow label={label} description={description}>
       <PolicySelect
         ariaLabel={`${label} approval mode`}
+        className="min-w-28"
+        options={BROWSER_USE_APPROVAL_OPTIONS}
         value={value}
         onChange={(nextValue) => onChange(nextValue as BrowserUseApprovalMode)}
-      >
-        <option value="alwaysAsk">Always ask</option>
-        <option value="neverAsk">Never ask</option>
-      </PolicySelect>
+      />
     </NodexSettingsRow>
   );
 }
 
 function PolicySelect({
   ariaLabel,
-  children,
+  className,
   onChange,
+  options,
   value,
 }: {
   ariaLabel: string;
-  children: ReactNode;
+  className?: string;
   onChange: (value: string) => void;
+  options: ReadonlyArray<{ value: string; label: string }>;
   value: string;
 }) {
+  const selectedLabel = options.find((option) => option.value === value)?.label ?? value;
+
   return (
-    <select
-      aria-label={ariaLabel}
-      className="h-8 rounded-lg border border-token-border bg-token-main-surface-primary px-2 text-sm text-token-text-primary outline-none focus-visible:ring-1 focus-visible:ring-token-focus"
-      value={value}
-      onChange={(event) => onChange(event.target.value)}
+    <NodexDropdownMenu
+      align="end"
+      contentWidth="xs"
+      triggerButton={(
+        <NodexSettingsDropdownTrigger
+          aria-label={ariaLabel}
+          className={cn("h-8", className)}
+        >
+          <span className="truncate">{selectedLabel}</span>
+        </NodexSettingsDropdownTrigger>
+      )}
     >
-      {children}
-    </select>
+      {options.map((option) => (
+        <NodexDropdownItem
+          key={option.value}
+          onSelect={() => onChange(option.value)}
+          rightSlot={option.value === value ? <NodexDropdownSelectedIcon /> : null}
+        >
+          {option.label}
+        </NodexDropdownItem>
+      ))}
+    </NodexDropdownMenu>
   );
 }
 

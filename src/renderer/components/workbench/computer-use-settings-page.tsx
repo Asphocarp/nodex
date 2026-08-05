@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { LockKeyhole, MonitorCog, Trash2, Volume2 } from "@/components/shared/icons/generic-icons";
-import { CheckmarkIcon } from "@/components/shared/icons";
 import { NodexButton, NodexSwitch } from "@/components/ui/button";
 import {
-  NodexDropdownButtonTrigger,
   NodexDropdownItem,
   NodexDropdownMenu,
+  NodexDropdownSelectedIcon,
+  NodexSettingsDropdownTrigger,
 } from "@/components/ui/dropdown";
 import {
   NodexSettingsPageSurface,
@@ -180,11 +180,12 @@ export function ComputerUseSettingsView({
               <Volume2 className="size-4 text-token-text-secondary" />
               <NodexDropdownMenu
                 align="end"
+                contentWidth="menu"
                 disabled={pending !== null}
                 triggerButton={(
-                  <NodexDropdownButtonTrigger>
-                    {selectedSoundMode.label}
-                  </NodexDropdownButtonTrigger>
+                  <NodexSettingsDropdownTrigger className="min-w-60 max-w-[22rem]">
+                    <span className="truncate">{selectedSoundMode.label}</span>
+                  </NodexSettingsDropdownTrigger>
                 )}
               >
                 {SOUND_MODE_OPTIONS.map((option) => (
@@ -192,7 +193,7 @@ export function ComputerUseSettingsView({
                     key={option.value}
                     onSelect={() => onSetSoundMode(option.value)}
                     rightSlot={option.value === snapshot.soundMode
-                      ? <CheckmarkIcon className="size-4" />
+                      ? <NodexDropdownSelectedIcon />
                       : null}
                   >
                     {option.label}

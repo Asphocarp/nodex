@@ -7,12 +7,15 @@ import { LazySourceViewer } from "@/components/ui/lazy-source-viewer";
 import {
   NodexDropdownItem,
   NodexDropdownMenu,
+  NodexDropdownSelectedIcon,
+  NodexSettingsDropdownTrigger,
 } from "@/components/ui/dropdown";
 import {
   NodexPopover,
   NodexPopoverContent,
   NodexPopoverTrigger,
 } from "@/components/ui/popover";
+import { NodexCheckbox } from "@/components/ui/settings";
 import { invoke } from "@/lib/api";
 import type {
   Project,
@@ -116,14 +119,6 @@ function TestActionIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
       <path d="M16.0013 14.4404C16.0012 13.9504 15.8514 13.4739 15.5736 13.0742L15.4467 12.9082L15.0121 12.3877C13.8615 12.8911 12.9154 13.1121 12.0619 13.1562C11.1476 13.2035 10.3805 13.0475 9.66541 12.8857C8.9421 12.7221 8.28162 12.5562 7.47302 12.5146C6.70041 12.475 5.77589 12.5504 4.56873 12.8887L4.5531 12.9082C4.19469 13.3383 3.99852 13.8806 3.99841 14.4404C3.99841 15.7627 5.07071 16.835 6.39294 16.835H13.6078C14.9299 16.8349 16.0013 15.7626 16.0013 14.4404ZM11.8353 3.16504H8.16541V7.72949C8.16541 8.20671 8.01889 8.6713 7.74841 9.06055L7.62439 9.22266L5.93396 11.25C6.52127 11.1756 7.05057 11.1614 7.54041 11.1865C8.48678 11.2351 9.2693 11.432 9.95837 11.5879C10.6557 11.7456 11.272 11.8653 11.9926 11.8281C12.5792 11.7978 13.2617 11.6591 14.1215 11.3184L12.3754 9.22266C12.0262 8.80363 11.8353 8.27494 11.8353 7.72949V3.16504ZM13.1654 7.72949C13.1654 7.96372 13.247 8.19111 13.3969 8.37109L16.4681 12.0566L16.6654 12.3154C17.0976 12.9371 17.3313 13.6782 17.3314 14.4404C17.3314 16.4971 15.6645 18.1649 13.6078 18.165H6.39294C4.33617 18.165 2.66833 16.4972 2.66833 14.4404C2.66844 13.5694 2.97398 12.7258 3.53162 12.0566L6.60291 8.37109L6.65564 8.30176C6.77198 8.13447 6.83533 7.93464 6.83533 7.72949V3.16504H6.66638C6.29926 3.16486 6.00134 2.86716 6.00134 2.5C6.00134 2.13284 6.29926 1.83514 6.66638 1.83496H13.3334L13.4672 1.84863C13.7703 1.91057 13.9984 2.17857 13.9984 2.5C13.9984 2.82143 13.7703 3.08943 13.4672 3.15137L13.3334 3.16504H13.1654V7.72949Z" fill="currentColor" />
-    </svg>
-  );
-}
-
-function CheckboxCheckIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg width="17" height="17" viewBox="0 0 17 17" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
-      <path d="M12.8961 3.64101C13.1297 3.41418 13.4984 3.37523 13.7779 3.56581C14.0571 3.75635 14.1554 4.11331 14.0299 4.41347L13.9615 4.53847L7.71151 13.7045C7.59411 13.8767 7.4063 13.9877 7.19881 14.0072C6.99136 14.0267 6.78564 13.9533 6.63826 13.806L2.88826 10.056L2.79842 9.9457C2.6192 9.67407 2.64927 9.30496 2.88826 9.06581C3.12738 8.82669 3.49647 8.79676 3.76815 8.97597L3.8785 9.06581L7.03084 12.2182L12.8053 3.74941L12.8961 3.64101Z" fill="currentColor" />
     </svg>
   );
 }
@@ -358,42 +353,6 @@ function ActionIconPreview({
   return <Icon className={cn("icon-sm", className)} />;
 }
 
-function CodexCheckbox({
-  id,
-  checked,
-  onCheckedChange,
-}: {
-  id: string;
-  checked: boolean;
-  onCheckedChange: (checked: boolean) => void;
-}) {
-  return (
-    <button
-      id={id}
-      type="button"
-      role="checkbox"
-      aria-checked={checked}
-      data-state={checked ? "checked" : "unchecked"}
-      onClick={() => onCheckedChange(!checked)}
-      className={cn(
-        "border-token-border peer inline-flex items-center justify-center",
-        "data-[state=checked]:bg-token-checkbox-background data-[state=checked]:text-token-checkbox-foreground",
-        "data-[state=checked]:border-token-border",
-        "focus-visible:border-token-border focus-visible:ring-token-checkbox-background/50 focus-visible:ring-1",
-        "aria-invalid:ring-2 aria-invalid:ring-token-error-foreground/20 aria-invalid:border-token-error-foreground",
-        "icon-2xs rounded-xs shrink-0 border shadow-sm outline-none transition-all",
-        "hover:bg-token-editor-background",
-      )}
-    >
-      {checked ? (
-        <span className="flex h-full w-full items-center justify-center text-current">
-          <CheckboxCheckIcon className="icon-xxs flex-shrink-0" />
-        </span>
-      ) : null}
-    </button>
-  );
-}
-
 function CodexSegmentedPlatformToggle({
   selectedPlatform,
   onSelect,
@@ -432,14 +391,13 @@ function LocalEnvironmentActionIconDropdown({
   return (
     <NodexDropdownMenu
       triggerButton={(
-        <NodexButton
-          variant="secondary"
+        <NodexSettingsDropdownTrigger
           aria-label={ariaLabel}
-          size="composer"
-          className="w-12 justify-center text-sm"
+          className="w-9 justify-center px-0"
+          showChevron={false}
         >
           <ActionIconPreview icon={selectedOption.value} />
-        </NodexButton>
+        </NodexSettingsDropdownTrigger>
       )}
       side="bottom"
       align="start"
@@ -450,6 +408,7 @@ function LocalEnvironmentActionIconDropdown({
           key={option.value}
           onSelect={() => onSelect(option.value)}
           leftSlot={<ActionIconPreview icon={option.value} className="shrink-0" />}
+          rightSlot={option.value === selectedOption.value ? <NodexDropdownSelectedIcon /> : null}
         >
           {option.label}
         </NodexDropdownItem>
@@ -696,7 +655,8 @@ function CodexActionsEditorSection({
                     Only run on a specific OS.
                   </div>
                   <div className="relative flex items-center gap-2 text-sm">
-                    <CodexCheckbox
+                    <NodexCheckbox
+                      ariaLabel="Platform specific"
                       id={`local-env-action-platform-specific-${action.id}`}
                       checked={action.platform !== null}
                       onCheckedChange={(checked) => {

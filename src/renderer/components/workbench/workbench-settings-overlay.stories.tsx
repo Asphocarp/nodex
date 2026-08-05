@@ -6,7 +6,6 @@ import type {
   CodexPermissionState,
   DiagnosticsSettings,
   Project,
-  SystemNotificationPermissionStatus,
   TelemetrySettings,
   ThreadNotificationSettings,
   UpdateWorktreeEnvironmentConfigInput,
@@ -130,7 +129,6 @@ function ensureStorybookElectronBridge({
   onCreateBackup,
   initialCommandKeybindingOverrides = {},
   notificationSettings,
-  systemNotificationPermissionStatus,
 }: {
   snapshots: Record<string, WorktreeEnvironmentSettingsSnapshot>;
   onSaveSnapshot: (input: UpdateWorktreeEnvironmentConfigInput) => WorktreeEnvironmentSettingsSnapshot;
@@ -139,7 +137,6 @@ function ensureStorybookElectronBridge({
   onCreateBackup: (label: string | null) => BackupRecord;
   initialCommandKeybindingOverrides?: CommandKeybindingOverrides;
   notificationSettings: ThreadNotificationSettings;
-  systemNotificationPermissionStatus: SystemNotificationPermissionStatus;
 }) {
   if (typeof window === "undefined") return;
 
@@ -223,10 +220,6 @@ function ensureStorybookElectronBridge({
           return gitSettings;
         case "settings:thread-notifications:get":
           return notificationSettings;
-        case "system-notification-permission:get":
-          return systemNotificationPermissionStatus;
-        case "system-notification-permission:open-settings":
-          return undefined;
         case "codex-command-keymap-state":
           return createCommandKeymapState(commandKeybindingOverrides);
         case "set-codex-command-keybinding": {
@@ -426,7 +419,6 @@ function SettingsRouteShellStory({
     permissionsEnabled: true,
     questionsEnabled: true,
   },
-  systemNotificationPermissionStatus = "enabled",
 }: {
   initialPath: string;
   initialServiceTier?: "standard" | "fast";
@@ -434,7 +426,6 @@ function SettingsRouteShellStory({
   initialSettingsSearchQuery?: string;
   initialSettingsSearchHighlightIndex?: number;
   notificationSettings?: ThreadNotificationSettings;
-  systemNotificationPermissionStatus?: SystemNotificationPermissionStatus;
 }) {
   const [path, setPath] = useState(initialPath);
   const [environmentSnapshots, setEnvironmentSnapshots] = useState<Record<string, WorktreeEnvironmentSettingsSnapshot>>({
@@ -514,7 +505,6 @@ function SettingsRouteShellStory({
     },
     initialCommandKeybindingOverrides,
     notificationSettings,
-    systemNotificationPermissionStatus,
   });
 
   if (typeof localStorage !== "undefined") {
@@ -615,7 +605,6 @@ export const NotificationApprovalsDisabled: Story = {
         permissionsEnabled: false,
         questionsEnabled: true,
       }}
-      systemNotificationPermissionStatus="disabled"
     />
   ),
 };

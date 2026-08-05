@@ -17,12 +17,13 @@ import {
   Sun,
   Trash2,
 } from "@/components/shared/icons/generic-icons";
-import { CheckmarkIcon } from "@/components/shared/icons";
-import { NodexButton } from "@/components/ui/button";
+import { NodexButton, NodexSwitch } from "@/components/ui/button";
 import {
   NodexDropdownButtonTrigger,
   NodexDropdownItem,
   NodexDropdownMenu,
+  NodexDropdownSelectedIcon,
+  NodexSettingsDropdownTrigger,
 } from "@/components/ui/dropdown";
 import { Input } from "../ui/input";
 import { invoke } from "./workbench-settings-overlay-deps";
@@ -87,8 +88,8 @@ import type {
   WorktreeStartMode,
   CodexPermissionState,
   CodexThreadDetailLevel,
+  ThreadNotificationSettings,
   ThreadNotificationTurnMode,
-  SystemNotificationPermissionStatus,
   WindowRestorePolicy,
 } from "../../lib/types";
 import { cn } from "../../lib/utils";
@@ -111,6 +112,7 @@ import {
 import { SETTINGS_PAGE_COMPONENTS } from "./workbench-settings-section-pages";
 import {
   CODEX_SETTINGS_SHELL_STYLE,
+  NodexSettingsNumberInput,
   NodexSettingsSection as SectionBlock,
   NodexSettingsRow as SettingRow,
   NodexSettingsPageSurface as SettingsPageSurface,
@@ -259,49 +261,23 @@ function ToggleGroup<T extends string>({
 }
 
 export function TogglePill({
+  ariaLabel,
   value,
   onChange,
   disabled = false,
 }: {
+  ariaLabel?: string;
   value: boolean;
   onChange: (value: boolean) => void;
   disabled?: boolean;
-  onLabel?: string;
-  offLabel?: string;
 }) {
-  const handleToggle = useCallback(() => {
-    if (disabled) return;
-    onChange(!value);
-  }, [disabled, onChange, value]);
-
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={value}
-      onClick={handleToggle}
+    <NodexSwitch
+      ariaLabel={ariaLabel}
+      checked={value}
       disabled={disabled}
-      className={cn(
-        "flex items-center gap-2 text-sm focus-visible:rounded-full focus-visible:ring-2 focus-visible:ring-(--accent-blue)/50 focus-visible:outline-none",
-        disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer",
-      )}
-    >
-      <span
-        className={cn(
-          "relative inline-flex h-5 w-8 shrink-0 items-center rounded-full transition-colors duration-200 ease-out",
-          value
-            ? "bg-(--accent-blue)"
-            : "bg-foreground-10",
-        )}
-      >
-        <span
-          className={cn(
-            "size-4 rounded-full border border-white bg-white shadow-sm transition-transform duration-200 ease-out",
-            value ? "translate-x-3.25" : "translate-x-0.75",
-          )}
-        />
-      </span>
-    </button>
+      onCheckedChange={onChange}
+    />
   );
 }
 
@@ -332,16 +308,68 @@ export function ConfigValueDropdown({
   return (
     <NodexDropdownMenu
       disabled={disabled}
-      triggerButton={<NodexDropdownButtonTrigger>{selectedLabel}</NodexDropdownButtonTrigger>}
+      triggerButton={(
+        <NodexSettingsDropdownTrigger className="min-w-36">
+          <span className="truncate">{selectedLabel}</span>
+        </NodexSettingsDropdownTrigger>
+      )}
       align="end"
+      contentWidth="sm"
     >
       {options.map((option) => (
         <NodexDropdownItem
           key={option.value}
           onSelect={() => onSelect(option.value)}
-          rightSlot={option.value === value ? <CheckmarkIcon className="size-4" /> : null}
+          rightSlot={option.value === value ? <NodexDropdownSelectedIcon /> : null}
         >
           {option.label}
+        </NodexDropdownItem>
+      ))}
+    </NodexDropdownMenu>
+  );
+}
+
+const THREAD_NOTIFICATION_TURN_MODE_OPTIONS: Array<{
+  value: ThreadNotificationTurnMode;
+  label: string;
+}> = [
+  { value: "off", label: "Never" },
+  { value: "unfocused", label: "Only when unfocused" },
+  { value: "always", label: "Always" },
+];
+
+function ThreadNotificationTurnModeControl({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: ThreadNotificationTurnMode;
+  onChange: (value: ThreadNotificationTurnMode) => void;
+  disabled: boolean;
+}) {
+  const selectedLabel = THREAD_NOTIFICATION_TURN_MODE_OPTIONS.find(
+    (option) => option.value === value,
+  )?.label ?? "Only when unfocused";
+
+  return (
+    <NodexDropdownMenu
+      disabled={disabled}
+      contentWidth="menuWide"
+      align="end"
+      triggerButton={(
+        <NodexSettingsDropdownTrigger className="min-w-52">
+          <span className="truncate">{selectedLabel}</span>
+        </NodexSettingsDropdownTrigger>
+      )}
+    >
+      {THREAD_NOTIFICATION_TURN_MODE_OPTIONS.map((option) => (
+        <NodexDropdownItem
+          key={option.value}
+          aria-label={option.label}
+          onSelect={() => onChange(option.value)}
+          rightSlot={option.value === value ? <NodexDropdownSelectedIcon /> : null}
+        >
+          <span className="truncate">{option.label}</span>
         </NodexDropdownItem>
       ))}
     </NodexDropdownMenu>
@@ -368,46 +396,16 @@ export function ThreadNotificationSettingControl({ open }: { open: boolean }) {
   const { settings, isLoading, reloadSettings, updateSettings } = useThreadNotificationSettings();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [systemPermissionStatus, setSystemPermissionStatus] =
-    useState<SystemNotificationPermissionStatus>(null);
-  const systemSettingsPlatformSupported = typeof navigator !== "undefined"
-    && /MAC|WIN/u.test(navigator.platform.toUpperCase());
-
-  const refreshSystemPermissionStatus = useCallback(async () => {
-    try {
-      const status = await invoke("system-notification-permission:get");
-      if (
-        status === "enabled"
-        || status === "disabled"
-        || status === "not-determined"
-        || status === null
-      ) setSystemPermissionStatus(status);
-    } catch {
-      setSystemPermissionStatus(null);
-    }
-  }, []);
 
   useEffect(() => {
     if (!open) return;
     void reloadSettings().catch((err) => {
       setError(err instanceof Error ? err.message : "Could not load thread notification settings.");
     });
-    void refreshSystemPermissionStatus();
-    const handleWindowFocus = () => {
-      void refreshSystemPermissionStatus();
-    };
-    window.addEventListener("focus", handleWindowFocus);
-    return () => {
-      window.removeEventListener("focus", handleWindowFocus);
-    };
-  }, [open, refreshSystemPermissionStatus, reloadSettings]);
+  }, [open, reloadSettings]);
 
   const handleChange = useCallback(
-    async (nextSettings: {
-      turnMode: ThreadNotificationTurnMode;
-      permissionsEnabled: boolean;
-      questionsEnabled: boolean;
-    }) => {
+    async (nextSettings: ThreadNotificationSettings) => {
       setBusy(true);
       setError(null);
 
@@ -423,88 +421,60 @@ export function ThreadNotificationSettingControl({ open }: { open: boolean }) {
   );
 
   return (
-    <div className="flex min-w-72 flex-col items-end gap-3">
-      <SegmentedControl<ThreadNotificationTurnMode>
-        value={settings.turnMode}
-        onChange={(turnMode) => {
-          void handleChange({
-            ...settings,
-            turnMode,
-          });
-        }}
-        options={[
-          { value: "off", label: "Never" },
-          { value: "unfocused", label: "Only when unfocused" },
-          { value: "always", label: "Always" },
-        ]}
-      />
-      <div className="flex w-full max-w-80 flex-col gap-2">
-        <div className="flex items-center justify-between gap-4">
-          <span className="text-right text-sm text-(--foreground-secondary)">
-            Approval requests
-          </span>
-          <TogglePill
-            value={settings.permissionsEnabled}
-            onChange={(permissionsEnabled) => {
-              void handleChange({
-                ...settings,
-                permissionsEnabled,
-              });
-            }}
-            disabled={busy || isLoading}
-          />
-        </div>
-        <div className="flex items-center justify-between gap-4">
-          <span className="text-right text-sm text-(--foreground-secondary)">
-            Questions
-          </span>
-          <TogglePill
-            value={settings.questionsEnabled}
-            onChange={(questionsEnabled) => {
-              void handleChange({
-                ...settings,
-                questionsEnabled,
-              });
-            }}
-            disabled={busy || isLoading}
-          />
-        </div>
-        {systemPermissionStatus !== null || systemSettingsPlatformSupported ? (
-          <div className="flex items-center justify-between gap-4 pt-1">
-          <span className="text-right text-xs text-(--foreground-secondary)">
-            System permission: {
-              systemPermissionStatus === "not-determined"
-                ? "Not requested"
-                : systemPermissionStatus === "enabled"
-                  ? "Enabled"
-                  : systemPermissionStatus === "disabled"
-                    ? "Disabled"
-                    : "Unavailable"
-            }
-          </span>
-          <NodexButton
-            size="sm"
-            variant="secondary"
-            onClick={() => {
-              void invoke("system-notification-permission:open-settings")
-                .catch((err) => {
-                  setError(err instanceof Error
-                    ? err.message
-                    : "Could not open system notification settings.");
-                });
-            }}
-          >
-            System settings
-          </NodexButton>
-          </div>
-        ) : null}
-      </div>
+    <>
+      <SettingRow
+        label="Turn completion notifications"
+        description="Set when agent alerts you that it's finished"
+      >
+        <ThreadNotificationTurnModeControl
+          value={settings.turnMode}
+          onChange={(turnMode) => {
+            void handleChange({
+              ...settings,
+              turnMode,
+            });
+          }}
+          disabled={busy || isLoading}
+        />
+      </SettingRow>
+      <SettingRow
+        label="Enable permission notifications"
+        description="Show alerts when notification permissions are required"
+      >
+        <TogglePill
+          ariaLabel="Enable permission notifications"
+          value={settings.permissionsEnabled}
+          onChange={(permissionsEnabled) => {
+            void handleChange({
+              ...settings,
+              permissionsEnabled,
+            });
+          }}
+          disabled={busy || isLoading}
+        />
+      </SettingRow>
+      <SettingRow
+        label="Enable question notifications"
+        description="Show alerts when input is needed to continue"
+      >
+        <TogglePill
+          ariaLabel="Enable question notifications"
+          value={settings.questionsEnabled}
+          onChange={(questionsEnabled) => {
+            void handleChange({
+              ...settings,
+              questionsEnabled,
+            });
+          }}
+          disabled={busy || isLoading}
+        />
+      </SettingRow>
       {error ? (
-        <span className="max-w-80 text-right text-xs text-(--red-text)">
+        <div role="alert" className="px-4 pb-3 text-xs text-token-error-foreground">
           {error}
-        </span>
+        </div>
       ) : null}
-    </div>
+    </>
   );
 }
 
@@ -673,6 +643,7 @@ export function DiagnosticsSettingControl({ open }: { open: boolean }) {
             Share crash reports
           </span>
           <TogglePill
+            ariaLabel="Share crash reports"
             value={settings.enabled}
             disabled={busy || settings.envOverrides.enabled}
             onChange={(enabled) => {
@@ -690,6 +661,7 @@ export function DiagnosticsSettingControl({ open }: { open: boolean }) {
             Share session replays
           </span>
           <TogglePill
+            ariaLabel="Share session replays"
             value={settings.replayEnabled && settings.enabled}
             disabled={replayDisabled}
             onChange={(replayEnabled) => {
@@ -830,6 +802,7 @@ export function TelemetrySettingControl({ open }: { open: boolean }) {
             Share product telemetry
           </span>
           <TogglePill
+            ariaLabel="Share product telemetry"
             value={settings.enabled}
             disabled={busy || settings.envOverrides.enabled}
             onChange={(enabled) => {
@@ -847,6 +820,7 @@ export function TelemetrySettingControl({ open }: { open: boolean }) {
             Share web analytics
           </span>
           <TogglePill
+            ariaLabel="Share web analytics"
             value={settings.autoCaptureEnabled && settings.enabled}
             disabled={autoCaptureDisabled}
             onChange={(autoCaptureEnabled) => {
@@ -870,7 +844,7 @@ export function TelemetrySettingControl({ open }: { open: boolean }) {
 export function SpellcheckSettingControl() {
   const { spellcheck, toggleSpellcheck } = useSpellcheck();
 
-  return <TogglePill value={spellcheck} onChange={() => toggleSpellcheck()} />;
+  return <TogglePill ariaLabel="Spellcheck" value={spellcheck} onChange={() => toggleSpellcheck()} />;
 }
 
 export function NfmAutolinkTypingSettingControl() {
@@ -878,6 +852,7 @@ export function NfmAutolinkTypingSettingControl() {
 
   return (
     <TogglePill
+      ariaLabel="Autolink while typing"
       value={settings.autoLinkWhileTyping}
       onChange={(value) => updateSettings({ autoLinkWhileTyping: value })}
     />
@@ -889,6 +864,7 @@ export function NfmAutolinkPasteSettingControl() {
 
   return (
     <TogglePill
+      ariaLabel="Autolink on paste"
       value={settings.autoLinkOnPaste}
       onChange={(value) => updateSettings({ autoLinkOnPaste: value })}
     />
@@ -901,6 +877,7 @@ export function NfmAutolinkBareDomainsSettingControl() {
 
   return (
     <TogglePill
+      ariaLabel="Linkify bare domains"
       value={settings.linkifyBareDomains}
       onChange={(value) => updateSettings({ linkifyBareDomains: value })}
       disabled={disabled}
@@ -1027,12 +1004,12 @@ export function ThreadDetailLevelSettingControl() {
   return (
     <NodexDropdownMenu
       triggerButton={(
-        <NodexDropdownButtonTrigger
+        <NodexSettingsDropdownTrigger
           aria-label="Thread detail"
           className="min-w-56 text-base/4.5"
         >
           <span className="truncate">{formatCodexThreadDetailLevelLabel(selectedOption.value)}</span>
-        </NodexDropdownButtonTrigger>
+        </NodexSettingsDropdownTrigger>
       )}
       align="end"
       contentWidth="workspace"
@@ -1042,7 +1019,7 @@ export function ThreadDetailLevelSettingControl() {
         <NodexDropdownItem
           key={option.value}
           onSelect={() => setThreadDetailLevel(option.value)}
-          rightSlot={option.value === selectedValue ? <CheckmarkIcon className="shrink-0 text-token-foreground" /> : null}
+          rightSlot={option.value === selectedValue ? <NodexDropdownSelectedIcon /> : null}
           subText={option.description}
           allowWrap
         >
@@ -1053,87 +1030,98 @@ export function ThreadDetailLevelSettingControl() {
   );
 }
 
-export function SansFontSizeSettingControl() {
-  const { sansFontSize, setSansFontSize } = useSansFontSize();
-  const isDefault = sansFontSize === DEFAULT_SANS_FONT_SIZE;
+function FontSizeSettingControl({
+  ariaLabel,
+  defaultValue,
+  max,
+  min,
+  onChangeValue,
+  value,
+}: {
+  ariaLabel: string;
+  defaultValue: number;
+  max: number;
+  min: number;
+  onChangeValue: (value: number) => void;
+  value: number;
+}) {
+  const [draft, setDraft] = useState(String(value));
+  const isDefault = value === defaultValue;
+
+  useEffect(() => {
+    setDraft(String(value));
+  }, [value]);
+
+  const commit = useCallback(() => {
+    const parsed = Number.parseInt(draft, 10);
+    if (!Number.isFinite(parsed)) {
+      setDraft(String(value));
+      return;
+    }
+
+    onChangeValue(parsed);
+  }, [draft, onChangeValue, value]);
 
   return (
-    <div className="flex items-center gap-3">
-      <span className="w-10 text-right text-sm text-(--foreground-secondary) tabular-nums">
-        {sansFontSize}px
-      </span>
-      <input
-        type="range"
-        min={MIN_SANS_FONT_SIZE}
-        max={MAX_SANS_FONT_SIZE}
-        step={1}
-        value={sansFontSize}
-        onChange={(event) => {
-          const nextValue = Number.parseInt(event.target.value, 10);
-          if (!Number.isFinite(nextValue)) return;
-          setSansFontSize(nextValue);
+    <div className="flex items-center gap-2.5">
+      <NodexSettingsNumberInput
+        aria-label={ariaLabel}
+        className="w-16"
+        max={max}
+        min={min}
+        onBlur={commit}
+        onChange={(event) => setDraft(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter") return;
+          event.preventDefault();
+          commit();
+          event.currentTarget.blur();
         }}
-        aria-label="Sans font size"
-        className="w-28 accent-(--accent-blue)"
+        step={1}
+        value={draft}
       />
-      <button
-        type="button"
-        onClick={() => setSansFontSize(DEFAULT_SANS_FONT_SIZE)}
+      <span className="text-sm text-token-text-secondary">px</span>
+      <NodexButton
+        variant="ghost"
+        size="xs"
         disabled={isDefault}
-        className={cn(
-          "inline-flex h-7 items-center gap-1 rounded-full border px-2 py-0.5 text-sm transition-colors",
-          isDefault
-            ? "border-transparent bg-foreground-5 text-(--foreground-secondary) opacity-60"
-            : "border-(--border) text-(--foreground-secondary) hover:bg-foreground-5 hover:text-(--foreground)",
-          "disabled:cursor-not-allowed",
-        )}
+        onClick={() => onChangeValue(defaultValue)}
+        className="gap-1 text-token-text-secondary"
       >
         <RotateCcw className="size-3.5" />
         <span>Default</span>
-      </button>
+      </NodexButton>
     </div>
+  );
+}
+
+export function SansFontSizeSettingControl() {
+  const { sansFontSize, setSansFontSize } = useSansFontSize();
+
+  return (
+    <FontSizeSettingControl
+      ariaLabel="Sans font size"
+      defaultValue={DEFAULT_SANS_FONT_SIZE}
+      max={MAX_SANS_FONT_SIZE}
+      min={MIN_SANS_FONT_SIZE}
+      onChangeValue={setSansFontSize}
+      value={sansFontSize}
+    />
   );
 }
 
 export function CodeFontSizeSettingControl() {
   const { codeFontSize, setCodeFontSize } = useCodeFontSize();
-  const isDefault = codeFontSize === DEFAULT_CODE_FONT_SIZE;
 
   return (
-    <div className="flex items-center gap-3">
-      <span className="w-10 text-right text-sm text-(--foreground-secondary) tabular-nums">
-        {codeFontSize}px
-      </span>
-      <input
-        type="range"
-        min={MIN_CODE_FONT_SIZE}
-        max={MAX_CODE_FONT_SIZE}
-        step={1}
-        value={codeFontSize}
-        onChange={(event) => {
-          const nextValue = Number.parseInt(event.target.value, 10);
-          if (!Number.isFinite(nextValue)) return;
-          setCodeFontSize(nextValue);
-        }}
-        aria-label="Code font size"
-        className="w-28 accent-(--accent-blue)"
-      />
-      <button
-        type="button"
-        onClick={() => setCodeFontSize(DEFAULT_CODE_FONT_SIZE)}
-        disabled={isDefault}
-        className={cn(
-          "inline-flex h-7 items-center gap-1 rounded-full border px-2 py-0.5 text-sm transition-colors",
-          isDefault
-            ? "border-transparent bg-foreground-5 text-(--foreground-secondary) opacity-60"
-            : "border-(--border) text-(--foreground-secondary) hover:bg-foreground-5 hover:text-(--foreground)",
-          "disabled:cursor-not-allowed",
-        )}
-      >
-        <RotateCcw className="size-3.5" />
-        <span>Default</span>
-      </button>
-    </div>
+    <FontSizeSettingControl
+      ariaLabel="Code font size"
+      defaultValue={DEFAULT_CODE_FONT_SIZE}
+      max={MAX_CODE_FONT_SIZE}
+      min={MIN_CODE_FONT_SIZE}
+      onChangeValue={setCodeFontSize}
+      value={codeFontSize}
+    />
   );
 }
 
@@ -1145,7 +1133,7 @@ export function FileLinkOpenerSettingControl() {
   return (
     <NodexDropdownMenu
       triggerButton={(
-        <NodexDropdownButtonTrigger
+        <NodexSettingsDropdownTrigger
           aria-label={`Open markdown file links in ${selectedOption.label}`}
           className="min-w-50 text-base/4.5"
         >
@@ -1158,7 +1146,7 @@ export function FileLinkOpenerSettingControl() {
             />
             <span className="truncate">{selectedOption.label}</span>
           </span>
-        </NodexDropdownButtonTrigger>
+        </NodexSettingsDropdownTrigger>
       )}
       align="end"
       contentWidth="sm"
@@ -1176,7 +1164,7 @@ export function FileLinkOpenerSettingControl() {
               aria-hidden="true"
             />
           )}
-          rightSlot={option.id === selectedOption.id ? <CheckmarkIcon className="shrink-0 text-token-foreground" /> : null}
+          rightSlot={option.id === selectedOption.id ? <NodexDropdownSelectedIcon /> : null}
         >
           {option.label}
         </NodexDropdownItem>
@@ -1474,7 +1462,7 @@ export function SmartPrefixParsingSettingControl({
   value: boolean;
   onChange: (value: boolean) => void;
 }) {
-  return <TogglePill value={value} onChange={onChange} />;
+  return <TogglePill ariaLabel="Smart prefix parsing" value={value} onChange={onChange} />;
 }
 
 export function StripSmartPrefixFromTitleSettingControl({
@@ -1486,7 +1474,7 @@ export function StripSmartPrefixFromTitleSettingControl({
   onChange: (value: boolean) => void;
   disabled?: boolean;
 }) {
-  return <TogglePill value={value} onChange={onChange} disabled={disabled} />;
+  return <TogglePill ariaLabel="Strip smart prefix from title" value={value} onChange={onChange} disabled={disabled} />;
 }
 
 export function ComposerEnterBehaviorControl({
@@ -1498,6 +1486,7 @@ export function ComposerEnterBehaviorControl({
 }) {
   return (
     <TogglePill
+      ariaLabel="Use Cmd/Ctrl+Enter for multiline prompts"
       value={value === "cmdIfMultiline"}
       onChange={(enabled) => onChange(enabled ? "cmdIfMultiline" : "enter")}
     />
@@ -1511,7 +1500,7 @@ export function ThreadQueueFollowUpsSettingControl({
   value: boolean;
   onChange: (value: boolean) => void;
 }) {
-  return <TogglePill value={value} onChange={onChange} />;
+  return <TogglePill ariaLabel="Queue follow-up prompts" value={value} onChange={onChange} />;
 }
 
 function formatBackupSize(bytes: number): string {
@@ -1777,6 +1766,7 @@ export function BackupSettingsControl({ open }: { open: boolean }) {
       <SectionBlock title="Automatic snapshots">
         <SettingRow label="Auto backups" description="Schedule background snapshots for the local store.">
           <TogglePill
+            ariaLabel="Auto backups"
             value={scheduleValues.autoEnabled}
             onChange={(value) => scheduleForm.setFieldValue("autoEnabled", value)}
             disabled={Boolean(settings?.envOverrides.autoEnabled)}
@@ -1784,26 +1774,24 @@ export function BackupSettingsControl({ open }: { open: boolean }) {
         </SettingRow>
         <SettingRow label="Frequency" description="Minimum is one hour.">
           <div className="flex items-center gap-2">
-            <Input
-              type="number"
+            <NodexSettingsNumberInput
+              className="w-16"
               min={1}
               value={scheduleValues.intervalHours}
               disabled={Boolean(settings?.envOverrides.intervalHours)}
               onChange={(event) => scheduleForm.setFieldValue("intervalHours", event.target.value)}
-              className="w-16 text-right"
             />
             <span className="text-sm text-token-text-secondary">hours</span>
           </div>
         </SettingRow>
         <SettingRow label="Retention" description="Snapshots kept before pruning.">
           <div className="flex items-center gap-2">
-            <Input
-              type="number"
+            <NodexSettingsNumberInput
+              className="w-16"
               min={0}
               value={scheduleValues.retentionCount}
               disabled={Boolean(settings?.envOverrides.retentionCount)}
               onChange={(event) => scheduleForm.setFieldValue("retentionCount", event.target.value)}
-              className="w-16 text-right"
             />
             <span className="text-sm text-token-text-secondary">max</span>
           </div>
@@ -1839,13 +1827,12 @@ export function BackupSettingsControl({ open }: { open: boolean }) {
           description="Newest deleted Block records kept per Project before safe collection. Use 0 to collect every unreferenced tombstone."
         >
           <div className="flex items-center gap-2">
-            <Input
-              type="number"
+            <NodexSettingsNumberInput
+              className="w-20"
               min={0}
               value={historyValues.retentionCount}
               disabled={Boolean(historySettings?.envOverrides.retentionCount)}
               onChange={(event) => historyForm.setFieldValue("retentionCount", event.target.value)}
-              className="w-20 text-right"
             />
             <span className="text-sm text-token-text-secondary">records</span>
           </div>
@@ -1891,15 +1878,11 @@ export function BackupSettingsControl({ open }: { open: boolean }) {
           label="Safety backup"
           description="Create a fresh snapshot before restoring an older one."
         >
-          <label className="inline-flex items-center gap-1.5 text-sm text-token-text-secondary">
-            <input
-              type="checkbox"
-              checked={createSafetyBackup}
-              onChange={(event) => setCreateSafetyBackup(event.target.checked)}
-              className="size-3.5 rounded-sm accent-(--accent-blue)"
-            />
-            Safety backup
-          </label>
+          <NodexSwitch
+            ariaLabel="Safety backup"
+            checked={createSafetyBackup}
+            onCheckedChange={setCreateSafetyBackup}
+          />
         </SettingRow>
         <div className="flex flex-col">
           {backups.length === 0 ? (
@@ -2089,7 +2072,7 @@ function SettingsMobileHeader({
             key={section.id}
             disabled={section.disabled}
             onSelect={() => onSelectSection(section.id)}
-            rightSlot={section.id === activeSectionId ? <CheckmarkIcon className="size-4" /> : null}
+            rightSlot={section.id === activeSectionId ? <NodexDropdownSelectedIcon /> : null}
           >
             {section.label}
           </NodexDropdownItem>

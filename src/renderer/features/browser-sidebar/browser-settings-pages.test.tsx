@@ -23,6 +23,8 @@ function configureInvokeMock() {
   invokeMock.mockImplementation(async (channel: string) => {
     if (channel === "browser-profile-capabilities") return capabilities;
     if (channel === "browser-use-policy-get") return DEFAULT_BROWSER_USE_POLICY;
+    if (channel === "browser-use-policy-update-modes") return DEFAULT_BROWSER_USE_POLICY;
+    if (channel === "browser-use-policy-update-origin-rule") return DEFAULT_BROWSER_USE_POLICY;
     if (channel === "browser-credentials-list-all") return [];
     if (channel === "browser-contact-info-list") return [];
     if (channel === "browser-history-list") return { entries: [] };
@@ -90,5 +92,31 @@ describe("Browser settings information architecture", () => {
     });
 
     expect(onOpenBrowserDetail).toHaveBeenCalledWith("browser", "autofill-and-passwords");
+  });
+
+  test("uses the shared menu for Browser Use policy choices", async () => {
+    renderBrowser();
+    await settleAsyncRender();
+
+    expect(screen.queryByRole("combobox", { name: "Website access approval mode" })).toBeNull();
+
+    await act(async () => {
+      const trigger = screen.getByRole("button", { name: "Website access approval mode" });
+      fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+      fireEvent.click(trigger);
+      await Promise.resolve();
+    });
+
+    expect(screen.getByRole("menuitem", { name: "Never ask" })).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("menuitem", { name: "Never ask" }));
+      await Promise.resolve();
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith(
+      "browser-use-policy-update-modes",
+      { approvalMode: "neverAsk" },
+    );
   });
 });

@@ -1514,12 +1514,6 @@ export interface DesktopNotificationActionInvocation
   requestId: CodexAppServerRequestId | null;
 }
 
-export type SystemNotificationPermissionStatus =
-  | "enabled"
-  | "disabled"
-  | "not-determined"
-  | null;
-
 export interface AppUpdateSettings {
   automaticChecksEnabled: boolean;
 }
