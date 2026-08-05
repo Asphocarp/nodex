@@ -9,7 +9,7 @@ export interface LibraryNavigationChangedEvent {
   readonly version: typeof LIBRARY_NAVIGATION_EVENT_VERSION;
   readonly libraryId: string;
   readonly storeEpoch: string | null;
-  readonly changeLogSeq: number | null;
+  readonly commitSeq: number | null;
   readonly changeKind:
     | "content"
     | "location"

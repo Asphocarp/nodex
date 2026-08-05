@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-pub const CORE_EVENT_VERSION: u32 = 2;
+pub const CORE_EVENT_VERSION: u32 = 3;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(transparent)]
@@ -118,7 +118,7 @@ pub struct ModuleApplyRequest<T> {
 pub struct ModuleReadSnapshot<T> {
     pub contract_version: u32,
     pub store_epoch: StoreEpoch,
-    pub event_head: i64,
+    pub commit_head: i64,
     pub value: T,
 }
 
@@ -132,8 +132,19 @@ pub struct ModuleMutationReceipt {
 pub struct CommittedModuleValue<T, R> {
     pub value: T,
     pub receipt: R,
+    /// Semantic LocalCommit cursor after this operation. Unlike
+    /// `event_sequence`, this does not identify a physical change-log row.
+    /// A no-change receipt still carries the current cursor so callers never
+    /// mistake a physical sequence for projection freshness.
+    #[serde(default)]
+    pub commit_seq: i64,
+    /// Physical change-log effect sequence retained for module-internal event
+    /// reconstruction. It is not a public projection cursor.
     pub event_sequence: i64,
     pub store_epoch: StoreEpoch,
+    /// Present when this response represents a durable semantic local commit.
+    /// No-change receipts intentionally have no new local commit.
+    pub local_commit: Option<events::LocalCommitEnvelope>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize, ToSchema)]
@@ -182,7 +193,8 @@ pub use automation::AUTOMATION_CONTRACT_VERSION;
 pub use database::DATABASE_CONTRACT_VERSION;
 pub use document::OWNED_DOCUMENT_CONTRACT_VERSION;
 pub use events::{
-    CommittedCoreModuleEvent, CoreModuleEventPayload, PageDocumentHeadImpact, ProjectionImpact,
+    CommittedCoreModuleEvent, CoreModuleEventPayload, LocalCommitCursor, LocalCommitEnvelope,
+    PageDocumentHeadImpact, ProjectionImpact,
 };
 pub use library::LIBRARY_CONTRACT_VERSION;
 pub use workspace::PROJECT_WORKSPACE_CONTRACT_VERSION;

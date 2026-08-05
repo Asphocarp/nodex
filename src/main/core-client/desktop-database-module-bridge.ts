@@ -104,6 +104,7 @@ export interface DesktopDatabaseModuleBridge {
     projectId: string,
     pageId: string,
     status?: DatabasePage["status"],
+    minimumCommitSeq?: number,
   ): Promise<DatabasePage | null>;
   resolveDatabaseViewReference(
     input: ReadDatabaseViewReferenceInput,
@@ -125,6 +126,7 @@ const readBoundedDatabaseViewWindow = async <
     read: DatabaseReadV2,
   ) => Promise<DescriptorReadResult>;
 }): Promise<DatabaseViewWindowSnapshot<ProjectScope>> => {
+  const minimumCommitSeq = input.windowInput.minimumCommitSeq ?? 0;
   const snapshot = await input.readCore({
     target: input.windowInput.databaseViewId
       ? { kind: "view", view_id: input.windowInput.databaseViewId }
@@ -142,7 +144,7 @@ const readBoundedDatabaseViewWindow = async <
     ...(input.windowInput.groupScope
       ? { group_scope: input.windowInput.groupScope }
       : {}),
-  });
+  }, minimumCommitSeq);
   if (snapshot.value.kind !== "view_window") {
     throw new Error("Database Core returned a non-window View snapshot");
   }
@@ -154,6 +156,7 @@ const readBoundedDatabaseViewWindow = async <
         viewId: parseDatabaseViewId(value.view_id),
       },
       mode: "view",
+      minimumCommitSeq,
     }),
     input.readDescriptor({
       target: {
@@ -161,6 +164,7 @@ const readBoundedDatabaseViewWindow = async <
         databaseId: parseDatabaseId(value.database_id),
       },
       mode: "database",
+      minimumCommitSeq,
     }),
     input.readDescriptor({
       target: {
@@ -168,6 +172,7 @@ const readBoundedDatabaseViewWindow = async <
         dataSourceId: parseDataSourceId(value.data_source_id),
       },
       mode: "data_source",
+      minimumCommitSeq,
     }),
   ]);
   if (!viewResult.ok) {
@@ -217,7 +222,7 @@ const readBoundedDatabaseViewWindow = async <
     dataSourceId: value.data_source_id,
     viewId: value.view_id,
     storeEpoch: snapshot.store_epoch,
-    changeLogSeq: snapshot.event_head,
+    commitSeq: snapshot.commit_head,
     projectionRevision: value.rows.authority.projection_revision,
     nextCursor: value.rows.next_cursor ?? null,
     rows,
@@ -247,6 +252,7 @@ const readBoundedDatabaseViewGroups = async <
   readonly groupsInput: DatabaseViewGroupsInput;
   readonly readCore: CoreDatabaseModuleAdapter["readCore"];
 }): Promise<DatabaseViewGroupsSnapshot<ProjectScope>> => {
+  const minimumCommitSeq = input.groupsInput.minimumCommitSeq ?? 0;
   const snapshot = await input.readCore({
     target: input.groupsInput.databaseViewId
       ? { kind: "view", view_id: input.groupsInput.databaseViewId }
@@ -258,7 +264,7 @@ const readBoundedDatabaseViewGroups = async <
     sort: null,
     page_ids: null,
     window: null,
-  });
+  }, minimumCommitSeq);
   if (snapshot.value.kind !== "view_groups") {
     throw new Error("Database Core returned a non-groups View snapshot");
   }
@@ -270,7 +276,7 @@ const readBoundedDatabaseViewGroups = async <
     dataSourceId: value.data_source_id,
     viewId: value.view_id,
     storeEpoch: snapshot.store_epoch,
-    changeLogSeq: snapshot.event_head,
+    commitSeq: snapshot.commit_head,
     grouped: value.grouped,
     totalRows: value.total_rows,
     truncated: value.truncated,
@@ -379,7 +385,7 @@ export const createDesktopDatabaseModuleBridge = (
         readCore: adapter.readCore,
       });
     },
-    getDatabaseRowPage: async (projectId, pageId, status) => {
+    getDatabaseRowPage: async (projectId, pageId, status, minimumCommitSeq) => {
       const runtime = await input.authority;
       try {
         const snapshot = await coreAdapterFor(runtime, projectId).readCore({
@@ -389,7 +395,7 @@ export const createDesktopDatabaseModuleBridge = (
           sort: null,
           page_ids: null,
           window: null,
-        });
+        }, minimumCommitSeq);
         if (snapshot.value.kind !== "row_detail") {
           throw new Error("Database Core returned a non-detail Page snapshot");
         }
@@ -430,7 +436,7 @@ export const createDesktopDatabaseModuleBridge = (
         const model: DatabaseViewReadModel = {
           libraryId: window.libraryId,
           storeEpoch: window.storeEpoch,
-          changeLogSeq: window.changeLogSeq,
+          commitSeq: window.commitSeq,
           dataSourceId: window.dataSourceId,
           view: window.view,
           rows: window.rows,
@@ -479,7 +485,7 @@ export const mapCoreDatabaseEvent = (
     affectedDataSourceIds: payload.event.data_source_ids,
     affectedPageIds: payload.event.page_ids,
     affectedViewIds: payload.event.view_ids,
-    changeLogSeq: envelope.event.sequence,
+    commitSeq: envelope.event.commit_seq,
   };
 };
 
@@ -493,7 +499,7 @@ export const mapCoreLibraryDatabaseEvent = (
     version: LIBRARY_NAVIGATION_EVENT_VERSION,
     libraryId,
     storeEpoch: envelope.event.store_epoch,
-    changeLogSeq: envelope.event.sequence,
+    commitSeq: envelope.event.commit_seq,
     changeKind: "database",
     affectedParentKeys: [
       "library",

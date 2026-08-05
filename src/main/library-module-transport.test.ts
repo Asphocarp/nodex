@@ -22,7 +22,7 @@ const result = (): LibraryModuleReadResult => ({
     profileId: "profile-1",
     libraryId: "library-1",
     storeEpoch: "epoch-1",
-    changeLogSeq: 0,
+    commitSeq: 0,
     value: { kind: "metadata" },
   },
 });
@@ -61,7 +61,7 @@ const applyResult = (): LibraryModuleApplyResult => ({
     affectedDatabaseIds: [],
     affectedViewIds: [],
     committedRevisions: { [`blockLocation:${pageId}`]: 1 },
-    changeLogSeq: 1,
+    commitSeq: 1,
     committedAt: "2026-07-18T00:00:00.000Z",
   },
 });

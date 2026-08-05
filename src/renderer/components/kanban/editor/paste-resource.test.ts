@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import {
   canMaterializePasteResourceItems,
+  capturePasteResourceTarget,
   continueInlinePaste,
   createPastedTextUploadFile,
   derivePastedTextAttachmentName,
@@ -12,6 +13,23 @@ import {
 import { DEFAULT_PASTE_RESOURCE_SETTINGS } from "../../../lib/paste-resource-settings";
 
 describe("paste resource helpers", () => {
+  test("captures typed descendants when a resource paste would replace a parent", () => {
+    const target = capturePasteResourceTarget({
+      getSelection: () => ({
+        blocks: [{
+          id: "parent",
+          type: "toggleListItem",
+          children: [{ id: "page", type: "page", children: [] }],
+        }],
+      }),
+      getTextCursorPosition: () => ({
+        block: { id: "parent", type: "toggleListItem", children: [] },
+      }),
+    });
+
+    expect(target.selectedBlockTypes).toEqual(["toggleListItem", "page"]);
+  });
+
   test("canMaterializePasteResourceItems rejects folders", () => {
     expect(canMaterializePasteResourceItems([{ kind: "file", name: "report.txt" }])).toBe(true);
     expect(canMaterializePasteResourceItems([{ kind: "folder", name: "Designs" }])).toBe(false);

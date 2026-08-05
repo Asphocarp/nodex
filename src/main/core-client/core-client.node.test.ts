@@ -206,7 +206,7 @@ describe("CoreClient over a Unix socket", () => {
         buildId: "node-integration-test",
       });
       const snapshot = await rootClient.libraryRead({ kind: "metadata" });
-      expect(snapshot.event_head).toBe(0);
+      expect(snapshot.commit_head).toBe(0);
       expect(snapshot.value).toMatchObject({
         kind: "metadata",
         library_id: rootClient.handshake.library_id,
@@ -255,7 +255,7 @@ describe("CoreClient over a Unix socket", () => {
       expect(committed.receipt.duplicate).toBe(false);
 
       const event = await withTimeout(observedEvent, "Core Module event was not observed");
-      expect(event.event.sequence).toBe(committed.event_sequence);
+      expect(event.event.commit_seq).toBe(committed.event_sequence);
       expect(event.event.payload).toMatchObject({
         module: "library",
         event: {
@@ -650,7 +650,7 @@ describe("CoreClient over a Unix socket", () => {
       expect(missingOccurrence.value.page_occurrence_mutation).toMatchObject({
         success: false,
         duplicate: false,
-        change_log_seq: null,
+        commit_seq: null,
         code: "page_not_found",
       });
       const missingOccurrenceReplay = await nativeCli.automationApply(
@@ -872,7 +872,7 @@ describe("CoreClient over a Unix socket", () => {
       );
       expect(replayed).toMatchObject({
         event: {
-          sequence: committed.event_sequence,
+          commit_seq: committed.event_sequence,
           operation_id: applyInput.operationId,
           payload: {
             module: "library",
@@ -880,8 +880,8 @@ describe("CoreClient over a Unix socket", () => {
           },
         },
       });
-      expect(event.event.event_version).toBe(2);
-      expect(replayed.event.event_version).toBe(2);
+      expect(event.event.event_version).toBe(3);
+      expect(replayed.event.event_version).toBe(3);
       expect(replayed.event.projection_impact).toEqual(
         event.event.projection_impact,
       );

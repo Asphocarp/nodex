@@ -73,7 +73,7 @@ describe("Desktop native Core generation recovery", () => {
       expect(committed.receipt.duplicate).toBe(false);
 
       eventSubscription = superviseCoreEventStream({
-        initialAfter: rootClient.handshake.event_head,
+        initialAfter: rootClient.handshake.commit_head,
         open: (after, onEvent, onResyncRequired, signal) =>
           rootClient.openEventStream(after, onEvent, onResyncRequired, signal),
         onEvent: () => undefined,

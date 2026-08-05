@@ -11,7 +11,7 @@ use nodex_core_contracts::library::{
 };
 use nodex_core_contracts::{
     AdapterKind, BoundModuleContext, CommittedModuleValue, ModuleApplyRequest,
-    ModuleMutationReceipt, ProjectionImpact, StoreEpoch,
+    ModuleMutationReceipt, PageDocumentHeadImpact, ProjectionImpact, StoreEpoch,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::json;
@@ -23,8 +23,8 @@ use crate::document::{
     BlockDocumentSchema, DocumentAuthorityRow, DocumentBlockOperation, DocumentMaterialization,
     PAGE_SCHEMA_KEY, PAGE_SCHEMA_VERSION, PersistYjsCommit, PersistYjsGenesis, YrsDocumentEngine,
     decode_block_document, materialize_decoded_document, mint_document_semantic_etags,
-    parse_inline_markdown_title, persist_yjs_commit, persist_yjs_genesis,
-    prepare_document_operation_update, prepare_page_yjs_genesis,
+    parse_inline_markdown_title, persist_yjs_commit, persist_yjs_commit_with_local_commit,
+    persist_yjs_genesis, prepare_document_operation_update, prepare_page_yjs_genesis,
     prepare_page_yjs_genesis_with_content, read_document_authority, read_store_epoch,
     reconstruct_yjs_engine, sha256,
 };
@@ -35,6 +35,7 @@ use crate::domain::fractional_rank::{
 use crate::domain::identity::stable_uuid_v7;
 use crate::infrastructure::event_log::{
     NewChangeLogEntry, append_change_log, load_committed_event_by_sequence,
+    load_local_commit_by_event_sequence,
 };
 use crate::infrastructure::module_receipts::{
     NewModuleReceipt, insert_module_receipt, read_module_receipt,
@@ -193,9 +194,13 @@ pub(super) fn apply(
                 >(stored.result)
                 .map_err(|_| corrupt("Stored Library receipt is invalid"))?;
                 committed.receipt.mutation.duplicate = true;
+                let event = load_committed_event_by_sequence(
+                    transaction,
+                    committed.event_sequence,
+                )?;
                 return Ok(LibraryApplyOutcome {
                     committed,
-                    event: None,
+                    event: Some(event),
                 });
             }
 
@@ -341,6 +346,7 @@ pub(super) fn apply(
                     canvas_id,
                     expected_location_revision,
                     expected_metadata_revision,
+                    containing_document_head,
                 } => super::canvas_mutation::delete(
                     transaction,
                     &context,
@@ -351,6 +357,7 @@ pub(super) fn apply(
                     canvas_id,
                     *expected_location_revision,
                     *expected_metadata_revision,
+                    containing_document_head.as_ref(),
                 ),
                 LibraryIntent::CopyPage {
                     source_page_id,
@@ -1865,6 +1872,26 @@ pub(super) fn persist_parent_operations_detailed(
     parent: &ResolvedParentDocument,
     operations: &[DocumentBlockOperation],
 ) -> Result<LibraryBlockTransferDocumentCommit, StoreError> {
+    persist_parent_operations_detailed_with_local_commit(
+        connection,
+        store_epoch,
+        operation_id,
+        phase,
+        parent,
+        operations,
+        None,
+    )
+}
+
+pub(super) fn persist_parent_operations_detailed_with_local_commit(
+    connection: &Connection,
+    store_epoch: &str,
+    operation_id: &str,
+    phase: &str,
+    parent: &ResolvedParentDocument,
+    operations: &[DocumentBlockOperation],
+    attached_commit_seq: Option<i64>,
+) -> Result<LibraryBlockTransferDocumentCommit, StoreError> {
     let full_state = parent.engine.full_state_v1();
     let prepared = prepare_document_operation_update(
         &parent.authority.head.id,
@@ -1889,25 +1916,49 @@ pub(super) fn persist_parent_operations_detailed(
         "library-document-{phase}:{}",
         sha256(operation_id.as_bytes())
     );
-    let persisted = persist_yjs_commit(
-        connection,
-        PersistYjsCommit {
-            authority: &parent.authority,
-            base_materialization: &parent.base_materialization,
-            materialization: &prepared.materialization,
-            update_id: &update_id,
-            client_session_id: "library-module",
-            base_head_seq: parent.authority.head.head_seq,
-            client_touched_block_ids: &[],
-            update: &prepared.update_v1,
-            state_vector: &state_vector,
-            store_epoch,
-            operation_id: &update_id,
-            event_kind: "document_updated",
-            write_fence_block_ids: &prepared.write_fence_block_ids,
-            title_write_fence_required: prepared.title_write_fence_required,
-        },
-    )?;
+    let persisted = match attached_commit_seq {
+        Some(commit_seq) => persist_yjs_commit_with_local_commit(
+            connection,
+            PersistYjsCommit {
+                authority: &parent.authority,
+                base_materialization: &parent.base_materialization,
+                materialization: &prepared.materialization,
+                update_id: &update_id,
+                client_session_id: "library-module",
+                base_head_seq: parent.authority.head.head_seq,
+                client_touched_block_ids: &[],
+                update: &prepared.update_v1,
+                state_vector: &state_vector,
+                store_epoch,
+                operation_id: &update_id,
+                local_commit_id: Some(operation_id),
+                event_kind: "document_updated",
+                write_fence_block_ids: &prepared.write_fence_block_ids,
+                title_write_fence_required: prepared.title_write_fence_required,
+            },
+            commit_seq,
+        )?,
+        None => persist_yjs_commit(
+            connection,
+            PersistYjsCommit {
+                authority: &parent.authority,
+                base_materialization: &parent.base_materialization,
+                materialization: &prepared.materialization,
+                update_id: &update_id,
+                client_session_id: "library-module",
+                base_head_seq: parent.authority.head.head_seq,
+                client_touched_block_ids: &[],
+                update: &prepared.update_v1,
+                state_vector: &state_vector,
+                store_epoch,
+                operation_id: &update_id,
+                local_commit_id: Some(operation_id),
+                event_kind: "document_updated",
+                write_fence_block_ids: &prepared.write_fence_block_ids,
+                title_write_fence_required: prepared.title_write_fence_required,
+            },
+        )?,
+    };
     Ok(LibraryBlockTransferDocumentCommit {
         document_id: parent.authority.head.id.clone(),
         generation: parent.authority.head.generation,
@@ -2420,6 +2471,26 @@ pub(super) fn finish_mutation(
     request_hash: &str,
     effects: MutationEffects,
 ) -> Result<LibraryApplyOutcome, StoreError> {
+    finish_mutation_with_local_commit(
+        connection,
+        context,
+        store_epoch,
+        operation_id,
+        request_hash,
+        effects,
+        None,
+    )
+}
+
+pub(super) fn finish_mutation_with_local_commit(
+    connection: &Connection,
+    context: &BoundModuleContext,
+    store_epoch: &str,
+    operation_id: &str,
+    request_hash: &str,
+    effects: MutationEffects,
+    attached_commit_seq: Option<i64>,
+) -> Result<LibraryApplyOutcome, StoreError> {
     let block_ids = effects
         .affected_block_ids
         .iter()
@@ -2464,37 +2535,54 @@ pub(super) fn finish_mutation(
         .filter_map(|key| key.strip_prefix("data_source:"))
         .map(str::to_owned)
         .collect();
+    let document_heads = document_head_impacts(connection, &effects.affected_document_ids)?;
+    let mut affected_page_ids = effects.affected_page_ids.clone();
+    for head in &document_heads {
+        if !affected_page_ids.contains(&head.page_id) {
+            affected_page_ids.push(head.page_id.clone());
+        }
+    }
+    affected_page_ids.sort();
+    affected_page_ids.dedup();
     let projection_impact = if changes_project_visibility(effects.operation_kind) {
         ProjectionImpact::All
     } else {
         expand_database_coordinates(
             connection,
             ProjectionImpact::Resources {
-                page_ids: effects.affected_page_ids.clone(),
+                page_ids: affected_page_ids,
                 database_ids: effects.affected_database_ids.clone(),
                 data_source_ids,
                 view_ids: effects.affected_view_ids.clone(),
-                document_heads: Vec::new(),
+                document_heads,
             },
         )?
     };
     let payload_json =
         serde_json::to_string(&payload).map_err(|_| internal("Library event payload"))?;
-    let event_sequence = append_change_log(
-        connection,
-        NewChangeLogEntry {
-            project_id: &effects.project_id,
-            store_epoch,
-            kind: effects.change_kind,
-            operation_id: Some(operation_id),
-            block_ids: &block_ids,
-            document_ids: &effects.affected_document_ids,
-            database_block_ids: &effects.affected_database_ids,
-            payload_json: &payload_json,
-            projection_impact: &projection_impact,
-            committed_at: &effects.committed_at,
-        },
-    )?;
+    let event_entry = NewChangeLogEntry {
+        project_id: &effects.project_id,
+        store_epoch,
+        kind: effects.change_kind,
+        operation_id: Some(operation_id),
+        block_ids: &block_ids,
+        document_ids: &effects.affected_document_ids,
+        database_block_ids: &effects.affected_database_ids,
+        payload_json: &payload_json,
+        projection_impact: &projection_impact,
+        committed_at: &effects.committed_at,
+    };
+    let event_sequence = match attached_commit_seq {
+        Some(commit_seq) => {
+            super::super::infrastructure::event_log::append_change_log_with_local_commit(
+                connection,
+                event_entry,
+                commit_seq,
+            )?
+        }
+        None => append_change_log(connection, event_entry)?,
+    };
+    let local_commit = load_local_commit_by_event_sequence(connection, event_sequence)?;
     let receipt = LibraryReceipt {
         mutation: ModuleMutationReceipt {
             operation_id: operation_id.to_owned(),
@@ -2508,7 +2596,7 @@ pub(super) fn finish_mutation(
         affected_database_ids: effects.affected_database_ids.clone(),
         affected_view_ids: effects.affected_view_ids.clone(),
         committed_revisions: effects.committed_revisions,
-        change_log_seq: event_sequence,
+        commit_seq: local_commit.commit_seq,
         committed_at: effects.committed_at.clone(),
     };
     let committed = CommittedModuleValue {
@@ -2525,8 +2613,10 @@ pub(super) fn finish_mutation(
             agent_move_pages: effects.agent_move_pages,
         },
         receipt,
+        commit_seq: local_commit.commit_seq,
         event_sequence,
         store_epoch: StoreEpoch(store_epoch.to_owned()),
+        local_commit: Some(local_commit),
     };
     let result = serde_json::to_value(&committed)
         .map_err(|_| internal("Library result could not be encoded"))?;
@@ -2549,6 +2639,42 @@ pub(super) fn finish_mutation(
         committed,
         event: Some(event),
     })
+}
+
+fn document_head_impacts(
+    connection: &Connection,
+    document_ids: &[String],
+) -> Result<Vec<PageDocumentHeadImpact>, StoreError> {
+    let mut impacts = Vec::new();
+    for document_id in document_ids {
+        let impact = connection
+            .query_row(
+                "SELECT page.block_id, document.generation, document.head_seq \
+                 FROM pages page \
+                 JOIN documents document ON document.id = page.document_id \
+                 WHERE page.document_id = ?1",
+                [document_id],
+                |row| {
+                    Ok(PageDocumentHeadImpact {
+                        page_id: row.get(0)?,
+                        document_id: document_id.clone(),
+                        generation: row.get(1)?,
+                        head_seq: row.get(2)?,
+                    })
+                },
+            )
+            .optional()?;
+        if let Some(impact) = impact {
+            impacts.push(impact);
+        }
+    }
+    impacts.sort_by(|left, right| {
+        left.page_id
+            .cmp(&right.page_id)
+            .then(left.document_id.cmp(&right.document_id))
+    });
+    impacts.dedup_by(|left, right| left.document_id == right.document_id);
+    Ok(impacts)
 }
 
 fn changes_project_visibility(operation_kind: &str) -> bool {
@@ -2996,9 +3122,10 @@ mod tests {
 
     use nodex_core_contracts::document::{DocumentSemanticCommand, OwnedDocumentIntent};
     use nodex_core_contracts::library::{
-        LibraryAgentSiblingAnchor, LibraryCanvasDestination, LibraryNavigationParent,
-        LibraryPageFileKind, LibraryPageInsertion, LibraryPagePrepareKind,
-        LibraryPageWriteDestination, LibraryRead, LibraryReadValue, LibrarySearchSnapshotScope,
+        LibraryAgentSiblingAnchor, LibraryCanvasDestination, LibraryDocumentHead,
+        LibraryNavigationParent, LibraryPageFileKind, LibraryPageInsertion,
+        LibraryPageLifecycleMutation, LibraryPagePrepareKind, LibraryPageWriteDestination,
+        LibraryRead, LibraryReadValue, LibrarySearchSnapshotScope,
     };
     use nodex_core_contracts::{
         AdapterKind, CoreErrorCode, LibraryId, ModuleReadRequest, OWNED_DOCUMENT_CONTRACT_VERSION,
@@ -3363,6 +3490,7 @@ mod tests {
                         canvas_id: canvas_id.to_owned(),
                         expected_location_revision: 2,
                         expected_metadata_revision: 2,
+                        containing_document_head: None,
                     },
                 },
             )
@@ -3456,7 +3584,10 @@ mod tests {
 
         assert!(first.event.is_some());
         assert!(!first.committed.receipt.mutation.duplicate);
-        assert!(replay.event.is_none());
+        assert_eq!(
+            replay.event.as_ref().map(|event| event.sequence),
+            Some(first.committed.event_sequence)
+        );
         assert!(replay.committed.receipt.mutation.duplicate);
         assert_eq!(
             first.committed.event_sequence,
@@ -3584,7 +3715,10 @@ mod tests {
             )
             .expect("retry Database");
         assert!(database.event.is_some());
-        assert!(database_replay.event.is_none());
+        assert_eq!(
+            database_replay.event.as_ref().map(|event| event.sequence),
+            Some(database_replay.committed.event_sequence),
+        );
         assert!(database_replay.committed.receipt.mutation.duplicate);
 
         let views = module
@@ -4672,11 +4806,12 @@ mod tests {
             })
             .expect("add editable sibling for guard test");
 
+        let ordinary_delete_document_id = host_document_id.clone();
         let ordinary_delete = kernel
             .writer()
             .call(move |connection| {
                 with_immediate_transaction(connection, |transaction| {
-                    let parent = load_parent_document(transaction, &host_document_id)?;
+                    let parent = load_parent_document(transaction, &ordinary_delete_document_id)?;
                     persist_parent_operations(
                         transaction,
                         "epoch-1",
@@ -4921,6 +5056,19 @@ mod tests {
             .expect("advance Canvas content before deletion");
         assert_eq!(scene_advanced.committed.value.head_seq, 1);
 
+        let containing_document_head = kernel
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .query_row(
+                        "SELECT generation, head_seq FROM documents WHERE id = ?1",
+                        [&host_document_id],
+                        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+                    )
+                    .map_err(StoreError::from)
+            })
+            .expect("current Canvas host Document head");
+
         let deleted = module
             .apply(
                 &context(),
@@ -4932,6 +5080,11 @@ mod tests {
                         canvas_id: "018f0000-0000-7000-8000-000000000010".to_owned(),
                         expected_location_revision: 1,
                         expected_metadata_revision: 2,
+                        containing_document_head: Some(LibraryDocumentHead {
+                            document_id: host_document_id.clone(),
+                            generation: containing_document_head.0,
+                            head_seq: containing_document_head.1,
+                        }),
                     },
                 },
             )
@@ -5263,7 +5416,10 @@ mod tests {
             .apply(&retry_context, request("## Work\n\nNative placement."))
             .expect("exact Data Source Page replay");
         assert!(replay.committed.receipt.mutation.duplicate);
-        assert!(replay.event.is_none());
+        assert_eq!(
+            replay.event.as_ref().map(|event| event.sequence),
+            Some(replay.committed.event_sequence)
+        );
         assert_eq!(replay.committed.value.page_create, Some(created));
         let collision = module
             .apply(&context(), request("Changed body"))
@@ -6022,5 +6178,144 @@ mod tests {
             delete_replay.committed.value.page_lifecycle,
             deleted.committed.value.page_lifecycle
         );
+    }
+
+    #[test]
+    fn page_lifecycle_cascades_embedded_database_authority_atomically() {
+        let (_directory, kernel, module) = seeded_library();
+        let context = context();
+        module
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "page-with-database:create-page".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::CreatePage {
+                        page_id: "page:database-host".to_owned(),
+                        document_id: "document:database-host".to_owned(),
+                        title: "Database host".to_owned(),
+                        parent: LibraryWriteParent::Library { before: None },
+                    },
+                },
+            )
+            .expect("create Page host");
+        module
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "page-with-database:create-database".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::CreateDatabase {
+                        database_id: "018f0000-0000-7000-8000-000000000021".to_owned(),
+                        data_source_id: "018f0000-0000-7000-8000-000000000022".to_owned(),
+                        view_id: "018f0000-0000-7000-8000-000000000023".to_owned(),
+                        name: "Embedded database".to_owned(),
+                        parent: LibraryWriteParent::Page {
+                            page_id: "page:database-host".to_owned(),
+                            expected_document_generation: 1,
+                            expected_document_head_seq: 1,
+                            before: None,
+                        },
+                    },
+                },
+            )
+            .expect("create embedded Database");
+
+        let deleted = module
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "page-with-database:delete".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::ApplyPageLifecycle {
+                        mutation: Box::new(LibraryPageLifecycleMutation::DeletePage {
+                            page_id: "page:database-host".to_owned(),
+                            expected_metadata_revision: 1,
+                            expected_parent_revision: 1,
+                            parent_document_head: None,
+                        }),
+                    },
+                },
+            )
+            .expect("delete Page with embedded Database");
+        assert_eq!(
+            deleted
+                .committed
+                .receipt
+                .committed_revisions
+                .get("databaseMetadata:018f0000-0000-7000-8000-000000000021"),
+            Some(&2)
+        );
+        kernel
+            .readers()
+            .read_default(|connection| {
+                let state = connection.query_row(
+                    "SELECT block.lifecycle, block.metadata_revision, container.lifecycle, \
+                       container.metadata_revision \
+                     FROM blocks block JOIN database_containers container \
+                       ON container.block_id = block.id \
+                     WHERE block.id = '018f0000-0000-7000-8000-000000000021'",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, i64>(3)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(state, ("deleted".to_owned(), 2, "deleted".to_owned(), 2));
+                Ok(())
+            })
+            .expect("embedded Database authority is deleted with Page");
+
+        module
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "page-with-database:restore".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::ApplyPageLifecycle {
+                        mutation: Box::new(LibraryPageLifecycleMutation::RestorePage {
+                            page_id: "page:database-host".to_owned(),
+                            delete_operation_id: "page-with-database:delete".to_owned(),
+                            expected_metadata_revision: 2,
+                            expected_parent_revision: 2,
+                            membership: None,
+                            before_block_id: None,
+                            parent_document_head: None,
+                        }),
+                    },
+                },
+            )
+            .expect("restore Page with embedded Database");
+        kernel
+            .readers()
+            .read_default(|connection| {
+                let state = connection.query_row(
+                    "SELECT block.lifecycle, block.metadata_revision, container.lifecycle, \
+                       container.metadata_revision \
+                     FROM blocks block JOIN database_containers container \
+                       ON container.block_id = block.id \
+                     WHERE block.id = '018f0000-0000-7000-8000-000000000021'",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, i64>(3)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(state, ("active".to_owned(), 3, "active".to_owned(), 3));
+                Ok(())
+            })
+            .expect("embedded Database authority is restored with Page");
     }
 }

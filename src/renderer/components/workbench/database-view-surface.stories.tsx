@@ -30,7 +30,7 @@ const model: DatabaseViewRenderModel = {
   dataSourceName: "Pages",
   viewName: "Focused work",
   storeEpoch: "story",
-  changeLogSeq: 1,
+  commitSeq: 1,
   primaryWriteCompatible: false,
   readOnlyReason: null,
   query: {

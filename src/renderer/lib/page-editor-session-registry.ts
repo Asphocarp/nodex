@@ -16,6 +16,22 @@ interface RetainedBlockNoteEditor {
   };
 }
 
+interface CanonicalPageDocumentEntry {
+  readonly identity: string;
+  readonly descriptor: OwnedDocumentDescriptor;
+  readonly runtime: BlockDocumentSurfaceRuntime;
+  readonly connectBarrier: Promise<void>;
+  references: number;
+  activeAwarenessViews: number;
+  closing: boolean;
+  closePromise: Promise<void> | null;
+}
+
+export interface PageEditorAwarenessLease {
+  acquire: () => void;
+  release: () => void;
+}
+
 export const makePageEditorSessionKey = (
   projectSessionId: string,
   tabId: string,
@@ -43,16 +59,36 @@ const hasSameRuntimeIdentity = (
 ): boolean =>
   makePageEditorRuntimeIdentity(left) === makePageEditorRuntimeIdentity(right);
 
+const persistRuntime = async (
+  runtime: BlockDocumentSurfaceRuntime,
+): Promise<void> => {
+  const status = runtime.getStatus();
+  if (
+    !status.ready
+    || status.reloadRequired
+    || status.phase === "closing"
+    || status.phase === "closed"
+  ) {
+    return;
+  }
+  await runtime.persist().then(() => undefined, () => undefined);
+};
+
 /**
- * One PageTab-local collaborative model. React claims only a short-lived view
- * lease; explicit tab close or descriptor invalidation disposes the model.
+ * One view's editor/selection lease over a canonical document session.
+ *
+ * The Y.Doc/provider lives in PageEditorSessionRegistry's document map, not in
+ * the tab key. This is the important boundary: two tab groups can render the
+ * same Page without opening two independent local authorities.
  */
 export class PageEditorSession {
   readonly key: string;
   readonly descriptor: OwnedDocumentDescriptor;
   readonly runtime: BlockDocumentSurfaceRuntime;
+  readonly awarenessLease: PageEditorAwarenessLease;
 
   private readonly connectBarrier: Promise<void>;
+  private readonly releaseRuntime: () => Promise<void>;
   private connectPromise: Promise<void> | null = null;
   private disposePromise: Promise<void> | null = null;
   private editor: RetainedBlockNoteEditor | null = null;
@@ -68,11 +104,18 @@ export class PageEditorSession {
     readonly descriptor: OwnedDocumentDescriptor;
     readonly runtime: BlockDocumentSurfaceRuntime;
     readonly connectBarrier?: Promise<void>;
+    readonly releaseRuntime?: () => Promise<void>;
+    readonly awarenessLease?: PageEditorAwarenessLease;
   }) {
     this.key = input.key;
     this.descriptor = input.descriptor;
     this.runtime = input.runtime;
     this.connectBarrier = input.connectBarrier ?? Promise.resolve();
+    this.releaseRuntime = input.releaseRuntime ?? (() => this.runtime.close().then(() => undefined));
+    this.awarenessLease = input.awarenessLease ?? {
+      acquire: () => undefined,
+      release: () => this.runtime.clearLocalAwareness(),
+    };
   }
 
   connect(): Promise<void> {
@@ -102,7 +145,7 @@ export class PageEditorSession {
     this.activeViewGeneration = 0;
     if (this.disposed) return true;
 
-    this.runtime.clearLocalAwareness();
+    this.awarenessLease.release();
     if (options.persist === false) return true;
     void this.persist();
     return true;
@@ -110,16 +153,7 @@ export class PageEditorSession {
 
   async persist(): Promise<void> {
     if (this.disposed) return;
-    const status = this.runtime.getStatus();
-    if (
-      !status.ready
-      || status.reloadRequired
-      || status.phase === "closing"
-      || status.phase === "closed"
-    ) {
-      return;
-    }
-    await this.runtime.persist().then(() => undefined, () => undefined);
+    await persistRuntime(this.runtime);
   }
 
   getOrCreateEditor<Editor extends RetainedBlockNoteEditor>(
@@ -173,7 +207,7 @@ export class PageEditorSession {
     if (this.disposePromise) return this.disposePromise;
     this.disposed = true;
     this.activeViewGeneration = 0;
-    this.runtime.clearLocalAwareness();
+    this.awarenessLease.release();
 
     const editor = this.editor;
     this.editor = null;
@@ -184,7 +218,7 @@ export class PageEditorSession {
 
     this.disposePromise = this.connectBarrier
       .catch(() => undefined)
-      .then(() => this.runtime.close())
+      .then(() => this.releaseRuntime())
       .then(() => undefined);
     return this.disposePromise;
   }
@@ -192,6 +226,7 @@ export class PageEditorSession {
 
 export class PageEditorSessionRegistry {
   private readonly sessions = new Map<string, PageEditorSession>();
+  private readonly documents = new Map<string, CanonicalPageDocumentEntry>();
 
   acquire(input: {
     readonly key: string;
@@ -204,11 +239,24 @@ export class PageEditorSessionRegistry {
     }
 
     const connectBarrier = existing?.dispose() ?? Promise.resolve();
+    const identity = makePageEditorRuntimeIdentity(input.descriptor);
+    const existingDocument = this.documents.get(identity);
+    const document = existingDocument && !existingDocument.closing
+      ? existingDocument
+      : this.createDocumentEntry({
+          identity,
+          descriptor: input.descriptor,
+          createRuntime: input.createRuntime,
+          connectBarrier: existingDocument?.closePromise ?? Promise.resolve(),
+        });
+    document.references += 1;
     const session = new PageEditorSession({
       key: input.key,
-      descriptor: input.descriptor,
-      runtime: input.createRuntime(),
+      descriptor: document.descriptor,
+      runtime: document.runtime,
       connectBarrier,
+      releaseRuntime: () => this.releaseDocument(document),
+      awarenessLease: this.createAwarenessLease(document),
     });
     this.sessions.set(input.key, session);
     return session;
@@ -232,8 +280,8 @@ export class PageEditorSessionRegistry {
   }
 
   async persistAll(): Promise<void> {
-    await Promise.all([...this.sessions.values()].map((session) =>
-      session.persist()
+    await Promise.all([...this.documents.values()].map((entry) =>
+      persistRuntime(entry.runtime)
     ));
   }
 
@@ -248,6 +296,75 @@ export class PageEditorSessionRegistry {
 
   get size(): number {
     return this.sessions.size;
+  }
+
+  get canonicalDocumentSize(): number {
+    return this.documents.size;
+  }
+
+  private createDocumentEntry(input: {
+    readonly identity: string;
+    readonly descriptor: OwnedDocumentDescriptor;
+    readonly createRuntime: () => BlockDocumentSurfaceRuntime;
+    readonly connectBarrier: Promise<void>;
+  }): CanonicalPageDocumentEntry {
+    const entry: CanonicalPageDocumentEntry = {
+      identity: input.identity,
+      descriptor: input.descriptor,
+      runtime: input.createRuntime(),
+      connectBarrier: input.connectBarrier,
+      references: 0,
+      activeAwarenessViews: 0,
+      closing: false,
+      closePromise: null,
+    };
+    this.documents.set(input.identity, entry);
+    return entry;
+  }
+
+  private createAwarenessLease(
+    entry: CanonicalPageDocumentEntry,
+  ): PageEditorAwarenessLease {
+    let acquired = false;
+    return {
+      acquire: () => {
+        if (acquired || entry.closing) return;
+        acquired = true;
+        entry.activeAwarenessViews += 1;
+      },
+      release: () => {
+        if (!acquired) {
+          if (entry.activeAwarenessViews === 0) {
+            entry.runtime.clearLocalAwareness();
+          }
+          return;
+        }
+        acquired = false;
+        entry.activeAwarenessViews = Math.max(0, entry.activeAwarenessViews - 1);
+        if (entry.activeAwarenessViews === 0) {
+          entry.runtime.clearLocalAwareness();
+        }
+      },
+    };
+  }
+
+  private releaseDocument(entry: CanonicalPageDocumentEntry): Promise<void> {
+    if (entry.references > 0) entry.references -= 1;
+    if (entry.references > 0 || entry.closePromise) {
+      return entry.closePromise ?? Promise.resolve();
+    }
+
+    entry.closing = true;
+    const closePromise = entry.connectBarrier
+      .catch(() => undefined)
+      .then(() => entry.runtime.close())
+      .then(() => undefined);
+    entry.closePromise = closePromise.finally(() => {
+      if (this.documents.get(entry.identity) === entry) {
+        this.documents.delete(entry.identity);
+      }
+    });
+    return entry.closePromise;
   }
 }
 

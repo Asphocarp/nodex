@@ -29,8 +29,8 @@ function envelope(sequence: number): CoreEventEnvelope {
   return {
     transport_version: 4,
     event: {
-      event_version: 2,
-      sequence,
+      event_version: 3,
+      commit_seq: sequence,
       store_epoch: "epoch:test",
       committed_at: "2026-07-22T00:00:00.000Z",
       projection_impact: { kind: "none" },
@@ -45,6 +45,8 @@ function envelope(sequence: number): CoreEventEnvelope {
           session_detail_ids: [],
         },
       },
+      effects: [],
+      canonical_hash: "0".repeat(64),
     },
   };
 }
@@ -136,7 +138,7 @@ test("heals a resync boundary and immediately resumes from its event head", asyn
   streams[0]!.onResync({
     requested_after: 4,
     oldest_available: 10,
-    event_head: 14,
+    commit_head: 14,
   });
   await expect.poll(() => streams.length).toBe(2);
   expect(afterValues).toEqual([4, 14]);

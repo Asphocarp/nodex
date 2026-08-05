@@ -31,6 +31,7 @@ use crate::infrastructure::cursor::{
 };
 use crate::infrastructure::event_log::{
     NewChangeLogEntry, append_change_log, load_committed_event_by_sequence,
+    load_local_commit_by_event_sequence,
 };
 use crate::infrastructure::module_receipts::{
     NewModuleReceipt, insert_module_receipt, read_module_receipt,
@@ -65,7 +66,7 @@ struct ActiveOperation {
 fn backup_window(
     connection: &Connection,
     library_id: &str,
-    event_head: i64,
+    commit_head: i64,
     items: Vec<BackupRecord>,
     request: &CollectionWindowRequest,
 ) -> Result<CollectionWindow<BackupRecord>, StoreError> {
@@ -112,7 +113,7 @@ fn backup_window(
         candidates,
         normalized.first,
         CollectionWindowAuthority {
-            projection_revision: event_head,
+            projection_revision: commit_head,
         },
         |coordinate| {
             cursor::mint(
@@ -209,12 +210,13 @@ impl StoreAdministrationModule {
             .read_default(move |connection| {
                 let transaction = connection.unchecked_transaction()?;
                 assert_identity(&transaction, &profile_id, &library_id)?;
-                let (store_epoch, event_head) = transaction.query_row(
+                let (store_epoch, change_log_head) = transaction.query_row(
                     "SELECT metadata.store_epoch, (SELECT COALESCE(max(seq), 0) FROM change_log) \
                      FROM block_store_metadata metadata WHERE metadata.id = 1",
                     [],
                     |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
                 )?;
+                let commit_seq = crate::infrastructure::local_commit::head(&transaction)?;
                 let value = match request.read {
                     StoreAdministrationRead::Status => {
                         let schema_version =
@@ -250,7 +252,7 @@ impl StoreAdministrationModule {
                             backups: backup_window(
                                 &transaction,
                                 &library_id,
-                                event_head,
+                                change_log_head,
                                 items,
                                 &window,
                             )?,
@@ -277,7 +279,7 @@ impl StoreAdministrationModule {
                 Ok(ModuleReadSnapshot {
                     contract_version: STORE_ADMINISTRATION_CONTRACT_VERSION,
                     store_epoch: StoreEpoch(store_epoch),
-                    event_head,
+                    commit_head: commit_seq,
                     value,
                 })
             })
@@ -1102,6 +1104,14 @@ fn finish_backup_creation(
             &payload,
             &backup.created_at,
         )?;
+        let local_commit = event_project_id
+            .as_ref()
+            .map(|_| load_local_commit_by_event_sequence(transaction, event_sequence))
+            .transpose()?;
+        let commit_seq = local_commit.as_ref().map_or(
+            crate::infrastructure::local_commit::head(transaction)?,
+            |commit| commit.commit_seq,
+        );
         let committed = CommittedModuleValue {
             value: StoreAdministrationCommitValue {
                 backup_id: Some(backup.backup_id.clone()),
@@ -1116,8 +1126,10 @@ fn finish_backup_creation(
                 backup_id: Some(backup.backup_id.clone()),
                 safety_backup_id: None,
             },
+            commit_seq,
             event_sequence,
             store_epoch: StoreEpoch(store_epoch.to_owned()),
+            local_commit,
         };
         let result = serde_json::to_value(&committed)
             .map_err(|_| internal("Store Administration receipt could not be encoded"))?;
@@ -1181,6 +1193,14 @@ fn finish_cleanup_operation(
             &payload,
             committed_at,
         )?;
+        let local_commit = event_project_id
+            .as_ref()
+            .map(|_| load_local_commit_by_event_sequence(transaction, event_sequence))
+            .transpose()?;
+        let commit_seq = local_commit.as_ref().map_or(
+            crate::infrastructure::local_commit::head(transaction)?,
+            |commit| commit.commit_seq,
+        );
         let committed = CommittedModuleValue {
             value: StoreAdministrationCommitValue {
                 backup_id: backup_id.map(str::to_owned),
@@ -1195,8 +1215,10 @@ fn finish_cleanup_operation(
                 backup_id: backup_id.map(str::to_owned),
                 safety_backup_id: None,
             },
+            commit_seq,
             event_sequence,
             store_epoch: StoreEpoch(store_epoch.to_owned()),
+            local_commit,
         };
         let mut result = serde_json::to_value(&committed)
             .map_err(|_| internal("Store cleanup receipt could not be encoded"))?;
@@ -1313,6 +1335,14 @@ fn finish_maintenance(
             &payload,
             committed_at,
         )?;
+        let local_commit = event_project_id
+            .as_ref()
+            .map(|_| load_local_commit_by_event_sequence(transaction, event_sequence))
+            .transpose()?;
+        let commit_seq = local_commit.as_ref().map_or(
+            crate::infrastructure::local_commit::head(transaction)?,
+            |commit| commit.commit_seq,
+        );
         let committed = CommittedModuleValue {
             value: StoreAdministrationCommitValue {
                 backup_id: None,
@@ -1327,8 +1357,10 @@ fn finish_maintenance(
                 backup_id: None,
                 safety_backup_id: None,
             },
+            commit_seq,
             event_sequence,
             store_epoch: StoreEpoch(store_epoch.to_owned()),
+            local_commit,
         };
         let result = serde_json::to_value(&committed)
             .map_err(|_| internal("Store maintenance receipt could not be encoded"))?;
@@ -1395,6 +1427,14 @@ fn finish_restore(
             &payload,
             committed_at,
         )?;
+        let local_commit = event_project_id
+            .as_ref()
+            .map(|_| load_local_commit_by_event_sequence(transaction, event_sequence))
+            .transpose()?;
+        let commit_seq = local_commit.as_ref().map_or(
+            crate::infrastructure::local_commit::head(transaction)?,
+            |commit| commit.commit_seq,
+        );
         let committed = CommittedModuleValue {
             value: StoreAdministrationCommitValue {
                 backup_id: Some(backup_id.to_owned()),
@@ -1409,8 +1449,10 @@ fn finish_restore(
                 backup_id: Some(backup_id.to_owned()),
                 safety_backup_id: safety_backup_id.map(str::to_owned),
             },
+            commit_seq,
             event_sequence,
             store_epoch: StoreEpoch(store_epoch.to_owned()),
+            local_commit,
         };
         let result = serde_json::to_value(&committed)
             .map_err(|_| internal("Store restore receipt could not be encoded"))?;

@@ -107,7 +107,7 @@ export function WorkbenchLibraryPageSurface({
       ) return null;
       return {
         storeEpoch: currentDetail.storeEpoch,
-        changeLogSeq: currentDetail.changeLogSeq,
+        commitSeq: currentDetail.commitSeq,
       };
     };
     const unregisterDetail = projectionRegistry.register({

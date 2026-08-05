@@ -14,7 +14,7 @@ use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 pub(super) fn read_managed_worktree_window(
     connection: &Connection,
     library_id: &str,
-    event_head: i64,
+    commit_head: i64,
     project_id: Option<&str>,
     request: &CollectionWindowRequest,
 ) -> Result<CollectionWindow<ProjectWorkspaceManagedWorktreeSummary>, StoreError> {
@@ -116,7 +116,7 @@ pub(super) fn read_managed_worktree_window(
         }),
         normalized.first,
         CollectionWindowAuthority {
-            projection_revision: event_head,
+            projection_revision: commit_head,
         },
         |coordinate| {
             cursor::mint(

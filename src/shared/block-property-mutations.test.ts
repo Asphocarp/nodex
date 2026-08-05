@@ -166,7 +166,7 @@ describe("Block property mutation contract", () => {
         },
       ],
       blockMetadataRevisions: { "card-1": 3 },
-      changeLogSeq: 5,
+      commitSeq: 5,
       committedAt: "2026-07-11T00:00:00.000Z",
     });
     expect(result.fields[0]?.revision).toBe(2);

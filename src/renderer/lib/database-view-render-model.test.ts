@@ -161,7 +161,7 @@ const makeSnapshot = (input: {
     projectId,
     libraryId,
     storeEpoch: "epoch-alpha",
-    changeLogSeq: 7,
+    commitSeq: 7,
     value: { kind: "query", value: query },
   };
 };

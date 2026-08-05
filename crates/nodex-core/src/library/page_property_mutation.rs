@@ -337,14 +337,17 @@ pub(super) fn apply(
             committed_at: now.clone(),
         },
     )?;
-    let change_log_seq = result.committed.receipt.change_log_seq;
+    // The property ledger still links its history row to the physical
+    // change_log effect. The public receipt cursor is the semantic
+    // LocalCommit sequence and may differ after a multi-effect mutation.
+    let event_sequence = result.committed.event_sequence;
     let public_result = public_success_json(
         operation_id,
         &ledger_project_id,
         store_epoch,
         &field_results,
         &block_metadata_revisions,
-        change_log_seq,
+        result.committed.receipt.commit_seq,
         &now,
     );
     persist_property_ledger(
@@ -367,7 +370,7 @@ pub(super) fn apply(
                 })
                 .collect(),
         ),
-        Some(change_log_seq),
+        Some(event_sequence),
         &now,
     )?;
     Ok(result)
@@ -1227,7 +1230,7 @@ fn public_success_json(
     store_epoch: &str,
     fields: &[LibraryBlockPropertyFieldResult],
     block_metadata_revisions: &BTreeMap<String, i64>,
-    change_log_seq: i64,
+    commit_seq: i64,
     now: &str,
 ) -> Value {
     json!({
@@ -1238,7 +1241,7 @@ fn public_success_json(
         "duplicate": false,
         "fields": fields.iter().map(public_field_result_json).collect::<Vec<_>>(),
         "blockMetadataRevisions": block_metadata_revisions,
-        "changeLogSeq": change_log_seq,
+        "commitSeq": commit_seq,
         "committedAt": now,
     })
 }
@@ -1285,10 +1288,11 @@ fn finish_rejection(
     error: LibraryBlockPropertyMutationError,
     now: &str,
 ) -> Result<LibraryApplyOutcome, StoreError> {
-    let event_head =
+    let commit_head =
         connection.query_row("SELECT COALESCE(MAX(seq), 0) FROM change_log", [], |row| {
             row.get::<_, i64>(0)
         })?;
+    let commit_seq = crate::infrastructure::local_commit::head(connection)?;
     let committed = CommittedModuleValue {
         value: LibraryCommitValue {
             affected_resource_ids: Vec::new(),
@@ -1317,11 +1321,13 @@ fn finish_rejection(
             affected_database_ids: Vec::new(),
             affected_view_ids: Vec::new(),
             committed_revisions: BTreeMap::new(),
-            change_log_seq: event_head,
+            commit_seq,
             committed_at: now.to_owned(),
         },
-        event_sequence: event_head,
+        commit_seq,
+        event_sequence: commit_head,
         store_epoch: StoreEpoch(store_epoch.to_owned()),
+        local_commit: None,
     };
     let result = serde_json::to_value(&committed)
         .map_err(|_| internal("Property rejection result cannot encode"))?;

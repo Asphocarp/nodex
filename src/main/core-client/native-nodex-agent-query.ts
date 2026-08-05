@@ -145,7 +145,7 @@ export async function readNativeDatabaseQuery(
         projectId: request.projectId,
         libraryId: authority.libraryId,
         storeEpoch: snapshot.store_epoch,
-        changeLogSeq: snapshot.event_head,
+        commitSeq: snapshot.commit_head,
         value: {
           kind: request.tool === "query_database_view"
             ? "query"

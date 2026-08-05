@@ -19,6 +19,7 @@ use sha2::{Digest, Sha256};
 use crate::document::sha256;
 use crate::infrastructure::event_log::{
     NewChangeLogEntry, append_change_log, load_committed_event_by_sequence,
+    load_local_commit_by_event_sequence,
 };
 use crate::infrastructure::module_receipts::{
     NewModuleReceipt, insert_module_receipt, read_module_receipt,
@@ -1134,8 +1135,9 @@ fn finish_mutation(
             committed_at: &effects.committed_at,
         },
     )?;
+    let local_commit = load_local_commit_by_event_sequence(connection, event_sequence)?;
     if let Some(result) = effects.page_occurrence_mutation.as_mut() {
-        result.change_log_seq = Some(event_sequence);
+        result.commit_seq = Some(local_commit.commit_seq);
     }
     let committed = CommittedModuleValue {
         value: AutomationCommitValue {
@@ -1163,8 +1165,10 @@ fn finish_mutation(
             affected_document_ids: effects.document_ids.clone(),
             affected_database_ids: effects.database_ids.clone(),
         },
+        commit_seq: local_commit.commit_seq,
         event_sequence,
         store_epoch: StoreEpoch(store_epoch.to_owned()),
+        local_commit: Some(local_commit),
     };
     let result = serde_json::to_value(&committed)
         .map_err(|_| internal("Automation receipt result cannot be encoded"))?;
@@ -1198,10 +1202,11 @@ fn finish_occurrence_rejection(
     request_hash: &str,
     effects: super::occurrence_mutation::OccurrenceMutationEffects,
 ) -> Result<AutomationApplyOutcome, StoreError> {
-    let event_head =
+    let commit_head =
         connection.query_row("SELECT COALESCE(MAX(seq), 0) FROM change_log", [], |row| {
             row.get::<_, i64>(0)
         })?;
+    let commit_seq = crate::infrastructure::local_commit::head(connection)?;
     let committed = CommittedModuleValue {
         value: AutomationCommitValue {
             affected_automation_ids: Vec::new(),
@@ -1228,8 +1233,10 @@ fn finish_occurrence_rejection(
             affected_document_ids: Vec::new(),
             affected_database_ids: Vec::new(),
         },
-        event_sequence: event_head,
+        commit_seq,
+        event_sequence: commit_head,
         store_epoch: StoreEpoch(store_epoch.to_owned()),
+        local_commit: None,
     };
     let result = serde_json::to_value(&committed)
         .map_err(|_| internal("Automation rejection result cannot be encoded"))?;
@@ -3021,10 +3028,7 @@ mod tests {
             .expect("occurrence result");
         assert!(result.success);
         assert_eq!(result.created_page_id.as_deref(), Some(created_page_id));
-        assert_eq!(
-            result.change_log_seq,
-            Some(completed.committed.event_sequence)
-        );
+        assert_eq!(result.commit_seq, Some(completed.committed.commit_seq));
         assert_eq!(
             completed.committed.receipt.affected_page_ids,
             vec![

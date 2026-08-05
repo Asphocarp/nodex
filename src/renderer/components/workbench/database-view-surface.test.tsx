@@ -40,7 +40,7 @@ const model: DatabaseViewRenderModel = {
   dataSourceName: "Pages",
   viewName: "Focused",
   storeEpoch: "epoch-1",
-  changeLogSeq: 2,
+  commitSeq: 2,
   primaryWriteCompatible: false,
   readOnlyReason: null,
   query: {
@@ -289,7 +289,7 @@ describe("DatabaseViewSurface", () => {
       expect(optionRuntime.read).toHaveBeenCalledTimes(1);
       screen.rerender(
         <DatabaseViewSurface
-          model={{ ...loadingModel, changeLogSeq: loadingModel.changeLogSeq + 1 }}
+          model={{ ...loadingModel, commitSeq: loadingModel.commitSeq + 1 }}
           searchQuery=""
           onOpenPage={() => undefined}
         />,

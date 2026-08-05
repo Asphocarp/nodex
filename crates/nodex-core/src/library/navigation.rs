@@ -27,7 +27,7 @@ pub(super) fn read(
     connection: &Connection,
     library_id: &str,
     store_epoch: &str,
-    event_head: i64,
+    commit_head: i64,
     context: &BoundModuleContext,
     request: LibraryRead,
 ) -> Result<LibraryReadValue, StoreError> {
@@ -131,7 +131,7 @@ pub(super) fn read(
                     connection,
                     library_id,
                     store_epoch,
-                    event_head,
+                    commit_head,
                     &page_id,
                     requesting_project_id,
                 )?),
@@ -150,7 +150,7 @@ pub(super) fn read(
                     connection,
                     library_id,
                     store_epoch,
-                    event_head,
+                    commit_head,
                     &page_id,
                 )?),
             })
@@ -173,7 +173,7 @@ pub(super) fn read(
                     library_id,
                     store_epoch,
                     super::page_projection::PageFileRequest {
-                        event_head,
+                        commit_head,
                         requesting_project_id,
                         page_id: &page_id,
                         kind: file_kind,
@@ -195,7 +195,7 @@ pub(super) fn read(
                     connection,
                     library_id,
                     store_epoch,
-                    event_head,
+                    commit_head,
                     &page_id,
                 )?),
             })
@@ -218,7 +218,7 @@ pub(super) fn read(
                 connection,
                 library_id,
                 store_epoch,
-                event_head,
+                commit_head,
                 &block_id,
                 requesting_project_id,
             )?;
@@ -498,7 +498,7 @@ fn agent_block_target(
     connection: &Connection,
     library_id: &str,
     store_epoch: &str,
-    event_head: i64,
+    commit_head: i64,
     block_id: &str,
     requesting_project_id: Option<&str>,
 ) -> Result<Option<LibraryAgentBlockTarget>, StoreError> {
@@ -552,7 +552,7 @@ fn agent_block_target(
         connection,
         library_id,
         store_epoch,
-        event_head,
+        commit_head,
         &owner_page_id,
         requesting_project_id,
     )?;
@@ -888,7 +888,7 @@ fn page_detail(
     connection: &Connection,
     library_id: &str,
     store_epoch: &str,
-    event_head: i64,
+    commit_head: i64,
     page_id: &str,
     requesting_project_id: Option<&str>,
 ) -> Result<LibraryPageDetail, StoreError> {
@@ -982,7 +982,7 @@ fn page_detail(
         version: 3,
         library_id: library_id.to_owned(),
         store_epoch: store_epoch.to_owned(),
-        change_log_seq: event_head,
+        commit_seq: commit_head,
         page: page_record(connection, page_id)?,
         document: document.0,
         intrinsic_properties,
@@ -1016,12 +1016,22 @@ fn parse_json(serialized: &str, label: &str) -> rusqlite::Result<Value> {
     })
 }
 
-pub(super) fn event_head(connection: &Connection) -> Result<i64, StoreError> {
+pub(super) fn change_log_head(connection: &Connection) -> Result<i64, StoreError> {
     connection
         .query_row("SELECT COALESCE(MAX(seq), 0) FROM change_log", [], |row| {
             row.get(0)
         })
         .map_err(Into::into)
+}
+
+/// The semantic cursor exposed by Library snapshots.
+///
+/// `change_log_head` remains the physical change-log boundary used by the
+/// historical projection queries below. A single durable mutation can append
+/// several such rows, so exposing that boundary as the public freshness cursor
+/// would let a reader skip a later LocalCommit.
+pub(super) fn commit_head(connection: &Connection) -> Result<i64, StoreError> {
+    crate::infrastructure::local_commit::head(connection)
 }
 
 fn children(

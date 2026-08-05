@@ -6,7 +6,9 @@ use sha2::{Digest, Sha256};
 
 use crate::domain::derived_records::{BlockDocumentAssetKind, BlockDocumentReference};
 use crate::infrastructure::document_repository::{DocumentHeadRow, DocumentReadRepository};
-use crate::infrastructure::event_log::{NewChangeLogEntry, append_change_log};
+use crate::infrastructure::event_log::{
+    NewChangeLogEntry, append_change_log, append_change_log_with_local_commit,
+};
 use crate::infrastructure::projection_impact::{
     PageProjectionCoordinates, PageProjectionDatabaseCoordinates, impact_for_page_document,
 };
@@ -67,6 +69,7 @@ pub(crate) struct PersistYjsCommit<'a> {
     pub state_vector: &'a [u8],
     pub store_epoch: &'a str,
     pub operation_id: &'a str,
+    pub local_commit_id: Option<&'a str>,
     pub event_kind: &'a str,
     pub write_fence_block_ids: &'a [String],
     pub title_write_fence_required: bool,
@@ -228,9 +231,29 @@ pub(crate) fn read_event_head(connection: &Connection) -> Result<i64, StoreError
     Err(corrupt("Change log head is invalid"))
 }
 
+pub(crate) fn read_local_commit_head(connection: &Connection) -> Result<i64, StoreError> {
+    crate::infrastructure::local_commit::head(connection)
+}
+
 pub(crate) fn persist_yjs_commit(
     connection: &Connection,
     input: PersistYjsCommit<'_>,
+) -> Result<PersistedDocumentCommit, StoreError> {
+    persist_yjs_commit_inner(connection, input, None)
+}
+
+pub(crate) fn persist_yjs_commit_with_local_commit(
+    connection: &Connection,
+    input: PersistYjsCommit<'_>,
+    commit_seq: i64,
+) -> Result<PersistedDocumentCommit, StoreError> {
+    persist_yjs_commit_inner(connection, input, Some(commit_seq))
+}
+
+fn persist_yjs_commit_inner(
+    connection: &Connection,
+    input: PersistYjsCommit<'_>,
+    attached_commit_seq: Option<i64>,
 ) -> Result<PersistedDocumentCommit, StoreError> {
     let next_head_seq = input
         .authority
@@ -368,6 +391,7 @@ pub(crate) fn persist_yjs_commit(
         "updateId": input.update_id,
         "updateHash": update_hash,
         "updateByteLength": input.update.len(),
+        "localCommitId": input.local_commit_id,
     });
     let page_impact = input.authority.page_impact();
     let projection_impact = impact_for_page_document(
@@ -387,21 +411,22 @@ pub(crate) fn persist_yjs_commit(
     let payload_json =
         serde_json::to_string(&payload).map_err(|_| internal("Document event payload"))?;
     let kind = format!("owned_document.{}", input.event_kind);
-    let event_sequence = append_change_log(
-        connection,
-        NewChangeLogEntry {
-            project_id: &input.authority.head.project_id,
-            store_epoch: input.store_epoch,
-            kind: &kind,
-            operation_id: Some(input.operation_id),
-            block_ids: &derived_touched_block_ids,
-            document_ids: &document_ids,
-            database_block_ids: &database_ids,
-            payload_json: &payload_json,
-            projection_impact: &projection_impact,
-            committed_at: &now,
-        },
-    )?;
+    let entry = NewChangeLogEntry {
+        project_id: &input.authority.head.project_id,
+        store_epoch: input.store_epoch,
+        kind: &kind,
+        operation_id: Some(input.operation_id),
+        block_ids: &derived_touched_block_ids,
+        document_ids: &document_ids,
+        database_block_ids: &database_ids,
+        payload_json: &payload_json,
+        projection_impact: &projection_impact,
+        committed_at: &now,
+    };
+    let event_sequence = match attached_commit_seq {
+        Some(commit_seq) => append_change_log_with_local_commit(connection, entry, commit_seq)?,
+        None => append_change_log(connection, entry)?,
+    };
     Ok(PersistedDocumentCommit {
         head_seq: next_head_seq,
         state_vector: input.state_vector.to_vec(),
@@ -414,6 +439,27 @@ pub(crate) fn persist_yjs_commit(
 pub(crate) fn persist_yjs_genesis(
     connection: &Connection,
     input: PersistYjsGenesis<'_>,
+) -> Result<PersistedDocumentCommit, StoreError> {
+    let page_projection_required = input.emit_event;
+    persist_yjs_genesis_inner(connection, input, None, page_projection_required)
+}
+
+pub(crate) fn persist_yjs_genesis_with_local_commit(
+    connection: &Connection,
+    input: PersistYjsGenesis<'_>,
+    commit_seq: i64,
+) -> Result<PersistedDocumentCommit, StoreError> {
+    // Page-parent promotion inserts its page read model immediately after
+    // genesis. The durable event is part of the parent LocalCommit, but the
+    // projection check belongs to that caller's explicit read-model write.
+    persist_yjs_genesis_inner(connection, input, Some(commit_seq), false)
+}
+
+fn persist_yjs_genesis_inner(
+    connection: &Connection,
+    input: PersistYjsGenesis<'_>,
+    attached_commit_seq: Option<i64>,
+    page_projection_required: bool,
 ) -> Result<PersistedDocumentCommit, StoreError> {
     if input.authority.head.generation < 1
         || input.authority.head.head_seq != 0
@@ -529,7 +575,7 @@ pub(crate) fn persist_yjs_genesis(
         input.materialization,
         1,
         &now,
-        input.emit_event,
+        page_projection_required,
     )?;
     let event_sequence = if input.emit_event {
         let payload = json!({
@@ -555,21 +601,22 @@ pub(crate) fn persist_yjs_genesis(
         let document_ids = vec![input.authority.head.id.clone()];
         let payload_json =
             serde_json::to_string(&payload).map_err(|_| internal("Genesis event payload"))?;
-        append_change_log(
-            connection,
-            NewChangeLogEntry {
-                project_id: &input.authority.head.project_id,
-                store_epoch: input.store_epoch,
-                kind: "owned_document.document_initialized",
-                operation_id: Some(input.operation_id),
-                block_ids: &derived_touched_block_ids,
-                document_ids: &document_ids,
-                database_block_ids: &database_ids,
-                payload_json: &payload_json,
-                projection_impact: &projection_impact,
-                committed_at: &now,
-            },
-        )?
+        let entry = NewChangeLogEntry {
+            project_id: &input.authority.head.project_id,
+            store_epoch: input.store_epoch,
+            kind: "owned_document.document_initialized",
+            operation_id: Some(input.operation_id),
+            block_ids: &derived_touched_block_ids,
+            document_ids: &document_ids,
+            database_block_ids: &database_ids,
+            payload_json: &payload_json,
+            projection_impact: &projection_impact,
+            committed_at: &now,
+        };
+        match attached_commit_seq {
+            Some(commit_seq) => append_change_log_with_local_commit(connection, entry, commit_seq)?,
+            None => append_change_log(connection, entry)?,
+        }
     } else {
         connection.query_row("SELECT COALESCE(MAX(seq), 0) FROM change_log", [], |row| {
             row.get(0)

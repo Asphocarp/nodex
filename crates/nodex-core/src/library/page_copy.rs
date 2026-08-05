@@ -3333,7 +3333,10 @@ mod tests {
         let copied_root_document_id = result.document_id.clone();
         let copied_child_document_id = result.document_ids["document:child"].clone();
         assert!(library_copy.event.is_some());
-        assert!(library_replay.event.is_none());
+        assert_eq!(
+            library_replay.event.as_ref().map(|event| event.sequence),
+            Some(library_copy.committed.event_sequence)
+        );
         assert!(library_replay.committed.receipt.mutation.duplicate);
         assert_eq!(result.block_ids.len(), 4);
         assert_eq!(result.document_ids.len(), 2);
@@ -3365,7 +3368,10 @@ mod tests {
             2
         );
         assert!(page_copy.event.is_some());
-        assert!(page_replay.event.is_none());
+        assert_eq!(
+            page_replay.event.as_ref().map(|event| event.sequence),
+            Some(page_copy.committed.event_sequence)
+        );
         assert!(page_replay.committed.receipt.mutation.duplicate);
 
         let stale = module
@@ -3546,7 +3552,10 @@ mod tests {
             .as_ref()
             .expect("copy result");
         assert!(copied.event.is_some());
-        assert!(replay.event.is_none());
+        assert_eq!(
+            replay.event.as_ref().map(|event| event.sequence),
+            Some(copied.committed.event_sequence)
+        );
         assert!(replay.committed.receipt.mutation.duplicate);
         assert_eq!(
             copied.committed.receipt.affected_database_ids,

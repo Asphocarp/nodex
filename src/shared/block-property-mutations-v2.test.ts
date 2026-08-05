@@ -112,7 +112,7 @@ describe("Block Property mutation v2 contract", () => {
         },
       ],
       blockMetadataRevisions: { "page-1": 3 },
-      changeLogSeq: 5,
+      commitSeq: 5,
       committedAt: "2026-07-18T00:00:00.000Z",
     };
 

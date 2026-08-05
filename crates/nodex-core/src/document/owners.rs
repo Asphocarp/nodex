@@ -693,6 +693,7 @@ fn persist_prepared_update(
             state_vector: &prepared.state_vector_v1,
             store_epoch,
             operation_id,
+            local_commit_id: None,
             event_kind: "document_updated",
             write_fence_block_ids: &prepared.write_fence_block_ids,
             title_write_fence_required: prepared.title_write_fence_required,

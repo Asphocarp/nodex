@@ -26,6 +26,7 @@ import {
 } from "../../lib/query-invalidation";
 import { queryKeys } from "../../lib/query-keys";
 import { useProjectionInvalidationRegistry } from "../../lib/projection-invalidation-context";
+import type { ProjectionStreamMessage } from "../../../shared/projection-stream";
 import { DatabaseViewTabSurface } from "./workbench-db-view-panel";
 
 type DatabaseReadTarget =
@@ -55,6 +56,7 @@ const readDatabaseWindowForContext = async (
   input: {
     readonly after?: string;
     readonly groupScope?: DatabaseViewGroupScopeInput;
+    readonly minimumCommitSeq?: number;
   } = {},
 ): Promise<DatabaseViewWindowSnapshot<string | null>> => {
   if (accessContext.kind === "project") {
@@ -74,11 +76,18 @@ const readDatabaseWindowForContext = async (
 const readDatabaseGroupsForContext = async (
   accessContext: ContentAccessContext,
   target: DatabaseReadTarget,
+  minimumCommitSeq = 0,
 ): Promise<DatabaseViewGroupsSnapshot<string | null>> => {
   if (accessContext.kind === "project") {
-    return await readDatabaseViewGroups(accessContext.projectId, target);
+    return await readDatabaseViewGroups(accessContext.projectId, {
+      ...target,
+      ...(minimumCommitSeq > 0 ? { minimumCommitSeq } : {}),
+    });
   }
-  return await readLibraryDatabaseViewGroups(target);
+  return await readLibraryDatabaseViewGroups({
+    ...target,
+    ...(minimumCommitSeq > 0 ? { minimumCommitSeq } : {}),
+  });
 };
 
 const readTargetFromIdentity = (identity: string): DatabaseReadTarget => {
@@ -124,7 +133,7 @@ const mergeWindows = (
   if (!first) return undefined;
   return {
     ...first,
-    changeLogSeq: Math.min(...windows.map((window) => window.changeLogSeq)),
+    commitSeq: Math.min(...windows.map((window) => window.commitSeq)),
     nextCursor: null,
     rows: uniqueBy(
       windows.flatMap((window) => window.rows),
@@ -158,6 +167,7 @@ export function WorkbenchDatabaseViewSurface({
   const projectionRegistry = useProjectionInvalidationRegistry();
   const searchInputRef = useRef<HTMLInputElement>(null);
   const inFlightScopesRef = useRef(new Set<string>());
+  const requiredMinimumCommitSeqRef = useRef(0);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [continuations, setContinuations] = useState<
@@ -173,16 +183,22 @@ export function WorkbenchDatabaseViewSurface({
     () => queryKeys.libraryDatabases.view(accessProjectId, targetIdentity),
     [accessProjectId, targetIdentity],
   );
+  // The floor is a monotonic read barrier, not semantic query identity.
+  // Keeping it out of the key prevents one cache entry per LocalCommit while
+  // invalidation still updates the barrier before refetching this entry.
+  // eslint-disable-next-line @tanstack/query/exhaustive-deps
   const query = useQuery({
     queryKey,
     queryFn: async () => {
       const readTarget = readTargetFromIdentity(targetIdentity);
+      const minimumCommitSeq = requiredMinimumCommitSeqRef.current;
       const readContext: ContentAccessContext = accessProjectId
         ? { kind: "project", projectId: accessProjectId }
         : { kind: "library" };
       const groups = await readDatabaseGroupsForContext(
         readContext,
         readTarget,
+        minimumCommitSeq,
       );
       const scopedWindows = await Promise.all(
         scopesFromGroups(groups).map(async (scope): Promise<ScopedWindow> => ({
@@ -190,7 +206,10 @@ export function WorkbenchDatabaseViewSurface({
           snapshot: await readDatabaseWindowForContext(
             readContext,
             readTarget,
-            scope.scope ? { groupScope: scope.scope } : {},
+            {
+              ...(scope.scope ? { groupScope: scope.scope } : {}),
+              ...(minimumCommitSeq > 0 ? { minimumCommitSeq } : {}),
+            },
           ),
         })),
       );
@@ -291,7 +310,11 @@ export function WorkbenchDatabaseViewSurface({
           ...current.scopedWindows.map((window) => window.snapshot),
         ]);
       },
-      invalidate: async () => {
+      invalidate: async (cause: ProjectionStreamMessage) => {
+        requiredMinimumCommitSeqRef.current = Math.max(
+          requiredMinimumCommitSeqRef.current,
+          cause.cursor.commitSeq,
+        );
         await invalidateExactQuery(queryClient, queryKey);
       },
     });

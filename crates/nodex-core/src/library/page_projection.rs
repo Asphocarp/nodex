@@ -24,7 +24,7 @@ const MAX_NAME_BYTES: usize = 4_096;
 const MAX_TEXT_BYTES: usize = 64 * 1024;
 
 pub(super) struct PageFileRequest<'a> {
-    pub event_head: i64,
+    pub commit_head: i64,
     pub requesting_project_id: Option<&'a str>,
     pub page_id: &'a str,
     pub kind: LibraryPageFileKind,
@@ -38,14 +38,14 @@ pub(super) fn page_file(
     request: PageFileRequest<'_>,
 ) -> Result<LibraryPageFileProjection, StoreError> {
     let PageFileRequest {
-        event_head,
+        commit_head,
         requesting_project_id,
         page_id,
         kind,
         prepare,
     } = request;
     validate_prepare(kind, prepare.as_ref())?;
-    let page = page_content(connection, library_id, store_epoch, event_head, page_id)?;
+    let page = page_content(connection, library_id, store_epoch, commit_head, page_id)?;
     let storage = page_storage_authority(connection, library_id, page_id)?;
     let mut validators = LibraryPageFileValidators {
         title_etag: None,
@@ -136,7 +136,7 @@ pub(super) fn page_file(
         version: PAGE_FILE_VERSION,
         library_id: library_id.to_owned(),
         store_epoch: store_epoch.to_owned(),
-        event_head,
+        commit_head,
         page_id: page.page_id,
         metadata_revision: page.metadata_revision,
         document_id: page.document_id,
@@ -153,7 +153,7 @@ pub(super) fn page_draft_projection(
     connection: &Connection,
     library_id: &str,
     store_epoch: &str,
-    event_head: i64,
+    commit_head: i64,
     page_id: &str,
 ) -> Result<LibraryPageDraftProjection, StoreError> {
     let meta = page_file(
@@ -161,7 +161,7 @@ pub(super) fn page_draft_projection(
         library_id,
         store_epoch,
         PageFileRequest {
-            event_head,
+            commit_head,
             requesting_project_id: None,
             page_id,
             kind: LibraryPageFileKind::MetaYaml,
@@ -173,7 +173,7 @@ pub(super) fn page_draft_projection(
         library_id,
         store_epoch,
         PageFileRequest {
-            event_head,
+            commit_head,
             requesting_project_id: None,
             page_id,
             kind: LibraryPageFileKind::BodyNestedMarkdown,
@@ -202,7 +202,7 @@ pub(super) fn page_draft_projection(
         metadata_projection_version: PAGE_FILE_VERSION,
         library_id: library_id.to_owned(),
         store_epoch: store_epoch.to_owned(),
-        event_head,
+        commit_head,
         page_id: page_id.to_owned(),
         metadata_revision: meta.metadata_revision,
         document_id: meta.document_id,

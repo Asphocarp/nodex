@@ -16,7 +16,7 @@ use super::read::{project, project_row};
 pub(super) fn read_project_window(
     connection: &Connection,
     library_id: &str,
-    event_head: i64,
+    commit_head: i64,
     include_archived: bool,
     request: &CollectionWindowRequest,
 ) -> Result<CollectionWindow<ProjectWorkspaceProject>, StoreError> {
@@ -116,7 +116,7 @@ pub(super) fn read_project_window(
         candidates,
         normalized.first,
         CollectionWindowAuthority {
-            projection_revision: event_head,
+            projection_revision: commit_head,
         },
         |coordinate| {
             cursor::mint(

@@ -76,7 +76,6 @@ export interface CoreCanvasSceneAdapter {
   compact(
     request: CanvasSceneCompactionRequest,
     stats: CanvasSceneCompactionStats,
-    writeFencePrepared: boolean,
   ): Promise<CanvasSceneCompactionCommandResult>;
 }
 
@@ -133,12 +132,12 @@ export const createCoreCanvasSceneAdapter = (
         const event = canvasEvent(request, envelope);
         if (!event) return;
         const previous = lastSequences.get(key) ?? 0;
-        if (envelope.event.sequence <= previous) return;
+        if (envelope.event.commit_seq <= previous) return;
         listener(event);
-        lastSequences.set(key, envelope.event.sequence);
+        lastSequences.set(key, envelope.event.commit_seq);
       },
       onResyncRequired: (resync) => {
-        lastSequences.set(key, resync.event_head);
+        lastSequences.set(key, resync.commit_head);
         listener({
           type: "canvas_scene_resync_required",
           version: CANVAS_SCENE_SYNC_VERSION,
@@ -261,7 +260,7 @@ export const createCoreCanvasSceneAdapter = (
         return canvasErrorResult(error);
       }
     },
-    compact: async (request, stats, writeFencePrepared) => {
+    compact: async (request, stats) => {
       try {
         const key = subscriptionKey(request);
         const subscription = subscriptionFor(request);
@@ -277,7 +276,6 @@ export const createCoreCanvasSceneAdapter = (
               generation: stats.generation,
               expected_head_seq: stats.headSeq,
               actor: { kind: "canvas_tombstone_compaction" },
-              write_fence_prepared: writeFencePrepared,
             },
           }),
         );
@@ -411,7 +409,7 @@ const mapCoreErrorCode = (
     case "head_conflict":
       return "future_base_head";
     case "revision_conflict":
-      return "write_fence_required";
+      return "unknown";
     case "idempotency_key_reused":
       return "mutation_id_collision";
     case "invalid_document_schema":

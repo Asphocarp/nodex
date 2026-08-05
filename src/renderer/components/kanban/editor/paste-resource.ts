@@ -3,7 +3,9 @@ import { DEFAULT_PASTE_RESOURCE_SETTINGS } from "../../../lib/paste-resource-set
 
 export interface PasteResourceTarget {
   selectedBlockIds: string[];
+  selectedBlockTypes?: string[];
   currentBlockId: string | null;
+  currentBlockType?: string | null;
   canInsertInline: boolean;
   replaceCurrentEmptyParagraph: boolean;
 }
@@ -31,12 +33,17 @@ export function canMaterializePasteResourceItems(items: PasteResourceDraftItem[]
   return items.every((item) => item.kind !== "folder");
 }
 
-type SelectionBlockLike = { id: string; type?: string; content?: unknown; children?: unknown[] };
+type SelectionBlockLike = {
+  id: string;
+  type?: string;
+  content?: unknown;
+  children?: SelectionBlockLike[];
+};
 type PasteTargetSelectionEditor = {
   schema?: {
     blockSchema?: Record<string, { content?: string }>;
   };
-  getSelection: () => { blocks: Array<{ id: string }> } | undefined;
+  getSelection: () => { blocks: SelectionBlockLike[] } | undefined;
   getTextCursorPosition: () => { block: SelectionBlockLike };
 };
 
@@ -74,12 +81,22 @@ function canBlockAcceptInlineContent(
   return editor.schema?.blockSchema?.[block.type]?.content === "inline";
 }
 
+function collectBlockTypes(block: SelectionBlockLike): string[] {
+  return [
+    ...(typeof block.type === "string" ? [block.type] : []),
+    ...(block.children ?? []).flatMap(collectBlockTypes),
+  ];
+}
+
 export function capturePasteResourceTarget(editor: PasteTargetSelectionEditor): PasteResourceTarget {
   let selectedBlockIds: string[] = [];
+  let selectedBlockTypes: string[] = [];
   try {
     const selection = editor.getSelection();
     if (selection?.blocks?.length) {
       selectedBlockIds = selection.blocks.map((block) => block.id);
+      selectedBlockTypes = selection.blocks
+        .flatMap(collectBlockTypes);
     }
   } catch {
     selectedBlockIds = [];
@@ -89,14 +106,18 @@ export function capturePasteResourceTarget(editor: PasteTargetSelectionEditor): 
     const currentBlock = editor.getTextCursorPosition().block as SelectionBlockLike | undefined;
     return {
       selectedBlockIds,
+      selectedBlockTypes,
       currentBlockId: currentBlock?.id ?? null,
+      currentBlockType: currentBlock?.type ?? null,
       canInsertInline: canBlockAcceptInlineContent(editor, currentBlock),
       replaceCurrentEmptyParagraph: isEmptyParagraphBlock(currentBlock ?? null),
     };
   } catch {
     return {
       selectedBlockIds,
+      selectedBlockTypes,
       currentBlockId: null,
+      currentBlockType: null,
       canInsertInline: false,
       replaceCurrentEmptyParagraph: false,
     };

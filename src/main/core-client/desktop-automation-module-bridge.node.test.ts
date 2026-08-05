@@ -102,7 +102,7 @@ const readSnapshot = (
 ): AutomationReadSnapshot => ({
   contract_version: 2,
   store_epoch: "epoch:test",
-  event_head: 7,
+  commit_head: 7,
   value,
 });
 
@@ -172,8 +172,8 @@ describe("Desktop Automation Module bridge", () => {
     expect(mapCoreAutomationEvent({
       transport_version: 4,
       event: {
-        event_version: 2,
-        sequence: 8,
+        event_version: 3,
+        commit_seq: 8,
         store_epoch: "epoch:test",
         operation_id: "operation:automation",
         committed_at: "2026-07-19T15:02:00.000Z",
@@ -192,6 +192,8 @@ describe("Desktop Automation Module bridge", () => {
             database_ids: [],
           },
         },
+        effects: [],
+        canonical_hash: "0".repeat(64),
       },
     })).toEqual({
       automationIds: ["daily-report"],

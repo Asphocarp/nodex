@@ -50,7 +50,7 @@ struct SessionRow {
 pub(super) fn read(
     connection: &Connection,
     library_id: &str,
-    event_head: i64,
+    commit_head: i64,
     request: ProjectWorkspaceRead,
 ) -> Result<ProjectWorkspaceReadValue, StoreError> {
     match request {
@@ -77,7 +77,7 @@ pub(super) fn read(
             projects: super::project_window::read_project_window(
                 connection,
                 library_id,
-                event_head,
+                commit_head,
                 include_archived.unwrap_or(false),
                 &window,
             )?,
@@ -96,7 +96,7 @@ pub(super) fn read(
                     library_id,
                     &project_ids,
                 )?,
-                projection_revision: event_head,
+                projection_revision: commit_head,
             })
         }
         ProjectWorkspaceRead::ProjectPermissionMode { project_id } => {
@@ -119,7 +119,7 @@ pub(super) fn read(
             tasks: super::task_window::read_task_window(
                 connection,
                 library_id,
-                event_head,
+                commit_head,
                 project_id.as_deref(),
                 include_archived.unwrap_or(false),
                 &window,
@@ -132,7 +132,7 @@ pub(super) fn read(
             pinned_tasks: super::task_window::read_pinned_task_window(
                 connection,
                 library_id,
-                event_head,
+                commit_head,
                 include_archived.unwrap_or(false),
                 &pinned_window,
             )?,
@@ -162,7 +162,7 @@ pub(super) fn read(
             threads: super::child_thread_window::read_child_thread_window(
                 connection,
                 library_id,
-                event_head,
+                commit_head,
                 &parent_thread_id,
                 include_archived.unwrap_or(false),
                 &window,
@@ -213,7 +213,7 @@ pub(super) fn read(
                 processes: execution::read_background_process_window(
                     connection,
                     library_id,
-                    event_head,
+                    commit_head,
                     thread_id.as_deref(),
                     &window,
                 )?,
@@ -224,7 +224,7 @@ pub(super) fn read(
                 worktrees: super::managed_worktree_window::read_managed_worktree_window(
                     connection,
                     library_id,
-                    event_head,
+                    commit_head,
                     project_id.as_deref(),
                     &window,
                 )?,

@@ -17,8 +17,13 @@ import type {
 export type CoreRuntimeDescriptor = components["schemas"]["RuntimeDescriptor"];
 export type CoreHandshakeResponse = components["schemas"]["HandshakeResponse"];
 export type CoreEventEnvelope = components["schemas"]["EventEnvelope"];
+export type CoreLocalCommitEnvelope = CoreEventEnvelope["event"];
 export type CoreEventReplayRequired = components["schemas"]["EventReplayRequired"];
 export type CoreModuleError = components["schemas"]["CoreError"];
+export type CoreLocalMutationResolveRequest =
+  components["schemas"]["LocalMutationResolveRequest"];
+export type CoreLocalMutationResolveResponse =
+  components["schemas"]["LocalMutationResolveResponse"];
 
 export type LibraryReadRequest = components["schemas"]["LibraryReadRequest"];
 export type LibraryRead = LibraryReadRequest["read"];
@@ -130,7 +135,7 @@ export interface DocumentResyncRequired {
   readonly store_epoch: string;
   readonly generation: number;
   readonly head_seq: number;
-  readonly event_head: number;
+  readonly commit_head: number;
 }
 
 export interface CoreEventSubscription {
@@ -139,6 +144,9 @@ export interface CoreEventSubscription {
 }
 
 export interface CoreClientPort {
+  resolveLocalMutation(
+    input: CoreLocalMutationResolveRequest,
+  ): Promise<CoreLocalMutationResolveResponse>;
   libraryRead(read: LibraryRead): Promise<LibraryReadSnapshot>;
   libraryApply(input: LibraryApplyInput): Promise<LibraryCommittedValue>;
   filterProjectionImpactForProject(

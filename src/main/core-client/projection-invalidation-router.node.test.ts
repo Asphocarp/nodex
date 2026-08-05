@@ -18,8 +18,8 @@ const envelope = (
 ): CoreEventEnvelope => ({
   transport_version: 4,
   event: {
-    event_version: 2,
-    sequence,
+    event_version: 3,
+    commit_seq: sequence,
     store_epoch: "epoch-1",
     committed_at: "2026-07-22T00:00:00.000Z",
     projection_impact: impact,
@@ -34,6 +34,8 @@ const envelope = (
         session_detail_ids: [],
       },
     },
+    effects: [],
+    canonical_hash: "0".repeat(64),
   },
 });
 
@@ -52,7 +54,7 @@ describe("ProjectionInvalidationRouter", () => {
     const messages: ProjectionStreamMessage[] = [];
     const router = new ProjectionInvalidationRouter({
       libraryId: "library-1",
-      initialCursor: { storeEpoch: "epoch-1", changeLogSeq: 0 },
+      initialCursor: { storeEpoch: "epoch-1", commitSeq: 0 },
       filterForProject: async (_projectId, impact) => impact,
     });
     router.subscribe(
@@ -70,7 +72,36 @@ describe("ProjectionInvalidationRouter", () => {
       kind: "changed",
       impact: { page_ids: ["page-from-impact"] },
     });
-    expect(router.cursor.changeLogSeq).toBe(2);
+    expect(router.cursor.commitSeq).toBe(2);
+  });
+
+  test("does not drop N when N+1 was accepted first and deduplicates replay", async () => {
+    const messages: ProjectionStreamMessage[] = [];
+    const router = new ProjectionInvalidationRouter({
+      libraryId: "library-1",
+      initialCursor: { storeEpoch: "epoch-1", commitSeq: 0 },
+      filterForProject: async (_projectId, impact) => impact,
+    });
+    router.subscribe(
+      { kind: "library", libraryId: "library-1" },
+      (message) => messages.push(message),
+    );
+
+    await router.accept(envelope(2, resources("page-2")));
+    await router.accept(envelope(1, resources("page-1")));
+    await router.accept(envelope(2, resources("page-2")));
+
+    expect(messages.map((message) => message.kind)).toEqual([
+      "checkpoint",
+      "changed",
+      "changed",
+    ]);
+    expect(messages.slice(1).map((message) =>
+      message.kind === "changed" && message.impact.kind === "resources"
+        ? message.impact.page_ids[0]
+        : null,
+    )).toEqual(["page-2", "page-1"]);
+    expect(router.cursor.commitSeq).toBe(2);
   });
 
   test("orders async Project authorization and fails closed per scope", async () => {
@@ -80,7 +111,7 @@ describe("ProjectionInvalidationRouter", () => {
     let call = 0;
     const router = new ProjectionInvalidationRouter({
       libraryId: "library-1",
-      initialCursor: { storeEpoch: "epoch-1", changeLogSeq: 0 },
+      initialCursor: { storeEpoch: "epoch-1", commitSeq: 0 },
       filterForProject: async () => {
         call += 1;
         if (call === 1) return await first.promise;
@@ -103,7 +134,7 @@ describe("ProjectionInvalidationRouter", () => {
     await Promise.all([acceptedFirst, acceptedSecond]);
     await router.accept(envelope(3, resources("page-3")));
 
-    expect(messages.map((message) => [message.kind, message.cursor.changeLogSeq]))
+    expect(messages.map((message) => [message.kind, message.cursor.commitSeq]))
       .toEqual([
         ["checkpoint", 0],
         ["changed", 1],
@@ -120,7 +151,7 @@ describe("ProjectionInvalidationRouter", () => {
     const messages: ProjectionStreamMessage[] = [];
     const router = new ProjectionInvalidationRouter({
       libraryId: "library-1",
-      initialCursor: { storeEpoch: "epoch-1", changeLogSeq: 0 },
+      initialCursor: { storeEpoch: "epoch-1", commitSeq: 0 },
       filterForProject: async () => await gate.promise,
     });
     const scope = {
@@ -137,7 +168,7 @@ describe("ProjectionInvalidationRouter", () => {
     await flush();
     firstRelease();
 
-    expect(messages.map((message) => [message.kind, message.cursor.changeLogSeq]))
+    expect(messages.map((message) => [message.kind, message.cursor.commitSeq]))
       .toEqual([
         ["changed", 1],
         ["checkpoint", 1],
@@ -149,7 +180,7 @@ describe("ProjectionInvalidationRouter", () => {
     const listenerErrors = vi.fn();
     const router = new ProjectionInvalidationRouter({
       libraryId: "library-1",
-      initialCursor: { storeEpoch: "epoch-1", changeLogSeq: 0 },
+      initialCursor: { storeEpoch: "epoch-1", commitSeq: 0 },
       filterForProject: async (_projectId, impact) => impact,
       onListenerError: listenerErrors,
     });

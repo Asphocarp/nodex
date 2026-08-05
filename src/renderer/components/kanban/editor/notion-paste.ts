@@ -13,7 +13,7 @@ interface ClipboardDataLike {
   getData: (format: string) => string;
 }
 
-interface ClipboardEditorBlock {
+export interface ClipboardEditorBlock {
   id: string;
   type: string;
   content?: unknown;
@@ -35,6 +35,11 @@ interface ClipboardEditorLike {
   ) => unknown;
 }
 
+interface PasteBlockLike {
+  readonly type?: unknown;
+  readonly children?: readonly PasteBlockLike[];
+}
+
 interface NotionTreeNode {
   id: string;
   type: string;
@@ -48,12 +53,18 @@ interface NotionTreeNode {
 export function handleNotionPasteFromClipboard(
   editor: ClipboardEditorLike,
   clipboardData: ClipboardDataLike | null | undefined,
+  options: {
+    readonly onBeforeReplaceBlocks?: (
+      blocks: readonly ClipboardEditorBlock[],
+    ) => boolean;
+    readonly onBeforeInsertBlocks?: (blocks: readonly PasteBlockLike[]) => boolean;
+  } = {},
 ): boolean {
   const blocks = extractNotionNfmBlocksFromClipboardData(clipboardData);
   if (!blocks || blocks.length === 0) {
     return false;
   }
-  return insertNfmBlocksFromPaste(editor, blocks);
+  return insertNfmBlocksFromPaste(editor, blocks, options);
 }
 
 export function extractNotionNfmBlocksFromClipboardData(
@@ -103,14 +114,22 @@ export function extractNotionNfmBlocksFromPayload(payload: unknown): NfmBlock[] 
 export function insertNfmBlocksFromPaste(
   editor: ClipboardEditorLike,
   blocks: NfmBlock[],
+  options: {
+    readonly onBeforeReplaceBlocks?: (
+      blocks: readonly ClipboardEditorBlock[],
+    ) => boolean;
+    readonly onBeforeInsertBlocks?: (blocks: readonly PasteBlockLike[]) => boolean;
+  } = {},
 ): boolean {
   if (blocks.length === 0) return false;
 
   const bnBlocks = nfmToBlockNote(blocks);
   if (bnBlocks.length === 0) return false;
+  if (options.onBeforeInsertBlocks?.(bnBlocks)) return true;
 
   const selectedBlocks = getSelectedBlocks(editor);
   if (selectedBlocks.length > 0) {
+    if (options.onBeforeReplaceBlocks?.(selectedBlocks)) return true;
     editor.replaceBlocks(
       selectedBlocks.map((block) => block.id),
       bnBlocks,
@@ -122,6 +141,7 @@ export function insertNfmBlocksFromPaste(
   if (!currentBlock) return false;
 
   if (isEmptyParagraphBlock(currentBlock)) {
+    if (options.onBeforeReplaceBlocks?.([currentBlock])) return true;
     editor.replaceBlocks([currentBlock.id], bnBlocks);
     return true;
   }

@@ -873,6 +873,195 @@ CREATE TABLE codex_projectless_permission_mode_selection (
 ) WITHOUT ROWID, STRICT;
 "#;
 
+const V102_LOCAL_COMMIT_SCHEMA_SQL: &str = r#"
+CREATE TABLE local_commits (
+  commit_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+  store_epoch TEXT NOT NULL,
+  operation_id TEXT NOT NULL,
+  committed_at TEXT NOT NULL,
+  projection_impact_json TEXT NOT NULL,
+  canonical_hash TEXT NOT NULL,
+  UNIQUE (store_epoch, operation_id),
+  CHECK (length(store_epoch) BETWEEN 1 AND 512),
+  CHECK (length(operation_id) BETWEEN 1 AND 512),
+  CHECK (length(committed_at) > 0),
+  CHECK (json_valid(projection_impact_json) AND json_type(projection_impact_json) = 'object'),
+  CHECK (length(canonical_hash) = 64 AND canonical_hash NOT GLOB '*[^0-9a-f]*')
+) STRICT;
+
+CREATE TABLE local_commit_effects (
+  store_epoch TEXT NOT NULL,
+  commit_seq INTEGER NOT NULL REFERENCES local_commits(commit_seq) ON DELETE CASCADE,
+  effect_order INTEGER NOT NULL CHECK (effect_order >= 0),
+  change_log_seq INTEGER NOT NULL REFERENCES change_log(seq) ON DELETE RESTRICT,
+  PRIMARY KEY (store_epoch, commit_seq, effect_order),
+  UNIQUE (change_log_seq),
+  CHECK (length(store_epoch) BETWEEN 1 AND 512)
+) WITHOUT ROWID, STRICT;
+
+CREATE TABLE local_commit_documents (
+  store_epoch TEXT NOT NULL,
+  commit_seq INTEGER NOT NULL REFERENCES local_commits(commit_seq) ON DELETE CASCADE,
+  -- This is an immutable historical reference. It must remain readable after
+  -- the document itself has been deleted or compacted.
+  document_id TEXT NOT NULL,
+  generation INTEGER NOT NULL CHECK (generation >= 1),
+  head_seq INTEGER NOT NULL CHECK (head_seq >= 0),
+  update_id TEXT,
+  update_hash TEXT,
+  PRIMARY KEY (store_epoch, commit_seq, document_id, generation, head_seq),
+  CHECK (length(store_epoch) BETWEEN 1 AND 512),
+  CHECK (length(document_id) BETWEEN 1 AND 512),
+  CHECK (update_id IS NULL OR length(update_id) BETWEEN 1 AND 512),
+  CHECK (update_hash IS NULL OR (length(update_hash) = 64 AND update_hash NOT GLOB '*[^0-9a-f]*'))
+) WITHOUT ROWID, STRICT;
+
+CREATE INDEX idx_local_commits_epoch_seq
+  ON local_commits(store_epoch, commit_seq);
+
+CREATE INDEX idx_local_commit_effects_change_log
+  ON local_commit_effects(change_log_seq);
+
+CREATE INDEX idx_local_commit_documents_document
+  ON local_commit_documents(document_id, generation, head_seq);
+
+ALTER TABLE core_module_receipts
+  ADD COLUMN local_commit_seq INTEGER REFERENCES local_commits(commit_seq);
+
+CREATE INDEX idx_core_module_receipts_local_commit
+  ON core_module_receipts(local_commit_seq);
+"#;
+
+const V103_LOCAL_COMMIT_COMPOSITE_IDENTITY_SCHEMA_SQL: &str = r#"
+CREATE TABLE local_commits_v103 (
+  commit_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+  store_epoch TEXT NOT NULL,
+  operation_id TEXT NOT NULL,
+  committed_at TEXT NOT NULL,
+  projection_impact_json TEXT NOT NULL,
+  canonical_hash TEXT NOT NULL,
+  UNIQUE (store_epoch, commit_seq),
+  UNIQUE (store_epoch, operation_id),
+  CHECK (length(store_epoch) BETWEEN 1 AND 512),
+  CHECK (length(operation_id) BETWEEN 1 AND 512),
+  CHECK (length(committed_at) > 0),
+  CHECK (json_valid(projection_impact_json) AND json_type(projection_impact_json) = 'object'),
+  CHECK (length(canonical_hash) = 64 AND canonical_hash NOT GLOB '*[^0-9a-f]*')
+) STRICT;
+
+INSERT INTO local_commits_v103(
+  commit_seq, store_epoch, operation_id, committed_at,
+  projection_impact_json, canonical_hash
+)
+SELECT commit_seq, store_epoch, operation_id, committed_at,
+       projection_impact_json, canonical_hash
+FROM local_commits;
+
+CREATE TABLE local_commit_effects_v103 (
+  store_epoch TEXT NOT NULL,
+  commit_seq INTEGER NOT NULL,
+  effect_order INTEGER NOT NULL CHECK (effect_order >= 0),
+  change_log_seq INTEGER NOT NULL REFERENCES change_log(seq) ON DELETE RESTRICT,
+  PRIMARY KEY (store_epoch, commit_seq, effect_order),
+  UNIQUE (change_log_seq),
+  FOREIGN KEY (store_epoch, commit_seq)
+    REFERENCES local_commits_v103(store_epoch, commit_seq) ON DELETE CASCADE,
+  CHECK (length(store_epoch) BETWEEN 1 AND 512)
+) WITHOUT ROWID, STRICT;
+
+INSERT INTO local_commit_effects_v103(
+  store_epoch, commit_seq, effect_order, change_log_seq
+)
+SELECT store_epoch, commit_seq, effect_order, change_log_seq
+FROM local_commit_effects;
+
+CREATE TABLE local_commit_documents_v103 (
+  store_epoch TEXT NOT NULL,
+  commit_seq INTEGER NOT NULL,
+  -- This is an immutable historical reference. It must remain readable after
+  -- the document itself has been deleted or compacted.
+  document_id TEXT NOT NULL,
+  generation INTEGER NOT NULL CHECK (generation >= 1),
+  head_seq INTEGER NOT NULL CHECK (head_seq >= 0),
+  update_id TEXT,
+  update_hash TEXT,
+  PRIMARY KEY (store_epoch, commit_seq, document_id, generation, head_seq),
+  FOREIGN KEY (store_epoch, commit_seq)
+    REFERENCES local_commits_v103(store_epoch, commit_seq) ON DELETE CASCADE,
+  CHECK (length(store_epoch) BETWEEN 1 AND 512),
+  CHECK (length(document_id) BETWEEN 1 AND 512),
+  CHECK (update_id IS NULL OR length(update_id) BETWEEN 1 AND 512),
+  CHECK (update_hash IS NULL OR (length(update_hash) = 64 AND update_hash NOT GLOB '*[^0-9a-f]*'))
+) WITHOUT ROWID, STRICT;
+
+CREATE TABLE core_module_receipts_v103 (
+  module_name TEXT NOT NULL,
+  operation_id TEXT NOT NULL,
+  profile_id TEXT NOT NULL,
+  project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+  adapter_kind TEXT NOT NULL,
+  operation_kind TEXT NOT NULL,
+  store_epoch TEXT NOT NULL,
+  request_hash TEXT NOT NULL,
+  result_json TEXT NOT NULL,
+  event_sequence INTEGER REFERENCES change_log(seq) ON DELETE RESTRICT,
+  local_commit_seq INTEGER,
+  committed_at TEXT NOT NULL,
+  PRIMARY KEY (module_name, operation_id),
+  FOREIGN KEY (store_epoch, local_commit_seq)
+    REFERENCES local_commits_v103(store_epoch, commit_seq),
+  CHECK (module_name IN (
+    'library', 'database', 'owned_document', 'project_workspace',
+    'automation', 'store_administration'
+  )),
+  CHECK (length(operation_id) BETWEEN 1 AND 512),
+  CHECK (length(profile_id) BETWEEN 1 AND 512),
+  CHECK (project_id IS NULL OR length(project_id) BETWEEN 1 AND 512),
+  CHECK (adapter_kind IN ('electron_host', 'loopback_http', 'native_cli', 'agent', 'test')),
+  CHECK (length(operation_kind) BETWEEN 1 AND 128),
+  CHECK (length(store_epoch) BETWEEN 1 AND 512),
+  CHECK (length(request_hash) = 64 AND request_hash NOT GLOB '*[^0-9a-f]*'),
+  CHECK (json_valid(result_json) AND json_type(result_json) = 'object'),
+  CHECK (length(committed_at) > 0)
+) WITHOUT ROWID, STRICT;
+
+INSERT INTO core_module_receipts_v103(
+  module_name, operation_id, profile_id, project_id, adapter_kind,
+  operation_kind, store_epoch, request_hash, result_json, event_sequence,
+  local_commit_seq, committed_at
+)
+SELECT module_name, operation_id, profile_id, project_id, adapter_kind,
+       operation_kind, store_epoch, request_hash, result_json, event_sequence,
+       local_commit_seq, committed_at
+FROM core_module_receipts;
+
+DROP INDEX IF EXISTS idx_core_module_receipts_local_commit;
+DROP INDEX IF EXISTS idx_local_commit_documents_document;
+DROP INDEX IF EXISTS idx_local_commit_effects_change_log;
+DROP INDEX IF EXISTS idx_local_commits_epoch_seq;
+DROP TABLE core_module_receipts;
+DROP TABLE local_commit_documents;
+DROP TABLE local_commit_effects;
+DROP TABLE local_commits;
+
+ALTER TABLE local_commits_v103 RENAME TO local_commits;
+ALTER TABLE local_commit_effects_v103 RENAME TO local_commit_effects;
+ALTER TABLE local_commit_documents_v103 RENAME TO local_commit_documents;
+ALTER TABLE core_module_receipts_v103 RENAME TO core_module_receipts;
+
+CREATE INDEX idx_local_commits_epoch_seq
+  ON local_commits(store_epoch, commit_seq);
+
+CREATE INDEX idx_local_commit_effects_change_log
+  ON local_commit_effects(change_log_seq);
+
+CREATE INDEX idx_local_commit_documents_document
+  ON local_commit_documents(document_id, generation, head_seq);
+
+CREATE INDEX idx_core_module_receipts_local_commit
+  ON core_module_receipts(store_epoch, local_commit_seq);
+"#;
+
 const V94_PROJECT_APPEARANCE_SCHEMA_SQL: &str = r#"
 ALTER TABLE projects ADD COLUMN appearance_color TEXT NOT NULL DEFAULT 'black'
   CHECK (appearance_color IN ('black', 'red', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink'));
@@ -1262,6 +1451,9 @@ fn upgrade_owned_store(
         98 => validate_exact_v98_schema(connection)?,
         99 => validate_exact_v99_schema(connection)?,
         100 => validate_exact_v100_schema(connection)?,
+        101 => validate_exact_v101_schema(connection)?,
+        102 => validate_exact_v102_schema(connection)?,
+        103 => validate_exact_v103_schema(connection)?,
         _ => return Err(corrupt("Rust Core forward-migration source is unsupported")),
     }
 
@@ -1321,6 +1513,15 @@ fn upgrade_owned_store(
         }
         if source_version < 101 {
             ensure_v101_projectless_permission_mode_schema(transaction)?;
+        }
+        if source_version < 102 {
+            ensure_v102_local_commit_schema(transaction)?;
+        }
+        if source_version < 103 {
+            ensure_v103_local_commit_composite_identity(transaction)?;
+        }
+        if source_version < 104 {
+            ensure_v104_local_commit_canonical_hash(transaction)?;
         }
         let updated = transaction.execute(
             "UPDATE core_store_metadata SET store_format_version = ?1 \
@@ -1575,6 +1776,9 @@ fn publish_current_store(
         ensure_v99_owner_scoped_scenes_schema(transaction)?;
         ensure_v100_relation_properties_schema(transaction)?;
         ensure_v101_projectless_permission_mode_schema(transaction)?;
+        ensure_v102_local_commit_schema(transaction)?;
+        ensure_v103_local_commit_composite_identity(transaction)?;
+        ensure_v104_local_commit_canonical_hash(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
@@ -1608,6 +1812,9 @@ fn create_fresh_store(
         ensure_v99_owner_scoped_scenes_schema(transaction)?;
         ensure_v100_relation_properties_schema(transaction)?;
         ensure_v101_projectless_permission_mode_schema(transaction)?;
+        ensure_v102_local_commit_schema(transaction)?;
+        ensure_v103_local_commit_composite_identity(transaction)?;
+        ensure_v104_local_commit_canonical_hash(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
@@ -1884,6 +2091,71 @@ fn ensure_v101_projectless_permission_mode_schema(
 ) -> Result<(), StoreError> {
     connection.execute_batch(V101_PROJECTLESS_PERMISSION_MODE_SCHEMA_SQL)?;
     Ok(())
+}
+
+fn ensure_v102_local_commit_schema(connection: &Connection) -> Result<(), StoreError> {
+    let local_commits_exists: i64 = connection.query_row(
+        "SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name = 'local_commits'",
+        [],
+        |row| row.get(0),
+    )?;
+    if local_commits_exists == 0 {
+        connection.execute_batch(V102_LOCAL_COMMIT_SCHEMA_SQL)?;
+    } else {
+        let local_commit_receipt_column: i64 = connection.query_row(
+            "SELECT count(*) FROM pragma_table_info('core_module_receipts')
+             WHERE name = 'local_commit_seq'",
+            [],
+            |row| row.get(0),
+        )?;
+        if local_commit_receipt_column == 0 {
+            connection.execute_batch(
+                "ALTER TABLE core_module_receipts
+                   ADD COLUMN local_commit_seq INTEGER REFERENCES local_commits(commit_seq);
+                 CREATE INDEX IF NOT EXISTS idx_core_module_receipts_local_commit
+                   ON core_module_receipts(local_commit_seq);",
+            )?;
+        }
+    }
+    crate::infrastructure::local_commit::backfill(connection)?;
+    connection.execute(
+        "UPDATE core_module_receipts
+         SET local_commit_seq = (
+           SELECT effect.commit_seq
+           FROM local_commit_effects effect
+           WHERE effect.change_log_seq = core_module_receipts.event_sequence
+         )
+         WHERE local_commit_seq IS NULL AND event_sequence IS NOT NULL",
+        [],
+    )?;
+    Ok(())
+}
+
+fn ensure_v103_local_commit_composite_identity(connection: &Connection) -> Result<(), StoreError> {
+    let composite_foreign_key_count: i64 = connection.query_row(
+        "SELECT count(*) FROM pragma_foreign_key_list('local_commit_effects')
+         WHERE \"from\" = 'store_epoch' AND \"to\" = 'store_epoch'",
+        [],
+        |row| row.get(0),
+    )?;
+    if composite_foreign_key_count > 0 {
+        return Ok(());
+    }
+    connection.execute_batch(V103_LOCAL_COMMIT_COMPOSITE_IDENTITY_SCHEMA_SQL)?;
+    let foreign_key_violation = connection
+        .prepare("PRAGMA foreign_key_check")?
+        .query_row([], |_| Ok(()))
+        .optional()?;
+    if foreign_key_violation.is_some() {
+        return Err(corrupt(
+            "v103 LocalCommit composite identity migration produced a foreign-key violation",
+        ));
+    }
+    Ok(())
+}
+
+fn ensure_v104_local_commit_canonical_hash(connection: &Connection) -> Result<(), StoreError> {
+    crate::infrastructure::local_commit::rebuild_canonical_hashes(connection)
 }
 
 fn ensure_v95_canvas_incremental_schema(connection: &Connection) -> Result<(), StoreError> {
@@ -3191,14 +3463,14 @@ fn validate_core_metadata(
     if expected_version < 88 {
         return Ok(());
     }
-    let (floor, event_head) = connection.query_row(
+    let (floor, commit_head) = connection.query_row(
         "SELECT metadata.projection_event_v2_floor, \
                 (SELECT COALESCE(MAX(seq), 0) FROM change_log) \
          FROM core_store_metadata metadata WHERE metadata.id = 1",
         [],
         |row| Ok((row.get::<_, Option<i64>>(0)?, row.get::<_, i64>(1)?)),
     )?;
-    if floor.is_some_and(|floor| floor >= 1 && floor <= event_head + 1) {
+    if floor.is_some_and(|floor| floor >= 1 && floor <= commit_head + 1) {
         return Ok(());
     }
     Err(corrupt("Projection event replay floor is invalid"))
@@ -3274,6 +3546,18 @@ fn validate_exact_v100_schema(connection: &Connection) -> Result<(), StoreError>
     validate_exact_core_schema(connection, true, true, true, true, true, true, true, 100)
 }
 
+fn validate_exact_v101_schema(connection: &Connection) -> Result<(), StoreError> {
+    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 101)
+}
+
+fn validate_exact_v102_schema(connection: &Connection) -> Result<(), StoreError> {
+    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 102)
+}
+
+fn validate_exact_v103_schema(connection: &Connection) -> Result<(), StoreError> {
+    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 103)
+}
+
 fn validate_exact_current_schema(connection: &Connection) -> Result<(), StoreError> {
     validate_exact_core_schema(
         connection,
@@ -3347,6 +3631,12 @@ fn validate_exact_core_schema(
     }
     if schema_version >= 101 {
         ensure_v101_projectless_permission_mode_schema(&expected)?;
+    }
+    if schema_version >= 102 {
+        ensure_v102_local_commit_schema(&expected)?;
+    }
+    if schema_version >= 103 {
+        ensure_v103_local_commit_composite_identity(&expected)?;
     }
 
     let expected_inventory = read_schema_inventory(&expected)?;
@@ -3436,6 +3726,12 @@ pub fn expected_store_schema_fingerprint(version: i64) -> Result<String, StoreEr
     }
     if version >= 101 {
         ensure_v101_projectless_permission_mode_schema(&expected)?;
+    }
+    if version >= 102 {
+        ensure_v102_local_commit_schema(&expected)?;
+    }
+    if version >= 103 {
+        ensure_v103_local_commit_composite_identity(&expected)?;
     }
     read_schema_inventory(&expected).map(|inventory| schema_inventory_fingerprint(&inventory))
 }
@@ -5413,16 +5709,18 @@ mod tests {
             })
             .expect("projection replay floor");
         assert_eq!(floor, 2);
-        assert!(matches!(
-            CoreEventLog::new(upgraded.readers())
-                .replay(0, None)
-                .expect("legacy replay boundary"),
-            CoreEventReplay::ResyncRequired {
-                oldest_available: 2,
-                event_head: 1,
-                ..
-            }
-        ));
+        let CoreEventReplay::Events {
+            events,
+            commit_head,
+        } = CoreEventLog::new(upgraded.readers())
+            .replay(0, None)
+            .expect("legacy LocalCommit replay")
+        else {
+            panic!("legacy LocalCommit history should remain replayable");
+        };
+        assert_eq!(commit_head, 1);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].commit_seq, 1);
     }
 
     #[test]

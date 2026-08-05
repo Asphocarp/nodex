@@ -194,7 +194,7 @@ describe.skipIf(!packagedCli)("packaged native CLI and Electron authority", () =
         event: { operation_id?: string | null };
       }> = [];
       eventSubscription = await runtime.rootClient.openEventStream(
-        runtime.rootClient.handshake.event_head,
+        runtime.rootClient.handshake.commit_head,
         (event) => coreEvents.push(event),
       );
       const createdEnvelope = await runCli<JsonObject>(home, [

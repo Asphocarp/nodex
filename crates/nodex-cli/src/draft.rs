@@ -1680,7 +1680,7 @@ mod tests {
             metadata_projection_version: 1,
             library_id: "library-1".to_owned(),
             store_epoch: "epoch-1".to_owned(),
-            event_head: 1,
+            commit_head: 1,
             page_id: "page-1".to_owned(),
             metadata_revision: 1,
             document_id: "document-1".to_owned(),

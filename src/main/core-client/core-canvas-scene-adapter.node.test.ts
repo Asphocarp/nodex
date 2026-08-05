@@ -118,8 +118,8 @@ const committedMutation = (): OwnedDocumentCommittedValue => ({
 const committedEvent = (): CoreEventEnvelope => ({
   transport_version: 4,
   event: {
-    event_version: 2,
-    sequence: 1,
+    event_version: 3,
+    commit_seq: 1,
     store_epoch: STORE_EPOCH,
     operation_id: mutationResult.mutationId,
     committed_at: COMMITTED_AT,
@@ -141,6 +141,8 @@ const committedEvent = (): CoreEventEnvelope => ({
         },
       },
     },
+    effects: [],
+    canonical_hash: "0".repeat(64),
   },
 });
 
@@ -328,7 +330,7 @@ describe("Core Canvas scene adapter", () => {
     client.enqueueDocumentRead({
       contract_version: 3,
       store_epoch: STORE_EPOCH,
-      event_head: 3,
+      commit_head: 3,
       value: {
         kind: "canvas_compaction_eligibility",
         stats: {
@@ -402,20 +404,19 @@ describe("Core Canvas scene adapter", () => {
       },
     });
     await expect(
-      adapter.compact(request, eligibility.value, true),
+      adapter.compact(request, eligibility.value),
     ).resolves.toEqual({ ok: true, value: compactionResult });
     expect(client.documentApplies[0]?.intent).toMatchObject({
       kind: "compact_canvas_tombstones",
       generation: 1,
       expected_head_seq: 9,
-      write_fence_prepared: true,
     });
 
     client.emit({
       transport_version: 4,
       event: {
-        event_version: 2,
-        sequence: 4,
+        event_version: 3,
+        commit_seq: 4,
         store_epoch: STORE_EPOCH,
         operation_id: request.mutationId,
         committed_at: COMMITTED_AT,
@@ -432,6 +433,8 @@ describe("Core Canvas scene adapter", () => {
             scene_hash: compactionResult.sceneHash,
           },
         },
+        effects: [],
+        canonical_hash: "0".repeat(64),
       },
     });
     await expect.poll(() => events).toEqual([{

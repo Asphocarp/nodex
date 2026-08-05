@@ -32,6 +32,8 @@ export class ProjectionInvalidationRouter {
   readonly #onListenerError: ProjectionInvalidationRouterInput["onListenerError"];
   readonly #onAuthorizationError: ProjectionInvalidationRouterInput["onAuthorizationError"];
   readonly #scopes = new Map<string, ScopeState>();
+  readonly #accepted = new Map<string, string>();
+  readonly #maxRememberedCommits = 100_000;
   #cursor: ProjectionCursor;
 
   constructor(input: ProjectionInvalidationRouterInput) {
@@ -52,6 +54,7 @@ export class ProjectionInvalidationRouter {
 
   dispose(): void {
     this.#scopes.clear();
+    this.#accepted.clear();
   }
 
   subscribe(scope: ProjectionScope, listener: Listener): () => void {
@@ -85,50 +88,82 @@ export class ProjectionInvalidationRouter {
   }
 
   async accept(envelope: CoreEventEnvelope): Promise<void> {
+    const identity = `${envelope.event.store_epoch}:${envelope.event.commit_seq}`;
+    const knownHash = this.#accepted.get(identity);
+    if (knownHash !== undefined) {
+      if (knownHash !== envelope.event.canonical_hash) {
+        throw new Error(`Projection commit identity collision for ${identity}`);
+      }
+      return;
+    }
+    this.#accepted.set(identity, envelope.event.canonical_hash);
     const cursor = {
       storeEpoch: envelope.event.store_epoch,
-      changeLogSeq: envelope.event.sequence,
+      commitSeq: envelope.event.commit_seq,
     } satisfies ProjectionCursor;
-    this.#cursor = cursor;
-    const impact = envelope.event.projection_impact;
-    if (impact.kind === "none") return;
+    this.#admitCursor(cursor);
+    const admittedCursor = this.#cursor;
+    try {
+      const impact = envelope.event.projection_impact;
+      if (impact.kind === "none") {
+        this.#remember(identity, envelope.event.canonical_hash);
+        return;
+      }
 
-    const waits: Promise<void>[] = [];
-    for (const state of this.#scopes.values()) {
-      waits.push(this.#enqueue(state, async () => {
-        if (state.scope.kind === "library") {
-          this.#publishChanged(state, cursor, impact);
-          return;
-        }
-        try {
-          const filtered = await this.#filterForProject(
-            state.scope.projectId,
-            impact,
-          );
-          if (filtered.kind === "none") return;
-          this.#publishChanged(state, cursor, filtered);
-        } catch (error) {
-          this.#onAuthorizationError?.(error, state.scope);
-          this.#publishResync(
-            state,
-            cursor,
-            "authorization_filter_failed",
-          );
-        }
-      }));
+      const waits: Promise<void>[] = [];
+      for (const state of this.#scopes.values()) {
+        waits.push(this.#enqueue(state, async () => {
+          if (state.scope.kind === "library") {
+            this.#publishChanged(
+              state,
+              admittedCursor,
+              impact,
+              envelope.event.operation_id,
+              envelope.event.committed_at,
+            );
+            return;
+          }
+          try {
+            const filtered = await this.#filterForProject(
+              state.scope.projectId,
+              impact,
+            );
+            if (filtered.kind === "none") return;
+            this.#publishChanged(
+              state,
+              admittedCursor,
+              filtered,
+              envelope.event.operation_id,
+              envelope.event.committed_at,
+            );
+          } catch (error) {
+            this.#onAuthorizationError?.(error, state.scope);
+            this.#publishResync(
+              state,
+              admittedCursor,
+              "authorization_filter_failed",
+            );
+          }
+        }));
+      }
+      await Promise.all(waits);
+    } catch (error) {
+      this.#accepted.delete(identity);
+      throw error;
     }
-    await Promise.all(waits);
+    this.#remember(identity, envelope.event.canonical_hash);
   }
 
   async resync(
     cursor: ProjectionCursor,
     reason: Extract<ProjectionStreamMessage, { kind: "resync" }>["reason"],
   ): Promise<void> {
-    this.#cursor = cursor;
+    this.#admitCursor(cursor);
+    const acceptedCursor = this.#cursor;
     const waits: Promise<void>[] = [];
     for (const state of this.#scopes.values()) {
       waits.push(this.#enqueue(state, () => {
-        this.#publishResync(state, cursor, reason);
+        this.#publishResync(state, acceptedCursor, reason);
       }));
     }
     await Promise.all(waits);
@@ -149,10 +184,23 @@ export class ProjectionInvalidationRouter {
     await Promise.all(waits);
   }
 
+  #admitCursor(incoming: ProjectionCursor): void {
+    if (incoming.storeEpoch === this.#cursor.storeEpoch) {
+      this.#cursor = {
+        storeEpoch: incoming.storeEpoch,
+        commitSeq: Math.max(this.#cursor.commitSeq, incoming.commitSeq),
+      };
+      return;
+    }
+    this.#cursor = incoming;
+  }
+
   #publishChanged(
     state: ScopeState,
     cursor: ProjectionCursor,
     impact: ProjectionImpact,
+    operationId?: string | null,
+    committedAt?: string,
   ): void {
     this.#publish(state, {
       version: 1,
@@ -160,6 +208,8 @@ export class ProjectionInvalidationRouter {
       scope: state.scope,
       cursor,
       impact,
+      ...(operationId === undefined ? {} : { operationId }),
+      ...(committedAt === undefined ? {} : { committedAt }),
     });
   }
 
@@ -199,6 +249,16 @@ export class ProjectionInvalidationRouter {
     const next = state.tail.then(work, work);
     state.tail = next.catch(() => undefined);
     return next;
+  }
+
+  #remember(identity: string, hash: string): void {
+    this.#accepted.delete(identity);
+    this.#accepted.set(identity, hash);
+    while (this.#accepted.size > this.#maxRememberedCommits) {
+      const oldest = this.#accepted.keys().next().value;
+      if (oldest === undefined) return;
+      this.#accepted.delete(oldest);
+    }
   }
 
   #assertScope(scope: ProjectionScope): void {

@@ -1101,23 +1101,23 @@ const MAX_TREE_NODES: usize = 10_000;
 
 #[derive(Default)]
 struct TreeBudget {
-    event_head: Option<i64>,
+    commit_head: Option<i64>,
     nodes: usize,
     seen_pages: HashSet<String>,
 }
 
 impl TreeBudget {
-    fn observe(&mut self, event_head: i64) -> Result<(), CliError> {
+    fn observe(&mut self, commit_head: i64) -> Result<(), CliError> {
         if self
-            .event_head
-            .is_some_and(|expected| expected != event_head)
+            .commit_head
+            .is_some_and(|expected| expected != commit_head)
         {
             return Err(CliError::new(
                 CliErrorCode::EtagConflict,
                 "Nodex changed while the tree was being assembled; retry the command",
             ));
         }
-        self.event_head = Some(event_head);
+        self.commit_head = Some(commit_head);
         Ok(())
     }
 
@@ -1207,7 +1207,7 @@ fn database_tree(
             group_scope: None,
         },
     ))?;
-    budget.observe(database.event_head)?;
+    budget.observe(database.commit_head)?;
     let DatabaseReadValue::Database { value: database } = database.value else {
         return Err(internal("Core returned the wrong Database tree descriptor"));
     };
@@ -1241,7 +1241,7 @@ fn database_tree(
                 group_scope: None,
             },
         ))?;
-        budget.observe(window.event_head)?;
+        budget.observe(window.commit_head)?;
         let DatabaseReadValue::ViewWindow { value } = window.value else {
             return Err(internal("Core returned the wrong Database tree window"));
         };
@@ -1276,7 +1276,7 @@ fn read_page_tree_node(
             page_id: page_id.to_owned(),
         },
     ))?;
-    budget.observe(content.event_head)?;
+    budget.observe(content.commit_head)?;
     let LibraryReadValue::PageContent { value: content } = content.value else {
         return Err(internal("Core returned the wrong Page tree content"));
     };
@@ -1294,7 +1294,7 @@ fn read_page_tree_node(
                 force_include_target: None,
             },
         ))?;
-        budget.observe(snapshot.event_head)?;
+        budget.observe(snapshot.commit_head)?;
         let LibraryReadValue::Children {
             items,
             next_cursor,

@@ -88,8 +88,12 @@ export interface CoreLibraryModuleAdapter {
   readProjectPageDetail(
     projectId: string,
     pageId: string,
+    minimumCommitSeq?: number,
   ): Promise<PageDetailResult>;
-  readLibraryPageDetail(pageId: string): Promise<LibraryPageDetailResult>;
+  readLibraryPageDetail(
+    pageId: string,
+    minimumCommitSeq?: number,
+  ): Promise<LibraryPageDetailResult>;
   listPageHistory(
     request: ListPageHistoryRequest,
   ): Promise<PageHistoryCommandResult>;
@@ -313,6 +317,13 @@ const toCoreIntent = (operation: LibraryApplyOperation): LibraryIntent => {
         canvas_id: operation.canvasId,
         expected_location_revision: operation.expectedLocationRevision,
         expected_metadata_revision: operation.expectedMetadataRevision,
+        containing_document_head: operation.containingDocumentHead
+          ? {
+              document_id: operation.containingDocumentHead.documentId,
+              generation: operation.containingDocumentHead.generation,
+              head_seq: operation.containingDocumentHead.expectedHeadSeq,
+            }
+          : null,
       };
     case "move_block":
       return {
@@ -423,6 +434,13 @@ const toCorePageLifecycleMutation = (
         page_id: operation.pageId,
         expected_metadata_revision: operation.expectedMetadataRevision,
         expected_parent_revision: operation.expectedParentRevision,
+        parent_document_head: operation.parentDocumentHead
+          ? {
+              document_id: operation.parentDocumentHead.documentId,
+              generation: operation.parentDocumentHead.generation,
+              head_seq: operation.parentDocumentHead.expectedHeadSeq,
+            }
+          : null,
       };
     case "restore_page":
       return {
@@ -447,6 +465,13 @@ const toCorePageLifecycleMutation = (
             }
           : null,
         before_block_id: operation.beforeBlockId ?? null,
+        parent_document_head: operation.parentDocumentHead
+          ? {
+              document_id: operation.parentDocumentHead.documentId,
+              generation: operation.parentDocumentHead.generation,
+              head_seq: operation.parentDocumentHead.expectedHeadSeq,
+            }
+          : null,
       };
     case "move_page_in_library":
       return {
@@ -742,7 +767,7 @@ const mapPageDetail = (detail: CorePageDetail): Readonly<Record<string, unknown>
   version: detail.version,
   libraryId: detail.library_id,
   storeEpoch: detail.store_epoch,
-  changeLogSeq: detail.change_log_seq,
+  commitSeq: detail.commit_seq,
   page: detail.page,
   document: {
     readiness: detail.document.readiness,
@@ -861,7 +886,7 @@ const mapPageTarget = (
   authority: {
     readonly libraryId: string;
     readonly storeEpoch: string;
-    readonly changeLogSeq: number;
+    readonly commitSeq: number;
   },
 ): PageTargetReadModel => {
   const base = authority;
@@ -914,7 +939,7 @@ const mapPageOwnershipPath = (
   authority: {
     readonly libraryId: string;
     readonly storeEpoch: string;
-    readonly changeLogSeq: number;
+    readonly commitSeq: number;
   },
 ): PageOwnershipPathReadModel => {
   if (value.status === "missing") {
@@ -1044,6 +1069,15 @@ const mapLifecyclePage = (
                     ),
                   }
                 : null,
+            }
+          : null,
+        nestedParent: page.restore_evidence.nested_parent
+          ? {
+              documentId: page.restore_evidence.nested_parent.document_id,
+              parentBlockId:
+                page.restore_evidence.nested_parent.parent_block_id ?? null,
+              beforeBlockId:
+                page.restore_evidence.nested_parent.before_block_id ?? null,
             }
           : null,
       }
@@ -1384,23 +1418,38 @@ const fromCoreBlockPropertyOutcome = (
 export const createCoreLibraryModuleAdapter = (
   input: CoreLibraryModuleAdapterInput,
 ): CoreLibraryModuleAdapter => {
-  const readPageDetail = async (pageId: string): Promise<CorePageDetail> => {
-    const snapshot = await input.client.libraryRead({
-      kind: "page_detail",
-      page_id: pageId,
-    });
-    if (snapshot.value.kind !== "page_detail") {
-      throw new Error("Core returned a non-Page-detail Library read value");
+  const readPageDetail = async (
+    pageId: string,
+    minimumCommitSeq = 0,
+  ): Promise<CorePageDetail> => {
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      const snapshot = await input.client.libraryRead({
+        kind: "page_detail",
+        page_id: pageId,
+      });
+      if (snapshot.value.kind !== "page_detail") {
+        throw new Error("Core returned a non-Page-detail Library read value");
+      }
+      const detail = snapshot.value.value;
+      if (
+        detail.library_id !== input.libraryId
+        || detail.store_epoch !== snapshot.store_epoch
+      ) {
+        throw new Error("Core Page Detail escaped its Library snapshot boundary");
+      }
+      const semanticDetail = {
+        ...detail,
+        // The nested Core detail is still shaped around the historical
+        // change-log field. At the transport boundary it is a LocalCommit
+        // cursor, just like every other module snapshot.
+        commit_seq: snapshot.commit_head,
+      };
+      if (snapshot.commit_head >= minimumCommitSeq) return semanticDetail;
+      await new Promise<void>((resolve) => setTimeout(resolve, 5));
     }
-    const detail = snapshot.value.value;
-    if (
-      detail.library_id !== input.libraryId
-      || detail.store_epoch !== snapshot.store_epoch
-      || detail.change_log_seq !== snapshot.event_head
-    ) {
-      throw new Error("Core Page Detail escaped its Library snapshot boundary");
-    }
-    return detail;
+    throw new Error(
+      `Core Page Detail read did not reach local commit ${minimumCommitSeq}`,
+    );
   };
 
   const applyBlockProperty = async (request: {
@@ -1464,7 +1513,10 @@ export const createCoreLibraryModuleAdapter = (
           fields: receipt.outcome.fields.map(fromCoreBlockPropertyField),
           blockMetadataRevisions:
             receipt.outcome.block_metadata_revisions,
-          changeLogSeq: committed.receipt.change_log_seq,
+          commitSeq:
+            committed.commit_seq
+            ?? committed.local_commit?.commit_seq
+            ?? committed.receipt.commit_seq,
           committedAt: committed.receipt.committed_at,
         },
       });
@@ -1484,7 +1536,7 @@ export const createCoreLibraryModuleAdapter = (
             profileId: input.profileId,
             libraryId: input.libraryId,
             storeEpoch: snapshot.store_epoch,
-            changeLogSeq: snapshot.event_head,
+            commitSeq: snapshot.commit_head,
             value: mapReadValue(snapshot),
           },
         };
@@ -1555,7 +1607,10 @@ export const createCoreLibraryModuleAdapter = (
             ),
             affectedViewIds: receipt.affected_view_ids.map(parseDatabaseViewId),
             committedRevisions: receipt.committed_revisions,
-            changeLogSeq: receipt.change_log_seq,
+            commitSeq:
+              committed.commit_seq
+              ?? committed.local_commit?.commit_seq
+              ?? receipt.commit_seq,
             committedAt: receipt.committed_at,
           },
         };
@@ -1563,22 +1618,25 @@ export const createCoreLibraryModuleAdapter = (
         return failure(error);
       }
     },
-    readProjectPageDetail: async (projectId, pageId) => {
+    readProjectPageDetail: async (projectId, pageId, minimumCommitSeq) => {
       try {
         return parsePageDetailResult({
           ok: true,
-          value: { ...mapPageDetail(await readPageDetail(pageId)), projectId },
+          value: {
+            ...mapPageDetail(await readPageDetail(pageId, minimumCommitSeq)),
+            projectId,
+          },
         });
       } catch (error) {
         return { ok: false, error: pageDetailError(error) };
       }
     },
-    readLibraryPageDetail: async (pageId) => {
+    readLibraryPageDetail: async (pageId, minimumCommitSeq) => {
       try {
         return parseLibraryPageDetailResult({
           ok: true,
           value: {
-            ...mapPageDetail(await readPageDetail(pageId)),
+            ...mapPageDetail(await readPageDetail(pageId, minimumCommitSeq)),
             accessContext: { kind: "library" },
           },
         });
@@ -1674,7 +1732,7 @@ export const createCoreLibraryModuleAdapter = (
       return mapPageTarget(value, {
         libraryId: input.libraryId,
         storeEpoch: snapshot.store_epoch,
-        changeLogSeq: snapshot.event_head,
+        commitSeq: snapshot.commit_head,
       });
     },
     resolvePageOwnershipPath: async (request) => {
@@ -1693,7 +1751,7 @@ export const createCoreLibraryModuleAdapter = (
       return mapPageOwnershipPath(value, {
         libraryId: input.libraryId,
         storeEpoch: snapshot.store_epoch,
-        changeLogSeq: snapshot.event_head,
+        commitSeq: snapshot.commit_head,
       });
     },
     findPageLocation: async (pageId) => {
@@ -1752,7 +1810,7 @@ export const createCoreLibraryModuleAdapter = (
             projectId,
             libraryId: input.libraryId,
             storeEpoch: snapshot.store_epoch,
-            changeLogSeq: snapshot.event_head,
+            commitSeq: snapshot.commit_head,
             value: mapPageLifecyclePreflight(snapshot.value.value),
           },
         });
@@ -1818,7 +1876,10 @@ export const createCoreLibraryModuleAdapter = (
             viewRankKey: lifecycle.view_rank_key,
             createdBlockIds: lifecycle.created_block_ids,
             createdTagOptionIds: lifecycle.created_tag_option_ids,
-            changeLogSeq: committed.receipt.change_log_seq,
+            commitSeq:
+              committed.commit_seq
+              ?? committed.local_commit?.commit_seq
+              ?? committed.receipt.commit_seq,
             committedAt: committed.receipt.committed_at,
           },
         });
@@ -1846,7 +1907,7 @@ export const createCoreLibraryModuleAdapter = (
           duplicate: result.value.duplicate,
           fields: result.value.fields,
           blockMetadataRevisions: result.value.blockMetadataRevisions,
-          changeLogSeq: result.value.changeLogSeq,
+          commitSeq: result.value.commitSeq,
           committedAt: result.value.committedAt,
         },
       });

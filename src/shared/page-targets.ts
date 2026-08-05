@@ -10,7 +10,7 @@ export interface ResolvePageTargetInput {
 interface PageTargetAuthority {
   readonly libraryId: string;
   readonly storeEpoch: string;
-  readonly changeLogSeq: number;
+  readonly commitSeq: number;
 }
 
 /**

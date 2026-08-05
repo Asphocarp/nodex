@@ -76,6 +76,15 @@ consumer cursor and performs at most one necessary trailing canonical read.
 TanStack Query families enumerate their concrete cached keys and invalidate
 each key exactly so an in-flight first read cannot absorb the repair.
 
+Mutation receipts also carry the committed `changeLogSeq` as a causal read
+floor. A consumer that already knows a local commit passes that floor to its
+canonical read boundary; a snapshot below the floor is disposable and cannot
+replace newer local authority. `BlockTransfer` additionally returns the exact
+committed Document head/update refs, so open Yjs providers can adopt the same
+local commit immediately instead of waiting for the projection stream. The
+floor is a read-order guarantee, not a second renderer-owned projection cache:
+Core's committed SQLite/Yjs transaction remains the only authority.
+
 `board-changed` remains a cursor-fenced provisional summary patch. Library
 navigation, ownership/access, Database, Workspace, and Automation events retain
 their domain side effects. Yjs and Canvas streams retain collaborative deltas.
@@ -89,6 +98,9 @@ identical in live delivery and restart replay. The Host no longer needs a
 module switch when new Core producers are added, and Project clients cannot see
 unauthorized coordinates. A late pre-commit query response is repaired without
 delaying all initial queries or relying on focus, remount, or save UI behavior.
+A local mutation's receipt can also drive immediate provider fanout and a
+floor-fenced reread, so Page ownership and Database View membership become
+visible in the same commit order as the Core transaction.
 
 The Store spends bounded space on impact JSON and performs a batched Project
 authorization read for active Project streams. Broad `all` invalidation is

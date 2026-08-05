@@ -134,7 +134,6 @@ class DefaultCanvasSceneSurfaceRuntime implements CanvasSceneSurfaceRuntime {
     };
 
     await run(() => this.binding.persistDurable());
-    await run(() => this.provider.waitForRelocationIdle());
     const status = this.provider.getStatus();
     if (
       this.maintainIfIdle

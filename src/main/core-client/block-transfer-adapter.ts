@@ -1,15 +1,10 @@
 import {
   BLOCK_TRANSFER_CONTRACT_VERSION,
-  blockTransferIntentFromRequest,
   parseBlockTransferIntent,
-  parseBlockTransferRequest,
   type BlockTransferCommandError,
   type BlockTransferCommandResult,
-  type BlockTransferDocumentHead,
   type BlockTransferIntent,
-  type BlockTransferPreparation,
   type BlockTransferReceipt,
-  type BlockTransferRequest,
   type BlockTransferTransformationEvidence,
 } from "../../shared/block-transfer";
 import { blockTransferFailure } from "../../shared/block-transfer-transport";
@@ -18,7 +13,7 @@ import { CoreModuleResponseError } from "./core-client";
 import type {
   CoreClientPort,
   LibraryIntent,
-  LibraryRead,
+  LibraryCommittedValue,
   LibraryReadSnapshot,
 } from "./types";
 
@@ -30,29 +25,27 @@ export interface CoreBlockTransferAdapterInput {
 }
 
 export interface CoreBlockTransferAdapter {
-  lookupCommitted(
+  commit(
     intent: BlockTransferIntent,
-  ): Promise<BlockTransferCommandResult<BlockTransferReceipt | null>>;
-  prepare(
-    intent: BlockTransferIntent,
-  ): Promise<BlockTransferCommandResult<BlockTransferPreparation>>;
-  apply(request: BlockTransferRequest): Promise<BlockTransferCommandResult>;
+  ): Promise<BlockTransferCommandResult>;
 }
 
+type CoreTransferResult = NonNullable<LibraryCommittedValue["value"]["block_transfer"]>;
+type CoreTransferIntent = Extract<LibraryIntent, { kind: "transfer_blocks" }>["intent"];
 type CoreTransferPlan = Extract<
   LibraryReadSnapshot["value"],
   { kind: "block_transfer_plan" }
 >["value"];
-type CoreTransferResult = Extract<CoreTransferPlan, { kind: "committed" }>["result"];
-type CoreTransferIntent = Extract<LibraryIntent, { kind: "transfer_blocks" }>["intent"];
-type CoreTransferWriteFence = NonNullable<
-  Extract<LibraryIntent, { kind: "transfer_blocks" }>["write_fence"]
->;
 
 const toCoreIntent = (intent: BlockTransferIntent): CoreTransferIntent => ({
   actor: intent.actor,
   mode: intent.mode,
   root_block_ids: intent.rootBlockIds,
+  causal_dependencies: (intent.causalDependencies ?? []).map((dependency) => ({
+    document_id: dependency.documentId,
+    generation: dependency.generation,
+    expected_head_seq: dependency.expectedHeadSeq,
+  })),
   source: (() => {
     switch (intent.source.kind) {
       case "library":
@@ -99,27 +92,6 @@ const toCoreIntent = (intent: BlockTransferIntent): CoreTransferIntent => ({
   })(),
 });
 
-const corePlanRead = (intent: BlockTransferIntent): LibraryRead => ({
-  kind: "plan_block_transfer",
-  operation_id: intent.operationId,
-  store_epoch: intent.storeEpoch,
-  intent: toCoreIntent(intent),
-});
-
-const readPlan = async (
-  client: CoreClientPort,
-  intent: BlockTransferIntent,
-): Promise<CoreTransferPlan> => {
-  const snapshot = await client.libraryRead(corePlanRead(intent));
-  if (snapshot.store_epoch !== intent.storeEpoch) {
-    throw new Error("Core returned a Block transfer plan from another store epoch");
-  }
-  if (snapshot.value.kind !== "block_transfer_plan") {
-    throw new Error("Core returned the wrong Library read projection for Block transfer");
-  }
-  return snapshot.value.value;
-};
-
 const assertIntentScope = (
   input: CoreBlockTransferAdapterInput,
   intent: BlockTransferIntent,
@@ -149,131 +121,6 @@ const assertIntentScope = (
     );
   }
   return null;
-};
-
-const toDocumentHead = (
-  head: {
-    readonly document_id: string;
-    readonly generation: number;
-    readonly expected_head_seq: number;
-  },
-): BlockTransferDocumentHead => ({
-  documentId: head.document_id,
-  generation: head.generation,
-  expectedHeadSeq: head.expected_head_seq,
-});
-
-const requireHead = (
-  heads: readonly BlockTransferDocumentHead[],
-  documentId: string,
-): BlockTransferDocumentHead => {
-  const head = heads.find((candidate) => candidate.documentId === documentId);
-  if (!head) throw new Error(`Core omitted Block transfer Document head ${documentId}`);
-  return head;
-};
-
-const toPreparedRequest = (
-  intent: BlockTransferIntent,
-  plan: Extract<CoreTransferPlan, { kind: "prepared" }>["preparation"],
-): BlockTransferPreparation => {
-  const leaseDocuments = plan.write_fence.documents.map(toDocumentHead);
-  const source: BlockTransferRequest["source"] = (() => {
-    if (intent.source.kind === "library") {
-      if (plan.source_document_id != null || plan.source_database_id != null) {
-        throw new Error("Core returned storage authority for a Library source");
-      }
-      return { kind: "space", libraryId: intent.source.libraryId };
-    }
-    if (intent.source.kind === "data_source") {
-      if (plan.source_document_id != null || plan.source_database_id == null) {
-        throw new Error("Core returned invalid Data Source source authority");
-      }
-      return {
-        kind: "database",
-        databaseBlockId: plan.source_database_id,
-        dataSourceId: intent.source.dataSourceId,
-        memberships: Object.fromEntries(
-          Object.entries(plan.write_fence.source_memberships).map(
-            ([blockId, membership]) => [blockId, {
-              membershipId: membership.membership_id,
-              revision: membership.revision,
-            }],
-          ),
-        ),
-      };
-    }
-    if (plan.source_document_id == null || plan.source_database_id != null) {
-      throw new Error("Core omitted the Block transfer source Document");
-    }
-    const sourceHead = requireHead(leaseDocuments, plan.source_document_id);
-    return {
-      kind: "document",
-      documentId: plan.source_document_id,
-      ...(intent.source.kind === "page" ? { pageId: intent.source.pageId } : {}),
-      generation: sourceHead.generation,
-      expectedHeadSeq: sourceHead.expectedHeadSeq,
-    };
-  })();
-  const target: BlockTransferRequest["target"] = (() => {
-    if (intent.target.kind === "library") {
-      if (plan.target_document_id != null || plan.target_database_id != null) {
-        throw new Error("Core returned storage authority for a Library placement");
-      }
-      return {
-        kind: "space",
-        libraryId: intent.target.libraryId,
-        ...(intent.target.beforeBlockId
-          ? { beforeBlockId: intent.target.beforeBlockId }
-          : {}),
-      };
-    }
-    if (intent.target.kind === "data_source") {
-      if (plan.target_document_id != null || plan.target_database_id == null) {
-        throw new Error("Core returned invalid Data Source placement authority");
-      }
-      return {
-        kind: "database",
-        databaseBlockId: plan.target_database_id,
-        dataSourceId: intent.target.dataSourceId,
-        viewId: intent.target.viewId,
-        groupKey: intent.target.groupKey,
-        ...(intent.target.beforePageId
-          ? { beforePageId: intent.target.beforePageId }
-          : {}),
-      };
-    }
-    if (plan.target_document_id == null || plan.target_database_id != null) {
-      throw new Error("Core omitted the Block transfer target Document");
-    }
-    const targetHead = requireHead(leaseDocuments, plan.target_document_id);
-    return {
-      kind: "document",
-      documentId: plan.target_document_id,
-      ...(intent.target.kind === "page" ? { pageId: intent.target.pageId } : {}),
-      generation: targetHead.generation,
-      expectedHeadSeq: targetHead.expectedHeadSeq,
-      ...(intent.target.parentBlockId
-        ? { parentBlockId: intent.target.parentBlockId }
-        : {}),
-      ...(intent.target.beforeBlockId
-        ? { beforeBlockId: intent.target.beforeBlockId }
-        : {}),
-    };
-  })();
-  const request: BlockTransferRequest = {
-    version: BLOCK_TRANSFER_CONTRACT_VERSION,
-    operationId: intent.operationId,
-    projectId: intent.projectId,
-    storeEpoch: intent.storeEpoch,
-    ...(intent.clientSessionId ? { clientSessionId: intent.clientSessionId } : {}),
-    actor: intent.actor,
-    mode: intent.mode,
-    rootBlockIds: intent.rootBlockIds,
-    expectedLocationRevisions: plan.write_fence.location_revisions,
-    source,
-    target,
-  };
-  return { request: parseBlockTransferRequest(request), leaseDocuments };
 };
 
 const fromCoreLocation = (
@@ -374,7 +221,7 @@ const fromCoreResult = (
   intent: BlockTransferIntent,
   result: CoreTransferResult,
   duplicate: boolean,
-  changeLogSeq: number,
+  commitSeq: number,
   committedAt: string,
 ): BlockTransferReceipt => {
   return {
@@ -405,7 +252,7 @@ const fromCoreResult = (
       stateVector: Uint8Array.from(commit.state_vector),
     })),
     affectedDatabaseBlockIds: result.affected_database_ids,
-    changeLogSeq,
+    commitSeq,
     committedAt,
   };
 };
@@ -456,174 +303,74 @@ const coreFailure = (
   }
 };
 
-const exactWriteFence = (request: BlockTransferRequest) => {
-  const heads: BlockTransferDocumentHead[] = [];
-  if (request.source.kind === "document") {
-    heads.push({
-      documentId: request.source.documentId,
-      generation: request.source.generation,
-      expectedHeadSeq: request.source.expectedHeadSeq,
-    });
-  }
-  if (request.target.kind === "document") {
-    heads.push({
-      documentId: request.target.documentId,
-      generation: request.target.generation,
-      expectedHeadSeq: request.target.expectedHeadSeq,
-    });
-  }
-  return {
-    documents: [...new Map(heads.map((head) => [head.documentId, head])).values()]
-      .sort((left, right) => left.documentId.localeCompare(right.documentId))
-      .map((head) => ({
-        document_id: head.documentId,
-        generation: head.generation,
-        expected_head_seq: head.expectedHeadSeq,
-      })),
-    location_revisions: request.expectedLocationRevisions,
-    source_memberships: request.source.kind === "database"
-      ? Object.fromEntries(
-          Object.entries(request.source.memberships).map(([blockId, membership]) => [
-            blockId,
-            {
-              membership_id: membership.membershipId,
-              revision: membership.revision,
-            },
-          ]),
-        )
-      : {},
-  };
-};
-
-const canUsePreparedWriteFence = (
-  prepared: CoreTransferWriteFence,
-  declared: CoreTransferWriteFence,
-): boolean => {
-  const preparedDocuments = new Map(
-    prepared.documents.map((head) => [head.document_id, head]),
-  );
-  return declared.documents.every((head) => {
-    const planned = preparedDocuments.get(head.document_id);
-    return planned?.generation === head.generation
-      && planned.expected_head_seq === head.expected_head_seq;
-  })
-    && JSON.stringify(prepared.location_revisions)
-      === JSON.stringify(declared.location_revisions)
-    && JSON.stringify(prepared.source_memberships)
-      === JSON.stringify(declared.source_memberships);
-};
-
 export const createCoreBlockTransferAdapter = (
   input: CoreBlockTransferAdapterInput,
 ): CoreBlockTransferAdapter => {
-  const preparedWriteFences = new Map<string, {
-    readonly intent: CoreTransferIntent;
-    readonly writeFence: CoreTransferWriteFence;
-  }>();
   return {
-  lookupCommitted: async (rawIntent) => {
-    let intent: BlockTransferIntent;
-    try {
-      intent = parseBlockTransferIntent(rawIntent);
-    } catch (error) {
-      return { ok: false, error: coreFailure(rawIntent, error) };
-    }
-    const scopeError = assertIntentScope(input, intent);
-    if (scopeError) return { ok: false, error: scopeError };
-    try {
-      const plan = await readPlan(input.client, intent);
-      if (plan.kind === "prepared") return { ok: true, value: null };
-      return {
-        ok: true,
-        value: fromCoreResult(
-          intent,
-          plan.result,
-          true,
-          plan.change_log_seq,
-          plan.committed_at,
-        ),
-      };
-    } catch (error) {
-      return { ok: false, error: coreFailure(intent, error) };
-    }
-  },
-  prepare: async (rawIntent) => {
-    let intent: BlockTransferIntent;
-    try {
-      intent = parseBlockTransferIntent(rawIntent);
-    } catch (error) {
-      return { ok: false, error: coreFailure(rawIntent, error) };
-    }
-    const scopeError = assertIntentScope(input, intent);
-    if (scopeError) return { ok: false, error: scopeError };
-    try {
-      const plan = await readPlan(input.client, intent);
-      if (plan.kind === "committed") {
+    commit: async (rawIntent) => {
+      let intent: BlockTransferIntent;
+      try {
+        intent = parseBlockTransferIntent(rawIntent);
+      } catch (error) {
+        return { ok: false, error: coreFailure(rawIntent, error) };
+      }
+      const scopeError = assertIntentScope(input, intent);
+      if (scopeError) return { ok: false, error: scopeError };
+      try {
+        const planSnapshot = await input.client.libraryRead({
+          kind: "plan_block_transfer",
+          operation_id: intent.operationId,
+          store_epoch: intent.storeEpoch,
+          intent: toCoreIntent(intent),
+        });
+        if (
+          planSnapshot.store_epoch !== input.storeEpoch
+          || planSnapshot.value.kind !== "block_transfer_plan"
+        ) {
+          throw new Error("Core returned an invalid Block transfer plan snapshot");
+        }
+        const plan: CoreTransferPlan = planSnapshot.value.value;
+        if (plan.kind === "committed") {
+          return {
+            ok: true,
+            value: fromCoreResult(
+              intent,
+              plan.result,
+              true,
+              plan.commit_seq
+                ?? plan.local_commit?.commit_seq
+                ?? plan.commit_seq,
+              plan.committed_at,
+            ),
+          };
+        }
+        const committed = await input.client.libraryApply({
+          operationId: intent.operationId,
+          intent: {
+            kind: "transfer_blocks",
+            intent: toCoreIntent(intent),
+            write_fence: plan.preparation.write_fence,
+          },
+        });
+        const result = committed.value.block_transfer;
+        if (!result || committed.receipt.operation_kind !== "transfer_blocks") {
+          throw new Error("Core returned the wrong Library commit for Block transfer");
+        }
         return {
-          ok: false,
-          error: blockTransferFailure(
-            "unknown",
-            "Block transfer committed while its lease plan was being refreshed; retry recovers the receipt",
-            { operationId: intent.operationId, retryable: true },
+          ok: true,
+          value: fromCoreResult(
+            intent,
+            result,
+            committed.receipt.duplicate,
+            committed.commit_seq
+              ?? committed.local_commit?.commit_seq
+              ?? committed.receipt.commit_seq,
+            committed.receipt.committed_at,
           ),
         };
+      } catch (error) {
+        return { ok: false, error: coreFailure(intent, error) };
       }
-      const preparation = toPreparedRequest(intent, plan.preparation);
-      preparedWriteFences.set(intent.operationId, {
-        intent: toCoreIntent(intent),
-        writeFence: plan.preparation.write_fence,
-      });
-      return { ok: true, value: preparation };
-    } catch (error) {
-      return { ok: false, error: coreFailure(intent, error) };
-    }
-  },
-  apply: async (rawRequest) => {
-    let request: BlockTransferRequest;
-    let intent: BlockTransferIntent;
-    try {
-      request = parseBlockTransferRequest(rawRequest);
-      intent = blockTransferIntentFromRequest(request);
-    } catch (error) {
-      return { ok: false, error: coreFailure(rawRequest, error) };
-    }
-    const scopeError = assertIntentScope(input, intent);
-    if (scopeError) return { ok: false, error: scopeError };
-    try {
-      const declaredWriteFence = exactWriteFence(request);
-      const prepared = preparedWriteFences.get(request.operationId);
-      const coreIntent = toCoreIntent(intent);
-      const writeFence = prepared
-        && JSON.stringify(prepared.intent) === JSON.stringify(coreIntent)
-        && canUsePreparedWriteFence(prepared.writeFence, declaredWriteFence)
-        ? prepared.writeFence
-        : declaredWriteFence;
-      const committed = await input.client.libraryApply({
-        operationId: request.operationId,
-        intent: {
-          kind: "transfer_blocks",
-          intent: coreIntent,
-          write_fence: writeFence,
-        },
-      });
-      const result = committed.value.block_transfer;
-      if (!result || committed.receipt.operation_kind !== "transfer_blocks") {
-        throw new Error("Core returned the wrong Library commit for Block transfer");
-      }
-      preparedWriteFences.delete(request.operationId);
-      return {
-        ok: true,
-        value: fromCoreResult(
-          intent,
-          result,
-          committed.receipt.duplicate,
-          committed.receipt.change_log_seq,
-          committed.receipt.committed_at,
-        ),
-      };
-    } catch (error) {
-      return { ok: false, error: coreFailure(intent, error) };
-    }
     },
   };
 };

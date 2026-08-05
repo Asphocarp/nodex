@@ -1,8 +1,8 @@
 #![forbid(unsafe_code)]
 
 use nodex_core_contracts::{
-    CORE_EVENT_VERSION, CommittedCoreModuleEvent, CommittedModuleValue, CoreError,
-    ModuleApplyRequest, ModuleContractVersion, ModuleName, ModuleReadRequest, ModuleReadSnapshot,
+    CORE_EVENT_VERSION, CommittedModuleValue, CoreError, LocalCommitEnvelope, ModuleApplyRequest,
+    ModuleContractVersion, ModuleName, ModuleReadRequest, ModuleReadSnapshot, StoreEpoch,
     administration::{
         StoreAdministrationCommitValue, StoreAdministrationIntent, StoreAdministrationRead,
         StoreAdministrationReadValue, StoreAdministrationReceipt,
@@ -25,6 +25,7 @@ use nodex_core_contracts::{
     },
 };
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 use utoipa::{OpenApi, ToSchema};
 
@@ -32,9 +33,9 @@ pub const TRANSPORT_PROTOCOL_MIN: u32 = 4;
 pub const TRANSPORT_PROTOCOL_MAX: u32 = 4;
 pub const COMPATIBILITY_MANIFEST_VERSION: u32 = 1;
 pub const STORE_LINEAGE: &str = "nodex-rust-core";
-pub const CURRENT_STORE_VERSION: u32 = 101;
+pub const CURRENT_STORE_VERSION: u32 = 104;
 pub const CURRENT_STORE_SCHEMA_FINGERPRINT: &str =
-    "58379bc7f98dbc857ee21a6453270a4c0b6f18265105c7dfad7004f2a3b32eb6";
+    "7deff572411b6a148d49ae07411d4c333c2bb821abb2983c7e3fdacb7a9a9800";
 pub const MAX_ORDINARY_JSON_REQUEST_BYTES: usize = 2 * 1024 * 1024;
 pub const MAX_ORDINARY_JSON_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 pub const MAX_EVENT_FRAME_BYTES: usize = (2 * 1024 * 1024) + (256 * 1024);
@@ -82,7 +83,9 @@ pub fn store_format(version: u32) -> Option<StoreFormatIdentity> {
         98 => "7b632a76b6649edbbf3a1ca40a2732576582d07fd321841397af6b30aa837541",
         99 => "ef391c695b1360bc738714b8e4506bb37d6c24430f94cc65edd454abaf525151",
         100 => "1da44f6990e48a3b5e80f4d3f464c6be52e927a777a5b8bb1f03be3de0d176a6",
-        101 => CURRENT_STORE_SCHEMA_FINGERPRINT,
+        101 => "58379bc7f98dbc857ee21a6453270a4c0b6f18265105c7dfad7004f2a3b32eb6",
+        102 => "c56d246e4d4b68ee40cc3c8e889e13dc82f23d2b970cf1a43ab37df95948f380",
+        103 | 104 => CURRENT_STORE_SCHEMA_FINGERPRINT,
         _ => return None,
     };
     Some(StoreFormatIdentity {
@@ -537,7 +540,7 @@ pub struct HandshakeResponse {
     pub connection_binding: String,
     pub store_epoch: String,
     pub schema_version: u32,
-    pub event_head: i64,
+    pub commit_head: i64,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -569,7 +572,7 @@ pub struct CoreHealthMetrics {
     pub document_cache_misses: u64,
     pub document_cache_hit_rate_ppm: u32,
     pub document_reconstruction_duration: HealthDurationMetric,
-    pub event_head: i64,
+    pub commit_head: i64,
     pub event_replay_lag: u64,
     pub event_replay_lag_max: u64,
     pub wal_size_bytes: u64,
@@ -728,14 +731,50 @@ pub enum ResponseEnvelope<T> {
 #[serde(deny_unknown_fields)]
 pub struct EventEnvelope {
     pub transport_version: u32,
-    pub event: CommittedCoreModuleEvent,
+    pub event: LocalCommitEnvelope,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct EventReplayRequired {
     pub requested_after: i64,
     pub oldest_available: i64,
-    pub event_head: i64,
+    pub commit_head: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LocalMutationResolveRequest {
+    pub module: ModuleName,
+    pub operation_id: String,
+    pub store_epoch: StoreEpoch,
+    pub intent_hash: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum LocalMutationResolveResponse {
+    Committed {
+        module: ModuleName,
+        operation_id: String,
+        request_hash: String,
+        result: Value,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        local_commit: Option<Box<LocalCommitEnvelope>>,
+    },
+    NotCommitted {
+        module: ModuleName,
+        operation_id: String,
+    },
+    IntentConflict {
+        module: ModuleName,
+        operation_id: String,
+        expected_hash: String,
+        observed_hash: String,
+    },
+    EpochMismatch {
+        requested_store_epoch: StoreEpoch,
+        current_store_epoch: StoreEpoch,
+    },
 }
 
 macro_rules! define_module_transport {
@@ -866,6 +905,14 @@ mod api {
 
     #[utoipa::path(
         post,
+        path = "/core/v1/local-mutations/resolve",
+        request_body = LocalMutationResolveRequest,
+        responses((status = 200, body = LocalMutationResolveResponse))
+    )]
+    pub(super) fn resolve_local_mutation() {}
+
+    #[utoipa::path(
+        post,
         path = "/core/v1/admin/shutdown",
         request_body = ShutdownRequest,
         responses((status = 200, body = ShutdownResponse))
@@ -955,6 +1002,7 @@ mod api {
         api::health,
         api::handshake,
         api::events,
+        api::resolve_local_mutation,
         api::shutdown,
         api::library_read,
         api::library_apply,
@@ -994,6 +1042,8 @@ mod api {
         RuntimeGenerationIdentity,
         EventEnvelope,
         EventReplayRequired,
+        LocalMutationResolveRequest,
+        LocalMutationResolveResponse,
         LibraryReadRequest,
         LibraryReadResponse,
         LibraryApplyRequest,

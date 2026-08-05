@@ -85,7 +85,7 @@ pub(super) struct PrepareMovePagesInput {
 enum PreparationRead {
     Committed {
         store_epoch: String,
-        event_head: i64,
+        commit_head: i64,
         footprint: AgentOperationFootprint,
         committed: Box<
             CommittedModuleValue<
@@ -96,7 +96,7 @@ enum PreparationRead {
     },
     Prepared {
         store_epoch: String,
-        event_head: i64,
+        commit_head: i64,
         preflight: Box<MovePreflight>,
     },
 }
@@ -123,7 +123,7 @@ pub(super) fn prepare_move_pages(
         if store_epoch != expected_store_epoch {
             return Err(stale_epoch());
         }
-        let event_head = super::navigation::event_head(&transaction)?;
+        let commit_head = super::navigation::commit_head(&transaction)?;
         let request_hash = request_hash(&context, &store_epoch, &authorization, &request)?;
         if let Some(stored) = read_module_receipt(&transaction, MODULE_NAME, &operation_id)? {
             if stored.request_hash != request_hash {
@@ -146,7 +146,7 @@ pub(super) fn prepare_move_pages(
             transaction.commit()?;
             return Ok(PreparationRead::Committed {
                 store_epoch,
-                event_head,
+                commit_head,
                 footprint,
                 committed: Box::new(committed),
             });
@@ -164,7 +164,7 @@ pub(super) fn prepare_move_pages(
         transaction.commit()?;
         Ok(PreparationRead::Prepared {
             store_epoch,
-            event_head,
+            commit_head,
             preflight: Box::new(preflight),
         })
     })?;
@@ -172,13 +172,13 @@ pub(super) fn prepare_move_pages(
     match preparation {
         PreparationRead::Committed {
             store_epoch,
-            event_head,
+            commit_head,
             footprint,
             committed,
         } => Ok(ModuleReadSnapshot {
             contract_version: LIBRARY_CONTRACT_VERSION,
             store_epoch: StoreEpoch(store_epoch),
-            event_head,
+            commit_head,
             value: LibraryReadValue::AgentMovePagesPreparation {
                 value: Box::new(LibraryAgentMovePagesPreparation {
                     preparation: AgentOperationPreparation {
@@ -201,14 +201,14 @@ pub(super) fn prepare_move_pages(
         }),
         PreparationRead::Prepared {
             store_epoch,
-            event_head,
+            commit_head,
             preflight,
         } => {
             let issued = registry.issue(preflight.binding)?;
             Ok(ModuleReadSnapshot {
                 contract_version: LIBRARY_CONTRACT_VERSION,
                 store_epoch: StoreEpoch(store_epoch),
-                event_head,
+                commit_head,
                 value: LibraryReadValue::AgentMovePagesPreparation {
                     value: Box::new(LibraryAgentMovePagesPreparation {
                         preparation: AgentOperationPreparation {
@@ -964,6 +964,7 @@ fn transfer_intent(
         actor: agent_actor(authorization),
         mode: LibraryBlockTransferMode::Move,
         root_block_ids: vec![page_id.to_owned()],
+        causal_dependencies: Vec::new(),
         source: source.clone(),
         target,
     })

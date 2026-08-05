@@ -164,7 +164,7 @@ export function DatabaseManagementDialogController({
         return current
           ? {
               storeEpoch: current.storeEpoch,
-              changeLogSeq: current.changeLogSeq,
+              commitSeq: current.commitSeq,
             }
           : null;
       },

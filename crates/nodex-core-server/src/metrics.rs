@@ -21,9 +21,9 @@ pub(crate) struct ServerMetrics {
 }
 
 impl ServerMetrics {
-    pub(crate) fn record_event_replay_lag(&self, event_head: i64, requested_after: i64) {
+    pub(crate) fn record_event_replay_lag(&self, commit_head: i64, requested_after: i64) {
         let lag =
-            u64::try_from(event_head.saturating_sub(requested_after).max(0)).unwrap_or(u64::MAX);
+            u64::try_from(commit_head.saturating_sub(requested_after).max(0)).unwrap_or(u64::MAX);
         self.inner.event_replay_lag.store(lag, Ordering::Relaxed);
         self.inner
             .event_replay_lag_max

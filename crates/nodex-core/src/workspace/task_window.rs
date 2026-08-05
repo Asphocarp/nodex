@@ -20,7 +20,7 @@ const MAX_PREVIEW_BYTES: usize = 1_024;
 pub(super) fn read_task_window(
     connection: &Connection,
     library_id: &str,
-    event_head: i64,
+    commit_head: i64,
     project_id: Option<&str>,
     include_archived: bool,
     request: &CollectionWindowRequest,
@@ -28,7 +28,7 @@ pub(super) fn read_task_window(
     read_task_window_in_scope(
         connection,
         library_id,
-        event_head,
+        commit_head,
         project_id,
         false,
         include_archived,
@@ -39,14 +39,14 @@ pub(super) fn read_task_window(
 pub(super) fn read_pinned_task_window(
     connection: &Connection,
     library_id: &str,
-    event_head: i64,
+    commit_head: i64,
     include_archived: bool,
     request: &CollectionWindowRequest,
 ) -> Result<CollectionWindow<ProjectWorkspaceTaskSummary>, StoreError> {
     read_task_window_in_scope(
         connection,
         library_id,
-        event_head,
+        commit_head,
         None,
         true,
         include_archived,
@@ -58,7 +58,7 @@ pub(super) fn read_pinned_task_window(
 fn read_task_window_in_scope(
     connection: &Connection,
     library_id: &str,
-    event_head: i64,
+    commit_head: i64,
     project_id: Option<&str>,
     pinned_only: bool,
     include_archived: bool,
@@ -193,7 +193,7 @@ fn read_task_window_in_scope(
         candidates,
         normalized.first,
         CollectionWindowAuthority {
-            projection_revision: event_head,
+            projection_revision: commit_head,
         },
         |coordinate| {
             cursor::mint(

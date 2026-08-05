@@ -26,7 +26,7 @@ const snapshot = (): DatabaseModuleReadSnapshotV2 => ({
   projectId: "project-1",
   libraryId: "library-1",
   storeEpoch: "epoch-1",
-  changeLogSeq: 1,
+  commitSeq: 1,
   value: {
     kind: "query",
     value: {
@@ -145,7 +145,7 @@ const committed = (request: DatabaseApplyV2): DatabaseApplyResultV2 => ({
     affectedPageIds: ["page-1"],
     affectedViewIds: [parseDatabaseViewId("view-1")],
     committedRevisions: {},
-    changeLogSeq: 2,
+    commitSeq: 2,
     committedAt: timestamp,
   },
 });

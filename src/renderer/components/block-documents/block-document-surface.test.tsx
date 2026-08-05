@@ -1,5 +1,5 @@
 import { act, fireEvent, waitFor } from "@testing-library/react";
-import { Activity, useEffect } from "react";
+import { Activity } from "react";
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import {
@@ -120,36 +120,11 @@ class SurfaceTestAdapter implements DocumentSyncAdapter {
     return { ok: true as const, value: { accepted: true as const } };
   };
 
-  respondToRelocationLease: DocumentSyncAdapter["respondToRelocationLease"] =
-    async (request) => ({
-      ok: true,
-      value: {
-        accepted: true,
-        leaseId: request.leaseId,
-        documentId: request.documentId,
-        status: request.response === "ack" ? "frozen" : "cancelled",
-      },
-    });
-
   emit = (event: DocumentSyncRealtimeEvent): void => {
     this.listeners.forEach((listener) => listener(event));
   };
 
   destroy = (): void => this.server.document.destroy();
-}
-
-function RelocationRegistrationProbe({
-  runtime,
-  title,
-}: {
-  readonly runtime: BlockDocumentSurfaceRuntime;
-  readonly title: Y.Text;
-}) {
-  useEffect(
-    () => runtime.registerRelocationPreparer(() => undefined),
-    [runtime],
-  );
-  return <div>{title.toString()}</div>;
 }
 
 describe("BlockDocumentSurface", () => {
@@ -344,12 +319,7 @@ describe("BlockDocumentSurface", () => {
             isActive={activeProjectId === "alpha"}
             dependencies={alphaDependencies}
           >
-            {(surface) => (
-              <RelocationRegistrationProbe
-                runtime={surface.runtime}
-                title={surface.title}
-              />
-            )}
+            {(surface) => <div>{surface.title.toString()}</div>}
           </BlockDocumentSurface>
         </Activity>
         <Activity mode={activeProjectId === "beta" ? "visible" : "hidden"}>
@@ -363,12 +333,7 @@ describe("BlockDocumentSurface", () => {
             isActive={activeProjectId === "beta"}
             dependencies={betaDependencies}
           >
-            {(surface) => (
-              <RelocationRegistrationProbe
-                runtime={surface.runtime}
-                title={surface.title}
-              />
-            )}
+            {(surface) => <div>{surface.title.toString()}</div>}
           </BlockDocumentSurface>
         </Activity>
       </>

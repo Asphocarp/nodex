@@ -99,22 +99,22 @@ const source = (): DataSourceDescriptorV2 => ({
 
 const snapshot = (
   value: DatabaseModuleReadSnapshotV2["value"],
-  changeLogSeq = 4,
+  commitSeq = 4,
 ): DatabaseModuleReadSnapshotV2 => ({
   version: DATABASE_MODULE_V2_CONTRACT_VERSION,
   projectId,
   libraryId,
   storeEpoch: "epoch-1",
-  changeLogSeq,
+  commitSeq,
   value,
 });
 
 const readResult = (
   value: DatabaseModuleReadSnapshotV2["value"],
-  changeLogSeq?: number,
+  commitSeq?: number,
 ): DatabaseModuleReadResultV2 => ({
   ok: true,
-  value: snapshot(value, changeLogSeq),
+  value: snapshot(value, commitSeq),
 });
 
 const committed = (request: DatabaseApplyV2): DatabaseApplyResultV2 => ({
@@ -132,28 +132,28 @@ const committed = (request: DatabaseApplyV2): DatabaseApplyResultV2 => ({
     affectedPageIds: [],
     affectedViewIds: [],
     committedRevisions: {},
-    changeLogSeq: 5,
+    commitSeq: 5,
     committedAt: timestamp,
   },
 });
 
 const readDependency = (
-  changeLogSeq = 5,
+  commitSeq = 5,
 ): DatabaseManagementRuntimeDependencies["read"] => async (
   _projectId,
   request,
 ) => request.read.mode === "database"
-  ? readResult({ kind: "database", value: descriptor() }, changeLogSeq)
+  ? readResult({ kind: "database", value: descriptor() }, commitSeq)
   : request.read.mode === "catalog_window"
     ? readResult({
         kind: "catalog_window",
         value: {
           databases: [descriptor()],
           nextCursor: null,
-          projectionRevision: changeLogSeq,
+          projectionRevision: commitSeq,
         },
-      }, changeLogSeq)
-    : readResult({ kind: "data_source", value: source() }, changeLogSeq);
+      }, commitSeq)
+    : readResult({ kind: "data_source", value: source() }, commitSeq);
 
 describe("canonical Database management runtime", () => {
   test("reads the authorized Database catalog and selected Data Source", async () => {
@@ -194,7 +194,7 @@ describe("canonical Database management runtime", () => {
     expect(requests).toHaveLength(2);
     expect(requests[0]).toBe(requests[1]);
     expect(requests[0]?.actor).toEqual({ kind: "renderer_database_management" });
-    expect(authority.snapshot.changeLogSeq).toBe(5);
+    expect(authority.snapshot.commitSeq).toBe(5);
   });
 
   test("surfaces typed authorization failures", async () => {

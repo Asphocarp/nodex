@@ -254,6 +254,7 @@ pub(super) fn move_page(
         actor: json!({ "kind": "native_cli", "command": "page_move" }),
         mode: LibraryBlockTransferMode::Move,
         root_block_ids: vec![page_id.to_owned()],
+        causal_dependencies: Vec::new(),
         source,
         target,
     };

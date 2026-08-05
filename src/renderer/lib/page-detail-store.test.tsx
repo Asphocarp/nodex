@@ -32,7 +32,7 @@ const detail = (
   projectId: "project-1",
   libraryId: "library-1",
   storeEpoch,
-  changeLogSeq: headSeq,
+  commitSeq: headSeq,
   page: {
     pageId: "page-1",
     libraryId: "library-1",
@@ -71,7 +71,7 @@ const pageEvent = (
     libraryId: "library-1",
     projectId: "project-1",
   },
-  cursor: { storeEpoch, changeLogSeq: headSeq },
+  cursor: { storeEpoch, commitSeq: headSeq },
   impact: {
     kind: "resources",
     page_ids: [pageId],

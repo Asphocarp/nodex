@@ -10,7 +10,7 @@ import type {
   ExecuteNodexAgentMovePagesResult,
   NodexAgentCreatePagesCommand,
   NodexAgentDuplicatePageCommand,
-  NodexAgentLeaseDocument,
+  NodexAgentDocumentHead,
   NodexAgentMovePagesCommand,
   NodexAgentV3ReadCommandResult,
   NodexAgentV3ReadRequest,
@@ -64,7 +64,7 @@ export interface NodexAgentV3DocumentHub {
   ): Promise<DocumentOperationCommandResult>;
   executeNodexAgentCreatePages(
     command: NodexAgentCreatePagesCommand,
-    leaseDocuments: readonly NodexAgentLeaseDocument[],
+    documentHeads: readonly NodexAgentDocumentHead[],
   ): Promise<ExecuteNodexAgentCreatePagesResult>;
   executeNodexAgentDuplicatePage(
     command: NodexAgentDuplicatePageCommand,

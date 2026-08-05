@@ -27,14 +27,14 @@ const impact = (overrides: Partial<Extract<ProjectionImpact, { kind: "resources"
 });
 
 const changed = (
-  changeLogSeq: number,
+  commitSeq: number,
   value: ProjectionImpact = impact({ page_ids: ["page-1"] }),
   storeEpoch = "epoch-1",
 ): ProjectionStreamMessage => ({
   version: 1,
   kind: "changed",
   scope,
-  cursor: { storeEpoch, changeLogSeq },
+  cursor: { storeEpoch, commitSeq },
   impact: value,
 });
 
@@ -83,12 +83,12 @@ describe("ProjectionInvalidationRegistry", () => {
 
   test("shares one scope subscription and reference-counts a consumer key", async () => {
     const stream = harness();
-    let cursor: ProjectionCursor = { storeEpoch: "epoch-1", changeLogSeq: 0 };
+    let cursor: ProjectionCursor = { storeEpoch: "epoch-1", commitSeq: 0 };
     const first = vi.fn(async () => {
-      cursor = { storeEpoch: "epoch-1", changeLogSeq: 1 };
+      cursor = { storeEpoch: "epoch-1", commitSeq: 1 };
     });
     const second = vi.fn(async () => {
-      cursor = { storeEpoch: "epoch-1", changeLogSeq: 2 };
+      cursor = { storeEpoch: "epoch-1", commitSeq: 2 };
     });
     const registration = (invalidate: () => void | Promise<void>) => ({
       scope,
@@ -105,7 +105,7 @@ describe("ProjectionInvalidationRegistry", () => {
     expect(first).toHaveBeenCalledOnce();
     expect(second).not.toHaveBeenCalled();
     releaseFirst();
-    cursor = { storeEpoch: "epoch-1", changeLogSeq: 1 };
+    cursor = { storeEpoch: "epoch-1", commitSeq: 1 };
     stream.publish(changed(2));
     await flush();
     expect(second).toHaveBeenCalledOnce();
@@ -117,10 +117,10 @@ describe("ProjectionInvalidationRegistry", () => {
     const stream = harness();
     let cursor: ProjectionCursor | null = {
       storeEpoch: "epoch-1",
-      changeLogSeq: 1,
+      commitSeq: 1,
     };
     const invalidate = vi.fn(async () => {
-      cursor = { storeEpoch: "epoch-1", changeLogSeq: 2 };
+      cursor = { storeEpoch: "epoch-1", commitSeq: 2 };
     });
     stream.registry.register({
       scope,
@@ -133,7 +133,7 @@ describe("ProjectionInvalidationRegistry", () => {
       version: 1,
       kind: "checkpoint",
       scope,
-      cursor: { storeEpoch: "epoch-1", changeLogSeq: 2 },
+      cursor: { storeEpoch: "epoch-1", commitSeq: 2 },
     });
     await flush();
     expect(invalidate).toHaveBeenCalledOnce();
@@ -145,7 +145,7 @@ describe("ProjectionInvalidationRegistry", () => {
       scope,
       consumerKey: "existing-consumer",
       getDependencies: () => ({ pageIds: ["other-page"] }),
-      getCursor: () => ({ storeEpoch: "epoch-1", changeLogSeq: 1 }),
+      getCursor: () => ({ storeEpoch: "epoch-1", commitSeq: 1 }),
       invalidate: vi.fn(),
     });
     stream.publish(changed(2));
@@ -153,10 +153,10 @@ describe("ProjectionInvalidationRegistry", () => {
 
     let cursor: ProjectionCursor | null = {
       storeEpoch: "epoch-1",
-      changeLogSeq: 1,
+      commitSeq: 1,
     };
     const invalidate = vi.fn(() => {
-      cursor = { storeEpoch: "epoch-1", changeLogSeq: 2 };
+      cursor = { storeEpoch: "epoch-1", commitSeq: 2 };
     });
     stream.registry.register({
       scope,
@@ -176,7 +176,7 @@ describe("ProjectionInvalidationRegistry", () => {
     let pageId = "page-1";
     let cursor: ProjectionCursor = {
       storeEpoch: "epoch-1",
-      changeLogSeq: 0,
+      commitSeq: 0,
     };
     const invalidate = vi.fn((message: ProjectionStreamMessage) => {
       cursor = message.cursor;
@@ -198,14 +198,14 @@ describe("ProjectionInvalidationRegistry", () => {
     await flush();
 
     expect(invalidate).toHaveBeenCalledOnce();
-    expect(cursor.changeLogSeq).toBe(2);
+    expect(cursor.commitSeq).toBe(2);
   });
 
   test("coalesces events during a read into one necessary trailing read", async () => {
     const stream = harness();
     let cursor: ProjectionCursor | null = {
       storeEpoch: "epoch-1",
-      changeLogSeq: 1,
+      commitSeq: 1,
     };
     let releaseFirst!: () => void;
     const firstRead = new Promise<void>((resolve) => {
@@ -216,7 +216,7 @@ describe("ProjectionInvalidationRegistry", () => {
         await firstRead;
         return;
       }
-      cursor = { storeEpoch: "epoch-1", changeLogSeq: 3 };
+      cursor = { storeEpoch: "epoch-1", commitSeq: 3 };
     });
     stream.registry.register({
       scope,
@@ -231,14 +231,14 @@ describe("ProjectionInvalidationRegistry", () => {
     await flush();
     await flush();
     expect(invalidate).toHaveBeenCalledTimes(2);
-    expect(cursor?.changeLogSeq).toBe(3);
+    expect(cursor?.commitSeq).toBe(3);
   });
 
   test("skips a trailing read when the completed snapshot already covers pending work", async () => {
     const stream = harness();
     let cursor: ProjectionCursor | null = {
       storeEpoch: "epoch-1",
-      changeLogSeq: 1,
+      commitSeq: 1,
     };
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {
@@ -246,7 +246,7 @@ describe("ProjectionInvalidationRegistry", () => {
     });
     const invalidate = vi.fn(async () => {
       await gate;
-      cursor = { storeEpoch: "epoch-1", changeLogSeq: 3 };
+      cursor = { storeEpoch: "epoch-1", commitSeq: 3 };
     });
     stream.registry.register({
       scope,
@@ -266,7 +266,7 @@ describe("ProjectionInvalidationRegistry", () => {
     const stream = harness();
     let cursor: ProjectionCursor = {
       storeEpoch: "epoch-1",
-      changeLogSeq: 1,
+      commitSeq: 1,
     };
     const invalidate = vi.fn(async (message: ProjectionStreamMessage) => {
       if (invalidate.mock.calls.length === 1) throw new Error("temporary read failure");
@@ -284,7 +284,37 @@ describe("ProjectionInvalidationRegistry", () => {
     await flush();
 
     expect(invalidate).toHaveBeenCalledTimes(2);
-    expect(cursor.changeLogSeq).toBe(2);
+    expect(cursor.commitSeq).toBe(2);
+  });
+
+  test("keeps retrying a failed required read when no newer event arrives", async () => {
+    vi.useFakeTimers();
+    try {
+      const stream = harness();
+      let cursor: ProjectionCursor = {
+        storeEpoch: "epoch-1",
+        commitSeq: 1,
+      };
+      const invalidate = vi.fn(async (message: ProjectionStreamMessage) => {
+        if (invalidate.mock.calls.length < 3) throw new Error("read unavailable");
+        cursor = message.cursor;
+      });
+      const release = stream.registry.register({
+        scope,
+        consumerKey: "eventually-readable-query",
+        getDependencies: () => ({ pageIds: ["page-1"] }),
+        getCursor: () => cursor,
+        invalidate,
+      });
+
+      stream.publish(changed(2));
+      await vi.runAllTimersAsync();
+      expect(invalidate).toHaveBeenCalledTimes(3);
+      expect(cursor.commitSeq).toBe(2);
+      release();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test("isolates callbacks and treats resync, All, and epoch changes as scope-wide", async () => {
@@ -294,7 +324,7 @@ describe("ProjectionInvalidationRegistry", () => {
     });
     let healthyCursor: ProjectionCursor = {
       storeEpoch: "epoch-1",
-      changeLogSeq: 1,
+      commitSeq: 1,
     };
     const healthy = vi.fn((message: ProjectionStreamMessage) => {
       healthyCursor = message.cursor;
@@ -303,7 +333,7 @@ describe("ProjectionInvalidationRegistry", () => {
       scope,
       consumerKey: "failing",
       getDependencies: () => ({ pageIds: ["unrelated"] }),
-      getCursor: () => ({ storeEpoch: "epoch-1", changeLogSeq: 1 }),
+      getCursor: () => ({ storeEpoch: "epoch-1", commitSeq: 1 }),
       invalidate: failing,
     });
     stream.registry.register({
@@ -319,7 +349,7 @@ describe("ProjectionInvalidationRegistry", () => {
       version: 1,
       kind: "resync",
       scope,
-      cursor: { storeEpoch: "epoch-1", changeLogSeq: 3 },
+      cursor: { storeEpoch: "epoch-1", commitSeq: 3 },
       reason: "reconnect",
     });
     await flush();

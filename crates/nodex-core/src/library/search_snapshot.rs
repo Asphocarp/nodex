@@ -46,7 +46,7 @@ pub(super) struct PreparedSearchSnapshot {
 pub(super) struct SearchSnapshotCacheKey {
     project_id: String,
     store_epoch: String,
-    event_head: i64,
+    commit_head: i64,
     scope: LibrarySearchSnapshotScope,
     strict_materialization: bool,
 }
@@ -430,7 +430,7 @@ impl SearchSnapshotStore {
 pub(super) fn cache_key(
     context: &BoundModuleContext,
     store_epoch: &str,
-    event_head: i64,
+    commit_head: i64,
     scope: LibrarySearchSnapshotScope,
     strict_materialization: bool,
 ) -> Result<SearchSnapshotCacheKey, StoreError> {
@@ -443,7 +443,7 @@ pub(super) fn cache_key(
     Ok(SearchSnapshotCacheKey {
         project_id,
         store_epoch: store_epoch.to_owned(),
-        event_head,
+        commit_head,
         scope,
         strict_materialization,
     })
@@ -453,7 +453,7 @@ pub(super) fn prepare(
     connection: &Connection,
     library_id: &str,
     store_epoch: &str,
-    event_head: i64,
+    commit_head: i64,
     context: &BoundModuleContext,
     scope: LibrarySearchSnapshotScope,
     strict_materialization: bool,
@@ -483,7 +483,7 @@ pub(super) fn prepare(
             library_id,
             store_epoch,
             super::page_projection::PageFileRequest {
-                event_head,
+                commit_head,
                 requesting_project_id: Some(project_id),
                 page_id: &page_id,
                 kind: LibraryPageFileKind::BodyNestedMarkdown,
@@ -521,7 +521,7 @@ pub(super) fn prepare(
             library_id,
             store_epoch,
             super::page_projection::PageFileRequest {
-                event_head,
+                commit_head,
                 requesting_project_id: Some(project_id),
                 page_id: &page_id,
                 kind: LibraryPageFileKind::MetaYaml,
@@ -597,7 +597,7 @@ pub(super) fn prepare(
             library_id: library_id.to_owned(),
             project_id: project_id.to_owned(),
             store_epoch: store_epoch.to_owned(),
-            event_head,
+            commit_head,
             scope,
             pages,
             warnings,

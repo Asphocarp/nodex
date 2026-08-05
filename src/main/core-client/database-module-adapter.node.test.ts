@@ -45,7 +45,7 @@ const databaseRecord = () => ({
 const databaseSnapshot = () => ({
   contract_version: 4 as const,
   store_epoch: identity.storeEpoch,
-  event_head: 17,
+  commit_head: 17,
   value: {
     kind: "database" as const,
     value: { database: databaseRecord() },
@@ -55,7 +55,7 @@ const databaseSnapshot = () => ({
 const emptyDataSourceWindowSnapshot = () => ({
   contract_version: 4 as const,
   store_epoch: identity.storeEpoch,
-  event_head: 17,
+  commit_head: 17,
   value: {
     kind: "data_source_window" as const,
     data_sources: {
@@ -69,7 +69,7 @@ const emptyDataSourceWindowSnapshot = () => ({
 const emptyViewDescriptorWindowSnapshot = () => ({
   contract_version: 4 as const,
   store_epoch: identity.storeEpoch,
-  event_head: 17,
+  commit_head: 17,
   value: {
     kind: "view_descriptor_window" as const,
     views: {
@@ -99,7 +99,7 @@ describe("Core Database Module Adapter", () => {
         projectId: identity.projectId,
         libraryId: identity.libraryId,
         storeEpoch: identity.storeEpoch,
-        changeLogSeq: 17,
+        commitSeq: 17,
         value: {
           kind: "database",
           value: {
@@ -137,7 +137,7 @@ describe("Core Database Module Adapter", () => {
     catalogClient.enqueueDatabaseRead({
       contract_version: 6,
       store_epoch: identity.storeEpoch,
-      event_head: 21,
+      commit_head: 21,
       value: {
         kind: "catalog_window",
         databases: {
@@ -149,7 +149,7 @@ describe("Core Database Module Adapter", () => {
     });
     catalogClient.enqueueDatabaseRead({
       ...emptyDataSourceWindowSnapshot(),
-      event_head: 21,
+      commit_head: 21,
       value: {
         ...emptyDataSourceWindowSnapshot().value,
         data_sources: {
@@ -160,7 +160,7 @@ describe("Core Database Module Adapter", () => {
     });
     catalogClient.enqueueDatabaseRead({
       ...emptyViewDescriptorWindowSnapshot(),
-      event_head: 21,
+      commit_head: 21,
       value: {
         ...emptyViewDescriptorWindowSnapshot().value,
         views: {
@@ -199,7 +199,7 @@ describe("Core Database Module Adapter", () => {
     candidateClient.enqueueDatabaseRead({
       contract_version: 6,
       store_epoch: identity.storeEpoch,
-      event_head: 22,
+      commit_head: 22,
       value: {
         kind: "relation_candidate_window",
         candidates: {
@@ -248,7 +248,7 @@ describe("Core Database Module Adapter", () => {
     client.enqueueDatabaseRead({
       contract_version: 6,
       store_epoch: identity.storeEpoch,
-      event_head: 22,
+      commit_head: 22,
       value: {
         kind: "relation_candidate_window",
         candidates: {
@@ -283,7 +283,7 @@ describe("Core Database Module Adapter", () => {
     const base = {
       contract_version: 4 as const,
       store_epoch: identity.storeEpoch,
-      event_head: 19,
+      commit_head: 19,
     };
     client.enqueueDatabaseRead({
       ...base,
@@ -447,10 +447,12 @@ describe("Core Database Module Adapter", () => {
         affected_view_ids: [viewId],
         operation_kinds: operationKinds,
         committed_revisions: { [`source:${dataSourceId}`]: 2 },
-        change_log_seq: 41,
+        commit_seq: 41,
         committed_at: "2026-07-20T00:00:00.000Z",
       },
-      event_sequence: 41,
+      // The physical effect cursor is independent from the semantic
+      // LocalCommit cursor once one mutation can contain multiple effects.
+      event_sequence: 42,
       store_epoch: identity.storeEpoch,
     });
     const adapter = createCoreDatabaseModuleAdapter({ client, ...identity });
@@ -566,7 +568,7 @@ describe("Core Database Module Adapter", () => {
         affectedPageIds: ["page:test"],
         affectedViewIds: [viewId],
         committedRevisions: { [`source:${dataSourceId}`]: 2 },
-        changeLogSeq: 41,
+        commitSeq: 41,
         committedAt: "2026-07-20T00:00:00.000Z",
       },
     });
@@ -685,7 +687,7 @@ describe("Core Database Module Adapter", () => {
         committed_revisions: {
           [`property:${dataSourceId}:${propertyId}`]: 1,
         },
-        change_log_seq: 52,
+        commit_seq: 52,
         committed_at: "2026-07-20T00:10:00.000Z",
       },
       event_sequence: 52,
@@ -776,7 +778,7 @@ describe("Core Database Module Adapter", () => {
     client.enqueueDatabaseRead({
       contract_version: 4 as const,
       store_epoch: identity.storeEpoch,
-      event_head: 21,
+      commit_head: 21,
       value: {
         kind: "view_groups" as const,
         value: {
@@ -871,8 +873,8 @@ describe("Core Database Module Adapter", () => {
     expect(mapCoreDatabaseEvent({
       transport_version: 4,
       event: {
-        event_version: 2,
-        sequence: 42,
+        event_version: 3,
+        commit_seq: 42,
         store_epoch: identity.storeEpoch,
         operation_id: "operation:database",
         committed_at: "2026-07-20T00:00:00.000Z",
@@ -888,6 +890,8 @@ describe("Core Database Module Adapter", () => {
             view_ids: ["view:test"],
           },
         },
+        effects: [],
+        canonical_hash: "0".repeat(64),
       },
     }, identity.libraryId)).toEqual({
       version: 2,
@@ -900,7 +904,7 @@ describe("Core Database Module Adapter", () => {
       affectedDataSourceIds: ["source:test"],
       affectedPageIds: ["page:test"],
       affectedViewIds: ["view:test"],
-      changeLogSeq: 42,
+      commitSeq: 42,
     });
   });
 
@@ -908,8 +912,8 @@ describe("Core Database Module Adapter", () => {
     expect(mapCoreLibraryDatabaseEvent({
       transport_version: 4,
       event: {
-        event_version: 2,
-        sequence: 53,
+        event_version: 3,
+        commit_seq: 53,
         store_epoch: identity.storeEpoch,
         operation_id: "operation:library-database",
         committed_at: "2026-07-20T00:11:00.000Z",
@@ -925,12 +929,14 @@ describe("Core Database Module Adapter", () => {
             view_ids: ["view:library"],
           },
         },
+        effects: [],
+        canonical_hash: "0".repeat(64),
       },
     }, identity.libraryId)).toEqual({
       version: 1,
       libraryId: identity.libraryId,
       storeEpoch: identity.storeEpoch,
-      changeLogSeq: 53,
+      commitSeq: 53,
       changeKind: "database",
       affectedParentKeys: [
         "library",

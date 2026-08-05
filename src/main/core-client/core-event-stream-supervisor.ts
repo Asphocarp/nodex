@@ -9,7 +9,7 @@ import {
 } from "./uds-http";
 
 interface EventReplayBoundary {
-  readonly event_head: number;
+  readonly commit_head: number;
 }
 
 export interface CoreEventStreamSupervisorInput<
@@ -169,14 +169,14 @@ export function superviseCoreEventStream<
             (envelope) => {
               enqueue(async () => {
                 await input.onEvent(envelope);
-                after = Math.max(after, envelope.event.sequence);
+                after = Math.max(after, envelope.event.commit_seq);
               });
             },
             (boundary) => {
               resyncRequested = true;
               enqueue(async () => {
                 await input.onResyncRequired(boundary);
-                after = boundary.event_head;
+                after = boundary.commit_head;
               });
               active?.close();
             },

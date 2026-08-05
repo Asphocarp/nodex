@@ -43,7 +43,7 @@ const result: AdditionalDocumentCommandResult = {
         { documentId: "document-synced-1", generation: 1, headSeq: 1 },
       ],
     },
-    changeLogSeq: 12,
+    commitSeq: 12,
     committedAt: "2026-07-12T00:00:00.000Z",
   },
 };

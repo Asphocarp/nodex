@@ -481,7 +481,7 @@ describe("additional document command result contract", () => {
       deletedBlockIds: [],
       documentHeads: [hostHead, sourceHead],
     },
-    changeLogSeq: 41,
+    commitSeq: 41,
     committedAt: "2026-07-12T00:00:00.000Z",
   } as const;
 

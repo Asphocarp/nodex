@@ -26,6 +26,7 @@ use crate::domain::project_appearance::{
 };
 use crate::infrastructure::event_log::{
     NewChangeLogEntry, append_change_log, load_committed_event_by_sequence,
+    load_local_commit_by_event_sequence,
 };
 use crate::infrastructure::module_receipts::{
     NewModuleReceipt, insert_module_receipt, read_module_receipt,
@@ -838,6 +839,7 @@ pub(super) fn finish_mutation(
             committed_at: &effects.committed_at,
         },
     )?;
+    let local_commit = load_local_commit_by_event_sequence(connection, event_sequence)?;
     let committed = CommittedModuleValue {
         value: ProjectWorkspaceCommitValue {
             affected_project_ids: effects.project_ids.clone(),
@@ -852,8 +854,10 @@ pub(super) fn finish_mutation(
             affected_project_ids: effects.project_ids.clone(),
             affected_session_ids: effects.session_ids.clone(),
         },
+        commit_seq: local_commit.commit_seq,
         event_sequence,
         store_epoch: StoreEpoch(store_epoch.to_owned()),
+        local_commit: Some(local_commit),
     };
     let result = serde_json::to_value(&committed)
         .map_err(|_| internal("Project Workspace receipt result"))?;
@@ -2328,6 +2332,7 @@ mod tests {
                         canvas_id: canvas_id.to_owned(),
                         expected_location_revision: 1,
                         expected_metadata_revision: 1,
+                        containing_document_head: None,
                     },
                 },
             )

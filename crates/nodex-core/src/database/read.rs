@@ -144,17 +144,17 @@ pub(crate) fn read(
     context: &BoundModuleContext,
     request: DatabaseRead,
 ) -> Result<DatabaseReadValue, StoreError> {
-    let event_head =
+    let commit_head =
         connection.query_row("SELECT COALESCE(max(seq), 0) FROM change_log", [], |row| {
             row.get::<_, i64>(0)
         })?;
-    read_at_event_head(connection, library_id, event_head, context, request)
+    read_at_event_head(connection, library_id, commit_head, context, request)
 }
 
 pub(crate) fn read_at_event_head(
     connection: &Connection,
     library_id: &str,
-    event_head: i64,
+    commit_head: i64,
     context: &BoundModuleContext,
     request: DatabaseRead,
 ) -> Result<DatabaseReadValue, StoreError> {
@@ -199,7 +199,7 @@ pub(crate) fn read_at_event_head(
                 value: super::window::view_window(
                     connection,
                     library_id,
-                    event_head,
+                    commit_head,
                     &view_id,
                     request
                         .window
@@ -240,7 +240,7 @@ pub(crate) fn read_at_event_head(
                 databases: catalog_window(
                     connection,
                     library_id,
-                    event_head,
+                    commit_head,
                     project_id,
                     primary_database_id.as_deref(),
                     request
@@ -289,7 +289,7 @@ pub(crate) fn read_at_event_head(
                 value: super::window::view_window(
                     connection,
                     library_id,
-                    event_head,
+                    commit_head,
                     &view_id,
                     request
                         .window
@@ -310,7 +310,7 @@ pub(crate) fn read_at_event_head(
                 data_sources: data_source_window(
                     connection,
                     library_id,
-                    event_head,
+                    commit_head,
                     database_id,
                     request
                         .window
@@ -330,7 +330,7 @@ pub(crate) fn read_at_event_head(
                 views: view_descriptor_window(
                     connection,
                     library_id,
-                    event_head,
+                    commit_head,
                     project_id,
                     database_id,
                     request
@@ -364,7 +364,7 @@ pub(crate) fn read_at_event_head(
                 properties: property_window(
                     connection,
                     library_id,
-                    event_head,
+                    commit_head,
                     data_source_id,
                     request
                         .window
@@ -388,7 +388,7 @@ pub(crate) fn read_at_event_head(
                 candidates: super::relation::candidate_window(
                     connection,
                     library_id,
-                    event_head,
+                    commit_head,
                     data_source_id,
                     request.filter.as_ref(),
                     request
@@ -416,7 +416,7 @@ pub(crate) fn read_at_event_head(
                 options: option_window(
                     connection,
                     library_id,
-                    event_head,
+                    commit_head,
                     data_source_id,
                     property_id,
                     request
@@ -451,7 +451,7 @@ pub(crate) fn read_at_event_head(
                 value: super::window::view_window(
                     connection,
                     library_id,
-                    event_head,
+                    commit_head,
                     view_id,
                     request
                         .window
@@ -477,7 +477,7 @@ pub(crate) fn read_at_event_head(
                 library_id,
                 view_id,
                 super::window::ViewContextRead {
-                    event_head,
+                    commit_head,
                     project_id,
                     store_epoch: &store_epoch,
                     window: request
@@ -565,7 +565,7 @@ pub(crate) fn read_at_event_head(
                 value: super::window::view_window(
                     connection,
                     library_id,
-                    event_head,
+                    commit_head,
                     &view_id,
                     &CollectionWindowRequest {
                         after: query.cursor.clone(),
@@ -590,7 +590,7 @@ pub(crate) fn read_at_event_head(
                 value: super::window::view_window(
                     connection,
                     library_id,
-                    event_head,
+                    commit_head,
                     view_id,
                     &CollectionWindowRequest {
                         after: query.cursor.clone(),
@@ -662,7 +662,7 @@ pub(crate) fn read_at_event_head(
                 value: super::relation::target_window(
                     connection,
                     library_id,
-                    event_head,
+                    commit_head,
                     project_id,
                     &nodex_core_contracts::database::DatabasePagePropertyAddress {
                         page_id: page_id.clone(),
@@ -775,7 +775,7 @@ fn hydrate_summary_refs(
 fn catalog_window(
     connection: &Connection,
     library_id: &str,
-    event_head: i64,
+    commit_head: i64,
     project_id: &str,
     primary_database_id: Option<&str>,
     request: &CollectionWindowRequest,
@@ -827,7 +827,7 @@ fn catalog_window(
         candidates,
         normalized.first,
         CollectionWindowAuthority {
-            projection_revision: event_head,
+            projection_revision: commit_head,
         },
         |coordinate| {
             cursor::mint(
@@ -843,7 +843,7 @@ fn catalog_window(
 fn data_source_window(
     connection: &Connection,
     library_id: &str,
-    event_head: i64,
+    commit_head: i64,
     database_id: &str,
     request: &CollectionWindowRequest,
 ) -> Result<CollectionWindow<Value>, StoreError> {
@@ -902,7 +902,7 @@ fn data_source_window(
     assemble_database_window(
         connection,
         subject,
-        event_head,
+        commit_head,
         normalized.first,
         candidates,
     )
@@ -911,7 +911,7 @@ fn data_source_window(
 fn view_descriptor_window(
     connection: &Connection,
     library_id: &str,
-    event_head: i64,
+    commit_head: i64,
     project_id: Option<&str>,
     database_id: &str,
     request: &CollectionWindowRequest,
@@ -971,7 +971,7 @@ fn view_descriptor_window(
     assemble_database_window(
         connection,
         subject,
-        event_head,
+        commit_head,
         normalized.first,
         candidates,
     )
@@ -980,7 +980,7 @@ fn view_descriptor_window(
 fn property_window(
     connection: &Connection,
     library_id: &str,
-    event_head: i64,
+    commit_head: i64,
     data_source_id: &str,
     request: &CollectionWindowRequest,
 ) -> Result<CollectionWindow<DatabasePropertyDescriptor>, StoreError> {
@@ -1063,7 +1063,7 @@ fn property_window(
     assemble_database_window(
         connection,
         subject,
-        event_head,
+        commit_head,
         normalized.first,
         candidates,
     )
@@ -1072,7 +1072,7 @@ fn property_window(
 fn option_window(
     connection: &Connection,
     library_id: &str,
-    event_head: i64,
+    commit_head: i64,
     data_source_id: &str,
     property_id: &str,
     request: &CollectionWindowRequest,
@@ -1152,7 +1152,7 @@ fn option_window(
     assemble_database_window(
         connection,
         subject,
-        event_head,
+        commit_head,
         normalized.first,
         candidates,
     )
@@ -1161,7 +1161,7 @@ fn option_window(
 fn assemble_database_window<T: serde::Serialize>(
     connection: &Connection,
     subject: CollectionCursorSubject<'_>,
-    event_head: i64,
+    commit_head: i64,
     first: usize,
     candidates: Vec<WindowCandidate<T>>,
 ) -> Result<CollectionWindow<T>, StoreError> {
@@ -1169,7 +1169,7 @@ fn assemble_database_window<T: serde::Serialize>(
         candidates,
         first,
         CollectionWindowAuthority {
-            projection_revision: event_head,
+            projection_revision: commit_head,
         },
         |coordinate| {
             cursor::mint(

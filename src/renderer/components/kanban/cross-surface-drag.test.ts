@@ -3,6 +3,7 @@ import {
   BlockDragSessionCoordinator,
   blockTransferDropLabel,
   buildBlockToDataSourceTransferIntent,
+  containsDatabaseBlockDrag,
   encodeBlockTransferDragPayload,
   NODEX_BLOCK_TRANSFER_DRAG_MIME,
   parseBlockTransferDragPayload,
@@ -51,6 +52,11 @@ describe("cross-surface Block transfer drag", () => {
     expect(blockTransferDropLabel("copy", "page")).toBe("Copy into page");
   });
 
+  test("recognizes Database owners as unsupported generic drag sources", () => {
+    expect(containsDatabaseBlockDrag({ displayHints: ["database"] })).toBe(true);
+    expect(containsDatabaseBlockDrag({ displayHints: ["page", "paragraph"] })).toBe(false);
+  });
+
   test("compiles an editor session into one Database-parent transfer", () => {
     const payload = parseBlockTransferDragPayload(
       encodeBlockTransferDragPayload({
@@ -84,6 +90,7 @@ describe("cross-surface Block transfer drag", () => {
       storeEpoch: "epoch-a",
       mode: "copy",
       rootBlockIds: ["block-a"],
+      causalDependencies: [],
       source: { kind: "document", documentId: "document-a" },
       target: {
         kind: "data_source",

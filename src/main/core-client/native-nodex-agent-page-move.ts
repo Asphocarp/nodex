@@ -2,7 +2,7 @@ import type { components } from "@nodex/core-protocol";
 import { createHash } from "node:crypto";
 import type {
   ExecuteNodexAgentMovePagesResult,
-  NodexAgentLeaseDocument,
+  NodexAgentDocumentHead,
   NodexAgentMovePagesCommand,
   PrepareNodexAgentMovePagesRequest,
   PrepareNodexAgentMovePagesResult,
@@ -13,9 +13,9 @@ import type { NodexAgentMutationEnvelope } from "../agent-tools/dynamic-service-
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
 import { toCoreAgentExecutionAuthorization } from "./desktop-nodex-agent-resource-authority";
 import {
-  hasExactNativeAgentLeaseDocuments,
+  hasExactNativeAgentDocumentHeads,
   nativeAgentDocumentCommits,
-  nativeAgentLeaseDocuments,
+  nativeAgentDocumentHeads,
   nativeAgentPageLocation,
   preparedAgentPageDestination,
   toCoreAgentPageDestination,
@@ -34,7 +34,7 @@ interface PendingNativePageMove {
   readonly operationId: string;
   readonly token: string;
   readonly coreRequest: CoreMoveRequest;
-  readonly leaseDocuments: readonly NodexAgentLeaseDocument[];
+  readonly documentHeads: readonly NodexAgentDocumentHead[];
 }
 
 const envelope = <Result>(
@@ -157,7 +157,7 @@ const command = (
       }),
       transfer: null,
     })),
-    leaseDocuments: nativeAgentLeaseDocuments(preparation.document_heads),
+    documentHeads: nativeAgentDocumentHeads(preparation.document_heads),
   };
 };
 
@@ -206,13 +206,13 @@ export class NativeNodexAgentPageMoveRuntime {
         && this.pending.size >= MAX_PENDING_NATIVE_PAGE_MOVES) {
         throw new Error("Native Agent Page-move preparation capacity is exhausted");
       }
-      const leaseDocuments = nativeAgentLeaseDocuments(preparation.document_heads);
+      const documentHeads = nativeAgentDocumentHeads(preparation.document_heads);
       this.pending.set(operationId, {
         request,
         operationId,
         token,
         coreRequest: moveRequest,
-        leaseDocuments,
+        documentHeads,
       });
       return envelope({
         ok: true,
@@ -224,7 +224,7 @@ export class NativeNodexAgentPageMoveRuntime {
               pageId,
               { type: "page" as const, transformation: "preserved" as const },
             ])),
-            documentIds: leaseDocuments.map((lease) => lease.documentId),
+            documentIds: documentHeads.map((head) => head.documentId),
           },
         },
       }, operationId);
@@ -240,9 +240,9 @@ export class NativeNodexAgentPageMoveRuntime {
       || pending.request.callId !== command.callId
       || pending.request.threadId !== command.threadId
       || pending.request.authority?.storeEpoch !== command.storeEpoch
-      || !hasExactNativeAgentLeaseDocuments(
-        pending.leaseDocuments,
-        command.leaseDocuments,
+      || !hasExactNativeAgentDocumentHeads(
+        pending.documentHeads,
+        command.documentHeads,
       )) {
       return {
         ok: false,
@@ -294,7 +294,10 @@ export class NativeNodexAgentPageMoveRuntime {
           duplicate: committed.receipt.duplicate,
           documentCommits: nativeAgentDocumentCommits(result.document_commits),
           affectedDatabaseBlockIds: [...result.affected_database_ids],
-          changeLogSeq: committed.event_sequence,
+          commitSeq:
+            committed.commit_seq
+            ?? committed.local_commit?.commit_seq
+            ?? committed.event_sequence,
         },
       };
     } catch (error) {

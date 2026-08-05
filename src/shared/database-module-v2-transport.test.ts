@@ -440,7 +440,7 @@ describe("Database Module v2 transport boundary", () => {
         projectId: "project-1",
         libraryId: "library-1",
         storeEpoch: "epoch-1",
-        changeLogSeq: 4,
+        commitSeq: 4,
         value: {
           kind: "data_source",
           value: {
@@ -505,7 +505,7 @@ describe("Database Module v2 transport boundary", () => {
         affectedPageIds: ["page-1"],
         affectedViewIds: ["view-1"],
         committedRevisions: { [`property:${CUSTOM_PROPERTY_ID}`]: 2 },
-        changeLogSeq: 5,
+        commitSeq: 5,
         committedAt: "2026-07-18T00:00:00.000Z",
       },
     };
@@ -529,7 +529,7 @@ describe("Database Module v2 transport boundary", () => {
         accessContext: { kind: "library" },
         libraryId: "library-1",
         storeEpoch: "epoch-1",
-        changeLogSeq: 4,
+        commitSeq: 4,
         value: {
           kind: "data_source",
           value: {
@@ -560,7 +560,7 @@ describe("Database Module v2 transport boundary", () => {
         affectedPageIds: [],
         affectedViewIds: [],
         committedRevisions: {},
-        changeLogSeq: 5,
+        commitSeq: 5,
         committedAt: "2026-07-18T00:00:00.000Z",
       },
     });

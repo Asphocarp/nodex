@@ -203,15 +203,18 @@ import {
   mapCoreProjectWorkspaceEvent,
   mapCoreStoreAdministrationEvent,
   type CoreEventEnvelope,
+  type CoreLocalCommitEnvelope,
   type CoreEventSubscription,
   type CoreAuthorityState,
   type DesktopAutomationModulePort,
   type DesktopDataAuthorityRuntime,
   type DesktopLibraryModuleBridge,
+  type DesktopDocumentSyncPort,
   type DesktopStoreAdministrationPort,
 } from "./core-client";
 import { createDesktopNodexAgentV3DynamicService } from "./core-client/desktop-nodex-agent-dynamic-service";
 import { superviseCoreEventStream } from "./core-client/core-event-stream-supervisor";
+import { LocalCommitDispatcher } from "./core-client/local-commit-dispatcher";
 import { CoreEventCompatibilityError } from "./core-client/uds-http";
 import { ProjectionInvalidationRouter } from "./core-client/projection-invalidation-router";
 import {
@@ -283,8 +286,10 @@ let codexThreadNotificationCoordinator: CodexThreadNotificationCoordinator | nul
 let desktopDataAuthorityRuntime: DesktopDataAuthorityRuntime | null = null;
 let desktopAutomationModule: DesktopAutomationModulePort | null = null;
 let desktopLibraryModule: DesktopLibraryModuleBridge | null = null;
+let desktopDocumentSync: DesktopDocumentSyncPort | null = null;
 let desktopStoreAdministration: DesktopStoreAdministrationPort | null = null;
 let coreEventSubscription: CoreEventSubscription | null = null;
+let localCommitDispatcher: LocalCommitDispatcher | null = null;
 let coreAuthorityStatus: CoreAuthorityStatus = { kind: "ready" };
 let releaseCoreAuthorityStatus: (() => void) | null = null;
 let storeAdministrationBackupScheduler: StoreAdministrationBackupScheduler | null = null;
@@ -1688,14 +1693,14 @@ async function publishCoreResync(eventHead: number): Promise<void> {
   if (runtime) {
     await requireProjectionRouter().resync({
       storeEpoch: runtime.identity.storeEpoch,
-      changeLogSeq: eventHead,
+      commitSeq: eventHead,
     }, "event_gap");
   }
   dbNotifier.notifyLibraryNavigationChanged({
     version: 1,
     libraryId: runtime?.identity.libraryId ?? "",
     storeEpoch: runtime?.identity.storeEpoch ?? null,
-    changeLogSeq: eventHead,
+    commitSeq: eventHead,
     changeKind: "content",
     affectedParentKeys: ["library", "catalog"],
     affectedPageIds: [],
@@ -1737,7 +1742,7 @@ async function initializeDesktopApp(
     libraryId: coreIdentity.libraryId,
     initialCursor: {
       storeEpoch: coreIdentity.storeEpoch,
-      changeLogSeq: coreClient.handshake.event_head,
+      commitSeq: coreClient.handshake.commit_head,
     },
     filterForProject: async (projectId, impact) =>
       await coreClient.filterProjectionImpactForProject(projectId, impact),
@@ -1754,9 +1759,62 @@ async function initializeDesktopApp(
       });
     },
   }));
+  localCommitDispatcher = new LocalCommitDispatcher({
+    expectedStoreEpoch: coreIdentity.storeEpoch,
+    onAdmitted: (commit) => {
+      // The apply response is already committed by Core. Publish its
+      // document effects from the admission turn so an active editor never
+      // waits for the durable tailer or the projection authorization read.
+      // The microtask keeps Electron IPC/structured-clone work out of Core's
+      // apply-response stack while still running before the next user turn.
+      queueMicrotask(() => {
+        desktopDocumentSync?.publishLocalCommit(commit);
+      });
+    },
+    onEnriched: (commit) => {
+      // A ref-only/replayed envelope may later carry inline document bytes.
+      // Enrichment is resource delivery only; semantic projection work stays
+      // single-shot in onCommit.
+      queueMicrotask(() => {
+        desktopDocumentSync?.publishLocalCommit(commit);
+      });
+    },
+    onCommit: (commit) => {
+      const envelope: CoreEventEnvelope = {
+        transport_version: coreClient.handshake.selected_transport_version,
+        event: commit,
+      };
+      void requireProjectionRouter().accept(envelope).catch((error: unknown) => {
+        logger.error("LocalCommit projection dispatch failed", {
+          commitSeq: commit.commit_seq,
+          storeEpoch: commit.store_epoch,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        void requireProjectionRouter().resync({
+          storeEpoch: commit.store_epoch,
+          commitSeq: commit.commit_seq,
+        }, "event_gap");
+      });
+      publishCoreModuleEventToNotifiers(
+        envelope,
+        coreIdentity.libraryId,
+      );
+    },
+    onError: (error, commit) => {
+      logger.error("LocalCommit projection dispatch failed", {
+        commitSeq: commit.commit_seq,
+        storeEpoch: commit.store_epoch,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      void requireProjectionRouter().resync({
+        storeEpoch: commit.store_epoch,
+        commitSeq: commit.commit_seq,
+      }, "event_gap");
+    },
+  });
 
   coreEventSubscription = superviseCoreEventStream({
-    initialAfter: coreClient.handshake.event_head,
+    initialAfter: coreClient.handshake.commit_head,
     open: (after, onEvent, onResyncRequired, signal) =>
       coreClient.openEventStream(
         after,
@@ -1766,7 +1824,7 @@ async function initializeDesktopApp(
       ),
     onEvent: publishCoreModuleEvent,
     onResyncRequired: async (resync) => {
-      await publishCoreResync(resync.event_head);
+      await publishCoreResync(resync.commit_head);
     },
     onInterrupted: (error) => {
       if (runtimeShutdownStarted) return;
@@ -1780,7 +1838,7 @@ async function initializeDesktopApp(
       coreStreamInterruptionPublished = true;
       void requireProjectionRouter().resync({
         storeEpoch: coreIdentity.storeEpoch,
-        changeLogSeq: requireProjectionRouter().cursor.changeLogSeq,
+        commitSeq: requireProjectionRouter().cursor.commitSeq,
       }, "reconnect");
       logger.warn("Native Core event stream interrupted; reconnecting", {
         error: error instanceof Error
@@ -1831,13 +1889,14 @@ function requireProjectionRouter(): ProjectionInvalidationRouter {
   return requireProjectionInvalidationRouter();
 }
 
-async function publishCoreModuleEvent(envelope: CoreEventEnvelope): Promise<void> {
-  if (!desktopDataAuthorityRuntime) return;
-  await requireProjectionRouter().accept(envelope);
-  publishCoreModuleEventToNotifiers(
-    envelope,
-    desktopDataAuthorityRuntime.identity.libraryId,
-  );
+function publishCoreModuleEvent(envelope: CoreEventEnvelope): void {
+  if (!desktopDataAuthorityRuntime || !localCommitDispatcher) return;
+  localCommitDispatcher.accept(envelope.event, "tailer");
+}
+
+function publishLocalCommitFromApply(commit: CoreLocalCommitEnvelope): void {
+  if (!localCommitDispatcher) return;
+  localCommitDispatcher.accept(commit, "apply");
 }
 
 function publishCoreModuleEventToNotifiers(
@@ -1920,7 +1979,7 @@ function publishCoreModuleEventToNotifiers(
       version: 1,
       libraryId,
       storeEpoch: envelope.event.store_epoch,
-      changeLogSeq: envelope.event.sequence,
+      commitSeq: envelope.event.commit_seq,
       changeKind: "lifecycle",
       affectedParentKeys: ["standalone_roots"],
       affectedPageIds: [],
@@ -2061,6 +2120,8 @@ function beginMainRuntimeShutdown(): void {
   logger.info("Nodex before-quit");
   coreEventSubscription?.close();
   coreEventSubscription = null;
+  localCommitDispatcher = null;
+  desktopDocumentSync = null;
   releaseCoreAuthorityStatus?.();
   releaseCoreAuthorityStatus = null;
   desktopDataAuthorityRuntime?.close();
@@ -2548,6 +2609,7 @@ export async function runMainAppStartup(
     buildId: `nodex-desktop/${app.getVersion()}`,
     isPackaged: app.isPackaged,
     nodexHome: getNodexHome(),
+    onLocalCommit: publishLocalCommitFromApply,
     onStartupEvent: (event) => {
       if (event.kind === "migration_started") {
         setAppInitializationStep({
@@ -2605,9 +2667,9 @@ export async function runMainAppStartup(
   const documentSync = createDesktopDocumentSyncBridge({
     authority: dataAuthority,
   });
+  desktopDocumentSync = documentSync;
   const libraryModule = createDesktopLibraryModuleBridge({
     authority: dataAuthority,
-    publishLibraryDocumentCommits: documentSync.publishLibraryDocumentCommits,
   });
   desktopLibraryModule = libraryModule;
   const databaseModule = createDesktopDatabaseModuleBridge({

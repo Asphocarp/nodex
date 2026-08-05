@@ -86,9 +86,9 @@ export function useBoardsForProjects(
             if (
               !current
               || !event.storeEpoch
-              || event.changeLogSeq === undefined
+              || event.commitSeq === undefined
               || event.storeEpoch !== current.storeEpoch
-              || event.changeLogSeq < current.changeLogSeq
+              || event.commitSeq < current.commitSeq
             ) return current;
             const next = applyBoardChangeEventToBoard(current.board, event);
             if (!next) return current;
@@ -96,7 +96,7 @@ export function useBoardsForProjects(
             return {
               ...current,
               board: next,
-              changeLogSeq: event.changeLogSeq,
+              commitSeq: event.commitSeq,
             };
           },
         );
@@ -128,7 +128,7 @@ export function useBoardsForProjects(
           return snapshot
             ? {
                 storeEpoch: snapshot.storeEpoch,
-                changeLogSeq: snapshot.changeLogSeq,
+                commitSeq: snapshot.commitSeq,
               }
             : null;
         },

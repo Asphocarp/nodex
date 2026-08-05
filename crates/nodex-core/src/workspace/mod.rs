@@ -106,16 +106,17 @@ impl ProjectWorkspaceModule {
                     )
                     .optional()?
                     .ok_or_else(|| corrupt("Profile store epoch is unavailable"))?;
-                let event_head = transaction.query_row(
+                let change_log_head = transaction.query_row(
                     "SELECT COALESCE(max(seq), 0) FROM change_log",
                     [],
                     |row| row.get::<_, i64>(0),
                 )?;
+                let commit_seq = crate::infrastructure::local_commit::head(&transaction)?;
                 Ok(ModuleReadSnapshot {
                     contract_version: PROJECT_WORKSPACE_CONTRACT_VERSION,
                     store_epoch: StoreEpoch(store_epoch),
-                    event_head,
-                    value: read::read(&transaction, &library_id, event_head, request.read)?,
+                    commit_head: commit_seq,
+                    value: read::read(&transaction, &library_id, change_log_head, request.read)?,
                 })
             })
             .map_err(core_error)

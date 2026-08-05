@@ -63,11 +63,11 @@ describe("exact query invalidation", () => {
     const familyKey = queryKeys.library.all();
     queryClient.setQueryData(queryKeys.library.metadata(), {
       storeEpoch: "epoch-1",
-      changeLogSeq: 8,
+      commitSeq: 8,
     });
     queryClient.setQueryData(queryKeys.library.children("library", {}), {
       storeEpoch: "epoch-1",
-      changeLogSeq: 5,
+      commitSeq: 5,
     });
     queryClient.setQueryData(queryKeys.library.pageDocument("page-1"), {
       storeEpoch: "epoch-1",
@@ -76,7 +76,7 @@ describe("exact query invalidation", () => {
 
     expect(queryFamilyProjectionCursor(queryClient, familyKey)).toEqual({
       storeEpoch: "epoch-1",
-      changeLogSeq: 5,
+      commitSeq: 5,
     });
     queryClient.clear();
   });
@@ -86,7 +86,7 @@ describe("exact query invalidation", () => {
     const familyKey = queryKeys.library.all();
     queryClient.setQueryData(queryKeys.library.metadata(), {
       storeEpoch: "epoch-1",
-      changeLogSeq: 8,
+      commitSeq: 8,
     });
     queryClient.getQueryCache().build(queryClient, {
       queryKey: queryKeys.library.children("library", {}),

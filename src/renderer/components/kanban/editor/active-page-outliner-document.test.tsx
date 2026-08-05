@@ -129,8 +129,12 @@ function createSurface() {
       awareness: {},
       runtime: {
         subscribe: () => () => undefined,
-        getWriteFrozen: () => false,
-        registerRelocationPreparer: () => () => undefined,
+        prepareLocalMutation: async () => ({
+          documentId: "document:nested",
+          storeEpoch: "epoch",
+          generation: 1,
+          expectedHeadSeq: 0,
+        }),
       },
       status: { provider: "synced" },
     },

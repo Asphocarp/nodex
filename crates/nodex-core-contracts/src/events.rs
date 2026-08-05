@@ -50,3 +50,30 @@ pub struct CommittedCoreModuleEvent {
     pub projection_impact: ProjectionImpact,
     pub payload: CoreModuleEventPayload,
 }
+
+/// The durable identity of one semantic local mutation. A single mutation may
+/// touch several Yrs documents and materialized SQL projections, so its
+/// physical change-log effects must not be exposed as separate public cursors.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LocalCommitCursor {
+    pub store_epoch: StoreEpoch,
+    pub commit_seq: i64,
+}
+
+/// Canonical local-first publication envelope.
+///
+/// `effects` contains the committed physical details needed by document and
+/// module consumers. `payload` is the primary transport view and may be
+/// selected for the consumer's scope; it is not a second authority.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LocalCommitEnvelope {
+    pub event_version: u32,
+    pub commit_seq: i64,
+    pub store_epoch: StoreEpoch,
+    pub operation_id: Option<String>,
+    pub committed_at: String,
+    pub projection_impact: ProjectionImpact,
+    pub payload: CoreModuleEventPayload,
+    pub effects: Vec<CommittedCoreModuleEvent>,
+    pub canonical_hash: String,
+}

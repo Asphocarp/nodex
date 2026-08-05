@@ -68,6 +68,22 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/core/v1/local-mutations/resolve": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        readonly post: operations["resolve_local_mutation"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/core/v1/modules/administration/apply": {
         readonly parameters: {
             readonly query?: never;
@@ -1036,15 +1052,28 @@ export interface components {
             readonly store_epoch: components["schemas"]["StoreEpoch"];
         };
         readonly CommittedModuleValue_LibraryCommitValue_LibraryReceipt: {
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Semantic LocalCommit cursor after this operation. Unlike
+             *     `event_sequence`, this does not identify a physical change-log row.
+             *     A no-change receipt still carries the current cursor so callers never
+             *     mistake a physical sequence for projection freshness.
+             */
+            readonly commit_seq?: number;
+            /**
+             * Format: int64
+             * @description Physical change-log effect sequence retained for module-internal event
+             *     reconstruction. It is not a public projection cursor.
+             */
             readonly event_sequence: number;
+            readonly local_commit?: null | components["schemas"]["LocalCommitEnvelope"];
             readonly receipt: components["schemas"]["ModuleMutationReceipt"] & {
                 readonly affected_database_ids: readonly string[];
                 readonly affected_page_ids: readonly string[];
                 readonly affected_parent_keys: readonly string[];
                 readonly affected_view_ids: readonly string[];
                 /** Format: int64 */
-                readonly change_log_seq: number;
+                readonly commit_seq: number;
                 readonly committed_at: string;
                 readonly committed_revisions: {
                     readonly [key: string]: number;
@@ -1068,8 +1097,21 @@ export interface components {
             };
         };
         readonly CommittedModuleValue_OwnedDocumentCommitValue_OwnedDocumentReceipt: {
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Semantic LocalCommit cursor after this operation. Unlike
+             *     `event_sequence`, this does not identify a physical change-log row.
+             *     A no-change receipt still carries the current cursor so callers never
+             *     mistake a physical sequence for projection freshness.
+             */
+            readonly commit_seq?: number;
+            /**
+             * Format: int64
+             * @description Physical change-log effect sequence retained for module-internal event
+             *     reconstruction. It is not a public projection cursor.
+             */
             readonly event_sequence: number;
+            readonly local_commit?: null | components["schemas"]["LocalCommitEnvelope"];
             readonly receipt: components["schemas"]["ModuleMutationReceipt"] & {
                 readonly document_id: string;
                 /** Format: int64 */
@@ -1192,6 +1234,8 @@ export interface components {
             readonly canvas_sync_up_to_date?: number;
             readonly command_latency: components["schemas"]["HealthDurationMetric"];
             /** Format: int64 */
+            readonly commit_head: number;
+            /** Format: int64 */
             readonly document_cache_entries: number;
             /** Format: int32 */
             readonly document_cache_hit_rate_ppm: number;
@@ -1204,8 +1248,6 @@ export interface components {
             readonly document_reconstruction_duration: components["schemas"]["HealthDurationMetric"];
             /** Format: int64 */
             readonly dropped_log_records?: number;
-            /** Format: int64 */
-            readonly event_head: number;
             /** Format: int64 */
             readonly event_replay_lag: number;
             /** Format: int64 */
@@ -1933,13 +1975,13 @@ export interface components {
             readonly version_id: string;
         };
         readonly EventEnvelope: {
-            readonly event: components["schemas"]["CommittedCoreModuleEvent"];
+            readonly event: components["schemas"]["LocalCommitEnvelope"];
             /** Format: int32 */
             readonly transport_version: number;
         };
         readonly EventReplayRequired: {
             /** Format: int64 */
-            readonly event_head: number;
+            readonly commit_head: number;
             /** Format: int64 */
             readonly oldest_available: number;
             /** Format: int64 */
@@ -1954,9 +1996,9 @@ export interface components {
         readonly HandshakeResponse: {
             readonly actual_store_format: components["schemas"]["StoreFormatIdentity"];
             readonly artifact: components["schemas"]["CoreArtifactIdentity"];
-            readonly connection_binding: string;
             /** Format: int64 */
-            readonly event_head: number;
+            readonly commit_head: number;
+            readonly connection_binding: string;
             readonly generation: components["schemas"]["RuntimeGenerationIdentity"];
             readonly library_id: string;
             readonly manifest_digest: string;
@@ -2316,6 +2358,7 @@ export interface components {
         };
         readonly LibraryBlockTransferLogicalIntent: {
             readonly actor: unknown;
+            readonly causal_dependencies: readonly components["schemas"]["LibraryBlockTransferDocumentHead"][];
             readonly mode: components["schemas"]["LibraryBlockTransferMode"];
             readonly root_block_ids: readonly string[];
             readonly source: components["schemas"]["LibraryBlockTransferSource"];
@@ -2334,10 +2377,11 @@ export interface components {
             readonly preparation: components["schemas"]["LibraryBlockTransferPreparation"];
         } | {
             /** Format: int64 */
-            readonly change_log_seq: number;
+            readonly commit_seq: number;
             readonly committed_at: string;
             /** @enum {string} */
             readonly kind: "committed";
+            readonly local_commit?: null | components["schemas"]["LocalCommitEnvelope"];
             readonly result: components["schemas"]["LibraryBlockTransferResult"];
         };
         readonly LibraryBlockTransferPreparation: {
@@ -2667,7 +2711,7 @@ export interface components {
             readonly asset_refs: readonly components["schemas"]["LibraryContentAssetReference"][];
             readonly body_nfm: string;
             /** Format: int64 */
-            readonly change_log_seq: number;
+            readonly commit_seq: number;
             /** Format: int64 */
             readonly document_generation: number;
             /** Format: int64 */
@@ -2772,7 +2816,7 @@ export interface components {
         readonly LibraryPageDetail: {
             readonly access_context: components["schemas"]["LibraryPageAccessContext"];
             /** Format: int64 */
-            readonly change_log_seq: number;
+            readonly commit_seq: number;
             readonly data_source_context: components["schemas"]["LibraryPageDataSourceContext"];
             readonly document: components["schemas"]["LibraryPageDocumentDescriptor"];
             readonly intrinsic_properties: readonly components["schemas"]["LibraryPageIntrinsicProperty"][];
@@ -2792,12 +2836,12 @@ export interface components {
             readonly body_etag: string;
             readonly body_nested_markdown: string;
             /** Format: int64 */
+            readonly commit_head: number;
+            /** Format: int64 */
             readonly document_generation: number;
             /** Format: int64 */
             readonly document_head_seq: number;
             readonly document_id: string;
-            /** Format: int64 */
-            readonly event_head: number;
             readonly library_id: string;
             readonly meta_yaml: string;
             /** Format: int32 */
@@ -2813,14 +2857,14 @@ export interface components {
         /** @enum {string} */
         readonly LibraryPageFileKind: "body_nested_markdown" | "meta_yaml";
         readonly LibraryPageFileProjection: {
+            /** Format: int64 */
+            readonly commit_head: number;
             readonly content: string;
             /** Format: int64 */
             readonly document_generation: number;
             /** Format: int64 */
             readonly document_head_seq: number;
             readonly document_id: string;
-            /** Format: int64 */
-            readonly event_head: number;
             readonly kind: components["schemas"]["LibraryPageFileKind"];
             readonly library_id: string;
             readonly metadata?: null | components["schemas"]["PageMetaProjectionV1"];
@@ -2965,10 +3009,17 @@ export interface components {
             readonly block_id: string;
             /** Format: int64 */
             readonly metadata_revision: number;
+            /**
+             * Format: int64
+             * @description Post-delete metadata revision for an independent typed-owner
+             *     authority, when this indexed Block has one.
+             */
+            readonly resource_metadata_revision?: number | null;
         };
         readonly LibraryPageLifecycleDeleteEvidence: {
             readonly indexed_document_ids: readonly string[];
             readonly membership?: null | components["schemas"]["LibraryPageLifecycleMutationMembership"];
+            readonly nested_parent?: null | components["schemas"]["LibraryPageLifecycleNestedParent"];
             readonly previous_lifecycle: components["schemas"]["LibraryLifecycle"];
             readonly tombstoned_blocks: readonly components["schemas"]["LibraryPageLifecycleDeletedBlock"][];
         };
@@ -3049,6 +3100,7 @@ export interface components {
             /** @enum {string} */
             readonly kind: "delete_page";
             readonly page_id: string;
+            readonly parent_document_head?: null | components["schemas"]["DocumentHeadRevision"];
         } | {
             readonly before_block_id?: string | null;
             readonly delete_operation_id: string;
@@ -3060,6 +3112,7 @@ export interface components {
             readonly kind: "restore_page";
             readonly membership?: null | components["schemas"]["LibraryPageLifecycleMutationMembership"];
             readonly page_id: string;
+            readonly parent_document_head?: null | components["schemas"]["DocumentHeadRevision"];
         } | {
             readonly before_block_id?: string | null;
             /** Format: int64 */
@@ -3098,6 +3151,11 @@ export interface components {
             readonly view_id?: string | null;
             readonly view_rank_key?: string | null;
         };
+        readonly LibraryPageLifecycleNestedParent: {
+            readonly before_block_id?: string | null;
+            readonly document_id: string;
+            readonly parent_block_id?: string | null;
+        };
         readonly LibraryPageLifecycleParent: {
             /** @enum {string} */
             readonly kind: "library";
@@ -3128,6 +3186,7 @@ export interface components {
         readonly LibraryPageLifecycleRestoreEvidence: {
             readonly delete_operation_id: string;
             readonly membership?: null | components["schemas"]["LibraryPageLifecycleRestoreMembership"];
+            readonly nested_parent?: null | components["schemas"]["LibraryPageLifecycleNestedParent"];
             readonly previous_lifecycle: components["schemas"]["LibraryLifecycle"];
         };
         readonly LibraryPageLifecycleRestoreMembership: {
@@ -3327,7 +3386,7 @@ export interface components {
         };
         readonly LibrarySearchSnapshotManifest: {
             /** Format: int64 */
-            readonly event_head: number;
+            readonly commit_head: number;
             readonly library_id: string;
             readonly pages: readonly components["schemas"]["LibrarySearchSnapshotPage"][];
             readonly project_id: string;
@@ -3416,6 +3475,58 @@ export interface components {
             /** @enum {string} */
             readonly kind: "page";
             readonly page_id: string;
+        };
+        /**
+         * @description Canonical local-first publication envelope.
+         *
+         *     `effects` contains the committed physical details needed by document and
+         *     module consumers. `payload` is the primary transport view and may be
+         *     selected for the consumer's scope; it is not a second authority.
+         */
+        readonly LocalCommitEnvelope: {
+            readonly canonical_hash: string;
+            /** Format: int64 */
+            readonly commit_seq: number;
+            readonly committed_at: string;
+            readonly effects: readonly components["schemas"]["CommittedCoreModuleEvent"][];
+            /** Format: int32 */
+            readonly event_version: number;
+            readonly operation_id?: string | null;
+            readonly payload: components["schemas"]["CoreModuleEventPayload"];
+            readonly projection_impact: components["schemas"]["ProjectionImpact"];
+            readonly store_epoch: components["schemas"]["StoreEpoch"];
+        };
+        readonly LocalMutationResolveRequest: {
+            readonly intent_hash: string;
+            readonly module: components["schemas"]["ModuleName"];
+            readonly operation_id: string;
+            readonly store_epoch: components["schemas"]["StoreEpoch"];
+        };
+        readonly LocalMutationResolveResponse: {
+            readonly local_commit?: null | components["schemas"]["LocalCommitEnvelope"];
+            readonly module: components["schemas"]["ModuleName"];
+            readonly operation_id: string;
+            readonly request_hash: string;
+            readonly result: unknown;
+            /** @enum {string} */
+            readonly status: "committed";
+        } | {
+            readonly module: components["schemas"]["ModuleName"];
+            readonly operation_id: string;
+            /** @enum {string} */
+            readonly status: "not_committed";
+        } | {
+            readonly expected_hash: string;
+            readonly module: components["schemas"]["ModuleName"];
+            readonly observed_hash: string;
+            readonly operation_id: string;
+            /** @enum {string} */
+            readonly status: "intent_conflict";
+        } | {
+            readonly current_store_epoch: components["schemas"]["StoreEpoch"];
+            readonly requested_store_epoch: components["schemas"]["StoreEpoch"];
+            /** @enum {string} */
+            readonly status: "epoch_mismatch";
         };
         /** @enum {string} */
         readonly MaintenanceTask: "integrity_check" | "foreign_key_check" | "document_revision_finalize" | "document_compaction" | "history_retention" | "block_retention";
@@ -3661,6 +3772,7 @@ export interface components {
                 readonly source_canvas_id: string;
             } | {
                 readonly canvas_id: string;
+                readonly containing_document_head?: null | components["schemas"]["DocumentHeadRevision"];
                 /** Format: int64 */
                 readonly expected_location_revision: number;
                 /** Format: int64 */
@@ -3807,7 +3919,6 @@ export interface components {
                 /** @enum {string} */
                 readonly kind: "apply_operation_batch";
                 readonly operations: readonly components["schemas"]["DocumentBlockOperation"][];
-                readonly write_fence_prepared: boolean;
             } | {
                 readonly actor: unknown;
                 readonly document_id: string;
@@ -3819,7 +3930,6 @@ export interface components {
                 readonly kind: "replace_from_nfm";
                 readonly nfm: string;
                 readonly rich_title?: readonly unknown[] | null;
-                readonly write_fence_prepared: boolean;
             } | {
                 readonly authorization: components["schemas"]["AgentPreparedExecution"];
                 /** @enum {string} */
@@ -3843,7 +3953,6 @@ export interface components {
                 readonly generation: number;
                 /** @enum {string} */
                 readonly kind: "compact_canvas_tombstones";
-                readonly write_fence_prepared: boolean;
             } | {
                 readonly actor: unknown;
                 readonly cause: string;
@@ -3869,7 +3978,6 @@ export interface components {
                 /** @enum {string} */
                 readonly kind: "restore_version";
                 readonly version_id: string;
-                readonly write_fence_prepared: boolean;
             } | {
                 readonly command: components["schemas"]["DocumentOwnerCommand"];
                 /** @enum {string} */
@@ -4599,6 +4707,16 @@ export interface components {
             readonly kind: "document_updated";
             readonly update: readonly number[];
         } | {
+            readonly document_id: string;
+            /** Format: int64 */
+            readonly generation: number;
+            /** Format: int64 */
+            readonly head_seq: number;
+            /** @enum {string} */
+            readonly kind: "document_resync_required";
+            readonly update_hash: string;
+            readonly update_id: string;
+        } | {
             /** Format: int64 */
             readonly base_head_seq: number;
             readonly document_id: string;
@@ -4648,9 +4766,9 @@ export interface components {
         /** @enum {string} */
         readonly PageOccurrenceMutationCode: "page_not_found" | "page_not_scheduled" | "page_not_recurring" | "authorization_denied" | "invalid_occurrence_request";
         readonly PageOccurrenceMutationResult: {
-            /** Format: int64 */
-            readonly change_log_seq?: number | null;
             readonly code?: null | components["schemas"]["PageOccurrenceMutationCode"];
+            /** Format: int64 */
+            readonly commit_seq?: number | null;
             readonly created_page_id?: string | null;
             readonly duplicate: boolean;
             readonly error?: string | null;
@@ -5128,8 +5246,21 @@ export interface components {
         };
         readonly ResponseEnvelope_CommittedModuleValue_AutomationCommitValue_AutomationReceipt: {
             readonly payload: {
-                /** Format: int64 */
+                /**
+                 * Format: int64
+                 * @description Semantic LocalCommit cursor after this operation. Unlike
+                 *     `event_sequence`, this does not identify a physical change-log row.
+                 *     A no-change receipt still carries the current cursor so callers never
+                 *     mistake a physical sequence for projection freshness.
+                 */
+                readonly commit_seq?: number;
+                /**
+                 * Format: int64
+                 * @description Physical change-log effect sequence retained for module-internal event
+                 *     reconstruction. It is not a public projection cursor.
+                 */
                 readonly event_sequence: number;
+                readonly local_commit?: null | components["schemas"]["LocalCommitEnvelope"];
                 readonly receipt: components["schemas"]["ModuleMutationReceipt"] & {
                     readonly affected_automation_ids: readonly string[];
                     readonly affected_database_ids: readonly string[];
@@ -5162,15 +5293,28 @@ export interface components {
         };
         readonly ResponseEnvelope_CommittedModuleValue_DatabaseCommitValue_DatabaseReceipt: {
             readonly payload: {
-                /** Format: int64 */
+                /**
+                 * Format: int64
+                 * @description Semantic LocalCommit cursor after this operation. Unlike
+                 *     `event_sequence`, this does not identify a physical change-log row.
+                 *     A no-change receipt still carries the current cursor so callers never
+                 *     mistake a physical sequence for projection freshness.
+                 */
+                readonly commit_seq?: number;
+                /**
+                 * Format: int64
+                 * @description Physical change-log effect sequence retained for module-internal event
+                 *     reconstruction. It is not a public projection cursor.
+                 */
                 readonly event_sequence: number;
+                readonly local_commit?: null | components["schemas"]["LocalCommitEnvelope"];
                 readonly receipt: components["schemas"]["ModuleMutationReceipt"] & {
                     readonly affected_data_source_ids: readonly string[];
                     readonly affected_database_ids: readonly string[];
                     readonly affected_page_ids: readonly string[];
                     readonly affected_view_ids: readonly string[];
                     /** Format: int64 */
-                    readonly change_log_seq: number;
+                    readonly commit_seq: number;
                     readonly committed_at: string;
                     readonly committed_revisions: {
                         readonly [key: string]: number;
@@ -5192,15 +5336,28 @@ export interface components {
         };
         readonly ResponseEnvelope_CommittedModuleValue_LibraryCommitValue_LibraryReceipt: {
             readonly payload: {
-                /** Format: int64 */
+                /**
+                 * Format: int64
+                 * @description Semantic LocalCommit cursor after this operation. Unlike
+                 *     `event_sequence`, this does not identify a physical change-log row.
+                 *     A no-change receipt still carries the current cursor so callers never
+                 *     mistake a physical sequence for projection freshness.
+                 */
+                readonly commit_seq?: number;
+                /**
+                 * Format: int64
+                 * @description Physical change-log effect sequence retained for module-internal event
+                 *     reconstruction. It is not a public projection cursor.
+                 */
                 readonly event_sequence: number;
+                readonly local_commit?: null | components["schemas"]["LocalCommitEnvelope"];
                 readonly receipt: components["schemas"]["ModuleMutationReceipt"] & {
                     readonly affected_database_ids: readonly string[];
                     readonly affected_page_ids: readonly string[];
                     readonly affected_parent_keys: readonly string[];
                     readonly affected_view_ids: readonly string[];
                     /** Format: int64 */
-                    readonly change_log_seq: number;
+                    readonly commit_seq: number;
                     readonly committed_at: string;
                     readonly committed_revisions: {
                         readonly [key: string]: number;
@@ -5232,8 +5389,21 @@ export interface components {
         };
         readonly ResponseEnvelope_CommittedModuleValue_OwnedDocumentCommitValue_OwnedDocumentReceipt: {
             readonly payload: {
-                /** Format: int64 */
+                /**
+                 * Format: int64
+                 * @description Semantic LocalCommit cursor after this operation. Unlike
+                 *     `event_sequence`, this does not identify a physical change-log row.
+                 *     A no-change receipt still carries the current cursor so callers never
+                 *     mistake a physical sequence for projection freshness.
+                 */
+                readonly commit_seq?: number;
+                /**
+                 * Format: int64
+                 * @description Physical change-log effect sequence retained for module-internal event
+                 *     reconstruction. It is not a public projection cursor.
+                 */
                 readonly event_sequence: number;
+                readonly local_commit?: null | components["schemas"]["LocalCommitEnvelope"];
                 readonly receipt: components["schemas"]["ModuleMutationReceipt"] & {
                     readonly document_id: string;
                     /** Format: int64 */
@@ -5273,8 +5443,21 @@ export interface components {
         };
         readonly ResponseEnvelope_CommittedModuleValue_ProjectWorkspaceCommitValue_ProjectWorkspaceReceipt: {
             readonly payload: {
-                /** Format: int64 */
+                /**
+                 * Format: int64
+                 * @description Semantic LocalCommit cursor after this operation. Unlike
+                 *     `event_sequence`, this does not identify a physical change-log row.
+                 *     A no-change receipt still carries the current cursor so callers never
+                 *     mistake a physical sequence for projection freshness.
+                 */
+                readonly commit_seq?: number;
+                /**
+                 * Format: int64
+                 * @description Physical change-log effect sequence retained for module-internal event
+                 *     reconstruction. It is not a public projection cursor.
+                 */
                 readonly event_sequence: number;
+                readonly local_commit?: null | components["schemas"]["LocalCommitEnvelope"];
                 readonly receipt: components["schemas"]["ModuleMutationReceipt"] & {
                     readonly affected_project_ids: readonly string[];
                     readonly affected_session_ids: readonly string[];
@@ -5295,8 +5478,21 @@ export interface components {
         };
         readonly ResponseEnvelope_CommittedModuleValue_StoreAdministrationCommitValue_StoreAdministrationReceipt: {
             readonly payload: {
-                /** Format: int64 */
+                /**
+                 * Format: int64
+                 * @description Semantic LocalCommit cursor after this operation. Unlike
+                 *     `event_sequence`, this does not identify a physical change-log row.
+                 *     A no-change receipt still carries the current cursor so callers never
+                 *     mistake a physical sequence for projection freshness.
+                 */
+                readonly commit_seq?: number;
+                /**
+                 * Format: int64
+                 * @description Physical change-log effect sequence retained for module-internal event
+                 *     reconstruction. It is not a public projection cursor.
+                 */
                 readonly event_sequence: number;
+                readonly local_commit?: null | components["schemas"]["LocalCommitEnvelope"];
                 readonly receipt: components["schemas"]["ModuleMutationReceipt"] & {
                     readonly backup_id?: string | null;
                     readonly safety_backup_id?: string | null;
@@ -5317,10 +5513,10 @@ export interface components {
         };
         readonly ResponseEnvelope_ModuleReadSnapshot_AutomationReadValue: {
             readonly payload: {
+                /** Format: int64 */
+                readonly commit_head: number;
                 /** Format: int32 */
                 readonly contract_version: number;
-                /** Format: int64 */
-                readonly event_head: number;
                 readonly store_epoch: components["schemas"]["StoreEpoch"];
                 readonly value: {
                     /** @enum {string} */
@@ -5370,10 +5566,10 @@ export interface components {
         };
         readonly ResponseEnvelope_ModuleReadSnapshot_DatabaseReadValue: {
             readonly payload: {
+                /** Format: int64 */
+                readonly commit_head: number;
                 /** Format: int32 */
                 readonly contract_version: number;
-                /** Format: int64 */
-                readonly event_head: number;
                 readonly store_epoch: components["schemas"]["StoreEpoch"];
                 readonly value: {
                     readonly databases: components["schemas"]["CollectionWindow_Value"];
@@ -5450,14 +5646,14 @@ export interface components {
         };
         readonly ResponseEnvelope_ModuleReadSnapshot_LibraryReadValue: {
             readonly payload: {
+                /** Format: int64 */
+                readonly commit_head: number;
                 /** Format: int32 */
                 readonly contract_version: number;
-                /** Format: int64 */
-                readonly event_head: number;
                 readonly store_epoch: components["schemas"]["StoreEpoch"];
                 readonly value: {
                     /** Format: int64 */
-                    readonly change_log_seq: number;
+                    readonly commit_seq: number;
                     /** @enum {string} */
                     readonly kind: "metadata";
                     readonly library_id: string;
@@ -5603,10 +5799,10 @@ export interface components {
         };
         readonly ResponseEnvelope_ModuleReadSnapshot_OwnedDocumentReadValue: {
             readonly payload: {
+                /** Format: int64 */
+                readonly commit_head: number;
                 /** Format: int32 */
                 readonly contract_version: number;
-                /** Format: int64 */
-                readonly event_head: number;
                 readonly store_epoch: components["schemas"]["StoreEpoch"];
                 readonly value: {
                     readonly descriptor: unknown;
@@ -5650,10 +5846,10 @@ export interface components {
         };
         readonly ResponseEnvelope_ModuleReadSnapshot_ProjectWorkspaceReadValue: {
             readonly payload: {
+                /** Format: int64 */
+                readonly commit_head: number;
                 /** Format: int32 */
                 readonly contract_version: number;
-                /** Format: int64 */
-                readonly event_head: number;
                 readonly store_epoch: components["schemas"]["StoreEpoch"];
                 readonly value: {
                     readonly bootstrap: components["schemas"]["ProjectWorkspaceBootstrap"];
@@ -5728,10 +5924,10 @@ export interface components {
         };
         readonly ResponseEnvelope_ModuleReadSnapshot_StoreAdministrationReadValue: {
             readonly payload: {
+                /** Format: int64 */
+                readonly commit_head: number;
                 /** Format: int32 */
                 readonly contract_version: number;
-                /** Format: int64 */
-                readonly event_head: number;
                 readonly store_epoch: components["schemas"]["StoreEpoch"];
                 readonly value: {
                     readonly integrity: components["schemas"]["StoreIntegrity"];
@@ -5930,6 +6126,29 @@ export interface operations {
                 };
                 content: {
                     readonly "application/json": components["schemas"]["HealthResponse"];
+                };
+            };
+        };
+    };
+    readonly resolve_local_mutation: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["LocalMutationResolveRequest"];
+            };
+        };
+        readonly responses: {
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["LocalMutationResolveResponse"];
                 };
             };
         };

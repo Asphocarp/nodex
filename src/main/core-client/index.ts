@@ -23,6 +23,11 @@ export {
   CoreAuthorityUnavailableError,
   DesktopCoreAuthoritySupervisor,
 } from "./desktop-core-authority-supervisor";
+export {
+  LocalCommitDispatcher,
+  type LocalCommitDispatcherInput,
+  type LocalCommitIngress,
+} from "./local-commit-dispatcher";
 export { createCoreLibraryModuleAdapter } from "./library-module-adapter";
 export {
   createDesktopLibraryModuleBridge,

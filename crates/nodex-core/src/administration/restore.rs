@@ -312,6 +312,7 @@ pub(super) fn rotate_installed_store_epoch(
                     "Installed restore candidate epoch changed during rotation",
                 ));
             }
+            transaction.execute_batch("PRAGMA defer_foreign_keys = ON;")?;
             transaction.execute_batch("DROP TRIGGER change_log_is_immutable")?;
             transaction.execute(
                 "UPDATE change_log SET store_epoch = ?1 WHERE store_epoch != ?1",
@@ -324,10 +325,14 @@ pub(super) fn rotate_installed_store_epoch(
                      SELECT RAISE(ABORT, 'change log entries are immutable'); \
                    END;",
             )?;
+            crate::infrastructure::local_commit::rebase_store_epoch(transaction, installed_epoch)?;
             transaction.execute(
                 "UPDATE core_module_receipts \
                  SET store_epoch = ?1, \
-                     result_json = json_set(result_json, '$.store_epoch', ?1) \
+                     result_json = json_set(\
+                         json_set(result_json, '$.store_epoch', ?1),\
+                         '$.local_commit', json('null')\
+                     ) \
                  WHERE store_epoch != ?1",
                 [installed_epoch],
             )?;

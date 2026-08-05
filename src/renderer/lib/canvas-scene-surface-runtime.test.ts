@@ -61,9 +61,6 @@ const runtimeDependencies = (input: {
     connect: async () => {
       calls.push("connect");
     },
-    waitForRelocationIdle: async () => {
-      calls.push("lease-idle");
-    },
     getStatus: () => input.status ?? {
       phase: "ready",
       connected: true,
@@ -131,7 +128,6 @@ describe("CanvasSceneSurfaceRegistry", () => {
     durable.resolve();
     await Promise.all([releasing, appClosing]);
     expect(dependencies.calls).toEqual(expect.arrayContaining([
-      "lease-idle",
       "close-presence",
       "close-provider",
       "dispose-subscriptions",
@@ -202,7 +198,6 @@ describe("CanvasSceneSurfaceRegistry", () => {
 
     expect(dependencies.calls).toEqual([
       "persist",
-      "lease-idle",
       "maintain",
       "close-presence",
       "close-provider",
@@ -266,7 +261,6 @@ describe("CanvasSceneSurfaceRegistry", () => {
     );
     expect(first.calls).toEqual(expect.arrayContaining([
       "persist",
-      "lease-idle",
       "close-presence",
       "close-provider",
       "dispose-subscriptions",

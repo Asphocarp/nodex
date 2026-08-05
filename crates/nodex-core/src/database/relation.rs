@@ -246,7 +246,7 @@ fn canonical_targets(values: &[String], label: &str) -> Result<BTreeSet<String>,
 pub(crate) fn target_window(
     connection: &Connection,
     library_id: &str,
-    event_head: i64,
+    commit_head: i64,
     project_id: Option<&str>,
     address: &DatabasePagePropertyAddress,
     request: &CollectionWindowRequest,
@@ -352,7 +352,7 @@ pub(crate) fn target_window(
         candidates,
         normalized.first,
         CollectionWindowAuthority {
-            projection_revision: event_head,
+            projection_revision: commit_head,
         },
         |coordinate| {
             cursor::mint(
@@ -373,7 +373,7 @@ pub(crate) fn target_window(
 pub(crate) fn candidate_window(
     connection: &Connection,
     library_id: &str,
-    event_head: i64,
+    commit_head: i64,
     target_data_source_id: &str,
     filter: Option<&Value>,
     request: &CollectionWindowRequest,
@@ -473,7 +473,7 @@ pub(crate) fn candidate_window(
         candidates,
         normalized.first,
         CollectionWindowAuthority {
-            projection_revision: event_head,
+            projection_revision: commit_head,
         },
         |coordinate| {
             cursor::mint(

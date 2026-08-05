@@ -41,7 +41,7 @@ describe("Desktop Nodex Agent resource authority", () => {
     const client = new FakeCoreClient();
     client.enqueueRead({
       contract_version: 1,
-      event_head: 8,
+      commit_head: 8,
       store_epoch: "epoch:test",
       value: {
         kind: "agent_resource_access_plan",
@@ -165,7 +165,7 @@ describe("Desktop Nodex Agent resource authority", () => {
         committed_revisions: {
           "projectGrant:project:one:page:page:one": 1,
         },
-        change_log_seq: 9,
+        commit_seq: 9,
         committed_at: "2026-07-20T09:20:00.000Z",
       },
       event_sequence: 9,
@@ -212,7 +212,7 @@ describe("Desktop Nodex Agent resource authority", () => {
     const client = new FakeCoreClient();
     client.enqueueRead({
       contract_version: 1,
-      event_head: 8,
+      commit_head: 8,
       store_epoch: "epoch:test",
       value: {
         kind: "agent_resource_access_plan",

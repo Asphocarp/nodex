@@ -26,6 +26,7 @@ use crate::domain::view_position::{
 };
 use crate::infrastructure::event_log::{
     NewChangeLogEntry, append_change_log, load_committed_event_by_sequence,
+    load_local_commit_by_event_sequence,
 };
 use crate::infrastructure::module_receipts::{
     NewModuleReceipt, insert_module_receipt, read_module_receipt,
@@ -4939,6 +4940,7 @@ fn commit(
             committed_at: now,
         },
     )?;
+    let local_commit = load_local_commit_by_event_sequence(connection, event_sequence)?;
     let receipt = DatabaseReceipt {
         mutation: ModuleMutationReceipt {
             operation_id: request.operation_id.clone(),
@@ -4950,7 +4952,7 @@ fn commit(
         affected_view_ids: view_ids.clone(),
         operation_kinds,
         committed_revisions,
-        change_log_seq: event_sequence,
+        commit_seq: local_commit.commit_seq,
         committed_at: now.to_owned(),
     };
     let committed = CommittedModuleValue {
@@ -4959,8 +4961,10 @@ fn commit(
                 .map_err(|_| internal("Database operation count"))?,
         },
         receipt,
+        commit_seq: local_commit.commit_seq,
         event_sequence,
         store_epoch: StoreEpoch(store_epoch.to_owned()),
+        local_commit: Some(local_commit),
     };
     insert_module_receipt(
         connection,

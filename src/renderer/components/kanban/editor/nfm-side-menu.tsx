@@ -71,7 +71,13 @@ import {
   NodexPopover,
   NodexPopoverAnchor,
 } from "@/components/ui/popover";
+import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
+import {
+  hasNestedTypedOwnerBlock,
+  hasTypedOwnerBlock,
+  isTypedOwnerBlockType,
+} from "@/lib/typed-owner-blocks";
 import { NfmEditorPopoverContent } from "./nfm-editor-popover-content";
 import {
   NfmFloatingPopover,
@@ -1536,10 +1542,31 @@ function NfmSideMenuPopup({
     const selectedCanvasBlocks = topLevelSelectedBlocks.filter(
       (candidate) => candidate.type === "canvas",
     );
+    const selectedPageBlocks = topLevelSelectedBlocks.filter(
+      (candidate) => candidate.type === "page",
+    );
+    const selectedDatabaseBlocks = topLevelSelectedBlocks.filter(
+      (candidate) => candidate.type === "database",
+    );
 
     if (!isEditable) return;
 
     if (key === "duplicate") {
+      if (topLevelSelectedBlocks.some((candidate) =>
+        isTypedOwnerBlockType(candidate.type) && candidate.type !== "canvas")) {
+        toast.info(
+          "Page and Database blocks must be duplicated through a typed action.",
+        );
+        close("action");
+        return;
+      }
+      if (hasNestedTypedOwnerBlock(topLevelSelectedBlocks)) {
+        toast.info(
+          "A Block containing a Page, Canvas, or Database cannot be duplicated as a generic Block.",
+        );
+        close("action");
+        return;
+      }
       if (selectedCanvasBlocks.length > 0) {
         if (
           selectedCanvasBlocks.length === 1
@@ -1560,6 +1587,19 @@ function NfmSideMenuPopup({
     }
 
     if (key === "delete") {
+      if (selectedPageBlocks.length > 0) {
+        if (
+          selectedPageBlocks.length === 1
+          && topLevelSelectedBlocks.length === 1
+          && selectedPageBlocks[0]?.id
+        ) {
+          void runtimeSnapshot.onDeletePage(selectedPageBlocks[0].id);
+        } else {
+          toast.info("Delete one Page at a time.");
+        }
+        close("action");
+        return;
+      }
       if (selectedCanvasBlocks.length > 0) {
         if (
           selectedCanvasBlocks.length === 1
@@ -1568,6 +1608,18 @@ function NfmSideMenuPopup({
         ) {
           void runtimeSnapshot.onDeleteCanvas(selectedCanvasBlocks[0].id);
         }
+        close("action");
+        return;
+      }
+      if (selectedDatabaseBlocks.length > 0) {
+        toast.info("Database blocks must be removed through a typed Database action.");
+        close("action");
+        return;
+      }
+      if (hasNestedTypedOwnerBlock(topLevelSelectedBlocks)) {
+        toast.info(
+          "A Block containing a Page, Canvas, or Database must be removed through a typed action.",
+        );
         close("action");
         return;
       }
@@ -1774,6 +1826,13 @@ function NfmSideMenuPopup({
         onTurnInto={(item) => {
           if (!item.enabled) return;
           const selectedBlocks = getSideMenuActionBlocks(openState, block);
+          if (hasTypedOwnerBlock(selectedBlocks)) {
+            toast.info(
+              "Page, Canvas, and Database blocks cannot be reclassified.",
+            );
+            close("action");
+            return;
+          }
           for (const selectedBlock of selectedBlocks) {
             editor.updateBlock?.(selectedBlock, {
               type: item.type,
@@ -1784,6 +1843,13 @@ function NfmSideMenuPopup({
         }}
         onColor={(kind, color) => {
           const selectedBlocks = getSideMenuActionBlocks(openState, block);
+          if (hasTypedOwnerBlock(selectedBlocks)) {
+            toast.info(
+              "Page, Canvas, and Database blocks do not support generic block colors.",
+            );
+            close("action");
+            return;
+          }
           const propName = kind === "text" ? "textColor" : "backgroundColor";
           const currentValue = normalizeColorValue(block.props?.[propName]);
           const nextValue = currentValue === color ? "default" : color;

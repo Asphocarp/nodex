@@ -337,7 +337,7 @@ describe("native Database Page projections", () => {
       {
         libraryId: "library:test",
         storeEpoch: "epoch:test",
-        changeLogSeq: 1,
+        commitSeq: 1,
       },
     );
 

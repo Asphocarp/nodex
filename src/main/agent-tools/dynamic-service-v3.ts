@@ -310,7 +310,7 @@ function movePagesFootprint(
       destinationResource(command.input.destination),
       `compatibility_owner:${command.destination.contentProjectId ?? command.projectId}`,
       ...command.input.pageIds.map((pageId) => `page:${pageId}`),
-      ...command.leaseDocuments.map((lease) => `document:${lease.documentId}`),
+      ...command.documentHeads.map((head) => `document:${head.documentId}`),
       ...command.transfers.flatMap((step) => [
         ...(step.rehome?.blockIds.map((blockId) => `block:${blockId}`) ?? []),
         ...(step.rehome?.documentIds.map((documentId) => `document:${documentId}`) ?? []),
@@ -335,7 +335,7 @@ function duplicatePageFootprint(
       `page:${command.input.pageId}`,
       destinationResource(command.input.destination),
       `compatibility_owner:${command.destination.contentProjectId ?? command.projectId}`,
-      ...command.leaseDocuments.map((lease) => `document:${lease.documentId}`),
+      ...command.documentHeads.map((head) => `document:${head.documentId}`),
     ],
     deletions: [],
     transformations: [
@@ -525,7 +525,7 @@ export class NodexAgentV3DynamicService {
         const result = await withExecutionTimeout(
           async () => await this.documentHub.executeNodexAgentCreatePages(
             prepared.command,
-            prepared.leaseDocuments,
+            prepared.documentHeads,
           ),
           this.executionTimeoutMs,
         );

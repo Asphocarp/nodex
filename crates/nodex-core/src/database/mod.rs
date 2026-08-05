@@ -116,15 +116,16 @@ impl DatabaseModule {
                     )
                     .optional()?
                     .ok_or_else(|| corrupt("Profile store epoch is unavailable"))?;
-                let event_head = transaction.query_row(
+                let change_log_head = transaction.query_row(
                     "SELECT COALESCE(max(seq), 0) FROM change_log",
                     [],
                     |row| row.get::<_, i64>(0),
                 )?;
+                let commit_seq = crate::infrastructure::local_commit::head(&transaction)?;
                 let value = read::read_at_event_head(
                     &transaction,
                     &library_id,
-                    event_head,
+                    change_log_head,
                     &context,
                     request.read,
                 )?;
@@ -132,7 +133,7 @@ impl DatabaseModule {
                 Ok(ModuleReadSnapshot {
                     contract_version: DATABASE_CONTRACT_VERSION,
                     store_epoch: nodex_core_contracts::StoreEpoch(store_epoch),
-                    event_head,
+                    commit_head: commit_seq,
                     value,
                 })
             })
@@ -1277,8 +1278,8 @@ mod tests {
             ])
         );
         assert_eq!(
-            applied.committed.receipt.change_log_seq,
-            applied.committed.event_sequence
+            applied.committed.receipt.commit_seq,
+            applied.committed.commit_seq
         );
         let event = applied.event.as_ref().expect("committed Database event");
         assert_eq!(applied.committed.receipt.committed_at, event.committed_at);
@@ -2644,7 +2645,7 @@ mod tests {
         };
         assert_eq!(
             value.rows.authority.projection_revision,
-            snapshot.event_head
+            snapshot.commit_head
         );
         Ok(value)
     }

@@ -31,6 +31,7 @@ import {
   type BlockDocumentSurfaceStatus,
 } from "@/lib/block-document-surface-runtime";
 import type { DocumentSyncAdapter } from "@/lib/nodex-y-provider";
+import type { PageEditorAwarenessLease } from "@/lib/page-editor-session-registry";
 import type {
   OwnedBlockDocumentModel,
   ReadyPageBlockDocumentDescriptor,
@@ -78,6 +79,8 @@ export interface BlockDocumentSurfaceProps {
   /** Retained inactive tabs continue syncing content but publish no presence. */
   readonly isActive: boolean;
   readonly localAwarenessState?: BlockDocumentLocalAwarenessState;
+  /** Optional lease used when multiple views share one canonical provider. */
+  readonly awarenessLease?: PageEditorAwarenessLease;
   readonly onReload?: (
     context?: BlockDocumentSurfaceReloadContext,
   ) => void | Promise<void>;
@@ -278,6 +281,7 @@ const useSurfaceAwareness = (
   descriptor: PrimaryOwnedBlockDocumentDescriptor,
   isActive: boolean,
   configured: BlockDocumentLocalAwarenessState | undefined,
+  awarenessLease?: PageEditorAwarenessLease,
 ): void => {
   const retainedStateRef = useRef<Record<string, unknown> | null>(null);
   const configuredRef = useRef(configured);
@@ -288,6 +292,7 @@ const useSurfaceAwareness = (
     const localClientId = runtime.document.clientID;
 
     if (isActive) {
+      awarenessLease?.acquire();
       awareness.setLocalState(
         makeActiveAwarenessState(
           runtime,
@@ -297,8 +302,11 @@ const useSurfaceAwareness = (
           retainedStateRef.current,
         ),
       );
-      return;
+      return () => awarenessLease?.release();
     }
+
+    awarenessLease?.release();
+    if (awarenessLease) return;
 
     const clearPresence = (): void => {
       const current = awareness.getLocalState();
@@ -322,7 +330,7 @@ const useSurfaceAwareness = (
     awareness.on("update", handleAwarenessUpdate);
     clearPresence();
     return () => awareness.off("update", handleAwarenessUpdate);
-  }, [descriptor, isActive, projectId, runtime]);
+  }, [awarenessLease, descriptor, isActive, projectId, runtime]);
 };
 
 export interface OwnedBlockDocumentRuntimeSurfaceProps {
@@ -331,6 +339,7 @@ export interface OwnedBlockDocumentRuntimeSurfaceProps {
   readonly descriptor: PrimaryOwnedBlockDocumentDescriptor;
   readonly isActive: boolean;
   readonly localAwarenessState?: BlockDocumentLocalAwarenessState;
+  readonly awarenessLease?: PageEditorAwarenessLease;
   readonly startupError: Error | null;
   readonly onReload: () => Promise<void>;
   readonly pendingFallback?: ReactNode;
@@ -344,6 +353,7 @@ export function OwnedBlockDocumentRuntimeSurface({
   descriptor,
   isActive,
   localAwarenessState,
+  awarenessLease,
   startupError,
   onReload,
   pendingFallback,
@@ -363,6 +373,7 @@ export function OwnedBlockDocumentRuntimeSurface({
     descriptor,
     isActive,
     localAwarenessState,
+    awarenessLease,
   );
 
   const reload = async (): Promise<void> => {
@@ -443,6 +454,7 @@ function RuntimeOwner({
   descriptor: descriptorProp,
   isActive,
   localAwarenessState,
+  awarenessLease,
   onReload,
   dependencies = DEFAULT_DEPENDENCIES,
   runtimeRef,
@@ -558,6 +570,7 @@ function RuntimeOwner({
       descriptor={descriptor}
       isActive={isActive}
       localAwarenessState={localAwarenessState}
+      awarenessLease={awarenessLease}
       startupError={startupError}
       onReload={handleReload}
       pendingFallback={pendingFallback}

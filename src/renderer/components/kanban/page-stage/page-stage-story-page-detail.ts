@@ -137,7 +137,7 @@ export const buildPageDetailStoryResult = (
       projectId,
       libraryId,
       storeEpoch: "store-epoch:storybook",
-      changeLogSeq: 1,
+      commitSeq: 1,
       page: {
         pageId: page.id,
         libraryId,

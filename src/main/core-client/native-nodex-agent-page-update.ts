@@ -246,7 +246,10 @@ const toDocumentOperationResult = (
     writeFenceBlockIds: effect?.write_fence_block_ids ?? [],
     titleChanged: effect?.title_changed ?? false,
     coordination: effect?.coordination ?? "merge_friendly",
-    changeLogSeq: committed.event_sequence,
+    commitSeq:
+      committed.commit_seq
+      ?? committed.local_commit?.commit_seq
+      ?? committed.event_sequence,
     committedAt,
     duplicate: committed.receipt.duplicate,
   };
