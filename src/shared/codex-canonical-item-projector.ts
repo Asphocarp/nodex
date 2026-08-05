@@ -3,8 +3,8 @@ import {
   buildCodexFileChangeFromProtocol,
   buildCodexFileChangeMap,
   isCodexVisualizationPath,
-  resolveCodexPatchSuccess,
 } from "./codex-file-change";
+import { resolveCodexFileChangeActivity } from "./codex-file-change-activity";
 import {
   buildCodexUserAttachmentsFromContent,
   buildCodexUserAttachmentsFromInput,
@@ -41,6 +41,7 @@ import type {
 export interface ProjectCodexCanonicalItemViewsOptions {
   readonly observedAtMs: number;
   readonly turnStatus: TurnStatus;
+  readonly lifecycleStatusByItemId?: Readonly<Record<string, CodexItemStatus>>;
   readonly commandExecutionStartedAtMsById?: Readonly<Record<string, number>>;
   readonly interruptedCommandExecutionItemIds?: readonly string[];
   readonly isBackgroundSubagentsEnabled?: boolean;
@@ -75,8 +76,7 @@ export type CodexCanonicalTurnView = CodexItemView;
 interface ItemProjectionContext extends ProjectCodexCanonicalItemViewsOptions {
   readonly threadId: string;
   readonly turnId: string | null;
-  readonly rawItemIndex: number;
-  readonly lastNonUserWorkItemIndex: number;
+  readonly isLastNonUserWorkItem: boolean;
 }
 
 function assertNever(value: never): never {
@@ -111,15 +111,43 @@ function buildBaseView(
   };
 }
 
-function isLastInProgressWorkItem(context: ItemProjectionContext): boolean {
-  return context.turnStatus === "inProgress"
-    && context.rawItemIndex === context.lastNonUserWorkItemIndex;
+function resolveCanonicalItemStatus(
+  item: CodexCanonicalItem,
+  context: ItemProjectionContext,
+): CodexItemStatus | undefined {
+  const lifecycleStatus = context.lifecycleStatusByItemId?.[item.id];
+  if (lifecycleStatus !== undefined) return lifecycleStatus;
+
+  if (
+    "status" in item
+    && (
+      item.status === "inProgress"
+      || item.status === "completed"
+      || item.status === "failed"
+      || item.status === "declined"
+      || item.status === "interrupted"
+    )
+  ) {
+    return item.status;
+  }
+
+  return context.turnStatus === "inProgress" ? undefined : "completed";
+}
+
+function resolveWebSearchCompleted(
+  item: Extract<CodexCanonicalItem, { type: "webSearch" }>,
+  context: ItemProjectionContext,
+): boolean {
+  const lifecycleStatus = context.lifecycleStatusByItemId?.[item.id];
+  if (lifecycleStatus !== undefined) return lifecycleStatus !== "inProgress";
+  if (context.turnStatus !== "inProgress") return true;
+  return !context.isLastNonUserWorkItem;
 }
 
 /**
  * Reports the non-positional turn-status dependencies owned by individual
- * projector branches. Last-work dependencies remain turn-scoped because they
- * also require sibling position.
+ * projector branches. Item lifecycle status is carried by the canonical
+ * sidecar instead of inferred from sibling position.
  */
 export function doesCodexCanonicalItemProjectionChangeWithTurnStatus(
   item: CodexCanonicalItem,
@@ -517,12 +545,19 @@ function projectFileChange(
   const visualizationActivities = item.status === "inProgress" || item.status === "completed"
     ? [...visualizationKinds].map(([path, kind]) => ({ path, kind }))
     : [];
-  if (ordinaryChanges.length === 0 && visualizationActivities.length === 0) return [];
 
   const fileChange: CodexFileChangeView = {
     changes: buildCodexFileChangeMap(ordinaryChanges),
     ...(visualizationActivities.length === 0 ? {} : { visualizationActivities }),
-    success: resolveCodexPatchSuccess(item.status),
+  };
+  const activity = resolveCodexFileChangeActivity({
+    status: item.status,
+    fileChange,
+  });
+  if (activity.visibility === "suppressed") return [];
+  const projectedFileChange: CodexFileChangeView = {
+    ...fileChange,
+    success: activity.success,
   };
   return [{
     ...buildBaseView(item, context),
@@ -530,7 +565,7 @@ function projectFileChange(
     semanticKind: "patch",
     callId: item.id,
     status: item.status,
-    fileChange,
+    fileChange: projectedFileChange,
     approvalRequestId: null,
     grantRoot: null,
   }];
@@ -699,6 +734,21 @@ function shouldHidePolicyError(
   }
 }
 
+function isNonUserWorkItem(item: CodexCanonicalItem): boolean {
+  return item.type !== "userMessage"
+    && item.type !== "hookPrompt"
+    && item.type !== "steeringUserMessage"
+    && item.type !== "steered";
+}
+
+function resolveLastNonUserWorkItemIndex(items: readonly CodexCanonicalItem[]): number {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index];
+    if (item && isNonUserWorkItem(item)) return index;
+  }
+  return -1;
+}
+
 function projectCanonicalItemViews(
   item: CodexCanonicalItem,
   context: ItemProjectionContext,
@@ -717,7 +767,8 @@ function projectCanonicalItemViews(
       }];
     }
     case "agentMessage": {
-      const markdownText = projectAssistantText(item.text, isLastInProgressWorkItem(context));
+      const status = resolveCanonicalItemStatus(item, context);
+      const markdownText = projectAssistantText(item.text, status === "inProgress");
       if (markdownText === null) return [];
       return [{
         ...buildBaseView(item, context),
@@ -726,19 +777,22 @@ function projectCanonicalItemViews(
         role: "assistant",
         assistantPhase: item.phase ?? undefined,
         markdownText,
-        status: isLastInProgressWorkItem(context) ? "inProgress" : "completed",
+        status,
       }];
     }
-    case "plan":
+    case "plan": {
+      const status = resolveCanonicalItemStatus(item, context);
       return [{
         ...buildBaseView(item, context),
         normalizedKind: "plan",
         semanticKind: "proposedPlan",
         role: "assistant",
         markdownText: item.text,
-        status: isLastInProgressWorkItem(context) ? "inProgress" : "completed",
+        status,
       }];
+    }
     case "reasoning": {
+      const status = resolveCanonicalItemStatus(item, context);
       const markdownText = projectCodexReasoningSummary(item.summary);
       if (!markdownText) return [];
       return [{
@@ -746,7 +800,7 @@ function projectCanonicalItemViews(
         normalizedKind: "reasoning",
         semanticKind: "reasoning",
         markdownText,
-        status: isLastInProgressWorkItem(context) ? "inProgress" : "completed",
+        status,
       }];
     }
     case "commandExecution":
@@ -920,7 +974,7 @@ function projectCanonicalItemViews(
         webSearch: {
           query: item.query,
           action: item.action,
-          completed: !isLastInProgressWorkItem(context),
+          completed: resolveWebSearchCompleted(item, context),
         },
       }];
     case "contextCompaction": {
@@ -998,21 +1052,6 @@ function projectCanonicalItemViews(
   }
 }
 
-function lastNonUserWorkItemIndex(items: readonly CodexCanonicalItem[]): number {
-  for (let index = items.length - 1; index >= 0; index -= 1) {
-    const type = items[index]?.type;
-    if (
-      type !== "userMessage"
-      && type !== "hookPrompt"
-      && type !== "steeringUserMessage"
-      && type !== "steered"
-    ) {
-      return index;
-    }
-  }
-  return -1;
-}
-
 /**
  * Projects one canonical raw turn into display views with the bundle's exact
  * per-discriminant 0/1/N policy. Protocol ingress and app-local constructors
@@ -1022,14 +1061,13 @@ export function projectCodexCanonicalTurnItemViews(
   input: ProjectCodexCanonicalTurnItemViewsInput,
 ): CodexItemView[] {
   const views: CodexItemView[] = [];
-  const lastWorkIndex = lastNonUserWorkItemIndex(input.items);
   let previousRawItemWasImageView = false;
+  const lastNonUserWorkItemIndex = resolveLastNonUserWorkItemIndex(input.items);
 
   input.items.forEach((item, rawItemIndex) => {
     const projected = projectCanonicalItemViews(item, {
       ...input,
-      rawItemIndex,
-      lastNonUserWorkItemIndex: lastWorkIndex,
+      isLastNonUserWorkItem: rawItemIndex === lastNonUserWorkItemIndex,
     });
     if (item.type !== "imageView") {
       previousRawItemWasImageView = false;
@@ -1137,6 +1175,8 @@ export function projectCodexCanonicalTurnViews(
     turnStatus: input.turn.protocol.status,
     commandExecutionStartedAtMsById:
       input.turn.sidecar.commandExecutionStartedAtMsById,
+    lifecycleStatusByItemId:
+      input.turn.sidecar.lifecycleStatusByItemId,
     interruptedCommandExecutionItemIds:
       input.turn.sidecar.interruptedCommandExecutionItemIds,
     isBackgroundSubagentsEnabled: input.isBackgroundSubagentsEnabled,

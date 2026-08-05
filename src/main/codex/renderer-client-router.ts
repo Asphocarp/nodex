@@ -45,6 +45,17 @@ export interface RendererClientDisposedEvent {
   reason: string;
 }
 
+export interface RendererClientConnectedEvent {
+  clientId: string;
+  webContentsId: number;
+}
+
+export interface RendererClientDeliveryResult {
+  sentClientIds: readonly string[];
+  unavailableClientIds: readonly string[];
+  failedClientIds: readonly string[];
+}
+
 interface RegisteredRendererClient {
   clientId: string;
   webContents: RendererClientWebContents;
@@ -107,6 +118,7 @@ export class RendererClientRouter {
   private readonly clientsByWebContentsId = new Map<number, RegisteredRendererClient>();
   private readonly webContentsIdByClientId = new Map<string, number>();
   private readonly pendingRequests = new Map<string, PendingRendererClientRequest>();
+  private readonly clientConnectedListeners = new Set<(event: RendererClientConnectedEvent) => void>();
   private readonly clientDisposedListeners = new Set<(event: RendererClientDisposedEvent) => void>();
   private readonly clientIdFactory: () => string;
   private readonly requestIdFactory: () => string;
@@ -153,6 +165,7 @@ export class RendererClientRouter {
     });
     this.webContentsIdByClientId.set(clientId, webContents.id);
     webContents.once?.("destroyed", destroyListener);
+    this.emitClientConnected({ clientId, webContentsId: webContents.id });
 
     return this.createRegistration(clientId, webContents.id);
   }
@@ -184,11 +197,44 @@ export class RendererClientRouter {
     };
   }
 
+  addClientConnectedListener(listener: (event: RendererClientConnectedEvent) => void): () => void {
+    this.clientConnectedListeners.add(listener);
+    return () => {
+      this.clientConnectedListeners.delete(listener);
+    };
+  }
+
   sendToClient(clientId: string, channel: string, args: readonly unknown[]): boolean {
     const client = this.findClient(clientId);
     if (!client) return false;
 
     return this.sendFn(client.webContents, channel, args);
+  }
+
+  sendToClients(
+    clientIds: readonly string[],
+    channel: string,
+    args: readonly unknown[],
+    options: { excludeClientId?: string | null } = {},
+  ): RendererClientDeliveryResult {
+    const sentClientIds: string[] = [];
+    const unavailableClientIds: string[] = [];
+    const failedClientIds: string[] = [];
+    const uniqueClientIds = new Set(clientIds);
+    for (const clientId of uniqueClientIds) {
+      if (clientId === options.excludeClientId) continue;
+      const client = this.findClient(clientId);
+      if (!client) {
+        unavailableClientIds.push(clientId);
+        continue;
+      }
+      if (this.sendFn(client.webContents, channel, args)) {
+        sentClientIds.push(clientId);
+        continue;
+      }
+      failedClientIds.push(clientId);
+    }
+    return { sentClientIds, unavailableClientIds, failedClientIds };
   }
 
   broadcast(
@@ -397,6 +443,12 @@ export class RendererClientRouter {
 
   private emitClientDisposed(event: RendererClientDisposedEvent): void {
     for (const listener of this.clientDisposedListeners) {
+      listener(event);
+    }
+  }
+
+  private emitClientConnected(event: RendererClientConnectedEvent): void {
+    for (const listener of this.clientConnectedListeners) {
       listener(event);
     }
   }

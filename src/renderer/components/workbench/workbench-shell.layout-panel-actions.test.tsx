@@ -1690,12 +1690,13 @@ describe("workbench session shell / layout-panel-actions", () => {
     expect(actionText.indexOf("Side chat") < actionText.indexOf("Browser")).toBe(true);
     expect(actionText.indexOf("Browser") < actionText.indexOf("Terminal")).toBe(true);
     expect(actionText.includes("Files")).toBe(false);
-    expect(actionText.includes("Review")).toBe(false);
+    expect(actionText.includes("Review")).toBe(true);
 
     const menu = await openPanelMenu(screen, "Open side panel tab");
     expect(within(menu).getByText("Side chat") !== null).toBe(true);
     expect(within(menu).getByText("Browser") !== null).toBe(true);
     expect(within(menu).getByText("Terminal") !== null).toBe(true);
+    expect(within(menu).getByText("Review") !== null).toBe(true);
     expect(within(menu).queryByText("Files")).toBe(null);
 
     await clickMenuItem(menu, "Side chat");

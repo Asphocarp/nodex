@@ -26,7 +26,7 @@ import {
   resolveExplorationPath,
   resolveExplorationSkillPathInfo,
 } from "./tool-metadata/command-actions";
-import { resolveCodexPatchSuccess } from "../../../../shared/codex-file-change";
+import { resolveCodexFileChangeActivity } from "../../../../shared/codex-file-change-activity";
 
 export type ThreadAgentActivityVisibility = "hidden" | ThreadAgentActivityGrouping;
 
@@ -446,13 +446,20 @@ function shouldRenderThreadActivityItemInGroupBody(
   const item = activityItem.item;
   if (!("entry" in item)) return true;
   if (item.type === "fileChange") {
-    const changes = item.entry.fileChange?.changes;
-    if (changes != null && Object.keys(changes).length > 0) return true;
-    const hasVisualization = (item.entry.fileChange?.visualizationActivities?.length ?? 0) > 0;
+    const activity = resolveCodexFileChangeActivity({
+      status: item.entry.status,
+      fileChange: item.entry.fileChange,
+    });
+    if (activity.hasMaterializedChanges) return true;
+    if (activity.lifecycle === "inProgress") {
+      if (activity.visualizationActivities.length === 0) return true;
+      return activity.success !== false
+        && (activity.success === true || item.entry.approvalRequestId != null || !isTurnCancelled);
+    }
+    const hasVisualization = activity.visualizationActivities.length > 0;
     if (!hasVisualization) return false;
-    const success = resolveCodexPatchSuccess(item.entry.status);
-    return success !== false
-      && (success === true || item.entry.approvalRequestId != null || !isTurnCancelled);
+    return activity.success !== false
+      && (activity.success === true || item.entry.approvalRequestId != null || !isTurnCancelled);
   }
   if (item.type !== "exec") return true;
 

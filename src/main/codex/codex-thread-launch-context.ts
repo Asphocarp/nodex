@@ -220,8 +220,8 @@ export function mergeCodexDefaultFeatureOverrides(
   return {
     ...params,
     config: {
-      ...featureConfig,
       ...params.config,
+      ...featureConfig,
     },
   };
 }

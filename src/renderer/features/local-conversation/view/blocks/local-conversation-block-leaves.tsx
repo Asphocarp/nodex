@@ -490,20 +490,6 @@ export function ThreadAgentActivityGroupBlock({
   );
 }
 
-export function ThreadThinkingPlaceholderBlock({ block }: ThreadSpecialBlockProps) {
-  if (block.type !== "thinkingPlaceholder") return null;
-
-  return (
-    <div className="min-w-0 py-0">
-      <div className="flex items-center gap-1.5">
-        <CodexShimmerText className="text-size-chat truncate text-token-foreground/30">
-          {block.message ?? "Thinking"}
-        </CodexShimmerText>
-      </div>
-    </div>
-  );
-}
-
 export function ThreadToolSurfaceBlock({
   block,
   isStreamingTurn,

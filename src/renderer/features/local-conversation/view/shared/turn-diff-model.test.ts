@@ -10,6 +10,7 @@ import {
   TURN_DIFF_MAX_INLINE_BYTES,
   buildTurnDiffModel,
   classifyInlineTurnDiff,
+  resolveTurnDiffReviewAffordance,
 } from "./turn-diff-model";
 
 function buildTurnDiffItem(unifiedDiff: string): CodexConversationItem {
@@ -113,5 +114,22 @@ describe("buildTurnDiffModel", () => {
     const lineOverflow = classifyInlineTurnDiff(`${exactLines}\nx`);
     expect(lineOverflow.kind).toBe("tooLarge");
     expect(lineOverflow.kind === "tooLarge" ? lineOverflow.reason : null).toBe("lines");
+  });
+
+  test("hides the Review affordance when the route or intent is unavailable", () => {
+    const intent = { source: { kind: "last-turn", threadId: "thread-1" } } as const;
+
+    expect(resolveTurnDiffReviewAffordance({
+      intent,
+      reviewRouteAvailable: false,
+    })).toEqual({ kind: "hidden", reason: "no_review_route" });
+    expect(resolveTurnDiffReviewAffordance({
+      intent: null,
+      reviewRouteAvailable: true,
+    })).toEqual({ kind: "hidden", reason: "no_review_intent" });
+    expect(resolveTurnDiffReviewAffordance({
+      intent,
+      reviewRouteAvailable: true,
+    })).toEqual({ kind: "available", intent });
   });
 });

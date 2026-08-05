@@ -84,6 +84,38 @@ describe("LocalConversationStreamState", () => {
     expect(streamState.getRevision("thread-1")).toBe(null);
   });
 
+  test("preserves follower intent while owner data is temporarily unavailable", () => {
+    const streamState = new LocalConversationStreamState();
+
+    streamState.setConversationFollowing("thread-1", true);
+    streamState.acceptSnapshot({
+      conversationId: "thread-1",
+      revision: 4,
+      sourceClientId: "owner-a",
+    });
+
+    streamState.markOwnerUnavailable("owner-a");
+
+    expect(streamState.isConversationFollowing("thread-1")).toBe(true);
+    expect(streamState.getRole("thread-1")).toBe(null);
+    expect(streamState.getFollowedConversationIds()).toEqual(["thread-1"]);
+  });
+
+  test("keeps follow intent across a transport reset and clears the stale cursor", () => {
+    const streamState = new LocalConversationStreamState();
+
+    streamState.setConversationFollowing("thread-1", true);
+    streamState.acceptSnapshot({
+      conversationId: "thread-1",
+      revision: 2,
+      sourceClientId: "owner-a",
+    });
+
+    expect(streamState.handleTransportReset()).toEqual(["thread-1"]);
+    expect(streamState.isConversationFollowing("thread-1")).toBe(true);
+    expect(streamState.getRevision("thread-1")).toBe(null);
+  });
+
   test("resolves revision waiters when matching owner reaches the target revision", async () => {
     const timers = createManualTimers();
     const streamState = new LocalConversationStreamState({

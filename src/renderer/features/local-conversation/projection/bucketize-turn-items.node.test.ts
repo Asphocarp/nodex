@@ -194,7 +194,7 @@ describe("bucketizeTurnItems", () => {
     expect(assistantBlock?.type === "assistantMessage" ? assistantBlock.assistantAfterBlocks?.map((block) => block.type).join(",") ?? "" : "").toBe("turnDiff");
   });
 
-  test("lifts streaming turn diffs into above-composer blocks only", () => {
+  test("lifts streaming turn diffs into above-composer blocks and keeps live activity separate", () => {
     const buckets = bucketizeTurnItems({
       items: [
         buildItem({ id: "user", type: "userMessage" }),
@@ -213,7 +213,11 @@ describe("bucketizeTurnItems", () => {
     });
 
     expect(turn.aboveComposerBlocks?.map((block) => block.type).join(",") ?? "").toBe("turnDiff");
-    expect(turn.blocks.map((block) => block.type).join(",")).toBe("userMessage,thinkingPlaceholder");
+    expect(turn.blocks.map((block) => block.type).join(",")).toBe("userMessage");
+    expect(turn.liveActivity).toMatchObject({
+      state: "thinking",
+      placement: "standalone",
+    });
   });
 
   test("keeps completed turn diffs in trailing thread body", () => {
@@ -510,6 +514,75 @@ describe("bucketizeTurnItems", () => {
 
     expect(turn.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("assistantMessage,agentActivityGroup");
     expect(turn.blocks.map((block) => block.type).join(",")).toBe("assistantMessage,agentActivityGroup");
+  });
+
+  test("keeps commentary, reasoning summary, and a streaming patch in one live projection", () => {
+    const buckets = bucketizeTurnItems({
+      items: [
+        buildItem({
+          id: "commentary",
+          type: "assistantMessage",
+          status: "completed",
+          entry: {
+            ...buildItem({}).entry,
+            itemId: "commentary",
+            assistantPhase: "commentary",
+            semanticKind: "assistantMessage",
+            markdownText: "I am checking the repository.",
+          },
+        }),
+        buildItem({
+          id: "reasoning",
+          type: "reasoning",
+          status: "inProgress",
+          entry: {
+            ...buildItem({}).entry,
+            itemId: "reasoning",
+            type: "reasoning",
+            kind: "reasoning",
+            semanticKind: "reasoning",
+            status: "inProgress",
+            markdownText: "**Checking the patch stream.**",
+          },
+        }),
+        buildItem({
+          id: "file",
+          type: "fileChange",
+          status: "inProgress",
+          entry: {
+            ...buildItem({}).entry,
+            itemId: "file",
+            type: "file_change",
+            kind: "fileChange",
+            semanticKind: "patch",
+            status: "inProgress",
+            fileChange: {
+              changes: buildCodexFileChangeMap([{ type: "add", path: "large.ts", content: "line\n" }]),
+            },
+          },
+        }),
+      ],
+      turnStatus: "inProgress",
+    });
+
+    const turn = buildTurnViewModel({
+      turnId: "turn_1",
+      turn: null,
+      buckets,
+      isLatestTurn: true,
+      isStreamingTurn: true,
+      isBlocked: false,
+    });
+    const activityGroup = turn.agentBodyUnits.at(-1)?.block;
+
+    expect(turn.liveActivity.isActivitySliceClosed).toBe(false);
+    expect(turn.liveActivity).toMatchObject({
+      state: "active",
+      placement: "activity-group",
+      reasoningSummary: { text: "Checking the patch stream." },
+    });
+    expect(activityGroup?.type === "agentActivityGroup" ? activityGroup.liveHeaderKind : null).toBe("active");
+    expect(activityGroup?.type === "agentActivityGroup" ? activityGroup.runningSummary?.label : null).toBe("Editing files");
   });
 
   test("routes leading hooks into preUserItems and trailing hooks into postAssistantItems", () => {
@@ -1300,7 +1373,7 @@ describe("bucketizeTurnItems", () => {
     expect(liveTurn.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("multiAgentAction");
   });
 
-  test("adds a thinking placeholder for an in-progress turn before assistant content starts", () => {
+  test("projects live thinking before assistant content starts without a transcript item", () => {
     const buckets = bucketizeTurnItems({
       items: [],
       turnStatus: "inProgress",
@@ -1321,7 +1394,11 @@ describe("bucketizeTurnItems", () => {
       isBlocked: false,
     });
 
-    expect(turn.blocks.map((block) => block.type).join(",")).toBe("thinkingPlaceholder");
+    expect(turn.blocks).toEqual([]);
+    expect(turn.liveActivity).toMatchObject({
+      state: "thinking",
+      placement: "standalone",
+    });
   });
 
   test("promotes a trailing exploration cluster to Exploring while the turn is still active", () => {
@@ -1502,8 +1579,9 @@ describe("bucketizeTurnItems", () => {
     });
 
     expect(turn.blocks.map((block) => block.type).join(",")).toBe(
-      "agentActivityGroup,contextCompaction,thinkingPlaceholder",
+      "agentActivityGroup,contextCompaction",
     );
+    expect(turn.liveActivity.placement).toBe("standalone");
     const activityGroup = turn.blocks[0];
     expect(activityGroup?.type === "agentActivityGroup" ? activityGroup.liveHeaderKind ?? null : null).toBe(null);
     expect(activityGroup?.type === "agentActivityGroup" ? activityGroup.runningSummary ?? null : null).toBe(null);
@@ -1560,7 +1638,7 @@ describe("bucketizeTurnItems", () => {
     expect(activityGroup?.type === "agentActivityGroup" ? activityGroup.liveHeaderKind ?? null : null).toBe(null);
   });
 
-  test("does not let a trailing in-progress reasoning row suppress the Thinking placeholder", () => {
+  test("projects a trailing in-progress reasoning row as standalone live activity", () => {
     const buckets = bucketizeTurnItems({
       items: [
         buildItem({
@@ -1599,14 +1677,15 @@ describe("bucketizeTurnItems", () => {
       isBlocked: false,
     });
 
-    expect(turn.blocks.map((block) => block.type).join(",")).toBe("thinkingPlaceholder");
-    const thinking = turn.blocks[0];
-    expect(thinking?.type === "thinkingPlaceholder" ? thinking.message ?? null : null).toBe(
-      "Checking the bundle.",
-    );
+    expect(turn.blocks).toEqual([]);
+    expect(turn.liveActivity).toMatchObject({
+      state: "thinking",
+      placement: "standalone",
+      reasoningSummary: { text: "Checking the bundle." },
+    });
   });
 
-  test("suppresses the thinking placeholder while a proposed plan is still streaming", () => {
+  test("suppresses the live reasoning fallback while a proposed plan is still streaming", () => {
     const buckets = bucketizeTurnItems({
       items: [
         buildItem({

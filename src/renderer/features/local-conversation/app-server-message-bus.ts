@@ -22,6 +22,25 @@ export interface CodexThreadStreamStateChangedEvent {
   sourceClientId?: string | null;
 }
 
+export interface CodexThreadStreamFollowingStatusRequestedEvent {
+  hostId: string;
+  conversationId: string;
+  ownerClientId: string;
+}
+
+export interface CodexThreadStreamFollowersChangedEvent {
+  hostId: string;
+  conversationId: string;
+  ownerClientId: string;
+  followerClientIds: string[];
+  membershipEpoch: number;
+}
+
+export interface CodexThreadStreamTransportResetEvent {
+  hostId: string;
+  conversationIds: string[];
+}
+
 export interface CodexClientStatusChangedEvent {
   hostId: string;
   status: CodexConnectionState["status"];
@@ -78,6 +97,9 @@ export interface CodexThreadOwnerUnavailableEvent {
 interface CodexAppServerMessageMap {
   "shared-object-updated": CodexSharedObjectUpdatedEvent;
   "thread-stream-state-changed": CodexThreadStreamStateChangedEvent;
+  "thread-stream-following-status-requested": CodexThreadStreamFollowingStatusRequestedEvent;
+  "thread-stream-followers-changed": CodexThreadStreamFollowersChangedEvent;
+  "thread-stream-transport-reset": CodexThreadStreamTransportResetEvent;
   "client-status-changed": CodexClientStatusChangedEvent;
   "thread-title-updated": CodexThreadTitleUpdatedEvent;
   "thread-read-state-changed": CodexThreadReadStateChangedEvent;
@@ -95,6 +117,9 @@ const listenersByType: {
 } = {
   "shared-object-updated": new Set(),
   "thread-stream-state-changed": new Set(),
+  "thread-stream-following-status-requested": new Set(),
+  "thread-stream-followers-changed": new Set(),
+  "thread-stream-transport-reset": new Set(),
   "client-status-changed": new Set(),
   "thread-title-updated": new Set(),
   "thread-read-state-changed": new Set(),
