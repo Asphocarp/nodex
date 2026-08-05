@@ -3655,7 +3655,7 @@ describe("local-conversation-store", () => {
       expect(secondPublish?.ownerNotificationSequence).toBe(2);
       expect(secondPublish?.change?.baseRevision).toBe(2);
       expect(secondPublish?.change?.revision).toBe(3);
-      expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.status).toBe("inProgress");
+      expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.status).toBe("completed");
       expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.markdownText).toBe("done");
       expect(
         manager.readConversation("thread-1")?.turns[0]?.finalAssistantStartedAtMs,
@@ -4315,7 +4315,7 @@ describe("local-conversation-store", () => {
       expect(deltaPublishIndex >= 0).toBe(true);
       expect(completedPublishIndex > deltaPublishIndex).toBe(true);
       expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.markdownText).toBe(delta);
-      expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.status).toBe("inProgress");
+      expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.status).toBe("completed");
     } finally {
       resumeThreadResult = null;
       manager.destroy();
@@ -8489,7 +8489,7 @@ describe("local-conversation-store", () => {
       });
       const completedPublishIndex = ownerSequences.indexOf("2");
       expect(completedItem?.markdownText).toBe(delta);
-      expect(completedItem?.status).toBe("inProgress");
+      expect(completedItem?.status).toBe("completed");
       expect(String(requestAnimationFrameCallCount)).toBe("2");
       expect(ownerSequences.indexOf("1") < 0).toBe(true);
       expect(completedPublishIndex >= 0).toBe(true);
@@ -9201,9 +9201,9 @@ describe("local-conversation-store", () => {
         return String(input?.ownerNotificationSequence ?? 0);
       });
       expect(completedItem?.markdownText).toBe(delta);
-      expect(completedItem?.status).toBe("inProgress");
+      expect(completedItem?.status).toBe("completed");
       expect(renderStates.includes(`inProgress:${delta}`)).toBe(true);
-      expect(renderStates.includes(`completed:${delta}`)).toBe(false);
+      expect(renderStates.includes(`completed:${delta}`)).toBe(true);
       expect(ownerSequences.indexOf("2") > ownerSequences.indexOf("1")).toBe(true);
     } finally {
       await act(async () => {

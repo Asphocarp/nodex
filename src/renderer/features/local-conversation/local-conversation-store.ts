@@ -37,6 +37,7 @@ import type {
 } from "@nodex/codex-app-server-protocol/v2";
 import { parseAssetSource } from "../../../shared/assets";
 import { prepareCodexPrompt } from "../../../shared/codex-prompt-preparation";
+import { resolveCodexReasoningSummary } from "../../../shared/codex-reasoning-summary-policy";
 import type {
   CodexAccountSnapshot,
   CodexApprovalRequest,
@@ -149,7 +150,10 @@ import {
   reduceCodexConversationEventWithEffects,
   type CodexItemLifecycleNotification,
 } from "../../../shared/codex-conversation-state/codex-conversation-reducer";
-import { applyCodexLifecycleProjectionDiff } from "../../../shared/codex-conversation-state/codex-lifecycle-projection-diff";
+import {
+  applyCodexLifecycleProjectionDiff,
+  collectCodexLifecycleStatusChangedItemIds,
+} from "../../../shared/codex-conversation-state/codex-lifecycle-projection-diff";
 import { areCodexCanonicalTurnParamsEqual } from "../../../shared/codex-canonical-item-projector";
 import { buildCodexTurnOccurrenceKey } from "../../../shared/codex-turn-identity";
 import {
@@ -451,6 +455,7 @@ function createOwnerQueuedFollowUp(
     createdAt,
     collaborationMode: opts?.collaborationMode ?? null,
     serviceTier: normalizeCodexServiceTier(opts?.serviceTier),
+    ...(opts?.summary !== undefined ? { summary: opts.summary } : {}),
     pausedReason: null,
   };
 }
@@ -1654,6 +1659,7 @@ function applyOwnerCanonicalTurnProjection(
         !== afterTurn.sidecar.firstTurnWorkItemStartedAtMs
       || beforeTurn.sidecar.finalAssistantStartedAtMs
         !== afterTurn.sidecar.finalAssistantStartedAtMs
+      || collectCodexLifecycleStatusChangedItemIds(beforeTurn, afterTurn).size > 0
       || beforeTurn.sidecar.commandExecutionStartedAtMsById
         !== afterTurn.sidecar.commandExecutionStartedAtMsById
       || beforeTurn.sidecar.interruptedCommandExecutionItemIds
@@ -2055,7 +2061,10 @@ function buildOwnerCanonicalOptimisticParams(
       ? null
       : input.opts?.reasoningEffort ?? hydration.latestReasoningEffort,
     multiAgentMode: settings?.multiAgentMode ?? "explicitRequestOnly",
-    summary: settings?.summary ?? "none",
+    summary: resolveCodexReasoningSummary({
+      configuredSummary: settings?.summary,
+      explicitSummary: input.opts?.summary,
+    }),
     personality: settings?.personality ?? null,
     outputSchema: null,
     collaborationMode,
@@ -2771,6 +2780,7 @@ function buildOwnerConversationThreadSettings(
     modelProvider: threadSettings.modelProvider,
     serviceTier: threadSettings.serviceTier,
     reasoningEffort,
+    summary: threadSettings.summary,
     collaborationMode: {
       mode,
       settings: {
@@ -2794,6 +2804,7 @@ function areOwnerThreadSettingsEqual(
     && left.modelProvider === right.modelProvider
     && left.serviceTier === right.serviceTier
     && left.reasoningEffort === right.reasoningEffort
+    && left.summary === right.summary
     && left.personality === right.personality
     && left.collaborationMode?.mode === right.collaborationMode.mode
     && left.collaborationMode?.settings.model === right.collaborationMode.settings.model
@@ -4929,6 +4940,9 @@ export class CodexAppServerManager {
             ? previous.serviceTier
             : persistedSettings.serviceTier,
           effort: persistedSettings.reasoningEffort,
+          summary: persistedSettings.summary === undefined
+            ? previous.summary
+            : persistedSettings.summary,
           collaborationMode:
             persistedSettings.collaborationMode ?? previous.collaborationMode,
           personality: persistedSettings.personality,
@@ -5029,6 +5043,7 @@ export class CodexAppServerManager {
         ...(followUp.promptInput ? { promptInput: followUp.promptInput } : {}),
         collaborationMode: followUp.collaborationMode,
         serviceTier: followUp.serviceTier,
+        summary: followUp.summary,
       });
       return;
     }
@@ -5036,6 +5051,7 @@ export class CodexAppServerManager {
     return await this.startTurnAsOwner(threadId, followUp.prompt, {
       collaborationMode: followUp.collaborationMode ?? undefined,
       serviceTier: followUp.serviceTier,
+      summary: followUp.summary,
       ...(followUp.promptInput ? { promptInput: followUp.promptInput } : {}),
     });
   }
@@ -5714,6 +5730,7 @@ export class CodexAppServerManager {
         ...(input.promptInput ? { promptInput: input.promptInput } : {}),
         collaborationMode: input.collaborationMode ?? null,
         serviceTier: normalizeCodexServiceTier(input.serviceTier),
+        ...(input.summary !== undefined ? { summary: input.summary } : {}),
         context: { commentAttachments: [...preparedPrompt.commentAttachments] },
       },
       compareKey: buildCodexSteeringCompareKey(

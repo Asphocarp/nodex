@@ -1,7 +1,11 @@
 import { AnimatePresence, motion } from "motion/react";
 import { Fragment, type ReactNode } from "react";
 import { ChevronRightIcon } from "@/components/shared/icons";
-import type { CodexConversationChildMembership } from "../../../lib/types";
+import type {
+  CodexConversationChildMembership,
+  ProtocolAppInfo,
+  ProtocolListMcpServerStatusResponse,
+} from "../../../lib/types";
 import type { ReviewOpenIntent } from "@/features/review/model/review-view-state";
 import { cn } from "../../../lib/utils";
 import { useMcpServerStatuses } from "../../../lib/use-mcp-queries";
@@ -21,8 +25,24 @@ import {
   CODEX_THREAD_DIVIDER_EXIT,
 } from "./shared/thread-motion";
 import { useWorkedForLabelText } from "./shared/use-worked-for-label";
+import { CodexShimmerText } from "./shared/codex-shimmer-text";
 import { ThreadBlockRenderer } from "./blocks/local-conversation-block-renderer";
 import { ThreadMcpAppsProvider } from "./shared/tools/mcp-apps-context";
+
+const EMPTY_THREAD_LIVE_ACTIVITY: ThreadTurnModel["liveActivity"] = {
+  state: "none",
+  placement: "none",
+  reasoningSummary: null,
+  isActivitySliceClosed: true,
+};
+
+function normalizeThreadLiveActivity(turn: ThreadTurnModel): ThreadTurnModel {
+  if (turn.liveActivity) return turn;
+  return {
+    ...turn,
+    liveActivity: EMPTY_THREAD_LIVE_ACTIVITY,
+  };
+}
 
 interface ThreadTurnProps {
   turn: ThreadTurnModel;
@@ -123,6 +143,17 @@ function renderAgentUnits(
       </div>
     );
   });
+}
+
+function ThreadLiveActivityFallbackForTurn({ turn }: { turn: ThreadTurnModel }) {
+  if (
+    turn.liveActivity.placement !== "standalone"
+    || turn.liveActivity.state === "none"
+  ) {
+    return null;
+  }
+
+  return <ThreadLiveActivityFallback message={turn.liveActivity.reasoningSummary?.text} />;
 }
 
 export function resolveThreadBlockRenderKey(block: { id: string; renderKey?: unknown }): string {
@@ -263,41 +294,59 @@ function ThreadTurnBody({
             </div>
           </>
         ) : null}
+
+        {turn.liveActivity.placement === "standalone" ? (
+          <>
+            {(turn.leadingBlocks.length > 0
+              || agentBodyUnits.length > 0
+              || turn.trailingBlocks.length > 0) ? <ThreadGap /> : null}
+            <ThreadLiveActivityFallbackForTurn turn={turn} />
+          </>
+        ) : null}
       </div>
     </div>
   );
 }
 
-function ThreadTurnWithMcpStatuses(props: ThreadTurnProps) {
-  const { data: mcpApps } = useCodexMcpApps();
-  const { data: mcpServerStatuses } = useMcpServerStatuses();
-  const thinkingPlaceholder = props.turn.blocks.find(
-    (block) => block.type === "thinkingPlaceholder",
-  );
-  const thinkingGroup = props.turn.blocks.find(
-    (block) => block.type === "agentActivityGroup" && block.liveHeaderKind === "thinking",
-  );
-  const allowThinkingFallback = thinkingPlaceholder !== undefined || thinkingGroup !== undefined;
-  const thinkingFallbackLabel = thinkingPlaceholder?.type === "thinkingPlaceholder"
-    ? thinkingPlaceholder.message
-    : thinkingGroup?.type === "agentActivityGroup"
-      ? thinkingGroup.runningSummary?.label
-      : undefined;
-  const agentBodyUnits = buildV2AgentRenderUnits(
-    props.turn.agentActivitySourceItems,
+function buildLiveAgentBodyUnits(
+  turn: ThreadTurnModel,
+  mcpApps: readonly ProtocolAppInfo[],
+  mcpServerStatuses: ProtocolListMcpServerStatusResponse | null,
+): ThreadAgentRenderUnit[] {
+  return buildV2AgentRenderUnits(
+    turn.agentActivitySourceItems,
     {
-      mcpApps: mcpApps ?? [],
-      mcpServerStatuses: mcpServerStatuses ?? null,
-      isTurnCancelled: props.turn.turn?.status === "interrupted",
+      mcpApps,
+      mcpServerStatuses,
+      isTurnCancelled: turn.turn?.status === "interrupted",
       liveActivity: {
-        allowThinkingFallback,
-        isTurnInProgress: props.turn.isStreamingTurn,
-        isActivitySliceClosed: props.turn.isAgentActivitySliceClosed ?? false,
-        isExploring: props.turn.isAgentActivityExploring ?? false,
-        thinkingFallbackLabel,
+        isTurnInProgress: turn.isStreamingTurn,
+        isActivitySliceClosed: turn.liveActivity.isActivitySliceClosed,
+        isExploring: turn.liveActivity.state === "exploring",
+        reasoningFallbackLabel: turn.liveActivity.reasoningSummary?.text,
       },
     },
   ).units;
+}
+
+function ThreadTurnWithoutServerStatuses(props: ThreadTurnProps) {
+  const agentBodyUnits = buildLiveAgentBodyUnits(props.turn, [], null);
+
+  return (
+    <ThreadMcpAppsProvider apps={[]}>
+      <ThreadTurnBody {...props} agentBodyUnits={agentBodyUnits} />
+    </ThreadMcpAppsProvider>
+  );
+}
+
+function ThreadTurnWithLiveStatuses(props: ThreadTurnProps) {
+  const { data: mcpApps } = useCodexMcpApps();
+  const { data: mcpServerStatuses } = useMcpServerStatuses();
+  const agentBodyUnits = buildLiveAgentBodyUnits(
+    props.turn,
+    mcpApps ?? [],
+    mcpServerStatuses ?? null,
+  );
 
   return (
     <ThreadMcpAppsProvider apps={mcpApps ?? []}>
@@ -306,13 +355,23 @@ function ThreadTurnWithMcpStatuses(props: ThreadTurnProps) {
   );
 }
 
+export function ThreadLiveActivityFallback({ message }: { message?: string | null }) {
+  return (
+    <div className="min-w-0 py-0">
+      <CodexShimmerText className="text-size-chat truncate text-token-foreground/30">
+        {message ?? "Thinking"}
+      </CodexShimmerText>
+    </div>
+  );
+}
+
 export function ThreadTurn(props: ThreadTurnProps) {
-  const hasMcpActivity = props.turn.agentActivitySourceItems.some(
+  const turn = normalizeThreadLiveActivity(props.turn);
+  const hasMcpActivity = turn.agentActivitySourceItems.some(
     (item) => item.type === "mcpToolCall",
   );
-  if (hasMcpActivity) {
-    return <ThreadTurnWithMcpStatuses {...props} />;
+  if (!hasMcpActivity) {
+    return <ThreadTurnWithoutServerStatuses {...props} turn={turn} />;
   }
-
-  return <ThreadTurnBody {...props} agentBodyUnits={props.turn.agentBodyUnits} />;
+  return <ThreadTurnWithLiveStatuses {...props} turn={turn} />;
 }

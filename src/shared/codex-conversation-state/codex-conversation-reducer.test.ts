@@ -208,6 +208,8 @@ describe("canonical item lifecycle reducer", () => {
     );
     expect(turn.sidecar.commandExecutionStartedAtMsById?.["command-a"]).toBe(1_000);
     expect(turn.sidecar.commandExecutionStartedAtMsById?.["command-b"]).toBe(1_010);
+    expect(turn.sidecar.lifecycleStatusByItemId?.["command-a"]).toBe("completed");
+    expect(turn.sidecar.lifecycleStatusByItemId?.["command-b"]).toBe("inProgress");
     expect(turn.sidecar.firstTurnWorkItemStartedAtMs).toBe(10_001);
     expect(clock.calls()).toBe(1);
     expect(initial.turns[0]?.items.length).toBe(0);
@@ -245,6 +247,41 @@ describe("canonical item lifecycle reducer", () => {
       afterSecond.turns[0]?.sidecar.commandExecutionStartedAtMsById?.["command-repeat"],
     ).toBe(2_500);
     expect(clock.calls()).toBe(1);
+  });
+
+  test("does not reopen a terminal lifecycle entry after a delayed start", () => {
+    const command = buildCommand("command-order");
+    const completed = buildCommand("command-order", "completed", 10);
+    const afterStart = reduceLifecycle(buildState(), {
+      method: "item/started",
+      params: {
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+        item: command,
+        startedAtMs: 21_000,
+      },
+    }, buildClock(21_001).context);
+    const afterComplete = reduceLifecycle(afterStart, {
+      method: "item/completed",
+      params: {
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+        item: completed,
+        completedAtMs: 21_010,
+      },
+    }, buildClock().context);
+    const afterDelayedStart = reduceLifecycle(afterComplete, {
+      method: "item/started",
+      params: {
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+        item: command,
+        startedAtMs: 21_011,
+      },
+    }, buildClock().context);
+
+    expect(afterDelayedStart.turns[0]?.sidecar.lifecycleStatusByItemId?.["command-order"])
+      .toBe("completed");
   });
 
   test("completion infers a missing command start but never overwrites an observed start", () => {
@@ -462,6 +499,8 @@ describe("canonical item lifecycle reducer", () => {
 
     expect(afterComplete.turns[0]?.sidecar.finalAssistantStartedAtMs).toBe(70_001);
     expect(afterComplete.turns[0]?.sidecar.firstTurnWorkItemStartedAtMs).toBe(70_002);
+    expect(afterStart.turns[0]?.sidecar.lifecycleStatusByItemId?.["agent-message"]).toBe("inProgress");
+    expect(afterComplete.turns[0]?.sidecar.lifecycleStatusByItemId?.["agent-message"]).toBe("completed");
     expect(afterComplete.turns[0]?.items[0] === completed).toBe(true);
     expect(clock.calls()).toBe(2);
   });

@@ -35,7 +35,6 @@ function createEmptyBuckets(): ThreadTurnRenderBuckets {
     forkedFromConversationItems: [],
     modelChangedItems: [],
     modelReroutedItems: [],
-    thinkingPlaceholderItem: null,
   };
 }
 

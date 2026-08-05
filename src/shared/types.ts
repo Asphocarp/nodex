@@ -68,6 +68,7 @@ import type {
   ModeKind as CodexAppServerModeKind,
   Personality as CodexAppServerPersonality,
   ReasoningEffort as CodexAppServerReasoningEffort,
+  ReasoningSummary as CodexAppServerReasoningSummary,
   RequestId as CodexAppServerRequestId,
   ServerNotification as CodexAppServerServerNotification,
   ThreadMemoryMode as CodexAppServerThreadMemoryMode,
@@ -1957,6 +1958,7 @@ export interface CodexConversationThreadSettings {
   modelProvider?: CodexAppServerThreadSettings["modelProvider"] | null;
   serviceTier?: CodexAppServerThreadSettings["serviceTier"];
   reasoningEffort: CodexReasoningEffort | null;
+  summary?: CodexAppServerThreadSettings["summary"];
   collaborationMode: CodexCollaborationModeState | null;
   personality: CodexPersonality | null;
 }
@@ -1965,6 +1967,7 @@ export interface CodexConversationThreadSettingsPatch {
   model?: string | null;
   serviceTier?: CodexServiceTier;
   reasoningEffort?: CodexReasoningEffort | null;
+  summary?: CodexAppServerReasoningSummary | null;
   collaborationMode?: CodexCollaborationModeKind | null;
   personality?: CodexPersonality | null;
   /**
@@ -2068,6 +2071,7 @@ export interface CodexThreadStartForSessionInput {
   permissionMode?: CodexPermissionMode;
   permissionProfileId?: string;
   reasoningEffort?: CodexReasoningEffort;
+  summary?: CodexAppServerReasoningSummary | null;
   collaborationMode?: CodexCollaborationModeKind;
   memoryPreferences?: CodexThreadStartMemoryPreferences | null;
   mode?: string;
@@ -2127,6 +2131,7 @@ export interface CodexTurnStartOptions {
   model?: string;
   serviceTier?: CodexServiceTier;
   reasoningEffort?: CodexReasoningEffort;
+  summary?: CodexAppServerReasoningSummary | null;
   permissionMode?: CodexPermissionMode;
   collaborationMode?: CodexCollaborationModeKind;
   promptInput?: CodexPromptInput;
@@ -2373,6 +2378,7 @@ export interface CodexSteeringRestoreMessage {
   promptInput?: CodexPromptInput;
   collaborationMode?: CodexCollaborationModeKind | null;
   serviceTier?: CodexServiceTier;
+  summary?: CodexAppServerReasoningSummary | null;
 }
 
 export interface CodexSteerTurnInput {
@@ -2382,6 +2388,7 @@ export interface CodexSteerTurnInput {
   promptInput?: CodexPromptInput;
   collaborationMode?: CodexCollaborationModeKind | null;
   serviceTier?: CodexServiceTier;
+  summary?: CodexAppServerReasoningSummary | null;
 }
 
 export interface CodexComposerIntent {
@@ -3198,6 +3205,7 @@ export interface CodexQueuedFollowUp {
   createdAt: number;
   collaborationMode?: CodexCollaborationModeKind | null;
   serviceTier: CodexServiceTier;
+  summary?: CodexAppServerReasoningSummary | null;
   pausedReason?: string | null;
 }
 

@@ -74,6 +74,30 @@ export interface CodexLifecycleProjectionDiffResult {
   readonly transcript: readonly CodexTranscriptEntry[];
 }
 
+/**
+ * Lifecycle status is canonical sidecar state, so a status transition can
+ * affect a projected transcript even when the protocol item payload is the
+ * same object. Keep this comparison value-based for snapshot/replay merges.
+ */
+export function collectCodexLifecycleStatusChangedItemIds(
+  before: CodexCanonicalTurnState | null,
+  after: CodexCanonicalTurnState,
+): ReadonlySet<string> {
+  const beforeStatuses = before?.sidecar.lifecycleStatusByItemId ?? {};
+  const afterStatuses = after.sidecar.lifecycleStatusByItemId ?? {};
+  const changed = new Set<string>();
+  const itemIds = new Set([
+    ...Object.keys(beforeStatuses),
+    ...Object.keys(afterStatuses),
+  ]);
+
+  for (const itemId of itemIds) {
+    if (beforeStatuses[itemId] !== afterStatuses[itemId]) changed.add(itemId);
+  }
+
+  return changed;
+}
+
 type ProjectionOwner = Pick<
   CodexItemView,
   "itemId" | "rawItem" | "rawItemId" | "rawItemType"
@@ -256,6 +280,12 @@ function collectCodexProjectionAffectedOwnerIds(
     ...changedRawOwnerIds,
     ...visibilityChangedOwnerIds,
   ]);
+  for (const itemId of collectCodexLifecycleStatusChangedItemIds(
+    input.beforeTurn,
+    input.afterTurn,
+  )) {
+    affected.add(itemId);
+  }
   const beforeItems = input.beforeTurn?.items ?? [];
   const beforeLastWork = lastNonUserWorkItem(beforeItems);
   const afterLastWork = lastNonUserWorkItem(input.afterTurn.items);
@@ -332,6 +362,8 @@ function projectAffectedRawItems(
     params: input.afterTurn.sidecar.params,
     observedAtMs: input.observedAtMs,
     turnStatus: input.afterTurn.protocol.status,
+    lifecycleStatusByItemId:
+      input.afterTurn.sidecar.lifecycleStatusByItemId,
     commandExecutionStartedAtMsById:
       input.afterTurn.sidecar.commandExecutionStartedAtMsById,
     interruptedCommandExecutionItemIds:

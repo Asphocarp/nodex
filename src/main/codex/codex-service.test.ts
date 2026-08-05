@@ -242,6 +242,7 @@ interface TestableCodexService {
       model?: string;
       serviceTier?: null | "fast";
       reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
+      summary?: "auto" | "concise" | "detailed" | "none" | null;
       permissionMode?: CodexPermissionMode;
       collaborationMode?: "default" | "plan";
       promptInput?: CodexPromptInput;
@@ -3308,10 +3309,16 @@ describe("codex-service renderer owner stream publishing", () => {
         threadSettings: {
           model: "gpt-5.9-codex",
           reasoningEffort: "high",
+          summary: "concise",
           collaborationMode: "plan",
         },
       });
-      const settingsParams = requests[0]?.params as { threadId?: string; model?: string; effort?: string } | undefined;
+      const settingsParams = requests[0]?.params as {
+        threadId?: string;
+        model?: string;
+        effort?: string;
+        summary?: string;
+      } | undefined;
       const goalParams = requests[1]?.params as {
         threadId?: string;
         objective?: string;
@@ -3324,6 +3331,7 @@ describe("codex-service renderer owner stream publishing", () => {
       expect(settingsParams?.threadId).toBe("thread-goal-settings");
       expect(settingsParams?.model).toBe("gpt-5.9-codex");
       expect(settingsParams?.effort).toBe("high");
+      expect(settingsParams?.summary).toBe("concise");
       expect(requests[1]?.method).toBe("thread/goal/set");
       expect(goalParams?.threadId).toBe("thread-goal-settings");
       expect(goalParams?.objective).toBe("Ship parity");
@@ -4038,7 +4046,7 @@ describe("codex-service renderer owner stream publishing", () => {
 
       const snapshot = await service.requestConversationSnapshot("thread-owner-drain");
       expect(snapshot?.turns[0]?.items[0]?.markdownText).toBe("hello");
-      expect(snapshot?.turns[0]?.items[0]?.status).toBe("inProgress");
+      expect(snapshot?.turns[0]?.items[0]?.status).toBe("completed");
     } finally {
       await service.shutdown();
     }
@@ -7416,6 +7424,7 @@ describe("codex-service startTurn", () => {
       const turnStartRequests = requests.filter((request) => request.method === "turn/start");
       expect(turnStartRequests.length).toBe(1);
       expect(turnStartRequests[0]?.method).toBe("turn/start");
+      expect((turnStartRequests[0]?.params as { summary?: unknown })?.summary).toBe("detailed");
       expect(markedActive.length).toBe(1);
       expect(markedActive[0]).toBe("thr_start");
     } finally {
@@ -7455,11 +7464,15 @@ describe("codex-service startTurn", () => {
     };
 
     try {
-      await service.startTurn("thr_fast", "Ship it faster", { serviceTier: "fast" });
+      await service.startTurn("thr_fast", "Ship it faster", {
+        serviceTier: "fast",
+        summary: "none",
+      });
 
       const turnStartRequest = requests.find((request) => request.method === "turn/start");
       expect(turnStartRequest).toBeDefined();
       expect((turnStartRequest?.params as { serviceTier?: unknown })?.serviceTier).toBe("fast");
+      expect((turnStartRequest?.params as { summary?: unknown })?.summary).toBe("none");
     } finally {
       await service.shutdown();
     }
@@ -8019,9 +8032,18 @@ describe("codex-service collaboration modes", () => {
       expect(firstTurn?.effort).toBe("medium");
       expect(firstTurn?.serviceTier).toBe("fast");
       expect(firstMode?.mode).toBe("plan");
+      expect(firstTurn?.summary).toBe("detailed");
       expect(secondTurn?.model).toBe("gpt-explicit");
       expect(secondTurn?.effort).toBe("high");
       expect(secondMode?.mode).toBe("default");
+
+      await service.startTurn("thr_start_settings_priority", "Suppress summaries", {
+        summary: "none",
+      });
+      const thirdTurn = requests
+        .filter((request) => request.method === "turn/start")[2]
+        ?.params;
+      expect(thirdTurn?.summary).toBe("none");
     } finally {
       await service.shutdown();
     }
@@ -13803,7 +13825,7 @@ describe("codex-service item lifecycle status fallback", () => {
 
       const item = getRecordedItem(serviceInternals, "thr_status", "turn_status", "item_reasoning");
 
-      expect(item?.status).toBe("inProgress");
+      expect(item?.status).toBe("completed");
     } finally {
       await service.shutdown();
     }
@@ -15204,7 +15226,7 @@ describe("codex-service terminal turn reconciliation", () => {
 
       expect(hostMessages).toHaveLength(0);
       const latest = service.serializeConversationSnapshot("thr_streaming_completion_drain");
-      expect(latest?.turns[0]?.items[0]?.status).toBe("inProgress");
+      expect(latest?.turns[0]?.items[0]?.status).toBe("completed");
       expect(latest?.turns[0]?.items[0]?.markdownText).toBe(largeDelta);
       expect(requestAnimationFrameCalled).toBe(false);
     } finally {
@@ -15290,7 +15312,7 @@ describe("codex-service terminal turn reconciliation", () => {
       });
       expect(hostMessages).toHaveLength(0);
       const latest = service.serializeConversationSnapshot("thr_streaming_short_completion_drain");
-      expect(latest?.turns[0]?.items[0]?.status).toBe("inProgress");
+      expect(latest?.turns[0]?.items[0]?.status).toBe("completed");
       expect(latest?.turns[0]?.items[0]?.markdownText).toBe(delta);
     } finally {
       await service.shutdown();

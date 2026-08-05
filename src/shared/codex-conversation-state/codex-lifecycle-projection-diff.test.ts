@@ -462,6 +462,52 @@ describe("scoped canonical lifecycle projection diff", () => {
     expect(result.views[0]?.updatedAt).toBe(1_250);
   });
 
+  test("reprojects statusless items when only the lifecycle sidecar changes", () => {
+    const reasoning = {
+      type: "reasoning",
+      id: "reasoning-only-status",
+      summary: ["Checking the patch stream."],
+      content: [],
+    } satisfies Extract<ThreadItem, { type: "reasoning" }>;
+    const base = buildTurn([reasoning]);
+    const beforeTurn = {
+      ...base,
+      sidecar: {
+        ...base.sidecar,
+        lifecycleStatusByItemId: { [reasoning.id]: "inProgress" as const },
+      },
+    } satisfies CodexCanonicalTurnState;
+    const afterTurn = {
+      ...beforeTurn,
+      sidecar: {
+        ...beforeTurn.sidecar,
+        lifecycleStatusByItemId: { [reasoning.id]: "completed" as const },
+      },
+    } satisfies CodexCanonicalTurnState;
+    const currentViews = projectCodexCanonicalTurnItemViews({
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+      items: beforeTurn.items,
+      observedAtMs: 2_000,
+      turnStatus: beforeTurn.protocol.status,
+      lifecycleStatusByItemId: beforeTurn.sidecar.lifecycleStatusByItemId,
+      isBackgroundSubagentsEnabled: true,
+    });
+
+    const result = applyCodexLifecycleProjectionDiff({
+      threadId: THREAD_ID,
+      beforeTurn,
+      afterTurn,
+      currentViews,
+      currentTranscript: currentViews.map(transcript),
+      observedAtMs: 3_000,
+    });
+
+    expect(result.changedRawOwnerIds).toEqual([]);
+    expect(result.views[0]?.status).toBe("completed");
+    expect(result.transcript[0]?.status).toBe("completed");
+  });
+
   test("stabilizes a display alias by explicit canonical raw owner type and id", () => {
     const started = {
       type: "agentMessage",

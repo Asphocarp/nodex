@@ -482,16 +482,6 @@ export interface ThreadAssistantActionsBlockModel {
   actions: ThreadAssistantMessageActionsModel;
 }
 
-export interface ThreadThinkingPlaceholderBlockModel extends ThreadRenderKeyedBlockFields {
-  id: string;
-  turnId: string | null;
-  createdAt: number;
-  updatedAt: number;
-  searchableText: string;
-  message?: string;
-  type: "thinkingPlaceholder";
-}
-
 export interface ThreadWorkedForBlockModel extends ThreadRenderKeyedBlockFields {
   id: string;
   turnId: string | null;
@@ -768,8 +758,22 @@ export type ThreadBlockModel =
   | ThreadGeneratedImageGalleryBlockModel
   | ThreadUserAttachmentStripBlockModel
   | ThreadWorkedForBlockModel
-  | ThreadAgentActivityGroupBlockModel
-  | ThreadThinkingPlaceholderBlockModel;
+  | ThreadAgentActivityGroupBlockModel;
+
+export type ThreadLiveActivityState = "none" | "thinking" | "exploring" | "active";
+export type ThreadLiveActivityPlacement = "none" | "standalone" | "activity-group";
+
+export interface ThreadLiveReasoningSummary {
+  itemId: string;
+  text: string;
+}
+
+export interface ThreadLiveActivityPresentation {
+  state: ThreadLiveActivityState;
+  placement: ThreadLiveActivityPlacement;
+  reasoningSummary: ThreadLiveReasoningSummary | null;
+  isActivitySliceClosed: boolean;
+}
 
 export interface ThreadTurnRenderBuckets {
   preUserItems: ThreadTranscriptBlockModel[];
@@ -794,7 +798,6 @@ export interface ThreadTurnRenderBuckets {
   forkedFromConversationItems: ThreadTranscriptBlockModel[];
   modelChangedItems: ThreadTranscriptBlockModel[];
   modelReroutedItems: ThreadTranscriptBlockModel[];
-  thinkingPlaceholderItem: ThreadThinkingPlaceholderBlockModel | null;
 }
 
 export interface ThreadTurnModel {
@@ -814,8 +817,7 @@ export interface ThreadTurnModel {
   isLatestTurn: boolean;
   isStreamingTurn: boolean;
   isBlocked: boolean;
-  isAgentActivitySliceClosed?: boolean;
-  isAgentActivityExploring?: boolean;
+  liveActivity: ThreadLiveActivityPresentation;
   searchableText: string;
   searchUnits: ThreadSearchUnitModel[];
   hasRenderableAgentBodyUnits: boolean;

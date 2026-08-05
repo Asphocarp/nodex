@@ -388,7 +388,7 @@ describe("buildTurnRenderModel", () => {
     expect(active.blocks.some((block) => block.type === "subagentActivityInlineGroup")).toBe(false);
   });
 
-  test("lets a no-anchor subagent move commentary into activity while Thinking stays standalone", () => {
+  test("lets a no-anchor subagent move commentary into activity while live Thinking stays standalone", () => {
     const model = buildTurnRenderModel({
       turn: buildTurn({
         itemIds: ["assistant_1"],
@@ -406,7 +406,11 @@ describe("buildTurnRenderModel", () => {
     });
 
     expect(model.agentBodyUnits.map((unit) => unit.block.type)).toEqual(["assistantMessage"]);
-    expect(model.trailingBlocks.map((block) => block.type)).toEqual(["thinkingPlaceholder"]);
+    expect(model.trailingBlocks).toEqual([]);
+    expect(model.liveActivity).toMatchObject({
+      state: "thinking",
+      placement: "standalone",
+    });
     expect(model.blocks.some((block) => block.type === "subagentActivityInlineGroup")).toBe(false);
   });
 
@@ -536,10 +540,13 @@ describe("buildTurnRenderModel", () => {
 
     expect(unresolved.buckets.permissionRequestItems.length).toBe(1);
     expect(unresolved.isBlocked).toBe(true);
-    expect(unresolved.blocks.some((block) => block.type === "thinkingPlaceholder")).toBe(false);
+    expect(unresolved.liveActivity.state).toBe("none");
     expect(completed.buckets.permissionRequestItems.length).toBe(0);
     expect(completed.isBlocked).toBe(false);
-    expect(completed.blocks.some((block) => block.type === "thinkingPlaceholder")).toBe(true);
+    expect(completed.liveActivity).toMatchObject({
+      state: "thinking",
+      placement: "standalone",
+    });
   });
 
   test("blocks the active turn on private picker requests without rendering them inline", () => {
@@ -552,7 +559,7 @@ describe("buildTurnRenderModel", () => {
 
     expect(model.buckets.interactiveRequestItem?.request.type).toBe("optionPicker");
     expect(model.isBlocked).toBe(true);
-    expect(model.blocks.some((block) => block.type === "thinkingPlaceholder")).toBe(false);
+    expect(model.liveActivity.state).toBe("none");
   });
 
   test("derives live turn-diff from turn.diff before any fileChange item exists", () => {
@@ -564,7 +571,11 @@ describe("buildTurnRenderModel", () => {
     });
 
     expect(model.aboveComposerBlocks?.map((block) => block.type).join(",") ?? "").toBe("turnDiff");
-    expect(model.blocks.map((block) => block.type).join(",")).toBe("thinkingPlaceholder");
+    expect(model.blocks).toEqual([]);
+    expect(model.liveActivity).toMatchObject({
+      state: "thinking",
+      placement: "standalone",
+    });
     expect(model.searchableText.includes("+next")).toBe(false);
     const rawItem = model.aboveComposerBlocks?.[0]?.type === "turnDiff"
       ? model.aboveComposerBlocks[0].entry.rawItem as { unifiedDiff?: unknown } | undefined
@@ -881,7 +892,7 @@ describe("buildTurnRenderModel", () => {
     expect(afterAssistantStarts.blocks.map((block) => block.type).join(",")).toBe("agentActivityGroup,assistantMessage");
   });
 
-  test("keeps empty live fileChange activity visible without a Thinking placeholder", () => {
+  test("keeps empty live fileChange activity visible without a duplicate Thinking row", () => {
     const model = buildTurnRenderModel({
       turn: buildTurn({
         diff: LIVE_DIFF,
@@ -937,7 +948,7 @@ describe("buildTurnRenderModel", () => {
     expect(model.blocks.some((block) => block.type === "turnDiff")).toBe(false);
   });
 
-  test("inserts active working-for before the first non-user item and suppresses thinking placeholder", () => {
+  test("inserts active working-for before the first non-user item without suppressing live activity", () => {
     const model = buildTurnRenderModel({
       turn: buildTurn({
         firstTurnWorkItemStartedAtMs: 1_000,
@@ -954,7 +965,7 @@ describe("buildTurnRenderModel", () => {
 
     expect(model.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("workedFor,agentActivityGroup");
     expect(model.blocks.map((block) => block.type).join(",")).toBe("userMessage,workedFor,agentActivityGroup");
-    expect(model.blocks.some((block) => block.type === "thinkingPlaceholder")).toBe(false);
+    expect(model.liveActivity.state).toBe("active");
     expect(model.searchableText.includes("Working")).toBe(false);
   });
 

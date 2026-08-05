@@ -23,6 +23,7 @@ import {
 } from "../blocks/local-conversation-block-leaves";
 import { buildRendererItemStream } from "../../projection/build-renderer-item-stream";
 import type { ThreadTranscriptBlockModel } from "../../thread-stage-types";
+import { ThreadLiveActivityFallback } from "../local-conversation-thread-turn";
 
 function StorySurface({
   title,
@@ -203,6 +204,19 @@ export const ReasoningStreaming: Story = {
           }}
           parseIncompleteMarkdown
         />
+      </ConversationStorySurface>
+    </StorySurface>
+  ),
+};
+
+export const LiveReasoningSummaryFallback: Story = {
+  render: () => (
+    <StorySurface
+      title="Live reasoning summary fallback"
+      description="A hidden in-progress reasoning item projects its latest Markdown summary into the same standalone shimmering row used by the live turn renderer."
+    >
+      <ConversationStorySurface>
+        <ThreadLiveActivityFallback message="Checking the patch stream." />
       </ConversationStorySurface>
     </StorySurface>
   ),

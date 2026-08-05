@@ -32,8 +32,8 @@ import type {
   ThreadAgentRenderUnit,
   ThreadBlockModel,
   ThreadGeneratedImageGalleryBlockModel,
+  ThreadLiveActivityPresentation,
   ThreadSearchUnitModel,
-  ThreadThinkingPlaceholderBlockModel,
   ThreadTranscriptBlockModel,
   ThreadTurnModel,
   ThreadTurnRenderBuckets,
@@ -41,6 +41,10 @@ import type {
   ThreadUserAttachmentStripBlockModel,
   ThreadWorkedForBlockModel,
 } from "../thread-stage-types";
+import {
+  resolveThreadLiveActivityInputState,
+  resolveThreadLiveActivityPresentation,
+} from "./thread-live-activity";
 import type { ThreadWorkedForTiming } from "../thread-worked-for-time";
 import {
   extractCommandActions,
@@ -69,42 +73,6 @@ const EMPTY_SUBAGENT_ACTIVITY_STATE: ThreadTurnSubagentActivityState = {
   hasActivity: false,
   hasActiveActivity: false,
 };
-
-function buildThinkingPlaceholderItem(
-  turnId: string | null,
-  turnKey: string,
-  message: string | null,
-): ThreadThinkingPlaceholderBlockModel {
-  const now = Date.now();
-  return {
-    id: `${turnKey}:thinking`,
-    turnId,
-    createdAt: now,
-    updatedAt: now,
-    searchableText: "",
-    message: message ?? undefined,
-    type: "thinkingPlaceholder",
-  };
-}
-
-function resolveLatestReasoningThinkingMessage(
-  buckets: ThreadTurnRenderBuckets,
-): string | null {
-  for (let itemIndex = buckets.agentItems.length - 1; itemIndex >= 0; itemIndex -= 1) {
-    const item = buckets.agentItems[itemIndex];
-    if (item?.type !== "reasoning") continue;
-
-    const lines = (item.entry.markdownText ?? "").trimEnd().split(/\r?\n/);
-    for (let lineIndex = lines.length - 1; lineIndex >= 0; lineIndex -= 1) {
-      const line = lines[lineIndex]?.trim() ?? "";
-      if (line.length === 0 || line.startsWith("<!--")) continue;
-      const strongMatch = line.match(/^\*\*(.+)\*\*$/);
-      return (strongMatch?.[1] ?? line).trim() || null;
-    }
-  }
-
-  return null;
-}
 
 function flattenBlocks(
   leadingBlocks: ThreadBlockModel[],
@@ -168,7 +136,6 @@ function withSearchUnitKey<TBlock extends ThreadBlockModel | null>(
   if (
     block.type === "agentActivityGroup"
     || block.type === "assistantActions"
-    || block.type === "thinkingPlaceholder"
   ) return block;
   if (block.type !== "userMessage" && block.type !== "assistantMessage") return block;
 
@@ -411,15 +378,6 @@ function buildSearchUnits(input: {
   return [...userUnits, ...assistantUnits];
 }
 
-function isIncompleteBlock(
-  block: ThreadTranscriptBlockModel | null,
-  isStreamingTurn: boolean,
-): boolean {
-  if (!block || !isStreamingTurn) return false;
-  if (block.status) return block.status === "inProgress";
-  return true;
-}
-
 export function buildV2AgentRenderUnits(
   agentItems: readonly ThreadAgentItemModel[],
   options: {
@@ -427,18 +385,21 @@ export function buildV2AgentRenderUnits(
     mcpServerStatuses?: ProtocolListMcpServerStatusResponse | null;
     isTurnCancelled?: boolean;
     liveActivity?: {
-      allowThinkingFallback: boolean;
       isActivitySliceClosed: boolean;
       isExploring: boolean;
       isTurnInProgress: boolean;
-      thinkingFallbackLabel?: string;
+      reasoningFallbackLabel?: string;
     };
   } = {},
 ): {
   sourceItems: ThreadClassifiableActivityItem[];
   units: ThreadAgentRenderUnit[];
 } {
-  const attachedEntries = attachAutomaticApprovalReviewsToToolTargets([...agentItems]);
+  const workedForItems = agentItems.filter(
+    (item): item is ThreadWorkedForBlockModel => item.type === "workedFor",
+  );
+  const activityItems = agentItems.filter((item) => item.type !== "workedFor");
+  const attachedEntries = attachAutomaticApprovalReviewsToToolTargets([...activityItems]);
   const sourceItems = attachedEntries.filter(
     (entry): entry is ThreadClassifiableActivityItem =>
       ("entry" in entry || entry.type === "workedFor")
@@ -492,10 +453,7 @@ export function buildV2AgentRenderUnits(
           isExploring: options.liveActivity.isExploring,
         })
       : { kind: "summary" as const };
-    const liveState = projectedLiveState.kind === "thinking"
-      && options.liveActivity?.allowThinkingFallback !== true
-      ? { kind: "summary" as const }
-      : projectedLiveState;
+    const liveState = projectedLiveState;
     const liveItemSummary = liveState.kind === "active" && "entry" in liveState.item.item
       ? resolveAgentActivityGroupActiveSummary([liveState.item.item])
       : null;
@@ -517,7 +475,7 @@ export function buildV2AgentRenderUnits(
             ? `${unit.key}:thinking`
             : liveItemSummary?.key ?? `${unit.key}:active`,
           label: liveState.kind === "thinking"
-            ? options.liveActivity.thinkingFallbackLabel ?? defaultRunningLabel
+            ? options.liveActivity.reasoningFallbackLabel ?? defaultRunningLabel
             : defaultRunningLabel,
         };
 
@@ -538,16 +496,18 @@ export function buildV2AgentRenderUnits(
     return [{ kind: "entry", block: entry as ThreadAgentItemModel }];
   });
 
+  // workedFor is a timing row, not an activity unit. It is inserted before
+  // the first non-user item by buildTurnRenderModel, so preserve that order
+  // while keeping it out of the Electron-shaped activity classifier above.
+  const workedForUnits: ThreadAgentRenderUnit[] = workedForItems.map((item) => ({
+    kind: "entry",
+    block: item,
+  }));
+
   return {
     sourceItems,
-    units: [...units, ...adapterOnlyUnits],
+    units: [...workedForUnits, ...units, ...adapterOnlyUnits],
   };
-}
-
-function isTrailingReasoningEntryInProgress(entry: ThreadAgentEntryModel | undefined): boolean {
-  if (!entry || entry.type === "agentActivityGroup") return false;
-  if (entry.type !== "reasoning") return false;
-  return entry.status === "inProgress";
 }
 
 function reconcileExplorationState(
@@ -557,7 +517,6 @@ function reconcileExplorationState(
 ): {
   agentBodyBlocks: ThreadAgentEntryModel[];
   isExploring: boolean;
-  isAnyNonExploringAgentItemInProgress: boolean;
 } {
   const trailingEntry = agentBodyBlocks[agentBodyBlocks.length - 1];
   const trailingV2Group = trailingEntry?.type === "agentActivityGroup" ? trailingEntry : null;
@@ -597,17 +556,9 @@ function reconcileExplorationState(
 
   const nextAgentBodyBlocks = agentBodyBlocks;
 
-  const trailingResolvedEntry = nextAgentBodyBlocks[nextAgentBodyBlocks.length - 1];
-  const isAnyNonExploringAgentItemInProgress =
-    trailingResolvedEntry !== undefined
-    && trailingResolvedEntry.status === "inProgress"
-    && !isTrailingReasoningEntryInProgress(trailingResolvedEntry)
-    && !isExploring;
-
   return {
     agentBodyBlocks: nextAgentBodyBlocks,
     isExploring,
-    isAnyNonExploringAgentItemInProgress,
   };
 }
 
@@ -623,46 +574,6 @@ function reconcileAgentBodyUnitBlocks(
       block: block as ThreadAgentRenderUnit["block"],
     } as ThreadAgentRenderUnit;
   });
-}
-
-function resolveThinkingPlaceholderItem(
-  turnId: string | null,
-  turnKey: string,
-  buckets: ThreadTurnRenderBuckets,
-  input: Pick<BuildTurnViewModelInput, "isStreamingTurn" | "isBlocked" | "turn"> & {
-    isExploring: boolean;
-    isAnyNonExploringAgentItemInProgress: boolean;
-  },
-): ThreadThinkingPlaceholderBlockModel | null {
-  if (!input.isStreamingTurn || input.isBlocked) return null;
-  if (input.turn?.safetyBuffering?.showBufferingUi === true) return null;
-  if (input.isExploring) return null;
-  if (buckets.agentItems.some((block) => block.type === "workedFor")) return null;
-
-  const latestAssistant = buckets.latestAssistantMessage;
-  const hasVisibleFinalAssistant = latestAssistant?.type === "assistantMessage"
-    && latestAssistant.entry.assistantPhase === "final_answer"
-    && (
-      latestAssistant.status === "completed"
-      || (latestAssistant.entry.markdownText ?? "").trim().length > 0
-    );
-  if (hasVisibleFinalAssistant) return null;
-
-  if (isIncompleteBlock(buckets.proposedPlanItem, input.isStreamingTurn)) return null;
-  if (isIncompleteBlock(buckets.latestAssistantMessage, input.isStreamingTurn)) {
-    return buildThinkingPlaceholderItem(
-      turnId,
-      turnKey,
-      resolveLatestReasoningThinkingMessage(buckets),
-    );
-  }
-  if (input.isAnyNonExploringAgentItemInProgress) return null;
-
-  return buildThinkingPlaceholderItem(
-    turnId,
-    turnKey,
-    resolveLatestReasoningThinkingMessage(buckets),
-  );
 }
 
 function hasRenderableAssistantContent(block: ThreadTranscriptBlockModel | null): boolean {
@@ -738,21 +649,7 @@ export function buildTurnViewModel(input: BuildTurnViewModelInput): ThreadTurnMo
     input,
     initialVisibleAgentItems.filter(isThreadClassifiableActivityItem),
   );
-
-  let buckets: ThreadTurnRenderBuckets = {
-    ...initialBuckets,
-    thinkingPlaceholderItem: resolveThinkingPlaceholderItem(
-      input.turnId,
-      turnKey,
-      initialBuckets,
-      {
-        ...input,
-        isExploring: initialExplorationState.isExploring,
-        isAnyNonExploringAgentItemInProgress:
-          initialExplorationState.isAnyNonExploringAgentItemInProgress,
-      },
-    ),
-  };
+  let buckets: ThreadTurnRenderBuckets = { ...initialBuckets };
 
   const userMessageSearchBlocks = collectUserMessageSearchBlocks(buckets);
   const searchUnits = buildSearchUnits({
@@ -836,22 +733,26 @@ export function buildTurnViewModel(input: BuildTurnViewModelInput): ThreadTurnMo
   const visibleAgentItems = shouldRenderWorkedForInAgentBody
     ? buckets.agentItems
     : buckets.agentItems.filter((item) => item.type !== "workedFor");
-  const isAgentActivitySliceClosed = Boolean(
-    buckets.latestAssistantMessage
-    && (buckets.latestAssistantMessage.status !== "inProgress"
-      || (buckets.latestAssistantMessage.entry.markdownText ?? "").trim().length > 0),
-  );
+  const liveActivityInputState = resolveThreadLiveActivityInputState({
+    isLatestTurn: input.isLatestTurn,
+    isStreamingTurn: input.isStreamingTurn,
+    isBlocked: input.isBlocked,
+    showSafetyBufferingUi: input.turn?.safetyBuffering?.showBufferingUi === true,
+    latestAssistantMessage: buckets.latestAssistantMessage,
+    proposedPlanItem: buckets.proposedPlanItem,
+    agentItems: visibleAgentItems,
+    isExploring: initialExplorationState.isExploring,
+  });
   const v2AgentProjection = buildV2AgentRenderUnits(
     visibleAgentItems,
     {
       mcpServerStatuses: input.mcpServerStatuses ?? null,
       isTurnCancelled: isCancelledTurn,
       liveActivity: {
-        allowThinkingFallback: buckets.thinkingPlaceholderItem !== null,
         isTurnInProgress: input.isStreamingTurn,
-        isActivitySliceClosed: isAgentActivitySliceClosed,
+        isActivitySliceClosed: liveActivityInputState.isActivitySliceClosed,
         isExploring: initialExplorationState.isExploring,
-        thinkingFallbackLabel: buckets.thinkingPlaceholderItem?.message,
+        reasoningFallbackLabel: liveActivityInputState.reasoningSummary?.text,
       },
     },
   );
@@ -865,13 +766,17 @@ export function buildTurnViewModel(input: BuildTurnViewModelInput): ThreadTurnMo
     agentBodyUnitsBeforeReconcile,
     explorationState.agentBodyBlocks,
   );
-  const latestAgentBodyBlock = agentBodyUnits.at(-1)?.block;
-  const latestGroupOwnsThinking = buckets.thinkingPlaceholderItem != null
-    && latestAgentBodyBlock?.type === "agentActivityGroup"
-    && latestAgentBodyBlock.liveHeaderKind === "thinking";
-  const standaloneThinkingPlaceholder = latestGroupOwnsThinking
-    ? null
-    : buckets.thinkingPlaceholderItem;
+  const liveActivity: ThreadLiveActivityPresentation = resolveThreadLiveActivityPresentation({
+    isLatestTurn: input.isLatestTurn,
+    isStreamingTurn: input.isStreamingTurn,
+    isBlocked: input.isBlocked,
+    showSafetyBufferingUi: input.turn?.safetyBuffering?.showBufferingUi === true,
+    latestAssistantMessage: buckets.latestAssistantMessage,
+    proposedPlanItem: buckets.proposedPlanItem,
+    agentItems: visibleAgentItems,
+    agentBodyUnits,
+    isExploring: explorationState.isExploring,
+  });
 
   const leadingBlocks: ThreadBlockModel[] = [
     ...buckets.modelChangedItems,
@@ -892,7 +797,6 @@ export function buildTurnViewModel(input: BuildTurnViewModelInput): ThreadTurnMo
     ...buckets.postAssistantItems,
     ...buckets.mcpServerElicitationItems,
     ...(buckets.proposedPlanItem ? [buckets.proposedPlanItem] : []),
-    ...(standaloneThinkingPlaceholder ? [standaloneThinkingPlaceholder] : []),
     ...(buckets.unifiedDiffItem ? [buckets.unifiedDiffItem] : []),
     ...buckets.remoteTaskCreatedItems,
     ...buckets.personalityChangedItems,
@@ -925,8 +829,7 @@ export function buildTurnViewModel(input: BuildTurnViewModelInput): ThreadTurnMo
     isLatestTurn: input.isLatestTurn,
     isStreamingTurn: input.isStreamingTurn,
     isBlocked: input.isBlocked,
-    isAgentActivitySliceClosed,
-    isAgentActivityExploring: explorationState.isExploring,
+    liveActivity,
     searchableText: collectSearchableText(resolvedBlocks),
     searchUnits,
     hasRenderableAgentBodyUnits,

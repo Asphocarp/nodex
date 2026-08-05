@@ -19,6 +19,7 @@ import {
   createCodexCanonicalProtocolRequest,
   extractCodexCanonicalHydratedAttachments,
   mergeCodexCanonicalOlderTurnStates,
+  mergeCodexCanonicalTurnState,
   mergeCodexCanonicalTurnStates,
   materializeCodexCanonicalProtocolItem,
   resolveCodexCanonicalHydratedCwd,
@@ -794,6 +795,39 @@ describe("protocol-backed canonical conversation state", () => {
     expect(anchored.map((turn) => turn.protocol.id).join(",")).toBe(
       "turn-a,turn-b,turn-c,turn-d,turn-e",
     );
+  });
+
+  test("merges lifecycle sidecars monotonically without reopening terminal items", () => {
+    const template = buildAgentActivityV2CorpusThread([]).turns[0];
+    if (!template) throw new Error("Canonical turn fixture is missing");
+    const existing = hydrateCanonicalFixtureTurns([template]).turns[0];
+    if (!existing) throw new Error("Canonical turn fixture is missing");
+    const incoming = {
+      ...existing,
+      sidecar: {
+        ...existing.sidecar,
+        lifecycleStatusByItemId: {
+          "reasoning-live": "completed" as const,
+          "reasoning-terminal": "completed" as const,
+        },
+      },
+    };
+    const current = {
+      ...existing,
+      sidecar: {
+        ...existing.sidecar,
+        lifecycleStatusByItemId: {
+          "reasoning-live": "inProgress" as const,
+          "reasoning-terminal": "completed" as const,
+        },
+      },
+    };
+
+    const merged = mergeCodexCanonicalTurnState(current, incoming);
+    expect(merged.sidecar.lifecycleStatusByItemId).toEqual({
+      "reasoning-live": "completed",
+      "reasoning-terminal": "completed",
+    });
   });
 
   test("rejects hydration when exact app-side turn context is unavailable", () => {

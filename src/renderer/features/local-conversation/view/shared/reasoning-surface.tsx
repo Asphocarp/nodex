@@ -11,6 +11,7 @@ import {
 } from "./markdown/budgeted-markdown-renderer";
 import { CODEX_THREAD_ACCORDION_TRANSITION } from "./thread-motion";
 import { useMeasuredElementHeight } from "./use-measured-element-height";
+import { CodexShimmerText } from "./codex-shimmer-text";
 
 interface ReasoningSurfaceProps {
   item: Pick<CodexTranscriptEntry, "markdownText"> & { status?: CodexTranscriptEntry["status"] };
@@ -204,13 +205,12 @@ export function ReasoningSurface({
         canToggle ? "cursor-interaction" : "cursor-default",
       )}
     >
-      <span className={cn(
-        "group-hover:text-token-foreground text-size-chat truncate text-token-foreground/30",
-        isInProgress && "loading-shimmer-pure-text",
-      )}
+      <CodexShimmerText
+        active={isInProgress}
+        className="group-hover:text-token-foreground text-size-chat truncate text-token-foreground/30"
       >
         {summaryLabel}
-      </span>
+      </CodexShimmerText>
       {canToggle ? (
         <ChevronRightIcon
           className={cn(

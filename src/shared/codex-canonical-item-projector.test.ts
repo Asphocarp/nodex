@@ -26,6 +26,7 @@ function project(
   items: readonly CodexCanonicalItem[],
   options: {
     turnStatus?: "inProgress" | "completed" | "interrupted" | "failed";
+    lifecycleStatusByItemId?: Readonly<Record<string, "inProgress" | "completed" | "failed" | "declined" | "interrupted">>;
     isBackgroundSubagentsEnabled?: boolean;
   } = {},
 ) {
@@ -35,6 +36,7 @@ function project(
     items,
     observedAtMs: 1_000,
     turnStatus: options.turnStatus ?? "inProgress",
+    lifecycleStatusByItemId: options.lifecycleStatusByItemId,
     isBackgroundSubagentsEnabled: options.isBackgroundSubagentsEnabled,
     commandExecutionStartedAtMsById: { "command-multi": 900 },
     interruptedCommandExecutionItemIds: [],
@@ -189,6 +191,40 @@ function buildCanonicalTurn(input: {
 }
 
 describe("projectCodexCanonicalTurnItemViews", () => {
+  test("uses explicit lifecycle status for statusless items regardless of sibling order", () => {
+    const assistant = materializeCodexCanonicalProtocolItem({
+      type: "agentMessage",
+      id: "assistant-live",
+      text: "partial",
+      phase: "commentary",
+      memoryCitation: null,
+    });
+    const plan = materializeCodexCanonicalProtocolItem({
+      type: "plan",
+      id: "plan-completed",
+      text: "- [x] done",
+    });
+    const reasoning = materializeCodexCanonicalProtocolItem({
+      type: "reasoning",
+      id: "reasoning-live",
+      summary: ["Checking the patch stream."],
+      content: [],
+    });
+
+    const views = project([assistant, plan, reasoning], {
+      lifecycleStatusByItemId: {
+        "assistant-live": "inProgress",
+        "plan-completed": "completed",
+        "reasoning-live": "inProgress",
+      },
+    });
+    const byId = new Map(views.map((view) => [view.itemId, view]));
+
+    expect(byId.get("assistant-live")?.status).toBe("inProgress");
+    expect(byId.get("plan-completed")?.status).toBe("completed");
+    expect(byId.get("reasoning-live")?.status).toBe("inProgress");
+  });
+
   test("keeps an empty in-progress fileChange as a live streaming placeholder", () => {
     const item = materializeCodexCanonicalProtocolItem({
       type: "fileChange",

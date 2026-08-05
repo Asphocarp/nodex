@@ -5,6 +5,7 @@ import type {
   UserInput,
 } from "@nodex/codex-app-server-protocol/v2";
 import type { CodexConversationReplayEvent } from "./codex-conversation-replay";
+import type { CodexItemStatus } from "../types";
 import {
   isCodexFrameTextDeltaNotification,
   isCodexReasoningSummaryPartAddedNotification,
@@ -122,6 +123,7 @@ export interface CodexItemLifecycleMetadataState {
   readonly items: readonly CodexItemLifecycleIdentity[];
   readonly firstTurnWorkItemStartedAtMs?: number | null;
   readonly finalAssistantStartedAtMs?: number | null;
+  readonly lifecycleStatusByItemId?: Readonly<Record<string, CodexItemStatus>>;
   readonly commandExecutionStartedAtMsById?: Readonly<Record<string, number>>;
 }
 
@@ -130,6 +132,7 @@ export interface CodexItemLifecycleMetadataResult {
   readonly upsertIndex: number;
   readonly firstTurnWorkItemStartedAtMs?: number | null;
   readonly finalAssistantStartedAtMs?: number | null;
+  readonly lifecycleStatusByItemId?: Readonly<Record<string, CodexItemStatus>>;
   readonly commandExecutionStartedAtMsById?: Readonly<Record<string, number>>;
 }
 
@@ -442,6 +445,43 @@ function findExactItemTypeIndex(
   return -1;
 }
 
+function isCodexItemStatus(value: unknown): value is CodexItemStatus {
+  return value === "inProgress"
+    || value === "completed"
+    || value === "failed"
+    || value === "declined"
+    || value === "interrupted";
+}
+
+function resolveCompletedLifecycleStatus(item: ThreadItem): CodexItemStatus {
+  if (
+    "status" in item
+    && isCodexItemStatus(item.status)
+    && item.status !== "inProgress"
+  ) {
+    return item.status;
+  }
+  return "completed";
+}
+
+function resolveLifecycleStatus(
+  previous: CodexItemStatus | undefined,
+  notification: CodexItemLifecycleNotification,
+): CodexItemStatus {
+  if (notification.method === "item/started") {
+    // Item IDs are occurrence identities. Once an occurrence is terminal, a
+    // duplicate or delayed started event cannot reopen it.
+    return previous !== undefined && previous !== "inProgress"
+      ? previous
+      : "inProgress";
+  }
+
+  const completedStatus = resolveCompletedLifecycleStatus(notification.params.item);
+  return previous !== undefined && previous !== "inProgress"
+    ? previous
+    : completedStatus;
+}
+
 /**
  * Shared C-03 lifecycle decision kernel. Raw canonical state and temporary
  * legacy projection adapters both consume this result; only the canonical
@@ -458,6 +498,11 @@ export function reduceCodexItemLifecycleMetadata(
   const upsertIndex = sameIdIndex >= 0 ? sameIdIndex : state.items.length;
   let firstTurnWorkItemStartedAtMs = state.firstTurnWorkItemStartedAtMs;
   let finalAssistantStartedAtMs = state.finalAssistantStartedAtMs;
+  const previousLifecycleStatus = state.lifecycleStatusByItemId?.[item.id];
+  const lifecycleStatusByItemId = {
+    ...(state.lifecycleStatusByItemId ?? {}),
+    [item.id]: resolveLifecycleStatus(previousLifecycleStatus, notification),
+  } satisfies Record<string, CodexItemStatus>;
   let commandExecutionStartedAtMsById = state.commandExecutionStartedAtMsById;
 
   if (notification.method === "item/started") {
@@ -473,6 +518,7 @@ export function reduceCodexItemLifecycleMetadata(
         upsertIndex,
         firstTurnWorkItemStartedAtMs,
         finalAssistantStartedAtMs,
+        lifecycleStatusByItemId,
         commandExecutionStartedAtMsById,
       };
     }
@@ -498,6 +544,7 @@ export function reduceCodexItemLifecycleMetadata(
       upsertIndex,
       firstTurnWorkItemStartedAtMs,
       finalAssistantStartedAtMs,
+      lifecycleStatusByItemId,
       commandExecutionStartedAtMsById,
     };
   }
@@ -518,6 +565,7 @@ export function reduceCodexItemLifecycleMetadata(
       upsertIndex,
       firstTurnWorkItemStartedAtMs,
       finalAssistantStartedAtMs,
+      lifecycleStatusByItemId,
       commandExecutionStartedAtMsById,
     };
   }
@@ -532,6 +580,7 @@ export function reduceCodexItemLifecycleMetadata(
     upsertIndex,
     firstTurnWorkItemStartedAtMs,
     finalAssistantStartedAtMs,
+    lifecycleStatusByItemId,
     commandExecutionStartedAtMsById,
   };
 }
@@ -551,6 +600,11 @@ function applyLifecycleMetadata(
               metadata.firstTurnWorkItemStartedAtMs,
           }),
       finalAssistantStartedAtMs: metadata.finalAssistantStartedAtMs ?? null,
+      ...(metadata.lifecycleStatusByItemId === undefined
+        ? {}
+        : {
+            lifecycleStatusByItemId: metadata.lifecycleStatusByItemId,
+          }),
       ...(metadata.commandExecutionStartedAtMsById === undefined
         ? {}
         : {
@@ -600,6 +654,7 @@ function reduceItemStarted(
       items: turn.items,
       firstTurnWorkItemStartedAtMs: turn.sidecar.firstTurnWorkItemStartedAtMs,
       finalAssistantStartedAtMs: turn.sidecar.finalAssistantStartedAtMs,
+      lifecycleStatusByItemId: turn.sidecar.lifecycleStatusByItemId,
       commandExecutionStartedAtMsById:
         turn.sidecar.commandExecutionStartedAtMsById,
     },
@@ -729,6 +784,7 @@ function reduceItemCompleted(
       items: turn.items,
       firstTurnWorkItemStartedAtMs: turn.sidecar.firstTurnWorkItemStartedAtMs,
       finalAssistantStartedAtMs: turn.sidecar.finalAssistantStartedAtMs,
+      lifecycleStatusByItemId: turn.sidecar.lifecycleStatusByItemId,
       commandExecutionStartedAtMsById:
         turn.sidecar.commandExecutionStartedAtMsById,
     },

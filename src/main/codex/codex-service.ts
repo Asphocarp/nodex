@@ -534,6 +534,10 @@ import {
 import { shouldTerminalizeItemWithTurn } from "../../shared/codex-turn-terminalization";
 import { completeCodexMcpToolCallForTurn } from "../../shared/codex-mcp-tool-call";
 import {
+  parseCodexReasoningSummary,
+  resolveCodexReasoningSummary,
+} from "../../shared/codex-reasoning-summary-policy";
+import {
   buildCodexConversationSnapshot,
   buildCodexConversationTurn,
 } from "./codex-conversation-snapshot";
@@ -5718,6 +5722,7 @@ export class CodexService extends EventEmitter {
     modelProvider?: string | null;
     serviceTier?: string | null;
     reasoningEffort?: CodexReasoningEffort | null;
+    summary?: CodexConversationThreadSettings["summary"];
     collaborationMode?: CodexCollaborationModeKind | null;
     personality?: CodexPersonality | null;
     fallback?: CodexConversationThreadSettings | null;
@@ -5749,6 +5754,9 @@ export class CodexService extends EventEmitter {
         ? normalizeCodexServiceTier(input.serviceTier)
         : input.fallback?.serviceTier ?? null,
       reasoningEffort: reasoningEffort ?? null,
+      summary: input.summary !== undefined
+        ? input.summary
+        : input.fallback?.summary ?? null,
       collaborationMode,
       personality: input.personality !== undefined
         ? input.personality
@@ -5776,6 +5784,7 @@ export class CodexService extends EventEmitter {
         : hasOwnValue(patch, "reasoningEffort")
           ? patch.reasoningEffort ?? null
           : undefined,
+      summary: hasOwnValue(patch, "summary") ? patch.summary ?? null : undefined,
       collaborationMode: hasOwnValue(patch, "collaborationMode") ? patch.collaborationMode ?? "default" : undefined,
       personality: hasOwnValue(patch, "personality") ? patch.personality ?? null : undefined,
       fallback: record.latestThreadSettings,
@@ -5840,6 +5849,9 @@ export class CodexService extends EventEmitter {
       reasoningEffort,
       fallback: fallbackMode,
     });
+    const parsedSummary = hasOwnValue(candidate, "summary")
+      ? parseCodexReasoningSummary(candidate.summary)
+      : undefined;
 
     return {
       model,
@@ -5850,6 +5862,7 @@ export class CodexService extends EventEmitter {
         ? normalizeCodexServiceTier(candidate.serviceTier)
         : fallback?.serviceTier ?? null,
       reasoningEffort,
+      summary: parsedSummary === undefined ? fallback?.summary ?? null : parsedSummary,
       collaborationMode,
       personality: hasOwnValue(candidate, "personality")
         ? parseCodexPersonality(candidate.personality)
@@ -5883,6 +5896,7 @@ export class CodexService extends EventEmitter {
               model: latestThreadSettings.model ?? hydrationContext.latestModel,
               serviceTier: latestThreadSettings.serviceTier ?? null,
               effort: latestThreadSettings.reasoningEffort,
+              summary: latestThreadSettings.summary ?? null,
               personality: latestThreadSettings.personality,
             },
           },
@@ -5959,6 +5973,7 @@ export class CodexService extends EventEmitter {
       modelProvider: record.latestThreadSettings?.modelProvider ?? null,
       serviceTier: record.latestThreadSettings?.serviceTier ?? null,
       reasoningEffort: latestCollaborationMode.settings.reasoning_effort,
+      summary: record.latestThreadSettings?.summary ?? null,
       collaborationMode: latestCollaborationMode,
       personality: record.latestThreadSettings?.personality ?? this.personality,
     };
@@ -6852,6 +6867,7 @@ export class CodexService extends EventEmitter {
     serviceTier?: CodexServiceTier,
     pausedReason?: string | null,
     promptInput?: CodexPromptInput,
+    summary?: CodexSteeringRestoreMessage["summary"],
   ): string {
     const followUpId = `follow-up:${threadId}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
     const nextEntries = [
@@ -6864,6 +6880,7 @@ export class CodexService extends EventEmitter {
         createdAt: Date.now(),
         collaborationMode: collaborationMode ?? null,
         serviceTier: normalizeCodexServiceTier(serviceTier),
+        ...(summary !== undefined ? { summary } : {}),
         pausedReason: pausedReason ?? null,
       },
     ];
@@ -6947,6 +6964,7 @@ export class CodexService extends EventEmitter {
       overrides?.serviceTier,
       null,
       overrides?.promptInput,
+      overrides?.summary,
     );
   }
 
@@ -7027,6 +7045,7 @@ export class CodexService extends EventEmitter {
           ...(followUp.promptInput ? { promptInput: followUp.promptInput } : {}),
           collaborationMode: followUp.collaborationMode,
           serviceTier: followUp.serviceTier,
+          summary: followUp.summary,
         });
         return;
       }
@@ -7034,6 +7053,7 @@ export class CodexService extends EventEmitter {
       await this.startTurn(threadId, followUp.prompt, {
         collaborationMode: followUp.collaborationMode ?? undefined,
         serviceTier: followUp.serviceTier,
+        summary: followUp.summary,
         ...(followUp.promptInput ? { promptInput: followUp.promptInput } : {}),
       });
     } catch (error) {
@@ -11980,6 +12000,9 @@ export class CodexService extends EventEmitter {
     if (executionProfile || hasOwnValue(patch, "reasoningEffort")) {
       params.effort = executionProfile?.reasoningEffort ?? patch.reasoningEffort ?? null;
     }
+    if (hasOwnValue(patch, "summary")) {
+      params.summary = patch.summary ?? null;
+    }
     if (
       executionProfile
       || hasOwnValue(patch, "model")
@@ -14160,6 +14183,7 @@ export class CodexService extends EventEmitter {
         restoreMessage.serviceTier,
         reason,
         restoreMessage.promptInput,
+        restoreMessage.summary,
       );
     }
   }
@@ -16158,18 +16182,22 @@ export class CodexService extends EventEmitter {
         model: effectiveModel ?? undefined,
         reasoningEffort: effectiveReasoningEffort,
       });
-      if (effectiveModel || effectiveReasoningEffort || effectiveCollaborationMode) {
-        const record = this.getConversationRecord(link.threadId);
-        this.applyLatestThreadSettingsForThread(link.threadId, this.buildConversationThreadSettings({
-          model: effectiveModel ?? null,
-          modelProvider: executionProfile?.providerId ?? null,
-          serviceTier: executionProfile?.serviceTier ?? null,
-          reasoningEffort: effectiveReasoningEffort ?? null,
-          collaborationMode: effectiveCollaborationMode ?? record.latestCollaborationMode.mode,
-          fallback: record.latestThreadSettings,
-          fallbackCollaborationMode: record.latestCollaborationMode,
-        }));
-      }
+      const firstTurnReasoningSummary = resolveCodexReasoningSummary({
+        explicitSummary: input.summary !== undefined
+          ? parseCodexReasoningSummary(input.summary)
+          : undefined,
+      });
+      const firstTurnRecord = this.getConversationRecord(link.threadId);
+      this.applyLatestThreadSettingsForThread(link.threadId, this.buildConversationThreadSettings({
+        model: effectiveModel ?? null,
+        modelProvider: executionProfile?.providerId ?? null,
+        serviceTier: executionProfile?.serviceTier ?? null,
+        reasoningEffort: effectiveReasoningEffort ?? null,
+        summary: firstTurnReasoningSummary,
+        collaborationMode: effectiveCollaborationMode ?? firstTurnRecord.latestCollaborationMode.mode,
+        fallback: firstTurnRecord.latestThreadSettings,
+        fallbackCollaborationMode: firstTurnRecord.latestCollaborationMode,
+      }));
 
       const firstTurnInput = materializedGoalObjective.length > 0
         ? replaceFirstTextInput(
@@ -16196,6 +16224,7 @@ export class CodexService extends EventEmitter {
         ...(effectiveModel ? { model: effectiveModel } : {}),
         ...buildServiceTierParams(input.serviceTier),
         ...(effectiveReasoningEffort ? { effort: effectiveReasoningEffort } : {}),
+        summary: firstTurnReasoningSummary,
         ...(collaborationMode ? { collaborationMode } : {}),
         attachments: firstTurnAttachments,
       };
@@ -16229,7 +16258,7 @@ export class CodexService extends EventEmitter {
           ? null
           : effectiveReasoningEffort ?? threadStart.reasoningEffort,
         multiAgentMode: "explicitRequestOnly",
-        summary: "none",
+        summary: firstTurnReasoningSummary,
         personality: this.personality,
         outputSchema: null,
         collaborationMode,
@@ -17118,10 +17147,16 @@ export class CodexService extends EventEmitter {
       reasoningEffort: resumedReasoningEffort,
       fallback: frozenCollaborationMode,
     });
+    const resumedSummary = record.latestThreadSettings?.summary !== undefined
+      ? record.latestThreadSettings.summary
+      : previousHydrationContext?.latestThreadSettings?.summary
+        ?? latestParams?.summary
+        ?? null;
     this.setLatestCollaborationModeForThread(threadId, resumedCollaborationMode);
     this.applyLatestThreadSettingsForThread(threadId, {
       model: resumedModel,
       reasoningEffort: resumedReasoningEffort,
+      summary: resumedSummary,
       collaborationMode: resumedCollaborationMode,
       personality: latestPersonality,
     });
@@ -19130,6 +19165,16 @@ export class CodexService extends EventEmitter {
     return goal;
   }
 
+  private async ensureReasoningSummaryForGoalContinuation(threadId: string): Promise<void> {
+    const record = this.getConversationRecord(threadId);
+    const summary = resolveCodexReasoningSummary({
+      configuredSummary: record.latestThreadSettings?.summary,
+    });
+    if (record.latestThreadSettings?.summary === summary) return;
+
+    await this.updateThreadSettingsForNextTurn(threadId, { summary });
+  }
+
   async clearThreadGoal(threadId: string): Promise<void> {
     await this.ensureClientReady();
     await this.client.request("thread/goal/clear", { threadId });
@@ -19179,11 +19224,15 @@ export class CodexService extends EventEmitter {
   }
 
   private async continueActiveThreadGoalWithEmptyTurn(threadId: string): Promise<void> {
-    const detail = this.getMaybeConversationRecord(threadId)?.detail ?? this.serializeThreadDetail(threadId);
+    const record = this.getMaybeConversationRecord(threadId);
+    const detail = record?.detail ?? this.serializeThreadDetail(threadId);
     const params: TurnStartParams = {
       threadId,
       input: [],
       ...(detail?.cwd ? { cwd: detail.cwd } : {}),
+      summary: resolveCodexReasoningSummary({
+        configuredSummary: record?.latestThreadSettings?.summary,
+      }),
     };
     const projectId = this.parseThreadRef(threadId)?.projectId ?? null;
     const permissionState = this.resolvePermissionStateForRequest(
@@ -19224,6 +19273,7 @@ export class CodexService extends EventEmitter {
           if (!this.canContinueActiveThreadGoal(threadId)) return;
         }
 
+        await this.ensureReasoningSummaryForGoalContinuation(threadId);
         if (this.threadSettingsUpdateSupport === "unsupported") {
           await this.continueActiveThreadGoalWithEmptyTurn(threadId);
           return;
@@ -19333,6 +19383,13 @@ export class CodexService extends EventEmitter {
       ?? overrides?.collaborationMode
       ?? latestThreadSettings?.collaborationMode?.mode
       ?? fallbackCollaborationMode.mode;
+    const explicitReasoningSummary = overrides && hasOwnValue(overrides, "summary")
+      ? parseCodexReasoningSummary(overrides.summary)
+      : undefined;
+    const reasoningSummary = resolveCodexReasoningSummary({
+      configuredSummary: latestThreadSettings?.summary,
+      explicitSummary: explicitReasoningSummary,
+    });
 
     const threadRef = this.parseThreadRef(threadId);
     const threadCwd = threadRef?.cwd?.trim() || null;
@@ -19370,6 +19427,7 @@ export class CodexService extends EventEmitter {
       modelProvider: threadRef?.executionProfile?.providerId,
       serviceTier: effectiveServiceTier,
       reasoningEffort: effectiveReasoningEffort ?? null,
+      summary: reasoningSummary,
       collaborationMode: effectiveCollaborationMode,
       fallback: latestThreadSettings,
       fallbackCollaborationMode,
@@ -19399,6 +19457,7 @@ export class CodexService extends EventEmitter {
       model: effectiveModel ?? null,
       serviceTier: formatServiceTierForReporting(effectiveServiceTier),
       reasoningEffort: effectiveReasoningEffort ?? null,
+      reasoningSummary,
       collaborationMode: effectiveCollaborationMode ?? null,
       promptLength: promptText.length,
       promptPreview: previewText(promptText),
@@ -19415,6 +19474,7 @@ export class CodexService extends EventEmitter {
       ...(effectiveModel ? { model: effectiveModel } : {}),
       ...(effectiveServiceTier ? { serviceTier: effectiveServiceTier } : {}),
       ...(effectiveReasoningEffort ? { effort: effectiveReasoningEffort } : {}),
+      summary: reasoningSummary,
       ...(collaborationMode ? { collaborationMode } : {}),
       input: preparedPrompt.inputItems,
     });
@@ -19476,7 +19536,7 @@ export class CodexService extends EventEmitter {
             : hydration.latestThreadSettings?.serviceTier ?? null,
           effort: collaborationMode ? null : effectiveReasoningEffort ?? null,
           multiAgentMode: hydration.latestThreadSettings?.multiAgentMode ?? "explicitRequestOnly",
-          summary: hydration.latestThreadSettings?.summary ?? "none",
+          summary: reasoningSummary,
           personality: latestThreadSettings?.personality ?? this.personality,
           outputSchema: null,
           collaborationMode,
@@ -19629,6 +19689,7 @@ export class CodexService extends EventEmitter {
       ...(input.promptInput ? { promptInput: input.promptInput } : {}),
       collaborationMode: input.collaborationMode ?? null,
       serviceTier: normalizeCodexServiceTier(input.serviceTier),
+      ...(input.summary !== undefined ? { summary: input.summary } : {}),
     };
     const canonicalBefore = this.getMaybeConversationRecord(threadId)?.canonicalState;
     if (!canonicalBefore) {
@@ -19682,6 +19743,7 @@ export class CodexService extends EventEmitter {
         const restarted = await this.startTurn(threadId, input.prompt, {
           collaborationMode: input.collaborationMode ?? undefined,
           serviceTier: input.serviceTier,
+          summary: input.summary,
           ...(input.promptInput ? { promptInput: input.promptInput } : {}),
         }, options);
         if (!restarted || restarted.turnId === null) return null;
@@ -22422,6 +22484,7 @@ export class CodexService extends EventEmitter {
     readonly nodexBuiltinFullAccess: boolean;
     readonly permissionOverrides?: CodexDynamicCreatePermissionSelection["turnParams"];
     readonly reasoningEffort: TurnStartParams["effort"];
+    readonly reasoningSummary: NonNullable<TurnStartParams["summary"]>;
     readonly previousPermissionContext: CodexCanonicalHydratedPermissionContext;
     readonly previousStatus: {
       readonly statusType: CodexThreadStatusType;
@@ -22469,7 +22532,7 @@ export class CodexService extends EventEmitter {
           serviceTier: input.serviceTier,
           effort: input.collaborationMode === null ? input.reasoningEffort : null,
           multiAgentMode: "explicitRequestOnly",
-          summary: "none",
+          summary: input.reasoningSummary,
           personality: null,
           outputSchema: null,
           collaborationMode: input.collaborationMode,
@@ -22734,14 +22797,18 @@ export class CodexService extends EventEmitter {
       model: effectiveModel,
       reasoningEffort: effectiveReasoningEffort,
     });
+    const record = this.ensureConversationRecord(threadId);
+    const firstTurnReasoningSummary = resolveCodexReasoningSummary({
+      configuredSummary: record.latestThreadSettings?.summary,
+    });
     this.setLatestCollaborationModeForThread(threadId, latestCollaborationMode);
     this.applyLatestThreadSettingsForThread(threadId, {
       model: effectiveModel,
       reasoningEffort: effectiveReasoningEffort,
+      summary: firstTurnReasoningSummary,
       collaborationMode: latestCollaborationMode,
       personality: this.personality,
     });
-    const record = this.ensureConversationRecord(threadId);
     const previousStatus = {
       statusType: detail.statusType,
       statusActiveFlags: [...detail.statusActiveFlags],
@@ -22784,7 +22851,7 @@ export class CodexService extends EventEmitter {
       serviceTier: threadStart.serviceTier ?? input.serviceTier,
       effort: collaborationMode === null ? threadStart.reasoningEffort : null,
       multiAgentMode: "explicitRequestOnly",
-      summary: "none",
+      summary: firstTurnReasoningSummary,
       personality: null,
       outputSchema: null,
       collaborationMode,
@@ -22862,6 +22929,7 @@ export class CodexService extends EventEmitter {
       previousPermissionContext,
       previousStatus,
       reasoningEffort: effectiveReasoningEffort,
+      reasoningSummary: firstTurnReasoningSummary,
       serviceTier: threadStart.serviceTier ?? input.serviceTier,
       threadId,
       threadModel: threadStart.model,
