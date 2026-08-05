@@ -110,6 +110,22 @@ describe("TurnDiffSurface", () => {
     expect(Boolean(container.querySelector('button[aria-label="Review changed files"]'))).toBe(true);
   });
 
+  test("does not render a dead Review CTA when no opener route is available", () => {
+    const { container } = render(
+      <TooltipProvider>
+        <TurnDiffSurface
+          item={buildTurnDiffEntry({ unifiedDiff: multiFileDiff(1) })}
+          isInProgress={false}
+          threadCwd="/tmp/project"
+        />
+      </TooltipProvider>,
+    );
+
+    expect(container.querySelector('button[aria-label="Review changed files"]')).toBe(null);
+    expect(container.textContent?.includes("Review changes")).toBe(false);
+    expect(container.querySelectorAll("button")).toHaveLength(0);
+  });
+
   test("defers only fixed-height completed file rows when offscreen rendering is enabled", () => {
     const { container } = render(
       <TooltipProvider>
@@ -125,7 +141,7 @@ describe("TurnDiffSurface", () => {
     const deferredRows = container.querySelectorAll(".thread-diff-virtualized");
     expect(deferredRows.length).toBe(3);
     expect(Array.from(deferredRows).every((row) => (
-      row.querySelector("button")?.classList.contains("h-9") === true
+      row.querySelector<HTMLElement>(".h-9")?.classList.contains("h-9") === true
     ))).toBe(true);
     expect(container.firstElementChild?.classList.contains("thread-diff-virtualized")).toBe(false);
   });

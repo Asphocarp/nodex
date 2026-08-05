@@ -1,7 +1,7 @@
 import type { ThreadItem } from "@nodex/codex-app-server-protocol/v2";
 import type { CodexConversationItem } from "../../../lib/types";
 import { buildCodexCanonicalRequestIdentityKey } from "../../../../shared/codex-conversation-state/codex-conversation-state";
-import { hasCodexFileChangeEntries } from "../../../../shared/codex-file-change";
+import { resolveCodexFileChangeActivity } from "../../../../shared/codex-file-change-activity";
 import { stripCodexRemarkDirectiveLines } from "../../../../shared/codex-remark-directives";
 import type { CodexTurnScopedConversationRequest } from "../conversation-request-helpers";
 import type {
@@ -96,8 +96,11 @@ function resolveVisibleMarkdownText(entry: CodexConversationItem): string | unde
 }
 
 function hasRenderableFileChangeEntry(entry: CodexConversationItem): boolean {
-  if (hasCodexFileChangeEntries(entry.fileChange?.changes)) return true;
-  return Boolean(entry.toolCall?.error);
+  return resolveCodexFileChangeActivity({
+    status: entry.status,
+    fileChange: entry.fileChange,
+    hasToolError: Boolean(entry.toolCall?.error),
+  }).visibility !== "suppressed";
 }
 
 function getRecord(value: unknown): Record<string, unknown> | null {

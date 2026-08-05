@@ -40,6 +40,7 @@ function buildSnapshotRole(sourceClientId: string): LocalConversationStreamRole 
 
 export class LocalConversationStreamState {
   private readonly streamingConversationIds = new Set<string>();
+  private readonly followedConversationIds = new Set<string>();
   private readonly rolesByConversationId = new Map<string, LocalConversationStreamRole>();
   private readonly revisionByConversationId = new Map<string, number>();
   private readonly waitersByConversationId = new Map<string, Set<RevisionWaiter>>();
@@ -61,6 +62,31 @@ export class LocalConversationStreamState {
 
   getStreamingConversationIds(): string[] {
     return [...this.streamingConversationIds];
+  }
+
+  isConversationFollowing(conversationId: string): boolean {
+    return this.followedConversationIds.has(conversationId);
+  }
+
+  getFollowedConversationIds(): string[] {
+    return [...this.followedConversationIds];
+  }
+
+  setConversationFollowing(conversationId: string, following: boolean): void {
+    if (following) {
+      this.followedConversationIds.add(conversationId);
+      return;
+    }
+
+    this.followedConversationIds.delete(conversationId);
+    const role = this.rolesByConversationId.get(conversationId);
+    if (role?.role !== "follower") return;
+    this.rolesByConversationId.delete(conversationId);
+    this.revisionByConversationId.delete(conversationId);
+    this.rejectWaitersForConversation(
+      conversationId,
+      new Error(`Conversation ${conversationId} is no longer followed`),
+    );
   }
 
   setStreaming(conversationId: string, streaming: boolean): void {
@@ -186,8 +212,28 @@ export class LocalConversationStreamState {
     return affectedConversationIds;
   }
 
+  handleTransportReset(conversationIds?: readonly string[]): string[] {
+    const requestedConversationIds = conversationIds?.length
+      ? new Set(conversationIds)
+      : null;
+    const affectedConversationIds = [...this.followedConversationIds].filter((conversationId) =>
+      (requestedConversationIds === null || requestedConversationIds.has(conversationId))
+      && this.rolesByConversationId.get(conversationId)?.role !== "owner",
+    );
+    for (const conversationId of affectedConversationIds) {
+      this.rolesByConversationId.delete(conversationId);
+      this.revisionByConversationId.delete(conversationId);
+      this.rejectWaitersForConversation(
+        conversationId,
+        new Error(`Stream transport was reset for ${conversationId}`),
+      );
+    }
+    return affectedConversationIds;
+  }
+
   removeConversation(conversationId: string): void {
     this.streamingConversationIds.delete(conversationId);
+    this.followedConversationIds.delete(conversationId);
     this.rolesByConversationId.delete(conversationId);
     this.revisionByConversationId.delete(conversationId);
     this.rejectWaitersForConversation(
@@ -204,6 +250,7 @@ export class LocalConversationStreamState {
       );
     }
     this.streamingConversationIds.clear();
+    this.followedConversationIds.clear();
     this.rolesByConversationId.clear();
     this.revisionByConversationId.clear();
   }

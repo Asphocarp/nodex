@@ -19,6 +19,7 @@ import {
   type CodexFileChangeDisplayStatus,
   type CodexUnifiedDiffSummary,
 } from "../../../../../../shared/codex-file-change";
+import { resolveCodexFileChangeActivity } from "../../../../../../shared/codex-file-change-activity";
 import { buildTextPreview, INLINE_TEXT_PREVIEW_MAX_CHARS } from "../../../../../lib/text-preview";
 import {
   NODEX_DIFF_HOST_CLASS,
@@ -650,11 +651,22 @@ export function FileChangeToolCall({
   const diffHostStyle = useMemo(() => getNodexDiffHostStyle(resolved), [resolved]);
   const diffHostClassName = `${NODEX_DIFF_HOST_CLASS} overflow-y-auto`;
   const state = resolveFileChangeStatus(item, isTurnCancelled);
+  const activity = resolveCodexFileChangeActivity({
+    status: item.status,
+    fileChange: item.fileChange,
+  });
   const visualizationKind = resolveVisualizationActivityKind(item.fileChange?.visualizationActivities ?? []);
   const showVisualization = visualizationKind !== null && state !== "stopped" && state !== "rejected";
   const summaryIcon = <ToolActivityIcon descriptor={semanticToolIcon("edit-files")} />;
 
-  if (rows.length === 0 && !showVisualization) return null;
+  if (rows.length === 0 && !showVisualization) {
+    if (activity.visibility !== "active" || state === "stopped" || state === "rejected") return null;
+    return (
+      <div className="text-size-chat text-token-description-foreground/80">
+        <CodexShimmerText>Editing files</CodexShimmerText>
+      </div>
+    );
+  }
 
   const content = (
     <div className="flex flex-col gap-[var(--conversation-patch-file-gap,var(--conversation-item-gap,16px))]">

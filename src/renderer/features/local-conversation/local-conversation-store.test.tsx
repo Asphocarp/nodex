@@ -3655,7 +3655,7 @@ describe("local-conversation-store", () => {
       expect(secondPublish?.ownerNotificationSequence).toBe(2);
       expect(secondPublish?.change?.baseRevision).toBe(2);
       expect(secondPublish?.change?.revision).toBe(3);
-      expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.status).toBe("inProgress");
+      expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.status).toBe("completed");
       expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.markdownText).toBe("done");
       expect(
         manager.readConversation("thread-1")?.turns[0]?.finalAssistantStartedAtMs,
@@ -4315,7 +4315,7 @@ describe("local-conversation-store", () => {
       expect(deltaPublishIndex >= 0).toBe(true);
       expect(completedPublishIndex > deltaPublishIndex).toBe(true);
       expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.markdownText).toBe(delta);
-      expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.status).toBe("inProgress");
+      expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.status).toBe("completed");
     } finally {
       resumeThreadResult = null;
       manager.destroy();
@@ -8489,7 +8489,7 @@ describe("local-conversation-store", () => {
       });
       const completedPublishIndex = ownerSequences.indexOf("2");
       expect(completedItem?.markdownText).toBe(delta);
-      expect(completedItem?.status).toBe("inProgress");
+      expect(completedItem?.status).toBe("completed");
       expect(String(requestAnimationFrameCallCount)).toBe("2");
       expect(ownerSequences.indexOf("1") < 0).toBe(true);
       expect(completedPublishIndex >= 0).toBe(true);
@@ -9201,9 +9201,9 @@ describe("local-conversation-store", () => {
         return String(input?.ownerNotificationSequence ?? 0);
       });
       expect(completedItem?.markdownText).toBe(delta);
-      expect(completedItem?.status).toBe("inProgress");
+      expect(completedItem?.status).toBe("completed");
       expect(renderStates.includes(`inProgress:${delta}`)).toBe(true);
-      expect(renderStates.includes(`completed:${delta}`)).toBe(false);
+      expect(renderStates.includes(`completed:${delta}`)).toBe(true);
       expect(ownerSequences.indexOf("2") > ownerSequences.indexOf("1")).toBe(true);
     } finally {
       await act(async () => {
@@ -10305,6 +10305,9 @@ describe("local-conversation-store", () => {
       const publishRecords = invokeRecords.filter((record) =>
         record.channel === "codex:thread-owner:stream-state:publish"
       );
+      const publishInput = publishRecords[0]?.args[0] as {
+        broadcastPatchesToFollowers?: boolean;
+      } | undefined;
       const ackRecord = invokeRecords.find((record) =>
         record.channel === "codex:thread-owner:notification:ack"
       );
@@ -10328,7 +10331,8 @@ describe("local-conversation-store", () => {
       expect(rawItem?.status).toBe("declined");
       expect(rawItem?.extension === rawExtension).toBe(true);
       expect(manager.readConversation("thread-1")?.updatedAt).toBe(103);
-      expect(publishRecords.length).toBe(0);
+      expect(publishRecords.length).toBe(1);
+      expect(publishInput?.broadcastPatchesToFollowers).toBe(false);
       expect(ackInput?.sequence).toBe(1);
     } finally {
       resumeThreadResult = null;
@@ -10419,13 +10423,20 @@ describe("local-conversation-store", () => {
       );
       const ackInput = ackRecord?.args[0] as { sequence?: number } | undefined;
 
-      expect(turn?.items.length).toBe(0);
+      expect(turn?.items.length).toBe(1);
       expect(turn?.itemIds.length).toBe(1);
-      expect(item).toBeUndefined();
-      expect(rawItem).toBeUndefined();
+      expect(item?.itemId).toBe("shared-item");
+      expect(item?.kind).toBe("fileChange");
+      expect(item?.status).toBe("inProgress");
+      expect(rawItem?.type).toBe("fileChange");
+      expect(rawItem?.changes === changes).toBe(true);
       expect(canonicalItem?.type).toBe("fileChange");
       expect(canonicalItem?.type === "fileChange" && canonicalItem.changes === changes).toBe(true);
-      expect(publishRecords.length).toBe(0);
+      const publishInput = publishRecords[0]?.args[0] as {
+        broadcastPatchesToFollowers?: boolean;
+      } | undefined;
+      expect(publishRecords.length).toBe(1);
+      expect(publishInput?.broadcastPatchesToFollowers).toBe(false);
       expect(ackInput?.sequence).toBe(1);
     } finally {
       resumeThreadResult = null;
@@ -10528,16 +10539,22 @@ describe("local-conversation-store", () => {
         record.channel === "codex:thread-owner:stream-state:publish"
       );
 
-      expect(turn?.items.map((item) => item.itemId).join(",")).toBe("before,after");
-      expect(target?.itemId).toBe("after");
-      expect(targetRaw?.type).toBe("commandExecution");
+      expect(turn?.items.map((item) => item.itemId).join(",")).toBe("before,target,after");
+      expect(target?.itemId).toBe("target");
+      expect(target?.kind).toBe("fileChange");
+      expect(targetRaw?.type).toBe("fileChange");
+      expect(targetRaw?.changes === liveChanges).toBe(true);
       expect(
         managerInternals.ownerHiddenLifecycleItemTypesByConversationId
           .get("thread-1")
           ?.get("turn-1")
           ?.has("target") ?? false,
-      ).toBe(true);
-      expect(patchPublishes.length).toBe(0);
+      ).toBe(false);
+      const patchPublishInput = patchPublishes[0]?.args[0] as {
+        broadcastPatchesToFollowers?: boolean;
+      } | undefined;
+      expect(patchPublishes.length).toBe(1);
+      expect(patchPublishInput?.broadcastPatchesToFollowers).toBe(false);
 
       invokeRecords = [];
       dispatchCodexAppServerMessage("thread-owner-notification", {
@@ -10649,6 +10666,9 @@ describe("local-conversation-store", () => {
       const publishRecords = invokeRecords.filter((record) =>
         record.channel === "codex:thread-owner:stream-state:publish"
       );
+      const publishInput = publishRecords[0]?.args[0] as {
+        broadcastPatchesToFollowers?: boolean;
+      } | undefined;
       const ackRecord = invokeRecords.find((record) =>
         record.channel === "codex:thread-owner:notification:ack"
       );
@@ -10658,7 +10678,8 @@ describe("local-conversation-store", () => {
       expect(conversation?.turns[0]?.turnId).toBe("turn-real");
       expect(conversation?.turns[0]?.items[0]?.itemId).toBe("patch-live");
       expect(getCodexFileChangePaths(conversation?.turns[0]?.items[0]?.fileChange?.changes).join(",")).toBe("poem.md");
-      expect(String(publishRecords.length)).toBe("0");
+      expect(String(publishRecords.length)).toBe("1");
+      expect(publishInput?.broadcastPatchesToFollowers).toBe(false);
       expect(ackInput?.sequence).toBe(1);
     } finally {
       resumeThreadResult = null;

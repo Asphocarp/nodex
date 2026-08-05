@@ -6,6 +6,7 @@ import type {
 } from "../../shared/types";
 import {
   COMPLETE_HISTORY_RENDERER_CLIENT_REQUEST_TIMEOUT_MS,
+  type RendererClientDeliveryResult,
   type RendererClientBroadcastOptions,
   type RendererClientRequestOptions,
 } from "./renderer-client-router";
@@ -28,6 +29,12 @@ export interface CodexOwnerFollowerRendererClientRouter {
     options?: RendererClientRequestOptions,
   ): Promise<TResult>;
   sendToClient(clientId: string, channel: string, args: readonly unknown[]): boolean;
+  sendToClients(
+    clientIds: readonly string[],
+    channel: string,
+    args: readonly unknown[],
+    options?: { excludeClientId?: string | null },
+  ): RendererClientDeliveryResult;
 }
 
 export interface CodexOwnerFollowerService {
@@ -36,7 +43,9 @@ export interface CodexOwnerFollowerService {
     input: CodexThreadOwnerNotificationAckInput,
   ): boolean;
   getRendererConversationOwner(threadId: string): string | null;
+  getRendererConversationFollowerClientIds?(threadId: string): readonly string[] | null;
   handleRendererClientDisposed(clientId: string): void;
+  handleRendererClientDeliveryFailure?(clientIds: readonly string[]): void;
   publishRendererThreadStreamStateChange(
     sourceClientId: string,
     input: CodexThreadOwnerStreamStatePublishInput,
@@ -64,7 +73,18 @@ export function broadcastCodexHostMessageToRendererClients(
   router: CodexOwnerFollowerRendererClientRouter | null | undefined,
   broadcastToWindows: (channel: string, args: readonly unknown[]) => number,
   message: CodexHostMessage,
+  targetClientIds?: readonly string[] | null,
 ): number {
+  if (message.type === "threadStreamStateChanged" && targetClientIds !== undefined) {
+    if (!router || targetClientIds === null) return 0;
+    return sendRendererThreadStreamRelay(
+      router,
+      targetClientIds,
+      message.sourceClientId,
+      message,
+    ).sentClientIds.length;
+  }
+
   if (!router) {
     return broadcastToWindows("codex:host-message", [message]);
   }
@@ -75,6 +95,35 @@ export function broadcastCodexHostMessageToRendererClients(
   });
 }
 
+type CodexThreadStreamControlMessage = Extract<
+  CodexHostMessage,
+  {
+    type:
+      | "threadStreamFollowersChanged"
+      | "threadStreamTransportReset";
+  }
+>;
+
+export function sendRendererThreadStreamControlRelay(
+  router: CodexOwnerFollowerRendererClientRouter | null | undefined,
+  targetClientIds: readonly string[],
+  message: CodexThreadStreamControlMessage,
+): RendererClientDeliveryResult {
+  if (!router) {
+    return {
+      sentClientIds: [],
+      unavailableClientIds: [...targetClientIds],
+      failedClientIds: [],
+    };
+  }
+
+  return router.sendToClients(
+    targetClientIds,
+    "codex:host-message",
+    [message],
+  );
+}
+
 export function sendRendererOwnerHostMessage(
   router: CodexOwnerFollowerRendererClientRouter | null | undefined,
   event: CodexRendererOwnerHostMessage,
@@ -82,6 +131,28 @@ export function sendRendererOwnerHostMessage(
   if (!router) return false;
 
   return router.sendToClient(event.targetClientId, "codex:host-message", [event.message]);
+}
+
+export function sendRendererThreadStreamRelay(
+  router: CodexOwnerFollowerRendererClientRouter | null | undefined,
+  targetClientIds: readonly string[],
+  sourceClientId: string | null | undefined,
+  message: CodexHostMessage,
+): RendererClientDeliveryResult {
+  if (!router || message.type !== "threadStreamStateChanged") {
+    return {
+      sentClientIds: [],
+      unavailableClientIds: [...targetClientIds],
+      failedClientIds: [],
+    };
+  }
+
+  return router.sendToClients(
+    targetClientIds,
+    "codex:host-message",
+    [message],
+    { excludeClientId: sourceClientId ?? null },
+  );
 }
 
 export function publishRendererThreadOwnerStreamState(

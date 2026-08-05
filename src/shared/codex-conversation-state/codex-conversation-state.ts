@@ -29,6 +29,7 @@ import type {
 } from "@nodex/codex-app-server-protocol/v2";
 import type { ThreadTokenUsage } from "@nodex/codex-app-server-protocol/v2/ThreadTokenUsage";
 import { isCodexProtocolThreadItem } from "../codex-protocol-thread-item";
+import type { CodexItemStatus } from "../types";
 
 export type CodexProtocolRequestId = RequestId;
 export type CodexProtocolThreadItem = ThreadItem;
@@ -606,6 +607,8 @@ export interface CodexCanonicalTurnSidecar {
   readonly completedAtMs?: number | null;
   readonly firstTurnWorkItemStartedAtMs?: number | null;
   readonly finalAssistantStartedAtMs: number | null;
+  /** Explicit lifecycle for statusless protocol items such as reasoning. */
+  readonly lifecycleStatusByItemId?: Readonly<Record<string, CodexItemStatus>>;
   readonly commandExecutionStartedAtMsById?: Readonly<Record<string, number>>;
   readonly interruptedCommandExecutionItemIds?: readonly string[];
   readonly hookRuns?: readonly CodexCanonicalHookRun[];
@@ -945,8 +948,34 @@ export function createCodexCanonicalTurnState(
       turnStartedAtMs: protocolSecondsToMilliseconds(startedAt),
       completedAtMs: protocolSecondsToMilliseconds(completedAt),
       finalAssistantStartedAtMs: protocolSecondsToMilliseconds(completedAt),
+      lifecycleStatusByItemId: buildCodexInitialItemLifecycleStatusById(
+        items,
+        protocol.status,
+      ),
     },
   };
+}
+
+function buildCodexInitialItemLifecycleStatusById(
+  items: readonly ThreadItem[],
+  turnStatus: Turn["status"],
+): Readonly<Record<string, CodexItemStatus>> {
+  const statuses: Record<string, CodexItemStatus> = {};
+  for (const item of items) {
+    const status = "status" in item && isCodexItemStatus(item.status)
+      ? item.status
+      : turnStatus === "inProgress" ? null : "completed";
+    if (status !== null) statuses[item.id] = status;
+  }
+  return statuses;
+}
+
+function isCodexItemStatus(value: unknown): value is CodexItemStatus {
+  return value === "inProgress"
+    || value === "completed"
+    || value === "failed"
+    || value === "declined"
+    || value === "interrupted";
 }
 
 function extractCodexHeartbeatTag(text: string, tag: string): string | null {
@@ -1116,8 +1145,26 @@ export function mergeCodexCanonicalTurnState(
       finalAssistantStartedAtMs:
         existing.sidecar.finalAssistantStartedAtMs
         ?? incoming.sidecar.finalAssistantStartedAtMs,
+      lifecycleStatusByItemId: mergeCodexLifecycleStatusByItemId(
+        existing.sidecar.lifecycleStatusByItemId,
+        incoming.sidecar.lifecycleStatusByItemId,
+      ),
     },
   };
+}
+
+function mergeCodexLifecycleStatusByItemId(
+  existing: Readonly<Record<string, CodexItemStatus>> | undefined,
+  incoming: Readonly<Record<string, CodexItemStatus>> | undefined,
+): Readonly<Record<string, CodexItemStatus>> {
+  const merged: Record<string, CodexItemStatus> = { ...(existing ?? {}) };
+  for (const [itemId, incomingStatus] of Object.entries(incoming ?? {})) {
+    const existingStatus = merged[itemId];
+    if (existingStatus === undefined || existingStatus === "inProgress") {
+      merged[itemId] = incomingStatus;
+    }
+  }
+  return merged;
 }
 
 /** Exact `CB`: chronology-aware merge for overlapping hydration/history turn arrays. */

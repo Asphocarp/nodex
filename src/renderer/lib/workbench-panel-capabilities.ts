@@ -46,6 +46,7 @@ const PROJECT_ACTION_ORDER: readonly WorkbenchPanelActionKind[] = [
 ];
 
 const PROJECTLESS_ACTION_ORDER: readonly WorkbenchPanelActionKind[] = [
+  "review",
   "side_chat",
   "browser",
   "terminal",
@@ -64,7 +65,6 @@ const BOTTOM_PANEL_ACTIONS = new Set<WorkbenchPanelActionKind>([
 ]);
 const PROJECT_REQUIRED_ACTIONS = new Set<WorkbenchPanelActionKind>([
   "files",
-  "review",
   "db_view",
   "page_stage",
   "canvas_stage",
@@ -96,6 +96,10 @@ function resolveActionCapability(
   }
 
   if (kind === "side_chat" && !input.hasAttachedThread) {
+    return unavailable("no_thread");
+  }
+
+  if (kind === "review" && input.projectId === null && !input.hasAttachedThread) {
     return unavailable("no_thread");
   }
 

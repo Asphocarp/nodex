@@ -16,7 +16,6 @@ import {
   ThreadSteeredDividerBlock,
   ThreadSubagentActivityInlineGroupBlock,
   ThreadSystemErrorBlock,
-  ThreadThinkingPlaceholderBlock,
   ThreadSystemBannerBlock,
   ThreadTurnDiffBlock,
   ThreadUserAttachmentStripBlock,
@@ -102,10 +101,6 @@ export function ThreadBlockRenderer({
         turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
       />
     );
-  }
-
-  if (block.type === "thinkingPlaceholder") {
-    return <ThreadThinkingPlaceholderBlock block={block} isLatestTurn={isLatestTurn} isStreamingTurn={isStreamingTurn} />;
   }
 
   if (block.type === "userAttachmentStrip") {

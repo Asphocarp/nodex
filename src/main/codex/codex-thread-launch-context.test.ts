@@ -3,6 +3,7 @@ import type { ConfigRequirementsReadResponse } from "@nodex/codex-app-server-pro
 import {
   buildCodexNewConversationParams,
   loadCodexDynamicToolsWithTimeout,
+  mergeCodexDefaultFeatureOverrides,
   parseCodexStoredShellEnvironment,
   resolveCodexLaunchServiceTier,
   type CodexThreadLaunchContextDependencies,
@@ -23,6 +24,23 @@ function createDependencies(
 }
 
 describe("Codex thread launch context", () => {
+  test("keeps Nodex-owned live transcript capabilities enabled after config merges", () => {
+    const params = mergeCodexDefaultFeatureOverrides({
+      config: {
+        "features.apply_patch_streaming_events": false,
+        "features.thread_tools": false,
+      },
+    }, {
+      apply_patch_streaming_events: true,
+      thread_tools: true,
+    });
+
+    expect(params.config).toMatchObject({
+      "features.apply_patch_streaming_events": true,
+      "features.thread_tools": true,
+    });
+  });
+
   test("gates service tier on exact config requirements and fails closed", async () => {
     let errorCount = 0;
     const disabled = await resolveCodexLaunchServiceTier("fast", {

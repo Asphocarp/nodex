@@ -906,6 +906,29 @@ describe("buildRendererItemStream", () => {
     expect(items.length).toBe(0);
   });
 
+  test("keeps an empty in-progress fileChange row for live patch visibility", () => {
+    const items = buildRendererItemStream({
+      entries: [
+        buildEntry({
+          itemId: "empty_live_patch",
+          type: "file_change",
+          kind: "fileChange",
+          semanticKind: "patch",
+          status: "inProgress",
+          fileChange: {
+            changes: buildCodexFileChangeMap([]),
+            success: null,
+          },
+        }),
+      ],
+      requests: [],
+      turnStatus: "inProgress",
+      isLatestTurn: true,
+    });
+
+    expect(items.map((item) => item.type).join(",")).toBe("fileChange");
+  });
+
   test("injects turn-scoped requests into the renderer item stream", () => {
     const items = buildRendererItemStream({
       entries: [],

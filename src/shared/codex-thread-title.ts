@@ -1,8 +1,8 @@
-import { fromMarkdown } from "mdast-util-from-markdown";
-import { toString as markdownNodeToString } from "mdast-util-to-string";
 import type { UserInput } from "@nodex/codex-app-server-protocol/v2";
-import type { Nodes } from "mdast";
 import { buildCodexSteeringCompareKey } from "./codex-conversation-state/codex-steering-compare";
+import { projectCodexMarkdownToPlainText } from "./codex-markdown-text";
+
+export { projectCodexMarkdownToPlainText } from "./codex-markdown-text";
 
 export const CODEX_THREAD_TITLE_PROMPT_MAX_CHARS = 2_000;
 export const CODEX_MANUAL_THREAD_TITLE_MAX_CHARS = 60;
@@ -42,33 +42,6 @@ export interface CodexForkTitleCatalogInput {
   readonly storedThreads: Iterable<CodexStoredForkTitleThread>;
   readonly activeThreads: Iterable<CodexForkTitleThread>;
   readonly pendingForks: Iterable<CodexForkTitleThread>;
-}
-
-function isMarkdownBlockContainer(
-  node: Nodes,
-): node is Extract<Nodes, { type: "root" | "blockquote" | "list" | "listItem" }> {
-  return node.type === "root"
-    || node.type === "blockquote"
-    || node.type === "list"
-    || node.type === "listItem";
-}
-
-function extractCodexMarkdownNodeText(node: Nodes): string {
-  if (!isMarkdownBlockContainer(node)) {
-    return markdownNodeToString(node);
-  }
-
-  return node.children.map((child) => extractCodexMarkdownNodeText(child)).join(" ");
-}
-
-/** Exact Codex Electron `ZV` Markdown-to-title projection. */
-export function projectCodexMarkdownToPlainText(markdown: string): string {
-  const trimmed = markdown.trim();
-  if (!trimmed) return "";
-
-  return extractCodexMarkdownNodeText(fromMarkdown(trimmed))
-    .replace(/\s+/g, " ")
-    .trim();
 }
 
 function readForkTitleCommentBody(value: unknown): string {
