@@ -58,6 +58,7 @@ import {
   isLargeTurnDiffFile,
   normalizeTurnDiffBasePath,
   parseUnifiedDiffFileStats,
+  resolveTurnDiffReviewAffordance,
   summarizeTurnDiffRows,
   type TurnDiffRowModel,
   type TurnDiffModel,
@@ -213,23 +214,10 @@ function TurnDiffFileRow({
   deferOffscreenRendering: boolean;
   workspaceRoot: string | null;
 }) {
-  const button = (
-    <button
-      type="button"
-      className="text-size-chat flex h-9 w-full cursor-interaction items-center gap-2 bg-token-main-surface-primary/70 px-[var(--thread-resource-card-row-padding-x)] py-[var(--turn-diff-row-padding-y)] text-left hover:bg-token-list-hover-background/60 focus-visible:ring-1 focus-visible:ring-token-focus-border focus-visible:outline-none focus-visible:ring-inset extension:bg-token-input-background/70 extension:hover:bg-token-list-hover-background/60"
-      onClick={(event: MouseEvent<HTMLButtonElement>) => {
-        if ((event.metaKey || event.ctrlKey) && row.openPath && onOpenFileInSidePanel) {
-          void onOpenFileInSidePanel({
-            path: row.openPath,
-            title: row.fileName,
-            workspaceRoot,
-            ...(row.openLine ? { line: row.openLine } : {}),
-          });
-          return;
-        }
-        onOpenReview?.();
-      }}
-    >
+  const canOpenFile = Boolean(row.openPath && onOpenFileInSidePanel);
+  const canInteract = Boolean(onOpenReview || canOpenFile);
+  const rowLabel = (
+    <>
       <TurnDiffPathLabel path={row.displayPath} />
       {row.isTooLarge ? (
         <span className="text-token-description-foreground/80 shrink-0 max-[720px]:hidden">
@@ -237,7 +225,43 @@ function TurnDiffFileRow({
         </span>
       ) : null}
       <DiffStats additions={row.additions} deletions={row.deletions} className="ml-auto shrink-0 text-size-chat" />
+    </>
+  );
+  const handleRowClick = (event: MouseEvent<HTMLButtonElement>) => {
+    if ((event.metaKey || event.ctrlKey) && row.openPath && onOpenFileInSidePanel) {
+      void onOpenFileInSidePanel({
+        path: row.openPath,
+        title: row.fileName,
+        workspaceRoot,
+        ...(row.openLine ? { line: row.openLine } : {}),
+      });
+      return;
+    }
+    if (onOpenReview) {
+      onOpenReview();
+      return;
+    }
+    if (row.openPath && onOpenFileInSidePanel) {
+      void onOpenFileInSidePanel({
+        path: row.openPath,
+        title: row.fileName,
+        workspaceRoot,
+        ...(row.openLine ? { line: row.openLine } : {}),
+      });
+    }
+  };
+  const button = canInteract ? (
+    <button
+      type="button"
+      className="text-size-chat flex h-9 w-full cursor-interaction items-center gap-2 bg-token-main-surface-primary/70 px-[var(--thread-resource-card-row-padding-x)] py-[var(--turn-diff-row-padding-y)] text-left hover:bg-token-list-hover-background/60 focus-visible:ring-1 focus-visible:ring-token-focus-border focus-visible:outline-none focus-visible:ring-inset extension:bg-token-input-background/70 extension:hover:bg-token-list-hover-background/60"
+      onClick={handleRowClick}
+    >
+      {rowLabel}
     </button>
+  ) : (
+    <div className="text-size-chat flex h-9 w-full items-center gap-2 bg-token-main-surface-primary/70 px-[var(--thread-resource-card-row-padding-x)] py-[var(--turn-diff-row-padding-y)] text-left extension:bg-token-input-background/70">
+      {rowLabel}
+    </div>
   );
 
   return (
@@ -297,6 +321,20 @@ function TurnDiffBanner({
   summary: TurnDiffSummary;
   onReview: (() => void) | null;
 }) {
+  const summaryContent = (
+    <>
+      <span className="min-w-0 truncate">
+        {summary.fileCount} {summary.fileCount === 1 ? "file" : "files"} changed
+      </span>
+      {summary.additions > 0 || summary.deletions > 0 ? (
+        <>
+          <span className="text-token-description-foreground/60" aria-hidden="true">•</span>
+          <DiffStats additions={summary.additions} deletions={summary.deletions} className="text-size-chat-sm" />
+        </>
+      ) : null}
+    </>
+  );
+
   return (
     <div
       className="relative overflow-hidden"
@@ -308,22 +346,20 @@ function TurnDiffBanner({
         transition={{ duration: 0.15, ease: "easeOut" }}
         className="text-size-chat flex min-w-0 items-center gap-1.5 px-3 py-1.5 text-token-description-foreground"
       >
-        <button
-          type="button"
-          className="inline-flex min-w-0 cursor-interaction items-center gap-1.5 rounded-md focus-visible:ring-1 focus-visible:ring-token-focus-border focus-visible:outline-none disabled:cursor-default"
-          disabled={!onReview}
-          onClick={() => onReview?.()}
-        >
-          <span className="min-w-0 truncate">
-            {summary.fileCount} {summary.fileCount === 1 ? "file" : "files"} changed
+        {onReview ? (
+          <button
+            type="button"
+            aria-label="Review changed files"
+            className="inline-flex min-w-0 cursor-interaction items-center gap-1.5 rounded-md focus-visible:ring-1 focus-visible:ring-token-focus-border focus-visible:outline-none"
+            onClick={onReview}
+          >
+            {summaryContent}
+          </button>
+        ) : (
+          <span className="inline-flex min-w-0 items-center gap-1.5 rounded-md">
+            {summaryContent}
           </span>
-          {summary.additions > 0 || summary.deletions > 0 ? (
-            <>
-              <span className="text-token-description-foreground/60" aria-hidden="true">•</span>
-              <DiffStats additions={summary.additions} deletions={summary.deletions} className="text-size-chat-sm" />
-            </>
-          ) : null}
-        </button>
+        )}
       </motion.div>
     </div>
   );
@@ -374,12 +410,20 @@ export function TurnDiffInProgressInlineSummary({
     }),
     [item, projectWorkspacePath, reviewSource, scope, threadCwd],
   );
+  const reviewAffordance = resolveTurnDiffReviewAffordance({
+    intent: reviewIntent,
+    reviewRouteAvailable: typeof onOpenReview === "function",
+  });
 
-  if (!payload || resolvedModel.kind === "empty" || summary.fileCount === 0) return null;
+  if (
+    !payload
+    || resolvedModel.kind === "empty"
+    || summary.fileCount === 0
+  ) return null;
 
-  const handleOpenReview = onOpenReview && reviewIntent
+  const handleOpenReview = onOpenReview && reviewAffordance.kind === "available"
     ? () => {
-        void onOpenReview(reviewIntent);
+        void onOpenReview(reviewAffordance.intent);
       }
     : undefined;
 
@@ -396,17 +440,26 @@ export function TurnDiffInProgressInlineSummary({
             ·
           </span>
         ) : null}
-        <button
-          type="button"
-          aria-label="Review changed files"
-          className="text-size-chat flex min-w-0 cursor-interaction items-center gap-1 rounded-sm text-token-text-secondary hover:text-token-foreground focus-visible:ring-1 focus-visible:ring-token-focus-border focus-visible:outline-none"
-          onClick={handleOpenReview}
-        >
-          <span className="block min-w-0 truncate">
-            {summary.fileCount} {summary.fileCount === 1 ? "file" : "files"} changed
+        {handleOpenReview ? (
+          <button
+            type="button"
+            aria-label="Review changed files"
+            className="text-size-chat flex min-w-0 cursor-interaction items-center gap-1 rounded-sm text-token-text-secondary hover:text-token-foreground focus-visible:ring-1 focus-visible:ring-token-focus-border focus-visible:outline-none"
+            onClick={handleOpenReview}
+          >
+            <span className="block min-w-0 truncate">
+              {summary.fileCount} {summary.fileCount === 1 ? "file" : "files"} changed
+            </span>
+            <DiffStats additions={summary.additions} deletions={summary.deletions} className="text-size-chat-sm" />
+          </button>
+        ) : (
+          <span className="text-size-chat flex min-w-0 items-center gap-1 text-token-text-secondary">
+            <span className="block min-w-0 truncate">
+              {summary.fileCount} {summary.fileCount === 1 ? "file" : "files"} changed
+            </span>
+            <DiffStats additions={summary.additions} deletions={summary.deletions} className="text-size-chat-sm" />
           </span>
-          <DiffStats additions={summary.additions} deletions={summary.deletions} className="text-size-chat-sm" />
-        </button>
+        )}
       </motion.div>
     </div>
   );
@@ -538,6 +591,10 @@ export function TurnDiffSurface({
     }),
     [item, projectWorkspacePath, reviewSource, scope, threadCwd],
   );
+  const reviewAffordance = resolveTurnDiffReviewAffordance({
+    intent: reviewIntent,
+    reviewRouteAvailable: typeof onOpenReview === "function",
+  });
   const basePath = useMemo(() => normalizeTurnDiffBasePath(payload, threadCwd, projectWorkspacePath), [payload, projectWorkspacePath, threadCwd]);
   const applyBatches = useMemo(() => buildTurnDiffApplyBatches(payload, basePath), [basePath, payload]);
   const { resolved } = useTheme();
@@ -571,10 +628,10 @@ export function TurnDiffSurface({
       ? "reapply"
       : "undo";
 
-  const handleOpenReview = onOpenReview && reviewIntent
+  const handleOpenReview = onOpenReview && reviewAffordance.kind === "available"
     ? (path?: TurnDiffRowModel["reviewPath"] | null) => {
         void onOpenReview({
-          ...reviewIntent,
+          ...reviewAffordance.intent,
           ...(path ? { targetPath: path } : {}),
         });
       }
@@ -638,6 +695,7 @@ export function TurnDiffSurface({
   };
 
   if (isInProgress) {
+    if (!handleOpenReview) return null;
     return <TurnDiffBanner summary={summary} onReview={handleOpenReview ? () => handleOpenReview() : null} />;
   }
 
@@ -678,10 +736,12 @@ export function TurnDiffSurface({
                     <DiffStats additions={summary.additions} deletions={summary.deletions} className="text-size-chat-sm" />
                   )}
                 </span>
-                <span className="turn-diff-hover-subtitle hidden min-w-0 items-center gap-1 text-token-description-foreground">
-                  <span>Review changes</span>
-                  <ReviewChangesIcon />
-                </span>
+                {handleOpenReview ? (
+                  <span className="turn-diff-hover-subtitle hidden min-w-0 items-center gap-1 text-token-description-foreground">
+                    <span>Review changes</span>
+                    <ReviewChangesIcon />
+                  </span>
+                ) : null}
               </div>
             </div>
             <div className="pointer-events-auto ml-auto flex shrink-0 items-center gap-2">

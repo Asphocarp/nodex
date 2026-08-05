@@ -1,7 +1,7 @@
 # Codex Thread Owner/Follower Streaming
 
 Status: Active
-Last Updated: 2026-07-18
+Last Updated: 2026-08-05
 
 ## Intent
 
@@ -18,6 +18,10 @@ This contract keeps live streaming text, request cards, queued state, edit/rollb
 - **Command-only run**: a main-owned automation execution that may issue app-server commands and broker JSON-RPC requests, but does not own or publish conversation state.
 - **Stream revision**: a per-thread monotonically increasing revision attached to owner snapshots and patches.
 - **Owner client id**: the stable renderer-client identity carried with stream updates so followers can reject stale owners.
+- **Follow intent**: a renderer's explicit active-view request to receive a conversation's shared stream. It is independent from Review/presentation state and from app-server connection state.
+- **Ready follower**: a followed renderer client that is connected, is not the owner, and has completed the current owner snapshot barrier. Only ready followers are patch targets.
+- **Snapshot barrier**: the invariant that a newly followed or reconnected renderer receives the current accepted owner snapshot before any later ordinary state patch.
+- **Accepted recovery cache**: main's last owner-accepted conversation document/revision. It is used for snapshot/adoption/repair only; the owner renderer remains the visible canonical reducer.
 - **Complete-history barrier**: a follower asks the owner to load complete history, waits for the owner-published revision, then continues with history-sensitive work.
 
 ## Scope
@@ -64,6 +68,9 @@ Main process must:
 
 - provide stable renderer client ids
 - route owner/follower messages and validate response origins
+- maintain followed intent, connected clients, snapshot-pending clients, membership epochs, and owner-detached recovery leases separately
+- deliver ordinary state only to ready follower targets; an empty or unavailable target set fails closed rather than falling back to global stream broadcast
+- send owner/follower control messages through the same targeted client boundary, while keeping status requests global so every renderer can reannounce its own follow intent
 - host app-server transport and durable/recovery cache state
 - keep no-owner hydration and command execution out of the visible stream plane
 - compare-and-set renderer ownership after successful resume hydration and before returning the owner result
@@ -84,6 +91,23 @@ A follower applies a patch only when:
 On mismatch, the follower drops the patch and waits for a future owner snapshot, explicit resume, or owner-loss recovery. It does not request a main-authored transcript snapshot just because a stale patch was observed.
 
 A renderer that is already owner ignores incoming stream-state messages, including publish echoes. Production `threadStreamStateChanged` messages always identify a renderer owner; main does not emit source-null conversation snapshots or patches.
+
+## Follower Subscription Control Plane
+
+The stream data plane and the follower subscription control plane are separate. The renderer's active conversation lifecycle calls `setThreadViewActive()`; main records that signal as follow intent through the subscription coordinator. Review tabs, `setThreadPresented()`, above-composer diff banners, and projectless output filtering do not create or remove follow membership.
+
+The coordinator keeps these sets distinct:
+
+- `followedClientIds`: renderer intent, including a client that is temporarily disconnected
+- `connectedClientIds`: clients currently registered with the renderer router
+- `snapshotPendingClientIds`: followed non-owner clients that have not adopted the current accepted owner snapshot
+- ready follower targets: the intersection of followed and connected clients, excluding the owner and snapshot-pending clients
+
+When a follower attaches, the coordinator marks it snapshot-pending. Main sends the accepted owner snapshot to that one target; only after delivery is accepted does the client become a ready patch target. The same barrier is re-established for a reconnect and for every owner replacement. A missing owner keeps the intent but cannot produce a visible snapshot; the next owner adoption flushes pending snapshots from the accepted recovery cache.
+
+Targeted delivery is fail-closed. `threadStreamStateChanged` and follower control messages carry explicit client targets, exclude the source owner, treat an empty target list as a no-op, and never fall back to all-window broadcast. A missing/destroyed target is converted into an IPC reset, removes it from ready targets, preserves its follow intent during the five-second reconnect grace, and requires a fresh snapshot before patches resume. Following-status requests are the deliberate global exception: every renderer may receive the request, but only renderers with the matching local follow intent reannounce to the current owner.
+
+Owner disposal sends a targeted transport reset to ready followers, preserves main's accepted document/revision, and lets each follower reannounce or enter `needs_resume`. Accidental disposal and IPC reset do not immediately evict the accepted cache; deliberate inactive cleanup may evict it only after there are no followers/pending reconnects and the normal retention gate passes. App-server connection status is not renderer-client status and must not be used as a substitute for this control plane.
 
 ## Prose Streaming
 
@@ -203,7 +227,7 @@ Renderer ownership adoption is part of that resume transaction. Main resolves th
 
 Background child-agent summaries are not active child-thread streams. Parent thread surfaces may show child memberships and multi-agent-derived row state, but a child thread becomes full-fidelity only when a background-agent detail tab opens it. Multi-agent visible rows are derived from receiver thread display metadata and agent state keys; sparse receiver id lists remain available to membership/reference projection but do not create clickable visible row targets on their own. Receiver display metadata is lightweight catalog data, so friendly agent names and seed-based identicons must not depend on parent-driven child snapshot hydration. The background-agent opener hydrates only the selected child thread id and opens the tab; the detail tab content materializes/resumes the child body and then marks the child thread opened for routed deltas without requiring local parent metadata.
 
-When the owner client disappears, followers reject revision waiters, clear the owner role, mark the conversation `needs_resume`, and recover through explicit resume.
+When the owner client disappears, followers reject revision waiters, clear the owner role, mark the conversation `needs_resume`, and recover through explicit resume. The last accepted document remains available for owner adoption or a new follower snapshot while that recovery lease is active.
 
 ## No-Owner and Automation Boundaries
 
@@ -211,7 +235,9 @@ No-owner state is dormant, not a visible stream role. Main may hydrate/cache pro
 
 Cron automation is a command-only runner: main owns workspace setup, `thread/start`, `turn/start`, tool execution, run lifecycle, and terminal/inbox bookkeeping. It suppresses those notifications from the conversation pipeline while no renderer owns the run. Heartbeat automation requires a fresh lease published by the exact current renderer owner; main then issues transport commands without hydrating, merging, or claiming conversation ownership. Pending automation approvals/user-input remain transport-brokered and replay to a renderer after it adopts the task. Delivery is idempotent per semantic request occurrence (`requestId` plus method and call/item identity) and owner client, so re-resume cannot execute or surface the same pending occurrence twice; reused protocol ids do not collapse distinct dynamic calls, and owner replacement makes the same unresolved request eligible for replay to the new owner.
 
-Owner patch publication is a follower-broadcast side effect, not the owner-visible state boundary. Main validates the owner client, requires the patch base to match its last accepted owner revision, and applies the patch to that accepted document before broadcasting. A missing, mismatched, or unapplicable base is rejected without advancing revision or acknowledging the owner notification; the owner then publishes its current shared document as the repair snapshot. Main's dormant recovery cache is never an alternate visible writer and never replaces the accepted-owner patch base.
+Owner patch publication is a follower-broadcast side effect, not the owner-visible state boundary. Main validates the owner client, requires the patch base to match its last accepted owner revision, and applies the patch to that accepted document before targeted delivery. A missing, mismatched, or unapplicable base is rejected without advancing revision or acknowledging the owner notification; the owner then publishes its current shared document as the repair snapshot. Main's dormant recovery cache is never an alternate visible writer and never replaces the accepted-owner patch base.
+
+`item/fileChange/patchUpdated` is the Electron-compatible owner-local exception: the owner updates its visible canonical conversation immediately and submits a recovery-only snapshot with follower broadcast disabled. Main accepts that snapshot into the dormant cache and uses it to satisfy a pending follower barrier, but does not synthesize a second visible transcript writer or broadcast the high-frequency intermediate patch.
 
 ## Implementation Coverage
 
@@ -232,12 +258,18 @@ The current implementation covers these owner/follower contract areas:
 | No-owner discipline | complete | Main keeps dormant recovery/automation state off the visible stream plane; a renderer must adopt or attach before transcript updates are visible. |
 | Late follower bootstrap | complete | A competing resume receives the accepted owner document, revision, and owner client id without replacing the owner or issuing another app-server resume. |
 | Automation boundary | complete | Cron is command-only; heartbeat requires a fresh exact-owner lease; protocol turns drive run/inbox bookkeeping without a main transcript. |
+| Follower subscription control plane | complete | Active view lifecycle creates explicit follow intent; main separates followed/connected/pending state and emits membership epochs. |
+| Targeted relay and delivery failure | complete | Ordinary state/control messages are target-before-delivery, source-excluding, empty-target no-op, and unavailable targets enter IPC reset/reannounce handling. |
+| Snapshot barrier and owner replacement | complete | New, reconnected, and replacement-owner followers receive the accepted snapshot before becoming patch targets. |
+| Accepted-cache lease | complete | Accidental owner disposal preserves recovery state; deliberate cleanup evicts only after follower/reconnect eligibility checks. |
+| Empty in-progress file-change activity | complete | Empty active file changes retain stable identity and render `Editing files`; terminal empty policy remains separate. |
+| Projectless Review affordance | complete | Session-scoped Review is available when a valid turn target/diff exists; invalid targets hide the affordance without hiding live activity. |
 
 Covered owner-routed actions include start turn, edit last user turn, steer turn, interrupt turn, thread settings, goal changes, memory mode, compaction, complete history, queued follow-ups, request responses, fork from turn, and plan-implementation request removal.
 
 Covered owner-visible notification categories include thread metadata/status, turn lifecycle, item lifecycle, assistant/plan/reasoning deltas, command output, file-change patches, request resolution, and turn errors. Progress-only, deprecated, or unsupported rows are validated, ACKed when needed, and kept out of ordinary visible stream patches.
 
-No owner/follower streaming gaps are currently tracked. The remaining fidelity caveat is edit replacement input: Nodex reconstructs replacement prompt input from visible user-message content, preserving text/images/mentions/skills/text attachments represented in `rawItem.content`. Exact replay of hidden start params such as structured review comments or agent config overrides requires persisting those params in the conversation model.
+The remaining fidelity caveat is edit replacement input: Nodex reconstructs replacement prompt input from visible user-message content, preserving text/images/mentions/skills/text attachments represented in `rawItem.content`. Exact replay of hidden start params such as structured review comments or agent config overrides requires persisting those params in the conversation model. This is outside the apply-patch streaming/review control-plane gap closed by this implementation.
 
 ## Validation Expectations
 
@@ -264,3 +296,9 @@ Required regression coverage includes:
 - ordinary resume IPC adopts its invoking renderer before returning, so the first owner snapshot succeeds without test-only owner seeding
 - resume failure releases the buffer and rolls local state back to `needs_resume`
 - parent thread mounts do not mark background child agents opened; only background-agent detail tabs do
+- an empty in-progress `fileChange` is visible from the first event, retains its item identity when changes arrive, and does not create a duplicate terminal row
+- a follower cannot receive an ordinary patch before its targeted snapshot barrier completes
+- owner replacement requeues snapshots for every followed follower and never sends the replacement owner's echo back to itself
+- missing/destroyed targeted clients trigger reset/reannounce handling; no target falls back to global stream broadcast
+- accidental owner disposal retains the accepted recovery cache while deliberate inactive cleanup can evict only after the lease gate
+- Projectless Review hides an invalid/dead affordance while `Edited files, read files` and live file-change activity remain visible

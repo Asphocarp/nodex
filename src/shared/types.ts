@@ -4363,6 +4363,11 @@ export interface CodexThreadOwnerStreamStatePublishInput {
   conversationId: string;
   change: CodexThreadStreamStateChange;
   ownerNotificationSequence?: number;
+  /**
+   * Updates the main-process recovery cache without relaying an owner-local
+   * reducer mutation to follower renderers.
+   */
+  broadcastPatchesToFollowers?: boolean;
 }
 
 export interface CodexThreadOwnerNotificationAckInput {
@@ -4477,6 +4482,25 @@ export type CodexHostMessage =
       change: CodexThreadStreamStateChange;
       version: number;
       sourceClientId?: string | null;
+    }
+  | {
+      type: "threadStreamFollowingStatusRequested";
+      hostId: string;
+      conversationId: string;
+      ownerClientId: string;
+    }
+  | {
+      type: "threadStreamFollowersChanged";
+      hostId: string;
+      conversationId: string;
+      ownerClientId: string;
+      followerClientIds: string[];
+      membershipEpoch: number;
+    }
+  | {
+      type: "threadStreamTransportReset";
+      hostId: string;
+      conversationIds: string[];
     }
   | {
       type: "threadOwnerNotification";

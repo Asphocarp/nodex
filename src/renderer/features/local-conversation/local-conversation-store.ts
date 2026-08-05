@@ -275,6 +275,9 @@ import {
   type CodexThreadOwnerRequestEvent,
   type CodexThreadOwnerUnavailableEvent,
   type CodexThreadStreamStateChangedEvent,
+  type CodexThreadStreamFollowersChangedEvent,
+  type CodexThreadStreamFollowingStatusRequestedEvent,
+  type CodexThreadStreamTransportResetEvent,
   __resetCodexAppServerMessageBusForTests,
 } from "./app-server-message-bus";
 import {
@@ -3478,6 +3481,10 @@ export class CodexAppServerManager {
   private readonly primaryConversationRequestByThread = new Map<string, CodexConversationLiveRequest | null>();
   private readonly conversationVersionById = new Map<string, number>();
   private readonly streamState = new LocalConversationStreamState();
+  private readonly followerMembershipByConversationId = new Map<
+    string,
+    { ownerClientId: string; followerClientIds: readonly string[]; membershipEpoch: number }
+  >();
   private readonly composerIntentsByThread = new Map<string, CodexComposerIntent>();
   private readonly permissionStateByScope = new Map<string | null, CodexPermissionState>();
   private readonly permissionStateLoadsInFlightByScope = new Map<string | null, Promise<CodexPermissionState>>();
@@ -3558,6 +3565,15 @@ export class CodexAppServerManager {
       }),
       subscribeCodexAppServerMessage("thread-stream-state-changed", (event) => {
         this.handleThreadStreamStateChanged(event);
+      }),
+      subscribeCodexAppServerMessage("thread-stream-followers-changed", (event) => {
+        this.handleThreadStreamFollowersChanged(event);
+      }),
+      subscribeCodexAppServerMessage("thread-stream-following-status-requested", (event) => {
+        this.handleThreadStreamFollowingStatusRequested(event);
+      }),
+      subscribeCodexAppServerMessage("thread-stream-transport-reset", (event) => {
+        this.handleThreadStreamTransportReset(event);
       }),
       subscribeCodexAppServerMessage("client-status-changed", (event) => {
         this.handleClientStatusChanged(event);
@@ -3948,9 +3964,27 @@ export class CodexAppServerManager {
   }
 
   async setThreadViewActive(threadId: string, active: boolean): Promise<boolean> {
+    this.streamState.setConversationFollowing(threadId, active);
     return (await invoke("codex:thread:view-active:set", {
       threadId,
       active,
+    })) as boolean;
+  }
+
+  async setThreadStreamFollowing(threadId: string, following: boolean): Promise<boolean> {
+    return this.setThreadStreamFollowingWithOptions(threadId, following);
+  }
+
+  private async setThreadStreamFollowingWithOptions(
+    threadId: string,
+    following: boolean,
+    options: { reannounce?: boolean } = {},
+  ): Promise<boolean> {
+    this.streamState.setConversationFollowing(threadId, following);
+    return (await invoke("codex:thread:stream-following:set", {
+      threadId,
+      following,
+      ...(options.reannounce === true ? { reannounce: true } : {}),
     })) as boolean;
   }
 
@@ -6556,6 +6590,7 @@ export class CodexAppServerManager {
     this.ownerHiddenLifecycleItemTypesByConversationId.clear();
     this.conversationVersionById.clear();
     this.streamState.reset();
+    this.followerMembershipByConversationId.clear();
     this.composerIntentsByThread.clear();
     this.permissionStateByScope.clear();
     this.permissionStateLoadsInFlightByScope.clear();
@@ -7735,6 +7770,7 @@ export class CodexAppServerManager {
         this.applyOwnerCanonicalHiddenTurns(update.conversationId, projection.hiddenTurns);
         return { ...projection.conversation, canonicalState: result.state };
       },
+      { publishRecoverySnapshot: true },
     );
   }
 
@@ -7946,6 +7982,55 @@ export class CodexAppServerManager {
       const conversation = this.conversationsById.get(conversationId);
       if (!conversation || conversation.resumeState === "needs_resume") continue;
 
+      this.applyConversationSnapshot(conversationId, {
+        ...conversation,
+        resumeState: "needs_resume",
+      });
+    }
+  }
+
+  private handleThreadStreamFollowingStatusRequested(
+    event: CodexThreadStreamFollowingStatusRequestedEvent,
+  ): void {
+    if (event.hostId !== this.hostId) return;
+    if (!this.streamState.isConversationFollowing(event.conversationId)) return;
+
+    void this.setThreadStreamFollowingWithOptions(event.conversationId, true, { reannounce: true }).catch(() => {
+      // A renderer that is closing may receive the status request after its IPC bridge is gone.
+    });
+  }
+
+  private handleThreadStreamFollowersChanged(
+    event: CodexThreadStreamFollowersChangedEvent,
+  ): void {
+    if (event.hostId !== this.hostId) return;
+
+    const previous = this.followerMembershipByConversationId.get(event.conversationId);
+    if (
+      previous
+      && previous.ownerClientId === event.ownerClientId
+      && event.membershipEpoch <= previous.membershipEpoch
+    ) {
+      return;
+    }
+
+    this.followerMembershipByConversationId.set(event.conversationId, {
+      ownerClientId: event.ownerClientId,
+      followerClientIds: [...event.followerClientIds],
+      membershipEpoch: event.membershipEpoch,
+    });
+  }
+
+  private handleThreadStreamTransportReset(event: CodexThreadStreamTransportResetEvent): void {
+    if (event.hostId !== this.hostId) return;
+
+    const affectedConversationIds = this.streamState.handleTransportReset(event.conversationIds);
+    for (const conversationId of affectedConversationIds) {
+      void this.setThreadStreamFollowingWithOptions(conversationId, true, { reannounce: true }).catch(() => {
+        // The owner may be reconnecting while this renderer is recovering its stream role.
+      });
+      const conversation = this.conversationsById.get(conversationId);
+      if (!conversation || conversation.resumeState === "needs_resume") continue;
       this.applyConversationSnapshot(conversationId, {
         ...conversation,
         resumeState: "needs_resume",
@@ -8564,6 +8649,7 @@ export class CodexAppServerManager {
     conversationId: string,
     ownerNotificationSequence: number,
     buildNextConversation: (conversation: CodexConversationSnapshot) => CodexConversationSnapshot | null,
+    options: { publishRecoverySnapshot?: boolean } = {},
   ): void {
     const role = this.streamState.getRole(conversationId);
     const baseRevision = this.streamState.getRevision(conversationId);
@@ -8575,12 +8661,21 @@ export class CodexAppServerManager {
     }
 
     const nextConversation = buildNextConversation(currentConversation);
-    if (nextConversation && nextConversation !== currentConversation) {
-      this.applyConversationSnapshot(conversationId, nextConversation);
-      this.adoptOwnerStreamLocalBase(conversationId, nextConversation);
+    if (!nextConversation || nextConversation === currentConversation) {
+      void this.ackOwnerNotification(conversationId, ownerNotificationSequence);
+      return;
     }
 
-    void this.ackOwnerNotification(conversationId, ownerNotificationSequence);
+    this.applyConversationSnapshot(conversationId, nextConversation);
+    this.adoptOwnerStreamLocalBase(conversationId, nextConversation);
+    if (options.publishRecoverySnapshot !== true) {
+      void this.ackOwnerNotification(conversationId, ownerNotificationSequence);
+      return;
+    }
+    void this.dispatchOwnerStreamRecoverySnapshot(conversationId, baseRevision, nextConversation)
+      .finally(() => {
+        void this.ackOwnerNotification(conversationId, ownerNotificationSequence);
+      });
   }
 
   private applyOwnerSilentConversationMutation(
@@ -8698,6 +8793,27 @@ export class CodexAppServerManager {
           conversationState: toSharedConversationDocument(conversation),
         },
         ownerNotificationSequence,
+      })) as boolean;
+      return accepted === true;
+    } catch {
+      return false;
+    }
+  }
+
+  private async dispatchOwnerStreamRecoverySnapshot(
+    conversationId: string,
+    revision: number,
+    conversation: CodexConversationSnapshot,
+  ): Promise<boolean> {
+    try {
+      const accepted = (await invoke("codex:thread-owner:stream-state:publish", {
+        conversationId,
+        change: {
+          type: "snapshot",
+          revision,
+          conversationState: toSharedConversationDocument(conversation),
+        },
+        broadcastPatchesToFollowers: false,
       })) as boolean;
       return accepted === true;
     } catch {
@@ -9105,6 +9221,7 @@ export class CodexAppServerManager {
     this.ownerHiddenLifecycleItemTypesByConversationId.delete(normalizedThreadId);
     this.primaryConversationRequestByThread.delete(normalizedThreadId);
     this.conversationVersionById.delete(normalizedThreadId);
+    this.followerMembershipByConversationId.delete(normalizedThreadId);
     this.streamState.removeConversation(normalizedThreadId);
     this.ownerTextDeltaQueue.discardConversation(normalizedThreadId);
     this.outputDeltaQueue.discardConversation(normalizedThreadId);

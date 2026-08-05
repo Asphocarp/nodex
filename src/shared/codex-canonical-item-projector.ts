@@ -3,8 +3,8 @@ import {
   buildCodexFileChangeFromProtocol,
   buildCodexFileChangeMap,
   isCodexVisualizationPath,
-  resolveCodexPatchSuccess,
 } from "./codex-file-change";
+import { resolveCodexFileChangeActivity } from "./codex-file-change-activity";
 import {
   buildCodexUserAttachmentsFromContent,
   buildCodexUserAttachmentsFromInput,
@@ -517,12 +517,19 @@ function projectFileChange(
   const visualizationActivities = item.status === "inProgress" || item.status === "completed"
     ? [...visualizationKinds].map(([path, kind]) => ({ path, kind }))
     : [];
-  if (ordinaryChanges.length === 0 && visualizationActivities.length === 0) return [];
 
   const fileChange: CodexFileChangeView = {
     changes: buildCodexFileChangeMap(ordinaryChanges),
     ...(visualizationActivities.length === 0 ? {} : { visualizationActivities }),
-    success: resolveCodexPatchSuccess(item.status),
+  };
+  const activity = resolveCodexFileChangeActivity({
+    status: item.status,
+    fileChange,
+  });
+  if (activity.visibility === "suppressed") return [];
+  const projectedFileChange: CodexFileChangeView = {
+    ...fileChange,
+    success: activity.success,
   };
   return [{
     ...buildBaseView(item, context),
@@ -530,7 +537,7 @@ function projectFileChange(
     semanticKind: "patch",
     callId: item.id,
     status: item.status,
-    fileChange,
+    fileChange: projectedFileChange,
     approvalRequestId: null,
     grantRoot: null,
   }];

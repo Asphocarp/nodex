@@ -1783,6 +1783,10 @@ export interface IpcApi {
     args: [input: { threadId: string; active: boolean }];
     result: boolean;
   };
+  "codex:thread:stream-following:set": {
+    args: [input: { threadId: string; following: boolean; reannounce?: boolean }];
+    result: boolean;
+  };
   "codex:thread:presentation:set": {
     args: [input: { threadId: string; surfaceId: string; presented: boolean }];
     result: boolean;

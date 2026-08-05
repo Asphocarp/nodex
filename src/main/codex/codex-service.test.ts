@@ -6516,7 +6516,10 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
       expect(Object.prototype.hasOwnProperty.call(forkParams, "lastTurnId")).toBe(false);
       expect(Object.prototype.hasOwnProperty.call(forkParams, "runtimeWorkspaceRoots")).toBe(false);
       expect(Object.prototype.hasOwnProperty.call(forkParams, "config")).toBe(true);
-      expect(forkParams.config).toBe(undefined);
+      expect(forkParams.config).toMatchObject({
+        "features.apply_patch_streaming_events": true,
+        "features.thread_tools": true,
+      });
       expect(rollbackParams.threadId).toBe(childThreadId);
       expect(rollbackParams.numTurns).toBe(1);
       expect(order.indexOf("deferral:begin") < order.indexOf("request:thread/fork")).toBe(true);
@@ -16008,7 +16011,7 @@ describe("codex-service terminal turn reconciliation", () => {
     }
   });
 
-  test("patchUpdated replaces a hidden lifecycle identity and admits file completion", async () => {
+  test("patchUpdated replaces a lifecycle identity and admits file completion", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
@@ -16085,10 +16088,10 @@ describe("codex-service terminal turn reconciliation", () => {
         changes?: unknown;
       } | undefined;
       expect(snapshot?.turns[0]?.items.map((item) => item.itemId).join(",")).toBe(
-        "before,after",
+        "before,target,after",
       );
-      expect(target?.itemId).toBe("after");
-      expect(targetRaw?.type).toBe("commandExecution");
+      expect(target?.itemId).toBe("target");
+      expect(targetRaw?.type).toBe("fileChange");
       expect(serviceInternals.getConversationRecord("thr_hidden_patch_replacement")
         .canonicalState?.turns[0]?.items[1]?.type).toBe("fileChange");
 

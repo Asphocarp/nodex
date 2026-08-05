@@ -328,4 +328,41 @@ describe("RendererClientRouter", () => {
     expect(follower.sent.length).toBe(1);
     expect(follower.sent[0]?.channel).toBe("codex:test");
   });
+
+  test("delivers only to an explicit target client set and reports unavailable clients", () => {
+    const router = new RendererClientRouter({
+      clientIdFactory: createIdFactory("client"),
+    });
+    const first = new FakeWebContents(18);
+    const second = new FakeWebContents(19);
+    const firstRegistration = router.register(first);
+    const secondRegistration = router.register(second);
+
+    const result = router.sendToClients(
+      [firstRegistration.clientId, secondRegistration.clientId, "client-missing"],
+      "codex:targeted",
+      [{ value: 1 }],
+    );
+
+    expect(result.sentClientIds).toEqual(["client-1", "client-2"]);
+    expect(result.unavailableClientIds).toEqual(["client-missing"]);
+    expect(result.failedClientIds).toEqual([]);
+    expect(first.sent).toHaveLength(1);
+    expect(second.sent).toHaveLength(1);
+  });
+
+  test("treats an empty target set as a no-op", () => {
+    const router = new RendererClientRouter({
+      clientIdFactory: createIdFactory("client"),
+    });
+    const target = new FakeWebContents(20);
+    router.register(target);
+
+    expect(router.sendToClients([], "codex:targeted", [])).toEqual({
+      sentClientIds: [],
+      unavailableClientIds: [],
+      failedClientIds: [],
+    });
+    expect(target.sent).toHaveLength(0);
+  });
 });

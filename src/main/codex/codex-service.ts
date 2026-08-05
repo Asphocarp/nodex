@@ -645,6 +645,11 @@ import {
 import { CodexDictationService } from "./dictation-service";
 import { CodexConversationImageAssetService } from "./conversation-image-asset-service";
 import {
+  CodexThreadStreamSubscriptionState,
+  CODEX_THREAD_STREAM_FOLLOWER_RECONNECT_GRACE_MS,
+  type CodexThreadStreamSubscriptionAction,
+} from "./codex-thread-stream-subscription-state";
+import {
   getCodexClientThreadId,
   listCodexClientThreadIdentities,
   resolveCodexThreadIdForClientThreadId,
@@ -679,8 +684,11 @@ import {
   type BuildCodexNewConversationParamsInput,
   type CodexLaunchPermissionParams,
   type CodexStoredShellEnvironment,
-  type CodexThreadLaunchConfig,
 } from "./codex-thread-launch-context";
+import {
+  CODEX_DEFAULT_FEATURE_OVERRIDES,
+  buildCodexThreadConfigOverrides,
+} from "./codex-thread-capabilities";
 import {
   persistCodexWorktreeShellEnvironment,
   runCodexWorktreeSetupScript,
@@ -1723,13 +1731,6 @@ type DefaultCodexRuntimeOptions = {
 };
 
 const THREAD_START_EXPERIMENTAL_RAW_EVENTS = false;
-const CODEX_DEFAULT_FEATURE_OVERRIDES = {
-  apply_patch_streaming_events: true,
-  thread_tools: true,
-} satisfies CodexThreadLaunchConfig;
-const CODEX_THREAD_CONFIG_OVERRIDES = {
-  "features.apply_patch_streaming_events": true,
-} satisfies NonNullable<ThreadStartParams["config"]>;
 const WORKTREE_LOG_STATUS_MESSAGE = "Creating a worktree and running setup.";
 const CODEX_SAME_DIRECTORY_FORK_CONTINUATION = "The fork contains completed history only. If the source thread was running, the active turn and unfinished response are not in the child. Send a follow-up message to threadId only if the task requires work to continue there.";
 const SIDE_CHAT_DEVELOPER_INSTRUCTIONS = `You are in a side conversation, not the main thread.
@@ -1760,10 +1761,6 @@ External tools may be available according to this thread's current permissions. 
 Sub-agents are off-limits in this side conversation. Do not interact with any existing or new sub-agents, even if sub-agents were used before this boundary.
 
 Do not modify files, source, git state, permissions, configuration, or workspace state unless the user explicitly asks for that mutation after this boundary. Do not request escalated permissions or broader sandbox access unless the user explicitly asks for a mutation that requires it. If the user explicitly requests a mutation, keep it minimal, local to the request, and avoid disrupting the main thread.`;
-
-function buildCodexThreadConfigOverrides(): NonNullable<ThreadStartParams["config"]> {
-  return { ...CODEX_THREAD_CONFIG_OVERRIDES };
-}
 
 function normalizeTimestamp(value: unknown): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return Date.now();
@@ -3070,6 +3067,8 @@ export class CodexService extends EventEmitter {
   private readonly conversationVersionById = new Map<string, number>();
   private readonly conversationStreamRevisionById = new Map<string, number>();
   private readonly rendererOwnerClientIdByConversationId = new Map<string, string>();
+  private readonly rendererOwnerDetachedAtByConversationId = new Map<string, number>();
+  private readonly rendererThreadStreamSubscriptions = new CodexThreadStreamSubscriptionState();
   private readonly rendererOwnerRequestDeliveriesByConversationId = new Map<
     string,
     Map<string, string>
@@ -4058,6 +4057,77 @@ export class CodexService extends EventEmitter {
     return true;
   }
 
+  private emitRendererThreadStreamSnapshot(threadId: string, targetClientId: string): boolean {
+    const ownerClientId = this.getRendererConversationOwner(threadId);
+    const conversation = this.acceptedConversationDocumentById.get(threadId);
+    if (!ownerClientId || !conversation) return false;
+
+    this.emit("rendererThreadStreamRelay", {
+      targetClientIds: [targetClientId],
+      sourceClientId: ownerClientId,
+      message: {
+        type: "threadStreamStateChanged",
+        hostId: DEFAULT_CODEX_HOST_ID,
+        conversationId: threadId,
+        change: {
+          type: "snapshot",
+          revision: this.conversationStreamRevisionById.get(threadId) ?? 0,
+          conversationState: conversation,
+        },
+        version: this.conversationVersionById.get(threadId) ?? 0,
+        sourceClientId: ownerClientId,
+      } satisfies CodexHostMessage,
+    });
+    this.emitRendererThreadStreamSubscriptionActions(
+      this.rendererThreadStreamSubscriptions.markSnapshotDelivered(threadId, targetClientId),
+    );
+    return true;
+  }
+
+  private flushPendingRendererThreadStreamSnapshots(threadId: string): void {
+    for (const targetClientId of this.rendererThreadStreamSubscriptions.getSnapshotClientIds(threadId)) {
+      this.emitRendererThreadStreamSnapshot(threadId, targetClientId);
+    }
+  }
+
+  private emitRendererThreadStreamSubscriptionActions(
+    actions: readonly CodexThreadStreamSubscriptionAction[],
+  ): void {
+    for (const action of actions) {
+      if (action.type === "request-following-status") {
+        this.emitHostMessage({
+          type: "threadStreamFollowingStatusRequested",
+          hostId: DEFAULT_CODEX_HOST_ID,
+          conversationId: action.conversationId,
+          ownerClientId: action.ownerClientId,
+        });
+        continue;
+      }
+      if (action.type === "followers-changed") {
+        this.emit("rendererThreadStreamControlRelay", {
+          targetClientIds: action.targetClientIds,
+          message: {
+          type: "threadStreamFollowersChanged",
+          hostId: DEFAULT_CODEX_HOST_ID,
+          conversationId: action.conversationId,
+          ownerClientId: action.ownerClientId,
+          followerClientIds: [...action.followerClientIds],
+          membershipEpoch: action.membershipEpoch,
+          } satisfies CodexHostMessage,
+        });
+        continue;
+      }
+      this.emit("rendererThreadStreamControlRelay", {
+        targetClientIds: action.targetClientIds,
+        message: {
+          type: "threadStreamTransportReset",
+          hostId: DEFAULT_CODEX_HOST_ID,
+          conversationIds: [...action.conversationIds],
+        } satisfies CodexHostMessage,
+      });
+    }
+  }
+
   private getNextOwnerNotificationSequence(conversationId: string): number {
     const sequence = (this.ownerNotificationSequenceByConversationId.get(conversationId) ?? 0) + 1;
     this.ownerNotificationSequenceByConversationId.set(conversationId, sequence);
@@ -4202,6 +4272,12 @@ export class CodexService extends EventEmitter {
 
     const previousClientId = this.rendererOwnerClientIdByConversationId.get(threadId);
     this.rendererOwnerClientIdByConversationId.set(threadId, clientId);
+    this.rendererOwnerDetachedAtByConversationId.delete(threadId);
+    const ownerResult = this.rendererThreadStreamSubscriptions.setOwner(threadId, clientId);
+    this.emitRendererThreadStreamSubscriptionActions(ownerResult.actions);
+    for (const targetClientId of ownerResult.snapshotClientIds) {
+      this.emitRendererThreadStreamSnapshot(threadId, targetClientId);
+    }
     this.syncInactiveRendererOwnerCleanup(threadId);
     if (previousClientId === clientId) return;
 
@@ -4214,6 +4290,46 @@ export class CodexService extends EventEmitter {
 
   getRendererConversationOwner(threadId: string): string | null {
     return this.rendererOwnerClientIdByConversationId.get(threadId) ?? null;
+  }
+
+  getRendererConversationFollowerClientIds(threadId: string): readonly string[] | null {
+    return this.rendererThreadStreamSubscriptions.getFollowerClientIds(threadId);
+  }
+
+  handleRendererClientConnected(clientId: string): void {
+    this.emitRendererThreadStreamSubscriptionActions(
+      this.rendererThreadStreamSubscriptions.handleClientConnected(clientId),
+    );
+  }
+
+  setRendererConversationFollowing(
+    threadId: string,
+    clientId: string | null | undefined,
+    following: boolean,
+    options: { forceSnapshot?: boolean } = {},
+  ): boolean {
+    if (!clientId || this.disposedRendererClientIds.has(clientId)) return false;
+
+    const result = this.rendererThreadStreamSubscriptions.setFollowing(
+      threadId,
+      clientId,
+      following,
+      options,
+    );
+    this.emitRendererThreadStreamSubscriptionActions(result.actions);
+    if (result.shouldSendSnapshot) {
+      this.emitRendererThreadStreamSnapshot(threadId, clientId);
+    }
+    this.syncInactiveRendererOwnerCleanup(threadId);
+    return true;
+  }
+
+  handleRendererClientDeliveryFailure(clientIds: readonly string[]): void {
+    for (const clientId of new Set(clientIds.map((value) => value.trim()).filter(Boolean))) {
+      this.emitRendererThreadStreamSubscriptionActions(
+        this.rendererThreadStreamSubscriptions.handleIpcConnectionReset(clientId),
+      );
+    }
   }
 
   listProjectArchiveBlockers(threadIds: readonly string[]): ProjectArchiveBlocker[] {
@@ -4253,6 +4369,7 @@ export class CodexService extends EventEmitter {
     if (!clientId) return;
     if (active && this.disposedRendererClientIds.has(clientId)) return;
     this.rendererViewRegistry.setActive(threadId, clientId, active);
+    this.setRendererConversationFollowing(threadId, clientId, active);
     this.userInputAutoResolutionController.reevaluatePresentation(threadId);
     this.syncInactiveRendererOwnerCleanup(threadId);
   }
@@ -4364,14 +4481,22 @@ export class CodexService extends EventEmitter {
   }
 
   private isInactiveRendererOwnerCandidate(threadId: string): boolean {
-    if (!this.rendererOwnerClientIdByConversationId.has(threadId)) return false;
+    const ownerDetached = this.rendererOwnerDetachedAtByConversationId.has(threadId);
+    if (
+      !this.rendererOwnerClientIdByConversationId.has(threadId)
+      && !ownerDetached
+    ) return false;
+    if (this.rendererThreadStreamSubscriptions.hasFollowersOrPendingReconnect(threadId)) return false;
     if (this.hasActiveRendererView(threadId)) return false;
 
     const record = this.getMaybeConversationRecord(threadId);
     if (!record) return false;
-    if (record.streamRole !== "owner") return false;
-    if (!record.isStreaming) return false;
-    if (record.resumeState !== "resumed") return false;
+    if (!ownerDetached && record.streamRole !== "owner") return false;
+    if (!ownerDetached && !record.isStreaming) return false;
+    if (
+      record.resumeState !== "resumed"
+      && !(ownerDetached && record.resumeState === "needs_resume")
+    ) return false;
     if (this.hasActiveRuntimeForInactiveOwner(threadId)) return false;
     return true;
   }
@@ -4483,6 +4608,8 @@ export class CodexService extends EventEmitter {
 
     const ownerClientId = this.rendererOwnerClientIdByConversationId.get(threadId) ?? null;
     this.rendererOwnerClientIdByConversationId.delete(threadId);
+    this.rendererOwnerDetachedAtByConversationId.delete(threadId);
+    this.rendererThreadStreamSubscriptions.clearConversation(threadId);
     this.ownerNotificationSequenceByConversationId.delete(threadId);
     this.ownerNotificationAckSequenceByConversationId.delete(threadId);
     this.releaseOwnerNotificationDrain(threadId);
@@ -4503,6 +4630,8 @@ export class CodexService extends EventEmitter {
   handleRendererClientDisposed(clientId: string): void {
     this.nodexAgentAuthorizationBroker?.revokePresentationClient(clientId);
     this.disposedRendererClientIds.add(clientId);
+    const subscriptionResult = this.rendererThreadStreamSubscriptions.handleClientDisposed(clientId);
+    this.emitRendererThreadStreamSubscriptionActions(subscriptionResult.actions);
     for (const [threadId, launch] of this.pendingFreshSessionFirstTurnByThreadId) {
       if (launch.rendererClientId !== clientId) continue;
       if (launch.state === "starting") continue;
@@ -4536,12 +4665,11 @@ export class CodexService extends EventEmitter {
 
     for (const conversationId of conversationIds) {
       this.rendererOwnerClientIdByConversationId.delete(conversationId);
+      this.rendererOwnerDetachedAtByConversationId.set(conversationId, Date.now());
       this.ownerNotificationSequenceByConversationId.delete(conversationId);
       this.ownerNotificationAckSequenceByConversationId.delete(conversationId);
       this.releaseOwnerNotificationDrain(conversationId);
       this.clearInactiveRendererOwnerCleanup(conversationId);
-      this.conversationStreamRevisionById.delete(conversationId);
-      this.acceptedConversationDocumentById.delete(conversationId);
       const record = this.getMaybeConversationRecord(conversationId);
       if (record) {
         record.resumeState = "needs_resume";
@@ -4551,6 +4679,11 @@ export class CodexService extends EventEmitter {
       this.rejectPendingDynamicToolCallsForThread(
         conversationId,
         new Error("Dynamic tool call owner disconnected"),
+      );
+      this.syncInactiveRendererOwnerCleanup(conversationId);
+      setTimeout(
+        () => this.syncInactiveRendererOwnerCleanup(conversationId),
+        CODEX_THREAD_STREAM_FOLLOWER_RECONNECT_GRACE_MS + 1,
       );
     }
 
@@ -4768,16 +4901,20 @@ export class CodexService extends EventEmitter {
 
     this.acceptedConversationDocumentById.set(input.conversationId, correctedConversation);
     this.conversationStreamRevisionById.set(input.conversationId, input.change.revision);
-    this.emitHostMessage({
-      type: "threadStreamStateChanged",
-      hostId: DEFAULT_CODEX_HOST_ID,
-      conversationId: input.conversationId,
-      change: input.change,
-      version: this.getNextConversationVersion(input.conversationId),
-      sourceClientId,
-    });
+    const shouldBroadcastToFollowers = input.broadcastPatchesToFollowers !== false;
+    if (shouldBroadcastToFollowers) {
+      this.emitHostMessage({
+        type: "threadStreamStateChanged",
+        hostId: DEFAULT_CODEX_HOST_ID,
+        conversationId: input.conversationId,
+        change: input.change,
+        version: this.getNextConversationVersion(input.conversationId),
+        sourceClientId,
+      });
+    }
     if (
-      correctedConversation !== nextConversation
+      shouldBroadcastToFollowers
+      && correctedConversation !== nextConversation
       && authoritativeHasUnreadTurn !== null
     ) {
       this.emitHostMessage({
@@ -4787,6 +4924,7 @@ export class CodexService extends EventEmitter {
         hasUnreadTurn: authoritativeHasUnreadTurn,
       });
     }
+    this.flushPendingRendererThreadStreamSnapshots(input.conversationId);
     this.syncParentChildMembershipMetadataFromConversation(correctedConversation);
     if (typeof input.ownerNotificationSequence === "number") {
       this.ackOwnerNotificationSequence(input.conversationId, input.ownerNotificationSequence);
@@ -4813,7 +4951,7 @@ export class CodexService extends EventEmitter {
     }
 
     if (!ownerClientId) {
-      this.rendererOwnerClientIdByConversationId.set(input.conversationId, sourceClientId);
+      this.setRendererConversationOwner(input.conversationId, sourceClientId);
     }
 
     this.ackOwnerNotificationSequence(input.conversationId, input.sequence);
@@ -6616,6 +6754,8 @@ export class CodexService extends EventEmitter {
     this.conversationVersionById.delete(threadId);
     this.conversationStreamRevisionById.delete(threadId);
     this.rendererOwnerClientIdByConversationId.delete(threadId);
+    this.rendererThreadStreamSubscriptions.clearConversation(threadId);
+    this.rendererOwnerDetachedAtByConversationId.delete(threadId);
     this.userInputAutoResolutionController.clearConversation(threadId);
     this.rendererViewRegistry.clearConversation(threadId);
     this.clearInactiveRendererOwnerCleanup(threadId);
@@ -7342,6 +7482,7 @@ export class CodexService extends EventEmitter {
       path: session.sourcePath,
       threadId: session.sourceThreadId,
       threadSource: "user",
+      config: buildCodexThreadConfigOverrides(),
     });
     const threadId = fork.thread.id.trim();
     if (!threadId) throw new Error("Imported rollout did not return a thread id");
@@ -11208,6 +11349,7 @@ export class CodexService extends EventEmitter {
           ...(executionProfile?.reasoningEffort
             ? { model_reasoning_effort: executionProfile.reasoningEffort }
             : {}),
+          ...buildCodexThreadConfigOverrides(),
         },
         developerInstructions,
         personality: null,
@@ -17699,6 +17841,7 @@ export class CodexService extends EventEmitter {
       ...(sourceExecutionProfile?.reasoningEffort
         ? { model_reasoning_effort: sourceExecutionProfile.reasoningEffort }
         : {}),
+      ...buildCodexThreadConfigOverrides(),
     };
     const forkResponse = await this.client.request<"thread/fork", ThreadForkResponse>("thread/fork", {
       threadId: input.sourceThreadId,
@@ -18365,6 +18508,7 @@ export class CodexService extends EventEmitter {
               input.reasoningEffort ?? executionProfile?.reasoningEffort,
           }
         : {}),
+      ...buildCodexThreadConfigOverrides(),
     };
     const latestCollaborationMode = this.buildCollaborationModeState({
       collaborationMode: input.collaborationMode,

@@ -189,6 +189,22 @@ function buildCanonicalTurn(input: {
 }
 
 describe("projectCodexCanonicalTurnItemViews", () => {
+  test("keeps an empty in-progress fileChange as a live streaming placeholder", () => {
+    const item = materializeCodexCanonicalProtocolItem({
+      type: "fileChange",
+      id: "empty-live-patch",
+      status: "inProgress",
+      changes: [],
+    });
+
+    const [view] = project([item]);
+
+    expect(view?.itemId).toBe("empty-live-patch");
+    expect(view?.normalizedKind).toBe("fileChange");
+    expect(view?.fileChange?.changes).toEqual({});
+    expect(view?.fileChange?.success).toBe(null);
+  });
+
   test("exhaustively projects every generated discriminant with typed 0/1/N policy", () => {
     const items = generatedItems();
     const views = project(items);

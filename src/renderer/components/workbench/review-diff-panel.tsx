@@ -1424,6 +1424,7 @@ function buildLastTurnSnapshot(
   conversation: ReviewConversationProjection,
   projectWorkspacePath: string | null | undefined,
   parsePatchFiles: ReviewDiffPanelDeps["parsePatchFiles"],
+  isGitRepository: boolean,
 ): ReviewSnapshot {
   const patch = conversation.lastTurnPatch;
   const cwd = conversation.cwd ?? projectWorkspacePath ?? null;
@@ -1443,7 +1444,7 @@ function buildLastTurnSnapshot(
     patch,
     files,
     cwd,
-    isGitRepository: true,
+    isGitRepository,
     baseRef: null,
     currentBranch: null,
     defaultBranch: null,
@@ -1461,6 +1462,7 @@ function buildSelectedTurnSnapshot(
   conversation: ReviewConversationProjection,
   projectWorkspacePath: string | null | undefined,
   parsePatchFiles: ReviewDiffPanelDeps["parsePatchFiles"],
+  isGitRepository: boolean,
 ): ReviewSnapshot {
   const patch = selectedTurnDiff?.patch ?? "";
   const cwd =
@@ -1481,7 +1483,7 @@ function buildSelectedTurnSnapshot(
     patch,
     files,
     cwd,
-    isGitRepository: true,
+    isGitRepository,
     baseRef: null,
     currentBranch: null,
     defaultBranch: null,
@@ -3419,32 +3421,8 @@ export function ReviewDiffPanel({
     });
   };
 
-  const transcriptSnapshot = useMemo(() => {
-    if (source === "last-turn") {
-      return buildLastTurnSnapshot(
-        reviewConversation,
-        projectWorkspacePath,
-        parsePatchFiles,
-      );
-    }
-    if (source === "selected-turn") {
-      return buildSelectedTurnSnapshot(
-        selectedTurnDiff,
-        reviewConversation,
-        projectWorkspacePath,
-        parsePatchFiles,
-      );
-    }
-    return null;
-  }, [
-    parsePatchFiles,
-    projectWorkspacePath,
-    reviewConversation,
-    selectedTurnDiff,
-    source,
-  ]);
-
   const normalizedGitCwd = reviewCwd?.trim() ?? "";
+  const metadataQueryEnabled = normalizedGitCwd.length > 0;
   const gitQueryEnabled =
     isGitReviewSource(source) && normalizedGitCwd.length > 0;
   const gitReviewSource: GitReviewSource = isGitReviewSource(source)
@@ -3464,8 +3442,35 @@ export function ReviewDiffPanel({
   const gitRepositoryMetadataQueryKey = gitRepositoryMetadataOptions.queryKey;
   const gitRepositoryMetadataQuery = useQuery({
     ...gitRepositoryMetadataOptions,
-    enabled: gitQueryEnabled,
+    enabled: metadataQueryEnabled,
   });
+  const transcriptSnapshot = useMemo(() => {
+    if (source === "last-turn") {
+      return buildLastTurnSnapshot(
+        reviewConversation,
+        projectWorkspacePath,
+        parsePatchFiles,
+        gitRepositoryMetadataQuery.data?.isGitRepository === true,
+      );
+    }
+    if (source === "selected-turn") {
+      return buildSelectedTurnSnapshot(
+        selectedTurnDiff,
+        reviewConversation,
+        projectWorkspacePath,
+        parsePatchFiles,
+        gitRepositoryMetadataQuery.data?.isGitRepository === true,
+      );
+    }
+    return null;
+  }, [
+    gitRepositoryMetadataQuery.data?.isGitRepository,
+    parsePatchFiles,
+    projectWorkspacePath,
+    reviewConversation,
+    selectedTurnDiff,
+    source,
+  ]);
   const gitRepositoryIdentity = useMemo<GitQueryRepositoryIdentity | null>(() => {
     const metadata = gitRepositoryMetadataQuery.data;
     if (!metadata?.isGitRepository || !metadata.commonDir || !metadata.root) {

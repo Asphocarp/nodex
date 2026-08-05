@@ -80,6 +80,19 @@ export interface TurnDiffApplyBatch {
   diff: string;
 }
 
+export type TurnDiffReviewAffordance =
+  | { kind: "available"; intent: ReviewOpenIntent }
+  | { kind: "hidden"; reason: "no_review_route" | "no_review_intent" };
+
+export function resolveTurnDiffReviewAffordance(input: {
+  intent: ReviewOpenIntent | null;
+  reviewRouteAvailable: boolean;
+}): TurnDiffReviewAffordance {
+  if (!input.reviewRouteAvailable) return { kind: "hidden", reason: "no_review_route" };
+  if (!input.intent) return { kind: "hidden", reason: "no_review_intent" };
+  return { kind: "available", intent: input.intent };
+}
+
 export function extractTurnDiffPayload(
   item: CodexTranscriptEntry,
   scope: ProjectlessOutputScope = {},

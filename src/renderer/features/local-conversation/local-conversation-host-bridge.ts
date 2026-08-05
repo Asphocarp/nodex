@@ -34,6 +34,34 @@ function applyHostMessage(message: CodexHostMessage): void {
     return;
   }
 
+  if (message.type === "threadStreamFollowingStatusRequested") {
+    dispatchCodexAppServerMessage("thread-stream-following-status-requested", {
+      hostId: message.hostId,
+      conversationId: message.conversationId,
+      ownerClientId: message.ownerClientId,
+    });
+    return;
+  }
+
+  if (message.type === "threadStreamFollowersChanged") {
+    dispatchCodexAppServerMessage("thread-stream-followers-changed", {
+      hostId: message.hostId,
+      conversationId: message.conversationId,
+      ownerClientId: message.ownerClientId,
+      followerClientIds: message.followerClientIds,
+      membershipEpoch: message.membershipEpoch,
+    });
+    return;
+  }
+
+  if (message.type === "threadStreamTransportReset") {
+    dispatchCodexAppServerMessage("thread-stream-transport-reset", {
+      hostId: message.hostId,
+      conversationIds: message.conversationIds,
+    });
+    return;
+  }
+
   if (message.type === "threadOwnerNotification") {
     dispatchCodexAppServerMessage("thread-owner-notification", {
       hostId: message.hostId,

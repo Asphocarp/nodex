@@ -74,6 +74,7 @@ import type {
   CodexHeartbeatAutomationsEnabledChangedInput,
   CodexApprovalResponse,
   CodexCollaborationModeKind,
+  CodexHostMessage,
   CodexProtocolRequestId,
   DatabasePage,
 } from "../shared/types";
@@ -93,6 +94,8 @@ import {
   publishRendererThreadOwnerStreamState,
   runThreadFollowerActionThroughOwner,
   sendRendererOwnerHostMessage,
+  sendRendererThreadStreamControlRelay,
+  sendRendererThreadStreamRelay,
 } from "./codex/owner-follower-ipc-bridge";
 import { openFileLinkTarget } from "./file-link-opener";
 import {
@@ -1392,6 +1395,22 @@ export function registerIpcHandlers(
     }
   });
   codexService.on("hostMessage", (message) => {
+    const targetClientIds = message.type === "threadStreamStateChanged"
+      ? codexService.getRendererConversationFollowerClientIds(message.conversationId)
+      : undefined;
+    if (message.type === "threadStreamStateChanged" && targetClientIds !== undefined) {
+      if (targetClientIds === null) return;
+      const delivery = sendRendererThreadStreamRelay(
+        options.rendererClientRouter,
+        targetClientIds,
+        message.sourceClientId,
+        message,
+      );
+      codexService.handleRendererClientDeliveryFailure(
+        [...delivery.unavailableClientIds, ...delivery.failedClientIds],
+      );
+      return;
+    }
     broadcastCodexHostMessageToRendererClients(
       options.rendererClientRouter,
       (channel, args) =>
@@ -1406,6 +1425,43 @@ export function registerIpcHandlers(
     "rendererOwnerHostMessage",
     (event: { targetClientId: string; message: unknown }) => {
       sendRendererOwnerHostMessage(options.rendererClientRouter, event);
+    },
+  );
+  codexService.on(
+    "rendererThreadStreamRelay",
+    (event: {
+      targetClientIds: readonly string[];
+      sourceClientId: string | null;
+      message: CodexHostMessage;
+    }) => {
+      const delivery = sendRendererThreadStreamRelay(
+        options.rendererClientRouter,
+        event.targetClientIds,
+        event.sourceClientId,
+        event.message,
+      );
+      codexService.handleRendererClientDeliveryFailure(
+        [...delivery.unavailableClientIds, ...delivery.failedClientIds],
+      );
+    },
+  );
+  codexService.on(
+    "rendererThreadStreamControlRelay",
+    (event: {
+      targetClientIds: readonly string[];
+      message: Extract<
+        CodexHostMessage,
+        { type: "threadStreamFollowersChanged" | "threadStreamTransportReset" }
+      >;
+    }) => {
+      const delivery = sendRendererThreadStreamControlRelay(
+        options.rendererClientRouter,
+        event.targetClientIds,
+        event.message,
+      );
+      codexService.handleRendererClientDeliveryFailure(
+        [...delivery.unavailableClientIds, ...delivery.failedClientIds],
+      );
     },
   );
 
@@ -1460,6 +1516,9 @@ export function registerIpcHandlers(
   );
   options.rendererClientRouter?.addClientDisposedListener((event) => {
     codexService.handleRendererClientDisposed(event.clientId);
+  });
+  options.rendererClientRouter?.addClientConnectedListener((event) => {
+    codexService.handleRendererClientConnected(event.clientId);
   });
   registerHandle("codex:thread-owner:stream-state:publish", (event, input) => {
     const sourceClientId = resolveRendererClientId(event);
@@ -3759,6 +3818,27 @@ export function registerIpcHandlers(
         "active" in input && input.active === true,
       );
       return true;
+    },
+  );
+
+  registerHandle(
+    "codex:thread:stream-following:set",
+    (event, input: unknown) => {
+      if (typeof input !== "object" || input === null) return false;
+      const threadId = "threadId" in input && typeof input.threadId === "string"
+        ? input.threadId.trim()
+        : "";
+      if (!threadId) return false;
+      const clientId = resolveRendererClientId(event);
+      if (!clientId) return false;
+      return codexService.setRendererConversationFollowing(
+        threadId,
+        clientId,
+        "following" in input && input.following === true,
+        {
+          forceSnapshot: "reannounce" in input && input.reannounce === true,
+        },
+      );
     },
   );
 

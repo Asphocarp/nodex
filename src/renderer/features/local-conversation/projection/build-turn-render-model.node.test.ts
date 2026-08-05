@@ -881,7 +881,7 @@ describe("buildTurnRenderModel", () => {
     expect(afterAssistantStarts.blocks.map((block) => block.type).join(",")).toBe("agentActivityGroup,assistantMessage");
   });
 
-  test("keeps the live turn-diff banner when a live fileChange has no renderable patch entries", () => {
+  test("keeps empty live fileChange activity visible without a Thinking placeholder", () => {
     const model = buildTurnRenderModel({
       turn: buildTurn({
         diff: LIVE_DIFF,
@@ -900,7 +900,7 @@ describe("buildTurnRenderModel", () => {
     });
 
     expect(model.aboveComposerBlocks?.map((block) => block.type).join(",") ?? "").toBe("turnDiff");
-    expect(model.blocks.map((block) => block.type).join(",")).toBe("thinkingPlaceholder");
+    expect(model.blocks.map((block) => block.type).join(",")).toBe("agentActivityGroup");
   });
 
   test("keeps completed derived turn-diff in the trailing body", () => {
