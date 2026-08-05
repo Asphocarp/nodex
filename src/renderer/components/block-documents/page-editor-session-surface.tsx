@@ -188,6 +188,7 @@ export function PageEditorSessionSurface({
       descriptor={descriptor}
       isActive={isActive}
       localAwarenessState={localAwarenessState}
+      awarenessLease={session.awarenessLease}
       startupError={startupError}
       onReload={restart}
       pendingFallback={pendingFallback}

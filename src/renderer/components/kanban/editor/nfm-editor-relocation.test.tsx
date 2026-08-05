@@ -1,13 +1,12 @@
 import { describe, expect, test } from "vitest";
 import { render } from "@/test/dom";
 import {
-  applyNfmEditorWriteFence,
-  prepareNfmEditorForRelocation,
-  type NfmEditorRelocationRuntime,
+  prepareNfmEditorForMutation,
+  type NfmEditorMutationRuntime,
 } from "./nfm-editor-relocation";
 
-describe("NfmEditor relocation write fence", () => {
-  test("blurs only its own editor, waits, and toggles editability", async () => {
+describe("NfmEditor mutation preparation", () => {
+  test("blurs only its own editor and waits for the DOM boundary", async () => {
     const view = render(
       <>
         <div data-testid="surface-editor">
@@ -22,8 +21,7 @@ describe("NfmEditor relocation write fence", () => {
       name: "Other surface",
     }) as HTMLInputElement;
     let blurCalls = 0;
-    const runtime: NfmEditorRelocationRuntime = {
-      isEditable: true,
+    const runtime: NfmEditorMutationRuntime = {
       isFocused: () => content.ownerDocument.activeElement === content,
       isWithinEditor: (element) => container.contains(element),
       blur: () => {
@@ -33,15 +31,11 @@ describe("NfmEditor relocation write fence", () => {
     };
 
     content.focus();
-    await prepareNfmEditorForRelocation(runtime, container);
+    await prepareNfmEditorForMutation(runtime, container);
     expect(blurCalls).toBe(1);
     expect(content.ownerDocument.activeElement === content).toBe(false);
-    expect(runtime.isEditable).toBe(false);
-
-    applyNfmEditorWriteFence(runtime, false);
-    expect(runtime.isEditable).toBe(true);
     other.focus();
-    await prepareNfmEditorForRelocation(runtime, container);
+    await prepareNfmEditorForMutation(runtime, container);
     expect(other.ownerDocument.activeElement === other).toBe(true);
     expect(blurCalls).toBe(1);
   });

@@ -17,6 +17,7 @@ const intent: PublicBlockTransferIntent = {
   storeEpoch: "epoch-a",
   mode: "move",
   rootBlockIds: ["card-a"],
+  causalDependencies: [],
   source: { kind: "data_source", dataSourceId: "source-a" },
   target: { kind: "document", documentId: "document-host" },
 };
@@ -50,7 +51,7 @@ const committed = (bound: BlockTransferIntent): BlockTransferCommandResult => ({
       },
     ],
     affectedDatabaseBlockIds: ["database-a"],
-    changeLogSeq: 9,
+    commitSeq: 9,
     committedAt: "2026-07-13T00:00:00.000Z",
   },
 });

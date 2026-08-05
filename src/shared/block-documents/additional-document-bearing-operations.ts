@@ -70,7 +70,7 @@ export interface AdditionalDocumentBearingMutationResult {
   readonly documentHeads: Readonly<
     Record<string, { readonly generation: number; readonly headSeq: number }>
   >;
-  readonly changeLogSeq: number;
+  readonly commitSeq: number;
   readonly duplicate: boolean;
   readonly committedAt: string;
 }

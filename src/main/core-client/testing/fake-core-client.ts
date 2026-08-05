@@ -29,6 +29,8 @@ import type {
   StoreAdministrationRead,
   StoreAdministrationReadSnapshot,
   CoreHandshakeResponse,
+  CoreLocalMutationResolveRequest,
+  CoreLocalMutationResolveResponse,
 } from "../types";
 import { CORE_CLIENT_REQUIREMENTS } from "@nodex/core-protocol";
 import type {
@@ -71,7 +73,7 @@ export const createFakeCoreHandshake = ({
       sha256: artifactSha256,
     },
     connection_binding: connectionBinding,
-    event_head: eventHead,
+    commit_head: eventHead,
     generation: {
       artifact_sha256: artifactSha256,
       manifest_digest: manifestDigest,
@@ -127,6 +129,7 @@ export class FakeCoreClient implements CoreClientPort {
   readonly #documentCanvasSyncResults: CanvasSceneSyncResponse[] = [];
   readonly #documentUpdateApplyResults: DocumentSyncApplyAck[] = [];
   readonly #awarenessResults: DocumentAwarenessPublishAck[] = [];
+  readonly #localMutationResolveResults: CoreLocalMutationResolveResponse[] = [];
   readonly #eventConsumers = new Set<(event: CoreEventEnvelope) => void>();
 
   enqueueRead(result: LibraryReadSnapshot): void {
@@ -206,6 +209,19 @@ export class FakeCoreClient implements CoreClientPort {
 
   enqueueAwareness(result: DocumentAwarenessPublishAck): void {
     this.#awarenessResults.push(result);
+  }
+
+  enqueueLocalMutationResolve(result: CoreLocalMutationResolveResponse): void {
+    this.#localMutationResolveResults.push(result);
+  }
+
+  async resolveLocalMutation(
+    input: CoreLocalMutationResolveRequest,
+  ): Promise<CoreLocalMutationResolveResponse> {
+    void input;
+    const result = this.#localMutationResolveResults.shift();
+    if (!result) throw new Error("Fake Core client has no queued mutation resolve");
+    return result;
   }
 
   async libraryRead(read: LibraryRead): Promise<LibraryReadSnapshot> {

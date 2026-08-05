@@ -12,6 +12,7 @@ import {
   type DesktopCoreAuthoritySupervisorDependencies,
   type DesktopCoreClient,
 } from "./desktop-core-authority-supervisor";
+import type { CoreLocalCommitEnvelope } from "./types";
 
 export interface RustDataAuthorityRuntime {
   readonly backend: "rust";
@@ -32,12 +33,13 @@ export interface InitializeDesktopDataAuthorityInput
   extends Omit<ConnectOrStartCoreInput, "nodexHome"> {
   readonly nodexHome: string;
   readonly supervisorDependencies?: DesktopCoreAuthoritySupervisorDependencies;
+  readonly onLocalCommit?: (commit: CoreLocalCommitEnvelope) => void;
 }
 
 export async function initializeDesktopDataAuthority(
   input: InitializeDesktopDataAuthorityInput,
 ): Promise<RustDataAuthorityRuntime> {
-  const { supervisorDependencies, ...launcherInput } = input;
+  const { supervisorDependencies, onLocalCommit, ...launcherInput } = input;
   const launchInput = {
     ...launcherInput,
     connectionId: launcherInput.connectionId ?? randomUUID(),
@@ -51,7 +53,10 @@ export async function initializeDesktopDataAuthority(
   const supervisor = new DesktopCoreAuthoritySupervisor({
     initialLaunch: launch,
     launchInput,
-    dependencies: supervisorDependencies,
+    dependencies: {
+      ...supervisorDependencies,
+      ...(onLocalCommit ? { onLocalCommit } : {}),
+    },
   });
   return {
     backend: "rust",

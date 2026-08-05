@@ -20,7 +20,7 @@ const MAX_ID_LENGTH: usize = 512;
 pub(super) fn read(
     connection: &Connection,
     library_id: &str,
-    event_head: i64,
+    commit_head: i64,
     context: &BoundModuleContext,
     request: AutomationRead,
 ) -> Result<AutomationReadValue, StoreError> {
@@ -32,7 +32,7 @@ pub(super) fn read(
             window: read_definition_window(
                 connection,
                 library_id,
-                event_head,
+                commit_head,
                 include_deleted.unwrap_or(false),
                 &window,
             )?,
@@ -55,7 +55,7 @@ pub(super) fn read(
                 window: read_lease_window(
                     connection,
                     library_id,
-                    event_head,
+                    commit_head,
                     automation_id.as_deref(),
                     include_settled.unwrap_or(false),
                     &window,
@@ -73,7 +73,7 @@ pub(super) fn read(
             window: super::run::read_runs_window(
                 connection,
                 library_id,
-                event_head,
+                commit_head,
                 automation_id.as_deref(),
                 include_archived.unwrap_or(false),
                 &window,
@@ -81,7 +81,7 @@ pub(super) fn read(
         }),
         AutomationRead::Inbox { window } => {
             let (window, unread_counts) =
-                super::run::read_inbox_window(connection, library_id, event_head, &window)?;
+                super::run::read_inbox_window(connection, library_id, commit_head, &window)?;
             Ok(AutomationReadValue::Inbox {
                 window,
                 unread_counts,
@@ -104,7 +104,7 @@ pub(super) fn read(
                 window: super::occurrence::read_occurrence_window(
                     connection,
                     library_id,
-                    event_head,
+                    commit_head,
                     super::occurrence::OccurrenceWindowQuery {
                         project_id,
                         window_start_ms,
@@ -122,7 +122,7 @@ pub(super) fn read(
             window: super::reminder::read_lease_window(
                 connection,
                 library_id,
-                event_head,
+                commit_head,
                 context.project_id.as_ref().map(|value| value.0.as_str()),
                 include_settled.unwrap_or(false),
                 &window,
@@ -135,7 +135,7 @@ pub(super) fn read(
             window: super::reminder::read_snooze_window(
                 connection,
                 library_id,
-                event_head,
+                commit_head,
                 context.project_id.as_ref().map(|value| value.0.as_str()),
                 include_consumed.unwrap_or(false),
                 &window,
@@ -147,7 +147,7 @@ pub(super) fn read(
 fn read_definition_window(
     connection: &Connection,
     library_id: &str,
-    event_head: i64,
+    commit_head: i64,
     include_deleted: bool,
     request: &CollectionWindowRequest,
 ) -> Result<CollectionWindow<AutomationDefinition>, StoreError> {
@@ -218,7 +218,7 @@ fn read_definition_window(
         candidates,
         normalized.first,
         CollectionWindowAuthority {
-            projection_revision: event_head,
+            projection_revision: commit_head,
         },
         |coordinate| {
             cursor::mint(
@@ -322,7 +322,7 @@ fn validate_definition(
 fn read_lease_window(
     connection: &Connection,
     library_id: &str,
-    event_head: i64,
+    commit_head: i64,
     automation_id: Option<&str>,
     include_settled: bool,
     request: &CollectionWindowRequest,
@@ -401,7 +401,7 @@ fn read_lease_window(
         candidates,
         normalized.first,
         CollectionWindowAuthority {
-            projection_revision: event_head,
+            projection_revision: commit_head,
         },
         |coordinate| {
             cursor::mint(

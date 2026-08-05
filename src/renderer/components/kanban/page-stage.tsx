@@ -67,7 +67,7 @@ interface PageStageDescriptionEditorProps {
   readonly document: Y.Doc;
   readonly body: Y.XmlFragment;
   readonly awareness: Awareness;
-  readonly surfaceWriteFence: BlockDocumentSurfaceRuntime;
+  readonly surfaceMutationBarrier: BlockDocumentSurfaceRuntime;
   readonly sessionId?: string | null;
   readonly sessionThread: PageStageProps["sessionThread"];
   readonly canStartThreadInSession: PageStageProps["canStartThreadInSession"];
@@ -120,7 +120,7 @@ const PageStageDescriptionEditor = memo(
     document,
     body,
     awareness,
-    surfaceWriteFence,
+    surfaceMutationBarrier,
     sessionId,
     sessionThread,
     canStartThreadInSession,
@@ -149,15 +149,15 @@ const PageStageDescriptionEditor = memo(
         source={{
           kind: "collaborative-document",
           documentId,
-          storeEpoch: surfaceWriteFence.descriptor.storeEpoch,
+          storeEpoch: surfaceMutationBarrier.descriptor.storeEpoch,
           generation,
-          clientSessionId: surfaceWriteFence.clientSessionId,
+          clientSessionId: surfaceMutationBarrier.clientSessionId,
           fragment: body,
           user: { name: "You", color: "#3b82f6" },
           provider: { awareness },
         }}
         sourcePageContext={{ pageId }}
-        surfaceWriteFence={surfaceWriteFence}
+        surfaceMutationBarrier={surfaceMutationBarrier}
         sessionId={sessionId}
         sessionThread={sessionThread}
         canStartThreadInSession={canStartThreadInSession}
@@ -218,13 +218,11 @@ function PageStageContent({
 
 function PageStageDocumentTitle({
   title,
-  surfaceWriteFence,
   onValueChange,
   onTitleSourceDispose,
   autoFocus,
 }: {
   readonly title: Y.Text;
-  readonly surfaceWriteFence: BlockDocumentSurfaceRuntime;
   readonly onValueChange: (title: string) => void;
   readonly onTitleSourceDispose?: () => void;
   readonly autoFocus?: boolean;
@@ -241,7 +239,6 @@ function PageStageDocumentTitle({
     <CollaborativePageTitle
       title={title}
       autoFocus={autoFocus}
-      surfaceWriteFence={surfaceWriteFence}
       onValueChange={onValueChange}
       onKeyDown={(event) => {
         if (event.key === "Enter" && !event.nativeEvent.isComposing) {
@@ -297,7 +294,6 @@ export function PageStage(props: PageStageProps) {
       title={
         <PageStageDocumentTitle
           title={surface.title}
-          surfaceWriteFence={surface.runtime}
           onValueChange={controller.handleDocumentTitleChange}
           onTitleSourceDispose={props.onTitleSourceDispose}
           autoFocus={props.autoFocusTitle}
@@ -322,7 +318,7 @@ export function PageStage(props: PageStageProps) {
           document={surface.document}
           body={surface.body}
           awareness={surface.awareness}
-          surfaceWriteFence={surface.runtime}
+          surfaceMutationBarrier={surface.runtime}
           sessionId={props.sessionId}
           sessionThread={props.sessionThread}
           canStartThreadInSession={props.canStartThreadInSession}

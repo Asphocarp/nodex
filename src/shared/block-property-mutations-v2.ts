@@ -65,7 +65,7 @@ export interface BlockPropertyMutationResultV2 {
   readonly duplicate: boolean;
   readonly fields: readonly BlockPropertyMutationFieldResultV2[];
   readonly blockMetadataRevisions: Readonly<Record<string, number>>;
-  readonly changeLogSeq: number;
+  readonly commitSeq: number;
   readonly committedAt: string;
 }
 
@@ -573,7 +573,7 @@ export const parseBlockPropertyMutationResultV2 = (
     "duplicate",
     "fields",
     "blockMetadataRevisions",
-    "changeLogSeq",
+    "commitSeq",
     "committedAt",
   ]);
   if (result.version !== BLOCK_PROPERTY_MUTATION_V2_CONTRACT_VERSION) {
@@ -636,9 +636,9 @@ export const parseBlockPropertyMutationResultV2 = (
     duplicate: result.duplicate,
     fields,
     blockMetadataRevisions,
-    changeLogSeq: readSafeInteger(
+    commitSeq: readSafeInteger(
       result,
-      "changeLogSeq",
+      "commitSeq",
       "propertyMutationResultV2",
       1,
     ),
@@ -810,7 +810,7 @@ export const parseLibraryBlockPropertyMutationCommandResultV2 = (
     "duplicate",
     "fields",
     "blockMetadataRevisions",
-    "changeLogSeq",
+    "commitSeq",
     "committedAt",
   ]);
   const accessContext = readRecord(

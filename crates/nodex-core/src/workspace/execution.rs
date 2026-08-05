@@ -186,7 +186,7 @@ pub(crate) fn validate_persisted_turn_authority(
 pub(super) fn read_background_process_window(
     connection: &Connection,
     library_id: &str,
-    event_head: i64,
+    commit_head: i64,
     thread_id: Option<&str>,
     request: &CollectionWindowRequest,
 ) -> Result<CollectionWindow<ProjectWorkspaceBackgroundProcess>, StoreError> {
@@ -287,7 +287,7 @@ pub(super) fn read_background_process_window(
         candidates,
         normalized.first,
         CollectionWindowAuthority {
-            projection_revision: event_head,
+            projection_revision: commit_head,
         },
         |coordinate| {
             cursor::mint(

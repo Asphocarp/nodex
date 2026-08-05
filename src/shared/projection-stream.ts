@@ -12,7 +12,7 @@ export type ProjectionScope =
 
 export interface ProjectionCursor {
   readonly storeEpoch: string;
-  readonly changeLogSeq: number;
+  readonly commitSeq: number;
 }
 
 export type ProjectionStreamMessage =
@@ -28,6 +28,9 @@ export type ProjectionStreamMessage =
       readonly scope: ProjectionScope;
       readonly cursor: ProjectionCursor;
       readonly impact: ProjectionImpact;
+      /** Top-level durable mutation identity when this event came from a commit. */
+      readonly operationId?: string | null;
+      readonly committedAt?: string;
     }
   | {
       readonly version: 1;
@@ -50,4 +53,4 @@ export const projectionCursorCovers = (
   required: ProjectionCursor,
 ): boolean =>
   actual?.storeEpoch === required.storeEpoch
-  && actual.changeLogSeq >= required.changeLogSeq;
+  && actual.commitSeq >= required.commitSeq;

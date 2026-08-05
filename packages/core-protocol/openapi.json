@@ -122,6 +122,36 @@
         }
       }
     },
+    "/core/v1/local-mutations/resolve": {
+      "post": {
+        "tags": [
+          "api"
+        ],
+        "operationId": "resolve_local_mutation",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LocalMutationResolveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalMutationResolveResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/core/v1/modules/administration/apply": {
       "post": {
         "tags": [
@@ -3692,9 +3722,26 @@
           "store_epoch"
         ],
         "properties": {
+          "commit_seq": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Semantic LocalCommit cursor after this operation. Unlike\n`event_sequence`, this does not identify a physical change-log row.\nA no-change receipt still carries the current cursor so callers never\nmistake a physical sequence for projection freshness."
+          },
           "event_sequence": {
             "type": "integer",
-            "format": "int64"
+            "format": "int64",
+            "description": "Physical change-log effect sequence retained for module-internal event\nreconstruction. It is not a public projection cursor."
+          },
+          "local_commit": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LocalCommitEnvelope",
+                "description": "Present when this response represents a durable semantic local commit.\nNo-change receipts intentionally have no new local commit."
+              }
+            ]
           },
           "receipt": {
             "allOf": [
@@ -3711,7 +3758,7 @@
                   "affected_database_ids",
                   "affected_view_ids",
                   "committed_revisions",
-                  "change_log_seq",
+                  "commit_seq",
                   "committed_at"
                 ],
                 "properties": {
@@ -3739,7 +3786,7 @@
                       "type": "string"
                     }
                   },
-                  "change_log_seq": {
+                  "commit_seq": {
                     "type": "integer",
                     "format": "int64"
                   },
@@ -3894,9 +3941,26 @@
           "store_epoch"
         ],
         "properties": {
+          "commit_seq": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Semantic LocalCommit cursor after this operation. Unlike\n`event_sequence`, this does not identify a physical change-log row.\nA no-change receipt still carries the current cursor so callers never\nmistake a physical sequence for projection freshness."
+          },
           "event_sequence": {
             "type": "integer",
-            "format": "int64"
+            "format": "int64",
+            "description": "Physical change-log effect sequence retained for module-internal event\nreconstruction. It is not a public projection cursor."
+          },
+          "local_commit": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LocalCommitEnvelope",
+                "description": "Present when this response represents a durable semantic local commit.\nNo-change receipts intentionally have no new local commit."
+              }
+            ]
           },
           "receipt": {
             "allOf": [
@@ -4337,7 +4401,7 @@
           "document_cache_misses",
           "document_cache_hit_rate_ppm",
           "document_reconstruction_duration",
-          "event_head",
+          "commit_head",
           "event_replay_lag",
           "event_replay_lag_max",
           "wal_size_bytes",
@@ -4410,6 +4474,10 @@
           "command_latency": {
             "$ref": "#/components/schemas/HealthDurationMetric"
           },
+          "commit_head": {
+            "type": "integer",
+            "format": "int64"
+          },
           "document_cache_entries": {
             "type": "integer",
             "format": "int64",
@@ -4442,10 +4510,6 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
-          },
-          "event_head": {
-            "type": "integer",
-            "format": "int64"
           },
           "event_replay_lag": {
             "type": "integer",
@@ -7429,7 +7493,7 @@
         ],
         "properties": {
           "event": {
-            "$ref": "#/components/schemas/CommittedCoreModuleEvent"
+            "$ref": "#/components/schemas/LocalCommitEnvelope"
           },
           "transport_version": {
             "type": "integer",
@@ -7444,10 +7508,10 @@
         "required": [
           "requested_after",
           "oldest_available",
-          "event_head"
+          "commit_head"
         ],
         "properties": {
-          "event_head": {
+          "commit_head": {
             "type": "integer",
             "format": "int64"
           },
@@ -7499,7 +7563,7 @@
           "connection_binding",
           "store_epoch",
           "schema_version",
-          "event_head"
+          "commit_head"
         ],
         "properties": {
           "actual_store_format": {
@@ -7508,12 +7572,12 @@
           "artifact": {
             "$ref": "#/components/schemas/CoreArtifactIdentity"
           },
-          "connection_binding": {
-            "type": "string"
-          },
-          "event_head": {
+          "commit_head": {
             "type": "integer",
             "format": "int64"
+          },
+          "connection_binding": {
+            "type": "string"
           },
           "generation": {
             "$ref": "#/components/schemas/RuntimeGenerationIdentity"
@@ -9099,11 +9163,18 @@
           "actor",
           "mode",
           "root_block_ids",
+          "causal_dependencies",
           "source",
           "target"
         ],
         "properties": {
           "actor": {},
+          "causal_dependencies": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibraryBlockTransferDocumentHead"
+            }
+          },
           "mode": {
             "$ref": "#/components/schemas/LibraryBlockTransferMode"
           },
@@ -9168,12 +9239,12 @@
             "type": "object",
             "required": [
               "result",
-              "change_log_seq",
+              "commit_seq",
               "committed_at",
               "kind"
             ],
             "properties": {
-              "change_log_seq": {
+              "commit_seq": {
                 "type": "integer",
                 "format": "int64"
               },
@@ -9184,6 +9255,16 @@
                 "type": "string",
                 "enum": [
                   "committed"
+                ]
+              },
+              "local_commit": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/LocalCommitEnvelope"
+                  }
                 ]
               },
               "result": {
@@ -10521,7 +10602,7 @@
           "version",
           "library_id",
           "store_epoch",
-          "change_log_seq",
+          "commit_seq",
           "page_id",
           "metadata_revision",
           "document_id",
@@ -10551,7 +10632,7 @@
           "body_nfm": {
             "type": "string"
           },
-          "change_log_seq": {
+          "commit_seq": {
             "type": "integer",
             "format": "int64"
           },
@@ -10934,7 +11015,7 @@
           "version",
           "library_id",
           "store_epoch",
-          "change_log_seq",
+          "commit_seq",
           "page",
           "document",
           "intrinsic_properties",
@@ -10945,7 +11026,7 @@
           "access_context": {
             "$ref": "#/components/schemas/LibraryPageAccessContext"
           },
-          "change_log_seq": {
+          "commit_seq": {
             "type": "integer",
             "format": "int64"
           },
@@ -11002,7 +11083,7 @@
           "metadata_projection_version",
           "library_id",
           "store_epoch",
-          "event_head",
+          "commit_head",
           "page_id",
           "metadata_revision",
           "document_id",
@@ -11020,6 +11101,10 @@
           "body_nested_markdown": {
             "type": "string"
           },
+          "commit_head": {
+            "type": "integer",
+            "format": "int64"
+          },
           "document_generation": {
             "type": "integer",
             "format": "int64"
@@ -11030,10 +11115,6 @@
           },
           "document_id": {
             "type": "string"
-          },
-          "event_head": {
-            "type": "integer",
-            "format": "int64"
           },
           "library_id": {
             "type": "string"
@@ -11079,7 +11160,7 @@
           "version",
           "library_id",
           "store_epoch",
-          "event_head",
+          "commit_head",
           "page_id",
           "metadata_revision",
           "document_id",
@@ -11090,6 +11171,10 @@
           "validators"
         ],
         "properties": {
+          "commit_head": {
+            "type": "integer",
+            "format": "int64"
+          },
           "content": {
             "type": "string"
           },
@@ -11103,10 +11188,6 @@
           },
           "document_id": {
             "type": "string"
-          },
-          "event_head": {
-            "type": "integer",
-            "format": "int64"
           },
           "kind": {
             "$ref": "#/components/schemas/LibraryPageFileKind"
@@ -11757,6 +11838,16 @@
               }
             ]
           },
+          "nested_parent": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LibraryPageLifecycleNestedParent"
+              }
+            ]
+          },
           "previous_lifecycle": {
             "$ref": "#/components/schemas/LibraryLifecycle"
           },
@@ -11781,6 +11872,14 @@
           "metadata_revision": {
             "type": "integer",
             "format": "int64"
+          },
+          "resource_metadata_revision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Post-delete metadata revision for an independent typed-owner\nauthority, when this indexed Block has one."
           }
         }
       },
@@ -12097,6 +12196,16 @@
               },
               "page_id": {
                 "type": "string"
+              },
+              "parent_document_head": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/DocumentHeadRevision"
+                  }
+                ]
               }
             }
           },
@@ -12145,6 +12254,16 @@
               },
               "page_id": {
                 "type": "string"
+              },
+              "parent_document_head": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/DocumentHeadRevision"
+                  }
+                ]
               }
             }
           },
@@ -12315,6 +12434,29 @@
           }
         }
       },
+      "LibraryPageLifecycleNestedParent": {
+        "type": "object",
+        "required": [
+          "document_id"
+        ],
+        "properties": {
+          "before_block_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "document_id": {
+            "type": "string"
+          },
+          "parent_block_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "LibraryPageLifecycleParent": {
         "oneOf": [
           {
@@ -12445,6 +12587,16 @@
               },
               {
                 "$ref": "#/components/schemas/LibraryPageLifecycleRestoreMembership"
+              }
+            ]
+          },
+          "nested_parent": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LibraryPageLifecycleNestedParent"
               }
             ]
           },
@@ -13305,13 +13457,13 @@
           "library_id",
           "project_id",
           "store_epoch",
-          "event_head",
+          "commit_head",
           "scope",
           "pages",
           "warnings"
         ],
         "properties": {
-          "event_head": {
+          "commit_head": {
             "type": "integer",
             "format": "int64"
           },
@@ -13666,6 +13818,198 @@
               },
               "page_id": {
                 "type": "string"
+              }
+            }
+          }
+        ]
+      },
+      "LocalCommitEnvelope": {
+        "type": "object",
+        "description": "Canonical local-first publication envelope.\n\n`effects` contains the committed physical details needed by document and\nmodule consumers. `payload` is the primary transport view and may be\nselected for the consumer's scope; it is not a second authority.",
+        "required": [
+          "event_version",
+          "commit_seq",
+          "store_epoch",
+          "committed_at",
+          "projection_impact",
+          "payload",
+          "effects",
+          "canonical_hash"
+        ],
+        "properties": {
+          "canonical_hash": {
+            "type": "string"
+          },
+          "commit_seq": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "committed_at": {
+            "type": "string"
+          },
+          "effects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CommittedCoreModuleEvent"
+            }
+          },
+          "event_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "operation_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "payload": {
+            "$ref": "#/components/schemas/CoreModuleEventPayload"
+          },
+          "projection_impact": {
+            "$ref": "#/components/schemas/ProjectionImpact"
+          },
+          "store_epoch": {
+            "$ref": "#/components/schemas/StoreEpoch"
+          }
+        }
+      },
+      "LocalMutationResolveRequest": {
+        "type": "object",
+        "required": [
+          "module",
+          "operation_id",
+          "store_epoch",
+          "intent_hash"
+        ],
+        "properties": {
+          "intent_hash": {
+            "type": "string"
+          },
+          "module": {
+            "$ref": "#/components/schemas/ModuleName"
+          },
+          "operation_id": {
+            "type": "string"
+          },
+          "store_epoch": {
+            "$ref": "#/components/schemas/StoreEpoch"
+          }
+        },
+        "additionalProperties": false
+      },
+      "LocalMutationResolveResponse": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "module",
+              "operation_id",
+              "request_hash",
+              "result",
+              "status"
+            ],
+            "properties": {
+              "local_commit": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/LocalCommitEnvelope"
+                  }
+                ]
+              },
+              "module": {
+                "$ref": "#/components/schemas/ModuleName"
+              },
+              "operation_id": {
+                "type": "string"
+              },
+              "request_hash": {
+                "type": "string"
+              },
+              "result": {},
+              "status": {
+                "type": "string",
+                "enum": [
+                  "committed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "module",
+              "operation_id",
+              "status"
+            ],
+            "properties": {
+              "module": {
+                "$ref": "#/components/schemas/ModuleName"
+              },
+              "operation_id": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "not_committed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "module",
+              "operation_id",
+              "expected_hash",
+              "observed_hash",
+              "status"
+            ],
+            "properties": {
+              "expected_hash": {
+                "type": "string"
+              },
+              "module": {
+                "$ref": "#/components/schemas/ModuleName"
+              },
+              "observed_hash": {
+                "type": "string"
+              },
+              "operation_id": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "intent_conflict"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "requested_store_epoch",
+              "current_store_epoch",
+              "status"
+            ],
+            "properties": {
+              "current_store_epoch": {
+                "$ref": "#/components/schemas/StoreEpoch"
+              },
+              "requested_store_epoch": {
+                "$ref": "#/components/schemas/StoreEpoch"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "epoch_mismatch"
+                ]
               }
             }
           }
@@ -14677,6 +15021,16 @@
                   "canvas_id": {
                     "type": "string"
                   },
+                  "containing_document_head": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/DocumentHeadRevision"
+                      }
+                    ]
+                  },
                   "expected_location_revision": {
                     "type": "integer",
                     "format": "int64"
@@ -15249,7 +15603,6 @@
                   "expected_head_seq",
                   "operations",
                   "actor",
-                  "write_fence_prepared",
                   "kind"
                 ],
                 "properties": {
@@ -15276,9 +15629,6 @@
                     "items": {
                       "$ref": "#/components/schemas/DocumentBlockOperation"
                     }
-                  },
-                  "write_fence_prepared": {
-                    "type": "boolean"
                   }
                 }
               },
@@ -15290,7 +15640,6 @@
                   "expected_head_seq",
                   "nfm",
                   "actor",
-                  "write_fence_prepared",
                   "kind"
                 ],
                 "properties": {
@@ -15321,9 +15670,6 @@
                       "null"
                     ],
                     "items": {}
-                  },
-                  "write_fence_prepared": {
-                    "type": "boolean"
                   }
                 }
               },
@@ -15386,7 +15732,6 @@
                   "generation",
                   "expected_head_seq",
                   "actor",
-                  "write_fence_prepared",
                   "kind"
                 ],
                 "properties": {
@@ -15407,9 +15752,6 @@
                     "enum": [
                       "compact_canvas_tombstones"
                     ]
-                  },
-                  "write_fence_prepared": {
-                    "type": "boolean"
                   }
                 }
               },
@@ -15484,7 +15826,6 @@
                   "generation",
                   "expected_head_seq",
                   "actor",
-                  "write_fence_prepared",
                   "kind"
                 ],
                 "properties": {
@@ -15508,9 +15849,6 @@
                   },
                   "version_id": {
                     "type": "string"
-                  },
-                  "write_fence_prepared": {
-                    "type": "boolean"
                   }
                 }
               },
@@ -18843,6 +19181,43 @@
           },
           {
             "type": "object",
+            "description": "The durable document effect remains replayable after Yjs history\ncompaction, but its original update bytes are no longer retained.\nConsumers must perform a canonical document resync instead of\ntreating the compacted effect as an empty update.",
+            "required": [
+              "document_id",
+              "generation",
+              "head_seq",
+              "update_id",
+              "update_hash",
+              "kind"
+            ],
+            "properties": {
+              "document_id": {
+                "type": "string"
+              },
+              "generation": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "head_seq": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "document_resync_required"
+                ]
+              },
+              "update_hash": {
+                "type": "string"
+              },
+              "update_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
             "required": [
               "document_id",
               "generation",
@@ -19027,13 +19402,6 @@
           "duplicate"
         ],
         "properties": {
-          "change_log_seq": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64"
-          },
           "code": {
             "oneOf": [
               {
@@ -19043,6 +19411,13 @@
                 "$ref": "#/components/schemas/PageOccurrenceMutationCode"
               }
             ]
+          },
+          "commit_seq": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           },
           "created_page_id": {
             "type": [
@@ -21156,9 +21531,26 @@
                   "store_epoch"
                 ],
                 "properties": {
+                  "commit_seq": {
+                    "type": "integer",
+                    "format": "int64",
+                    "description": "Semantic LocalCommit cursor after this operation. Unlike\n`event_sequence`, this does not identify a physical change-log row.\nA no-change receipt still carries the current cursor so callers never\nmistake a physical sequence for projection freshness."
+                  },
                   "event_sequence": {
                     "type": "integer",
-                    "format": "int64"
+                    "format": "int64",
+                    "description": "Physical change-log effect sequence retained for module-internal event\nreconstruction. It is not a public projection cursor."
+                  },
+                  "local_commit": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/LocalCommitEnvelope",
+                        "description": "Present when this response represents a durable semantic local commit.\nNo-change receipts intentionally have no new local commit."
+                      }
+                    ]
                   },
                   "receipt": {
                     "allOf": [
@@ -21358,9 +21750,26 @@
                   "store_epoch"
                 ],
                 "properties": {
+                  "commit_seq": {
+                    "type": "integer",
+                    "format": "int64",
+                    "description": "Semantic LocalCommit cursor after this operation. Unlike\n`event_sequence`, this does not identify a physical change-log row.\nA no-change receipt still carries the current cursor so callers never\nmistake a physical sequence for projection freshness."
+                  },
                   "event_sequence": {
                     "type": "integer",
-                    "format": "int64"
+                    "format": "int64",
+                    "description": "Physical change-log effect sequence retained for module-internal event\nreconstruction. It is not a public projection cursor."
+                  },
+                  "local_commit": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/LocalCommitEnvelope",
+                        "description": "Present when this response represents a durable semantic local commit.\nNo-change receipts intentionally have no new local commit."
+                      }
+                    ]
                   },
                   "receipt": {
                     "allOf": [
@@ -21376,7 +21785,7 @@
                           "affected_view_ids",
                           "operation_kinds",
                           "committed_revisions",
-                          "change_log_seq",
+                          "commit_seq",
                           "committed_at"
                         ],
                         "properties": {
@@ -21404,7 +21813,7 @@
                               "type": "string"
                             }
                           },
-                          "change_log_seq": {
+                          "commit_seq": {
                             "type": "integer",
                             "format": "int64"
                           },
@@ -21495,9 +21904,26 @@
                   "store_epoch"
                 ],
                 "properties": {
+                  "commit_seq": {
+                    "type": "integer",
+                    "format": "int64",
+                    "description": "Semantic LocalCommit cursor after this operation. Unlike\n`event_sequence`, this does not identify a physical change-log row.\nA no-change receipt still carries the current cursor so callers never\nmistake a physical sequence for projection freshness."
+                  },
                   "event_sequence": {
                     "type": "integer",
-                    "format": "int64"
+                    "format": "int64",
+                    "description": "Physical change-log effect sequence retained for module-internal event\nreconstruction. It is not a public projection cursor."
+                  },
+                  "local_commit": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/LocalCommitEnvelope",
+                        "description": "Present when this response represents a durable semantic local commit.\nNo-change receipts intentionally have no new local commit."
+                      }
+                    ]
                   },
                   "receipt": {
                     "allOf": [
@@ -21514,7 +21940,7 @@
                           "affected_database_ids",
                           "affected_view_ids",
                           "committed_revisions",
-                          "change_log_seq",
+                          "commit_seq",
                           "committed_at"
                         ],
                         "properties": {
@@ -21542,7 +21968,7 @@
                               "type": "string"
                             }
                           },
-                          "change_log_seq": {
+                          "commit_seq": {
                             "type": "integer",
                             "format": "int64"
                           },
@@ -21734,9 +22160,26 @@
                   "store_epoch"
                 ],
                 "properties": {
+                  "commit_seq": {
+                    "type": "integer",
+                    "format": "int64",
+                    "description": "Semantic LocalCommit cursor after this operation. Unlike\n`event_sequence`, this does not identify a physical change-log row.\nA no-change receipt still carries the current cursor so callers never\nmistake a physical sequence for projection freshness."
+                  },
                   "event_sequence": {
                     "type": "integer",
-                    "format": "int64"
+                    "format": "int64",
+                    "description": "Physical change-log effect sequence retained for module-internal event\nreconstruction. It is not a public projection cursor."
+                  },
+                  "local_commit": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/LocalCommitEnvelope",
+                        "description": "Present when this response represents a durable semantic local commit.\nNo-change receipts intentionally have no new local commit."
+                      }
+                    ]
                   },
                   "receipt": {
                     "allOf": [
@@ -21922,9 +22365,26 @@
                   "store_epoch"
                 ],
                 "properties": {
+                  "commit_seq": {
+                    "type": "integer",
+                    "format": "int64",
+                    "description": "Semantic LocalCommit cursor after this operation. Unlike\n`event_sequence`, this does not identify a physical change-log row.\nA no-change receipt still carries the current cursor so callers never\nmistake a physical sequence for projection freshness."
+                  },
                   "event_sequence": {
                     "type": "integer",
-                    "format": "int64"
+                    "format": "int64",
+                    "description": "Physical change-log effect sequence retained for module-internal event\nreconstruction. It is not a public projection cursor."
+                  },
+                  "local_commit": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/LocalCommitEnvelope",
+                        "description": "Present when this response represents a durable semantic local commit.\nNo-change receipts intentionally have no new local commit."
+                      }
+                    ]
                   },
                   "receipt": {
                     "allOf": [
@@ -22033,9 +22493,26 @@
                   "store_epoch"
                 ],
                 "properties": {
+                  "commit_seq": {
+                    "type": "integer",
+                    "format": "int64",
+                    "description": "Semantic LocalCommit cursor after this operation. Unlike\n`event_sequence`, this does not identify a physical change-log row.\nA no-change receipt still carries the current cursor so callers never\nmistake a physical sequence for projection freshness."
+                  },
                   "event_sequence": {
                     "type": "integer",
-                    "format": "int64"
+                    "format": "int64",
+                    "description": "Physical change-log effect sequence retained for module-internal event\nreconstruction. It is not a public projection cursor."
+                  },
+                  "local_commit": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/LocalCommitEnvelope",
+                        "description": "Present when this response represents a durable semantic local commit.\nNo-change receipts intentionally have no new local commit."
+                      }
+                    ]
                   },
                   "receipt": {
                     "allOf": [
@@ -22134,18 +22611,18 @@
                 "required": [
                   "contract_version",
                   "store_epoch",
-                  "event_head",
+                  "commit_head",
                   "value"
                 ],
                 "properties": {
+                  "commit_head": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
                   "contract_version": {
                     "type": "integer",
                     "format": "int32",
                     "minimum": 0
-                  },
-                  "event_head": {
-                    "type": "integer",
-                    "format": "int64"
                   },
                   "store_epoch": {
                     "$ref": "#/components/schemas/StoreEpoch"
@@ -22376,18 +22853,18 @@
                 "required": [
                   "contract_version",
                   "store_epoch",
-                  "event_head",
+                  "commit_head",
                   "value"
                 ],
                 "properties": {
+                  "commit_head": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
                   "contract_version": {
                     "type": "integer",
                     "format": "int32",
                     "minimum": 0
-                  },
-                  "event_head": {
-                    "type": "integer",
-                    "format": "int64"
                   },
                   "store_epoch": {
                     "$ref": "#/components/schemas/StoreEpoch"
@@ -22722,18 +23199,18 @@
                 "required": [
                   "contract_version",
                   "store_epoch",
-                  "event_head",
+                  "commit_head",
                   "value"
                 ],
                 "properties": {
+                  "commit_head": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
                   "contract_version": {
                     "type": "integer",
                     "format": "int32",
                     "minimum": 0
-                  },
-                  "event_head": {
-                    "type": "integer",
-                    "format": "int64"
                   },
                   "store_epoch": {
                     "$ref": "#/components/schemas/StoreEpoch"
@@ -22745,11 +23222,11 @@
                         "required": [
                           "profile_id",
                           "library_id",
-                          "change_log_seq",
+                          "commit_seq",
                           "kind"
                         ],
                         "properties": {
-                          "change_log_seq": {
+                          "commit_seq": {
                             "type": "integer",
                             "format": "int64"
                           },
@@ -23444,18 +23921,18 @@
                 "required": [
                   "contract_version",
                   "store_epoch",
-                  "event_head",
+                  "commit_head",
                   "value"
                 ],
                 "properties": {
+                  "commit_head": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
                   "contract_version": {
                     "type": "integer",
                     "format": "int32",
                     "minimum": 0
-                  },
-                  "event_head": {
-                    "type": "integer",
-                    "format": "int64"
                   },
                   "store_epoch": {
                     "$ref": "#/components/schemas/StoreEpoch"
@@ -23658,18 +24135,18 @@
                 "required": [
                   "contract_version",
                   "store_epoch",
-                  "event_head",
+                  "commit_head",
                   "value"
                 ],
                 "properties": {
+                  "commit_head": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
                   "contract_version": {
                     "type": "integer",
                     "format": "int32",
                     "minimum": 0
-                  },
-                  "event_head": {
-                    "type": "integer",
-                    "format": "int64"
                   },
                   "store_epoch": {
                     "$ref": "#/components/schemas/StoreEpoch"
@@ -24012,18 +24489,18 @@
                 "required": [
                   "contract_version",
                   "store_epoch",
-                  "event_head",
+                  "commit_head",
                   "value"
                 ],
                 "properties": {
+                  "commit_head": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
                   "contract_version": {
                     "type": "integer",
                     "format": "int32",
                     "minimum": 0
-                  },
-                  "event_head": {
-                    "type": "integer",
-                    "format": "int64"
                   },
                   "store_epoch": {
                     "$ref": "#/components/schemas/StoreEpoch"

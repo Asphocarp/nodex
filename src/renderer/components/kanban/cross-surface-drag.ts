@@ -1,4 +1,5 @@
 import type {
+  BlockTransferDocumentHead,
   BlockTransferIntentSource,
   BlockTransferMode,
 } from "../../../shared/block-transfer";
@@ -27,6 +28,10 @@ export interface CrossSurfaceBlockTransferPayload {
 export const containsCanvasBlockDrag = (
   payload: Pick<CrossSurfaceBlockTransferPayload, "displayHints">,
 ): boolean => payload.displayHints.includes("canvas");
+
+export const containsDatabaseBlockDrag = (
+  payload: Pick<CrossSurfaceBlockTransferPayload, "displayHints">,
+): boolean => payload.displayHints.includes("database");
 
 export const isSingleCanvasBlockDrag = (
   payload: Pick<
@@ -164,6 +169,7 @@ export const buildBlockToDataSourceTransferIntent = (input: {
   readonly groupKey: string;
   readonly beforePageId?: string;
   readonly altKey: boolean;
+  readonly causalDependencies?: readonly BlockTransferDocumentHead[];
 }): PublicBlockTransferIntent => ({
   version: 2,
   operationId: input.operationId,
@@ -171,6 +177,7 @@ export const buildBlockToDataSourceTransferIntent = (input: {
   storeEpoch: input.storeEpoch,
   mode: resolveCrossSurfaceTransferMode(input),
   rootBlockIds: input.payload.rootBlockIds,
+  causalDependencies: input.causalDependencies ?? [],
   source: input.payload.source,
   target: {
     kind: "data_source",

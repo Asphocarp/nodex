@@ -116,14 +116,6 @@ export type DocumentMutationKind =
 
 export type DocumentMutationCoordination = "merge_friendly" | "write_fence";
 
-/** Trusted coordinator evidence; never accept it directly from an untrusted transport. */
-export interface DocumentWriteFenceProof {
-  readonly leaseId: string;
-  readonly documentId: DocumentId;
-  readonly generation: number;
-  readonly headSeq: number;
-}
-
 export interface DocumentOperationResult {
   readonly version: typeof DOCUMENT_OPERATION_CONTRACT_VERSION;
   readonly mutationKind: DocumentMutationKind;
@@ -143,7 +135,7 @@ export interface DocumentOperationResult {
   readonly writeFenceBlockIds: readonly BlockId[];
   readonly titleChanged: boolean;
   readonly coordination: DocumentMutationCoordination;
-  readonly changeLogSeq: number;
+  readonly commitSeq: number;
   readonly committedAt: string;
   readonly duplicate: boolean;
 }
@@ -165,8 +157,6 @@ export type DocumentOperationErrorCode =
   | "invalid_block"
   | "invalid_operation"
   | "no_change"
-  | "write_fence_required"
-  | "document_write_lease_timeout"
   | "document_state_corrupt"
   | "unknown";
 
@@ -831,7 +821,7 @@ export const parseDocumentOperationResult = (
     "writeFenceBlockIds",
     "titleChanged",
     "coordination",
-    "changeLogSeq",
+    "commitSeq",
     "committedAt",
     "duplicate",
   ]);
@@ -919,7 +909,7 @@ export const parseDocumentOperationResult = (
     ),
     titleChanged: result.titleChanged,
     coordination: result.coordination,
-    changeLogSeq: readInteger(result, "changeLogSeq", label, 1),
+    commitSeq: readInteger(result, "commitSeq", label, 1),
     committedAt: result.committedAt,
     duplicate: result.duplicate,
   };
@@ -938,14 +928,12 @@ const DOCUMENT_OPERATION_ERROR_CODES: readonly DocumentOperationErrorCode[] = [
   "duplicate_block_id",
   "block_not_found",
   "invalid_anchor",
-  "ancestor_cycle",
-  "invalid_block",
-  "invalid_operation",
-  "no_change",
-  "write_fence_required",
-  "document_write_lease_timeout",
-  "document_state_corrupt",
-  "unknown",
+    "ancestor_cycle",
+    "invalid_block",
+    "invalid_operation",
+    "no_change",
+    "document_state_corrupt",
+    "unknown",
 ];
 
 export const parseDocumentOperationCommandError = (

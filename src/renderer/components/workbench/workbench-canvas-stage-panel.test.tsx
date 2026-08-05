@@ -67,7 +67,7 @@ describe("WorkbenchCanvasStagePanel", () => {
         },
         libraryId: "library-1",
         storeEpoch: "epoch-1",
-        changeLogSeq: 1,
+        commitSeq: 1,
       },
       isPending: false,
       isError: false,

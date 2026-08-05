@@ -36,6 +36,8 @@ interface ConsumerState {
   running: boolean;
   pending: ProjectionStreamMessage | null;
   required: ProjectionStreamMessage | null;
+  retryTimer: ReturnType<typeof setTimeout> | null;
+  retryAttempt: number;
 }
 
 interface ScopeState {
@@ -68,6 +70,8 @@ export class ProjectionInvalidationRegistry {
       running: false,
       pending: null,
       required: null,
+      retryTimer: null,
+      retryAttempt: 0,
     };
     scope.consumers.set(registration.consumerKey, consumer);
     const token = Symbol(registration.consumerKey);
@@ -94,6 +98,7 @@ export class ProjectionInvalidationRegistry {
       active = false;
       consumer.registrations.delete(token);
       if (consumer.registrations.size === 0) {
+        this.#cancelRetry(consumer);
         scope.consumers.delete(registration.consumerKey);
       }
       if (scope.consumers.size > 0) return;
@@ -104,7 +109,12 @@ export class ProjectionInvalidationRegistry {
   }
 
   dispose(): void {
-    for (const scope of this.#scopes.values()) scope.unsubscribe?.();
+    for (const scope of this.#scopes.values()) {
+      for (const consumer of scope.consumers.values()) {
+        this.#cancelRetry(consumer);
+      }
+      scope.unsubscribe?.();
+    }
     this.#scopes.clear();
   }
 
@@ -134,6 +144,7 @@ export class ProjectionInvalidationRegistry {
   }
 
   #schedule(consumer: ConsumerState, message: ProjectionStreamMessage): void {
+    this.#cancelRetry(consumer);
     if (consumer.required) {
       consumer.pending = laterCause(consumer.pending, consumer.required);
       consumer.required = null;
@@ -165,6 +176,7 @@ export class ProjectionInvalidationRegistry {
       }
       try {
         await registration.invalidate(cause);
+        consumer.retryAttempt = 0;
       } catch {
         if (failureRetryBudget > 0) {
           failureRetryBudget -= 1;
@@ -172,6 +184,7 @@ export class ProjectionInvalidationRegistry {
           continue;
         }
         consumer.required = laterCause(consumer.required, cause);
+        this.#scheduleRetry(consumer);
         return;
       }
 
@@ -195,6 +208,28 @@ export class ProjectionInvalidationRegistry {
       trailingBudget -= 1;
       consumer.pending = cause;
     }
+  }
+
+  #scheduleRetry(consumer: ConsumerState): void {
+    if (consumer.retryTimer !== null || consumer.required === null) return;
+    const delayMs = Math.min(
+      5_000,
+      100 * (2 ** Math.min(consumer.retryAttempt, 5)),
+    );
+    consumer.retryAttempt += 1;
+    consumer.retryTimer = setTimeout(() => {
+      consumer.retryTimer = null;
+      const required = consumer.required;
+      if (required === null || consumer.registrations.size === 0) return;
+      consumer.required = null;
+      this.#schedule(consumer, required);
+    }, delayMs);
+  }
+
+  #cancelRetry(consumer: ConsumerState): void {
+    if (consumer.retryTimer === null) return;
+    clearTimeout(consumer.retryTimer);
+    consumer.retryTimer = null;
   }
 }
 
@@ -232,8 +267,8 @@ const laterCause = (
 ): ProjectionStreamMessage => {
   if (!current) return incoming;
   if (current.cursor.storeEpoch !== incoming.cursor.storeEpoch) return incoming;
-  if (incoming.cursor.changeLogSeq > current.cursor.changeLogSeq) return incoming;
-  if (incoming.cursor.changeLogSeq < current.cursor.changeLogSeq) return current;
+  if (incoming.cursor.commitSeq > current.cursor.commitSeq) return incoming;
+  if (incoming.cursor.commitSeq < current.cursor.commitSeq) return current;
   if (current.kind === "resync" || incoming.kind === "resync") {
     return incoming.kind === "resync" ? incoming : current;
   }

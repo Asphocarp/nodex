@@ -22,8 +22,6 @@ import {
   portableRichTitleAtomLabel,
   portableRichTitleStyleClass,
 } from "@/lib/portable-rich-title-presentation";
-import type { BlockDocumentSurfaceWriteFence } from "@/lib/block-document-surface-runtime";
-import { useBlockDocumentSurfaceWriteFrozen } from "@/lib/use-block-document-surface-write-fence";
 import { reconcileYTextInputValues } from "@/lib/y-text-input";
 import {
   readRichTitleDomDraft,
@@ -72,7 +70,6 @@ export interface CollaborativePageTitleProps extends NativeTitleEditorProps {
   readonly onCompositionEnd?: (
     event: CompositionEvent<HTMLDivElement>,
   ) => void;
-  readonly surfaceWriteFence?: BlockDocumentSurfaceWriteFence;
 }
 
 interface RelativeTitleSelection {
@@ -152,7 +149,6 @@ export function CollaborativePageTitle({
   onValueChange,
   onCompositionStart,
   onCompositionEnd,
-  surfaceWriteFence,
   onCopy,
   onCut,
   onKeyDown,
@@ -166,7 +162,6 @@ export function CollaborativePageTitle({
   "aria-label": ariaLabel = "Page title",
   ...props
 }: CollaborativePageTitleProps) {
-  const writeFrozen = useBlockDocumentSurfaceWriteFrozen(surfaceWriteFence);
   const [richTitle, setRichTitle] = useState(() =>
     readPortableRichTextFromYText(title),
   );
@@ -190,7 +185,7 @@ export function CollaborativePageTitle({
   const onValueChangeRef = useRef(onValueChange);
   onValueChangeRef.current = onValueChange;
   const plainTitle = portableRichTextPlainText(richTitle);
-  const disabled = writeFrozen || ariaDisabled === true || ariaDisabled === "true";
+  const disabled = ariaDisabled === true || ariaDisabled === "true";
 
   const captureSelection = (): void => {
     const editor = editorRef.current;
@@ -585,27 +580,6 @@ export function CollaborativePageTitle({
     applyDomDraft();
   };
 
-  const prepareForRelocationRef = useRef<() => Promise<void>>(
-    () => Promise.resolve(),
-  );
-  prepareForRelocationRef.current = async () => {
-    const editor = editorRef.current;
-    if (!editor) return;
-    if (editor.ownerDocument.activeElement === editor) editor.blur();
-    await Promise.resolve();
-    if (composingRef.current) {
-      composingRef.current = false;
-      applyDomDraft();
-    }
-  };
-
-  useEffect(() => {
-    if (!surfaceWriteFence) return;
-    return surfaceWriteFence.registerRelocationPreparer(() =>
-      prepareForRelocationRef.current(),
-    );
-  }, [surfaceWriteFence]);
-
   return (
     <div ref={wrapperRef} className="relative w-full min-w-0">
       {selectedRange && !disabled ? (
@@ -696,7 +670,6 @@ export function CollaborativePageTitle({
         aria-multiline="true"
         aria-disabled={disabled}
         data-placeholder={placeholder}
-        data-relocation-write-frozen={writeFrozen ? "true" : "false"}
         contentEditable={!disabled}
         suppressContentEditableWarning
         spellCheck={spellCheck}

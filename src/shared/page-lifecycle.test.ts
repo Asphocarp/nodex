@@ -209,7 +209,7 @@ describe("Page lifecycle contract", () => {
         libraryRankKey: "7fffffffffffffffffffffffffffffff",
         viewRankKey: "7fffffffffffffffffffffffffffffff",
         createdBlockIds: ["body-one"],
-        changeLogSeq: 1,
+        commitSeq: 1,
         committedAt: "2026-07-11T10:00:00.000Z",
       },
     };

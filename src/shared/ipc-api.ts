@@ -14,8 +14,6 @@ import type {
 import type {
   DocumentAwarenessPublishAck,
   DocumentAwarenessPublishRequest,
-  DocumentRelocationLeaseResponseRequest,
-  DocumentRelocationLeaseResponseAck,
   DocumentSyncApplyAck,
   DocumentSyncApplyRequest,
   DocumentSyncCommandResult,
@@ -26,7 +24,6 @@ import type {
   DocumentSyncSubscriptionAck,
   DocumentSyncUnsubscribeAck,
   ProjectScopedDocumentAwarenessPublishRequest,
-  ProjectScopedDocumentRelocationLeaseResponseRequest,
   ProjectScopedDocumentSyncApplyRequest,
   ProjectScopedDocumentSyncRequest,
   ProjectScopedDocumentSyncSubscribeRequest,
@@ -502,7 +499,7 @@ export interface ComposerPickedFile {
 export interface BoardChangeEvent {
   projectId: string;
   storeEpoch?: string;
-  changeLogSeq?: number;
+  commitSeq?: number;
   changeType: string;
   columnId: DatabasePage["status"];
   status: DatabasePage["status"];
@@ -599,7 +596,7 @@ export interface IpcApi {
     result: void;
   };
   "pages:detail:get": {
-    args: [projectId: string, pageId: string];
+    args: [projectId: string, pageId: string, minimumCommitSeq?: number];
     result: PageDetailResult;
   };
   "pages:history:list": {
@@ -689,7 +686,7 @@ export interface IpcApi {
     result: LibraryDatabaseApplyResultV2;
   };
   "library-pages:detail:get": {
-    args: [pageId: string];
+    args: [pageId: string, minimumCommitSeq?: number];
     result: LibraryPageDetailResult;
   };
   "page-target:resolve": {
@@ -764,10 +761,6 @@ export interface IpcApi {
     args: [request: ProjectScopedDocumentAwarenessPublishRequest];
     result: DocumentSyncCommandResult<DocumentAwarenessPublishAck>;
   };
-  "document-sync:relocation-lease:respond": {
-    args: [request: ProjectScopedDocumentRelocationLeaseResponseRequest];
-    result: DocumentSyncCommandResult<DocumentRelocationLeaseResponseAck>;
-  };
   "library-document-sync:subscribe": {
     args: [request: DocumentSyncSubscribeRequest];
     result: DocumentSyncCommandResult<DocumentSyncSubscriptionAck>;
@@ -787,10 +780,6 @@ export interface IpcApi {
   "library-document-sync:awareness:publish": {
     args: [request: DocumentAwarenessPublishRequest];
     result: DocumentSyncCommandResult<DocumentAwarenessPublishAck>;
-  };
-  "library-document-sync:relocation-lease:respond": {
-    args: [request: DocumentRelocationLeaseResponseRequest];
-    result: DocumentSyncCommandResult<DocumentRelocationLeaseResponseAck>;
   };
   "blocks:transfer": {
     args: [projectId: string, intent: PublicBlockTransferIntent];
@@ -933,7 +922,12 @@ export interface IpcApi {
     result: PageSearchResult[];
   };
   "database-row:get": {
-    args: [projectId: string, pageId: string, status?: DatabasePage["status"]];
+    args: [
+      projectId: string,
+      pageId: string,
+      status?: DatabasePage["status"],
+      minimumCommitSeq?: number,
+    ];
     result: DatabasePage | null;
   };
   "calendar:occurrences": {

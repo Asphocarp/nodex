@@ -249,7 +249,7 @@ export const commitDatabaseManagementOperations = async (input: {
     authority.selectedDatabase.database.databaseId,
     dependencies,
   );
-  if (refreshed.snapshot.changeLogSeq >= result.value.changeLogSeq) {
+  if (refreshed.snapshot.commitSeq >= result.value.commitSeq) {
     return refreshed;
   }
   throw new DatabaseManagementReadError(

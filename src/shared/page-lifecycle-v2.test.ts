@@ -226,7 +226,7 @@ describe("Page Lifecycle v2 contract", () => {
       viewRankKey: "7fffffffffffffffffffffffffffffff",
       createdBlockIds: ["page-1", "document-1"],
       createdTagOptionIds: ["o_AAAAAAAA"],
-      changeLogSeq: 1,
+      commitSeq: 1,
       committedAt: "2026-07-18T00:00:00.000Z",
     };
 

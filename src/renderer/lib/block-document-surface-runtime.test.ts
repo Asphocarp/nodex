@@ -56,9 +56,6 @@ const unusedAdapter: DocumentSyncAdapter = {
   publishAwareness: async () => {
     throw new Error("Fake provider owns awareness");
   },
-  respondToRelocationLease: async () => {
-    throw new Error("Fake provider owns relocation leases");
-  },
 };
 
 const providerError = (
@@ -81,7 +78,6 @@ class FakeSurfaceProvider implements BlockDocumentSurfaceProvider {
   readonly events: string[];
   flushPromise: Promise<void> = Promise.resolve();
   checkpointPromise: Promise<void> = Promise.resolve();
-  relocationIdlePromise: Promise<void> = Promise.resolve();
   onConnect: (() => void | Promise<void>) | null = null;
 
   private status: NodexYProviderStatus;
@@ -134,10 +130,6 @@ class FakeSurfaceProvider implements BlockDocumentSurfaceProvider {
     return this.checkpointPromise;
   };
 
-  waitForRelocationIdle = (): Promise<void> => {
-    this.events.push("wait-relocation-idle");
-    return this.relocationIdlePromise;
-  };
 
   destroy = (): void => {
     this.events.push("provider-destroy");
@@ -295,66 +287,6 @@ describe("BlockDocumentSurfaceRuntime", () => {
     expect(providers).toHaveLength(0);
   });
 
-  test("runs only surface-local relocation preparers and exposes the write fence", async () => {
-    const providers: FakeSurfaceProvider[] = [];
-    const first = new BlockDocumentSurfaceRuntime({
-      descriptor: descriptor(),
-      adapter: unusedAdapter,
-      createProvider: createFactory(providers, []),
-      localCheckpointStore: null,
-    });
-    const second = new BlockDocumentSurfaceRuntime({
-      descriptor: descriptor({ ownerBlockId: "card-2" }),
-      adapter: unusedAdapter,
-      createProvider: createFactory(providers, []),
-      localCheckpointStore: null,
-    });
-    const firstProvider = providers[0];
-    const secondProvider = providers[1];
-    if (!firstProvider || !secondProvider)
-      throw new Error("Expected providers");
-    const preparations: string[] = [];
-    const unregister = first.registerRelocationPreparer(async (event) => {
-      preparations.push(`${event.leaseId}:${event.clientSessionId}`);
-      await Promise.resolve();
-      preparations.push("first-ready");
-    });
-    second.registerRelocationPreparer(() => {
-      preparations.push("wrong-surface");
-    });
-    const event = {
-      kind: "relocation-lease-prepare" as const,
-      leaseId: "lease-1",
-      documentId: descriptor().documentId,
-      clientSessionId: first.clientSessionId,
-      storeEpoch: "store-1",
-      generation: 1,
-      expectedHeadSeq: 2,
-      deadlineAt: Date.now() + 10_000,
-    };
-
-    firstProvider.emit({ phase: "relocating" });
-    expect(first.getStatus().phase).toBe("relocating");
-    expect(first.getStatus().writeFrozen).toBe(true);
-    expect(first.getWriteFrozen()).toBe(true);
-    await firstProvider.options.prepareSurfaceForRelocation?.(event);
-    expect(preparations.join(",")).toBe(
-      `lease-1:${first.clientSessionId},first-ready`,
-    );
-
-    firstProvider.emit({ phase: "frozen" });
-    expect(first.getStatus().phase).toBe("frozen");
-    unregister();
-    await firstProvider.options.prepareSurfaceForRelocation?.({
-      ...event,
-      leaseId: "lease-2",
-    });
-    expect(preparations.includes("wrong-surface")).toBe(false);
-    firstProvider.emit({ phase: "synced" });
-    expect(first.getWriteFrozen()).toBe(false);
-    await Promise.all([first.close(), second.close()]);
-  });
-
   test("rejects an unregistered owner before allocating a collaborative surface", () => {
     let providersCreated = 0;
     let errorMessage = "";
@@ -481,33 +413,6 @@ describe("BlockDocumentSurfaceRuntime", () => {
       events.indexOf("provider-destroy") < events.indexOf("document-destroy"),
     ).toBe(true);
     expect(runtime.getStatus().phase).toBe("closed");
-  });
-
-  test("retains an unmounted provider until its active relocation lease settles", async () => {
-    const events: string[] = [];
-    const providers: FakeSurfaceProvider[] = [];
-    const runtime = new BlockDocumentSurfaceRuntime({
-      descriptor: descriptor(),
-      adapter: unusedAdapter,
-      createProvider: createFactory(providers, events),
-      localCheckpointStore: null,
-    });
-    const provider = providers[0];
-    if (!provider) throw new Error("Expected provider");
-    let settleRelocation = (): void => undefined;
-    provider.relocationIdlePromise = new Promise<void>((resolve) => {
-      settleRelocation = resolve;
-    });
-
-    const closing = runtime.close();
-    await new Promise<void>((resolve) => setTimeout(resolve, 0));
-
-    expect(events.includes("wait-relocation-idle")).toBe(true);
-    expect(events.includes("provider-destroy")).toBe(false);
-
-    settleRelocation();
-    await closing;
-    expect(events.includes("provider-destroy")).toBe(true);
   });
 
   test("coalesces bounded persistence without disconnecting the live surface", async () => {

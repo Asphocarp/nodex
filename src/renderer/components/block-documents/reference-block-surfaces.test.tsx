@@ -34,7 +34,7 @@ describe("DatabaseViewReferenceSurface", () => {
     const model: DatabaseViewReadModel = {
       libraryId: "library:test",
       storeEpoch: "epoch:test",
-      changeLogSeq: 1,
+      commitSeq: 1,
       dataSourceId: "data-source:test",
       view: {
         id: "cycle-view",
@@ -78,7 +78,7 @@ describe("DatabaseViewReferenceSurface", () => {
     const model: DatabaseViewReadModel = {
       libraryId: "library:test",
       storeEpoch: "epoch:test",
-      changeLogSeq: 1,
+      commitSeq: 1,
       dataSourceId: "data-source:test",
       view: {
         id: "view-1",
@@ -157,7 +157,7 @@ describe("DatabaseViewReferenceSurface", () => {
     const model: DatabaseViewReadModel = {
       libraryId: "library:test",
       storeEpoch: "epoch:test",
-      changeLogSeq: 1,
+      commitSeq: 1,
       dataSourceId: "data-source:test",
       view: {
         id: "focus-view",

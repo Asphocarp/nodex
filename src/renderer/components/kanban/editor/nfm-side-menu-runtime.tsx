@@ -22,6 +22,7 @@ export interface NfmSideMenuRuntimeSnapshot {
   onBlockDragEnd: () => void;
   onDuplicateCanvas: (canvasBlockId: string) => Promise<void> | void;
   onDeleteCanvas: (canvasBlockId: string) => Promise<void> | void;
+  onDeletePage: (pageBlockId: string) => Promise<void> | void;
 }
 
 export interface NfmSideMenuRuntimeValue {
@@ -40,6 +41,7 @@ const DEFAULT_SIDE_MENU_RUNTIME: NfmSideMenuRuntimeValue = {
     onBlockDragEnd: () => undefined,
     onDuplicateCanvas: () => undefined,
     onDeleteCanvas: () => undefined,
+    onDeletePage: () => undefined,
   }),
 };
 

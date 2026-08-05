@@ -62,7 +62,7 @@ const readResult = (): DatabaseModuleReadResultV2 => ({
     projectId: "project-1",
     libraryId: "library-1",
     storeEpoch: "epoch-1",
-    changeLogSeq: 8,
+    commitSeq: 8,
     value: {
       kind: "database",
       value: {
@@ -104,7 +104,7 @@ describe("Database Module IPC", () => {
           affectedPageIds: ["page-1"],
           affectedViewIds: [],
           committedRevisions: { "value:page-1:status": 2 },
-          changeLogSeq: 8,
+          commitSeq: 8,
           committedAt: "2026-07-16T00:00:00.000Z",
         },
       };

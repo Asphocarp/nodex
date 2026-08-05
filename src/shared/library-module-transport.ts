@@ -119,6 +119,23 @@ const existingCanvasBlockId = (value: unknown, label: string): string =>
 const existingCanvasDocumentId = (value: unknown, label: string): string =>
   assertExistingCanvasDocumentId(string(value, label), label);
 
+const parseLibraryDocumentHead = (
+  value: unknown,
+  label: string,
+): { readonly documentId: string; readonly generation: number; readonly expectedHeadSeq: number } => {
+  const head = record(value, label);
+  exactKeys(head, label, ["documentId", "generation", "expectedHeadSeq"]);
+  const generation = revision(head.generation, `${label}.generation`);
+  if (generation < 1) {
+    throw new TypeError(`${label}.generation must be positive`);
+  }
+  return {
+    documentId: string(head.documentId, `${label}.documentId`),
+    generation,
+    expectedHeadSeq: revision(head.expectedHeadSeq, `${label}.expectedHeadSeq`),
+  };
+};
+
 const boolean = (value: unknown, label: string): boolean => {
   if (typeof value === "boolean") return value;
   throw new TypeError(`${label} must be a boolean`);
@@ -572,12 +589,23 @@ export const bindLibraryModuleApply = (
     };
   }
   if (operation.kind === "delete_canvas") {
-    exactKeys(operation, "libraryModuleApply.operation", [
-      "kind",
-      "canvasId",
-      "expectedLocationRevision",
-      "expectedMetadataRevision",
-    ]);
+    exactKeys(
+      operation,
+      "libraryModuleApply.operation",
+      [
+        "kind",
+        "canvasId",
+        "expectedLocationRevision",
+        "expectedMetadataRevision",
+      ],
+      ["containingDocumentHead"],
+    );
+    const containingDocumentHead = operation.containingDocumentHead === undefined
+      ? undefined
+      : parseLibraryDocumentHead(
+          operation.containingDocumentHead,
+          "libraryModuleApply.operation.containingDocumentHead",
+        );
     return {
       version: LIBRARY_MODULE_CONTRACT_VERSION,
       operationId,
@@ -593,6 +621,9 @@ export const bindLibraryModuleApply = (
           operation.expectedMetadataRevision,
           "libraryModuleApply.operation.expectedMetadataRevision",
         ),
+        ...(containingDocumentHead === undefined
+          ? {}
+          : { containingDocumentHead }),
       },
     };
   }
@@ -1626,7 +1657,7 @@ export const parseLibraryModuleReadResult = (
     "profileId",
     "libraryId",
     "storeEpoch",
-    "changeLogSeq",
+    "commitSeq",
     "value",
   ]);
   if (snapshot.version !== LIBRARY_MODULE_CONTRACT_VERSION) {
@@ -1639,9 +1670,9 @@ export const parseLibraryModuleReadResult = (
       profileId: string(snapshot.profileId, "libraryModuleReadResult.value.profileId"),
       libraryId: string(snapshot.libraryId, "libraryModuleReadResult.value.libraryId"),
       storeEpoch: string(snapshot.storeEpoch, "libraryModuleReadResult.value.storeEpoch"),
-      changeLogSeq: revision(
-        snapshot.changeLogSeq,
-        "libraryModuleReadResult.value.changeLogSeq",
+      commitSeq: revision(
+        snapshot.commitSeq,
+        "libraryModuleReadResult.value.commitSeq",
       ),
       value: parseReadValue(snapshot.value),
     },
@@ -1665,7 +1696,7 @@ const parseApplyReceipt = (value: unknown): LibraryModuleApplyReceipt => {
     "affectedDatabaseIds",
     "affectedViewIds",
     "committedRevisions",
-    "changeLogSeq",
+    "commitSeq",
     "committedAt",
   ]);
   if (receipt.version !== LIBRARY_MODULE_CONTRACT_VERSION) {
@@ -1826,7 +1857,7 @@ const parseApplyReceipt = (value: unknown): LibraryModuleApplyReceipt => {
       "libraryModuleApplyResult.value.affectedViewIds",
     ).map(parseDatabaseViewId),
     committedRevisions,
-    changeLogSeq: revision(receipt.changeLogSeq, "libraryModuleApplyResult.value.changeLogSeq"),
+    commitSeq: revision(receipt.commitSeq, "libraryModuleApplyResult.value.commitSeq"),
     committedAt: string(receipt.committedAt, "libraryModuleApplyResult.value.committedAt"),
   };
 };

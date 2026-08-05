@@ -25,38 +25,16 @@ import {
   type PortableCanvasScene,
 } from "../../shared/block-documents";
 import type { CanvasSceneOutbox } from "./canvas-scene-outbox";
-import type {
-  DocumentRelocationLeaseNackReason,
-  DocumentRelocationLeaseResponseAck,
-  DocumentRelocationLeaseResponseRequest,
-  DocumentSyncCommandResult,
-  DocumentSyncRealtimeEvent,
-} from "../../shared/block-documents/document-sync";
-
-export type CanvasSceneRelocationLeaseEvent = Extract<
-  DocumentSyncRealtimeEvent,
-  {
-    readonly kind:
-      | "relocation-lease-prepare"
-      | "relocation-lease-release"
-      | "relocation-lease-cancel";
-  }
->;
-
 export interface CanvasSceneSyncAdapter {
   subscribe: (
     request: Pick<CanvasSceneSyncRequest, "projectId" | "documentId" | "clientSessionId">,
     listener: (event: CanvasSceneRealtimeEvent) => void,
-    leaseListener?: (event: CanvasSceneRelocationLeaseEvent) => void,
     presenceListener?: (event: CanvasPresenceRealtimeEvent) => void,
   ) => () => void;
   sync: (request: CanvasSceneSyncRequest) => Promise<CanvasSceneSyncCommandResult>;
   applyMutation: (
     request: CanvasSceneMutationRequest,
   ) => Promise<CanvasSceneMutationCommandResult>;
-  respondToRelocationLease?: (
-    request: DocumentRelocationLeaseResponseRequest,
-  ) => Promise<DocumentSyncCommandResult<DocumentRelocationLeaseResponseAck>>;
   publishPresence?: (
     request: import("../../shared/block-documents").CanvasPresencePublishRequest,
   ) => Promise<CanvasPresenceCommandResult>;
@@ -78,8 +56,6 @@ export type CanvasSceneProviderPhase =
   | "connecting"
   | "ready"
   | "saving"
-  | "relocating"
-  | "frozen"
   | "offline"
   | "reset-required"
   | "error"
@@ -91,14 +67,10 @@ export interface CanvasSceneProviderStatus {
   readonly connected: boolean;
   readonly headSeq: number;
   readonly pendingMutationCount: number;
+  /** Reserved for future local maintenance locks; normal writes never set it. */
   readonly writeFrozen: boolean;
   readonly inFlightMutationId?: string;
   readonly error?: CanvasSceneMutationError;
-  readonly relocationLease?: {
-    readonly leaseId: string;
-    readonly status: "preparing" | "frozen";
-    readonly deadlineAt: number;
-  };
 }
 
 export type CanvasSceneProviderScheduler = (
@@ -123,7 +95,6 @@ export interface CanvasSceneProviderOptions {
   readonly scheduleRetry?: CanvasSceneProviderScheduler;
   readonly now?: () => number;
   readonly random?: () => number;
-  readonly scheduleLeaseDeadline?: CanvasSceneProviderScheduler;
 }
 
 interface ObservationWaiter {
@@ -147,26 +118,6 @@ interface InFlightMutation {
   readonly waiters: readonly ObservationWaiter[];
   durable: boolean;
 }
-
-interface ActiveCanvasSceneLease {
-  readonly leaseId: string;
-  readonly storeEpoch: string;
-  readonly generation: number;
-  readonly expectedHeadSeq: number;
-  readonly deadlineAt: number;
-  readonly sequence: number;
-  status: "preparing" | "frozen";
-  acknowledged: boolean;
-  terminal: Extract<
-    CanvasSceneRelocationLeaseEvent,
-    { readonly kind: "relocation-lease-release" | "relocation-lease-cancel" }
-  > | null;
-  cancelDeadline: (() => void) | null;
-}
-
-export type CanvasSceneWriteLeasePreparer = () => void | Promise<void>;
-
-const LEASE_TERMINAL_TIMEOUT_MS = 10_000;
 
 const defaultScheduler: CanvasSceneProviderScheduler = (callback, delayMs) => {
   const timeout = globalThis.setTimeout(callback, delayMs);
@@ -352,16 +303,13 @@ export class CanvasSceneProvider {
   private readonly listeners = new Set<() => void>();
   private readonly flushWaiters = new Set<ObservationWaiter>();
   private readonly durableFlushWaiters = new Set<ObservationWaiter>();
-  private readonly leaseIdleWaiters = new Set<ObservationWaiter>();
   private readonly coalesceDelayMs: number;
   private readonly schedule: CanvasSceneProviderScheduler;
   private readonly scheduleRetry: CanvasSceneProviderScheduler;
-  private readonly scheduleLeaseDeadline: CanvasSceneProviderScheduler;
   private readonly createMutationId: () => string;
   private readonly createSyncRequestId: () => string;
   private readonly now: () => number;
   private readonly random: () => number;
-  private readonly writeLeasePreparers = new Set<CanvasSceneWriteLeasePreparer>();
 
   private unsubscribeRealtime: (() => void) | null = null;
   private cancelCoalesce: (() => void) | null = null;
@@ -389,11 +337,8 @@ export class CanvasSceneProvider {
   private closing = false;
   private closed = false;
   private error: CanvasSceneMutationError | undefined;
-  private activeLease: ActiveCanvasSceneLease | null = null;
   private pendingPresenceEvents: CanvasPresenceRealtimeEvent[] = [];
   private retryAttempt = 0;
-  private leaseSequence = 0;
-  private runningLeasePreparers = false;
   private status: CanvasSceneProviderStatus;
 
   constructor(options: CanvasSceneProviderOptions) {
@@ -401,7 +346,6 @@ export class CanvasSceneProvider {
     this.coalesceDelayMs = options.coalesceDelayMs ?? 150;
     this.schedule = options.schedule ?? defaultScheduler;
     this.scheduleRetry = options.scheduleRetry ?? defaultScheduler;
-    this.scheduleLeaseDeadline = options.scheduleLeaseDeadline ?? defaultScheduler;
     this.createMutationId = options.createMutationId ?? createFallbackMutationId;
     this.createSyncRequestId =
       options.createSyncRequestId ?? createFallbackSyncRequestId;
@@ -474,14 +418,6 @@ export class CanvasSceneProvider {
     return () => this.listeners.delete(listener);
   };
 
-  registerWriteLeasePreparer = (
-    preparer: CanvasSceneWriteLeasePreparer,
-  ): (() => void) => {
-    if (this.closed || this.closing) return () => undefined;
-    this.writeLeasePreparers.add(preparer);
-    return () => this.writeLeasePreparers.delete(preparer);
-  };
-
   connect = (): Promise<void> => {
     if (this.closed || this.closing) {
       return Promise.reject(new Error("Canvas scene provider is closed"));
@@ -503,11 +439,6 @@ export class CanvasSceneProvider {
     }
     if (this.error && !this.error.retryable) {
       return rejectedSubmission(new Error(this.error.message));
-    }
-    if (this.activeLease && !this.runningLeasePreparers) {
-      return rejectedSubmission(
-        new Error("Canvas scene is frozen by a Document write lease"),
-      );
     }
     const appStateIntents = observation.appStateIntents ?? {};
     const fileAdditions = observation.fileAdditions ?? {};
@@ -570,14 +501,6 @@ export class CanvasSceneProvider {
   };
 
   flush = (): Promise<void> => this.flushCommitted();
-
-  waitForRelocationIdle = async (): Promise<void> => {
-    if (!this.activeLease) return;
-    const { waiter, submission } = createObservationWaiter();
-    this.leaseIdleWaiters.add(waiter);
-    void submission.durable.catch(() => undefined);
-    await submission.committed;
-  };
 
   close = (
     options: { readonly requireCommitted?: boolean } = {},
@@ -645,14 +568,6 @@ export class CanvasSceneProvider {
     this.refreshStatus();
     this.cancelCoalesce?.();
     this.cancelRetry?.();
-    if (this.activeLease) {
-      this.nackLeaseBestEffort(
-        this.activeLease,
-        "provider_destroyed",
-        "Canvas scene provider closed during a Document write lease",
-      );
-      this.clearActiveLease();
-    }
     this.unsubscribeRealtime?.();
     this.cancelCoalesce = null;
     this.cancelRetry = null;
@@ -675,7 +590,6 @@ export class CanvasSceneProvider {
           clientSessionId: this.options.clientSessionId,
         },
         this.handleRealtimeEvent,
-        this.handleLeaseEvent,
         this.handlePresenceEvent,
       );
     }
@@ -851,7 +765,6 @@ export class CanvasSceneProvider {
       || this.queuedPersistencePromise
       || (this.error !== undefined && !this.error.retryable)
       || this.inFlight
-      || this.activeLease?.status === "frozen"
     ) {
       if (
         this.inFlight?.durable
@@ -1172,311 +1085,9 @@ export class CanvasSceneProvider {
     for (const event of events) this.handlePresenceEvent(event);
   }
 
-  private readonly handleLeaseEvent = (
-    event: CanvasSceneRelocationLeaseEvent,
-  ): void => {
-    if (this.closed || this.error) return;
-    if (event.kind === "relocation-lease-prepare") {
-      this.handleLeasePrepare(event);
-      return;
-    }
-    this.handleLeaseTerminal(event);
-  };
-
-  private handleLeasePrepare(
-    event: Extract<
-      CanvasSceneRelocationLeaseEvent,
-      { readonly kind: "relocation-lease-prepare" }
-    >,
-  ): void {
-    const valid =
-      event.documentId === this.options.documentId
-      && event.clientSessionId === this.options.clientSessionId
-      && event.storeEpoch.length > 0
-      && Number.isSafeInteger(event.generation)
-      && event.generation >= 1
-      && Number.isSafeInteger(event.expectedHeadSeq)
-      && event.expectedHeadSeq >= 0
-      && Number.isFinite(event.deadlineAt);
-    if (!valid) {
-      this.enterReset("Canvas received an invalid or foreign Document write lease");
-      return;
-    }
-    const incoming: ActiveCanvasSceneLease = {
-      leaseId: event.leaseId,
-      storeEpoch: event.storeEpoch,
-      generation: event.generation,
-      expectedHeadSeq: event.expectedHeadSeq,
-      deadlineAt: event.deadlineAt,
-      sequence: this.leaseSequence + 1,
-      status: "preparing",
-      acknowledged: false,
-      terminal: null,
-      cancelDeadline: null,
-    };
-    if (this.activeLease) {
-      const duplicate =
-        this.activeLease.leaseId === incoming.leaseId
-        && this.activeLease.storeEpoch === incoming.storeEpoch
-        && this.activeLease.generation === incoming.generation
-        && this.activeLease.expectedHeadSeq === incoming.expectedHeadSeq
-        && this.activeLease.deadlineAt === incoming.deadlineAt;
-      if (duplicate) return;
-      this.nackLeaseBestEffort(
-        incoming,
-        "foreign_lease_event",
-        "Canvas received overlapping Document write leases",
-      );
-      this.enterReset("Canvas received overlapping Document write leases");
-      return;
-    }
-    if (
-      !this.storeEpoch
-      || this.generation === null
-      || event.storeEpoch !== this.storeEpoch
-      || event.generation !== this.generation
-      || event.deadlineAt <= this.now()
-    ) {
-      this.nackLeaseBestEffort(
-        incoming,
-        event.deadlineAt <= this.now() ? "deadline_elapsed" : "boundary_mismatch",
-        "Canvas write lease crossed its active authority boundary",
-      );
-      this.enterReset("Canvas write lease crossed its active authority boundary");
-      return;
-    }
-    this.leaseSequence = incoming.sequence;
-    incoming.cancelDeadline = this.scheduleLeaseDeadline(() => {
-      if (!this.isCurrentLease(incoming) || incoming.status === "frozen") return;
-      this.failActiveLease(
-        incoming,
-        "deadline_elapsed",
-        "Canvas write lease preparation exceeded its deadline",
-      );
-    }, event.deadlineAt - this.now());
-    this.activeLease = incoming;
-    this.refreshStatus();
-    void this.prepareLease(incoming);
-  }
-
-  private async prepareLease(lease: ActiveCanvasSceneLease): Promise<void> {
-    try {
-      this.runningLeasePreparers = true;
-      await Promise.all(
-        [...this.writeLeasePreparers].map((prepare) =>
-          Promise.resolve().then(() => prepare()),
-        ),
-      );
-    } catch (error) {
-      this.failActiveLease(
-        lease,
-        "surface_prepare_failed",
-        `Canvas surface could not prepare for its write lease: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-      return;
-    } finally {
-      this.runningLeasePreparers = false;
-    }
-    if (!this.isCurrentLease(lease)) return;
-    try {
-      await this.flush();
-      await this.requestSync();
-    } catch (error) {
-      this.failActiveLease(
-        lease,
-        "durable_flush_failed",
-        `Canvas could not durably flush for its write lease: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-      return;
-    }
-    if (!this.isCurrentLease(lease)) return;
-    if (
-      this.now() >= lease.deadlineAt
-      || !this.isIdle()
-      || this.headSeq < lease.expectedHeadSeq
-      || !this.options.adapter.respondToRelocationLease
-    ) {
-      this.failActiveLease(
-        lease,
-        this.now() >= lease.deadlineAt ? "deadline_elapsed" : "durable_flush_failed",
-        "Canvas did not reach the lease durable head before ACK",
-      );
-      return;
-    }
-    let response: DocumentSyncCommandResult<DocumentRelocationLeaseResponseAck>;
-    try {
-      response = await this.options.adapter.respondToRelocationLease({
-        response: "ack",
-        leaseId: lease.leaseId,
-        documentId: this.options.documentId,
-        clientSessionId: this.options.clientSessionId,
-        storeEpoch: lease.storeEpoch,
-        generation: lease.generation,
-        headSeq: this.headSeq,
-      });
-    } catch (error) {
-      this.failActiveLease(
-        lease,
-        "durable_flush_failed",
-        `Canvas write lease ACK failed: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-      return;
-    }
-    if (!this.isCurrentLease(lease)) return;
-    if (
-      !response.ok
-      || response.value.accepted !== true
-      || response.value.leaseId !== lease.leaseId
-      || response.value.documentId !== this.options.documentId
-      || response.value.status !== "frozen"
-    ) {
-      this.failActiveLease(
-        lease,
-        "foreign_lease_event",
-        response.ok ? "Canvas write lease ACK was invalid" : response.error.message,
-      );
-      return;
-    }
-    if (!this.isIdle() || this.now() >= lease.deadlineAt) {
-      this.failActiveLease(
-        lease,
-        "local_update_after_freeze",
-        "Canvas changed while its write lease ACK was in flight",
-      );
-      return;
-    }
-    lease.acknowledged = true;
-    lease.status = "frozen";
-    lease.cancelDeadline?.();
-    lease.cancelDeadline = null;
-    this.refreshStatus();
-    if (lease.terminal) {
-      void this.completeLeaseTerminal(lease);
-      return;
-    }
-    lease.cancelDeadline = this.scheduleLeaseDeadline(() => {
-      if (!this.isCurrentLease(lease) || lease.terminal) return;
-      this.clearActiveLease();
-      this.enterReset("Canvas write lease received no terminal event");
-    }, LEASE_TERMINAL_TIMEOUT_MS);
-  }
-
-  private handleLeaseTerminal(
-    event: Extract<
-      CanvasSceneRelocationLeaseEvent,
-      { readonly kind: "relocation-lease-release" | "relocation-lease-cancel" }
-    >,
-  ): void {
-    const lease = this.activeLease;
-    if (
-      !lease
-      || event.leaseId !== lease.leaseId
-      || event.documentId !== this.options.documentId
-      || event.clientSessionId !== this.options.clientSessionId
-      || event.storeEpoch !== lease.storeEpoch
-      || event.generation !== lease.generation
-      || !Number.isSafeInteger(event.headSeq)
-      || event.headSeq < lease.expectedHeadSeq
-    ) {
-      this.enterReset("Canvas received a foreign or invalid write lease terminal event");
-      return;
-    }
-    lease.terminal = event;
-    if (lease.acknowledged) {
-      lease.status = "frozen";
-      lease.cancelDeadline?.();
-      lease.cancelDeadline = null;
-    }
-    this.refreshStatus();
-    if (lease.acknowledged) void this.completeLeaseTerminal(lease);
-  }
-
-  private async completeLeaseTerminal(
-    lease: ActiveCanvasSceneLease,
-  ): Promise<void> {
-    if (!this.isCurrentLease(lease) || !lease.terminal) return;
-    try {
-      await this.requestSync();
-    } catch (error) {
-      this.clearActiveLease();
-      this.enterReset(
-        `Canvas could not synchronize its write lease terminal head: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-      return;
-    }
-    if (
-      !this.isCurrentLease(lease)
-      || !lease.terminal
-      || this.error
-      || this.headSeq < lease.terminal.headSeq
-    ) {
-      this.clearActiveLease();
-      this.enterReset("Canvas did not reach its write lease terminal head");
-      return;
-    }
-    this.clearActiveLease();
-    this.refreshStatus();
-    this.pump();
-  }
-
-  private isCurrentLease(lease: ActiveCanvasSceneLease): boolean {
-    return !this.closed && this.activeLease?.sequence === lease.sequence;
-  }
-
-  private failActiveLease(
-    lease: ActiveCanvasSceneLease,
-    reason: DocumentRelocationLeaseNackReason,
-    message: string,
-  ): void {
-    if (!this.isCurrentLease(lease)) return;
-    this.nackLeaseBestEffort(lease, reason, message);
-    this.clearActiveLease();
-    this.enterReset(message);
-  }
-
-  private nackLeaseBestEffort(
-    lease: ActiveCanvasSceneLease,
-    reason: DocumentRelocationLeaseNackReason,
-    message: string,
-  ): void {
-    const respond = this.options.adapter.respondToRelocationLease;
-    if (!respond) return;
-    try {
-      void respond({
-        response: "nack",
-        leaseId: lease.leaseId,
-        documentId: this.options.documentId,
-        clientSessionId: this.options.clientSessionId,
-        storeEpoch: lease.storeEpoch,
-        generation: lease.generation,
-        headSeq: this.headSeq,
-        reason,
-        message,
-      }).catch(() => undefined);
-    } catch {
-      // Lease coordinator also observes disconnect and deadline expiry.
-    }
-  }
-
-  private clearActiveLease(): void {
-    this.activeLease?.cancelDeadline?.();
-    this.activeLease = null;
-    this.leaseIdleWaiters.forEach(resolveCommitted);
-    this.leaseIdleWaiters.clear();
-  }
-
   private handleCommandError(error: CanvasSceneMutationError): void {
     if (error.resetRequired) {
       void this.options.outbox.clear(this.options.documentId);
-      this.clearActiveLease();
       this.error = error;
       this.connected = false;
       this.rejectAll(new Error(error.message));
@@ -1494,14 +1105,6 @@ export class CanvasSceneProvider {
   }
 
   private handleRetryableError(error: CanvasSceneMutationError): void {
-    if (this.activeLease) {
-      this.failActiveLease(
-        this.activeLease,
-        "durable_flush_failed",
-        `Canvas transport failed during its write lease: ${error.message}`,
-      );
-      return;
-    }
     this.error = error;
     this.connected = false;
     this.cancelRetry?.();
@@ -1523,7 +1126,6 @@ export class CanvasSceneProvider {
   }
 
   private enterReset(message: string): void {
-    this.clearActiveLease();
     this.error = {
       code: "document_generation_mismatch",
       message,
@@ -1536,7 +1138,6 @@ export class CanvasSceneProvider {
   }
 
   private enterFatal(message: string): void {
-    this.clearActiveLease();
     this.error = invalidResponseError(message);
     this.connected = false;
     this.rejectAll(new Error(message));
@@ -1560,13 +1161,11 @@ export class CanvasSceneProvider {
     });
     this.flushWaiters.forEach((waiter) => rejectCommitted(waiter, error));
     this.durableFlushWaiters.forEach((waiter) => rejectDurable(waiter, error));
-    this.leaseIdleWaiters.forEach((waiter) => rejectCommitted(waiter, error));
     this.pending = null;
     this.inFlight = null;
     this.recoveredWaiters.clear();
     this.flushWaiters.clear();
     this.durableFlushWaiters.clear();
-    this.leaseIdleWaiters.clear();
   }
 
   private isIdle(): boolean {
@@ -1602,8 +1201,6 @@ export class CanvasSceneProvider {
     else if (this.closing) phase = "closing";
     else if (this.error?.resetRequired) phase = "reset-required";
     else if (this.error && !this.error.retryable) phase = "error";
-    else if (this.activeLease?.status === "frozen") phase = "frozen";
-    else if (this.activeLease) phase = "relocating";
     else if (this.error || !this.connected) phase = this.unsubscribeRealtime ? "offline" : "idle";
     else if (!this.scene || this.syncPromise) phase = "connecting";
     else if (!this.isIdle()) phase = "saving";
@@ -1612,22 +1209,13 @@ export class CanvasSceneProvider {
       phase,
       connected: this.connected,
       headSeq: this.headSeq,
-      writeFrozen: this.activeLease !== null,
+      writeFrozen: false,
       pendingMutationCount:
         (this.pending ? 1 : 0) + (this.inFlight ? 1 : 0) + this.recovered.length,
       ...(this.inFlight
         ? { inFlightMutationId: this.inFlight.intent.mutationId }
         : {}),
       ...(this.error ? { error: this.error } : {}),
-      ...(this.activeLease
-        ? {
-            relocationLease: {
-              leaseId: this.activeLease.leaseId,
-              status: this.activeLease.status,
-              deadlineAt: this.activeLease.deadlineAt,
-            },
-          }
-        : {}),
     };
   }
 

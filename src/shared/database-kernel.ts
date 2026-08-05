@@ -309,7 +309,7 @@ export interface DatabaseMutationReceipt {
   readonly affectedDatabaseBlockIds: readonly string[];
   readonly duplicate: boolean;
   readonly payload: Readonly<Record<string, DatabaseJsonValue>>;
-  readonly changeLogSeq: number;
+  readonly commitSeq: number;
   readonly committedAt: string;
 }
 
@@ -1882,7 +1882,7 @@ export const parseDatabaseMutationReceipt = (
     "affectedDatabaseBlockIds",
     "duplicate",
     "payload",
-    "changeLogSeq",
+    "commitSeq",
     "committedAt",
   ]);
   if (receipt.version !== DATABASE_MUTATION_CONTRACT_VERSION) {
@@ -1932,9 +1932,9 @@ export const parseDatabaseMutationReceipt = (
     ),
     duplicate: readBoolean(receipt, "duplicate", "databaseMutationReceipt"),
     payload: readJsonRecord(receipt.payload, "databaseMutationReceipt.payload"),
-    changeLogSeq: readRevision(
+    commitSeq: readRevision(
       receipt,
-      "changeLogSeq",
+      "commitSeq",
       "databaseMutationReceipt",
       1,
     ),

@@ -52,7 +52,7 @@ const requireReadValue = async <Kind extends LibraryReadValue["kind"]>(
 ): Promise<Extract<LibraryReadValue, { kind: Kind }> & {
   readonly libraryId: string;
   readonly storeEpoch: string;
-  readonly changeLogSeq: number;
+  readonly commitSeq: number;
 }> => {
   const result = await readLibraryModule(libraryContentAccess, request);
   if (!result.ok) throw new Error(result.error.message);
@@ -63,11 +63,11 @@ const requireReadValue = async <Kind extends LibraryReadValue["kind"]>(
     ...result.value.value,
     libraryId: result.value.libraryId,
     storeEpoch: result.value.storeEpoch,
-    changeLogSeq: result.value.changeLogSeq,
+    commitSeq: result.value.commitSeq,
   } as Extract<LibraryReadValue, { kind: Kind }> & {
     readonly libraryId: string;
     readonly storeEpoch: string;
-    readonly changeLogSeq: number;
+    readonly commitSeq: number;
   };
 };
 

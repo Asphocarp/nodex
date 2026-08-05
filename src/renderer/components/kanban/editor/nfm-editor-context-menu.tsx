@@ -32,6 +32,7 @@ interface NfmEditorCommandEditor {
 interface NfmEditorContextMenuProps {
   editor: NfmEditorCommandEditor;
   children: ReactNode;
+  onBeforePaste?: () => boolean;
 }
 
 interface NfmEditorContextMenuContentProps {
@@ -155,7 +156,9 @@ function dispatchSyntheticPaste(
 
 async function runPasteCommand(
   editor: NfmEditorCommandEditor,
+  onBeforePaste?: () => boolean,
 ): Promise<boolean> {
+  if (onBeforePaste?.()) return true;
   const payload = readNativeClipboardPayload() ?? await readBrowserClipboardPayload();
 
   if (payload && dispatchSyntheticPaste(editor, payload)) {
@@ -190,11 +193,12 @@ export async function runNfmEditorContextCommand(
   execCommand: Document["execCommand"] | undefined = typeof document === "undefined"
     ? undefined
     : document.execCommand.bind(document),
+  onBeforePaste?: () => boolean,
 ): Promise<boolean> {
   focusEditor(editor);
 
   if (command === "paste") {
-    return runPasteCommand(editor);
+    return runPasteCommand(editor, onBeforePaste);
   }
 
   if (execCommand?.(command)) {
@@ -326,6 +330,7 @@ function NfmEditorContextMenuPreviewItem({
 export function NfmEditorContextMenu({
   editor,
   children,
+  onBeforePaste,
 }: NfmEditorContextMenuProps) {
   const [selectionEmpty, setSelectionEmpty] = useState(true);
   const [editable, setEditable] = useState(true);
@@ -337,8 +342,8 @@ export function NfmEditorContextMenu({
   }, [editor]);
 
   const handleCommand = useCallback((command: NfmEditorCommand) => {
-    void runNfmEditorContextCommand(editor, command);
-  }, [editor]);
+    void runNfmEditorContextCommand(editor, command, undefined, onBeforePaste);
+  }, [editor, onBeforePaste]);
 
   const content = useMemo(() => (
     <NfmEditorContextMenuContent

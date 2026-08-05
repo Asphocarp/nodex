@@ -4,7 +4,7 @@ import { parseInlineMarkdownTitle } from "../../shared/nfm/agent-title";
 import type {
   ExecuteNodexAgentCreatePagesResult,
   NodexAgentCreatePagesCommand,
-  NodexAgentLeaseDocument,
+  NodexAgentDocumentHead,
   PrepareNodexAgentCreatePagesRequest,
   PrepareNodexAgentCreatePagesResult,
 } from "../../shared/nodex-agent-tools";
@@ -14,9 +14,9 @@ import type { NodexAgentMutationEnvelope } from "../agent-tools/dynamic-service-
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
 import { toCoreAgentExecutionAuthorization } from "./desktop-nodex-agent-resource-authority";
 import {
-  hasExactNativeAgentLeaseDocuments,
+  hasExactNativeAgentDocumentHeads,
   nativeAgentDocumentCommits,
-  nativeAgentLeaseDocuments,
+  nativeAgentDocumentHeads,
   nativeAgentPageLocation,
   preparedAgentPageDestination,
   toCoreAgentPageDestination,
@@ -34,7 +34,7 @@ interface PendingNativePageCreate {
   readonly operationId: string;
   readonly token: string;
   readonly coreRequest: CoreCreateRequest;
-  readonly leaseDocuments: readonly NodexAgentLeaseDocument[];
+  readonly documentHeads: readonly NodexAgentDocumentHead[];
 }
 
 const envelope = <Result>(
@@ -233,20 +233,20 @@ export class NativeNodexAgentPageCreateRuntime {
         && this.pending.size >= MAX_PENDING_NATIVE_PAGE_CREATES) {
         throw new Error("Native Agent Page-create preparation capacity is exhausted");
       }
-      const leaseDocuments = nativeAgentLeaseDocuments(preparation.document_heads);
+      const documentHeads = nativeAgentDocumentHeads(preparation.document_heads);
       this.pending.set(operationId, {
         request,
         operationId,
         token,
         coreRequest: createRequest,
-        leaseDocuments,
+        documentHeads,
       });
       return envelope({
         ok: true,
         value: {
           kind: "prepared",
           command: command(request, operationId, preparation),
-          leaseDocuments,
+          documentHeads,
           previews: preparation.pages.map((page, index) => {
             const draft = request.input.pages[index];
             if (!draft) throw new Error(`Agent Page draft ${index} is unavailable`);
@@ -266,7 +266,7 @@ export class NativeNodexAgentPageCreateRuntime {
 
   async execute(
     command: NodexAgentCreatePagesCommand,
-    leaseDocuments: readonly NodexAgentLeaseDocument[],
+    documentHeads: readonly NodexAgentDocumentHead[],
   ): Promise<ExecuteNodexAgentCreatePagesResult> {
     const pending = this.pending.get(command.mutationId);
     if (!pending
@@ -274,7 +274,7 @@ export class NativeNodexAgentPageCreateRuntime {
       || pending.request.callId !== command.callId
       || pending.request.threadId !== command.threadId
       || pending.request.authority?.storeEpoch !== command.storeEpoch
-      || !hasExactNativeAgentLeaseDocuments(pending.leaseDocuments, leaseDocuments)) {
+      || !hasExactNativeAgentDocumentHeads(pending.documentHeads, documentHeads)) {
       return {
         ok: false,
         error: {
@@ -325,7 +325,10 @@ export class NativeNodexAgentPageCreateRuntime {
           duplicate: committed.receipt.duplicate,
           documentCommits: nativeAgentDocumentCommits(result.document_commits),
           affectedDatabaseBlockIds: [...result.affected_database_ids],
-          changeLogSeq: committed.event_sequence,
+          commitSeq:
+            committed.commit_seq
+            ?? committed.local_commit?.commit_seq
+            ?? committed.event_sequence,
         },
       };
     } catch (error) {

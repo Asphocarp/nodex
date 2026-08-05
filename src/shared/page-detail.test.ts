@@ -27,7 +27,7 @@ const memberResult = (): PageDetailResult => ({
     projectId: "project-1",
     libraryId: "library-1",
     storeEpoch: "epoch-1",
-    changeLogSeq: 2,
+    commitSeq: 2,
     page: {
       pageId: "page-1",
       libraryId: "library-1",

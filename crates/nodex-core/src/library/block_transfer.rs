@@ -28,10 +28,10 @@ use crate::document::{
     NewDocumentCheckpoint, PersistYjsCommit, PersistYjsGenesis, PortableSubtreeDocumentHead,
     PortableSubtreeTransferKind, PortableSubtreeTransferRequest, PreparedDocumentOperationUpdate,
     YrsDocumentEngine, decode_block_document, insert_document_checkpoint,
-    materialize_decoded_document, persist_yjs_commit, persist_yjs_genesis,
-    prepare_document_operation_update, prepare_page_yjs_genesis_with_content,
-    prepare_portable_subtree_transfer_updates, prepare_yjs_clone_genesis, read_document_authority,
-    reconstruct_yjs_engine, sha256,
+    materialize_decoded_document, persist_yjs_commit, persist_yjs_commit_with_local_commit,
+    persist_yjs_genesis, persist_yjs_genesis_with_local_commit, prepare_document_operation_update,
+    prepare_page_yjs_genesis_with_content, prepare_portable_subtree_transfer_updates,
+    prepare_yjs_clone_genesis, read_document_authority, reconstruct_yjs_engine, sha256,
 };
 use crate::domain::block_materialization::MaterializedBlockNode;
 use crate::domain::block_to_page::{
@@ -40,14 +40,15 @@ use crate::domain::block_to_page::{
 use crate::domain::identity::stable_uuid_v7;
 use crate::domain::rich_text::RichTextItem;
 use crate::domain::subtree::BlockSubtreeInsertionTarget;
+use crate::infrastructure::local_commit;
 use crate::infrastructure::module_receipts::read_module_receipt;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::LibraryApplyOutcome;
 use super::mutation::{
     MutationEffects, append_rank, ensure_default_page_intrinsic_properties, finish_mutation,
-    insert_library_placement, insert_page_read_model, refresh_page_intrinsic_projection,
-    require_project_in_library, sqlite_now,
+    finish_mutation_with_local_commit, insert_library_placement, insert_page_read_model,
+    refresh_page_intrinsic_projection, require_project_in_library, sqlite_now,
 };
 use super::page_copy::{
     PageCopyParentDocumentMode, execute_page_copy, page_copy_closure_document_heads,
@@ -213,12 +214,18 @@ fn semantic_request_hash_with_authority(
     intent: &LibraryBlockTransferLogicalIntent,
     authority: Option<&AgentPageMoveTransferAuthority>,
 ) -> Result<String, StoreError> {
+    let mut stable_intent = intent.clone();
+    // A causal fence proves which local Document state the caller observed;
+    // it is a freshness precondition, not the idempotent command identity.
+    // Retrying the same operation after a re-read must therefore keep the
+    // original request hash.
+    stable_intent.causal_dependencies.clear();
     let fingerprint = serde_json::to_vec(&(
         &context.profile_id,
         &context.library_id,
         &context.project_id,
         store_epoch,
-        intent,
+        stable_intent,
         authority,
     ))
     .map_err(|_| internal("Block transfer intent cannot be fingerprinted"))?;
@@ -284,6 +291,7 @@ fn plan_with_authority(
             true,
         ));
     }
+    validate_causal_dependencies(connection, context, store_epoch, intent)?;
     let request_hash =
         semantic_request_hash_with_authority(context, store_epoch, intent, agent_authority)?;
     if let Some(stored) = read_module_receipt(connection, MODULE_NAME, operation_id)? {
@@ -303,9 +311,10 @@ fn plan_with_authority(
             .block_transfer
             .ok_or_else(|| corrupt("Stored Library receipt is not a Block transfer"))?;
         return Ok(LibraryBlockTransferPlan::Committed {
-            result,
-            change_log_seq: committed.receipt.change_log_seq,
+            result: Box::new(result),
+            commit_seq: committed.commit_seq,
             committed_at: committed.receipt.committed_at,
+            local_commit: committed.local_commit.map(Box::new),
         });
     }
     if uses_page_ownership_parent_compiler(connection, intent)? {
@@ -408,6 +417,15 @@ fn apply_with_authority(
     rehome: Option<&mut AgentPageMoveRehome<'_>>,
 ) -> Result<LibraryApplyOutcome, StoreError> {
     validate_intent(library_id, intent)?;
+    let current_epoch = crate::document::read_store_epoch(connection)?;
+    if current_epoch != store_epoch {
+        return Err(StoreError::new(
+            StoreErrorCode::StaleStoreEpoch,
+            "Block transfer targets a stale store epoch",
+            true,
+        ));
+    }
+    validate_causal_dependencies(connection, context, store_epoch, intent)?;
     if uses_page_ownership_parent_compiler(connection, intent)? {
         return apply_page_ownership_transfer(
             connection,
@@ -445,7 +463,9 @@ fn apply_with_authority(
     }
     let mut prepared = prepare_transfer(connection, context, library_id, operation_id, intent)?;
     let expected_preparation = preparation(&prepared);
-    if write_fence != Some(&expected_preparation.write_fence) {
+    if let Some(write_fence) = write_fence
+        && write_fence != &expected_preparation.write_fence
+    {
         return Err(StoreError::new(
             StoreErrorCode::RevisionConflict,
             "Block transfer requires a trusted exact-closure write fence",
@@ -460,6 +480,9 @@ fn apply_with_authority(
     if intent.mode == LibraryBlockTransferMode::Copy {
         assert_fresh_copy_identities(connection, &inserted_ids)?;
     }
+
+    let now = sqlite_now(connection)?;
+    let local_commit_seq = local_commit::begin(connection, store_epoch, operation_id, &now)?;
 
     let moves_between_documents = intent.mode == LibraryBlockTransferMode::Move
         && prepared.source_authority.head.id != prepared.target_authority.head.id;
@@ -479,7 +502,9 @@ fn apply_with_authority(
             &mut prepared.source_engine,
             source_update,
             &update_id,
+            operation_id,
             store_epoch,
+            Some(local_commit_seq),
         )?;
         document_commits.push(commit);
     }
@@ -495,7 +520,9 @@ fn apply_with_authority(
         &mut prepared.target_engine,
         target_update,
         &target_update_id,
+        operation_id,
         store_epoch,
+        Some(local_commit_seq),
     )?;
     document_commits.push(target_commit);
 
@@ -533,7 +560,6 @@ fn apply_with_authority(
         move_etags: BTreeMap::new(),
         page_view_placements: BTreeMap::new(),
     };
-    let now = sqlite_now(connection)?;
     let affected_page_ids = affected_page_ids(&prepared);
     let is_same_storage_relocation = moves_between_documents
         && prepared.source_authority.head.project_id == prepared.target_authority.head.project_id;
@@ -552,7 +578,7 @@ fn apply_with_authority(
             )
         }))
         .collect();
-    let outcome = finish_mutation(
+    let outcome = finish_mutation_with_local_commit(
         connection,
         context,
         store_epoch,
@@ -588,6 +614,7 @@ fn apply_with_authority(
             change_payload: None,
             committed_at: now.clone(),
         },
+        Some(local_commit_seq),
     )?;
 
     if is_same_storage_relocation {
@@ -1532,7 +1559,9 @@ fn apply_page_ownership_transfer(
         agent_authority,
     )?;
     let expected_preparation = page_ownership_preparation(&prepared);
-    if write_fence != Some(&expected_preparation.write_fence) {
+    if let Some(write_fence) = write_fence
+        && write_fence != &expected_preparation.write_fence
+    {
         return Err(StoreError::new(
             StoreErrorCode::RevisionConflict,
             "Block transfer requires a trusted exact-closure write fence",
@@ -1554,6 +1583,7 @@ fn apply_page_ownership_transfer(
     }
     let requesting_project_id = bound_project_id(context)?;
     let now = sqlite_now(connection)?;
+    let local_commit_seq = local_commit::begin(connection, store_epoch, operation_id, &now)?;
     let mut affected_database_ids = BTreeSet::new();
     let mut affected_view_ids = BTreeSet::new();
     let mut committed_revisions = BTreeMap::new();
@@ -1670,7 +1700,9 @@ fn apply_page_ownership_transfer(
             &mut document.engine,
             update,
             &update_id,
+            operation_id,
             store_epoch,
+            Some(local_commit_seq),
         )?);
     }
     if let Some(rehome) = rehome.as_mut() {
@@ -1694,7 +1726,9 @@ fn apply_page_ownership_transfer(
             &mut document.engine,
             update,
             &update_id,
+            operation_id,
             store_epoch,
+            Some(local_commit_seq),
         )?);
     }
     let result_block_ids = prepared
@@ -1832,7 +1866,7 @@ fn apply_page_ownership_transfer(
         .iter()
         .map(|commit| commit.public.document_id.clone())
         .collect::<Vec<_>>();
-    let outcome = finish_mutation(
+    let outcome = finish_mutation_with_local_commit(
         connection,
         context,
         store_epoch,
@@ -1863,6 +1897,7 @@ fn apply_page_ownership_transfer(
             change_payload: None,
             committed_at: now.clone(),
         },
+        Some(local_commit_seq),
     )?;
     persist_mutation_ledger(
         connection,
@@ -1971,7 +2006,9 @@ fn apply_page_ownership_copy(
             &mut document.engine,
             update,
             &update_id,
+            operation_id,
             store_epoch,
+            None,
         )?;
         committed_revisions.insert(
             format!("documentHead:{}", commit.public.document_id),
@@ -2435,7 +2472,9 @@ fn apply_page_parent_transfer(
     let mut prepared =
         prepare_page_parent_transfer(connection, context, library_id, operation_id, intent)?;
     let expected_preparation = page_parent_preparation(&prepared);
-    if write_fence != Some(&expected_preparation.write_fence) {
+    if let Some(write_fence) = write_fence
+        && write_fence != &expected_preparation.write_fence
+    {
         return Err(StoreError::new(
             StoreErrorCode::RevisionConflict,
             "Block transfer requires a trusted exact-closure write fence",
@@ -2443,6 +2482,7 @@ fn apply_page_parent_transfer(
         ));
     }
     let now = sqlite_now(connection)?;
+    let local_commit_seq = local_commit::begin(connection, store_epoch, operation_id, &now)?;
     if intent.mode == LibraryBlockTransferMode::Move
         && prepared.source_authority.head.project_id != prepared.target_project_id
     {
@@ -2483,7 +2523,9 @@ fn apply_page_parent_transfer(
             &mut prepared.source_engine,
             source_update,
             &update_id,
+            operation_id,
             store_epoch,
+            Some(local_commit_seq),
         )?);
     }
     let mut data_source_placements = Vec::new();
@@ -2500,6 +2542,7 @@ fn apply_page_parent_transfer(
             request_hash,
             stage,
             &now,
+            local_commit_seq,
         )?);
         if let PreparedPageParentTarget::DataSource { destination, .. } = &prepared.target {
             let placement = place_staged_page_in_data_source(
@@ -2607,7 +2650,7 @@ fn apply_page_parent_transfer(
             vec![format!("data_source:{}", destination.data_source_id)]
         }
     };
-    let outcome = finish_mutation(
+    let outcome = finish_mutation_with_local_commit(
         connection,
         context,
         store_epoch,
@@ -2645,6 +2688,7 @@ fn apply_page_parent_transfer(
             change_payload: None,
             committed_at: now.clone(),
         },
+        Some(local_commit_seq),
     )?;
     persist_mutation_ledger(
         connection,
@@ -2988,6 +3032,7 @@ fn persist_page_parent_genesis(
     request_hash: &str,
     stage: StagedPageParentGenesis,
     now: &str,
+    attached_commit_seq: i64,
 ) -> Result<PersistedTransferCommit, StoreError> {
     let authority = read_document_authority(connection, &stage.document_id)?
         .ok_or_else(|| corrupt("Staged Page has no Document authority"))?;
@@ -2996,7 +3041,7 @@ fn persist_page_parent_genesis(
         sha256(format!("{request_hash}\0{}", stage.page_id).as_bytes())
     );
     let full_state = stage.prepared.engine.full_state_v1();
-    let persisted = persist_yjs_genesis(
+    let persisted = persist_yjs_genesis_with_local_commit(
         connection,
         PersistYjsGenesis {
             authority: &authority,
@@ -3008,8 +3053,9 @@ fn persist_page_parent_genesis(
             full_state: &full_state,
             store_epoch,
             operation_id: &update_id,
-            emit_event: false,
+            emit_event: true,
         },
+        attached_commit_seq,
     )?;
     insert_page_read_model(
         connection,
@@ -3196,6 +3242,7 @@ fn affected_page_ids(prepared: &PreparedTransfer) -> Vec<String> {
     page_ids
 }
 
+#[allow(clippy::too_many_arguments)]
 fn persist_prepared_update(
     connection: &Connection,
     authority: &DocumentAuthorityRow,
@@ -3203,7 +3250,9 @@ fn persist_prepared_update(
     engine: &mut YrsDocumentEngine,
     update: PreparedDocumentOperationUpdate,
     update_id: &str,
+    operation_id: &str,
     store_epoch: &str,
+    attached_commit_seq: Option<i64>,
 ) -> Result<PersistedTransferCommit, StoreError> {
     let candidate = engine
         .prepare_update_v1(&update.update_v1)
@@ -3214,25 +3263,31 @@ fn persist_prepared_update(
     if !committed.did_change {
         return Err(invalid("Block transfer produced no Document change"));
     }
-    let persisted = persist_yjs_commit(
-        connection,
-        PersistYjsCommit {
-            authority,
-            base_materialization,
-            materialization: &update.materialization,
-            update_id,
-            client_session_id: TRANSFER_CLIENT_SESSION_ID,
-            base_head_seq: authority.head.head_seq,
-            client_touched_block_ids: &update.write_fence_block_ids,
-            update: &update.update_v1,
-            state_vector: &engine.state_vector_v1(),
-            store_epoch,
-            operation_id: update_id,
-            event_kind: "document_updated",
-            write_fence_block_ids: &update.write_fence_block_ids,
-            title_write_fence_required: false,
-        },
-    )?;
+    let event_operation_id = format!(
+        "block-transfer-document:{}",
+        sha256(format!("{operation_id}\0{}", authority.head.id).as_bytes())
+    );
+    let input = PersistYjsCommit {
+        authority,
+        base_materialization,
+        materialization: &update.materialization,
+        update_id,
+        client_session_id: TRANSFER_CLIENT_SESSION_ID,
+        base_head_seq: authority.head.head_seq,
+        client_touched_block_ids: &update.write_fence_block_ids,
+        update: &update.update_v1,
+        state_vector: &engine.state_vector_v1(),
+        store_epoch,
+        operation_id: &event_operation_id,
+        local_commit_id: Some(operation_id),
+        event_kind: "document_updated",
+        write_fence_block_ids: &update.write_fence_block_ids,
+        title_write_fence_required: false,
+    };
+    let persisted = match attached_commit_seq {
+        Some(commit_seq) => persist_yjs_commit_with_local_commit(connection, input, commit_seq)?,
+        None => persist_yjs_commit(connection, input)?,
+    };
     Ok(PersistedTransferCommit {
         public: LibraryBlockTransferDocumentCommit {
             document_id: authority.head.id.clone(),
@@ -3491,6 +3546,85 @@ fn validate_intent(
             ));
         }
         _ => {}
+    }
+    Ok(())
+}
+
+fn validate_causal_dependencies(
+    connection: &Connection,
+    context: &BoundModuleContext,
+    store_epoch: &str,
+    intent: &LibraryBlockTransferLogicalIntent,
+) -> Result<(), StoreError> {
+    if intent.causal_dependencies.len() > 16 {
+        return Err(invalid(
+            "Block transfer has too many causal Document dependencies",
+        ));
+    }
+    if intent.causal_dependencies.is_empty() {
+        return Ok(());
+    }
+    let project_id = bound_project_id(context)?;
+    let mut documents = BTreeSet::new();
+    for dependency in &intent.causal_dependencies {
+        validate_id(&dependency.document_id, "causal_dependency.document_id")?;
+        if !documents.insert(&dependency.document_id) {
+            return Err(invalid(
+                "Block transfer causal Document dependencies contain a duplicate",
+            ));
+        }
+        if dependency.generation < 1 || dependency.expected_head_seq < 0 {
+            return Err(invalid(
+                "Block transfer causal Document head is outside its bound",
+            ));
+        }
+        let current = connection
+            .query_row(
+                "SELECT project_id, generation, head_seq, readiness \
+                 FROM documents WHERE id = ?1",
+                [&dependency.document_id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, i64>(2)?,
+                        row.get::<_, String>(3)?,
+                    ))
+                },
+            )
+            .optional()?;
+        let Some((current_project_id, generation, head_seq, readiness)) = current else {
+            return Err(StoreError::new(
+                StoreErrorCode::RevisionConflict,
+                format!(
+                    "Causal Document {} no longer exists",
+                    dependency.document_id
+                ),
+                true,
+            ));
+        };
+        if current_project_id != project_id
+            || readiness != "ready"
+            || generation != dependency.generation
+            || head_seq != dependency.expected_head_seq
+        {
+            return Err(StoreError::new(
+                StoreErrorCode::RevisionConflict,
+                format!(
+                    "Causal Document {} changed after the local mutation barrier",
+                    dependency.document_id
+                ),
+                true,
+            ));
+        }
+    }
+    let current_epoch = crate::document::read_store_epoch(connection)?;
+    if current_epoch != store_epoch {
+        return Err(StoreError::new(
+            StoreErrorCode::StaleStoreEpoch,
+            "Block transfer causal fence targets a stale store epoch",
+            true,
+        ));
     }
     Ok(())
 }
@@ -3854,6 +3988,7 @@ mod tests {
             actor: json!({ "kind": "test" }),
             mode: LibraryBlockTransferMode::Move,
             root_block_ids: vec!["block-1".to_owned()],
+            causal_dependencies: Vec::new(),
             source: LibraryBlockTransferSource::Document {
                 document_id: "document-1".to_owned(),
             },

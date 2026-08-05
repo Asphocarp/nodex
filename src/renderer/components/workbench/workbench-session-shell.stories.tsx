@@ -1296,7 +1296,7 @@ function installStoryApi(
             dataSourceId,
             viewId,
             storeEpoch: "epoch:story",
-            changeLogSeq: 1,
+            commitSeq: 1,
             projectionRevision: 1,
             nextCursor: null,
             rows: board.columns.flatMap((column) =>
@@ -1381,7 +1381,7 @@ function installStoryApi(
             dataSourceId: `${databaseId}:data-source:initial`,
             viewId: `database-view:${projectId}:primary-kanban`,
             storeEpoch: "epoch:story",
-            changeLogSeq: 1,
+            commitSeq: 1,
             grouped: true,
             totalRows: board.columns.reduce(
               (total, column) => total + column.cards.length,
@@ -1441,7 +1441,7 @@ function installStoryApi(
               profileId: "profile:story",
               libraryId: "library:test",
               storeEpoch: "epoch:story",
-              changeLogSeq: 0,
+              commitSeq: 0,
               value,
             },
           };
@@ -1550,22 +1550,6 @@ function installStoryApi(
         }
         if (channel === "document-sync:awareness:publish") {
           return { ok: true, value: { accepted: true } };
-        }
-        if (channel === "document-sync:relocation-lease:respond") {
-          const request = args[0] as {
-            leaseId: string;
-            documentId: string;
-            response: "ack" | "nack";
-          };
-          return {
-            ok: true,
-            value: {
-              accepted: true,
-              leaseId: request.leaseId,
-              documentId: request.documentId,
-              status: request.response === "ack" ? "frozen" : "cancelled",
-            },
-          };
         }
         if (channel === "project-session-threads:attach" || channel === "project-session-threads:detach") {
           return true;

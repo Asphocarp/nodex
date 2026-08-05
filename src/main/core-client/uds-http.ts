@@ -567,12 +567,14 @@ const parseEventEnvelope = (
     typeof event !== "object" ||
     event === null ||
     !hasExactKeys(event, [
+      "canonical_hash",
+      "commit_seq",
       "committed_at",
+      "effects",
       "event_version",
       "operation_id",
       "payload",
       "projection_impact",
-      "sequence",
       "store_epoch",
     ])
   ) {
@@ -582,12 +584,12 @@ const parseEventEnvelope = (
     throw new CoreEventCompatibilityError("Core event version is invalid");
   }
   if (
-    !("sequence" in event) ||
-    typeof event.sequence !== "number" ||
-    !Number.isSafeInteger(event.sequence) ||
-    event.sequence < 1
+    !("commit_seq" in event) ||
+    typeof event.commit_seq !== "number" ||
+    !Number.isSafeInteger(event.commit_seq) ||
+    event.commit_seq < 1
   ) {
-    throw new CoreEventCompatibilityError("Core event sequence is invalid");
+    throw new CoreEventCompatibilityError("Core event commit sequence is invalid");
   }
   if (!("store_epoch" in event) || event.store_epoch !== contract.storeEpoch) {
     throw new CoreEventCompatibilityError("Core event Store epoch is invalid");
@@ -606,6 +608,17 @@ const parseEventEnvelope = (
   }
   if (!("projection_impact" in event) || !isProjectionImpact(event.projection_impact)) {
     throw new CoreEventCompatibilityError("Core Projection impact is invalid");
+  }
+  if (
+    !("canonical_hash" in event) ||
+    typeof event.canonical_hash !== "string" ||
+    !/^[0-9a-f]{64}$/.test(event.canonical_hash) ||
+    !("effects" in event) ||
+    !Array.isArray(event.effects) ||
+    event.effects.length > 10_000 ||
+    event.effects.some((effect) => typeof effect !== "object" || effect === null)
+  ) {
+    throw new CoreEventCompatibilityError("Core local commit integrity fields are invalid");
   }
   return value as CoreEventEnvelope;
 };
@@ -724,8 +737,8 @@ const parseDocumentResync = (json: string): DocumentResyncRequired => {
     value === null ||
     !("document_id" in value) ||
     typeof value.document_id !== "string" ||
-    !("event_head" in value) ||
-    typeof value.event_head !== "number"
+    !("commit_head" in value) ||
+    typeof value.commit_head !== "number"
   ) {
     throw new Error("Core Document resync event is invalid");
   }
@@ -745,8 +758,8 @@ const parseCoreResync = (json: string): CoreEventReplayRequired => {
     !isNonNegativeSafeInteger(value.requested_after) ||
     !("oldest_available" in value) ||
     !isNonNegativeSafeInteger(value.oldest_available) ||
-    !("event_head" in value) ||
-    !isNonNegativeSafeInteger(value.event_head)
+    !("commit_head" in value) ||
+    !isNonNegativeSafeInteger(value.commit_head)
   ) {
     throw new Error("Core resync event is invalid");
   }

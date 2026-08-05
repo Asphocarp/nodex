@@ -184,7 +184,7 @@ const querySnapshot = (input: {
     projectId: "project-1",
     libraryId: "library-1",
     storeEpoch: "epoch-1",
-    changeLogSeq: 8,
+    commitSeq: 8,
     value: { kind: "query", value: query },
   };
 };

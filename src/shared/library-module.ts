@@ -4,7 +4,7 @@ import type {
   DataSourceId,
 } from "./database-identities";
 import type { DatabaseViewKind } from "./database-kernel";
-import type { RelocationDocumentCommit } from "./block-documents/contracts";
+import type { DocumentCommitRef } from "./block-documents/contracts";
 import type { ProjectAppearance } from "./project-appearance";
 import type { BlockPropertyFieldMutationV2 } from "./block-property-mutations-v2";
 import type { DatabaseApplyOperationV2 } from "./database-module-v2";
@@ -65,6 +65,12 @@ export interface LibraryCanvasNavigationNode {
   readonly documentGeneration: number;
   readonly documentHeadSeq: number;
   readonly updatedAt: string;
+}
+
+export interface LibraryDocumentHead {
+  readonly documentId: string;
+  readonly generation: number;
+  readonly expectedHeadSeq: number;
 }
 
 export interface LibraryViewNavigationNode {
@@ -204,7 +210,7 @@ export interface LibraryModuleReadSnapshot {
   readonly profileId: string;
   readonly libraryId: string;
   readonly storeEpoch: string;
-  readonly changeLogSeq: number;
+  readonly commitSeq: number;
   readonly value: LibraryReadValue;
 }
 
@@ -309,6 +315,7 @@ export interface DeleteLibraryCanvasOperation {
   readonly canvasId: string;
   readonly expectedLocationRevision: number;
   readonly expectedMetadataRevision: number;
+  readonly containingDocumentHead?: LibraryDocumentHead;
 }
 
 export interface MoveLibraryBlockOperation {
@@ -455,7 +462,7 @@ export interface LibraryCanvasMutationResult {
   readonly sourceCanvasId: string | null;
   readonly locationRevision: number;
   readonly metadataRevision: number;
-  readonly documentCommits: readonly RelocationDocumentCommit[];
+  readonly documentCommits: readonly DocumentCommitRef[];
 }
 
 export interface LibraryModuleApplyReceipt {
@@ -473,7 +480,7 @@ export interface LibraryModuleApplyReceipt {
   readonly affectedDatabaseIds: readonly DatabaseId[];
   readonly affectedViewIds: readonly DatabaseViewId[];
   readonly committedRevisions: Readonly<Record<string, number>>;
-  readonly changeLogSeq: number;
+  readonly commitSeq: number;
   readonly committedAt: string;
 }
 

@@ -12,6 +12,7 @@ import type {
 import {
   compilePageLifecycleRequestV2,
   executePageLifecycleIntentV2,
+  PageLifecycleRuntimeErrorV2,
   type PageLifecycleOwnedBlockAuthorityV2,
   type PageLifecyclePreflightSnapshotV2,
 } from "./page-lifecycle-v2-runtime";
@@ -51,6 +52,7 @@ const authority = (
           status: "triage",
           position: { viewId },
         },
+        nestedParent: null,
       }
     : null,
 });
@@ -62,7 +64,7 @@ const preflight = (
   projectId: "project-1",
   libraryId: "library-1",
   storeEpoch: "epoch-1",
-  changeLogSeq: 21,
+  commitSeq: 21,
   value: {
     version: 2,
     reservedBlockType: null,
@@ -175,7 +177,7 @@ const receipt = (
   viewRankKey: "m",
   createdBlockIds: ["body-1"],
   createdTagOptionIds: [],
-  changeLogSeq: 22,
+  commitSeq: 22,
   committedAt: "2026-07-18T00:00:00.000Z",
 });
 
@@ -240,6 +242,75 @@ describe("Page lifecycle v2 runtime", () => {
         dataSourceId,
         position: { viewId, beforeViewPageId: "view-anchor" },
       },
+    });
+  });
+
+  test("fences nested Page deletion and restore with the host Document head", () => {
+    const nestedActive = {
+      ...authority(),
+      parent: { kind: "page", pageId: "host-page-1" } as const,
+      libraryRankKey: null,
+    } satisfies PageLifecycleOwnedBlockAuthorityV2;
+    const nestedDeleted = {
+      ...authority("deleted"),
+      parent: { kind: "page", pageId: "host-page-1" } as const,
+      libraryRankKey: null,
+      restoreEvidence: {
+        ...authority("deleted").restoreEvidence!,
+        nestedParent: {
+          documentId: "host-document-1",
+          parentBlockId: "host-toggle-1",
+          beforeBlockId: "host-sibling-1",
+        },
+      },
+    } satisfies PageLifecycleOwnedBlockAuthorityV2;
+    const hostHead = {
+      documentId: "host-document-1",
+      generation: 4,
+      expectedHeadSeq: 18,
+    } as const;
+
+    const deleteRequest = compilePageLifecycleRequestV2({
+      intent: {
+        kind: "delete",
+        projectId: "project-1",
+        operationId: "delete-nested-1",
+        pageId: "page-1",
+        parentDocumentHead: hostHead,
+      },
+      preflight: preflight(nestedActive),
+    });
+    expect(deleteRequest.operation).toMatchObject({
+      kind: "delete_page",
+      parentDocumentHead: hostHead,
+    });
+
+    expect(() => compilePageLifecycleRequestV2({
+      intent: {
+        kind: "delete",
+        projectId: "project-1",
+        operationId: "delete-nested-missing-head",
+        pageId: "page-1",
+      },
+      preflight: preflight(nestedActive),
+    })).toThrowError(new PageLifecycleRuntimeErrorV2(
+      "page_parent_invalid",
+      "Nested Page page-1 requires the host Page Document head",
+    ));
+
+    const restoreRequest = compilePageLifecycleRequestV2({
+      intent: {
+        kind: "restore",
+        projectId: "project-1",
+        operationId: "restore-nested-1",
+        pageId: "page-1",
+        parentDocumentHead: hostHead,
+      },
+      preflight: preflight(nestedDeleted),
+    });
+    expect(restoreRequest.operation).toMatchObject({
+      kind: "restore_page",
+      parentDocumentHead: hostHead,
     });
   });
 

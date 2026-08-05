@@ -53,7 +53,7 @@ const subscribe = (key: string | null, listener: Listener): (() => void) => {
 const compareDetailFreshness = (left: PageDetail, right: PageDetail): number => {
   if (left.storeEpoch !== right.storeEpoch) return 1;
   const coordinates = [
-    [left.changeLogSeq, right.changeLogSeq],
+    [left.commitSeq, right.commitSeq],
     [left.page.documentGeneration, right.page.documentGeneration],
     [left.page.documentHeadSeq, right.page.documentHeadSeq],
     [left.page.parentRevision, right.page.parentRevision],
@@ -120,10 +120,22 @@ export const resetPageDetailStoreForTests = (): void => {
 export const fetchPageDetail = async (
   projectId: string,
   pageId: string,
+  options: { readonly minimumCommitSeq?: number } = {},
 ): Promise<PageDetail | null> => {
   const key = detailKey(projectId, pageId);
+  const minimumCommitSeq = options.minimumCommitSeq ?? 0;
   const existingRequest = inFlight.get(key);
-  if (existingRequest) return existingRequest;
+  if (existingRequest) {
+    const detail = await existingRequest;
+    if (!detail) return null;
+    if (
+      minimumCommitSeq <= 0
+      || detail.commitSeq >= minimumCommitSeq
+    ) {
+      return detail;
+    }
+    return await fetchPageDetail(projectId, pageId, { minimumCommitSeq });
+  }
 
   const current = entries.get(key) ?? EMPTY_DETAIL;
   entries.set(key, {
@@ -136,9 +148,12 @@ export const fetchPageDetail = async (
   const requestGeneration = storeGeneration;
   const request = (async (): Promise<PageDetail | null> => {
     try {
-      const result = await readPageDetail(projectId, pageId);
+      const result = await readPageDetail(projectId, pageId, minimumCommitSeq);
       if (requestGeneration !== storeGeneration) return null;
       if (!result.ok) {
+        if (result.error.code !== "page_not_found") {
+          throw new Error(result.error.message);
+        }
         entries.set(key, {
           detail: null,
           loading: false,
@@ -163,12 +178,12 @@ export const fetchPageDetail = async (
     } catch (error) {
       if (requestGeneration !== storeGeneration) return null;
       entries.set(key, {
-        detail: null,
+        detail: current.detail,
         loading: false,
         error: error instanceof Error ? error.message : "Page Detail is unavailable",
       });
       emit(key);
-      return null;
+      throw error;
     } finally {
       if (requestGeneration === storeGeneration) {
         inFlight.delete(key);
@@ -193,11 +208,13 @@ const requestPageDetailRefresh = (
     if (
       cause.kind !== "resync" &&
       detail?.storeEpoch === cause.cursor.storeEpoch &&
-      detail.changeLogSeq >= cause.cursor.changeLogSeq
+      detail.commitSeq >= cause.cursor.commitSeq
     ) {
       return;
     }
-    await fetchPageDetail(projectId, pageId);
+    await fetchPageDetail(projectId, pageId, {
+      minimumCommitSeq: cause.kind === "resync" ? 0 : cause.cursor.commitSeq,
+    });
   })();
 };
 
@@ -216,7 +233,7 @@ export const usePageDetail = (
 
   useEffect(() => {
     if (!projectId || !pageId) return;
-    void fetchPageDetail(projectId, pageId);
+    void fetchPageDetail(projectId, pageId).catch(() => undefined);
   }, [pageId, projectId]);
 
   const snapshot = key ? (entries.get(key) ?? EMPTY_DETAIL) : EMPTY_DETAIL;
@@ -237,7 +254,7 @@ export const usePageDetail = (
         return detail
           ? {
               storeEpoch: detail.storeEpoch,
-              changeLogSeq: detail.changeLogSeq,
+              commitSeq: detail.commitSeq,
             }
           : null;
       },

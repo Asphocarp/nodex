@@ -161,4 +161,30 @@ describe("nfm editor context menu", () => {
       });
     }
   });
+
+  test("allows the caller to block direct fallback paste before reading the clipboard", async () => {
+    const calls: string[] = [];
+    const editor = {
+      pasteText: (text: string) => {
+        calls.push(`paste:${text}`);
+        return true;
+      },
+      prosemirrorView: {
+        focus: () => calls.push("focus"),
+      },
+    };
+
+    const handled = await runNfmEditorContextCommand(
+      editor,
+      "paste",
+      () => {
+        calls.push("exec");
+        return true;
+      },
+      () => true,
+    );
+
+    expect(handled).toBe(true);
+    expect(calls.join(",")).toBe("focus");
+  });
 });

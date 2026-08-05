@@ -1,6 +1,6 @@
 import type { components } from "@nodex/core-protocol";
 import type {
-  NodexAgentLeaseDocument,
+  NodexAgentDocumentHead,
   PreparedNodexAgentCreateDestination,
 } from "../../shared/nodex-agent-tools";
 
@@ -162,17 +162,17 @@ export const nativeAgentDocumentCommits = (
   stateVector: new Uint8Array(commit.state_vector),
 }));
 
-export const nativeAgentLeaseDocuments = (
+export const nativeAgentDocumentHeads = (
   heads: readonly CoreDocumentHead[],
-): readonly NodexAgentLeaseDocument[] => heads.map((head) => ({
+): readonly NodexAgentDocumentHead[] => heads.map((head) => ({
   documentId: head.document_id,
   generation: head.generation,
   expectedHeadSeq: head.expected_head_seq,
 }));
 
-export const hasExactNativeAgentLeaseDocuments = (
-  expected: readonly NodexAgentLeaseDocument[],
-  actual: readonly NodexAgentLeaseDocument[],
+export const hasExactNativeAgentDocumentHeads = (
+  expected: readonly NodexAgentDocumentHead[],
+  actual: readonly NodexAgentDocumentHead[],
 ): boolean => expected.length === actual.length
   && expected.every((head, index) => {
     const candidate = actual[index];

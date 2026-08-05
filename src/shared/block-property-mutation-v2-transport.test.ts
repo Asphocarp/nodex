@@ -49,7 +49,7 @@ describe("Block property mutation v2 transport binding", () => {
         duplicate: false,
         fields: [field],
         blockMetadataRevisions: { "page-1": 2 },
-        changeLogSeq: 3,
+        commitSeq: 3,
         committedAt: "2026-07-18T00:00:00.000Z",
       },
     });

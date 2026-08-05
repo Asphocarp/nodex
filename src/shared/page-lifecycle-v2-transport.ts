@@ -114,7 +114,7 @@ export const parsePageLifecyclePreflightResultV2 = (
     "projectId",
     "libraryId",
     "storeEpoch",
-    "changeLogSeq",
+    "commitSeq",
     "value",
   ]);
   if (snapshot.version !== PAGE_LIFECYCLE_PREFLIGHT_V2_VERSION) {
@@ -123,7 +123,7 @@ export const parsePageLifecyclePreflightResultV2 = (
   const projectId = readCanonicalIdentity(snapshot.projectId, "projectId");
   const libraryId = readCanonicalIdentity(snapshot.libraryId, "libraryId");
   const storeEpoch = readCanonicalIdentity(snapshot.storeEpoch, "storeEpoch");
-  const changeLogSeq = readRevision(snapshot.changeLogSeq, "changeLogSeq");
+  const commitSeq = readRevision(snapshot.commitSeq, "commitSeq");
   const preflight = readRecord(snapshot.value);
   if (!preflight) throw new TypeError("Page lifecycle v2 preflight is invalid");
   assertExactKeys(preflight, "Page lifecycle v2 preflight", [
@@ -143,7 +143,7 @@ export const parsePageLifecyclePreflightResultV2 = (
       projectId,
       libraryId,
       storeEpoch,
-      changeLogSeq,
+      commitSeq,
       value: { kind: "query", value: preflight.defaultView },
     },
   });

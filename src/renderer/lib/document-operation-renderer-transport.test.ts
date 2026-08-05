@@ -41,7 +41,7 @@ const result: DocumentOperationCommandResult = {
     writeFenceBlockIds: [],
     titleChanged: true,
     coordination: "merge_friendly",
-    changeLogSeq: 5,
+    commitSeq: 5,
     committedAt: "2026-07-11T00:00:00.000Z",
     duplicate: false,
   },

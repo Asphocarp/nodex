@@ -194,7 +194,7 @@ export interface DatabaseRelationCandidateWindowV2 {
   readonly projectionRevision: number;
 }
 
-export type DatabaseReadV2 =
+export type DatabaseReadV2 = (
   | {
       readonly target: { readonly kind: "project_default" };
       readonly mode: "database";
@@ -252,7 +252,11 @@ export type DatabaseReadV2 =
       };
       readonly mode: "option_window";
       readonly window?: { readonly after?: string | null; readonly first?: number };
-    };
+    }
+  ) & {
+    /** Main/Core adapter read barrier for a previously returned local commit. */
+    readonly minimumCommitSeq?: number;
+  };
 
 export type DatabaseReadValueV2 =
   | {
@@ -509,7 +513,7 @@ export interface DatabaseApplyReceiptV2 {
   readonly affectedPageIds: readonly string[];
   readonly affectedViewIds: readonly DatabaseViewId[];
   readonly committedRevisions: Readonly<Record<string, number>>;
-  readonly changeLogSeq: number;
+  readonly commitSeq: number;
   readonly committedAt: string;
 }
 

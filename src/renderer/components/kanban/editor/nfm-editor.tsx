@@ -172,7 +172,11 @@ import { useTheme } from "@/lib/use-theme";
 import { usePasteResourceSettings } from "@/lib/use-paste-resource-settings";
 import { cn } from "@/lib/utils";
 import { useCommandPaletteThreadItems } from "@/lib/command-palette-chat-search";
-import type { BlockDocumentSurfaceWriteFence } from "@/lib/block-document-surface-runtime";
+import type { BlockDocumentMutationBarrier } from "@/lib/block-document-surface-runtime";
+import {
+  registerBlockDocumentMutationBarrier,
+  resolveBlockDocumentMutationBarrier,
+} from "@/lib/block-document-mutation-registry";
 import {
   createCanvasInHostPage,
   deleteCanvasOwner,
@@ -186,7 +190,6 @@ import {
   resolveCanvasInsertionAfterBlock,
 } from "@/lib/canvas-host-operations";
 import type { PageEditorSession } from "@/lib/page-editor-session-registry";
-import { useBlockDocumentSurfaceWriteFrozen } from "@/lib/use-block-document-surface-write-fence";
 import {
   useCodexPermissionState,
   useDefaultCodexAppServerManager,
@@ -201,15 +204,17 @@ import {
   type NfmEditorSource,
 } from "./nfm-editor-source";
 import {
-  applyNfmEditorWriteFence,
-  prepareNfmEditorForRelocation,
-  type NfmEditorRelocationRuntime,
+  prepareNfmEditorForMutation,
+  type NfmEditorMutationRuntime,
 } from "./nfm-editor-relocation";
-
-interface NfmEditorFocusRuntime extends NfmEditorRelocationRuntime {
-  isFocused?: () => boolean;
-  isWithinEditor?: (element: Element) => boolean;
-}
+import { commitPageLifecycleIntent } from "@/lib/page-lifecycle-runtime";
+import {
+  hasNestedTypedOwnerBlock,
+  hasTypedOwnerBlock,
+  hasTypedOwnerType,
+  typedOwnerBlocks,
+  type TypedOwnerBlockLike,
+} from "@/lib/typed-owner-blocks";
 
 interface NfmEditorCommonProps {
   contentAccessContext: ContentAccessContext;
@@ -254,13 +259,25 @@ interface NfmEditorCommonProps {
   };
   placeholder?: string;
   className?: string;
-  surfaceWriteFence?: BlockDocumentSurfaceWriteFence;
+  surfaceMutationBarrier?: BlockDocumentMutationBarrier;
   embeddedBoundary?: {
     navigationRef: Ref<NfmEditorBoundaryHandle>;
     onBoundaryArrow: (direction: VerticalArrowDirection) => boolean;
   };
   /** Optional PageTab-owned model whose lifetime exceeds this React view. */
   editorSession?: PageEditorSession;
+}
+
+interface TypedOwnerSelectionEditor {
+  getSelection: () => {
+    blocks?: readonly TypedOwnerSelectionBlock[];
+  } | undefined;
+}
+
+interface TypedOwnerSelectionBlock {
+  readonly id: string;
+  readonly type: string;
+  readonly children?: readonly TypedOwnerSelectionBlock[];
 }
 
 export interface NfmEditorBoundaryHandle {
@@ -421,14 +438,13 @@ function NfmEditorInstance({
   headingRail,
   placeholder = "Add a description...",
   className,
-  surfaceWriteFence,
+  surfaceMutationBarrier,
   embeddedBoundary,
   editorSession,
 }: NfmEditorInstanceProps) {
   const executionProjectId = projectIdFromContentAccessContext(
     contentAccessContext,
   );
-  const writeFrozen = useBlockDocumentSurfaceWriteFrozen(surfaceWriteFence);
   const parentBlockReferenceRuntime = useBlockReferenceHostRuntime();
   const { resolved: themeMode } = useTheme();
   const { spellcheck } = useSpellcheck();
@@ -546,8 +562,48 @@ function NfmEditorInstance({
     [],
   );
 
-  const pasteHandler = useMemo(() => createNfmPasteHandler(), []);
-  const extensions = useMemo(() => createNfmEditorExtensions(), []);
+  const canvasCommandHandlersRef = useRef({
+    duplicate: async (canvasBlockId: string) => {
+      void canvasBlockId;
+    },
+    delete: async (canvasBlockId: string) => {
+      void canvasBlockId;
+    },
+  });
+  const pageCommandHandlersRef = useRef({
+    delete: async (pageBlockId: string) => {
+      void pageBlockId;
+    },
+  });
+  const typedOwnerDeleteRef = useRef<
+    (editor: TypedOwnerSelectionEditor) => boolean
+  >(() => false);
+  const typedOwnerCutRef = useRef<
+    (editor: TypedOwnerSelectionEditor) => boolean
+  >(() => false);
+  const typedReplacementGuardRef = useRef<
+    (blocks: readonly TypedOwnerSelectionBlock[]) => boolean
+  >(() => false);
+  const typedPasteGuardRef = useRef<
+    (blocks: readonly TypedOwnerBlockLike[]) => boolean
+  >(() => false);
+
+  const pasteHandler = useMemo(
+    () =>
+      createNfmPasteHandler({
+        onBeforeReplaceBlocks: (blocks) =>
+          typedReplacementGuardRef.current(blocks),
+        onBeforeInsertBlocks: (blocks) => typedPasteGuardRef.current(blocks),
+      }),
+    [],
+  );
+  const extensions = useMemo(
+    () =>
+      createNfmEditorExtensions({
+        onCutTypedBlocks: (editor) => typedOwnerCutRef.current(editor),
+      }),
+    [],
+  );
   const tiptapExtensions = useMemo(() => [createNfmLinkExtension()], []);
 
   const editorModeOptions = createNfmEditorModeOptions(source);
@@ -1099,6 +1155,17 @@ function NfmEditorInstance({
   const handlePasteResourceChoice = useCallback(
     async (mode: "materialized" | "link") => {
       if (!editor || !pasteResourceDialog || pasteResourcePending) return;
+      const typedTarget = hasTypedOwnerType([
+        ...(pasteResourceDialog.target.selectedBlockTypes ?? []),
+        pasteResourceDialog.target.currentBlockType ?? null,
+      ]);
+      if (typedTarget) {
+        toast.info(
+          "Page, Canvas, and Database blocks cannot be replaced by a resource paste.",
+        );
+        closePasteResourceDialog();
+        return;
+      }
       if (
         mode === "materialized" &&
         !canMaterializePasteResourceItems(pasteResourceDialog.items)
@@ -1221,6 +1288,16 @@ function NfmEditorInstance({
   const handleContinuePasteInline = useCallback(() => {
     if (!editor || !pasteResourceDialog?.textPayload || pasteResourcePending)
       return;
+    if (hasTypedOwnerType([
+      ...(pasteResourceDialog.target.selectedBlockTypes ?? []),
+      pasteResourceDialog.target.currentBlockType ?? null,
+    ])) {
+      toast.info(
+        "Page, Canvas, and Database blocks cannot be replaced by paste.",
+      );
+      closePasteResourceDialog();
+      return;
+    }
 
     editor.focus();
     const continued = continueInlinePaste(editor, pasteResourceDialog);
@@ -1353,30 +1430,29 @@ function NfmEditorInstance({
   }, [editor, syncSearchStats]);
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const canvasCommandHandlersRef = useRef({
-    duplicate: async (canvasBlockId: string) => {
-      void canvasBlockId;
-    },
-    delete: async (canvasBlockId: string) => {
-      void canvasBlockId;
-    },
-  });
+  useEffect(() => {
+    if (!surfaceMutationBarrier) return;
+    return registerBlockDocumentMutationBarrier(
+      source.clientSessionId,
+      surfaceMutationBarrier,
+    );
+  }, [source.clientSessionId, surfaceMutationBarrier]);
 
   useEffect(() => {
     if (
       !sourcePageContext
-      || !isCanvasHostDocumentRuntime(surfaceWriteFence)
+      || !isCanvasHostDocumentRuntime(surfaceMutationBarrier)
     ) {
       return;
     }
     return registerCanvasHostDocumentRuntime(
       source.clientSessionId,
-      surfaceWriteFence,
+      surfaceMutationBarrier,
     );
   }, [
     source.clientSessionId,
     sourcePageContext,
-    surfaceWriteFence,
+    surfaceMutationBarrier,
   ]);
 
   useImperativeHandle(
@@ -1390,23 +1466,6 @@ function NfmEditorInstance({
     }),
     [editor],
   );
-
-  useEffect(() => {
-    if (!surfaceWriteFence) return;
-    return surfaceWriteFence.registerRelocationPreparer(async () => {
-      const container = containerRef.current;
-      if (!container) return;
-      await prepareNfmEditorForRelocation(
-        editor as unknown as NfmEditorRelocationRuntime,
-        container,
-      );
-    });
-  }, [editor, surfaceWriteFence]);
-
-  useEffect(() => {
-    const runtimeEditor = editor as unknown as NfmEditorFocusRuntime;
-    applyNfmEditorWriteFence(runtimeEditor, writeFrozen);
-  }, [editor, writeFrozen]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -1435,23 +1494,11 @@ function NfmEditorInstance({
         && (event.key === "Backspace" || event.key === "Delete")
       ) {
         const selectedBlocks = editor.getSelection()?.blocks ?? [];
-        const selectedCanvasBlocks = selectedBlocks.filter(
-          (block) => block.type === "canvas",
-        );
-        if (selectedCanvasBlocks.length > 0) {
+        const hasTypedOwner = hasTypedOwnerBlock(selectedBlocks);
+        if (hasTypedOwner) {
           event.preventDefault();
           event.stopPropagation();
-          if (
-            selectedBlocks.length === 1
-            && selectedCanvasBlocks.length === 1
-            && selectedCanvasBlocks[0]?.id
-          ) {
-            void canvasCommandHandlersRef.current.delete(
-              selectedCanvasBlocks[0].id,
-            );
-          } else {
-            toast.info("Delete one Canvas at a time.");
-          }
+          typedOwnerDeleteRef.current(editor);
           return;
         }
       }
@@ -1736,16 +1783,20 @@ function NfmEditorInstance({
           "Moving Blocks between Pages in different Projects is not available yet.",
         );
       }
-      if (!surfaceWriteFence) {
+      if (!surfaceMutationBarrier) {
         throw new Error(
           "The collaborative Page surface changed; reopen it before moving Blocks.",
         );
       }
-      if (surfaceWriteFence.getWriteFrozen()) {
-        throw new Error(
-          "This Page is already completing another Block move.",
-        );
+      const container = containerRef.current;
+      if (!container) {
+        throw new Error("The Page editor is not ready for a Block move.");
       }
+      await prepareNfmEditorForMutation(
+        editor as unknown as NfmEditorMutationRuntime,
+        container,
+      );
+      const sourceHead = await surfaceMutationBarrier.prepareLocalMutation();
 
       const preparedTarget = await prepareOwnedBlockDocument(
         targetProjectId,
@@ -1757,6 +1808,9 @@ function NfmEditorInstance({
       if (preparedTarget.value.documentId === source.documentId) {
         throw new Error("Choose a different destination Page.");
       }
+      if (preparedTarget.value.storeEpoch !== sourceHead.storeEpoch) {
+        throw new Error("The source and target Pages belong to different store epochs.");
+      }
       const result = await transferBlocks(executionProjectId, {
         version: 2,
         operationId: crypto.randomUUID(),
@@ -1764,6 +1818,14 @@ function NfmEditorInstance({
         storeEpoch: source.storeEpoch,
         mode: "move",
         rootBlockIds: selection.blockIds,
+        causalDependencies: [
+          sourceHead,
+          {
+            documentId: preparedTarget.value.documentId,
+            generation: preparedTarget.value.generation,
+            expectedHeadSeq: preparedTarget.value.headSeq,
+          },
+        ],
         source: {
           kind: "page",
           pageId: sourcePageContext.pageId,
@@ -1776,10 +1838,11 @@ function NfmEditorInstance({
       if (!result.ok) throw new Error(result.error.message);
     },
     [
+      editor,
       executionProjectId,
       source,
       sourcePageContext,
-      surfaceWriteFence,
+      surfaceMutationBarrier,
     ],
   );
 
@@ -1799,6 +1862,30 @@ function NfmEditorInstance({
       const selectedCanvasBlocks = selection.blocks.filter(
         (block) => block.type === "canvas",
       );
+      const selectedPageBlocks = selection.blocks.filter(
+        (block) => block.type === "page",
+      );
+      const selectedDatabaseBlocks = selection.blocks.filter(
+        (block) => block.type === "database",
+      );
+      if (selectedDatabaseBlocks.length > 0) {
+        throw new Error(
+          "Database blocks must be moved through a typed Database action.",
+        );
+      }
+      if (hasNestedTypedOwnerBlock(selection.blocks)) {
+        throw new Error(
+          "A Block containing a Page, Canvas, or Database must be moved through a typed action.",
+        );
+      }
+      if (
+        selectedPageBlocks.length > 0
+        && selectedPageBlocks.length !== selection.blocks.length
+      ) {
+        throw new Error(
+          "Move Page blocks separately from ordinary Blocks.",
+        );
+      }
       if (selectedCanvasBlocks.length > 0) {
         if (
           selectedCanvasBlocks.length !== 1
@@ -1816,7 +1903,7 @@ function NfmEditorInstance({
         ) {
           throw new Error("Choose another Page in this Project.");
         }
-        if (!isCanvasHostDocumentRuntime(surfaceWriteFence)) {
+        if (!isCanvasHostDocumentRuntime(surfaceMutationBarrier)) {
           throw new Error(
             "The Page Document is not ready to move this Canvas.",
           );
@@ -1833,7 +1920,7 @@ function NfmEditorInstance({
           targetDocumentGeneration: target.value.generation,
           targetDocumentHeadSeq: target.value.headSeq,
           insertion: { kind: "append" },
-          sourceRuntime: surfaceWriteFence,
+          sourceRuntime: surfaceMutationBarrier,
         });
         restoreEditorFocus();
         return;
@@ -1855,7 +1942,7 @@ function NfmEditorInstance({
       sendBlockSelectionToProject,
       executionProjectId,
       sourcePageContext,
-      surfaceWriteFence,
+      surfaceMutationBarrier,
     ],
   );
 
@@ -1871,6 +1958,15 @@ function NfmEditorInstance({
       const selection = resolveSendBlocksSelection(fallbackBlockId);
       if (!selection) {
         throw new Error("No blocks selected.");
+      }
+      if (
+        request.mode === "wrap-toggle"
+        && hasTypedOwnerBlock(selection.blocks)
+      ) {
+        toast.info(
+          "Page, Canvas, and Database blocks cannot be wrapped into a thread toggle.",
+        );
+        return;
       }
 
       const promptInput = buildCodexPromptInputFromBlockNoteBlocks(
@@ -1971,10 +2067,18 @@ function NfmEditorInstance({
           ? { hostPageId: sourcePageContext.pageId }
           : {}),
         ancestorPageIds: parentBlockReferenceRuntime?.ancestorPageIds ?? [],
+        ...(surfaceMutationBarrier
+          ? { prepareLocalMutation: surfaceMutationBarrier.prepareLocalMutation }
+          : {}),
+        prepareSourceMutation: async (sourceSurfaceId: string) => {
+          if (sourceSurfaceId === source.clientSessionId) return;
+          return await resolveBlockDocumentMutationBarrier(sourceSurfaceId)
+            ?.prepareLocalMutation();
+        },
         createOperationId: () => crypto.randomUUID(),
         transfer: (intent: Parameters<typeof transferBlocks>[1]) =>
           transferBlocks(executionProjectId, intent),
-        ...(sourcePageContext && isCanvasHostDocumentRuntime(surfaceWriteFence)
+        ...(sourcePageContext && isCanvasHostDocumentRuntime(surfaceMutationBarrier)
           ? {
               transferCanvas: async ({
                 canvasBlockId,
@@ -1998,7 +2102,7 @@ function NfmEditorInstance({
                     sourceCanvasBlockId: canvasBlockId,
                     hostPageId: targetPageId,
                     insertion,
-                    runtime: surfaceWriteFence,
+                    runtime: surfaceMutationBarrier,
                   });
                   return;
                 }
@@ -2016,7 +2120,7 @@ function NfmEditorInstance({
                   targetPageId,
                   insertion,
                   sourceRuntime,
-                  targetRuntime: surfaceWriteFence,
+                    targetRuntime: surfaceMutationBarrier,
                 });
               },
             }
@@ -2032,7 +2136,7 @@ function NfmEditorInstance({
     source.clientSessionId,
     source.storeEpoch,
     sourcePageContext,
-    surfaceWriteFence,
+    surfaceMutationBarrier,
   ]);
 
   useEditorDragBehaviors({
@@ -2103,6 +2207,8 @@ function NfmEditorInstance({
       canvasCommandHandlersRef.current.duplicate(canvasBlockId),
     onDeleteCanvas: (canvasBlockId: string) =>
       canvasCommandHandlersRef.current.delete(canvasBlockId),
+    onDeletePage: (pageBlockId: string) =>
+      pageCommandHandlersRef.current.delete(pageBlockId),
   });
   sideMenuHandlersRef.current = {
     canSendBlocks: blockActionCapabilities.canMoveBlocks,
@@ -2117,6 +2223,8 @@ function NfmEditorInstance({
       canvasCommandHandlersRef.current.duplicate(canvasBlockId),
     onDeleteCanvas: (canvasBlockId: string) =>
       canvasCommandHandlersRef.current.delete(canvasBlockId),
+    onDeletePage: (pageBlockId: string) =>
+      pageCommandHandlersRef.current.delete(pageBlockId),
   };
 
   const sideMenuRuntimeValue = useMemo(
@@ -2175,7 +2283,7 @@ function NfmEditorInstance({
       if (!sourcePageContext) {
         throw new Error("Canvas can only be added inside a Page.");
       }
-      if (!isCanvasHostDocumentRuntime(surfaceWriteFence)) {
+      if (!isCanvasHostDocumentRuntime(surfaceMutationBarrier)) {
         throw new Error(
           "The Page Document is not ready to create a Canvas.",
         );
@@ -2185,24 +2293,24 @@ function NfmEditorInstance({
         hostPageId: sourcePageContext.pageId,
         replacementBlockId: blockId,
         displayName,
-        runtime: surfaceWriteFence,
+        runtime: surfaceMutationBarrier,
       });
     },
-    [contentAccessContext, sourcePageContext, surfaceWriteFence],
+    [contentAccessContext, sourcePageContext, surfaceMutationBarrier],
   );
 
   const requireCanvasHostRuntime = useCallback(() => {
     if (!sourcePageContext) {
       throw new Error("Canvas can only be changed inside a Page.");
     }
-    if (!isCanvasHostDocumentRuntime(surfaceWriteFence)) {
+    if (!isCanvasHostDocumentRuntime(surfaceMutationBarrier)) {
       throw new Error("The Page Document is not ready for a Canvas change.");
     }
     return {
       hostPageId: sourcePageContext.pageId,
-      runtime: surfaceWriteFence,
+      runtime: surfaceMutationBarrier,
     };
-  }, [sourcePageContext, surfaceWriteFence]);
+  }, [sourcePageContext, surfaceMutationBarrier]);
 
   const duplicateCanvasAfter = useCallback(
     async (canvasBlockId: string) => {
@@ -2229,15 +2337,141 @@ function NfmEditorInstance({
     [contentAccessContext, editor, requireCanvasHostRuntime],
   );
 
+  const deletePage = useCallback(
+    async (pageBlockId: string) => {
+      if (!sourcePageContext || executionProjectId === null) {
+        throw new Error("A nested Page can only be deleted inside a Page.");
+      }
+      if (!surfaceMutationBarrier) {
+        throw new Error(
+          "The host Page Document is not ready for a Page deletion.",
+        );
+      }
+      const container = containerRef.current;
+      if (!container) {
+        throw new Error("The host Page editor is not ready for a Page deletion.");
+      }
+      await prepareNfmEditorForMutation(
+        editor as unknown as NfmEditorMutationRuntime,
+        container,
+      );
+      const hostHead = await surfaceMutationBarrier.prepareLocalMutation();
+      if (
+        hostHead.storeEpoch !== source.storeEpoch
+        || hostHead.documentId !== source.documentId
+        || hostHead.generation !== source.generation
+      ) {
+        throw new Error(
+          "The host Page Document changed; reopen it before deleting the nested Page.",
+        );
+      }
+      const committed = await commitPageLifecycleIntent({
+        kind: "delete",
+        projectId: executionProjectId,
+        operationId: crypto.randomUUID(),
+        clientSessionId: source.clientSessionId,
+        pageId: pageBlockId,
+        parentDocumentHead: {
+          documentId: hostHead.documentId,
+          generation: hostHead.generation,
+          expectedHeadSeq: hostHead.expectedHeadSeq,
+        },
+      });
+      if (committed.receipt.lifecycle !== "deleted") {
+        throw new Error("Core did not commit the nested Page deletion.");
+      }
+    },
+    [
+      editor,
+      executionProjectId,
+      source,
+      sourcePageContext,
+      surfaceMutationBarrier,
+    ],
+  );
+
   const deleteCanvas = useCallback(
     async (canvasBlockId: string) => {
       await deleteCanvasOwner({
         accessContext: contentAccessContext,
         canvasBlockId,
+        ...(isCanvasHostDocumentRuntime(surfaceMutationBarrier)
+          ? { runtime: surfaceMutationBarrier }
+          : {}),
       });
     },
-    [contentAccessContext],
+    [contentAccessContext, surfaceMutationBarrier],
   );
+
+  const deleteTypedOwnerSelection = useCallback(
+    (
+      blocks: readonly TypedOwnerSelectionBlock[],
+    ): boolean => {
+      const typedBlocks = typedOwnerBlocks(blocks);
+      if (typedBlocks.length === 0) {
+        if (hasTypedOwnerBlock(blocks)) {
+          toast.info(
+            "A Block containing a Page, Canvas, or Database must be edited through a typed action.",
+          );
+          return true;
+        }
+        return false;
+      }
+      if (typedBlocks.length !== 1 || blocks.length !== 1) {
+        toast.info("Delete one Page, Canvas, or Database at a time.");
+        return true;
+      }
+      const block = typedBlocks[0];
+      if (!block) return true;
+      if (block.type === "page") {
+        void pageCommandHandlersRef.current.delete(block.id);
+      } else if (block.type === "canvas") {
+        void canvasCommandHandlersRef.current.delete(block.id);
+      } else {
+        toast.info("Database blocks must be removed through a typed Database action.");
+      }
+      return true;
+    },
+    [],
+  );
+
+  const rejectTypedReplacement = useCallback(
+    (
+      blocks: readonly TypedOwnerSelectionBlock[],
+    ): boolean => {
+      if (!hasTypedOwnerBlock(blocks)) {
+        return false;
+      }
+      toast.info(
+        "Page, Canvas, and Database blocks cannot be replaced by paste; remove them with a typed action first.",
+      );
+      return true;
+    },
+    [],
+  );
+  const rejectTypedPaste = useCallback(
+    (blocks: readonly TypedOwnerBlockLike[]): boolean => {
+      if (!hasTypedOwnerBlock(blocks)) return false;
+      toast.info(
+        "Page, Canvas, and Database blocks cannot be pasted as generic blocks; use a typed action.",
+      );
+      return true;
+    },
+    [],
+  );
+
+  typedOwnerDeleteRef.current = (editorToDelete) =>
+    deleteTypedOwnerSelection(editorToDelete.getSelection()?.blocks ?? []);
+  typedOwnerCutRef.current = (editorToCut) => {
+    const blocks = editorToCut.getSelection()?.blocks ?? [];
+    if (!hasTypedOwnerBlock(blocks)) return false;
+    toast.info(
+      "Page, Canvas, and Database blocks cannot be cut; use Move to or a typed action.",
+    );
+    return true;
+  };
+  typedReplacementGuardRef.current = rejectTypedReplacement;
+  typedPasteGuardRef.current = rejectTypedPaste;
 
   const renameCanvas = useCallback(
     async ({
@@ -2272,6 +2506,17 @@ function NfmEditorInstance({
       } catch (error) {
         toast.danger(
           error instanceof Error ? error.message : "Could not delete Canvas",
+        );
+      }
+    },
+  };
+  pageCommandHandlersRef.current = {
+    delete: async (pageBlockId) => {
+      try {
+        await deletePage(pageBlockId);
+      } catch (error) {
+        toast.danger(
+          error instanceof Error ? error.message : "Could not delete Page",
         );
       }
     },
@@ -2316,7 +2561,7 @@ function NfmEditorInstance({
         ...(onOpenPage ? { openPage: onOpenPage } : {}),
         ...(onOpenDatabase ? { openDatabase: onOpenDatabase } : {}),
         ...(onOpenCanvas ? { openCanvas: onOpenCanvas } : {}),
-        ...(sourcePageContext && isCanvasHostDocumentRuntime(surfaceWriteFence)
+        ...(sourcePageContext && isCanvasHostDocumentRuntime(surfaceMutationBarrier)
           ? {
               createCanvasAtEmptyParagraph,
               deleteCanvas,
@@ -2340,7 +2585,7 @@ function NfmEditorInstance({
       parentBlockReferenceRuntime?.ancestorDocumentOwnerBlockIds,
       sourcePageContext,
       source.clientSessionId,
-      surfaceWriteFence,
+      surfaceMutationBarrier,
       createCanvasAtEmptyParagraph,
       deleteCanvas,
       duplicateCanvasAfter,
@@ -2552,7 +2797,11 @@ function NfmEditorInstance({
       <BlockReferenceRuntimeProvider value={blockReferenceRuntimeValue}>
         <ThreadSectionRuntimeProvider value={threadSectionRuntimeValue}>
           <ThreadMentionRuntimeProvider value={threadMentionRuntimeValue}>
-            <NfmEditorContextMenu editor={editor}>
+            <NfmEditorContextMenu
+              editor={editor}
+              onBeforePaste={() =>
+                typedReplacementGuardRef.current(editor.getSelection()?.blocks ?? [])}
+            >
               <NfmTextActionMenuRuntimeProvider
                 value={textActionMenuRuntimeValue}
               >
@@ -2565,7 +2814,7 @@ function NfmEditorInstance({
                     onEditorViewUnmount={() => {
                       editorSession?.captureSelection(editor);
                     }}
-                    editable={!writeFrozen}
+                    editable
                     onChange={handleChange}
                     theme={themeMode}
                     formattingToolbar={false}
@@ -2574,9 +2823,6 @@ function NfmEditorInstance({
                     sideMenu={false}
                     tableHandles={false}
                     data-theming-css-variables-demo
-                    data-relocation-write-frozen={
-                      writeFrozen ? "true" : "false"
-                    }
                   >
                     <NfmSideMenuOpenProvider>
                       <NfmSideMenuShortcutController />

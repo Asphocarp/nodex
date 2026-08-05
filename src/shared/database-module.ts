@@ -170,7 +170,7 @@ export interface DatabaseModuleReadSnapshot {
   readonly projectId: string;
   readonly libraryId: string;
   readonly storeEpoch: string;
-  readonly changeLogSeq: number;
+  readonly commitSeq: number;
   readonly value: DatabaseReadValue;
 }
 
@@ -335,7 +335,7 @@ export interface DatabaseApplyReceipt {
   readonly affectedPageIds: readonly string[];
   readonly affectedViewIds: readonly string[];
   readonly committedRevisions: Readonly<Record<string, number>>;
-  readonly changeLogSeq: number;
+  readonly commitSeq: number;
   readonly committedAt: string;
 }
 

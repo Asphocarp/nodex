@@ -285,7 +285,7 @@ describe("Document operation contract", () => {
         writeFenceBlockIds: ["block-1"],
         titleChanged: false,
         coordination: "write_fence",
-        changeLogSeq: 7,
+        commitSeq: 7,
         committedAt: "2026-07-11T00:00:00.000Z",
         duplicate: false,
       },
@@ -306,18 +306,6 @@ describe("Document operation contract", () => {
     });
     expect(conflict.ok).toBe(false);
     expect(conflict.ok ? -1 : conflict.error.actualHeadSeq).toBe(5);
-
-    const leaseTimeout = parseDocumentOperationCommandResult({
-      ok: false,
-      error: {
-        code: "document_write_lease_timeout",
-        message: "Surface did not freeze",
-        retryable: true,
-        mutationId: "operation-1",
-      },
-    });
-    expect(leaseTimeout.ok).toBe(false);
-    expect(leaseTimeout.ok ? false : leaseTimeout.error.retryable).toBe(true);
 
     let rejected = false;
     try {

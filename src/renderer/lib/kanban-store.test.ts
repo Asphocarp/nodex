@@ -45,7 +45,7 @@ function createDatabaseViewSnapshot(
   viewId: string,
   title: string,
   isPrimary: boolean,
-  changeLogSeq = 1,
+  commitSeq = 1,
 ): DatabaseModuleReadResultV2 {
   const projectId = "project-1";
   const libraryId = "library-1";
@@ -161,7 +161,7 @@ function createDatabaseViewSnapshot(
       projectId,
       libraryId,
       storeEpoch: "epoch-1",
-      changeLogSeq,
+      commitSeq,
       value: { kind: "query", value: query },
     },
   };
@@ -205,7 +205,7 @@ function createBoard(title = "Initial title"): BoardSummary {
 
 function createBoardSnapshot(
   board: BoardSummary = createBoard(),
-  changeLogSeq = 1,
+  commitSeq = 1,
   viewId = "view-primary",
   primary = true,
 ): DatabaseViewWindowSnapshot {
@@ -215,7 +215,7 @@ function createBoardSnapshot(
     viewId,
     card.title,
     primary,
-    changeLogSeq,
+    commitSeq,
   );
   if (!queryResult.ok || queryResult.value.value.kind !== "query") {
     throw new Error("Database View test fixture is invalid");
@@ -241,8 +241,8 @@ function createBoardSnapshot(
     dataSourceId: "source-1",
     viewId,
     storeEpoch: "epoch-1",
-    changeLogSeq,
-    projectionRevision: changeLogSeq,
+    commitSeq,
+    projectionRevision: commitSeq,
     nextCursor: null,
     rows: [{
       page: card,
@@ -275,7 +275,7 @@ function createGroupsSnapshot(
     dataSourceId: "source-1",
     viewId: "view-primary",
     storeEpoch: "epoch-1",
-    changeLogSeq: 1,
+    commitSeq: 1,
     grouped: false,
     totalRows: 1,
     truncated: false,
@@ -322,7 +322,7 @@ function createProjectionHarness() {
 }
 
 function pageChanged(
-  changeLogSeq: number,
+  commitSeq: number,
   pageId = "card-1",
 ): ProjectionStreamMessage {
   return {
@@ -333,7 +333,7 @@ function pageChanged(
       libraryId: "library-1",
       projectId: "project-1",
     },
-    cursor: { storeEpoch: "epoch-1", changeLogSeq },
+    cursor: { storeEpoch: "epoch-1", commitSeq },
     impact: {
       kind: "resources",
       page_ids: [pageId],
@@ -344,7 +344,7 @@ function pageChanged(
         page_id: pageId,
         document_id: "document-1",
         generation: 1,
-        head_seq: changeLogSeq,
+        head_seq: commitSeq,
       }],
     },
   };
@@ -677,7 +677,7 @@ describe("kanban store", () => {
 
     expect(requests).toEqual([
       { first: 50 },
-      { after: "cursor-1", first: 50 },
+      { after: "cursor-1", first: 50, minimumCommitSeq: 1 },
     ]);
     expect([...store.getSnapshot().pageIndex.keys()]).toEqual([
       "card-1",
@@ -715,8 +715,8 @@ describe("kanban store", () => {
 
     expect(requests).toEqual([
       { first: 50 },
-      { after: "cursor-1", first: 50 },
-      { first: 50 },
+      { after: "cursor-1", first: 50, minimumCommitSeq: 1 },
+      { first: 50, minimumCommitSeq: 1 },
     ]);
     expect(store.getSnapshot().error).toBe(null);
     expect(store.getSnapshot().loadingMore).toBe(false);
@@ -826,7 +826,7 @@ describe("kanban store", () => {
     const windowOf = (
       loaded: DatabasePageSummary[],
       nextCursor: string | null,
-      changeLogSeq = 1,
+      commitSeq = 1,
     ): DatabaseViewWindowSnapshot => ({
       ...createBoardSnapshot(
         {
@@ -835,7 +835,7 @@ describe("kanban store", () => {
             { id: "ship", name: "Ship", cards: [] },
           ],
         },
-        changeLogSeq,
+        commitSeq,
       ),
       nextCursor,
       rows: loaded.map((card, index) => ({
@@ -1007,7 +1007,7 @@ describe("kanban store", () => {
       pageId: "card-1",
       summary: createPageSummary("Patched from event"),
       storeEpoch: "epoch-1",
-      changeLogSeq: 2,
+      commitSeq: 2,
     });
     await waitForMicrotasks();
 
@@ -1116,6 +1116,62 @@ describe("kanban store", () => {
     expect(indexedPage?.descriptionPreview).toBe("Ack preview");
     expect(indexedPage?.descriptionLength).toBe(128);
     expect(Object.hasOwn(indexedPage ?? {}, "description")).toBe(false);
+  });
+
+  test("rejects a stale direct projection delta after a newer row read", async () => {
+    const registry = createTestRegistry({
+      readViewWindow: async () => createBoardSnapshot(),
+      subscribeBoardChanges: () => () => {},
+    });
+    const store = registry.getStore("default");
+    await store.fetchBoard();
+
+    store.applyRemoteCardSummary(
+      {
+        ...createPageSummary("Newer title"),
+        revision: 2,
+      },
+      { storeEpoch: "epoch-1", commitSeq: 8 },
+    );
+    store.applyRemoteCardSummary(
+      {
+        ...createPageSummary("Delayed older title"),
+        revision: 1,
+      },
+      { storeEpoch: "epoch-1", commitSeq: 7 },
+    );
+
+    expect(store.getSnapshot().pageIndex.get("card-1")?.title).toBe(
+      "Newer title",
+    );
+  });
+
+  test("shows a newly promoted Page in the loaded Board before projection refresh", async () => {
+    const registry = createTestRegistry({
+      readViewWindow: async () => createBoardSnapshot(),
+      subscribeBoardChanges: () => () => {},
+    });
+    const store = registry.getStore("default");
+    await store.fetchBoard();
+
+    store.applyRemoteCardSummary(
+      {
+        ...createPageSummary("Promoted title"),
+        id: "page-promoted",
+        order: 1,
+      },
+      { storeEpoch: "epoch-1", commitSeq: 2 },
+    );
+
+    const snapshot = store.getSnapshot();
+    expect(snapshot.pageIndex.get("page-promoted")?.title).toBe(
+      "Promoted title",
+    );
+    expect(
+      snapshot.board?.columns
+        .find((column) => column.id === "triage")
+        ?.cards.map((card) => card.id),
+    ).toEqual(["card-1", "page-promoted"]);
   });
 
   test("local draft overlays do not bump card revision", async () => {
@@ -1348,9 +1404,8 @@ describe("kanban store", () => {
     expect(store.getSnapshot().pageIndex.has("card-1")).toBe(true);
   });
 
-  test("patches local board events and cooldowns ambiguous refreshes", async () => {
+  test("patches local board events and uses the event cursor for ambiguous refreshes", async () => {
     const board = createBoard();
-    let currentTime = 1_000;
     const callbacks: { onBoardChange?: (event: BoardChangeEvent) => void } = {};
     let boardFetchCount = 0;
 
@@ -1363,7 +1418,6 @@ describe("kanban store", () => {
         callbacks.onBoardChange = callback;
         return () => {};
       },
-      now: () => currentTime,
     });
 
     const store = registry.getStore("default");
@@ -1379,7 +1433,7 @@ describe("kanban store", () => {
       status: "triage",
       pageId: "card-1",
       storeEpoch: "epoch-1",
-      changeLogSeq: 2,
+      commitSeq: 2,
     };
 
     callbacks.onBoardChange?.(deleteEvent);
@@ -1393,18 +1447,16 @@ describe("kanban store", () => {
       columnId: "triage",
       status: "triage",
       storeEpoch: "epoch-1",
-      changeLogSeq: 3,
+      commitSeq: 3,
     };
 
-    store.markMutation();
-    callbacks.onBoardChange?.(ambiguousEvent);
-    await waitForMicrotasks();
-    expect(boardFetchCount).toBe(1);
-
-    currentTime = 1_700;
     callbacks.onBoardChange?.(ambiguousEvent);
     await waitForMicrotasks();
     expect(boardFetchCount).toBe(2);
+
+    callbacks.onBoardChange?.(ambiguousEvent);
+    await waitForMicrotasks();
+    expect(boardFetchCount).toBe(3);
 
     unsubscribe();
   });
@@ -1440,7 +1492,7 @@ describe("kanban store", () => {
       status: "triage",
       pageId: "card-1",
       storeEpoch: "epoch-1",
-      changeLogSeq: 2,
+      commitSeq: 2,
     });
     projection.publish(pageChanged(2, "card-1"));
     lateRead.resolve(createBoardSnapshot(cloneBoard(board), 1));

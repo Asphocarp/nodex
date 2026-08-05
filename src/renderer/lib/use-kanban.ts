@@ -37,7 +37,10 @@ import type {
 import {
   invoke,
 } from "./api";
-import { getKanbanProjectStore } from "./kanban-store";
+import {
+  getKanbanProjectStore,
+  type LocalProjectionCursor,
+} from "./kanban-store";
 import { getDatabaseRowDetail, setDatabaseRowDetail } from "./database-row-detail-store";
 import {
   commitDatabasePageDrag,
@@ -139,6 +142,10 @@ export function useKanban(options: UseKanbanOptions) {
 
   const fetchBoard = useCallback(async () => {
     await store.fetchBoard();
+  }, [store]);
+
+  const refreshAtLeast = useCallback(async (minimumCommitSeq: number) => {
+    await store.refreshBoardAtLeast(minimumCommitSeq);
   }, [store]);
 
   const loadMore = useCallback(async () => {
@@ -292,10 +299,25 @@ export function useKanban(options: UseKanbanOptions) {
   );
 
   const getPage = useCallback(
-    async (pageId: string, columnId?: string): Promise<DatabasePage | null> => {
+    async (
+      pageId: string,
+      columnId?: string,
+      cursor?: LocalProjectionCursor,
+    ): Promise<DatabasePage | null> => {
       try {
-        const card = (await invoke("database-row:get", projectId, pageId, columnId)) as DatabasePage | null;
-        if (card) setDatabaseRowDetail(projectId, card);
+        const card = (await invoke(
+          "database-row:get",
+          projectId,
+          pageId,
+          columnId,
+          cursor?.commitSeq,
+        )) as DatabasePage | null;
+        if (!card) return null;
+        setDatabaseRowDetail(projectId, card);
+        // A row read is already a canonical Core read. Feed it into the
+        // mounted Board immediately; the projection-floor refresh remains a
+        // background reconciliation for ordering, totals, and pagination.
+        store.applyRemoteCard(card, cursor);
         return card;
       } catch (err) {
         store.setError(toErrorMessage(err));
@@ -578,6 +600,7 @@ export function useKanban(options: UseKanbanOptions) {
     totalRows: snapshot.totalRows,
     clearLastMutationError,
     refresh: fetchBoard,
+    refreshAtLeast,
     loadMore,
     loadMoreGroup,
     createPage,

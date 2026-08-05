@@ -309,7 +309,7 @@ export interface BoardSummarySnapshot {
   readonly dataSourceId: string;
   readonly viewId: string;
   readonly storeEpoch: string;
-  readonly changeLogSeq: number;
+  readonly commitSeq: number;
   readonly board: BoardSummary;
 }
 

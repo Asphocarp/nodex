@@ -219,7 +219,7 @@ export interface AdditionalDocumentCommandReceipt {
   readonly semanticHash: string;
   readonly duplicate: boolean;
   readonly effect: AdditionalDocumentMutationEffect;
-  readonly changeLogSeq: number;
+  readonly commitSeq: number;
   readonly committedAt: string;
 }
 
@@ -1199,7 +1199,7 @@ export const parseAdditionalDocumentCommandReceipt = (
     "semanticHash",
     "duplicate",
     "effect",
-    "changeLogSeq",
+    "commitSeq",
     "committedAt",
   ]);
   if (receipt.version !== ADDITIONAL_DOCUMENT_COMMAND_VERSION) {
@@ -1233,7 +1233,7 @@ export const parseAdditionalDocumentCommandReceipt = (
     semanticHash: receipt.semanticHash,
     duplicate: readBoolean(receipt, "duplicate", label),
     effect: parseEffect(receipt.effect),
-    changeLogSeq: readInteger(receipt, "changeLogSeq", label, 1),
+    commitSeq: readInteger(receipt, "commitSeq", label, 1),
     committedAt: readIsoTimestamp(receipt, "committedAt", label),
   };
   if (

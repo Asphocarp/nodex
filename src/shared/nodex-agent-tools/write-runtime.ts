@@ -2,7 +2,7 @@ import type {
   DocumentMutationRequest,
   DocumentOperationResult,
 } from "../block-documents/document-operations";
-import type { RelocationDocumentCommit } from "../block-documents/contracts";
+import type { DocumentCommitRef } from "../block-documents/contracts";
 import type {
   BlockTransferRequest,
 } from "../block-transfer";
@@ -61,7 +61,7 @@ export type CompleteNodexAgentDocumentEditResult =
   | { readonly ok: true; readonly output: EditDocumentOutput }
   | { readonly ok: false; readonly error: ToolFailure["error"] };
 
-export interface NodexAgentLeaseDocument {
+export interface NodexAgentDocumentHead {
   readonly documentId: string;
   readonly generation: number;
   readonly expectedHeadSeq: number;
@@ -123,7 +123,7 @@ export type PrepareNodexAgentCreateResult =
         | {
             readonly kind: "prepared";
             readonly command: NodexAgentCreatePageCommand;
-            readonly leaseDocuments: readonly NodexAgentLeaseDocument[];
+            readonly documentHeads: readonly NodexAgentDocumentHead[];
             readonly createdBodyBlockIds: readonly string[];
             readonly targetNfm: string;
           };
@@ -136,9 +136,9 @@ export type ExecuteNodexAgentCreateResult =
       readonly value: {
         readonly output: CreateOutput;
         readonly duplicate: boolean;
-        readonly documentCommits: readonly RelocationDocumentCommit[];
+        readonly documentCommits: readonly DocumentCommitRef[];
         readonly affectedDatabaseBlockIds: readonly string[];
-        readonly changeLogSeq: number;
+        readonly commitSeq: number;
       };
     }
   | { readonly ok: false; readonly error: ToolFailure["error"] };
@@ -151,7 +151,7 @@ export interface NodexAgentTransferCommand extends NodexAgentCallIdentity {
   readonly input: TransferBlocksInput;
   readonly transfer: BlockTransferRequest;
   readonly destination: PreparedNodexAgentCreateDestination;
-  readonly leaseDocuments: readonly NodexAgentLeaseDocument[];
+  readonly documentHeads: readonly NodexAgentDocumentHead[];
 }
 
 export interface PrepareNodexAgentTransferRequest extends NodexAgentCallIdentity {
@@ -179,7 +179,7 @@ export type PrepareNodexAgentTransferResult =
         | {
             readonly kind: "prepared";
             readonly command: NodexAgentTransferCommand;
-            readonly leaseDocuments: readonly NodexAgentLeaseDocument[];
+            readonly documentHeads: readonly NodexAgentDocumentHead[];
             readonly authorization: NodexAgentTransferAuthorizationEvidence;
           };
     }
@@ -191,9 +191,9 @@ export type ExecuteNodexAgentTransferResult =
       readonly value: {
         readonly output: TransferBlocksOutput;
         readonly duplicate: boolean;
-        readonly documentCommits: readonly RelocationDocumentCommit[];
+        readonly documentCommits: readonly DocumentCommitRef[];
         readonly affectedDatabaseBlockIds: readonly string[];
-        readonly changeLogSeq: number;
+        readonly commitSeq: number;
       };
     }
   | { readonly ok: false; readonly error: ToolFailure["error"] };

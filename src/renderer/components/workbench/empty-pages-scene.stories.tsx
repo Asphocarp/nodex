@@ -13,7 +13,7 @@ const emptyDataSource = {
         kind: "catalog" as const,
         libraryId: "library:storybook",
         storeEpoch: "epoch:storybook",
-        changeLogSeq: 1,
+        commitSeq: 1,
         items: [],
         nextCursor: null,
         hasMore: false,

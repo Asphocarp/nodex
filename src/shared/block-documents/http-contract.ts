@@ -34,6 +34,7 @@ import {
   encodeDocumentHttpEnvelope,
   DocumentHttpWireError,
 } from "./http-wire";
+import type { components } from "@nodex/core-protocol";
 
 export const DOCUMENT_HTTP_CONTENT_TYPE =
   "application/vnd.nodex.document-sync.v2+octet-stream";
@@ -93,7 +94,10 @@ interface ApplyAckMetadata extends VersionedMetadata {
   readonly committedSeq: number;
   readonly headSeq: number;
   readonly duplicate: boolean;
+  readonly localCommit?: components["schemas"]["LocalCommitEnvelope"];
 }
+
+type LocalCommitEnvelope = components["schemas"]["LocalCommitEnvelope"];
 
 interface AwarenessRequestMetadata extends VersionedMetadata {
   readonly clientSessionId: string;
@@ -112,9 +116,6 @@ interface EncodedRealtimeEvent {
   readonly updateId?: string;
   readonly clientSessionId?: string;
   readonly update?: string;
-  readonly leaseId?: string;
-  readonly expectedHeadSeq?: number;
-  readonly deadlineAt?: number;
   readonly reason?: string;
 }
 
@@ -404,7 +405,35 @@ const parseApplyAckMetadata = (value: unknown): ApplyAckMetadata => {
     committedSeq: readInteger(record, "committedSeq", 1),
     headSeq: readInteger(record, "headSeq", 1),
     duplicate: readBoolean(record, "duplicate"),
+    ...(record.localCommit === undefined
+      ? {}
+      : { localCommit: parseLocalCommitEnvelope(record.localCommit) }),
   };
+};
+
+const parseLocalCommitEnvelope = (value: unknown): LocalCommitEnvelope => {
+  const record = readRecord(value);
+  if (
+    typeof record.canonical_hash !== "string"
+    || !/^[a-f0-9]{64}$/u.test(record.canonical_hash)
+    || typeof record.commit_seq !== "number"
+    || !Number.isSafeInteger(record.commit_seq)
+    || record.commit_seq < 1
+    || typeof record.event_version !== "number"
+    || !Number.isSafeInteger(record.event_version)
+    || typeof record.committed_at !== "string"
+    || typeof record.store_epoch !== "string"
+    || !("payload" in record)
+    || !isRecord(record.payload)
+    || typeof record.payload.module !== "string"
+    || !isRecord(record.payload.event)
+    || typeof record.payload.event.kind !== "string"
+    || !Array.isArray(record.effects)
+    || record.effects.some((effect) => !isRecord(effect))
+  ) {
+    throw new DocumentHttpWireError("Document update ACK LocalCommit is invalid");
+  }
+  return record as LocalCommitEnvelope;
 };
 
 const parseAwarenessRequestMetadata = (
@@ -962,6 +991,7 @@ export const encodeDocumentApplyHttpAck = (
       committedSeq: ack.committedSeq,
       headSeq: ack.headSeq,
       duplicate: ack.duplicate,
+      ...(ack.localCommit ? { localCommit: ack.localCommit } : {}),
     },
     ack.stateVector,
   );
@@ -983,6 +1013,9 @@ export const decodeDocumentApplyHttpAck = (
     headSeq: envelope.metadata.headSeq,
     stateVector: envelope.payload,
     duplicate: envelope.metadata.duplicate,
+    ...(envelope.metadata.localCommit
+      ? { localCommit: envelope.metadata.localCommit }
+      : {}),
   };
 };
 
@@ -1079,18 +1112,6 @@ export const decodeDocumentRealtimeSseEvent = (
       ),
     };
   }
-  if (kind === "relocation-lease-prepare") {
-    return {
-      kind,
-      documentId,
-      storeEpoch,
-      generation,
-      leaseId: readString(record, "leaseId"),
-      clientSessionId: readString(record, "clientSessionId"),
-      expectedHeadSeq: readInteger(record, "expectedHeadSeq", 0),
-      deadlineAt: readInteger(record, "deadlineAt", 0),
-    };
-  }
   const headSeq = readInteger(record, "headSeq", 0);
   if (kind === "document-update") {
     return {
@@ -1123,29 +1144,6 @@ export const decodeDocumentRealtimeSseEvent = (
       generation,
       headSeq,
       reason,
-    };
-  }
-  if (kind === "relocation-lease-release") {
-    return {
-      kind,
-      documentId,
-      storeEpoch,
-      generation,
-      headSeq,
-      leaseId: readString(record, "leaseId"),
-      clientSessionId: readString(record, "clientSessionId"),
-    };
-  }
-  if (kind === "relocation-lease-cancel") {
-    return {
-      kind,
-      documentId,
-      storeEpoch,
-      generation,
-      headSeq,
-      leaseId: readString(record, "leaseId"),
-      clientSessionId: readString(record, "clientSessionId"),
-      reason: readString(record, "reason"),
     };
   }
   throw new DocumentHttpWireError(

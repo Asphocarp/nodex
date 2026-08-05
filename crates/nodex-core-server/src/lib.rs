@@ -37,6 +37,7 @@ use nodex_core::document::{
 use nodex_core::infrastructure::event_log::{CoreEventLog, CoreEventReplay};
 use nodex_core::infrastructure::metrics::DurationMetricSnapshot;
 use nodex_core::infrastructure::migration::StorePreparationEvent;
+use nodex_core::infrastructure::module_receipts::read_module_receipt;
 use nodex_core::infrastructure::sqlite::{
     StoreError, StoreErrorCode, transaction_duration_metrics, with_immediate_transaction,
 };
@@ -48,7 +49,8 @@ use nodex_core_contracts::administration::StoreAdministrationIntent;
 use nodex_core_contracts::document::{OwnedDocumentIntent, OwnedDocumentRead};
 use nodex_core_contracts::{
     AdapterKind, BoundModuleContext, CoreError, CoreErrorCode, CoreErrorRecovery,
-    CoreModuleEventPayload, LibraryId, ProfileId, ProjectId, StoreEpoch,
+    CoreModuleEventPayload, LibraryId, LocalCommitEnvelope, ModuleName, ProfileId, ProjectId,
+    StoreEpoch,
 };
 use nodex_core_protocol::{
     AutomationApplyRequest, AutomationApplyResponse, AutomationReadRequest, AutomationReadResponse,
@@ -57,15 +59,15 @@ use nodex_core_protocol::{
     DatabaseApplyRequest, DatabaseApplyResponse, DatabaseReadRequest, DatabaseReadResponse,
     EventEnvelope, EventReplayRequired, HandshakeRequest, HandshakeResponse, HealthDurationMetric,
     HealthResponse, LauncherKind, LibraryApplyRequest, LibraryApplyResponse, LibraryReadRequest,
-    LibraryReadResponse, OwnedDocumentApplyRequest, OwnedDocumentApplyResponse,
-    OwnedDocumentReadRequest, OwnedDocumentReadResponse, ProjectWorkspaceApplyRequest,
-    ProjectWorkspaceApplyResponse, ProjectWorkspaceReadRequest, ProjectWorkspaceReadResponse,
-    ResponseEnvelope, RuntimeDescriptor, RuntimeGenerationIdentity, ShutdownRequest,
-    ShutdownResponse, ShutdownStatus, StoreAdministrationApplyRequest,
-    StoreAdministrationApplyResponse, StoreAdministrationReadRequest,
-    StoreAdministrationReadResponse, TRANSPORT_PROTOCOL_MAX, TRANSPORT_PROTOCOL_MIN,
-    canonical_manifest_digest, core_client_requirements, core_compatibility_manifest,
-    evaluate_compatibility, replacement_is_forward_safe, store_format,
+    LibraryReadResponse, LocalMutationResolveRequest, LocalMutationResolveResponse,
+    OwnedDocumentApplyRequest, OwnedDocumentApplyResponse, OwnedDocumentReadRequest,
+    OwnedDocumentReadResponse, ProjectWorkspaceApplyRequest, ProjectWorkspaceApplyResponse,
+    ProjectWorkspaceReadRequest, ProjectWorkspaceReadResponse, ResponseEnvelope, RuntimeDescriptor,
+    RuntimeGenerationIdentity, ShutdownRequest, ShutdownResponse, ShutdownStatus,
+    StoreAdministrationApplyRequest, StoreAdministrationApplyResponse,
+    StoreAdministrationReadRequest, StoreAdministrationReadResponse, TRANSPORT_PROTOCOL_MAX,
+    TRANSPORT_PROTOCOL_MIN, canonical_manifest_digest, core_client_requirements,
+    core_compatibility_manifest, evaluate_compatibility, replacement_is_forward_safe, store_format,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -265,6 +267,9 @@ fn route_observability(path: &str) -> (&'static str, &'static str) {
         "/core/v1/handshake" => ("/core/v1/handshake", "lifecycle"),
         "/core/v1/admin/shutdown" => ("/core/v1/admin/shutdown", "lifecycle"),
         "/core/v1/events" => ("/core/v1/events", "lifecycle"),
+        "/core/v1/local-mutations/resolve" => {
+            ("/core/v1/local-mutations/resolve", "local_mutation")
+        }
         "/core/v1/modules/library/read" => ("/core/v1/modules/library/read", "library"),
         "/core/v1/modules/library/apply" => ("/core/v1/modules/library/apply", "library"),
         "/core/v1/modules/database/read" => ("/core/v1/modules/database/read", "database"),
@@ -373,13 +378,13 @@ fn health_metrics(state: &ServerState) -> (CoreReadiness, CoreHealthMetrics) {
                 .map(|library| document.saturating_add(library))
         })
         .ok();
-    let event_head = state.event_log.head().ok();
+    let commit_head = state.event_log.head().ok();
     let wal_size_bytes = wal_size_bytes(state.store.database_path()).ok();
     if connections.is_none()
         || realtime.is_none()
         || cache.is_none()
         || prepared_operations.is_none()
-        || event_head.is_none()
+        || commit_head.is_none()
         || wal_size_bytes.is_none()
     {
         status = CoreReadiness::Failed;
@@ -421,7 +426,7 @@ fn health_metrics(state: &ServerState) -> (CoreReadiness, CoreHealthMetrics) {
             document_reconstruction_duration: health_duration(
                 state.document.reconstruction_metrics(),
             ),
-            event_head: event_head.unwrap_or_default(),
+            commit_head: commit_head.unwrap_or_default(),
             event_replay_lag,
             event_replay_lag_max,
             wal_size_bytes: wal_size_bytes.unwrap_or_default(),
@@ -533,7 +538,7 @@ async fn handshake(
         ));
     }
 
-    let event_head = state.event_log.head().map_err(|error| {
+    let commit_head = state.event_log.head().map_err(|error| {
         ApiError::new(
             StatusCode::SERVICE_UNAVAILABLE,
             format!("Core event head is unavailable: {}", error.message),
@@ -551,7 +556,7 @@ async fn handshake(
         connection_binding,
         store_epoch: descriptor.store_epoch,
         schema_version: state.schema_version,
-        event_head,
+        commit_head,
     }))
 }
 
@@ -571,6 +576,106 @@ async fn library_read(
     Json(LibraryReadResponse(response))
 }
 
+fn module_storage_name(module: ModuleName) -> &'static str {
+    match module {
+        ModuleName::Library => "library",
+        ModuleName::Database => "database",
+        ModuleName::OwnedDocument => "owned_document",
+        ModuleName::ProjectWorkspace => "project_workspace",
+        ModuleName::Automation => "automation",
+        ModuleName::StoreAdministration => "store_administration",
+    }
+}
+
+async fn resolve_local_mutation(
+    State(state): State<Arc<ServerState>>,
+    Extension(bound): Extension<BoundConnection>,
+    headers: HeaderMap,
+    Json(request): Json<LocalMutationResolveRequest>,
+) -> Result<Json<LocalMutationResolveResponse>, ApiError> {
+    let context = module_context(&state, &headers, &bound).map_err(api_core_error)?;
+    if request.operation_id.is_empty()
+        || request.operation_id.len() > 512
+        || request.operation_id.trim() != request.operation_id
+        || request.intent_hash.len() != 64
+        || !request
+            .intent_hash
+            .as_bytes()
+            .iter()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(byte))
+    {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "Local mutation resolve identity is invalid",
+        ));
+    }
+    let current_epoch = descriptor_snapshot(&state).store_epoch;
+    if request.store_epoch.0 != current_epoch {
+        return Ok(Json(LocalMutationResolveResponse::EpochMismatch {
+            requested_store_epoch: request.store_epoch,
+            current_store_epoch: StoreEpoch(current_epoch),
+        }));
+    }
+    let module_name = module_storage_name(request.module);
+    let stored = state
+        .store
+        .readers()
+        .read_default(|connection| {
+            read_module_receipt(connection, module_name, &request.operation_id)
+        })
+        .map_err(|error| {
+            ApiError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                format!("Local mutation receipt is unavailable: {}", error.message),
+            )
+        })?;
+    let Some(stored) = stored else {
+        return Ok(Json(LocalMutationResolveResponse::NotCommitted {
+            module: request.module,
+            operation_id: request.operation_id,
+        }));
+    };
+    if stored.profile_id != context.profile_id.0
+        || stored.project_id != context.project_id.as_ref().map(|id| id.0.clone())
+    {
+        return Ok(Json(LocalMutationResolveResponse::NotCommitted {
+            module: request.module,
+            operation_id: request.operation_id,
+        }));
+    }
+    if stored.store_epoch != request.store_epoch.0 {
+        return Ok(Json(LocalMutationResolveResponse::EpochMismatch {
+            requested_store_epoch: request.store_epoch,
+            current_store_epoch: StoreEpoch(stored.store_epoch),
+        }));
+    }
+    if stored.request_hash != request.intent_hash {
+        return Ok(Json(LocalMutationResolveResponse::IntentConflict {
+            module: request.module,
+            operation_id: request.operation_id,
+            expected_hash: request.intent_hash,
+            observed_hash: stored.request_hash,
+        }));
+    }
+    let local_commit = stored
+        .local_commit_seq
+        .map(|commit_seq| state.event_log.local_commit(commit_seq))
+        .transpose()
+        .map_err(|error| {
+            ApiError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                format!("Local mutation commit is unavailable: {}", error.message),
+            )
+        })?;
+    Ok(Json(LocalMutationResolveResponse::Committed {
+        module: request.module,
+        operation_id: request.operation_id,
+        request_hash: stored.request_hash,
+        result: stored.result,
+        local_commit: local_commit.map(Box::new),
+    }))
+}
+
 async fn library_apply(
     State(state): State<Arc<ServerState>>,
     Extension(bound): Extension<BoundConnection>,
@@ -585,9 +690,11 @@ async fn library_apply(
                     outcome.committed.event_sequence,
                     outcome.committed.receipt.mutation.duplicate,
                 );
-                if let Some(event) = outcome.event {
-                    publish_event(&state, event);
-                }
+                publish_committed_if_new(
+                    &state,
+                    outcome.committed.receipt.mutation.duplicate,
+                    outcome.committed.local_commit.clone(),
+                );
                 ResponseEnvelope::Ok(outcome.committed)
             }
             Err(error) => ResponseEnvelope::Error(record_core_error(error)),
@@ -627,9 +734,11 @@ async fn database_apply(
                     outcome.committed.event_sequence,
                     outcome.committed.receipt.mutation.duplicate,
                 );
-                if let Some(event) = outcome.event {
-                    publish_event(&state, event);
-                }
+                publish_committed_if_new(
+                    &state,
+                    outcome.committed.receipt.mutation.duplicate,
+                    outcome.committed.local_commit.clone(),
+                );
                 ResponseEnvelope::Ok(outcome.committed)
             }
             Err(error) => ResponseEnvelope::Error(record_core_error(error)),
@@ -669,9 +778,11 @@ async fn workspace_apply(
                     outcome.committed.event_sequence,
                     outcome.committed.receipt.mutation.duplicate,
                 );
-                if let Some(event) = outcome.event {
-                    publish_event(&state, event);
-                }
+                publish_committed_if_new(
+                    &state,
+                    outcome.committed.receipt.mutation.duplicate,
+                    outcome.committed.local_commit.clone(),
+                );
                 ResponseEnvelope::Ok(outcome.committed)
             }
             Err(error) => ResponseEnvelope::Error(record_core_error(error)),
@@ -711,9 +822,11 @@ async fn automation_apply(
                     outcome.committed.event_sequence,
                     outcome.committed.receipt.mutation.duplicate,
                 );
-                if let Some(event) = outcome.event {
-                    publish_event(&state, event);
-                }
+                publish_committed_if_new(
+                    &state,
+                    outcome.committed.receipt.mutation.duplicate,
+                    outcome.committed.local_commit.clone(),
+                );
                 ResponseEnvelope::Ok(outcome.committed)
             }
             Err(error) => ResponseEnvelope::Error(record_core_error(error)),
@@ -758,9 +871,11 @@ async fn administration_apply(
                     outcome.committed.event_sequence,
                     outcome.committed.receipt.mutation.duplicate,
                 );
-                if let Some(event) = outcome.event {
-                    publish_event(&state, event);
-                }
+                publish_committed_if_new(
+                    &state,
+                    outcome.committed.receipt.mutation.duplicate,
+                    outcome.committed.local_commit.clone(),
+                );
                 ResponseEnvelope::Ok(outcome.committed)
             }
             Err(error) => ResponseEnvelope::Error(record_core_error(error)),
@@ -873,9 +988,11 @@ async fn document_apply(State(state): State<Arc<ServerState>>, request: Request)
                         outcome.committed.event_sequence,
                         outcome.committed.receipt.mutation.duplicate,
                     );
-                    for event in outcome.events {
-                        publish_event(&state, event);
-                    }
+                    publish_committed_if_new(
+                        &state,
+                        outcome.committed.receipt.mutation.duplicate,
+                        outcome.committed.local_commit.clone(),
+                    );
                     ResponseEnvelope::Ok(outcome.committed)
                 }
                 Err(error) => ResponseEnvelope::Error(record_core_error(error)),
@@ -1027,9 +1144,11 @@ fn binary_document_apply(
                     outcome.committed.event_sequence,
                     outcome.committed.receipt.mutation.duplicate,
                 );
-                for event in outcome.events.iter().cloned() {
-                    publish_event(state, event);
-                }
+                publish_committed_if_new(
+                    state,
+                    outcome.committed.receipt.mutation.duplicate,
+                    outcome.committed.local_commit.clone(),
+                );
                 let snapshot = state.document_realtime.sync_yjs(
                     &context,
                     &metadata.client_session_id,
@@ -1131,51 +1250,51 @@ async fn events(
             client_session_id: client_session_id.clone(),
             sender: state.document_sender.clone(),
         };
-        let replay = state
-            .document_realtime
-            .replay(
-                &context.connection_id,
-                &client_session_id,
-                query.after,
-                None,
+        let replay = state.event_log.replay(query.after, None).map_err(|error| {
+            ApiError::new(
+                StatusCode::CONFLICT,
+                format!(
+                    "Document local commit replay is unavailable: {}",
+                    error.message
+                ),
             )
-            .map_err(api_core_error)?;
+        })?;
         let document_boundary = serde_json::json!({
             "document_id": subscription.document_id,
             "store_epoch": subscription.store_epoch,
             "generation": subscription.generation,
             "head_seq": subscription.head_seq,
-            "event_head": replay.event_head,
+            "commit_head": match &replay {
+                CoreEventReplay::Events { commit_head, .. }
+                | CoreEventReplay::ResyncRequired { commit_head, .. } => *commit_head,
+            },
         });
-        let mut committed = Vec::new();
-        let mut resync = None;
-        for event in replay.events {
-            match event {
-                DocumentRealtimeEvent::Committed(event) => committed.push(EventEnvelope {
-                    transport_version: TRANSPORT_PROTOCOL_MAX,
-                    event: *event,
-                }),
-                DocumentRealtimeEvent::ResyncRequired {
-                    document_id,
-                    store_epoch,
-                    generation,
-                    head_seq,
-                    event_head,
-                } => {
-                    resync = Some(serde_json::json!({
-                        "document_id": document_id,
-                        "store_epoch": store_epoch,
-                        "generation": generation,
-                        "head_seq": head_seq,
-                        "event_head": event_head,
-                    }));
-                }
-                DocumentRealtimeEvent::Awareness { .. } => {}
-            }
-        }
+        let (committed, resync) = match replay {
+            CoreEventReplay::Events { events, .. } => (
+                events
+                    .into_iter()
+                    .filter_map(|event| scope_local_commit_to_document(event, document_id))
+                    .collect(),
+                None,
+            ),
+            CoreEventReplay::ResyncRequired { commit_head, .. } => (
+                Vec::new(),
+                Some(serde_json::json!({
+                    "document_id": document_id,
+                    "store_epoch": subscription.store_epoch,
+                    "generation": subscription.generation,
+                    "head_seq": subscription.head_seq,
+                    "commit_head": commit_head,
+                })),
+            ),
+        };
+        let replay_head = document_boundary
+            .get("commit_head")
+            .and_then(serde_json::Value::as_i64)
+            .unwrap_or(query.after);
         (
             committed,
-            replay.event_head,
+            replay_head,
             None,
             resync,
             Some(document_boundary),
@@ -1198,7 +1317,10 @@ async fn events(
                 format!("Core event replay is unavailable: {}", error.message),
             )
         })? {
-            CoreEventReplay::Events { events, event_head } => (
+            CoreEventReplay::Events {
+                events,
+                commit_head,
+            } => (
                 events
                     .into_iter()
                     .map(|event| EventEnvelope {
@@ -1206,7 +1328,7 @@ async fn events(
                         event,
                     })
                     .collect(),
-                event_head,
+                commit_head,
                 None,
                 None,
                 None,
@@ -1217,14 +1339,14 @@ async fn events(
             CoreEventReplay::ResyncRequired {
                 requested_after,
                 oldest_available,
-                event_head,
+                commit_head,
             } => (
                 Vec::new(),
-                event_head,
+                commit_head,
                 Some(EventReplayRequired {
                     requested_after,
                     oldest_available,
-                    event_head,
+                    commit_head,
                 }),
                 None,
                 None,
@@ -1260,7 +1382,7 @@ async fn events(
         let _disconnect = disconnect;
         let mut last_delivered = query.after;
         for envelope in replay {
-            last_delivered = envelope.event.sequence;
+            last_delivered = envelope.event.commit_seq;
             yield Ok(sse_event(&envelope));
         }
         if let Some(resync) = core_resync {
@@ -1282,16 +1404,21 @@ async fn events(
                 }
                 received = receiver.recv() => match received {
                     Ok(envelope) => {
-                        if envelope.event.sequence <= replay_head {
+                        if envelope.event.commit_seq <= replay_head {
                             continue;
                         }
-                        if let Some(document_id) = requested_document_id.as_deref()
-                            && event_document_id(&envelope) != Some(document_id)
-                        {
-                            continue;
+                        last_delivered = envelope.event.commit_seq;
+                        if let Some(document_id) = requested_document_id.as_deref() {
+                            let Some(scoped) = scope_local_commit_to_document(
+                                envelope.event.clone(),
+                                document_id,
+                            ) else {
+                                continue;
+                            };
+                            yield Ok(sse_event(&scoped));
+                        } else {
+                            yield Ok(sse_event(&envelope));
                         }
-                        last_delivered = envelope.event.sequence;
-                        yield Ok(sse_event(&envelope));
                     }
                     Err(broadcast::error::RecvError::Lagged(_)) => {
                         if let Some(boundary) = document_boundary.as_ref() {
@@ -1299,11 +1426,11 @@ async fn events(
                                 .event("document-resync-required")
                                 .data(serde_json::to_string(boundary).expect("resync event serializes")));
                         } else {
-                            let event_head = event_log.head().unwrap_or(last_delivered);
+                            let commit_head = event_log.head().unwrap_or(last_delivered);
                             yield Ok(sse_core_resync(&EventReplayRequired {
                                 requested_after: last_delivered,
                                 oldest_available: last_delivered.saturating_add(1),
-                                event_head,
+                                commit_head,
                             }));
                         }
                         break;
@@ -1456,6 +1583,10 @@ fn router(state: Arc<ServerState>) -> Router {
         .route("/core/v1/admin/shutdown", post(shutdown));
     let connected_routes = Router::new()
         .route("/core/v1/events", get(events))
+        .route(
+            "/core/v1/local-mutations/resolve",
+            post(resolve_local_mutation),
+        )
         .route("/core/v1/modules/library/read", post(library_read))
         .route("/core/v1/modules/library/apply", post(library_apply))
         .route("/core/v1/modules/database/read", post(database_read))
@@ -1868,10 +1999,14 @@ fn connection_registry_error(error: ConnectionRegistryError) -> ApiError {
     ApiError::new(status, error.message)
 }
 
-fn event_document_id(envelope: &EventEnvelope) -> Option<&str> {
-    match &envelope.event.payload {
+fn payload_document_id(payload: &CoreModuleEventPayload) -> Option<&str> {
+    match payload {
         CoreModuleEventPayload::OwnedDocument(event) => match event {
             nodex_core_contracts::document::OwnedDocumentEvent::DocumentUpdated {
+                document_id,
+                ..
+            }
+            | nodex_core_contracts::document::OwnedDocumentEvent::DocumentResyncRequired {
                 document_id,
                 ..
             }
@@ -1892,11 +2027,42 @@ fn event_document_id(envelope: &EventEnvelope) -> Option<&str> {
     }
 }
 
+fn scope_local_commit_to_document(
+    commit: LocalCommitEnvelope,
+    document_id: &str,
+) -> Option<EventEnvelope> {
+    let effects = commit
+        .effects
+        .iter()
+        .filter(|effect| payload_document_id(&effect.payload) == Some(document_id))
+        .cloned()
+        .collect::<Vec<_>>();
+    if effects.is_empty() {
+        return None;
+    }
+    let payload = effects
+        .first()
+        .map(|effect| effect.payload.clone())
+        .unwrap_or_else(|| commit.payload.clone());
+    Some(EventEnvelope {
+        transport_version: TRANSPORT_PROTOCOL_MAX,
+        event: LocalCommitEnvelope {
+            payload,
+            effects,
+            ..commit
+        },
+    })
+}
+
 fn realtime_event_document_id(event: &DocumentRealtimeEvent) -> &str {
     match event {
         DocumentRealtimeEvent::Committed(event) => match &event.payload {
             CoreModuleEventPayload::OwnedDocument(event) => match event {
                 nodex_core_contracts::document::OwnedDocumentEvent::DocumentUpdated {
+                    document_id,
+                    ..
+                }
+                | nodex_core_contracts::document::OwnedDocumentEvent::DocumentResyncRequired {
                     document_id,
                     ..
                 }
@@ -1948,15 +2114,29 @@ fn record_commit(event_sequence: i64, duplicate: bool) {
     );
 }
 
-fn publish_event(state: &ServerState, event: nodex_core_contracts::CommittedCoreModuleEvent) {
+fn publish_committed_if_new(
+    state: &ServerState,
+    duplicate: bool,
+    commit: Option<nodex_core_contracts::LocalCommitEnvelope>,
+) {
+    if duplicate {
+        return;
+    }
+    let Some(commit) = commit else {
+        return;
+    };
+    publish_local_commit(state, commit);
+}
+
+fn publish_local_commit(state: &ServerState, commit: nodex_core_contracts::LocalCommitEnvelope) {
     let (module, event_kind, resource_id, resource_count, generation, head_sequence) =
-        event_log_metadata(&event.payload);
-    let operation_id = event.operation_id.as_deref().map(log_identity);
+        event_log_metadata(&commit.payload);
+    let operation_id = commit.operation_id.as_deref().map(log_identity);
     let resource_id = resource_id.map(log_identity);
     tracing::debug!(
         module,
         eventKind = event_kind,
-        eventSequence = event.sequence,
+        commitSequence = commit.commit_seq,
         operationId = operation_id.as_deref().unwrap_or("none"),
         resourceIdHash = resource_id.as_deref().unwrap_or("none"),
         resourceCount = resource_count,
@@ -1966,7 +2146,7 @@ fn publish_event(state: &ServerState, event: nodex_core_contracts::CommittedCore
     );
     let envelope = EventEnvelope {
         transport_version: TRANSPORT_PROTOCOL_MAX,
-        event,
+        event: commit,
     };
     let _ = state.event_sender.send(envelope);
 }
@@ -2027,6 +2207,19 @@ fn event_log_metadata(
             } => (
                 "owned_document",
                 "document_updated",
+                Some(document_id),
+                1,
+                Some(*generation),
+                Some(*head_seq),
+            ),
+            nodex_core_contracts::document::OwnedDocumentEvent::DocumentResyncRequired {
+                document_id,
+                generation,
+                head_seq,
+                ..
+            } => (
+                "owned_document",
+                "document_resync_required",
                 Some(document_id),
                 1,
                 Some(*generation),
@@ -2132,7 +2325,7 @@ fn collection_count(lengths: &[usize]) -> u64 {
 fn sse_event(envelope: &EventEnvelope) -> Event {
     Event::default()
         .event("module")
-        .id(envelope.event.sequence.to_string())
+        .id(envelope.event.commit_seq.to_string())
         .data(serde_json::to_string(envelope).expect("event envelope serializes"))
 }
 

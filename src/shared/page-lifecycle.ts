@@ -171,7 +171,7 @@ export interface PageLifecycleMutationReceipt {
   readonly libraryRankKey: string | null;
   readonly viewRankKey: string | null;
   readonly createdBlockIds: readonly string[];
-  readonly changeLogSeq: number;
+  readonly commitSeq: number;
   readonly committedAt: string;
 }
 
@@ -1018,7 +1018,7 @@ export const parsePageLifecycleMutationReceipt = (
     "libraryRankKey",
     "viewRankKey",
     "createdBlockIds",
-    "changeLogSeq",
+    "commitSeq",
     "committedAt",
   ]);
   if (receipt.version !== PAGE_LIFECYCLE_CONTRACT_VERSION) {
@@ -1137,7 +1137,7 @@ export const parsePageLifecycleMutationReceipt = (
       "pageLifecycleReceipt",
     ),
     createdBlockIds: [...receipt.createdBlockIds],
-    changeLogSeq: readRevision(receipt, "changeLogSeq", "pageLifecycleReceipt"),
+    commitSeq: readRevision(receipt, "commitSeq", "pageLifecycleReceipt"),
     committedAt,
   };
 };

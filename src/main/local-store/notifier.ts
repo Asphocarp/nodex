@@ -26,7 +26,7 @@ export type ProjectChangeType =
 export interface BoardChangeEvent {
   projectId: string;
   storeEpoch?: string;
-  changeLogSeq?: number;
+  commitSeq?: number;
   changeType: ChangeType;
   columnId: string;
   status: string;
@@ -77,7 +77,7 @@ export class DatabaseNotifier extends EventEmitter {
       version: LIBRARY_NAVIGATION_EVENT_VERSION,
       libraryId: event.libraryId,
       storeEpoch: event.storeEpoch,
-      changeLogSeq: event.changeLogSeq,
+      commitSeq: event.commitSeq,
       changeKind: "database",
       affectedParentKeys: [
         "library",

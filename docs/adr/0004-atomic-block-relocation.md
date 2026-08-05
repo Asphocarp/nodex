@@ -17,7 +17,10 @@ Nodex implements relocation as an idempotent internal `RelocateBlocks` primitive
 The writer performs the operation as follows:
 
 1. Acquire source and target write fences in sorted `documentId` order.
-2. Broadcast a short-lived relocation lease. Active writable surfaces complete IME composition, flush pending updates, and acknowledge. A timeout aborts with no mutation.
+2. Active writable surfaces complete IME composition and run their local
+   mutation barrier. The barrier flushes pending updates and returns the exact
+   Document generation/head token that Core must recheck. There is no renderer
+   lease acknowledgement or UI-wide freeze on the response path.
 3. Validate project scope, source and target heads, root location revisions, target parent and anchor, identity uniqueness, and absence of ancestor cycles.
 4. Rebuild source and target working clones from durable state, then use the portable Y.Xml subtree codec to clone into the target and delete from the source. Application IDs, formatting, nested structure, and reference targets are preserved; Yjs internal struct IDs are new.
 5. In one SQLite transaction, append both Document updates, advance both heads, update Block locations and materialized indexes, record the relocation ledger/history/change log, and release durable fences.
@@ -28,6 +31,11 @@ Moving a document-bearing Card changes only its shell placement. Its owned Docum
 If the process crashes before commit, no change is visible. If it crashes after commit but before fanout, state-vector reconnection recovers the committed state. Replaying the same `relocationId` returns the recorded result.
 
 An update based on stale pre-relocation content declares `baseHeadSeq` and `touchedBlockIds`, but client declarations are only bounded diagnostics. The writer derives or verifies the actual changed Block set before using it for relocation safety. If the update touches a relocated subtree, the writer returns typed `block_relocated` metadata. If a binary update cannot be safely split, Nodex stores it as a recovery artifact and requires reload/merge instead of discarding it or applying ghost content.
+
+The renderer receives the committed local result through Main immediately;
+durable event-tail replay and projection invalidation are recovery/fanout
+paths, not prerequisites for command completion. A later tailer envelope is
+deduplicated by its `(store_epoch, commit_seq)` identity.
 
 ## Consequences
 

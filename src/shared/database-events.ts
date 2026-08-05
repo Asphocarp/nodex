@@ -25,5 +25,5 @@ export interface DatabaseChangeEvent {
   readonly affectedDataSourceIds?: readonly string[];
   readonly affectedPageIds?: readonly string[];
   readonly affectedViewIds?: readonly string[];
-  readonly changeLogSeq: number;
+  readonly commitSeq: number;
 }

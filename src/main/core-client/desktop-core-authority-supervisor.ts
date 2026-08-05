@@ -15,6 +15,9 @@ import type {
   CoreEventReplayRequired,
   CoreEventSubscription,
   CoreHandshakeResponse,
+  CoreLocalCommitEnvelope,
+  CoreLocalMutationResolveRequest,
+  CoreLocalMutationResolveResponse,
   DatabaseApplyInput,
   DatabaseCommittedValue,
   DatabaseRead,
@@ -124,6 +127,7 @@ export interface DesktopCoreAuthoritySupervisorDependencies {
     input: ConnectOrStartCoreInput,
   ) => Promise<CoreGenerationLaunch>;
   readonly now?: () => number;
+  readonly onLocalCommit?: (commit: CoreLocalCommitEnvelope) => void;
 }
 
 export interface CreateDesktopCoreAuthoritySupervisorInput {
@@ -152,6 +156,7 @@ export class DesktopCoreAuthoritySupervisor {
   ) => Promise<CoreGenerationLaunch>;
   readonly #launchInput: ConnectOrStartCoreInput;
   readonly #now: () => number;
+  readonly #onLocalCommit: ((commit: CoreLocalCommitEnvelope) => void) | undefined;
   readonly #projectClients = new Map<string, DesktopCoreClient>();
   readonly #listeners = new Set<(state: CoreAuthorityState) => void>();
   #lostSessions = new WeakSet<CoreGenerationSession>();
@@ -169,6 +174,7 @@ export class DesktopCoreAuthoritySupervisor {
     this.#launchInput = input.launchInput;
     this.#launch = input.dependencies?.launch ?? connectOrStartCore;
     this.#now = input.dependencies?.now ?? Date.now;
+    this.#onLocalCommit = input.dependencies?.onLocalCommit;
     this.identity = {
       libraryId: input.initialLaunch.client.handshake.library_id,
       profileId: input.initialLaunch.client.handshake.generation.profile_id,
@@ -183,6 +189,10 @@ export class DesktopCoreAuthoritySupervisor {
 
   get state(): CoreAuthorityState {
     return this.#state;
+  }
+
+  publishLocalCommit(commit: CoreLocalCommitEnvelope): void {
+    this.#onLocalCommit?.(commit);
   }
 
   clientForProject(projectId: string): DesktopCoreClient {
@@ -422,12 +432,24 @@ class SupervisedCoreClient implements DesktopCoreClient {
     return this.supervisor.currentHandshake();
   }
 
+  resolveLocalMutation(
+    input: CoreLocalMutationResolveRequest,
+  ): Promise<CoreLocalMutationResolveResponse> {
+    return this.#execute(async (client) => {
+      const result = await client.resolveLocalMutation(input);
+      if (result.status === "committed" && result.local_commit) {
+        this.supervisor.publishLocalCommit(result.local_commit);
+      }
+      return result;
+    });
+  }
+
   libraryRead(read: LibraryRead): Promise<LibraryReadSnapshot> {
     return this.#execute((client) => client.libraryRead(read));
   }
 
   libraryApply(input: LibraryApplyInput): Promise<LibraryCommittedValue> {
-    return this.#execute((client) => client.libraryApply(input));
+    return this.#executeApply((client) => client.libraryApply(input));
   }
 
   filterProjectionImpactForProject(
@@ -444,7 +466,7 @@ class SupervisedCoreClient implements DesktopCoreClient {
   }
 
   databaseApply(input: DatabaseApplyInput): Promise<DatabaseCommittedValue> {
-    return this.#execute((client) => client.databaseApply(input));
+    return this.#executeApply((client) => client.databaseApply(input));
   }
 
   workspaceRead(read: ProjectWorkspaceRead): Promise<ProjectWorkspaceReadSnapshot> {
@@ -454,7 +476,7 @@ class SupervisedCoreClient implements DesktopCoreClient {
   workspaceApply(
     input: ProjectWorkspaceApplyInput,
   ): Promise<ProjectWorkspaceCommittedValue> {
-    return this.#execute((client) => client.workspaceApply(input));
+    return this.#executeApply((client) => client.workspaceApply(input));
   }
 
   automationRead(read: AutomationRead): Promise<AutomationReadSnapshot> {
@@ -462,7 +484,7 @@ class SupervisedCoreClient implements DesktopCoreClient {
   }
 
   automationApply(input: AutomationApplyInput): Promise<AutomationCommittedValue> {
-    return this.#execute((client) => client.automationApply(input));
+    return this.#executeApply((client) => client.automationApply(input));
   }
 
   administrationRead(
@@ -474,7 +496,7 @@ class SupervisedCoreClient implements DesktopCoreClient {
   administrationApply(
     input: StoreAdministrationApplyInput,
   ): Promise<StoreAdministrationCommittedValue> {
-    return this.#execute((client) => client.administrationApply(input));
+    return this.#executeApply((client) => client.administrationApply(input));
   }
 
   documentRead(
@@ -485,7 +507,7 @@ class SupervisedCoreClient implements DesktopCoreClient {
   }
 
   documentApply(input: OwnedDocumentApplyInput): Promise<OwnedDocumentCommittedValue> {
-    return this.#execute((client) => client.documentApply(input));
+    return this.#executeApply((client) => client.documentApply(input));
   }
 
   documentSync(input: DocumentSyncRequest): Promise<DocumentSyncResponse> {
@@ -497,7 +519,13 @@ class SupervisedCoreClient implements DesktopCoreClient {
   }
 
   documentApplyUpdate(input: DocumentSyncApplyRequest): Promise<DocumentSyncApplyAck> {
-    return this.#execute((client) => client.documentApplyUpdate(input));
+    return this.#execute(async (client) => {
+      const result = await client.documentApplyUpdate(input);
+      if (result.localCommit) {
+        this.supervisor.publishLocalCommit(result.localCommit);
+      }
+      return result;
+    });
   }
 
   documentPublishAwareness(
@@ -551,5 +579,17 @@ class SupervisedCoreClient implements DesktopCoreClient {
     operation: (client: CoreGenerationClient) => Promise<Result>,
   ): Promise<Result> {
     return this.supervisor.execute(this.projectId, operation);
+  }
+
+  #executeApply<Result extends { readonly local_commit?: CoreLocalCommitEnvelope | null }>(
+    operation: (client: CoreGenerationClient) => Promise<Result>,
+  ): Promise<Result> {
+    return this.#execute(async (client) => {
+      const result = await operation(client);
+      if (result.local_commit) {
+        this.supervisor.publishLocalCommit(result.local_commit);
+      }
+      return result;
+    });
   }
 }

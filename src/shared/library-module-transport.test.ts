@@ -25,7 +25,7 @@ const readResult = (value: unknown) => ({
     profileId: "profile-1",
     libraryId: "library-1",
     storeEpoch: "epoch-1",
-    changeLogSeq: 3,
+    commitSeq: 3,
     value,
   },
 });
@@ -143,7 +143,7 @@ describe("Library Module transport", () => {
           profileId: "profile-1",
           libraryId: "library-1",
           storeEpoch: "epoch-1",
-          changeLogSeq: 3,
+          commitSeq: 3,
           value: {
             kind: "children",
             parent: { kind: "library" },
@@ -261,7 +261,7 @@ describe("Library Module transport", () => {
         profileId: "profile-1",
         libraryId: "library-1",
         storeEpoch: "epoch-1",
-        changeLogSeq: 3,
+        commitSeq: 3,
         value: {
           kind: "canvas_target",
           value: {
@@ -305,7 +305,7 @@ describe("Library Module transport", () => {
         profileId: "profile-1",
         libraryId: "library-1",
         storeEpoch: "epoch-1",
-        changeLogSeq: 3,
+        commitSeq: 3,
         value: {
           kind: "children",
           parent: { kind: "library" },
@@ -588,7 +588,7 @@ describe("Library Module transport", () => {
         affectedDatabaseIds: [],
         affectedViewIds: [],
         committedRevisions: {},
-        changeLogSeq: 4,
+        commitSeq: 4,
         committedAt: "2026-07-31T00:00:00.000Z",
       },
     })).toMatchObject({

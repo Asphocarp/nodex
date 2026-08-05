@@ -154,7 +154,7 @@ const model = (): DatabaseViewRenderModel => {
     dataSourceName: dataSource.name,
     viewName: view.name,
     storeEpoch: "epoch-1",
-    changeLogSeq: 4,
+    commitSeq: 4,
     query: { database, dataSource, view, properties, rows },
     columns: [{
       id: "all",
@@ -258,7 +258,7 @@ describe("selected Database View Page mutations", () => {
         affectedPageIds: ["page-a"],
         affectedViewIds: [],
         committedRevisions: {},
-        changeLogSeq: 5,
+        commitSeq: 5,
         committedAt: timestamp,
       },
     } satisfies DatabaseApplyResultV2;
@@ -323,7 +323,7 @@ describe("selected Database View Page mutations", () => {
               affectedPageIds: ["page-a"],
               affectedViewIds: [],
               committedRevisions: {},
-              changeLogSeq: 5,
+              commitSeq: 5,
               committedAt: timestamp,
             },
           };

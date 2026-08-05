@@ -77,7 +77,7 @@ class SubscriptionLossDocumentStreamClient extends FakeCoreClient {
 const descriptorSnapshot = () => ({
   contract_version: 1 as const,
   store_epoch: "epoch:test",
-  event_head: 4,
+  commit_head: 4,
   value: {
     kind: "descriptor" as const,
     descriptor: {
@@ -375,7 +375,7 @@ describe("Core Document sync adapter", () => {
         operationId: "owner:create",
         projectId: "project:one",
         duplicate: false,
-        changeLogSeq: 12,
+        commitSeq: 12,
         committedAt: "2026-07-19T21:00:00.000Z",
         semanticHash: expect.stringMatching(/^[a-f0-9]{64}$/u),
         effect: {
@@ -484,7 +484,7 @@ describe("Core Document sync adapter", () => {
     client.enqueueDocumentRead({
       contract_version: 1,
       store_epoch: "epoch:test",
-      event_head: 8,
+      commit_head: 8,
       value: {
         kind: "versions",
         items: [documentVersionSummary()],
@@ -518,7 +518,7 @@ describe("Core Document sync adapter", () => {
     client.enqueueDocumentRead({
       contract_version: 1,
       store_epoch: "epoch:test",
-      event_head: 8,
+      commit_head: 8,
       value: { kind: "version", value: documentVersionDetail() },
     });
     await expect(adapter.getVersion({
@@ -593,7 +593,7 @@ describe("Core Document sync adapter", () => {
         writeFenceBlockIds: ["page:one", "block:history"],
         titleChanged: true,
         coordination: "write_fence",
-        changeLogSeq: 9,
+        commitSeq: 9,
         committedAt: "2026-07-19T21:12:00.000Z",
         duplicate: false,
       },
@@ -608,7 +608,6 @@ describe("Core Document sync adapter", () => {
         generation: request.generation,
         expected_head_seq: request.expectedHeadSeq,
         actor: request.actor,
-        write_fence_prepared: false,
       },
     }]);
 
@@ -702,7 +701,7 @@ describe("Core Document sync adapter", () => {
       },
     });
 
-    await expect(adapter.applyDocumentMutation(request, true)).resolves.toMatchObject({
+    await expect(adapter.applyDocumentMutation(request)).resolves.toMatchObject({
       ok: true,
       value: {
         mutationKind: "document_operation_batch",
@@ -731,7 +730,6 @@ describe("Core Document sync adapter", () => {
           },
         }],
         actor: request.actor,
-        write_fence_prepared: true,
       },
     }]);
   });

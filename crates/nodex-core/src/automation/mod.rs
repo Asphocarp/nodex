@@ -79,20 +79,21 @@ impl AutomationModule {
             .read_default(move |connection| {
                 let transaction = connection.unchecked_transaction()?;
                 assert_identity(&transaction, &profile_id, &library_id)?;
-                let (store_epoch, event_head) = transaction.query_row(
+                let (store_epoch, change_log_head) = transaction.query_row(
                     "SELECT metadata.store_epoch, (SELECT COALESCE(max(seq), 0) FROM change_log) \
                      FROM block_store_metadata metadata WHERE metadata.id = 1",
                     [],
                     |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
                 )?;
+                let commit_seq = crate::infrastructure::local_commit::head(&transaction)?;
                 let snapshot = ModuleReadSnapshot {
                     contract_version: AUTOMATION_CONTRACT_VERSION,
                     store_epoch: StoreEpoch(store_epoch),
-                    event_head,
+                    commit_head: commit_seq,
                     value: read::read(
                         &transaction,
                         &library_id,
-                        event_head,
+                        change_log_head,
                         &context,
                         request.read,
                     )?,
