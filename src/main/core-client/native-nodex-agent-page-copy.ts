@@ -12,10 +12,10 @@ import type { NodexAgentMutationEnvelope } from "../agent-tools/dynamic-service-
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
 import { toCoreAgentExecutionAuthorization } from "./desktop-nodex-agent-resource-authority";
 import {
-  hasExactNativeAgentLeaseDocuments,
+  hasExactNativeAgentDocumentHeads,
   nativeAgentDocumentCommits,
   nativeAgentPageLocation,
-  nativeAgentLeaseDocuments,
+  nativeAgentDocumentHeads,
   preparedAgentPageDestination,
   toCoreAgentPageDestination,
 } from "./native-nodex-agent-page-destination";
@@ -32,7 +32,7 @@ interface PendingNativePageCopy {
   readonly operationId: string;
   readonly token: string;
   readonly coreRequest: CoreCopyRequest;
-  readonly leaseDocuments: NodexAgentDuplicatePageCommand["leaseDocuments"];
+  readonly documentHeads: NodexAgentDuplicatePageCommand["documentHeads"];
 }
 
 const envelope = <Result>(
@@ -199,13 +199,13 @@ export class NativeNodexAgentPageCopyRuntime {
         && this.pending.size >= MAX_PENDING_NATIVE_PAGE_COPIES) {
         throw new Error("Native Agent Page copy preparation capacity is exhausted");
       }
-      const leaseDocuments = nativeAgentLeaseDocuments(preparation.document_heads);
+      const documentHeads = nativeAgentDocumentHeads(preparation.document_heads);
       this.pending.set(operationId, {
         request,
         operationId,
         token,
         coreRequest: copyRequest,
-        leaseDocuments,
+        documentHeads,
       });
       const command: NodexAgentDuplicatePageCommand = {
         ...request,
@@ -215,7 +215,7 @@ export class NativeNodexAgentPageCopyRuntime {
         input: request.input,
         normalizedInput: normalizedInput(request, preparation),
         destination: preparedDestination(request, preparation),
-        leaseDocuments,
+        documentHeads,
         canonical: { newPageId: preparation.page_id },
       };
       return envelope({
@@ -230,7 +230,7 @@ export class NativeNodexAgentPageCopyRuntime {
                 transformation: "preserved",
               },
             },
-            documentIds: leaseDocuments.map((head) => head.documentId),
+            documentIds: documentHeads.map((head) => head.documentId),
           },
         },
       }, operationId);
@@ -248,9 +248,9 @@ export class NativeNodexAgentPageCopyRuntime {
       || pending.request.callId !== command.callId
       || pending.request.threadId !== command.threadId
       || pending.request.authority?.storeEpoch !== command.storeEpoch
-      || !hasExactNativeAgentLeaseDocuments(
-        pending.leaseDocuments,
-        command.leaseDocuments,
+      || !hasExactNativeAgentDocumentHeads(
+        pending.documentHeads,
+        command.documentHeads,
       )) {
       return {
         ok: false,
@@ -305,7 +305,10 @@ export class NativeNodexAgentPageCopyRuntime {
           duplicate: committed.receipt.duplicate,
           documentCommits: nativeAgentDocumentCommits(result.document_commits),
           affectedDatabaseBlockIds: [...result.affected_database_ids],
-          changeLogSeq: committed.event_sequence,
+          commitSeq:
+            committed.commit_seq
+            ?? committed.local_commit?.commit_seq
+            ?? committed.event_sequence,
         },
       };
     } catch (error) {

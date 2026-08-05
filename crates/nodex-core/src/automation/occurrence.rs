@@ -142,7 +142,7 @@ impl ScheduleZone {
 pub(super) fn read_occurrence_window(
     connection: &Connection,
     library_id: &str,
-    event_head: i64,
+    commit_head: i64,
     query: OccurrenceWindowQuery<'_>,
     request: &CollectionWindowRequest,
 ) -> Result<CollectionWindow<ScheduledPageOccurrence>, StoreError> {
@@ -204,7 +204,7 @@ pub(super) fn read_occurrence_window(
         candidates,
         normalized.first,
         CollectionWindowAuthority {
-            projection_revision: event_head,
+            projection_revision: commit_head,
         },
         |coordinate| {
             cursor::mint(

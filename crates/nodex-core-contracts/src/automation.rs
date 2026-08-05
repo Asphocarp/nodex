@@ -314,7 +314,7 @@ pub struct PageOccurrenceMutationResult {
     pub success: bool,
     pub operation_id: String,
     pub duplicate: bool,
-    pub change_log_seq: Option<i64>,
+    pub commit_seq: Option<i64>,
     pub created_page_id: Option<String>,
     pub code: Option<PageOccurrenceMutationCode>,
     pub error: Option<String>,

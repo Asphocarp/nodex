@@ -75,7 +75,7 @@ pub(super) struct PreparePageCopyInput {
 enum PreparationRead {
     Committed {
         store_epoch: String,
-        event_head: i64,
+        commit_head: i64,
         footprint: AgentOperationFootprint,
         committed: Box<
             CommittedModuleValue<
@@ -86,7 +86,7 @@ enum PreparationRead {
     },
     Prepared {
         store_epoch: String,
-        event_head: i64,
+        commit_head: i64,
         preflight: Box<CopyPreflight>,
     },
 }
@@ -117,7 +117,7 @@ pub(super) fn prepare_page_copy(
                 true,
             ));
         }
-        let event_head = super::navigation::event_head(&transaction)?;
+        let commit_head = super::navigation::commit_head(&transaction)?;
         let request_hash = request_hash(&context, &store_epoch, &authorization, &request)?;
         if let Some(stored) = read_module_receipt(&transaction, MODULE_NAME, &operation_id)? {
             if stored.request_hash != request_hash {
@@ -144,7 +144,7 @@ pub(super) fn prepare_page_copy(
             transaction.commit()?;
             return Ok(PreparationRead::Committed {
                 store_epoch,
-                event_head,
+                commit_head,
                 footprint,
                 committed: Box::new(committed),
             });
@@ -162,7 +162,7 @@ pub(super) fn prepare_page_copy(
         transaction.commit()?;
         Ok(PreparationRead::Prepared {
             store_epoch,
-            event_head,
+            commit_head,
             preflight: Box::new(preflight),
         })
     })?;
@@ -170,7 +170,7 @@ pub(super) fn prepare_page_copy(
     match preparation {
         PreparationRead::Committed {
             store_epoch,
-            event_head,
+            commit_head,
             footprint,
             committed,
         } => {
@@ -182,7 +182,7 @@ pub(super) fn prepare_page_copy(
             Ok(ModuleReadSnapshot {
                 contract_version: LIBRARY_CONTRACT_VERSION,
                 store_epoch: StoreEpoch(store_epoch),
-                event_head,
+                commit_head,
                 value: LibraryReadValue::AgentPageCopyPreparation {
                     value: Box::new(LibraryAgentPageCopyPreparation {
                         preparation: AgentOperationPreparation {
@@ -207,14 +207,14 @@ pub(super) fn prepare_page_copy(
         }
         PreparationRead::Prepared {
             store_epoch,
-            event_head,
+            commit_head,
             preflight,
         } => {
             let issued = registry.issue(preflight.binding)?;
             Ok(ModuleReadSnapshot {
                 contract_version: LIBRARY_CONTRACT_VERSION,
                 store_epoch: StoreEpoch(store_epoch),
-                event_head,
+                commit_head,
                 value: LibraryReadValue::AgentPageCopyPreparation {
                     value: Box::new(LibraryAgentPageCopyPreparation {
                         preparation: AgentOperationPreparation {

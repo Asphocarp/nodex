@@ -35,7 +35,7 @@ pub struct DocumentSubscriptionAck {
     pub store_epoch: StoreEpoch,
     pub generation: i64,
     pub head_seq: i64,
-    pub event_head: i64,
+    pub commit_head: i64,
     pub engine: DocumentSubscriptionEngine,
     pub awareness_update: Option<Vec<u8>>,
 }
@@ -55,7 +55,7 @@ pub enum DocumentRealtimeEvent {
         store_epoch: StoreEpoch,
         generation: i64,
         head_seq: i64,
-        event_head: i64,
+        commit_head: i64,
     },
 }
 
@@ -63,7 +63,7 @@ pub enum DocumentRealtimeEvent {
 pub struct DocumentRealtimeReplay {
     pub events: Vec<DocumentRealtimeEvent>,
     pub next_after: i64,
-    pub event_head: i64,
+    pub commit_head: i64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -195,7 +195,7 @@ impl OwnedDocumentRealtimeAdapter {
             store_epoch: boundary.store_epoch,
             generation: boundary.generation,
             head_seq: boundary.head_seq,
-            event_head: boundary.event_head,
+            commit_head: boundary.commit_head,
             engine,
             awareness_update,
         })
@@ -298,7 +298,7 @@ impl OwnedDocumentRealtimeAdapter {
             DocumentEventReplay::Events {
                 events,
                 next_after,
-                event_head,
+                commit_head,
             } => Ok(DocumentRealtimeReplay {
                 events: events
                     .into_iter()
@@ -306,18 +306,18 @@ impl OwnedDocumentRealtimeAdapter {
                     .map(|event| DocumentRealtimeEvent::Committed(Box::new(event)))
                     .collect(),
                 next_after,
-                event_head,
+                commit_head,
             }),
-            DocumentEventReplay::ResyncRequired { event_head, .. } => Ok(DocumentRealtimeReplay {
+            DocumentEventReplay::ResyncRequired { commit_head, .. } => Ok(DocumentRealtimeReplay {
                 events: vec![DocumentRealtimeEvent::ResyncRequired {
                     document_id,
                     store_epoch: boundary.store_epoch,
                     generation: boundary.generation,
                     head_seq: boundary.head_seq,
-                    event_head,
+                    commit_head,
                 }],
-                next_after: event_head,
-                event_head,
+                next_after: commit_head,
+                commit_head,
             }),
         }
     }
@@ -528,6 +528,13 @@ impl OwnedDocumentRealtimeAdapter {
                     head_seq,
                     ..
                 })
+                | CoreModuleEventPayload::OwnedDocument(
+                    OwnedDocumentEvent::DocumentResyncRequired {
+                        generation,
+                        head_seq,
+                        ..
+                    },
+                )
                 | CoreModuleEventPayload::OwnedDocument(OwnedDocumentEvent::CanvasUpdated {
                     generation,
                     head_seq,
@@ -549,13 +556,13 @@ impl OwnedDocumentRealtimeAdapter {
     }
 }
 
-fn subscription_ack(subscription: &Subscription, event_head: i64) -> DocumentSubscriptionAck {
+fn subscription_ack(subscription: &Subscription, commit_head: i64) -> DocumentSubscriptionAck {
     DocumentSubscriptionAck {
         document_id: subscription.document_id.clone(),
         store_epoch: subscription.store_epoch.clone(),
         generation: subscription.generation,
         head_seq: subscription.head_seq,
-        event_head,
+        commit_head,
         engine: subscription.engine,
         awareness_update: None,
     }
@@ -645,6 +652,10 @@ fn intent_document_id(intent: &OwnedDocumentIntent) -> Option<&str> {
 fn event_document_id(event: &CommittedCoreModuleEvent) -> Option<&str> {
     match &event.payload {
         CoreModuleEventPayload::OwnedDocument(OwnedDocumentEvent::DocumentUpdated {
+            document_id,
+            ..
+        })
+        | CoreModuleEventPayload::OwnedDocument(OwnedDocumentEvent::DocumentResyncRequired {
             document_id,
             ..
         })

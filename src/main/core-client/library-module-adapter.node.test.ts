@@ -36,14 +36,14 @@ const fakeHandshake = () => createFakeCoreHandshake(identity);
 const pageDetailSnapshot = () => ({
   contract_version: 9 as const,
   store_epoch: identity.storeEpoch,
-  event_head: 9,
+  commit_head: 9,
   value: {
     kind: "page_detail" as const,
     value: {
       version: 3,
       library_id: identity.libraryId,
       store_epoch: identity.storeEpoch,
-      change_log_seq: 9,
+      commit_seq: 9,
       page: {
         pageId: "page:one",
         libraryId: identity.libraryId,
@@ -81,7 +81,7 @@ const pageDetailSnapshot = () => ({
 const pageHistorySnapshot = () => ({
   contract_version: 2 as const,
   store_epoch: identity.storeEpoch,
-  event_head: 12,
+  commit_head: 12,
   value: {
     kind: "page_history" as const,
     value: {
@@ -125,7 +125,7 @@ const pageHistorySnapshot = () => ({
 const projectPageSearchSnapshot = () => ({
   contract_version: 2 as const,
   store_epoch: identity.storeEpoch,
-  event_head: 13,
+  commit_head: 13,
   value: {
     kind: "project_page_search" as const,
     items: [{
@@ -142,7 +142,7 @@ const projectPageSearchSnapshot = () => ({
 const pageTargetSnapshot = () => ({
   contract_version: 2 as const,
   store_epoch: identity.storeEpoch,
-  event_head: 14,
+  commit_head: 14,
   value: {
     kind: "page_target" as const,
     value: {
@@ -161,7 +161,7 @@ const pageTargetSnapshot = () => ({
 const pageOwnershipPathSnapshot = () => ({
   contract_version: 2 as const,
   store_epoch: identity.storeEpoch,
-  event_head: 14,
+  commit_head: 14,
   value: {
     kind: "page_ownership_path" as const,
     value: {
@@ -179,7 +179,7 @@ const pageOwnershipPathSnapshot = () => ({
 const pageLocationSnapshot = () => ({
   contract_version: 2 as const,
   store_epoch: identity.storeEpoch,
-  event_head: 14,
+  commit_head: 14,
   value: {
     kind: "page_location" as const,
     value: { page_id: "page:one", project_id: "project:test" },
@@ -189,7 +189,7 @@ const pageLocationSnapshot = () => ({
 const viewLocationSnapshot = () => ({
   contract_version: 4 as const,
   store_epoch: identity.storeEpoch,
-  event_head: 14,
+  commit_head: 14,
   value: {
     kind: "view_location" as const,
     value: {
@@ -301,7 +301,7 @@ const lifecycleDefaultView = () => ({
 const pageLifecyclePreflightSnapshot = () => ({
   contract_version: 2 as const,
   store_epoch: identity.storeEpoch,
-  event_head: 15,
+  commit_head: 15,
   value: {
     kind: "page_lifecycle_preflight" as const,
     value: {
@@ -361,7 +361,7 @@ describe("Core Library Module Adapter", () => {
       value: {
         projectId: "project:test",
         libraryId: identity.libraryId,
-        changeLogSeq: 9,
+        commitSeq: 9,
         page: { pageId: "page:one", title: "Page One" },
         intrinsicProperties: [{
           key: "description",
@@ -529,7 +529,7 @@ describe("Core Library Module Adapter", () => {
     })).resolves.toEqual({
       libraryId: "library:test",
       storeEpoch: "epoch:test",
-      changeLogSeq: 14,
+      commitSeq: 14,
       status: "available",
       targetPageId: "page:one",
       ancestors: [{
@@ -570,7 +570,7 @@ describe("Core Library Module Adapter", () => {
         projectId: "project:test",
         libraryId: identity.libraryId,
         storeEpoch: identity.storeEpoch,
-        changeLogSeq: 15,
+        commitSeq: 15,
         value: {
           tagsProperty: {
             propertyId: "tags",
@@ -637,7 +637,7 @@ describe("Core Library Module Adapter", () => {
         affected_database_ids: ["database:test"],
         affected_view_ids: ["view:test"],
         committed_revisions: { "blockMetadata:page:one": 4 },
-        change_log_seq: 16,
+        commit_seq: 16,
         committed_at: "2026-07-20T08:30:00.000Z",
       },
       event_sequence: 16,
@@ -681,7 +681,7 @@ describe("Core Library Module Adapter", () => {
         viewRankKey: "7fffffffffffffffffffffffffffffff",
         createdBlockIds: [],
         createdTagOptionIds: [],
-        changeLogSeq: 16,
+        commitSeq: 16,
         committedAt: "2026-07-20T08:30:00.000Z",
       },
     });
@@ -735,7 +735,7 @@ describe("Core Library Module Adapter", () => {
         committed_revisions: {
           "intrinsic/page%3Aone/run.target": 2,
         },
-        change_log_seq: 21,
+        commit_seq: 21,
         committed_at: "2026-07-20T12:00:00.000Z",
       },
       event_sequence: 21,
@@ -777,7 +777,7 @@ describe("Core Library Module Adapter", () => {
           value: "cloud",
         }],
         blockMetadataRevisions: { "page:one": 7 },
-        changeLogSeq: 21,
+        commitSeq: 21,
         committedAt: "2026-07-20T12:00:00.000Z",
       },
     });
@@ -838,7 +838,7 @@ describe("Core Library Module Adapter", () => {
         affected_database_ids: [],
         affected_view_ids: [],
         committed_revisions: {},
-        change_log_seq: 22,
+        commit_seq: 22,
         committed_at: "2026-07-20T12:10:00.000Z",
       },
       event_sequence: 22,
@@ -964,7 +964,7 @@ describe("Core Library Module Adapter", () => {
         affected_database_ids: ["database:test"],
         affected_view_ids: ["view:test"],
         committed_revisions: { [`blockMetadata:${pageId}`]: 1 },
-        change_log_seq: 17,
+        commit_seq: 17,
         committed_at: "2026-07-20T08:31:00.000Z",
       },
       event_sequence: 17,
@@ -1159,7 +1159,7 @@ describe("Core Library Module Adapter", () => {
     client.enqueueRead({
       contract_version: 2,
       store_epoch: identity.storeEpoch,
-      event_head: 7,
+      commit_head: 7,
       value: {
         kind: "children",
         parent: { kind: "library" },
@@ -1193,7 +1193,7 @@ describe("Core Library Module Adapter", () => {
         profileId: identity.profileId,
         libraryId: identity.libraryId,
         storeEpoch: identity.storeEpoch,
-        changeLogSeq: 7,
+        commitSeq: 7,
         value: {
           kind: "children",
           parent: { kind: "library" },
@@ -1228,7 +1228,7 @@ describe("Core Library Module Adapter", () => {
     client.enqueueRead({
       contract_version: 8,
       store_epoch: identity.storeEpoch,
-      event_head: 8,
+      commit_head: 8,
       value: {
         kind: "standalone_roots",
         items: [{
@@ -1279,7 +1279,7 @@ describe("Core Library Module Adapter", () => {
     client.enqueueRead({
       contract_version: 8,
       store_epoch: identity.storeEpoch,
-      event_head: 9,
+      commit_head: 9,
       value: {
         kind: "resource_project_access",
         value: {
@@ -1322,7 +1322,7 @@ describe("Core Library Module Adapter", () => {
         affected_database_ids: [],
         affected_view_ids: [],
         committed_revisions: { "projectGrant:project:test": 3 },
-        change_log_seq: 10,
+        commit_seq: 10,
         committed_at: "2026-08-04T00:00:00.000Z",
       },
       event_sequence: 10,
@@ -1396,7 +1396,7 @@ describe("Core Library Module Adapter", () => {
     client.enqueueRead({
       contract_version: 2,
       store_epoch: identity.storeEpoch,
-      event_head: 11,
+      commit_head: 11,
       value: {
         kind: "canvas_target",
         value: {
@@ -1441,7 +1441,7 @@ describe("Core Library Module Adapter", () => {
         affected_database_ids: [],
         affected_view_ids: [],
         committed_revisions: { [canvasId]: 1 },
-        change_log_seq: 12,
+        commit_seq: 12,
         committed_at: "2026-07-30T15:01:00.000Z",
       },
       event_sequence: 12,
@@ -1504,7 +1504,7 @@ describe("Core Library Module Adapter", () => {
     client.enqueueRead({
       contract_version: 2,
       store_epoch: identity.storeEpoch,
-      event_head: 11,
+      commit_head: 11,
       value: {
         kind: "canvas_target",
         value: {
@@ -1548,7 +1548,7 @@ describe("Core Library Module Adapter", () => {
     }]);
   });
 
-  test("publishes Canvas host commits to mounted Project and Library Documents", async () => {
+  test("maps Canvas host commits without owning document publication", async () => {
     const projectClient = new FakeCoreClient();
     const canvasId = "019f7399-7676-70ae-b2aa-168692b64d31";
     const canvasDocumentId = "019f7399-7676-70ae-b2aa-168692b64d32";
@@ -1584,7 +1584,7 @@ describe("Core Library Module Adapter", () => {
         affected_database_ids: [],
         affected_view_ids: [],
         committed_revisions: { [canvasId]: 1 },
-        change_log_seq: 13,
+        commit_seq: 13,
         committed_at: "2026-07-30T15:02:00.000Z",
       },
       event_sequence: 13,
@@ -1596,10 +1596,8 @@ describe("Core Library Module Adapter", () => {
       rootClient: { handshake: fakeHandshake() },
       clientForProject: () => projectClient,
     } as unknown as RustDataAuthorityRuntime;
-    const published: Array<Record<string, unknown>> = [];
     const bridge = createDesktopLibraryModuleBridge({
       authority: Promise.resolve(runtime),
-      publishLibraryDocumentCommits: (input) => published.push(input),
     });
 
     const result = await bridge.apply(
@@ -1619,17 +1617,18 @@ describe("Core Library Module Adapter", () => {
     );
 
     expect(result).toMatchObject({ ok: true });
-    expect(published).toEqual([
-      expect.objectContaining({
-        storeEpoch: identity.storeEpoch,
-        clientSessionId: "rust:library",
-        commits: [expect.objectContaining({
-          documentId: "document:page",
-          generation: 2,
-          headSeq: 8,
-        })],
-      }),
-    ]);
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        canvasMutation: {
+          documentCommits: [{
+            documentId: "document:page",
+            generation: 2,
+            headSeq: 8,
+          }],
+        },
+      },
+    });
   });
 
   test("maps a committed aggregate and rejects a stale epoch before Core", async () => {
@@ -1652,7 +1651,7 @@ describe("Core Library Module Adapter", () => {
         affected_database_ids: [],
         affected_view_ids: [],
         committed_revisions: { "page:one": 1 },
-        change_log_seq: 8,
+        commit_seq: 8,
         committed_at: "2026-07-19T15:01:00.000Z",
       },
       event_sequence: 8,
@@ -1678,7 +1677,7 @@ describe("Core Library Module Adapter", () => {
         operationId: request.operationId,
         createdTarget: { kind: "page", pageId: "page:one" },
         duplicate: false,
-        changeLogSeq: 8,
+        commitSeq: 8,
       },
     });
     expect(client.applies).toEqual([{
@@ -1717,7 +1716,7 @@ describe("Core Library Module Adapter", () => {
         affected_database_ids: [],
         affected_view_ids: [],
         committed_revisions: { "page:trusted": 1 },
-        change_log_seq: 9,
+        commit_seq: 9,
         committed_at: "2026-07-20T00:00:00.000Z",
       },
       event_sequence: 9,
@@ -1763,8 +1762,8 @@ describe("Core Library Module Adapter", () => {
     expect(mapCoreLibraryEvent({
       transport_version: 4,
       event: {
-        event_version: 2,
-        sequence: 9,
+        event_version: 3,
+        commit_seq: 9,
         store_epoch: identity.storeEpoch,
         operation_id: "operation:create",
         committed_at: "2026-07-19T15:02:00.000Z",
@@ -1779,12 +1778,14 @@ describe("Core Library Module Adapter", () => {
             parent_keys: ["library"],
           },
         },
+        effects: [],
+        canonical_hash: "0".repeat(64),
       },
     }, identity.libraryId)).toEqual({
       version: LIBRARY_NAVIGATION_EVENT_VERSION,
       libraryId: identity.libraryId,
       storeEpoch: identity.storeEpoch,
-      changeLogSeq: 9,
+      commitSeq: 9,
       changeKind: "content",
       affectedParentKeys: ["library"],
       affectedPageIds: ["page:one"],

@@ -473,7 +473,7 @@ pub struct DatabaseReceipt {
     pub affected_view_ids: Vec<String>,
     pub operation_kinds: Vec<String>,
     pub committed_revisions: BTreeMap<String, i64>,
-    pub change_log_seq: i64,
+    pub commit_seq: i64,
     pub committed_at: String,
 }
 

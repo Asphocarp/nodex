@@ -11,6 +11,7 @@ import {
   PageLifecycleV2ContractError,
   type CreatePageOperationV2,
   type CreatePageTagOptionV2,
+  type PageLifecycleDocumentHeadV2,
   type PageLifecycleMutationCommandErrorV2,
   type PageLifecycleMutationCommandResultV2,
   type PageLifecycleMutationReceiptV2,
@@ -354,6 +355,11 @@ export interface PageLifecycleRestoreEvidenceV2 {
     status: WorkflowStatus;
     position: null | Readonly<{ viewId: string }>;
   }>;
+  readonly nestedParent: null | Readonly<{
+    documentId: string;
+    parentBlockId: string | null;
+    beforeBlockId: string | null;
+  }>;
 }
 
 export interface PageLifecycleOwnedBlockAuthorityV2 {
@@ -381,7 +387,7 @@ export interface PageLifecyclePreflightSnapshotV2 {
   readonly projectId: string;
   readonly libraryId: string;
   readonly storeEpoch: string;
-  readonly changeLogSeq: number;
+  readonly commitSeq: number;
   readonly value: PageLifecyclePreflightV2;
 }
 
@@ -430,12 +436,14 @@ export type PageLifecycleIntentV2 =
   | (PageLifecycleIntentBaseV2 & {
       readonly kind: "delete";
       readonly pageId: string;
+      readonly parentDocumentHead?: PageLifecycleDocumentHeadV2;
     })
   | (PageLifecycleIntentBaseV2 & {
       readonly kind: "restore";
       readonly pageId: string;
       readonly beforeBlockId?: string;
       readonly beforeViewPageId?: string;
+      readonly parentDocumentHead?: PageLifecycleDocumentHeadV2;
     })
   | (PageLifecycleIntentBaseV2 & {
       readonly kind: "move_in_library";
@@ -694,7 +702,7 @@ export const compilePageLifecycleRequestV2 = (input: {
       expectedMetadataRevision: page.metadataRevision,
     };
   } else if (intent.kind === "delete") {
-    const page = requireLifecyclePage(preflight, intent.pageId);
+    const page = requirePage(preflight, intent.pageId);
     if (page.lifecycle === "deleted") {
       return runtimeFail(
         "page_lifecycle_conflict",
@@ -706,6 +714,22 @@ export const compilePageLifecycleRequestV2 = (input: {
       pageId: intent.pageId,
       expectedMetadataRevision: page.metadataRevision,
       expectedParentRevision: page.parentRevision,
+      ...(page.parent.kind === "page"
+        ? {
+            parentDocumentHead: intent.parentDocumentHead
+              ?? runtimeFail(
+                "page_parent_invalid",
+                `Nested Page ${intent.pageId} requires the host Page Document head`,
+              ),
+          }
+        : intent.parentDocumentHead
+          ? {
+              parentDocumentHead: runtimeFail(
+                "page_parent_invalid",
+                `Top-level Page ${intent.pageId} cannot carry a host Document head`,
+              ),
+            }
+          : {}),
     };
   } else if (intent.kind === "restore") {
     const page = requirePage(preflight, intent.pageId);
@@ -729,6 +753,22 @@ export const compilePageLifecycleRequestV2 = (input: {
       expectedMetadataRevision: page.metadataRevision,
       expectedParentRevision: page.parentRevision,
       membership: evidence.membership,
+      ...(page.parent.kind === "page"
+        ? {
+            parentDocumentHead: intent.parentDocumentHead
+              ?? runtimeFail(
+                "page_parent_invalid",
+                `Nested Page ${intent.pageId} requires the host Page Document head`,
+              ),
+          }
+        : intent.parentDocumentHead
+          ? {
+              parentDocumentHead: runtimeFail(
+                "page_parent_invalid",
+                `Top-level Page ${intent.pageId} cannot carry a host Document head`,
+              ),
+            }
+          : {}),
       ...(intent.beforeBlockId ? { beforeBlockId: intent.beforeBlockId } : {}),
       ...(intent.beforeViewPageId && evidence.membership?.position
         ? {

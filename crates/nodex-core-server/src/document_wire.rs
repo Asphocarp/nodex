@@ -3,7 +3,9 @@ use nodex_core::document::CanvasSceneSyncSnapshot;
 use nodex_core_contracts::document::{
     OwnedDocumentCommitValue, OwnedDocumentReadValue, OwnedDocumentReceipt,
 };
-use nodex_core_contracts::{CommittedModuleValue, CoreError, ModuleReadSnapshot};
+use nodex_core_contracts::{
+    CommittedModuleValue, CoreError, LocalCommitEnvelope, ModuleReadSnapshot,
+};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 
@@ -108,6 +110,8 @@ struct ApplyAckMetadata<'a> {
     committed_seq: i64,
     head_seq: i64,
     duplicate: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    local_commit: Option<&'a LocalCommitEnvelope>,
 }
 
 #[derive(Serialize)]
@@ -309,6 +313,7 @@ pub(crate) fn encode_apply_ack(
             committed_seq: committed.receipt.head_seq,
             head_seq: sync.head_seq,
             duplicate: committed.receipt.mutation.duplicate,
+            local_commit: committed.local_commit.as_ref(),
         },
         &sync.state_vector,
     )

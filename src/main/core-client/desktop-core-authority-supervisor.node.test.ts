@@ -101,10 +101,10 @@ const createSupervisor = (
 const metadataRead: LibraryRead = { kind: "metadata" };
 const snapshot = (generation: number): LibraryReadSnapshot => ({
   contract_version: 6,
-  event_head: generation,
+  commit_head: generation,
   store_epoch: "epoch-a",
   value: {
-    change_log_seq: generation,
+    commit_seq: generation,
     kind: "metadata",
     library_id: "library-a",
     profile_id: "profile-a",
@@ -133,7 +133,7 @@ describe("DesktopCoreAuthoritySupervisor", () => {
     );
 
     expect(launchNext).toHaveBeenCalledTimes(1);
-    expect(results.every((result) => result.event_head === 2)).toBe(true);
+    expect(results.every((result) => result.commit_head === 2)).toBe(true);
     expect(supervisor.clientForProject("project-a")).toBe(projectClient);
     expect(projectClient.handshake.generation.pid).toBe(2);
     expect(supervisor.state.kind).toBe("ready");
@@ -151,7 +151,7 @@ describe("DesktopCoreAuthoritySupervisor", () => {
     const supervisor = createSupervisor(initial, async () => launch(rebound));
 
     await expect(supervisor.rootClient.libraryRead(metadataRead))
-      .resolves.toMatchObject({ event_head: 1 });
+      .resolves.toMatchObject({ commit_head: 1 });
     expect(supervisor.rootClient.handshake.connection_binding).toBe("binding-1");
   });
 
@@ -196,15 +196,15 @@ describe("DesktopCoreAuthoritySupervisor", () => {
     const lateRead = supervisor.rootClient.libraryRead(metadataRead);
     await vi.waitFor(() => expect(initialReads).toBe(1));
     await expect(supervisor.rootClient.libraryRead(metadataRead))
-      .resolves.toMatchObject({ event_head: 2 });
+      .resolves.toMatchObject({ commit_head: 2 });
 
     const reboundRead = supervisor.rootClient.libraryRead(metadataRead);
     await vi.waitFor(() => expect(launchNext).toHaveBeenCalledTimes(2));
     rejectLateRead(lostGeneration());
     resolveStable(launch(stable));
 
-    await expect(reboundRead).resolves.toMatchObject({ event_head: 3 });
-    await expect(lateRead).resolves.toMatchObject({ event_head: 3 });
+    await expect(reboundRead).resolves.toMatchObject({ commit_head: 3 });
+    await expect(lateRead).resolves.toMatchObject({ commit_head: 3 });
   });
 
   test("close fences an in-flight recovery before health, adoption, and replay", async () => {

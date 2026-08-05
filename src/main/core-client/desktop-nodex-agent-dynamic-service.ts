@@ -32,7 +32,7 @@ export interface DesktopNodexAgentDynamicServiceInput {
   readonly databaseModule: DesktopDatabaseModuleBridge;
   readonly documentSync: Pick<
     DesktopDocumentSyncPort,
-    "coordinateNodexAgentLeasedMutation"
+    "executeNodexAgentMutation"
   >;
 }
 
@@ -296,14 +296,13 @@ export function createDesktopNodexAgentV3DynamicService(
     },
     executeNodexAgentCreatePages: async (...args) => {
       const runtime = await input.authority;
-      const [command, leaseDocuments] = args;
-      return await input.documentSync.coordinateNodexAgentLeasedMutation({
+      const [command, documentHeads] = args;
+      return await input.documentSync.executeNodexAgentMutation({
         projectId: command.projectId,
         storeEpoch: command.storeEpoch,
-        leaseDocuments,
         execute: async () => await pageCreatesFor(runtime).execute(
           command,
-          leaseDocuments,
+          documentHeads,
         ),
         failure: nativeCreatePagesFailure,
         operationLabel: "Agent Page creation",
@@ -313,10 +312,9 @@ export function createDesktopNodexAgentV3DynamicService(
     executeNodexAgentDuplicatePage: async (...args) => {
       const runtime = await input.authority;
       const command = args[0];
-      return await input.documentSync.coordinateNodexAgentLeasedMutation({
+      return await input.documentSync.executeNodexAgentMutation({
         projectId: command.projectId,
         storeEpoch: command.storeEpoch,
-        leaseDocuments: command.leaseDocuments,
         execute: async () => await pageCopiesFor(runtime).execute(command),
         failure: nativeDuplicatePageFailure,
         operationLabel: "Agent Page duplicate",
@@ -326,10 +324,9 @@ export function createDesktopNodexAgentV3DynamicService(
     executeNodexAgentMovePages: async (...args) => {
       const runtime = await input.authority;
       const command = args[0];
-      return await input.documentSync.coordinateNodexAgentLeasedMutation({
+      return await input.documentSync.executeNodexAgentMutation({
         projectId: command.projectId,
         storeEpoch: command.storeEpoch,
-        leaseDocuments: command.leaseDocuments,
         execute: async () => await pageMovesFor(runtime).execute(command),
         failure: nativeMovePagesFailure,
         operationLabel: "Agent Page movement",

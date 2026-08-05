@@ -11,7 +11,7 @@ use crate::{
     CommittedModuleValue, ModuleMutationReceipt, ModuleName, StoreEpoch, VersionedModuleContract,
 };
 
-pub const OWNED_DOCUMENT_CONTRACT_VERSION: u32 = 3;
+pub const OWNED_DOCUMENT_CONTRACT_VERSION: u32 = 4;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct CanvasCompactionStats {
@@ -189,7 +189,6 @@ pub enum OwnedDocumentIntent {
         expected_head_seq: i64,
         operations: Vec<DocumentBlockOperation>,
         actor: Value,
-        write_fence_prepared: bool,
     },
     ReplaceFromNfm {
         document_id: String,
@@ -198,7 +197,6 @@ pub enum OwnedDocumentIntent {
         nfm: String,
         rich_title: Option<Vec<Value>>,
         actor: Value,
-        write_fence_prepared: bool,
     },
     ExecutePreparedAgentSemanticMutation {
         authorization: Box<AgentPreparedExecution>,
@@ -215,7 +213,6 @@ pub enum OwnedDocumentIntent {
         generation: i64,
         expected_head_seq: i64,
         actor: Value,
-        write_fence_prepared: bool,
     },
     CreateCheckpoint {
         document_id: String,
@@ -234,7 +231,6 @@ pub enum OwnedDocumentIntent {
         generation: i64,
         expected_head_seq: i64,
         actor: Value,
-        write_fence_prepared: bool,
     },
     ApplyOwnerCommand {
         command: DocumentOwnerCommand,
@@ -523,6 +519,17 @@ pub enum OwnedDocumentEvent {
         generation: i64,
         head_seq: i64,
         update: Vec<u8>,
+    },
+    /// The durable document effect remains replayable after Yjs history
+    /// compaction, but its original update bytes are no longer retained.
+    /// Consumers must perform a canonical document resync instead of
+    /// treating the compacted effect as an empty update.
+    DocumentResyncRequired {
+        document_id: String,
+        generation: i64,
+        head_seq: i64,
+        update_id: String,
+        update_hash: String,
     },
     CanvasUpdated {
         document_id: String,

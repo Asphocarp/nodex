@@ -362,7 +362,7 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
     assert!(read.starts_with("HTTP/1.1 200"));
     let read_json = response_json(&read);
     assert_eq!(read_json["status"], "ok");
-    assert_eq!(read_json["payload"]["event_head"], 0);
+    assert_eq!(read_json["payload"]["commit_head"], 0);
     let library_id = read_json["payload"]["value"]["library_id"]
         .as_str()
         .expect("Library identity")
@@ -697,7 +697,7 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
             .unwrap()
             > 0
     );
-    assert!(health["metrics"]["event_head"].as_i64().unwrap() > 0);
+    assert!(health["metrics"]["commit_head"].as_i64().unwrap() > 0);
     assert!(health["metrics"]["event_replay_lag_max"].as_u64().unwrap() > 0);
     assert!(health["metrics"]["wal_size_bytes"].as_u64().unwrap() > 0);
     assert!(

@@ -17,7 +17,7 @@ use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 pub(super) fn read_child_thread_window(
     connection: &Connection,
     library_id: &str,
-    event_head: i64,
+    commit_head: i64,
     parent_thread_id: &str,
     include_archived: bool,
     request: &CollectionWindowRequest,
@@ -125,7 +125,7 @@ pub(super) fn read_child_thread_window(
         candidates,
         normalized.first,
         CollectionWindowAuthority {
-            projection_revision: event_head,
+            projection_revision: commit_head,
         },
         |coordinate| {
             cursor::mint(

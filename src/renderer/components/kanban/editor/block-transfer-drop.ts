@@ -1,11 +1,16 @@
 import { dropTargetForElements } from "@atlaskit/pragmatic-drag-and-drop/element/adapter";
 import { DropCursorExtension } from "@blocknote/core/extensions";
 import type { PublicBlockTransferIntent } from "../../../../shared/block-transfer-transport";
-import type { BlockTransferCommandResult } from "../../../../shared/block-transfer";
+import type {
+  BlockTransferCommandResult,
+  BlockTransferDocumentHead,
+} from "../../../../shared/block-transfer";
+import type { DocumentHeadToken } from "../../../lib/block-document-surface-runtime";
 import {
   blockTransferDropLabel,
   claimLocalBlockDragDropTarget,
   containsCanvasBlockDrag,
+  containsDatabaseBlockDrag,
   type CrossSurfaceBlockTransferPayload,
   endLocalBlockDragSession,
   isSingleCanvasBlockDrag,
@@ -42,6 +47,12 @@ export interface BlockTransferDropBoundary {
   readonly storeEpoch: string;
   readonly hostPageId?: string;
   readonly ancestorPageIds: readonly string[];
+  /** Flushes unsent edits in the destination document before Core plans. */
+  readonly prepareLocalMutation?: () => Promise<DocumentHeadToken>;
+  /** Flushes the actual drag source session when it is mounted locally. */
+  readonly prepareSourceMutation?: (
+    sourceSurfaceId: string,
+  ) => Promise<DocumentHeadToken | undefined>;
   readonly transfer: (
     intent: PublicBlockTransferIntent,
   ) => Promise<BlockTransferCommandResult>;
@@ -231,6 +242,41 @@ export const setupBlockTransferDocumentDrop = (
     );
   };
 
+  const prepareStructuralMutation = async (
+    sourceSurfaceId?: string,
+  ): Promise<readonly DocumentHeadToken[]> => {
+    const tokens = await Promise.all([
+      boundary.prepareLocalMutation?.(),
+      sourceSurfaceId === undefined
+        ? undefined
+        : boundary.prepareSourceMutation?.(sourceSurfaceId),
+    ]);
+    return tokens.filter(
+      (token): token is DocumentHeadToken => token !== undefined,
+    );
+  };
+
+  const causalDependenciesFromTokens = (
+    tokens: readonly DocumentHeadToken[],
+  ): readonly BlockTransferDocumentHead[] => {
+    const dependencies = new Map<string, BlockTransferDocumentHead>();
+    for (const token of tokens) {
+      if (token.storeEpoch !== boundary.storeEpoch) {
+        throw new Error("Block transfer causal Document belongs to another store epoch");
+      }
+      dependencies.set(token.documentId, {
+        documentId: token.documentId,
+        generation: token.generation,
+        expectedHeadSeq: token.expectedHeadSeq,
+      });
+    }
+    return [...dependencies.values()];
+  };
+
+  const reportFailure = (error: unknown, fallback: string): void => {
+    boundary.reportError(error instanceof Error ? error.message : fallback);
+  };
+
   const pragmaticCleanup = dropTargetForElements({
     element: container,
     getData: buildKanbanCardEditorTransferTargetData,
@@ -268,42 +314,39 @@ export const setupBlockTransferDocumentDrop = (
         clear();
         return;
       }
+      const sourceData = source.data;
       const anchor = resolveAnchor(
         container,
         location.current.input.clientX,
         location.current.input.clientY,
       );
       const target = resolveBlockTransferDocumentTarget(editor, anchor);
-      const intent: PublicBlockTransferIntent = {
-        version: 2,
-        operationId: boundary.createOperationId(),
-        projectId: boundary.projectId,
-        storeEpoch: boundary.storeEpoch,
-        mode: resolveCrossSurfaceTransferMode(location.current.input),
-        rootBlockIds: source.data.dragItems.map((item) => item.card.id),
-        source: {
-          kind: "data_source",
-          dataSourceId: source.data.dataSourceId,
-        },
-        target: boundary.hostPageId
-          ? { kind: "page", pageId: boundary.hostPageId, ...target }
-          : {
-              kind: "document",
-              documentId: boundary.documentId,
-              ...target,
-            },
-      };
       clear();
-      void boundary
-        .transfer(intent)
+      void prepareStructuralMutation()
+        .then((tokens) => boundary.transfer({
+          version: 2,
+          operationId: boundary.createOperationId(),
+          projectId: boundary.projectId,
+          storeEpoch: boundary.storeEpoch,
+          mode: resolveCrossSurfaceTransferMode(location.current.input),
+          rootBlockIds: sourceData.dragItems.map((item) => item.card.id),
+          causalDependencies: causalDependenciesFromTokens(tokens),
+          source: {
+            kind: "data_source",
+            dataSourceId: sourceData.dataSourceId,
+          },
+          target: boundary.hostPageId
+            ? { kind: "page", pageId: boundary.hostPageId, ...target }
+            : {
+                kind: "document",
+                documentId: boundary.documentId,
+                ...target,
+              },
+        }))
         .then((result) => {
           if (!result.ok) boundary.reportError(result.error.message);
         })
-        .catch((error: unknown) => {
-          boundary.reportError(
-            error instanceof Error ? error.message : "Block transfer failed",
-          );
-        });
+        .catch((error: unknown) => reportFailure(error, "Block transfer failed"));
     },
   });
 
@@ -341,6 +384,7 @@ export const setupBlockTransferDocumentDrop = (
     ) {
       return false;
     }
+    if (containsDatabaseBlockDrag(payload)) return false;
     const forbidden = new Set(boundary.ancestorPageIds);
     if (boundary.hostPageId) forbidden.add(boundary.hostPageId);
     return payload.rootBlockIds.every((blockId) => !forbidden.has(blockId));
@@ -365,6 +409,11 @@ export const setupBlockTransferDocumentDrop = (
         clear();
         return;
       }
+    }
+    if (containsDatabaseBlockDrag(session.payload)) {
+      event.dataTransfer!.dropEffect = "none";
+      clear();
+      return;
     }
     if (
       containsCanvasBlockDrag(session.payload)
@@ -405,6 +454,12 @@ export const setupBlockTransferDocumentDrop = (
     if (!session || session.sessionId !== managedSession.sessionId) return;
     endLocalBlockDragSession({ sessionId: session.sessionId });
 
+    if (containsDatabaseBlockDrag(session.payload)) {
+      boundary.reportError(
+        "Database blocks can only move through a typed Database action.",
+      );
+      return;
+    }
     if (
       (session.payload.source.kind === "page" &&
         session.payload.source.pageId === boundary.hostPageId) ||
@@ -437,49 +492,58 @@ export const setupBlockTransferDocumentDrop = (
         boundary.reportError("Move or copy one Canvas at a time.");
         return;
       }
+      if (session.payload.source.kind !== "page") {
+        boundary.reportError("Canvas transfer source must be a Page.");
+        return;
+      }
+      const sourcePageId = session.payload.source.pageId;
+      if (!sourcePageId) {
+        boundary.reportError("Canvas transfer source Page is missing.");
+        return;
+      }
+      const targetPageId = boundary.hostPageId;
+      if (!targetPageId) {
+        boundary.reportError("Canvas transfer target Page is missing.");
+        return;
+      }
       const mode = resolveCrossSurfaceTransferMode(event);
       const canvasBlockId = session.payload.rootBlockIds[0]!;
       if (mode === "move" && target.beforeBlockId === canvasBlockId) return;
-      void boundary.transferCanvas({
-        canvasBlockId,
-        sourceSurfaceId: session.sourceSurfaceId,
-        sourcePageId: session.payload.source.pageId,
-        targetPageId: boundary.hostPageId,
-        mode,
-        insertion: resolveCanvasDropInsertion(target),
-      }).catch((error: unknown) => {
-        boundary.reportError(
-          error instanceof Error ? error.message : "Canvas move failed",
-        );
-      });
+      void prepareStructuralMutation(session.sourceSurfaceId)
+        .then(() => boundary.transferCanvas?.({
+          canvasBlockId,
+          sourceSurfaceId: session.sourceSurfaceId,
+          sourcePageId,
+          targetPageId,
+          mode,
+          insertion: resolveCanvasDropInsertion(target),
+        }))
+        .then(() => undefined)
+        .catch((error: unknown) => reportFailure(error, "Canvas move failed"));
       return;
     }
-    const intent: PublicBlockTransferIntent = {
-      version: 2,
-      operationId: boundary.createOperationId(),
-      projectId: boundary.projectId,
-      storeEpoch: boundary.storeEpoch,
-      mode: resolveCrossSurfaceTransferMode(event),
-      rootBlockIds: session.payload.rootBlockIds,
-      source: session.payload.source,
-      target: boundary.hostPageId
-        ? { kind: "page", pageId: boundary.hostPageId, ...target }
-        : {
-            kind: "document",
-            documentId: boundary.documentId,
-            ...target,
-          },
-    };
-    void boundary
-      .transfer(intent)
+    void prepareStructuralMutation(session.sourceSurfaceId)
+      .then((tokens) => boundary.transfer({
+        version: 2,
+        operationId: boundary.createOperationId(),
+        projectId: boundary.projectId,
+        storeEpoch: boundary.storeEpoch,
+        mode: resolveCrossSurfaceTransferMode(event),
+        rootBlockIds: session.payload.rootBlockIds,
+        causalDependencies: causalDependenciesFromTokens(tokens),
+        source: session.payload.source,
+        target: boundary.hostPageId
+          ? { kind: "page", pageId: boundary.hostPageId, ...target }
+          : {
+              kind: "document",
+              documentId: boundary.documentId,
+              ...target,
+            },
+      }))
       .then((result) => {
         if (!result.ok) boundary.reportError(result.error.message);
       })
-      .catch((error: unknown) => {
-        boundary.reportError(
-          error instanceof Error ? error.message : "Block transfer failed",
-        );
-      });
+      .catch((error: unknown) => reportFailure(error, "Block transfer failed"));
   };
 
   container.addEventListener("dragenter", onNativeDragOver, true);

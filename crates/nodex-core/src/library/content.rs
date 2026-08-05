@@ -86,7 +86,7 @@ pub(super) fn page_content(
     connection: &Connection,
     library_id: &str,
     store_epoch: &str,
-    event_head: i64,
+    commit_head: i64,
     page_id: &str,
 ) -> Result<LibraryPageContent, StoreError> {
     validate_identity(page_id, "Page content identity")?;
@@ -170,7 +170,7 @@ pub(super) fn page_content(
         version: PAGE_CONTENT_VERSION,
         library_id: library_id.to_owned(),
         store_epoch: store_epoch.to_owned(),
-        change_log_seq: event_head,
+        commit_seq: commit_head,
         page_id: row.page_id,
         metadata_revision: row.metadata_revision,
         document_id: row.document_id,

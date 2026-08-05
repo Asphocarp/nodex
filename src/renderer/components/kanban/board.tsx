@@ -60,6 +60,8 @@ import { computeNativeDropIndexFromSurface } from "./native-drop-index";
 import {
   blockTransferDropLabel,
   buildBlockToDataSourceTransferIntent,
+  containsCanvasBlockDrag,
+  containsDatabaseBlockDrag,
   endLocalBlockDragSession,
   hasDragType,
   NODEX_BLOCK_TRANSFER_DRAG_MIME,
@@ -70,6 +72,7 @@ import {
 import { toast } from "@/components/ui/toast";
 import { useKanbanElementDragMonitor } from "./use-kanban-element-drag-monitor";
 import { transferBlocks } from "@/lib/api";
+import { resolveBlockDocumentMutationBarrier } from "@/lib/block-document-mutation-registry";
 
 const KANBAN_CARD_PREVIEW_OPEN_DELAY_MS = 180;
 type KanbanCardOpenMode = NonNullable<OpenPageStageOptions["openMode"]>;
@@ -144,6 +147,8 @@ export function KanbanBoard({
     movePage,
     movePages,
     refresh,
+    refreshAtLeast,
+    getPage,
     groupPagination,
     loadMoreGroup,
   } =
@@ -338,10 +343,26 @@ export function KanbanBoard({
         toast.danger("Block transfer belongs to another Project or store generation.");
         return;
       }
+      if (containsCanvasBlockDrag(authoritativePayload)) {
+        toast.info("Canvas can only move between Page Documents, not into a Board.");
+        return;
+      }
+      if (containsDatabaseBlockDrag(authoritativePayload)) {
+        toast.info("Database blocks can only move through a typed Database action.");
+        return;
+      }
       const destinationCards = filteredBoard?.columns.find(
         (column) => column.id === columnId,
       )?.cards ?? [];
       const beforePageId = destinationCards[destinationIndex]?.id;
+      const sourceBarrier = resolveBlockDocumentMutationBarrier(
+        authoritativePayload.sourceSurfaceId,
+      );
+      const sourceHead = await sourceBarrier?.prepareLocalMutation();
+      if (sourceHead && sourceHead.storeEpoch !== databaseView.storeEpoch) {
+        toast.danger("The dragged Document belongs to another store generation.");
+        return;
+      }
       const result = await transferBlocks(
         projectId,
         buildBlockToDataSourceTransferIntent({
@@ -354,15 +375,35 @@ export function KanbanBoard({
           groupKey: columnId,
           ...(beforePageId ? { beforePageId } : {}),
           altKey: event.altKey,
+          ...(sourceHead
+            ? {
+                causalDependencies: [{
+                  documentId: sourceHead.documentId,
+                  generation: sourceHead.generation,
+                  expectedHeadSeq: sourceHead.expectedHeadSeq,
+                }],
+              }
+            : {}),
         }),
       );
       if (!result.ok) {
         toast.danger(result.error.message);
         return;
       }
-      await refresh();
+      const resultPageId = result.value.resultRootBlockIds[0];
+      if (resultPageId) {
+        // The row read is a small canonical fast path for the visible card;
+        // it does not render a pending placeholder or make the Board a second
+        // authority. The full floor read below reconciles totals/order in the
+        // background after the card is already visible.
+        await getPage(resultPageId, columnId, {
+          storeEpoch: databaseView.storeEpoch,
+          commitSeq: result.value.commitSeq,
+        });
+      }
+      void refreshAtLeast(result.value.commitSeq);
     },
-    [databaseView, filteredBoard, projectId, refresh],
+    [databaseView, filteredBoard, getPage, projectId, refreshAtLeast],
   );
 
   const performCardDrop = useCallback(async (

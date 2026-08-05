@@ -20,14 +20,14 @@ export type PageOwnershipPathReadModel =
   | {
       readonly libraryId: string;
       readonly storeEpoch: string;
-      readonly changeLogSeq: number;
+      readonly commitSeq: number;
       readonly status: "missing";
       readonly targetPageId: string;
     }
   | {
       readonly libraryId: string;
       readonly storeEpoch: string;
-      readonly changeLogSeq: number;
+      readonly commitSeq: number;
       readonly status: "available";
       readonly targetPageId: string;
       readonly ancestors: readonly PageOwnershipPathAncestor[];

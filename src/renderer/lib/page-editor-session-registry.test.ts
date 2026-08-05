@@ -54,7 +54,6 @@ function createRuntime(input: {
     phase: ready ? "ready" : "connecting",
     ready,
     reloadRequired: false,
-    writeFrozen: false,
     descriptor: runtimeDescriptor,
     provider: {
       phase: ready ? "synced" : "connecting",
@@ -79,6 +78,77 @@ function createRuntime(input: {
 }
 
 describe("PageEditorSessionRegistry", () => {
+  test("shares one canonical Yjs runtime across tab groups and closes after the last view", async () => {
+    const registry = new PageEditorSessionRegistry();
+    const runtime = createRuntime({});
+    const first = registry.acquire({
+      key: makePageEditorSessionKey("session-left", "tab-page-1"),
+      descriptor: descriptor(),
+      createRuntime: () => runtime.runtime,
+    });
+    const second = registry.acquire({
+      key: makePageEditorSessionKey("session-right", "tab-page-2"),
+      descriptor: descriptor(1, 9),
+      createRuntime: () => {
+        throw new Error("The canonical document must be reused");
+      },
+    });
+
+    expect(second.runtime).toBe(first.runtime);
+    expect(registry.size).toBe(2);
+    expect(registry.canonicalDocumentSize).toBe(1);
+
+    await first.dispose();
+    expect(runtime.close).not.toHaveBeenCalled();
+    await second.dispose();
+
+    expect(runtime.close).toHaveBeenCalledTimes(1);
+    expect(registry.canonicalDocumentSize).toBe(0);
+  });
+
+  test("persists a shared canonical runtime only once at the close boundary", async () => {
+    const registry = new PageEditorSessionRegistry();
+    const runtime = createRuntime({});
+    registry.acquire({
+      key: makePageEditorSessionKey("session-left", "tab-page-1"),
+      descriptor: descriptor(),
+      createRuntime: () => runtime.runtime,
+    });
+    registry.acquire({
+      key: makePageEditorSessionKey("session-right", "tab-page-2"),
+      descriptor: descriptor(1, 9),
+      createRuntime: () => runtime.runtime,
+    });
+
+    await registry.persistAll();
+
+    expect(runtime.persist).toHaveBeenCalledTimes(1);
+  });
+
+  test("keeps shared awareness while another tab-group view is active", async () => {
+    const registry = new PageEditorSessionRegistry();
+    const runtime = createRuntime({});
+    const first = registry.acquire({
+      key: makePageEditorSessionKey("session-left", "tab-page-1"),
+      descriptor: descriptor(),
+      createRuntime: () => runtime.runtime,
+    });
+    const second = registry.acquire({
+      key: makePageEditorSessionKey("session-right", "tab-page-2"),
+      descriptor: descriptor(1, 9),
+      createRuntime: () => runtime.runtime,
+    });
+
+    first.awarenessLease.acquire();
+    second.awarenessLease.acquire();
+    first.awarenessLease.release();
+    expect(runtime.clearLocalAwareness).not.toHaveBeenCalled();
+
+    second.awarenessLease.release();
+    expect(runtime.clearLocalAwareness).toHaveBeenCalledTimes(1);
+    await registry.disposeAll();
+  });
+
   test("keeps one model for a PageTab while durable head snapshots advance", () => {
     const registry = new PageEditorSessionRegistry();
     const key = makePageEditorSessionKey("session-1", "tab-page-1");
@@ -296,7 +366,11 @@ describe("PageEditorSessionRegistry", () => {
     });
     registry.acquire({
       key: makePageEditorSessionKey("session-2", "tab-page-1"),
-      descriptor: descriptor(),
+      descriptor: {
+        ...descriptor(),
+        ownerBlockId: "page-3",
+        documentId: "document-3",
+      },
       createRuntime: () => otherRuntime.runtime,
     });
 

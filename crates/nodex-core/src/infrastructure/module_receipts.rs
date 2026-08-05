@@ -9,9 +9,13 @@ const MAX_RECEIPT_JSON_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StoredModuleReceipt {
+    pub profile_id: String,
+    pub project_id: Option<String>,
+    pub store_epoch: String,
     pub request_hash: String,
     pub result: Value,
     pub event_sequence: Option<i64>,
+    pub local_commit_seq: Option<i64>,
     pub committed_at: String,
 }
 
@@ -57,30 +61,48 @@ pub fn read_module_receipt(
 ) -> Result<Option<StoredModuleReceipt>, StoreError> {
     let raw = connection
         .query_row(
-            "SELECT request_hash, result_json, event_sequence, committed_at \
+            "SELECT profile_id, project_id, store_epoch, request_hash, result_json, \
+                    event_sequence, local_commit_seq, committed_at \
              FROM core_module_receipts WHERE module_name = ?1 AND operation_id = ?2",
             params![module_name, operation_id],
             |row| {
                 Ok((
                     row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, Option<i64>>(2)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, String>(2)?,
                     row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, Option<i64>>(5)?,
+                    row.get::<_, Option<i64>>(6)?,
+                    row.get::<_, String>(7)?,
                 ))
             },
         )
         .optional()
         .map_err(|_| corrupt("Core Module receipt column types are invalid"))?;
-    let Some((request_hash, result_json, event_sequence, committed_at)) = raw else {
+    let Some((
+        profile_id,
+        project_id,
+        store_epoch,
+        request_hash,
+        result_json,
+        event_sequence,
+        local_commit_seq,
+        committed_at,
+    )) = raw
+    else {
         return Ok(None);
     };
+    if profile_id.is_empty() || store_epoch.is_empty() {
+        return Err(corrupt("Core Module receipt authority identity is invalid"));
+    }
     if !is_sha256(&request_hash) {
         return Err(corrupt("Core Module receipt request hash is invalid"));
     }
     if result_json.len() > MAX_RECEIPT_JSON_BYTES {
         return Err(corrupt("Core Module receipt result exceeds its bound"));
     }
-    let result = serde_json::from_str::<Value>(&result_json)
+    let mut result = serde_json::from_str::<Value>(&result_json)
         .map_err(|_| corrupt("Core Module receipt result JSON is invalid"))?;
     if !result.is_object() {
         return Err(corrupt("Core Module receipt result must be an object"));
@@ -88,13 +110,62 @@ pub fn read_module_receipt(
     if event_sequence.is_some_and(|sequence| sequence < 1) {
         return Err(corrupt("Core Module receipt event sequence is invalid"));
     }
+    if local_commit_seq.is_some_and(|sequence| sequence < 1) {
+        return Err(corrupt(
+            "Core Module receipt local commit sequence is invalid",
+        ));
+    }
     if committed_at.is_empty() || committed_at.len() > 64 {
         return Err(corrupt("Core Module receipt timestamp is invalid"));
     }
+    if let Some(commit_seq) = local_commit_seq {
+        let commit_epoch = connection
+            .query_row(
+                "SELECT store_epoch FROM local_commits WHERE commit_seq = ?1",
+                [commit_seq],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(|_| corrupt("Core Module receipt local commit reference is invalid"))?;
+        if commit_epoch.as_deref() != Some(store_epoch.as_str()) {
+            return Err(corrupt(
+                "Core Module receipt local commit belongs to another store epoch",
+            ));
+        }
+    }
+    if let Some(object) = result.as_object_mut()
+        && let Some(commit_seq) = local_commit_seq
+        && object.get("local_commit").is_none_or(Value::is_null)
+    {
+        let local_commit = super::event_log::load_local_commit(connection, commit_seq, None)?;
+        object.insert(
+            "local_commit".to_owned(),
+            serde_json::to_value(local_commit)
+                .map_err(|_| corrupt("Core Module local commit is invalid"))?,
+        );
+    }
+    if let Some(object) = result.as_object_mut()
+        && !object.contains_key("commit_seq")
+    {
+        let commit_seq = local_commit_seq.unwrap_or(
+            connection
+                .query_row(
+                    "SELECT COALESCE(max(commit_seq), 0) FROM local_commits",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .map_err(|_| corrupt("Core Module local commit head is invalid"))?,
+        );
+        object.insert("commit_seq".to_owned(), Value::from(commit_seq));
+    }
     Ok(Some(StoredModuleReceipt {
+        profile_id,
+        project_id,
+        store_epoch,
         request_hash,
         result,
         event_sequence,
+        local_commit_seq,
         committed_at,
     }))
 }
@@ -103,7 +174,15 @@ pub fn insert_module_receipt(
     connection: &Connection,
     receipt: NewModuleReceipt<'_>,
 ) -> Result<(), StoreError> {
-    let result_json = serde_json::to_string(receipt.result).map_err(|_| {
+    // The LocalCommit ledger is the durable source for the full event/update
+    // envelope. Receipts retain only the replayable module result and cursor;
+    // storing the envelope here would duplicate Yjs updates and make an
+    // otherwise valid large document mutation exceed the receipt bound.
+    let mut compact_result = receipt.result.clone();
+    if let Some(object) = compact_result.as_object_mut() {
+        object.insert("local_commit".to_owned(), Value::Null);
+    }
+    let result_json = serde_json::to_string(&compact_result).map_err(|_| {
         StoreError::new(
             StoreErrorCode::Internal,
             "Core Module receipt result could not be encoded",
@@ -120,8 +199,9 @@ pub fn insert_module_receipt(
     connection.execute(
         "INSERT INTO core_module_receipts (\
            module_name, operation_id, profile_id, project_id, adapter_kind, operation_kind, \
-           store_epoch, request_hash, result_json, event_sequence, committed_at\
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+           store_epoch, request_hash, result_json, event_sequence, local_commit_seq, committed_at\
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, \
+           (SELECT commit_seq FROM local_commit_effects WHERE change_log_seq = ?10), ?11)",
         params![
             receipt.module_name,
             receipt.operation_id,

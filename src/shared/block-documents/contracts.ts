@@ -122,49 +122,7 @@ export interface ApplyDocumentUpdate {
   readonly update: Uint8Array;
 }
 
-export interface RelocateBlocks {
-  readonly relocationId: string;
-  readonly projectId: string;
-  readonly storeEpoch: string;
-  readonly rootBlockIds: readonly BlockId[];
-  readonly sourceDocumentId: DocumentId;
-  readonly sourceGeneration: number;
-  readonly expectedSourceHeadSeq: number;
-  readonly expectedLocationRevisions: Readonly<Record<BlockId, number>>;
-  readonly target:
-    | {
-        readonly kind: "document";
-        readonly documentId: DocumentId;
-        readonly generation: number;
-        readonly expectedHeadSeq: number;
-        readonly parentBlockId?: BlockId;
-        readonly beforeBlockId?: BlockId;
-      }
-    | {
-        readonly kind: "space";
-        readonly projectId: string;
-        readonly beforeBlockId?: BlockId;
-      };
-}
-
-/** Stable logical move request captured before editors enter the lease fence. */
-export interface RelocationIntent {
-  readonly relocationId: string;
-  readonly projectId: string;
-  readonly storeEpoch: string;
-  readonly rootBlockIds: readonly BlockId[];
-  readonly sourceDocumentId: DocumentId;
-  readonly sourceGeneration: number;
-  readonly target: {
-    readonly kind: "document";
-    readonly documentId: DocumentId;
-    readonly generation: number;
-    readonly parentBlockId?: BlockId;
-    readonly beforeBlockId?: BlockId;
-  };
-}
-
-export interface RelocationDocumentCommit {
+export interface DocumentCommitRef {
   readonly documentId: DocumentId;
   readonly generation: number;
   readonly baseHeadSeq: number;
@@ -174,55 +132,3 @@ export interface RelocationDocumentCommit {
   readonly update: Uint8Array | null;
   readonly stateVector: Uint8Array;
 }
-
-export interface RelocationResult {
-  readonly relocationId: string;
-  readonly projectId: string;
-  readonly storeEpoch: string;
-  readonly duplicate: boolean;
-  readonly rootBlockIds: readonly BlockId[];
-  readonly movedBlockIds: readonly BlockId[];
-  readonly finalLocations: Readonly<Record<BlockId, BlockLocation>>;
-  readonly finalLocationRevisions: Readonly<Record<BlockId, number>>;
-  readonly sourceCommit: RelocationDocumentCommit;
-  readonly targetCommit?: RelocationDocumentCommit;
-  readonly changeLogSeq: number;
-  readonly committedAt: string;
-}
-
-export type RelocationErrorCode =
-  | "invalid_relocation_request"
-  | "store_epoch_mismatch"
-  | "relocation_id_collision"
-  | "relocation_lease_timeout"
-  | "source_document_not_found"
-  | "target_document_not_found"
-  | "document_not_ready"
-  | "document_generation_mismatch"
-  | "source_head_mismatch"
-  | "target_head_changed"
-  | "block_not_found"
-  | "invalid_relocation_roots"
-  | "block_location_mismatch"
-  | "block_location_revision_mismatch"
-  | "invalid_relocation_target"
-  | "relocation_cycle"
-  | "block_relocated"
-  | "recovery_required"
-  | "document_state_corrupt"
-  | "unknown";
-
-export interface RelocationCommandError {
-  readonly code: RelocationErrorCode;
-  readonly message: string;
-  /** The exact same relocation request may be attempted again. */
-  readonly retryable: boolean;
-  /** Current editors must reload one or both Documents before retrying. */
-  readonly reloadRequired: boolean;
-  readonly relocationId?: string;
-  readonly recoveryArtifactId?: string;
-}
-
-export type RelocationCommandResult<T = RelocationResult> =
-  | { readonly ok: true; readonly value: T }
-  | { readonly ok: false; readonly error: RelocationCommandError };

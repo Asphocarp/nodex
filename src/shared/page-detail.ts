@@ -47,7 +47,7 @@ export interface PageDetail {
   readonly projectId: string;
   readonly libraryId: string;
   readonly storeEpoch: string;
-  readonly changeLogSeq: number;
+  readonly commitSeq: number;
   readonly page: Page;
   readonly document: {
     readonly readiness: "pending_genesis" | "ready" | "failed";
@@ -579,7 +579,7 @@ export const parsePageDetailResult = (value: unknown): PageDetailResult => {
     "projectId",
     "libraryId",
     "storeEpoch",
-    "changeLogSeq",
+    "commitSeq",
     "page",
     "document",
     "intrinsicProperties",
@@ -627,9 +627,9 @@ export const parsePageDetailResult = (value: unknown): PageDetailResult => {
       "pageDetail.document.schemaVersion",
     ),
   };
-  const changeLogSeq = revision(
-    detail.changeLogSeq,
-    "pageDetail.changeLogSeq",
+  const commitSeq = revision(
+    detail.commitSeq,
+    "pageDetail.commitSeq",
   );
   const intrinsicProperties: PageIntrinsicProperty[] = [];
   for (const [index, property] of detail.intrinsicProperties.entries()) {
@@ -688,7 +688,7 @@ export const parsePageDetailResult = (value: unknown): PageDetailResult => {
       projectId,
       libraryId,
       storeEpoch,
-      changeLogSeq,
+      commitSeq,
       page,
       document,
       intrinsicProperties,
@@ -720,7 +720,7 @@ export const parseLibraryPageDetailResult = (
     "accessContext",
     "libraryId",
     "storeEpoch",
-    "changeLogSeq",
+    "commitSeq",
     "page",
     "document",
     "intrinsicProperties",

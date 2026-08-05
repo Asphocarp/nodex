@@ -60,24 +60,24 @@ export const invalidateQueryFamilyExactly = async (
 
 interface CursorBearingSnapshot {
   readonly storeEpoch: string;
-  readonly changeLogSeq: number;
+  readonly commitSeq: number;
 }
 
 const snapshotCursor = (data: unknown): ProjectionCursor | null => {
   if (!data || typeof data !== "object") return null;
-  if ("storeEpoch" in data && "changeLogSeq" in data) {
+  if ("storeEpoch" in data && "commitSeq" in data) {
     const snapshot = data as CursorBearingSnapshot;
     if (
       typeof snapshot.storeEpoch !== "string"
       || !snapshot.storeEpoch
-      || !Number.isSafeInteger(snapshot.changeLogSeq)
-      || snapshot.changeLogSeq < 0
+      || !Number.isSafeInteger(snapshot.commitSeq)
+      || snapshot.commitSeq < 0
     ) {
       return null;
     }
     return {
       storeEpoch: snapshot.storeEpoch,
-      changeLogSeq: snapshot.changeLogSeq,
+      commitSeq: snapshot.commitSeq,
     };
   }
   if (!("pages" in data) || !Array.isArray(data.pages) || data.pages.length === 0) {
@@ -95,7 +95,7 @@ const commonCursor = (
   if (!storeEpoch || present.some((cursor) => cursor.storeEpoch !== storeEpoch)) return null;
   return {
     storeEpoch,
-    changeLogSeq: Math.min(...present.map((cursor) => cursor.changeLogSeq)),
+    commitSeq: Math.min(...present.map((cursor) => cursor.commitSeq)),
   };
 };
 

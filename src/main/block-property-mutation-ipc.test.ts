@@ -50,7 +50,7 @@ const committed = (
       },
     ],
     blockMetadataRevisions: { "card-1": 2 },
-    changeLogSeq: 1,
+    commitSeq: 1,
     committedAt: "2026-07-11T00:00:00.000Z",
   },
 });

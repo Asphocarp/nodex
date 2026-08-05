@@ -76,8 +76,8 @@ describe("Core Project Workspace adapter", () => {
     expect(mapCoreProjectWorkspaceEvent({
       transport_version: 4,
       event: {
-        event_version: 2,
-        sequence: 3,
+        event_version: 3,
+        commit_seq: 3,
         store_epoch: "epoch:test",
         operation_id: "operation:workspace",
         committed_at: "2026-07-19T15:02:00.000Z",
@@ -97,6 +97,8 @@ describe("Core Project Workspace adapter", () => {
             session_detail_ids: ["session:one"],
           },
         },
+        effects: [],
+        canonical_hash: "0".repeat(64),
       },
     })).toEqual({
       projectCatalogChange: "sources_updated",
@@ -115,7 +117,7 @@ describe("Core Project Workspace adapter", () => {
     const client = new FakeCoreClient();
     client.enqueueWorkspaceRead({
       contract_version: 4,
-      event_head: 3,
+      commit_head: 3,
       store_epoch: "epoch:test",
       value: {
         kind: "project_window",
@@ -153,7 +155,7 @@ describe("Core Project Workspace adapter", () => {
     const client = new FakeCoreClient();
     client.enqueueWorkspaceRead({
       contract_version: 8,
-      event_head: 0,
+      commit_head: 0,
       store_epoch: "epoch:test",
       value: {
         kind: "project_bootstrap",
@@ -179,7 +181,7 @@ describe("Core Project Workspace adapter", () => {
     });
     client.enqueueWorkspaceRead({
       contract_version: 8,
-      event_head: 1,
+      commit_head: 1,
       store_epoch: "epoch:test",
       value: {
         kind: "project",
@@ -237,7 +239,7 @@ describe("Core Project Workspace adapter", () => {
     const client = new FakeCoreClient();
     client.enqueueWorkspaceRead({
       contract_version: 6,
-      event_head: 5,
+      commit_head: 5,
       store_epoch: "epoch:test",
       value: {
         kind: "project_activity_summaries",
@@ -275,7 +277,7 @@ describe("Core Project Workspace adapter", () => {
     const client = new FakeCoreClient();
     client.enqueueWorkspaceRead({
       contract_version: 4,
-      event_head: 4,
+      commit_head: 4,
       store_epoch: "epoch:test",
       value: {
         kind: "project_window",
@@ -310,7 +312,7 @@ describe("Core Project Workspace adapter", () => {
     const client = new FakeCoreClient();
     client.enqueueWorkspaceRead({
       contract_version: 5,
-      event_head: 17,
+      commit_head: 17,
       store_epoch: "epoch:test",
       value: {
         kind: "task_window",
@@ -357,7 +359,7 @@ describe("Core Project Workspace adapter", () => {
     const client = new FakeCoreClient();
     client.enqueueWorkspaceRead({
       contract_version: 4,
-      event_head: 3,
+      commit_head: 3,
       store_epoch: "epoch:test",
       value: { kind: "project", project: project() },
     });
@@ -378,7 +380,7 @@ describe("Core Project Workspace adapter", () => {
     });
     client.enqueueWorkspaceRead({
       contract_version: 4,
-      event_head: 4,
+      commit_head: 4,
       store_epoch: "epoch:test",
       value: {
         kind: "project",
@@ -407,7 +409,7 @@ describe("Core Project Workspace adapter", () => {
     const client = new FakeCoreClient();
     client.enqueueWorkspaceRead({
       contract_version: 6,
-      event_head: 3,
+      commit_head: 3,
       store_epoch: "epoch:test",
       value: { kind: "project", project: project() },
     });
@@ -432,7 +434,7 @@ describe("Core Project Workspace adapter", () => {
     };
     client.enqueueWorkspaceRead({
       contract_version: 6,
-      event_head: 4,
+      commit_head: 4,
       store_epoch: "epoch:test",
       value: {
         kind: "project",
@@ -465,7 +467,7 @@ describe("Core Project Workspace adapter", () => {
     const client = new FakeCoreClient();
     client.enqueueWorkspaceRead({
       contract_version: 4,
-      event_head: 3,
+      commit_head: 3,
       store_epoch: "epoch:test",
       value: { kind: "project", project: project() },
     });
@@ -486,7 +488,7 @@ describe("Core Project Workspace adapter", () => {
     });
     client.enqueueWorkspaceRead({
       contract_version: 4,
-      event_head: 4,
+      commit_head: 4,
       store_epoch: "epoch:test",
       value: {
         kind: "project",
@@ -512,7 +514,7 @@ describe("Core Project Workspace adapter", () => {
     const client = new FakeCoreClient();
     client.enqueueWorkspaceRead({
       contract_version: 4,
-      event_head: 4,
+      commit_head: 4,
       store_epoch: "epoch:test",
       value: {
         kind: "project",
@@ -531,7 +533,7 @@ describe("Core Project Workspace adapter", () => {
     const client = new FakeCoreClient();
     client.enqueueWorkspaceRead({
       contract_version: 4,
-      event_head: 10,
+      commit_head: 10,
       store_epoch: "epoch:test",
       value: {
         kind: "execution_context",
@@ -566,7 +568,7 @@ describe("Core Project Workspace adapter", () => {
     });
     client.enqueueWorkspaceRead({
       contract_version: 4,
-      event_head: 11,
+      commit_head: 11,
       store_epoch: "epoch:test",
       value: {
         kind: "execution_context",
@@ -621,7 +623,7 @@ describe("Core Project Workspace adapter", () => {
     const client = new FakeCoreClient();
     client.enqueueWorkspaceRead({
       contract_version: 4,
-      event_head: 11,
+      commit_head: 11,
       store_epoch: "epoch:test",
       value: { kind: "project_permission_mode", mode: null },
     });
@@ -642,7 +644,7 @@ describe("Core Project Workspace adapter", () => {
     });
     client.enqueueWorkspaceRead({
       contract_version: 4,
-      event_head: 12,
+      commit_head: 12,
       store_epoch: "epoch:test",
       value: { kind: "project_permission_mode", mode: "full-access" },
     });
@@ -672,7 +674,7 @@ describe("Core Project Workspace adapter", () => {
     const client = new FakeCoreClient();
     client.enqueueWorkspaceRead({
       contract_version: 4,
-      event_head: 11,
+      commit_head: 11,
       store_epoch: "epoch:test",
       value: { kind: "projectless_permission_mode", mode: null },
     });
@@ -693,7 +695,7 @@ describe("Core Project Workspace adapter", () => {
     });
     client.enqueueWorkspaceRead({
       contract_version: 4,
-      event_head: 12,
+      commit_head: 12,
       store_epoch: "epoch:test",
       value: { kind: "projectless_permission_mode", mode: "full-access" },
     });
@@ -755,7 +757,7 @@ describe("Core Project Workspace adapter", () => {
       });
       client.enqueueWorkspaceRead({
         contract_version: 4,
-        event_head: eventSequence,
+        commit_head: eventSequence,
         store_epoch: "epoch:test",
         value: { kind: "thread", thread: persisted },
       });
@@ -833,7 +835,7 @@ describe("Core Project Workspace adapter", () => {
     });
     client.enqueueWorkspaceRead({
       contract_version: 4,
-      event_head: 13,
+      commit_head: 13,
       store_epoch: "epoch:test",
       value: { kind: "thread", thread: movedThread },
     });
@@ -884,7 +886,7 @@ describe("Core Project Workspace adapter", () => {
     const client = new FakeCoreClient();
     client.enqueueWorkspaceRead({
       contract_version: 4,
-      event_head: 12,
+      commit_head: 12,
       store_epoch: "epoch:test",
       value: { kind: "thread", thread },
     });
@@ -905,7 +907,7 @@ describe("Core Project Workspace adapter", () => {
     });
     client.enqueueWorkspaceRead({
       contract_version: 4,
-      event_head: 13,
+      commit_head: 13,
       store_epoch: "epoch:test",
       value: {
         kind: "thread",
@@ -963,7 +965,7 @@ describe("Core Project Workspace adapter", () => {
       });
       client.enqueueWorkspaceRead({
         contract_version: 4,
-        event_head: eventSequence,
+        commit_head: eventSequence,
         store_epoch: "epoch:test",
         value: {
           kind: "execution_context",
@@ -1025,7 +1027,7 @@ describe("Core Project Workspace adapter", () => {
     enqueueApply("operation:archive-thread", 15);
     client.enqueueWorkspaceRead({
       contract_version: 4,
-      event_head: 15,
+      commit_head: 15,
       store_epoch: "epoch:test",
       value: { kind: "thread", thread: { ...thread, archived: true } },
     });
@@ -1077,7 +1079,7 @@ describe("Core Project Workspace adapter", () => {
     };
     client.enqueueWorkspaceRead({
       contract_version: 4,
-      event_head: 14,
+      commit_head: 14,
       store_epoch: "epoch:test",
       value: {
         kind: "background_process_window",
@@ -1105,7 +1107,7 @@ describe("Core Project Workspace adapter", () => {
     });
     client.enqueueWorkspaceRead({
       contract_version: 4,
-      event_head: 15,
+      commit_head: 15,
       store_epoch: "epoch:test",
       value: {
         kind: "background_process_window",
@@ -1225,21 +1227,21 @@ describe("Core Project Workspace adapter", () => {
     enqueueApply(24, "operation:pin-before");
     client.enqueueWorkspaceRead({
       contract_version: 5,
-      event_head: 24,
+      commit_head: 24,
       store_epoch: "epoch:test",
       value: { kind: "thread", thread: { ...thread, pinned_order: 0 } },
     });
     enqueueApply(25, "operation:pin-at-end");
     client.enqueueWorkspaceRead({
       contract_version: 5,
-      event_head: 25,
+      commit_head: 25,
       store_epoch: "epoch:test",
       value: { kind: "thread", thread: { ...thread, pinned_order: 0 } },
     });
     enqueueApply(26, "operation:unpin");
     client.enqueueWorkspaceRead({
       contract_version: 5,
-      event_head: 26,
+      commit_head: 26,
       store_epoch: "epoch:test",
       value: { kind: "thread", thread: { ...thread, pinned_order: null } },
     });
@@ -1389,7 +1391,7 @@ describe("Core Project Workspace adapter", () => {
     const client = new FakeCoreClient();
     client.enqueueWorkspaceRead({
       contract_version: 4,
-      event_head: 5,
+      commit_head: 5,
       store_epoch: "epoch:test",
       value: {
         kind: "session",
@@ -1398,7 +1400,7 @@ describe("Core Project Workspace adapter", () => {
     });
     client.enqueueWorkspaceRead({
       contract_version: 4,
-      event_head: 5,
+      commit_head: 5,
       store_epoch: "epoch:test",
       value: { kind: "thread", thread },
     });
@@ -1440,7 +1442,7 @@ describe("Core Project Workspace adapter", () => {
     });
     client.enqueueWorkspaceRead({
       contract_version: 4,
-      event_head: 6,
+      commit_head: 6,
       store_epoch: "epoch:test",
       value: {
         kind: "session",
@@ -1484,7 +1486,7 @@ describe("Core Project Workspace adapter", () => {
       overrides: Record<string, unknown> = {},
     ) => client.enqueueWorkspaceRead({
       contract_version: 4,
-      event_head: eventHead,
+      commit_head: eventHead,
       store_epoch: "epoch:test",
       value: {
         kind: "session",
@@ -1538,7 +1540,7 @@ describe("Core Project Workspace adapter", () => {
     const client = new FakeCoreClient();
     client.enqueueWorkspaceRead({
       contract_version: 4,
-      event_head: 9,
+      commit_head: 9,
       store_epoch: "epoch:test",
       value: {
         kind: "session",
@@ -1547,7 +1549,7 @@ describe("Core Project Workspace adapter", () => {
     });
     client.enqueueWorkspaceRead({
       contract_version: 4,
-      event_head: 9,
+      commit_head: 9,
       store_epoch: "epoch:test",
       value: { kind: "thread", thread },
     });
@@ -1568,7 +1570,7 @@ describe("Core Project Workspace adapter", () => {
     });
     client.enqueueWorkspaceRead({
       contract_version: 4,
-      event_head: 10,
+      commit_head: 10,
       store_epoch: "epoch:test",
       value: {
         kind: "session",
@@ -1577,7 +1579,7 @@ describe("Core Project Workspace adapter", () => {
     });
     client.enqueueWorkspaceRead({
       contract_version: 4,
-      event_head: 10,
+      commit_head: 10,
       store_epoch: "epoch:test",
       value: {
         kind: "thread",

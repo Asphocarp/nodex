@@ -1776,7 +1776,7 @@ export const parseDatabaseModuleReadResultV2 = (
     "projectId",
     "libraryId",
     "storeEpoch",
-    "changeLogSeq",
+    "commitSeq",
     "value",
   ]);
   if (snapshot.version !== DATABASE_MODULE_V2_CONTRACT_VERSION) {
@@ -1789,7 +1789,7 @@ export const parseDatabaseModuleReadResultV2 = (
       projectId: readString(snapshot.projectId, "databaseModuleReadV2.snapshot.projectId"),
       libraryId: readString(snapshot.libraryId, "databaseModuleReadV2.snapshot.libraryId"),
       storeEpoch: readString(snapshot.storeEpoch, "databaseModuleReadV2.snapshot.storeEpoch"),
-      changeLogSeq: readRevision(snapshot.changeLogSeq, "databaseModuleReadV2.snapshot.changeLogSeq"),
+      commitSeq: readRevision(snapshot.commitSeq, "databaseModuleReadV2.snapshot.commitSeq"),
       value: parseReadValue(snapshot.value),
     },
   };
@@ -1845,7 +1845,7 @@ export const parseDatabaseApplyResultV2 = (
     "affectedPageIds",
     "affectedViewIds",
     "committedRevisions",
-    "changeLogSeq",
+    "commitSeq",
     "committedAt",
   ]);
   if (receipt.version !== DATABASE_MODULE_V2_CONTRACT_VERSION) {
@@ -1901,7 +1901,7 @@ export const parseDatabaseApplyResultV2 = (
         readViewId,
       ),
       committedRevisions,
-      changeLogSeq: readRevision(receipt.changeLogSeq, "databaseApplyV2.receipt.changeLogSeq"),
+      commitSeq: readRevision(receipt.commitSeq, "databaseApplyV2.receipt.commitSeq"),
       committedAt: readTimestamp(receipt.committedAt, "databaseApplyV2.receipt.committedAt"),
     },
   };
@@ -1931,7 +1931,7 @@ export const parseLibraryDatabaseModuleReadResultV2 = (
     "accessContext",
     "libraryId",
     "storeEpoch",
-    "changeLogSeq",
+    "commitSeq",
     "value",
   ]);
   assertLibraryAccessContext(
@@ -1983,7 +1983,7 @@ export const parseLibraryDatabaseApplyResultV2 = (
     "affectedPageIds",
     "affectedViewIds",
     "committedRevisions",
-    "changeLogSeq",
+    "commitSeq",
     "committedAt",
   ]);
   assertLibraryAccessContext(

@@ -627,7 +627,7 @@ fn validate_handshake(
         || handshake.actual_store_format != descriptor.actual_store_format
         || handshake.store_epoch != descriptor.store_epoch
         || handshake.schema_version != descriptor.actual_store_format.version
-        || handshake.event_head < 0
+        || handshake.commit_head < 0
         || handshake.library_id.is_empty()
         || handshake.connection_binding.is_empty()
     {

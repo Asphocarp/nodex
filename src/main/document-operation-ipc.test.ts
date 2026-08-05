@@ -56,7 +56,7 @@ const committed = (
     writeFenceBlockIds: [],
     titleChanged: true,
     coordination: "merge_friendly",
-    changeLogSeq: 7,
+    commitSeq: 7,
     committedAt: "2026-07-11T00:00:00.000Z",
     duplicate: false,
   },

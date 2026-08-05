@@ -805,7 +805,7 @@ export const projectDatabaseViewReference = (
   authority: {
     readonly libraryId: string;
     readonly storeEpoch: string;
-    readonly changeLogSeq: number;
+    readonly commitSeq: number;
   },
 ): DatabaseViewReadModel => {
   const summaries = projectDatabasePageSummaries(query);

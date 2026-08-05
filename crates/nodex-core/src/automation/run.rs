@@ -54,7 +54,7 @@ pub(super) fn read_run(
 pub(super) fn read_runs_window(
     connection: &Connection,
     library_id: &str,
-    event_head: i64,
+    commit_head: i64,
     automation_id: Option<&str>,
     include_archived: bool,
     request: &CollectionWindowRequest,
@@ -128,7 +128,7 @@ pub(super) fn read_runs_window(
         candidates,
         normalized.first,
         CollectionWindowAuthority {
-            projection_revision: event_head,
+            projection_revision: commit_head,
         },
         |coordinate| {
             cursor::mint(
@@ -144,7 +144,7 @@ pub(super) fn read_runs_window(
 pub(super) fn read_inbox_window(
     connection: &Connection,
     library_id: &str,
-    event_head: i64,
+    commit_head: i64,
     request: &CollectionWindowRequest,
 ) -> Result<
     (
@@ -236,7 +236,7 @@ pub(super) fn read_inbox_window(
         candidates,
         normalized.first,
         CollectionWindowAuthority {
-            projection_revision: event_head,
+            projection_revision: commit_head,
         },
         |coordinate| {
             cursor::mint(

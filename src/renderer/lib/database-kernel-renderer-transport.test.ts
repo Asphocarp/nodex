@@ -34,7 +34,7 @@ describe("Database event renderer IPC", () => {
       version: 1 as const,
       kind: "checkpoint" as const,
       scope,
-      cursor: { storeEpoch: "epoch-1", changeLogSeq: 7 },
+      cursor: { storeEpoch: "epoch-1", commitSeq: 7 },
     };
     projection.listener?.(message);
     projection.listener?.({

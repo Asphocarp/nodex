@@ -504,7 +504,7 @@ vi.mock("@/lib/api", () => {
       dataSourceId: `database:${projectId}:primary:data-source:initial`,
       viewId: `database-view:${projectId}:primary-kanban`,
       storeEpoch: "epoch:test",
-      changeLogSeq: 1,
+      commitSeq: 1,
       grouped: false,
       totalRows: 0,
       truncated: false,
@@ -616,7 +616,7 @@ vi.mock("@/lib/api", () => {
         profileId: "profile:test",
         libraryId: "library:test",
         storeEpoch: "epoch:test",
-        changeLogSeq: 0,
+        commitSeq: 0,
         value,
       },
     };
@@ -634,7 +634,7 @@ vi.mock("@/lib/api", () => {
       duplicate: false,
       fields: [],
       blockMetadataRevisions: {},
-      changeLogSeq: 1,
+      commitSeq: 1,
       committedAt: "2026-07-18T00:00:00.000Z",
     },
   }),
@@ -733,7 +733,7 @@ vi.mock("@/lib/api", () => {
         projectId,
         libraryId: "library:test",
         storeEpoch: "workbench-test-store",
-        changeLogSeq: 1,
+        commitSeq: 1,
         value: {
           kind: request.read?.mode === "catalog"
             ? "catalog"
@@ -2427,7 +2427,7 @@ export function renderWorkbench({
           profileId: "profile:test",
           libraryId: "library:test",
           storeEpoch: "epoch:test",
-          changeLogSeq: 1,
+          commitSeq: 1,
           value,
         },
       };
@@ -2852,7 +2852,7 @@ export function renderWorkbench({
         dataSourceId,
         viewId,
         storeEpoch: "epoch:test",
-        changeLogSeq: 1,
+        commitSeq: 1,
         projectionRevision: 1,
         nextCursor: null,
         rows: cards.map((page, index) => ({

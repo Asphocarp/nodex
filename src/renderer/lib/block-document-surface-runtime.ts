@@ -1,9 +1,6 @@
 import * as Y from "yjs";
 import type { Awareness } from "y-protocols/awareness";
-import {
-  type DocumentSyncRealtimeEvent,
-  type OwnedDocumentDescriptor,
-} from "../../shared/block-documents";
+import type { OwnedDocumentDescriptor } from "../../shared/block-documents";
 import {
   getRegisteredBlockDocumentSchemaAdapter,
   inspectRegisteredOwnedBlockDocument,
@@ -30,8 +27,6 @@ export type BlockDocumentSurfacePhase =
   | "connecting"
   | "ready"
   | "saving"
-  | "relocating"
-  | "frozen"
   | "offline"
   | "error"
   | "reset-required"
@@ -42,30 +37,23 @@ export interface BlockDocumentSurfaceStatus {
   readonly phase: BlockDocumentSurfacePhase;
   readonly ready: boolean;
   readonly reloadRequired: boolean;
-  readonly writeFrozen: boolean;
   readonly descriptor: OwnedDocumentDescriptor;
   readonly provider: NodexYProviderStatus;
   readonly error?: Error;
 }
 
-export type BlockDocumentSurfaceRelocationPreparation = Extract<
-  DocumentSyncRealtimeEvent,
-  { readonly kind: "relocation-lease-prepare" }
->;
-
-export type BlockDocumentSurfaceRelocationPreparer = (
-  event: BlockDocumentSurfaceRelocationPreparation,
-) => void | Promise<void>;
-
 export type BlockDocumentSurfacePersistPreparer = () => void | Promise<void>;
 
-/** Surface-scoped write fence. Event metadata preserves future move seams. */
-export interface BlockDocumentSurfaceWriteFence {
-  readonly getWriteFrozen: () => boolean;
-  readonly subscribe: (listener: () => void) => () => void;
-  readonly registerRelocationPreparer: (
-    preparer: BlockDocumentSurfaceRelocationPreparer,
-  ) => () => void;
+export interface DocumentHeadToken {
+  readonly documentId: string;
+  readonly storeEpoch: string;
+  readonly generation: number;
+  readonly expectedHeadSeq: number;
+}
+
+/** Surface-scoped causal barrier for a structural mutation. */
+export interface BlockDocumentMutationBarrier {
+  readonly prepareLocalMutation: () => Promise<DocumentHeadToken>;
 }
 
 export interface BlockDocumentSurfaceCloseResult {
@@ -96,7 +84,6 @@ export interface BlockDocumentSurfaceProvider {
   disconnect: () => void;
   flush: () => Promise<void>;
   checkpoint: () => Promise<void>;
-  waitForRelocationIdle: () => Promise<void>;
   destroy: () => void;
 }
 
@@ -302,8 +289,6 @@ export class BlockDocumentSurfaceRuntime {
   private readonly scheduleCloseTimeout: BlockDocumentSurfaceCloseTimeoutScheduler;
   private readonly reloadHandler?: BlockDocumentSurfaceRuntimeOptions["reload"];
   private readonly listeners = new Set<() => void>();
-  private readonly relocationPreparers =
-    new Set<BlockDocumentSurfaceRelocationPreparer>();
   private readonly persistPreparers =
     new Set<BlockDocumentSurfacePersistPreparer>();
   private readonly readyWaiters = new Set<ReadyWaiter>();
@@ -353,7 +338,6 @@ export class BlockDocumentSurfaceRuntime {
       expectedStoreEpoch: this.descriptor.storeEpoch,
       expectedGeneration: this.descriptor.generation,
       autoConnect: false,
-      prepareSurfaceForRelocation: this.prepareSurfaceForRelocation,
       localCheckpointStore: checkpointDelegate ? this.checkpointStore : null,
       documentSchema: {
         ownerType: this.descriptor.ownerType,
@@ -384,22 +368,12 @@ export class BlockDocumentSurfaceRuntime {
 
   getStatus = (): BlockDocumentSurfaceStatus => this.status;
 
-  getWriteFrozen = (): boolean => this.status.writeFrozen;
-
   getReadyDocument = (): OwnedDocumentEnvelope | null => this.readyDocument;
 
   subscribe = (listener: () => void): (() => void) => {
     if (this.closed || this.closing) return () => undefined;
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
-  };
-
-  registerRelocationPreparer = (
-    preparer: BlockDocumentSurfaceRelocationPreparer,
-  ): (() => void) => {
-    if (this.closed || this.closing) return () => undefined;
-    this.relocationPreparers.add(preparer);
-    return () => this.relocationPreparers.delete(preparer);
   };
 
   registerPersistPreparer = (
@@ -477,6 +451,30 @@ export class BlockDocumentSurfaceRuntime {
     });
     this.durableMutationPreparationPromise = promise;
     return promise;
+  };
+
+  prepareLocalMutation = async (): Promise<DocumentHeadToken> => {
+    const status = await this.prepareDurableMutation();
+    const generation = status.provider.generation ?? status.descriptor.generation;
+    const storeEpoch = status.provider.storeEpoch ?? status.descriptor.storeEpoch;
+    if (
+      status.provider.documentId !== status.descriptor.documentId
+      || !storeEpoch
+      || !Number.isSafeInteger(generation)
+      || generation < 1
+      || !Number.isSafeInteger(status.provider.headSeq)
+      || status.provider.headSeq < 0
+    ) {
+      throw new BlockDocumentSurfaceError(
+        "The Document did not expose a durable causal head after flush",
+      );
+    }
+    return {
+      documentId: status.descriptor.documentId,
+      storeEpoch,
+      generation,
+      expectedHeadSeq: status.provider.headSeq,
+    };
   };
 
   checkpoint = (): Promise<void> => {
@@ -607,13 +605,6 @@ export class BlockDocumentSurfaceRuntime {
       ? null
       : await (this.persistPromise ?? this.persistOwnedDocument());
 
-    // A React surface is only the visual owner of this provider. If its
-    // parent EditorView disappears after relocation preparation has begun,
-    // retain the headless participant until the bounded lease reaches a
-    // terminal event. Unsubscribing earlier turns harmless view churn into a
-    // false participant-disconnected transaction failure.
-    await this.provider.waitForRelocationIdle();
-
     this.unsubscribeProviderStatus();
     try {
       this.provider.destroy();
@@ -624,7 +615,6 @@ export class BlockDocumentSurfaceRuntime {
       this.closed = true;
       this.closing = false;
       this.refreshStatus();
-      this.relocationPreparers.clear();
       this.persistPreparers.clear();
       this.listeners.clear();
     }
@@ -717,8 +707,6 @@ export class BlockDocumentSurfaceRuntime {
     provider: NodexYProviderStatus,
   ): BlockDocumentSurfaceStatus {
     let phase: BlockDocumentSurfacePhase;
-    const writeFrozen =
-      provider.phase === "relocating" || provider.phase === "frozen";
     if (this.closed) {
       phase = "closed";
     } else if (this.closing) {
@@ -727,10 +715,6 @@ export class BlockDocumentSurfaceRuntime {
       phase = "reset-required";
     } else if (this.terminal) {
       phase = "error";
-    } else if (provider.phase === "frozen") {
-      phase = "frozen";
-    } else if (provider.phase === "relocating") {
-      phase = "relocating";
     } else if (provider.phase === "synced" && this.readyDocument) {
       phase = "ready";
     } else if (provider.phase === "saving") {
@@ -750,7 +734,6 @@ export class BlockDocumentSurfaceRuntime {
         && !this.closed
         && !this.closing,
       reloadRequired: this.terminal !== null,
-      writeFrozen,
       descriptor: this.descriptor,
       provider,
       error: this.terminal?.error,
@@ -762,12 +745,4 @@ export class BlockDocumentSurfaceRuntime {
     for (const listener of this.listeners) listener();
   }
 
-  private readonly prepareSurfaceForRelocation = async (
-    event: BlockDocumentSurfaceRelocationPreparation,
-  ): Promise<void> => {
-    const preparers = [...this.relocationPreparers];
-    await Promise.all(
-      preparers.map((prepare) => Promise.resolve().then(() => prepare(event))),
-    );
-  };
 }

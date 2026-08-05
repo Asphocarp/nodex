@@ -9,8 +9,8 @@ use nodex_core_contracts::workspace::{
     ProjectWorkspaceEventKind,
 };
 use nodex_core_contracts::{
-    CORE_EVENT_VERSION, CommittedCoreModuleEvent, CoreModuleEventPayload, ProjectionImpact,
-    StoreEpoch,
+    CORE_EVENT_VERSION, CommittedCoreModuleEvent, CoreModuleEventPayload, LocalCommitEnvelope,
+    ProjectionImpact, StoreEpoch,
 };
 use rusqlite::{Connection, params};
 use serde::Deserialize;
@@ -19,9 +19,10 @@ use crate::document::event_log::{
     ChangeLogRow, reconstruct_document_event, validate_change_log_row,
 };
 
+use super::local_commit;
 use super::projection_impact::{
     canonicalize as canonicalize_projection_impact, decode as decode_projection_impact,
-    encode as encode_projection_impact, replay_floor,
+    encode as encode_projection_impact,
 };
 use super::sqlite::{StoreError, StoreErrorCode};
 use super::writer::StoreReaders;
@@ -30,11 +31,6 @@ const DEFAULT_REPLAY_LIMIT: u32 = 256;
 const MAX_REPLAY_LIMIT: u32 = 1_024;
 const MAX_EVENT_PAYLOAD_BYTES: usize = 1024 * 1024;
 const MAX_EVENT_IDENTITIES: usize = 10_000;
-const MODULE_KINDS: &str = "'library.changed', 'database.changed', 'owned_document.document_initialized', \
-    'owned_document.document_updated', 'owned_document.canvas_scene_updated', \
-    'owned_document.document_restored', 'owned_document.document_invalidated', \
-    'project_workspace.changed', 'automation.changed', 'store_administration.changed', \
-    'block_mutation', 'block_relocation'";
 
 pub(crate) struct NewChangeLogEntry<'a> {
     pub project_id: &'a str,
@@ -52,6 +48,22 @@ pub(crate) struct NewChangeLogEntry<'a> {
 pub(crate) fn append_change_log(
     connection: &Connection,
     entry: NewChangeLogEntry<'_>,
+) -> Result<i64, StoreError> {
+    append_change_log_inner(connection, entry, None)
+}
+
+pub(crate) fn append_change_log_with_local_commit(
+    connection: &Connection,
+    entry: NewChangeLogEntry<'_>,
+    commit_seq: i64,
+) -> Result<i64, StoreError> {
+    append_change_log_inner(connection, entry, Some(commit_seq))
+}
+
+fn append_change_log_inner(
+    connection: &Connection,
+    entry: NewChangeLogEntry<'_>,
+    attached_commit_seq: Option<i64>,
 ) -> Result<i64, StoreError> {
     let projection_impact = canonicalize_projection_impact(entry.projection_impact.clone())?;
     let projection_impact_json = encode_projection_impact(&projection_impact)?;
@@ -76,7 +88,68 @@ pub(crate) fn append_change_log(
             entry.committed_at,
         ],
     )?;
-    Ok(connection.last_insert_rowid())
+    let sequence = connection.last_insert_rowid();
+    local_commit::record_effect(
+        connection,
+        entry.store_epoch,
+        entry.operation_id,
+        attached_commit_seq,
+        entry.committed_at,
+        &projection_impact,
+        sequence,
+        entry.document_ids,
+        entry.payload_json,
+    )?;
+    Ok(sequence)
+}
+
+pub(crate) fn load_local_commit_by_event_sequence(
+    connection: &Connection,
+    sequence: i64,
+) -> Result<LocalCommitEnvelope, StoreError> {
+    let commit_seq = local_commit::commit_seq_for_effect(connection, sequence)?
+        .ok_or_else(|| corrupt("LocalCommit effect is not indexed"))?;
+    load_local_commit(connection, commit_seq, Some(sequence))
+}
+
+pub(crate) fn load_local_commit(
+    connection: &Connection,
+    commit_seq: i64,
+    preferred_effect: Option<i64>,
+) -> Result<LocalCommitEnvelope, StoreError> {
+    let row = local_commit::read_commit(connection, commit_seq)?
+        .ok_or_else(|| corrupt("LocalCommit parent is missing"))?;
+    let sequences = local_commit::effect_sequences(connection, commit_seq)?;
+    if sequences.is_empty() {
+        return Err(corrupt("LocalCommit has no effects"));
+    }
+    let mut effects = Vec::with_capacity(sequences.len());
+    for sequence in &sequences {
+        let event = load_committed_event_by_sequence(connection, *sequence)?;
+        effects.push(event);
+    }
+    local_commit::verify_commit(connection, commit_seq)?;
+    let primary_index = preferred_effect
+        .and_then(|sequence| {
+            sequences
+                .iter()
+                .position(|candidate| *candidate == sequence)
+        })
+        .unwrap_or_else(|| effects.len().saturating_sub(1));
+    let primary = effects
+        .get(primary_index)
+        .ok_or_else(|| corrupt("LocalCommit primary effect is missing"))?;
+    Ok(LocalCommitEnvelope {
+        event_version: CORE_EVENT_VERSION,
+        commit_seq: row.commit_seq,
+        store_epoch: StoreEpoch(row.store_epoch),
+        operation_id: Some(row.operation_id),
+        committed_at: row.committed_at,
+        projection_impact: row.projection_impact,
+        payload: primary.payload.clone(),
+        effects,
+        canonical_hash: row.canonical_hash,
+    })
 }
 
 pub(crate) fn load_committed_event_by_sequence(
@@ -109,7 +182,7 @@ pub(crate) fn load_committed_event_by_sequence(
             rusqlite::Error::QueryReturnedNoRows => corrupt("Committed Core event is missing"),
             _ => StoreError::from(error),
         })?;
-    validate_change_log_row(&row, sequence - 1, event_head(connection)?)?;
+    validate_change_log_row(&row, sequence - 1, physical_event_head(connection)?)?;
     reconstruct_event(connection, &row)?
         .ok_or_else(|| corrupt("Committed Core event cannot be reconstructed"))
 }
@@ -117,13 +190,13 @@ pub(crate) fn load_committed_event_by_sequence(
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CoreEventReplay {
     Events {
-        events: Vec<CommittedCoreModuleEvent>,
-        event_head: i64,
+        events: Vec<LocalCommitEnvelope>,
+        commit_head: i64,
     },
     ResyncRequired {
         requested_after: i64,
         oldest_available: i64,
-        event_head: i64,
+        commit_head: i64,
     },
 }
 
@@ -138,15 +211,33 @@ impl CoreEventLog {
     }
 
     pub fn head(&self) -> Result<i64, StoreError> {
-        self.readers.read_default(event_head)
+        self.readers.read_default(local_commit_head)
     }
 
     pub fn replay(&self, after: i64, limit: Option<u32>) -> Result<CoreEventReplay, StoreError> {
         self.readers.read_default(move |connection| {
             let transaction = connection.unchecked_transaction()?;
+            ensure_local_commit_index(&transaction)?;
             let replay = replay_core_events(&transaction, after, limit)?;
             transaction.commit()?;
             Ok(replay)
+        })
+    }
+
+    pub fn local_commit_for_effect(
+        &self,
+        change_log_seq: i64,
+    ) -> Result<LocalCommitEnvelope, StoreError> {
+        self.readers.read_default(move |connection| {
+            ensure_local_commit_index(connection)?;
+            load_local_commit_by_event_sequence(connection, change_log_seq)
+        })
+    }
+
+    pub fn local_commit(&self, commit_seq: i64) -> Result<LocalCommitEnvelope, StoreError> {
+        self.readers.read_default(move |connection| {
+            ensure_local_commit_index(connection)?;
+            load_local_commit(connection, commit_seq, None)
         })
     }
 }
@@ -234,75 +325,101 @@ fn replay_core_events(
     let limit = limit
         .unwrap_or(DEFAULT_REPLAY_LIMIT)
         .clamp(1, MAX_REPLAY_LIMIT);
-    let (oldest_change, event_head) = connection.query_row(
-        "SELECT COALESCE(min(seq), 0), COALESCE(max(seq), 0) FROM change_log",
+    let (oldest_commit, commit_head) = connection.query_row(
+        "SELECT COALESCE(min(commit_seq), 0), COALESCE(max(commit_seq), 0) \
+         FROM local_commits",
         [],
         |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
     )?;
-    if oldest_change < 0 || event_head < oldest_change {
-        return Err(corrupt("Change log retention boundary is invalid"));
+    if oldest_commit < 0 || commit_head < oldest_commit {
+        return Err(corrupt("LocalCommit retention boundary is invalid"));
     }
-    let projection_floor = replay_floor(connection)?;
-    if after < projection_floor - 1 {
+    if oldest_commit > 0 && after < oldest_commit - 1 {
         return Ok(CoreEventReplay::ResyncRequired {
             requested_after: after,
-            oldest_available: projection_floor,
-            event_head,
-        });
-    }
-    if oldest_change > 1 && after < oldest_change - 1 {
-        return Ok(CoreEventReplay::ResyncRequired {
-            requested_after: after,
-            oldest_available: oldest_change,
-            event_head,
+            oldest_available: oldest_commit,
+            commit_head,
         });
     }
 
-    let sql = format!(
-        "SELECT seq, project_id, store_epoch, kind, operation_id, payload_json, \
-                projection_impact_json, committed_at \
-         FROM change_log WHERE seq > ?1 AND kind IN ({MODULE_KINDS}) \
-         ORDER BY seq ASC LIMIT ?2"
-    );
     let rows = connection
-        .prepare(&sql)?
+        .prepare(
+            "SELECT commit_seq FROM local_commits \
+             WHERE commit_seq > ?1 ORDER BY commit_seq ASC LIMIT ?2",
+        )?
         .query_map(params![after, i64::from(limit) + 1], |row| {
-            Ok(ChangeLogRow {
-                sequence: row.get(0)?,
-                project_id: row.get(1)?,
-                store_epoch: row.get(2)?,
-                kind: row.get(3)?,
-                operation_id: row.get(4)?,
-                payload_json: row.get(5)?,
-                projection_impact_json: row.get(6)?,
-                committed_at: row.get(7)?,
-            })
+            row.get::<_, i64>(0)
         })?
         .collect::<rusqlite::Result<Vec<_>>>()
-        .map_err(|_| corrupt("Change log event row has invalid column types"))?;
+        .map_err(|_| corrupt("LocalCommit sequence has invalid column types"))?;
     if rows.len() > usize::try_from(limit).expect("bounded replay limit") {
         return Ok(CoreEventReplay::ResyncRequired {
             requested_after: after,
-            oldest_available: rows.first().map_or(event_head, |row| row.sequence),
-            event_head,
+            oldest_available: rows.first().copied().unwrap_or(commit_head),
+            commit_head,
         });
     }
 
-    let mut previous = after;
     let mut events = Vec::with_capacity(rows.len());
-    for row in rows {
-        validate_change_log_row(&row, previous, event_head)?;
-        previous = row.sequence;
-        let Some(event) = reconstruct_event(connection, &row)? else {
-            return Ok(CoreEventReplay::ResyncRequired {
-                requested_after: after,
-                oldest_available: row.sequence,
-                event_head,
-            });
-        };
-        events.push(event);
+    for commit_seq in rows {
+        events.push(load_local_commit(connection, commit_seq, None)?);
     }
-    Ok(CoreEventReplay::Events { events, event_head })
+    Ok(CoreEventReplay::Events {
+        events,
+        commit_head,
+    })
+}
+
+fn ensure_local_commit_index(connection: &Connection) -> Result<(), StoreError> {
+    let physical_count: i64 =
+        connection.query_row("SELECT count(*) FROM change_log", [], |row| row.get(0))?;
+    let indexed_count: i64 =
+        connection.query_row("SELECT count(*) FROM local_commit_effects", [], |row| {
+            row.get(0)
+        })?;
+    if indexed_count != physical_count {
+        return Err(corrupt(
+            "LocalCommit index does not cover the durable change log exactly",
+        ));
+    }
+    let mismatched_effect_epochs: i64 = connection.query_row(
+        "SELECT count(*) FROM local_commit_effects effect
+         JOIN local_commits parent ON parent.commit_seq = effect.commit_seq
+         WHERE effect.store_epoch <> parent.store_epoch",
+        [],
+        |row| row.get(0),
+    )?;
+    if mismatched_effect_epochs > 0 {
+        return Err(corrupt(
+            "LocalCommit effect and parent epochs are inconsistent",
+        ));
+    }
+    let mismatched_document_epochs: i64 = connection.query_row(
+        "SELECT count(*) FROM local_commit_documents document
+         JOIN local_commits parent ON parent.commit_seq = document.commit_seq
+         WHERE document.store_epoch <> parent.store_epoch",
+        [],
+        |row| row.get(0),
+    )?;
+    if mismatched_document_epochs > 0 {
+        return Err(corrupt(
+            "LocalCommit document and parent epochs are inconsistent",
+        ));
+    }
+    let mismatched_receipt_epochs: i64 = connection.query_row(
+        "SELECT count(*) FROM core_module_receipts receipt
+         JOIN local_commits parent ON parent.commit_seq = receipt.local_commit_seq
+         WHERE receipt.local_commit_seq IS NOT NULL
+           AND receipt.store_epoch <> parent.store_epoch",
+        [],
+        |row| row.get(0),
+    )?;
+    if mismatched_receipt_epochs > 0 {
+        return Err(corrupt(
+            "LocalCommit receipt and parent epochs are inconsistent",
+        ));
+    }
+    Ok(())
 }
 
 fn reconstruct_event(
@@ -454,8 +571,9 @@ fn reconstruct_event(
     let projection_impact = row
         .projection_impact_json
         .as_deref()
-        .ok_or_else(|| corrupt("Core projection impact is missing"))
-        .and_then(decode_projection_impact)?;
+        .map(decode_projection_impact)
+        .transpose()?
+        .unwrap_or(ProjectionImpact::None);
     Ok(Some(CommittedCoreModuleEvent {
         event_version: CORE_EVENT_VERSION,
         sequence: row.sequence,
@@ -467,7 +585,7 @@ fn reconstruct_event(
     }))
 }
 
-fn event_head(connection: &Connection) -> Result<i64, StoreError> {
+fn physical_event_head(connection: &Connection) -> Result<i64, StoreError> {
     let head = connection.query_row("SELECT COALESCE(max(seq), 0) FROM change_log", [], |row| {
         row.get::<_, i64>(0)
     })?;
@@ -475,6 +593,10 @@ fn event_head(connection: &Connection) -> Result<i64, StoreError> {
         return Err(corrupt("Core event head is invalid"));
     }
     Ok(head)
+}
+
+fn local_commit_head(connection: &Connection) -> Result<i64, StoreError> {
+    local_commit::head(connection)
 }
 
 fn decode<T: for<'de> Deserialize<'de>>(row: &ChangeLogRow, label: &str) -> Result<T, StoreError> {
@@ -688,17 +810,20 @@ mod tests {
                         params![kind, operation_id, payload.to_string()],
                     )?;
                 }
+                local_commit::backfill(connection)?;
                 Ok(())
             })
             .expect("event fixtures");
         let event_log = CoreEventLog::new(kernel.readers());
 
-        let CoreEventReplay::Events { events, event_head } =
-            event_log.replay(0, None).expect("durable replay")
+        let CoreEventReplay::Events {
+            events,
+            commit_head,
+        } = event_log.replay(0, None).expect("durable replay")
         else {
             panic!("expected replayed events");
         };
-        assert_eq!(event_head, 2);
+        assert_eq!(commit_head, 2);
         assert_eq!(events.len(), 2);
         assert!(matches!(
             events[0].payload,
@@ -708,6 +833,149 @@ mod tests {
             events[1].payload,
             CoreModuleEventPayload::Database(_)
         ));
+    }
+
+    #[test]
+    fn groups_multiple_physical_effects_into_one_semantic_local_commit() {
+        let directory = tempdir().expect("temporary Profile");
+        let kernel = SqliteStoreKernel::open(directory.path()).expect("Core store");
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "INSERT INTO projects(id, name, created, updated) \
+                     VALUES ('project:events', 'Events', '2026-01-01', '2026-01-01')",
+                    [],
+                )?;
+                for (kind, page_id) in [
+                    ("library.changed", "page:source"),
+                    ("block_mutation", "page:target"),
+                ] {
+                    connection.execute(
+                        "INSERT INTO change_log(\
+                           project_id, store_epoch, kind, operation_id, payload_json, \
+                           projection_impact_json, committed_at\
+                         ) VALUES ('project:events', 'epoch:events', ?1, \
+                           'transfer:grouped', ?2, '{\"kind\":\"none\"}', '2026-01-01')",
+                        params![
+                            kind,
+                            serde_json::json!({
+                                "module": "library",
+                                "affectedPageIds": [page_id],
+                                "affectedDatabaseIds": [],
+                                "affectedParentKeys": ["library:root"]
+                            })
+                            .to_string()
+                        ],
+                    )?;
+                }
+                local_commit::backfill(connection)?;
+                Ok(())
+            })
+            .expect("grouped event fixture");
+
+        let CoreEventReplay::Events {
+            events,
+            commit_head,
+        } = CoreEventLog::new(kernel.readers())
+            .replay(0, None)
+            .expect("grouped durable replay")
+        else {
+            panic!("expected grouped replay");
+        };
+        assert_eq!(commit_head, 1);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].commit_seq, 1);
+        assert_eq!(events[0].effects.len(), 2);
+    }
+
+    #[test]
+    fn rejects_tampered_local_commit_canonical_hash() {
+        let directory = tempdir().expect("temporary Profile");
+        let kernel = SqliteStoreKernel::open(directory.path()).expect("Core store");
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "INSERT INTO projects(id, name, created, updated) \
+                     VALUES ('project:events', 'Events', '2026-01-01', '2026-01-01')",
+                    [],
+                )?;
+                append_change_log(
+                    connection,
+                    NewChangeLogEntry {
+                        project_id: "project:events",
+                        store_epoch: "epoch:events",
+                        kind: "library.changed",
+                        operation_id: Some("library:tamper-proof"),
+                        block_ids: &[],
+                        document_ids: &[],
+                        database_block_ids: &[],
+                        payload_json: r#"{
+                          "module":"library",
+                          "affectedPageIds":["page:original"],
+                          "affectedDatabaseIds":[],
+                          "affectedParentKeys":["library:root"]
+                        }"#,
+                        projection_impact: &ProjectionImpact::None,
+                        committed_at: "2026-01-01",
+                    },
+                )?;
+                Ok(())
+            })
+            .expect("valid local commit fixture");
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "UPDATE local_commits SET canonical_hash = ?1 WHERE operation_id = ?2",
+                    params!["0".repeat(64), "library:tamper-proof"],
+                )?;
+                Ok(())
+            })
+            .expect("tamper fixture");
+
+        let error = CoreEventLog::new(kernel.readers())
+            .replay(0, None)
+            .expect_err("tampered effect must fail replay");
+        assert_eq!(error.code, StoreErrorCode::StoreCorrupt);
+    }
+
+    #[test]
+    fn rejects_local_commit_effects_that_escape_the_parent_epoch() {
+        let directory = tempdir().expect("temporary Profile");
+        let kernel = SqliteStoreKernel::open(directory.path()).expect("Core store");
+        let error = kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "INSERT INTO projects(id, name, created, updated) \
+                     VALUES ('project:events', 'Events', '2026-01-01', '2026-01-01')",
+                    [],
+                )?;
+                connection.execute(
+                    "INSERT INTO change_log(\
+                       project_id, store_epoch, kind, operation_id, payload_json, \
+                       projection_impact_json, committed_at\
+                     ) VALUES ('project:events', 'epoch:events', 'library.changed', \
+                       'transfer:epoch', ?1, '{\"kind\":\"none\"}', '2026-01-01')",
+                    [serde_json::json!({
+                        "module": "library",
+                        "affectedPageIds": ["page:one"],
+                        "affectedDatabaseIds": [],
+                        "affectedParentKeys": ["library:root"]
+                    })
+                    .to_string()],
+                )?;
+                local_commit::backfill(connection)?;
+                connection.execute(
+                    "UPDATE local_commit_effects SET store_epoch = 'epoch:other'",
+                    [],
+                )?;
+                Ok(())
+            })
+            .expect_err("cross-epoch effect must fail the composite foreign key");
+        assert_eq!(error.code, StoreErrorCode::SqliteFailure);
     }
 
     #[test]
@@ -741,6 +1009,7 @@ mod tests {
                         ],
                     )?;
                 }
+                local_commit::backfill(connection)?;
                 Ok(())
             })
             .expect("event fixtures");
@@ -748,7 +1017,7 @@ mod tests {
 
         assert!(matches!(
             event_log.replay(0, Some(2)).expect("bounded replay"),
-            CoreEventReplay::ResyncRequired { event_head: 3, .. }
+            CoreEventReplay::ResyncRequired { commit_head: 3, .. }
         ));
     }
 
@@ -819,6 +1088,7 @@ mod tests {
                     })
                     .to_string()],
                 )?;
+                local_commit::backfill(connection)?;
                 Ok(())
             })
             .expect("legacy event fixture");

@@ -93,7 +93,7 @@ struct AppliedOperation {
 
 #[derive(Default)]
 struct LibraryState {
-    event_head: i64,
+    commit_head: i64,
     operations: HashMap<String, AppliedOperation>,
     grants: BTreeMap<(String, String), String>,
 }
@@ -177,19 +177,19 @@ impl LibraryModule {
             let context = context.clone();
             let scope = scope.clone();
             let strict_materialization = *strict_materialization;
-            let (current_store_epoch, current_event_head) = readers
+            let (current_store_epoch, current_commit_seq) = readers
                 .read_default(|connection| {
                     let transaction = connection.unchecked_transaction()?;
                     let store_epoch = crate::document::read_store_epoch(&transaction)?;
-                    let event_head = navigation::event_head(&transaction)?;
+                    let commit_seq = navigation::commit_head(&transaction)?;
                     transaction.commit()?;
-                    Ok((store_epoch, event_head))
+                    Ok((store_epoch, commit_seq))
                 })
                 .map_err(core_error)?;
             let current_cache_key = search_snapshot::cache_key(
                 &context,
                 &current_store_epoch,
-                current_event_head,
+                current_commit_seq,
                 scope.clone(),
                 strict_materialization,
             )
@@ -207,7 +207,7 @@ impl LibraryModule {
                 return Ok(ModuleReadSnapshot {
                     contract_version: LIBRARY_CONTRACT_VERSION,
                     store_epoch: StoreEpoch(current_store_epoch),
-                    event_head: current_event_head,
+                    commit_head: current_commit_seq,
                     value: LibraryReadValue::SearchSnapshotLease {
                         value: Box::new(value),
                     },
@@ -215,28 +215,29 @@ impl LibraryModule {
             }
             let prepare_context = context.clone();
             let prepare_scope = scope.clone();
-            let (store_epoch, event_head, prepared) = readers
+            let (store_epoch, commit_seq, prepared) = readers
                 .read_default(move |connection| {
                     let transaction = connection.unchecked_transaction()?;
                     let store_epoch = crate::document::read_store_epoch(&transaction)?;
-                    let event_head = navigation::event_head(&transaction)?;
+                    let change_log_head = navigation::change_log_head(&transaction)?;
+                    let commit_seq = navigation::commit_head(&transaction)?;
                     let prepared = search_snapshot::prepare(
                         &transaction,
                         &library_id,
                         &store_epoch,
-                        event_head,
+                        change_log_head,
                         &prepare_context,
                         prepare_scope,
                         strict_materialization,
                     )?;
                     transaction.commit()?;
-                    Ok((store_epoch, event_head, prepared))
+                    Ok((store_epoch, commit_seq, prepared))
                 })
                 .map_err(core_error)?;
             let cache_key = search_snapshot::cache_key(
                 &context,
                 &store_epoch,
-                event_head,
+                commit_seq,
                 scope,
                 strict_materialization,
             )
@@ -253,7 +254,7 @@ impl LibraryModule {
             return Ok(ModuleReadSnapshot {
                 contract_version: LIBRARY_CONTRACT_VERSION,
                 store_epoch: StoreEpoch(store_epoch),
-                event_head,
+                commit_head: commit_seq,
                 value: LibraryReadValue::SearchSnapshotLease {
                     value: Box::new(value),
                 },
@@ -264,13 +265,13 @@ impl LibraryModule {
             let readers = self.readers.as_ref().ok_or_else(|| {
                 invalid_input("the Library tracer cannot release search snapshots")
             })?;
-            let (store_epoch, event_head) = readers
+            let (store_epoch, commit_seq) = readers
                 .read_default(|connection| {
                     let transaction = connection.unchecked_transaction()?;
                     let store_epoch = crate::document::read_store_epoch(&transaction)?;
-                    let event_head = navigation::event_head(&transaction)?;
+                    let commit_seq = navigation::commit_head(&transaction)?;
                     transaction.commit()?;
-                    Ok((store_epoch, event_head))
+                    Ok((store_epoch, commit_seq))
                 })
                 .map_err(core_error)?;
             let value = self
@@ -285,7 +286,7 @@ impl LibraryModule {
             return Ok(ModuleReadSnapshot {
                 contract_version: LIBRARY_CONTRACT_VERSION,
                 store_epoch: StoreEpoch(store_epoch),
-                event_head,
+                commit_head: commit_seq,
                 value: LibraryReadValue::SearchSnapshotRelease { value },
             });
         }
@@ -389,12 +390,13 @@ impl LibraryModule {
                                 false,
                             )
                         })?;
-                    let event_head = navigation::event_head(&transaction)?;
+                    let change_log_head = navigation::change_log_head(&transaction)?;
+                    let commit_seq = navigation::commit_head(&transaction)?;
                     let value = match request.read {
                         LibraryRead::Metadata => LibraryReadValue::Metadata {
                             profile_id,
                             library_id,
-                            change_log_seq: event_head,
+                            commit_seq,
                         },
                         LibraryRead::ResourceProjectAccess { target } => {
                             LibraryReadValue::ResourceProjectAccess {
@@ -461,7 +463,7 @@ impl LibraryModule {
                             &transaction,
                             &library_id,
                             &store_epoch,
-                            event_head,
+                            change_log_head,
                             &context,
                             read,
                         )?,
@@ -470,7 +472,7 @@ impl LibraryModule {
                     Ok(ModuleReadSnapshot {
                         contract_version: LIBRARY_CONTRACT_VERSION,
                         store_epoch: StoreEpoch(store_epoch),
-                        event_head,
+                        commit_head: commit_seq,
                         value,
                     })
                 })
@@ -482,7 +484,7 @@ impl LibraryModule {
             LibraryRead::Metadata => LibraryReadValue::Metadata {
                 profile_id: self.profile_id.clone(),
                 library_id: self.library_id.clone(),
-                change_log_seq: state.event_head,
+                commit_seq: state.commit_head,
             },
             _ => {
                 return Err(invalid_input(
@@ -494,7 +496,7 @@ impl LibraryModule {
         Ok(ModuleReadSnapshot {
             contract_version: LIBRARY_CONTRACT_VERSION,
             store_epoch: self.store_epoch.clone(),
-            event_head: state.event_head,
+            commit_head: state.commit_head,
             value,
         })
     }
@@ -652,8 +654,8 @@ impl LibraryModule {
             });
         }
 
-        state.event_head += 1;
-        let event_sequence = state.event_head;
+        state.commit_head += 1;
+        let event_sequence = state.commit_head;
         let resource_id = resource_id(&target);
         let previous_access = state
             .grants
@@ -680,9 +682,10 @@ impl LibraryModule {
             affected_database_ids: affected_database_ids.clone(),
             affected_view_ids: Vec::new(),
             committed_revisions: BTreeMap::new(),
-            change_log_seq: event_sequence,
+            commit_seq: event_sequence,
             committed_at: committed_at.clone(),
         };
+        let commit_seq = event_sequence;
         let committed = CommittedModuleValue {
             value: LibraryCommitValue {
                 affected_resource_ids: vec![resource_id],
@@ -697,8 +700,10 @@ impl LibraryModule {
                 agent_move_pages: None,
             },
             receipt,
+            commit_seq,
             event_sequence,
             store_epoch: self.store_epoch.clone(),
+            local_commit: None,
         };
         let event_payload = CoreModuleEventPayload::Library(LibraryEvent {
             kind: LibraryEventKind::LibraryChanged,
@@ -861,17 +866,17 @@ mod tests {
     };
     use nodex_core_contracts::document::{
         DocumentBlockOperation as ContractDocumentBlockOperation, DocumentBlockUpdatePatch,
-        DocumentOptionalValue, OwnedDocumentIntent,
+        DocumentOptionalValue, OwnedDocumentEvent, OwnedDocumentIntent,
     };
     use nodex_core_contracts::library::{
         LibraryAccess, LibraryAgentSearchResult, LibraryAgentSearchScope, LibraryAgentSearchTarget,
         LibraryBlockLocation, LibraryBlockPropertyFieldMutation, LibraryBlockPropertyMutation,
         LibraryBlockPropertyMutationErrorCode, LibraryBlockPropertyMutationOutcome,
         LibraryBlockTransferLogicalIntent, LibraryBlockTransferMode, LibraryBlockTransferPlan,
-        LibraryBlockTransferSource, LibraryBlockTransferTarget, LibraryNavigationParent,
-        LibraryPageFileKind, LibraryPageLifecycleMutation, LibraryPageLifecycleState,
-        LibraryPageLifecycleTagOption, LibraryPagePrepareKind, LibraryPageWorkflowStatus,
-        LibraryWriteParent,
+        LibraryBlockTransferSource, LibraryBlockTransferTarget, LibraryDocumentHead,
+        LibraryNavigationParent, LibraryPageFileKind, LibraryPageLifecycleMutation,
+        LibraryPageLifecycleState, LibraryPageLifecycleTagOption, LibraryPagePrepareKind,
+        LibraryPageWorkflowStatus, LibraryWriteParent,
     };
     use nodex_core_contracts::workspace::{
         PROJECT_WORKSPACE_CONTRACT_VERSION, ProjectWorkspaceIntent, ProjectWorkspaceThreadPatch,
@@ -888,6 +893,7 @@ mod tests {
 
     use crate::database::DatabaseModule;
     use crate::document::OwnedDocumentModule;
+    use crate::infrastructure::event_log::CoreEventLog;
     use crate::infrastructure::sqlite::with_immediate_transaction;
     use crate::infrastructure::store::SqliteStoreKernel;
     use crate::workspace::ProjectWorkspaceModule;
@@ -1428,7 +1434,10 @@ mod tests {
             .apply(&persistent_context, archive_request)
             .expect("replay archive");
         assert!(replay.committed.receipt.mutation.duplicate);
-        assert!(replay.event.is_none());
+        assert_eq!(
+            replay.event.as_ref().map(|event| event.sequence),
+            Some(archived.committed.event_sequence)
+        );
 
         let unarchived = module
             .apply(
@@ -1522,6 +1531,7 @@ mod tests {
                     page_id: PAGE_A.to_owned(),
                     expected_metadata_revision: 3,
                     expected_parent_revision: 1,
+                    parent_document_head: None,
                 }),
             },
         };
@@ -1555,6 +1565,7 @@ mod tests {
                             delete_operation_id: "lifecycle:delete-a".to_owned(),
                             expected_metadata_revision: 4,
                             expected_parent_revision: 2,
+                            parent_document_head: None,
                             membership: None,
                             before_block_id: Some(PAGE_B.to_owned()),
                         }),
@@ -1753,7 +1764,10 @@ mod tests {
             .apply(&persistent_context, create_request)
             .expect("replay Page create");
         assert!(replay.committed.receipt.mutation.duplicate);
-        assert!(replay.event.is_none());
+        assert_eq!(
+            replay.event.as_ref().map(|event| event.sequence),
+            Some(created.committed.event_sequence)
+        );
         let LibraryReadValue::PageContent { value } = module
             .read(
                 &persistent_context,
@@ -2511,6 +2525,7 @@ mod tests {
                             page_id: ROW_PAGE.to_owned(),
                             expected_metadata_revision: 1,
                             expected_parent_revision: 1,
+                            parent_document_head: None,
                         }),
                     },
                 },
@@ -2561,6 +2576,7 @@ mod tests {
                             delete_operation_id: restore_evidence.delete_operation_id,
                             expected_metadata_revision: 2,
                             expected_parent_revision: 2,
+                            parent_document_head: None,
                             membership: Some(
                                 nodex_core_contracts::library::LibraryPageLifecycleMutationMembership {
                                     membership_id: restore_membership.membership_id,
@@ -3006,6 +3022,7 @@ mod tests {
             actor: serde_json::json!({ "kind": "test" }),
             mode: LibraryBlockTransferMode::Move,
             root_block_ids: vec![source_root.clone()],
+            causal_dependencies: Vec::new(),
             source: LibraryBlockTransferSource::Page {
                 page_id: SOURCE_PAGE.to_owned(),
             },
@@ -3086,11 +3103,12 @@ mod tests {
             .read_default(|connection| {
                 let mut statement = connection.prepare(
                     "SELECT kind FROM change_log \
-                     WHERE kind LIKE 'owned_document.%' AND operation_id LIKE 'relocation:%' \
+                     WHERE kind LIKE 'owned_document.%' \
+                       AND json_extract(payload_json, '$.localCommitId') = ?1 \
                      ORDER BY seq",
                 )?;
                 statement
-                    .query_map([], |row| row.get::<_, String>(0))?
+                    .query_map(["move-transfer-root"], |row| row.get::<_, String>(0))?
                     .collect::<rusqlite::Result<Vec<_>>>()
                     .map_err(Into::into)
             })
@@ -3127,6 +3145,7 @@ mod tests {
             actor: serde_json::json!({ "kind": "test" }),
             mode: LibraryBlockTransferMode::Copy,
             root_block_ids: vec![source_root.clone()],
+            causal_dependencies: Vec::new(),
             source: LibraryBlockTransferSource::Document {
                 document_id: TARGET_DOCUMENT.to_owned(),
             },
@@ -3303,6 +3322,7 @@ mod tests {
             actor: serde_json::json!({ "kind": "test" }),
             mode: LibraryBlockTransferMode::Copy,
             root_block_ids: vec![roots.1.clone()],
+            causal_dependencies: Vec::new(),
             source: LibraryBlockTransferSource::Page {
                 page_id: FOREIGN_SOURCE_PAGE.to_owned(),
             },
@@ -3330,6 +3350,7 @@ mod tests {
             actor: serde_json::json!({ "kind": "test" }),
             mode: LibraryBlockTransferMode::Copy,
             root_block_ids: vec![FOREIGN_SOURCE_PAGE.to_owned()],
+            causal_dependencies: Vec::new(),
             source: LibraryBlockTransferSource::Library {
                 library_id: "library-1".to_owned(),
             },
@@ -3471,6 +3492,7 @@ mod tests {
             actor: serde_json::json!({ "kind": "test" }),
             mode: LibraryBlockTransferMode::Move,
             root_block_ids: vec![roots.1.clone()],
+            causal_dependencies: Vec::new(),
             source: LibraryBlockTransferSource::Document {
                 document_id: FOREIGN_SOURCE_DOCUMENT.to_owned(),
             },
@@ -3538,6 +3560,7 @@ mod tests {
             actor: serde_json::json!({ "kind": "test" }),
             mode: LibraryBlockTransferMode::Move,
             root_block_ids: vec![roots.0.clone()],
+            causal_dependencies: Vec::new(),
             source: LibraryBlockTransferSource::Page {
                 page_id: LOCAL_SOURCE_PAGE.to_owned(),
             },
@@ -3816,7 +3839,6 @@ mod tests {
                             },
                         ],
                         actor: serde_json::json!({ "kind": "test" }),
-                        write_fence_prepared: true,
                     },
                 },
             )
@@ -3863,7 +3885,6 @@ mod tests {
                             },
                         ],
                         actor: serde_json::json!({ "kind": "test" }),
-                        write_fence_prepared: true,
                     },
                 },
             )
@@ -3873,6 +3894,7 @@ mod tests {
             actor: serde_json::json!({ "kind": "test" }),
             mode: LibraryBlockTransferMode::Move,
             root_block_ids: vec![roots.0.clone()],
+            causal_dependencies: Vec::new(),
             source: LibraryBlockTransferSource::Document {
                 document_id: PROMOTE_DOCUMENT.to_owned(),
             },
@@ -3910,8 +3932,8 @@ mod tests {
                     operation_id: "promote-root-to-library".to_owned(),
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::TransferBlocks {
-                        intent: promote_intent,
-                        write_fence: Some(preparation.write_fence),
+                        intent: promote_intent.clone(),
+                        write_fence: Some(preparation.write_fence.clone()),
                     },
                 },
             )
@@ -3924,15 +3946,67 @@ mod tests {
             .expect("promotion result");
         assert_eq!(promoted_result.result_root_block_ids, vec![roots.0.clone()]);
         assert_eq!(promoted_result.document_commits.len(), 2);
+        let promotion_commit = promoted
+            .committed
+            .local_commit
+            .as_ref()
+            .expect("promotion LocalCommit");
+        assert_eq!(promotion_commit.effects.len(), 3);
+        assert_eq!(
+            promotion_commit
+                .effects
+                .iter()
+                .filter(|effect| matches!(
+                    effect.payload,
+                    CoreModuleEventPayload::OwnedDocument(
+                        OwnedDocumentEvent::DocumentUpdated { .. }
+                    )
+                ))
+                .count(),
+            2
+        );
+        assert!(matches!(
+            promotion_commit
+                .effects
+                .last()
+                .map(|effect| &effect.payload),
+            Some(CoreModuleEventPayload::Library(_))
+        ));
+        assert_eq!(
+            CoreEventLog::new(kernel.readers())
+                .local_commit(promotion_commit.commit_seq)
+                .expect("replay promotion LocalCommit"),
+            *promotion_commit,
+        );
         assert_eq!(
             promoted_result.transformation_evidence[0]["kind"],
             "promote"
+        );
+        let replayed = library
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "promote-root-to-library".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::TransferBlocks {
+                        intent: promote_intent,
+                        write_fence: Some(preparation.write_fence),
+                    },
+                },
+            )
+            .expect("replay promotion");
+        assert!(replayed.committed.receipt.mutation.duplicate);
+        assert_eq!(
+            replayed.committed.local_commit,
+            promoted.committed.local_commit,
         );
 
         let wrap_intent = LibraryBlockTransferLogicalIntent {
             actor: serde_json::json!({ "kind": "test" }),
             mode: LibraryBlockTransferMode::Copy,
             root_block_ids: vec![roots.1.clone()],
+            causal_dependencies: Vec::new(),
             source: LibraryBlockTransferSource::Page {
                 page_id: WRAP_PAGE.to_owned(),
             },
@@ -3993,6 +4067,7 @@ mod tests {
             actor: serde_json::json!({ "kind": "test" }),
             mode: LibraryBlockTransferMode::Copy,
             root_block_ids: vec![roots.1.clone()],
+            causal_dependencies: Vec::new(),
             source: LibraryBlockTransferSource::Page {
                 page_id: WRAP_PAGE.to_owned(),
             },
@@ -4193,6 +4268,7 @@ mod tests {
                         ),
                     )
                 );
+
                 Ok(())
             })
             .expect("transformation evidence");
@@ -4201,6 +4277,7 @@ mod tests {
             actor: serde_json::json!({ "kind": "test" }),
             mode: LibraryBlockTransferMode::Move,
             root_block_ids: vec![data_source_page_id.clone()],
+            causal_dependencies: Vec::new(),
             source: LibraryBlockTransferSource::DataSource {
                 data_source_id: DATA_SOURCE.to_owned(),
             },
@@ -4293,6 +4370,7 @@ mod tests {
             actor: serde_json::json!({ "kind": "test" }),
             mode: LibraryBlockTransferMode::Move,
             root_block_ids: vec![data_source_page_id.clone()],
+            causal_dependencies: Vec::new(),
             source: LibraryBlockTransferSource::Library {
                 library_id: "library-1".to_owned(),
             },
@@ -4374,6 +4452,7 @@ mod tests {
             actor: serde_json::json!({ "kind": "test" }),
             mode: LibraryBlockTransferMode::Move,
             root_block_ids: vec![data_source_page_id.clone()],
+            causal_dependencies: Vec::new(),
             source: LibraryBlockTransferSource::DataSource {
                 data_source_id: DATA_SOURCE.to_owned(),
             },
@@ -4443,10 +4522,202 @@ mod tests {
             5
         );
 
+        let LibraryReadValue::PageLifecyclePreflight { value: nested_page } = library
+            .read(
+                &context,
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::PageLifecyclePreflight {
+                        page_id: data_source_page_id.clone(),
+                    },
+                },
+            )
+            .expect("read nested Page lifecycle authority")
+            .value
+        else {
+            panic!("nested Page lifecycle preflight");
+        };
+        let nested_page = nested_page.page.expect("nested Page authority");
+        let LibraryReadValue::PageLifecyclePreflight { value: host_page } = library
+            .read(
+                &context,
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::PageLifecyclePreflight {
+                        page_id: ANCHOR_PAGE.to_owned(),
+                    },
+                },
+            )
+            .expect("read host Page lifecycle authority")
+            .value
+        else {
+            panic!("host Page lifecycle preflight");
+        };
+        let host_page = host_page.page.expect("host Page authority");
+        let nested_delete = library
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "delete-nested-page-lifecycle".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::ApplyPageLifecycle {
+                        mutation: Box::new(LibraryPageLifecycleMutation::DeletePage {
+                            page_id: data_source_page_id.clone(),
+                            expected_metadata_revision: nested_page.metadata_revision,
+                            expected_parent_revision: nested_page.parent_revision,
+                            parent_document_head: Some(LibraryDocumentHead {
+                                document_id: ANCHOR_DOCUMENT.to_owned(),
+                                generation: host_page.document.generation,
+                                head_seq: host_page.document.head_seq,
+                            }),
+                        }),
+                    },
+                },
+            )
+            .expect("delete nested Page through typed lifecycle");
+        assert_eq!(
+            nested_delete
+                .committed
+                .value
+                .page_lifecycle
+                .as_ref()
+                .expect("nested Page delete receipt")
+                .lifecycle,
+            LibraryPageLifecycleState::Deleted
+        );
+        assert!(nested_delete.committed.local_commit.is_some());
+        let host_head_after_delete = *nested_delete
+            .committed
+            .receipt
+            .committed_revisions
+            .get(&format!("documentHead:{ANCHOR_DOCUMENT}"))
+            .expect("nested Page delete host head revision");
+        kernel
+            .readers()
+            .read_default(|connection| {
+                let shell_count = connection.query_row(
+                    "SELECT count(*) FROM document_block_index \
+                     WHERE document_id = ?1 AND block_id = ?2",
+                    params![ANCHOR_DOCUMENT, data_source_page_id],
+                    |row| row.get::<_, i64>(0),
+                )?;
+                assert_eq!(shell_count, 0);
+                let lifecycle = connection.query_row(
+                    "SELECT block.lifecycle, page.lifecycle, projection.lifecycle \
+                     FROM blocks block JOIN pages page ON page.block_id = block.id \
+                     JOIN page_read_model projection ON projection.page_block_id = block.id \
+                     WHERE block.id = ?1",
+                    [&data_source_page_id],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(
+                    lifecycle,
+                    (
+                        "deleted".to_owned(),
+                        "deleted".to_owned(),
+                        "deleted".to_owned()
+                    )
+                );
+                Ok(())
+            })
+            .expect("nested Page lifecycle projections are deleted together");
+
+        let nested_restore = library
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "restore-nested-page-lifecycle".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::ApplyPageLifecycle {
+                        mutation: Box::new(LibraryPageLifecycleMutation::RestorePage {
+                            page_id: data_source_page_id.clone(),
+                            delete_operation_id: "delete-nested-page-lifecycle".to_owned(),
+                            expected_metadata_revision: nested_delete
+                                .committed
+                                .value
+                                .page_lifecycle
+                                .as_ref()
+                                .expect("nested Page delete receipt")
+                                .metadata_revision,
+                            expected_parent_revision: nested_delete
+                                .committed
+                                .value
+                                .page_lifecycle
+                                .as_ref()
+                                .expect("nested Page delete receipt")
+                                .parent_revision,
+                            membership: None,
+                            before_block_id: None,
+                            parent_document_head: Some(LibraryDocumentHead {
+                                document_id: ANCHOR_DOCUMENT.to_owned(),
+                                generation: host_page.document.generation,
+                                head_seq: host_head_after_delete,
+                            }),
+                        }),
+                    },
+                },
+            )
+            .expect("restore nested Page through typed lifecycle");
+        assert_eq!(
+            nested_restore
+                .committed
+                .value
+                .page_lifecycle
+                .as_ref()
+                .expect("nested Page restore receipt")
+                .lifecycle,
+            LibraryPageLifecycleState::Active
+        );
+        assert!(nested_restore.committed.local_commit.is_some());
+        kernel
+            .readers()
+            .read_default(|connection| {
+                let shell_count = connection.query_row(
+                    "SELECT count(*) FROM document_block_index \
+                     WHERE document_id = ?1 AND block_id = ?2",
+                    params![ANCHOR_DOCUMENT, data_source_page_id],
+                    |row| row.get::<_, i64>(0),
+                )?;
+                assert_eq!(shell_count, 1);
+                let lifecycle = connection.query_row(
+                    "SELECT block.lifecycle, page.lifecycle, projection.lifecycle \
+                     FROM blocks block JOIN pages page ON page.block_id = block.id \
+                     JOIN page_read_model projection ON projection.page_block_id = block.id \
+                     WHERE block.id = ?1",
+                    [&data_source_page_id],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(
+                    lifecycle,
+                    (
+                        "active".to_owned(),
+                        "active".to_owned(),
+                        "active".to_owned()
+                    )
+                );
+                Ok(())
+            })
+            .expect("nested Page lifecycle projections are restored together");
+
         let move_nested_to_library = LibraryBlockTransferLogicalIntent {
             actor: serde_json::json!({ "kind": "test" }),
             mode: LibraryBlockTransferMode::Move,
             root_block_ids: vec![data_source_page_id.clone()],
+            causal_dependencies: Vec::new(),
             source: LibraryBlockTransferSource::Page {
                 page_id: ANCHOR_PAGE.to_owned(),
             },
@@ -4506,7 +4777,7 @@ mod tests {
         ));
         assert_eq!(
             returned_result.final_location_revisions[&data_source_page_id],
-            6
+            8
         );
         kernel
             .readers()
@@ -4526,6 +4797,7 @@ mod tests {
             actor: serde_json::json!({ "kind": "test" }),
             mode: LibraryBlockTransferMode::Move,
             root_block_ids: vec![data_source_page_id.clone()],
+            causal_dependencies: Vec::new(),
             source: LibraryBlockTransferSource::Library {
                 library_id: "library-1".to_owned(),
             },
@@ -4584,6 +4856,7 @@ mod tests {
             actor: serde_json::json!({ "kind": "test" }),
             mode: LibraryBlockTransferMode::Move,
             root_block_ids: vec![data_source_page_id.clone()],
+            causal_dependencies: Vec::new(),
             source: LibraryBlockTransferSource::Page {
                 page_id: WRAP_PAGE.to_owned(),
             },
@@ -4636,13 +4909,14 @@ mod tests {
         assert_eq!(moved_result.document_commits.len(), 2);
         assert_eq!(
             moved_result.final_location_revisions[&data_source_page_id],
-            8
+            10
         );
 
         let cycle_intent = LibraryBlockTransferLogicalIntent {
             actor: serde_json::json!({ "kind": "test" }),
             mode: LibraryBlockTransferMode::Move,
             root_block_ids: vec![ANCHOR_PAGE.to_owned()],
+            causal_dependencies: Vec::new(),
             source: LibraryBlockTransferSource::Library {
                 library_id: "library-1".to_owned(),
             },
@@ -4671,6 +4945,7 @@ mod tests {
             actor: serde_json::json!({ "kind": "test" }),
             mode: LibraryBlockTransferMode::Copy,
             root_block_ids: vec![ANCHOR_PAGE.to_owned()],
+            causal_dependencies: Vec::new(),
             source: LibraryBlockTransferSource::Library {
                 library_id: "library-1".to_owned(),
             },
@@ -4747,6 +5022,7 @@ mod tests {
             actor: serde_json::json!({ "kind": "test" }),
             mode: LibraryBlockTransferMode::Copy,
             root_block_ids: vec![ANCHOR_PAGE.to_owned(), roots.0.clone()],
+            causal_dependencies: Vec::new(),
             source: LibraryBlockTransferSource::Library {
                 library_id: "library-1".to_owned(),
             },
@@ -4859,6 +5135,85 @@ mod tests {
                 Ok(())
             })
             .expect("nested multi-root Page copy evidence");
+
+        let move_to_data_source_intent = LibraryBlockTransferLogicalIntent {
+            actor: serde_json::json!({ "kind": "test" }),
+            mode: LibraryBlockTransferMode::Move,
+            root_block_ids: vec![WRAP_NESTED_ANCHOR.to_owned()],
+            causal_dependencies: Vec::new(),
+            source: LibraryBlockTransferSource::Page {
+                page_id: WRAP_PAGE.to_owned(),
+            },
+            target: LibraryBlockTransferTarget::DataSource {
+                data_source_id: DATA_SOURCE.to_owned(),
+                view_id: VIEW.to_owned(),
+                group_key: Some("ship".to_owned()),
+                before_page_id: None,
+            },
+        };
+        let move_plan = library
+            .read(
+                &context,
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::PlanBlockTransfer {
+                        operation_id: "move-wrapper-to-data-source".to_owned(),
+                        store_epoch: "epoch-1".to_owned(),
+                        intent: move_to_data_source_intent.clone(),
+                    },
+                },
+            )
+            .expect("plan moving wrapper to Data Source");
+        let LibraryReadValue::BlockTransferPlan { value } = move_plan.value else {
+            panic!("moving wrapper to Data Source plan");
+        };
+        let LibraryBlockTransferPlan::Prepared { preparation } = *value else {
+            panic!("prepared moving wrapper to Data Source");
+        };
+        let moved = library
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "move-wrapper-to-data-source".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::TransferBlocks {
+                        intent: move_to_data_source_intent,
+                        write_fence: Some(preparation.write_fence),
+                    },
+                },
+            )
+            .expect("move wrapper to Data Source");
+        let moved_result = moved
+            .committed
+            .value
+            .block_transfer
+            .as_ref()
+            .expect("moved Data Source result");
+        let moved_commit = moved
+            .committed
+            .local_commit
+            .as_ref()
+            .expect("moved Data Source LocalCommit");
+        assert_eq!(moved_result.document_commits.len(), 2);
+        assert_eq!(moved_commit.effects.len(), 3);
+        assert_eq!(
+            moved_commit
+                .effects
+                .iter()
+                .filter(|effect| matches!(
+                    effect.payload,
+                    CoreModuleEventPayload::OwnedDocument(
+                        OwnedDocumentEvent::DocumentUpdated { .. }
+                    )
+                ))
+                .count(),
+            2
+        );
+        assert!(matches!(
+            moved_commit.effects.last().map(|effect| &effect.payload),
+            Some(CoreModuleEventPayload::Library(_))
+        ));
     }
 
     #[test]
@@ -5025,7 +5380,10 @@ mod tests {
             .apply(&persistent_context, request)
             .expect("replay mixed Properties");
         assert!(replay.committed.receipt.mutation.duplicate);
-        assert!(replay.event.is_none());
+        assert_eq!(
+            replay.event.as_ref().map(|event| event.sequence),
+            Some(committed.committed.event_sequence)
+        );
 
         let rejected = module
             .apply(
@@ -5049,6 +5407,10 @@ mod tests {
                 },
             )
             .expect("conflict has a durable rejected outcome");
+        assert_eq!(
+            rejected.committed.receipt.commit_seq,
+            rejected.committed.commit_seq
+        );
         let rejected_receipt = rejected
             .committed
             .value
@@ -5141,6 +5503,19 @@ mod tests {
                         1,
                         0,
                         "rejected".to_owned(),
+                    )
+                );
+                let property_ledger_cursors = connection.query_row(
+                    "SELECT change_log_seq, json_extract(result_json, '$.commitSeq') \
+                     FROM block_mutations WHERE mutation_id = 'property:mixed'",
+                    [],
+                    |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+                )?;
+                assert_eq!(
+                    property_ledger_cursors,
+                    (
+                        committed.committed.event_sequence,
+                        committed.committed.receipt.commit_seq,
                     )
                 );
                 let invalid_actor_ledger = connection.query_row(

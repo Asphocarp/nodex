@@ -4,12 +4,12 @@ use nodex_core_contracts::BoundModuleContext;
 use nodex_core_contracts::CommittedModuleValue;
 use nodex_core_contracts::database::{DatabaseRead, DatabaseReadMode, DatabaseTarget};
 use nodex_core_contracts::library::{
-    LibraryCommitValue, LibraryLifecycle, LibraryPageLifecycleDeleteEvidence,
+    LibraryCommitValue, LibraryDocumentHead, LibraryLifecycle, LibraryPageLifecycleDeleteEvidence,
     LibraryPageLifecycleDeletedBlock, LibraryPageLifecycleMutation,
     LibraryPageLifecycleMutationMembership, LibraryPageLifecycleMutationReceipt,
-    LibraryPageLifecycleRestoreEvidence, LibraryPageLifecycleRestoreMembership,
-    LibraryPageLifecycleRestorePosition, LibraryPageLifecycleState, LibraryPageWorkflowStatus,
-    LibraryReceipt, LibraryResourceTarget,
+    LibraryPageLifecycleNestedParent, LibraryPageLifecycleRestoreEvidence,
+    LibraryPageLifecycleRestoreMembership, LibraryPageLifecycleRestorePosition,
+    LibraryPageLifecycleState, LibraryPageWorkflowStatus, LibraryReceipt, LibraryResourceTarget,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
@@ -17,17 +17,23 @@ use serde_json::{Map, Value, json};
 
 use crate::database;
 use crate::document::{
-    BlockDocumentSchema, PAGE_SCHEMA_KEY, PAGE_SCHEMA_VERSION, PersistYjsGenesis,
-    persist_yjs_genesis, prepare_page_yjs_genesis_with_content, read_document_authority, sha256,
+    BlockDocumentSchema, DocumentBlockOperation, PAGE_SCHEMA_KEY, PAGE_SCHEMA_VERSION,
+    PersistYjsGenesis, persist_yjs_genesis, prepare_page_yjs_genesis_with_content,
+    read_document_authority, sha256,
 };
+use crate::domain::block_materialization::MaterializedBlockNode;
 use crate::domain::fractional_rank::{
     FractionalRankErrorCode, RankedItem, plan as plan_fractional_rank,
 };
 use crate::domain::rich_text::{RichTextItem, RichTextStyles};
+use crate::infrastructure::local_commit;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::LibraryApplyOutcome;
-use super::mutation::{MutationEffects, finish_mutation, require_project_in_library};
+use super::mutation::{
+    MutationEffects, finish_mutation_with_local_commit,
+    persist_parent_operations_detailed_with_local_commit, require_project_in_library,
+};
 
 struct PageAuthority {
     page_id: String,
@@ -80,8 +86,11 @@ struct MembershipCoordinates {
 
 struct IndexedBlock {
     block_id: String,
+    block_type: String,
     lifecycle: String,
     metadata_revision: i64,
+    location_revision: i64,
+    resource_metadata_revision: Option<i64>,
 }
 
 struct IndexedClosure {
@@ -181,6 +190,7 @@ pub(super) fn apply(
             page_id,
             expected_metadata_revision,
             expected_parent_revision,
+            parent_document_head,
         } => delete_page(
             connection,
             context,
@@ -191,6 +201,7 @@ pub(super) fn apply(
             page_id,
             *expected_metadata_revision,
             *expected_parent_revision,
+            parent_document_head.as_ref(),
         ),
         LibraryPageLifecycleMutation::RestorePage {
             page_id,
@@ -199,6 +210,7 @@ pub(super) fn apply(
             expected_parent_revision,
             membership,
             before_block_id,
+            parent_document_head,
         } => restore_page(
             connection,
             context,
@@ -212,6 +224,7 @@ pub(super) fn apply(
             *expected_parent_revision,
             membership.as_ref(),
             before_block_id.as_deref(),
+            parent_document_head.as_ref(),
         ),
         LibraryPageLifecycleMutation::CreatePage { .. } => create_page(
             connection,
@@ -259,6 +272,7 @@ pub(super) fn delete_with_etag(
         page_id,
         page.metadata_revision,
         page.parent_revision,
+        None,
     )
 }
 
@@ -1529,6 +1543,7 @@ fn delete_page(
     page_id: &str,
     expected_metadata_revision: i64,
     expected_parent_revision: i64,
+    parent_document_head: Option<&LibraryDocumentHead>,
 ) -> Result<LibraryApplyOutcome, StoreError> {
     let page = read_page(connection, library_id, page_id)?;
     authorize_page_write(connection, context, library_id, &page)?;
@@ -1537,17 +1552,14 @@ fn delete_page(
     if page.lifecycle == "deleted" {
         return Err(conflict("Page is already deleted"));
     }
-    if page.parent_kind == "page" || page.location_kind == "document" {
-        return Err(invalid(
-            "A nested Page must be removed through a Block transfer",
-        ));
-    }
     if page.metadata_revision != expected_metadata_revision {
         return Err(conflict("Page metadata revision changed"));
     }
     if page.parent_revision != expected_parent_revision {
         return Err(conflict("Page parent revision changed"));
     }
+    let (parent_document, nested_parent) =
+        resolve_nested_parent_document(connection, &page, parent_document_head)?;
     let closure = read_indexed_closure(connection, &page)?;
     if closure
         .blocks
@@ -1568,6 +1580,7 @@ fn delete_page(
         return Err(corrupt("Top-level Page has no Library placement"));
     }
     let now = sqlite_now(connection)?;
+    let local_commit_seq = local_commit::begin(connection, store_epoch, operation_id, &now)?;
     connection.execute(
         "DELETE FROM database_view_page_positions WHERE page_block_id = ?1",
         [page_id],
@@ -1635,9 +1648,30 @@ fn delete_page(
         tombstoned_blocks.push(LibraryPageLifecycleDeletedBlock {
             block_id: block.block_id.clone(),
             metadata_revision: committed_revision,
+            resource_metadata_revision: (block.block_type == "database")
+                .then_some(block.resource_metadata_revision)
+                .flatten()
+                .map(|revision| revision + 1),
         });
     }
     synchronize_deleted_page(connection, &page, metadata_revision, parent_revision, &now)?;
+    synchronize_deleted_indexed_owners(connection, &page, &closure, &now)?;
+    let parent_commit = parent_document
+        .as_ref()
+        .map(|parent| {
+            persist_parent_operations_detailed_with_local_commit(
+                connection,
+                store_epoch,
+                operation_id,
+                "page-delete",
+                parent,
+                &[DocumentBlockOperation::DeleteBlock {
+                    block_id: page_id.to_owned(),
+                }],
+                Some(local_commit_seq),
+            )
+        })
+        .transpose()?;
     let restore_membership =
         membership
             .as_ref()
@@ -1658,6 +1692,7 @@ fn delete_page(
         membership: restore_membership,
         tombstoned_blocks: tombstoned_blocks.clone(),
         indexed_document_ids: closure.document_ids.clone(),
+        nested_parent,
     };
     let receipt = LibraryPageLifecycleMutationReceipt {
         operation_kind: "delete_page".to_owned(),
@@ -1686,7 +1721,13 @@ fn delete_page(
         created_tag_option_ids: Vec::new(),
         delete_evidence: Some(delete_evidence),
     };
-    let committed_revisions = BTreeMap::from_iter(
+    let mut affected_document_ids = closure.document_ids.clone();
+    if let Some(parent) = &parent_commit {
+        affected_document_ids.push(parent.document_id.clone());
+    }
+    affected_document_ids.sort();
+    affected_document_ids.dedup();
+    let mut committed_revisions = BTreeMap::from_iter(
         [
             (format!("blockMetadata:{page_id}"), metadata_revision),
             (format!("blockLocation:{page_id}"), parent_revision),
@@ -1697,9 +1738,23 @@ fn delete_page(
                 format!("indexedBlockMetadata:{}", block.block_id),
                 block.metadata_revision,
             )
+        }))
+        .chain(closure.blocks.iter().filter_map(|block| {
+            if block.block_type != "database" {
+                return None;
+            }
+            block
+                .resource_metadata_revision
+                .map(|revision| (format!("databaseMetadata:{}", block.block_id), revision + 1))
         })),
     );
-    finish_page_lifecycle(
+    if let Some(parent) = &parent_commit {
+        committed_revisions.insert(
+            format!("documentHead:{}", parent.document_id),
+            parent.head_seq,
+        );
+    }
+    finish_page_lifecycle_with_local_commit(
         connection,
         context,
         store_epoch,
@@ -1714,8 +1769,9 @@ fn delete_page(
             .iter()
             .map(|block| block.block_id.clone())
             .collect(),
-        closure.document_ids,
+        affected_document_ids,
         now,
+        Some(local_commit_seq),
     )
 }
 
@@ -1733,16 +1789,12 @@ fn restore_page(
     expected_parent_revision: i64,
     requested_membership: Option<&LibraryPageLifecycleMutationMembership>,
     before_block_id: Option<&str>,
+    parent_document_head: Option<&LibraryDocumentHead>,
 ) -> Result<LibraryApplyOutcome, StoreError> {
     let page = read_page(connection, library_id, page_id)?;
     authorize_page_write(connection, context, library_id, &page)?;
     if page.lifecycle != "deleted" {
         return Err(conflict("Page restore requires a deleted Page"));
-    }
-    if page.parent_kind == "page" || page.location_kind == "document" {
-        return Err(invalid(
-            "A nested Page must be restored through a Block transfer",
-        ));
     }
     if page.metadata_revision != expected_metadata_revision {
         return Err(conflict("Page metadata revision changed"));
@@ -1761,12 +1813,20 @@ fn restore_page(
         .delete_evidence
         .as_ref()
         .ok_or_else(|| corrupt("Delete receipt has no restore evidence"))?;
+    let (parent_document, nested_parent) =
+        resolve_nested_parent_for_restore(connection, &page, evidence, parent_document_head)?;
     if evidence.membership.as_ref() != requested_membership {
         return Err(invalid(
             "Restore membership does not match the durable delete evidence",
         ));
     }
-    if (requested_membership.is_none() && page.parent_kind != "library")
+    if page.parent_kind == "page" {
+        if requested_membership.is_some() || evidence.membership.is_some() {
+            return Err(corrupt(
+                "Nested Page restore cannot carry a Data Source membership",
+            ));
+        }
+    } else if (requested_membership.is_none() && page.parent_kind != "library")
         || (requested_membership.is_some() && page.parent_kind != "data_source")
     {
         return Err(corrupt("Restore parent does not match the Page tombstone"));
@@ -1774,6 +1834,10 @@ fn restore_page(
     let closure = read_indexed_closure(connection, &page)?;
     validate_delete_evidence(&page, evidence, &closure)?;
     let now = sqlite_now(connection)?;
+    let local_commit_seq = parent_document
+        .as_ref()
+        .map(|_| local_commit::begin(connection, store_epoch, operation_id, &now))
+        .transpose()?;
     let mut library_rank_key = None;
     let mut restored_membership = None;
     let mut view_id = None;
@@ -1785,7 +1849,7 @@ fn restore_page(
             view_id = Some(position.view_id.clone());
             view_rank_key = Some(rank_key);
         }
-    } else {
+    } else if page.parent_kind == "library" {
         library_rank_key = Some(restore_library_placement(
             connection,
             library_id,
@@ -1834,6 +1898,13 @@ fn restore_page(
             return Err(conflict("Indexed Block changed during Page restore"));
         }
     }
+    synchronize_restored_indexed_owners(
+        connection,
+        &page,
+        &closure,
+        &evidence.tombstoned_blocks,
+        &now,
+    )?;
     synchronize_restored_page(
         connection,
         &page,
@@ -1846,6 +1917,35 @@ fn restore_page(
         library_rank_key.as_deref(),
         &now,
     )?;
+    let parent_commit = match (parent_document.as_ref(), nested_parent.as_ref()) {
+        (Some(parent), Some(nested_parent)) => {
+            Some(persist_parent_operations_detailed_with_local_commit(
+                connection,
+                store_epoch,
+                operation_id,
+                "page-restore",
+                parent,
+                &[DocumentBlockOperation::InsertBlock {
+                    block: MaterializedBlockNode {
+                        id: page_id.to_owned(),
+                        block_type: "page".to_owned(),
+                        props: BTreeMap::new(),
+                        content: None,
+                        children: Vec::new(),
+                    },
+                    parent_block_id: nested_parent.parent_block_id.clone(),
+                    before_block_id: nested_parent.before_block_id.clone(),
+                }],
+                local_commit_seq,
+            )?)
+        }
+        (None, None) => None,
+        _ => {
+            return Err(corrupt(
+                "Nested Page restore parent resolution is incomplete",
+            ));
+        }
+    };
     let receipt = LibraryPageLifecycleMutationReceipt {
         operation_kind: "restore_page".to_owned(),
         page_id: page_id.to_owned(),
@@ -1871,7 +1971,7 @@ fn restore_page(
         created_tag_option_ids: Vec::new(),
         delete_evidence: None,
     };
-    let committed_revisions = BTreeMap::from_iter(
+    let mut committed_revisions = BTreeMap::from_iter(
         [
             (format!("blockMetadata:{page_id}"), metadata_revision),
             (format!("blockLocation:{page_id}"), parent_revision),
@@ -1882,9 +1982,26 @@ fn restore_page(
                 format!("indexedBlockMetadata:{}", block.block_id),
                 block.metadata_revision + 1,
             )
+        }))
+        .chain(evidence.tombstoned_blocks.iter().filter_map(|block| {
+            block
+                .resource_metadata_revision
+                .map(|revision| (format!("databaseMetadata:{}", block.block_id), revision + 1))
         })),
     );
-    finish_page_lifecycle(
+    if let Some(parent) = &parent_commit {
+        committed_revisions.insert(
+            format!("documentHead:{}", parent.document_id),
+            parent.head_seq,
+        );
+    }
+    let mut affected_document_ids = closure.document_ids.clone();
+    if let Some(parent) = &parent_commit {
+        affected_document_ids.push(parent.document_id.clone());
+    }
+    affected_document_ids.sort();
+    affected_document_ids.dedup();
+    finish_page_lifecycle_with_local_commit(
         connection,
         context,
         store_epoch,
@@ -1899,9 +2016,337 @@ fn restore_page(
             .iter()
             .map(|block| block.block_id.clone())
             .collect(),
-        closure.document_ids,
+        affected_document_ids,
         now,
+        local_commit_seq,
     )
+}
+
+fn resolve_nested_parent_document(
+    connection: &Connection,
+    page: &PageAuthority,
+    requested_head: Option<&LibraryDocumentHead>,
+) -> Result<
+    (
+        Option<super::mutation::ResolvedParentDocument>,
+        Option<LibraryPageLifecycleNestedParent>,
+    ),
+    StoreError,
+> {
+    if page.parent_kind != "page" {
+        if requested_head.is_some() {
+            return Err(invalid(
+                "Only a nested Page deletion may carry a parent Document head",
+            ));
+        }
+        return Ok((None, None));
+    }
+
+    let parent_document_id = page
+        .containing_document_id
+        .as_deref()
+        .ok_or_else(|| corrupt("Nested Page has no containing Document"))?;
+    let requested_head = requested_head
+        .ok_or_else(|| invalid("Nested Page deletion requires the host Page Document head"))?;
+    if requested_head.document_id != parent_document_id {
+        return Err(conflict("Nested Page host Document changed"));
+    }
+    let parent = super::mutation::load_parent_document(connection, parent_document_id)?;
+    if parent.authority.owner_lifecycle != "active"
+        || parent.authority.owner_block_id != page.parent_id
+    {
+        return Err(corrupt("Nested Page host Page authority is invalid"));
+    }
+    if parent.authority.head.generation != requested_head.generation
+        || parent.authority.head.head_seq != requested_head.head_seq
+    {
+        return Err(conflict("Nested Page host Document changed"));
+    }
+    let Some((parent_block_id, before_block_id, has_children)) =
+        locate_block_position(&parent.base_materialization.block_tree, &page.page_id, None)
+    else {
+        return Err(corrupt(
+            "Nested Page shell is missing from its host Document",
+        ));
+    };
+    if has_children {
+        return Err(corrupt("Nested Page shell unexpectedly contains children"));
+    }
+    Ok((
+        Some(parent),
+        Some(LibraryPageLifecycleNestedParent {
+            document_id: parent_document_id.to_owned(),
+            parent_block_id,
+            before_block_id,
+        }),
+    ))
+}
+
+fn resolve_nested_parent_for_restore(
+    connection: &Connection,
+    page: &PageAuthority,
+    evidence: &LibraryPageLifecycleDeleteEvidence,
+    requested_head: Option<&LibraryDocumentHead>,
+) -> Result<
+    (
+        Option<super::mutation::ResolvedParentDocument>,
+        Option<LibraryPageLifecycleNestedParent>,
+    ),
+    StoreError,
+> {
+    if page.parent_kind != "page" {
+        if requested_head.is_some() || evidence.nested_parent.is_some() {
+            return Err(corrupt(
+                "Non-nested Page delete evidence carries a host Document",
+            ));
+        }
+        return Ok((None, None));
+    }
+    let nested_parent = evidence
+        .nested_parent
+        .clone()
+        .ok_or_else(|| corrupt("Nested Page delete evidence has no host position"))?;
+    let parent_document_id = page
+        .containing_document_id
+        .as_deref()
+        .ok_or_else(|| corrupt("Nested Page has no containing Document"))?;
+    if nested_parent.document_id != parent_document_id {
+        return Err(corrupt("Nested Page host Document identity changed"));
+    }
+    let requested_head = requested_head
+        .ok_or_else(|| invalid("Nested Page restore requires the host Page Document head"))?;
+    if requested_head.document_id != parent_document_id {
+        return Err(conflict("Nested Page host Document changed"));
+    }
+    let parent = super::mutation::load_parent_document(connection, parent_document_id)?;
+    if parent.authority.owner_lifecycle != "active"
+        || parent.authority.owner_block_id != page.parent_id
+    {
+        return Err(corrupt("Nested Page host Page authority is invalid"));
+    }
+    if parent.authority.head.generation != requested_head.generation
+        || parent.authority.head.head_seq != requested_head.head_seq
+    {
+        return Err(conflict("Nested Page host Document changed"));
+    }
+    if locate_block_position(&parent.base_materialization.block_tree, &page.page_id, None).is_some()
+    {
+        return Err(conflict("Nested Page shell is already present"));
+    }
+    Ok((Some(parent), Some(nested_parent)))
+}
+
+fn locate_block_position(
+    blocks: &[MaterializedBlockNode],
+    target_id: &str,
+    parent_block_id: Option<&str>,
+) -> Option<(Option<String>, Option<String>, bool)> {
+    for (index, block) in blocks.iter().enumerate() {
+        if block.id == target_id {
+            return Some((
+                parent_block_id.map(str::to_owned),
+                blocks.get(index + 1).map(|next| next.id.clone()),
+                !block.children.is_empty(),
+            ));
+        }
+        if let Some(position) =
+            locate_block_position(&block.children, target_id, Some(block.id.as_str()))
+        {
+            return Some(position);
+        }
+    }
+    None
+}
+
+fn synchronize_deleted_indexed_owners(
+    connection: &Connection,
+    page: &PageAuthority,
+    closure: &IndexedClosure,
+    now: &str,
+) -> Result<(), StoreError> {
+    for block in &closure.blocks {
+        match block.block_type.as_str() {
+            "page" => {
+                if connection
+                    .query_row(
+                        "SELECT 1 FROM data_source_page_memberships \
+                         WHERE page_block_id = ?1 AND removed_at IS NULL LIMIT 1",
+                        [&block.block_id],
+                        |_| Ok(()),
+                    )
+                    .optional()?
+                    .is_some()
+                {
+                    return Err(corrupt(
+                        "Nested Page closure contains an active Data Source membership",
+                    ));
+                }
+                let changed = connection.execute(
+                    "UPDATE pages SET lifecycle = 'deleted', metadata_revision = ?1, \
+                       parent_revision = ?2, updated_at = ?3 \
+                     WHERE block_id = ?4 AND library_id = ?5 AND lifecycle <> 'deleted' \
+                       AND metadata_revision = ?6 AND parent_revision = ?7",
+                    params![
+                        block.metadata_revision + 1,
+                        block.location_revision,
+                        now,
+                        block.block_id,
+                        page.library_id,
+                        block.metadata_revision,
+                        block.location_revision,
+                    ],
+                )?;
+                if changed != 1 {
+                    return Err(corrupt("Nested Page lifecycle authority disappeared"));
+                }
+                let changed = connection.execute(
+                    "UPDATE page_read_model SET lifecycle = 'deleted', metadata_revision = ?1, \
+                       location_revision = ?2, top_level_rank_key = NULL, membership_id = NULL, \
+                       database_block_id = NULL, view_id = NULL, view_group_key = NULL, \
+                       view_rank_key = NULL, database_values_json = '{}', updated_at = ?3 \
+                     WHERE page_block_id = ?4 AND project_id = ?5",
+                    params![
+                        block.metadata_revision + 1,
+                        block.location_revision,
+                        now,
+                        block.block_id,
+                        page.project_id,
+                    ],
+                )?;
+                if changed != 1 {
+                    return Err(corrupt("Nested Page lifecycle projection disappeared"));
+                }
+                connection.execute(
+                    "UPDATE scheduled_page_index SET lifecycle = 'deleted', \
+                       source_metadata_revision = ?1, updated_at = ?2 \
+                     WHERE page_block_id = ?3 AND project_id = ?4",
+                    params![
+                        block.metadata_revision + 1,
+                        now,
+                        block.block_id,
+                        page.project_id,
+                    ],
+                )?;
+            }
+            "database" => {
+                let expected_resource_revision = block
+                    .resource_metadata_revision
+                    .ok_or_else(|| corrupt("Database closure has no lifecycle metadata"))?;
+                let changed = connection.execute(
+                    "UPDATE database_containers SET lifecycle = 'deleted', \
+                       metadata_revision = ?1, updated_at = ?2 \
+                     WHERE block_id = ?3 AND library_id = ?4 AND lifecycle = 'active' \
+                       AND metadata_revision = ?5",
+                    params![
+                        expected_resource_revision + 1,
+                        now,
+                        block.block_id,
+                        page.library_id,
+                        expected_resource_revision,
+                    ],
+                )?;
+                if changed != 1 {
+                    return Err(corrupt("Nested Database lifecycle authority disappeared"));
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+fn synchronize_restored_indexed_owners(
+    connection: &Connection,
+    page: &PageAuthority,
+    closure: &IndexedClosure,
+    tombstoned_blocks: &[LibraryPageLifecycleDeletedBlock],
+    now: &str,
+) -> Result<(), StoreError> {
+    for block in &closure.blocks {
+        let Some(tombstone) = tombstoned_blocks
+            .iter()
+            .find(|candidate| candidate.block_id == block.block_id)
+        else {
+            return Err(corrupt("Nested Page restore evidence is incomplete"));
+        };
+        match block.block_type.as_str() {
+            "page" => {
+                let metadata_revision = tombstone.metadata_revision + 1;
+                let changed = connection.execute(
+                    "UPDATE pages SET lifecycle = 'active', metadata_revision = ?1, \
+                       parent_revision = ?2, updated_at = ?3 \
+                     WHERE block_id = ?4 AND library_id = ?5 AND lifecycle = 'deleted' \
+                       AND metadata_revision = ?6 AND parent_revision = ?7",
+                    params![
+                        metadata_revision,
+                        block.location_revision,
+                        now,
+                        block.block_id,
+                        page.library_id,
+                        tombstone.metadata_revision,
+                        block.location_revision,
+                    ],
+                )?;
+                if changed != 1 {
+                    return Err(corrupt(
+                        "Nested Page lifecycle authority disappeared during restore",
+                    ));
+                }
+                let changed = connection.execute(
+                    "UPDATE page_read_model SET lifecycle = 'active', metadata_revision = ?1, \
+                       location_revision = ?2, updated_at = ?3 \
+                     WHERE page_block_id = ?4 AND project_id = ?5 AND lifecycle = 'deleted' \
+                       AND metadata_revision = ?6 AND location_revision = ?7",
+                    params![
+                        metadata_revision,
+                        block.location_revision,
+                        now,
+                        block.block_id,
+                        page.project_id,
+                        tombstone.metadata_revision,
+                        block.location_revision,
+                    ],
+                )?;
+                if changed != 1 {
+                    return Err(corrupt(
+                        "Nested Page lifecycle projection disappeared during restore",
+                    ));
+                }
+                connection.execute(
+                    "UPDATE scheduled_page_index SET lifecycle = 'active', \
+                       source_metadata_revision = ?1, updated_at = ?2 \
+                     WHERE page_block_id = ?3 AND project_id = ?4",
+                    params![metadata_revision, now, block.block_id, page.project_id],
+                )?;
+            }
+            "database" => {
+                let expected_resource_revision =
+                    tombstone.resource_metadata_revision.ok_or_else(|| {
+                        corrupt("Database restore evidence has no lifecycle metadata")
+                    })?;
+                let changed = connection.execute(
+                    "UPDATE database_containers SET lifecycle = 'active', \
+                       metadata_revision = ?1, updated_at = ?2 \
+                     WHERE block_id = ?3 AND library_id = ?4 AND lifecycle = 'deleted' \
+                       AND metadata_revision = ?5",
+                    params![
+                        expected_resource_revision + 1,
+                        now,
+                        block.block_id,
+                        page.library_id,
+                        expected_resource_revision,
+                    ],
+                )?;
+                if changed != 1 {
+                    return Err(corrupt(
+                        "Nested Database lifecycle authority disappeared during restore",
+                    ));
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(())
 }
 
 fn read_indexed_closure(
@@ -1939,10 +2384,17 @@ fn read_indexed_closure(
         }
         let indexed = connection
             .prepare(
-                "SELECT index_row.block_id, index_row.projected_seq, block.lifecycle, \
-                   block.metadata_revision, block.location_kind, block.containing_document_id \
+                "SELECT index_row.block_id, index_row.projected_seq, block.type, block.lifecycle, \
+                   block.metadata_revision, block.location_revision, block.location_kind, \
+                   block.containing_document_id, \
+                   CASE WHEN block.type = 'page' THEN page.lifecycle \
+                        WHEN block.type = 'database' THEN container.lifecycle END, \
+                   CASE WHEN block.type = 'page' THEN page.metadata_revision \
+                        WHEN block.type = 'database' THEN container.metadata_revision END \
                  FROM document_block_index index_row \
                  JOIN blocks block ON block.id = index_row.block_id \
+                 LEFT JOIN pages page ON page.block_id = block.id \
+                 LEFT JOIN database_containers container ON container.block_id = block.id \
                  WHERE index_row.document_id = ?1 ORDER BY index_row.block_id",
             )?
             .query_map([&document_id], |row| {
@@ -1950,19 +2402,27 @@ fn read_indexed_closure(
                     row.get::<_, String>(0)?,
                     row.get::<_, i64>(1)?,
                     row.get::<_, String>(2)?,
-                    row.get::<_, i64>(3)?,
-                    row.get::<_, String>(4)?,
-                    row.get::<_, Option<String>>(5)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, i64>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, Option<String>>(7)?,
+                    row.get::<_, Option<String>>(8)?,
+                    row.get::<_, Option<i64>>(9)?,
                 ))
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         for (
             block_id,
             projected_seq,
+            block_type,
             lifecycle,
             metadata_revision,
+            location_revision,
             location_kind,
             containing_document_id,
+            resource_lifecycle,
+            resource_metadata_revision,
         ) in indexed
         {
             if projected_seq != head_seq
@@ -1971,6 +2431,14 @@ fn read_indexed_closure(
                 || blocks.contains_key(&block_id)
             {
                 return Err(corrupt("Page Document Block index is stale or ambiguous"));
+            }
+            if matches!(block_type.as_str(), "page" | "database")
+                && (resource_lifecycle.as_deref() != Some(lifecycle.as_str())
+                    || resource_metadata_revision.is_none())
+            {
+                return Err(corrupt(
+                    "Typed Block lifecycle authority is missing or diverged",
+                ));
             }
             let owned_documents = connection
                 .prepare(
@@ -1983,8 +2451,11 @@ fn read_indexed_closure(
                 block_id.clone(),
                 IndexedBlock {
                     block_id,
+                    block_type,
                     lifecycle,
                     metadata_revision,
+                    location_revision,
+                    resource_metadata_revision,
                 },
             );
         }
@@ -2069,6 +2540,8 @@ fn validate_delete_evidence(
         };
         if current.lifecycle != "deleted"
             || current.metadata_revision != evidence_block.metadata_revision
+            || (current.block_type == "database"
+                && current.resource_metadata_revision != evidence_block.resource_metadata_revision)
         {
             return Err(conflict("Indexed Page tombstone changed before restore"));
         }
@@ -2076,6 +2549,11 @@ fn validate_delete_evidence(
     if evidence.membership.is_some() != (page.parent_kind == "data_source") {
         return Err(corrupt(
             "Delete evidence membership disagrees with Page parent",
+        ));
+    }
+    if evidence.nested_parent.is_some() != (page.parent_kind == "page") {
+        return Err(corrupt(
+            "Delete evidence host position disagrees with Page parent",
         ));
     }
     Ok(())
@@ -2118,6 +2596,7 @@ pub(super) fn read_restore_evidence(
                 status: membership.status,
                 view_id: membership.position.map(|position| position.view_id),
             }),
+        nested_parent: evidence.nested_parent,
     }))
 }
 
@@ -2751,6 +3230,39 @@ fn finish_page_lifecycle(
     affected_document_ids: Vec<String>,
     committed_at: String,
 ) -> Result<LibraryApplyOutcome, StoreError> {
+    finish_page_lifecycle_with_local_commit(
+        connection,
+        context,
+        store_epoch,
+        operation_id,
+        request_hash,
+        page,
+        membership,
+        receipt,
+        committed_revisions,
+        affected_block_ids,
+        affected_document_ids,
+        committed_at,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn finish_page_lifecycle_with_local_commit(
+    connection: &Connection,
+    context: &BoundModuleContext,
+    store_epoch: &str,
+    operation_id: &str,
+    request_hash: &str,
+    page: &PageAuthority,
+    membership: Option<&MembershipCoordinates>,
+    receipt: LibraryPageLifecycleMutationReceipt,
+    committed_revisions: BTreeMap<String, i64>,
+    affected_block_ids: Vec<String>,
+    affected_document_ids: Vec<String>,
+    committed_at: String,
+    attached_commit_seq: Option<i64>,
+) -> Result<LibraryApplyOutcome, StoreError> {
     let operation_kind = match receipt.operation_kind.as_str() {
         "archive_page" => "archive_page",
         "unarchive_page" => "unarchive_page",
@@ -2768,7 +3280,25 @@ fn finish_page_lifecycle(
         ),
         _ => return Err(corrupt("Page parent kind is invalid")),
     };
-    finish_mutation(
+    let mut affected_database_ids = membership
+        .map(|membership| vec![membership.database_id.clone()])
+        .unwrap_or_default();
+    for block_id in &affected_block_ids {
+        if connection
+            .query_row(
+                "SELECT 1 FROM blocks WHERE id = ?1 AND type = 'database'",
+                [block_id],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some()
+        {
+            affected_database_ids.push(block_id.clone());
+        }
+    }
+    affected_database_ids.sort();
+    affected_database_ids.dedup();
+    finish_mutation_with_local_commit(
         connection,
         context,
         store_epoch,
@@ -2783,9 +3313,7 @@ fn finish_page_lifecycle(
             affected_parent_keys: vec![parent_key],
             affected_block_ids,
             affected_page_ids: vec![page.page_id.clone()],
-            affected_database_ids: membership
-                .map(|membership| vec![membership.database_id.clone()])
-                .unwrap_or_default(),
+            affected_database_ids,
             affected_view_ids: membership
                 .and_then(|membership| membership.view_id.clone())
                 .into_iter()
@@ -2804,6 +3332,7 @@ fn finish_page_lifecycle(
             change_payload: None,
             committed_at,
         },
+        attached_commit_seq,
     )
 }
 

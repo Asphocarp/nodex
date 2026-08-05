@@ -21,13 +21,13 @@ const directories: string[] = [];
 const replayBoundary: CoreEventReplayRequired = {
   requested_after: 4,
   oldest_available: 7,
-  event_head: 12,
+  commit_head: 12,
 };
 
 const configureEventContract = (transport: UdsHttpTransport): UdsHttpTransport => {
   transport.configureEventContract({
     transportVersion: 4,
-    eventVersion: 2,
+    eventVersion: 3,
     storeEpoch: "epoch-1",
   });
   return transport;
@@ -126,8 +126,8 @@ const serveJsonResponse = async (
 const committedEvent = () => ({
   transport_version: 4,
   event: {
-    event_version: 2,
-    sequence: 1,
+    event_version: 3,
+    commit_seq: 1,
     store_epoch: "epoch-1",
     operation_id: null,
     committed_at: "2026-07-22T00:00:00.000Z",
@@ -141,6 +141,8 @@ const committedEvent = () => ({
         session_invalidation: "none",
       },
     },
+    effects: [],
+    canonical_hash: "0".repeat(64),
   },
 });
 
@@ -148,8 +150,8 @@ const serveLargeCommittedEvent = async (): Promise<string> =>
   await serveCommittedEvent({
     transport_version: 4,
     event: {
-      event_version: 2,
-      sequence: 1,
+      event_version: 3,
+      commit_seq: 1,
       store_epoch: "epoch-1",
       operation_id: null,
       committed_at: "2026-07-22T00:00:00.000Z",
@@ -164,6 +166,8 @@ const serveLargeCommittedEvent = async (): Promise<string> =>
         view_ids: [],
         document_heads: [],
       },
+      effects: [],
+      canonical_hash: "0".repeat(64),
       payload: {
         module: "project_workspace",
         event: {
@@ -322,7 +326,7 @@ describe("UDS Core event replay boundaries", () => {
     );
     let sequence: number | undefined;
     const subscription = await transport.openEventStream(0, (envelope) => {
-      sequence = envelope.event.sequence;
+      sequence = envelope.event.commit_seq;
     });
 
     await expect(subscription.done).resolves.toBeUndefined();

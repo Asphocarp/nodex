@@ -79,7 +79,7 @@ describe("Page reference queries", () => {
       value: {
         libraryId: "library-1",
         storeEpoch: "epoch-1",
-        changeLogSeq: 0,
+        commitSeq: 0,
         value: { kind: "metadata" },
       },
     });
@@ -99,7 +99,7 @@ describe("Page reference queries", () => {
     mocks.resolvePageOwnershipPath.mockImplementation(async () => ({
       libraryId: "library-1",
       storeEpoch: "epoch-1",
-      changeLogSeq: mocks.resolvePageOwnershipPath.mock.calls.length,
+      commitSeq: mocks.resolvePageOwnershipPath.mock.calls.length,
       status: "available",
       targetPageId: "nested-page",
       ancestors: [{
@@ -131,7 +131,7 @@ describe("Page reference queries", () => {
             libraryId: "library-1",
             projectId: "host-project",
           },
-          cursor: { storeEpoch: "epoch-1", changeLogSeq: 2 },
+          cursor: { storeEpoch: "epoch-1", commitSeq: 2 },
           impact: {
             kind: "resources",
             page_ids: ["parent-page"],
@@ -169,7 +169,7 @@ describe("Page reference queries", () => {
     mocks.resolvePageOwnershipPath.mockResolvedValue({
       libraryId: "library-1",
       storeEpoch: "epoch-1",
-      changeLogSeq: 1,
+      commitSeq: 1,
       status: "available",
       targetPageId: "nested-page",
       ancestors: [],

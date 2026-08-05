@@ -113,7 +113,7 @@ describe("Kanban Card Block transfer drop", () => {
             finalLocationRevisions: { "card-target": 2 },
             documentCommits: [],
             affectedDatabaseBlockIds: ["database-a"],
-            changeLogSeq: 1,
+            commitSeq: 1,
             committedAt: "2026-07-13T00:00:00.000Z",
           },
         };
@@ -189,11 +189,23 @@ describe("Kanban Card Block transfer drop", () => {
           finalLocationRevisions: { "block-copy": 1 },
           documentCommits: [],
           affectedDatabaseBlockIds: [],
-          changeLogSeq: 2,
+          commitSeq: 2,
           committedAt: "2026-07-13T00:00:00.000Z",
         },
       };
     });
+    const prepareLocalMutation = vi.fn(async () => ({
+      documentId: "document-target",
+      storeEpoch: "epoch-a",
+      generation: 1,
+      expectedHeadSeq: 0,
+    }));
+    const prepareSourceMutation = vi.fn(async () => ({
+      documentId: "document-source",
+      storeEpoch: "epoch-a",
+      generation: 1,
+      expectedHeadSeq: 0,
+    }));
     const cleanup = setupBlockTransferDocumentDrop(
       container,
       { document: [] },
@@ -203,6 +215,8 @@ describe("Kanban Card Block transfer drop", () => {
         documentId: "document-target",
         storeEpoch: "epoch-a",
         ancestorPageIds: [],
+        prepareLocalMutation,
+        prepareSourceMutation,
         createOperationId: () => "operation-editor",
         transfer,
         reportError: vi.fn(),
@@ -249,6 +263,8 @@ describe("Kanban Card Block transfer drop", () => {
         source: { kind: "document", documentId: "document-source" },
         target: { kind: "document", documentId: "document-target" },
       });
+      expect(prepareLocalMutation).toHaveBeenCalledOnce();
+      expect(prepareSourceMutation).toHaveBeenCalledWith("surface-source");
     } finally {
       cleanup();
       endLocalBlockDragSession();

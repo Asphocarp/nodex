@@ -139,11 +139,9 @@ export interface CoreDocumentSyncAdapter extends DocumentSyncAdapter {
   ): Promise<DocumentHistoryCommandResult<DocumentVersionDetail>>;
   restoreVersion(
     request: PrepareDocumentVersionRestore,
-    writeFencePrepared?: boolean,
   ): Promise<DocumentOperationCommandResult>;
   applyDocumentMutation(
     request: DocumentMutationRequest,
-    writeFencePrepared?: boolean,
   ): Promise<DocumentOperationCommandResult>;
 }
 
@@ -511,9 +509,6 @@ const documentMutationAdapterFailure = (
     case "idempotency_key_reused":
       return failure("mutation_id_collision");
     case "revision_conflict":
-      if (error.message.toLowerCase().includes("write fence")) {
-        return failure("write_fence_required", { retryable: true });
-      }
       return failure("unknown", { retryable: error.coreError.retryable });
     case "invalid_document_schema":
     case "schema_unsupported":
@@ -587,7 +582,6 @@ const coreDocumentOperation = (
 
 const coreDocumentMutationIntent = (
   request: DocumentMutationRequest,
-  writeFencePrepared: boolean,
 ): OwnedDocumentIntent => {
   if ("operations" in request) {
     return {
@@ -597,7 +591,6 @@ const coreDocumentMutationIntent = (
       expected_head_seq: request.expectedHeadSeq,
       operations: request.operations.map(coreDocumentOperation),
       actor: request.actor,
-      write_fence_prepared: writeFencePrepared,
     };
   }
   if ("nfm" in request) {
@@ -611,7 +604,6 @@ const coreDocumentMutationIntent = (
         ? {}
         : { rich_title: request.richTitle }),
       actor: request.actor,
-      write_fence_prepared: writeFencePrepared,
     };
   }
   return {
@@ -621,7 +613,6 @@ const coreDocumentMutationIntent = (
     generation: request.generation,
     expected_head_seq: request.expectedHeadSeq,
     actor: request.actor,
-    write_fence_prepared: writeFencePrepared,
   };
 };
 
@@ -750,15 +741,15 @@ export const createCoreDocumentSyncAdapter = (
         );
       },
       onEvent: (envelope) => {
-        const event = documentEvent(request, envelope);
-        if (!event) return;
         const previous = lastSequences.get(key) ?? 0;
-        if (envelope.event.sequence <= previous) return;
-        listener(event);
-        lastSequences.set(key, envelope.event.sequence);
+        if (envelope.event.commit_seq <= previous) return;
+        lastSequences.set(key, envelope.event.commit_seq);
+        for (const event of documentEvents(request, envelope)) {
+          listener(event);
+        }
       },
       onResyncRequired: (resync) => {
-        lastSequences.set(key, resync.event_head);
+        lastSequences.set(key, resync.commit_head);
         listener({
           kind: "resync-required",
           documentId: resync.document_id,
@@ -788,7 +779,6 @@ export const createCoreDocumentSyncAdapter = (
 
   const applyDocumentMutation = async (
     rawRequest: DocumentMutationRequest,
-    writeFencePrepared = false,
   ): Promise<DocumentOperationCommandResult> => {
     let request: DocumentMutationRequest;
     try {
@@ -808,7 +798,7 @@ export const createCoreDocumentSyncAdapter = (
         operationId: request.mutationId,
         clientSessionId:
           request.clientSessionId ?? "electron:document-mutation",
-        intent: coreDocumentMutationIntent(request, writeFencePrepared),
+        intent: coreDocumentMutationIntent(request),
       });
       if (
         committed.store_epoch !== request.storeEpoch
@@ -891,7 +881,10 @@ export const createCoreDocumentSyncAdapter = (
         writeFenceBlockIds: effect.write_fence_block_ids,
         titleChanged: effect.title_changed,
         coordination: effect.coordination,
-        changeLogSeq: committed.event_sequence,
+        commitSeq:
+          committed.commit_seq
+          ?? committed.local_commit?.commit_seq
+          ?? committed.event_sequence,
         committedAt,
         duplicate: committed.receipt.duplicate,
       });
@@ -989,7 +982,10 @@ export const createCoreDocumentSyncAdapter = (
                 headSeq: head.head_seq,
               })),
             },
-            changeLogSeq: committed.event_sequence,
+            commitSeq:
+              committed.commit_seq
+              ?? committed.local_commit?.commit_seq
+              ?? committed.event_sequence,
             committedAt,
           },
         });
@@ -1122,8 +1118,7 @@ export const createCoreDocumentSyncAdapter = (
       }
     },
     applyDocumentMutation,
-    restoreVersion: async (request, writeFencePrepared = false) =>
-      await applyDocumentMutation(request, writeFencePrepared),
+    restoreVersion: async (request) => await applyDocumentMutation(request),
     sync,
     applyUpdate,
     subscribeWithLifecycle,
@@ -1142,42 +1137,67 @@ export const createCoreDocumentSyncAdapter = (
         return failure(error);
       }
     },
-    respondToRelocationLease: async () =>
-      failure(new Error("Core relocation leases remain internal to the Module")),
   };
 };
 
-const documentEvent = (
+const documentEvents = (
   request: DocumentSyncSubscribeRequest,
   envelope: CoreEventEnvelope,
-): DocumentSyncRealtimeEvent | null => {
-  const payload = envelope.event.payload;
-  if (payload.module !== "owned_document") return null;
-  const event = payload.event;
-  if (event.document_id !== request.documentId) return null;
-  if (event.kind === "document_updated") {
-    return {
-      kind: "document-update",
-      documentId: event.document_id,
-      storeEpoch: envelope.event.store_epoch,
-      generation: event.generation,
-      headSeq: event.head_seq,
-      updateId: envelope.event.operation_id ?? `event:${envelope.event.sequence}`,
-      clientSessionId: "core",
-      update: Uint8Array.from(event.update),
-    };
+): readonly DocumentSyncRealtimeEvent[] => {
+  if (envelope.event.effects.length === 0) {
+    throw new Error("Core LocalCommit envelope has no physical effects");
   }
-  if (event.kind === "document_invalidated") {
-    return {
-      kind: "resync-required",
-      documentId: event.document_id,
-      storeEpoch: envelope.event.store_epoch,
-      generation: 1,
-      headSeq: 0,
-      reason: "event-gap",
-    };
-  }
-  return null;
+  const effects = envelope.event.effects;
+  const events: DocumentSyncRealtimeEvent[] = [];
+  effects.forEach((effect, effectIndex) => {
+    const payload = effect.payload;
+    if (payload.module !== "owned_document") return;
+    const event = payload.event;
+    if (event.document_id !== request.documentId) return;
+    if (event.kind === "document_updated") {
+      events.push({
+        kind: "document-update",
+        documentId: event.document_id,
+        storeEpoch: envelope.event.store_epoch,
+        generation: event.generation,
+        headSeq: event.head_seq,
+        commitSeq: envelope.event.commit_seq,
+        effectSequence: effect.sequence,
+        updateId: effect.operation_id
+          ?? envelope.event.operation_id
+          ?? `event:${envelope.event.commit_seq}:${effectIndex}`,
+        clientSessionId: "core",
+        update: Uint8Array.from(event.update),
+      });
+      return;
+    }
+    if (event.kind === "document_resync_required") {
+      events.push({
+        kind: "resync-required",
+        documentId: event.document_id,
+        storeEpoch: envelope.event.store_epoch,
+        generation: event.generation,
+        headSeq: event.head_seq,
+        commitSeq: envelope.event.commit_seq,
+        effectSequence: effect.sequence,
+        reason: "history-compacted",
+      });
+      return;
+    }
+    if (event.kind === "document_invalidated") {
+      events.push({
+        kind: "resync-required",
+        documentId: event.document_id,
+        storeEpoch: envelope.event.store_epoch,
+        generation: 1,
+        headSeq: 0,
+        commitSeq: envelope.event.commit_seq,
+        effectSequence: effect.sequence,
+        reason: "event-gap",
+      });
+    }
+  });
+  return events;
 };
 
 const success = <Value>(value: Value): DocumentSyncCommandResult<Value> => ({

@@ -63,7 +63,7 @@ describe("Desktop Nodex Agent Turn authority", () => {
     const client = new FakeCoreClient();
     client.enqueueWorkspaceRead({
       contract_version: 1,
-      event_head: 1,
+      commit_head: 1,
       store_epoch: "epoch:test",
       value: { kind: "project", project },
     });
@@ -84,7 +84,7 @@ describe("Desktop Nodex Agent Turn authority", () => {
     });
     client.enqueueWorkspaceRead({
       contract_version: 1,
-      event_head: 2,
+      commit_head: 2,
       store_epoch: "epoch:test",
       value: {
         kind: "turn_authority",
@@ -136,7 +136,7 @@ describe("Desktop Nodex Agent Turn authority", () => {
     const client = new FakeCoreClient();
     client.enqueueWorkspaceRead({
       contract_version: 1,
-      event_head: 1,
+      commit_head: 1,
       store_epoch: "epoch:test",
       value: {
         kind: "turn_authority",
@@ -163,7 +163,7 @@ describe("Desktop Nodex Agent Turn authority", () => {
     const client = new FakeCoreClient();
     client.enqueueWorkspaceRead({
       contract_version: 1,
-      event_head: 1,
+      commit_head: 1,
       store_epoch: "epoch:test",
       value: { kind: "project", project },
     });
@@ -184,7 +184,7 @@ describe("Desktop Nodex Agent Turn authority", () => {
     });
     client.enqueueWorkspaceRead({
       contract_version: 1,
-      event_head: 2,
+      commit_head: 2,
       store_epoch: "epoch:test",
       value: {
         kind: "turn_authority",

@@ -103,11 +103,21 @@ Cross-window drag and drop is not a separate domain operation. If a transport ca
 
 ### Durability and concurrency
 
-The single SQLite writer remains the authority. Before compiling a transfer, the realtime Hub acquires sorted leases for every affected writable Document. Mounted surfaces complete IME, flush pending updates, freeze, and acknowledge. The writer then re-reads exact heads and location/membership revisions and compiles against current durable state.
+The single SQLite writer remains the authority. Before compiling a transfer,
+each mounted writable surface completes IME and returns a typed causal
+Document head token after flushing pending updates. Core re-reads exact heads
+and location/membership revisions and verifies every token during both plan and
+apply. This is a short per-surface causal barrier, not a realtime Hub lease or
+an application-wide UI freeze.
 
 The command records an immutable receipt keyed by `operationId` and canonical intent. Exact retry returns the original result; semantic ID reuse is a typed collision. A stale source, target, location, membership, or View anchor fails without mutation. A crash before commit exposes the old state. A lost response after commit is recovered from the receipt and state-vector synchronization.
 
-The writer publishes committed Board/query invalidations and Document updates only after commit. Renderers do not optimistically remove or create authoritative rows; they may show transient drag affordances and then reconcile to the returned authoritative summary.
+The writer publishes committed Board/query invalidations and Document updates
+only after commit. The initiating renderer receives the committed local result
+without waiting for the durable event tail; Main deduplicates the later tailer
+envelope. Renderers do not optimistically remove or create authoritative rows;
+they reconcile the committed local result through the normal projection
+registry and canonical reads.
 
 Cross-Project Card transfer remains a separate operation because it changes the Space/security boundary and recursively rewrites Project coordinates. It may reuse the ownership traversal and property mapping primitives but not the same public command in this migration.
 

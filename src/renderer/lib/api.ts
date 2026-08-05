@@ -453,14 +453,16 @@ export function applyLibraryDatabaseModule(
 export function readPageDetail(
   projectId: string,
   pageId: string,
+  minimumCommitSeq?: number,
 ): Promise<PageDetailResult> {
-  return invoke("pages:detail:get", projectId, pageId);
+  return invoke("pages:detail:get", projectId, pageId, minimumCommitSeq);
 }
 
 export function readLibraryPageDetail(
   pageId: string,
+  minimumCommitSeq?: number,
 ): Promise<LibraryPageDetailResult> {
-  return invoke("library-pages:detail:get", pageId);
+  return invoke("library-pages:detail:get", pageId, minimumCommitSeq);
 }
 
 export function subscribeBoardChanges(

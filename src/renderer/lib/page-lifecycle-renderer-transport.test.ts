@@ -51,7 +51,7 @@ const mutationResult = {
     viewRankKey: "7fffffffffffffffffffffffffffffff",
     createdBlockIds: [],
     createdTagOptionIds: [],
-    changeLogSeq: 5,
+    commitSeq: 5,
     committedAt: "2026-07-11T00:00:00.000Z",
   },
 } as const;

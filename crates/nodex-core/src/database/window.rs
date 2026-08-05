@@ -55,7 +55,7 @@ pub(super) struct ViewContextProjection {
 }
 
 pub(super) struct ViewContextRead<'a> {
-    pub event_head: i64,
+    pub commit_head: i64,
     pub project_id: &'a str,
     pub store_epoch: &'a str,
     pub window: &'a CollectionWindowRequest,
@@ -165,7 +165,7 @@ struct SummaryRow {
 pub(super) fn view_window(
     connection: &Connection,
     library_id: &str,
-    event_head: i64,
+    commit_head: i64,
     view_id: &str,
     request: &CollectionWindowRequest,
     group_scope: Option<&DatabaseGroupScope>,
@@ -174,7 +174,7 @@ pub(super) fn view_window(
     view_window_for(
         connection,
         library_id,
-        event_head,
+        commit_head,
         &view,
         request,
         group_scope,
@@ -184,7 +184,7 @@ pub(super) fn view_window(
 fn view_window_for(
     connection: &Connection,
     library_id: &str,
-    event_head: i64,
+    commit_head: i64,
     view: &ResolvedView,
     request: &CollectionWindowRequest,
     group_scope: Option<&DatabaseGroupScope>,
@@ -318,7 +318,7 @@ fn view_window_for(
         candidates,
         normalized.first,
         CollectionWindowAuthority {
-            projection_revision: event_head,
+            projection_revision: commit_head,
         },
         |coordinate| {
             cursor::mint(
@@ -447,7 +447,7 @@ pub(super) fn view_context(
     let window = view_window_for(
         connection,
         library_id,
-        read.event_head,
+        read.commit_head,
         &view,
         read.window,
         read.group_scope,

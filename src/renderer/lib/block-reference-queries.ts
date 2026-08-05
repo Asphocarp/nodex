@@ -71,12 +71,12 @@ const useProjectionQueryRefresh = (input: {
   const getCursor = useEffectEvent(() => {
     const current = queryClient.getQueryData<{
       readonly storeEpoch: string;
-      readonly changeLogSeq: number;
+      readonly commitSeq: number;
     }>(input.queryKey);
     return current
       ? {
           storeEpoch: current.storeEpoch,
-          changeLogSeq: current.changeLogSeq,
+          commitSeq: current.commitSeq,
         }
       : input.cursor;
   });
@@ -120,7 +120,7 @@ export const usePageTargetReadModel = (
       : null,
     dependencies: { pageIds: [targetBlockId] },
     cursor: query.data
-      ? { storeEpoch: query.data.storeEpoch, changeLogSeq: query.data.changeLogSeq }
+      ? { storeEpoch: query.data.storeEpoch, commitSeq: query.data.commitSeq }
       : null,
     queryKey,
   });
@@ -169,7 +169,7 @@ export const usePageOwnershipPathReadModel = (
       : null,
     dependencies: { pageIds: observedPageIds },
     cursor: query.data
-      ? { storeEpoch: query.data.storeEpoch, changeLogSeq: query.data.changeLogSeq }
+      ? { storeEpoch: query.data.storeEpoch, commitSeq: query.data.commitSeq }
       : null,
     queryKey,
   });
@@ -238,7 +238,7 @@ export const useDatabaseViewReadModel = (
       pageIds: data?.rows.map((row) => row.page.id) ?? [],
     },
     cursor: data
-      ? { storeEpoch: data.storeEpoch, changeLogSeq: data.changeLogSeq }
+      ? { storeEpoch: data.storeEpoch, commitSeq: data.commitSeq }
       : null,
     queryKey,
   });

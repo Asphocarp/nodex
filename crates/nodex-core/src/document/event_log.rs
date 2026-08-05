@@ -1,6 +1,7 @@
 use nodex_core_contracts::document::{DocumentInvalidationReason, OwnedDocumentEvent};
 use nodex_core_contracts::{
-    CORE_EVENT_VERSION, CommittedCoreModuleEvent, CoreModuleEventPayload, StoreEpoch,
+    CORE_EVENT_VERSION, CommittedCoreModuleEvent, CoreModuleEventPayload, ProjectionImpact,
+    StoreEpoch,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::Deserialize;
@@ -18,12 +19,12 @@ pub enum DocumentEventReplay {
     Events {
         events: Vec<CommittedCoreModuleEvent>,
         next_after: i64,
-        event_head: i64,
+        commit_head: i64,
     },
     ResyncRequired {
         requested_after: i64,
         oldest_available: i64,
-        event_head: i64,
+        commit_head: i64,
     },
 }
 
@@ -63,6 +64,8 @@ struct DocumentEventMetadata {
     event_delta: Option<Value>,
     #[serde(default)]
     reason: Option<String>,
+    #[serde(default)]
+    local_commit_id: Option<String>,
 }
 
 pub(crate) fn replay_document_events(
@@ -79,12 +82,12 @@ pub(crate) fn replay_document_events(
     let limit = limit
         .unwrap_or(DEFAULT_REPLAY_LIMIT)
         .clamp(1, MAX_REPLAY_LIMIT);
-    let (oldest_available, event_head) = connection.query_row(
+    let (oldest_available, commit_head) = connection.query_row(
         "SELECT COALESCE(min(seq), 0), COALESCE(max(seq), 0) FROM change_log",
         [],
         |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
     )?;
-    if oldest_available < 0 || event_head < oldest_available {
+    if oldest_available < 0 || commit_head < oldest_available {
         return Err(corrupt("Change log retention boundary is invalid"));
     }
     let projection_floor = replay_floor(connection)?;
@@ -92,14 +95,14 @@ pub(crate) fn replay_document_events(
         return Ok(DocumentEventReplay::ResyncRequired {
             requested_after: after,
             oldest_available: projection_floor,
-            event_head,
+            commit_head,
         });
     }
     if oldest_available > 1 && after < oldest_available - 1 {
         return Ok(DocumentEventReplay::ResyncRequired {
             requested_after: after,
             oldest_available,
-            event_head,
+            commit_head,
         });
     }
 
@@ -127,7 +130,7 @@ pub(crate) fn replay_document_events(
     let mut next_after = after;
     let mut events = Vec::new();
     for row in rows {
-        validate_change_log_row(&row, next_after, event_head)?;
+        validate_change_log_row(&row, next_after, commit_head)?;
         next_after = row.sequence;
         if project_id.is_some_and(|project_id| row.project_id != project_id) {
             continue;
@@ -139,7 +142,7 @@ pub(crate) fn replay_document_events(
             return Ok(DocumentEventReplay::ResyncRequired {
                 requested_after: after,
                 oldest_available: row.sequence,
-                event_head,
+                commit_head,
             });
         };
         events.push(event);
@@ -147,7 +150,7 @@ pub(crate) fn replay_document_events(
     Ok(DocumentEventReplay::Events {
         events,
         next_after,
-        event_head,
+        commit_head,
     })
 }
 
@@ -170,6 +173,7 @@ pub(crate) fn reconstruct_document_event(
     {
         return Err(corrupt("Owned Document event metadata is inconsistent"));
     }
+    let local_commit_id = metadata.local_commit_id.clone();
     let payload = match metadata.kind.as_str() {
         "document_initialized" | "document_updated" => {
             let update_id = metadata
@@ -190,20 +194,32 @@ pub(crate) fn reconstruct_document_event(
                 )
                 .optional()
                 .map_err(|_| corrupt("Yjs event update row has invalid column types"))?;
-            let Some((update, update_hash)) = update else {
-                return Ok(None);
-            };
-            if update.is_empty()
-                || metadata.update_hash.as_deref() != Some(update_hash.as_str())
-                || super::persistence::sha256(&update) != update_hash
-            {
-                return Err(corrupt("Yjs event update evidence is inconsistent"));
-            }
-            OwnedDocumentEvent::DocumentUpdated {
-                document_id: metadata.document_id,
-                generation: metadata.generation,
-                head_seq: metadata.head_seq,
-                update,
+            match update {
+                Some((update, update_hash)) => {
+                    if update.is_empty()
+                        || metadata.update_hash.as_deref() != Some(update_hash.as_str())
+                        || super::persistence::sha256(&update) != update_hash
+                    {
+                        return Err(corrupt("Yjs event update evidence is inconsistent"));
+                    }
+                    OwnedDocumentEvent::DocumentUpdated {
+                        document_id: metadata.document_id,
+                        generation: metadata.generation,
+                        head_seq: metadata.head_seq,
+                        update,
+                    }
+                }
+                None => OwnedDocumentEvent::DocumentResyncRequired {
+                    document_id: metadata.document_id,
+                    generation: metadata.generation,
+                    head_seq: metadata.head_seq,
+                    update_id: update_id.to_owned(),
+                    update_hash: metadata
+                        .update_hash
+                        .clone()
+                        .filter(|hash| is_sha256(hash))
+                        .ok_or_else(|| corrupt("Yjs event update hash is invalid"))?,
+                },
             }
         }
         "canvas_scene_updated" => {
@@ -325,13 +341,15 @@ pub(crate) fn reconstruct_document_event(
     let projection_impact = row
         .projection_impact_json
         .as_deref()
-        .ok_or_else(|| corrupt("Owned Document projection impact is missing"))
-        .and_then(decode_projection_impact)?;
+        .map(decode_projection_impact)
+        .transpose()?
+        .unwrap_or(ProjectionImpact::None);
+    let operation_id = local_commit_id.or_else(|| row.operation_id.clone());
     Ok(Some(CommittedCoreModuleEvent {
         event_version: CORE_EVENT_VERSION,
         sequence: row.sequence,
         store_epoch: StoreEpoch(row.store_epoch.clone()),
-        operation_id: row.operation_id.clone(),
+        operation_id,
         committed_at: row.committed_at.clone(),
         projection_impact,
         payload: CoreModuleEventPayload::OwnedDocument(payload),
@@ -341,10 +359,10 @@ pub(crate) fn reconstruct_document_event(
 pub(crate) fn validate_change_log_row(
     row: &ChangeLogRow,
     previous: i64,
-    event_head: i64,
+    commit_head: i64,
 ) -> Result<(), StoreError> {
     if row.sequence <= previous
-        || row.sequence > event_head
+        || row.sequence > commit_head
         || row.project_id.is_empty()
         || row.project_id.len() > 512
         || row.store_epoch.is_empty()

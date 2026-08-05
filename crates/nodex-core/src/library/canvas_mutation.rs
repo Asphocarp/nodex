@@ -3,8 +3,8 @@ use std::path::Path;
 
 use nodex_core_contracts::BoundModuleContext;
 use nodex_core_contracts::library::{
-    LibraryCanvasDestination, LibraryCanvasMutationResult, LibraryPageInsertion,
-    LibraryResourceTarget, LibraryWriteParent,
+    LibraryCanvasDestination, LibraryCanvasMutationResult, LibraryDocumentHead,
+    LibraryPageInsertion, LibraryResourceTarget, LibraryWriteParent,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::Value;
@@ -14,13 +14,16 @@ use crate::document::{
     clone_canvas_genesis, ensure_canvas_scene, is_primary_canvas_block_id, read_document_authority,
 };
 use crate::domain::block_materialization::MaterializedBlockNode;
+use crate::infrastructure::local_commit;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::LibraryApplyOutcome;
 use super::mutation::{
-    MutationEffects, ResolvedWriteParent, append_rank, embedded_resource_block, finish_mutation,
-    insert_library_placement, persist_parent_operations_detailed, require_project_in_library,
-    resolve_library_mutation_authority, resolve_write_parent_for_context, sqlite_now,
+    MutationEffects, ResolvedWriteParent, append_rank, embedded_resource_block,
+    finish_mutation_with_local_commit, insert_library_placement,
+    persist_parent_operations_detailed, persist_parent_operations_detailed_with_local_commit,
+    require_project_in_library, resolve_library_mutation_authority,
+    resolve_write_parent_for_context, sqlite_now,
 };
 
 struct ResolvedCanvasDestination {
@@ -500,6 +503,7 @@ pub(super) fn delete(
     canvas_id: &str,
     expected_location_revision: i64,
     expected_metadata_revision: i64,
+    containing_document_head: Option<&LibraryDocumentHead>,
 ) -> Result<LibraryApplyOutcome, StoreError> {
     let canvas = read_canvas_authority(connection, library_id, canvas_id)?;
     require_canvas_access(connection, context, library_id, &canvas, true)?;
@@ -523,7 +527,37 @@ pub(super) fn delete(
         .as_deref()
         .map(|document_id| super::mutation::load_parent_document(connection, document_id))
         .transpose()?;
+    match (&source_document, containing_document_head) {
+        (Some(source), Some(expected)) => {
+            if source.authority.head.id != expected.document_id
+                || source.authority.head.generation != expected.generation
+                || source.authority.head.head_seq != expected.head_seq
+            {
+                return Err(StoreError::new(
+                    StoreErrorCode::RevisionConflict,
+                    "Canvas host Document changed",
+                    true,
+                ));
+            }
+        }
+        (Some(_), None) => {
+            return Err(StoreError::new(
+                StoreErrorCode::InvalidInput,
+                "Nested Canvas deletion requires the host Page Document head",
+                false,
+            ));
+        }
+        (None, Some(_)) => {
+            return Err(StoreError::new(
+                StoreErrorCode::InvalidInput,
+                "A root Canvas cannot carry a host Document head",
+                false,
+            ));
+        }
+        (None, None) => {}
+    }
     let now = sqlite_now(connection)?;
+    let local_commit_seq = local_commit::begin(connection, store_epoch, operation_id, &now)?;
     let changed = connection.execute(
         "UPDATE blocks SET lifecycle = 'deleted', \
            location_revision = location_revision + 1, \
@@ -555,7 +589,7 @@ pub(super) fn delete(
     let parent_commit = source_document
         .as_ref()
         .map(|source| {
-            persist_parent_operations_detailed(
+            persist_parent_operations_detailed_with_local_commit(
                 connection,
                 store_epoch,
                 operation_id,
@@ -564,11 +598,12 @@ pub(super) fn delete(
                 &[DocumentBlockOperation::DeleteBlock {
                     block_id: canvas_id.to_owned(),
                 }],
+                Some(local_commit_seq),
             )
         })
         .transpose()?;
     let resolved = resolved_current_location(connection, library_id, &canvas)?;
-    finish_canvas_mutation(
+    finish_canvas_mutation_with_local_commit(
         connection,
         context,
         store_epoch,
@@ -585,6 +620,7 @@ pub(super) fn delete(
         canvas.document_head_seq,
         parent_commit.into_iter().collect(),
         now,
+        Some(local_commit_seq),
     )
 }
 
@@ -896,6 +932,46 @@ fn finish_canvas_mutation(
     connection: &Connection,
     context: &BoundModuleContext,
     store_epoch: &str,
+    library_id: &str,
+    operation_id: &str,
+    request_hash: &str,
+    operation_kind: &'static str,
+    canvas_id: &str,
+    document_id: &str,
+    source_canvas_id: Option<String>,
+    location_revision: i64,
+    metadata_revision: i64,
+    resolved: &ResolvedCanvasDestination,
+    document_head_seq: i64,
+    document_commits: Vec<nodex_core_contracts::library::LibraryBlockTransferDocumentCommit>,
+    now: String,
+) -> Result<LibraryApplyOutcome, StoreError> {
+    finish_canvas_mutation_with_local_commit(
+        connection,
+        context,
+        store_epoch,
+        library_id,
+        operation_id,
+        request_hash,
+        operation_kind,
+        canvas_id,
+        document_id,
+        source_canvas_id,
+        location_revision,
+        metadata_revision,
+        resolved,
+        document_head_seq,
+        document_commits,
+        now,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn finish_canvas_mutation_with_local_commit(
+    connection: &Connection,
+    context: &BoundModuleContext,
+    store_epoch: &str,
     _library_id: &str,
     operation_id: &str,
     request_hash: &str,
@@ -909,6 +985,7 @@ fn finish_canvas_mutation(
     document_head_seq: i64,
     document_commits: Vec<nodex_core_contracts::library::LibraryBlockTransferDocumentCommit>,
     now: String,
+    attached_commit_seq: Option<i64>,
 ) -> Result<LibraryApplyOutcome, StoreError> {
     let affected_document_ids = std::iter::once(document_id.to_owned())
         .chain(
@@ -926,7 +1003,7 @@ fn finish_canvas_mutation(
         metadata_revision,
         document_commits,
     };
-    finish_mutation(
+    finish_mutation_with_local_commit(
         connection,
         context,
         store_epoch,
@@ -965,6 +1042,7 @@ fn finish_canvas_mutation(
             change_payload: None,
             committed_at: now,
         },
+        attached_commit_seq,
     )
 }
 

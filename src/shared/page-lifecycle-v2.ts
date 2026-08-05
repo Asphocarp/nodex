@@ -154,11 +154,18 @@ export interface UnarchivePageOperationV2 {
   readonly expectedMetadataRevision: number;
 }
 
+export interface PageLifecycleDocumentHeadV2 {
+  readonly documentId: string;
+  readonly generation: number;
+  readonly expectedHeadSeq: number;
+}
+
 export interface DeletePageOperationV2 {
   readonly kind: "delete_page";
   readonly pageId: string;
   readonly expectedMetadataRevision: number;
   readonly expectedParentRevision: number;
+  readonly parentDocumentHead?: PageLifecycleDocumentHeadV2;
 }
 
 export interface RestorePageOperationV2 {
@@ -178,6 +185,7 @@ export interface RestorePageOperationV2 {
     }>;
   }>;
   readonly beforeBlockId?: string;
+  readonly parentDocumentHead?: PageLifecycleDocumentHeadV2;
 }
 
 export interface MovePageInLibraryOperationV2 {
@@ -227,7 +235,7 @@ export interface PageLifecycleMutationReceiptV2 {
   readonly viewRankKey: string | null;
   readonly createdBlockIds: readonly string[];
   readonly createdTagOptionIds: readonly DataSourceOptionId[];
-  readonly changeLogSeq: number;
+  readonly commitSeq: number;
   readonly committedAt: string;
 }
 
@@ -378,6 +386,29 @@ const readOptionalId = (
   label: string,
 ): string | undefined =>
   value[key] === undefined ? undefined : readId(value, key, label);
+
+const readOptionalDocumentHead = (
+  value: Readonly<Record<string, unknown>>,
+  key: string,
+  label: string,
+): PageLifecycleDocumentHeadV2 | undefined => {
+  if (value[key] === undefined) return undefined;
+  const head = readRecord(value[key], `${label}.${key}`);
+  assertExactKeys(head, `${label}.${key}`, [
+    "documentId",
+    "generation",
+    "expectedHeadSeq",
+  ]);
+  return {
+    documentId: readId(head, "documentId", `${label}.${key}`),
+    generation: readPositiveRevision(head, "generation", `${label}.${key}`),
+    expectedHeadSeq: readNonNegativeRevision(
+      head,
+      "expectedHeadSeq",
+      `${label}.${key}`,
+    ),
+  };
+};
 
 const readNullableString = (
   value: Readonly<Record<string, unknown>>,
@@ -862,7 +893,12 @@ const parseOperationV2 = (
       "pageId",
       "expectedMetadataRevision",
       "expectedParentRevision",
-    ]);
+    ], ["parentDocumentHead"]);
+    const parentDocumentHead = readOptionalDocumentHead(
+      operation,
+      "parentDocumentHead",
+      label,
+    );
     return {
       kind: "delete_page",
       pageId: readId(operation, "pageId", label),
@@ -876,6 +912,7 @@ const parseOperationV2 = (
         "expectedParentRevision",
         label,
       ),
+      ...(parentDocumentHead === undefined ? {} : { parentDocumentHead }),
     };
   }
   if (operation.kind === "restore_page") {
@@ -890,7 +927,7 @@ const parseOperationV2 = (
         "expectedParentRevision",
         "membership",
       ],
-      ["beforeBlockId"],
+      ["beforeBlockId", "parentDocumentHead"],
     );
     let membership: RestorePageOperationV2["membership"];
     if (operation.membership === null) {
@@ -967,6 +1004,11 @@ const parseOperationV2 = (
       };
     }
     const beforeBlockId = readOptionalId(operation, "beforeBlockId", label);
+    const parentDocumentHead = readOptionalDocumentHead(
+      operation,
+      "parentDocumentHead",
+      label,
+    );
     return {
       kind: "restore_page",
       pageId: readId(operation, "pageId", label),
@@ -982,6 +1024,7 @@ const parseOperationV2 = (
         label,
       ),
       membership,
+      ...(parentDocumentHead === undefined ? {} : { parentDocumentHead }),
       ...(beforeBlockId === undefined ? {} : { beforeBlockId }),
     };
   }
@@ -1084,7 +1127,7 @@ const RECEIPT_KEYS_V2 = [
   "viewRankKey",
   "createdBlockIds",
   "createdTagOptionIds",
-  "changeLogSeq",
+  "commitSeq",
   "committedAt",
 ] as const;
 
@@ -1229,7 +1272,7 @@ export const parsePageLifecycleMutationReceiptV2 = (
     viewRankKey: readNullableRank(receipt, "viewRankKey", label),
     createdBlockIds: [...receipt.createdBlockIds],
     createdTagOptionIds: parseTagOptionIds(receipt.createdTagOptionIds),
-    changeLogSeq: readPositiveRevision(receipt, "changeLogSeq", label),
+    commitSeq: readPositiveRevision(receipt, "commitSeq", label),
     committedAt,
   };
 };

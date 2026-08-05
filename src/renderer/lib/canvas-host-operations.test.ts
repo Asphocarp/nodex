@@ -41,8 +41,12 @@ function makeRuntime(input: {
   readonly storeEpoch?: string;
   readonly generation?: number;
   readonly headSeq?: number;
+  readonly documentId?: string;
+  readonly ownerBlockId?: string;
 } = {}): CanvasHostDocumentRuntime {
   const storeEpoch = input.storeEpoch ?? "epoch-1";
+  const documentId = input.documentId ?? "document-1";
+  const ownerBlockId = input.ownerBlockId ?? uuidV7(1);
   const generation = input.generation ?? 2;
   const headSeq = input.headSeq ?? 7;
   let flushed = false;
@@ -53,8 +57,8 @@ function makeRuntime(input: {
       writeFrozen: false,
       descriptor: {
         projectId: "project-1",
-        documentId: "document-1",
-        ownerBlockId: "page-1",
+        documentId,
+        ownerBlockId,
         ownerType: "page",
         ownerLifecycle: "active",
         schemaKey: "nodex.page",
@@ -67,7 +71,7 @@ function makeRuntime(input: {
       },
       provider: {
         phase: "synced",
-        documentId: "document-1",
+        documentId,
         clientSessionId: "client-1",
         connected: true,
         storeEpoch,
@@ -91,7 +95,7 @@ const canvasSummary = (canvasId: string): LibraryCanvasSummary => ({
   title: "Canvas",
   lifecycle: "active",
   isPrimary: false,
-  location: { kind: "library" },
+  location: { kind: "page", pageId: uuidV7(1), documentId: "document-1" },
   locationRevision: 3,
   metadataRevision: 5,
   documentGeneration: 9,
@@ -118,7 +122,7 @@ const receiptFor = (
     affectedDatabaseIds: [],
     affectedViewIds: [],
     committedRevisions: {},
-    changeLogSeq: 10,
+    commitSeq: 10,
     committedAt: "2026-07-30T00:00:00.000Z",
   },
 });
@@ -138,7 +142,7 @@ describe("Canvas host operations", () => {
           profileId: "profile-1",
           libraryId: "library-1",
           storeEpoch: "epoch-1",
-          changeLogSeq: 9,
+          commitSeq: 9,
           value: {
             kind: "canvas_target",
             value: {
@@ -166,6 +170,8 @@ describe("Canvas host operations", () => {
   test("captures the persisted host head, not the pre-flush head", async () => {
     await expect(prepareCanvasHost(makeRuntime())).resolves.toEqual({
       storeEpoch: "epoch-1",
+      documentId: "document-1",
+      ownerBlockId: uuidV7(1),
       documentRevision: {
         expectedDocumentGeneration: 2,
         expectedDocumentHeadSeq: 8,
@@ -203,7 +209,7 @@ describe("Canvas host operations", () => {
     const canvasDocumentId = uuidV7(4);
     const duplicateCanvasId = uuidV7(5);
     const duplicateDocumentId = uuidV7(6);
-    const runtime = makeRuntime();
+    const runtime = makeRuntime({ ownerBlockId: pageId });
 
     await createCanvasInHostPage({
       accessContext,
@@ -277,10 +283,12 @@ describe("Canvas host operations", () => {
       sourceRuntime: makeRuntime({
         generation: 2,
         headSeq: 7,
+        ownerBlockId: uuidV7(1),
       }),
       targetRuntime: makeRuntime({
         generation: 4,
         headSeq: 20,
+        ownerBlockId: targetPageId,
       }),
       operationId: uuidV7(3),
     });
@@ -308,7 +316,7 @@ describe("Canvas host operations", () => {
         profileId: "profile-1",
         libraryId: "library-1",
         storeEpoch: "epoch-2",
-        changeLogSeq: 9,
+        commitSeq: 9,
         value: {
           kind: "canvas_target",
           value: {
@@ -325,7 +333,7 @@ describe("Canvas host operations", () => {
       targetPageId: uuidV7(2),
       insertion: { kind: "append" },
       sourceRuntime: makeRuntime(),
-      targetRuntime: makeRuntime(),
+      targetRuntime: makeRuntime({ ownerBlockId: uuidV7(2) }),
       operationId: uuidV7(3),
     })).rejects.toThrow("Store changed while preparing Canvas");
     expect(applyLibraryModule).not.toHaveBeenCalled();
@@ -372,7 +380,7 @@ describe("Canvas host operations", () => {
           affectedDatabaseIds: [],
           affectedViewIds: [],
           committedRevisions: {},
-          changeLogSeq: 9,
+          commitSeq: 9,
           committedAt: "2026-07-30T00:00:00.000Z",
         },
       });
@@ -384,7 +392,7 @@ describe("Canvas host operations", () => {
     expect(apply.mock.calls[1]).toEqual([accessContext, request]);
   });
 
-  test("deletes from owner coordinates without any scene runtime barrier", async () => {
+  test("deletes a nested Canvas with the mounted host Document barrier", async () => {
     const apply = vi.fn(async (
       receivedAccessContext: typeof accessContext,
       request: LibraryModuleApplyRequest,
@@ -407,7 +415,7 @@ describe("Canvas host operations", () => {
           affectedDatabaseIds: [],
           affectedViewIds: [],
           committedRevisions: {},
-          changeLogSeq: 10,
+          commitSeq: 10,
           committedAt: "2026-07-30T00:00:00.000Z",
         },
       };
@@ -419,6 +427,7 @@ describe("Canvas host operations", () => {
     await deleteCanvasOwner({
       accessContext,
       canvasBlockId: "canvas-1",
+      runtime: makeRuntime({ ownerBlockId: "page-1" }),
       operationId: "delete-1",
     }, {
       readTarget: async (receivedAccessContext) => {
@@ -434,7 +443,7 @@ describe("Canvas host operations", () => {
             location: {
               kind: "page",
               pageId: "page-1",
-              documentId: "page-document-1",
+              documentId: "document-1",
             },
             locationRevision: 3,
             metadataRevision: 5,
@@ -457,6 +466,11 @@ describe("Canvas host operations", () => {
         canvasId: "canvas-1",
         expectedLocationRevision: 3,
         expectedMetadataRevision: 5,
+        containingDocumentHead: {
+          documentId: "document-1",
+          generation: 2,
+          expectedHeadSeq: 8,
+        },
       },
     });
     expect(retireOwner).toHaveBeenCalledWith("project-1", "canvas-1");
@@ -497,11 +511,16 @@ describe("Canvas host operations", () => {
     });
   });
 
-  test("keeps drag source runtimes scoped to their mounted surface", () => {
-    const runtime = makeRuntime();
-    const unregister = registerCanvasHostDocumentRuntime("surface-1", runtime);
-    expect(resolveCanvasHostDocumentRuntime("surface-1")).toBe(runtime);
-    unregister();
+  test("keeps the newest runtime when an older surface unmounts", () => {
+    const first = makeRuntime();
+    const second = makeRuntime({ headSeq: 11 });
+    const unregisterFirst = registerCanvasHostDocumentRuntime("surface-1", first);
+    const unregisterSecond = registerCanvasHostDocumentRuntime("surface-1", second);
+
+    expect(resolveCanvasHostDocumentRuntime("surface-1")).toBe(second);
+    unregisterFirst();
+    expect(resolveCanvasHostDocumentRuntime("surface-1")).toBe(second);
+    unregisterSecond();
     expect(resolveCanvasHostDocumentRuntime("surface-1")).toBeNull();
   });
 });

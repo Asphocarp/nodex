@@ -105,7 +105,6 @@ export function EmbeddedReferencedPageDocument({
                 <div className="flex min-w-0 items-start gap-2 pr-1">
                   <CollaborativePageTitle
                     title={surface.title}
-                    surfaceWriteFence={surface.runtime}
                     className="min-w-0 flex-1 py-0 text-base/snug font-semibold"
                     aria-label={`Edit ${card.title.trim() || "Untitled"} title`}
                   />
@@ -130,7 +129,7 @@ export function EmbeddedReferencedPageDocument({
                     provider: { awareness: surface.awareness },
                   }}
                   sourcePageContext={{ pageId: card.id }}
-                  surfaceWriteFence={surface.runtime}
+                  surfaceMutationBarrier={surface.runtime}
                   onOpenPage={hostRuntime?.openPage}
                   onOpenCanvas={hostRuntime?.openCanvas}
                   isActivePanelTab={isActive}

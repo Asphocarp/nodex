@@ -12,46 +12,6 @@ import {
   restoreRichTitleDomSelection,
 } from "@/lib/rich-title-editor-dom";
 import { CollaborativePageTitle } from "./collaborative-page-title";
-import type {
-  BlockDocumentSurfaceRelocationPreparation,
-  BlockDocumentSurfaceRelocationPreparer,
-  BlockDocumentSurfaceWriteFence,
-} from "@/lib/block-document-surface-runtime";
-
-class TestSurfaceWriteFence implements BlockDocumentSurfaceWriteFence {
-  private frozen = false;
-  private readonly listeners = new Set<() => void>();
-  private readonly preparers = new Set<BlockDocumentSurfaceRelocationPreparer>();
-
-  getWriteFrozen = (): boolean => this.frozen;
-  subscribe = (listener: () => void): (() => void) => {
-    this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
-  };
-  registerRelocationPreparer = (
-    preparer: BlockDocumentSurfaceRelocationPreparer,
-  ): (() => void) => {
-    this.preparers.add(preparer);
-    return () => this.preparers.delete(preparer);
-  };
-  setFrozen = (frozen: boolean): void => {
-    this.frozen = frozen;
-    for (const listener of this.listeners) listener();
-  };
-  prepare = async (): Promise<void> => {
-    const event: BlockDocumentSurfaceRelocationPreparation = {
-      kind: "relocation-lease-prepare",
-      leaseId: "lease-title",
-      documentId: "document:title-test",
-      clientSessionId: "title-window",
-      storeEpoch: "store-1",
-      generation: 1,
-      expectedHeadSeq: 1,
-      deadlineAt: Date.now() + 10_000,
-    };
-    await Promise.all([...this.preparers].map((prepare) => prepare(event)));
-  };
-}
 
 const createTitle = (
   initialValue: string | PortableRichText,
@@ -357,22 +317,18 @@ describe("CollaborativePageTitle", () => {
     secondDocument.destroy();
   });
 
-  test("commits its IME draft and freezes only the leased surface", async () => {
+  test("commits its IME draft without coordinating another surface", async () => {
     const first = createTitle("First");
     const second = createTitle("Second");
-    const firstFence = new TestSurfaceWriteFence();
-    const secondFence = new TestSurfaceWriteFence();
     const view = render(
       <>
         <CollaborativePageTitle
           title={first.title}
           aria-label="First title"
-          surfaceWriteFence={firstFence}
         />
         <CollaborativePageTitle
           title={second.title}
           aria-label="Second title"
-          surfaceWriteFence={secondFence}
         />
       </>,
     );
@@ -382,16 +338,15 @@ describe("CollaborativePageTitle", () => {
       firstEditor.focus();
       fireEvent.compositionStart(firstEditor);
       replaceEditorDraft(firstEditor, "First draft", true);
-      firstFence.setFrozen(true);
-      await firstFence.prepare();
+      fireEvent.compositionEnd(firstEditor);
+      await Promise.resolve();
     });
     expect(first.title.toString()).toBe("First draft");
-    expect(firstEditor.getAttribute("aria-disabled")).toBe("true");
-    expect(firstEditor.ownerDocument.activeElement).not.toBe(firstEditor);
+    expect(firstEditor.getAttribute("aria-disabled")).toBe("false");
 
     await act(async () => {
       secondEditor.focus();
-      await firstFence.prepare();
+      await Promise.resolve();
     });
     expect(secondEditor.ownerDocument.activeElement).toBe(secondEditor);
     first.document.destroy();

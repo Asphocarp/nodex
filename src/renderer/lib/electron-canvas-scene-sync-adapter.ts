@@ -12,7 +12,6 @@ import {
 } from "../../shared/block-documents";
 import type { CanvasSceneSyncAdapter } from "./canvas-scene-provider";
 import type { ElectronRendererBridge } from "./electron-renderer-transport";
-import { decodeDocumentRealtimeSseEvent } from "../../shared/block-documents/http-contract";
 import {
   createExactRemoteSubscriptionLifecycle,
   type ExactRemoteSubscriptionLifecycle,
@@ -27,9 +26,6 @@ const transportFailure = (error: unknown): CanvasSceneMutationError => ({
 
 interface ElectronCanvasSubscriber {
   readonly listener: (event: CanvasSceneRealtimeEvent) => void;
-  readonly leaseListener?: NonNullable<
-    Parameters<CanvasSceneSyncAdapter["subscribe"]>[2]
-  >;
   readonly presenceListener?: (
     event: CanvasPresenceRealtimeEvent,
   ) => void;
@@ -64,7 +60,7 @@ export const createElectronCanvasSceneSyncAdapter = (
   ): Promise<CanvasSceneSubscriptionCommandResult> =>
     entry.lifecycle.ensure();
   return {
-    subscribe(request, listener, leaseListener, presenceListener) {
+    subscribe(request, listener, presenceListener) {
       if (request.projectId !== projectId) {
         throw new TypeError("Canvas subscription crossed its Project boundary");
       }
@@ -78,8 +74,7 @@ export const createElectronCanvasSceneSyncAdapter = (
           (...args: unknown[]) => {
             const event = args[0] as
               | CanvasSceneRealtimeEvent
-              | CanvasPresenceRealtimeEvent
-              | import("./canvas-scene-provider").CanvasSceneRelocationLeaseEvent;
+              | CanvasPresenceRealtimeEvent;
             if (
               event
               && "type" in event
@@ -104,25 +99,6 @@ export const createElectronCanvasSceneSyncAdapter = (
                 }
               } catch {
                 // Invalid Host presence never crosses the adapter boundary.
-              }
-              return;
-            }
-            if (event && "kind" in event) {
-              try {
-                const leaseEvent = decodeDocumentRealtimeSseEvent(JSON.stringify(event));
-                if (
-                  (leaseEvent.kind === "relocation-lease-prepare" ||
-                    leaseEvent.kind === "relocation-lease-release" ||
-                    leaseEvent.kind === "relocation-lease-cancel") &&
-                  leaseEvent.documentId === request.documentId &&
-                  leaseEvent.clientSessionId === request.clientSessionId
-                ) {
-                  subscribers.forEach((subscriber) =>
-                    subscriber.leaseListener?.(leaseEvent)
-                  );
-                }
-              } catch {
-                // Invalid main-to-renderer events never cross the adapter boundary.
               }
               return;
             }
@@ -179,7 +155,6 @@ export const createElectronCanvasSceneSyncAdapter = (
       }
       const subscriber: ElectronCanvasSubscriber = {
         listener,
-        leaseListener,
         presenceListener,
       };
       entry.subscribers.add(subscriber);
@@ -259,18 +234,6 @@ export const createElectronCanvasSceneSyncAdapter = (
             resetRequired: false,
           },
         };
-      }
-    },
-    async respondToRelocationLease(request) {
-      try {
-        return await invoke("document-sync:relocation-lease:respond", request);
-      } catch (error) {
-        return { ok: false, error: {
-          code: "transport_unavailable",
-          message: error instanceof Error ? error.message : String(error),
-          retryable: true,
-          resetRequired: false,
-        } };
       }
     },
   };

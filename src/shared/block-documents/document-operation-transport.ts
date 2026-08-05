@@ -155,9 +155,7 @@ export const documentMutationHttpStatus = (
     error.code === "document_not_ready" ||
     error.code === "document_generation_conflict" ||
     error.code === "document_head_conflict" ||
-    error.code === "duplicate_block_id" ||
-    error.code === "write_fence_required" ||
-    error.code === "document_write_lease_timeout"
+    error.code === "duplicate_block_id"
   ) {
     return 409;
   }

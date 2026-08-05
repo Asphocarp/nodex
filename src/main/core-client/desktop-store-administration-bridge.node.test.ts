@@ -32,7 +32,7 @@ const readSnapshot = (
 ): StoreAdministrationReadSnapshot => ({
   contract_version: 2,
   store_epoch: "epoch:test",
-  event_head: 4,
+  commit_head: 4,
   value,
 });
 
@@ -132,8 +132,8 @@ describe("Desktop Store Administration bridge", () => {
     expect(mapCoreStoreAdministrationEvent({
       transport_version: 4,
       event: {
-        event_version: 2,
-        sequence: 5,
+        event_version: 3,
+        commit_seq: 5,
         store_epoch: "epoch:test",
         operation_id: "operation:backup",
         committed_at: "2026-07-19T20:00:00.000Z",
@@ -147,6 +147,8 @@ describe("Desktop Store Administration bridge", () => {
             readiness_changed: false,
           },
         },
+        effects: [],
+        canonical_hash: "0".repeat(64),
       },
     })).toEqual({
       backupIds: ["core-backup"],

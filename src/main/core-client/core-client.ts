@@ -39,6 +39,8 @@ import type {
   CoreEventReplayRequired,
   CoreEventSubscription,
   CoreHandshakeResponse,
+  CoreLocalMutationResolveRequest,
+  CoreLocalMutationResolveResponse,
   CoreModuleError,
   AutomationApplyInput,
   AutomationApplyResponse,
@@ -204,6 +206,17 @@ export class CoreClient implements CoreClientPort {
 
   health(): Promise<HealthResponse> {
     return this.#transport.requestJson("GET", "/core/v1/health");
+  }
+
+  async resolveLocalMutation(
+    input: CoreLocalMutationResolveRequest,
+  ): Promise<CoreLocalMutationResolveResponse> {
+    return await this.#transport.requestJson<CoreLocalMutationResolveResponse>(
+      "POST",
+      "/core/v1/local-mutations/resolve",
+      input,
+      this.#moduleHeaders(),
+    );
   }
 
   async libraryRead(read: LibraryRead): Promise<LibraryReadSnapshot> {
@@ -603,8 +616,8 @@ const assertHandshake = (
     handshake.schema_version !== descriptor.actual_store_format.version ||
     !handshake.library_id ||
     !handshake.connection_binding ||
-    !Number.isSafeInteger(handshake.event_head) ||
-    handshake.event_head < 0
+    !Number.isSafeInteger(handshake.commit_head) ||
+    handshake.commit_head < 0
   ) {
     throw new Error("Core handshake does not match the validated runtime descriptor");
   }

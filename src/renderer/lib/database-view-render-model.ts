@@ -43,7 +43,7 @@ export interface DatabaseViewRenderModel {
   readonly dataSourceName: string;
   readonly viewName: string;
   readonly storeEpoch: string;
-  readonly changeLogSeq: number;
+  readonly commitSeq: number;
   readonly columns: readonly DatabaseViewRenderColumn[];
   readonly query: DatabaseViewQueryResultV2;
   /** Whether the compatibility Board presentation can faithfully render it. */
@@ -343,7 +343,7 @@ export const buildDatabaseViewRenderModel = (
     dataSourceName: query.dataSource.name,
     viewName: query.view.name,
     storeEpoch: snapshot.storeEpoch,
-    changeLogSeq: snapshot.changeLogSeq,
+    commitSeq: snapshot.commitSeq,
     columns: buildColumns(query, statusGrouped),
     query,
     primaryWriteCompatible,
@@ -361,6 +361,6 @@ export const buildDatabaseViewWindowRenderModel = (
       : { projectId: window.projectId }),
     libraryId: window.libraryId,
     storeEpoch: window.storeEpoch,
-    changeLogSeq: window.changeLogSeq,
+    commitSeq: window.commitSeq,
     value: { kind: "query", value: window.query },
   });

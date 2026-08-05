@@ -9,6 +9,8 @@ use crate::agent::{
     AgentResourceIntent, AgentTurnProvenance,
 };
 use crate::database::{DatabaseGroupScope, DatabaseIntent, DatabasePropertyDescriptor};
+use crate::document::DocumentHeadRevision;
+use crate::events::LocalCommitEnvelope;
 use crate::workspace::{ProjectAppearance, ProjectLifecycle};
 use crate::{CommittedModuleValue, ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
@@ -378,9 +380,17 @@ pub struct LibraryBlockTransferLogicalIntent {
     pub actor: Value,
     pub mode: LibraryBlockTransferMode,
     pub root_block_ids: Vec<String>,
+    pub causal_dependencies: Vec<LibraryBlockTransferDocumentHead>,
     pub source: LibraryBlockTransferSource,
     pub target: LibraryBlockTransferTarget,
 }
+
+/// Exact durable coordinates for a Document mutation fence.
+///
+/// Structural owner mutations use the same coordinate shape as BlockTransfer:
+/// the renderer must flush the live surface first, and Core then rejects a
+/// mutation if the durable head has advanced in the meantime.
+pub type LibraryDocumentHead = DocumentHeadRevision;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct LibraryBlockTransferDocumentHead {
@@ -469,9 +479,11 @@ pub enum LibraryBlockTransferPlan {
         preparation: LibraryBlockTransferPreparation,
     },
     Committed {
-        result: LibraryBlockTransferResult,
-        change_log_seq: i64,
+        result: Box<LibraryBlockTransferResult>,
+        commit_seq: i64,
         committed_at: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        local_commit: Option<Box<LocalCommitEnvelope>>,
     },
 }
 
@@ -834,6 +846,7 @@ pub struct LibraryPageLifecycleRestoreEvidence {
     pub delete_operation_id: String,
     pub previous_lifecycle: LibraryLifecycle,
     pub membership: Option<LibraryPageLifecycleRestoreMembership>,
+    pub nested_parent: Option<LibraryPageLifecycleNestedParent>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -927,6 +940,7 @@ pub enum LibraryPageLifecycleMutation {
         page_id: String,
         expected_metadata_revision: i64,
         expected_parent_revision: i64,
+        parent_document_head: Option<LibraryDocumentHead>,
     },
     RestorePage {
         page_id: String,
@@ -935,6 +949,7 @@ pub enum LibraryPageLifecycleMutation {
         expected_parent_revision: i64,
         membership: Option<LibraryPageLifecycleMutationMembership>,
         before_block_id: Option<String>,
+        parent_document_head: Option<LibraryDocumentHead>,
     },
     MovePageInLibrary {
         page_id: String,
@@ -968,6 +983,9 @@ pub enum LibraryPageLifecycleState {
 pub struct LibraryPageLifecycleDeletedBlock {
     pub block_id: String,
     pub metadata_revision: i64,
+    /// Post-delete metadata revision for an independent typed-owner
+    /// authority, when this indexed Block has one.
+    pub resource_metadata_revision: Option<i64>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -976,6 +994,14 @@ pub struct LibraryPageLifecycleDeleteEvidence {
     pub membership: Option<LibraryPageLifecycleMutationMembership>,
     pub tombstoned_blocks: Vec<LibraryPageLifecycleDeletedBlock>,
     pub indexed_document_ids: Vec<String>,
+    pub nested_parent: Option<LibraryPageLifecycleNestedParent>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryPageLifecycleNestedParent {
+    pub document_id: String,
+    pub parent_block_id: Option<String>,
+    pub before_block_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -1114,7 +1140,7 @@ pub struct LibraryPageDetail {
     pub version: u32,
     pub library_id: String,
     pub store_epoch: String,
-    pub change_log_seq: i64,
+    pub commit_seq: i64,
     pub page: Value,
     pub document: LibraryPageDocumentDescriptor,
     pub intrinsic_properties: Vec<LibraryPageIntrinsicProperty>,
@@ -1127,7 +1153,7 @@ pub struct LibraryPageContent {
     pub version: u32,
     pub library_id: String,
     pub store_epoch: String,
-    pub change_log_seq: i64,
+    pub commit_seq: i64,
     pub page_id: String,
     pub metadata_revision: i64,
     pub document_id: String,
@@ -1240,7 +1266,7 @@ pub struct LibraryPageFileProjection {
     pub version: u32,
     pub library_id: String,
     pub store_epoch: String,
-    pub event_head: i64,
+    pub commit_head: i64,
     pub page_id: String,
     pub metadata_revision: i64,
     pub document_id: String,
@@ -1258,7 +1284,7 @@ pub struct LibraryPageDraftProjection {
     pub metadata_projection_version: u32,
     pub library_id: String,
     pub store_epoch: String,
-    pub event_head: i64,
+    pub commit_head: i64,
     pub page_id: String,
     pub metadata_revision: i64,
     pub document_id: String,
@@ -1336,7 +1362,7 @@ pub struct LibrarySearchSnapshotManifest {
     pub library_id: String,
     pub project_id: String,
     pub store_epoch: String,
-    pub event_head: i64,
+    pub commit_head: i64,
     pub scope: LibrarySearchSnapshotScope,
     pub pages: Vec<LibrarySearchSnapshotPage>,
     pub warnings: Vec<LibrarySearchSnapshotWarning>,
@@ -1704,7 +1730,7 @@ pub enum LibraryReadValue {
     Metadata {
         profile_id: String,
         library_id: String,
-        change_log_seq: i64,
+        commit_seq: i64,
     },
     ResourceProjectAccess {
         value: Box<LibraryResourceProjectAccess>,
@@ -1857,6 +1883,7 @@ pub enum LibraryIntent {
         canvas_id: String,
         expected_location_revision: i64,
         expected_metadata_revision: i64,
+        containing_document_head: Option<LibraryDocumentHead>,
     },
     CopyPage {
         source_page_id: String,
@@ -2003,7 +2030,7 @@ pub struct LibraryReceipt {
     pub affected_database_ids: Vec<String>,
     pub affected_view_ids: Vec<String>,
     pub committed_revisions: std::collections::BTreeMap<String, i64>,
-    pub change_log_seq: i64,
+    pub commit_seq: i64,
     pub committed_at: String,
 }
 

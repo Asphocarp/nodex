@@ -576,7 +576,7 @@ mod tests {
                 library_id: "library-1".to_owned(),
                 project_id: "project-1".to_owned(),
                 store_epoch: "epoch-1".to_owned(),
-                event_head: 1,
+                commit_head: 1,
                 scope: nodex_core_contracts::library::LibrarySearchSnapshotScope::Page {
                     page_id: "page-1".to_owned(),
                 },
@@ -640,7 +640,7 @@ mod tests {
                 library_id: "library-1".to_owned(),
                 project_id: "project-1".to_owned(),
                 store_epoch: "epoch-1".to_owned(),
-                event_head: 1,
+                commit_head: 1,
                 scope: nodex_core_contracts::library::LibrarySearchSnapshotScope::Page {
                     page_id: "page-1".to_owned(),
                 },

@@ -19,7 +19,6 @@ export * from "./document-operation-transport";
 export * from "./document-history";
 export * from "./document-history-transport";
 export * from "./foreign-reference-migration";
-export * from "./relocation";
 export * from "./xml-subtree-codec";
 export * from "./portable-rich-text";
 export * from "./block-semantic-content";

@@ -63,7 +63,7 @@ impl ReminderCandidate {
 pub(super) fn read_lease_window(
     connection: &Connection,
     library_id: &str,
-    event_head: i64,
+    commit_head: i64,
     project_id: Option<&str>,
     include_settled: bool,
     request: &CollectionWindowRequest,
@@ -140,7 +140,7 @@ pub(super) fn read_lease_window(
         candidates,
         normalized.first,
         CollectionWindowAuthority {
-            projection_revision: event_head,
+            projection_revision: commit_head,
         },
         |coordinate| {
             cursor::mint(
@@ -156,7 +156,7 @@ pub(super) fn read_lease_window(
 pub(super) fn read_snooze_window(
     connection: &Connection,
     library_id: &str,
-    event_head: i64,
+    commit_head: i64,
     project_id: Option<&str>,
     include_consumed: bool,
     request: &CollectionWindowRequest,
@@ -246,7 +246,7 @@ pub(super) fn read_snooze_window(
         candidates,
         normalized.first,
         CollectionWindowAuthority {
-            projection_revision: event_head,
+            projection_revision: commit_head,
         },
         |coordinate| {
             cursor::mint(

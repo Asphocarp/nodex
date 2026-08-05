@@ -9,10 +9,15 @@ export interface PageDetailIpcDependencies {
       event: unknown,
       projectId: string,
       pageId: string,
+      minimumCommitSeq?: number,
     ) => Promise<PageDetailResult>,
   ) => void;
   readonly isTrustedEvent: (event: unknown) => boolean;
-  readonly read: (projectId: string, pageId: string) => Promise<PageDetailResult>;
+  readonly read: (
+    projectId: string,
+    pageId: string,
+    minimumCommitSeq?: number,
+  ) => Promise<PageDetailResult>;
 }
 
 export const registerPageDetailIpcHandler = (
@@ -20,7 +25,7 @@ export const registerPageDetailIpcHandler = (
 ): void => {
   dependencies.registerHandle(
     PAGE_DETAIL_IPC_CHANNEL,
-    async (event, projectId, pageId) => {
+    async (event, projectId, pageId, minimumCommitSeq) => {
       if (!dependencies.isTrustedEvent(event)) {
         return {
           ok: false,
@@ -32,7 +37,7 @@ export const registerPageDetailIpcHandler = (
         };
       }
       try {
-        return await dependencies.read(projectId, pageId);
+        return await dependencies.read(projectId, pageId, minimumCommitSeq);
       } catch (error) {
         return {
           ok: false,

@@ -52,7 +52,15 @@ describe("BlockTransfer contract", () => {
 
   test("keeps freshness evidence out of the public logical intent", () => {
     const logical = blockTransferIntentFromRequest(request());
-    expect(parseBlockTransferIntent(logical)).toEqual(logical);
+    const fencedLogical = {
+      ...logical,
+      causalDependencies: [{
+        documentId: "fence-document",
+        generation: 1,
+        expectedHeadSeq: 8,
+      }],
+    };
+    expect(parseBlockTransferIntent(fencedLogical)).toEqual(fencedLogical);
     expect(logical.source).toEqual({
       kind: "data_source",
       dataSourceId: "source-a",
@@ -62,11 +70,14 @@ describe("BlockTransfer contract", () => {
       documentId: "document-b",
       beforeBlockId: "paragraph-b",
     });
-    expect(canonicalizeBlockTransferLogicalIntent(logical)).not.toContain(
+    expect(canonicalizeBlockTransferLogicalIntent(fencedLogical)).not.toContain(
       "expectedHeadSeq",
     );
-    expect(canonicalizeBlockTransferLogicalIntent(logical)).not.toContain(
+    expect(canonicalizeBlockTransferLogicalIntent(fencedLogical)).not.toContain(
       "revision",
+    );
+    expect(canonicalizeBlockTransferLogicalIntent(fencedLogical)).not.toContain(
+      "fence-document",
     );
   });
 

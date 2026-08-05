@@ -6,6 +6,7 @@ pub mod cursor;
 pub mod document_repository;
 pub mod event_log;
 pub(crate) mod legacy_migration;
+pub(crate) mod local_commit;
 pub mod metrics;
 pub mod migration;
 pub mod module_receipts;

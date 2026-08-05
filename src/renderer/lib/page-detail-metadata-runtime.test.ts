@@ -87,7 +87,7 @@ const detail = (member = true): PageDetail => {
     projectId: "project-1",
     libraryId: "library-1",
     storeEpoch: "epoch-1",
-    changeLogSeq: 4,
+    commitSeq: 4,
     page: {
       pageId: "page-1",
       libraryId: "library-1",
@@ -196,7 +196,7 @@ const mutationSuccess = (
     duplicate: false,
     fields: [],
     blockMetadataRevisions: { "page-1": 3 },
-    changeLogSeq: 5,
+    commitSeq: 5,
     committedAt: timestamp,
   },
 });
@@ -220,7 +220,7 @@ const metadataSuccess = (
     affectedDatabaseIds: [databaseId],
     affectedViewIds: [],
     committedRevisions: {},
-    changeLogSeq: 5,
+    commitSeq: 5,
     committedAt: timestamp,
   },
 });
@@ -257,7 +257,7 @@ const dependencies = (input: {
         affectedPageIds: ["page-1"],
         affectedViewIds: [],
         committedRevisions: {},
-        changeLogSeq: 5,
+        commitSeq: 5,
         committedAt: timestamp,
       },
     };
@@ -291,7 +291,7 @@ const libraryDependencies = (input: {
         duplicate: false,
         fields: [],
         blockMetadataRevisions: { "page-1": 3 },
-        changeLogSeq: 5,
+        commitSeq: 5,
         committedAt: timestamp,
       },
     } satisfies LibraryBlockPropertyMutationCommandResultV2;
@@ -313,7 +313,7 @@ const libraryDependencies = (input: {
         affectedPageIds: ["page-1"],
         affectedViewIds: [],
         committedRevisions: {},
-        changeLogSeq: 5,
+        commitSeq: 5,
         committedAt: timestamp,
       },
     };

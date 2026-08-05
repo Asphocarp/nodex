@@ -47,7 +47,7 @@ const committed = (
         { documentId: "document-template-1", generation: 1, headSeq: 1 },
       ],
     },
-    changeLogSeq: 7,
+    commitSeq: 7,
     committedAt: "2026-07-12T00:00:00.000Z",
   },
 });

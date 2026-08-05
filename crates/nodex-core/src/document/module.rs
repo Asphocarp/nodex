@@ -43,6 +43,7 @@ use crate::infrastructure::document_repository::{
 };
 use crate::infrastructure::event_log::{
     NewChangeLogEntry, append_change_log, load_committed_event_by_sequence,
+    load_local_commit_by_event_sequence,
 };
 use crate::infrastructure::metrics::DurationMetricSnapshot;
 use crate::infrastructure::module_receipts::{
@@ -81,7 +82,7 @@ use super::owners::execute_owner_command;
 use super::persistence::{
     DocumentAuthorityRow, PersistYjsCommit, PersistYjsGenesis, derive_touched_block_ids,
     persist_yjs_commit, persist_yjs_genesis, read_document_authority, read_event_head,
-    read_store_epoch, sha256,
+    read_local_commit_head, read_store_epoch, sha256,
 };
 use super::recovery::{StaleYjsUpdate, persist_recovery_if_barrier_crossed};
 use super::runtime::{DocumentRuntimeCache, reconstruction_duration_metrics};
@@ -135,12 +136,12 @@ struct AgentSemanticPreflight {
 enum AgentSemanticPreparationResult {
     Prepared {
         store_epoch: String,
-        event_head: i64,
+        commit_head: i64,
         preflight: AgentSemanticPreflight,
     },
     CommittedReplay {
         store_epoch: String,
-        event_head: i64,
+        commit_head: i64,
         footprint: AgentOperationFootprint,
         committed: Box<CommittedModuleValue<OwnedDocumentCommitValue, OwnedDocumentReceipt>>,
     },
@@ -188,7 +189,7 @@ pub(crate) struct RealtimeDocumentBoundary {
     pub(crate) store_epoch: StoreEpoch,
     pub(crate) generation: i64,
     pub(crate) head_seq: i64,
-    pub(crate) event_head: i64,
+    pub(crate) commit_head: i64,
     pub(crate) engine: DocumentSyncEngine,
 }
 
@@ -322,7 +323,7 @@ impl OwnedDocumentModule {
                     Ok(ModuleReadSnapshot {
                         contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                         store_epoch: StoreEpoch(store_epoch.clone()),
-                        event_head: read_event_head(connection)?,
+                        commit_head: read_local_commit_head(connection)?,
                         value: OwnedDocumentReadValue::Descriptor {
                             descriptor: authority_descriptor(&authority, &store_epoch),
                         },
@@ -348,7 +349,7 @@ impl OwnedDocumentModule {
                         Ok(ModuleReadSnapshot {
                             contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                             store_epoch: StoreEpoch(store_epoch.clone()),
-                            event_head: read_event_head(connection)?,
+                            commit_head: read_local_commit_head(connection)?,
                             value: OwnedDocumentReadValue::YjsSync {
                                 descriptor: authority_descriptor(&authority, &store_epoch),
                                 update,
@@ -377,7 +378,7 @@ impl OwnedDocumentModule {
                     Ok(ModuleReadSnapshot {
                         contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                         store_epoch: StoreEpoch(read_store_epoch(connection)?),
-                        event_head: read_event_head(connection)?,
+                        commit_head: read_local_commit_head(connection)?,
                         value: OwnedDocumentReadValue::Versions { items, next },
                     })
                 })
@@ -401,7 +402,7 @@ impl OwnedDocumentModule {
                     Ok(ModuleReadSnapshot {
                         contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                         store_epoch: StoreEpoch(read_store_epoch(connection)?),
-                        event_head: read_event_head(connection)?,
+                        commit_head: read_local_commit_head(connection)?,
                         value: OwnedDocumentReadValue::Version {
                             value: json!({
                                 "summary": version.summary,
@@ -421,7 +422,7 @@ impl OwnedDocumentModule {
                     Ok(ModuleReadSnapshot {
                         contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                         store_epoch: StoreEpoch(read_store_epoch(connection)?),
-                        event_head: read_event_head(connection)?,
+                        commit_head: read_local_commit_head(connection)?,
                         value: OwnedDocumentReadValue::CanvasCompactionEligibility { stats },
                     })
                 })
@@ -531,7 +532,6 @@ impl OwnedDocumentModule {
                 expected_head_seq,
                 operations,
                 actor,
-                write_fence_prepared,
             } => self.apply_operation_batch(
                 context,
                 request.operation_id,
@@ -541,7 +541,6 @@ impl OwnedDocumentModule {
                 expected_head_seq,
                 operations,
                 actor,
-                write_fence_prepared,
             ),
             OwnedDocumentIntent::ReplaceFromNfm {
                 document_id,
@@ -550,7 +549,6 @@ impl OwnedDocumentModule {
                 nfm,
                 rich_title,
                 actor,
-                write_fence_prepared,
             } => self.replace_from_nfm(
                 context,
                 request.operation_id,
@@ -561,7 +559,6 @@ impl OwnedDocumentModule {
                 nfm,
                 rich_title,
                 actor,
-                write_fence_prepared,
             ),
             OwnedDocumentIntent::ExecutePreparedAgentSemanticMutation {
                 authorization,
@@ -596,7 +593,6 @@ impl OwnedDocumentModule {
                 generation,
                 expected_head_seq,
                 actor,
-                write_fence_prepared,
             } => self.compact_canvas_tombstones(
                 context,
                 request.operation_id,
@@ -605,7 +601,6 @@ impl OwnedDocumentModule {
                 generation,
                 expected_head_seq,
                 actor,
-                write_fence_prepared,
             ),
             OwnedDocumentIntent::CreateCheckpoint {
                 document_id,
@@ -637,7 +632,6 @@ impl OwnedDocumentModule {
                 generation,
                 expected_head_seq,
                 actor,
-                write_fence_prepared,
             } => self.restore_version(
                 context,
                 request.operation_id,
@@ -647,7 +641,6 @@ impl OwnedDocumentModule {
                 generation,
                 expected_head_seq,
                 actor,
-                write_fence_prepared,
             ),
             OwnedDocumentIntent::ApplyOwnerCommand { command } => self.apply_owner_command(
                 context,
@@ -678,7 +671,7 @@ impl OwnedDocumentModule {
                     store_epoch: StoreEpoch(read_store_epoch(connection)?),
                     generation: authority.head.generation,
                     head_seq: authority.head.head_seq,
-                    event_head: read_event_head(connection)?,
+                    commit_head: read_local_commit_head(connection)?,
                     engine: authority.head.sync_engine,
                 })
             })
@@ -932,7 +925,7 @@ impl OwnedDocumentModule {
                             .map_err(semantic_error)
                     })
                     .transpose()?;
-                let event_head = read_event_head(&transaction)?;
+                let commit_head = read_local_commit_head(&transaction)?;
                 let snapshot = AgentDocumentSemanticSnapshot {
                     document_id: authority.head.id.clone(),
                     generation: authority.head.generation,
@@ -954,7 +947,7 @@ impl OwnedDocumentModule {
                 Ok(ModuleReadSnapshot {
                     contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     store_epoch: StoreEpoch(store_epoch),
-                    event_head,
+                    commit_head,
                     value: OwnedDocumentReadValue::AgentSemanticSnapshot {
                         snapshot: Box::new(snapshot),
                     },
@@ -992,7 +985,7 @@ impl OwnedDocumentModule {
                         true,
                     ));
                 }
-                let event_head = read_event_head(&transaction)?;
+                let commit_head = read_local_commit_head(&transaction)?;
                 if let Some(stored) = read_module_receipt(&transaction, MODULE_NAME, &operation_id)?
                 {
                     if stored.request_hash != request_hash {
@@ -1022,7 +1015,7 @@ impl OwnedDocumentModule {
                     transaction.commit()?;
                     return Ok(AgentSemanticPreparationResult::CommittedReplay {
                         store_epoch,
-                        event_head,
+                        commit_head,
                         footprint,
                         committed: Box::new(committed),
                     });
@@ -1096,7 +1089,7 @@ impl OwnedDocumentModule {
                 transaction.commit()?;
                 Ok(AgentSemanticPreparationResult::Prepared {
                     store_epoch,
-                    event_head,
+                    commit_head,
                     preflight: AgentSemanticPreflight {
                         footprint,
                         preview_markdown,
@@ -1110,13 +1103,13 @@ impl OwnedDocumentModule {
         match preparation {
             AgentSemanticPreparationResult::CommittedReplay {
                 store_epoch,
-                event_head,
+                commit_head,
                 footprint,
                 committed,
             } => Ok(ModuleReadSnapshot {
                 contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                 store_epoch: StoreEpoch(store_epoch),
-                event_head,
+                commit_head,
                 value: OwnedDocumentReadValue::AgentSemanticMutationPreparation {
                     preparation: AgentOperationPreparation {
                         state: AgentOperationPreparationState::CommittedReplay,
@@ -1131,7 +1124,7 @@ impl OwnedDocumentModule {
             }),
             AgentSemanticPreparationResult::Prepared {
                 store_epoch,
-                event_head,
+                commit_head,
                 preflight,
             } => {
                 let issued = self
@@ -1141,7 +1134,7 @@ impl OwnedDocumentModule {
                 Ok(ModuleReadSnapshot {
                     contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                     store_epoch: StoreEpoch(store_epoch),
-                    event_head,
+                    commit_head,
                     value: OwnedDocumentReadValue::AgentSemanticMutationPreparation {
                         preparation: AgentOperationPreparation {
                             state: AgentOperationPreparationState::Prepared,
@@ -1268,7 +1261,7 @@ impl OwnedDocumentModule {
                     .find(|event| event.sequence == executed.event_sequence)
                     .map(|event| event.committed_at.clone())
                     .map_or_else(|| sqlite_now(&transaction), Ok)?;
-                let committed = CommittedModuleValue {
+                let mut committed = CommittedModuleValue {
                     value: OwnedDocumentCommitValue {
                         document_id: executed.primary_document_id.clone(),
                         generation: executed.generation,
@@ -1293,9 +1286,15 @@ impl OwnedDocumentModule {
                         generation: executed.generation,
                         head_seq: executed.head_seq,
                     },
+                    commit_seq: 0,
                     event_sequence: executed.event_sequence,
                     store_epoch: StoreEpoch(store_epoch.clone()),
+                    local_commit: None,
                 };
+                let local_commit =
+                    load_local_commit_by_event_sequence(&transaction, executed.event_sequence)?;
+                committed.commit_seq = local_commit.commit_seq;
+                committed.local_commit = Some(local_commit);
                 insert_typed_receipt(
                     &transaction,
                     &context,
@@ -1413,8 +1412,8 @@ impl OwnedDocumentModule {
                         DocumentAccessKind::Write,
                     )?;
                     let (_, created) = ensure_canvas_scene(&transaction, &authority, &assets_root)?;
-                    let event_head = read_event_head(&transaction)?;
-                    let committed = committed_value(
+                    let commit_head = read_event_head(&transaction)?;
+                    let mut committed = committed_value(
                         &operation_id,
                         &store_epoch,
                         &authority,
@@ -1424,8 +1423,9 @@ impl OwnedDocumentModule {
                         } else {
                             DocumentCommitOutcome::NoChange
                         },
-                        event_head,
+                        commit_head,
                     );
+                    committed.commit_seq = read_local_commit_head(&transaction)?;
                     insert_typed_receipt(
                         &transaction,
                         &context,
@@ -1482,7 +1482,7 @@ impl OwnedDocumentModule {
                                     emit_event: true,
                                 },
                             )?;
-                            let committed = committed_value(
+                            let mut committed = committed_value(
                                 &operation_id,
                                 &store_epoch,
                                 &authority,
@@ -1490,6 +1490,12 @@ impl OwnedDocumentModule {
                                 DocumentCommitOutcome::Committed,
                                 persisted.event_sequence,
                             );
+                            let local_commit = load_local_commit_by_event_sequence(
+                                &transaction,
+                                persisted.event_sequence,
+                            )?;
+                            committed.commit_seq = local_commit.commit_seq;
+                            committed.local_commit = Some(local_commit);
                             let event = load_committed_event_by_sequence(
                                 &transaction,
                                 persisted.event_sequence,
@@ -1520,15 +1526,16 @@ impl OwnedDocumentModule {
                                 &root_block_id,
                             )?
                             else {
-                                let event_head = read_event_head(&transaction)?;
-                                let committed = committed_value(
+                                let commit_head = read_event_head(&transaction)?;
+                                let mut committed = committed_value(
                                     &operation_id,
                                     &store_epoch,
                                     &authority,
                                     authority.head.head_seq,
                                     DocumentCommitOutcome::NoChange,
-                                    event_head,
+                                    commit_head,
                                 );
+                                committed.commit_seq = read_local_commit_head(&transaction)?;
                                 insert_typed_receipt(
                                     &transaction,
                                     &context,
@@ -1570,12 +1577,13 @@ impl OwnedDocumentModule {
                                     state_vector: &state_vector,
                                     store_epoch: &store_epoch,
                                     operation_id: &operation_id,
+                                    local_commit_id: None,
                                     event_kind: "document_updated",
                                     write_fence_block_ids: &prepared.write_fence_block_ids,
                                     title_write_fence_required: prepared.title_write_fence_required,
                                 },
                             )?;
-                            let committed = committed_value(
+                            let mut committed = committed_value(
                                 &operation_id,
                                 &store_epoch,
                                 &authority,
@@ -1583,6 +1591,12 @@ impl OwnedDocumentModule {
                                 DocumentCommitOutcome::Committed,
                                 persisted.event_sequence,
                             );
+                            let local_commit = load_local_commit_by_event_sequence(
+                                &transaction,
+                                persisted.event_sequence,
+                            )?;
+                            committed.commit_seq = local_commit.commit_seq;
+                            committed.local_commit = Some(local_commit);
                             let event = load_committed_event_by_sequence(
                                 &transaction,
                                 persisted.event_sequence,
@@ -1767,7 +1781,7 @@ impl OwnedDocumentModule {
                 } else {
                     DocumentCommitOutcome::NoChange
                 };
-                let committed = committed_canvas_value(
+                let mut committed = committed_canvas_value(
                     &operation_id,
                     &store_epoch,
                     &authority,
@@ -1776,6 +1790,15 @@ impl OwnedDocumentModule {
                     persisted.event_sequence,
                     persisted.result.clone(),
                 );
+                committed.commit_seq = read_local_commit_head(&transaction)?;
+                if persisted.event_delta.is_some() {
+                    let local_commit = load_local_commit_by_event_sequence(
+                        &transaction,
+                        persisted.event_sequence,
+                    )?;
+                    committed.commit_seq = local_commit.commit_seq;
+                    committed.local_commit = Some(local_commit);
+                }
                 insert_typed_receipt(
                     &transaction,
                     &context,
@@ -1822,7 +1845,6 @@ impl OwnedDocumentModule {
         generation: i64,
         expected_head_seq: i64,
         actor: Value,
-        write_fence_prepared: bool,
     ) -> Result<OwnedDocumentApplyOutcome, CoreError> {
         validate_document_actor(&actor)?;
         let fingerprint = serde_json::to_vec(&CanvasCompactionFingerprint {
@@ -1905,9 +1927,6 @@ impl OwnedDocumentModule {
                     ));
                 }
                 let prepared = prepare_canvas_compaction(&transaction, &authority)?;
-                if prepared.stats.tombstone_count > 0 {
-                    require_restore_write_fence(write_fence_prepared)?;
-                }
                 let now = sqlite_now(&transaction)?;
                 let changed = prepared.stats.tombstone_count > 0;
                 let (next_authority, checkpoint_version_id) = if changed {
@@ -2022,7 +2041,7 @@ impl OwnedDocumentModule {
                     "checkpointVersionId": checkpoint_version_id,
                     "committedAt": now,
                 });
-                let committed = committed_canvas_value(
+                let mut committed = committed_canvas_value(
                     &operation_id,
                     &store_epoch,
                     &next_authority,
@@ -2035,6 +2054,13 @@ impl OwnedDocumentModule {
                     event_sequence,
                     result,
                 );
+                committed.commit_seq = read_local_commit_head(&transaction)?;
+                if changed {
+                    let local_commit =
+                        load_local_commit_by_event_sequence(&transaction, event_sequence)?;
+                    committed.commit_seq = local_commit.commit_seq;
+                    committed.local_commit = Some(local_commit);
+                }
                 insert_typed_receipt(
                     &transaction,
                     &context,
@@ -2324,7 +2350,6 @@ impl OwnedDocumentModule {
         expected_head_seq: i64,
         contract_operations: Vec<ContractDocumentBlockOperation>,
         actor: Value,
-        write_fence_prepared: bool,
     ) -> Result<OwnedDocumentApplyOutcome, CoreError> {
         validate_document_actor(&actor)?;
         let fingerprint = serde_json::to_vec(&(
@@ -2387,7 +2412,6 @@ impl OwnedDocumentModule {
                     authority,
                     &mutation_effect.created_block_ids,
                 )?;
-                require_document_write_fence(mutation_effect.coordination, write_fence_prepared)?;
                 Ok(PreparedUpdate::Apply {
                     base_head_seq: authority.head.head_seq,
                     update_id,
@@ -2420,7 +2444,6 @@ impl OwnedDocumentModule {
         nfm: String,
         contract_rich_title: Option<Vec<Value>>,
         actor: Value,
-        write_fence_prepared: bool,
     ) -> Result<OwnedDocumentApplyOutcome, CoreError> {
         validate_document_actor(&actor)?;
         let fingerprint = serde_json::to_vec(&(
@@ -2490,7 +2513,6 @@ impl OwnedDocumentModule {
                     authority,
                     &mutation_effect.created_block_ids,
                 )?;
-                require_document_write_fence(mutation_effect.coordination, write_fence_prepared)?;
                 Ok(PreparedUpdate::Apply {
                     base_head_seq: authority.head.head_seq,
                     update_id,
@@ -2635,15 +2657,16 @@ impl OwnedDocumentModule {
                         (None, inserted)
                     }
                 };
-                let event_head = read_event_head(&transaction)?;
+                let commit_head = read_event_head(&transaction)?;
                 let mut committed = committed_value(
                     &operation_id,
                     &store_epoch,
                     &authority,
                     authority.head.head_seq,
                     DocumentCommitOutcome::Committed,
-                    event_head,
+                    commit_head,
                 );
+                committed.commit_seq = read_local_commit_head(&transaction)?;
                 committed.value.checkpoint_effect = Some(DocumentCheckpointEffect {
                     checkpoint: inserted_checkpoint.version.summary,
                     duplicate: inserted_checkpoint.duplicate,
@@ -2684,7 +2707,6 @@ impl OwnedDocumentModule {
         generation: i64,
         expected_head_seq: i64,
         actor: Value,
-        write_fence_prepared: bool,
     ) -> Result<OwnedDocumentApplyOutcome, CoreError> {
         validate_document_actor(&actor)?;
         let sync_engine = self
@@ -2705,7 +2727,6 @@ impl OwnedDocumentModule {
                 generation,
                 expected_head_seq,
                 actor,
-                write_fence_prepared,
             ),
             DocumentSyncEngine::CanvasScene => self.restore_canvas_version(
                 context,
@@ -2716,7 +2737,6 @@ impl OwnedDocumentModule {
                 generation,
                 expected_head_seq,
                 actor,
-                write_fence_prepared,
             ),
         }
     }
@@ -2732,7 +2752,6 @@ impl OwnedDocumentModule {
         generation: i64,
         expected_head_seq: i64,
         actor: Value,
-        write_fence_prepared: bool,
     ) -> Result<OwnedDocumentApplyOutcome, CoreError> {
         let fingerprint = serde_json::to_vec(&(
             &context.profile_id,
@@ -2771,7 +2790,6 @@ impl OwnedDocumentModule {
             },
             move |connection, authority, engine, materialization, _store_epoch| {
                 assert_document_head(authority, generation, expected_head_seq)?;
-                require_restore_write_fence(write_fence_prepared)?;
                 let Some(prepared) =
                     prepare_version_restore(connection, authority, engine, &version_id)?
                 else {
@@ -2830,7 +2848,6 @@ impl OwnedDocumentModule {
         generation: i64,
         expected_head_seq: i64,
         actor: Value,
-        write_fence_prepared: bool,
     ) -> Result<OwnedDocumentApplyOutcome, CoreError> {
         let fingerprint = serde_json::to_vec(&(
             &context.profile_id,
@@ -2894,7 +2911,6 @@ impl OwnedDocumentModule {
                     DocumentAccessKind::Write,
                 )?;
                 assert_document_head(&authority, generation, expected_head_seq)?;
-                require_restore_write_fence(write_fence_prepared)?;
                 let loaded = load_canvas_scene(&transaction, &authority)?;
                 let version = get_document_version(&transaction, &authority, &version_id)?
                     .ok_or_else(|| not_found("Canvas Document version was not found"))?;
@@ -2907,15 +2923,16 @@ impl OwnedDocumentModule {
                 })?;
                 let Some(mutation) = prepare_canvas_restore(&loaded.scene, &target, &operation_id)?
                 else {
-                    let event_head = read_event_head(&transaction)?;
-                    let committed = committed_value(
+                    let commit_head = read_event_head(&transaction)?;
+                    let mut committed = committed_value(
                         &operation_id,
                         &store_epoch,
                         &authority,
                         authority.head.head_seq,
                         DocumentCommitOutcome::NoChange,
-                        event_head,
+                        commit_head,
                     );
+                    committed.commit_seq = read_local_commit_head(&transaction)?;
                     insert_typed_receipt(
                         &transaction,
                         &context,
@@ -2995,6 +3012,10 @@ impl OwnedDocumentModule {
                     persisted.event_sequence,
                     persisted.result,
                 );
+                let local_commit =
+                    load_local_commit_by_event_sequence(&transaction, persisted.event_sequence)?;
+                committed.commit_seq = local_commit.commit_seq;
+                committed.local_commit = Some(local_commit);
                 committed.value.committed_at = Some(persisted.committed_at.clone());
                 committed.value.mutation_effect = Some(DocumentMutationEffect {
                     base_head_seq: authority.head.head_seq,
@@ -3216,15 +3237,16 @@ impl OwnedDocumentModule {
                     semantic_local_block_ids,
                 } = prepared
                 else {
-                    let event_head = read_event_head(&transaction)?;
+                    let commit_head = read_event_head(&transaction)?;
                     let mut committed = committed_value(
                         &job.operation_id,
                         &store_epoch,
                         &authority,
                         authority.head.head_seq,
                         DocumentCommitOutcome::NoChange,
-                        event_head,
+                        commit_head,
                     );
+                    committed.commit_seq = read_local_commit_head(&transaction)?;
                     committed.value.semantic_deleted_owner_block_ids =
                         semantic_deleted_owner_block_ids.clone();
                     attach_semantic_etags(
@@ -3260,7 +3282,7 @@ impl OwnedDocumentModule {
                 let candidate = engine.prepare_update_v1(&update).map_err(engine_error)?;
                 let materialization = materialize_candidate(&candidate, schema)?;
                 let did_change = candidate.did_change();
-                let event_head = read_event_head(&transaction)?;
+                let commit_head = read_event_head(&transaction)?;
                 if !did_change {
                     let mut committed = committed_value(
                         &job.operation_id,
@@ -3268,8 +3290,9 @@ impl OwnedDocumentModule {
                         &authority,
                         authority.head.head_seq,
                         DocumentCommitOutcome::NoChange,
-                        event_head,
+                        commit_head,
                     );
+                    committed.commit_seq = read_local_commit_head(&transaction)?;
                     committed.value.semantic_deleted_owner_block_ids =
                         semantic_deleted_owner_block_ids.clone();
                     attach_semantic_etags(
@@ -3326,6 +3349,7 @@ impl OwnedDocumentModule {
                         state_vector: &state_vector,
                         store_epoch: &store_epoch,
                         operation_id: &job.operation_id,
+                        local_commit_id: None,
                         event_kind: match job.publication {
                             UpdatePublication::Updated => "document_updated",
                             UpdatePublication::Invalidated(
@@ -3389,6 +3413,12 @@ impl OwnedDocumentModule {
                     DocumentCommitOutcome::Committed,
                     persisted.event_sequence,
                 );
+                let local_commit = load_local_commit_by_event_sequence(
+                    &transaction,
+                    persisted.event_sequence,
+                )?;
+                committed.commit_seq = local_commit.commit_seq;
+                committed.local_commit = Some(local_commit);
                 committed.value.committed_at = Some(persisted.committed_at.clone());
                 committed.value.mutation_effect = mutation_effect.map(|effect| *effect);
                 committed.value.semantic_local_block_ids = semantic_local_block_ids;
@@ -3754,24 +3784,6 @@ fn validate_document_actor(actor: &Value) -> Result<(), CoreError> {
     ))
 }
 
-fn require_document_write_fence(
-    coordination: DocumentMutationCoordination,
-    prepared: bool,
-) -> Result<(), StoreError> {
-    if coordination == DocumentMutationCoordination::MergeFriendly || prepared {
-        return Ok(());
-    }
-    Err(StoreError::new(
-        StoreErrorCode::RevisionConflict,
-        "Document mutation requires a trusted current-head write fence",
-        true,
-    ))
-}
-
-fn require_restore_write_fence(prepared: bool) -> Result<(), StoreError> {
-    require_document_write_fence(DocumentMutationCoordination::WriteFence, prepared)
-}
-
 fn restore_checkpoint_actor(
     actor: &Value,
     mutation_id: &str,
@@ -3825,8 +3837,10 @@ fn committed_value(
             generation: authority.head.generation,
             head_seq,
         },
+        commit_seq: 0,
         event_sequence,
         store_epoch: StoreEpoch(store_epoch.to_owned()),
+        local_commit: None,
     }
 }
 
@@ -6456,7 +6470,6 @@ mod tests {
                         generation: 1,
                         expected_head_seq: 5,
                         actor: json!({ "kind": "test" }),
-                        write_fence_prepared: true,
                     },
                 },
             )
@@ -6731,7 +6744,7 @@ mod tests {
             "maintenance eligibility must read only persisted Canvas counters"
         );
 
-        let mut request = ModuleApplyRequest {
+        let request = ModuleApplyRequest {
             contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
             operation_id: "canvas:compact:apply".to_owned(),
             store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
@@ -6740,22 +6753,8 @@ mod tests {
                 generation: 1,
                 expected_head_seq: 2,
                 actor: json!({ "kind": "test" }),
-                write_fence_prepared: false,
             },
         };
-        let unfenced = seeded
-            .module
-            .apply(&context(), request.clone())
-            .expect_err("Canvas compaction must freeze mounted writers");
-        assert_eq!(unfenced.code, CoreErrorCode::RevisionConflict);
-        let OwnedDocumentIntent::CompactCanvasTombstones {
-            write_fence_prepared,
-            ..
-        } = &mut request.intent
-        else {
-            panic!("expected Canvas compaction request")
-        };
-        *write_fence_prepared = true;
         let compacted = seeded
             .module
             .apply(&context(), request.clone())
@@ -6857,7 +6856,6 @@ mod tests {
                         generation: 2,
                         expected_head_seq: 1,
                         actor: json!({ "kind": "test" }),
-                        write_fence_prepared: true,
                     },
                 },
             )
@@ -6883,7 +6881,6 @@ mod tests {
                         generation: 1,
                         expected_head_seq: 2,
                         actor: json!({ "kind": "test" }),
-                        write_fence_prepared: true,
                     },
                 },
             )
@@ -8377,23 +8374,8 @@ mod tests {
                 generation: 1,
                 expected_head_seq: 2,
                 actor: json!({ "kind": "test" }),
-                write_fence_prepared: true,
             },
         };
-        let mut unfenced_request = restore_request.clone();
-        let OwnedDocumentIntent::RestoreVersion {
-            write_fence_prepared,
-            ..
-        } = &mut unfenced_request.intent
-        else {
-            unreachable!()
-        };
-        *write_fence_prepared = false;
-        let unfenced = seeded
-            .module
-            .apply(&context(), unfenced_request)
-            .expect_err("a first restore requires host write-fence proof");
-        assert_eq!(unfenced.code, CoreErrorCode::RevisionConflict);
         let restored = seeded
             .module
             .apply(&context(), restore_request.clone())
@@ -8435,14 +8417,6 @@ mod tests {
             unreachable!()
         };
         *actor = json!({ "kind": "replacement-audit-identity" });
-        let OwnedDocumentIntent::RestoreVersion {
-            write_fence_prepared,
-            ..
-        } = &mut replay_request.intent
-        else {
-            unreachable!()
-        };
-        *write_fence_prepared = false;
         let replayed = seeded
             .module
             .apply(&context_for("renderer-session:reconnected"), replay_request)
@@ -8467,7 +8441,6 @@ mod tests {
                         generation: 1,
                         expected_head_seq: 3,
                         actor: json!({ "kind": "test" }),
-                        write_fence_prepared: true,
                     },
                 },
             )
@@ -8540,7 +8513,6 @@ mod tests {
                     before_block_id: None,
                 }],
                 actor: json!({ "kind": "electron_renderer", "clientId": "renderer:test" }),
-                write_fence_prepared: false,
             },
         };
         let inserted = seeded
@@ -8585,28 +8557,12 @@ mod tests {
                     },
                 }],
                 actor: json!({ "kind": "electron_renderer", "clientId": "renderer:test" }),
-                write_fence_prepared: false,
             },
         };
-        let unfenced = seeded
-            .module
-            .apply(&context(), update_request.clone())
-            .expect_err("content replacement requires a fence");
-        assert_eq!(unfenced.code, CoreErrorCode::RevisionConflict);
-
-        let mut fenced_update = update_request.clone();
-        let OwnedDocumentIntent::ApplyOperationBatch {
-            write_fence_prepared,
-            ..
-        } = &mut fenced_update.intent
-        else {
-            unreachable!()
-        };
-        *write_fence_prepared = true;
         let updated = seeded
             .module
-            .apply(&context(), fenced_update)
-            .expect("fenced content replacement");
+            .apply(&context(), update_request.clone())
+            .expect("content replacement at the exact head");
         let update_effect = updated
             .committed
             .value
@@ -8664,27 +8620,12 @@ mod tests {
                     "styles": {},
                 })]),
                 actor: json!({ "kind": "electron_renderer", "clientId": "renderer:test" }),
-                write_fence_prepared: false,
             },
         };
-        let unfenced_nfm = seeded
-            .module
-            .apply(&context(), nfm_request.clone())
-            .expect_err("whole-NFM replacement requires a fence");
-        assert_eq!(unfenced_nfm.code, CoreErrorCode::RevisionConflict);
-        let mut fenced_nfm = nfm_request;
-        let OwnedDocumentIntent::ReplaceFromNfm {
-            write_fence_prepared,
-            ..
-        } = &mut fenced_nfm.intent
-        else {
-            unreachable!()
-        };
-        *write_fence_prepared = true;
         let replaced = seeded
             .module
-            .apply(&context(), fenced_nfm)
-            .expect("fenced whole-NFM replacement");
+            .apply(&context(), nfm_request)
+            .expect("whole-NFM replacement at the exact head");
         let replace_effect = replaced
             .committed
             .value
@@ -8753,7 +8694,6 @@ mod tests {
                             before_block_id: None,
                         }],
                         actor: json!({ "kind": "test" }),
-                        write_fence_prepared: false,
                     },
                 },
             )
@@ -8774,7 +8714,6 @@ mod tests {
                             block_id: original_block_id.clone(),
                         }],
                         actor: json!({ "kind": "test" }),
-                        write_fence_prepared: true,
                     },
                 },
             )
@@ -8797,7 +8736,6 @@ mod tests {
                             before_block_id: None,
                         }],
                         actor: json!({ "kind": "test" }),
-                        write_fence_prepared: false,
                     },
                 },
             )
@@ -8946,15 +8884,19 @@ mod tests {
                 .title,
             "Compacted authority"
         );
-        assert!(
-            cold_module
-                .apply(&context(), request)
-                .unwrap()
+        let duplicate = cold_module.apply(&context(), request).unwrap();
+        assert!(duplicate.committed.receipt.mutation.duplicate);
+        assert!(matches!(
+            duplicate
                 .committed
-                .receipt
-                .mutation
-                .duplicate
-        );
+                .local_commit
+                .as_ref()
+                .and_then(|commit| commit.effects.first())
+                .map(|effect| &effect.payload),
+            Some(CoreModuleEventPayload::OwnedDocument(
+                OwnedDocumentEvent::DocumentResyncRequired { .. }
+            ))
+        ));
         let repeated = cold_module
             .compact(
                 &context(),
@@ -9647,7 +9589,6 @@ mod tests {
                             },
                         }],
                         actor: json!({ "kind": "electron_renderer" }),
-                        write_fence_prepared: true,
                     },
                 },
             )

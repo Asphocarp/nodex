@@ -1,8 +1,18 @@
-import { createExtension, getBlockInfo, getNodeById, selectedFragmentToHTML } from "@blocknote/core";
+import {
+  createExtension,
+  getBlockInfo,
+  getNodeById,
+  selectedFragmentToHTML,
+  type ExtensionOptions,
+} from "@blocknote/core";
 import type { BlockNoteEditor } from "@blocknote/core";
 import { Plugin, TextSelection } from "@tiptap/pm/state";
 import type { EditorView } from "prosemirror-view";
-import { handleNotionPasteFromClipboard } from "./notion-paste";
+import {
+  handleNotionPasteFromClipboard,
+  type ClipboardEditorBlock,
+} from "./notion-paste";
+import type { TypedOwnerBlockLike } from "@/lib/typed-owner-blocks";
 import { splitGfmTableRow } from "@/lib/nfm/table";
 import { getNfmSearchState, nfmSearchExtension } from "./search-extension";
 import { selectCurrentBlockContent } from "./select-block-shortcut";
@@ -150,7 +160,8 @@ function writeStructuredSelectionToClipboard(
   return true;
 }
 
-const structuredPlainTextCopyExt = createExtension(({ editor }) => ({
+const structuredPlainTextCopyExt = createExtension(
+  ({ editor, options }: ExtensionOptions<NfmEditorExtensionOptions>) => ({
   key: "structured-plain-text-copy",
   runsBefore: ["copyToClipboard"],
   prosemirrorPlugins: [
@@ -170,6 +181,10 @@ const structuredPlainTextCopyExt = createExtension(({ editor }) => ({
               return false;
             }
 
+            if (options.onCutTypedBlocks?.(editor)) {
+              return true;
+            }
+
             if (view.editable) {
               view.dispatch(view.state.tr.deleteSelection());
             }
@@ -179,7 +194,8 @@ const structuredPlainTextCopyExt = createExtension(({ editor }) => ({
       },
     }),
   ],
-}));
+  }),
+);
 
 /**
  * ProseMirror-level operation:
@@ -332,11 +348,17 @@ export type NfmPasteHandler = (context: {
   }) => boolean | undefined;
 }) => boolean | undefined;
 
-export function createNfmEditorExtensions() {
+export interface NfmEditorExtensionOptions {
+  readonly onCutTypedBlocks?: (editor: BlockNoteEditor) => boolean;
+}
+
+export function createNfmEditorExtensions(
+  options: NfmEditorExtensionOptions = {},
+) {
   return [
     nfmSearchExtension(),
     canvasCreatePendingExtension(),
-    structuredPlainTextCopyExt(),
+    structuredPlainTextCopyExt(options),
     headingToggleAware,
     toggleInputRule,
     quoteInputRule,
@@ -348,19 +370,49 @@ export function createNfmEditorExtensions() {
   ];
 }
 
-export function createNfmPasteHandler(): NfmPasteHandler {
+export interface NfmPasteHandlerOptions {
+  readonly onBeforeReplaceBlocks?: (
+    blocks: readonly ClipboardEditorBlock[],
+  ) => boolean;
+  readonly onBeforeInsertBlocks?: (
+    blocks: readonly TypedOwnerBlockLike[],
+  ) => boolean;
+}
+
+export function createNfmPasteHandler(
+  options: NfmPasteHandlerOptions = {},
+): NfmPasteHandler {
   return ({ event, editor, defaultPasteHandler }) => {
     const handled = handleNotionPasteFromClipboard(
       editor as Parameters<typeof handleNotionPasteFromClipboard>[0],
       event.clipboardData,
+      options,
     );
     if (handled) return true;
+    const selectedBlocks = editor.getSelection()?.blocks ?? [];
+    if (options.onBeforeReplaceBlocks?.(selectedBlocks)) return true;
+
+    const blocknoteHtml = event.clipboardData?.getData("blocknote/html") ?? "";
+    if (
+      blocknoteHtml.length > 0
+      && options.onBeforeInsertBlocks
+      && typeof editor.tryParseHTMLToBlocks === "function"
+    ) {
+      try {
+        const pastedBlocks = editor.tryParseHTMLToBlocks(blocknoteHtml);
+        if (options.onBeforeInsertBlocks(pastedBlocks)) return true;
+      } catch {
+        // Let BlockNote's default parser report malformed clipboard content.
+      }
+    }
+
     if (clipboardTextLooksLikeGfmTable(event.clipboardData?.getData("text/plain") ?? "")) {
       return defaultPasteHandler({
         prioritizeMarkdownOverHTML: true,
         plainTextAsMarkdown: true,
       });
     }
+
     return defaultPasteHandler();
   };
 }

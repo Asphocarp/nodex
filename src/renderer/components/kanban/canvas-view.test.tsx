@@ -148,7 +148,7 @@ const syncResponse = (syncRequestId: string) => ({
 });
 
 const adapter: CanvasSceneSyncAdapter = {
-  subscribe: (_request, listener, _leaseListener, nextPresenceListener) => {
+  subscribe: (_request, listener, nextPresenceListener) => {
     realtimeListener = listener;
     presenceListener = nextPresenceListener ?? null;
     return () => {
@@ -384,7 +384,7 @@ vi.mock("./canvas-view-deps", () => ({
     return {
       ok: false,
       error: {
-        code: "write_fence_required",
+        code: "unknown",
         message: "deferred in renderer test",
         retryable: true,
         resetRequired: false,

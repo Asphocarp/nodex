@@ -92,7 +92,6 @@ export type CanvasSceneMutationErrorCode =
   | "document_engine_mismatch"
   | "document_generation_mismatch"
   | "future_base_head"
-  | "write_fence_required"
   | "mutation_id_collision"
   | "canvas_scene_corrupt"
   | "unknown";

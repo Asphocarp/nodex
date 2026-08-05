@@ -23,7 +23,7 @@ const dataSource = {
         kind: "catalog" as const,
         libraryId: "library:test",
         storeEpoch: "epoch:test",
-        changeLogSeq: 1,
+        commitSeq: 1,
         items: [page],
         nextCursor: null,
         hasMore: false,

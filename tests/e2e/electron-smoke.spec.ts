@@ -22,7 +22,13 @@ import {
   AGENT_RUNTIME_LAYOUT_VERSION,
   parseBundledAgentRuntimeMetadata,
 } from "../../src/shared/codex-runtime-metadata";
+import { DATABASE_MODULE_V2_CONTRACT_VERSION } from "../../src/shared/database-module-v2";
+import {
+  compilePageLifecycleRequestV2,
+  type PageLifecyclePreflightSnapshotV2,
+} from "../../src/shared/page-lifecycle-v2-runtime";
 import { LIBRARY_MODULE_CONTRACT_VERSION } from "../../src/shared/library-module";
+import { createUuidV7 } from "../../src/shared/uuid-v7";
 
 const repositoryRoot = process.cwd();
 const largeContentFixtureRoot = path.join(repositoryRoot, "tests/e2e/large-content-fixture");
@@ -39,6 +45,382 @@ interface LargeContentScenarioMetrics {
   tracePath: string;
   traceBytes: number;
   traceSha256: string;
+}
+
+interface ConvergenceProject {
+  projectId: string;
+  storeEpoch: string;
+  defaultDatabaseViewId: string;
+}
+
+interface ConvergencePage {
+  pageId: string;
+  documentId: string;
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const requireString = (value: unknown, label: string): string => {
+  if (typeof value === "string" && value.length > 0) return value;
+  throw new Error(`${label} is missing from the Electron E2E response`);
+};
+
+const requireIpcValue = <T>(result: unknown, label: string): T => {
+  if (!isRecord(result) || result.ok !== true || !("value" in result)) {
+    const error = isRecord(result) && isRecord(result.error)
+      ? String(result.error.message ?? "unknown IPC error")
+      : "unknown IPC error";
+    throw new Error(`${label} failed: ${error}`);
+  }
+  return result.value as T;
+};
+
+async function invokeIpc(
+  page: Page,
+  channel: string,
+  ...args: readonly unknown[]
+): Promise<unknown> {
+  return await page.evaluate(
+    async ({ channel: targetChannel, args: targetArgs }) =>
+      await window.api?.invoke(targetChannel, ...targetArgs),
+    { channel, args },
+  );
+}
+
+async function createConvergenceProject(
+  page: Page,
+  name: string,
+  workspace: string,
+): Promise<ConvergenceProject> {
+  const project = await invokeIpc(page, "projects:create", {
+    name,
+    sources: [workspace],
+  });
+  if (!isRecord(project)) throw new Error("Project creation returned no Project");
+  const projectId = requireString(project.id, "Project id");
+  const defaultDatabaseViewId = requireString(
+    project.defaultDatabaseViewId,
+    "Project default Database View id",
+  );
+  const metadata = requireIpcValue<Record<string, unknown>>(
+    await invokeIpc(
+      page,
+      "library-module:read",
+      { kind: "library" },
+      {
+        version: LIBRARY_MODULE_CONTRACT_VERSION,
+        read: { mode: "metadata" },
+      },
+    ),
+    "Library metadata read",
+  );
+  return {
+    projectId,
+    defaultDatabaseViewId,
+    storeEpoch: requireString(metadata.storeEpoch, "Library store epoch"),
+  };
+}
+
+async function createConvergencePage(
+  page: Page,
+  project: ConvergenceProject,
+  title: string,
+): Promise<ConvergencePage> {
+  const pageId = createUuidV7();
+  const documentId = createUuidV7();
+  const result = requireIpcValue<Record<string, unknown>>(
+    await invokeIpc(
+      page,
+      "library-module:apply",
+      { kind: "library" },
+      {
+        version: LIBRARY_MODULE_CONTRACT_VERSION,
+        operationId: createUuidV7(),
+        storeEpoch: project.storeEpoch,
+        operation: {
+          kind: "create_page",
+          pageId,
+          documentId,
+          title,
+          parent: { kind: "library" },
+        },
+      },
+    ),
+    `Create ${title}`,
+  );
+  const createdTarget = result.createdTarget;
+  if (!isRecord(createdTarget)) {
+    throw new Error(`Create ${title} returned no Page target`);
+  }
+  expect(createdTarget.kind).toBe("page");
+  expect(requireString(createdTarget.pageId, `${title} Page id`)).toBe(pageId);
+  await requireIpcValue<Record<string, unknown>>(
+    await invokeIpc(
+      page,
+      "library-module:apply",
+      { kind: "library" },
+      {
+        version: LIBRARY_MODULE_CONTRACT_VERSION,
+        operationId: createUuidV7(),
+        storeEpoch: project.storeEpoch,
+        operation: {
+          kind: "grant_project_access",
+          projectId: project.projectId,
+          target: { kind: "page", pageId },
+          access: "read_write",
+        },
+      },
+    ),
+    `Grant ${title}`,
+  );
+  return { pageId, documentId };
+}
+
+async function createConvergenceBoardPage(
+  page: Page,
+  project: ConvergenceProject,
+  title: string,
+  description: string,
+): Promise<ConvergencePage> {
+  const pageId = createUuidV7();
+  const preflight = requireIpcValue<PageLifecyclePreflightSnapshotV2>(
+    await invokeIpc(page, "pages:lifecycle:preflight", project.projectId, pageId),
+    `Preflight ${title}`,
+  );
+  const request = compilePageLifecycleRequestV2({
+    intent: {
+      kind: "create",
+      operationId: createUuidV7(),
+      projectId: project.projectId,
+      pageId,
+      status: "triage",
+      input: {
+        id: pageId,
+        title,
+        description,
+      },
+    },
+    preflight,
+  });
+  const receipt = requireIpcValue<Record<string, unknown>>(
+    await invokeIpc(page, "pages:lifecycle:apply", project.projectId, request),
+    `Create Board Page ${title}`,
+  );
+  return {
+    pageId,
+    documentId: requireString(receipt.documentId, `${title} document id`),
+  };
+}
+
+interface SeededConvergencePage extends ConvergencePage {
+  blockIds: readonly string[];
+}
+
+async function seedConvergenceDocument(
+  page: Page,
+  project: ConvergenceProject,
+  source: ConvergencePage,
+  nfm = "Keep block\nDragged source",
+): Promise<SeededConvergencePage> {
+  const descriptor = requireIpcValue<Record<string, unknown>>(
+    await invokeIpc(
+      page,
+      "block-document:owned:prepare",
+      project.projectId,
+      source.pageId,
+    ),
+    "Prepare source Page document",
+  );
+  const documentId = requireString(descriptor.documentId, "Source document id");
+  if (documentId !== source.documentId) {
+    throw new Error("Source Page document identity changed during preparation");
+  }
+
+  const mutation = requireIpcValue<Record<string, unknown>>(
+    await invokeIpc(
+      page,
+      "block-documents:mutate",
+      project.projectId,
+      documentId,
+      {
+        version: 1,
+        mutationId: createUuidV7(),
+        projectId: project.projectId,
+        storeEpoch: project.storeEpoch,
+        actor: {},
+        documentId,
+        generation: descriptor.generation,
+        expectedHeadSeq: descriptor.headSeq,
+        nfm,
+      },
+    ),
+    "Seed source Page document",
+  );
+  if (!Array.isArray(mutation.createdBlockIds)) {
+    throw new Error("Seed source Page document returned no created block ids");
+  }
+  const blockIds = mutation.createdBlockIds.map((blockId, index) =>
+    requireString(blockId, `Seeded block id ${index}`),
+  );
+  if (blockIds.length < 2) {
+    throw new Error("Seed source Page document must contain a transferable block");
+  }
+  return { ...source, blockIds };
+}
+
+interface ConvergenceDatabase {
+  dataSourceId: string;
+  viewId: string;
+}
+
+interface BoardTransferPerformanceMetrics {
+  fixturePreparationMs: number;
+  boardInitialRenderMs: number;
+  transferCommitMs: number;
+  transferToCardMs: number;
+  endToEndMs: number;
+  sourceBlockCount: number;
+  movedChildBlockCount: number;
+  initialBoardPageCount: number;
+  finalBoardPageCount: number;
+  initialRenderedBoardCardCount: number;
+  finalRenderedBoardCardCount: number;
+  initialDomNodes: number;
+  finalDomNodes: number;
+  rendererLongTaskCount: number;
+  rendererLongTaskTotalMs: number;
+  rendererMaxLongTaskMs: number;
+  transferCommitP50Ms: number;
+  transferCommitP95Ms: number;
+  transferCommitP99Ms: number;
+  transferCommitMaxMs: number;
+  transferToCardP50Ms: number;
+  transferToCardP95Ms: number;
+  transferToCardP99Ms: number;
+  transferToCardMaxMs: number;
+  rounds: number;
+}
+
+const HIGH_PRESSURE_SIBLING_BLOCK_COUNT = 100;
+const HIGH_PRESSURE_CHILD_BLOCK_COUNT = 100;
+const HIGH_PRESSURE_BOARD_PAGE_COUNT = 100;
+const HIGH_PRESSURE_BOARD_TRIAGE_PAGE_COUNT = 50;
+const HIGH_PRESSURE_BOARD_PLAN_PAGE_COUNT =
+  HIGH_PRESSURE_BOARD_PAGE_COUNT - HIGH_PRESSURE_BOARD_TRIAGE_PAGE_COUNT;
+const HIGH_PRESSURE_ROUNDS = Math.max(
+  1,
+  Math.min(
+    50,
+    Number.parseInt(process.env.NODEX_HIGH_PRESSURE_ROUNDS ?? "1", 10) || 1,
+  ),
+);
+
+const buildHighPressureSourceNfm = (titlePrefix = "title-A"): string => [
+  ...Array.from(
+    { length: HIGH_PRESSURE_SIBLING_BLOCK_COUNT },
+    (_, index) => `before-placeholder-${index.toString().padStart(3, "0")}`,
+  ),
+  titlePrefix,
+  ...Array.from(
+    { length: HIGH_PRESSURE_CHILD_BLOCK_COUNT },
+    (_, index) => `\tchild-placeholder-${index.toString().padStart(3, "0")}`,
+  ),
+  ...Array.from(
+    { length: HIGH_PRESSURE_SIBLING_BLOCK_COUNT },
+    (_, index) => `after-placeholder-${index.toString().padStart(3, "0")}`,
+  ),
+].join("\n");
+
+const summarizeDurations = (values: readonly number[]): {
+  p50: number;
+  p95: number;
+  p99: number;
+  max: number;
+} => {
+  if (values.length === 0) {
+    throw new Error("Performance sample set cannot be empty");
+  }
+  const sorted = [...values].sort((left, right) => left - right);
+  const percentile = (fraction: number): number =>
+    sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * fraction) - 1)] ?? 0;
+  return {
+    p50: percentile(0.5),
+    p95: percentile(0.95),
+    p99: percentile(0.99),
+    max: sorted.at(-1) ?? 0,
+  };
+};
+
+const buildBoardFixtureNfm = (): string => [
+  "Keep board fixture",
+  ...Array.from(
+    { length: HIGH_PRESSURE_BOARD_PAGE_COUNT },
+    (_, index) => `board-fixture-${index.toString().padStart(3, "0")}`,
+  ),
+].join("\n");
+
+async function readConvergenceDatabase(
+  page: Page,
+  project: ConvergenceProject,
+): Promise<ConvergenceDatabase> {
+  const snapshot = requireIpcValue<Record<string, unknown>>(
+    await invokeIpc(
+      page,
+      "database-module:read",
+      project.projectId,
+      {
+        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+        projectId: project.projectId,
+        read: {
+          target: { kind: "project_default" },
+          mode: "database",
+        },
+      },
+    ),
+    "Read Project Database",
+  );
+  const value = snapshot.value;
+  if (!isRecord(value) || value.kind !== "database" || !isRecord(value.value)) {
+    throw new Error("Project Database read returned an unexpected value");
+  }
+  if (!Array.isArray(value.value.views)) {
+    throw new Error("Project Database read returned no views");
+  }
+  const view = value.value.views.find(
+    (candidate) =>
+      isRecord(candidate) && candidate.viewId === project.defaultDatabaseViewId,
+  );
+  if (!isRecord(view)) {
+    throw new Error("Project Database read returned no default view");
+  }
+  return {
+    dataSourceId: requireString(view.dataSourceId, "Project Data Source id"),
+    viewId: requireString(view.viewId, "Project Database View id"),
+  };
+}
+
+async function readConvergenceBoardTotal(
+  page: Page,
+  project: ConvergenceProject,
+  minimumCommitSeq?: number,
+): Promise<number> {
+  const snapshot = requireIpcValue<Record<string, unknown>>(
+    await invokeIpc(
+      page,
+      "database:view-groups:get",
+      project.projectId,
+      {
+        databaseViewId: project.defaultDatabaseViewId,
+        ...(minimumCommitSeq === undefined ? {} : { minimumCommitSeq }),
+      },
+    ),
+    "Read Board group totals",
+  );
+  if (typeof snapshot.totalRows !== "number") {
+    throw new Error("Board group totals returned no total row count");
+  }
+  return snapshot.totalRows;
 }
 
 function writeExecutable(filePath: string, source: string): void {
@@ -602,18 +984,12 @@ test("creates and draws in an inline Canvas without taking over the Page", async
       exact: true,
     }).click();
     await page.getByRole("tab", { name: "Project Home" }).waitFor();
-    await page.getByRole("button", { name: "Open Library" }).click({
-      force: true,
-    });
-    await page.getByRole("button", { name: "New Library item" }).click({
+    await page.getByRole("button", { name: "New Page or Database" }).click({
       force: true,
     });
     await page.getByRole("menuitem", { name: "Page" }).click();
     await page.getByRole("button", { name: "Page actions" }).waitFor();
 
-    await page.getByRole("button", { name: "Open Library" }).click({
-      force: true,
-    });
     await page
       .getByRole("button", { name: "Actions for Untitled" })
       .last()
@@ -686,10 +1062,14 @@ test("creates and draws in an inline Canvas without taking over the Page", async
     if (!canvasId) throw new Error("Canvas block has no owner identity");
     const readCanvasHead = async (): Promise<number> =>
       await page.evaluate(async ({ targetCanvasId, contractVersion }) => {
-        const raw = await window.api?.invoke("library-module:read", {
-          version: contractVersion,
-          read: { mode: "canvas_target", canvasId: targetCanvasId },
-        }) as {
+        const raw = await window.api?.invoke(
+          "library-module:read",
+          { kind: "library" },
+          {
+            version: contractVersion,
+            read: { mode: "canvas_target", canvasId: targetCanvasId },
+          },
+        ) as {
           ok?: boolean;
           value?: {
             value?: {
@@ -738,6 +1118,781 @@ test("creates and draws in an inline Canvas without taking over the Page", async
     await expect.poll(readCanvasHead, { timeout: 10_000 }).toBeGreaterThan(
       initialHead,
     );
+  } finally {
+    if (application) await stopApplication(application);
+    await shutdownTemporaryCore(nodexHome);
+    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("converges a Move to operation in the live standalone Pages projection", async () => {
+  test.setTimeout(120_000);
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nx-move-"));
+  const nodexHome = path.join(fixtureRoot, "profile");
+  const workspace = path.join(fixtureRoot, "workspace");
+  fs.mkdirSync(workspace, { recursive: true });
+  prepareRuntimeFixture(fixtureRoot);
+
+  let application: ElectronApplication | undefined;
+  try {
+    application = await launchApplication(fixtureRoot, nodexHome);
+    const page = await application.firstWindow();
+    await page.evaluate(() => window.api?.awaitInitialization?.());
+
+    const project = await createConvergenceProject(
+      page,
+      "Move convergence",
+      workspace,
+    );
+    const source = await createConvergencePage(page, project, "Source Page");
+    const target = await createConvergencePage(page, project, "Target Page");
+
+    await page.getByRole("button", {
+      name: "Open Move convergence",
+      exact: true,
+    }).click();
+    await page.getByRole("tab", { name: "Project Home" }).waitFor();
+    await page.getByRole("button", {
+      name: "Actions for Source Page",
+      exact: true,
+    }).click();
+    await page.getByRole("menuitem", { name: "Move to…", exact: true }).click();
+
+    const dialog = page.getByRole("dialog");
+    await dialog.waitFor();
+    await dialog.getByRole("combobox").selectOption({
+      label: "Target Page — Library",
+    });
+    await dialog.getByRole("button", { name: "Move", exact: true }).click();
+    await dialog.waitFor({ state: "detached" });
+
+    // The source must disappear from the mounted sidebar without reopening the
+    // Project or manually refreshing the Library.
+    await expect.poll(
+      async () =>
+        await page.getByRole("button", {
+          name: "Actions for Source Page",
+          exact: true,
+        }).count(),
+      { timeout: 5_000 },
+    ).toBe(0);
+    await expect(page.getByRole("button", {
+      name: "Actions for Target Page",
+      exact: true,
+    })).toBeVisible();
+
+    const pathSnapshot = requireIpcValue<Record<string, unknown>>(
+      await invokeIpc(
+        page,
+        "library-module:read",
+        { kind: "library" },
+        {
+          version: LIBRARY_MODULE_CONTRACT_VERSION,
+          read: { mode: "path", target: { kind: "page", pageId: source.pageId } },
+        },
+      ),
+      "Read moved Page path",
+    );
+    const pathValue = pathSnapshot.value;
+    if (!isRecord(pathValue) || pathValue.kind !== "path" || !Array.isArray(pathValue.nodes)) {
+      throw new Error("Moved Page path read returned an unexpected value");
+    }
+    expect(pathValue.nodes.map((node) => isRecord(node) ? node.pageId : undefined)).toEqual([
+      target.pageId,
+      source.pageId,
+    ]);
+  } finally {
+    if (application) await stopApplication(application);
+    await shutdownTemporaryCore(nodexHome);
+    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("converges a Block transfer into the live Board Page projection", async () => {
+  test.setTimeout(120_000);
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nx-board-"));
+  const nodexHome = path.join(fixtureRoot, "profile");
+  const workspace = path.join(fixtureRoot, "workspace");
+  fs.mkdirSync(workspace, { recursive: true });
+  prepareRuntimeFixture(fixtureRoot);
+
+  let application: ElectronApplication | undefined;
+  try {
+    application = await launchApplication(fixtureRoot, nodexHome);
+    const page = await application.firstWindow();
+    await page.evaluate(() => window.api?.awaitInitialization?.());
+
+    const project = await createConvergenceProject(
+      page,
+      "Board convergence",
+      workspace,
+    );
+    const source = await createConvergencePage(page, project, "Source Page");
+    const seeded = await seedConvergenceDocument(page, project, source);
+    const database = await readConvergenceDatabase(page, project);
+
+    await page.getByRole("button", {
+      name: "Open Board convergence",
+      exact: true,
+    }).click();
+    await page.getByRole("tab", { name: "Project Home" }).waitFor();
+    await expect(page.locator('[data-kanban-column-id="triage"]')).toBeVisible({
+      timeout: 10_000,
+    });
+
+    const receipt = requireIpcValue<Record<string, unknown>>(
+      await invokeIpc(
+        page,
+        "blocks:transfer",
+        project.projectId,
+        {
+          version: 2,
+          operationId: createUuidV7(),
+          projectId: project.projectId,
+          storeEpoch: project.storeEpoch,
+          mode: "move",
+          rootBlockIds: [seeded.blockIds[1]],
+          source: { kind: "document", documentId: seeded.documentId },
+          target: {
+            kind: "data_source",
+            dataSourceId: database.dataSourceId,
+            viewId: database.viewId,
+            groupKey: "triage",
+          },
+        },
+      ),
+      "Transfer Block into Board",
+    );
+    if (!Array.isArray(receipt.resultRootBlockIds)) {
+      throw new Error("Block transfer returned no result Page id");
+    }
+    const resultPageId = requireString(
+      receipt.resultRootBlockIds[0],
+      "Transferred Page id",
+    );
+    const commitSeq = receipt.commitSeq;
+    if (typeof commitSeq !== "number") {
+      throw new Error("Block transfer returned no change-log sequence");
+    }
+    const evidence = receipt.transformationEvidence;
+    expect(evidence).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "promote",
+        sourceBlockId: seeded.blockIds[1],
+        resultPageId,
+      }),
+    ]));
+
+    const detail = requireIpcValue<Record<string, unknown>>(
+      await invokeIpc(
+        page,
+        "pages:detail:get",
+        project.projectId,
+        resultPageId,
+        commitSeq,
+      ),
+      "Read transferred Page detail",
+    );
+    expect(detail.page).toMatchObject({
+      title: "Dragged source",
+      parent: {
+        kind: "data_source",
+        dataSourceId: database.dataSourceId,
+      },
+    });
+
+    const card = page.locator(`[data-kanban-uuid-v7="${resultPageId}"]`);
+    await expect(card).toBeVisible({ timeout: 5_000 });
+    await expect(card).toContainText("Dragged source");
+  } finally {
+    if (application) await stopApplication(application);
+    await shutdownTemporaryCore(nodexHome);
+    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("converges a high-pressure Page promotion across tab groups", async () => {
+  test.setTimeout(180_000);
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nx-cross-tab-"));
+  const nodexHome = path.join(fixtureRoot, "profile");
+  const workspace = path.join(fixtureRoot, "workspace");
+  fs.mkdirSync(workspace, { recursive: true });
+  prepareRuntimeFixture(fixtureRoot);
+
+  let application: ElectronApplication | undefined;
+  try {
+    application = await launchApplication(fixtureRoot, nodexHome);
+    const page = await application.firstWindow();
+    await page.evaluate(() => window.api?.awaitInitialization?.());
+
+    const project = await createConvergenceProject(
+      page,
+      "Cross-tab Board stress",
+      workspace,
+    );
+    const database = await readConvergenceDatabase(page, project);
+    const initialTriageFixturePageCount = HIGH_PRESSURE_BOARD_TRIAGE_PAGE_COUNT - 1;
+    const boardFixture = await createConvergencePage(
+      page,
+      project,
+      "Board fixture seed",
+    );
+    const seededBoard = await seedConvergenceDocument(
+      page,
+      project,
+      boardFixture,
+      buildBoardFixtureNfm(),
+    );
+    const boardTriageFixtureTransfer = requireIpcValue<Record<string, unknown>>(
+      await invokeIpc(
+        page,
+        "blocks:transfer",
+        project.projectId,
+        {
+          version: 2,
+          operationId: createUuidV7(),
+          projectId: project.projectId,
+          storeEpoch: project.storeEpoch,
+          mode: "move",
+          rootBlockIds: seededBoard.blockIds.slice(
+            1,
+            initialTriageFixturePageCount + 1,
+          ),
+          source: { kind: "document", documentId: seededBoard.documentId },
+          target: {
+            kind: "data_source",
+            dataSourceId: database.dataSourceId,
+            viewId: database.viewId,
+            groupKey: "triage",
+          },
+        },
+      ),
+      "Seed cross-tab Triage Pages",
+    );
+    const boardPlanFixtureTransfer = requireIpcValue<Record<string, unknown>>(
+      await invokeIpc(
+        page,
+        "blocks:transfer",
+        project.projectId,
+        {
+          version: 2,
+          operationId: createUuidV7(),
+          projectId: project.projectId,
+          storeEpoch: project.storeEpoch,
+          mode: "move",
+          rootBlockIds: seededBoard.blockIds.slice(
+            initialTriageFixturePageCount + 1,
+            HIGH_PRESSURE_BOARD_PAGE_COUNT,
+          ),
+          source: { kind: "document", documentId: seededBoard.documentId },
+          target: {
+            kind: "data_source",
+            dataSourceId: database.dataSourceId,
+            viewId: database.viewId,
+            groupKey: "plan",
+          },
+        },
+      ),
+      "Seed cross-tab Plan Pages",
+    );
+    expect(boardTriageFixtureTransfer.resultRootBlockIds).toHaveLength(
+      initialTriageFixturePageCount,
+    );
+    expect(boardPlanFixtureTransfer.resultRootBlockIds).toHaveLength(
+      HIGH_PRESSURE_BOARD_PLAN_PAGE_COUNT,
+    );
+    const triageAnchorPageId = requireString(
+      Array.isArray(boardTriageFixtureTransfer.resultRootBlockIds)
+        ? boardTriageFixtureTransfer.resultRootBlockIds[0]
+        : undefined,
+      "Cross-tab Triage anchor Page id",
+    );
+    const source = await createConvergenceBoardPage(
+      page,
+      project,
+      "Cross-tab source",
+      buildHighPressureSourceNfm("title-A-cross-tab"),
+    );
+    const seededSource = await seedConvergenceDocument(
+      page,
+      project,
+      source,
+      buildHighPressureSourceNfm("title-A-cross-tab"),
+    );
+    expect(seededSource.blockIds).toHaveLength(
+      HIGH_PRESSURE_SIBLING_BLOCK_COUNT * 2
+        + HIGH_PRESSURE_CHILD_BLOCK_COUNT
+        + 1,
+    );
+
+    await page.getByRole("button", {
+      name: "Open Cross-tab Board stress",
+      exact: true,
+    }).click();
+    await page.getByRole("tab", { name: "Project Home" }).waitFor();
+    const triageColumn = page.locator('[data-kanban-column-id="triage"]');
+    await expect(triageColumn).toBeVisible({ timeout: 15_000 });
+    await expect.poll(
+      async () => await page.locator("[data-kanban-uuid-v7]").count(),
+      { timeout: 15_000 },
+    ).toBe(HIGH_PRESSURE_BOARD_PAGE_COUNT);
+
+    const sourceCard = page.locator(`[data-kanban-uuid-v7="${source.pageId}"]`);
+    await expect(sourceCard).toBeVisible({ timeout: 15_000 });
+    await sourceCard.click();
+    await page.getByRole("tab", { name: "Cross-tab source" }).waitFor();
+    await expect(triageColumn).toBeVisible({ timeout: 15_000 });
+
+    const sourceEditor = page.locator(
+      '.nfm-editor .ProseMirror[contenteditable="true"]',
+    ).last();
+    await expect(sourceEditor).toBeVisible({ timeout: 15_000 });
+    const titleBlock = sourceEditor.locator(".bn-block[data-id]").filter({
+      hasText: "title-A-cross-tab",
+    }).first();
+    await expect(titleBlock).toBeVisible({ timeout: 15_000 });
+    await titleBlock.hover();
+    const dragHandle = page.locator(
+      '.nfm-editor .bn-side-menu button[draggable="true"]',
+    ).last();
+    await expect(dragHandle).toBeVisible({ timeout: 5_000 });
+
+    const sourceDescriptorBefore = requireIpcValue<Record<string, unknown>>(
+      await invokeIpc(
+        page,
+        "block-document:owned:prepare",
+        project.projectId,
+        source.pageId,
+      ),
+      "Read source Page Document before promotion",
+    );
+    const sourceGeneration = sourceDescriptorBefore.generation;
+    const sourceHeadSeq = sourceDescriptorBefore.headSeq;
+    if (
+      typeof sourceGeneration !== "number"
+      || typeof sourceHeadSeq !== "number"
+    ) {
+      throw new Error("Cross-tab source Page did not expose a causal Document head");
+    }
+
+    const startedAt = performance.now();
+    const transfer = requireIpcValue<Record<string, unknown>>(
+      await invokeIpc(
+        page,
+        "blocks:transfer",
+        project.projectId,
+        {
+          version: 2,
+          operationId: createUuidV7(),
+          projectId: project.projectId,
+          storeEpoch: project.storeEpoch,
+          mode: "move",
+          rootBlockIds: [seededSource.blockIds[100]],
+          causalDependencies: [{
+            documentId: seededSource.documentId,
+            generation: sourceGeneration,
+            expectedHeadSeq: sourceHeadSeq,
+          }],
+          source: { kind: "page", pageId: source.pageId },
+          target: {
+            kind: "data_source",
+            dataSourceId: database.dataSourceId,
+            viewId: database.viewId,
+            groupKey: "triage",
+            beforePageId: triageAnchorPageId,
+          },
+        },
+      ),
+      "Promote title-A in the live cross-tab surfaces",
+    );
+    const commitSeq = transfer.commitSeq;
+    if (typeof commitSeq !== "number") {
+      throw new Error("Cross-tab promotion returned no LocalCommit sequence");
+    }
+    if (!Array.isArray(transfer.resultRootBlockIds)) {
+      throw new Error("Cross-tab promotion returned no result Page ids");
+    }
+    expect(transfer.resultRootBlockIds).toHaveLength(1);
+    const resultPageId = requireString(
+      transfer.resultRootBlockIds[0],
+      "Cross-tab promoted Page id",
+    );
+    const transferredCard = page.locator('[data-kanban-uuid-v7]').filter({
+      hasText: "title-A-cross-tab",
+    }).first();
+    await expect(transferredCard).toBeVisible({ timeout: 15_000 });
+    await expect(transferredCard).toContainText("title-A-cross-tab");
+    const sourceDescriptorAfter = requireIpcValue<Record<string, unknown>>(
+      await invokeIpc(
+        page,
+        "block-document:owned:prepare",
+        project.projectId,
+        source.pageId,
+      ),
+      "Read source Page Document after promotion",
+    );
+    expect(sourceDescriptorAfter).toMatchObject({
+      documentId: seededSource.documentId,
+      headSeq: expect.any(Number),
+    });
+    expect(sourceDescriptorAfter.headSeq).toBeGreaterThan(2);
+    const cardVisibleAt = performance.now();
+    await expect(titleBlock).toHaveCount(0, { timeout: 15_000 });
+    const sourceRemovedAt = performance.now();
+
+    const detail = requireIpcValue<Record<string, unknown>>(
+      await invokeIpc(
+        page,
+        "pages:detail:get",
+        project.projectId,
+        resultPageId,
+      ),
+      "Read cross-tab transferred Page detail",
+    );
+    expect(detail.page).toMatchObject({
+      title: "title-A-cross-tab",
+      parent: {
+        kind: "data_source",
+        dataSourceId: database.dataSourceId,
+      },
+    });
+    expect(detail.page).toMatchObject({
+      plainText: expect.stringContaining("child-placeholder-000"),
+    });
+    expect(detail.page).toMatchObject({
+      plainText: expect.stringContaining("child-placeholder-099"),
+    });
+    expect(await sourceEditor.locator(".bn-block[data-id]").count()).toBe(
+      HIGH_PRESSURE_SIBLING_BLOCK_COUNT * 2,
+    );
+
+    test.info().attach("cross-tab-dnd-performance.json", {
+      body: JSON.stringify({
+        boardInitialPageCount: HIGH_PRESSURE_BOARD_PAGE_COUNT,
+        sourceBlockCount:
+          HIGH_PRESSURE_SIBLING_BLOCK_COUNT * 2
+          + HIGH_PRESSURE_CHILD_BLOCK_COUNT
+          + 1,
+        movedChildBlockCount: HIGH_PRESSURE_CHILD_BLOCK_COUNT,
+        dragToCardMs: cardVisibleAt - startedAt,
+        dragToSourceRemovalMs: sourceRemovedAt - startedAt,
+        transferPath: "renderer-block-transfer-boundary",
+        commitSeq,
+      }, null, 2),
+      contentType: "application/json",
+    });
+  } finally {
+    if (application) await stopApplication(application);
+    await shutdownTemporaryCore(nodexHome);
+    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("measures high-pressure nested Block transfer into a populated Board", async ({}, testInfo) => {
+  test.setTimeout(180_000);
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nx-board-stress-"));
+  const nodexHome = path.join(fixtureRoot, "profile");
+  const workspace = path.join(fixtureRoot, "workspace");
+  fs.mkdirSync(workspace, { recursive: true });
+  prepareRuntimeFixture(fixtureRoot);
+
+  let application: ElectronApplication | undefined;
+  try {
+    application = await launchApplication(fixtureRoot, nodexHome);
+    const page = await application.firstWindow();
+    await page.evaluate(() => window.api?.awaitInitialization?.());
+
+    const project = await createConvergenceProject(
+      page,
+      "Board stress convergence",
+      workspace,
+    );
+    const fixturePreparationStartedAt = performance.now();
+    const boardSeedPage = await createConvergencePage(page, project, "Board fixture seed");
+    const seededBoard = await seedConvergenceDocument(
+      page,
+      project,
+      boardSeedPage,
+      buildBoardFixtureNfm(),
+    );
+    expect(seededBoard.blockIds).toHaveLength(HIGH_PRESSURE_BOARD_PAGE_COUNT + 1);
+    const database = await readConvergenceDatabase(page, project);
+
+    const boardFixtureRootBlockIds = seededBoard.blockIds.slice(1);
+    const triageFixtureTransfer = requireIpcValue<Record<string, unknown>>(
+      await invokeIpc(
+        page,
+        "blocks:transfer",
+        project.projectId,
+        {
+          version: 2,
+          operationId: createUuidV7(),
+          projectId: project.projectId,
+          storeEpoch: project.storeEpoch,
+          mode: "move",
+          rootBlockIds: boardFixtureRootBlockIds.slice(
+            0,
+            HIGH_PRESSURE_BOARD_TRIAGE_PAGE_COUNT,
+          ),
+          source: { kind: "document", documentId: seededBoard.documentId },
+          target: {
+            kind: "data_source",
+            dataSourceId: database.dataSourceId,
+            viewId: database.viewId,
+            groupKey: "triage",
+          },
+        },
+      ),
+      "Create populated Triage fixture",
+    );
+    const planFixtureTransfer = requireIpcValue<Record<string, unknown>>(
+      await invokeIpc(
+        page,
+        "blocks:transfer",
+        project.projectId,
+        {
+          version: 2,
+          operationId: createUuidV7(),
+          projectId: project.projectId,
+          storeEpoch: project.storeEpoch,
+          mode: "move",
+          rootBlockIds: boardFixtureRootBlockIds.slice(
+            HIGH_PRESSURE_BOARD_TRIAGE_PAGE_COUNT,
+          ),
+          source: { kind: "document", documentId: seededBoard.documentId },
+          target: {
+            kind: "data_source",
+            dataSourceId: database.dataSourceId,
+            viewId: database.viewId,
+            groupKey: "plan",
+          },
+        },
+      ),
+      "Create populated Plan fixture",
+    );
+    expect(triageFixtureTransfer.resultRootBlockIds).toHaveLength(
+      HIGH_PRESSURE_BOARD_TRIAGE_PAGE_COUNT,
+    );
+    expect(planFixtureTransfer.resultRootBlockIds).toHaveLength(
+      HIGH_PRESSURE_BOARD_PLAN_PAGE_COUNT,
+    );
+    if (!Array.isArray(triageFixtureTransfer.resultRootBlockIds)) {
+      throw new Error("Triage fixture transfer returned no Page ids");
+    }
+    const firstTriagePageId = requireString(
+      triageFixtureTransfer.resultRootBlockIds[0],
+      "First Triage fixture Page id",
+    );
+    expect(await readConvergenceBoardTotal(page, project)).toBe(
+      HIGH_PRESSURE_BOARD_PAGE_COUNT,
+    );
+
+    const blocksPerRound =
+      HIGH_PRESSURE_SIBLING_BLOCK_COUNT * 2
+      + HIGH_PRESSURE_CHILD_BLOCK_COUNT
+      + 1;
+    const openProjectStartedAt = performance.now();
+    await page.getByRole("button", {
+      name: "Open Board stress convergence",
+      exact: true,
+    }).click();
+    await page.getByRole("tab", { name: "Project Home" }).waitFor();
+    const boardColumn = page.locator('[data-kanban-column-id="triage"]');
+    await expect(boardColumn).toBeVisible({ timeout: 15_000 });
+    const initialBoardCards = page.locator("[data-kanban-uuid-v7]");
+    await expect.poll(
+      async () => await initialBoardCards.count(),
+      { timeout: 15_000 },
+    ).toBe(HIGH_PRESSURE_BOARD_PAGE_COUNT);
+    const boardInitialRenderMs = performance.now() - openProjectStartedAt;
+    const initialDomNodes = await page.evaluate(
+      () => document.getElementsByTagName("*").length,
+    );
+
+    await page.evaluate(() => {
+      const state = { longTasks: [] as number[] };
+      Object.defineProperty(window, "__nodexBoardTransferPerformance", {
+        configurable: true,
+        value: state,
+      });
+      if (typeof PerformanceObserver === "undefined") return;
+      const observer = new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) state.longTasks.push(entry.duration);
+      });
+      observer.observe({ type: "longtask", buffered: true });
+    });
+
+    const transferCommitDurations: number[] = [];
+    const transferToCardDurations: number[] = [];
+    let lastChangeLogSeq = 0;
+    for (let index = 0; index < HIGH_PRESSURE_ROUNDS; index += 1) {
+      // Keep the renderer interactive while fixture pressure is applied. A
+      // pre-open burst of twenty large document commits measures startup
+      // backlog instead of the transfer path and can hide the Board surface
+      // behind its own projection work.
+      const sourcePage = await createConvergencePage(
+        page,
+        project,
+        `High pressure source ${index + 1}`,
+      );
+      const seededSource = await seedConvergenceDocument(
+        page,
+        project,
+        sourcePage,
+        buildHighPressureSourceNfm(`title-A-${index}`),
+      );
+      expect(seededSource.blockIds).toHaveLength(blocksPerRound);
+      const titleBlockId = seededSource.blockIds[HIGH_PRESSURE_SIBLING_BLOCK_COUNT];
+      if (!titleBlockId) throw new Error("High-pressure source title Block is missing");
+      const transferStartedAt = performance.now();
+      const receipt = requireIpcValue<Record<string, unknown>>(
+        await invokeIpc(
+          page,
+          "blocks:transfer",
+          project.projectId,
+          {
+            version: 2,
+            operationId: createUuidV7(),
+            projectId: project.projectId,
+            storeEpoch: project.storeEpoch,
+            mode: "move",
+            rootBlockIds: [titleBlockId],
+            source: { kind: "document", documentId: seededSource.documentId },
+            target: {
+              kind: "data_source",
+              dataSourceId: database.dataSourceId,
+              viewId: database.viewId,
+              groupKey: "triage",
+              beforePageId: firstTriagePageId,
+            },
+          },
+        ),
+        `Transfer high-pressure title Block ${index + 1}`,
+      );
+      const transferCommittedAt = performance.now();
+      transferCommitDurations.push(transferCommittedAt - transferStartedAt);
+      if (!Array.isArray(receipt.resultRootBlockIds)) {
+        throw new Error("High-pressure Block transfer returned no result Page id");
+      }
+      const resultPageId = requireString(
+        receipt.resultRootBlockIds[0],
+        "High-pressure transferred Page id",
+      );
+      const commitSeq = receipt.commitSeq;
+      if (typeof commitSeq !== "number") {
+        throw new Error("High-pressure Block transfer returned no semantic commit sequence");
+      }
+      lastChangeLogSeq = commitSeq;
+
+      const evidence = Array.isArray(receipt.transformationEvidence)
+        ? receipt.transformationEvidence.find((entry) =>
+          isRecord(entry) && entry.sourceBlockId === titleBlockId)
+        : undefined;
+      if (!isRecord(evidence)) {
+        throw new Error("High-pressure Block transfer returned no title transformation evidence");
+      }
+      expect(evidence.kind).toBe("promote");
+      expect(evidence.resultPageId).toBe(resultPageId);
+      expect(evidence.bodyRootBlockIds).toHaveLength(HIGH_PRESSURE_CHILD_BLOCK_COUNT);
+
+      if (index === 0) {
+        const detail = requireIpcValue<Record<string, unknown>>(
+          await invokeIpc(
+            page,
+            "pages:detail:get",
+            project.projectId,
+            resultPageId,
+            commitSeq,
+          ),
+          "Read high-pressure transferred Page detail",
+        );
+        expect(detail.page).toMatchObject({
+          title: "title-A-0",
+          parent: {
+            kind: "data_source",
+            dataSourceId: database.dataSourceId,
+          },
+        });
+        expect(detail.page).toMatchObject({
+          plainText: expect.stringContaining("child-placeholder-000"),
+        });
+        expect(detail.page).toMatchObject({
+          plainText: expect.stringContaining("child-placeholder-099"),
+        });
+      }
+
+      const card = page.locator(`[data-kanban-uuid-v7="${resultPageId}"]`);
+      await expect(card).toBeVisible({ timeout: 15_000 });
+      await expect(card).toContainText(`title-A-${index}`);
+      const cardVisibleAt = performance.now();
+      transferToCardDurations.push(cardVisibleAt - transferCommittedAt);
+      await expect.poll(
+        async () => await readConvergenceBoardTotal(page, project, commitSeq),
+        { timeout: 15_000 },
+      ).toBe(HIGH_PRESSURE_BOARD_PAGE_COUNT + index + 1);
+    }
+    expect(await readConvergenceBoardTotal(page, project, lastChangeLogSeq)).toBe(
+      HIGH_PRESSURE_BOARD_PAGE_COUNT + HIGH_PRESSURE_ROUNDS,
+    );
+    const transferCommitSummary = summarizeDurations(transferCommitDurations);
+    const transferToCardSummary = summarizeDurations(transferToCardDurations);
+
+    const rendererMetrics = await page.evaluate(() => {
+      const state = (window as typeof window & {
+        __nodexBoardTransferPerformance?: { longTasks: number[] };
+      }).__nodexBoardTransferPerformance;
+      const longTasks = [...(state?.longTasks ?? [])];
+      return {
+        finalDomNodes: document.getElementsByTagName("*").length,
+        rendererLongTaskCount: longTasks.length,
+        rendererLongTaskTotalMs: longTasks.reduce((sum, duration) => sum + duration, 0),
+        rendererMaxLongTaskMs: Math.max(0, ...longTasks),
+      };
+    });
+    const metrics: BoardTransferPerformanceMetrics = {
+      fixturePreparationMs: performance.now() - fixturePreparationStartedAt,
+      boardInitialRenderMs,
+      transferCommitMs: transferCommitSummary.p50,
+      transferToCardMs: transferToCardSummary.p50,
+      endToEndMs: transferCommitSummary.p50 + transferToCardSummary.p50,
+      sourceBlockCount: blocksPerRound,
+      movedChildBlockCount: HIGH_PRESSURE_CHILD_BLOCK_COUNT,
+      initialBoardPageCount: HIGH_PRESSURE_BOARD_PAGE_COUNT,
+      finalBoardPageCount: HIGH_PRESSURE_BOARD_PAGE_COUNT + HIGH_PRESSURE_ROUNDS,
+      initialRenderedBoardCardCount: HIGH_PRESSURE_BOARD_PAGE_COUNT,
+      finalRenderedBoardCardCount: await page.locator("[data-kanban-uuid-v7]").count(),
+      initialDomNodes,
+      ...rendererMetrics,
+      transferCommitP50Ms: transferCommitSummary.p50,
+      transferCommitP95Ms: transferCommitSummary.p95,
+      transferCommitP99Ms: transferCommitSummary.p99,
+      transferCommitMaxMs: transferCommitSummary.max,
+      transferToCardP50Ms: transferToCardSummary.p50,
+      transferToCardP95Ms: transferToCardSummary.p95,
+      transferToCardP99Ms: transferToCardSummary.p99,
+      transferToCardMaxMs: transferToCardSummary.max,
+      rounds: HIGH_PRESSURE_ROUNDS,
+    };
+    const metricsPath = testInfo.outputPath("board-transfer-high-pressure-metrics.json");
+    fs.writeFileSync(metricsPath, `${JSON.stringify(metrics, null, 2)}\n`);
+    await testInfo.attach("board-transfer-high-pressure-metrics", {
+      path: metricsPath,
+      contentType: "application/json",
+    });
+    console.info(`[board-transfer-high-pressure] ${JSON.stringify(metrics)}`);
+
+    expect(metrics.initialBoardPageCount).toBe(HIGH_PRESSURE_BOARD_PAGE_COUNT);
+    expect(metrics.finalBoardPageCount).toBe(
+      HIGH_PRESSURE_BOARD_PAGE_COUNT + HIGH_PRESSURE_ROUNDS,
+    );
+    expect(metrics.initialRenderedBoardCardCount).toBe(HIGH_PRESSURE_BOARD_PAGE_COUNT);
+    expect(metrics.finalRenderedBoardCardCount).toBeGreaterThanOrEqual(
+      metrics.initialRenderedBoardCardCount,
+    );
+    if (process.env.NODEX_SKIP_PERFORMANCE_GATES !== "1") {
+      expect(metrics.transferCommitP95Ms).toBeLessThan(5_000);
+      expect(metrics.transferToCardP95Ms).toBeLessThan(5_000);
+    }
   } finally {
     if (application) await stopApplication(application);
     await shutdownTemporaryCore(nodexHome);

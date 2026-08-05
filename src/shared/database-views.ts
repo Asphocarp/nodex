@@ -59,7 +59,7 @@ export interface DatabaseViewPageRow {
 export interface DatabaseViewReadModel {
   readonly libraryId: string;
   readonly storeEpoch: string;
-  readonly changeLogSeq: number;
+  readonly commitSeq: number;
   readonly dataSourceId: string;
   readonly view: DatabaseViewDefinition<string | null>;
   readonly rows: readonly DatabaseViewPageRow[];
@@ -80,11 +80,15 @@ export interface DatabaseViewWindowInput {
   readonly after?: string;
   readonly first?: number;
   readonly groupScope?: DatabaseViewGroupScopeInput;
+  /** Do not return a projection snapshot older than this local commit. */
+  readonly minimumCommitSeq?: number;
 }
 
 export interface DatabaseViewGroupsInput {
   readonly databaseViewId?: string;
   readonly databaseId?: string;
+  /** Do not return a projection snapshot older than this local commit. */
+  readonly minimumCommitSeq?: number;
 }
 
 export interface DatabaseViewGroupSummarySnapshot {
@@ -107,7 +111,7 @@ export interface DatabaseViewGroupsSnapshot<
   readonly dataSourceId: string;
   readonly viewId: string;
   readonly storeEpoch: string;
-  readonly changeLogSeq: number;
+  readonly commitSeq: number;
   readonly grouped: boolean;
   readonly totalRows: number;
   readonly truncated: boolean;
@@ -131,7 +135,7 @@ export interface DatabaseViewWindowSnapshot<
   readonly dataSourceId: string;
   readonly viewId: string;
   readonly storeEpoch: string;
-  readonly changeLogSeq: number;
+  readonly commitSeq: number;
   readonly projectionRevision: number;
   readonly nextCursor: string | null;
   readonly rows: readonly DatabaseViewPageRow[];
