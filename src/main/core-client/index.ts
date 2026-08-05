@@ -17,6 +17,13 @@ export {
   type DesktopDocumentSyncPort,
 } from "./desktop-document-sync-bridge";
 export { readCoreRuntimeConnection } from "./runtime-descriptor";
+export {
+  LocalCommitDispatcher,
+  LocalCommitProtocolError,
+  type LocalCommitAdmission,
+  type LocalCommitListener,
+  type LocalCommitSource,
+} from "./local-commit-dispatcher";
 export { connectOrStartCore, resolveCoreExecutable } from "./core-launcher";
 export { initializeDesktopDataAuthority } from "./desktop-data-authority";
 export {

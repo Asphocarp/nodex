@@ -1,6 +1,7 @@
 //! Narrow runtime primitives shared by deep Modules.
 
 pub mod agent_operations;
+pub mod block_record_store;
 pub mod collection_window;
 pub mod cursor;
 pub mod document_repository;
