@@ -300,8 +300,8 @@ interface TestableCodexService {
     input: CodexSubagentPanelHydrateInput,
   ) => Promise<CodexThreadSummary[]>;
   respondToUserInput: (requestId: string | number, answers: Record<string, string[]>) => Promise<boolean>;
-  setProjectPermissionMode: (projectId: string, mode: CodexPermissionMode) => Promise<CodexPermissionState>;
-  getCustomPermissionModeDescription: (projectId: string) => string;
+  setProjectPermissionMode: (projectId: string | null, mode: CodexPermissionMode) => Promise<CodexPermissionState>;
+  getCustomPermissionModeDescription: (projectId: string | null) => Promise<string>;
   runScheduledAutomationNow: (
     input: import("../../shared/types").CodexScheduledAutomationRunNowInput,
     rendererClientId?: string | null,
@@ -933,6 +933,7 @@ const TEST_NODEX_AGENT_AUTHORITY: NodexAgentAuthorityPort = {
 const createTestProjectWorkspace = (): DesktopProjectWorkspacePort => {
   const threads = new Map<string, DesktopProjectWorkspaceThread>();
   const permissionModes = new Map<string, CodexPermissionMode>();
+  let projectlessPermissionMode: CodexPermissionMode | null = null;
   const backgroundProcesses = new Map<string, CodexBackgroundProcessRecord>();
   const readSidebar = (): DesktopProjectWorkspaceSidebar => ({
     threads: [...threads.values()],
@@ -961,8 +962,13 @@ const createTestProjectWorkspace = (): DesktopProjectWorkspacePort => {
     getProject: async () => null,
     readProjectPermissionMode: async (projectId: string) =>
       permissionModes.get(projectId) ?? null,
+    readProjectlessPermissionMode: async () => projectlessPermissionMode,
     setProjectPermissionMode: async (projectId: string, mode: CodexPermissionMode) => {
       permissionModes.set(projectId, mode);
+      return mode;
+    },
+    setProjectlessPermissionMode: async (mode: CodexPermissionMode) => {
+      projectlessPermissionMode = mode;
       return mode;
     },
     createProject: async () => {
@@ -1092,7 +1098,7 @@ const createTestProjectWorkspace = (): DesktopProjectWorkspacePort => {
         projectId: thread.projectId,
         permissionMode: thread.projectId
           ? permissionModes.get(thread.projectId) ?? null
-          : null,
+          : projectlessPermissionMode,
         dynamicToolCatalogs: [],
         writableRoots: [],
       };
@@ -4678,7 +4684,7 @@ function getRecordedItem(
 function installManualApprovalState(service: unknown, projectId: string): void {
   const stateByProject = Reflect.get(
     service as object,
-    "permissionStateByProject",
+    "permissionStateByScope",
   ) as Map<string, CodexPermissionState>;
   stateByProject.set(projectId, {
     mode: "auto",
@@ -7404,8 +7410,9 @@ describe("codex-service startTurn", () => {
       expect(startedTurn?.status).toBe("inProgress");
       expect(typeof startedTurn?.turnStartedAtMs).toBe("number");
       expect((startedTurn?.turnStartedAtMs ?? 0) > 0).toBe(true);
-      expect(requests.length).toBe(1);
-      expect(requests[0]?.method).toBe("turn/start");
+      const turnStartRequests = requests.filter((request) => request.method === "turn/start");
+      expect(turnStartRequests.length).toBe(1);
+      expect(turnStartRequests[0]?.method).toBe("turn/start");
       expect(markedActive.length).toBe(1);
       expect(markedActive[0]).toBe("thr_start");
     } finally {
@@ -7447,8 +7454,9 @@ describe("codex-service startTurn", () => {
     try {
       await service.startTurn("thr_fast", "Ship it faster", { serviceTier: "fast" });
 
-      expect(requests.length).toBe(1);
-      expect((requests[0]?.params as { serviceTier?: unknown })?.serviceTier).toBe("fast");
+      const turnStartRequest = requests.find((request) => request.method === "turn/start");
+      expect(turnStartRequest).toBeDefined();
+      expect((turnStartRequest?.params as { serviceTier?: unknown })?.serviceTier).toBe("fast");
     } finally {
       await service.shutdown();
     }
@@ -7488,8 +7496,120 @@ describe("codex-service startTurn", () => {
     try {
       const turn = await service.startTurn("thr_projectless", "Continue without project");
       expect(turn?.turnId).toBe("turn_projectless");
-      expect(requests.length).toBe(1);
-      expect(JSON.stringify(requests[0]?.params).includes("\"cwd\"")).toBe(false);
+      const turnStartRequest = requests.find((request) => request.method === "turn/start");
+      expect(turnStartRequest).toBeDefined();
+      expect(JSON.stringify(turnStartRequest?.params).includes("\"cwd\"")).toBe(false);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("persists the projectless permission scope and applies it to the next turn", async () => {
+    const projectWorkspace = createTestProjectWorkspace();
+    const service = createService({ projectWorkspace });
+    const serviceInternals = service as unknown as {
+      parseThreadRef: (threadId: string) => { projectId: string | null; cwd: string | null } | null;
+      markThreadAsActive: (threadId: string) => void;
+      persistThreadSnapshot: (threadId: string) => void;
+    };
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    const config: Record<string, unknown> = {
+      sandbox_mode: "workspace-write",
+      approval_policy: "on-request",
+      approvals_reviewer: "user",
+    };
+    const requests: Array<{ method: string; params: unknown }> = [];
+
+    serviceInternals.parseThreadRef = () => ({
+      projectId: null,
+      cwd: "/workspace/projectless",
+    });
+    serviceInternals.markThreadAsActive = () => {};
+    serviceInternals.persistThreadSnapshot = () => {};
+    client.start = async () => undefined;
+    client.request = async (method: string, params: unknown) => {
+      requests.push({ method, params });
+      if (method === "config/read") {
+        return { config, origins: {} };
+      }
+      if (method === "configRequirements/read") {
+        return { requirements: null };
+      }
+      if (method === "config/batchWrite") {
+        const edits = (params as { edits?: Array<{ keyPath?: string; value?: unknown }> }).edits ?? [];
+        for (const edit of edits) {
+          if (edit.keyPath) config[edit.keyPath] = edit.value;
+        }
+        return {};
+      }
+      if (method === "turn/start") {
+        return {
+          turn: {
+            id: "turn_projectless_full_access",
+            status: "in_progress",
+            transcript: [],
+          },
+        };
+      }
+      throw new Error(`Unexpected app-server request: ${method}`);
+    };
+
+    try {
+      const state = await service.setProjectPermissionMode(null, "full-access");
+      expect(state.mode).toBe("full-access");
+      expect(await projectWorkspace.readProjectlessPermissionMode()).toBe("full-access");
+
+      const startedTurn = await service.startTurn("thread-projectless", "Use the selected mode");
+      expect(startedTurn?.turnId).toBe("turn_projectless_full_access");
+      const turnStartRequest = requests.find((request) => request.method === "turn/start");
+      expect(turnStartRequest?.params).toMatchObject({
+        approvalPolicy: "never",
+        sandboxPolicy: { type: "dangerFullAccess" },
+      });
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("does not persist a preset when its config write fails", async () => {
+    const projectWorkspace = createTestProjectWorkspace();
+    const service = createService({ projectWorkspace });
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+
+    client.start = async () => undefined;
+    client.request = async (method: string) => {
+      if (method === "config/read") {
+        return {
+          config: {
+            sandbox_mode: "workspace-write",
+            approval_policy: "on-request",
+            approvals_reviewer: "user",
+          },
+          origins: {},
+        };
+      }
+      if (method === "configRequirements/read") {
+        return { requirements: null };
+      }
+      if (method === "config/batchWrite") {
+        throw new Error("config write failed");
+      }
+      throw new Error(`Unexpected app-server request: ${method}`);
+    };
+
+    try {
+      const state = await service.setProjectPermissionMode("project:one", "full-access");
+      expect(state.mode).toBe("auto");
+      expect(await projectWorkspace.readProjectPermissionMode("project:one")).toBeNull();
+      expect(
+        (Reflect.get(service as object, "verifiedPermissionModeByProject") as Map<string, unknown>).size,
+      ).toBe(0);
     } finally {
       await service.shutdown();
     }
@@ -7529,8 +7649,9 @@ describe("codex-service startTurn", () => {
     try {
       await service.startTurn("thr_standard", "Use the default tier", { serviceTier: null });
 
-      const params = (requests[0]?.params as Record<string, unknown>) ?? {};
-      expect(requests.length).toBe(1);
+      const turnStartRequest = requests.find((request) => request.method === "turn/start");
+      const params = (turnStartRequest?.params as Record<string, unknown>) ?? {};
+      expect(turnStartRequest).toBeDefined();
       expect(Object.prototype.hasOwnProperty.call(params, "serviceTier")).toBe(false);
     } finally {
       await service.shutdown();
@@ -7647,11 +7768,13 @@ describe("codex-service startTurn", () => {
       const startedTurn = await service.startTurn("thr_start", "Ship the fix");
       expect(startedTurn?.turnId).toBe("turn_retry");
       expect(requests.map((request) => request.method).join(",")).toBe(
-        "turn/start,thread/read,thread/resume,thread/goal/get,turn/start",
+        "config/read,configRequirements/read,turn/start,thread/read,thread/resume,thread/goal/get,turn/start",
       );
       expect(resumeOrder.join(",")).toBe("replay-after-hydration,turn-retry");
-      expect(((requests[2]?.params as { threadId?: string }).threadId)).toBe("thr_start");
-      const resumeConfig = (requests[2]?.params as { config?: Record<string, unknown> })?.config ?? {};
+      const resumeRequest = requests.find((request) => request.method === "thread/resume");
+      expect(resumeRequest).toBeDefined();
+      expect(((resumeRequest?.params as { threadId?: string }).threadId)).toBe("thr_start");
+      const resumeConfig = (resumeRequest?.params as { config?: Record<string, unknown> })?.config ?? {};
       expect(resumeConfig["features.apply_patch_streaming_events"]).toBe(true);
       const snapshot = service.serializeConversationSnapshot("thr_start");
       const userItems = snapshot?.turns.flatMap((turn) =>
@@ -7754,10 +7877,11 @@ describe("codex-service startTurn", () => {
         permissionMode: "custom",
       });
       expect(startedTurn?.turnId).toBe("turn_custom");
-      expect(requests.length).toBe(1);
-      expect((requests[0]?.params as { approvalPolicy?: unknown })?.approvalPolicy).toBe(undefined);
-      expect((requests[0]?.params as { sandboxPolicy?: unknown })?.sandboxPolicy).toBe(undefined);
-      expect((requests[0]?.params as { model?: unknown })?.model).toBe(undefined);
+      const turnStartRequest = requests.find((request) => request.method === "turn/start");
+      expect(turnStartRequest).toBeDefined();
+      expect((turnStartRequest?.params as { approvalPolicy?: unknown })?.approvalPolicy).toBe(undefined);
+      expect((turnStartRequest?.params as { sandboxPolicy?: unknown })?.sandboxPolicy).toBe(undefined);
+      expect((turnStartRequest?.params as { model?: unknown })?.model).toBe(undefined);
     } finally {
       await service.shutdown();
     }

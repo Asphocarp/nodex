@@ -105,11 +105,13 @@ function PermissionModeCheckIcon({ className }: { className?: string }) {
 
 function PermissionModeOption({
   item,
+  description,
   selected,
   disabled,
   onSelect,
 }: {
   item: PermissionModeDropdownItem;
+  description: string;
   selected: boolean;
   disabled: boolean;
   onSelect: () => boolean;
@@ -145,7 +147,7 @@ function PermissionModeOption({
           </span>
           <span className="min-w-0 truncate">
             <span className={cn("text-token-description-foreground", accentClass)}>
-              {disabled && item.disabledDescription ? item.disabledDescription : item.description}
+              {disabled && item.disabledDescription ? item.disabledDescription : description}
             </span>
           </span>
         </span>
@@ -163,6 +165,7 @@ function PermissionModeOption({
 
 export function PermissionModeDropdown({
   selectedMode,
+  customDescription,
   availableModes,
   autoReviewAvailable = false,
   triggerVariant = "label",
@@ -242,6 +245,9 @@ export function PermissionModeDropdown({
             <PermissionModeOption
               key={item.value}
               item={item}
+              description={item.value === "custom"
+                ? customDescription ?? item.description
+                : item.description}
               disabled={disabled}
               selected={item.value === selectedMode}
               onSelect={() => {

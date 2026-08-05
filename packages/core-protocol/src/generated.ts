@@ -4054,6 +4054,10 @@ export interface components {
                 readonly mode: components["schemas"]["CodexPermissionMode"];
                 readonly project_id: string;
             } | {
+                /** @enum {string} */
+                readonly kind: "set_projectless_permission_mode";
+                readonly mode: components["schemas"]["CodexPermissionMode"];
+            } | {
                 readonly intent: components["schemas"]["ProjectSessionIntent"];
                 /** @enum {string} */
                 readonly kind: "mutate_session";
@@ -4517,6 +4521,9 @@ export interface components {
                 /** @enum {string} */
                 readonly kind: "project_permission_mode";
                 readonly project_id: string;
+            } | {
+                /** @enum {string} */
+                readonly kind: "projectless_permission_mode";
             } | {
                 readonly include_archived?: boolean | null;
                 /** @enum {string} */
@@ -5669,6 +5676,10 @@ export interface components {
                 } | {
                     /** @enum {string} */
                     readonly kind: "project_permission_mode";
+                    readonly mode?: null | components["schemas"]["CodexPermissionMode"];
+                } | {
+                    /** @enum {string} */
+                    readonly kind: "projectless_permission_mode";
                     readonly mode?: null | components["schemas"]["CodexPermissionMode"];
                 } | {
                     /** @enum {string} */

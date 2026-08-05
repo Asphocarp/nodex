@@ -190,6 +190,7 @@ pub(super) fn apply(
             if !matches!(
                 &request.intent,
                 ProjectWorkspaceIntent::CreateInitialProject { .. }
+                    | ProjectWorkspaceIntent::SetProjectlessPermissionMode { .. }
             ) && project_catalog_is_empty(transaction, &library_id)?
             {
                 return Err(conflict(
@@ -640,6 +641,17 @@ pub(super) fn apply(
                         &request.operation_id,
                         &request_hash,
                         project_id,
+                        *mode,
+                    )
+                }
+                ProjectWorkspaceIntent::SetProjectlessPermissionMode { mode } => {
+                    thread::set_projectless_permission_mode(
+                        transaction,
+                        &library_id,
+                        &context,
+                        &store_epoch,
+                        &request.operation_id,
+                        &request_hash,
                         *mode,
                     )
                 }

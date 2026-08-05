@@ -9,7 +9,7 @@ use crate::domain::project_appearance::project_appearance_from_storage;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::execution;
-use super::thread::{read_permission_mode, read_thread};
+use super::thread::{read_permission_mode, read_projectless_permission_mode, read_thread};
 
 const MAX_ID_LENGTH: usize = 512;
 
@@ -106,6 +106,11 @@ pub(super) fn read(
                 mode: read_permission_mode(connection, &project_id)?,
             })
         }
+        ProjectWorkspaceRead::ProjectlessPermissionMode => {
+            Ok(ProjectWorkspaceReadValue::ProjectlessPermissionMode {
+                mode: read_projectless_permission_mode(connection)?,
+            })
+        }
         ProjectWorkspaceRead::TaskWindow {
             project_id,
             include_archived,
@@ -176,12 +181,10 @@ pub(super) fn read(
                     })
                 })
                 .transpose()?;
-            let permission_mode = thread
-                .project_id
-                .as_deref()
-                .map(|project_id| read_permission_mode(connection, project_id))
-                .transpose()?
-                .flatten();
+            let permission_mode = match thread.project_id.as_deref() {
+                Some(project_id) => read_permission_mode(connection, project_id)?,
+                None => read_projectless_permission_mode(connection)?,
+            };
             Ok(ProjectWorkspaceReadValue::ExecutionContext {
                 context: Box::new(ProjectWorkspaceExecutionContext {
                     thread,

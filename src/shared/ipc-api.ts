@@ -2009,23 +2009,23 @@ export interface IpcApi {
     result: boolean;
   };
   "codex:permission:mode:set": {
-    args: [projectId: string, mode: CodexPermissionMode];
+    args: [projectId: string | null, mode: CodexPermissionMode];
     result: CodexPermissionState;
   };
   "codex:permission:mode:get": {
-    args: [projectId: string];
+    args: [projectId: string | null];
     result: CodexPermissionMode;
   };
   "codex:permission:state:get": {
-    args: [projectId: string];
+    args: [projectId: string | null];
     result: CodexPermissionState;
   };
   "codex:permission:config-value:set": {
-    args: [projectId: string, keyPath: string, value: unknown];
+    args: [projectId: string | null, keyPath: string, value: unknown];
     result: CodexPermissionState;
   };
   "codex:permission:custom-description:get": {
-    args: [projectId: string];
+    args: [projectId: string | null];
     result: string;
   };
 }

@@ -136,9 +136,7 @@ export function HeartbeatAutomationController() {
     const nextPublishedStateByThreadId = new Map<string, string>();
     for (const threadId of targetThreadIds) {
       const conversation = conversations[threadId] ?? null;
-      const permissionState = conversation?.projectId
-        ? manager.readPermissionState(conversation.projectId)
-        : null;
+      const permissionState = manager.readPermissionState(conversation?.projectId ?? null);
       const state = buildHeartbeatAutomationThreadState({
         threadId,
         conversation,

@@ -2151,17 +2151,12 @@ function AgentSettingsPage({
   const [error, setError] = useState<string | null>(null);
 
   const loadPermissionState = useCallback(async () => {
-    if (!activeProjectId) {
-      setPermissionState(null);
-      return;
-    }
-
     const nextState = (await invoke("codex:permission:state:get", activeProjectId)) as CodexPermissionState;
     setPermissionState(nextState);
   }, [activeProjectId]);
 
   useEffect(() => {
-    if (!open || !activeProjectId) {
+    if (!open) {
       return;
     }
 
@@ -2171,10 +2166,6 @@ function AgentSettingsPage({
   }, [activeProjectId, loadPermissionState, open]);
 
   const writeConfigValue = useCallback(async (keyPath: string, value: unknown) => {
-    if (!activeProjectId) {
-      return;
-    }
-
     setBusyKey(keyPath);
     setError(null);
     try {
@@ -2193,10 +2184,6 @@ function AgentSettingsPage({
   }, [activeProjectId]);
 
   const handlePermissionModeChange = useCallback(async (mode: "auto" | "guardian-approvals" | "full-access" | "custom") => {
-    if (!activeProjectId) {
-      return;
-    }
-
     setBusyKey("permission-mode");
     setError(null);
     try {
@@ -2217,21 +2204,6 @@ function AgentSettingsPage({
 
     await invoke("shell:open-file-link", { path: configPath }, "fileManager");
   }, [permissionState?.configTarget.filePath]);
-
-  if (!activeProjectId) {
-    return (
-      <SettingsPageSurface
-        title="Agent"
-        subtitle="Permissions presets and raw config.toml settings."
-      >
-        <SectionBlock title="Agent">
-          <div className="p-3 text-sm text-token-text-secondary">
-            Open a project workspace to edit agent permissions.
-          </div>
-        </SectionBlock>
-      </SettingsPageSurface>
-    );
-  }
 
   const approvalPolicyValue = formatApprovalPolicyLabel(permissionState?.approvalPolicy ?? null);
   const sandboxModeValue = formatSandboxModeLabel(permissionState?.sandboxMode ?? null);

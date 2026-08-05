@@ -4149,24 +4149,24 @@ export function registerIpcHandlers(
     "codex:permission:mode:set",
     async (
       _,
-      projectId: string,
+      projectId: string | null,
       mode: "auto" | "guardian-approvals" | "full-access" | "custom",
     ) => {
       return await codexService.setProjectPermissionMode(projectId, mode);
     },
   );
 
-  registerHandle("codex:permission:mode:get", async (_, projectId: string) => {
+  registerHandle("codex:permission:mode:get", async (_, projectId: string | null) => {
     return await codexService.getProjectPermissionMode(projectId);
   });
 
-  registerHandle("codex:permission:state:get", async (_, projectId: string) => {
+  registerHandle("codex:permission:state:get", async (_, projectId: string | null) => {
     return await codexService.getPermissionState(projectId);
   });
 
   registerHandle(
     "codex:permission:config-value:set",
-    async (_, projectId: string, keyPath: string, value: unknown) => {
+    async (_, projectId: string | null, keyPath: string, value: unknown) => {
       return await codexService.setPermissionConfigValue(
         projectId,
         keyPath,
@@ -4177,7 +4177,7 @@ export function registerIpcHandlers(
 
   registerHandle(
     "codex:permission:custom-description:get",
-    async (_, projectId: string) => {
+    async (_, projectId: string | null) => {
       return await codexService.getCustomPermissionModeDescription(projectId);
     },
   );

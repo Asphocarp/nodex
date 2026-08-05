@@ -278,7 +278,7 @@ mod tests {
                 },
                 ModuleContractVersion {
                     module: ModuleName::ProjectWorkspace,
-                    contract_version: 9,
+                    contract_version: PROJECT_WORKSPACE_CONTRACT_VERSION,
                 },
                 ModuleContractVersion {
                     module: ModuleName::Automation,

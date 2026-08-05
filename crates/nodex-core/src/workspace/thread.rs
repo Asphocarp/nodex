@@ -188,6 +188,20 @@ pub(super) fn read_permission_mode(
         .transpose()
 }
 
+pub(super) fn read_projectless_permission_mode(
+    connection: &Connection,
+) -> Result<Option<CodexPermissionMode>, StoreError> {
+    connection
+        .query_row(
+            "SELECT mode FROM codex_projectless_permission_mode_selection WHERE id = 1",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?
+        .map(|mode| parse_permission_mode(&mode))
+        .transpose()
+}
+
 pub(super) struct ThreadUpsertEffects {
     pub(super) project_ids: Vec<String>,
     pub(super) session_ids: Vec<String>,
@@ -1256,6 +1270,39 @@ pub(super) fn set_project_permission_mode(
         "set_project_permission_mode",
         Vec::new(),
         vec![project_id.to_owned()],
+        Vec::new(),
+        Vec::new(),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn set_projectless_permission_mode(
+    connection: &Connection,
+    library_id: &str,
+    context: &BoundModuleContext,
+    store_epoch: &str,
+    operation_id: &str,
+    request_hash: &str,
+    mode: CodexPermissionMode,
+) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
+    let now = sqlite_now(connection)?;
+    connection.execute(
+        "INSERT INTO codex_projectless_permission_mode_selection(id, mode, updated_at) \
+         VALUES (1, ?1, ?2) \
+         ON CONFLICT(id) DO UPDATE SET \
+           mode = excluded.mode, updated_at = excluded.updated_at",
+        params![permission_mode_literal(mode), now],
+    )?;
+    finish_thread_mutation(
+        connection,
+        library_id,
+        context,
+        store_epoch,
+        operation_id,
+        request_hash,
+        "set_projectless_permission_mode",
+        Vec::new(),
+        Vec::new(),
         Vec::new(),
         Vec::new(),
     )
@@ -2427,6 +2474,46 @@ mod tests {
             panic!("Project permission mode");
         };
         assert_eq!(mode, Some(CodexPermissionMode::FullAccess));
+        module
+            .apply(
+                &context(),
+                request(
+                    "thread-projectless-permission",
+                    ProjectWorkspaceIntent::SetProjectlessPermissionMode {
+                        mode: CodexPermissionMode::GuardianApprovals,
+                    },
+                ),
+            )
+            .expect("select projectless permission mode");
+        let ProjectWorkspaceReadValue::ProjectlessPermissionMode { mode } =
+            read(&module, ProjectWorkspaceRead::ProjectlessPermissionMode)
+        else {
+            panic!("Projectless permission mode");
+        };
+        assert_eq!(mode, Some(CodexPermissionMode::GuardianApprovals));
+        create_thread(
+            &module,
+            "thread-projectless-create",
+            "thread-projectless",
+            None,
+            None,
+        );
+        let ProjectWorkspaceReadValue::ExecutionContext {
+            context: projectless_execution_context,
+        } = read(
+            &module,
+            ProjectWorkspaceRead::ExecutionContext {
+                thread_id: "thread-projectless".to_owned(),
+            },
+        )
+        else {
+            panic!("projectless execution context");
+        };
+        assert!(projectless_execution_context.project.is_none());
+        assert_eq!(
+            projectless_execution_context.permission_mode,
+            Some(CodexPermissionMode::GuardianApprovals)
+        );
         module
             .apply(
                 &context(),

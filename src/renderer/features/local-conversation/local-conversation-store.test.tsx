@@ -974,6 +974,35 @@ describe("local-conversation-store", () => {
     }
   });
 
+  test("loads and updates the projectless permission scope through the same manager path", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    threadListByProject = {};
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      await manager.loadPermissionState(null);
+      expect(invokeRecords).toContainEqual({
+        channel: "codex:permission:state:get",
+        args: [null],
+      });
+
+      await manager.setPermissionMode(null, "full-access");
+      expect(invokeRecords).toContainEqual({
+        channel: "codex:permission:mode:set",
+        args: [null, "full-access"],
+      });
+    } finally {
+      manager.destroy();
+    }
+  });
+
   test("adopts a fresh thread as owner and commits its first optimistic turn before transport settles", async () => {
     invokeCalls = [];
     invokeRecords = [];
@@ -6331,7 +6360,7 @@ describe("local-conversation-store", () => {
           "thread-dynamic",
           "dynamic-1",
           {
-            permissionMode: "auto",
+            permissionMode: "custom",
             serviceTierSelector: { type: "standard" },
           },
         ]),

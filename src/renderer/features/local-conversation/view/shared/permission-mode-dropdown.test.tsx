@@ -129,6 +129,7 @@ describe("permission mode dropdown", () => {
     await openPermissionMenu(customView);
 
     expect((customView.container.ownerDocument.body.textContent ?? "").includes("Custom (config.toml)")).toBe(true);
+    expect((customView.container.ownerDocument.body.textContent ?? "").includes("Project config: sandbox_mode=read-only.")).toBe(true);
   });
 
   test("selects Custom when it is available", async () => {
