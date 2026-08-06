@@ -20,13 +20,35 @@ use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 pub const MAX_BLOCK_RECORD_WINDOW: usize = 100_000;
 pub const ARCHIVED_RANK_PREFIX: &str = "__nodex_archived__";
+pub const RETIRED_RANK_PREFIX: &str = "__nodex_retired__";
 
 pub fn archived_rank_key(block_id: &str, rank_key: &str) -> String {
     format!("{ARCHIVED_RANK_PREFIX}{block_id}__{rank_key}")
 }
 
 pub fn active_rank_key_from_archived(block_id: &str, rank_key: &str) -> Option<String> {
-    let prefix = format!("{ARCHIVED_RANK_PREFIX}{block_id}__");
+    active_rank_key_from_inactive_with_prefix(block_id, rank_key, ARCHIVED_RANK_PREFIX)
+}
+
+pub fn retired_rank_key(block_id: &str, rank_key: &str) -> String {
+    format!("{RETIRED_RANK_PREFIX}{block_id}__{rank_key}")
+}
+
+pub fn active_rank_key_from_retired(block_id: &str, rank_key: &str) -> Option<String> {
+    active_rank_key_from_inactive_with_prefix(block_id, rank_key, RETIRED_RANK_PREFIX)
+}
+
+pub fn active_rank_key_from_inactive(block_id: &str, rank_key: &str) -> Option<String> {
+    active_rank_key_from_archived(block_id, rank_key)
+        .or_else(|| active_rank_key_from_retired(block_id, rank_key))
+}
+
+fn active_rank_key_from_inactive_with_prefix(
+    block_id: &str,
+    rank_key: &str,
+    prefix: &str,
+) -> Option<String> {
+    let prefix = format!("{prefix}{block_id}__");
     rank_key.strip_prefix(&prefix).map(ToOwned::to_owned)
 }
 
@@ -208,8 +230,28 @@ END;
 "#;
 
 pub fn install_schema(connection: &Connection) -> Result<(), StoreError> {
-    connection.execute_batch(SCHEMA).map_err(StoreError::from)
+    connection.execute_batch(SCHEMA)?;
+    connection
+        .execute_batch(RETIREMENT_SCHEMA)
+        .map_err(StoreError::from)
 }
+
+const RETIREMENT_SCHEMA: &str = r#"
+CREATE TABLE IF NOT EXISTS block_record_retirements (
+    block_id TEXT PRIMARY KEY NOT NULL
+        REFERENCES block_records(id) ON DELETE RESTRICT,
+    library_id TEXT NOT NULL,
+    operation_id TEXT NOT NULL,
+    retired_revision INTEGER NOT NULL CHECK (retired_revision >= 0),
+    retired_at TEXT NOT NULL,
+    CHECK (length(trim(library_id)) > 0),
+    CHECK (length(trim(operation_id)) > 0),
+    CHECK (length(trim(retired_at)) > 0)
+) WITHOUT ROWID, STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_block_record_retirements_operation
+    ON block_record_retirements(library_id, operation_id, block_id);
+"#;
 
 /// Installs the frozen v102/v103/v104 BlockRecord tables. The historical
 /// schema intentionally has no archived lifecycle value; v105 rebuilds it
@@ -230,8 +272,8 @@ pub fn install_view_position_schema(connection: &Connection) -> Result<(), Store
 
 /// Rebuilds the small BlockRecord/content table family when upgrading a
 /// v104 store. SQLite cannot alter a CHECK constraint in place; keeping this
-/// one-time rewrite at the schema boundary avoids a runtime lifecycle
-/// side-table or a second authority for archived records.
+/// one-time rewrite at the schema boundary keeps lifecycle and retirement
+/// evidence inside the terminal BlockRecord schema.
 pub fn ensure_lifecycle_schema(connection: &Connection) -> Result<(), StoreError> {
     let block_records_sql = connection
         .query_row(
@@ -244,6 +286,7 @@ pub fn ensure_lifecycle_schema(connection: &Connection) -> Result<(), StoreError
         return install_schema(connection);
     };
     if sql.contains("'archived'") && sql.contains("'retired'") {
+        install_schema(connection)?;
         return Ok(());
     }
 
@@ -1297,13 +1340,106 @@ pub fn archive_block(
     transaction: &Transaction<'_>,
     previous: &BlockRecord,
 ) -> Result<BlockRecord, StoreError> {
+    transition_active_block(
+        transaction,
+        previous,
+        BlockLifecycle::Archived,
+        ARCHIVED_RANK_PREFIX,
+        "archiving",
+    )
+}
+
+/// Retires an active record while retaining the same recovery placement as an
+/// archive. Retirement is the canonical tombstone used by Page deletion; it
+/// must not be conflated with the user-visible archived lifecycle.
+pub fn retire_block(
+    transaction: &Transaction<'_>,
+    previous: &BlockRecord,
+    operation_id: &str,
+    retired_at: &str,
+) -> Result<BlockRecord, StoreError> {
+    if operation_id.trim().is_empty() || retired_at.trim().is_empty() {
+        return Err(StoreError::new(
+            StoreErrorCode::InvalidInput,
+            "BlockRecord retirement evidence is invalid",
+            false,
+        ));
+    }
+    transition_active_block(
+        transaction,
+        previous,
+        BlockLifecycle::Retired,
+        RETIRED_RANK_PREFIX,
+        "retiring",
+    )
+    .and_then(|next| {
+        transaction.execute(
+            "INSERT INTO block_record_retirements(
+               block_id, library_id, operation_id, retired_revision, retired_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(block_id) DO UPDATE SET
+               library_id = excluded.library_id,
+               operation_id = excluded.operation_id,
+               retired_revision = excluded.retired_revision,
+               retired_at = excluded.retired_at",
+            params![
+                &next.id,
+                &next.library_id,
+                operation_id,
+                i64::try_from(next.revision)
+                    .map_err(|_| corrupt("Retired revision exceeds SQLite range"))?,
+                retired_at,
+            ],
+        )?;
+        Ok(next)
+    })
+}
+
+pub fn retirement_operation_id(
+    connection: &Connection,
+    library_id: &str,
+    block_id: &str,
+) -> Result<Option<String>, StoreError> {
+    connection
+        .query_row(
+            "SELECT operation_id FROM block_record_retirements
+             WHERE block_id = ?1 AND library_id = ?2",
+            params![block_id, library_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(StoreError::from)
+}
+
+pub fn clear_retirement(
+    transaction: &Transaction<'_>,
+    library_id: &str,
+    block_id: &str,
+) -> Result<(), StoreError> {
+    transaction.execute(
+        "DELETE FROM block_record_retirements
+         WHERE block_id = ?1 AND library_id = ?2",
+        params![block_id, library_id],
+    )?;
+    Ok(())
+}
+
+fn transition_active_block(
+    transaction: &Transaction<'_>,
+    previous: &BlockRecord,
+    lifecycle: BlockLifecycle,
+    rank_prefix: &str,
+    action: &str,
+) -> Result<BlockRecord, StoreError> {
     if !previous.lifecycle.is_active() {
-        return Err(corrupt("Only an active BlockRecord can be archived"));
+        return Err(corrupt(format!(
+            "Only an active BlockRecord can be {action}"
+        )));
     }
     let revision = previous
         .revision
         .checked_add(1)
-        .ok_or_else(|| corrupt("BlockRecord revision overflow while archiving"))?;
+        .ok_or_else(|| corrupt(format!("BlockRecord revision overflow while {action}")))?;
     let (placement_revision, rank_key): (i64, String) = transaction
         .query_row(
             "SELECT revision, rank_key FROM block_placements WHERE block_id = ?1",
@@ -1311,15 +1447,19 @@ pub fn archive_block(
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .optional()?
-        .ok_or_else(|| corrupt("Active BlockRecord has no placement while archiving"))?;
+        .ok_or_else(|| {
+            corrupt(format!(
+                "Active BlockRecord has no placement while {action}"
+            ))
+        })?;
     let archived_placement_revision = placement_revision
         .checked_add(1)
-        .ok_or_else(|| corrupt("Placement revision overflow while archiving"))?;
+        .ok_or_else(|| corrupt(format!("Placement revision overflow while {action}")))?;
     let changed = transaction.execute(
         "UPDATE block_placements SET rank_key = ?1, revision = ?2
          WHERE block_id = ?3 AND revision = ?4",
         params![
-            archived_rank_key(&previous.id, &rank_key),
+            format!("{rank_prefix}{}__{rank_key}", previous.id),
             archived_placement_revision,
             previous.id,
             placement_revision,
@@ -1328,14 +1468,15 @@ pub fn archive_block(
     if changed != 1 {
         return Err(StoreError::new(
             StoreErrorCode::RevisionConflict,
-            format!("Block {} placement changed while archiving", previous.id),
+            format!("Block {} placement changed while {action}", previous.id),
             true,
         ));
     }
     let changed = transaction.execute(
-        "UPDATE block_records SET lifecycle = 'archived', revision = ?1
-         WHERE id = ?2 AND library_id = ?3 AND lifecycle = 'active' AND revision = ?4",
+        "UPDATE block_records SET lifecycle = ?1, revision = ?2
+         WHERE id = ?3 AND library_id = ?4 AND lifecycle = 'active' AND revision = ?5",
         params![
+            lifecycle_to_sql(&lifecycle),
             i64::try_from(revision)
                 .map_err(|_| corrupt("BlockRecord revision exceeds SQLite range"))?,
             previous.id,
@@ -1347,12 +1488,12 @@ pub fn archive_block(
     if changed != 1 {
         return Err(StoreError::new(
             StoreErrorCode::RevisionConflict,
-            format!("BlockRecord {} changed while archiving", previous.id),
+            format!("BlockRecord {} changed while {action}", previous.id),
             true,
         ));
     }
     Ok(BlockRecord {
-        lifecycle: BlockLifecycle::Archived,
+        lifecycle,
         revision,
         ..previous.clone()
     })
@@ -1539,6 +1680,7 @@ pub fn read_selection_with_descendants(
         block_ids,
         include_descendants,
         false,
+        false,
     )
 }
 
@@ -1549,6 +1691,7 @@ pub fn read_selection_with_descendants_and_lifecycle(
     block_ids: Option<&[String]>,
     include_descendants: bool,
     include_archived: bool,
+    include_retired: bool,
 ) -> Result<(Vec<BlockRecord>, Vec<BlockPlacement>), StoreError> {
     if library_id.trim().is_empty() {
         return Err(StoreError::new(
@@ -1567,7 +1710,7 @@ pub fn read_selection_with_descendants_and_lifecycle(
     if block_ids.is_some_and(|ids| ids.is_empty()) {
         return Ok((Vec::new(), Vec::new()));
     }
-    if parent.is_none() && block_ids.is_none() && !include_archived {
+    if parent.is_none() && block_ids.is_none() && !include_archived && !include_retired {
         let graph = read_graph(connection, library_id)?;
         if graph.blocks().count() > MAX_BLOCK_RECORD_WINDOW {
             return Err(StoreError::new(
@@ -1583,15 +1726,17 @@ pub fn read_selection_with_descendants_and_lifecycle(
     }
 
     let (parent_kind, parent_id) = parent.map(parent_to_sql).unwrap_or(("", None));
-    let lifecycle_filter = if include_archived {
-        "b.lifecycle IN ('active', 'archived')"
-    } else {
-        "b.lifecycle = 'active'"
+    let lifecycle_filter = match (include_archived, include_retired) {
+        (false, false) => "b.lifecycle = 'active'",
+        (true, false) => "b.lifecycle IN ('active', 'archived')",
+        (false, true) => "b.lifecycle IN ('active', 'retired')",
+        (true, true) => "b.lifecycle IN ('active', 'archived', 'retired')",
     };
-    let record_lifecycle_filter = if include_archived {
-        "lifecycle IN ('active', 'archived')"
-    } else {
-        "lifecycle = 'active'"
+    let record_lifecycle_filter = match (include_archived, include_retired) {
+        (false, false) => "lifecycle = 'active'",
+        (true, false) => "lifecycle IN ('active', 'archived')",
+        (false, true) => "lifecycle IN ('active', 'retired')",
+        (true, true) => "lifecycle IN ('active', 'archived', 'retired')",
     };
     let mut placement_sql = String::from(format!(
         "SELECT p.block_id, p.parent_kind, p.parent_id, p.rank_key, p.revision

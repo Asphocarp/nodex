@@ -2461,6 +2461,40 @@
             "type": "object",
             "required": [
               "block_id",
+              "retire_operation_id",
+              "expected_block_revision",
+              "expected_placement_revision",
+              "kind"
+            ],
+            "properties": {
+              "block_id": {
+                "type": "string"
+              },
+              "expected_block_revision": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "expected_placement_revision": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "retire_subtree"
+                ]
+              },
+              "retire_operation_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "block_id",
               "target_parent",
               "rank_key",
               "expected_block_revision",
@@ -2480,6 +2514,12 @@
                 "type": "integer",
                 "format": "int64",
                 "minimum": 0
+              },
+              "expected_retire_operation_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "kind": {
                 "type": "string",
@@ -3450,6 +3490,41 @@
           },
           {
             "type": "object",
+            "description": "Retires an owning subtree while preserving its identity and recovery\nplacement. Retired records are the canonical tombstone for Page\ndeletion; they are distinct from user-visible archive state.",
+            "required": [
+              "block_id",
+              "retire_operation_id",
+              "expected_block_revision",
+              "expected_placement_revision",
+              "kind"
+            ],
+            "properties": {
+              "block_id": {
+                "type": "string"
+              },
+              "expected_block_revision": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "expected_placement_revision": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "retire_subtree"
+                ]
+              },
+              "retire_operation_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
             "required": [
               "block_id",
               "target_parent",
@@ -3471,6 +3546,12 @@
                 "type": "integer",
                 "format": "int64",
                 "minimum": 0
+              },
+              "expected_retire_operation_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "kind": {
                 "type": "string",
@@ -3922,6 +4003,9 @@
                 "type": "boolean"
               },
               "include_descendants": {
+                "type": "boolean"
+              },
+              "include_retired": {
                 "type": "boolean"
               },
               "kind": {

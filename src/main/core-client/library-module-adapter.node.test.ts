@@ -51,10 +51,21 @@ const emptyCanonicalPageWindow = () => ({
 
 const canonicalPageWindow = (input: {
   readonly pageId: string;
-  readonly lifecycle: "active" | "archived";
-  readonly parent: { readonly kind: "library" } | { readonly kind: "block"; readonly id: string };
+  readonly lifecycle: "active" | "archived" | "retired";
+  readonly parent:
+    | { readonly kind: "library" }
+    | { readonly kind: "block"; readonly id: string }
+    | { readonly kind: "data_source"; readonly id: string };
   readonly rankKey: string;
   readonly revision?: number;
+  readonly viewPositions?: readonly {
+    readonly view_id: string;
+    readonly data_source_id: string;
+    readonly block_id: string;
+    readonly group_key: string | null;
+    readonly rank_key: string;
+    readonly revision: number;
+  }[];
 }) => ({
   store_epoch: identity.storeEpoch,
   library_id: identity.libraryId,
@@ -76,7 +87,7 @@ const canonicalPageWindow = (input: {
       revision: input.revision ?? 0,
     }],
   },
-  view_positions: [],
+  view_positions: input.viewPositions ?? [],
   content: [],
   observed_cursor: {
     store_epoch: identity.storeEpoch,
@@ -901,6 +912,234 @@ describe("Core Library Module Adapter", () => {
         }],
       },
     });
+  });
+
+  test("deletes and restores a Library Page through the retired BlockRecord path", async () => {
+    const client = new FakeCoreClient();
+    client.enqueueBlockRecordRead(canonicalPageWindow({
+      pageId: "page:one",
+      lifecycle: "active",
+      parent: { kind: "library" },
+      rankKey: "40000000000000000000000000000000",
+      revision: 2,
+    }));
+    client.enqueueBlockRecordApply(canonicalPageCommit("lifecycle:delete-one", "page:one"));
+    client.enqueueBlockRecordRead(canonicalPageWindow({
+      pageId: "page:one",
+      lifecycle: "retired",
+      parent: { kind: "library" },
+      rankKey: "__nodex_retired__page:one__40000000000000000000000000000000",
+      revision: 3,
+    }));
+    client.enqueueBlockRecordRead(canonicalPageWindow({
+      pageId: "page:two",
+      lifecycle: "active",
+      parent: { kind: "library" },
+      rankKey: "c0000000000000000000000000000000",
+      revision: 4,
+    }));
+    client.enqueueBlockRecordApply(canonicalPageCommit("lifecycle:restore-one", "page:one"));
+    const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
+
+    await expect(adapter.applyPageLifecycleMutation({
+      version: 2,
+      operationId: "lifecycle:delete-one",
+      projectId: "project:test",
+      storeEpoch: identity.storeEpoch,
+      actor: { kind: "electron_renderer" },
+      operation: {
+        kind: "delete_page",
+        pageId: "page:one",
+        expectedMetadataRevision: 3,
+        expectedParentRevision: 3,
+      },
+    })).resolves.toMatchObject({
+      ok: true,
+      value: {
+        operationKind: "delete_page",
+        lifecycle: "deleted",
+        metadataRevision: 4,
+        parentRevision: 4,
+        documentId: "block-record:page:one",
+      },
+    });
+
+    await expect(adapter.applyPageLifecycleMutation({
+      version: 2,
+      operationId: "lifecycle:restore-one",
+      projectId: "project:test",
+      storeEpoch: identity.storeEpoch,
+      actor: { kind: "electron_renderer" },
+      operation: {
+        kind: "restore_page",
+        pageId: "page:one",
+        deleteOperationId: "lifecycle:delete-one",
+        expectedMetadataRevision: 4,
+        expectedParentRevision: 4,
+        membership: null,
+        beforeBlockId: "page:two",
+      },
+    })).resolves.toMatchObject({
+      ok: true,
+      value: {
+        operationKind: "restore_page",
+        lifecycle: "active",
+        metadataRevision: 5,
+        parentRevision: 5,
+        libraryRankKey: "60000000000000000000000000000000",
+      },
+    });
+
+    expect(client.applies).toEqual([]);
+    expect(client.blockRecordApplies.map((entry) => entry.operation.kind)).toEqual([
+      "retire_subtree",
+      "batch",
+    ]);
+    expect(client.blockRecordApplies[1]).toMatchObject({
+      operation: {
+        operations: [{
+          kind: "restore_subtree",
+          block_id: "page:one",
+          target_parent: { kind: "library" },
+          expected_block_revision: 3,
+          expected_placement_revision: 3,
+        }],
+      },
+    });
+    expect(client.blockRecordReads).toEqual([
+      expect.objectContaining({ block_ids: ["page:one"] }),
+      expect.objectContaining({
+        block_ids: ["page:one"],
+        include_retired: true,
+      }),
+      expect.objectContaining({ parent: { kind: "library" } }),
+    ]);
+  });
+
+  test("restores a deleted Board Page and its View position in one batch", async () => {
+    const client = new FakeCoreClient();
+    client.enqueueBlockRecordRead(canonicalPageWindow({
+      pageId: "page:one",
+      lifecycle: "active",
+      parent: { kind: "data_source", id: "source:test" },
+      rankKey: "60000000000000000000000000000000",
+      revision: 2,
+    }));
+    client.enqueueBlockRecordApply(canonicalPageCommit("lifecycle:delete-board", "page:one"));
+    client.enqueueBlockRecordRead(canonicalPageWindow({
+      pageId: "page:one",
+      lifecycle: "retired",
+      parent: { kind: "data_source", id: "source:test" },
+      rankKey: "__nodex_retired__page:one__60000000000000000000000000000000",
+      revision: 3,
+      viewPositions: [{
+        view_id: "view:test",
+        data_source_id: "source:test",
+        block_id: "page:one",
+        group_key: "build",
+        rank_key: "40000000000000000000000000000000",
+        revision: 5,
+      }],
+    }));
+    const destination = canonicalDataSourceWindow();
+    client.enqueueBlockRecordRead({
+      ...destination,
+      view_positions: destination.view_positions.map((position) => ({
+        ...position,
+        group_key: "build",
+      })),
+    });
+    client.enqueueBlockRecordApply(canonicalPageCommit("lifecycle:restore-board", "page:one"));
+    const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
+
+    await expect(adapter.applyPageLifecycleMutation({
+      version: 2,
+      operationId: "lifecycle:delete-board",
+      projectId: "project:test",
+      storeEpoch: identity.storeEpoch,
+      actor: { kind: "electron_renderer" },
+      operation: {
+        kind: "delete_page",
+        pageId: "page:one",
+        expectedMetadataRevision: 3,
+        expectedParentRevision: 3,
+      },
+    })).resolves.toMatchObject({ ok: true, value: { lifecycle: "deleted" } });
+
+    await expect(adapter.applyPageLifecycleMutation({
+      version: 2,
+      operationId: "lifecycle:restore-board",
+      projectId: "project:test",
+      storeEpoch: identity.storeEpoch,
+      actor: { kind: "electron_renderer" },
+      operation: {
+        kind: "restore_page",
+        pageId: "page:one",
+        deleteOperationId: "lifecycle:delete-board",
+        expectedMetadataRevision: 4,
+        expectedParentRevision: 4,
+        membership: {
+          membershipId: "membership:one",
+          databaseId: "database:test",
+          dataSourceId: "source:test",
+          status: "build",
+          position: {
+            viewId: "view:test",
+            beforeViewPageId: "page:view-before",
+          },
+        },
+      },
+    })).resolves.toMatchObject({
+      ok: true,
+      value: {
+        lifecycle: "active",
+        databaseId: "database:test",
+        dataSourceId: "source:test",
+        membershipId: "membership:one",
+        viewId: "view:test",
+        viewRankKey: "a0000000000000000000000000000000",
+      },
+    });
+
+    expect(client.blockRecordApplies[0]).toMatchObject({
+      operation: {
+        kind: "retire_subtree",
+        retire_operation_id: "lifecycle:delete-board",
+      },
+    });
+    expect(client.blockRecordApplies[1]).toMatchObject({
+      operation: {
+        kind: "batch",
+        operations: [{
+          kind: "restore_subtree",
+          expected_retire_operation_id: "lifecycle:delete-board",
+          target_parent: { kind: "data_source", id: "source:test" },
+        }, {
+          kind: "update_many",
+          entries: [{
+            block_id: "page:one",
+            expected_block_revision: 4,
+            view_id: "view:test",
+            data_source_id: "source:test",
+            view_group_key: "build",
+            view_rank_key: "a0000000000000000000000000000000",
+            expected_view_revision: 5,
+          }],
+        }],
+      },
+    });
+    expect(client.blockRecordReads).toEqual([
+      expect.objectContaining({ block_ids: ["page:one"] }),
+      expect.objectContaining({
+        block_ids: ["page:one"],
+        include_retired: true,
+        view_id: "view:test",
+      }),
+      expect.objectContaining({
+        parent: { kind: "data_source", id: "source:test" },
+        view_id: "view:test",
+      }),
+    ]);
   });
 
   test("maps intrinsic Page Property mutations through one canonical LocalCommit", async () => {

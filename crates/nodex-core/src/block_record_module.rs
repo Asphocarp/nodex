@@ -178,6 +178,7 @@ impl BlockRecordModule {
             view_id,
             include_descendants,
             false,
+            false,
         )
     }
 
@@ -189,6 +190,7 @@ impl BlockRecordModule {
         view_id: Option<&str>,
         include_descendants: bool,
         include_archived: bool,
+        include_retired: bool,
     ) -> Result<
         (
             BlockRecordSelection,
@@ -211,6 +213,7 @@ impl BlockRecordModule {
                     block_ids.as_deref(),
                     include_descendants,
                     include_archived,
+                    include_retired,
                 )?;
             let content = if include_content {
                 let ids = blocks
@@ -268,6 +271,7 @@ impl BlockRecordModule {
         view_id: Option<&str>,
         include_descendants: bool,
         include_archived: bool,
+        include_retired: bool,
     ) -> Result<
         (
             BlockRecordSelection,
@@ -309,6 +313,7 @@ impl BlockRecordModule {
                     block_ids.as_deref(),
                     include_descendants,
                     include_archived,
+                    include_retired,
                 )?;
             let content = if include_content {
                 let ids = blocks
@@ -668,6 +673,7 @@ fn collect_agent_requirements(
         BlockMutationOperation::UpdateRecord { block_id, .. }
         | BlockMutationOperation::PatchProperties { block_id, .. }
         | BlockMutationOperation::ArchiveSubtree { block_id, .. }
+        | BlockMutationOperation::RetireSubtree { block_id, .. }
         | BlockMutationOperation::SetMaterializedContent { block_id, .. } => {
             push_existing_write_requirement(block_id, graph, created_ids, output)?;
         }

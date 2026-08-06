@@ -635,6 +635,7 @@ async fn block_record_read(
             include_content,
             include_descendants,
             include_archived,
+            include_retired,
             view_id,
         } = &request.read;
         let parent = parent.as_ref().map(block_record_parent).transpose()?;
@@ -648,6 +649,7 @@ async fn block_record_read(
                 view_id.as_deref(),
                 *include_descendants,
                 *include_archived,
+                *include_retired,
             ),
             None => state
                 .block_record
@@ -658,6 +660,7 @@ async fn block_record_read(
                     view_id.as_deref(),
                     *include_descendants,
                     *include_archived,
+                    *include_retired,
                 ),
         }
         .map_err(block_record_store_error)?;
@@ -1014,8 +1017,20 @@ fn block_record_operation(
             expected_block_revision: *expected_block_revision,
             expected_placement_revision: *expected_placement_revision,
         }),
+        BlockRecordOperation::RetireSubtree {
+            block_id,
+            retire_operation_id,
+            expected_block_revision,
+            expected_placement_revision,
+        } => Ok(BlockMutationOperation::RetireSubtree {
+            block_id: block_id.clone(),
+            retire_operation_id: retire_operation_id.clone(),
+            expected_block_revision: *expected_block_revision,
+            expected_placement_revision: *expected_placement_revision,
+        }),
         BlockRecordOperation::RestoreSubtree {
             block_id,
+            expected_retire_operation_id,
             target_parent,
             rank_key,
             expected_block_revision,
@@ -1023,6 +1038,7 @@ fn block_record_operation(
             placement_rebalances,
         } => Ok(BlockMutationOperation::RestoreSubtree {
             block_id: block_id.clone(),
+            expected_retire_operation_id: expected_retire_operation_id.clone(),
             target_parent: block_record_parent(target_parent)?,
             rank_key: rank_key.clone(),
             expected_block_revision: *expected_block_revision,

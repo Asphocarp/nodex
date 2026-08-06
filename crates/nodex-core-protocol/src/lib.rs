@@ -36,7 +36,7 @@ pub const COMPATIBILITY_MANIFEST_VERSION: u32 = 1;
 pub const STORE_LINEAGE: &str = "nodex-rust-core";
 pub const CURRENT_STORE_VERSION: u32 = 105;
 pub const CURRENT_STORE_SCHEMA_FINGERPRINT: &str =
-    "a49dc7fa054c21d92faf013f11aa293da239f76b7e6ae0cc9728bdd259077f49";
+    "512d69e4cdd2ef116617b8688ad8200d0387c4e57aec6bfc3f33bf063a814a4d";
 pub const MAX_ORDINARY_JSON_REQUEST_BYTES: usize = 2 * 1024 * 1024;
 pub const MAX_ORDINARY_JSON_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 pub const MAX_EVENT_FRAME_BYTES: usize = (2 * 1024 * 1024) + (256 * 1024);
@@ -773,6 +773,8 @@ pub enum BlockRecordRead {
         include_descendants: bool,
         #[serde(default)]
         include_archived: bool,
+        #[serde(default)]
+        include_retired: bool,
     },
 }
 
@@ -904,8 +906,19 @@ pub enum BlockRecordOperation {
         expected_block_revision: u64,
         expected_placement_revision: u64,
     },
+    /// Retires an owning subtree while preserving its identity and recovery
+    /// placement. Retired records are the canonical tombstone for Page
+    /// deletion; they are distinct from user-visible archive state.
+    RetireSubtree {
+        block_id: String,
+        retire_operation_id: String,
+        expected_block_revision: u64,
+        expected_placement_revision: u64,
+    },
     RestoreSubtree {
         block_id: String,
+        #[serde(default)]
+        expected_retire_operation_id: Option<String>,
         target_parent: BlockRecordPlacementParent,
         rank_key: String,
         expected_block_revision: u64,
@@ -1077,8 +1090,16 @@ pub enum BlockRecordBatchOperation {
         expected_block_revision: u64,
         expected_placement_revision: u64,
     },
+    RetireSubtree {
+        block_id: String,
+        retire_operation_id: String,
+        expected_block_revision: u64,
+        expected_placement_revision: u64,
+    },
     RestoreSubtree {
         block_id: String,
+        #[serde(default)]
+        expected_retire_operation_id: Option<String>,
         target_parent: BlockRecordPlacementParent,
         rank_key: String,
         expected_block_revision: u64,

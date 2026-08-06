@@ -40,7 +40,7 @@ export const CORE_CLIENT_REQUIREMENTS = {
     {
       "lineage": "nodex-rust-core",
       "version": 105,
-      "schema_fingerprint": "a49dc7fa054c21d92faf013f11aa293da239f76b7e6ae0cc9728bdd259077f49"
+      "schema_fingerprint": "512d69e4cdd2ef116617b8688ad8200d0387c4e57aec6bfc3f33bf063a814a4d"
     }
   ]
 } as const satisfies components["schemas"]["CoreClientRequirements"];

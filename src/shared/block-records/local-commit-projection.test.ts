@@ -306,6 +306,51 @@ describe("BlockRecord local commit projection", () => {
     expect(result.window.placements.map((placement) => placement.blockId)).toEqual(["page-a"]);
   });
 
+  it("removes a retired Board card from the active window", () => {
+    const current: BlockRecordWindow = {
+      ...windowFor(),
+      rootParent: { kind: "dataSource", dataSourceId: "board-1" },
+      viewId: "view-1",
+      records: [{
+        ...windowFor().records[0],
+        kind: "page",
+      }],
+      placements: [{
+        ...windowFor().placements[0],
+        parent: { kind: "dataSource", dataSourceId: "board-1" },
+      }],
+      viewPositions: [{
+        viewId: "view-1",
+        dataSourceId: "board-1",
+        blockId: "page-a",
+        groupKey: "todo",
+        rankKey: "a",
+        revision: 1,
+      }],
+    };
+    const result = applyLocalCommitToBlockRecordWindow(current, commit([
+      {
+        kind: "record",
+        value: {
+          blockId: "page-a",
+          kind: "page",
+          lifecycle: "retired",
+          revision: 2,
+        },
+      },
+      {
+        kind: "remove",
+        value: { blockId: "page-a", lifecycle: "retired", revision: 2 },
+      },
+    ]));
+
+    expect(result.kind).toBe("applied");
+    if (result.kind !== "applied") return;
+    expect(result.window.records).toEqual([]);
+    expect(result.window.placements).toEqual([]);
+    expect(result.window.viewPositions).toEqual([]);
+  });
+
   it("ignores a commit already covered by the read cursor", () => {
     const result = applyLocalCommitToBlockRecordWindow(windowFor(), commit([], 1));
     expect(result).toMatchObject({ kind: "ignored" });

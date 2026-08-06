@@ -164,8 +164,16 @@ export interface ArchiveBlockRecordSubtreeApplyInput extends BlockRecordApplyIde
   readonly expectedPlacementRevision: number;
 }
 
+export interface RetireBlockRecordSubtreeApplyInput extends BlockRecordApplyIdentity {
+  readonly blockId: string;
+  readonly retireOperationId: string;
+  readonly expectedBlockRevision: number;
+  readonly expectedPlacementRevision: number;
+}
+
 export interface RestoreBlockRecordSubtreeApplyInput extends BlockRecordApplyIdentity {
   readonly blockId: string;
+  readonly expectedRetireOperationId?: string | null;
   readonly targetParent: BlockPlacementParent;
   readonly rankKey: string;
   readonly expectedBlockRevision: number;
@@ -821,6 +829,28 @@ export const buildArchiveBlockRecordSubtreeApplyInput = async (
   };
 };
 
+export const buildRetireBlockRecordSubtreeApplyInput = async (
+  input: RetireBlockRecordSubtreeApplyInput,
+): Promise<BlockRecordApplyInput> => {
+  for (const [label, value] of [
+    ["blockId", input.blockId],
+    ["retireOperationId", input.retireOperationId],
+  ] as const) assertIdentity(label, value);
+  assertRevision("expectedBlockRevision", input.expectedBlockRevision);
+  assertRevision("expectedPlacementRevision", input.expectedPlacementRevision);
+  const operation = {
+    kind: "retire_subtree" as const,
+    block_id: input.blockId,
+    retire_operation_id: input.retireOperationId,
+    expected_block_revision: input.expectedBlockRevision,
+    expected_placement_revision: input.expectedPlacementRevision,
+  };
+  return {
+    ...await identityFields(input, operation),
+    operation,
+  };
+};
+
 export const buildRestoreBlockRecordSubtreeApplyInput = async (
   input: RestoreBlockRecordSubtreeApplyInput,
 ): Promise<BlockRecordApplyInput> => {
@@ -828,6 +858,12 @@ export const buildRestoreBlockRecordSubtreeApplyInput = async (
     ["blockId", input.blockId],
     ["rankKey", input.rankKey],
   ] as const) assertIdentity(label, value);
+  if (
+    input.expectedRetireOperationId !== null
+    && input.expectedRetireOperationId !== undefined
+  ) {
+    assertIdentity("expectedRetireOperationId", input.expectedRetireOperationId);
+  }
   assertRevision("expectedBlockRevision", input.expectedBlockRevision);
   assertRevision("expectedPlacementRevision", input.expectedPlacementRevision);
   const blockIds = new Set<string>([input.blockId]);
@@ -848,6 +884,7 @@ export const buildRestoreBlockRecordSubtreeApplyInput = async (
   const operation = {
     kind: "restore_subtree" as const,
     block_id: input.blockId,
+    expected_retire_operation_id: input.expectedRetireOperationId ?? null,
     target_parent: parentToWire(input.targetParent),
     rank_key: input.rankKey,
     expected_block_revision: input.expectedBlockRevision,

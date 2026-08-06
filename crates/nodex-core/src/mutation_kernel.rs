@@ -132,8 +132,15 @@ pub enum BlockMutationOperation {
         expected_block_revision: u64,
         expected_placement_revision: u64,
     },
+    RetireSubtree {
+        block_id: String,
+        retire_operation_id: String,
+        expected_block_revision: u64,
+        expected_placement_revision: u64,
+    },
     RestoreSubtree {
         block_id: String,
+        expected_retire_operation_id: Option<String>,
         target_parent: PlacementParent,
         rank_key: String,
         expected_block_revision: u64,
@@ -545,6 +552,7 @@ fn persist_delta(
         BlockMutationOperation::UpdateRecord { block_id, .. }
         | BlockMutationOperation::PatchProperties { block_id, .. }
         | BlockMutationOperation::ArchiveSubtree { block_id, .. }
+        | BlockMutationOperation::RetireSubtree { block_id, .. }
         | BlockMutationOperation::RestoreSubtree { block_id, .. } => block_id,
         BlockMutationOperation::UpdateMany { entries, .. } => entries
             .first()
@@ -945,8 +953,33 @@ fn persist_delta(
         }
         return Ok(Vec::new());
     }
+    if let BlockMutationOperation::RetireSubtree {
+        block_id,
+        retire_operation_id,
+        ..
+    } = operation
+    {
+        let ids = previous.descendant_ids(block_id).map_err(map_graph_error)?;
+        for id in ids.iter().rev() {
+            let record = previous.block(id).ok_or_else(|| {
+                StoreError::new(
+                    StoreErrorCode::StoreCorrupt,
+                    "Retired BlockRecord is missing from the previous graph",
+                    false,
+                )
+            })?;
+            crate::infrastructure::block_record_store::retire_block(
+                transaction,
+                record,
+                retire_operation_id,
+                committed_at,
+            )?;
+        }
+        return Ok(Vec::new());
+    }
     if let BlockMutationOperation::RestoreSubtree {
         block_id,
+        expected_retire_operation_id,
         placement_rebalances,
         ..
     } = operation
@@ -957,6 +990,7 @@ fn persist_delta(
             next,
             block_id,
             placement_rebalances,
+            expected_retire_operation_id.as_deref(),
         );
     }
     if let BlockMutationOperation::SetMaterializedContent {
@@ -1172,6 +1206,7 @@ fn persist_restore_subtree(
     next: &RecordGraph,
     root_id: &str,
     placement_rebalances: &[BlockPlacementRebalance],
+    expected_retire_operation_id: Option<&str>,
 ) -> Result<Vec<LocalCommitEffect>, StoreError> {
     let placement_changes = placement_rebalances
         .iter()
@@ -1236,6 +1271,28 @@ fn persist_restore_subtree(
                 false,
             )
         })?;
+        if let Some(expected_operation_id) = expected_retire_operation_id {
+            let actual_operation_id =
+                crate::infrastructure::block_record_store::retirement_operation_id(
+                    transaction,
+                    &next_record.library_id,
+                    id,
+                )?
+                .ok_or_else(|| {
+                    StoreError::new(
+                        StoreErrorCode::StoreCorrupt,
+                        "Retired BlockRecord lost its deletion evidence before restore",
+                        false,
+                    )
+                })?;
+            if actual_operation_id != expected_operation_id {
+                return Err(StoreError::new(
+                    StoreErrorCode::Conflict,
+                    "Retired BlockRecord deletion evidence changed before restore",
+                    false,
+                ));
+            }
+        }
         let expected_revision = next_record.revision.checked_sub(1).ok_or_else(|| {
             StoreError::new(
                 StoreErrorCode::StoreCorrupt,
@@ -1245,7 +1302,8 @@ fn persist_restore_subtree(
         })?;
         let changed = transaction.execute(
             "UPDATE block_records SET lifecycle = 'active', revision = ?1
-             WHERE id = ?2 AND library_id = ?3 AND lifecycle = 'archived' AND revision = ?4",
+             WHERE id = ?2 AND library_id = ?3
+               AND lifecycle IN ('archived', 'retired') AND revision = ?4",
             rusqlite::params![
                 i64::try_from(next_record.revision).map_err(|_| {
                     corrupt("Restored BlockRecord revision exceeds SQLite range")
@@ -1264,6 +1322,11 @@ fn persist_restore_subtree(
                 true,
             ));
         }
+        crate::infrastructure::block_record_store::clear_retirement(
+            transaction,
+            &next_record.library_id,
+            id,
+        )?;
     }
 
     // Archived descendants still point at archived parents. Publish placement
@@ -3212,8 +3275,54 @@ fn apply_operation(
             }
             Ok((block_id.clone(), effects))
         }
+        BlockMutationOperation::RetireSubtree {
+            block_id,
+            expected_block_revision,
+            expected_placement_revision,
+            ..
+        } => {
+            validate_revisions(
+                graph,
+                block_id,
+                *expected_block_revision,
+                *expected_placement_revision,
+            )?;
+            let removed = graph.remove_subtree(block_id).map_err(map_graph_error)?;
+            let mut effects = Vec::with_capacity(removed.len() * 2);
+            for record in removed {
+                let retired_revision = record.revision.checked_add(1).ok_or_else(|| {
+                    StoreError::new(
+                        StoreErrorCode::StoreCorrupt,
+                        "Retired BlockRecord revision overflow",
+                        false,
+                    )
+                })?;
+                effects.push(LocalCommitEffect {
+                    kind: "record".to_owned(),
+                    value: json!({
+                        "blockId": record.id,
+                        "libraryId": record.library_id,
+                        "kind": record.kind,
+                        "lifecycle": "retired",
+                        "properties": record.properties,
+                        "contentShardId": record.content_shard_id,
+                        "revision": retired_revision,
+                    }),
+                });
+                effects.push(LocalCommitEffect {
+                    kind: "remove".to_owned(),
+                    value: json!({
+                        "blockId": record.id,
+                        "lifecycle": "retired",
+                        "revision": retired_revision,
+                    }),
+                });
+            }
+            Ok((block_id.clone(), effects))
+        }
         BlockMutationOperation::RestoreSubtree {
             block_id,
+            expected_retire_operation_id,
             target_parent,
             rank_key,
             expected_block_revision,
@@ -3286,6 +3395,7 @@ fn apply_operation(
                     Some(&block_ids),
                     true,
                     true,
+                    true,
                 )?;
             let archived_by_id = archived_records
                 .into_iter()
@@ -3298,14 +3408,14 @@ fn apply_operation(
             let root_record = archived_by_id.get(block_id).ok_or_else(|| {
                 StoreError::new(
                     StoreErrorCode::NotFound,
-                    "Archived BlockRecord is unavailable",
+                    "Inactive BlockRecord is unavailable",
                     false,
                 )
             })?;
             let root_placement = archived_placement_by_id.get(block_id).ok_or_else(|| {
                 StoreError::new(
                     StoreErrorCode::NotFound,
-                    "Archived Block placement is unavailable",
+                    "Inactive Block placement is unavailable",
                     false,
                 )
             })?;
@@ -3314,9 +3424,67 @@ fn apply_operation(
             {
                 return Err(StoreError::new(
                     StoreErrorCode::RevisionConflict,
-                    "Archived BlockRecord changed before restore",
+                    "Inactive BlockRecord changed before restore",
                     true,
                 ));
+            }
+            if root_record.lifecycle.is_active() {
+                return Err(StoreError::new(
+                    StoreErrorCode::NotFound,
+                    "Restore target is not inactive",
+                    false,
+                ));
+            }
+            for (id, record) in &archived_by_id {
+                if record.lifecycle != root_record.lifecycle {
+                    return Err(StoreError::new(
+                        StoreErrorCode::StoreCorrupt,
+                        "Inactive subtree mixes lifecycle states",
+                        false,
+                    ));
+                }
+                match &record.lifecycle {
+                    BlockLifecycle::Archived => {
+                        if expected_retire_operation_id.is_some() {
+                            return Err(StoreError::new(
+                                StoreErrorCode::InvalidInput,
+                                "Archived restore cannot carry retirement evidence",
+                                false,
+                            ));
+                        }
+                    }
+                    BlockLifecycle::Retired => {
+                        let Some(expected_operation_id) = expected_retire_operation_id.as_deref()
+                        else {
+                            return Err(StoreError::new(
+                                StoreErrorCode::InvalidInput,
+                                "Retired restore requires deletion evidence",
+                                false,
+                            ));
+                        };
+                        let actual_operation_id =
+                            crate::infrastructure::block_record_store::retirement_operation_id(
+                                transaction,
+                                graph.library_id(),
+                                id,
+                            )?
+                            .ok_or_else(|| {
+                                StoreError::new(
+                                    StoreErrorCode::StoreCorrupt,
+                                    "Retired BlockRecord has no deletion evidence",
+                                    false,
+                                )
+                            })?;
+                        if actual_operation_id != expected_operation_id {
+                            return Err(StoreError::new(
+                                StoreErrorCode::Conflict,
+                                "Retired BlockRecord deletion evidence does not match",
+                                false,
+                            ));
+                        }
+                    }
+                    BlockLifecycle::Active => unreachable!("active restore target was rejected"),
+                }
             }
             if rank_key.trim().is_empty() {
                 return Err(StoreError::new(
@@ -3367,14 +3535,14 @@ fn apply_operation(
                 let next_rank = if id == block_id {
                     rank_key.clone()
                 } else {
-                    crate::infrastructure::block_record_store::active_rank_key_from_archived(
+                    crate::infrastructure::block_record_store::active_rank_key_from_inactive(
                         id,
                         &placement.rank_key,
                     )
                     .ok_or_else(|| {
                         StoreError::new(
                             StoreErrorCode::StoreCorrupt,
-                            "Archived placement rank cannot be restored",
+                            "Inactive placement rank cannot be restored",
                             false,
                         )
                     })?
@@ -3454,7 +3622,7 @@ fn apply_operation(
                 if ready.is_empty() {
                     return Err(StoreError::new(
                         StoreErrorCode::InvalidInput,
-                        "Archived subtree cannot be restored as an ownership forest",
+                        "Inactive subtree cannot be restored as an ownership forest",
                         false,
                     ));
                 }
@@ -6489,6 +6657,160 @@ mod tests {
     }
 
     #[test]
+    fn retire_subtree_is_a_recoverable_tombstone_and_restores_in_one_commit() {
+        let mut connection = Connection::open_in_memory().expect("SQLite");
+        install_graph_schema(&connection).expect("graph schema");
+        install_view_position_schema(&connection).expect("view schema");
+        install_commit_schema(&connection).expect("commit schema");
+        let mut graph = graph();
+        let subtree = graph.descendant_ids("page-a").expect("subtree");
+        {
+            let transaction = connection.transaction().expect("seed transaction");
+            crate::infrastructure::block_record_store::ensure_data_source(
+                &transaction,
+                "board:test",
+                "library:test",
+            )
+            .expect("data source");
+            crate::infrastructure::block_record_store::write_graph(&transaction, &graph)
+                .expect("graph");
+            transaction.commit().expect("seed commit");
+        }
+
+        let transaction = connection.transaction().expect("retire transaction");
+        let retired = apply_block_mutation(
+            &transaction,
+            &mut graph,
+            request(
+                "retire:page-a",
+                BlockMutationOperation::RetireSubtree {
+                    block_id: "page-a".to_owned(),
+                    retire_operation_id: "retire:page-a".to_owned(),
+                    expected_block_revision: 0,
+                    expected_placement_revision: 0,
+                },
+            ),
+        )
+        .expect("retire");
+        transaction.commit().expect("retire commit");
+
+        assert_eq!(retired.envelope.cursor.commit_seq, 1);
+        assert_eq!(retired.envelope.effects.len(), subtree.len() * 2);
+        assert!(
+            subtree
+                .iter()
+                .all(|block_id| graph.block(block_id).is_none())
+        );
+        let retired_rank: String = connection
+            .query_row(
+                "SELECT rank_key FROM block_placements WHERE block_id = 'page-a'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("retired placement");
+        assert!(retired_rank.starts_with("__nodex_retired__page-a__"));
+        let (active, retired_count): (i64, i64) = connection
+            .query_row(
+                "SELECT
+                   (SELECT count(*) FROM block_records WHERE lifecycle = 'active'),
+                   (SELECT count(*) FROM block_records WHERE lifecycle = 'retired')",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("retired counts");
+        assert_eq!(active, 100);
+        assert_eq!(retired_count, subtree.len() as i64);
+        let evidence_count: i64 = connection
+            .query_row(
+                "SELECT count(*) FROM block_record_retirements
+                 WHERE library_id = 'library:test' AND operation_id = 'retire:page-a'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("retirement evidence");
+        assert_eq!(evidence_count, subtree.len() as i64);
+
+        let retired_ids = vec!["page-a".to_owned()];
+        let (retired_records, retired_placements) =
+            crate::infrastructure::block_record_store::read_selection_with_descendants_and_lifecycle(
+                &connection,
+                "library:test",
+                None,
+                Some(&retired_ids),
+                true,
+                false,
+                true,
+            )
+            .expect("retired selection");
+        assert_eq!(retired_records.len(), subtree.len());
+        assert_eq!(retired_placements.len(), subtree.len());
+
+        let transaction = connection
+            .transaction()
+            .expect("mismatched restore transaction");
+        let error = apply_block_mutation(
+            &transaction,
+            &mut graph,
+            request(
+                "restore:wrong-delete",
+                BlockMutationOperation::RestoreSubtree {
+                    block_id: "page-a".to_owned(),
+                    expected_retire_operation_id: Some("retire:another-page".to_owned()),
+                    target_parent: PlacementParent::Library,
+                    rank_key: "a".to_owned(),
+                    expected_block_revision: 1,
+                    expected_placement_revision: 1,
+                    placement_rebalances: Vec::new(),
+                },
+            ),
+        )
+        .expect_err("restore must bind to the exact deletion evidence");
+        assert_eq!(error.code, StoreErrorCode::Conflict);
+        transaction.rollback().expect("mismatched restore rollback");
+        assert_eq!(graph.block("page-a"), None);
+
+        let transaction = connection.transaction().expect("restore transaction");
+        let restored = apply_block_mutation(
+            &transaction,
+            &mut graph,
+            request(
+                "restore:page-a",
+                BlockMutationOperation::RestoreSubtree {
+                    block_id: "page-a".to_owned(),
+                    expected_retire_operation_id: Some("retire:page-a".to_owned()),
+                    target_parent: PlacementParent::Library,
+                    rank_key: "a".to_owned(),
+                    expected_block_revision: 1,
+                    expected_placement_revision: 1,
+                    placement_rebalances: Vec::new(),
+                },
+            ),
+        )
+        .expect("restore");
+        transaction.commit().expect("restore commit");
+
+        assert_eq!(restored.envelope.cursor.commit_seq, 2);
+        assert_eq!(restored.envelope.effects.len(), subtree.len() * 2);
+        assert_eq!(
+            graph.descendant_ids("page-a").expect("restored subtree"),
+            subtree
+        );
+        let (active, retired_count, placements): (i64, i64, i64) = connection
+            .query_row(
+                "SELECT
+                   (SELECT count(*) FROM block_records WHERE lifecycle = 'active'),
+                   (SELECT count(*) FROM block_records WHERE lifecycle = 'retired'),
+                   (SELECT count(*) FROM block_placements)",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("restored counts");
+        assert_eq!(active, 402);
+        assert_eq!(retired_count, 0);
+        assert_eq!(placements, 402);
+    }
+
+    #[test]
     fn restore_subtree_reactivates_owned_records_and_edges_atomically() {
         let mut connection = Connection::open_in_memory().expect("SQLite");
         install_graph_schema(&connection).expect("graph schema");
@@ -6534,6 +6856,7 @@ mod tests {
                 "restore:title-a",
                 BlockMutationOperation::RestoreSubtree {
                     block_id: "title-a".to_owned(),
+                    expected_retire_operation_id: None,
                     target_parent: PlacementParent::Block("page-a".to_owned()),
                     rank_key: "100".to_owned(),
                     expected_block_revision: 1,

@@ -772,6 +772,16 @@ export interface components {
             /** Format: int64 */
             readonly expected_placement_revision: number;
             /** @enum {string} */
+            readonly kind: "retire_subtree";
+            readonly retire_operation_id: string;
+        } | {
+            readonly block_id: string;
+            /** Format: int64 */
+            readonly expected_block_revision: number;
+            /** Format: int64 */
+            readonly expected_placement_revision: number;
+            readonly expected_retire_operation_id?: string | null;
+            /** @enum {string} */
             readonly kind: "restore_subtree";
             readonly placement_rebalances?: readonly components["schemas"]["BlockRecordPlacementRebalance"][];
             readonly rank_key: string;
@@ -1013,6 +1023,16 @@ export interface components {
             /** Format: int64 */
             readonly expected_placement_revision: number;
             /** @enum {string} */
+            readonly kind: "retire_subtree";
+            readonly retire_operation_id: string;
+        } | {
+            readonly block_id: string;
+            /** Format: int64 */
+            readonly expected_block_revision: number;
+            /** Format: int64 */
+            readonly expected_placement_revision: number;
+            readonly expected_retire_operation_id?: string | null;
+            /** @enum {string} */
             readonly kind: "restore_subtree";
             /**
              * @description Existing sibling placements whose ranks must be rewritten in the
@@ -1119,6 +1139,7 @@ export interface components {
             readonly include_archived?: boolean;
             readonly include_content?: boolean;
             readonly include_descendants?: boolean;
+            readonly include_retired?: boolean;
             /** @enum {string} */
             readonly kind: "window";
             readonly parent?: null | components["schemas"]["BlockRecordPlacementParent"];
