@@ -2,19 +2,33 @@ import {
   parseDatabaseId,
   parseDatabaseViewId,
   parseDataSourceId,
+  parseDataSourcePropertyId,
 } from "../../shared/database-identities";
-import type { DatabaseViewKind } from "../../shared/database-kernel";
+import {
+  databaseGroupKeyForValue,
+  type DatabaseViewKind,
+} from "../../shared/database-kernel";
 import { plainTextToPortableRichText } from "../../shared/block-documents/portable-rich-text";
+import {
+  nfmToBlockNoteWithIds,
+  type BlockNoteBlockValue,
+} from "../../shared/block-documents/nfm-blocknote-adapter";
+import { parseNfm } from "../../shared/nfm/parser";
 import { blockRecordSnapshotToWindow } from "../../shared/block-records/wire";
 import {
+  buildApplyDatabaseBlockRecordApplyInput,
   buildBatchBlockRecordApplyInput,
   buildArchiveBlockRecordSubtreeApplyInput,
   buildCreateBlockRecordApplyInput,
   buildMoveManyBlockRecordApplyInput,
+  buildReconcilePageTreeBlockRecordApplyInput,
   buildRestoreBlockRecordSubtreeApplyInput,
+  buildSetDataSourceValuesBlockRecordApplyInput,
 } from "../../shared/block-records/apply-request";
 import { planFractionalRank } from "../../shared/block-records/fractional-rank";
 import type { BlockPlacementParent } from "../../shared/block-records/contracts";
+import type { components } from "@nodex/core-protocol";
+import type { DatabaseApplyOperationV2 } from "../../shared/database-module-v2";
 import type {
   LibraryApplyOperation,
   LibraryCanvasDestination,
@@ -2147,6 +2161,374 @@ const applyCanonicalPageRestore = async (
   };
 };
 
+type CanonicalPageBlockOperation = Exclude<
+  components["schemas"]["BlockRecordOperation"],
+  { readonly kind: "batch" }
+>;
+
+const nonBatchCanonicalPageOperation = (
+  operation: components["schemas"]["BlockRecordOperation"],
+): CanonicalPageBlockOperation => {
+  if (operation.kind === "batch") {
+    throw new Error("Canonical Page lifecycle Batch cannot be nested");
+  }
+  return operation;
+};
+
+type CanonicalPageBodyBlock = BlockNoteBlockValue & {
+  readonly id: string;
+};
+
+const canonicalPageBodyBlockId = (
+  pageId: string,
+  ordinal: number,
+): string => `${pageId}:body:${ordinal}`;
+
+const unsupportedCanonicalPageBodyTypes = new Set([
+  "page",
+  "database",
+  "canvas",
+  "databaseViewRef",
+]);
+
+const assertCanonicalPageBodyType = (
+  block: BlockNoteBlockValue,
+): void => {
+  if (unsupportedCanonicalPageBodyTypes.has(block.type)) {
+    throw new Error(
+      `Canonical Page creation cannot create owning body Block type ${block.type}`,
+    );
+  }
+  for (const child of block.children ?? []) assertCanonicalPageBodyType(child);
+};
+
+const rankCanonicalPageBody = (
+  blocks: readonly CanonicalPageBodyBlock[],
+  parentBlockId: string,
+  output: {
+    readonly block: CanonicalPageBodyBlock;
+    readonly parentBlockId: string;
+    readonly rankKey: string;
+    readonly contentShardId: string;
+  }[] = [],
+): typeof output => {
+  const siblings: { id: string; rankKey: string }[] = [];
+  for (const block of blocks) {
+    const rank = planFractionalRank(siblings, block.id).rankKey;
+    siblings.push({ id: block.id, rankKey: rank });
+    output.push({
+      block,
+      parentBlockId,
+      rankKey: rank,
+      contentShardId: `block-record-shard:${block.id}`,
+    });
+    const children = (block.children ?? []) as readonly CanonicalPageBodyBlock[];
+    rankCanonicalPageBody(children, block.id, output);
+  }
+  return output;
+};
+
+const canonicalPageLifecyclePreflightForCreate = async (
+  input: CoreLibraryModuleAdapterInput,
+  projectId: string,
+  pageId: string,
+) => {
+  const snapshot = await input.client.libraryRead({
+    kind: "page_lifecycle_preflight",
+    page_id: pageId,
+  });
+  if (
+    snapshot.value.kind !== "page_lifecycle_preflight"
+    || snapshot.store_epoch !== input.storeEpoch
+  ) {
+    throw new Error("Canonical Page creation escaped its lifecycle preflight boundary");
+  }
+  const result = parsePageLifecyclePreflightResultV2({
+    ok: true,
+    value: {
+      version: 2,
+      projectId,
+      libraryId: input.libraryId,
+      storeEpoch: snapshot.store_epoch,
+      changeLogSeq: snapshot.event_head,
+      value: mapPageLifecyclePreflight(snapshot.value.value),
+    },
+  });
+  if (!result.ok) {
+    throw new Error(result.error.message);
+  }
+  if (result.value.value.page || result.value.value.reservedBlockType) {
+    throw new Error(`Page identity is already reserved: ${pageId}`);
+  }
+  return result.value.value;
+};
+
+const canonicalPageLifecycleDataSourceValues = (
+  operation: Extract<PageLifecycleOperationV2, { readonly kind: "create_page" }>,
+) => [
+  { propertyId: "status", value: operation.status },
+  { propertyId: "priority", value: operation.priority },
+  { propertyId: "estimate", value: operation.estimate },
+  { propertyId: "tags", value: [...operation.tagOptionIds] },
+  { propertyId: "due_date", value: operation.dueDate },
+  { propertyId: "scheduled_start", value: operation.scheduledStart },
+  { propertyId: "scheduled_end", value: operation.scheduledEnd },
+  { propertyId: "assignee", value: operation.assignee },
+] as const;
+
+const canonicalPageLifecycleIntrinsicProperties = (
+  operation: Extract<PageLifecycleOperationV2, { readonly kind: "create_page" }>,
+): Readonly<Record<string, unknown>> => ({
+  title: operation.title,
+  ...(operation.richTitle === undefined
+    ? { richTitle: plainTextToPortableRichText(operation.title) }
+    : { richTitle: operation.richTitle }),
+  description: operation.nfm,
+  createdAt: operation.pageId,
+  status: operation.status,
+  ...(operation.priority === null ? {} : { priority: operation.priority }),
+  ...(operation.estimate === null ? {} : { estimate: operation.estimate }),
+  tags: [...operation.tagOptionIds],
+  ...(operation.dueDate === null ? {} : { dueDate: operation.dueDate }),
+  ...(operation.scheduledStart === null ? {} : { scheduledStart: operation.scheduledStart }),
+  ...(operation.scheduledEnd === null ? {} : { scheduledEnd: operation.scheduledEnd }),
+  isAllDay: operation.isAllDay,
+  ...(operation.recurrence === null ? {} : { recurrence: operation.recurrence }),
+  reminders: [...operation.reminders],
+  ...(operation.scheduleTimezone === null
+    ? {}
+    : { scheduleTimezone: operation.scheduleTimezone }),
+  ...(operation.assignee === null ? {} : { assignee: operation.assignee }),
+  runInTarget: operation.runInTarget,
+  ...(operation.runInLocalPath === null ? {} : { runInLocalPath: operation.runInLocalPath }),
+  ...(operation.runInBaseBranch === null ? {} : { runInBaseBranch: operation.runInBaseBranch }),
+  ...(operation.runInWorktreePath === null ? {} : { runInWorktreePath: operation.runInWorktreePath }),
+  ...(operation.runInEnvironmentPath === null
+    ? {}
+    : { runInEnvironmentPath: operation.runInEnvironmentPath }),
+});
+
+const canonicalPageViewGroupKey = (
+  operation: Extract<PageLifecycleOperationV2, { readonly kind: "create_page" }>,
+  propertyId: string | undefined,
+): string | null => {
+  if (!propertyId) return null;
+  const value = canonicalPageLifecycleDataSourceValues(operation)
+    .find((entry) => entry.propertyId === propertyId)?.value;
+  return databaseGroupKeyForValue(value);
+};
+
+const rawEffectRevision = (
+  effects: Awaited<ReturnType<typeof applyBlockRecordWithResolution>>["effects"],
+  kind: string,
+  blockId: string,
+): number | undefined => {
+  const value = effects
+    .filter((effect) => effect.kind === kind)
+    .map((effect) => effect.value)
+    .find((candidate) => (
+      typeof candidate === "object"
+      && candidate !== null
+      && !Array.isArray(candidate)
+      && (candidate as Readonly<Record<string, unknown>>).blockId === blockId
+    ));
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  const revision = (value as Readonly<Record<string, unknown>>).revision;
+  return typeof revision === "number" ? revision : undefined;
+};
+
+const applyCanonicalPageLifecycleCreate = async (
+  input: CoreLibraryModuleAdapterInput,
+  request: PageLifecycleMutationRequestV2 & {
+    readonly operation: Extract<PageLifecycleOperationV2, { readonly kind: "create_page" }>;
+  },
+): Promise<PageLifecycleMutationReceiptV2> => {
+  const operation = request.operation;
+  const preflight = await canonicalPageLifecyclePreflightForCreate(
+    input,
+    request.projectId,
+    operation.pageId,
+  );
+  const defaultView = preflight.defaultView;
+  if (
+    defaultView.dataSource.dataSourceId !== operation.dataSourceId
+    || preflight.tagsProperty.dataSourceId !== operation.dataSourceId
+    || defaultView.view.databaseId !== defaultView.database.databaseId
+    || defaultView.view.dataSourceId !== operation.dataSourceId
+  ) {
+    throw new Error("Page creation Data Source is not the preflight default authority");
+  }
+
+  const read = {
+    kind: "window" as const,
+    parent: { kind: "data_source" as const, id: operation.dataSourceId },
+    view_id: defaultView.view.viewId,
+    include_content: false,
+    include_descendants: false,
+  } as const;
+  const snapshot = await input.client.blockRecordRead(read);
+  if (
+    snapshot.library_id !== input.libraryId
+    || snapshot.observed_cursor.store_epoch !== input.storeEpoch
+  ) {
+    throw new Error("Canonical Page creation escaped its BlockRecord snapshot boundary");
+  }
+  const window = blockRecordSnapshotToWindow(snapshot, read);
+  const siblings = window.placements
+    .filter((placement) => (
+      placement.parent.kind === "dataSource"
+      && placement.parent.dataSourceId === operation.dataSourceId
+    ))
+    .sort((left, right) => (
+      left.rankKey.localeCompare(right.rankKey) || left.blockId.localeCompare(right.blockId)
+    ))
+    .map((placement) => ({ id: placement.blockId, rankKey: placement.rankKey }));
+  const placementRank = planFractionalRank(
+    siblings,
+    operation.pageId,
+    operation.beforeBlockId,
+  );
+  const placementRebalances = [...placementRank.rebalancedRankKeys].map(([blockId, rankKey]) => {
+    const placement = window.placements.find((candidate) => candidate.blockId === blockId);
+    if (!placement) throw new Error(`Canonical Page sibling ${blockId} is not loaded`);
+    return { blockId, rankKey, expectedRevision: placement.revision };
+  });
+
+  const groupPropertyId = defaultView.view.config.group?.propertyId;
+  const viewGroupKey = canonicalPageViewGroupKey(operation, groupPropertyId);
+  const viewPositions = window.viewPositions
+    .filter((position) => (
+      position.viewId === defaultView.view.viewId
+      && position.groupKey === viewGroupKey
+    ))
+    .sort((left, right) => (
+      left.rankKey.localeCompare(right.rankKey) || left.blockId.localeCompare(right.blockId)
+    ));
+  const viewRank = planFractionalRank(
+    viewPositions.map((position) => ({ id: position.blockId, rankKey: position.rankKey })),
+    operation.pageId,
+    operation.beforeViewPageId,
+  );
+  const viewRebalances = [...viewRank.rebalancedRankKeys].map(([blockId, rankKey]) => {
+    const position = viewPositions.find((candidate) => candidate.blockId === blockId);
+    if (!position) throw new Error(`Canonical View position ${blockId} is not loaded`);
+    return {
+      blockId,
+      groupKey: position.groupKey,
+      rankKey,
+      expectedRevision: position.revision,
+    };
+  });
+
+  const bodyBlocks = nfmToBlockNoteWithIds(
+    parseNfm(operation.nfm),
+    (() => {
+      let ordinal = 0;
+      return () => canonicalPageBodyBlockId(operation.pageId, ordinal++);
+    })(),
+  ) as readonly CanonicalPageBodyBlock[];
+  bodyBlocks.forEach(assertCanonicalPageBodyType);
+  const bodyNodes = rankCanonicalPageBody(bodyBlocks, operation.pageId);
+  const operations: CanonicalPageBlockOperation[] = [];
+  const create = await buildCreateBlockRecordApplyInput({
+    operationId: request.operationId,
+    actorId: canonicalPageActorId(input.profileId),
+    sessionId: request.clientSessionId ?? canonicalPageSessionId(input.libraryId),
+    blockId: operation.pageId,
+    blockKind: "page",
+    properties: canonicalPageLifecycleIntrinsicProperties(operation),
+    contentShardId: `block-record-shard:${operation.pageId}`,
+    parent: { kind: "dataSource", dataSourceId: operation.dataSourceId },
+    rankKey: placementRank.rankKey,
+    viewId: defaultView.view.viewId,
+    dataSourceId: operation.dataSourceId,
+    viewGroupKey,
+    viewRankKey: viewRank.rankKey,
+    materializedJson: operation.richTitle ?? plainTextToPortableRichText(operation.title),
+    placementRebalances,
+    viewRebalances,
+  });
+  operations.push(nonBatchCanonicalPageOperation(create.operation));
+
+  if (bodyNodes.length > 0) {
+    const reconcile = await buildReconcilePageTreeBlockRecordApplyInput({
+      operationId: request.operationId,
+      actorId: canonicalPageActorId(input.profileId),
+      sessionId: request.clientSessionId ?? canonicalPageSessionId(input.libraryId),
+      pageId: operation.pageId,
+      expectedPageRevision: 0,
+      nodes: bodyNodes,
+    });
+    operations.push(nonBatchCanonicalPageOperation(reconcile.operation));
+  }
+
+  const values = await buildSetDataSourceValuesBlockRecordApplyInput({
+    operationId: request.operationId,
+    actorId: canonicalPageActorId(input.profileId),
+    sessionId: request.clientSessionId ?? canonicalPageSessionId(input.libraryId),
+    blockId: operation.pageId,
+    dataSourceId: operation.dataSourceId,
+    values: canonicalPageLifecycleDataSourceValues(operation),
+    expectedBlockRevision: 0,
+  });
+  operations.push(nonBatchCanonicalPageOperation(values.operation));
+
+  if (operation.newTagOptions.length > 0) {
+    const intents: DatabaseApplyOperationV2[] = operation.newTagOptions.map((option, index) => ({
+      kind: "put_option",
+      dataSourceId: operation.dataSourceId,
+      propertyId: parseDataSourcePropertyId("tags"),
+      optionId: option.optionId,
+      name: option.name,
+      expectedPropertyRevision: operation.expectedTagsPropertyRevision + index,
+    }));
+    const database = await buildApplyDatabaseBlockRecordApplyInput({
+      operationId: request.operationId,
+      actorId: canonicalPageActorId(input.profileId),
+      sessionId: request.clientSessionId ?? canonicalPageSessionId(input.libraryId),
+      intents: intents.map(toCoreDatabaseIntent),
+    });
+    operations.push(nonBatchCanonicalPageOperation(database.operation));
+  }
+
+  const batch = await buildBatchBlockRecordApplyInput({
+    operationId: request.operationId,
+    actorId: canonicalPageActorId(input.profileId),
+    sessionId: request.clientSessionId ?? canonicalPageSessionId(input.libraryId),
+    operations,
+  });
+  const committed = await applyBlockRecordWithResolution({
+    client: input.client,
+    input: batch,
+    storeEpoch: input.storeEpoch,
+  });
+  if (
+    committed.operation_id !== request.operationId
+    || committed.cursor.store_epoch !== input.storeEpoch
+  ) {
+    throw new Error("Canonical Page creation receipt escaped its operation boundary");
+  }
+  const metadataRevision = rawEffectRevision(committed.effects, "property_values", operation.pageId)
+    ?? rawEffectRevision(committed.effects, "record", operation.pageId)
+    ?? 1;
+  return canonicalPageLifecycleReceipt(request, committed, {
+    metadataRevision,
+    parentRevision: rawEffectRevision(committed.effects, "placement", operation.pageId) ?? 0,
+    lifecycle: "active",
+    libraryRankKey: null,
+    databaseId: defaultView.database.databaseId,
+    dataSourceId: operation.dataSourceId,
+    membershipId: `block-record-membership:${operation.dataSourceId}:${operation.pageId}`,
+    viewId: defaultView.view.viewId,
+    viewRankKey: viewRank.rankKey,
+    createdBlockIds: [
+      operation.pageId,
+      ...bodyNodes.map((node) => node.block.id),
+    ],
+    createdTagOptionIds: operation.newTagOptions.map((option) => option.optionId),
+  });
+};
+
 type CanonicalPageMutationCommit = Awaited<
   ReturnType<typeof applyBlockRecordWithResolution>
 >;
@@ -2159,6 +2541,13 @@ const canonicalPageLifecycleReceipt = (
     readonly parentRevision: number;
     readonly lifecycle: "active" | "archived";
     readonly libraryRankKey: string | null;
+    readonly databaseId?: string | null;
+    readonly dataSourceId?: string | null;
+    readonly membershipId?: string | null;
+    readonly viewId?: string | null;
+    readonly viewRankKey?: string | null;
+    readonly createdBlockIds?: readonly string[];
+    readonly createdTagOptionIds?: readonly PageLifecycleMutationReceiptV2["createdTagOptionIds"][number][];
   },
 ): PageLifecycleMutationReceiptV2 => ({
   version: 2,
@@ -2174,14 +2563,16 @@ const canonicalPageLifecycleReceipt = (
   documentId: `block-record:${request.operation.pageId}`,
   documentGeneration: 0,
   documentHeadSeq: 0,
-  databaseId: null,
-  dataSourceId: null,
-  membershipId: null,
-  viewId: null,
+  databaseId: details.databaseId ?? null,
+  dataSourceId: details.dataSourceId === undefined || details.dataSourceId === null
+    ? null
+    : parseDataSourceId(details.dataSourceId),
+  membershipId: details.membershipId ?? null,
+  viewId: details.viewId ?? null,
   libraryRankKey: details.libraryRankKey,
-  viewRankKey: null,
-  createdBlockIds: [],
-  createdTagOptionIds: [],
+  viewRankKey: details.viewRankKey ?? null,
+  createdBlockIds: details.createdBlockIds ?? [],
+  createdTagOptionIds: details.createdTagOptionIds ?? [],
   changeLogSeq: committed.cursor.commit_seq,
   committedAt: committed.committed_at,
 });
@@ -2958,6 +3349,21 @@ export const createCoreLibraryModuleAdapter = (
         });
       }
       try {
+        if (request.operation.kind === "create_page") {
+          const canonicalReceipt = await applyCanonicalPageLifecycleCreate(
+            input,
+            request as PageLifecycleMutationRequestV2 & {
+              readonly operation: Extract<
+                PageLifecycleOperationV2,
+                { readonly kind: "create_page" }
+              >;
+            },
+          );
+          return parsePageLifecycleMutationCommandResultV2({
+            ok: true,
+            value: canonicalReceipt,
+          });
+        }
         if (
           request.operation.kind === "archive_page"
           || request.operation.kind === "unarchive_page"

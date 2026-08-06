@@ -106,6 +106,60 @@ const canonicalPageCommit = (
   duplicate: false,
 });
 
+const canonicalDataSourceWindow = () => ({
+  store_epoch: identity.storeEpoch,
+  library_id: identity.libraryId,
+  graph: {
+    library_id: identity.libraryId,
+    blocks: ["page:before", "page:view-before"].map((id) => ({
+      id,
+      library_id: identity.libraryId,
+      kind: "page",
+      lifecycle: "active",
+      properties: { title: id, status: "build" },
+      content_shard_id: `shard:${id}`,
+      revision: 0,
+    })),
+    placements: [
+      {
+        block_id: "page:before",
+        parent: { kind: "data_source" as const, id: "source:test" },
+        rank_key: "80000000000000000000000000000000",
+        revision: 0,
+      },
+      {
+        block_id: "page:view-before",
+        parent: { kind: "data_source" as const, id: "source:test" },
+        rank_key: "c0000000000000000000000000000000",
+        revision: 0,
+      },
+    ],
+  },
+  view_positions: [
+    {
+      view_id: "view:test",
+      data_source_id: "source:test",
+      block_id: "page:before",
+      group_key: null,
+      rank_key: "80000000000000000000000000000000",
+      revision: 0,
+    },
+    {
+      view_id: "view:test",
+      data_source_id: "source:test",
+      block_id: "page:view-before",
+      group_key: null,
+      rank_key: "c0000000000000000000000000000000",
+      revision: 0,
+    },
+  ],
+  content: [],
+  observed_cursor: {
+    store_epoch: identity.storeEpoch,
+    commit_seq: 16,
+  },
+});
+
 const pageDetailSnapshot = () => ({
   contract_version: 9 as const,
   store_epoch: identity.storeEpoch,
@@ -419,6 +473,20 @@ const pageLifecyclePreflightSnapshot = () => ({
     },
   },
 });
+
+const pageLifecycleCreatePreflightSnapshot = () => {
+  const snapshot = pageLifecyclePreflightSnapshot();
+  return {
+    ...snapshot,
+    value: {
+      ...snapshot.value,
+      value: {
+        ...snapshot.value.value,
+        page: null,
+      },
+    },
+  };
+};
 
 describe("Core Library Module Adapter", () => {
   test("maps strict Project and Library Page Detail snapshots", async () => {
@@ -1003,48 +1071,9 @@ describe("Core Library Module Adapter", () => {
       propertyId: "tags",
       value: "o_BBBBBBBB",
     });
-    client.enqueueApply({
-      value: {
-        affected_resource_ids: [pageId, "database:test"],
-        page_copy: null,
-        block_transfer: null,
-        page_lifecycle: {
-          operation_kind: "create_page",
-          page_id: pageId,
-          metadata_revision: 1,
-          parent_revision: 1,
-          lifecycle: "active",
-          document_id: "document:created",
-          document_generation: 1,
-          document_head_seq: 1,
-          database_id: "database:test",
-          data_source_id: "source:test",
-          membership_id: "membership:created",
-          view_id: "view:test",
-          library_rank_key: null,
-          view_rank_key: "7fffffffffffffffffffffffffffffff",
-          created_block_ids: [pageId, "body:created"],
-          created_tag_option_ids: ["o_BBBBBBBB"],
-          delete_evidence: null,
-        },
-      },
-      receipt: {
-        operation_id: "lifecycle:create-one",
-        duplicate: false,
-        operation_kind: "create_page",
-        did_mutate: true,
-        created_target: { kind: "page", page_id: pageId },
-        affected_parent_keys: ["database:database:test"],
-        affected_page_ids: [pageId],
-        affected_database_ids: ["database:test"],
-        affected_view_ids: ["view:test"],
-        committed_revisions: { [`blockMetadata:${pageId}`]: 1 },
-        change_log_seq: 17,
-        committed_at: "2026-07-20T08:31:00.000Z",
-      },
-      event_sequence: 17,
-      store_epoch: identity.storeEpoch,
-    });
+    client.enqueueRead(pageLifecycleCreatePreflightSnapshot());
+    client.enqueueBlockRecordRead(canonicalDataSourceWindow());
+    client.enqueueBlockRecordApply(canonicalPageCommit("lifecycle:create-one", pageId, 1));
     const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
     const richTitle = plainTextToPortableRichText("Rich Page");
     const request: PageLifecycleMutationRequestV2 = {
@@ -1085,52 +1114,71 @@ describe("Core Library Module Adapter", () => {
       },
     };
 
-    await expect(adapter.applyPageLifecycleMutation(request)).resolves
+    const result = await adapter.applyPageLifecycleMutation(request);
+    expect(result)
       .toMatchObject({
         ok: true,
         value: {
           operationKind: "create_page",
           operationId: request.operationId,
           pageId,
-          createdBlockIds: [pageId, "body:created"],
+          createdBlockIds: [pageId, `${pageId}:body:0`],
           createdTagOptionIds: ["o_BBBBBBBB"],
         },
       });
-    expect(client.applies).toEqual([{
-      operationId: request.operationId,
-      intent: {
-        kind: "apply_page_lifecycle",
-        mutation: {
-          kind: "create_page",
-          page_id: pageId,
-          title: "Rich Page",
-          rich_title: richTitle,
-          nfm: "# Durable body",
-          status: "build",
-          priority: "p1-high",
-          estimate: "m",
-          due_date: "2026-07-31",
-          scheduled_start: "2026-07-31T01:00:00.000Z",
-          scheduled_end: "2026-07-31T02:00:00.000Z",
-          is_all_day: false,
-          recurrence: null,
-          reminders: [],
-          schedule_timezone: "Asia/Shanghai",
-          assignee: "asc",
-          run_in_target: "localProject",
-          run_in_local_path: "/tmp/nodex",
-          run_in_base_branch: "main",
-          run_in_worktree_path: null,
-          run_in_environment_path: null,
-          before_block_id: "page:before",
-          before_view_page_id: "page:view-before",
+    expect(client.applies).toEqual([]);
+    expect(client.blockRecordApplies).toHaveLength(1);
+    expect(client.blockRecordApplies[0]?.operation).toMatchObject({
+      kind: "batch",
+      operations: [
+        {
+          kind: "create",
+          block_id: pageId,
+          parent: { kind: "data_source", id: "source:test" },
+          view_id: "view:test",
           data_source_id: "source:test",
-          tag_option_ids: ["o_AAAAAAAA", "o_BBBBBBBB"],
-          new_tag_options: [{ option_id: "o_BBBBBBBB", name: "New tag" }],
-          expected_tags_property_revision: 3,
+          view_group_key: null,
+          properties: {
+            title: "Rich Page",
+            description: "# Durable body",
+            status: "build",
+            priority: "p1-high",
+            tags: ["o_AAAAAAAA", "o_BBBBBBBB"],
+          },
         },
-      },
-    }]);
+        {
+          kind: "reconcile_page_tree",
+          page_id: pageId,
+          nodes: [{ block_id: `${pageId}:body:0`, parent_block_id: pageId }],
+        },
+        {
+          kind: "set_data_source_values",
+          block_id: pageId,
+          data_source_id: "source:test",
+          values: [
+            { property_id: "status", value: "build" },
+            { property_id: "priority", value: "p1-high" },
+            { property_id: "estimate", value: "m" },
+            { property_id: "tags", value: ["o_AAAAAAAA", "o_BBBBBBBB"] },
+            { property_id: "due_date", value: "2026-07-31" },
+            { property_id: "scheduled_start", value: "2026-07-31T01:00:00.000Z" },
+            { property_id: "scheduled_end", value: "2026-07-31T02:00:00.000Z" },
+            { property_id: "assignee", value: "asc" },
+          ],
+        },
+        {
+          kind: "apply_database",
+          intents: [{
+            kind: "put_option",
+            data_source_id: "source:test",
+            property_id: "tags",
+            option_id: "o_BBBBBBBB",
+            name: "New tag",
+            expected_property_revision: 3,
+          }],
+        },
+      ],
+    });
   });
 
   test("binds reference reads to explicit Project or Library authority", async () => {
