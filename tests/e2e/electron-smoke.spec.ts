@@ -54,6 +54,10 @@ interface ConvergencePage {
   documentId: string;
 }
 
+interface TerminalSeededPage extends ConvergencePage {
+  blockIds: readonly string[];
+}
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
@@ -71,6 +75,232 @@ const requireIpcValue = <T>(result: unknown, label: string): T => {
   }
   return result.value as T;
 };
+
+const terminalRank = (index: number): string =>
+  index.toString(16).padStart(32, "0");
+
+const portableText = (text: string) => [{
+  type: "text",
+  text,
+  styles: {},
+}];
+
+async function applyTerminalBlockRecord(
+  page: Page,
+  operation: Record<string, unknown>,
+  label: string,
+): Promise<Record<string, unknown>> {
+  const operationId = createUuidV7();
+  const canonical = JSON.stringify(operation);
+  const intentHash = createHash("sha256").update(canonical).digest("hex");
+  const result = await invokeIpc(page, "block-record:apply", {
+    operation_id: operationId,
+    intent_hash: intentHash,
+    commit_id: `commit:${operationId}`,
+    canonical_hash: intentHash,
+    actor_id: "electron-e2e",
+    session_id: "electron-e2e",
+    committed_at: new Date().toISOString(),
+    operation,
+  });
+  if (!isRecord(result) || !isRecord(result.cursor)) {
+    throw new Error(`${label} returned an invalid BlockRecord commit`);
+  }
+  return result;
+}
+
+async function ensureTerminalDataSource(
+  page: Page,
+  dataSourceId: string,
+): Promise<void> {
+  await applyTerminalBlockRecord(
+    page,
+    { kind: "ensure_data_source", data_source_id: dataSourceId },
+    `Ensure Data Source ${dataSourceId}`,
+  );
+}
+
+async function createTerminalBlockRecord(
+  page: Page,
+  input: {
+    blockId?: string;
+    kind: string;
+    title: string;
+    parent: Record<string, string>;
+    rankKey: string;
+    dataSourceId?: string;
+    viewId?: string;
+    groupKey?: string;
+    viewRankKey?: string;
+  },
+): Promise<string> {
+  const blockId = input.blockId ?? createUuidV7();
+  const properties = {
+    title: input.title,
+    richTitle: portableText(input.title),
+    createdAt: new Date().toISOString(),
+    ...(input.dataSourceId ? { status: input.groupKey ?? "triage" } : {}),
+  };
+  await applyTerminalBlockRecord(
+    page,
+    {
+      kind: "create",
+      block_id: blockId,
+      block_kind: input.kind,
+      properties,
+      content_shard_id: `block-record-shard:${blockId}`,
+      parent: input.parent,
+      rank_key: input.rankKey,
+      ...(input.viewId
+        ? {
+            view_id: input.viewId,
+            data_source_id: input.dataSourceId,
+            view_group_key: input.groupKey ?? null,
+            view_rank_key: input.viewRankKey ?? input.rankKey,
+          }
+        : {}),
+      materialized_json: portableText(input.title),
+    },
+    `Create terminal ${input.kind} ${input.title}`,
+  );
+  return blockId;
+}
+
+async function seedTerminalBoard(
+  page: Page,
+  dataSourceId: string,
+  viewId: string,
+): Promise<readonly string[]> {
+  await ensureTerminalDataSource(page, dataSourceId);
+  const pageIds: string[] = [];
+  for (let index = 0; index < HIGH_PRESSURE_BOARD_PAGE_COUNT; index += 1) {
+    const groupKey = index < HIGH_PRESSURE_BOARD_TRIAGE_PAGE_COUNT
+      ? "triage"
+      : "plan";
+    pageIds.push(await createTerminalBlockRecord(page, {
+      kind: "page",
+      title: `board-fixture-${index.toString().padStart(3, "0")}`,
+      parent: { kind: "data_source", id: dataSourceId },
+      rankKey: terminalRank(index + 1),
+      dataSourceId,
+      viewId,
+      groupKey,
+      viewRankKey: terminalRank(
+        index < HIGH_PRESSURE_BOARD_TRIAGE_PAGE_COUNT
+          ? index + 1
+          : index - HIGH_PRESSURE_BOARD_TRIAGE_PAGE_COUNT + 1,
+      ),
+    }));
+  }
+  return pageIds;
+}
+
+async function seedTerminalSourcePage(
+  page: Page,
+  title = "Terminal source",
+): Promise<TerminalSeededPage> {
+  const pageId = await createTerminalBlockRecord(page, {
+    kind: "page",
+    title,
+    parent: { kind: "library" },
+    rankKey: terminalRank(50_000),
+  });
+  const blockIds: string[] = [];
+  for (let index = 0; index < HIGH_PRESSURE_SIBLING_BLOCK_COUNT; index += 1) {
+    blockIds.push(await createTerminalBlockRecord(page, {
+      kind: "paragraph",
+      title: `before-placeholder-${index.toString().padStart(3, "0")}`,
+      parent: { kind: "block", id: pageId },
+      rankKey: terminalRank(index + 1),
+    }));
+  }
+  const titleBlockId = await createTerminalBlockRecord(page, {
+    kind: "heading",
+    title: "title-A",
+    parent: { kind: "block", id: pageId },
+    rankKey: terminalRank(HIGH_PRESSURE_SIBLING_BLOCK_COUNT + 1),
+  });
+  blockIds.push(titleBlockId);
+  for (let index = 0; index < HIGH_PRESSURE_CHILD_BLOCK_COUNT; index += 1) {
+    blockIds.push(await createTerminalBlockRecord(page, {
+      kind: "paragraph",
+      title: `child-placeholder-${index.toString().padStart(3, "0")}`,
+      parent: { kind: "block", id: titleBlockId },
+      rankKey: terminalRank(index + 1),
+    }));
+  }
+  for (let index = 0; index < HIGH_PRESSURE_SIBLING_BLOCK_COUNT; index += 1) {
+    blockIds.push(await createTerminalBlockRecord(page, {
+      kind: "paragraph",
+      title: `after-placeholder-${index.toString().padStart(3, "0")}`,
+      parent: { kind: "block", id: pageId },
+      rankKey: terminalRank(HIGH_PRESSURE_SIBLING_BLOCK_COUNT + 2 + index),
+    }));
+  }
+  return { pageId, documentId: `record:${pageId}`, blockIds };
+}
+
+async function seedSimpleTerminalSourcePage(
+  page: Page,
+  title = "Terminal source",
+): Promise<TerminalSeededPage> {
+  const pageId = await createTerminalBlockRecord(page, {
+    kind: "page",
+    title,
+    parent: { kind: "library" },
+    rankKey: terminalRank(60_000),
+  });
+  const first = await createTerminalBlockRecord(page, {
+    kind: "paragraph",
+    title: "Keep block",
+    parent: { kind: "block", id: pageId },
+    rankKey: terminalRank(1),
+  });
+  const second = await createTerminalBlockRecord(page, {
+    kind: "paragraph",
+    title: "Dragged source",
+    parent: { kind: "block", id: pageId },
+    rankKey: terminalRank(2),
+  });
+  return {
+    pageId,
+    documentId: `record:${pageId}`,
+    blockIds: [first, second],
+  };
+}
+
+async function readTerminalBoardTotal(
+  page: Page,
+  dataSourceId: string,
+  viewId: string,
+): Promise<number> {
+  const result = await invokeIpc(page, "block-record:read", {
+    kind: "window",
+    parent: { kind: "data_source", id: dataSourceId },
+    view_id: viewId,
+    include_content: false,
+  });
+  if (!isRecord(result) || !isRecord(result.graph) || !Array.isArray(result.graph.blocks)) {
+    throw new Error("Canonical Board read returned an invalid BlockRecord window");
+  }
+  return result.graph.blocks.length;
+}
+
+async function readTerminalPage(
+  page: Page,
+  pageId: string,
+): Promise<Record<string, unknown>> {
+  const result = await invokeIpc(page, "block-record:read", {
+    kind: "window",
+    block_ids: [pageId],
+    include_content: true,
+    include_descendants: true,
+  });
+  if (!isRecord(result) || !isRecord(result.graph)) {
+    throw new Error("Canonical Page read returned an invalid BlockRecord window");
+  }
+  return result;
+}
 
 async function invokeIpc(
   page: Page,
@@ -173,62 +403,6 @@ async function createConvergencePage(
   return { pageId, documentId };
 }
 
-interface SeededConvergencePage extends ConvergencePage {
-  blockIds: readonly string[];
-}
-
-async function seedConvergenceDocument(
-  page: Page,
-  project: ConvergenceProject,
-  source: ConvergencePage,
-  nfm = "Keep block\nDragged source",
-): Promise<SeededConvergencePage> {
-  const descriptor = requireIpcValue<Record<string, unknown>>(
-    await invokeIpc(
-      page,
-      "block-document:owned:prepare",
-      project.projectId,
-      source.pageId,
-    ),
-    "Prepare source Page document",
-  );
-  const documentId = requireString(descriptor.documentId, "Source document id");
-  if (documentId !== source.documentId) {
-    throw new Error("Source Page document identity changed during preparation");
-  }
-
-  const mutation = requireIpcValue<Record<string, unknown>>(
-    await invokeIpc(
-      page,
-      "block-documents:mutate",
-      project.projectId,
-      documentId,
-      {
-        version: 1,
-        mutationId: createUuidV7(),
-        projectId: project.projectId,
-        storeEpoch: project.storeEpoch,
-        actor: {},
-        documentId,
-        generation: descriptor.generation,
-        expectedHeadSeq: descriptor.headSeq,
-        nfm,
-      },
-    ),
-    "Seed source Page document",
-  );
-  if (!Array.isArray(mutation.createdBlockIds)) {
-    throw new Error("Seed source Page document returned no created block ids");
-  }
-  const blockIds = mutation.createdBlockIds.map((blockId, index) =>
-    requireString(blockId, `Seeded block id ${index}`),
-  );
-  if (blockIds.length < 2) {
-    throw new Error("Seed source Page document must contain a transferable block");
-  }
-  return { ...source, blockIds };
-}
-
 interface ConvergenceDatabase {
   dataSourceId: string;
   viewId: string;
@@ -257,32 +431,6 @@ const HIGH_PRESSURE_SIBLING_BLOCK_COUNT = 100;
 const HIGH_PRESSURE_CHILD_BLOCK_COUNT = 100;
 const HIGH_PRESSURE_BOARD_PAGE_COUNT = 100;
 const HIGH_PRESSURE_BOARD_TRIAGE_PAGE_COUNT = 50;
-const HIGH_PRESSURE_BOARD_PLAN_PAGE_COUNT =
-  HIGH_PRESSURE_BOARD_PAGE_COUNT - HIGH_PRESSURE_BOARD_TRIAGE_PAGE_COUNT;
-
-const buildHighPressureSourceNfm = (): string => [
-  ...Array.from(
-    { length: HIGH_PRESSURE_SIBLING_BLOCK_COUNT },
-    (_, index) => `before-placeholder-${index.toString().padStart(3, "0")}`,
-  ),
-  "title-A",
-  ...Array.from(
-    { length: HIGH_PRESSURE_CHILD_BLOCK_COUNT },
-    (_, index) => `\tchild-placeholder-${index.toString().padStart(3, "0")}`,
-  ),
-  ...Array.from(
-    { length: HIGH_PRESSURE_SIBLING_BLOCK_COUNT },
-    (_, index) => `after-placeholder-${index.toString().padStart(3, "0")}`,
-  ),
-].join("\n");
-
-const buildBoardFixtureNfm = (): string => [
-  "Keep board fixture",
-  ...Array.from(
-    { length: HIGH_PRESSURE_BOARD_PAGE_COUNT },
-    (_, index) => `board-fixture-${index.toString().padStart(3, "0")}`,
-  ),
-].join("\n");
 
 async function readConvergenceDatabase(
   page: Page,
@@ -322,29 +470,6 @@ async function readConvergenceDatabase(
     dataSourceId: requireString(view.dataSourceId, "Project Data Source id"),
     viewId: requireString(view.viewId, "Project Database View id"),
   };
-}
-
-async function readConvergenceBoardTotal(
-  page: Page,
-  project: ConvergenceProject,
-  minimumCommitSeq?: number,
-): Promise<number> {
-  const snapshot = requireIpcValue<Record<string, unknown>>(
-    await invokeIpc(
-      page,
-      "database:view-groups:get",
-      project.projectId,
-      {
-        databaseViewId: project.defaultDatabaseViewId,
-        ...(minimumCommitSeq === undefined ? {} : { minimumCommitSeq }),
-      },
-    ),
-    "Read Board group totals",
-  );
-  if (typeof snapshot.totalRows !== "number") {
-    throw new Error("Board group totals returned no total row count");
-  }
-  return snapshot.totalRows;
 }
 
 function writeExecutable(filePath: string, source: string): void {
@@ -1151,8 +1276,7 @@ test("converges a Block transfer into the live Board Page projection", async () 
       "Board convergence",
       workspace,
     );
-    const source = await createConvergencePage(page, project, "Source Page");
-    const seeded = await seedConvergenceDocument(page, project, source);
+    const seeded = await seedSimpleTerminalSourcePage(page, "Source Page");
     const database = await readConvergenceDatabase(page, project);
 
     await page.getByRole("button", {
@@ -1176,7 +1300,7 @@ test("converges a Block transfer into the live Board Page projection", async () 
           storeEpoch: project.storeEpoch,
           mode: "move",
           rootBlockIds: [seeded.blockIds[1]],
-          source: { kind: "document", documentId: seeded.documentId },
+          source: { kind: "page", pageId: seeded.pageId },
           target: {
             kind: "data_source",
             dataSourceId: database.dataSourceId,
@@ -1207,23 +1331,21 @@ test("converges a Block transfer into the live Board Page projection", async () 
       }),
     ]));
 
-    const detail = requireIpcValue<Record<string, unknown>>(
-      await invokeIpc(
-        page,
-        "pages:detail:get",
-        project.projectId,
-        resultPageId,
-        changeLogSeq,
-      ),
-      "Read transferred Page detail",
-    );
-    expect(detail.page).toMatchObject({
-      title: "Dragged source",
-      parent: {
-        kind: "data_source",
-        dataSourceId: database.dataSourceId,
-      },
+    const detail = await readTerminalPage(page, resultPageId);
+    const detailGraph = detail.graph as Record<string, unknown>;
+    const detailBlocks = detailGraph.blocks as readonly Record<string, unknown>[];
+    expect(detailBlocks.find((block) => block.id === resultPageId)).toMatchObject({
+      id: resultPageId,
+      kind: "page",
     });
+    expect((detailGraph.placements as readonly Record<string, unknown>[]).find(
+      (placement) => placement.block_id === resultPageId,
+    )).toMatchObject({
+      parent: { kind: "data_source", id: database.dataSourceId },
+    });
+    expect((detail.content as readonly Record<string, unknown>[]).find(
+      (content) => content.block_id === resultPageId && content.slot === "title",
+    )?.materialized_json).toEqual(portableText("Dragged source"));
 
     const card = page.locator(`[data-kanban-uuid-v7="${resultPageId}"]`);
     await expect(card).toBeVisible({ timeout: 5_000 });
@@ -1255,96 +1377,16 @@ test("measures high-pressure nested Block transfer into a populated Board", asyn
       workspace,
     );
     const fixturePreparationStartedAt = performance.now();
-    const boardSeedPage = await createConvergencePage(page, project, "Board fixture seed");
-    const seededBoard = await seedConvergenceDocument(
-      page,
-      project,
-      boardSeedPage,
-      buildBoardFixtureNfm(),
-    );
-    expect(seededBoard.blockIds).toHaveLength(HIGH_PRESSURE_BOARD_PAGE_COUNT + 1);
     const database = await readConvergenceDatabase(page, project);
-
-    const boardFixtureRootBlockIds = seededBoard.blockIds.slice(1);
-    const triageFixtureTransfer = requireIpcValue<Record<string, unknown>>(
-      await invokeIpc(
-        page,
-        "blocks:transfer",
-        project.projectId,
-        {
-          version: 2,
-          operationId: createUuidV7(),
-          projectId: project.projectId,
-          storeEpoch: project.storeEpoch,
-          mode: "move",
-          rootBlockIds: boardFixtureRootBlockIds.slice(
-            0,
-            HIGH_PRESSURE_BOARD_TRIAGE_PAGE_COUNT,
-          ),
-          source: { kind: "document", documentId: seededBoard.documentId },
-          target: {
-            kind: "data_source",
-            dataSourceId: database.dataSourceId,
-            viewId: database.viewId,
-            groupKey: "triage",
-          },
-        },
-      ),
-      "Create populated Triage fixture",
-    );
-    const planFixtureTransfer = requireIpcValue<Record<string, unknown>>(
-      await invokeIpc(
-        page,
-        "blocks:transfer",
-        project.projectId,
-        {
-          version: 2,
-          operationId: createUuidV7(),
-          projectId: project.projectId,
-          storeEpoch: project.storeEpoch,
-          mode: "move",
-          rootBlockIds: boardFixtureRootBlockIds.slice(
-            HIGH_PRESSURE_BOARD_TRIAGE_PAGE_COUNT,
-          ),
-          source: { kind: "document", documentId: seededBoard.documentId },
-          target: {
-            kind: "data_source",
-            dataSourceId: database.dataSourceId,
-            viewId: database.viewId,
-            groupKey: "plan",
-          },
-        },
-      ),
-      "Create populated Plan fixture",
-    );
-    expect(triageFixtureTransfer.resultRootBlockIds).toHaveLength(
-      HIGH_PRESSURE_BOARD_TRIAGE_PAGE_COUNT,
-    );
-    expect(planFixtureTransfer.resultRootBlockIds).toHaveLength(
-      HIGH_PRESSURE_BOARD_PLAN_PAGE_COUNT,
-    );
-    if (!Array.isArray(triageFixtureTransfer.resultRootBlockIds)) {
-      throw new Error("Triage fixture transfer returned no Page ids");
-    }
-    const firstTriagePageId = requireString(
-      triageFixtureTransfer.resultRootBlockIds[0],
-      "First Triage fixture Page id",
-    );
-    expect(await readConvergenceBoardTotal(page, project)).toBe(
+    const boardPageIds = await seedTerminalBoard(page, database.dataSourceId, database.viewId);
+    expect(boardPageIds).toHaveLength(HIGH_PRESSURE_BOARD_PAGE_COUNT);
+    const firstTriagePageId = boardPageIds[0];
+    if (!firstTriagePageId) throw new Error("Triage fixture has no first Page");
+    expect(await readTerminalBoardTotal(page, database.dataSourceId, database.viewId)).toBe(
       HIGH_PRESSURE_BOARD_PAGE_COUNT,
     );
 
-    const sourcePage = await createConvergencePage(
-      page,
-      project,
-      "High pressure source",
-    );
-    const seededSource = await seedConvergenceDocument(
-      page,
-      project,
-      sourcePage,
-      buildHighPressureSourceNfm(),
-    );
+    const seededSource = await seedTerminalSourcePage(page, "High pressure source");
     const expectedSourceBlockCount =
       HIGH_PRESSURE_SIBLING_BLOCK_COUNT * 2
       + HIGH_PRESSURE_CHILD_BLOCK_COUNT
@@ -1397,7 +1439,7 @@ test("measures high-pressure nested Block transfer into a populated Board", asyn
           storeEpoch: project.storeEpoch,
           mode: "move",
           rootBlockIds: [titleBlockId],
-          source: { kind: "document", documentId: seededSource.documentId },
+          source: { kind: "page", pageId: seededSource.pageId },
           target: {
             kind: "data_source",
             dataSourceId: database.dataSourceId,
@@ -1433,29 +1475,23 @@ test("measures high-pressure nested Block transfer into a populated Board", asyn
     expect(evidence.resultPageId).toBe(resultPageId);
     expect(evidence.bodyRootBlockIds).toHaveLength(HIGH_PRESSURE_CHILD_BLOCK_COUNT);
 
-    const detail = requireIpcValue<Record<string, unknown>>(
-      await invokeIpc(
-        page,
-        "pages:detail:get",
-        project.projectId,
-        resultPageId,
-        changeLogSeq,
-      ),
-      "Read high-pressure transferred Page detail",
-    );
-    expect(detail.page).toMatchObject({
-      title: "title-A",
-      parent: {
-        kind: "data_source",
-        dataSourceId: database.dataSourceId,
-      },
+    const detail = await readTerminalPage(page, resultPageId);
+    const detailGraph = detail.graph as Record<string, unknown>;
+    const detailBlocks = detailGraph.blocks as readonly Record<string, unknown>[];
+    expect(detailBlocks.find((block) => block.id === resultPageId)).toMatchObject({
+      id: resultPageId,
+      kind: "page",
     });
-    expect(detail.page).toMatchObject({
-      plainText: expect.stringContaining("child-placeholder-000"),
+    expect((detailGraph.placements as readonly Record<string, unknown>[]).find(
+      (placement) => placement.block_id === resultPageId,
+    )).toMatchObject({
+      parent: { kind: "data_source", id: database.dataSourceId },
     });
-    expect(detail.page).toMatchObject({
-      plainText: expect.stringContaining("child-placeholder-099"),
-    });
+    const materializedText = (detail.content as readonly Record<string, unknown>[])
+      .map((content) => JSON.stringify(content.materialized_json ?? ""))
+      .join("\n");
+    expect(materializedText).toContain("child-placeholder-000");
+    expect(materializedText).toContain("child-placeholder-099");
 
     const card = page.locator(`[data-kanban-uuid-v7="${resultPageId}"]`);
     await expect(card).toBeVisible({ timeout: 15_000 });
@@ -1464,8 +1500,8 @@ test("measures high-pressure nested Block transfer into a populated Board", asyn
     await expect.poll(
       async () => await page.locator("[data-kanban-uuid-v7]").count(),
       { timeout: 15_000 },
-    ).toBe(HIGH_PRESSURE_BOARD_PAGE_COUNT);
-    expect(await readConvergenceBoardTotal(page, project, changeLogSeq)).toBe(
+    ).toBe(HIGH_PRESSURE_BOARD_PAGE_COUNT + 1);
+    expect(await readTerminalBoardTotal(page, database.dataSourceId, database.viewId)).toBe(
       HIGH_PRESSURE_BOARD_PAGE_COUNT + 1,
     );
     await page.waitForTimeout(100);
@@ -1493,7 +1529,7 @@ test("measures high-pressure nested Block transfer into a populated Board", asyn
       initialBoardPageCount: HIGH_PRESSURE_BOARD_PAGE_COUNT,
       finalBoardPageCount: HIGH_PRESSURE_BOARD_PAGE_COUNT + 1,
       initialRenderedBoardCardCount: HIGH_PRESSURE_BOARD_PAGE_COUNT,
-      finalRenderedBoardCardCount: HIGH_PRESSURE_BOARD_PAGE_COUNT,
+      finalRenderedBoardCardCount: HIGH_PRESSURE_BOARD_PAGE_COUNT + 1,
       initialDomNodes,
       ...rendererMetrics,
     };
@@ -1508,7 +1544,7 @@ test("measures high-pressure nested Block transfer into a populated Board", asyn
     expect(metrics.initialBoardPageCount).toBe(HIGH_PRESSURE_BOARD_PAGE_COUNT);
     expect(metrics.finalBoardPageCount).toBe(HIGH_PRESSURE_BOARD_PAGE_COUNT + 1);
     expect(metrics.initialRenderedBoardCardCount).toBe(HIGH_PRESSURE_BOARD_PAGE_COUNT);
-    expect(metrics.finalRenderedBoardCardCount).toBe(HIGH_PRESSURE_BOARD_PAGE_COUNT);
+    expect(metrics.finalRenderedBoardCardCount).toBe(HIGH_PRESSURE_BOARD_PAGE_COUNT + 1);
     if (process.env.NODEX_SKIP_PERFORMANCE_GATES !== "1") {
       expect(metrics.transferCommitMs).toBeLessThan(5_000);
       expect(metrics.transferToCardMs).toBeLessThan(5_000);

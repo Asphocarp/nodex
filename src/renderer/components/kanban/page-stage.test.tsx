@@ -1,6 +1,5 @@
 import { act, fireEvent, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { useEffect, type ReactNode } from "react";
 
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import {
@@ -20,20 +19,14 @@ import {
   textContentIncludingShadowRoots,
 } from "@/test/dom";
 import {
-  PAGE_DOCUMENT_SCHEMA_VERSION,
-  createPageDocument,
   plainTextToPortableRichText,
 } from "../../../shared/block-documents";
-import { populateBlockDocumentBodyFromNfm } from "../../../shared/block-documents/block-document-codec";
 import { projectContentAccess } from "../../../shared/content-access-context";
 import { buildPageDetailStoryResult } from "./page-stage/page-stage-story-page-detail";
+import type { BlockRecordWindow } from "../../../shared/block-records";
+import type { BlockRecordWindowStore } from "@/lib/block-record-window-store";
 
 let lastNfmEditorProps: Record<string, unknown> | null = null;
-let publishCollaborativeTitle: ((title: string) => void) | null = null;
-let surfaceDocument = createPageDocument({
-  documentId: "document:page-1",
-  initialTitle: "Live title",
-});
 
 vi.mock("./editor/nfm-editor", () => ({
   NfmEditor: (props: Record<string, unknown>) => {
@@ -44,43 +37,6 @@ vi.mock("./editor/nfm-editor", () => ({
 
 vi.mock("@/components/block-documents/block-document-sync-status", () => ({
   BlockDocumentSyncStatus: () => null,
-}));
-
-vi.mock("@/components/block-documents/collaborative-page-title", () => ({
-  CollaborativePageTitle: ({
-    onValueChange,
-  }: {
-    onValueChange?: (title: string) => void;
-  }) => {
-    publishCollaborativeTitle = onValueChange ?? null;
-    useEffect(() => {
-      onValueChange?.("Live title");
-    }, [onValueChange]);
-    return <div>Live title</div>;
-  },
-}));
-
-vi.mock("@/components/block-documents/block-document-surface", () => ({
-  BlockDocumentSurface: (props: {
-    descriptor: Record<string, unknown>;
-    runtimeRef?: { current: unknown };
-    children: (surface: Record<string, unknown>) => ReactNode;
-  }) => {
-    const runtime = {
-      descriptor: props.descriptor,
-      clientSessionId: "surface-1",
-      persist: async () => undefined,
-      getStatus: () => ({ reloadRequired: false }),
-    };
-    if (props.runtimeRef) props.runtimeRef.current = runtime;
-    return props.children({
-      ...surfaceDocument,
-      descriptor: props.descriptor,
-      runtime,
-      awareness: {},
-      status: { provider: { phase: "synced" } },
-    });
-  },
 }));
 
 vi.mock("./page-stage/inline-property-strip", () => ({
@@ -125,26 +81,91 @@ function toStageModel(page: DatabasePage): PageStagePageModel {
   };
 }
 
-function documentAuthority() {
-  return {
-    kind: "yjs" as const,
-    descriptor: {
-      projectId: "default",
-      ownerBlockId: "page-1",
-      ownerType: "page" as const,
-      ownerLifecycle: "active" as const,
-      documentId: "document:page-1",
-      storeEpoch: "store-1",
-      generation: 1,
-      headSeq: 1,
-      schemaKey: "nodex.page" as const,
-      schemaVersion: PAGE_DOCUMENT_SCHEMA_VERSION as 2,
-      readiness: "ready" as const,
-      sync: { kind: "yjs" as const, stateVector: new Uint8Array() },
+const recordWindow = (): BlockRecordWindow => ({
+  libraryId: "library:default",
+  rootParent: { kind: "block", blockId: "page-1" },
+  viewId: null,
+  records: [
+    {
+      id: "page-1",
+      libraryId: "library:default",
+      kind: "page",
+      lifecycle: "active",
+      properties: {},
+      contentShardId: "shard:page-1",
+      revision: 1,
     },
-    reload: async () => undefined,
+    {
+      id: "body-1",
+      libraryId: "library:default",
+      kind: "paragraph",
+      lifecycle: "active",
+      properties: {},
+      contentShardId: "shard:body-1",
+      revision: 1,
+    },
+  ],
+  placements: [
+    {
+      blockId: "page-1",
+      parent: { kind: "library", libraryId: "library:default" },
+      rankKey: "a",
+      revision: 1,
+    },
+    {
+      blockId: "body-1",
+      parent: { kind: "block", blockId: "page-1" },
+      rankKey: "a",
+      revision: 1,
+    },
+  ],
+  viewPositions: [],
+  content: [
+    {
+      blockId: "page-1",
+      slot: "title",
+      content: [{ type: "text", text: "Live title", styles: {} }],
+      shardId: "shard:page-1",
+      head: 1,
+    },
+    {
+      blockId: "body-1",
+      slot: "inline",
+      content: [{ type: "text", text: "Live record body", styles: {} }],
+      shardId: "shard:body-1",
+      head: 1,
+    },
+  ],
+  observedLocalCommit: { storeEpoch: "store-1", commitSeq: 1 },
+  continuation: null,
+});
+
+const createRecordWindowStore = (): BlockRecordWindowStore => {
+  let snapshot: BlockRecordWindow | null = null;
+  const listeners = new Set<(window: BlockRecordWindow) => void>();
+  const publish = (next: BlockRecordWindow): void => {
+    snapshot = next;
+    listeners.forEach((listener) => listener(next));
   };
-}
+  return {
+    getSnapshot: () => snapshot,
+    read: async () => recordWindow(),
+    load: async () => {
+      const next = recordWindow();
+      publish(next);
+      return next;
+    },
+    apply: async () => {
+      throw new Error("The PageStage test editor does not persist mutations");
+    },
+    applyCommit: () => null,
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    startCommitSubscription: () => () => undefined,
+  };
+};
 
 function renderStage(
   page: PageStagePageModel = toStageModel(buildPage()),
@@ -160,7 +181,7 @@ function renderStage(
         page={page}
         documentScopeId="default"
         projectName="Default"
-        documentAuthority={documentAuthority()}
+        recordWindowStore={createRecordWindowStore()}
         onUpdate={async () => ({ status: "updated", didMutate: true })}
         onUpdateProperty={async () => ({ status: "updated", didMutate: true })}
         {...titleCallbacks}
@@ -186,20 +207,10 @@ describe("page stage", () => {
   beforeEach(async () => {
     localStorage.clear();
     lastNfmEditorProps = null;
-    publishCollaborativeTitle = null;
-    surfaceDocument.document.destroy();
-    surfaceDocument = createPageDocument({
-      documentId: "document:page-1",
-      initialTitle: "Live title",
-    });
-    populateBlockDocumentBodyFromNfm(
-      surfaceDocument.body,
-      "# Live collaborative body\n\n- item",
-    );
     loadedPageStage = await import("./page-stage");
   });
 
-  test("mounts the rich editor only from the collaborative Document source", async () => {
+  test("mounts the rich editor from the record-backed Page window", async () => {
     writePageStageContentWidthPreference(true);
     writePageStageShowRawContentPreference(false);
     const { container, getByText } = renderStage();
@@ -213,14 +224,14 @@ describe("page stage", () => {
     expect(lastNfmEditorProps?.contentAccessContext).toEqual(
       projectContentAccess("default"),
     );
-    expect(source.kind).toBe("collaborative-document");
-    expect(source.documentId).toBe("document:page-1");
-    expect(Object.hasOwn(source, "content")).toBe(false);
-    expect(Object.hasOwn(source, "onChange")).toBe(false);
+    expect(source.kind).toBe("record-window");
+    expect(source.documentId).toBe("page-1");
+    expect(Object.hasOwn(source, "initialContent")).toBe(true);
+    expect(Object.hasOwn(source, "onDocumentChange")).toBe(true);
     expect(container.querySelector('[data-page-stage-heading-navigation-portal-target="true"]')).not.toBeNull();
   });
 
-  test("publishes the initial Y.Text title and disposes its live source", async () => {
+  test("publishes the canonical record title and disposes its live source", async () => {
     const onTitleChange = vi.fn();
     const onTitleSourceDispose = vi.fn();
     const view = renderStage(toStageModel(buildPage()), {
@@ -237,7 +248,7 @@ describe("page stage", () => {
     expect(onTitleSourceDispose).toHaveBeenCalledOnce();
   });
 
-  test("renders the current breadcrumb item from the live Y.Text title", async () => {
+  test("renders the current breadcrumb item from the canonical title", async () => {
     const view = renderStage(toStageModel(buildPage()), {}, {
       breadcrumb: {
         ancestors: [{
@@ -251,7 +262,9 @@ describe("page stage", () => {
 
     await settleAsyncRender();
     await act(async () => {
-      publishCollaborativeTitle?.("Renamed live title");
+      fireEvent.change(view.getByRole("textbox", { name: "Page title" }), {
+        target: { value: "Renamed live title" },
+      });
       await Promise.resolve();
     });
 
@@ -313,7 +326,7 @@ describe("page stage", () => {
     }
   });
 
-  test("raw mode reads the live Y.Doc projection, not the Page row projection", async () => {
+  test("raw mode reads the record-backed content projection", async () => {
     writePageStageShowRawContentPreference(true);
     const { findByLabelText, getByText, queryByText } = renderStage();
 
@@ -321,7 +334,7 @@ describe("page stage", () => {
     expect(queryByText("Mock collaborative editor")).toBe(null);
     const rawContent = await findByLabelText("Raw page source");
     await waitFor(() => {
-      expect(textContentIncludingShadowRoots(rawContent).includes("Live collaborative body")).toBe(true);
+      expect(textContentIncludingShadowRoots(rawContent).includes("Live record body")).toBe(true);
       expect(textContentIncludingShadowRoots(rawContent).includes("Stale projected body")).toBe(false);
     });
   });

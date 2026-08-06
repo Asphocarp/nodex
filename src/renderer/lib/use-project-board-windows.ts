@@ -1,7 +1,6 @@
 import { hashKey, useQueries, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef } from "react";
 import { subscribeBoardChanges } from "@/lib/api";
-import { applyBoardChangeEventToBoard } from "@/lib/board-summary-events";
 import { boardByProjectQueryOptions } from "@/lib/query-options";
 import { queryKeys } from "@/lib/query-keys";
 import type { BoardSummary, BoardSummarySnapshot, Project } from "@/lib/types";
@@ -78,29 +77,11 @@ export function useBoardsForProjects(
     for (const projectId of projectIds) {
       const project = projects.find((candidate) => candidate.id === projectId);
       if (!project) continue;
-      unsubscribes.push(subscribeBoardChanges(projectId, (event) => {
-        let applied = false;
-        queryClient.setQueryData<BoardSummarySnapshot | undefined>(
-          queryKeys.boards.byProject(projectId),
-          (current) => {
-            if (
-              !current
-              || !event.storeEpoch
-              || event.changeLogSeq === undefined
-              || event.storeEpoch !== current.storeEpoch
-              || event.changeLogSeq < current.changeLogSeq
-            ) return current;
-            const next = applyBoardChangeEventToBoard(current.board, event);
-            if (!next) return current;
-            applied = true;
-            return {
-              ...current,
-              board: next,
-              changeLogSeq: event.changeLogSeq,
-            };
-          },
-        );
-        if (!applied) scheduleRefetch(projectId);
+      // The LocalCommit/BlockRecord store is the only visible Board
+      // authority. Legacy Board events are invalidation hints; applying a
+      // summary here would reintroduce a second, lagging projection.
+      unsubscribes.push(subscribeBoardChanges(projectId, () => {
+        scheduleRefetch(projectId);
       }));
       unsubscribes.push(projectionRegistry.register({
         scope: {

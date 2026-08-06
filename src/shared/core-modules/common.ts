@@ -4,6 +4,7 @@ export type StoreEpoch = string;
 export type CoreModuleName =
   | "library"
   | "database"
+  | "block_record"
   | "owned_document"
   | "project_workspace"
   | "automation"

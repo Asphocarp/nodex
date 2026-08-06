@@ -2,24 +2,14 @@ import {
   memo,
   useCallback,
   useEffect,
-  useEffectEvent,
+  useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
   type CSSProperties,
+  type MutableRefObject,
   type ReactNode,
-  type RefObject,
 } from "react";
-import type * as Y from "yjs";
-import type { Awareness } from "y-protocols/awareness";
 import { NfmEditor } from "./editor/nfm-editor";
-import {
-  BlockDocumentSurface,
-  type BlockDocumentSurfaceValue,
-} from "@/components/block-documents/block-document-surface";
-import { PageEditorSessionSurface } from "@/components/block-documents/page-editor-session-surface";
-import { BlockDocumentSyncStatus } from "@/components/block-documents/block-document-sync-status";
-import { CollaborativePageTitle } from "@/components/block-documents/collaborative-page-title";
 import { PageStageInlinePropertyStrip } from "./page-stage/inline-property-strip";
 import { PageStageContentSkeleton } from "./page-stage/content-skeleton";
 import { PageStagePropertiesSection } from "./page-stage/properties-section";
@@ -30,10 +20,19 @@ import type { PageStageProps } from "./page-stage/types";
 import { toast } from "@/components/ui/toast";
 import { buildPageDeepLink } from "@/lib/page-deeplink";
 import { writeTextToClipboard } from "@/lib/clipboard";
-import type { BlockDocumentSurfaceRuntime } from "@/lib/block-document-surface-runtime";
-import type { PageEditorSession } from "@/lib/page-editor-session-registry";
 import { RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE } from "@/lib/right-panel-composer-overlay-reserve";
-import { materializePageDocument } from "../../../shared/block-documents/block-document-codec";
+import { blockNoteToNfm } from "../../../shared/block-documents/nfm-blocknote-adapter";
+import { serializeNfm } from "../../../shared/nfm/serializer";
+import {
+  createBlockRecordWindowStore,
+} from "@/lib/block-record-window-store";
+import type { BlockRecordWindow } from "../../../shared/block-records/contracts";
+import {
+  createRecordBackedPageEditorSession,
+  type RecordBackedPageEditorSession,
+} from "@/lib/block-record-page-editor";
+import type { BlockNoteBlockValue } from "../../../shared/block-documents/nfm-blocknote-adapter";
+import type { NfmEditorInitialContent } from "./editor/nfm-editor-source";
 
 export type { PageStageProps } from "./page-stage/types";
 
@@ -54,131 +53,6 @@ async function copyPageDeeplink(pageId: string): Promise<void> {
 
   toast.danger("Failed to copy deeplink");
 }
-
-interface PageStageDescriptionEditorProps {
-  readonly contentAccessContext: PageStageProps["contentAccessContext"];
-  readonly documentScopeId: string;
-  readonly projectName?: string | null;
-  readonly projectWorkspacePath?: string | null;
-  readonly pageId: string;
-  readonly showRawContent: boolean;
-  readonly documentId: string;
-  readonly generation: number;
-  readonly document: Y.Doc;
-  readonly body: Y.XmlFragment;
-  readonly awareness: Awareness;
-  readonly surfaceMutationBarrier: BlockDocumentSurfaceRuntime;
-  readonly sessionId?: string | null;
-  readonly sessionThread: PageStageProps["sessionThread"];
-  readonly canStartThreadInSession: PageStageProps["canStartThreadInSession"];
-  readonly linkedCodexThreads: PageStageProps["linkedCodexThreads"];
-  readonly onOpenCodexThread: PageStageProps["onOpenCodexThread"];
-  readonly onOpenPage: PageStageProps["onOpenPage"];
-  readonly onOpenDatabase: PageStageProps["onOpenDatabase"];
-  readonly onOpenCanvas: PageStageProps["onOpenCanvas"];
-  readonly onStartNewSessionThreadFromEditor: PageStageProps["onStartNewSessionThreadFromEditor"];
-  readonly onSendThreadSectionPrompt: PageStageProps["onSendThreadSectionPrompt"];
-  readonly isActivePanelTab: boolean;
-  readonly headingRailPortalElement: HTMLElement | null;
-  readonly scrollContainerRef: RefObject<HTMLDivElement | null>;
-  readonly editorSession?: PageEditorSession;
-}
-
-const useLivePageDocumentNfm = (document: Y.Doc): string => {
-  const subscribe = useCallback(
-    (listener: () => void) => {
-      document.on("update", listener);
-      return () => document.off("update", listener);
-    },
-    [document],
-  );
-  const getSnapshot = useCallback(
-    () => materializePageDocument(document).nfm,
-    [document],
-  );
-  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
-};
-
-function CollaborativePageStageRawContent({
-  document,
-}: {
-  readonly document: Y.Doc;
-}) {
-  return <PageStageRawContent content={useLivePageDocumentNfm(document)} />;
-}
-
-const PageStageDescriptionEditor = memo(
-  function PageStageDescriptionEditor({
-    contentAccessContext,
-    documentScopeId,
-    projectName,
-    projectWorkspacePath,
-    pageId,
-    showRawContent,
-    documentId,
-    generation,
-    document,
-    body,
-    awareness,
-    surfaceMutationBarrier,
-    sessionId,
-    sessionThread,
-    canStartThreadInSession,
-    linkedCodexThreads,
-    onOpenCodexThread,
-    onOpenPage,
-    onOpenDatabase,
-    onOpenCanvas,
-    onStartNewSessionThreadFromEditor,
-    onSendThreadSectionPrompt,
-    isActivePanelTab,
-    headingRailPortalElement,
-    scrollContainerRef,
-    editorSession,
-  }: PageStageDescriptionEditorProps) {
-    if (showRawContent) {
-      return <CollaborativePageStageRawContent document={document} />;
-    }
-
-    return (
-      <NfmEditor
-        contentAccessContext={contentAccessContext}
-        documentScopeId={documentScopeId}
-        projectName={projectName}
-        projectWorkspacePath={projectWorkspacePath}
-        source={{
-          kind: "collaborative-document",
-          documentId,
-          storeEpoch: surfaceMutationBarrier.descriptor.storeEpoch,
-          generation,
-          clientSessionId: surfaceMutationBarrier.clientSessionId,
-          fragment: body,
-          user: { name: "You", color: "#3b82f6" },
-          provider: { awareness },
-        }}
-        sourcePageContext={{ pageId }}
-        surfaceMutationBarrier={surfaceMutationBarrier}
-        sessionId={sessionId}
-        sessionThread={sessionThread}
-        canStartThreadInSession={canStartThreadInSession}
-        linkedCodexThreads={linkedCodexThreads}
-        onOpenCodexThread={onOpenCodexThread}
-        onOpenPage={onOpenPage}
-        onOpenDatabase={onOpenDatabase}
-        onOpenCanvas={onOpenCanvas}
-        onStartNewSessionThreadFromEditor={onStartNewSessionThreadFromEditor}
-        onSendThreadSectionPrompt={onSendThreadSectionPrompt}
-        isActivePanelTab={isActivePanelTab}
-        headingRail={{
-          portalElement: headingRailPortalElement,
-          scrollContainerRef,
-        }}
-        placeholder="Add a description..."
-        editorSession={editorSession}
-      />
-    );
-  },
-);
 
 type PageStageController = ReturnType<typeof usePageStageController>;
 
@@ -216,30 +90,23 @@ function PageStageContent({
   );
 }
 
-function PageStageDocumentTitle({
-  title,
+function RecordBackedPageTitle({
+  value,
   onValueChange,
-  onTitleSourceDispose,
   autoFocus,
 }: {
-  readonly title: Y.Text;
-  readonly onValueChange: (title: string) => void;
-  readonly onTitleSourceDispose?: () => void;
+  readonly value: string;
+  readonly onValueChange: (value: string) => void;
   readonly autoFocus?: boolean;
 }) {
-  const disposeTitleSource = useEffectEvent(() => {
-    onTitleSourceDispose?.();
-  });
-
-  useEffect(() => () => {
-    disposeTitleSource();
-  }, [title]);
-
   return (
-    <CollaborativePageTitle
-      title={title}
+    <input
+      value={value}
       autoFocus={autoFocus}
-      onValueChange={onValueChange}
+      placeholder="Untitled"
+      aria-label="Page title"
+      className="w-full min-w-0 border-none bg-transparent px-0.5 pt-0.75 text-xl/snug-plus font-bold text-(--foreground) outline-none placeholder:text-(--foreground-disabled) focus-visible:ring-0"
+      onChange={(event) => onValueChange(event.target.value)}
       onKeyDown={(event) => {
         if (event.key === "Enter" && !event.nativeEvent.isComposing) {
           event.preventDefault();
@@ -249,18 +116,267 @@ function PageStageDocumentTitle({
   );
 }
 
+interface RecordBackedPageSurfaceProps {
+  readonly controller: PageStageController;
+  readonly props: PageStageProps;
+  readonly pageId: string;
+  readonly headingRailPortalElement: HTMLElement | null;
+  readonly recordNfmRef: MutableRefObject<string>;
+  readonly persistRef: MutableRefObject<(() => Promise<void>) | null>;
+}
+
+const emptyRecordEditorBlock: BlockNoteBlockValue = {
+  type: "paragraph",
+  content: [],
+  children: [],
+};
+
+const recordEditorBlocks = (
+  session: RecordBackedPageEditorSession,
+  window: BlockRecordWindow,
+): readonly BlockNoteBlockValue[] => {
+  const blocks = session.bodyBlocks(window);
+  return blocks.length > 0 ? blocks : [emptyRecordEditorBlock];
+};
+
+const RecordBackedPageSurface = memo(function RecordBackedPageSurface({
+  controller,
+  props,
+  pageId,
+  headingRailPortalElement,
+  recordNfmRef,
+  persistRef,
+}: RecordBackedPageSurfaceProps) {
+  const clientSessionId = useState(() => `record-page:${crypto.randomUUID()}`)[0];
+  const windowStore = useMemo(
+    () => props.recordWindowStore ?? createBlockRecordWindowStore(),
+    [props.recordWindowStore],
+  );
+  const session = useMemo(
+    () => createRecordBackedPageEditorSession({
+      pageId,
+      windowStore,
+      actorId: "local-user",
+      sessionId: props.sessionId ?? clientSessionId,
+    }),
+    [clientSessionId, pageId, props.sessionId, windowStore],
+  );
+  const [window, setWindow] = useState<BlockRecordWindow | null>(null);
+  const [loadError, setLoadError] = useState<Error | null>(null);
+  const pendingBlocksRef = useRef<readonly BlockNoteBlockValue[] | null>(null);
+  const bodyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const titleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const writeQueueRef = useRef(Promise.resolve());
+  const pendingTitleRef = useRef<string | null>(null);
+  const canonicalTitleCursorRef = useRef<string | null>(null);
+
+  const flushBody = useCallback(async () => {
+    if (bodyTimerRef.current) {
+      clearTimeout(bodyTimerRef.current);
+      bodyTimerRef.current = null;
+    }
+    const blocks = pendingBlocksRef.current;
+    pendingBlocksRef.current = null;
+    if (!blocks) return;
+    writeQueueRef.current = writeQueueRef.current
+      .then(() => session.saveBody(blocks))
+      .catch((error: unknown) => {
+        setLoadError(error instanceof Error ? error : new Error(String(error)));
+      });
+    await writeQueueRef.current;
+  }, [session]);
+
+  const scheduleBodySave = useCallback((blocks?: readonly unknown[]) => {
+    if (!blocks) return;
+    pendingBlocksRef.current = blocks as readonly BlockNoteBlockValue[];
+    if (bodyTimerRef.current) clearTimeout(bodyTimerRef.current);
+    bodyTimerRef.current = setTimeout(() => {
+      void flushBody();
+    }, 120);
+  }, [flushBody]);
+
+  const scheduleTitleSave = useCallback((value: string) => {
+    pendingTitleRef.current = value;
+    if (titleTimerRef.current) clearTimeout(titleTimerRef.current);
+    titleTimerRef.current = setTimeout(() => {
+      const next = pendingTitleRef.current;
+      pendingTitleRef.current = null;
+      if (next === null) return;
+      writeQueueRef.current = writeQueueRef.current
+        .then(() => session.saveTitle(next))
+        .catch((error: unknown) => {
+          setLoadError(error instanceof Error ? error : new Error(String(error)));
+        });
+    }, 120);
+  }, [session]);
+
+  useEffect(() => {
+    setWindow(null);
+    setLoadError(null);
+    const unsubscribe = windowStore.subscribe(setWindow);
+    const stopCommitSubscription = windowStore.startCommitSubscription();
+    void session.load().catch((error: unknown) => {
+      setLoadError(error instanceof Error ? error : new Error(String(error)));
+    });
+    return () => {
+      unsubscribe();
+      stopCommitSubscription();
+      if (bodyTimerRef.current) clearTimeout(bodyTimerRef.current);
+      if (titleTimerRef.current) clearTimeout(titleTimerRef.current);
+    };
+  }, [pageId, session, windowStore]);
+
+  useEffect(() => {
+    persistRef.current = async () => {
+      await flushBody();
+      const title = pendingTitleRef.current;
+      pendingTitleRef.current = null;
+      if (title !== null) await session.saveTitle(title);
+      await writeQueueRef.current;
+    };
+    return () => {
+      persistRef.current = null;
+    };
+  }, [flushBody, persistRef, session]);
+
+  const materialized = useMemo(() => {
+    if (!window) {
+      return {
+        blocks: [] as readonly BlockNoteBlockValue[],
+        rawContent: "",
+        error: null as Error | null,
+      };
+    }
+
+    try {
+      const blocks = recordEditorBlocks(session, window);
+      return {
+        blocks,
+        rawContent: serializeNfm(blockNoteToNfm(blocks)),
+        error: null,
+      };
+    } catch (error) {
+      return {
+        blocks: [] as readonly BlockNoteBlockValue[],
+        rawContent: "",
+        error: error instanceof Error ? error : new Error(String(error)),
+      };
+    }
+  }, [session, window]);
+  const { blocks, rawContent, error: materializationError } = materialized;
+
+  useEffect(() => {
+    if (rawContent.length > 0) recordNfmRef.current = rawContent;
+  }, [rawContent, recordNfmRef]);
+
+  useEffect(() => {
+    if (!window) return;
+    const cursor = `${window.observedLocalCommit.storeEpoch}:${window.observedLocalCommit.commitSeq}`;
+    if (canonicalTitleCursorRef.current === cursor) return;
+    canonicalTitleCursorRef.current = cursor;
+    const canonicalTitle = session.title(window);
+    if (canonicalTitle !== controller.title) {
+      controller.handleDocumentTitleChange(canonicalTitle);
+    }
+  }, [controller, session, window]);
+
+  const onTitleSourceDispose = props.onTitleSourceDispose;
+  useEffect(() => () => {
+    onTitleSourceDispose?.();
+  }, [onTitleSourceDispose]);
+
+  const editorSource = useMemo(() => {
+    if (!window) return null;
+    return {
+      kind: "record-window" as const,
+      documentId: pageId,
+      storeEpoch: window.observedLocalCommit.storeEpoch,
+      generation: 1,
+      clientSessionId,
+      initialContent: blocks as NfmEditorInitialContent,
+      contentVersion: window.observedLocalCommit.commitSeq,
+      user: { name: "You", color: "#3b82f6" },
+      onPrepareForMutation: async () => {
+        await persistRef.current?.();
+      },
+      onDocumentChange: scheduleBodySave,
+      onMoveBlocksToPage: (blockIds: readonly string[], targetPageId: string) =>
+        session.moveBlocksToPage(blockIds, targetPageId),
+      onTransfer: async (intent: Parameters<RecordBackedPageEditorSession["transfer"]>[0]) => {
+        const result = await session.transfer(intent);
+        if (!result.ok) throw new Error(result.error.message);
+      },
+    };
+  }, [
+    blocks,
+    clientSessionId,
+    pageId,
+    persistRef,
+    scheduleBodySave,
+    session,
+    window,
+  ]);
+
+  const title = (
+    <RecordBackedPageTitle
+      value={controller.title}
+      autoFocus={props.autoFocusTitle}
+      onValueChange={(value) => {
+        controller.handleDocumentTitleChange(value);
+        scheduleTitleSave(value);
+      }}
+    />
+  );
+  const error = loadError ?? materializationError;
+  const description = error
+    ? <div role="alert" className="py-8 text-sm text-token-error-foreground">{error.message}</div>
+    : !window || !editorSource
+      ? <PageStageContentSkeleton titleSnapshot={controller.title} />
+      : controller.showRawContent
+        ? <PageStageRawContent content={rawContent} />
+        : (
+          <NfmEditor
+            contentAccessContext={props.contentAccessContext}
+            documentScopeId={props.documentScopeId}
+            projectName={props.projectName}
+            projectWorkspacePath={props.projectWorkspacePath}
+            source={editorSource}
+            sourcePageContext={{ pageId }}
+            sessionId={props.sessionId}
+            sessionThread={props.sessionThread}
+            canStartThreadInSession={props.canStartThreadInSession}
+            linkedCodexThreads={props.linkedCodexThreads}
+            onOpenCodexThread={props.onOpenCodexThread}
+            onOpenPage={props.onOpenPage}
+            onOpenDatabase={props.onOpenDatabase}
+            onOpenCanvas={props.onOpenCanvas}
+            onStartNewSessionThreadFromEditor={props.onStartNewSessionThreadFromEditor}
+            onSendThreadSectionPrompt={props.onSendThreadSectionPrompt}
+            isActivePanelTab={props.isActivePanelTab ?? true}
+            headingRail={{
+              portalElement: headingRailPortalElement,
+              scrollContainerRef: controller.scrollContainerRef,
+            }}
+            placeholder="Add a description..."
+          />
+        );
+
+  return (
+    <PageStageContent
+      controller={controller}
+      title={title}
+      syncStatus={<span className="text-xs text-token-description-foreground">Saved locally</span>}
+      description={description}
+    />
+  );
+});
+
 export function PageStage(props: PageStageProps) {
   const { onToggleHistoryPanel } = props;
-  const documentRuntimeRef = useRef<BlockDocumentSurfaceRuntime | null>(null);
+  const recordPersistRef = useRef<(() => Promise<void>) | null>(null);
+  const recordNfmRef = useRef("");
   const persistDocument = useCallback(async () => {
-    const runtime = documentRuntimeRef.current;
-    if (!runtime || runtime.getStatus().reloadRequired) return;
-    try {
-      await runtime.persist();
-    } catch (error) {
-      if (runtime.getStatus().reloadRequired) return;
-      throw error;
-    }
+    await recordPersistRef.current?.();
   }, []);
   const controller = usePageStageController(props, {
     persistDocument,
@@ -268,13 +384,9 @@ export function PageStage(props: PageStageProps) {
   const handleToggleHistoryPanel = useCallback(() => {
     void (async () => {
       await persistDocument();
-      const runtime = documentRuntimeRef.current;
-      const nfm = runtime
-        ? materializePageDocument(runtime.document).nfm
-        : "";
       onToggleHistoryPanel?.({
         title: controller.title,
-        nfm,
+        nfm: recordNfmRef.current,
       });
     })().catch(() => {
       toast.danger("Couldn’t prepare Page history");
@@ -285,84 +397,15 @@ export function PageStage(props: PageStageProps) {
 
   if (!controller.page) return null;
   const page = controller.page;
-  const renderDocumentSurface = (
-    surface: BlockDocumentSurfaceValue,
-    editorSession?: PageEditorSession,
-  ): ReactNode => (
-    <PageStageContent
+  const documentSurface = (
+    <RecordBackedPageSurface
       controller={controller}
-      title={
-        <PageStageDocumentTitle
-          title={surface.title}
-          onValueChange={controller.handleDocumentTitleChange}
-          onTitleSourceDispose={props.onTitleSourceDispose}
-          autoFocus={props.autoFocusTitle}
-        />
-      }
-      syncStatus={
-        <BlockDocumentSyncStatus
-          runtime={surface.runtime}
-          status={surface.status.provider}
-        />
-      }
-      description={
-        <PageStageDescriptionEditor
-          contentAccessContext={props.contentAccessContext}
-          documentScopeId={props.documentScopeId}
-          projectName={props.projectName}
-          projectWorkspacePath={props.projectWorkspacePath}
-          pageId={page.id}
-          showRawContent={controller.showRawContent}
-          documentId={surface.documentId}
-          generation={surface.descriptor.generation}
-          document={surface.document}
-          body={surface.body}
-          awareness={surface.awareness}
-          surfaceMutationBarrier={surface.runtime}
-          sessionId={props.sessionId}
-          sessionThread={props.sessionThread}
-          canStartThreadInSession={props.canStartThreadInSession}
-          linkedCodexThreads={props.linkedCodexThreads}
-          onOpenCodexThread={props.onOpenCodexThread}
-          onOpenPage={props.onOpenPage}
-          onOpenDatabase={props.onOpenDatabase}
-          onOpenCanvas={props.onOpenCanvas}
-          onStartNewSessionThreadFromEditor={
-            props.onStartNewSessionThreadFromEditor
-          }
-          onSendThreadSectionPrompt={props.onSendThreadSectionPrompt}
-          isActivePanelTab={props.isActivePanelTab ?? true}
-          headingRailPortalElement={headingRailPortalElement}
-          scrollContainerRef={controller.scrollContainerRef}
-          editorSession={editorSession}
-        />
-      }
+      props={props}
+      pageId={page.id}
+      headingRailPortalElement={headingRailPortalElement}
+      recordNfmRef={recordNfmRef}
+      persistRef={recordPersistRef}
     />
-  );
-  const surfaceProps = {
-    projectId: props.documentScopeId,
-    descriptor: props.documentAuthority.descriptor,
-    isActive: props.isActivePanelTab ?? true,
-    runtimeRef: documentRuntimeRef,
-    onReload: props.documentAuthority.reload,
-    dependencies: props.documentAuthority.surfaceDependencies,
-    pendingFallback: <PageStageContentSkeleton titleSnapshot={page.title} />,
-    localAwarenessState: {
-      user: { name: "You", color: "#3b82f6" },
-    },
-  } as const;
-  const documentSurface = props.editorSessionKey ? (
-    <PageEditorSessionSurface
-      {...surfaceProps}
-      sessionKey={props.editorSessionKey}
-      retainModelOnUnmount={props.retainEditorSession !== false}
-    >
-      {renderDocumentSurface}
-    </PageEditorSessionSurface>
-  ) : (
-    <BlockDocumentSurface {...surfaceProps}>
-      {(surface) => renderDocumentSurface(surface)}
-    </BlockDocumentSurface>
   );
   const toolbar = (
     <PageStageToolbar

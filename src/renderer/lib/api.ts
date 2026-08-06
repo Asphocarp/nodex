@@ -61,6 +61,13 @@ import type {
   LibraryModuleReadResult,
 } from "../../shared/library-module";
 import type {
+  BlockRecordApplyInput,
+  BlockRecordCommittedValue,
+  BlockRecordRead,
+  BlockRecordReadSnapshot,
+} from "../../shared/core-modules/block-record-module";
+import type { LocalCommitEnvelope } from "../../shared/local-commit";
+import type {
   LibraryPageDetailResult,
   PageDetailResult,
 } from "../../shared/page-detail";
@@ -123,6 +130,28 @@ export async function invoke(
 ): Promise<unknown> {
   const transport = resolveInvokeTransport();
   return transport.invoke(channel, ...args);
+}
+
+export function readBlockRecord(
+  read: BlockRecordRead,
+): Promise<BlockRecordReadSnapshot> {
+  return invoke("block-record:read", read) as Promise<BlockRecordReadSnapshot>;
+}
+
+export function applyBlockRecord(
+  input: BlockRecordApplyInput,
+): Promise<BlockRecordCommittedValue> {
+  return invoke("block-record:apply", input) as Promise<BlockRecordCommittedValue>;
+}
+
+export function subscribeBlockRecordCommits(
+  listener: (envelope: LocalCommitEnvelope) => void,
+): () => void {
+  const transport = resolveRendererTransport();
+  if (transport.subscribeBlockRecordCommits) {
+    return transport.subscribeBlockRecordCommits(listener);
+  }
+  return () => {};
 }
 
 export function createDocumentSyncAdapter(

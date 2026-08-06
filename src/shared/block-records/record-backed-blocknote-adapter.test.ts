@@ -6,6 +6,7 @@ import type { BlockRecordWindow } from "./contracts";
 const windowFor = (rootParent: BlockRecordWindow["rootParent"]): BlockRecordWindow => ({
   libraryId: "library:test",
   rootParent,
+  viewId: null,
   records: [
     {
       id: "title-a",
@@ -41,6 +42,7 @@ const windowFor = (rootParent: BlockRecordWindow["rootParent"]): BlockRecordWind
     },
   ],
   content: [],
+  viewPositions: [],
   observedLocalCommit: { storeEpoch: "epoch:test", commitSeq: 4 },
   continuation: null,
 });

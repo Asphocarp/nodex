@@ -4,11 +4,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 use yrs::sync::{Awareness, AwarenessUpdate};
+use yrs::types::ToJson;
 use yrs::updates::decoder::Decode;
 use yrs::updates::encoder::Encode;
 use yrs::{
-    ClientID, Doc, GetString, OffsetKind, Options, ReadTxn, Snapshot, StateVector, Transact,
-    TransactionMut, Update,
+    Any, ClientID, Doc, GetString, Map, OffsetKind, Options, ReadTxn, Snapshot, StateVector,
+    Transact, TransactionMut, Update, WriteTxn,
 };
 
 pub const MAX_DOCUMENT_UPDATE_BYTES: usize = 16 * 1024 * 1024;
@@ -95,6 +96,60 @@ impl YrsDocumentEngine {
         Ok(engine)
     }
 
+    /// Creates a content record using the small, transport-neutral JSON root
+    /// used by BlockRecord content shards. The JSON is stored inside a Y.Map,
+    /// so the bytes remain a normal Yjs/Yrs CRDT state rather than a second
+    /// SQLite authority.
+    pub fn from_materialized_json(
+        document_id: impl Into<String>,
+        value: &serde_json::Value,
+    ) -> Result<Self, YrsEngineError> {
+        let engine = Self::new(document_id);
+        let encoded = serde_json::to_string(value)
+            .map_err(|error| YrsEngineError::Observation(error.to_string()))?;
+        let any = Any::from_json(&encoded)
+            .map_err(|error| YrsEngineError::Observation(error.to_string()))?;
+        let mut transaction = engine.document.transact_mut();
+        let content = transaction.get_or_insert_map("content");
+        content.insert(&mut transaction, "value", any);
+        drop(transaction);
+        Ok(engine)
+    }
+
+    /// Replaces the materialized JSON inside the existing CRDT document and
+    /// returns the exact Yrs update produced by that edit. Keeping the
+    /// document's client identity is important: callers can append this
+    /// update to the normal content shard log instead of silently replacing
+    /// a snapshot outside CRDT history.
+    pub fn replace_materialized_json(
+        &mut self,
+        value: &serde_json::Value,
+    ) -> Result<Option<Vec<u8>>, YrsEngineError> {
+        if self.materialized_json().as_ref() == Some(value) {
+            return Ok(None);
+        }
+        let encoded = serde_json::to_string(value)
+            .map_err(|error| YrsEngineError::Observation(error.to_string()))?;
+        let any = Any::from_json(&encoded)
+            .map_err(|error| YrsEngineError::Observation(error.to_string()))?;
+        let observed_updates = Arc::new(Mutex::new(Vec::<Vec<u8>>::new()));
+        let observed_updates_for_callback = Arc::clone(&observed_updates);
+        let _subscription = self
+            .document
+            .observe_update_v1(move |_, event| {
+                observed_updates_for_callback
+                    .lock()
+                    .expect("Yrs update observer mutex must not be poisoned")
+                    .push(event.update.clone());
+            })
+            .map_err(|error| YrsEngineError::Observation(error.to_string()))?;
+        let mut transaction = self.document.transact_mut();
+        let content = transaction.get_or_insert_map("content");
+        content.insert(&mut transaction, "value", any);
+        drop(transaction);
+        take_observed_update(&observed_updates).map(Some)
+    }
+
     pub fn document_id(&self) -> &str {
         &self.document_id
     }
@@ -111,6 +166,17 @@ impl YrsDocumentEngine {
         self.document
             .transact()
             .encode_state_as_update_v1(&StateVector::default())
+    }
+
+    /// Reads the optional BlockRecord materialization from the canonical Yrs
+    /// state. Unknown/legacy roots intentionally return `None`; callers can
+    /// still use the CRDT bytes and perform a controlled reread/rebuild.
+    pub fn materialized_json(&self) -> Option<serde_json::Value> {
+        let transaction = self.document.transact();
+        let content = transaction.get_map("content")?;
+        let value = content.to_json(&transaction);
+        let object = serde_json::to_value(value).ok()?;
+        object.get("value").cloned()
     }
 
     pub fn diff_v1(&self, remote_state_vector_v1: &[u8]) -> Result<Vec<u8>, YrsEngineError> {

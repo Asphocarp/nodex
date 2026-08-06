@@ -20,6 +20,18 @@ export type CoreEventEnvelope = components["schemas"]["EventEnvelope"];
 export type CoreEventReplayRequired = components["schemas"]["EventReplayRequired"];
 export type CoreModuleError = components["schemas"]["CoreError"];
 
+export type BlockRecordRead = components["schemas"]["BlockRecordRead"];
+export type BlockRecordReadSnapshot = SuccessfulPayload<
+  components["schemas"]["BlockRecordReadResponse"]
+>;
+export type BlockRecordCommittedValue = SuccessfulPayload<
+  components["schemas"]["BlockRecordApplyResponse"]
+>;
+export type BlockRecordApplyInput = Omit<
+  components["schemas"]["BlockRecordApplyRequest"],
+  "contract_version" | "store_epoch"
+>;
+
 export type LibraryReadRequest = components["schemas"]["LibraryReadRequest"];
 export type LibraryRead = LibraryReadRequest["read"];
 export type LibraryReadResponse = components["schemas"]["LibraryReadResponse"];
@@ -139,6 +151,13 @@ export interface CoreEventSubscription {
 }
 
 export interface CoreClientPort {
+  blockRecordRead(read: BlockRecordRead): Promise<BlockRecordReadSnapshot>;
+  blockRecordApply(input: BlockRecordApplyInput): Promise<BlockRecordCommittedValue>;
+  openLocalCommitStream(
+    after: number,
+    onCommit: (commit: BlockRecordCommittedValue) => void,
+    signal?: AbortSignal,
+  ): Promise<CoreEventSubscription>;
   libraryRead(read: LibraryRead): Promise<LibraryReadSnapshot>;
   libraryApply(input: LibraryApplyInput): Promise<LibraryCommittedValue>;
   filterProjectionImpactForProject(

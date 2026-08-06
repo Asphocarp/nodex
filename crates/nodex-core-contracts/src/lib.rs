@@ -141,6 +141,7 @@ pub struct CommittedModuleValue<T, R> {
 pub enum ModuleName {
     Library,
     Database,
+    BlockRecord,
     OwnedDocument,
     ProjectWorkspace,
     Automation,
@@ -187,7 +188,9 @@ pub use events::{
 pub use library::LIBRARY_CONTRACT_VERSION;
 pub use workspace::PROJECT_WORKSPACE_CONTRACT_VERSION;
 
-pub const fn module_contract_manifest() -> [ModuleContractVersion; 6] {
+pub const BLOCK_RECORD_CONTRACT_VERSION: u32 = 3;
+
+pub const fn module_contract_manifest() -> [ModuleContractVersion; 7] {
     [
         ModuleContractVersion {
             module: ModuleName::Library,
@@ -196,6 +199,10 @@ pub const fn module_contract_manifest() -> [ModuleContractVersion; 6] {
         ModuleContractVersion {
             module: ModuleName::Database,
             contract_version: DATABASE_CONTRACT_VERSION,
+        },
+        ModuleContractVersion {
+            module: ModuleName::BlockRecord,
+            contract_version: BLOCK_RECORD_CONTRACT_VERSION,
         },
         ModuleContractVersion {
             module: ModuleName::OwnedDocument,
@@ -225,6 +232,7 @@ mod tests {
         let modules = [
             ModuleName::Library,
             ModuleName::Database,
+            ModuleName::BlockRecord,
             ModuleName::OwnedDocument,
             ModuleName::ProjectWorkspace,
             ModuleName::Automation,
@@ -237,6 +245,7 @@ mod tests {
             serde_json::json!([
                 "library",
                 "database",
+                "block_record",
                 "owned_document",
                 "project_workspace",
                 "automation",
@@ -273,8 +282,12 @@ mod tests {
                     contract_version: 6,
                 },
                 ModuleContractVersion {
+                    module: ModuleName::BlockRecord,
+                    contract_version: BLOCK_RECORD_CONTRACT_VERSION,
+                },
+                ModuleContractVersion {
                     module: ModuleName::OwnedDocument,
-                    contract_version: 3,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                 },
                 ModuleContractVersion {
                     module: ModuleName::ProjectWorkspace,

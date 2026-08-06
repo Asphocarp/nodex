@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   BLOCK_TRANSFER_CONTRACT_VERSION,
   parseBlockTransferIntent,
@@ -9,6 +10,13 @@ import {
 } from "../../shared/block-transfer";
 import { blockTransferFailure } from "../../shared/block-transfer-transport";
 import type { BlockLocation } from "../../shared/block-documents/contracts";
+import type { BlockRecordRead } from "../../shared/core-modules/block-record-module";
+import {
+  blockRecordSnapshotToWindow,
+  buildPromoteManyBlockRecordApplyInput,
+  planFractionalRank,
+  type BlockRecordWindow,
+} from "../../shared/block-records";
 import { CoreModuleResponseError } from "./core-client";
 import type {
   CoreClientPort,
@@ -247,6 +255,215 @@ const fromCoreResult = (
   };
 };
 
+const titleHash = (value: unknown): string =>
+  createHash("sha256").update(JSON.stringify(value ?? "")).digest("hex");
+
+const readBlockRecordWindow = async (
+  input: CoreBlockTransferAdapterInput,
+  read: BlockRecordRead,
+): Promise<BlockRecordWindow> => blockRecordSnapshotToWindow(
+  await input.client.blockRecordRead(read),
+  read,
+);
+
+/**
+ * The move-to-Board path is a BlockRecord transaction, not a Library
+ * transfer followed by a projection refresh. The old Library transfer
+ * compiler still handles copy semantics and document-only transfers; a move
+ * into a Data Source is fully representable by PromoteManyToPage and must use
+ * that terminal authority directly.
+ */
+const commitMoveIntoDataSource = async (
+  input: CoreBlockTransferAdapterInput,
+  intent: BlockTransferIntent,
+): Promise<BlockTransferCommandResult> => {
+  const target = intent.target;
+  if (target.kind !== "data_source") {
+    throw new Error("Data Source transfer target is required");
+  }
+  const targetRead: BlockRecordRead = {
+    kind: "window",
+    parent: { kind: "data_source", id: target.dataSourceId },
+    view_id: target.viewId,
+    include_content: true,
+  };
+  const sourceRead: BlockRecordRead = {
+    kind: "window",
+    block_ids: [...intent.rootBlockIds],
+    include_content: true,
+    include_descendants: true,
+  };
+  const [sourceWindow, targetWindow] = await Promise.all([
+    readBlockRecordWindow(input, sourceRead),
+    readBlockRecordWindow(input, targetRead),
+  ]);
+  const sourceRecords = new Map(sourceWindow.records.map((record) => [record.id, record]));
+  const sourcePlacements = new Map(sourceWindow.placements.map((placement) => [placement.blockId, placement]));
+  const targetPositions = targetWindow.viewPositions
+    .filter((position) => (
+      position.viewId === target.viewId
+      && position.groupKey === target.groupKey
+      && !intent.rootBlockIds.includes(position.blockId)
+    ))
+    .sort((left, right) => left.rankKey.localeCompare(right.rankKey) || left.blockId.localeCompare(right.blockId));
+  const targetPlacements = targetWindow.placements
+    .filter((placement) => (
+      placement.parent.kind === "dataSource"
+      && placement.parent.dataSourceId === target.dataSourceId
+      && !intent.rootBlockIds.includes(placement.blockId)
+    ))
+    .sort((left, right) => left.rankKey.localeCompare(right.rankKey) || left.blockId.localeCompare(right.blockId));
+  const viewItems = targetPositions.map((position) => ({
+    id: position.blockId,
+    rankKey: position.rankKey,
+  }));
+  const placementItems = targetPlacements.map((placement) => ({
+    id: placement.blockId,
+    rankKey: placement.rankKey,
+  }));
+  const viewRebalances = new Map<string, {
+    blockId: string;
+    groupKey: string | null;
+    rankKey: string;
+    expectedRevision: number;
+  }>();
+  const placementRebalances = new Map<string, {
+    blockId: string;
+    rankKey: string;
+    expectedRevision: number;
+  }>();
+  const entries: {
+    blockId: string;
+    viewGroupKey: string | null;
+    viewRankKey: string;
+    rankKey: string;
+    expectedBlockRevision: number;
+    expectedPlacementRevision: number;
+  }[] = [];
+
+  for (const blockId of intent.rootBlockIds) {
+    const record = sourceRecords.get(blockId);
+    const placement = sourcePlacements.get(blockId);
+    if (!record || !placement) {
+      throw new Error(`BlockRecord ${blockId} is not available for Board transfer`);
+    }
+    const viewPlan = planFractionalRank(
+      viewItems,
+      blockId,
+      target.beforePageId,
+    );
+    const placementPlan = planFractionalRank(
+      placementItems,
+      blockId,
+      target.beforePageId,
+    );
+    for (const [rebalanceId, rankKey] of viewPlan.rebalancedRankKeys) {
+      const position = targetPositions.find((candidate) => candidate.blockId === rebalanceId);
+      if (!position) throw new Error(`Board View rebalance target ${rebalanceId} is not loaded`);
+      viewRebalances.set(rebalanceId, {
+        blockId: rebalanceId,
+        groupKey: position.groupKey,
+        rankKey,
+        expectedRevision: position.revision,
+      });
+      const item = viewItems.find((candidate) => candidate.id === rebalanceId);
+      if (item) item.rankKey = rankKey;
+    }
+    for (const [rebalanceId, rankKey] of placementPlan.rebalancedRankKeys) {
+      const existing = targetPlacements.find((candidate) => candidate.blockId === rebalanceId);
+      if (!existing) throw new Error(`Board placement rebalance target ${rebalanceId} is not loaded`);
+      placementRebalances.set(rebalanceId, {
+        blockId: rebalanceId,
+        rankKey,
+        expectedRevision: existing.revision,
+      });
+      const item = placementItems.find((candidate) => candidate.id === rebalanceId);
+      if (item) item.rankKey = rankKey;
+    }
+    entries.push({
+      blockId,
+      viewGroupKey: target.groupKey,
+      viewRankKey: viewPlan.rankKey,
+      rankKey: placementPlan.rankKey,
+      expectedBlockRevision: record.revision,
+      expectedPlacementRevision: placement.revision,
+    });
+    const viewIndex = target.beforePageId === undefined
+      ? viewItems.length
+      : viewItems.findIndex((item) => item.id === target.beforePageId);
+    const placementIndex = target.beforePageId === undefined
+      ? placementItems.length
+      : placementItems.findIndex((item) => item.id === target.beforePageId);
+    if (viewIndex < 0 || placementIndex < 0) {
+      throw new Error(`Board transfer anchor ${target.beforePageId} is not loaded`);
+    }
+    viewItems.splice(viewIndex, 0, { id: blockId, rankKey: viewPlan.rankKey });
+    placementItems.splice(placementIndex, 0, { id: blockId, rankKey: placementPlan.rankKey });
+  }
+
+  const committed = await input.client.blockRecordApply(
+    await buildPromoteManyBlockRecordApplyInput({
+      operationId: intent.operationId,
+      actorId: intent.clientSessionId ?? "block-transfer",
+      sessionId: intent.clientSessionId ?? "block-transfer",
+      dataSourceId: target.dataSourceId,
+      viewId: target.viewId,
+      entries,
+      viewRebalances: [...viewRebalances.values()],
+      placementRebalances: [...placementRebalances.values()],
+    }),
+  );
+  const evidence = intent.rootBlockIds.map((blockId) => {
+    const record = sourceRecords.get(blockId)!;
+    const titleContent = sourceWindow.content.find((content) => (
+      content.blockId === blockId && (content.slot === "inline" || content.slot === "title")
+    ));
+    return {
+      sourceBlockId: blockId,
+      resultPageId: blockId,
+      kind: "promote" as const,
+      sourceBlockType: record.kind,
+      semanticTitleHash: titleHash(titleContent?.content ?? record.properties.title),
+      consumedPropertyKeys: [],
+      bodyRootBlockIds: sourceWindow.placements
+        .filter((placement) => placement.parent.kind === "block" && placement.parent.blockId === blockId)
+        .sort((left, right) => left.rankKey.localeCompare(right.rankKey) || left.blockId.localeCompare(right.blockId))
+        .map((placement) => placement.blockId),
+      sourceToResultBlockIds: { [blockId]: blockId },
+    };
+  });
+  const finalLocationRevisions = Object.fromEntries(entries.map((entry) => [
+    entry.blockId,
+    entry.expectedPlacementRevision + 1,
+  ]));
+  return {
+    ok: true,
+    value: {
+      version: BLOCK_TRANSFER_CONTRACT_VERSION,
+      operationId: intent.operationId,
+      projectId: intent.projectId,
+      storeEpoch: intent.storeEpoch,
+      mode: "move",
+      duplicate: committed.duplicate,
+      sourceRootBlockIds: intent.rootBlockIds,
+      resultRootBlockIds: intent.rootBlockIds,
+      copiedBlockIds: {},
+      transformationEvidence: evidence,
+      finalLocations: Object.fromEntries(
+        intent.rootBlockIds.map((blockId) => [blockId, {
+          kind: "database" as const,
+          databaseBlockId: target.dataSourceId,
+        } satisfies BlockLocation]),
+      ),
+      finalLocationRevisions,
+      documentCommits: [],
+      affectedDatabaseBlockIds: [target.dataSourceId],
+      changeLogSeq: committed.cursor.commit_seq,
+      committedAt: committed.committed_at,
+    },
+  };
+};
+
 const coreFailure = (
   intent: Pick<BlockTransferIntent, "operationId">,
   error: unknown,
@@ -307,6 +524,9 @@ export const createCoreBlockTransferAdapter = (
       const scopeError = assertIntentScope(input, intent);
       if (scopeError) return { ok: false, error: scopeError };
       try {
+        if (intent.mode === "move" && intent.target.kind === "data_source") {
+          return await commitMoveIntoDataSource(input, intent);
+        }
         const committed = await input.client.libraryApply({
           operationId: intent.operationId,
           intent: {

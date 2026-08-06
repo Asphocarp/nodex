@@ -47,13 +47,13 @@ const cloneProps = (
 
 const contentByBlock = (
   content: readonly BlockContentSnapshot[],
-): Map<string, BlockContentSnapshot> => {
-  const result = new Map<string, BlockContentSnapshot>();
+): Map<string, ReadonlyMap<string, BlockContentSnapshot>> => {
+  const result = new Map<string, Map<string, BlockContentSnapshot>>();
   for (const snapshot of content) {
     if (snapshot.slot !== "inline" && snapshot.slot !== "title") continue;
-    if (!result.has(snapshot.blockId) || snapshot.slot === "inline") {
-      result.set(snapshot.blockId, snapshot);
-    }
+    const slots = result.get(snapshot.blockId) ?? new Map<string, BlockContentSnapshot>();
+    slots.set(snapshot.slot, snapshot);
+    result.set(snapshot.blockId, slots);
   }
   return result;
 };
@@ -196,7 +196,10 @@ export const materializeBlockRecordWindow = (
       );
     }
 
-    const snapshot = content.get(blockId);
+    const slots = content.get(blockId);
+    const snapshot = record.kind === "page"
+      ? slots?.get("title") ?? slots?.get("inline")
+      : slots?.get("inline") ?? slots?.get("title");
     const children = (childrenByParent.get(parentKey({ kind: "block", blockId })) ?? [])
       .map((placement) => materialize(placement.blockId));
     visiting.delete(blockId);

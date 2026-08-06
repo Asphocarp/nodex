@@ -2,17 +2,7 @@ import { useEffect, useMemo } from "react";
 import { hashKey, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { PageStage } from "./workbench-page-stage";
-import {
-  prepareLibraryOwnedBlockDocument,
-  readLibraryPageDetail,
-} from "../../lib/api";
-import { libraryBlockDocumentSurfaceDependencies } from "../../lib/content-access-document-dependencies";
-import {
-  type ReadyPageBlockDocumentDescriptor,
-  toLibraryDocumentSurfaceDescriptor,
-  unwrapLibraryOwnedBlockDocumentPreparationResult,
-  validateLibraryOwnedBlockDocumentDescriptor,
-} from "../../lib/owned-block-document";
+import { readLibraryPageDetail } from "../../lib/api";
 import { projectPageDetailToStageModel } from "../../lib/page-stage-page";
 import {
   commitLibraryPageDetailMetadataPatch,
@@ -23,10 +13,7 @@ import { queryKeys } from "../../lib/query-keys";
 import { invalidateExactQuery } from "../../lib/query-invalidation";
 import { useProjectionInvalidationRegistry } from "../../lib/projection-invalidation-context";
 import { libraryContentAccess } from "../../../shared/content-access-context";
-import {
-  pageDetailDataDependencies,
-  pageDetailDocumentDependencies,
-} from "../../lib/page-detail-projection-dependencies";
+import { pageDetailDataDependencies } from "../../lib/page-detail-projection-dependencies";
 
 export function WorkbenchLibraryPageSurface({
   pageId,
@@ -59,27 +46,12 @@ export function WorkbenchLibraryPageSurface({
     () => queryKeys.library.pageDetail(pageId),
     [pageId],
   );
-  const documentQueryKey = useMemo(
-    () => queryKeys.library.pageDocument(pageId),
-    [pageId],
-  );
   const detail = useQuery({
     queryKey: detailQueryKey,
     queryFn: async () => {
       const result = await readLibraryPageDetail(pageId);
       if (!result.ok) throw new Error(result.error.message);
       return result.value;
-    },
-  });
-  const document = useQuery({
-    queryKey: documentQueryKey,
-    queryFn: async () => {
-      const descriptor = unwrapLibraryOwnedBlockDocumentPreparationResult(
-        await prepareLibraryOwnedBlockDocument(pageId),
-      );
-      return toLibraryDocumentSurfaceDescriptor(
-        validateLibraryOwnedBlockDocumentDescriptor(pageId, descriptor),
-      );
     },
   });
   const stagePage = useMemo(() => {
@@ -97,14 +69,7 @@ export function WorkbenchLibraryPageSurface({
     if (!authority) return;
     const getCursor = () => {
       const currentDetail = queryClient.getQueryData<typeof authority>(detailQueryKey);
-      const currentDocument =
-        queryClient.getQueryData<ReadyPageBlockDocumentDescriptor>(documentQueryKey);
-      if (!currentDetail || !currentDocument) return null;
-      if (
-        currentDetail.storeEpoch !== currentDocument.storeEpoch
-        || currentDetail.page.documentGeneration !== currentDocument.generation
-        || currentDetail.page.documentHeadSeq !== currentDocument.headSeq
-      ) return null;
+      if (!currentDetail) return null;
       return {
         storeEpoch: currentDetail.storeEpoch,
         changeLogSeq: currentDetail.changeLogSeq,
@@ -124,32 +89,18 @@ export function WorkbenchLibraryPageSurface({
         await invalidateExactQuery(queryClient, detailQueryKey);
       },
     });
-    const unregisterDocument = projectionRegistry.register({
-      scope: { kind: "library", libraryId: authority.libraryId },
-      consumerKey: hashKey(["projection", documentQueryKey]),
-      getDependencies: () => pageDetailDocumentDependencies(
-        queryClient.getQueryData<typeof authority>(detailQueryKey) ?? null,
-        pageId,
-      ),
-      getCursor,
-      invalidate: async () => {
-        await invalidateExactQuery(queryClient, documentQueryKey);
-      },
-    });
     return () => {
       unregisterDetail();
-      unregisterDocument();
     };
   }, [
     detail.data,
     detailQueryKey,
-    documentQueryKey,
     pageId,
     projectionRegistry,
     queryClient,
   ]);
 
-  if (detail.isPending || document.isPending) {
+  if (detail.isPending) {
     return (
       <div
         className="flex h-full items-center justify-center bg-token-main-surface-primary text-sm text-token-description-foreground"
@@ -160,8 +111,8 @@ export function WorkbenchLibraryPageSurface({
     );
   }
 
-  if (detail.isError || document.isError || !stagePage) {
-    const error = detail.error ?? document.error;
+  if (detail.isError || !stagePage) {
+    const error = detail.error;
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 bg-token-main-surface-primary px-6 text-center">
         <p className="text-sm text-token-text-primary">Could not open Page</p>
@@ -172,7 +123,7 @@ export function WorkbenchLibraryPageSurface({
           type="button"
           className="mt-1 rounded-md bg-token-foreground/5 px-2.5 py-1.5 text-sm text-token-text-secondary hover:bg-token-foreground/10 hover:text-token-text-primary"
           onClick={() => {
-            void Promise.all([detail.refetch(), document.refetch()]);
+            void detail.refetch();
           }}
         >
           Retry
@@ -188,16 +139,8 @@ export function WorkbenchLibraryPageSurface({
       retainEditorSession
       page={stagePage}
       autoFocusTitle={stagePage.page.title.trim() === "Untitled"}
-      documentScopeId={document.data.projectId}
+      documentScopeId={pageId}
       projectName={null}
-      documentAuthority={{
-        kind: "yjs",
-        descriptor: document.data,
-        reload: async () => {
-          await queryClient.resetQueries({ queryKey: documentQueryKey, exact: true });
-        },
-        surfaceDependencies: libraryBlockDocumentSurfaceDependencies,
-      }}
       onTitleChange={onTitleChange}
       onOpenDatabase={onOpenDatabase}
       onOpenPage={onOpenPage

@@ -1,5 +1,6 @@
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
-import { invoke, readDatabaseViewWindow } from "./api";
+import { invoke } from "./api";
+import { readCanonicalKanbanBoardSnapshot } from "./kanban-store";
 import { queryKeys } from "./query-keys";
 import type {
   CodexAutomationRunsInboxResponse,
@@ -84,7 +85,7 @@ export function projectActivitySummariesQueryOptions(
 export function boardByProjectQueryOptions(projectId: string) {
   return queryOptions({
     queryKey: queryKeys.boards.byProject(projectId),
-    queryFn: () => readDatabaseViewWindow(projectId, { first: 50 }),
+    queryFn: () => readCanonicalKanbanBoardSnapshot(projectId),
   });
 }
 

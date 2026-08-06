@@ -5,12 +5,11 @@ import type {
   CodexPromptInput,
   CodexThreadSummary,
 } from "@/lib/types";
-import type { ReadyPageBlockDocumentDescriptor } from "@/lib/owned-block-document";
-import type { BlockDocumentSurfaceDependencies } from "@/components/block-documents/block-document-surface";
 import type {
   PageStagePageModel,
   PageStageMetadataMutationResult,
 } from "@/lib/page-stage-page";
+import type { BlockRecordWindowStore } from "@/lib/block-record-window-store";
 import type { PageStageBreadcrumbProps } from "./breadcrumb";
 import type { DatabaseId } from "../../../../shared/database-identities";
 import type { ContentAccessContext } from "../../../../shared/content-access-context";
@@ -39,19 +38,6 @@ export interface PageStageHistorySnapshot {
   readonly nfm: string;
 }
 
-/**
- * Makes the content authority impossible to infer from a Page read model.
- * Page Stage can only mount the owned Y.Doc identified by the prepared
- * descriptor; a Page read-model projection is never an editor input.
- */
-export interface PageStageDocumentAuthority {
-  readonly kind: "yjs";
-  readonly descriptor: ReadyPageBlockDocumentDescriptor;
-  readonly reload: () => Promise<void>;
-  /** In-memory transport seam for isolated fixtures and tests. */
-  readonly surfaceDependencies?: BlockDocumentSurfaceDependencies;
-}
-
 export interface PageStageProps {
   onClose: () => void;
   /** Stable PageTab identity whose editor model may outlive this React view. */
@@ -68,20 +54,20 @@ export interface PageStageProps {
         readonly render: (toolbar: ReactNode) => ReactNode;
       };
   onLeavePage?: (snapshot: PageStageSessionSnapshot) => void;
-  /** Publishes the authoritative plain-text Y.Text title for surrounding chrome. */
+  /** Publishes the canonical plain-text Page title for surrounding chrome. */
   onTitleChange?: (title: string) => void;
-  /** Focuses the collaborative title when this Page surface first mounts. */
+  /** Focuses the title when this Page surface first mounts. */
   autoFocusTitle?: boolean;
-  /** Signals that the mounted Y.Text title publisher is no longer authoritative. */
+  /** Signals that the mounted title publisher is no longer active. */
   onTitleSourceDispose?: () => void;
   closeRef?: MutableRefObject<(() => Promise<void>) | null>;
   persistRef?: MutableRefObject<(() => Promise<void>) | null>;
   sessionSnapshotRef?: MutableRefObject<PageStageSessionSnapshot | null>;
   isActivePanelTab?: boolean;
   page: PageStagePageModel | null;
-  /** Content authority selected by the mounted Project or Resource surface. */
+  /** Content access context for linked blocks and agent tools. */
   contentAccessContext: ContentAccessContext;
-  /** Renderer-local identity for the mounted collaborative Document surface. */
+  /** Renderer-local scope for linked content and page tools. */
   documentScopeId: string;
   projectName?: string | null;
   projectWorkspacePath?: string | null;
@@ -139,5 +125,6 @@ export interface PageStageProps {
     promptInput?: CodexPromptInput;
   }) => Promise<void>;
   historyPanelActive?: boolean;
-  documentAuthority: PageStageDocumentAuthority;
+  /** Optional in-memory BlockRecord window seam for tests and Storybook. */
+  recordWindowStore?: BlockRecordWindowStore;
 }

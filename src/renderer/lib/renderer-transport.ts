@@ -115,6 +115,11 @@ export interface RendererTransport {
     projectId: string,
   ) => import("./canvas-scene-provider").CanvasSceneSyncAdapter;
   invoke: (channel: string, ...args: unknown[]) => Promise<unknown>;
+  subscribeBlockRecordCommits?: (
+    callback: (
+      envelope: import("../../shared/local-commit").LocalCommitEnvelope,
+    ) => void,
+  ) => () => void;
   subscribeBoardChanges: (
     projectId: string,
     callback: (event: BoardChangeEvent) => void,

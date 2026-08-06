@@ -59,7 +59,6 @@ import { resolveKanbanDropFeedback } from "./drop-feedback";
 import { computeNativeDropIndexFromSurface } from "./native-drop-index";
 import {
   blockTransferDropLabel,
-  buildBlockToDataSourceTransferIntent,
   endLocalBlockDragSession,
   hasDragType,
   NODEX_BLOCK_TRANSFER_DRAG_MIME,
@@ -69,7 +68,6 @@ import {
 } from "./cross-surface-drag";
 import { toast } from "@/components/ui/toast";
 import { useKanbanElementDragMonitor } from "./use-kanban-element-drag-monitor";
-import { transferBlocks } from "@/lib/api";
 
 const KANBAN_CARD_PREVIEW_OPEN_DELAY_MS = 180;
 type KanbanCardOpenMode = NonNullable<OpenPageStageOptions["openMode"]>;
@@ -144,7 +142,7 @@ export function KanbanBoard({
     movePage,
     movePages,
     refresh,
-    refreshAtLeast,
+    promoteBlocksToPage,
     groupPagination,
     loadMoreGroup,
   } =
@@ -343,27 +341,14 @@ export function KanbanBoard({
         (column) => column.id === columnId,
       )?.cards ?? [];
       const beforePageId = destinationCards[destinationIndex]?.id;
-      const result = await transferBlocks(
-        projectId,
-        buildBlockToDataSourceTransferIntent({
-          operationId: crypto.randomUUID(),
-          projectId,
-          storeEpoch: databaseView.storeEpoch,
-          payload: authoritativePayload,
-          dataSourceId: databaseView.dataSourceId,
-          viewId: databaseView.databaseViewId,
-          groupKey: columnId,
-          ...(beforePageId ? { beforePageId } : {}),
-          altKey: event.altKey,
-        }),
-      );
-      if (!result.ok) {
-        toast.danger(result.error.message);
-        return;
-      }
-      await refreshAtLeast(result.value.changeLogSeq);
+      const moved = await promoteBlocksToPage({
+        blockIds: authoritativePayload.rootBlockIds,
+        groupKey: columnId,
+        ...(beforePageId ? { beforePageId } : {}),
+      });
+      if (!moved) toast.danger("The Block could not be promoted into this Board.");
     },
-    [databaseView, filteredBoard, projectId, refreshAtLeast],
+    [databaseView, filteredBoard, projectId, promoteBlocksToPage],
   );
 
   const performCardDrop = useCallback(async (

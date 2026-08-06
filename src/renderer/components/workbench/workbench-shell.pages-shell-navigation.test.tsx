@@ -455,15 +455,9 @@ describe("workbench session shell / pages-shell-navigation", () => {
     const pageModel = pageStageProps?.page as {
       page?: { id?: string };
     } | undefined;
-    const documentAuthority = pageStageProps?.documentAuthority as {
-      kind?: string;
-      descriptor?: { projectId?: string; ownerBlockId?: string };
-    } | undefined;
     expect(pageStageProps?.documentScopeId).toBe("beta");
     expect(pageModel?.page?.id).toBe("card-beta");
-    expect(documentAuthority?.kind).toBe("yjs");
-    expect(documentAuthority?.descriptor?.projectId).toBe("beta");
-    expect(documentAuthority?.descriptor?.ownerBlockId).toBe("card-beta");
+    expect(pageStageProps?.documentAuthority).toBeUndefined();
   });
 
   test("page-stage editor can start a new thread in the current blank session", async () => {

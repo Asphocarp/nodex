@@ -904,4 +904,161 @@ describe("CoreClient over a Unix socket", () => {
       rmSync(nodexHome, { recursive: true, force: true });
     }
   });
+
+  test("commits BlockRecord create, move, and promotion through Core and its durable tail", async () => {
+    expect(existsSync(CORE_BINARY), "run pnpm run core:test:client").toBe(true);
+    const nodexHome = mkdtempSync(path.join(tmpdir(), "nodex-block-record-core-"));
+    const child = spawnCore(nodexHome);
+    let subscription: CoreEventSubscription | undefined;
+
+    try {
+      await readDescriptor(child);
+      const client = await CoreClient.connect({
+        nodexHome,
+        clientKind: "test",
+        buildId: "node-block-record-core-test",
+      });
+      const emptyWindow = await client.blockRecordRead({
+        kind: "window",
+        include_content: false,
+      });
+      expect(emptyWindow.observed_cursor).toEqual({
+        store_epoch: client.handshake.store_epoch,
+        commit_seq: 0,
+      });
+      const streamed: components["schemas"]["BlockRecordCommittedValue"][] = [];
+      let resolveStreamed: (() => void) | undefined;
+      const streamedEnough = new Promise<void>((resolve) => {
+        resolveStreamed = resolve;
+      });
+      subscription = await client.openLocalCommitStream(0, (commit) => {
+        streamed.push(commit);
+        if (streamed.length >= 7) resolveStreamed?.();
+      });
+
+      const identity = (index: number) => ({
+        operation_id: `node-block-record-operation-${index}`,
+        intent_hash: `${index}`.padStart(64, "a"),
+        commit_id: `node-block-record-commit-${index}`,
+        canonical_hash: `${index}`.padStart(64, "b"),
+        actor_id: "node-block-record-test",
+        session_id: "node-block-record-session",
+        committed_at: "2026-08-06T00:00:00.000Z",
+      });
+      const apply = async (
+        index: number,
+        operation: components["schemas"]["BlockRecordOperation"],
+      ) => await client.blockRecordApply({ ...identity(index), operation });
+
+      await apply(1, { kind: "ensure_data_source", data_source_id: "board:test" });
+      await apply(2, {
+        kind: "create",
+        block_id: "page:a",
+        block_kind: "page",
+        properties: { title: "Page A" },
+        content_shard_id: "shard:page-a",
+        parent: { kind: "library" },
+        rank_key: "a",
+      });
+      await apply(3, {
+        kind: "create",
+        block_id: "page:b",
+        block_kind: "page",
+        properties: { title: "Page B" },
+        content_shard_id: "shard:page-b",
+        parent: { kind: "library" },
+        rank_key: "b",
+      });
+      await apply(4, {
+        kind: "create",
+        block_id: "title:a",
+        block_kind: "heading",
+        properties: { title: "title-A" },
+        content_shard_id: "shard:title-a",
+        parent: { kind: "block", id: "page:a" },
+        rank_key: "a",
+      });
+      await apply(5, {
+        kind: "create",
+        block_id: "child:a",
+        block_kind: "paragraph",
+        properties: { text: "child" },
+        content_shard_id: "shard:child-a",
+        parent: { kind: "block", id: "title:a" },
+        rank_key: "a",
+      });
+
+      const moved = await apply(6, {
+        kind: "move",
+        block_id: "title:a",
+        target_parent: { kind: "block", id: "page:b" },
+        rank_key: "a",
+        expected_block_revision: 0,
+        expected_placement_revision: 0,
+      });
+      expect(moved.effects.map((effect) => effect.kind)).toEqual([
+        "record",
+        "placement",
+      ]);
+
+      const movedWindow = await client.blockRecordRead({
+        kind: "window",
+        parent: { kind: "block", id: "page:b" },
+        include_content: false,
+      });
+      expect(movedWindow.graph.blocks.map((block) => block.id)).toEqual([
+        "page:b",
+        "title:a",
+      ]);
+      expect(movedWindow.graph.placements.find((placement) => placement.block_id === "title:a"))
+        .toMatchObject({ parent: { kind: "block", id: "page:b" } });
+
+      const promoted = await apply(7, {
+        kind: "promote_to_page",
+        block_id: "title:a",
+        data_source_id: "board:test",
+        rank_key: "a",
+        expected_block_revision: 0,
+        expected_placement_revision: 1,
+      });
+      expect(promoted.effects.map((effect) => effect.kind)).toEqual([
+        "promotion",
+        "content",
+      ]);
+
+      const boardWindow = await client.blockRecordRead({
+        kind: "window",
+        parent: { kind: "data_source", id: "board:test" },
+        include_content: false,
+      });
+      expect(boardWindow.graph.blocks).toHaveLength(1);
+      expect(boardWindow.graph.blocks[0]).toMatchObject({
+        id: "title:a",
+        kind: "page",
+      });
+      expect(boardWindow.graph.placements[0]).toMatchObject({
+        block_id: "title:a",
+        parent: { kind: "data_source", id: "board:test" },
+      });
+
+      await withTimeout(streamedEnough, "Core did not tail BlockRecord commits");
+      expect(streamed.map((commit) => commit.cursor.commit_seq)).toEqual([
+        1, 2, 3, 4, 5, 6, 7,
+      ]);
+      expect(streamed.at(-1)?.operation_id).toBe(
+        "node-block-record-operation-7",
+      );
+
+      subscription.close();
+      await subscription.done;
+      subscription = undefined;
+      await expect(client.shutdown()).resolves.toEqual({ status: "draining" });
+      await expect(waitForExit(child)).resolves.toBe(0);
+    } finally {
+      subscription?.close();
+      if (child.exitCode === null) child.kill();
+      await waitForExit(child).catch(() => null);
+      rmSync(nodexHome, { recursive: true, force: true });
+    }
+  });
 });

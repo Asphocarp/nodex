@@ -3,6 +3,10 @@ import type {
   AutomationCommittedValue,
   AutomationRead,
   AutomationReadSnapshot,
+  BlockRecordApplyInput,
+  BlockRecordCommittedValue,
+  BlockRecordRead,
+  BlockRecordReadSnapshot,
   CoreClientPort,
   CoreEventEnvelope,
   CoreEventReplayRequired,
@@ -92,6 +96,8 @@ export const createFakeCoreHandshake = ({
 };
 
 export class FakeCoreClient implements CoreClientPort {
+  readonly blockRecordReads: BlockRecordRead[] = [];
+  readonly blockRecordApplies: BlockRecordApplyInput[] = [];
   readonly automationReads: AutomationRead[] = [];
   readonly automationApplies: AutomationApplyInput[] = [];
   readonly reads: LibraryRead[] = [];
@@ -115,6 +121,8 @@ export class FakeCoreClient implements CoreClientPort {
   readonly #automationReadResults: AutomationReadSnapshot[] = [];
   readonly #automationApplyResults: AutomationCommittedValue[] = [];
   readonly #applyResults: LibraryCommittedValue[] = [];
+  readonly #blockRecordReadResults: BlockRecordReadSnapshot[] = [];
+  readonly #blockRecordApplyResults: BlockRecordCommittedValue[] = [];
   readonly #databaseReadResults: DatabaseReadSnapshot[] = [];
   readonly #databaseApplyResults: DatabaseCommittedValue[] = [];
   readonly #workspaceReadResults: ProjectWorkspaceReadSnapshot[] = [];
@@ -158,6 +166,14 @@ export class FakeCoreClient implements CoreClientPort {
 
   enqueueApply(result: LibraryCommittedValue): void {
     this.#applyResults.push(result);
+  }
+
+  enqueueBlockRecordRead(result: BlockRecordReadSnapshot): void {
+    this.#blockRecordReadResults.push(result);
+  }
+
+  enqueueBlockRecordApply(result: BlockRecordCommittedValue): void {
+    this.#blockRecordApplyResults.push(result);
   }
 
   enqueueDatabaseRead(result: DatabaseReadSnapshot): void {
@@ -213,6 +229,36 @@ export class FakeCoreClient implements CoreClientPort {
     const result = this.#readResults.shift();
     if (!result) throw new Error("Fake Core client has no queued Library read");
     return result;
+  }
+
+  async blockRecordRead(read: BlockRecordRead): Promise<BlockRecordReadSnapshot> {
+    this.blockRecordReads.push(read);
+    const result = this.#blockRecordReadResults.shift();
+    if (!result) throw new Error("Fake Core client has no queued BlockRecord read");
+    return result;
+  }
+
+  async blockRecordApply(
+    input: BlockRecordApplyInput,
+  ): Promise<BlockRecordCommittedValue> {
+    this.blockRecordApplies.push(input);
+    const result = this.#blockRecordApplyResults.shift();
+    if (!result) throw new Error("Fake Core client has no queued BlockRecord apply");
+    return result;
+  }
+
+  async openLocalCommitStream(
+    _after: number,
+    _onCommit: (commit: BlockRecordCommittedValue) => void,
+    _signal?: AbortSignal,
+  ): Promise<CoreEventSubscription> {
+    void _after;
+    void _onCommit;
+    void _signal;
+    return {
+      done: Promise.resolve(),
+      close: () => undefined,
+    };
   }
 
   async automationRead(read: AutomationRead): Promise<AutomationReadSnapshot> {

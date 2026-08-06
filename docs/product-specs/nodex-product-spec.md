@@ -8,7 +8,11 @@ Clearing a non-empty Relation requires explicit confirmation and uses a revision
 
 CLI `meta.yaml` represents a non-empty Relation as a read-only bounded summary containing visible `{id, name}` targets, `total_count`, `restricted_count`, and `has_more`. Restricted identities are never serialized, and a long or partially restricted Relation does not make the Page unreadable.
 
-Fresh Profiles use Store v101. Exact v100 Stores are backed up and atomically migrated by adding the persisted projectless permission-mode scope after normalized Relation authority. Drifted or partially migrated inventories fail closed.
+Fresh Profiles use Store v105. The current development cutover adds the
+BlockRecord/content/LocalCommit terminal slice after normalized Relation
+authority; the eventual one-big replacement will convert the remaining
+Document-backed writers offline rather than keep two live Page authorities.
+Drifted or partially migrated inventories fail closed.
 
 ## Overview
 
@@ -299,6 +303,13 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Codex thread links are session-owned. Cards can mention threads and send selected content to chats, but they do not own durable Codex threads.
 
 #### 2. Kanban Board View
+- Page/Board structural actions use the local BlockRecord authority. A Page
+  move, `Move to → Board`, or editor-to-Board drop returns one local commit
+  whose apply response updates the visible Page/Board projection immediately;
+  the later durable tail only replays and deduplicates that commit. The Board
+  card projection is a bounded record read and does not wait for a summary
+  refresh or hydrate the moved Page's entire body. A promoted root keeps its
+  stable Block/Page ID and descendants.
 - 8 columns representing workflow stages
 - Drag-and-drop Database Pages between columns
 - Each kanban column header includes a `more actions` popover for collapsing that column and adjusting its persisted expanded width; collapsed columns still show their card count and the same `more actions` trigger

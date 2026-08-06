@@ -25,6 +25,7 @@ use crate::domain::project_appearance::{
 };
 use nodex_core_contracts::workspace::ProjectMarker;
 
+use super::block_record_store;
 use super::document_repository::{DocumentHeadRow, DocumentReadRepository};
 use super::schema::{
     CORE_SCHEMA_VERSION, TYPESCRIPT_SCHEMA_VERSION, install_v84_schema, read_schema_inventory,
@@ -33,6 +34,7 @@ use super::schema::{
 use super::sqlite::{
     StoreError, StoreErrorCode, open_immutable_reader, validate_store, with_immediate_transaction,
 };
+use crate::{content_store, local_commit};
 
 const CORE_SCHEMA_OWNER: &str = "rust_core";
 const MIN_SUPPORTED_SCHEMA_VERSION: i64 = TYPESCRIPT_SCHEMA_VERSION;
@@ -1262,6 +1264,18 @@ fn upgrade_owned_store(
         98 => validate_exact_v98_schema(connection)?,
         99 => validate_exact_v99_schema(connection)?,
         100 => validate_exact_v100_schema(connection)?,
+        101 => validate_exact_v101_schema(connection)?,
+        102..=104 => validate_exact_core_schema(
+            connection,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            source_version,
+        )?,
         _ => return Err(corrupt("Rust Core forward-migration source is unsupported")),
     }
 
@@ -1321,6 +1335,19 @@ fn upgrade_owned_store(
         }
         if source_version < 101 {
             ensure_v101_projectless_permission_mode_schema(transaction)?;
+        }
+        if source_version < 102 {
+            ensure_v102_block_record_schema(transaction)?;
+        }
+        if source_version < 103 {
+            ensure_v103_block_record_view_schema(transaction)?;
+        }
+        if source_version < 104 {
+            ensure_v104_block_record_content_schema(transaction)?;
+            block_record_store::backfill_legacy_records(transaction)?;
+        }
+        if source_version < 105 {
+            ensure_v105_block_record_lifecycle_schema(transaction)?;
         }
         let updated = transaction.execute(
             "UPDATE core_store_metadata SET store_format_version = ?1 \
@@ -1575,6 +1602,11 @@ fn publish_current_store(
         ensure_v99_owner_scoped_scenes_schema(transaction)?;
         ensure_v100_relation_properties_schema(transaction)?;
         ensure_v101_projectless_permission_mode_schema(transaction)?;
+        ensure_v102_block_record_schema(transaction)?;
+        ensure_v103_block_record_view_schema(transaction)?;
+        ensure_v104_block_record_content_schema(transaction)?;
+        ensure_v105_block_record_lifecycle_schema(transaction)?;
+        block_record_store::backfill_legacy_records(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
@@ -1608,6 +1640,11 @@ fn create_fresh_store(
         ensure_v99_owner_scoped_scenes_schema(transaction)?;
         ensure_v100_relation_properties_schema(transaction)?;
         ensure_v101_projectless_permission_mode_schema(transaction)?;
+        ensure_v102_block_record_schema(transaction)?;
+        ensure_v103_block_record_view_schema(transaction)?;
+        ensure_v104_block_record_content_schema(transaction)?;
+        ensure_v105_block_record_lifecycle_schema(transaction)?;
+        block_record_store::backfill_legacy_records(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
@@ -1884,6 +1921,25 @@ fn ensure_v101_projectless_permission_mode_schema(
 ) -> Result<(), StoreError> {
     connection.execute_batch(V101_PROJECTLESS_PERMISSION_MODE_SCHEMA_SQL)?;
     Ok(())
+}
+
+fn ensure_v102_block_record_schema(connection: &Connection) -> Result<(), StoreError> {
+    block_record_store::install_legacy_schema(connection)?;
+    local_commit::install_schema(connection)?;
+    content_store::install_legacy_schema(connection)?;
+    Ok(())
+}
+
+fn ensure_v103_block_record_view_schema(connection: &Connection) -> Result<(), StoreError> {
+    block_record_store::install_view_position_schema(connection)
+}
+
+fn ensure_v104_block_record_content_schema(connection: &Connection) -> Result<(), StoreError> {
+    content_store::install_materialization_schema(connection)
+}
+
+fn ensure_v105_block_record_lifecycle_schema(connection: &Connection) -> Result<(), StoreError> {
+    block_record_store::ensure_lifecycle_schema(connection)
 }
 
 fn ensure_v95_canvas_incremental_schema(connection: &Connection) -> Result<(), StoreError> {
@@ -3274,6 +3330,10 @@ fn validate_exact_v100_schema(connection: &Connection) -> Result<(), StoreError>
     validate_exact_core_schema(connection, true, true, true, true, true, true, true, 100)
 }
 
+fn validate_exact_v101_schema(connection: &Connection) -> Result<(), StoreError> {
+    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 101)
+}
+
 fn validate_exact_current_schema(connection: &Connection) -> Result<(), StoreError> {
     validate_exact_core_schema(
         connection,
@@ -3347,6 +3407,18 @@ fn validate_exact_core_schema(
     }
     if schema_version >= 101 {
         ensure_v101_projectless_permission_mode_schema(&expected)?;
+    }
+    if schema_version >= 102 {
+        ensure_v102_block_record_schema(&expected)?;
+    }
+    if schema_version >= 103 {
+        ensure_v103_block_record_view_schema(&expected)?;
+    }
+    if schema_version >= 104 {
+        ensure_v104_block_record_content_schema(&expected)?;
+    }
+    if schema_version >= 105 {
+        ensure_v105_block_record_lifecycle_schema(&expected)?;
     }
 
     let expected_inventory = read_schema_inventory(&expected)?;
@@ -3436,6 +3508,18 @@ pub fn expected_store_schema_fingerprint(version: i64) -> Result<String, StoreEr
     }
     if version >= 101 {
         ensure_v101_projectless_permission_mode_schema(&expected)?;
+    }
+    if version >= 102 {
+        ensure_v102_block_record_schema(&expected)?;
+    }
+    if version >= 103 {
+        ensure_v103_block_record_view_schema(&expected)?;
+    }
+    if version >= 104 {
+        ensure_v104_block_record_content_schema(&expected)?;
+    }
+    if version >= 105 {
+        ensure_v105_block_record_lifecycle_schema(&expected)?;
     }
     read_schema_inventory(&expected).map(|inventory| schema_inventory_fingerprint(&inventory))
 }

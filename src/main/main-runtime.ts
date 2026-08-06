@@ -191,6 +191,7 @@ import {
   initializeDesktopDataAuthority,
   createCoreProjectWorkspaceAdapter,
   createDesktopAutomationModuleBridge,
+  createDesktopBlockRecordModuleBridge,
   createDesktopDatabaseModuleBridge,
   createDesktopLibraryModuleBridge,
   createDesktopDocumentSyncBridge,
@@ -2610,6 +2611,9 @@ export async function runMainAppStartup(
     publishLibraryDocumentCommits: documentSync.publishLibraryDocumentCommits,
   });
   desktopLibraryModule = libraryModule;
+  const blockRecordModule = createDesktopBlockRecordModuleBridge({
+    authority: dataAuthority,
+  });
   const databaseModule = createDesktopDatabaseModuleBridge({
     authority: dataAuthority,
   });
@@ -2740,6 +2744,8 @@ export async function runMainAppStartup(
     documentSync,
     projectWorkspace,
     libraryModule,
+    blockRecordModule,
+    localCommitDispatcher: dataAuthority.then((runtime) => runtime.localCommitDispatcher),
     databaseModule,
     rendererClientRouter,
     onHeartbeatAutomationsEnabledChanged: (input) => {

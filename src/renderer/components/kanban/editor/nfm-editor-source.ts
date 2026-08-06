@@ -1,33 +1,63 @@
 import type { Awareness } from "y-protocols/awareness";
 import type * as Y from "yjs";
+import type { PartialBlock } from "@blocknote/core";
+import type { PublicBlockTransferIntent } from "../../../../shared/block-transfer-transport";
+import type { NfmSchemaType } from "./nfm-schema";
+
+export type NfmEditorInitialContent = PartialBlock<
+  NfmSchemaType["blockSchema"],
+  NfmSchemaType["inlineContentSchema"],
+  NfmSchemaType["styleSchema"]
+>[];
 
 /**
- * A mounted NFM editor is always a view over an existing collaborative
- * Document. NFM parsing belongs to explicit import/export boundaries and must
- * never be used to rehydrate an editor after collaboration has started.
+ * A mounted NFM editor is a view over an existing durable document source.
+ * Collaborative Documents and BlockRecord windows have different persistence
+ * adapters, but NFM parsing remains an explicit boundary rather than a hidden
+ * rehydration path.
  */
-export interface NfmEditorSource {
-  readonly kind: "collaborative-document";
+interface NfmEditorSourceIdentity {
   readonly documentId: string;
   readonly storeEpoch: string;
   readonly generation: number;
   readonly clientSessionId: string;
-  readonly fragment: Y.XmlFragment;
   readonly user: {
     readonly name: string;
     readonly color: string;
   };
+  /** Editor-local invalidation hint. It is not a persistence callback. */
+  readonly onDocumentChange?: (blocks?: readonly unknown[]) => void;
+}
+
+export interface NfmEditorCollaborativeDocumentSource extends NfmEditorSourceIdentity {
+  readonly kind: "collaborative-document";
+  readonly fragment: Y.XmlFragment;
   readonly provider?: {
     readonly awareness?: Awareness;
   };
-  /** Editor-local invalidation hint. It is not a persistence callback. */
-  readonly onDocumentChange?: () => void;
 }
 
-export type NfmEditorCollaborativeDocumentSource = NfmEditorSource;
+export interface NfmEditorRecordSource extends NfmEditorSourceIdentity {
+  /** A bounded BlockRecord window materialized by the record adapter. */
+  readonly kind: "record-window";
+  readonly initialContent: readonly NfmEditorInitialContent[number][];
+  /** Reconciles an already-mounted editor after a newer Core window arrives. */
+  readonly contentVersion: number;
+  /** Flushes editor-local debounced writes before a structural command. */
+  readonly onPrepareForMutation?: () => Promise<void>;
+  readonly onMoveBlocksToPage?: (
+    blockIds: readonly string[],
+    targetPageId: string,
+  ) => Promise<void>;
+  readonly onTransfer?: (intent: PublicBlockTransferIntent) => Promise<void>;
+}
+
+export type NfmEditorSource =
+  | NfmEditorCollaborativeDocumentSource
+  | NfmEditorRecordSource;
 
 export interface NfmEditorModeOptions {
-  readonly collaboration: {
+  readonly collaboration?: {
     readonly fragment: Y.XmlFragment;
     readonly user: {
       readonly name: string;
@@ -40,9 +70,18 @@ export interface NfmEditorModeOptions {
   readonly initialContent?: never;
 }
 
+export interface NfmRecordEditorModeOptions {
+  readonly collaboration?: never;
+  /** BlockNote mutates this array while normalizing editor state. */
+  readonly initialContent: NfmEditorInitialContent;
+}
+
 export function createNfmEditorModeOptions(
   source: NfmEditorSource,
-): NfmEditorModeOptions {
+): NfmEditorModeOptions | NfmRecordEditorModeOptions {
+  if (source.kind === "record-window") {
+    return { initialContent: [...source.initialContent] };
+  }
   return {
     collaboration: {
       fragment: source.fragment,
@@ -70,11 +109,13 @@ export function getNfmEditorInstanceKey(input: {
   readonly source: NfmEditorSource;
 }): string {
   return [
-    "collaborative-document",
+    input.source.kind,
     input.documentScopeId,
     input.source.documentId,
     input.source.generation,
-    getCollaborativeFragmentId(input.source.fragment),
+    input.source.kind === "collaborative-document"
+      ? getCollaborativeFragmentId(input.source.fragment)
+      : "record-window",
   ].join(":");
 }
 

@@ -6,9 +6,9 @@ import {
 } from "./api";
 import type {
   BoardSummary,
-  DatabasePage,
   PageInput,
   DatabasePageSummary,
+  BoardSummarySnapshot,
 } from "./types";
 import type {
   DatabaseViewGroupScopeInput,
@@ -23,8 +23,6 @@ import {
   overlap,
   type BoardTransform,
 } from "./kanban-optimistic-ops";
-import { toDatabasePageSummary } from "../../shared/page-summary";
-import { applyBoardChangeEventToBoard, upsertCardSummaryInBoard } from "./board-summary-events";
 import type { BoardChangeEvent } from "../../shared/ipc-api";
 import {
   UNGROUPED_SCOPE_KEY,
@@ -37,6 +35,19 @@ import type {
   ProjectionInvalidationRegistry,
 } from "./projection-invalidation-registry";
 import type { ProjectionStreamMessage } from "../../shared/projection-stream";
+import type { BlockRecordRead } from "../../shared/core-modules/block-record-module";
+import type { BlockRecordWindow } from "../../shared/block-records";
+import {
+  buildCreateBlockRecordApplyInput,
+  buildArchiveBlockRecordSubtreeApplyInput,
+  buildPromoteManyBlockRecordApplyInput,
+  buildUpdateBlockRecordApplyInput,
+  buildUpdateManyBlockRecordsApplyInput,
+  planFractionalRank,
+} from "../../shared/block-records";
+import type { BlockRecordWindowStore } from "./block-record-window-store";
+import { createBlockRecordWindowStore } from "./block-record-window-store";
+import { projectBlockRecordWindowToBoard } from "./block-record-board-projection";
 
 const DEFAULT_BOARD_FRESHNESS_MS = 30_000;
 const GROUP_WINDOW_FIRST = 50;
@@ -87,6 +98,67 @@ export interface OptimisticMutationResult<T> {
   opId: number;
 }
 
+export interface PromoteBlockToPageOptions {
+  readonly blockId: string;
+  readonly groupKey: string;
+  readonly beforePageId?: string;
+  readonly actorId: string;
+  readonly sessionId: string;
+}
+
+export interface PromoteBlocksToPageOptions {
+  readonly blockIds: readonly string[];
+  readonly groupKey: string;
+  readonly beforePageId?: string;
+  readonly actorId: string;
+  readonly sessionId: string;
+}
+
+export interface CreateBlockRecordPageOptions {
+  readonly blockId: string;
+  readonly properties: Readonly<Record<string, unknown>>;
+  readonly materializedJson: unknown;
+  readonly groupKey: string | null;
+  readonly placement: "top" | "bottom" | { readonly beforePageId: string };
+  readonly actorId: string;
+  readonly sessionId: string;
+}
+
+export interface UpdateBlockRecordOptions {
+  readonly blockId: string;
+  readonly properties: Readonly<Record<string, unknown>>;
+  readonly view?: {
+    readonly groupKey: string | null;
+    readonly rankKey: string;
+  };
+  readonly actorId: string;
+  readonly sessionId: string;
+}
+
+export interface UpdateManyBlockRecordsOptions {
+  readonly entries: readonly {
+    readonly blockId: string;
+    readonly properties: Readonly<Record<string, unknown>>;
+    readonly view?: {
+      readonly groupKey: string | null;
+      readonly rankKey: string;
+    };
+  }[];
+  readonly viewRebalances?: readonly {
+    readonly blockId: string;
+    readonly groupKey: string | null;
+    readonly rankKey: string;
+  }[];
+  readonly actorId: string;
+  readonly sessionId: string;
+}
+
+export interface ArchiveBlockRecordOptions {
+  readonly blockId: string;
+  readonly actorId: string;
+  readonly sessionId: string;
+}
+
 type StoreListener = () => void;
 
 type ReadViewWindowFn = (
@@ -106,6 +178,7 @@ export interface KanbanStoreDependencies {
   subscribeBoardChanges: SubscribeBoardChangesFn;
   getProjectionInvalidationRegistry: () => ProjectionInvalidationRegistry | null;
   now: NowFn;
+  createBlockRecordWindowStore?: () => BlockRecordWindowStore;
 }
 
 export interface EnsureFreshBoardOptions {
@@ -194,6 +267,16 @@ interface GroupWindowState {
   readonly snapshot: DatabaseViewWindowSnapshot;
   readonly loadingMore: boolean;
   readonly inlineError: string | null;
+}
+
+interface CanonicalBoardAuthority {
+  readonly projectId: string;
+  readonly libraryId: string;
+  readonly databaseId: string;
+  readonly dataSourceId: string;
+  readonly viewId: string;
+  readonly storeEpoch: string;
+  readonly changeLogSeq: number;
 }
 
 const scopesFromGroups = (
@@ -331,7 +414,28 @@ class KanbanProjectStore {
 
   private baseBoardAuthority: DatabaseViewWindowSnapshot | null = null;
 
+  /**
+   * Board identity is available from the bounded Data Source descriptor and
+   * the BlockRecord window. It must not wait for compatibility row windows.
+   */
+  private canonicalBoardAuthority: CanonicalBoardAuthority | null = null;
+
   private baseDatabaseView: DatabaseViewRenderModel | null = null;
+
+  /**
+   * The Board's canonical card projection. The legacy Database View window is
+   * retained only for View metadata and pagination until the remaining
+   * surfaces are moved to BlockRecord reads.
+   */
+  private blockRecordBoard: BoardSummary | null = null;
+
+  private blockRecordWindow: BlockRecordWindow | null = null;
+
+  private readonly blockRecordWindowStore: BlockRecordWindowStore | null;
+
+  private unsubscribeBlockRecordWindow: (() => void) | null = null;
+
+  private stopBlockRecordCommitSubscription: (() => void) | null = null;
 
   private groupWindows = new Map<GroupWindowScopeKey, GroupWindowState>();
 
@@ -361,9 +465,29 @@ class KanbanProjectStore {
     private readonly projectId: string,
     private readonly databaseViewId: string | null,
     private readonly dependencies: KanbanStoreDependencies,
-  ) {}
+  ) {
+    this.blockRecordWindowStore = dependencies.createBlockRecordWindowStore?.() ?? null;
+  }
 
   getSnapshot = (): KanbanStoreSnapshot => this.snapshot;
+
+  getBlockRecordWindow = (): BlockRecordWindow | null => this.blockRecordWindow;
+
+  getBoardSummarySnapshot = (): BoardSummarySnapshot | null => {
+    const authority = this.canonicalBoardAuthority;
+    const board = this.snapshot.board;
+    if (!authority || !board) return null;
+    return {
+      projectId: this.projectId,
+      libraryId: authority.libraryId,
+      databaseId: authority.databaseId,
+      dataSourceId: authority.dataSourceId,
+      viewId: authority.viewId,
+      storeEpoch: authority.storeEpoch,
+      changeLogSeq: authority.changeLogSeq,
+      board,
+    };
+  };
 
   subscribe = (listener: StoreListener): (() => void) => {
     this.listeners.add(listener);
@@ -432,26 +556,64 @@ class KanbanProjectStore {
       : null;
   }
 
-  private fetchBoardOnce = async (
+  private attachBlockRecordWindow(window: BlockRecordWindow): void {
+    if (window === this.blockRecordWindow) return;
+    this.blockRecordWindow = window;
+    if (this.canonicalBoardAuthority) {
+      this.canonicalBoardAuthority = {
+        ...this.canonicalBoardAuthority,
+        storeEpoch: window.observedLocalCommit.storeEpoch,
+        changeLogSeq: window.observedLocalCommit.commitSeq,
+      };
+    }
+    this.blockRecordBoard = projectBlockRecordWindowToBoard(window);
+    this.recomputeSnapshot({ loading: false, error: null });
+  }
+
+  private blockRecordReadForGroups(groups: DatabaseViewGroupsSnapshot): BlockRecordRead {
+    return {
+      kind: "window",
+      parent: { kind: "data_source", id: groups.dataSourceId },
+      view_id: groups.viewId,
+      // Board cards use the Page title content slot. The window is shallow:
+      // direct Data Source children only, so this does not hydrate Page bodies.
+      include_content: true,
+    };
+  }
+
+  private loadBlockRecordBoard = async (
+    groups: DatabaseViewGroupsSnapshot,
+  ): Promise<void> => {
+    const store = this.blockRecordWindowStore;
+    if (!store) return;
+
+    this.canonicalBoardAuthority = {
+      projectId: groups.projectId,
+      libraryId: groups.libraryId,
+      databaseId: groups.databaseId,
+      dataSourceId: groups.dataSourceId,
+      viewId: groups.viewId,
+      storeEpoch: groups.storeEpoch,
+      changeLogSeq: groups.changeLogSeq,
+    };
+
+    const read = this.blockRecordReadForGroups(groups);
+    const window = await store.load(read);
+    this.unsubscribeBlockRecordWindow?.();
+    this.unsubscribeBlockRecordWindow = store.subscribe((next) => {
+      this.attachBlockRecordWindow(next);
+    });
+    this.stopBlockRecordCommitSubscription?.();
+    this.stopBlockRecordCommitSubscription = store.startCommitSubscription();
+    this.attachBlockRecordWindow(window);
+  };
+
+  private loadLegacyBoardWindows = async (
+    groups: DatabaseViewGroupsSnapshot,
     minimumCommitSeq: number,
     refreshGeneration: number,
-  ): Promise<void> => {
-    const hasReadableBase = this.databaseViewId
-      ? this.baseDatabaseView !== null
-      : this.baseBoard !== null;
-    const shouldShowLoading = !hasReadableBase && !this.snapshot.loading;
-    if (shouldShowLoading) {
-      this.setSnapshot({
-        ...this.snapshot,
-        loading: true,
-      });
-    }
-
+  ): Promise<boolean> => {
     try {
-      const groups = await this.dependencies.readViewGroups(
-        this.projectId,
-        this.groupsInput(minimumCommitSeq),
-      );
       const scopes = scopesFromGroups(groups);
       // An empty grouped View still needs one window for its descriptor.
       const fetchScopes: GroupWindowScope[] = scopes.length > 0
@@ -466,30 +628,24 @@ class KanbanProjectStore {
           minimumCommitSeq,
         ),
       })));
-      const currentAuthority = this.baseBoardAuthority;
+      if (
+        refreshGeneration < this.requiredRefreshGeneration
+        || (
+          this.canonicalBoardAuthority
+          && (
+            this.canonicalBoardAuthority.storeEpoch !== groups.storeEpoch
+            || this.canonicalBoardAuthority.viewId !== groups.viewId
+          )
+        )
+      ) {
+        return false;
+      }
       const incomingSeq = Math.min(
         ...windows.map((window) => window.snapshot.changeLogSeq),
       );
       if (incomingSeq < minimumCommitSeq) {
-        throw new Error(
-          `Database View read did not reach local commit ${minimumCommitSeq}`,
-        );
+        return false;
       }
-      if (
-        currentAuthority
-        && windows[0]
-        && windows[0].snapshot.storeEpoch === currentAuthority.storeEpoch
-        && incomingSeq < currentAuthority.changeLogSeq
-      ) {
-        // Every fetched window predates what is already on screen; keep the
-        // newer state and only refresh bookkeeping.
-        this.lastFetchedAt = this.dependencies.now();
-        this.stale = false;
-        this.ensureProjectionSubscription();
-        this.recomputeSnapshot({ loading: false, error: null });
-        return;
-      }
-      this.groupsSnapshot = groups;
       this.groupWindows = new Map(windows.map(({ scope, snapshot }) => [
         scope.scopeKey,
         {
@@ -500,15 +656,86 @@ class KanbanProjectStore {
         },
       ]));
       this.rebuildFromGroups();
-      this.lastFetchedAt = this.dependencies.now();
-      this.stale = false;
-      this.ensureProjectionSubscription();
-      this.recomputeSnapshot({
-        loading: false,
-        error: null,
+      this.recomputeSnapshot({ error: null });
+      return true;
+    } catch {
+      // The compatibility windows are pagination/metadata enrichment. They
+      // must not hide a Board that already has a canonical BlockRecord
+      // projection. Future invalidation or explicit pagination retries them.
+      this.recomputeSnapshot({ error: null });
+      return false;
+    }
+  };
+
+  private fetchBoardOnce = async (
+    minimumCommitSeq: number,
+    refreshGeneration: number,
+  ): Promise<void> => {
+    const hasReadableBase = this.readableBoardBase() !== null;
+    const shouldShowLoading = !hasReadableBase && !this.snapshot.loading;
+    if (shouldShowLoading) {
+      this.setSnapshot({
+        ...this.snapshot,
+        loading: true,
       });
+    }
+
+    try {
+      const groups = await this.dependencies.readViewGroups(
+        this.projectId,
+        this.groupsInput(minimumCommitSeq),
+      );
+      this.groupsSnapshot = groups;
+      let blockRecordLoadError: unknown = null;
+      // The canonical Board is allowed to become visible as soon as its
+      // BlockRecord window is ready. Legacy row windows start after that
+      // publication because they only enrich pagination and View controls;
+      // fetchBoard retains their completion in its promise for callers that
+      // need the complete metadata snapshot.
+      try {
+        await this.loadBlockRecordBoard(groups);
+      } catch (error) {
+        blockRecordLoadError = error;
+        this.blockRecordBoard = null;
+        this.blockRecordWindow = null;
+        this.canonicalBoardAuthority = null;
+      }
+
+      const hasCanonicalBoard = this.blockRecordBoard !== null;
+      if (hasCanonicalBoard) {
+        this.lastFetchedAt = this.dependencies.now();
+        this.stale = false;
+        this.ensureProjectionSubscription();
+        this.recomputeSnapshot({
+          loading: false,
+          error: null,
+        });
+      }
+
+      const hasLegacyBoard = await this.loadLegacyBoardWindows(
+        groups,
+        minimumCommitSeq,
+        refreshGeneration,
+      );
+      const hasReadableBoard = hasCanonicalBoard
+        || (!this.blockRecordWindowStore && hasLegacyBoard);
+      if (!hasReadableBoard) {
+        throw blockRecordLoadError ?? new Error("The Board could not be loaded");
+      }
+      if (!hasCanonicalBoard) {
+        this.lastFetchedAt = this.dependencies.now();
+        this.stale = false;
+        this.ensureProjectionSubscription();
+        this.recomputeSnapshot({
+          loading: false,
+          error: null,
+        });
+      }
     } catch (error) {
       this.stale = true;
+      this.blockRecordBoard = null;
+      this.blockRecordWindow = null;
+      this.canonicalBoardAuthority = null;
       if (this.databaseViewId) {
         this.baseDatabaseView = null;
         this.baseBoard = null;
@@ -582,6 +809,7 @@ class KanbanProjectStore {
         inlineError: null,
       });
       this.rebuildFromGroups();
+      if (this.groupsSnapshot) await this.loadBlockRecordBoard(this.groupsSnapshot);
       this.recomputeSnapshot();
     } catch (error) {
       this.setGroupState(scopeKey, { inlineError: toError(error).message });
@@ -631,6 +859,7 @@ class KanbanProjectStore {
         inlineError: null,
       });
       this.rebuildFromGroups();
+      if (this.groupsSnapshot) await this.loadBlockRecordBoard(this.groupsSnapshot);
       this.recomputeSnapshot({ error: null });
     } catch (error) {
       if (error instanceof CoreApiError
@@ -665,9 +894,7 @@ class KanbanProjectStore {
 
   ensureFreshBoard = async (options: EnsureFreshBoardOptions = {}): Promise<void> => {
     const maxAgeMs = options.maxAgeMs ?? DEFAULT_BOARD_FRESHNESS_MS;
-    const hasReadableBase = this.databaseViewId
-      ? this.baseDatabaseView !== null
-      : this.baseBoard !== null;
+    const hasReadableBase = this.readableBoardBase() !== null;
     const boardIsFresh = hasReadableBase
       && !this.stale
       && this.dependencies.now() - this.lastFetchedAt <= maxAgeMs;
@@ -684,6 +911,364 @@ class KanbanProjectStore {
 
   refreshBoard = async (): Promise<void> => {
     await this.refreshBoardAtLeast();
+  };
+
+  /**
+   * Promotes one stable BlockRecord directly into the loaded Board window.
+   * Core's apply response is admitted into the window before the durable
+   * LocalCommit tail can replay the same envelope, so the Board never waits
+   * for a projection refresh to reveal the new Page.
+   */
+  promoteBlockToPage = async (
+    input: PromoteBlockToPageOptions,
+  ): Promise<void> => {
+    await this.promoteBlocksToPage({
+      ...input,
+      blockIds: [input.blockId],
+    });
+  };
+
+  promoteBlocksToPage = async (
+    input: PromoteBlocksToPageOptions,
+  ): Promise<void> => {
+    if (input.blockIds.length === 0) throw new Error("No Blocks were selected");
+    const uniqueBlockIds = [...new Set(input.blockIds)];
+    if (uniqueBlockIds.length !== input.blockIds.length) {
+      throw new Error("The Block selection contains duplicates");
+    }
+    const windowStore = this.blockRecordWindowStore;
+    const boardWindow = this.blockRecordWindow;
+    const authority = this.canonicalBoardAuthority;
+    if (!windowStore || !boardWindow || !authority) {
+      throw new Error("The BlockRecord Board window is not loaded");
+    }
+    const source = await windowStore.read({
+      kind: "window",
+      block_ids: uniqueBlockIds,
+      include_content: true,
+    });
+    const records = new Map(source.records.map((record) => [record.id, record]));
+    const placements = new Map(source.placements.map((placement) => [placement.blockId, placement]));
+    for (const blockId of uniqueBlockIds) {
+      if (!records.has(blockId) || !placements.has(blockId)) {
+        throw new Error("BlockRecord " + blockId + " is not available");
+      }
+    }
+    const targetViewPositions = boardWindow.viewPositions
+      .filter((position) =>
+        position.viewId === authority.viewId
+        && position.groupKey === input.groupKey
+        && !records.has(position.blockId),
+      )
+      .sort((left, right) => left.rankKey.localeCompare(right.rankKey) || left.blockId.localeCompare(right.blockId));
+    const targetPlacements = boardWindow.placements
+      .filter((placement) =>
+        placement.parent.kind === "dataSource"
+        && placement.parent.dataSourceId === authority.dataSourceId
+        && !records.has(placement.blockId),
+      )
+      .sort((left, right) =>
+        left.rankKey.localeCompare(right.rankKey) || left.blockId.localeCompare(right.blockId));
+    const viewItems = targetViewPositions.map((position) => ({
+      id: position.blockId,
+      rankKey: position.rankKey,
+    }));
+    const placementItems = targetPlacements.map((placement) => ({
+      id: placement.blockId,
+      rankKey: placement.rankKey,
+    }));
+    const viewRebalances = new Map<string, {
+      blockId: string;
+      groupKey: string | null;
+      rankKey: string;
+      expectedRevision: number;
+    }>();
+    const placementRebalances = new Map<string, {
+      blockId: string;
+      rankKey: string;
+      expectedRevision: number;
+    }>();
+    const entries = new Map<string, {
+      blockId: string;
+      viewGroupKey: string;
+      viewRankKey: string;
+      rankKey: string;
+      expectedBlockRevision: number;
+      expectedPlacementRevision: number;
+    }>();
+    for (const blockId of uniqueBlockIds) {
+      const record = records.get(blockId);
+      const placement = placements.get(blockId);
+      if (!record || !placement) throw new Error("BlockRecord " + blockId + " is not available");
+      const viewPlan = planFractionalRank(viewItems, blockId, input.beforePageId);
+      const placementPlan = planFractionalRank(placementItems, blockId, input.beforePageId);
+      for (const [rebalanceId, rankKey] of placementPlan.rebalancedRankKeys) {
+        const placement = targetPlacements.find((candidate) => candidate.blockId === rebalanceId);
+        if (!placement) {
+          throw new Error(`Board placement rebalance target ${rebalanceId} is not loaded`);
+        }
+        placementRebalances.set(rebalanceId, {
+          blockId: rebalanceId,
+          rankKey,
+          expectedRevision: placement.revision,
+        });
+        const item = placementItems.find((candidate) => candidate.id === rebalanceId);
+        if (item) item.rankKey = rankKey;
+      }
+      for (const [rebalanceId, rankKey] of viewPlan.rebalancedRankKeys) {
+        const position = targetViewPositions.find((candidate) => candidate.blockId === rebalanceId);
+        if (position) {
+          viewRebalances.set(rebalanceId, {
+            blockId: rebalanceId,
+            groupKey: position.groupKey,
+            rankKey,
+            expectedRevision: position.revision,
+          });
+        }
+        const item = viewItems.find((candidate) => candidate.id === rebalanceId);
+        if (item) item.rankKey = rankKey;
+        const existingEntry = entries.get(rebalanceId);
+        if (existingEntry) entries.set(rebalanceId, { ...existingEntry, viewRankKey: rankKey });
+      }
+      entries.set(blockId, {
+        blockId,
+        viewGroupKey: input.groupKey,
+        viewRankKey: viewPlan.rankKey,
+        rankKey: placementPlan.rankKey,
+        expectedBlockRevision: record.revision,
+        expectedPlacementRevision: placement.revision,
+      });
+      const viewIndex = input.beforePageId === undefined
+        ? viewItems.length
+        : viewItems.findIndex((item) => item.id === input.beforePageId);
+      const placementIndex = input.beforePageId === undefined
+        ? placementItems.length
+        : placementItems.findIndex((item) => item.id === input.beforePageId);
+      if (viewIndex < 0 || placementIndex < 0) {
+        throw new Error("Board order anchor does not exist: " + input.beforePageId);
+      }
+      viewItems.splice(viewIndex, 0, { id: blockId, rankKey: viewPlan.rankKey });
+      placementItems.splice(placementIndex, 0, { id: blockId, rankKey: placementPlan.rankKey });
+    }
+    const applyInput = await buildPromoteManyBlockRecordApplyInput({
+      operationId: crypto.randomUUID(),
+      actorId: input.actorId,
+      sessionId: input.sessionId,
+      dataSourceId: authority.dataSourceId,
+      viewId: authority.viewId,
+      entries: uniqueBlockIds.map((blockId) => entries.get(blockId)!).filter(Boolean),
+      viewRebalances: [...viewRebalances.values()],
+      placementRebalances: [...placementRebalances.values()],
+    });
+    await windowStore.apply(applyInput);
+  };
+
+  createBlockRecordPage = async (
+    input: CreateBlockRecordPageOptions,
+  ): Promise<void> => {
+    const windowStore = this.blockRecordWindowStore;
+    const window = this.blockRecordWindow;
+    const authority = this.canonicalBoardAuthority;
+    if (!windowStore || !window || !authority) {
+      throw new Error("The BlockRecord Board window is not loaded");
+    }
+    if (window.rootParent.kind !== "dataSource") {
+      throw new Error("A Board Page must be owned by its Data Source");
+    }
+    const dataSourceId = window.rootParent.dataSourceId;
+    const beforePageId = input.placement === "top"
+      ? window.viewPositions
+        .filter((position) => (
+          position.viewId === authority.viewId
+          && position.groupKey === input.groupKey
+        ))
+        .sort((left, right) => left.rankKey.localeCompare(right.rankKey) || left.blockId.localeCompare(right.blockId))[0]
+        ?.blockId
+      : typeof input.placement === "object"
+        ? input.placement.beforePageId
+        : undefined;
+    const placementItems = window.placements
+      .filter((placement) => (
+        placement.parent.kind === "dataSource"
+        && placement.parent.dataSourceId === dataSourceId
+      ))
+      .sort((left, right) => left.rankKey.localeCompare(right.rankKey) || left.blockId.localeCompare(right.blockId))
+      .map((placement) => ({ id: placement.blockId, rankKey: placement.rankKey }));
+    const viewItems = window.viewPositions
+      .filter((position) => (
+        position.viewId === authority.viewId
+        && position.groupKey === input.groupKey
+      ))
+      .sort((left, right) => left.rankKey.localeCompare(right.rankKey) || left.blockId.localeCompare(right.blockId))
+      .map((position) => ({ id: position.blockId, rankKey: position.rankKey }));
+    const placementPlan = planFractionalRank(placementItems, input.blockId, beforePageId);
+    const viewPlan = planFractionalRank(viewItems, input.blockId, beforePageId);
+    const placementRebalances = [...placementPlan.rebalancedRankKeys].map(([blockId, rankKey]) => {
+      const placement = window.placements.find((candidate) => candidate.blockId === blockId);
+      if (!placement) throw new Error(`BlockRecord placement ${blockId} is not available`);
+      return {
+        blockId,
+        rankKey,
+        expectedRevision: placement.revision,
+      };
+    });
+    const viewRebalances = [...viewPlan.rebalancedRankKeys].map(([blockId, rankKey]) => {
+      const position = window.viewPositions.find((candidate) => (
+        candidate.viewId === authority.viewId && candidate.blockId === blockId
+      ));
+      if (!position) throw new Error(`BlockRecord View position ${blockId} is not available`);
+      return {
+        blockId,
+        groupKey: position.groupKey,
+        rankKey,
+        expectedRevision: position.revision,
+      };
+    });
+    await windowStore.apply(
+      await buildCreateBlockRecordApplyInput({
+        operationId: crypto.randomUUID(),
+        actorId: input.actorId,
+        sessionId: input.sessionId,
+        blockId: input.blockId,
+        blockKind: "page",
+        properties: input.properties,
+        contentShardId: `block-record-shard:${input.blockId}`,
+        parent: {
+          kind: "dataSource",
+          dataSourceId,
+        },
+        rankKey: placementPlan.rankKey,
+        viewId: authority.viewId,
+        dataSourceId: authority.dataSourceId,
+        viewGroupKey: input.groupKey,
+        viewRankKey: viewPlan.rankKey,
+        materializedJson: input.materializedJson,
+        placementRebalances,
+        viewRebalances,
+      }),
+    );
+  };
+
+  updateBlockRecord = async (input: UpdateBlockRecordOptions): Promise<void> => {
+    const windowStore = this.blockRecordWindowStore;
+    const window = this.blockRecordWindow;
+    if (!windowStore || !window) throw new Error("The BlockRecord window is not loaded");
+    const record = window.records.find((candidate) => candidate.id === input.blockId);
+    if (!record) throw new Error(`BlockRecord ${input.blockId} is not available`);
+    const viewPosition = input.view
+      ? window.viewPositions.find((candidate) => (
+        candidate.viewId === window.viewId && candidate.blockId === input.blockId
+      ))
+      : undefined;
+    const view = input.view && window.viewId
+      ? {
+        viewId: window.viewId,
+        dataSourceId: viewPosition?.dataSourceId
+          ?? (window.rootParent.kind === "dataSource" ? window.rootParent.dataSourceId : null),
+        groupKey: input.view.groupKey,
+        rankKey: input.view.rankKey,
+        expectedRevision: viewPosition?.revision ?? 0,
+      }
+      : undefined;
+    if (input.view && (!view || !view.dataSourceId)) {
+      throw new Error("The BlockRecord View position is not available");
+    }
+    await windowStore.apply(
+      await buildUpdateBlockRecordApplyInput({
+        operationId: crypto.randomUUID(),
+        actorId: input.actorId,
+        sessionId: input.sessionId,
+        blockId: input.blockId,
+        properties: input.properties,
+        expectedBlockRevision: record.revision,
+        ...(view
+          ? {
+            viewId: view.viewId,
+            dataSourceId: view.dataSourceId!,
+            viewGroupKey: view.groupKey,
+            viewRankKey: view.rankKey,
+            expectedViewRevision: view.expectedRevision,
+          }
+          : {}),
+      }),
+    );
+  };
+
+  updateBlockRecords = async (input: UpdateManyBlockRecordsOptions): Promise<void> => {
+    const windowStore = this.blockRecordWindowStore;
+    const window = this.blockRecordWindow;
+    if (!windowStore || !window || input.entries.length === 0) {
+      throw new Error("The BlockRecord Board window is not loaded");
+    }
+    const records = new Map(window.records.map((record) => [record.id, record]));
+    const entries = input.entries.map((entry) => {
+      const record = records.get(entry.blockId);
+      if (!record) throw new Error(`BlockRecord ${entry.blockId} is not available`);
+      if (!entry.view) {
+        return {
+          blockId: entry.blockId,
+          properties: entry.properties,
+          expectedBlockRevision: record.revision,
+        };
+      }
+      if (!window.viewId) throw new Error("The BlockRecord Board View is not loaded");
+      const currentPosition = window.viewPositions.find((position) => (
+        position.viewId === window.viewId && position.blockId === entry.blockId
+      ));
+      const dataSourceId = currentPosition?.dataSourceId
+        ?? (window.rootParent.kind === "dataSource" ? window.rootParent.dataSourceId : null);
+      if (!dataSourceId) throw new Error(`BlockRecord View position ${entry.blockId} is not available`);
+      return {
+        blockId: entry.blockId,
+        properties: entry.properties,
+        expectedBlockRevision: record.revision,
+        viewId: window.viewId,
+        dataSourceId,
+        viewGroupKey: entry.view.groupKey,
+        viewRankKey: entry.view.rankKey,
+        expectedViewRevision: currentPosition?.revision ?? 0,
+      };
+    });
+    await windowStore.apply(
+      await buildUpdateManyBlockRecordsApplyInput({
+        operationId: crypto.randomUUID(),
+        actorId: input.actorId,
+        sessionId: input.sessionId,
+        entries,
+        viewRebalances: (input.viewRebalances ?? []).map((rebalance) => {
+          if (!window.viewId) throw new Error("The BlockRecord Board View is not loaded");
+          const position = window.viewPositions.find((candidate) => (
+            candidate.viewId === window.viewId && candidate.blockId === rebalance.blockId
+          ));
+          if (!position) throw new Error(`BlockRecord View position ${rebalance.blockId} is not available`);
+          return {
+            blockId: rebalance.blockId,
+            groupKey: rebalance.groupKey,
+            rankKey: rebalance.rankKey,
+            expectedRevision: position.revision,
+          };
+        }),
+      }),
+    );
+  };
+
+  archiveBlockRecord = async (input: ArchiveBlockRecordOptions): Promise<void> => {
+    const windowStore = this.blockRecordWindowStore;
+    const window = this.blockRecordWindow;
+    if (!windowStore || !window) throw new Error("The BlockRecord window is not loaded");
+    const record = window.records.find((candidate) => candidate.id === input.blockId);
+    const placement = window.placements.find((candidate) => candidate.blockId === input.blockId);
+    if (!record || !placement) throw new Error(`BlockRecord ${input.blockId} is not available`);
+    await windowStore.apply(
+      await buildArchiveBlockRecordSubtreeApplyInput({
+        operationId: crypto.randomUUID(),
+        actorId: input.actorId,
+        sessionId: input.sessionId,
+        blockId: input.blockId,
+        expectedBlockRevision: record.revision,
+        expectedPlacementRevision: placement.revision,
+      }),
+    );
   };
 
   setError = (message: string): void => {
@@ -705,31 +1290,19 @@ class KanbanProjectStore {
     });
   };
 
-  applyRemoteCard = (card: DatabasePage): void => {
-    this.applyRemoteCardSummary(toDatabasePageSummary(card));
-  };
-
-  applyRemoteCardSummary = (card: DatabasePageSummary): void => {
-    if (!this.baseBoard) return;
-
-    const nextBoard = upsertCardSummaryInBoard(this.baseBoard, card);
-    if (nextBoard === this.baseBoard) return;
-
-    this.baseBoard = nextBoard;
-    this.recomputeSnapshot();
-  };
-
   enqueueLocalOverlay = (options: LocalOverlayOptions): boolean => {
     this.supersedeConflicts(options.conflictKeys);
-    const before = this.baseBoard ? this.composeBoard(this.baseBoard) : null;
+    const boardBase = this.readableBoardBase();
+    const before = boardBase ? this.composeBoard(boardBase) : null;
     const entry = this.createEntry({
       ...options,
       pending: false,
       retainUntilSuperseded: true,
     });
     this.optimisticEntries.push(entry);
-    const after = this.baseBoard ? this.composeBoard(this.baseBoard) : null;
-    if (this.baseBoard && after === before) {
+    const afterBase = this.readableBoardBase();
+    const after = afterBase ? this.composeBoard(afterBase) : null;
+    if (afterBase && after === before) {
       this.optimisticEntries = this.optimisticEntries.filter((candidate) => candidate.opId !== entry.opId);
       return false;
     }
@@ -828,6 +1401,30 @@ class KanbanProjectStore {
     return next;
   }
 
+  private readableBoardBase(): BoardSummary | null {
+    // The production registry always provides the BlockRecord store. A
+    // legacy-only dependency is retained for isolated tests and non-terminal
+    // adapters, but it is never a fallback for a failed canonical Board read.
+    return this.blockRecordWindowStore
+      ? this.blockRecordBoard
+      : this.baseBoard;
+  }
+
+  private projectionAuthority(): CanonicalBoardAuthority | null {
+    if (this.canonicalBoardAuthority) return this.canonicalBoardAuthority;
+    const legacy = this.baseBoardAuthority;
+    if (!legacy) return null;
+    return {
+      projectId: legacy.projectId,
+      libraryId: legacy.libraryId,
+      databaseId: legacy.databaseId,
+      dataSourceId: legacy.dataSourceId,
+      viewId: legacy.viewId,
+      storeEpoch: legacy.storeEpoch,
+      changeLogSeq: legacy.changeLogSeq,
+    };
+  }
+
   private activePendingCount(): number {
     return this.optimisticEntries.filter((entry) => entry.pending && !entry.superseded).length;
   }
@@ -866,7 +1463,8 @@ class KanbanProjectStore {
     > = {},
   ): void {
     this.pruneConvergedEntries();
-    const board = this.baseBoard ? this.composeBoard(this.baseBoard) : null;
+    const boardSource = this.readableBoardBase();
+    const board = boardSource ? this.composeBoard(boardSource) : null;
     const hasLoading = Object.prototype.hasOwnProperty.call(overrides, "loading");
     const hasError = Object.prototype.hasOwnProperty.call(overrides, "error");
     const hasLoadingMore = Object.prototype.hasOwnProperty.call(
@@ -901,10 +1499,11 @@ class KanbanProjectStore {
   }
 
   private pruneConvergedEntries(): void {
-    if (!this.baseBoard) return;
+    const boardBase = this.readableBoardBase();
+    if (!boardBase) return;
     if (this.optimisticEntries.length === 0) return;
 
-    let working = this.baseBoard;
+    let working = boardBase;
     let changed = false;
     const nextEntries: OptimisticEntry[] = [];
 
@@ -1044,9 +1643,9 @@ class KanbanProjectStore {
         (event) => {
           if (this.databaseViewId) {
             if (
-              this.baseBoardAuthority
+              this.canonicalBoardAuthority
               && event.storeEpoch
-              && event.storeEpoch !== this.baseBoardAuthority.storeEpoch
+              && event.storeEpoch !== this.canonicalBoardAuthority.storeEpoch
             ) {
               this.requiredMinimumCommitSeq = 0;
             }
@@ -1054,35 +1653,10 @@ class KanbanProjectStore {
             this.requestRealtimeRefresh(event.changeLogSeq ?? 0);
             return;
           }
-          const authority = this.baseBoardAuthority;
-          if (
-            !authority
-            || !event.storeEpoch
-            || event.changeLogSeq === undefined
-            || event.storeEpoch !== authority.storeEpoch
-            || event.changeLogSeq < authority.changeLogSeq
-          ) {
-            this.requestRealtimeRefresh(event.changeLogSeq ?? 0);
-            return;
-          }
-          const nextBoard = applyBoardChangeEventToBoard(
-            this.baseBoard ?? undefined,
-            event,
-          );
-          if (nextBoard) {
-            if (nextBoard !== this.baseBoard) {
-              this.baseBoard = nextBoard;
-              this.baseBoardAuthority = {
-                ...authority,
-                board: nextBoard,
-                changeLogSeq: event.changeLogSeq,
-              };
-              this.lastFetchedAt = this.dependencies.now();
-              this.stale = false;
-              this.recomputeSnapshot();
-            }
-            return;
-          }
+          // Legacy Board notifications are invalidation hints only. The
+          // visible Board is owned by the BlockRecord LocalCommit stream;
+          // accepting a summary here would recreate a second authority and
+          // could make a late projection overwrite an admitted local commit.
           this.requestRealtimeRefresh(event.changeLogSeq ?? 0);
         },
       );
@@ -1092,7 +1666,7 @@ class KanbanProjectStore {
 
   private ensureProjectionSubscription(): void {
     if (this.unsubscribeProjectionInvalidation) return;
-    const authority = this.baseBoardAuthority;
+    const authority = this.projectionAuthority();
     const registry = this.dependencies.getProjectionInvalidationRegistry();
     if (!authority || !registry) return;
     this.unsubscribeProjectionInvalidation = registry.register({
@@ -1103,7 +1677,7 @@ class KanbanProjectStore {
       },
       consumerKey: `kanban:${this.projectId}:${this.databaseViewId ?? "primary"}`,
       getDependencies: () => {
-        const current = this.baseBoardAuthority;
+        const current = this.projectionAuthority();
         return {
           databaseIds: current ? [current.databaseId] : [],
           dataSourceIds: current ? [current.dataSourceId] : [],
@@ -1112,7 +1686,7 @@ class KanbanProjectStore {
         };
       },
       getCursor: () => {
-        const current = this.baseBoardAuthority;
+        const current = this.projectionAuthority();
         return current
           ? {
               storeEpoch: current.storeEpoch,
@@ -1127,8 +1701,12 @@ class KanbanProjectStore {
   private teardownRealtimeSubscription(): void {
     this.unsubscribeBoardChanges?.();
     this.unsubscribeProjectionInvalidation?.();
+    this.unsubscribeBlockRecordWindow?.();
+    this.stopBlockRecordCommitSubscription?.();
     this.unsubscribeBoardChanges = null;
     this.unsubscribeProjectionInvalidation = null;
+    this.unsubscribeBlockRecordWindow = null;
+    this.stopBlockRecordCommitSubscription = null;
   }
 }
 
@@ -1164,7 +1742,9 @@ export function createKanbanStoreRegistry(
   });
 }
 
-const sharedKanbanStoreRegistry = createKanbanStoreRegistry();
+const sharedKanbanStoreRegistry = createKanbanStoreRegistry({
+  createBlockRecordWindowStore,
+});
 
 export function getKanbanProjectStore(
   projectId: string,
@@ -1188,4 +1768,19 @@ export function ensureFreshDatabaseViewBoard(
   return getKanbanProjectStore(projectId, databaseViewId).ensureFreshBoard(
     options,
   );
+}
+
+/**
+ * Query boundary for picker surfaces. The returned Board is the same
+ * BlockRecord projection used by the mounted Kanban store; legacy Board
+ * notifications only invalidate this read and never patch its result.
+ */
+export async function readCanonicalKanbanBoardSnapshot(
+  projectId: string,
+): Promise<BoardSummarySnapshot> {
+  const store = getKanbanProjectStore(projectId);
+  await store.ensureFreshBoard();
+  const snapshot = store.getBoardSummarySnapshot();
+  if (!snapshot) throw new Error("The canonical Board projection is not ready");
+  return snapshot;
 }

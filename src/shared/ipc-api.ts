@@ -89,6 +89,13 @@ import type {
 } from "./library-module";
 import type { DatabaseChangeEvent } from "./database-events";
 import type {
+  BlockRecordApplyInput,
+  BlockRecordCommittedValue,
+  BlockRecordRead,
+  BlockRecordReadSnapshot,
+} from "./core-modules/block-record-module";
+import type { LocalCommitEnvelope } from "./local-commit";
+import type {
   PageLifecycleMutationCommandResultV2,
   PageLifecycleMutationRequestV2,
 } from "./page-lifecycle-v2";
@@ -677,6 +684,16 @@ export interface IpcApi {
     ];
     result: LibraryModuleApplyResult;
   };
+  "block-record:read": {
+    args: [read: BlockRecordRead];
+    result: BlockRecordReadSnapshot;
+  };
+  "block-record:apply": {
+    args: [input: BlockRecordApplyInput];
+    result: BlockRecordCommittedValue;
+  };
+  "block-record:subscribe": { args: []; result: void };
+  "block-record:unsubscribe": { args: []; result: void };
   "library-database-module:read": {
     args: [request: LibraryDatabaseModuleReadRequestV2];
     result: LibraryDatabaseModuleReadResultV2;
@@ -2020,6 +2037,7 @@ export interface IpcEvents {
   "page-ownership-paths-changed": import("./page-ownership-path-events").PageOwnershipPathsChangedEvent;
   "database-changed": DatabaseChangeEvent;
   "library-navigation-changed": import("./library-events").LibraryNavigationChangedEvent;
+  "block-record:commit": LocalCommitEnvelope;
   "projects-changed": ProjectsChangeEvent;
   "project-sessions-changed": ProjectSessionsChangeEvent;
   "reminder:open": {

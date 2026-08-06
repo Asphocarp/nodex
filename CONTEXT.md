@@ -23,6 +23,23 @@ Accepted system-wide decisions live in `docs/adr/`. The Library/Page/Data
 Source cutover is tracked in
 `docs/plans/library-page-data-source-architecture.md`.
 
+## Current terminal BlockRecord authority
+
+The Page/Board mutation slice is now backed by Rust Core BlockRecords. A
+BlockRecord owns stable identity, kind, lifecycle, intrinsic properties, and
+one owning placement; placement rows form the acyclic containment forest.
+Page title/body content is read from BlockRecord content slots and materialized
+through the record-backed BlockNote adapter. Data Source membership and View
+position are part of the same typed mutation transaction when a Block becomes
+a Page. The Core apply response carries the LocalCommit envelope to Main
+immediately; the durable tail later replays the same envelope and is deduped.
+
+This is the authority for Page creation, Page/Board Move to, editor-to-Board
+promotion, Board card projection, and the corresponding Page Stage surface.
+Canvas scene data and explicitly non-terminal Document adapters remain separate
+domain authorities until their writers are converted; they must not write
+Page/Board placement through a second public path.
+
 ## Canonical terms
 
 ### Profile
@@ -58,9 +75,12 @@ copy, relocation, or migration may reuse it.
 
 ### Page
 
-A Page is a document-bearing Block. Page has no separate storage identity: Page
-ID is Block ID. Every Page owns exactly one Document containing its
-collaborative rich title and body.
+A Page is a document-bearing Block in the historical/document-backed vocabulary,
+but in the terminal Page/Board path it is a `BlockRecord` with no separate
+storage identity: Page ID is Block ID. Its title is a rich content slot and its
+body is the recursively materialized placement subtree. Canvas and remaining
+Document-backed surfaces may still expose an owned Document adapter; that
+adapter is not the Page/Board structural authority.
 
 Page Detail is the membership-independent read Interface for opening that
 identity. It combines Block parent/lifecycle coordinates, owned Document and
@@ -73,19 +93,20 @@ existence checks.
 Every active Page has one exclusive parent:
 
 - `library`: a top-level Page ordered in the Library;
-- `page`: a nested Page whose childless shell is stored in the parent Page's
-  Document; or
+- `page`: a nested Page whose owning placement points to the parent Page Block;
+  an older document-backed adapter may render that edge as a childless shell;
+  or
 - `data_source`: a structured row Page governed by one Data Source schema.
 
-Nesting moves the Page shell and does not copy its title/body into the parent
-Document. A `pageRef`, View, relation, mention, backlink, or link may present a
-Page elsewhere without changing its parent.
+Nesting changes the root placement and does not copy title/content or descendant
+records into a parent. A `pageRef`, View, relation, mention, backlink, or link
+may present a Page elsewhere without changing its parent.
 
-Page Stage resolves the owned Document with exact `(libraryId, pageId)`
-identity after Project access has been evaluated. It never derives a Document
-ID from Page ID, treats a query row as content authority, or initializes an
-existing Document from a projection. Only a ready descriptor for the registered
-sync engine may mount.
+Record-backed Page Stage resolves a bounded `(libraryId, pageId)` BlockRecord
+window after access has been evaluated. It never treats a query row as content
+authority or initializes an existing record from a projection. Document-backed
+surfaces still require a ready descriptor for their registered sync engine;
+that requirement does not apply to the terminal record-backed Page editor.
 
 Page Stage always exposes title, body, history, and Page-intrinsic run/schedule
 behavior. Live Agent execution state belongs to Thread/session/Codex runtime.
@@ -97,6 +118,10 @@ never moves it or creates/reactivates membership.
 such as `KanbanCard` or a generic request-card component.
 
 ### Document
+
+A Document remains the authority for explicitly document-backed surfaces such
+as Canvas and remaining legacy/embedded adapters. It is not the structural
+authority for the terminal Page/Board path described above.
 
 A Document is an independently loaded, persisted, synchronized, and
 history-scoped content owner. Its identity is `documentId`; its registration
@@ -121,13 +146,14 @@ its handshake before mounting content. Retained inactive surfaces clear
 ephemeral Awareness. Canvas mounts through the scene-native provider and full
 canonical scene repair path.
 
-### Document-bearing Block
+### Document-bearing Block (document-backed adapters)
 
-A document-bearing Block owns a Document through `block_documents`. Page,
-system-managed Synced Block source, Reusable Template source, and Canvas are
-registered owners. Ordinary paragraph, heading, list, code, media, and reference
-Blocks share the nearest owning Document. Content size never changes ownership
-automatically; long-form content is modeled as Page.
+A document-backed Block owns a Document through `block_documents`. System-managed
+Synced Block source, Reusable Template source, and Canvas are registered owners;
+the terminal Page/Board path uses BlockRecord content slots instead. Ordinary
+paragraph, heading, list, code, media, and reference Blocks in an unconverted
+adapter share that adapter's nearest owning Document. Content size never
+changes ownership automatically; long-form content is modeled as Page.
 
 A Canvas Document stores normalized Excalidraw elements, bounded durable app
 state, order, and managed-file metadata. Application Page references retain
@@ -390,8 +416,9 @@ state is rejected rather than replayed.
 | --- | --- |
 | Profile → Library | `profiles` and `libraries` |
 | Block identity, type, lifecycle, Library, and parent | `blocks` plus typed placement detail |
-| Page title and body | Page Document (`yjs`) |
-| Ordinary Block hierarchy/order/content | nearest owning Document |
+| Page title and body (terminal Page/Board path) | BlockRecord content slots + placement forest |
+| Ordinary Block hierarchy/order/content (terminal path) | `block_placements` + BlockRecord content slots |
+| Canvas and remaining Document-backed content | the registered scene/Document adapter |
 | Canvas metadata and Library/Page placement | `blocks`, `canvas_owners`, and the exact host shell or Library placement |
 | Canvas scene and managed-file metadata | normalized Canvas scene rows |
 | Document ownership | `block_documents` |
@@ -416,8 +443,9 @@ state is rejected rather than replayed.
 2. Library owns durable content; Project never does.
 3. `blocks.id` is the single application content identity; Page ID is Block ID.
 4. Every active Page has exactly one Library, Page, or Data Source parent.
-5. Every Page owns exactly one active Document; other registered owner types use
-   their exact registered schema.
+5. Every active terminal Page has one BlockRecord placement forest and its
+   content slots are keyed by the Page/Block identity; Canvas and remaining
+   Document-backed owner types use their exact registered schema.
 6. A Source-parented Page has one matching active membership; other Pages have
    none. Dormant memberships are inert but recoverable.
 7. Database owns Data Sources and Views but not schema or Pages.
@@ -447,12 +475,13 @@ state is rejected rather than replayed.
 
 ### Edit
 
-Local Page/BlockNote transactions update a live Y.Doc immediately and send an
-idempotent binary update with store epoch, generation, client session, and
-bounded touched-ID diagnostics. The writer applies it to a clone/reloadable
-Document, resolves dependencies, validates schema and global identity, commits
-update plus derived records, then acknowledges and fans out. Remote-origin
-transactions neither echo nor enter local undo.
+Record-backed Page/BlockNote transactions translate into typed BlockRecord
+operations and content-slot updates. Core validates the placement/content
+preconditions, commits canonical rows plus LocalCommit, and the apply response
+updates the mounted record window immediately. Yrs binary updates remain the
+content concurrency mechanism where a content slot needs them; they do not
+express ownership or Page hierarchy. Document-backed surfaces continue to use
+their registered Yjs protocol until their domain cutover.
 
 Canvas edits update Excalidraw/local undo immediately. The provider normalizes
 runtime values, uploads assets, persists the exact outbox mutation, and sends
@@ -485,10 +514,12 @@ state as a new forward mutation.
 
 ### Move and copy
 
-Moving within one Document is one engine transaction; cross-Document movement
-uses relocation. Moving Page changes shell/parent only and preserves its owned
-Document. Moving into/out of a Source changes active membership atomically and
-leaves old Source values dormant. Copy allocates a fresh ownership closure.
+Record-backed moves change the root placement, type, membership, and View
+position in one Core transaction while preserving root/descendant/content
+identities. Moving into/out of a Source changes active membership atomically;
+View position remains a presentation edge. Copy allocates a fresh ownership
+closure. Document-backed surfaces retain their registered relocation semantics
+until converted.
 
 ### Restore and backup
 
@@ -548,6 +579,16 @@ explicitly invalidate the same worker-owned read plane.
 Shared domain Interfaces live under `src/shared/`; SQLite Implementations live
 under `src/main/local-store/`; trusted HTTP/IPC/CLI/Agent adapters bind access
 in `src/main`; renderer transport remains behind `src/renderer/lib/api.ts`.
+The terminal record-backed Page/Board path is split across
+`crates/nodex-core/src/block_record_module.rs`,
+`crates/nodex-core/src/mutation_kernel.rs`,
+`src/shared/block-records/`, `src/main/block-record-ipc.ts`,
+`src/main/core-client/desktop-block-record-module-bridge.ts`,
+`src/main/core-client/local-commit-dispatcher.ts`,
+`src/renderer/lib/block-record-window-store.ts`,
+`src/renderer/lib/kanban-store.ts`, and the record-backed Page Stage surface.
+The apply response and durable tail both enter the same dispatcher; neither
+renderer refresh nor old Board summary events is a mutation authority.
 Page Stage, Canvas Stage, and owned-Document surfaces live under
 `src/renderer/components/block-documents/` with runtime/descriptor validation
 under `src/renderer/lib/`.

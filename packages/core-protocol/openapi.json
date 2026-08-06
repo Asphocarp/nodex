@@ -122,6 +122,38 @@
         }
       }
     },
+    "/core/v1/local-commits": {
+      "get": {
+        "tags": [
+          "api"
+        ],
+        "operationId": "local_commits",
+        "parameters": [
+          {
+            "name": "after",
+            "in": "query",
+            "description": "Last LocalCommit sequence observed",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Durable LocalCommit stream",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/BlockRecordApplyResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/core/v1/modules/administration/apply": {
       "post": {
         "tags": [
@@ -235,6 +267,66 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AutomationReadResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/core/v1/modules/block-record/apply": {
+      "post": {
+        "tags": [
+          "api"
+        ],
+        "operationId": "block_record_apply",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BlockRecordApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BlockRecordApplyResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/core/v1/modules/block-record/read": {
+      "post": {
+        "tags": [
+          "api"
+        ],
+        "operationId": "block_record_read",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BlockRecordReadRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BlockRecordReadResponse"
                 }
               }
             }
@@ -1814,6 +1906,1155 @@
           "auto",
           "pre-restore"
         ]
+      },
+      "BlockPlacementValue": {
+        "type": "object",
+        "required": [
+          "block_id",
+          "parent",
+          "rank_key",
+          "revision"
+        ],
+        "properties": {
+          "block_id": {
+            "type": "string"
+          },
+          "parent": {
+            "$ref": "#/components/schemas/BlockRecordPlacementParent"
+          },
+          "rank_key": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "BlockRecordApplyRequest": {
+        "type": "object",
+        "required": [
+          "contract_version",
+          "operation_id",
+          "store_epoch",
+          "intent_hash",
+          "commit_id",
+          "canonical_hash",
+          "actor_id",
+          "session_id",
+          "committed_at",
+          "operation"
+        ],
+        "properties": {
+          "actor_id": {
+            "type": "string"
+          },
+          "canonical_hash": {
+            "type": "string"
+          },
+          "commit_id": {
+            "type": "string"
+          },
+          "committed_at": {
+            "type": "string"
+          },
+          "contract_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "intent_hash": {
+            "type": "string"
+          },
+          "operation": {
+            "$ref": "#/components/schemas/BlockRecordOperation"
+          },
+          "operation_id": {
+            "type": "string"
+          },
+          "session_id": {
+            "type": "string"
+          },
+          "store_epoch": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "BlockRecordApplyResponse": {
+        "$ref": "#/components/schemas/ResponseEnvelope_BlockRecordCommittedValue"
+      },
+      "BlockRecordCommittedValue": {
+        "type": "object",
+        "required": [
+          "cursor",
+          "commit_id",
+          "operation_id",
+          "intent_hash",
+          "canonical_hash",
+          "actor_id",
+          "session_id",
+          "committed_at",
+          "effects",
+          "audience",
+          "payload_completeness",
+          "duplicate"
+        ],
+        "properties": {
+          "actor_id": {
+            "type": "string"
+          },
+          "audience": {},
+          "canonical_hash": {
+            "type": "string"
+          },
+          "commit_id": {
+            "type": "string"
+          },
+          "committed_at": {
+            "type": "string"
+          },
+          "cursor": {
+            "$ref": "#/components/schemas/BlockRecordCursor"
+          },
+          "duplicate": {
+            "type": "boolean"
+          },
+          "effects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BlockRecordEffect"
+            }
+          },
+          "intent_hash": {
+            "type": "string"
+          },
+          "operation_id": {
+            "type": "string"
+          },
+          "payload_completeness": {
+            "$ref": "#/components/schemas/BlockRecordPayloadCompleteness"
+          },
+          "session_id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "BlockRecordContentValue": {
+        "type": "object",
+        "required": [
+          "block_id",
+          "slot",
+          "library_id",
+          "shard_id",
+          "revision",
+          "state_vector_v1",
+          "full_state_v1",
+          "state_hash"
+        ],
+        "properties": {
+          "block_id": {
+            "type": "string"
+          },
+          "full_state_v1": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          "library_id": {
+            "type": "string"
+          },
+          "materialized_json": {},
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "shard_id": {
+            "type": "string"
+          },
+          "slot": {},
+          "state_hash": {
+            "type": "string"
+          },
+          "state_vector_v1": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "BlockRecordCursor": {
+        "type": "object",
+        "required": [
+          "store_epoch",
+          "commit_seq"
+        ],
+        "properties": {
+          "commit_seq": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "store_epoch": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "BlockRecordEffect": {
+        "type": "object",
+        "required": [
+          "kind",
+          "value"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "value": {}
+        },
+        "additionalProperties": false
+      },
+      "BlockRecordGraph": {
+        "type": "object",
+        "required": [
+          "library_id",
+          "blocks",
+          "placements"
+        ],
+        "properties": {
+          "blocks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BlockRecordValue"
+            }
+          },
+          "library_id": {
+            "type": "string"
+          },
+          "placements": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BlockPlacementValue"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "BlockRecordMoveEntry": {
+        "type": "object",
+        "required": [
+          "block_id",
+          "target_parent",
+          "rank_key",
+          "expected_block_revision",
+          "expected_placement_revision"
+        ],
+        "properties": {
+          "block_id": {
+            "type": "string"
+          },
+          "expected_block_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "expected_placement_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "rank_key": {
+            "type": "string"
+          },
+          "target_parent": {
+            "$ref": "#/components/schemas/BlockRecordPlacementParent"
+          }
+        },
+        "additionalProperties": false
+      },
+      "BlockRecordOperation": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "block_id",
+              "block_kind",
+              "properties",
+              "content_shard_id",
+              "parent",
+              "rank_key",
+              "kind"
+            ],
+            "properties": {
+              "block_id": {
+                "type": "string"
+              },
+              "block_kind": {
+                "type": "string"
+              },
+              "content_shard_id": {
+                "type": "string"
+              },
+              "data_source_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "create"
+                ]
+              },
+              "materialized_json": {},
+              "parent": {
+                "$ref": "#/components/schemas/BlockRecordPlacementParent"
+              },
+              "placement_rebalances": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/BlockRecordPlacementRebalance"
+                },
+                "description": "Existing sibling placements whose ranks must be rewritten before\nthe new BlockRecord is inserted. Keeping this in Create makes a\ndense insertion one atomic graph mutation instead of a best-effort\nclient-side sequence."
+              },
+              "properties": {},
+              "rank_key": {
+                "type": "string"
+              },
+              "view_group_key": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "view_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "view_rank_key": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "view_rebalances": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/BlockRecordViewPositionRebalance"
+                },
+                "description": "Existing View positions whose ranks must be rewritten before the\nnew Page position is inserted."
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data_source_id",
+              "kind"
+            ],
+            "properties": {
+              "data_source_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "ensure_data_source"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "block_id",
+              "target_parent",
+              "rank_key",
+              "expected_block_revision",
+              "expected_placement_revision",
+              "kind"
+            ],
+            "properties": {
+              "block_id": {
+                "type": "string"
+              },
+              "expected_block_revision": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "expected_placement_revision": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "move"
+                ]
+              },
+              "rank_key": {
+                "type": "string"
+              },
+              "target_parent": {
+                "$ref": "#/components/schemas/BlockRecordPlacementParent"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "entries",
+              "kind"
+            ],
+            "properties": {
+              "entries": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/BlockRecordMoveEntry"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "move_many"
+                ]
+              },
+              "placement_rebalances": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/BlockRecordPlacementRebalance"
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "block_id",
+              "properties",
+              "expected_block_revision",
+              "kind"
+            ],
+            "properties": {
+              "block_id": {
+                "type": "string"
+              },
+              "data_source_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "expected_block_revision": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "expected_view_revision": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "minimum": 0
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "update_record"
+                ]
+              },
+              "properties": {},
+              "view_group_key": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "view_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "view_rank_key": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "entries",
+              "kind"
+            ],
+            "properties": {
+              "entries": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/BlockRecordUpdateEntry"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "update_many"
+                ]
+              },
+              "view_rebalances": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/BlockRecordViewPositionRebalance"
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "block_id",
+              "expected_block_revision",
+              "expected_placement_revision",
+              "kind"
+            ],
+            "properties": {
+              "block_id": {
+                "type": "string"
+              },
+              "expected_block_revision": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "expected_placement_revision": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "archive_subtree"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "block_id",
+              "data_source_id",
+              "rank_key",
+              "expected_block_revision",
+              "expected_placement_revision",
+              "kind"
+            ],
+            "properties": {
+              "block_id": {
+                "type": "string"
+              },
+              "data_source_id": {
+                "type": "string"
+              },
+              "expected_block_revision": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "expected_placement_revision": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "promote_to_page"
+                ]
+              },
+              "rank_key": {
+                "type": "string"
+              },
+              "view_group_key": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "view_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "view_rank_key": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data_source_id",
+              "entries",
+              "kind"
+            ],
+            "properties": {
+              "data_source_id": {
+                "type": "string"
+              },
+              "entries": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/BlockRecordPromotionEntry"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "promote_many_to_page"
+                ]
+              },
+              "placement_rebalances": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/BlockRecordPlacementRebalance"
+                }
+              },
+              "view_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "view_rebalances": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/BlockRecordViewPositionRebalance"
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "block_id",
+              "slot",
+              "materialized_json",
+              "expected_revision",
+              "kind"
+            ],
+            "properties": {
+              "block_id": {
+                "type": "string"
+              },
+              "expected_revision": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "set_materialized_content"
+                ]
+              },
+              "materialized_json": {},
+              "slot": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Reconciles one Page's complete owned BlockNote tree in one Core\ntransaction. The Page root itself is implicit; each entry describes a\ndirect/recursive descendant and its materialized inline content.",
+            "required": [
+              "page_id",
+              "expected_page_revision",
+              "nodes",
+              "kind"
+            ],
+            "properties": {
+              "expected_page_revision": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "reconcile_page_tree"
+                ]
+              },
+              "nodes": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/BlockRecordTreeNode"
+                }
+              },
+              "page_id": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
+      "BlockRecordPayloadCompleteness": {
+        "type": "string",
+        "enum": [
+          "rich"
+        ]
+      },
+      "BlockRecordPlacementParent": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "library"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "kind"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "block"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "kind"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "data_source"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "BlockRecordPlacementRebalance": {
+        "type": "object",
+        "required": [
+          "block_id",
+          "rank_key",
+          "expected_revision"
+        ],
+        "properties": {
+          "block_id": {
+            "type": "string"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "rank_key": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "BlockRecordPromotionEntry": {
+        "type": "object",
+        "required": [
+          "block_id",
+          "rank_key",
+          "expected_block_revision",
+          "expected_placement_revision"
+        ],
+        "properties": {
+          "block_id": {
+            "type": "string"
+          },
+          "expected_block_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "expected_placement_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "rank_key": {
+            "type": "string"
+          },
+          "view_group_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "view_rank_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "BlockRecordRead": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "block_ids": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              },
+              "include_content": {
+                "type": "boolean"
+              },
+              "include_descendants": {
+                "type": "boolean"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "window"
+                ]
+              },
+              "parent": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/BlockRecordPlacementParent"
+                  }
+                ]
+              },
+              "view_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "BlockRecordReadRequest": {
+        "type": "object",
+        "required": [
+          "contract_version",
+          "read"
+        ],
+        "properties": {
+          "contract_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "read": {
+            "$ref": "#/components/schemas/BlockRecordRead"
+          }
+        },
+        "additionalProperties": false
+      },
+      "BlockRecordReadResponse": {
+        "$ref": "#/components/schemas/ResponseEnvelope_BlockRecordReadSnapshot"
+      },
+      "BlockRecordReadSnapshot": {
+        "type": "object",
+        "required": [
+          "library_id",
+          "graph",
+          "view_positions",
+          "content",
+          "observed_cursor"
+        ],
+        "properties": {
+          "content": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BlockRecordContentValue"
+            }
+          },
+          "graph": {
+            "$ref": "#/components/schemas/BlockRecordGraph"
+          },
+          "library_id": {
+            "type": "string"
+          },
+          "observed_cursor": {
+            "$ref": "#/components/schemas/BlockRecordCursor",
+            "description": "The exact LocalCommit position represented by this snapshot.\n\nAn empty store still has a position (`commit_seq = 0`). Keeping the\ncursor mandatory is what lets the first apply-response be projected\nlocally without an artificial \"unobserved\" state."
+          },
+          "view_positions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BlockRecordViewPositionValue"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "BlockRecordTreeNode": {
+        "type": "object",
+        "required": [
+          "block_id",
+          "block_kind",
+          "properties",
+          "content_shard_id",
+          "rank_key",
+          "materialized_json"
+        ],
+        "properties": {
+          "block_id": {
+            "type": "string"
+          },
+          "block_kind": {
+            "type": "string"
+          },
+          "content_shard_id": {
+            "type": "string"
+          },
+          "expected_block_revision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "expected_content_revision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "expected_placement_revision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "materialized_json": {},
+          "parent_block_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "properties": {},
+          "rank_key": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "BlockRecordUpdateEntry": {
+        "type": "object",
+        "required": [
+          "block_id",
+          "properties",
+          "expected_block_revision"
+        ],
+        "properties": {
+          "block_id": {
+            "type": "string"
+          },
+          "data_source_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expected_block_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "expected_view_revision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "properties": {},
+          "view_group_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "view_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "view_rank_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "BlockRecordValue": {
+        "type": "object",
+        "required": [
+          "id",
+          "library_id",
+          "kind",
+          "lifecycle",
+          "properties",
+          "content_shard_id",
+          "revision"
+        ],
+        "properties": {
+          "content_shard_id": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "library_id": {
+            "type": "string"
+          },
+          "lifecycle": {},
+          "properties": {},
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "BlockRecordViewPositionRebalance": {
+        "type": "object",
+        "required": [
+          "block_id",
+          "rank_key",
+          "expected_revision"
+        ],
+        "properties": {
+          "block_id": {
+            "type": "string"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "group_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rank_key": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "BlockRecordViewPositionValue": {
+        "type": "object",
+        "required": [
+          "view_id",
+          "data_source_id",
+          "block_id",
+          "rank_key",
+          "revision"
+        ],
+        "properties": {
+          "block_id": {
+            "type": "string"
+          },
+          "data_source_id": {
+            "type": "string"
+          },
+          "group_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rank_key": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "view_id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
       },
       "CanvasCompactionStats": {
         "type": "object",
@@ -17015,6 +18256,7 @@
         "enum": [
           "library",
           "database",
+          "block_record",
           "owned_document",
           "project_workspace",
           "automation",
@@ -21121,6 +22363,172 @@
             "format": "int64"
           }
         }
+      },
+      "ResponseEnvelope_BlockRecordCommittedValue": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "payload",
+              "status"
+            ],
+            "properties": {
+              "payload": {
+                "type": "object",
+                "required": [
+                  "cursor",
+                  "commit_id",
+                  "operation_id",
+                  "intent_hash",
+                  "canonical_hash",
+                  "actor_id",
+                  "session_id",
+                  "committed_at",
+                  "effects",
+                  "audience",
+                  "payload_completeness",
+                  "duplicate"
+                ],
+                "properties": {
+                  "actor_id": {
+                    "type": "string"
+                  },
+                  "audience": {},
+                  "canonical_hash": {
+                    "type": "string"
+                  },
+                  "commit_id": {
+                    "type": "string"
+                  },
+                  "committed_at": {
+                    "type": "string"
+                  },
+                  "cursor": {
+                    "$ref": "#/components/schemas/BlockRecordCursor"
+                  },
+                  "duplicate": {
+                    "type": "boolean"
+                  },
+                  "effects": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/BlockRecordEffect"
+                    }
+                  },
+                  "intent_hash": {
+                    "type": "string"
+                  },
+                  "operation_id": {
+                    "type": "string"
+                  },
+                  "payload_completeness": {
+                    "$ref": "#/components/schemas/BlockRecordPayloadCompleteness"
+                  },
+                  "session_id": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "ok"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "payload",
+              "status"
+            ],
+            "properties": {
+              "payload": {
+                "$ref": "#/components/schemas/CoreError"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "error"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "ResponseEnvelope_BlockRecordReadSnapshot": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "payload",
+              "status"
+            ],
+            "properties": {
+              "payload": {
+                "type": "object",
+                "required": [
+                  "library_id",
+                  "graph",
+                  "view_positions",
+                  "content",
+                  "observed_cursor"
+                ],
+                "properties": {
+                  "content": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/BlockRecordContentValue"
+                    }
+                  },
+                  "graph": {
+                    "$ref": "#/components/schemas/BlockRecordGraph"
+                  },
+                  "library_id": {
+                    "type": "string"
+                  },
+                  "observed_cursor": {
+                    "$ref": "#/components/schemas/BlockRecordCursor",
+                    "description": "The exact LocalCommit position represented by this snapshot.\n\nAn empty store still has a position (`commit_seq = 0`). Keeping the\ncursor mandatory is what lets the first apply-response be projected\nlocally without an artificial \"unobserved\" state."
+                  },
+                  "view_positions": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/BlockRecordViewPositionValue"
+                    }
+                  }
+                },
+                "additionalProperties": false
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "ok"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "payload",
+              "status"
+            ],
+            "properties": {
+              "payload": {
+                "$ref": "#/components/schemas/CoreError"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "error"
+                ]
+              }
+            }
+          }
+        ]
       },
       "ResponseEnvelope_CommittedModuleValue_AutomationCommitValue_AutomationReceipt": {
         "oneOf": [

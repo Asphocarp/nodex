@@ -36,12 +36,26 @@ export interface BlockPlacement {
   readonly revision: number;
 }
 
-export type BlockContentSlot = "title" | "inline" | (string & {});
+export interface BlockViewPosition {
+  readonly viewId: string;
+  readonly dataSourceId: string;
+  readonly blockId: string;
+  readonly groupKey: string | null;
+  readonly rankKey: string;
+  readonly revision: number;
+}
+
+export type BlockContentSlot = "title" | "inline" | "body" | "properties" | (string & {});
 
 export interface BlockContentSnapshot {
   readonly blockId: string;
   readonly slot: BlockContentSlot;
   readonly content: unknown;
+  readonly crdt?: {
+    readonly fullStateV1: readonly number[];
+    readonly stateVectorV1: readonly number[];
+    readonly stateHash: string;
+  };
   readonly shardId: string;
   readonly head: number;
 }
@@ -49,8 +63,10 @@ export interface BlockContentSnapshot {
 export interface BlockRecordWindow {
   readonly libraryId: string;
   readonly rootParent: BlockPlacementParent;
+  readonly viewId: string | null;
   readonly records: readonly BlockRecord[];
   readonly placements: readonly BlockPlacement[];
+  readonly viewPositions: readonly BlockViewPosition[];
   readonly content: readonly BlockContentSnapshot[];
   readonly observedLocalCommit: {
     readonly storeEpoch: string;

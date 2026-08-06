@@ -5,7 +5,9 @@
 //! these types instead of reimplementing graph/content/commit coordination.
 
 use crate::content_store::{self, ContentWindow};
-use crate::domain::block_record::RecordGraph;
+use crate::domain::block_record::{
+    BlockPlacement, BlockRecord, BlockViewPosition, PlacementParent, RecordGraph,
+};
 use crate::infrastructure::block_record_store;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode, with_immediate_transaction};
 use crate::infrastructure::store::SqliteStoreKernel;
@@ -18,6 +20,15 @@ use crate::mutation_kernel::{
 #[derive(Clone, Debug)]
 pub struct BlockRecordReadWindow {
     pub graph: RecordGraph,
+    pub content: ContentWindow,
+}
+
+#[derive(Clone, Debug)]
+pub struct BlockRecordSelection {
+    pub library_id: String,
+    pub blocks: Vec<BlockRecord>,
+    pub placements: Vec<BlockPlacement>,
+    pub view_positions: Vec<BlockViewPosition>,
     pub content: ContentWindow,
 }
 
@@ -67,8 +78,10 @@ impl BlockRecordModule {
         self.writer.call(|connection| {
             with_immediate_transaction(connection, |transaction| {
                 block_record_store::install_schema(transaction)?;
+                block_record_store::install_view_position_schema(transaction)?;
                 crate::local_commit::install_schema(transaction)?;
-                content_store::install_schema(transaction)
+                content_store::install_schema(transaction)?;
+                content_store::install_materialization_schema(transaction)
             })
         })
     }
@@ -83,6 +96,127 @@ impl BlockRecordModule {
                 .collect::<Vec<_>>();
             let content = content_store::read_window(connection, &library_id, Some(&block_ids))?;
             Ok(BlockRecordReadWindow { graph, content })
+        })
+    }
+
+    pub fn read_selection(
+        &self,
+        parent: Option<&PlacementParent>,
+        block_ids: Option<&[String]>,
+        include_content: bool,
+    ) -> Result<BlockRecordSelection, StoreError> {
+        self.read_selection_with_cursor(parent, block_ids, include_content)
+            .map(|(selection, _)| selection)
+    }
+
+    /// Reads the graph window and its LocalCommit head from one SQLite read
+    /// transaction. A cursor is only useful as a floor if the rows it
+    /// describes were observed in the same snapshot; two independent reader
+    /// statements could otherwise label stale graph data with a newer cursor.
+    pub fn read_selection_with_cursor(
+        &self,
+        parent: Option<&PlacementParent>,
+        block_ids: Option<&[String]>,
+        include_content: bool,
+    ) -> Result<
+        (
+            BlockRecordSelection,
+            Option<crate::local_commit::LocalCommitCursor>,
+        ),
+        StoreError,
+    > {
+        self.read_selection_with_cursor_and_view(parent, block_ids, include_content, None)
+    }
+
+    pub fn read_selection_with_cursor_and_view(
+        &self,
+        parent: Option<&PlacementParent>,
+        block_ids: Option<&[String]>,
+        include_content: bool,
+        view_id: Option<&str>,
+    ) -> Result<
+        (
+            BlockRecordSelection,
+            Option<crate::local_commit::LocalCommitCursor>,
+        ),
+        StoreError,
+    > {
+        self.read_selection_with_cursor_and_view_and_descendants(
+            parent,
+            block_ids,
+            include_content,
+            view_id,
+            false,
+        )
+    }
+
+    pub fn read_selection_with_cursor_and_view_and_descendants(
+        &self,
+        parent: Option<&PlacementParent>,
+        block_ids: Option<&[String]>,
+        include_content: bool,
+        view_id: Option<&str>,
+        include_descendants: bool,
+    ) -> Result<
+        (
+            BlockRecordSelection,
+            Option<crate::local_commit::LocalCommitCursor>,
+        ),
+        StoreError,
+    > {
+        let library_id = self.library_id.clone();
+        let parent = parent.cloned();
+        let block_ids = block_ids.map(ToOwned::to_owned);
+        let view_id = view_id.map(ToOwned::to_owned);
+        let store_epoch = self.store_epoch.clone();
+        self.readers.read_default(move |connection| {
+            let transaction = connection.unchecked_transaction()?;
+            let (blocks, placements) = block_record_store::read_selection_with_descendants(
+                &transaction,
+                &library_id,
+                parent.as_ref(),
+                block_ids.as_deref(),
+                include_descendants,
+            )?;
+            let content = if include_content {
+                let ids = blocks
+                    .iter()
+                    .map(|block| block.id.as_str())
+                    .collect::<Vec<_>>();
+                content_store::read_window(&transaction, &library_id, Some(&ids))?
+            } else {
+                ContentWindow {
+                    library_id: library_id.clone(),
+                    records: Vec::new(),
+                }
+            };
+            let view_positions = match (view_id.as_deref(), parent.as_ref()) {
+                (Some(view_id), Some(PlacementParent::DataSource(data_source_id))) => {
+                    block_record_store::read_view_positions(
+                        &transaction,
+                        &library_id,
+                        view_id,
+                        data_source_id,
+                        Some(
+                            &blocks
+                                .iter()
+                                .map(|block| block.id.clone())
+                                .collect::<Vec<_>>(),
+                        ),
+                    )?
+                }
+                _ => Vec::new(),
+            };
+            let selection = BlockRecordSelection {
+                library_id,
+                blocks,
+                placements,
+                view_positions,
+                content,
+            };
+            let cursor = crate::local_commit::head(&transaction, &store_epoch)?;
+            transaction.commit()?;
+            Ok((selection, cursor))
         })
     }
 
@@ -128,6 +262,13 @@ impl BlockRecordModule {
     ) -> Result<Vec<LocalCommitEnvelope>, StoreError> {
         self.readers
             .read_default(|connection| crate::local_commit::read_after(connection, cursor, limit))
+    }
+
+    pub fn local_commit_head(
+        &self,
+    ) -> Result<Option<crate::local_commit::LocalCommitCursor>, StoreError> {
+        self.readers
+            .read_default(|connection| crate::local_commit::head(connection, &self.store_epoch))
     }
 }
 
@@ -232,7 +373,15 @@ mod tests {
         assert_eq!(before.graph.blocks().count(), 2);
         let committed = module.apply(request(0, 0)).expect("move");
         assert_eq!(committed.envelope.cursor.commit_seq, 1);
-        assert_eq!(committed.envelope.effects[0].kind, "placement");
+        assert_eq!(
+            committed
+                .envelope
+                .effects
+                .iter()
+                .map(|effect| effect.kind.as_str())
+                .collect::<Vec<_>>(),
+            vec!["record", "placement"]
+        );
 
         let after = module.read_window().expect("read after");
         assert_eq!(

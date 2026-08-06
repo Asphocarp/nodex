@@ -68,6 +68,22 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/core/v1/local-commits": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get: operations["local_commits"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/core/v1/modules/administration/apply": {
         readonly parameters: {
             readonly query?: never;
@@ -126,6 +142,38 @@ export interface paths {
         readonly get?: never;
         readonly put?: never;
         readonly post: operations["automation_read"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/core/v1/modules/block-record/apply": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        readonly post: operations["block_record_apply"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/core/v1/modules/block-record/read": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        readonly post: operations["block_record_read"];
         readonly delete?: never;
         readonly options?: never;
         readonly head?: never;
@@ -579,6 +627,296 @@ export interface components {
         };
         /** @enum {string} */
         readonly BackupTrigger: "manual" | "auto" | "pre-restore";
+        readonly BlockPlacementValue: {
+            readonly block_id: string;
+            readonly parent: components["schemas"]["BlockRecordPlacementParent"];
+            readonly rank_key: string;
+            /** Format: int64 */
+            readonly revision: number;
+        };
+        readonly BlockRecordApplyRequest: {
+            readonly actor_id: string;
+            readonly canonical_hash: string;
+            readonly commit_id: string;
+            readonly committed_at: string;
+            /** Format: int32 */
+            readonly contract_version: number;
+            readonly intent_hash: string;
+            readonly operation: components["schemas"]["BlockRecordOperation"];
+            readonly operation_id: string;
+            readonly session_id: string;
+            readonly store_epoch: string;
+        };
+        readonly BlockRecordApplyResponse: components["schemas"]["ResponseEnvelope_BlockRecordCommittedValue"];
+        readonly BlockRecordCommittedValue: {
+            readonly actor_id: string;
+            readonly audience: unknown;
+            readonly canonical_hash: string;
+            readonly commit_id: string;
+            readonly committed_at: string;
+            readonly cursor: components["schemas"]["BlockRecordCursor"];
+            readonly duplicate: boolean;
+            readonly effects: readonly components["schemas"]["BlockRecordEffect"][];
+            readonly intent_hash: string;
+            readonly operation_id: string;
+            readonly payload_completeness: components["schemas"]["BlockRecordPayloadCompleteness"];
+            readonly session_id: string;
+        };
+        readonly BlockRecordContentValue: {
+            readonly block_id: string;
+            readonly full_state_v1: readonly number[];
+            readonly library_id: string;
+            readonly materialized_json?: unknown;
+            /** Format: int64 */
+            readonly revision: number;
+            readonly shard_id: string;
+            readonly slot: unknown;
+            readonly state_hash: string;
+            readonly state_vector_v1: readonly number[];
+        };
+        readonly BlockRecordCursor: {
+            /** Format: int64 */
+            readonly commit_seq: number;
+            readonly store_epoch: string;
+        };
+        readonly BlockRecordEffect: {
+            readonly kind: string;
+            readonly value: unknown;
+        };
+        readonly BlockRecordGraph: {
+            readonly blocks: readonly components["schemas"]["BlockRecordValue"][];
+            readonly library_id: string;
+            readonly placements: readonly components["schemas"]["BlockPlacementValue"][];
+        };
+        readonly BlockRecordMoveEntry: {
+            readonly block_id: string;
+            /** Format: int64 */
+            readonly expected_block_revision: number;
+            /** Format: int64 */
+            readonly expected_placement_revision: number;
+            readonly rank_key: string;
+            readonly target_parent: components["schemas"]["BlockRecordPlacementParent"];
+        };
+        readonly BlockRecordOperation: {
+            readonly block_id: string;
+            readonly block_kind: string;
+            readonly content_shard_id: string;
+            readonly data_source_id?: string | null;
+            /** @enum {string} */
+            readonly kind: "create";
+            readonly materialized_json?: unknown;
+            readonly parent: components["schemas"]["BlockRecordPlacementParent"];
+            /**
+             * @description Existing sibling placements whose ranks must be rewritten before
+             *     the new BlockRecord is inserted. Keeping this in Create makes a
+             *     dense insertion one atomic graph mutation instead of a best-effort
+             *     client-side sequence.
+             */
+            readonly placement_rebalances?: readonly components["schemas"]["BlockRecordPlacementRebalance"][];
+            readonly properties: unknown;
+            readonly rank_key: string;
+            readonly view_group_key?: string | null;
+            readonly view_id?: string | null;
+            readonly view_rank_key?: string | null;
+            /**
+             * @description Existing View positions whose ranks must be rewritten before the
+             *     new Page position is inserted.
+             */
+            readonly view_rebalances?: readonly components["schemas"]["BlockRecordViewPositionRebalance"][];
+        } | {
+            readonly data_source_id: string;
+            /** @enum {string} */
+            readonly kind: "ensure_data_source";
+        } | {
+            readonly block_id: string;
+            /** Format: int64 */
+            readonly expected_block_revision: number;
+            /** Format: int64 */
+            readonly expected_placement_revision: number;
+            /** @enum {string} */
+            readonly kind: "move";
+            readonly rank_key: string;
+            readonly target_parent: components["schemas"]["BlockRecordPlacementParent"];
+        } | {
+            readonly entries: readonly components["schemas"]["BlockRecordMoveEntry"][];
+            /** @enum {string} */
+            readonly kind: "move_many";
+            readonly placement_rebalances?: readonly components["schemas"]["BlockRecordPlacementRebalance"][];
+        } | {
+            readonly block_id: string;
+            readonly data_source_id?: string | null;
+            /** Format: int64 */
+            readonly expected_block_revision: number;
+            /** Format: int64 */
+            readonly expected_view_revision?: number | null;
+            /** @enum {string} */
+            readonly kind: "update_record";
+            readonly properties: unknown;
+            readonly view_group_key?: string | null;
+            readonly view_id?: string | null;
+            readonly view_rank_key?: string | null;
+        } | {
+            readonly entries: readonly components["schemas"]["BlockRecordUpdateEntry"][];
+            /** @enum {string} */
+            readonly kind: "update_many";
+            readonly view_rebalances?: readonly components["schemas"]["BlockRecordViewPositionRebalance"][];
+        } | {
+            readonly block_id: string;
+            /** Format: int64 */
+            readonly expected_block_revision: number;
+            /** Format: int64 */
+            readonly expected_placement_revision: number;
+            /** @enum {string} */
+            readonly kind: "archive_subtree";
+        } | {
+            readonly block_id: string;
+            readonly data_source_id: string;
+            /** Format: int64 */
+            readonly expected_block_revision: number;
+            /** Format: int64 */
+            readonly expected_placement_revision: number;
+            /** @enum {string} */
+            readonly kind: "promote_to_page";
+            readonly rank_key: string;
+            readonly view_group_key?: string | null;
+            readonly view_id?: string | null;
+            readonly view_rank_key?: string | null;
+        } | {
+            readonly data_source_id: string;
+            readonly entries: readonly components["schemas"]["BlockRecordPromotionEntry"][];
+            /** @enum {string} */
+            readonly kind: "promote_many_to_page";
+            readonly placement_rebalances?: readonly components["schemas"]["BlockRecordPlacementRebalance"][];
+            readonly view_id?: string | null;
+            readonly view_rebalances?: readonly components["schemas"]["BlockRecordViewPositionRebalance"][];
+        } | {
+            readonly block_id: string;
+            /** Format: int64 */
+            readonly expected_revision: number;
+            /** @enum {string} */
+            readonly kind: "set_materialized_content";
+            readonly materialized_json: unknown;
+            readonly slot: string;
+        } | {
+            /** Format: int64 */
+            readonly expected_page_revision: number;
+            /** @enum {string} */
+            readonly kind: "reconcile_page_tree";
+            readonly nodes: readonly components["schemas"]["BlockRecordTreeNode"][];
+            readonly page_id: string;
+        };
+        /** @enum {string} */
+        readonly BlockRecordPayloadCompleteness: "rich";
+        readonly BlockRecordPlacementParent: {
+            /** @enum {string} */
+            readonly kind: "library";
+        } | {
+            readonly id: string;
+            /** @enum {string} */
+            readonly kind: "block";
+        } | {
+            readonly id: string;
+            /** @enum {string} */
+            readonly kind: "data_source";
+        };
+        readonly BlockRecordPlacementRebalance: {
+            readonly block_id: string;
+            /** Format: int64 */
+            readonly expected_revision: number;
+            readonly rank_key: string;
+        };
+        readonly BlockRecordPromotionEntry: {
+            readonly block_id: string;
+            /** Format: int64 */
+            readonly expected_block_revision: number;
+            /** Format: int64 */
+            readonly expected_placement_revision: number;
+            readonly rank_key: string;
+            readonly view_group_key?: string | null;
+            readonly view_rank_key?: string | null;
+        };
+        readonly BlockRecordRead: {
+            readonly block_ids?: readonly string[] | null;
+            readonly include_content?: boolean;
+            readonly include_descendants?: boolean;
+            /** @enum {string} */
+            readonly kind: "window";
+            readonly parent?: null | components["schemas"]["BlockRecordPlacementParent"];
+            readonly view_id?: string | null;
+        };
+        readonly BlockRecordReadRequest: {
+            /** Format: int32 */
+            readonly contract_version: number;
+            readonly read: components["schemas"]["BlockRecordRead"];
+        };
+        readonly BlockRecordReadResponse: components["schemas"]["ResponseEnvelope_BlockRecordReadSnapshot"];
+        readonly BlockRecordReadSnapshot: {
+            readonly content: readonly components["schemas"]["BlockRecordContentValue"][];
+            readonly graph: components["schemas"]["BlockRecordGraph"];
+            readonly library_id: string;
+            /**
+             * @description The exact LocalCommit position represented by this snapshot.
+             *
+             *     An empty store still has a position (`commit_seq = 0`). Keeping the
+             *     cursor mandatory is what lets the first apply-response be projected
+             *     locally without an artificial "unobserved" state.
+             */
+            readonly observed_cursor: components["schemas"]["BlockRecordCursor"];
+            readonly view_positions: readonly components["schemas"]["BlockRecordViewPositionValue"][];
+        };
+        readonly BlockRecordTreeNode: {
+            readonly block_id: string;
+            readonly block_kind: string;
+            readonly content_shard_id: string;
+            /** Format: int64 */
+            readonly expected_block_revision?: number | null;
+            /** Format: int64 */
+            readonly expected_content_revision?: number | null;
+            /** Format: int64 */
+            readonly expected_placement_revision?: number | null;
+            readonly materialized_json: unknown;
+            readonly parent_block_id?: string | null;
+            readonly properties: unknown;
+            readonly rank_key: string;
+        };
+        readonly BlockRecordUpdateEntry: {
+            readonly block_id: string;
+            readonly data_source_id?: string | null;
+            /** Format: int64 */
+            readonly expected_block_revision: number;
+            /** Format: int64 */
+            readonly expected_view_revision?: number | null;
+            readonly properties: unknown;
+            readonly view_group_key?: string | null;
+            readonly view_id?: string | null;
+            readonly view_rank_key?: string | null;
+        };
+        readonly BlockRecordValue: {
+            readonly content_shard_id: string;
+            readonly id: string;
+            readonly kind: string;
+            readonly library_id: string;
+            readonly lifecycle: unknown;
+            readonly properties: unknown;
+            /** Format: int64 */
+            readonly revision: number;
+        };
+        readonly BlockRecordViewPositionRebalance: {
+            readonly block_id: string;
+            /** Format: int64 */
+            readonly expected_revision: number;
+            readonly group_key?: string | null;
+            readonly rank_key: string;
+        };
+        readonly BlockRecordViewPositionValue: {
+            readonly block_id: string;
+            readonly data_source_id: string;
+            readonly group_key?: string | null;
+            readonly rank_key: string;
+            /** Format: int64 */
+            readonly revision: number;
+            readonly view_id: string;
+        };
         readonly CanvasCompactionStats: {
             readonly document_id: string;
             readonly eligible: boolean;
@@ -4204,7 +4542,7 @@ export interface components {
             readonly operation_id: string;
         };
         /** @enum {string} */
-        readonly ModuleName: "library" | "database" | "owned_document" | "project_workspace" | "automation" | "store_administration";
+        readonly ModuleName: "library" | "database" | "block_record" | "owned_document" | "project_workspace" | "automation" | "store_administration";
         readonly ModuleReadRequest_AutomationRead: {
             /** Format: int32 */
             readonly contract_version: number;
@@ -5122,6 +5460,50 @@ export interface components {
             /** Format: int64 */
             readonly snooze_id: number;
         };
+        readonly ResponseEnvelope_BlockRecordCommittedValue: {
+            readonly payload: {
+                readonly actor_id: string;
+                readonly audience: unknown;
+                readonly canonical_hash: string;
+                readonly commit_id: string;
+                readonly committed_at: string;
+                readonly cursor: components["schemas"]["BlockRecordCursor"];
+                readonly duplicate: boolean;
+                readonly effects: readonly components["schemas"]["BlockRecordEffect"][];
+                readonly intent_hash: string;
+                readonly operation_id: string;
+                readonly payload_completeness: components["schemas"]["BlockRecordPayloadCompleteness"];
+                readonly session_id: string;
+            };
+            /** @enum {string} */
+            readonly status: "ok";
+        } | {
+            readonly payload: components["schemas"]["CoreError"];
+            /** @enum {string} */
+            readonly status: "error";
+        };
+        readonly ResponseEnvelope_BlockRecordReadSnapshot: {
+            readonly payload: {
+                readonly content: readonly components["schemas"]["BlockRecordContentValue"][];
+                readonly graph: components["schemas"]["BlockRecordGraph"];
+                readonly library_id: string;
+                /**
+                 * @description The exact LocalCommit position represented by this snapshot.
+                 *
+                 *     An empty store still has a position (`commit_seq = 0`). Keeping the
+                 *     cursor mandatory is what lets the first apply-response be projected
+                 *     locally without an artificial "unobserved" state.
+                 */
+                readonly observed_cursor: components["schemas"]["BlockRecordCursor"];
+                readonly view_positions: readonly components["schemas"]["BlockRecordViewPositionValue"][];
+            };
+            /** @enum {string} */
+            readonly status: "ok";
+        } | {
+            readonly payload: components["schemas"]["CoreError"];
+            /** @enum {string} */
+            readonly status: "error";
+        };
         readonly ResponseEnvelope_CommittedModuleValue_AutomationCommitValue_AutomationReceipt: {
             readonly payload: {
                 /** Format: int64 */
@@ -5930,6 +6312,29 @@ export interface operations {
             };
         };
     };
+    readonly local_commits: {
+        readonly parameters: {
+            readonly query?: {
+                /** @description Last LocalCommit sequence observed */
+                readonly after?: number;
+            };
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Durable LocalCommit stream */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "text/event-stream": components["schemas"]["BlockRecordApplyResponse"];
+                };
+            };
+        };
+    };
     readonly administration_apply: {
         readonly parameters: {
             readonly query?: never;
@@ -6018,6 +6423,52 @@ export interface operations {
                 };
                 content: {
                     readonly "application/json": components["schemas"]["AutomationReadResponse"];
+                };
+            };
+        };
+    };
+    readonly block_record_apply: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["BlockRecordApplyRequest"];
+            };
+        };
+        readonly responses: {
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["BlockRecordApplyResponse"];
+                };
+            };
+        };
+    };
+    readonly block_record_read: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["BlockRecordReadRequest"];
+            };
+        };
+        readonly responses: {
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["BlockRecordReadResponse"];
                 };
             };
         };

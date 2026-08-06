@@ -11,10 +11,7 @@ import {
   type PageStagePageModel,
 } from "@/lib/page-stage-page";
 import { renderWithMaitai as render, settleAsyncRender } from "@/test/dom";
-import {
-  PAGE_DOCUMENT_SCHEMA_VERSION,
-  plainTextToPortableRichText,
-} from "../../../../shared/block-documents";
+import { plainTextToPortableRichText } from "../../../../shared/block-documents";
 import {
   usePageStageController,
   type PageStageControllerDependencies,
@@ -55,34 +52,12 @@ function toStageModel(page: DatabasePage): PageStagePageModel {
   return projectPageDetailToStageModel(detail.value);
 }
 
-function documentAuthority(): PageStageProps["documentAuthority"] {
-  return {
-    kind: "yjs",
-    descriptor: {
-      projectId: "project-1",
-      ownerBlockId: "page-1",
-      ownerType: "page",
-      ownerLifecycle: "active",
-      documentId: "document-1",
-      storeEpoch: "store-epoch-1",
-      generation: 1,
-      headSeq: 1,
-      schemaKey: "nodex.page",
-      schemaVersion: PAGE_DOCUMENT_SCHEMA_VERSION,
-      readiness: "ready",
-      sync: { kind: "yjs", stateVector: new Uint8Array() },
-    },
-    reload: async () => undefined,
-  };
-}
-
 function buildProps(overrides: Partial<PageStageProps> = {}): PageStageProps {
   const sourcePage = buildPage();
   const page = overrides.page === undefined ? toStageModel(sourcePage) : overrides.page;
   return {
     page,
     contentAccessContext: { kind: "project", projectId: "project-1" },
-    documentAuthority: documentAuthority(),
     documentScopeId: "project-1",
     onClose: () => undefined,
     onUpdate: async (_pageId, updates) =>

@@ -44,7 +44,7 @@ export interface BlockTransferDropBoundary {
   readonly ancestorPageIds: readonly string[];
   readonly transfer: (
     intent: PublicBlockTransferIntent,
-  ) => Promise<BlockTransferCommandResult>;
+  ) => Promise<BlockTransferCommandResult | void>;
   readonly transferCanvas?: (intent: {
     readonly canvasBlockId: string;
     readonly sourceSurfaceId: string;
@@ -297,7 +297,7 @@ export const setupBlockTransferDocumentDrop = (
       void boundary
         .transfer(intent)
         .then((result) => {
-          if (!result.ok) boundary.reportError(result.error.message);
+          if (result && !result.ok) boundary.reportError(result.error.message);
         })
         .catch((error: unknown) => {
           boundary.reportError(
@@ -473,7 +473,7 @@ export const setupBlockTransferDocumentDrop = (
     void boundary
       .transfer(intent)
       .then((result) => {
-        if (!result.ok) boundary.reportError(result.error.message);
+        if (result && !result.ok) boundary.reportError(result.error.message);
       })
       .catch((error: unknown) => {
         boundary.reportError(

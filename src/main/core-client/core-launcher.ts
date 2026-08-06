@@ -6,6 +6,7 @@ import { performance } from "node:perf_hooks";
 
 import type { components } from "@nodex/core-protocol";
 import { CoreClient } from "./core-client";
+import type { BlockRecordCommittedValue } from "./types";
 
 const DEFAULT_STARTUP_TIMEOUT_MS = 300_000;
 const DEFAULT_POLL_INTERVAL_MS = 25;
@@ -29,6 +30,7 @@ export interface ConnectOrStartCoreInput extends ResolveCoreExecutableInput {
   readonly onStartupEvent?: (event: CoreStartupEvent) => void;
   readonly pollIntervalMs?: number;
   readonly requestTimeoutMs?: number;
+  readonly onBlockRecordCommit?: (commit: BlockRecordCommittedValue) => void;
   readonly startupTimeoutMs?: number;
 }
 
@@ -270,6 +272,7 @@ const connect = (input: ConnectOrStartCoreInput): Promise<CoreClient> =>
     connectionId: input.connectionId,
     maximumJsonResponseBytes: input.maximumJsonResponseBytes,
     requestTimeoutMs: input.requestTimeoutMs,
+    onBlockRecordCommit: input.onBlockRecordCommit,
   });
 
 export async function connectOrStartCore(

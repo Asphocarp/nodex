@@ -523,6 +523,30 @@ vi.mock("@/lib/api", () => {
     invokeCalls.push(["pages:detail:get", projectId, pageId]);
     return mockInvokeImpl?.("pages:detail:get", projectId, pageId) ?? null;
   },
+  readBlockRecord: async (read: unknown) => {
+    invokeCalls.push(["block-record:read", read]);
+    const configured = await mockInvokeImpl?.("block-record:read", read);
+    if (configured !== undefined && configured !== null) return configured;
+    return {
+      library_id: "library:test",
+      graph: {
+        library_id: "library:test",
+        blocks: [],
+        placements: [],
+      },
+      content: [],
+      view_positions: [],
+      observed_cursor: {
+        store_epoch: "epoch:test",
+        commit_seq: 0,
+      },
+    };
+  },
+  applyBlockRecord: async (input: unknown) => {
+    invokeCalls.push(["block-record:apply", input]);
+    return mockInvokeImpl?.("block-record:apply", input) ?? null;
+  },
+  subscribeBlockRecordCommits: () => () => undefined,
   applyDatabaseModule: async (projectId: string, request: unknown) => {
     invokeCalls.push(["database-module:apply", projectId, request]);
     return mockInvokeImpl?.("database-module:apply", projectId, request) ?? {

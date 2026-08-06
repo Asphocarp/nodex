@@ -29,6 +29,13 @@ export interface LocalCommitRecordDelta {
   readonly kind: string;
   readonly lifecycle: "active" | "archived" | "retired";
   readonly revision: number;
+  readonly libraryId?: string;
+  readonly properties?: Readonly<Record<string, unknown>>;
+  readonly contentShardId?: string;
+}
+
+export interface LocalCommitDataSourceDelta {
+  readonly dataSourceId: string;
 }
 
 export interface LocalCommitContentRef {
@@ -36,7 +43,25 @@ export interface LocalCommitContentRef {
   readonly slot: string;
   readonly shardId: string;
   readonly head: number;
-  readonly stateVectorHash: string;
+  /** Present for CRDT-update effects; materialized-only commits may omit it. */
+  readonly stateHash?: string | null;
+  /** A record-backed content commit carries its immediately usable projection. */
+  readonly materializedJson?: unknown;
+}
+
+export interface LocalCommitViewPositionDelta {
+  readonly viewId: string;
+  readonly dataSourceId: string;
+  readonly blockId: string;
+  readonly groupKey: string | null;
+  readonly rankKey: string;
+  readonly revision: number;
+}
+
+export interface LocalCommitRemoveDelta {
+  readonly blockId: string;
+  readonly lifecycle: "archived" | "retired";
+  readonly revision: number;
 }
 
 export interface LocalCommitProjectionDelta {
@@ -49,7 +74,10 @@ export interface LocalCommitProjectionDelta {
 export type LocalCommitEffect =
   | { readonly kind: "record"; readonly value: LocalCommitRecordDelta }
   | { readonly kind: "placement"; readonly value: LocalCommitPlacementDelta }
+  | { readonly kind: "data_source"; readonly value: LocalCommitDataSourceDelta }
   | { readonly kind: "content"; readonly value: LocalCommitContentRef }
+  | { readonly kind: "view_position"; readonly value: LocalCommitViewPositionDelta }
+  | { readonly kind: "remove"; readonly value: LocalCommitRemoveDelta }
   | { readonly kind: "projection"; readonly value: LocalCommitProjectionDelta };
 
 export interface LocalCommitAudience {

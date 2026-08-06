@@ -3,11 +3,9 @@ import { plainTextToPortableRichText } from "../../shared/block-documents";
 import {
   buildCreateCardTransform,
   buildDeletePageTransform,
-  buildMovePageTransform,
   buildPatchPageTransform,
   conflictKeysForCreate,
   conflictKeysForDelete,
-  conflictKeysForMove,
   conflictKeysForPatch,
   createOptimisticCard,
 } from "./kanban-optimistic-ops";
@@ -23,10 +21,10 @@ import {
   type KanbanStoreDependencies,
 } from "./kanban-store";
 import type { DatabaseViewGroupsSnapshot } from "../../shared/database-views";
-import { toDatabasePageSummary } from "../../shared/page-summary";
-import type { BoardChangeEvent } from "../../shared/ipc-api";
 import type { ProjectionStreamMessage } from "../../shared/projection-stream";
-import type { DatabaseViewWindowSnapshot } from "../../shared/database-views";
+import type {
+  DatabaseViewWindowSnapshot,
+} from "../../shared/database-views";
 import {
   DATABASE_MODULE_V2_CONTRACT_VERSION,
   type DatabaseModuleReadResultV2,
@@ -291,9 +289,19 @@ function createGroupsSnapshot(
 function createTestRegistry(
   dependencies: Partial<KanbanStoreDependencies> = {},
 ) {
+  const readViewWindow = dependencies.readViewWindow
+    ?? (async () => createBoardSnapshot());
+  const readViewGroups = dependencies.readViewGroups
+    ?? (async (_projectId: string, input: { databaseViewId?: string }) =>
+      createGroupsSnapshot(input.databaseViewId
+        ? { viewId: input.databaseViewId }
+        : undefined));
   return createKanbanStoreRegistry({
-    readViewGroups: async () => createGroupsSnapshot(),
     ...dependencies,
+    readViewGroups,
+    readViewWindow: (projectId, input) => {
+      return readViewWindow(projectId, input);
+    },
   });
 }
 
@@ -980,42 +988,6 @@ describe("kanban store", () => {
     expect(store.getSnapshot().pageIndex.get("card-1")?.title).toBe("Forced");
   });
 
-  test("summary patch events update the board without a broad refetch", async () => {
-    const callbacks: { onBoardChange?: (event: BoardChangeEvent) => void } = {};
-    let boardFetchCount = 0;
-
-    const registry = createTestRegistry({
-      readViewWindow: async () => {
-        boardFetchCount += 1;
-        return createBoardSnapshot();
-      },
-      subscribeBoardChanges: (_projectId, callback) => {
-        callbacks.onBoardChange = callback;
-        return () => {};
-      },
-    });
-
-    const store = registry.getStore("default");
-    const unsubscribe = store.subscribe(() => {});
-    await waitForMicrotasks();
-
-    callbacks.onBoardChange?.({
-      projectId: "default",
-      changeType: "update",
-      columnId: "triage",
-      status: "triage",
-      pageId: "card-1",
-      summary: createPageSummary("Patched from event"),
-      storeEpoch: "epoch-1",
-      changeLogSeq: 2,
-    });
-    await waitForMicrotasks();
-
-    expect(boardFetchCount).toBe(1);
-    expect(store.getSnapshot().pageIndex.get("card-1")?.title).toBe("Patched from event");
-    unsubscribe();
-  });
-
   test("applies local optimistic overlays to board and card index", async () => {
     const board = createBoard();
     const registry = createTestRegistry({
@@ -1043,79 +1015,6 @@ describe("kanban store", () => {
     expect(notifications).toBe(1);
 
     unsubscribe();
-  });
-
-  test("merges full remote card updates as summaries without storing the body", async () => {
-    const registry = createTestRegistry({
-      readViewWindow: async () => createBoardSnapshot(),
-      subscribeBoardChanges: () => () => {},
-    });
-
-    const store = registry.getStore("default");
-    await store.fetchBoard();
-
-    store.applyRemoteCard({
-      id: "card-1",
-      status: "triage",
-      archived: false,
-      title: "Remote title",
-      richTitle: plainTextToPortableRichText("Remote title"),
-      description: "Remote full body that should only become preview metadata",
-      tags: [],
-      revision: 2,
-      created: new Date("2026-02-16T00:00:00.000Z"),
-      order: 0,
-    });
-
-    const indexedPage = store.getSnapshot().pageIndex.get("card-1");
-    const summary = toDatabasePageSummary({
-      id: "card-1",
-      status: "triage",
-      archived: false,
-      title: "Remote title",
-      richTitle: plainTextToPortableRichText("Remote title"),
-      description: "Remote full body that should only become preview metadata",
-      tags: [],
-      revision: 2,
-      created: new Date("2026-02-16T00:00:00.000Z"),
-      order: 0,
-    });
-
-    expect(indexedPage?.title).toBe("Remote title");
-    expect(indexedPage?.descriptionPreview).toBe(summary.descriptionPreview);
-    expect(indexedPage?.descriptionLength).toBe(summary.descriptionLength);
-    expect(Object.hasOwn(indexedPage ?? {}, "description")).toBe(false);
-  });
-
-  test("merges remote card summary acknowledgements without a full body", async () => {
-    const registry = createTestRegistry({
-      readViewWindow: async () => createBoardSnapshot(),
-      subscribeBoardChanges: () => () => {},
-    });
-
-    const store = registry.getStore("default");
-    await store.fetchBoard();
-
-    store.applyRemoteCardSummary({
-      id: "card-1",
-      status: "triage",
-      archived: false,
-      title: "Ack title",
-      richTitle: plainTextToPortableRichText("Ack title"),
-      tags: [],
-      revision: 2,
-      created: new Date("2026-02-16T00:00:00.000Z"),
-      order: 0,
-      descriptionPreview: "Ack preview",
-      descriptionLength: 128,
-      hasDescription: true,
-    });
-
-    const indexedPage = store.getSnapshot().pageIndex.get("card-1");
-    expect(indexedPage?.title).toBe("Ack title");
-    expect(indexedPage?.descriptionPreview).toBe("Ack preview");
-    expect(indexedPage?.descriptionLength).toBe(128);
-    expect(Object.hasOwn(indexedPage ?? {}, "description")).toBe(false);
   });
 
   test("local draft overlays do not bump card revision", async () => {
@@ -1239,91 +1138,6 @@ describe("kanban store", () => {
     expect(store.getSnapshot().pageIndex.get("card-1")?.title).toBe("C");
   });
 
-  test("create -> edit -> move remains stable across acknowledgements", async () => {
-    const createInput: PageCreateInput = {
-      title: "Created",
-      id: "018f0f85-6d56-7625-bdea-000000000000",
-    };
-    let serverBoard = createBoard();
-
-    const createRemoteDeferred = createDeferred<{ id: string }>();
-    const updateRemoteDeferred = createDeferred<{ ok: true }>();
-    const moveRemoteDeferred = createDeferred<{ ok: true }>();
-
-    const registry = createTestRegistry({
-      readViewWindow: async () => createBoardSnapshot(cloneBoard(serverBoard)),
-      subscribeBoardChanges: () => () => {},
-    });
-    const store = registry.getStore("default");
-    await store.fetchBoard();
-
-    const optimisticCard = createOptimisticCard(createInput);
-
-    const createMutation = store.runOptimisticMutation({
-      kind: "page:create",
-      conflictKeys: conflictKeysForCreate("triage", optimisticCard.id),
-      apply: buildCreateCardTransform("triage", optimisticCard, "bottom"),
-      runRemote: async () => {
-        const result = await createRemoteDeferred.promise;
-        serverBoard = buildCreateCardTransform("triage", optimisticCard, "bottom")(serverBoard);
-        return result;
-      },
-    });
-    expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.title).toBe("Created");
-
-    const updateMutation = store.runOptimisticMutation({
-      kind: "page:update",
-      conflictKeys: conflictKeysForPatch("018f0f85-6d56-7625-bdea-000000000000", { title: "Created edited" }),
-      apply: buildPatchPageTransform("triage", "018f0f85-6d56-7625-bdea-000000000000", { title: "Created edited" }),
-      runRemote: async () => {
-        const result = await updateRemoteDeferred.promise;
-        serverBoard = buildPatchPageTransform("triage", "018f0f85-6d56-7625-bdea-000000000000", { title: "Created edited" })(serverBoard);
-        return result;
-      },
-    });
-    expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.title).toBe("Created edited");
-
-    const moveMutation = store.runOptimisticMutation({
-      kind: "page:move",
-      conflictKeys: conflictKeysForMove({
-        pageId: "018f0f85-6d56-7625-bdea-000000000000",
-        fromStatus: "triage",
-        toStatus: "ship",
-      }),
-      apply: buildMovePageTransform({
-        pageId: "018f0f85-6d56-7625-bdea-000000000000",
-        fromStatus: "triage",
-        toStatus: "ship",
-      }),
-      runRemote: async () => {
-        const result = await moveRemoteDeferred.promise;
-        serverBoard = buildMovePageTransform({
-          pageId: "018f0f85-6d56-7625-bdea-000000000000",
-          fromStatus: "triage",
-          toStatus: "ship",
-        })(serverBoard);
-        return result;
-      },
-    });
-
-    expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.columnId).toBe("ship");
-
-    createRemoteDeferred.resolve({ id: "018f0f85-6d56-7625-bdea-000000000000" });
-    await createMutation;
-    expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.columnId).toBe("ship");
-    expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.title).toBe("Created edited");
-
-    updateRemoteDeferred.resolve({ ok: true });
-    await updateMutation;
-    expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.columnId).toBe("ship");
-    expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.title).toBe("Created edited");
-
-    moveRemoteDeferred.resolve({ ok: true });
-    await moveMutation;
-    expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.columnId).toBe("ship");
-    expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.title).toBe("Created edited");
-  });
-
   test("failed delete rolls back automatically", async () => {
     const board = createBoard();
     const registry = createTestRegistry({
@@ -1346,105 +1160,6 @@ describe("kanban store", () => {
     const result = await mutation;
     expect(result.ok).toBe(false);
     expect(store.getSnapshot().pageIndex.has("card-1")).toBe(true);
-  });
-
-  test("patches local board events and uses the event cursor for ambiguous refreshes", async () => {
-    const board = createBoard();
-    const callbacks: { onBoardChange?: (event: BoardChangeEvent) => void } = {};
-    let boardFetchCount = 0;
-
-    const registry = createTestRegistry({
-      readViewWindow: async () => {
-        boardFetchCount += 1;
-        return createBoardSnapshot(board, boardFetchCount);
-      },
-      subscribeBoardChanges: (_projectId, callback) => {
-        callbacks.onBoardChange = callback;
-        return () => {};
-      },
-    });
-
-    const store = registry.getStore("default");
-    const unsubscribe = store.subscribe(() => {});
-    await waitForMicrotasks();
-
-    expect(boardFetchCount).toBe(1);
-
-    const deleteEvent: BoardChangeEvent = {
-      projectId: "default",
-      changeType: "delete",
-      columnId: "triage",
-      status: "triage",
-      pageId: "card-1",
-      storeEpoch: "epoch-1",
-      changeLogSeq: 2,
-    };
-
-    callbacks.onBoardChange?.(deleteEvent);
-    await waitForMicrotasks();
-    expect(boardFetchCount).toBe(1);
-    expect(store.getSnapshot().pageIndex.has("card-1")).toBe(false);
-
-    const ambiguousEvent: BoardChangeEvent = {
-      projectId: "default",
-      changeType: "move",
-      columnId: "triage",
-      status: "triage",
-      storeEpoch: "epoch-1",
-      changeLogSeq: 3,
-    };
-
-    callbacks.onBoardChange?.(ambiguousEvent);
-    await waitForMicrotasks();
-    expect(boardFetchCount).toBe(2);
-
-    callbacks.onBoardChange?.(ambiguousEvent);
-    await waitForMicrotasks();
-    expect(boardFetchCount).toBe(3);
-
-    unsubscribe();
-  });
-
-  test("does not let a late older Board read overwrite a cursor-fenced patch", async () => {
-    const board = createBoard();
-    const lateRead = createDeferred<DatabaseViewWindowSnapshot>();
-    const callbacks: { onBoardChange?: (event: BoardChangeEvent) => void } = {};
-    const projection = createProjectionHarness();
-    let readCount = 0;
-    const registry = createTestRegistry({
-      readViewWindow: async () => {
-        readCount += 1;
-        if (readCount === 1) return createBoardSnapshot(cloneBoard(board), 1);
-        return await lateRead.promise;
-      },
-      subscribeBoardChanges: (_projectId, callback) => {
-        callbacks.onBoardChange = callback;
-        return () => {};
-      },
-      getProjectionInvalidationRegistry: projection.getRegistry,
-    });
-    const store = registry.getStore("default");
-    const unsubscribe = store.subscribe(() => {});
-    await waitForMicrotasks();
-
-    const refresh = store.refreshBoard();
-    await waitForMicrotasks();
-    callbacks.onBoardChange?.({
-      projectId: "default",
-      changeType: "delete",
-      columnId: "triage",
-      status: "triage",
-      pageId: "card-1",
-      storeEpoch: "epoch-1",
-      changeLogSeq: 2,
-    });
-    projection.publish(pageChanged(2, "card-1"));
-    lateRead.resolve(createBoardSnapshot(cloneBoard(board), 1));
-    await refresh;
-    await waitForMicrotasks();
-
-    expect(store.getSnapshot().pageIndex.has("card-1")).toBe(false);
-    unsubscribe();
   });
 
   test("keeps per-project store instance across unsubscribe/resubscribe", async () => {

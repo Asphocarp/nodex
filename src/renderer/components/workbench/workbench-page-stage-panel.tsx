@@ -3,12 +3,12 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
+  useState,
   type ComponentPropsWithoutRef,
   type MutableRefObject,
   type ReactNode,
   type RefObject,
 } from "react";
-import { OwnedBlockDocumentBoundary } from "@/components/block-documents/owned-block-document-boundary";
 import { PageStageContentSkeleton } from "@/components/kanban/page-stage/content-skeleton";
 import { PageStageToolbar } from "@/components/kanban/page-stage/toolbar";
 import type { PageStageSessionSnapshot } from "@/components/kanban/page-stage/types";
@@ -23,6 +23,11 @@ import { makePageEditorSessionKey } from "@/lib/page-editor-session-registry";
 import {
   projectPageDetailToStageModel,
 } from "@/lib/page-stage-page";
+import {
+  projectBlockRecordWindowToPageStageModel,
+} from "@/lib/block-record-page-shell";
+import { createBlockRecordWindowStore } from "@/lib/block-record-window-store";
+import type { BlockRecordWindow } from "../../../shared/block-records";
 import {
   pageStageSemanticValues,
   type PageStageSemanticValues,
@@ -197,6 +202,27 @@ export function PageStageSessionTab({
     tab.config.projectId,
     tab.config.pageId,
   );
+  const blockRecordWindowStore = useMemo(() => createBlockRecordWindowStore(), []);
+  const [blockRecordWindow, setBlockRecordWindow] = useState<BlockRecordWindow | null>(null);
+  const [blockRecordError, setBlockRecordError] = useState<string | null>(null);
+  useEffect(() => {
+    setBlockRecordWindow(null);
+    setBlockRecordError(null);
+    const unsubscribe = blockRecordWindowStore.subscribe(setBlockRecordWindow);
+    const stopCommitSubscription = blockRecordWindowStore.startCommitSubscription();
+    void blockRecordWindowStore.load({
+      kind: "window",
+      parent: { kind: "block", id: tab.config.pageId },
+      include_content: true,
+      include_descendants: false,
+    }).catch((error: unknown) => {
+      setBlockRecordError(error instanceof Error ? error.message : String(error));
+    });
+    return () => {
+      unsubscribe();
+      stopCommitSubscription();
+    };
+  }, [blockRecordWindowStore, tab.config.pageId]);
   const stageProjection = useMemo(() => {
     if (!detailSnapshot.detail) return { page: null, error: null };
     try {
@@ -211,17 +237,27 @@ export function PageStageSessionTab({
       };
     }
   }, [detailSnapshot.detail]);
-  const page = stageProjection.page;
+  const recordStageProjection = useMemo(
+    () => blockRecordWindow
+      ? projectBlockRecordWindowToPageStageModel(blockRecordWindow, tab.config.pageId)
+      : null,
+    [blockRecordWindow, tab.config.pageId],
+  );
+  // The BlockRecord window is the authoritative Page shell. The legacy
+  // detail read is retained only as a bootstrap/enrichment source for old
+  // metadata surfaces; it must never win over a newer local record commit.
+  const page = recordStageProjection ?? stageProjection.page;
   const pageLoadError = !page
     ? stageProjection.error ?? (
         detailSnapshot.error === "Page not found"
-          ? null
-          : detailSnapshot.error
+          ? blockRecordError
+          : blockRecordError ?? detailSnapshot.error
       )
     : null;
   const pageHydrating = !page && (
     detailSnapshot.loading
-    || (!detailSnapshot.error && !stageProjection.error)
+    || blockRecordWindow === null
+    || (!detailSnapshot.error && !stageProjection.error && !blockRecordError)
   );
 
   useLayoutEffect(() => {
@@ -352,61 +388,10 @@ export function PageStageSessionTab({
   const renderDocumentSurface = (
     databaseCapability: PageStageDatabaseCapability | null,
   ): ReactNode => (
-    <OwnedBlockDocumentBoundary
-      projectId={tab.config.projectId}
-      ownerBlockId={page.page.id}
-    >
-      {(documentModel, documentControls) => {
-        if (documentModel.status === "loading") {
-          return (
-            <PageStageSessionSkeleton
-              titleSnapshot={page.page.title}
-              breadcrumb={breadcrumb
-                ? {
-                    ...breadcrumb,
-                    currentTitle: page.page.title,
-                  }
-                : undefined}
-            />
-          );
-        }
-        if (documentModel.status === "error") {
-          return (
-            <PageStageSessionNotice
-              title="Could not open page"
-              description={documentModel.error.message}
-              actionLabel="Retry"
-              onAction={() => {
-                void documentControls.reload();
-              }}
-            />
-          );
-        }
-        if (documentModel.status !== "ready") {
-          return (
-            <PageStageSessionNotice
-              title="Page content is not ready"
-              description="This Page content is not ready to edit."
-              actionLabel="Retry"
-              onAction={() => {
-                void documentControls.reload();
-              }}
-            />
-          );
-        }
-
-        const documentAuthority = {
-          kind: "yjs" as const,
-          descriptor: documentModel.descriptor,
-          reload: documentControls.reload,
-        };
-
-        return (
-          <PageStage
+    <PageStage
             contentAccessContext={projectContentAccess(tab.config.projectId)}
             editorSessionKey={makePageEditorSessionKey(sessionId, tab.id)}
             retainEditorSession={tab.preview !== true}
-            documentAuthority={documentAuthority}
             page={page}
             documentScopeId={tab.config.projectId}
             projectName={project.name}
@@ -506,9 +491,6 @@ export function PageStageSessionTab({
               });
             }}
           />
-        );
-      }}
-    </OwnedBlockDocumentBoundary>
   );
 
   return (

@@ -1,18 +1,9 @@
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 import {
   buildCompleteOrSkipOccurrenceTransform,
-  buildCreateCardTransform,
-  buildDeletePageTransform,
-  buildMovePageTransform,
-  buildMovePagesTransform,
   buildPatchPageTransform,
   conflictKeyForCard,
-  conflictKeysForCreate,
-  conflictKeysForDelete,
-  conflictKeysForMove,
-  conflictKeysForMoveMany,
   conflictKeysForPatch,
-  createOptimisticCard,
 } from "./kanban-optimistic-ops";
 import { createUuidV7 } from "../../shared/uuid-v7";
 import { isWorkflowStatus } from "../../shared/workflow-status";
@@ -27,6 +18,7 @@ import type {
   PageCreatePlacement,
   PageInput,
   PageUpdateMutationResult,
+  PageUpdateField,
   PageUpdateResult,
   PageOccurrenceActionInput,
   PageOccurrenceCompleteInput,
@@ -40,15 +32,11 @@ import {
 import { getKanbanProjectStore } from "./kanban-store";
 import { getDatabaseRowDetail, setDatabaseRowDetail } from "./database-row-detail-store";
 import {
-  commitDatabasePageDrag,
-  commitDatabasePagesDrag,
-  databaseViewRenderModelToDragSnapshot,
-} from "./database-page-drag-runtime";
-import { commitPageLifecycleIntent } from "./page-lifecycle-runtime";
-import {
   isPageMetadataPatch,
 } from "./page-detail-metadata-runtime";
-import { commitPageMetadataPatchForBoard } from "./page-metadata-board-runtime";
+import { pageInputToSummaryPatch } from "../../shared/page-summary";
+import { planFractionalRank } from "../../shared/block-records";
+import { plainTextToPortableRichText } from "../../shared/block-documents/portable-rich-text";
 
 interface UseKanbanOptions {
   projectId: string;
@@ -82,6 +70,64 @@ function toErrorMessage(value: unknown): string {
   if (typeof value === "string") return value;
   return "Unknown error";
 }
+
+const hasOwn = (value: object, key: PropertyKey): boolean => Object.hasOwn(value, key);
+
+const serializeRecordProperty = (value: unknown): unknown => {
+  if (value instanceof Date) return value.toISOString();
+  if (Array.isArray(value)) return value.map(serializeRecordProperty);
+  if (typeof value !== "object" || value === null) return value;
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => [key, serializeRecordProperty(entry)]),
+  );
+};
+
+const pageMetadataToRecordProperties = (
+  current: Readonly<Record<string, unknown>>,
+  updates: Partial<PageInput>,
+): Readonly<Record<string, unknown>> => {
+  const next: Record<string, unknown> = { ...current };
+  const fields = [
+    "status",
+    "priority",
+    "estimate",
+    "tags",
+    "dueDate",
+    "scheduledStart",
+    "scheduledEnd",
+    "isAllDay",
+    "recurrence",
+    "reminders",
+    "scheduleTimezone",
+    "assignee",
+    "runInTarget",
+    "runInLocalPath",
+    "runInBaseBranch",
+    "runInWorktreePath",
+    "runInEnvironmentPath",
+  ] as const;
+  for (const field of fields) {
+    if (!hasOwn(updates, field)) continue;
+    const value = updates[field];
+    if (value === undefined || (value === null && field !== "isAllDay")) {
+      delete next[field];
+      continue;
+    }
+    next[field] = serializeRecordProperty(value);
+  }
+  return next;
+};
+
+const pageCreateToRecordProperties = (
+  input: PageCreateInput,
+  status: string,
+): Readonly<Record<string, unknown>> => ({
+  ...pageMetadataToRecordProperties({}, { ...input, status: status as PageInput["status"] }),
+  title: input.title,
+  richTitle: plainTextToPortableRichText(input.title),
+  description: input.description ?? "",
+  createdAt: new Date().toISOString(),
+});
 
 function ensureCreateInputId(input: PageCreateInput): PageCreateInput {
   if (input.id && input.id.trim().length > 0) return input;
@@ -145,6 +191,50 @@ export function useKanban(options: UseKanbanOptions) {
     await store.refreshBoardAtLeast(minimumCommitSeq);
   }, [store]);
 
+  const promoteBlockToPage = useCallback(
+    async (input: {
+      blockId: string;
+      groupKey: string;
+      beforePageId?: string;
+    }): Promise<boolean> => {
+      try {
+        await store.promoteBlockToPage({
+          ...input,
+          actorId: `renderer:${projectId}`,
+          sessionId: sessionId ?? "renderer",
+        });
+        onMutation?.();
+        return true;
+      } catch (error) {
+        store.setError(toErrorMessage(error));
+        return false;
+      }
+    },
+    [onMutation, projectId, sessionId, store],
+  );
+
+  const promoteBlocksToPage = useCallback(
+    async (input: {
+      blockIds: readonly string[];
+      groupKey: string;
+      beforePageId?: string;
+    }): Promise<boolean> => {
+      try {
+        await store.promoteBlocksToPage({
+          ...input,
+          actorId: `renderer:${projectId}`,
+          sessionId: sessionId ?? "renderer",
+        });
+        onMutation?.();
+        return true;
+      } catch (error) {
+        store.setError(toErrorMessage(error));
+        return false;
+      }
+    },
+    [onMutation, projectId, sessionId, store],
+  );
+
   const loadMore = useCallback(async () => {
     await store.loadMore();
   }, [store]);
@@ -175,37 +265,40 @@ export function useKanban(options: UseKanbanOptions) {
         throw new Error("Page creation requires a canonical Page status");
       }
       const createInput = ensureCreateInputId(input);
-      const optimisticCard = createOptimisticCard(createInput);
-      const operationId = crypto.randomUUID();
-      const outcome = await store.runOptimisticMutation<DatabasePage>({
-        kind: "page:create",
-        conflictKeys: conflictKeysForCreate(columnId, optimisticCard.id),
-        apply: buildCreateCardTransform(columnId, optimisticCard, placement),
-        runRemote: async () => {
-          const committed = await commitPageLifecycleIntent({
-            kind: "create",
-            projectId,
-            operationId,
-            clientSessionId: sessionId,
-            pageId: optimisticCard.id,
-            status: columnId,
-            input: createInput,
-            placement,
-          });
-          if (!committed.boardProjection) {
-            throw new Error("Created Page is missing from canonical authority");
-          }
-          return committed.boardProjection;
-        },
-      });
-
-      if (!outcome.ok) return null;
-      if (outcome.result) {
-        setDatabaseRowDetail(projectId, outcome.result);
-        store.applyRemoteCard(outcome.result);
+      try {
+        await store.createBlockRecordPage({
+          blockId: createInput.id!,
+          properties: pageCreateToRecordProperties(createInput, columnId),
+          materializedJson: plainTextToPortableRichText(createInput.title),
+          groupKey: columnId,
+          placement,
+          actorId: `renderer:${projectId}`,
+          sessionId: sessionId ?? "renderer",
+        });
+      } catch (error) {
+        store.setError(toErrorMessage(error));
+        return null;
       }
+      const summary = store.getSnapshot().pageIndex.get(createInput.id!);
+      if (!summary) {
+        store.setError("Created Page did not enter the canonical Board window");
+        return null;
+      }
+      const result: DatabasePage = {
+        ...summary,
+        description: createInput.description ?? "",
+        ...(createInput.recurrence !== undefined ? { recurrence: createInput.recurrence ?? undefined } : {}),
+        ...(createInput.reminders !== undefined ? { reminders: createInput.reminders } : {}),
+        ...(createInput.scheduleTimezone !== undefined ? { scheduleTimezone: createInput.scheduleTimezone ?? undefined } : {}),
+        ...(createInput.runInTarget !== undefined ? { runInTarget: createInput.runInTarget } : {}),
+        ...(createInput.runInLocalPath !== undefined ? { runInLocalPath: createInput.runInLocalPath ?? undefined } : {}),
+        ...(createInput.runInBaseBranch !== undefined ? { runInBaseBranch: createInput.runInBaseBranch ?? undefined } : {}),
+        ...(createInput.runInWorktreePath !== undefined ? { runInWorktreePath: createInput.runInWorktreePath ?? undefined } : {}),
+        ...(createInput.runInEnvironmentPath !== undefined ? { runInEnvironmentPath: createInput.runInEnvironmentPath ?? undefined } : {}),
+      };
+      setDatabaseRowDetail(projectId, result);
       onMutation?.();
-      return outcome.result ?? null;
+      return result;
     },
     [onMutation, projectId, requireWritableSelectedView, sessionId, store],
   );
@@ -229,68 +322,72 @@ export function useKanban(options: UseKanbanOptions) {
       if (!isPageMetadataPatch(updates)) {
         return { status: "error", error: "No mutable Page metadata was specified" };
       }
-      const conflictKeys = conflictKeysForPatch(pageId, updates);
-      const metadataMutationId = crypto.randomUUID();
-      const outcome = await store.runOptimisticMutation<PageUpdateResult>({
-        kind: "block:properties",
-        conflictKeys,
-        apply: buildPatchPageTransform(columnId, pageId, updates, { bumpRevision: true }),
-        runRemote: async () => await commitPageMetadataPatchForBoard({
+      const currentSummary = store.getSnapshot().pageIndex.get(pageId);
+      const window = store.getBlockRecordWindow();
+      const record = window?.records.find((candidate) => candidate.id === pageId);
+      if (!currentSummary || !record) {
+        return { status: "not_found" };
+      }
+      const properties = pageMetadataToRecordProperties(record.properties, updates);
+      const nextStatus = Object.prototype.hasOwnProperty.call(updates, "status")
+        ? updates.status ?? currentSummary.status
+        : undefined;
+      try {
+        await store.updateBlockRecord({
+          blockId: pageId,
+          properties,
+          ...(nextStatus !== undefined
+            ? {
+              view: {
+                groupKey: nextStatus,
+                rankKey: window?.viewPositions.find((position) => (
+                  position.viewId === window.viewId && position.blockId === pageId
+                ))?.rankKey ?? "80000000000000000000000000000000",
+              },
+            }
+            : {}),
+          actorId: `renderer:${projectId}`,
+          sessionId: sessionId ?? "renderer",
+        });
+      } catch (error) {
+        return {
+          status: "error",
+          error: toErrorMessage(error),
+        };
+      }
+      const nextSummary = store.getSnapshot().pageIndex.get(pageId);
+      if (!nextSummary) return { status: "not_found" };
+      const changedFields = Object.keys(updates) as PageUpdateField[];
+      const summary = {
+        ...nextSummary,
+        ...pageInputToSummaryPatch(updates),
+        revision: store.getSnapshot().pageIndex.get(pageId)?.revision ?? record.revision + 1,
+      };
+      const committedDetail = buildCommittedPageDetailFromUpdate(
+        getDatabaseRowDetail(projectId, pageId),
+        {
+          status: "updated",
           projectId,
-          pageId: pageId,
-          operationId: metadataMutationId,
-          clientSessionId: sessionId,
-          patch: updates,
-        }),
-        refreshOnSuccess: false,
-      });
-
-      if (!outcome.ok) {
-        return {
-          status: "error",
-          error: outcome.error?.message ?? "Failed to update card",
-        };
+          pageId,
+          revision: summary.revision,
+          summary,
+          changedFields,
+          didMutate: true,
+        },
+      );
+      if (committedDetail) {
+        setDatabaseRowDetail(projectId, committedDetail, { acceptEqualRevision: true });
       }
-
-      const result = outcome.result;
-      if (!result) {
-        return {
-          status: "error",
-          error: "Missing card update result",
-        };
-      }
-
-      if (result.status === "updated") {
-        const committedDetail = buildCommittedPageDetailFromUpdate(
-          getDatabaseRowDetail(projectId, pageId),
-          result,
-        );
-        if (committedDetail) {
-          setDatabaseRowDetail(projectId, committedDetail, { acceptEqualRevision: true });
-        }
-        store.applyRemoteCardSummary(result.summary);
-        onMutation?.();
-        return result;
-      }
-
-      if (result.status === "conflict") {
-        setDatabaseRowDetail(projectId, result.page);
-        store.applyRemoteCard(result.page);
-        store.resolveConflict(conflictKeys);
-        await store.refreshBoard();
-        if (typeof window !== "undefined") {
-          window.dispatchEvent(new CustomEvent("nodex:card-update-conflict", {
-            detail: {
-              projectId,
-              pageId,
-            },
-          }));
-        }
-        return result;
-      }
-
-      await store.refreshBoard();
-      return result;
+      onMutation?.();
+      return {
+        status: "updated",
+        projectId,
+        pageId,
+        revision: summary.revision,
+        summary,
+        changedFields,
+        didMutate: true,
+      };
     },
     [onMutation, projectId, requireWritableSelectedView, sessionId, store],
   );
@@ -312,25 +409,14 @@ export function useKanban(options: UseKanbanOptions) {
   const deletePage = useCallback(
     async (columnId: string | undefined, pageId: string): Promise<boolean> => {
       if (!requireWritableSelectedView()) return false;
-      const operationId = crypto.randomUUID();
-      const outcome = await store.runOptimisticMutation<boolean>({
-        kind: "page:delete",
-        conflictKeys: conflictKeysForDelete(pageId),
-        apply: buildDeletePageTransform(columnId, pageId),
-        runRemote: async () => {
-          const committed = await commitPageLifecycleIntent({
-            kind: "delete",
-            projectId,
-            operationId,
-            clientSessionId: sessionId,
-            pageId: pageId,
-          });
-          return committed.receipt.lifecycle === "deleted";
-        },
-      });
-      if (!outcome.ok) return false;
-      if (!outcome.result) {
-        store.setError("Failed to delete card");
+      try {
+        await store.archiveBlockRecord({
+          blockId: pageId,
+          actorId: `renderer:${projectId}`,
+          sessionId: sessionId ?? "renderer",
+        });
+      } catch (error) {
+        store.setError(toErrorMessage(error));
         return false;
       }
       onMutation?.();
@@ -342,65 +428,138 @@ export function useKanban(options: UseKanbanOptions) {
   const movePage = useCallback(
     async (input: MovePageInput): Promise<boolean> => {
       if (!requireWritableSelectedView()) return false;
-      const databaseView = store.getSnapshot().databaseView;
-      if (!databaseView) {
-        store.setError("The Database View is not loaded");
+      const window = store.getBlockRecordWindow();
+      const record = window?.records.find((candidate) => candidate.id === input.pageId);
+      const currentPosition = window?.viewPositions.find((position) => (
+        position.viewId === window.viewId && position.blockId === input.pageId
+      ));
+      if (!window || !record || !currentPosition || !window.viewId) {
+        store.setError("The BlockRecord Board window is not loaded");
         return false;
       }
-      const dragSnapshot = databaseViewRenderModelToDragSnapshot(databaseView);
-      const operationId = crypto.randomUUID();
-      const outcome = await store.runOptimisticMutation<boolean>({
-        kind: "database:position",
-        conflictKeys: conflictKeysForMove(input),
-        apply: buildMovePageTransform(input),
-        runRemote: async () => await commitDatabasePageDrag({
-          projectId,
-          operationId,
-          move: input,
-          snapshot: dragSnapshot,
-        }),
-      });
-      if (!outcome.ok) return false;
-      if (!outcome.result) {
-        store.setError("Failed to move card");
+      const targetItems = window.viewPositions
+        .filter((position) => (
+          position.viewId === window.viewId
+          && position.groupKey === input.toStatus
+          && position.blockId !== input.pageId
+        ))
+        .sort((left, right) => left.rankKey.localeCompare(right.rankKey) || left.blockId.localeCompare(right.blockId))
+        .map((position) => ({ id: position.blockId, rankKey: position.rankKey }));
+      const beforePageId = input.newOrder === undefined
+        ? undefined
+        : targetItems[Math.max(0, Math.min(input.newOrder, targetItems.length))]?.id;
+      const rankPlan = planFractionalRank(targetItems, input.pageId, beforePageId);
+      try {
+        await store.updateBlockRecord({
+          blockId: input.pageId,
+          properties: pageMetadataToRecordProperties(
+            record.properties,
+            {
+              status: input.toStatus,
+              ...(input.fieldPatch ?? {}),
+            },
+          ),
+          view: {
+            groupKey: input.toStatus,
+            rankKey: rankPlan.rankKey,
+          },
+          actorId: `renderer:${projectId}`,
+          sessionId: sessionId ?? "renderer",
+        });
+      } catch (error) {
+        store.setError(toErrorMessage(error));
         return false;
       }
       onMutation?.();
       return true;
     },
-    [onMutation, projectId, requireWritableSelectedView, store],
+    [onMutation, projectId, requireWritableSelectedView, sessionId, store],
   );
 
   const movePages = useCallback(
     async (input: MovePagesInput): Promise<boolean> => {
       if (!requireWritableSelectedView()) return false;
-      const databaseView = store.getSnapshot().databaseView;
-      if (!databaseView) {
-        store.setError("The Database View is not loaded");
+      const window = store.getBlockRecordWindow();
+      if (!window?.viewId) {
+        store.setError("The BlockRecord Board window is not loaded");
         return false;
       }
-      const dragSnapshot = databaseViewRenderModelToDragSnapshot(databaseView);
-      const operationId = crypto.randomUUID();
-      const outcome = await store.runOptimisticMutation<boolean>({
-        kind: "database:position-many",
-        conflictKeys: conflictKeysForMoveMany(input),
-        apply: buildMovePagesTransform(input),
-        runRemote: async () => await commitDatabasePagesDrag({
-          projectId,
-          operationId,
-          move: input,
-          snapshot: dragSnapshot,
-        }),
-      });
-      if (!outcome.ok) return false;
-      if (!outcome.result) {
-        store.setError("Failed to move cards");
+      const uniquePageIds = [...new Set(input.pageIds)];
+      if (uniquePageIds.length === 0) return false;
+      const moving = new Set(uniquePageIds);
+      const targetItems = window.viewPositions
+        .filter((position) => (
+          position.viewId === window.viewId
+          && position.groupKey === input.toStatus
+          && !moving.has(position.blockId)
+        ))
+        .sort((left, right) => left.rankKey.localeCompare(right.rankKey) || left.blockId.localeCompare(right.blockId))
+        .map((position) => ({ id: position.blockId, rankKey: position.rankKey }));
+      const insertionIndex = input.newOrder === undefined
+        ? targetItems.length
+        : Math.max(0, Math.min(input.newOrder, targetItems.length));
+      const entries: {
+        blockId: string;
+        properties: Readonly<Record<string, unknown>>;
+        view: { groupKey: string; rankKey: string };
+      }[] = [];
+      const viewRebalances = new Map<string, {
+        blockId: string;
+        groupKey: string;
+        rankKey: string;
+      }>();
+      for (const [offset, pageId] of uniquePageIds.entries()) {
+        const record = window.records.find((candidate) => candidate.id === pageId);
+        if (!record) {
+          store.setError(`BlockRecord ${pageId} is not available`);
+          return false;
+        }
+        const beforePageId = targetItems[insertionIndex + offset]?.id;
+        const rankPlan = planFractionalRank(targetItems, pageId, beforePageId);
+        for (const [rebalanceId, rankKey] of rankPlan.rebalancedRankKeys) {
+          const movingEntry = entries.find((entry) => entry.blockId === rebalanceId);
+          if (movingEntry) {
+            movingEntry.view.rankKey = rankKey;
+            continue;
+          }
+          if (!moving.has(rebalanceId)) {
+            viewRebalances.set(rebalanceId, {
+              blockId: rebalanceId,
+              groupKey: input.toStatus,
+              rankKey,
+            });
+          }
+          const item = targetItems.find((candidate) => candidate.id === rebalanceId);
+          if (item) item.rankKey = rankKey;
+        }
+        targetItems.splice(insertionIndex + offset, 0, {
+          id: pageId,
+          rankKey: rankPlan.rankKey,
+        });
+        entries.push({
+          blockId: pageId,
+          properties: pageMetadataToRecordProperties(record.properties, {
+            status: input.toStatus,
+            ...(input.fieldPatch ?? {}),
+          }),
+          view: { groupKey: input.toStatus, rankKey: rankPlan.rankKey },
+        });
+      }
+      try {
+        await store.updateBlockRecords({
+          entries,
+          viewRebalances: [...viewRebalances.values()],
+          actorId: `renderer:${projectId}`,
+          sessionId: sessionId ?? "renderer",
+        });
+      } catch (error) {
+        store.setError(toErrorMessage(error));
         return false;
       }
       onMutation?.();
       return true;
     },
-    [onMutation, projectId, requireWritableSelectedView, store],
+    [onMutation, projectId, requireWritableSelectedView, sessionId, store],
   );
 
   const listPageOccurrences = useCallback(
@@ -583,6 +742,8 @@ export function useKanban(options: UseKanbanOptions) {
     clearLastMutationError,
     refresh: fetchBoard,
     refreshAtLeast,
+    promoteBlockToPage,
+    promoteBlocksToPage,
     loadMore,
     loadMoreGroup,
     createPage,

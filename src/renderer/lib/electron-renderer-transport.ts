@@ -201,6 +201,28 @@ export function createElectronRendererTransport(
     invoke(channel: string, ...args: unknown[]) {
       return bridge.invoke(channel, ...args);
     },
+    subscribeBlockRecordCommits(
+      callback: (envelope: import("../../shared/local-commit").LocalCommitEnvelope) => void,
+    ) {
+      let active = true;
+      const removeListener = bridge.on(
+        "block-record:commit",
+        (...args: unknown[]) => {
+          if (!active) return;
+          const envelope = args[0] as
+            | import("../../shared/local-commit").LocalCommitEnvelope
+            | undefined;
+          if (envelope) callback(envelope);
+        },
+      );
+      void bridge.invoke("block-record:subscribe");
+      return () => {
+        if (!active) return;
+        active = false;
+        removeListener();
+        void bridge.invoke("block-record:unsubscribe");
+      };
+    },
     subscribeBoardChanges(
       projectId: string,
       callback: (event: BoardChangeEvent) => void,

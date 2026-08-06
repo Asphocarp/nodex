@@ -10,6 +10,10 @@ import type {
   AutomationCommittedValue,
   AutomationRead,
   AutomationReadSnapshot,
+  BlockRecordApplyInput,
+  BlockRecordCommittedValue,
+  BlockRecordRead,
+  BlockRecordReadSnapshot,
   CoreClientPort,
   CoreEventEnvelope,
   CoreEventReplayRequired,
@@ -420,6 +424,22 @@ class SupervisedCoreClient implements DesktopCoreClient {
 
   get handshake(): CoreHandshakeResponse {
     return this.supervisor.currentHandshake();
+  }
+
+  blockRecordRead(read: BlockRecordRead): Promise<BlockRecordReadSnapshot> {
+    return this.#execute((client) => client.blockRecordRead(read));
+  }
+
+  blockRecordApply(input: BlockRecordApplyInput): Promise<BlockRecordCommittedValue> {
+    return this.#execute((client) => client.blockRecordApply(input));
+  }
+
+  openLocalCommitStream(
+    after: number,
+    onCommit: (commit: BlockRecordCommittedValue) => void,
+    signal?: AbortSignal,
+  ): Promise<CoreEventSubscription> {
+    return this.#execute((client) => client.openLocalCommitStream(after, onCommit, signal));
   }
 
   libraryRead(read: LibraryRead): Promise<LibraryReadSnapshot> {

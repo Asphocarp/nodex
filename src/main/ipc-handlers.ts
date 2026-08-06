@@ -259,6 +259,9 @@ import {
   registerDatabaseModuleIpcHandlers,
 } from "./database-module-ipc";
 import { registerLibraryModuleIpcHandler } from "./library-module-ipc";
+import {
+  registerBlockRecordIpcHandler,
+} from "./block-record-ipc";
 import { registerLibraryDatabaseModuleIpcHandler } from "./library-database-module-ipc";
 import { registerPageDetailIpcHandler } from "./page-detail-ipc";
 import { registerLibraryPageDetailIpcHandler } from "./library-page-detail-ipc";
@@ -276,6 +279,8 @@ import {
   type CodexPendingWorktreeIpcService,
 } from "./codex/codex-pending-worktree-ipc";
 import { registerStoreAdministrationIpcHandlers } from "./store-administration-ipc-handlers";
+import type { BlockRecordModule } from "../shared/core-modules/block-record-module";
+import { LocalCommitDispatcher } from "./core-client/local-commit-dispatcher";
 
 type TypedIpcHandler<Channel extends keyof IpcApi> = (
   event: IpcMainInvokeEvent,
@@ -955,6 +960,8 @@ interface RegisterIpcHandlersOptions {
   onStoreRestored?: () => void;
   projectWorkspace?: DesktopProjectWorkspacePort;
   documentSync?: DesktopDocumentSyncPort;
+  blockRecordModule?: BlockRecordModule;
+  localCommitDispatcher?: LocalCommitDispatcher | Promise<LocalCommitDispatcher>;
 }
 
 const createUnconfiguredIpcAuthority = <Port extends object>(
@@ -1233,6 +1240,12 @@ export function registerIpcHandlers(
     ?? createUnconfiguredIpcAuthority<DesktopDocumentSyncPort>(
       "Document authority",
     );
+  const blockRecordModule = options.blockRecordModule
+    ?? createUnconfiguredIpcAuthority<BlockRecordModule>(
+      "BlockRecord authority",
+    );
+  const localCommitDispatcher = options.localCommitDispatcher
+    ?? new LocalCommitDispatcher();
   const libraryModule = options.libraryModule
     ?? createUnconfiguredIpcAuthority<
       NonNullable<RegisterIpcHandlersOptions["libraryModule"]>
@@ -1786,6 +1799,31 @@ export function registerIpcHandlers(
       resolveDocumentSyncTarget(rawEvent as IpcMainInvokeEvent) !== null,
     read: libraryModule.read,
     apply: libraryModule.apply,
+  });
+
+  registerBlockRecordIpcHandler({
+    registerHandle: (channel, listener) => {
+      registerHandle(channel as keyof IpcApi, (event, ...args) =>
+        listener(event, ...(args as never[])) as
+          | IpcApi[typeof channel]["result"]
+          | Promise<IpcApi[typeof channel]["result"]>,
+      );
+    },
+    isTrustedEvent: (rawEvent) =>
+      resolveDocumentSyncTarget(rawEvent as IpcMainInvokeEvent) !== null,
+    module: blockRecordModule,
+    dispatcher: localCommitDispatcher,
+    getSenderId: (rawEvent) => (rawEvent as IpcMainInvokeEvent).sender.id,
+    sendCommit: (rawEvent, envelope) => {
+      sendIpcEvent(
+        (rawEvent as IpcMainInvokeEvent).sender,
+        "block-record:commit",
+        envelope,
+      );
+    },
+    onSenderDestroyed: (rawEvent, cleanup) => {
+      (rawEvent as IpcMainInvokeEvent).sender.once("destroyed", cleanup);
+    },
   });
 
   registerLibraryDatabaseModuleIpcHandler({

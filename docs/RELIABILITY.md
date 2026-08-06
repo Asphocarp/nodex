@@ -2,17 +2,33 @@
 
 ## Relation authority
 
-Store v101 retains Relation Page IDs only in normalized edge authority. Relation headers retain revision and JSON `null`; triggers and readiness validation reject incomplete definitions, invalid targets, and header/edge divergence. Complete values are capped at 10,000 targets, patches at 100 identities, full target/candidate windows at 100 items, and row previews at the first three visible items with exact total/restricted counts. Signed target continuations use ordinal coordinates so hidden identities never enter a cursor. Candidate search is scoped directly to the configured target Data Source and paged independently of its Views. Copy preserves outbound target IDs. External inbound edges retain target Pages and target Data Sources; edges whose source is inside the same deletion closure do not retain that closure. Projection impact follows inbound edges for one hop and falls back to global invalidation when the existing identity budget is exceeded.
+Store v105 retains Relation Page IDs only in normalized edge authority. Relation headers retain revision and JSON `null`; triggers and readiness validation reject incomplete definitions, invalid targets, and header/edge divergence. Complete values are capped at 10,000 targets, patches at 100 identities, full target/candidate windows at 100 items, and row previews at the first three visible items with exact total/restricted counts. Signed target continuations use ordinal coordinates so hidden identities never enter a cursor. Candidate search is scoped directly to the configured target Data Source and paged independently of its Views. Copy preserves outbound target IDs. External inbound edges retain target Pages and target Data Sources; edges whose source is inside the same deletion closure do not retain that closure. Projection impact follows inbound edges for one hop and falls back to global invalidation when the existing identity budget is exceeded.
 
 ## Reliability Goals
 - Maintain durable local task state across app restarts.
 - Keep board views synchronized across Electron and browser clients.
-- Keep every mounted view of a Page converged on its one durable Y.Doc without whole-Page overwrite.
+- Keep terminal Page/Board surfaces converged on one BlockRecord/content-slot authority without whole-Page structural overwrite. Explicit Canvas/document-backed surfaces keep their registered collaboration contract until their domain cutover.
 - Keep Codex thread state synchronized across the main-process canonical conversation manager, bootstrap-only app-server rollout recovery input, Core Workspace metadata, and renderer owner/follower views.
 - Keep Review repository metadata, partial diffs, full context, and search on one repository generation without letting stale work replace a newer edit.
 - Provide safe recovery paths for destructive operations.
 
 ## Data Durability Model
+- The terminal Page/Board mutation path commits BlockRecord identity, placement,
+  type/lifecycle, content materialization, Data Source membership, View
+  position, and the LocalCommit effect in one Core writer transaction. The
+  response carries the same committed envelope to Main immediately; it does
+  not wait for the LocalCommit tail, a projection reread, or renderer DOM
+  acknowledgement. The tail is the restart/replay path and the dispatcher
+  dedupes it by Store epoch and commit sequence. If a bounded effect cannot be
+  applied to a window, that window rereads at the required cursor; it never
+  invents a successful Page from an optimistic overlay.
+- Board cards are projected from the bounded BlockRecord window. Legacy View
+  row windows may continue to supply View metadata, group totals, and
+  pagination, but they cannot overwrite the canonical card projection. A
+  production canonical-read failure is an explicit read boundary, not a stale
+  compatibility summary. A root promoted from a Block to a Page keeps its
+  stable identity, descendants, and content shard identity, so recovery does
+  not need to replay a copied Page document.
 - Electron fixes exactly one Profile data authority at bootstrap: native Rust
   Core. The JavaScript SQLite/Yjs authority and runtime selector are absent; the
   frozen legacy migrator is an import-only staging converter and the final

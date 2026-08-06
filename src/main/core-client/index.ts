@@ -24,8 +24,14 @@ export {
   type LocalCommitListener,
   type LocalCommitSource,
 } from "./local-commit-dispatcher";
+export { blockRecordCommitToLocalCommit } from "./block-record-local-commit";
 export { connectOrStartCore, resolveCoreExecutable } from "./core-launcher";
 export { initializeDesktopDataAuthority } from "./desktop-data-authority";
+export {
+  createDesktopBlockRecordModuleBridge,
+  type DesktopBlockRecordModuleBridge,
+  type DesktopBlockRecordModuleBridgeInput,
+} from "./desktop-block-record-module-bridge";
 export {
   CoreAuthorityUnavailableError,
   DesktopCoreAuthoritySupervisor,

@@ -43,6 +43,7 @@ const content = (blockId: string, text: string): BlockContentSnapshot => ({
 const window = (): BlockRecordWindow => ({
   libraryId: "library-a",
   rootParent: { kind: "library", libraryId: "library-a" },
+  viewId: null,
   records: [record("page", "page"), record("title-a", "heading"), record("child")],
   placements: [
     placement("page", { kind: "library", libraryId: "library-a" }, "a"),
@@ -50,6 +51,7 @@ const window = (): BlockRecordWindow => ({
     placement("child", { kind: "block", blockId: "title-a" }, "a"),
   ],
   content: [content("title-a", "title-A"), content("child", "child")],
+  viewPositions: [],
   observedLocalCommit: { storeEpoch: "epoch-a", commitSeq: 1 },
   continuation: null,
 });

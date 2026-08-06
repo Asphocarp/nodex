@@ -277,7 +277,6 @@ export function PageStageDevStoryPage({
               onClose={() => undefined}
               page={stagePage}
               documentScopeId={PAGE_STAGE_STORY_PROJECT_ID}
-              documentAuthority={storyDocument.authority}
               projectWorkspacePath={PAGE_STAGE_STORY_WORKSPACE_PATH}
               onUpdate={handleUpdate}
               onUpdateProperty={async () => ({

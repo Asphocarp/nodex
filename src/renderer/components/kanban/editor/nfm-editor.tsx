@@ -155,6 +155,7 @@ import {
   prepareOwnedBlockDocument,
   transferBlocks,
 } from "@/lib/api";
+import { readCanonicalKanbanBoardSnapshot } from "@/lib/kanban-store";
 import {
   serializeNfm,
   blockNoteToNfm,
@@ -576,6 +577,24 @@ function NfmEditorInstance({
     [editorInstanceKey],
     retainedEditor,
   );
+
+  const appliedRecordContentVersionRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (source.kind !== "record-window") return;
+    if (appliedRecordContentVersionRef.current === null) {
+      appliedRecordContentVersionRef.current = source.contentVersion;
+      return;
+    }
+    if (source.contentVersion <= appliedRecordContentVersionRef.current) return;
+    const current = JSON.stringify(editor.document);
+    const next = JSON.stringify(source.initialContent);
+    appliedRecordContentVersionRef.current = source.contentVersion;
+    if (current === next) return;
+    editor.replaceBlocks(
+      editor.document,
+      source.initialContent as never,
+    );
+  }, [editor, source]);
 
   const resolveThreadMention = useCallback(
     async (threadId: string): Promise<CodexThreadSummary | null> => {
@@ -1232,7 +1251,7 @@ function NfmEditorInstance({
   // Handle content changes from the editor
   const handleChange = useCallback(() => {
     if (!editor) return;
-    source.onDocumentChange?.();
+    source.onDocumentChange?.(editor.document);
   }, [editor, source]);
 
   useEffect(() => {
@@ -1711,6 +1730,14 @@ function NfmEditorInstance({
           "Moving Blocks between Pages in different Projects is not available yet.",
         );
       }
+      if (source.kind === "record-window") {
+        await source.onPrepareForMutation?.();
+        if (!source.onMoveBlocksToPage) {
+          throw new Error("The record-backed Page cannot move Blocks yet.");
+        }
+        await source.onMoveBlocksToPage(selection.blockIds, targetPageId);
+        return;
+      }
       if (!surfaceMutationBarrier) {
         throw new Error(
           "The collaborative Page surface changed; reopen it before moving Blocks.",
@@ -1762,12 +1789,6 @@ function NfmEditorInstance({
       surfaceMutationBarrier,
     ],
   );
-
-  const sendBlockSelectionToProject = useCallback(async () => {
-    throw new Error(
-      "Creating Pages from selected Blocks needs an explicit Block command and is not available from this menu yet.",
-    );
-  }, []);
 
   const moveBlocksToDestination = useCallback(
     async (destination: NfmMoveToDestination, fallbackBlockId: string) => {
@@ -1822,7 +1843,52 @@ function NfmEditorInstance({
       if (destination.kind === "page") {
         await appendSendBlockSelectionToCard(selection, destination);
       } else {
-        await sendBlockSelectionToProject();
+        if (!sourcePageContext || executionProjectId === null) {
+          throw new Error("Moving Blocks into a Board requires a Page surface.");
+        }
+        if (destination.projectId !== executionProjectId) {
+          throw new Error(
+            "Moving Blocks into another Project's Board is not available yet.",
+          );
+        }
+        if (source.kind === "record-window") {
+          await source.onPrepareForMutation?.();
+        } else {
+          if (!surfaceMutationBarrier) {
+            throw new Error(
+              "The collaborative Page surface changed; reopen it before moving Blocks.",
+            );
+          }
+          const container = containerRef.current;
+          if (!container) {
+            throw new Error("The Page editor is not ready for a Block move.");
+          }
+          await prepareNfmEditorForMutation(
+            editor as unknown as NfmEditorMutationRuntime,
+            container,
+          );
+          await surfaceMutationBarrier.prepareLocalMutation();
+        }
+        const board = await readCanonicalKanbanBoardSnapshot(executionProjectId);
+        const result = await transferBlocks(executionProjectId, {
+          version: 2,
+          operationId: crypto.randomUUID(),
+          projectId: executionProjectId,
+          storeEpoch: source.storeEpoch,
+          mode: "move",
+          rootBlockIds: selection.blockIds,
+          source: {
+            kind: "page",
+            pageId: sourcePageContext.pageId,
+          },
+          target: {
+            kind: "data_source",
+            dataSourceId: board.dataSourceId,
+            viewId: board.viewId,
+            groupKey: destination.columnId,
+          },
+        });
+        if (!result.ok) throw new Error(result.error.message);
       }
 
       restoreEditorFocus();
@@ -1830,11 +1896,12 @@ function NfmEditorInstance({
     [
       appendSendBlockSelectionToCard,
       contentAccessContext,
+      editor,
       resolveSendBlocksSelection,
       restoreEditorFocus,
-      sendBlockSelectionToProject,
       executionProjectId,
       sourcePageContext,
+      source,
       surfaceMutationBarrier,
     ],
   );
@@ -1953,7 +2020,9 @@ function NfmEditorInstance({
         ancestorPageIds: parentBlockReferenceRuntime?.ancestorPageIds ?? [],
         createOperationId: () => crypto.randomUUID(),
         transfer: (intent: Parameters<typeof transferBlocks>[1]) =>
-          transferBlocks(executionProjectId, intent),
+          source.kind === "record-window" && source.onTransfer
+            ? source.onTransfer(intent)
+            : transferBlocks(executionProjectId, intent),
         ...(sourcePageContext && isCanvasHostDocumentRuntime(surfaceMutationBarrier)
           ? {
               transferCanvas: async ({
@@ -2008,11 +2077,9 @@ function NfmEditorInstance({
     parentBlockReferenceRuntime?.ancestorPageIds,
     contentAccessContext,
     executionProjectId,
-    source.documentId,
-    source.clientSessionId,
-    source.storeEpoch,
     sourcePageContext,
     surfaceMutationBarrier,
+    source,
   ]);
 
   useEditorDragBehaviors({

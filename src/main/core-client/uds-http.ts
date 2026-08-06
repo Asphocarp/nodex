@@ -15,6 +15,7 @@ import type {
   CoreEventEnvelope,
   CoreEventReplayRequired,
   CoreEventSubscription,
+  BlockRecordCommittedValue,
   DocumentResyncRequired,
 } from "./types";
 
@@ -474,6 +475,109 @@ export class UdsHttpTransport {
       request.end();
     });
   }
+
+  openLocalCommitStream(
+    after: number,
+    onCommit: (commit: BlockRecordCommittedValue) => void,
+    requestHeaders: Readonly<Record<string, string>> = {},
+    signal?: AbortSignal,
+  ): Promise<CoreEventSubscription> {
+    if (!Number.isSafeInteger(after) || after < 0) {
+      return Promise.reject(new Error("LocalCommit sequence must be a non-negative integer"));
+    }
+    return new Promise<CoreEventSubscription>((resolve, reject) => {
+      let opened = false;
+      let closed = false;
+      let resolveDone: (() => void) | undefined;
+      let rejectDone: ((error: unknown) => void) | undefined;
+      const done = new Promise<void>((doneResolve, doneReject) => {
+        resolveDone = doneResolve;
+        rejectDone = doneReject;
+      });
+      const request = httpRequest(
+        {
+          socketPath: this.socketPath,
+          path: `/core/v1/local-commits?after=${after}`,
+          method: "GET",
+          agent: false,
+          signal,
+          headers: {
+            ...requestHeaders,
+            accept: "text/event-stream",
+            authorization: `Bearer ${this.authCapability}`,
+          },
+        },
+        (response) => {
+          request.setTimeout(0);
+          const status = response.statusCode ?? 0;
+          if (status !== 200) {
+            collectResponse(response, this.#maximumJsonResponseBytes)
+              .then((bytes) => {
+                const value = decodeBoundedJson<unknown>(
+                  bytes,
+                  this.#maximumJsonResponseBytes,
+                  "Core LocalCommit error response",
+                );
+                reject(new CoreHttpError(status, errorMessage(value)));
+              })
+              .catch((error: unknown) => reject(normalizeTransportError(error, "response")));
+            return;
+          }
+          opened = true;
+          const parser = new SseParser(MAX_EVENT_FRAME_BYTES);
+          const fail = (error: unknown): void => {
+            if (closed) return;
+            closed = true;
+            response.destroy();
+            rejectDone?.(normalizeTransportError(error, "response"));
+          };
+          const processFrame = (frame: { readonly event: string; readonly data: string }): void => {
+            if (frame.event !== "local-commit") return;
+            onCommit(parseBlockRecordCommit(frame.data));
+          };
+          response.on("data", (chunk: Buffer) => {
+            try {
+              for (const frame of parser.push(chunk)) processFrame(frame);
+            } catch (error) {
+              fail(error);
+            }
+          });
+          response.on("end", () => {
+            try {
+              for (const frame of parser.finish()) processFrame(frame);
+              if (!closed) resolveDone?.();
+              closed = true;
+            } catch (error) {
+              fail(error);
+            }
+          });
+          response.on("aborted", () => fail(new Error("Core LocalCommit stream ended before completion")));
+          response.on("error", fail);
+          resolve({
+            done,
+            close: () => {
+              if (closed) return;
+              closed = true;
+              response.destroy();
+              request.destroy();
+              resolveDone?.();
+            },
+          });
+        },
+      );
+      request.on("error", (error) => {
+        if (!opened) {
+          reject(normalizeTransportError(error, "open"));
+          return;
+        }
+        if (!closed) rejectDone?.(normalizeTransportError(error, "response"));
+      });
+      request.setTimeout(this.#requestTimeoutMs, () => {
+        request.destroy(new CoreTransportError("timeout", "open", "ETIMEDOUT", null));
+      });
+      request.end();
+    });
+  }
 }
 
 const boundedPositiveInteger = (
@@ -610,6 +714,29 @@ const parseEventEnvelope = (
   return value as CoreEventEnvelope;
 };
 
+const parseBlockRecordCommit = (json: string): BlockRecordCommittedValue => {
+  const value = decodeBoundedJson<unknown>(
+    Buffer.from(json, "utf8"),
+    MAX_EVENT_FRAME_BYTES,
+    "Core LocalCommit",
+  );
+  if (
+    typeof value !== "object"
+    || value === null
+    || !("cursor" in value)
+    || typeof value.cursor !== "object"
+    || value.cursor === null
+    || !("commit_seq" in value.cursor)
+    || !isNonNegativeSafeInteger(value.cursor.commit_seq)
+    || value.cursor.commit_seq < 1
+    || !("store_epoch" in value.cursor)
+    || typeof value.cursor.store_epoch !== "string"
+  ) {
+    throw new CoreEventCompatibilityError("Core LocalCommit payload is invalid");
+  }
+  return value as BlockRecordCommittedValue;
+};
+
 const hasExactKeys = (
   value: Readonly<object>,
   expected: readonly string[],
@@ -643,6 +770,7 @@ const isModuleEventPayload = (value: unknown): boolean => {
     !("module" in value) ||
     ![
       "automation",
+      "block_record",
       "database",
       "library",
       "owned_document",

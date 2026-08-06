@@ -40,6 +40,10 @@ import type {
   CoreEventSubscription,
   CoreHandshakeResponse,
   CoreModuleError,
+  BlockRecordApplyInput,
+  BlockRecordCommittedValue,
+  BlockRecordRead,
+  BlockRecordReadSnapshot,
   AutomationApplyInput,
   AutomationApplyResponse,
   AutomationCommittedValue,
@@ -95,11 +99,14 @@ const contractVersion = (module: ModuleName): number => {
 const MODULE_CONTRACT_VERSIONS = {
   library: contractVersion("library"),
   database: contractVersion("database"),
+  blockRecord: contractVersion("block_record"),
   ownedDocument: contractVersion("owned_document"),
   projectWorkspace: contractVersion("project_workspace"),
   automation: contractVersion("automation"),
   storeAdministration: contractVersion("store_administration"),
 } as const;
+
+const BLOCK_RECORD_CONTRACT_VERSION = MODULE_CONTRACT_VERSIONS.blockRecord;
 
 type ClientKind = components["schemas"]["ClientKind"];
 type HealthResponse = components["schemas"]["HealthResponse"];
@@ -113,6 +120,7 @@ export interface ConnectCoreClientInput {
   readonly projectId?: string;
   readonly maximumJsonResponseBytes?: number;
   readonly requestTimeoutMs?: number;
+  readonly onBlockRecordCommit?: (commit: BlockRecordCommittedValue) => void;
 }
 
 export class CoreModuleResponseError extends Error {
@@ -126,6 +134,7 @@ export class CoreClient implements CoreClientPort {
   readonly #transport: UdsHttpTransport;
   readonly #projectId: string | undefined;
   readonly #connectionId: string;
+  readonly #onBlockRecordCommit: ((commit: BlockRecordCommittedValue) => void) | undefined;
   readonly handshake: CoreHandshakeResponse;
 
   private constructor(
@@ -133,11 +142,13 @@ export class CoreClient implements CoreClientPort {
     handshake: CoreHandshakeResponse,
     projectId: string | undefined,
     connectionId: string,
+    onBlockRecordCommit: ((commit: BlockRecordCommittedValue) => void) | undefined,
   ) {
     this.#transport = transport;
     this.handshake = handshake;
     this.#projectId = projectId;
     this.#connectionId = connectionId;
+    this.#onBlockRecordCommit = onBlockRecordCommit;
   }
 
   static async connect(input: ConnectCoreClientInput): Promise<CoreClient> {
@@ -185,7 +196,13 @@ export class CoreClient implements CoreClientPort {
       eventVersion: handshake.selected_event_version,
       storeEpoch: handshake.store_epoch,
     });
-    return new CoreClient(transport, handshake, input.projectId, connectionId);
+    return new CoreClient(
+      transport,
+      handshake,
+      input.projectId,
+      connectionId,
+      input.onBlockRecordCommit,
+    );
   }
 
   forProject(projectId: string): CoreClient {
@@ -199,11 +216,60 @@ export class CoreClient implements CoreClientPort {
       this.handshake,
       normalized,
       this.#connectionId,
+      this.#onBlockRecordCommit,
     );
   }
 
   health(): Promise<HealthResponse> {
     return this.#transport.requestJson("GET", "/core/v1/health");
+  }
+
+  async blockRecordRead(read: BlockRecordRead): Promise<BlockRecordReadSnapshot> {
+    const response = await this.#transport.requestJson<
+      components["schemas"]["BlockRecordReadResponse"]
+    >(
+      "POST",
+      "/core/v1/modules/block-record/read",
+      { contract_version: BLOCK_RECORD_CONTRACT_VERSION, read },
+      this.#moduleHeaders(),
+    );
+    if (response.status === "ok") return response.payload;
+    throw new CoreModuleResponseError(response.payload);
+  }
+
+  async blockRecordApply(
+    input: BlockRecordApplyInput,
+  ): Promise<BlockRecordCommittedValue> {
+    const response = await this.#transport.requestJson<
+      components["schemas"]["BlockRecordApplyResponse"]
+    >(
+      "POST",
+      "/core/v1/modules/block-record/apply",
+      {
+        contract_version: BLOCK_RECORD_CONTRACT_VERSION,
+        store_epoch: this.handshake.store_epoch,
+        ...input,
+      },
+      this.#moduleHeaders(),
+    );
+    if (response.status === "ok") {
+      this.#onBlockRecordCommit?.(response.payload);
+      return response.payload;
+    }
+    throw new CoreModuleResponseError(response.payload);
+  }
+
+  openLocalCommitStream(
+    after: number,
+    onCommit: (commit: BlockRecordCommittedValue) => void,
+    signal?: AbortSignal,
+  ): Promise<CoreEventSubscription> {
+    return this.#transport.openLocalCommitStream(
+      after,
+      onCommit,
+      this.#moduleHeaders(),
+      signal,
+    );
   }
 
   async libraryRead(read: LibraryRead): Promise<LibraryReadSnapshot> {

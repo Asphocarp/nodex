@@ -87,6 +87,23 @@ CREATE INDEX IF NOT EXISTS idx_content_updates_block_tail
   ON content_updates(block_id, slot, shard_id, update_seq);
 "#;
 
+/// v104 adds a disposable read projection of the Yrs document. It is kept
+/// outside block_contents so the CRDT snapshot remains the only content
+/// authority and projection rebuilds do not alter the content-record schema.
+const MATERIALIZATION_SCHEMA: &str = r#"
+CREATE TABLE IF NOT EXISTS block_content_materializations (
+  block_id TEXT NOT NULL,
+  slot TEXT NOT NULL CHECK (slot IN ('title', 'inline', 'body', 'properties')),
+  materialized_json TEXT NOT NULL,
+  PRIMARY KEY (block_id, slot),
+  FOREIGN KEY (block_id, slot) REFERENCES block_contents(block_id, slot) ON DELETE CASCADE,
+  CHECK (json_valid(materialized_json) AND json_type(materialized_json) IN ('array', 'object', 'string', 'number', 'true', 'false', 'null'))
+) WITHOUT ROWID, STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_block_content_materializations_block
+  ON block_content_materializations(block_id, slot);
+"#;
+
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ContentSlot {
@@ -106,6 +123,10 @@ pub struct ContentSnapshot {
     pub state_vector_v1: Vec<u8>,
     pub full_state_v1: Vec<u8>,
     pub state_hash: String,
+    /// A deterministic read projection of the same Yrs state. It is not a
+    /// second authority: it is regenerated whenever a snapshot/update is
+    /// committed and is safe to discard and rebuild.
+    pub materialized_json: Option<serde_json::Value>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -171,7 +192,22 @@ fn parse_slot(value: &str) -> Option<ContentSlot> {
 }
 
 pub fn install_schema(connection: &Connection) -> Result<(), StoreError> {
+    install_legacy_schema(connection)?;
+    install_materialization_schema(connection)
+}
+
+/// Installs the v102/v103 content tables without the v104 projection table.
+/// Migration inventory generation uses this to keep historical schema
+/// fingerprints frozen while fresh runtime test stores get the complete
+/// current module through install_schema.
+pub fn install_legacy_schema(connection: &Connection) -> Result<(), StoreError> {
     connection.execute_batch(SCHEMA).map_err(StoreError::from)
+}
+
+pub fn install_materialization_schema(connection: &Connection) -> Result<(), StoreError> {
+    connection
+        .execute_batch(MATERIALIZATION_SCHEMA)
+        .map_err(StoreError::from)
 }
 
 pub fn create_shard(
@@ -187,6 +223,214 @@ pub fn create_shard(
         "INSERT INTO content_shards(shard_id, library_id, head_seq, shard_hash, updated_at)
          VALUES (?1, ?2, 0, ?3, ?4)",
         params![shard_id, library_id, sha256(&[]), updated_at],
+    )?;
+    Ok(())
+}
+
+/// Ensures that a physical content shard exists without allowing it to move
+/// between libraries. Structural mutations use this when a new BlockRecord is
+/// created because a shard may be shared by a bounded group of blocks.
+pub fn ensure_shard(
+    transaction: &Transaction<'_>,
+    shard_id: &str,
+    library_id: &str,
+    updated_at: &str,
+) -> Result<(), StoreError> {
+    validate_id(shard_id, "shard_id")?;
+    validate_id(library_id, "library_id")?;
+    validate_id(updated_at, "updated_at")?;
+    transaction.execute(
+        "INSERT INTO content_shards(shard_id, library_id, head_seq, shard_hash, updated_at)
+         VALUES (?1, ?2, 0, ?3, ?4)
+         ON CONFLICT(shard_id) DO NOTHING",
+        params![shard_id, library_id, sha256(&[]), updated_at],
+    )?;
+    let stored_library = transaction
+        .query_row(
+            "SELECT library_id FROM content_shards WHERE shard_id = ?1",
+            [shard_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?
+        .ok_or_else(|| not_found("content shard"))?;
+    if stored_library != library_id {
+        return Err(invalid("content shard belongs to a different library"));
+    }
+    Ok(())
+}
+
+/// Builds a valid empty Yrs snapshot for a newly-created BlockRecord slot.
+/// Keeping this constructor in the content Module prevents structural writers
+/// from inventing incompatible state-vector/hash pairs.
+pub fn empty_snapshot(
+    block_id: &str,
+    slot: ContentSlot,
+    library_id: &str,
+    shard_id: &str,
+) -> Result<ContentSnapshot, StoreError> {
+    validate_id(block_id, "block_id")?;
+    validate_id(library_id, "library_id")?;
+    validate_id(shard_id, "shard_id")?;
+    let engine = YrsDocumentEngine::from_full_state_v1(
+        format!("content:{}:{}", block_id, slot_sql(&slot)),
+        &[],
+    )
+    .map_err(map_yrs_error)?;
+    let full_state_v1 = engine.full_state_v1();
+    Ok(ContentSnapshot {
+        block_id: block_id.to_owned(),
+        slot,
+        library_id: library_id.to_owned(),
+        shard_id: shard_id.to_owned(),
+        revision: 0,
+        state_vector_v1: engine.state_vector_v1(),
+        state_hash: sha256(&full_state_v1),
+        full_state_v1,
+        materialized_json: None,
+    })
+}
+
+/// Builds a BlockNote-compatible content snapshot from a JSON materialization.
+/// The JSON is encoded into the same Yrs document shape used by renderer
+/// content shards, so future edits still travel through the CRDT update path.
+pub fn materialized_snapshot(
+    block_id: &str,
+    slot: ContentSlot,
+    library_id: &str,
+    shard_id: &str,
+    value: &serde_json::Value,
+) -> Result<ContentSnapshot, StoreError> {
+    validate_id(block_id, "block_id")?;
+    validate_id(library_id, "library_id")?;
+    validate_id(shard_id, "shard_id")?;
+    let engine = YrsDocumentEngine::from_materialized_json(
+        format!("content:{}:{}", block_id, slot_sql(&slot)),
+        value,
+    )
+    .map_err(map_yrs_error)?;
+    let full_state_v1 = engine.full_state_v1();
+    Ok(ContentSnapshot {
+        block_id: block_id.to_owned(),
+        slot,
+        library_id: library_id.to_owned(),
+        shard_id: shard_id.to_owned(),
+        revision: 0,
+        state_vector_v1: engine.state_vector_v1(),
+        state_hash: sha256(&full_state_v1),
+        full_state_v1,
+        materialized_json: Some(value.clone()),
+    })
+}
+
+/// Promoting an inline Block to a Page preserves its existing content while
+/// giving the Page editor a title slot. The copy is still inside the same
+/// structural transaction and never creates a second Block identity.
+pub fn ensure_title_from_inline(
+    transaction: &Transaction<'_>,
+    block_id: &str,
+) -> Result<ContentSnapshot, StoreError> {
+    if let Some(snapshot) =
+        read_snapshot_for_transaction(transaction, block_id, &ContentSlot::Title)?
+    {
+        return Ok(snapshot);
+    }
+    ensure_slot_from_slot(
+        transaction,
+        block_id,
+        &ContentSlot::Inline,
+        &ContentSlot::Title,
+    )?;
+    if let Some(snapshot) =
+        read_snapshot_for_transaction(transaction, block_id, &ContentSlot::Title)?
+    {
+        return Ok(snapshot);
+    }
+    let (library_id, shard_id) = transaction
+        .query_row(
+            "SELECT library_id, content_shard_id FROM block_records WHERE id = ?1",
+            [block_id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )
+        .optional()?
+        .ok_or_else(|| not_found("BlockRecord for title content"))?;
+    let snapshot = empty_snapshot(block_id, ContentSlot::Title, &library_id, &shard_id)?;
+    write_snapshot(transaction, &snapshot)?;
+    Ok(snapshot)
+}
+
+/// Creates a missing content slot by copying the same Block's existing slot.
+/// The copy preserves the CRDT state vector/revision and therefore does not
+/// create a second content authority; it only gives a type transition the
+/// slot expected by the new Block kind.
+pub fn ensure_inline_from_title(
+    transaction: &Transaction<'_>,
+    block_id: &str,
+) -> Result<ContentSnapshot, StoreError> {
+    ensure_slot_from_slot(
+        transaction,
+        block_id,
+        &ContentSlot::Title,
+        &ContentSlot::Inline,
+    )?;
+    read_snapshot_for_transaction(transaction, block_id, &ContentSlot::Inline)?
+        .ok_or_else(|| not_found("title content record"))
+}
+
+pub fn read_snapshot_for_transaction(
+    transaction: &Transaction<'_>,
+    block_id: &str,
+    slot: &ContentSlot,
+) -> Result<Option<ContentSnapshot>, StoreError> {
+    validate_id(block_id, "block_id")?;
+    transaction
+        .query_row(
+            "SELECT content.block_id, content.slot, content.library_id, content.shard_id,
+                    content.revision, content.state_vector, content.full_state, content.state_hash,
+                    materialization.materialized_json
+             FROM block_contents AS content
+             LEFT JOIN block_content_materializations AS materialization
+               ON materialization.block_id = content.block_id AND materialization.slot = content.slot
+             WHERE content.block_id = ?1 AND content.slot = ?2",
+            params![block_id, slot_sql(slot)],
+            read_snapshot,
+        )
+        .optional()
+        .map_err(StoreError::from)
+}
+
+fn ensure_slot_from_slot(
+    transaction: &Transaction<'_>,
+    block_id: &str,
+    from: &ContentSlot,
+    to: &ContentSlot,
+) -> Result<(), StoreError> {
+    validate_id(block_id, "block_id")?;
+    transaction.execute(
+        "INSERT INTO block_contents(
+           block_id, slot, library_id, shard_id, revision, state_vector, full_state, state_hash
+         )
+         SELECT block_id, ?2, library_id, shard_id, revision, state_vector, full_state,
+                state_hash
+         FROM block_contents AS source
+         WHERE source.block_id = ?1 AND source.slot = ?3
+           AND NOT EXISTS (
+             SELECT 1 FROM block_contents AS target
+             WHERE target.block_id = source.block_id AND target.slot = ?2
+           )",
+        params![block_id, slot_sql(to), slot_sql(from)],
+    )?;
+    transaction.execute(
+        "INSERT INTO block_content_materializations(block_id, slot, materialized_json)
+         SELECT source.block_id, ?2, materialization.materialized_json
+         FROM block_contents AS source
+         JOIN block_content_materializations AS materialization
+           ON materialization.block_id = source.block_id AND materialization.slot = ?3
+         WHERE source.block_id = ?1 AND source.slot = ?3
+           AND NOT EXISTS (
+             SELECT 1 FROM block_content_materializations AS target
+             WHERE target.block_id = source.block_id AND target.slot = ?2
+           )",
+        params![block_id, slot_sql(to), slot_sql(from)],
     )?;
     Ok(())
 }
@@ -255,7 +499,104 @@ pub fn write_snapshot(
             snapshot.state_hash,
         ],
     )?;
+    let slot = slot_sql(&snapshot.slot);
+    if let Some(value) = &snapshot.materialized_json {
+        let value = serde_json::to_string(value)
+            .map_err(|error| invalid(format!("content materialization cannot encode: {error}")))?;
+        transaction.execute(
+            "INSERT INTO block_content_materializations(block_id, slot, materialized_json)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(block_id, slot) DO UPDATE SET materialized_json = excluded.materialized_json",
+            params![snapshot.block_id, slot, value],
+        )?;
+    } else {
+        transaction.execute(
+            "DELETE FROM block_content_materializations WHERE block_id = ?1 AND slot = ?2",
+            params![snapshot.block_id, slot],
+        )?;
+    }
     Ok(())
+}
+
+pub fn replace_materialized_snapshot(
+    transaction: &Transaction<'_>,
+    block_id: &str,
+    slot: ContentSlot,
+    expected_revision: u64,
+    value: &serde_json::Value,
+    update_id: &str,
+    committed_at: &str,
+) -> Result<ContentSnapshot, StoreError> {
+    let current = transaction
+        .query_row(
+            "SELECT content.block_id, content.slot, content.library_id, content.shard_id,
+                    content.revision, content.state_vector, content.full_state, content.state_hash,
+                    materialization.materialized_json
+             FROM block_contents AS content
+             LEFT JOIN block_content_materializations AS materialization
+               ON materialization.block_id = content.block_id AND materialization.slot = content.slot
+             WHERE content.block_id = ?1 AND content.slot = ?2",
+            params![block_id, slot_sql(&slot)],
+            read_snapshot,
+        )
+        .optional()?
+        .ok_or_else(|| not_found("content record"))?;
+    if current.revision != expected_revision {
+        return Err(StoreError::new(
+            StoreErrorCode::RevisionConflict,
+            "content materialization revision is stale",
+            true,
+        ));
+    }
+    validate_id(update_id, "content update_id")?;
+    validate_id(committed_at, "content committed_at")?;
+    let mut engine = YrsDocumentEngine::from_full_state_v1(
+        format!("content:{}:{}", block_id, slot_sql(&slot)),
+        &current.full_state_v1,
+    )
+    .map_err(map_yrs_error)?;
+    let Some(update_v1) = engine
+        .replace_materialized_json(value)
+        .map_err(map_yrs_error)?
+    else {
+        return Err(StoreError::new(
+            StoreErrorCode::Conflict,
+            "content materialization produced no change",
+            false,
+        ));
+    };
+    let appended = append_update(
+        transaction,
+        ContentUpdateRequest {
+            shard_id: current.shard_id.clone(),
+            block_id: block_id.to_owned(),
+            slot: slot.clone(),
+            update_id: update_id.to_owned(),
+            update_v1,
+            expected_state_vector_v1: current.state_vector_v1,
+            committed_at: committed_at.to_owned(),
+        },
+    )?;
+    if !appended.did_change {
+        return Err(StoreError::new(
+            StoreErrorCode::Conflict,
+            "content materialization produced no change",
+            false,
+        ));
+    }
+    transaction
+        .query_row(
+            "SELECT content.block_id, content.slot, content.library_id, content.shard_id,
+                    content.revision, content.state_vector, content.full_state, content.state_hash,
+                    materialization.materialized_json
+             FROM block_contents AS content
+             LEFT JOIN block_content_materializations AS materialization
+               ON materialization.block_id = content.block_id AND materialization.slot = content.slot
+             WHERE content.block_id = ?1 AND content.slot = ?2",
+            params![block_id, slot_sql(&slot)],
+            read_snapshot,
+        )
+        .map_err(StoreError::from)
 }
 
 pub fn read_window(
@@ -283,14 +624,25 @@ pub fn read_window(
             .join(", ");
         values.extend(ids.iter().map(|id| (*id).to_owned()));
         statement = connection.prepare(&format!(
-            "SELECT block_id, slot, library_id, shard_id, revision, state_vector, full_state, state_hash
-             FROM block_contents WHERE library_id = ?1 AND block_id IN ({}) ORDER BY block_id, slot",
+            "SELECT content.block_id, content.slot, content.library_id, content.shard_id,
+                    content.revision, content.state_vector, content.full_state, content.state_hash,
+                    materialization.materialized_json
+             FROM block_contents AS content
+             LEFT JOIN block_content_materializations AS materialization
+               ON materialization.block_id = content.block_id AND materialization.slot = content.slot
+             WHERE content.library_id = ?1 AND content.block_id IN ({})
+             ORDER BY content.block_id, content.slot",
             placeholders
         ))?;
     } else {
         statement = connection.prepare(
-            "SELECT block_id, slot, library_id, shard_id, revision, state_vector, full_state, state_hash
-             FROM block_contents WHERE library_id = ?1 ORDER BY block_id, slot",
+            "SELECT content.block_id, content.slot, content.library_id, content.shard_id,
+                    content.revision, content.state_vector, content.full_state, content.state_hash,
+                    materialization.materialized_json
+             FROM block_contents AS content
+             LEFT JOIN block_content_materializations AS materialization
+               ON materialization.block_id = content.block_id AND materialization.slot = content.slot
+             WHERE content.library_id = ?1 ORDER BY content.block_id, content.slot",
         )?;
     }
     let mut rows = statement.query(rusqlite::params_from_iter(values))?;
@@ -374,8 +726,13 @@ pub fn append_update(
         .ok_or_else(|| not_found("content shard"))?;
     let current = transaction
         .query_row(
-            "SELECT block_id, slot, library_id, shard_id, revision, state_vector, full_state, state_hash
-             FROM block_contents WHERE block_id = ?1 AND slot = ?2",
+            "SELECT content.block_id, content.slot, content.library_id, content.shard_id,
+                    content.revision, content.state_vector, content.full_state, content.state_hash,
+                    materialization.materialized_json
+             FROM block_contents AS content
+             LEFT JOIN block_content_materializations AS materialization
+               ON materialization.block_id = content.block_id AND materialization.slot = content.slot
+             WHERE content.block_id = ?1 AND content.slot = ?2",
             params![request.block_id, slot_sql(&request.slot)],
             read_snapshot,
         )
@@ -418,10 +775,16 @@ pub fn append_update(
     let full_state = engine.full_state_v1();
     let state_vector = commit.state_vector_v1;
     let state_hash = sha256(&full_state);
+    let materialized_json = engine
+        .materialized_json()
+        .map(|value| serde_json::to_string(&value))
+        .transpose()
+        .map_err(|error| invalid(format!("content materialization cannot encode: {error}")))?;
     let shard_hash = hash_chain(&previous_hash, &update_hash);
     let changed = transaction.execute(
         "UPDATE block_contents SET revision = revision + 1, state_vector = ?1,
-         full_state = ?2, state_hash = ?3 WHERE block_id = ?4 AND slot = ?5",
+         full_state = ?2, state_hash = ?3
+         WHERE block_id = ?4 AND slot = ?5",
         params![
             state_vector,
             full_state,
@@ -436,6 +799,19 @@ pub fn append_update(
             "content record disappeared while applying its update",
             true,
         ));
+    }
+    if let Some(materialized_json) = materialized_json {
+        transaction.execute(
+            "INSERT INTO block_content_materializations(block_id, slot, materialized_json)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(block_id, slot) DO UPDATE SET materialized_json = excluded.materialized_json",
+            params![request.block_id, slot_sql(&request.slot), materialized_json],
+        )?;
+    } else {
+        transaction.execute(
+            "DELETE FROM block_content_materializations WHERE block_id = ?1 AND slot = ?2",
+            params![request.block_id, slot_sql(&request.slot)],
+        )?;
     }
     let changed = transaction.execute(
         "UPDATE content_shards SET head_seq = ?1, shard_hash = ?2, updated_at = ?3
@@ -518,6 +894,11 @@ fn read_snapshot(row: &Row<'_>) -> rusqlite::Result<ContentSnapshot> {
         state_vector_v1: row.get(5)?,
         full_state_v1: row.get(6)?,
         state_hash: row.get(7)?,
+        materialized_json: row
+            .get::<_, Option<String>>(8)?
+            .map(|value| serde_json::from_str(&value))
+            .transpose()
+            .map_err(|error| invalid_row(format!("invalid materialized content: {error}")))?,
     })
 }
 
@@ -650,6 +1031,7 @@ mod tests {
             state_vector_v1: engine.state_vector_v1(),
             state_hash: sha256(&full_state),
             full_state_v1: full_state,
+            materialized_json: None,
         }
     }
 

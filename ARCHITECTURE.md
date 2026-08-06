@@ -1,6 +1,16 @@
 # Architecture
 
-Current Rust Store authority is v101. Database contract v6 centralizes typed Property schema, capabilities, and edits. Relation definitions and Page-reference edges are normalized in `data_source_relation_properties` and `data_source_relation_edges`; JSON `null` headers retain revision/CAS leverage while reverse indexes support projection invalidation and retention. Main and renderer adapters map this contract mechanically: authorized Database catalogs, target-Source candidate windows, relation-value windows, and bounded summaries replace View-cache inference and per-Page hydration. Library contract v9 provides the upper transaction for Page Detail actions that combine Database-owned Source Properties with Library-owned intrinsic Properties, while preserving the lower ownership boundaries and restricting the composition to value edits over one identical Page set.
+Current Rust Store authority is v105. Database contract v6 centralizes typed Property schema, capabilities, and edits. Relation definitions and Page-reference edges are normalized in `data_source_relation_properties` and `data_source_relation_edges`; JSON `null` headers retain revision/CAS leverage while reverse indexes support projection invalidation and retention. Main and renderer adapters map this contract mechanically: authorized Database catalogs, target-Source candidate windows, relation-value windows, and bounded summaries replace View-cache inference and per-Page hydration. Library contract v9 provides the upper transaction for Page Detail actions that combine Database-owned Source Properties with Library-owned intrinsic Properties, while preserving the lower ownership boundaries and restricting the composition to value edits over one identical Page set.
+
+The terminal Page/Board mutation path is now BlockRecord-backed. Rust Core owns
+the BlockRecord/placement graph, materialized content slots, typed mutation
+kernel, and LocalCommit envelope in one SQLite transaction. Page title/body
+records and Board cards in this path are projected from that authority; the
+apply response is admitted by Main before the durable LocalCommit tail replays
+the same identity. Canvas scene authority and explicitly non-terminal
+Document adapters remain separate domain implementations until their own
+writers are cut over; they do not own Page/Board placement or a second public
+commit cursor.
 
 ## Overview
 Nodex is a local-first, block-based agent orchestrator for coordinating coding-agent work. One detached native Rust Core is the exclusive SQLite and collaborative-document authority for each Profile. Electron is the Desktop Host for windows, typed renderer IPC, operating-system integration, and the pinned Codex-compatible app-server runtime; supported macOS Desktop Tool threads retain that app-server while launching their shared REPL through the vendor-signed Node and Codex ancestry required by native Browser and Computer Use authentication. The native CLI and desktop renderer reach product state through Core-backed semantic adapters.
@@ -21,10 +31,9 @@ owns or deletes Library content.
 ```text
 Profile
 └── Library                         durable content scope
-    ├── Page                        document-bearing Block
-    │   ├── Document                sync/history implementation
-    │   └── nested Page/Database/
-    │       Canvas                  ownership descendants
+    ├── Page                        BlockRecord + content slots
+    │   ├── placement forest        owning children/order authority
+    │   └── content shard/Yrs       rich text concurrency and replay
     ├── Canvas                      scene-bearing Block
     │   └── Document                canvas_scene authority
     └── Database                    placeable Container Block
@@ -37,20 +46,22 @@ Project                              execution context
 └── Sessions / Threads / terminals  runtime and approval
 ```
 
-Every Page has one exclusive `library | page | data_source` parent. Page
-ownership is a rooted acyclic forest: a move into the Page itself or any of its
-descendants is invalid at both the command and SQLite boundaries. A View,
-`pageRef`, relation, mention, backlink, or linked View is non-owning and never
-expands authorization. Page ID equals Block ID. Document remains an independently
-synchronized content owner and is not a user-facing parent coordinate.
+Every Page has one exclusive `library | page | data_source` placement in the
+terminal BlockRecord path. Page ownership is a rooted acyclic forest: a move
+into the Page itself or any of its descendants is invalid at both the command
+and SQLite boundaries. A View, `pageRef`, relation, mention, backlink, or
+linked View is non-owning and never expands authorization. Page ID equals Block
+ID. Remaining Document-backed surfaces may retain an independently synchronized
+content adapter, but that adapter is not the Page/Board ownership authority.
 
-Canvas is also a document-bearing Block. Its Block identity owns metadata and
-one exclusive `library | page` placement; `canvas_owners` records Library
+Canvas is also a scene-bearing Block. Its Block identity owns metadata and one
+exclusive `library | page` placement; `canvas_owners` records Library
 membership, and `block_documents` resolves its independent `scene_graph`
-Document. A Page-owned Canvas appears in the Page Y.Doc only as a childless
-`canvas` shell whose Block ID is the Canvas owner ID. Scene elements, files,
-app state, history, and Document identity never enter the Page Document.
-Project creation retains one deterministic primary Canvas, but that default is
+Document. A record-backed Page renders a Canvas child from its placement and
+Canvas identity; a remaining document-backed Page adapter may render the same
+edge as a childless `canvas` shell. Scene elements, files, app state, history,
+and Document identity never enter the terminal Page content slots. Project
+creation retains one deterministic primary Canvas, but that default is
 ordinary Canvas authority rather than a Database View presentation.
 
 Database is a Container with stable Block identity, metadata, lifecycle, Data
@@ -1204,14 +1215,43 @@ or the Electron client from reaching the local store.
 - `lib/nfm/*`: renderer wrappers over the shared NFM core plus the BlockNote adapter and clipboard/read-only helpers.
 - `lib/toggle-list/*`: rule engine and mapping logic for toggle-list views.
 
+## Terminal BlockRecord Page/Board flow
+
+The terminal Page/Board slice uses one dependency flow:
+
+```text
+Page / Board intent
+  → typed BlockRecord operation
+  → Core MutationKernel
+  → SQLite canonical rows + content materialization + LocalCommit
+  → apply response → Main LocalCommitDispatcher
+  → renderer BlockRecordWindow / RecordBacked Page surface
+  → durable LocalCommit tail (same envelope, deduped)
+```
+
+`PromoteManyToPage` changes the selected root records, placement, Data Source
+membership, and View position atomically. Descendant IDs and content shard
+identity remain stable. Board cards are materialized from the bounded
+BlockRecord window; the older Database View windows are limited to metadata,
+group totals, and pagination enrichment and cannot overwrite that projection.
+The same rule applies to `Move to → Board` and external editor drops. If the
+canonical window cannot be read, the production path reports a read boundary;
+it does not present a stale compatibility summary as a successful mutation.
+
+The apply response is not gated on the durable tailer, projection reread, or
+renderer acknowledgement. Tail replay is still required for crash/restart
+recovery, and dispatcher identity dedupe makes response/tailer duplication
+safe. A missing bounded effect or projection gap triggers a cursor-fenced
+canonical reread.
+
 ## Data and Event Flow
 1. Renderer issues a command through `lib/api.ts`.
 2. The Electron transport sends the typed request through the context-isolated preload bridge and IPC.
    Focused-window UI commands do not enter this mutation transport: application-menu accelerators send a typed command request through preload, `useWorkbenchCommandIngress` translates the event directly to the registered runtime command port, and toolbar/command-palette entry points execute the same command owner.
-3. Main starts or reuses Core before opening the Profile. Every production capability enters its owning native deep Module; Electron never opens SQLite or reconstructs the transaction. Migration conformance uses exact frozen legacy inventories, the frozen final TypeScript v84 schema artifact, and disposable copies. A Page editor sends binary Yjs updates; there is no Page title/body snapshot command or main-process SQLite fallback. Agent reads publish no mutation events.
+3. Main starts or reuses Core before opening the Profile. Every production capability enters its owning native deep Module; Electron never opens SQLite or reconstructs the transaction. Migration conformance uses exact frozen legacy inventories, the frozen final TypeScript v84 schema artifact, and disposable copies. The terminal Page editor sends typed BlockRecord/content-slot operations and receives the committed LocalCommit envelope; it does not send a Page-wide structural Yjs snapshot. Explicit Canvas/document-backed adapters retain their registered binary protocol until their own cutover. Agent reads publish no mutation events.
 4. Core captures domain events and a required canonical `ProjectionImpact` in the same `change_log` transaction as their semantic mutation and exact-head projections. The impact is `none`, `all`, or bounded Page/Database/Data Source/View/Page-bound Document-head coordinates; it carries no title, summary, property value, Project identity, or change kind. Ordinary mutations and Project creation enumerate their full projection closure. Visibility-changing moves, grants, and transfers use identity-free `all`, because the Project router's post-commit authorization view cannot safely name a resource the Project just lost. Schema v88 records the first sequence with complete impact history. Replay crossing older rows returns a resync boundary, while a missing or malformed post-floor impact is corruption. Live publication and replay both use the same committed-row decoder. Main's `ProjectionInvalidationRouter` consumes only the top-level impact, cursor, and handshake Library identity. Library scope receives the complete impact; each active Project scope filters all coordinates through one Core authorization read on its own ordered queue, reusing canonical Page/Database/View authorization predicates. Authorization failure emits a scoped resync without identities. The Core supervisor advances only after router acceptance, so fanout failure reconnects from the previous cursor. Database, Library, Workspace, Automation, and compatibility `board-changed` events retain their domain effects but do not own projection correctness.
 5. Electron main broadcasts ordinary change events to all open windows through the safe IPC sender; Codex host-message/event fanout goes through the renderer-client router, which itself uses the safe sender. Direct `webContents.send` fanout is not allowed outside those helpers because renderer reload/close can dispose frames between lookup and send. Board subscriptions filter by `projectId`; Project-list and Session invalidation subscriptions are global, with Session summary scopes carried in the event.
-6. Each renderer window owns one `ProjectionInvalidationRegistry`, created synchronously above Query consumers. It reference-counts one Electron IPC stream per Library/Project scope and reads each consumer's dependencies and satisfied cursor dynamically. A new subscription receives a checkpoint behind already accepted Host work, closing the race between an initial query and later React effect. Resource intersection invalidates Page detail, Database Views, references, Library navigation, or management reads; `all`, resync, and Store-epoch changes invalidate the complete scope. Events arriving during an initial or background read set a required cursor, and callback completion triggers one trailing canonical read only if the returned snapshot does not cover it. TanStack Query families enumerate actual cached keys and invalidate each exact key. Cursor-fenced `board-changed` summaries may patch Kanban immediately but can never overwrite a newer canonical `BoardSummarySnapshot`. Ownership-path and navigation events remain for topology or permission side effects rather than freshness.
+6. Each renderer window owns one `ProjectionInvalidationRegistry`, created synchronously above Query consumers. It reference-counts one Electron IPC stream per Library/Project scope and reads each consumer's dependencies and satisfied cursor dynamically. A new subscription receives a checkpoint behind already accepted Host work, closing the race between an initial query and later React effect. Resource intersection invalidates Page detail, Database Views, references, Library navigation, or management reads; `all`, resync, and Store-epoch changes invalidate the complete scope. Events arriving during an initial or background read set a required cursor, and callback completion triggers one trailing canonical read only if the returned snapshot does not cover it. TanStack Query families enumerate actual cached keys and invalidate each exact key. Terminal Kanban cards are applied from the BlockRecord LocalCommit response/tail and never from an old summary event; compatibility `board-changed` messages remain invalidation hints for metadata consumers only and can never overwrite a newer canonical `BoardSummarySnapshot`. Ownership-path and navigation events remain for topology or permission side effects rather than freshness.
 7. Reminder scheduler polls occurrences, dedupes delivery via receipts, and emits `reminder:open` to renderer on notification click.
 
 Block-first migration foundation:

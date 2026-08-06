@@ -30,10 +30,13 @@ use axum::{Json, Router};
 use fs2::FileExt;
 use nodex_core::administration::StoreAdministrationModule;
 use nodex_core::automation::AutomationModule;
+use nodex_core::block_record_module::{BlockRecordModule, BlockRecordSelection};
+use nodex_core::content_store::ContentSlot;
 use nodex_core::database::DatabaseModule;
 use nodex_core::document::{
     AwarenessPublication, DocumentRealtimeEvent, OwnedDocumentModule, OwnedDocumentRealtimeAdapter,
 };
+use nodex_core::domain::block_record::PlacementParent;
 use nodex_core::infrastructure::event_log::{CoreEventLog, CoreEventReplay};
 use nodex_core::infrastructure::metrics::DurationMetricSnapshot;
 use nodex_core::infrastructure::migration::StorePreparationEvent;
@@ -43,6 +46,11 @@ use nodex_core::infrastructure::sqlite::{
 use nodex_core::infrastructure::store::SqliteStoreKernel;
 use nodex_core::infrastructure::writer::StoreRuntimePhase;
 use nodex_core::library::LibraryModule;
+use nodex_core::local_commit::{AppendedLocalCommit, LocalCommitEnvelope};
+use nodex_core::mutation_kernel::{
+    BlockMoveEntry, BlockMutationOperation, BlockMutationRequest, BlockPlacementRebalance,
+    BlockPromotionEntry, BlockRecordUpdateEntry, BlockTreeNode, BlockViewPositionRebalance,
+};
 use nodex_core::workspace::ProjectWorkspaceModule;
 use nodex_core_contracts::administration::StoreAdministrationIntent;
 use nodex_core_contracts::document::{OwnedDocumentIntent, OwnedDocumentRead};
@@ -52,7 +60,12 @@ use nodex_core_contracts::{
 };
 use nodex_core_protocol::{
     AutomationApplyRequest, AutomationApplyResponse, AutomationReadRequest, AutomationReadResponse,
-    ClientKind, CoreHealthMetrics, CoreReadiness, CoreSelectionDisposition, CoreSelectionPolicy,
+    BlockPlacementValue, BlockRecordApplyRequest, BlockRecordApplyResponse,
+    BlockRecordCommittedValue, BlockRecordContentValue, BlockRecordCursor, BlockRecordEffect,
+    BlockRecordGraph, BlockRecordOperation, BlockRecordPayloadCompleteness,
+    BlockRecordPlacementParent, BlockRecordRead, BlockRecordReadRequest, BlockRecordReadResponse,
+    BlockRecordReadSnapshot, BlockRecordValue, BlockRecordViewPositionValue, ClientKind,
+    CoreHealthMetrics, CoreReadiness, CoreSelectionDisposition, CoreSelectionPolicy,
     CoreSelectionReason, CoreSelectionResult, CoreStartupEvent, CoreStartupEventFrame,
     DatabaseApplyRequest, DatabaseApplyResponse, DatabaseReadRequest, DatabaseReadResponse,
     EventEnvelope, EventReplayRequired, HandshakeRequest, HandshakeResponse, HealthDurationMetric,
@@ -141,6 +154,8 @@ struct ServerState {
     event_log: CoreEventLog,
     event_sender: broadcast::Sender<EventEnvelope>,
     document_sender: broadcast::Sender<DocumentTransportPublication>,
+    local_commit_sender: broadcast::Sender<LocalCommitEnvelope>,
+    block_record: BlockRecordModule,
     metrics: ServerMetrics,
     logging: logging::LoggingHandle,
 }
@@ -267,6 +282,12 @@ fn route_observability(path: &str) -> (&'static str, &'static str) {
         "/core/v1/events" => ("/core/v1/events", "lifecycle"),
         "/core/v1/modules/library/read" => ("/core/v1/modules/library/read", "library"),
         "/core/v1/modules/library/apply" => ("/core/v1/modules/library/apply", "library"),
+        "/core/v1/modules/block-record/read" => {
+            ("/core/v1/modules/block-record/read", "block_record")
+        }
+        "/core/v1/modules/block-record/apply" => {
+            ("/core/v1/modules/block-record/apply", "block_record")
+        }
         "/core/v1/modules/database/read" => ("/core/v1/modules/database/read", "database"),
         "/core/v1/modules/database/apply" => ("/core/v1/modules/database/apply", "database"),
         "/core/v1/modules/workspace/read" => {
@@ -595,6 +616,538 @@ async fn library_apply(
         Err(error) => ResponseEnvelope::Error(record_core_error(error)),
     };
     Json(LibraryApplyResponse(response))
+}
+
+async fn block_record_read(
+    State(state): State<Arc<ServerState>>,
+    Extension(bound): Extension<BoundConnection>,
+    headers: HeaderMap,
+    Json(request): Json<BlockRecordReadRequest>,
+) -> Json<BlockRecordReadResponse> {
+    let response = (|| {
+        require_block_record_contract(request.contract_version)?;
+        let _context = module_context(&state, &headers, &bound)?;
+        let BlockRecordRead::Window {
+            parent,
+            block_ids,
+            include_content,
+            include_descendants,
+            view_id,
+        } = &request.read;
+        let parent = parent.as_ref().map(block_record_parent).transpose()?;
+        let (window, observed_cursor) = state
+            .block_record
+            .read_selection_with_cursor_and_view_and_descendants(
+                parent.as_ref(),
+                block_ids.as_deref(),
+                *include_content,
+                view_id.as_deref(),
+                *include_descendants,
+            )
+            .map_err(block_record_store_error)?;
+        let observed_cursor = observed_cursor
+            .map(|cursor| BlockRecordCursor {
+                store_epoch: cursor.store_epoch,
+                commit_seq: cursor.commit_seq,
+            })
+            .unwrap_or_else(|| BlockRecordCursor {
+                store_epoch: state.block_record.store_epoch().to_owned(),
+                commit_seq: 0,
+            });
+        let snapshot = block_record_snapshot(window, observed_cursor)?;
+        Ok::<_, CoreError>(ResponseEnvelope::Ok(snapshot))
+    })()
+    .unwrap_or_else(|error| ResponseEnvelope::Error(record_core_error(error)));
+    Json(BlockRecordReadResponse(response))
+}
+
+async fn block_record_apply(
+    State(state): State<Arc<ServerState>>,
+    Extension(bound): Extension<BoundConnection>,
+    headers: HeaderMap,
+    Json(request): Json<BlockRecordApplyRequest>,
+) -> Json<BlockRecordApplyResponse> {
+    record_operation("block_record", &request.operation_id);
+    let response = (|| {
+        require_block_record_contract(request.contract_version)?;
+        let _context = module_context(&state, &headers, &bound)?;
+        let operation = block_record_operation(&request.operation)?;
+        let mutation = BlockMutationRequest {
+            store_epoch: request.store_epoch,
+            operation_id: request.operation_id,
+            intent_hash: request.intent_hash,
+            commit_id: request.commit_id,
+            canonical_hash: request.canonical_hash,
+            actor_id: request.actor_id,
+            session_id: request.session_id,
+            committed_at: request.committed_at,
+            // BlockRecord is currently library-scoped. The audience is a
+            // Core-owned result, never a renderer-authored routing hint.
+            audience: serde_json::json!({"kind": "library", "projectIds": []}),
+            operation,
+        };
+        let committed = state
+            .block_record
+            .apply(mutation)
+            .map_err(block_record_store_error)?;
+        let response_value = block_record_commit(committed.clone());
+        if !committed.duplicate {
+            let _ = state.local_commit_sender.send(committed.envelope);
+        }
+        Ok::<_, CoreError>(ResponseEnvelope::Ok(response_value))
+    })()
+    .unwrap_or_else(|error| ResponseEnvelope::Error(record_core_error(error)));
+    Json(BlockRecordApplyResponse(response))
+}
+
+fn require_block_record_contract(version: u32) -> Result<(), CoreError> {
+    if version == nodex_core_protocol::BLOCK_RECORD_CONTRACT_VERSION {
+        return Ok(());
+    }
+    Err(invalid("BlockRecord contract version is unsupported"))
+}
+
+fn block_record_store_error(error: StoreError) -> CoreError {
+    let code = match error.code {
+        StoreErrorCode::InvalidInput | StoreErrorCode::InvalidProfile => {
+            CoreErrorCode::InvalidInput
+        }
+        StoreErrorCode::NotFound => CoreErrorCode::NotFound,
+        StoreErrorCode::RevisionConflict | StoreErrorCode::Conflict => {
+            CoreErrorCode::RevisionConflict
+        }
+        StoreErrorCode::StaleStoreEpoch => CoreErrorCode::StaleStoreEpoch,
+        StoreErrorCode::IdempotencyKeyReused => CoreErrorCode::IdempotencyKeyReused,
+        StoreErrorCode::UnsupportedSchema => CoreErrorCode::SchemaUnsupported,
+        StoreErrorCode::MaintenanceInProgress => CoreErrorCode::MaintenanceInProgress,
+        StoreErrorCode::ResourceExhausted
+        | StoreErrorCode::WriterQueueFull
+        | StoreErrorCode::ReaderPoolTimeout
+        | StoreErrorCode::QueryCancelled
+        | StoreErrorCode::SqliteBusy => CoreErrorCode::ResourceExhausted,
+        StoreErrorCode::StoreCorrupt => CoreErrorCode::StoreCorrupt,
+        _ => CoreErrorCode::CoreUnavailable,
+    };
+    CoreError {
+        code,
+        message: error.message,
+        retryable: error.retryable,
+        recovery: CoreErrorRecovery::None,
+    }
+}
+
+fn block_record_operation(
+    operation: &BlockRecordOperation,
+) -> Result<BlockMutationOperation, CoreError> {
+    match operation {
+        BlockRecordOperation::Create {
+            block_id,
+            block_kind,
+            properties,
+            content_shard_id,
+            parent,
+            rank_key,
+            view_id,
+            data_source_id,
+            view_group_key,
+            view_rank_key,
+            materialized_json,
+            placement_rebalances,
+            view_rebalances,
+        } => Ok(BlockMutationOperation::Create {
+            block_id: block_id.clone(),
+            kind: serde_json::from_value(serde_json::Value::String(block_kind.clone()))
+                .map_err(|_| invalid("BlockRecord kind is invalid"))?,
+            properties: properties.clone(),
+            content_shard_id: content_shard_id.clone(),
+            parent: block_record_parent(parent)?,
+            rank_key: rank_key.clone(),
+            view_id: view_id.clone(),
+            data_source_id: data_source_id.clone(),
+            view_group_key: view_group_key.clone(),
+            view_rank_key: view_rank_key.clone(),
+            materialized_json: materialized_json.clone(),
+            placement_rebalances: placement_rebalances
+                .iter()
+                .map(|rebalance| BlockPlacementRebalance {
+                    block_id: rebalance.block_id.clone(),
+                    rank_key: rebalance.rank_key.clone(),
+                    expected_revision: rebalance.expected_revision,
+                })
+                .collect(),
+            view_rebalances: view_rebalances
+                .iter()
+                .map(|rebalance| BlockViewPositionRebalance {
+                    block_id: rebalance.block_id.clone(),
+                    group_key: rebalance.group_key.clone(),
+                    rank_key: rebalance.rank_key.clone(),
+                    expected_revision: rebalance.expected_revision,
+                })
+                .collect(),
+        }),
+        BlockRecordOperation::EnsureDataSource { data_source_id } => {
+            Ok(BlockMutationOperation::EnsureDataSource {
+                data_source_id: data_source_id.clone(),
+            })
+        }
+        BlockRecordOperation::Move {
+            block_id,
+            target_parent,
+            rank_key,
+            expected_block_revision,
+            expected_placement_revision,
+        } => Ok(BlockMutationOperation::Move {
+            block_id: block_id.clone(),
+            target_parent: block_record_parent(target_parent)?,
+            rank_key: rank_key.clone(),
+            expected_block_revision: *expected_block_revision,
+            expected_placement_revision: *expected_placement_revision,
+        }),
+        BlockRecordOperation::MoveMany {
+            entries,
+            placement_rebalances,
+        } => Ok(BlockMutationOperation::MoveMany {
+            entries: entries
+                .iter()
+                .map(|entry| {
+                    Ok(BlockMoveEntry {
+                        block_id: entry.block_id.clone(),
+                        target_parent: block_record_parent(&entry.target_parent)?,
+                        rank_key: entry.rank_key.clone(),
+                        expected_block_revision: entry.expected_block_revision,
+                        expected_placement_revision: entry.expected_placement_revision,
+                    })
+                })
+                .collect::<Result<Vec<_>, CoreError>>()?,
+            placement_rebalances: placement_rebalances
+                .iter()
+                .map(|rebalance| BlockPlacementRebalance {
+                    block_id: rebalance.block_id.clone(),
+                    rank_key: rebalance.rank_key.clone(),
+                    expected_revision: rebalance.expected_revision,
+                })
+                .collect(),
+        }),
+        BlockRecordOperation::UpdateRecord {
+            block_id,
+            properties,
+            expected_block_revision,
+            view_id,
+            data_source_id,
+            view_group_key,
+            view_rank_key,
+            expected_view_revision,
+        } => Ok(BlockMutationOperation::UpdateRecord {
+            block_id: block_id.clone(),
+            properties: properties.clone(),
+            expected_block_revision: *expected_block_revision,
+            view_id: view_id.clone(),
+            data_source_id: data_source_id.clone(),
+            view_group_key: view_group_key.clone(),
+            view_rank_key: view_rank_key.clone(),
+            expected_view_revision: *expected_view_revision,
+        }),
+        BlockRecordOperation::UpdateMany {
+            entries,
+            view_rebalances,
+        } => Ok(BlockMutationOperation::UpdateMany {
+            entries: entries
+                .iter()
+                .map(|entry| BlockRecordUpdateEntry {
+                    block_id: entry.block_id.clone(),
+                    properties: entry.properties.clone(),
+                    expected_block_revision: entry.expected_block_revision,
+                    view_id: entry.view_id.clone(),
+                    data_source_id: entry.data_source_id.clone(),
+                    view_group_key: entry.view_group_key.clone(),
+                    view_rank_key: entry.view_rank_key.clone(),
+                    expected_view_revision: entry.expected_view_revision,
+                })
+                .collect(),
+            view_rebalances: view_rebalances
+                .iter()
+                .map(|rebalance| BlockViewPositionRebalance {
+                    block_id: rebalance.block_id.clone(),
+                    group_key: rebalance.group_key.clone(),
+                    rank_key: rebalance.rank_key.clone(),
+                    expected_revision: rebalance.expected_revision,
+                })
+                .collect(),
+        }),
+        BlockRecordOperation::ArchiveSubtree {
+            block_id,
+            expected_block_revision,
+            expected_placement_revision,
+        } => Ok(BlockMutationOperation::ArchiveSubtree {
+            block_id: block_id.clone(),
+            expected_block_revision: *expected_block_revision,
+            expected_placement_revision: *expected_placement_revision,
+        }),
+        BlockRecordOperation::PromoteToPage {
+            block_id,
+            data_source_id,
+            view_id,
+            view_group_key,
+            view_rank_key,
+            rank_key,
+            expected_block_revision,
+            expected_placement_revision,
+        } => Ok(BlockMutationOperation::PromoteToPage {
+            block_id: block_id.clone(),
+            data_source_id: data_source_id.clone(),
+            view_id: view_id.clone(),
+            view_group_key: view_group_key.clone(),
+            view_rank_key: view_rank_key.clone(),
+            rank_key: rank_key.clone(),
+            expected_block_revision: *expected_block_revision,
+            expected_placement_revision: *expected_placement_revision,
+        }),
+        BlockRecordOperation::PromoteManyToPage {
+            data_source_id,
+            view_id,
+            entries,
+            view_rebalances,
+            placement_rebalances,
+        } => Ok(BlockMutationOperation::PromoteManyToPage {
+            data_source_id: data_source_id.clone(),
+            view_id: view_id.clone(),
+            entries: entries
+                .iter()
+                .map(|entry| BlockPromotionEntry {
+                    block_id: entry.block_id.clone(),
+                    view_group_key: entry.view_group_key.clone(),
+                    view_rank_key: entry.view_rank_key.clone(),
+                    rank_key: entry.rank_key.clone(),
+                    expected_block_revision: entry.expected_block_revision,
+                    expected_placement_revision: entry.expected_placement_revision,
+                })
+                .collect(),
+            view_rebalances: view_rebalances
+                .iter()
+                .map(|rebalance| BlockViewPositionRebalance {
+                    block_id: rebalance.block_id.clone(),
+                    group_key: rebalance.group_key.clone(),
+                    rank_key: rebalance.rank_key.clone(),
+                    expected_revision: rebalance.expected_revision,
+                })
+                .collect(),
+            placement_rebalances: placement_rebalances
+                .iter()
+                .map(|rebalance| BlockPlacementRebalance {
+                    block_id: rebalance.block_id.clone(),
+                    rank_key: rebalance.rank_key.clone(),
+                    expected_revision: rebalance.expected_revision,
+                })
+                .collect(),
+        }),
+        BlockRecordOperation::SetMaterializedContent {
+            block_id,
+            slot,
+            materialized_json,
+            expected_revision,
+        } => Ok(BlockMutationOperation::SetMaterializedContent {
+            block_id: block_id.clone(),
+            slot: match slot.as_str() {
+                "title" => ContentSlot::Title,
+                "inline" => ContentSlot::Inline,
+                "body" => ContentSlot::Body,
+                "properties" => ContentSlot::Properties,
+                _ => return Err(invalid("BlockRecord content slot is invalid")),
+            },
+            materialized_json: materialized_json.clone(),
+            expected_revision: *expected_revision,
+        }),
+        BlockRecordOperation::ReconcilePageTree {
+            page_id,
+            expected_page_revision,
+            nodes,
+        } => Ok(BlockMutationOperation::ReconcilePageTree {
+            page_id: page_id.clone(),
+            expected_page_revision: *expected_page_revision,
+            nodes: nodes
+                .iter()
+                .map(|node| {
+                    Ok(BlockTreeNode {
+                        block_id: node.block_id.clone(),
+                        kind: serde_json::from_value(serde_json::Value::String(
+                            node.block_kind.clone(),
+                        ))
+                        .map_err(|_| invalid("Page tree Block kind is invalid"))?,
+                        properties: node.properties.clone(),
+                        content_shard_id: node.content_shard_id.clone(),
+                        parent_block_id: node.parent_block_id.clone(),
+                        rank_key: node.rank_key.clone(),
+                        expected_block_revision: node.expected_block_revision,
+                        expected_placement_revision: node.expected_placement_revision,
+                        expected_content_revision: node.expected_content_revision,
+                        materialized_json: node.materialized_json.clone(),
+                    })
+                })
+                .collect::<Result<Vec<_>, CoreError>>()?,
+        }),
+    }
+}
+
+fn block_record_parent(parent: &BlockRecordPlacementParent) -> Result<PlacementParent, CoreError> {
+    match parent {
+        BlockRecordPlacementParent::Library => Ok(PlacementParent::Library),
+        BlockRecordPlacementParent::Block(id) => {
+            if id.trim().is_empty() {
+                return Err(invalid("BlockRecord parent id is empty"));
+            }
+            Ok(PlacementParent::Block(id.clone()))
+        }
+        BlockRecordPlacementParent::DataSource(id) => {
+            if id.trim().is_empty() {
+                return Err(invalid("BlockRecord Data Source id is empty"));
+            }
+            Ok(PlacementParent::DataSource(id.clone()))
+        }
+    }
+}
+
+fn block_record_snapshot(
+    window: BlockRecordSelection,
+    observed_cursor: BlockRecordCursor,
+) -> Result<BlockRecordReadSnapshot, CoreError> {
+    let blocks = window
+        .blocks
+        .iter()
+        .map(block_record_value)
+        .collect::<Result<Vec<_>, _>>()?;
+    let placements = window
+        .placements
+        .iter()
+        .map(block_placement_value)
+        .collect::<Result<Vec<_>, _>>()?;
+    let view_positions = window
+        .view_positions
+        .iter()
+        .map(|position| BlockRecordViewPositionValue {
+            view_id: position.view_id.clone(),
+            data_source_id: position.data_source_id.clone(),
+            block_id: position.block_id.clone(),
+            group_key: position.group_key.clone(),
+            rank_key: position.rank_key.clone(),
+            revision: position.revision,
+        })
+        .collect();
+    let content = window
+        .content
+        .records
+        .iter()
+        .map(|record| {
+            Ok(BlockRecordContentValue {
+                block_id: record.block_id.clone(),
+                slot: serde_json::to_value(&record.slot)
+                    .map_err(|_| invalid("BlockRecord content slot could not be encoded"))?,
+                library_id: record.library_id.clone(),
+                shard_id: record.shard_id.clone(),
+                revision: record.revision,
+                state_vector_v1: record.state_vector_v1.clone(),
+                full_state_v1: record.full_state_v1.clone(),
+                state_hash: record.state_hash.clone(),
+                materialized_json: record.materialized_json.clone(),
+            })
+        })
+        .collect::<Result<Vec<_>, CoreError>>()?;
+    Ok(BlockRecordReadSnapshot {
+        library_id: window.library_id.clone(),
+        graph: BlockRecordGraph {
+            library_id: window.library_id,
+            blocks,
+            placements,
+        },
+        view_positions,
+        content,
+        observed_cursor,
+    })
+}
+
+fn block_record_value(
+    block: &nodex_core::domain::block_record::BlockRecord,
+) -> Result<BlockRecordValue, CoreError> {
+    Ok(BlockRecordValue {
+        id: block.id.clone(),
+        library_id: block.library_id.clone(),
+        // The protocol field is a plain string. `serde_json::to_string`
+        // would add JSON quotes (`"page"`) and make every renderer
+        // projection miss the canonical Page kind.
+        kind: serde_json::to_value(&block.kind)
+            .map_err(|_| invalid("BlockRecord kind could not be encoded"))?
+            .as_str()
+            .ok_or_else(|| invalid("BlockRecord kind is not a string"))?
+            .to_owned(),
+        lifecycle: serde_json::to_value(&block.lifecycle)
+            .map_err(|_| invalid("BlockRecord lifecycle could not be encoded"))?,
+        properties: block.properties.clone(),
+        content_shard_id: block.content_shard_id.clone(),
+        revision: block.revision,
+    })
+}
+
+fn block_placement_value(
+    placement: &nodex_core::domain::block_record::BlockPlacement,
+) -> Result<BlockPlacementValue, CoreError> {
+    Ok(BlockPlacementValue {
+        block_id: placement.block_id.clone(),
+        parent: block_record_parent_value(&placement.parent),
+        rank_key: placement.rank_key.clone(),
+        revision: placement.revision,
+    })
+}
+
+fn block_record_parent_value(parent: &PlacementParent) -> BlockRecordPlacementParent {
+    match parent {
+        PlacementParent::Library => BlockRecordPlacementParent::Library,
+        PlacementParent::Block(id) => BlockRecordPlacementParent::Block(id.clone()),
+        PlacementParent::DataSource(id) => BlockRecordPlacementParent::DataSource(id.clone()),
+    }
+}
+
+fn block_record_commit(commit: AppendedLocalCommit) -> BlockRecordCommittedValue {
+    block_record_commit_from_envelope(commit.envelope, commit.duplicate)
+}
+
+fn block_record_commit_from_envelope(
+    envelope: LocalCommitEnvelope,
+    duplicate: bool,
+) -> BlockRecordCommittedValue {
+    let LocalCommitEnvelope {
+        cursor,
+        commit_id,
+        operation_id,
+        intent_hash,
+        canonical_hash,
+        actor_id,
+        session_id,
+        committed_at,
+        effects,
+        audience,
+    } = envelope;
+    BlockRecordCommittedValue {
+        cursor: BlockRecordCursor {
+            store_epoch: cursor.store_epoch,
+            commit_seq: cursor.commit_seq,
+        },
+        commit_id,
+        operation_id,
+        intent_hash,
+        canonical_hash,
+        actor_id,
+        session_id,
+        committed_at,
+        effects: effects
+            .into_iter()
+            .map(|effect| BlockRecordEffect {
+                kind: effect.kind,
+                value: effect.value,
+            })
+            .collect(),
+        audience,
+        payload_completeness: BlockRecordPayloadCompleteness::Rich,
+        duplicate,
+    }
 }
 
 async fn database_read(
@@ -1449,6 +2002,55 @@ fn replacement_handoff(
     }))
 }
 
+async fn local_commits(
+    State(state): State<Arc<ServerState>>,
+    Extension(bound): Extension<BoundConnection>,
+    headers: HeaderMap,
+    Query(query): Query<EventQuery>,
+) -> Result<Sse<impl futures_core::Stream<Item = Result<Event, Infallible>>>, ApiError> {
+    if query.after < 0 {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "LocalCommit cursor must be non-negative",
+        ));
+    }
+    let _context = module_context(&state, &headers, &bound).map_err(api_core_error)?;
+    let mut receiver = state.local_commit_sender.subscribe();
+    let cursor = nodex_core::local_commit::LocalCommitCursor {
+        store_epoch: state.block_record.store_epoch().to_owned(),
+        commit_seq: query.after,
+    };
+    let initial = state
+        .block_record
+        .read_local_commits_after(&cursor, 10_000)
+        .map_err(|error| api_core_error(block_record_store_error(error)))?;
+    let stream = async_stream::stream! {
+        let mut last_seq = query.after;
+        for envelope in initial {
+            last_seq = last_seq.max(envelope.cursor.commit_seq);
+            let wire = block_record_commit_from_envelope(envelope, false);
+            yield Ok(sse_local_commit(&wire));
+        }
+        loop {
+            match receiver.recv().await {
+                Ok(envelope) => {
+                    if envelope.cursor.store_epoch != cursor.store_epoch
+                        || envelope.cursor.commit_seq <= last_seq
+                    {
+                        continue;
+                    }
+                    last_seq = envelope.cursor.commit_seq;
+                    let wire = block_record_commit_from_envelope(envelope, false);
+                    yield Ok(sse_local_commit(&wire));
+                }
+                Err(broadcast::error::RecvError::Lagged(_))
+                | Err(broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    };
+    Ok(Sse::new(stream))
+}
+
 fn router(state: Arc<ServerState>) -> Router {
     let infrastructure_routes = Router::new()
         .route("/core/v1/health", get(health))
@@ -1456,8 +2058,17 @@ fn router(state: Arc<ServerState>) -> Router {
         .route("/core/v1/admin/shutdown", post(shutdown));
     let connected_routes = Router::new()
         .route("/core/v1/events", get(events))
+        .route("/core/v1/local-commits", get(local_commits))
         .route("/core/v1/modules/library/read", post(library_read))
         .route("/core/v1/modules/library/apply", post(library_apply))
+        .route(
+            "/core/v1/modules/block-record/read",
+            post(block_record_read),
+        )
+        .route(
+            "/core/v1/modules/block-record/apply",
+            post(block_record_apply),
+        )
         .route("/core/v1/modules/database/read", post(database_read))
         .route("/core/v1/modules/database/apply", post(database_apply))
         .route("/core/v1/modules/workspace/read", post(workspace_read))
@@ -2136,6 +2747,13 @@ fn sse_event(envelope: &EventEnvelope) -> Event {
         .data(serde_json::to_string(envelope).expect("event envelope serializes"))
 }
 
+fn sse_local_commit(envelope: &BlockRecordCommittedValue) -> Event {
+    Event::default()
+        .event("local-commit")
+        .id(envelope.cursor.commit_seq.to_string())
+        .data(serde_json::to_string(envelope).expect("LocalCommit envelope serializes"))
+}
+
 fn sse_core_resync(resync: &EventReplayRequired) -> Event {
     Event::default()
         .event("core-resync-required")
@@ -2355,6 +2973,12 @@ pub async fn run_with_selection(
     }
     let store_epoch = ensure_store_epoch(&store, random_hex(16)?)?;
     let identity = ensure_local_identity(&store, proposed_profile_id)?;
+    let block_record = BlockRecordModule::new(
+        &identity.profile_id,
+        &identity.library_id,
+        &store_epoch,
+        &store,
+    );
     let workspace = ProjectWorkspaceModule::new(&identity.profile_id, &identity.library_id, &store)
         .map_err(|error| io::Error::other(error.message))?;
     paths.atomic_write_private(&paths.auth, format!("{auth}\n").as_bytes())?;
@@ -2396,6 +3020,7 @@ pub async fn run_with_selection(
     let event_log = CoreEventLog::new(store.readers());
     let (event_sender, _) = broadcast::channel(EVENT_CHANNEL_CAPACITY);
     let (document_sender, _) = broadcast::channel(EVENT_CHANNEL_CAPACITY);
+    let (local_commit_sender, _) = broadcast::channel(EVENT_CHANNEL_CAPACITY);
     let library = LibraryModule::new(&identity.profile_id, &identity.library_id, &store);
     let replacement_library_operations = library.prepared_agent_operation_registry();
     let replacement_search_snapshots = library.search_snapshot_lease_registry();
@@ -2489,6 +3114,8 @@ pub async fn run_with_selection(
         event_log,
         event_sender,
         document_sender,
+        local_commit_sender,
+        block_record,
         metrics: ServerMetrics::default(),
         logging: logging_handle,
     });

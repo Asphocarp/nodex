@@ -279,6 +279,25 @@ pub fn read_after(
         .map_err(StoreError::from)
 }
 
+pub fn head(
+    connection: &Connection,
+    store_epoch: &str,
+) -> Result<Option<LocalCommitCursor>, StoreError> {
+    connection
+        .query_row(
+            "SELECT MAX(commit_seq)\n             FROM local_commits\n             WHERE store_epoch = ?1",
+            [store_epoch],
+            |row| {
+                let commit_seq = row.get::<_, Option<i64>>(0)?;
+                Ok(commit_seq.map(|commit_seq| LocalCommitCursor {
+                    store_epoch: store_epoch.to_owned(),
+                    commit_seq,
+                }))
+            },
+        )
+        .map_err(StoreError::from)
+}
+
 pub fn canonical_hash(value: &Value) -> Result<String, StoreError> {
     let bytes = serde_json::to_vec(value).map_err(|error| {
         local_commit_invalid(LocalCommitError::InvalidInput(format!(
@@ -440,6 +459,14 @@ mod tests {
         )
         .expect("replay");
         assert_eq!(replayed, vec![first.envelope]);
+    }
+
+    #[test]
+    fn empty_ledger_has_no_head_without_decoding_a_null_epoch() {
+        let connection = Connection::open_in_memory().expect("SQLite");
+        install_schema(&connection).expect("schema");
+
+        assert_eq!(head(&connection, "epoch:test").expect("head"), None,);
     }
 
     #[test]

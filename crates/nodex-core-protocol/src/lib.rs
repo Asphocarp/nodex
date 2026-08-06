@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+pub use nodex_core_contracts::BLOCK_RECORD_CONTRACT_VERSION;
 use nodex_core_contracts::{
     CORE_EVENT_VERSION, CommittedCoreModuleEvent, CommittedModuleValue, CoreError,
     ModuleApplyRequest, ModuleContractVersion, ModuleName, ModuleReadRequest, ModuleReadSnapshot,
@@ -32,9 +33,9 @@ pub const TRANSPORT_PROTOCOL_MIN: u32 = 4;
 pub const TRANSPORT_PROTOCOL_MAX: u32 = 4;
 pub const COMPATIBILITY_MANIFEST_VERSION: u32 = 1;
 pub const STORE_LINEAGE: &str = "nodex-rust-core";
-pub const CURRENT_STORE_VERSION: u32 = 101;
+pub const CURRENT_STORE_VERSION: u32 = 105;
 pub const CURRENT_STORE_SCHEMA_FINGERPRINT: &str =
-    "58379bc7f98dbc857ee21a6453270a4c0b6f18265105c7dfad7004f2a3b32eb6";
+    "a49dc7fa054c21d92faf013f11aa293da239f76b7e6ae0cc9728bdd259077f49";
 pub const MAX_ORDINARY_JSON_REQUEST_BYTES: usize = 2 * 1024 * 1024;
 pub const MAX_ORDINARY_JSON_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 pub const MAX_EVENT_FRAME_BYTES: usize = (2 * 1024 * 1024) + (256 * 1024);
@@ -82,7 +83,11 @@ pub fn store_format(version: u32) -> Option<StoreFormatIdentity> {
         98 => "7b632a76b6649edbbf3a1ca40a2732576582d07fd321841397af6b30aa837541",
         99 => "ef391c695b1360bc738714b8e4506bb37d6c24430f94cc65edd454abaf525151",
         100 => "1da44f6990e48a3b5e80f4d3f464c6be52e927a777a5b8bb1f03be3de0d176a6",
-        101 => CURRENT_STORE_SCHEMA_FINGERPRINT,
+        101 => "58379bc7f98dbc857ee21a6453270a4c0b6f18265105c7dfad7004f2a3b32eb6",
+        102 => "ba37daf7a8e2d5e21ada955b4adec34dff13ee7bd27779913f9b3d20e742b492",
+        103 => "24f2a5ecddfb5b94151afe94b4a95fb32c509c9e8df53a29e741f9c8d4dc4272",
+        104 => "bea41a5db5f3ae2807a2e21fdc18abecab71b744e3e326833d7a329db0dff9c2",
+        105 => CURRENT_STORE_SCHEMA_FINGERPRINT,
         _ => return None,
     };
     Some(StoreFormatIdentity {
@@ -176,7 +181,8 @@ pub fn validate_manifest(
     {
         return Err(CompatibilityMismatch {
             axis: CompatibilityAxis::Manifest,
-            required: "all six Modules in canonical order with non-zero version ranges".to_owned(),
+            required: "all seven Modules in canonical order with non-zero version ranges"
+                .to_owned(),
             offered: "invalid Module manifest".to_owned(),
         });
     }
@@ -229,7 +235,7 @@ pub fn evaluate_compatibility(
     {
         mismatches.push(CompatibilityMismatch {
             axis: CompatibilityAxis::Module,
-            required: "all six Modules in canonical order".to_owned(),
+            required: "all seven Modules in canonical order".to_owned(),
             offered: "invalid client requirements".to_owned(),
         });
     } else {
@@ -738,6 +744,355 @@ pub struct EventReplayRequired {
     pub event_head: i64,
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BlockRecordReadRequest {
+    pub contract_version: u32,
+    pub read: BlockRecordRead,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum BlockRecordRead {
+    Window {
+        #[serde(default)]
+        parent: Option<BlockRecordPlacementParent>,
+        #[serde(default)]
+        block_ids: Option<Vec<String>>,
+        #[serde(default)]
+        view_id: Option<String>,
+        #[serde(default)]
+        include_content: bool,
+        #[serde(default)]
+        include_descendants: bool,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", content = "id", rename_all = "snake_case")]
+pub enum BlockRecordPlacementParent {
+    Library,
+    Block(String),
+    DataSource(String),
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum BlockRecordOperation {
+    Create {
+        block_id: String,
+        block_kind: String,
+        properties: serde_json::Value,
+        content_shard_id: String,
+        parent: BlockRecordPlacementParent,
+        rank_key: String,
+        #[serde(default)]
+        view_id: Option<String>,
+        #[serde(default)]
+        data_source_id: Option<String>,
+        #[serde(default)]
+        view_group_key: Option<String>,
+        #[serde(default)]
+        view_rank_key: Option<String>,
+        #[serde(default)]
+        materialized_json: Option<serde_json::Value>,
+        /// Existing sibling placements whose ranks must be rewritten before
+        /// the new BlockRecord is inserted. Keeping this in Create makes a
+        /// dense insertion one atomic graph mutation instead of a best-effort
+        /// client-side sequence.
+        #[serde(default)]
+        placement_rebalances: Vec<BlockRecordPlacementRebalance>,
+        /// Existing View positions whose ranks must be rewritten before the
+        /// new Page position is inserted.
+        #[serde(default)]
+        view_rebalances: Vec<BlockRecordViewPositionRebalance>,
+    },
+    EnsureDataSource {
+        data_source_id: String,
+    },
+    Move {
+        block_id: String,
+        target_parent: BlockRecordPlacementParent,
+        rank_key: String,
+        expected_block_revision: u64,
+        expected_placement_revision: u64,
+    },
+    MoveMany {
+        entries: Vec<BlockRecordMoveEntry>,
+        #[serde(default)]
+        placement_rebalances: Vec<BlockRecordPlacementRebalance>,
+    },
+    UpdateRecord {
+        block_id: String,
+        properties: serde_json::Value,
+        expected_block_revision: u64,
+        #[serde(default)]
+        view_id: Option<String>,
+        #[serde(default)]
+        data_source_id: Option<String>,
+        #[serde(default)]
+        view_group_key: Option<String>,
+        #[serde(default)]
+        view_rank_key: Option<String>,
+        #[serde(default)]
+        expected_view_revision: Option<u64>,
+    },
+    UpdateMany {
+        entries: Vec<BlockRecordUpdateEntry>,
+        #[serde(default)]
+        view_rebalances: Vec<BlockRecordViewPositionRebalance>,
+    },
+    ArchiveSubtree {
+        block_id: String,
+        expected_block_revision: u64,
+        expected_placement_revision: u64,
+    },
+    PromoteToPage {
+        block_id: String,
+        data_source_id: String,
+        #[serde(default)]
+        view_id: Option<String>,
+        #[serde(default)]
+        view_group_key: Option<String>,
+        #[serde(default)]
+        view_rank_key: Option<String>,
+        rank_key: String,
+        expected_block_revision: u64,
+        expected_placement_revision: u64,
+    },
+    PromoteManyToPage {
+        data_source_id: String,
+        #[serde(default)]
+        view_id: Option<String>,
+        entries: Vec<BlockRecordPromotionEntry>,
+        #[serde(default)]
+        view_rebalances: Vec<BlockRecordViewPositionRebalance>,
+        #[serde(default)]
+        placement_rebalances: Vec<BlockRecordPlacementRebalance>,
+    },
+    SetMaterializedContent {
+        block_id: String,
+        slot: String,
+        materialized_json: serde_json::Value,
+        expected_revision: u64,
+    },
+    /// Reconciles one Page's complete owned BlockNote tree in one Core
+    /// transaction. The Page root itself is implicit; each entry describes a
+    /// direct/recursive descendant and its materialized inline content.
+    ReconcilePageTree {
+        page_id: String,
+        expected_page_revision: u64,
+        nodes: Vec<BlockRecordTreeNode>,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BlockRecordPromotionEntry {
+    pub block_id: String,
+    #[serde(default)]
+    pub view_group_key: Option<String>,
+    #[serde(default)]
+    pub view_rank_key: Option<String>,
+    pub rank_key: String,
+    pub expected_block_revision: u64,
+    pub expected_placement_revision: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BlockRecordUpdateEntry {
+    pub block_id: String,
+    pub properties: serde_json::Value,
+    pub expected_block_revision: u64,
+    #[serde(default)]
+    pub view_id: Option<String>,
+    #[serde(default)]
+    pub data_source_id: Option<String>,
+    #[serde(default)]
+    pub view_group_key: Option<String>,
+    #[serde(default)]
+    pub view_rank_key: Option<String>,
+    #[serde(default)]
+    pub expected_view_revision: Option<u64>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BlockRecordMoveEntry {
+    pub block_id: String,
+    pub target_parent: BlockRecordPlacementParent,
+    pub rank_key: String,
+    pub expected_block_revision: u64,
+    pub expected_placement_revision: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BlockRecordPlacementRebalance {
+    pub block_id: String,
+    pub rank_key: String,
+    pub expected_revision: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BlockRecordViewPositionRebalance {
+    pub block_id: String,
+    pub group_key: Option<String>,
+    pub rank_key: String,
+    pub expected_revision: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BlockRecordTreeNode {
+    pub block_id: String,
+    pub block_kind: String,
+    pub properties: serde_json::Value,
+    pub content_shard_id: String,
+    #[serde(default)]
+    pub parent_block_id: Option<String>,
+    pub rank_key: String,
+    #[serde(default)]
+    pub expected_block_revision: Option<u64>,
+    #[serde(default)]
+    pub expected_placement_revision: Option<u64>,
+    #[serde(default)]
+    pub expected_content_revision: Option<u64>,
+    pub materialized_json: serde_json::Value,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BlockRecordApplyRequest {
+    pub contract_version: u32,
+    pub operation_id: String,
+    pub store_epoch: String,
+    pub intent_hash: String,
+    pub commit_id: String,
+    pub canonical_hash: String,
+    pub actor_id: String,
+    pub session_id: String,
+    pub committed_at: String,
+    pub operation: BlockRecordOperation,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BlockRecordGraph {
+    pub library_id: String,
+    pub blocks: Vec<BlockRecordValue>,
+    pub placements: Vec<BlockPlacementValue>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BlockRecordValue {
+    pub id: String,
+    pub library_id: String,
+    pub kind: String,
+    pub lifecycle: serde_json::Value,
+    pub properties: serde_json::Value,
+    pub content_shard_id: String,
+    pub revision: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BlockPlacementValue {
+    pub block_id: String,
+    pub parent: BlockRecordPlacementParent,
+    pub rank_key: String,
+    pub revision: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BlockRecordViewPositionValue {
+    pub view_id: String,
+    pub data_source_id: String,
+    pub block_id: String,
+    pub group_key: Option<String>,
+    pub rank_key: String,
+    pub revision: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BlockRecordContentValue {
+    pub block_id: String,
+    pub slot: serde_json::Value,
+    pub library_id: String,
+    pub shard_id: String,
+    pub revision: u64,
+    pub state_vector_v1: Vec<u8>,
+    pub full_state_v1: Vec<u8>,
+    pub state_hash: String,
+    #[serde(default)]
+    pub materialized_json: Option<serde_json::Value>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BlockRecordCursor {
+    pub store_epoch: String,
+    pub commit_seq: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BlockRecordReadSnapshot {
+    pub library_id: String,
+    pub graph: BlockRecordGraph,
+    pub view_positions: Vec<BlockRecordViewPositionValue>,
+    pub content: Vec<BlockRecordContentValue>,
+    /// The exact LocalCommit position represented by this snapshot.
+    ///
+    /// An empty store still has a position (`commit_seq = 0`). Keeping the
+    /// cursor mandatory is what lets the first apply-response be projected
+    /// locally without an artificial "unobserved" state.
+    pub observed_cursor: BlockRecordCursor,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BlockRecordEffect {
+    pub kind: String,
+    pub value: serde_json::Value,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BlockRecordCommittedValue {
+    pub cursor: BlockRecordCursor,
+    pub commit_id: String,
+    pub operation_id: String,
+    pub intent_hash: String,
+    pub canonical_hash: String,
+    pub actor_id: String,
+    pub session_id: String,
+    pub committed_at: String,
+    pub effects: Vec<BlockRecordEffect>,
+    pub audience: serde_json::Value,
+    pub payload_completeness: BlockRecordPayloadCompleteness,
+    pub duplicate: bool,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum BlockRecordPayloadCompleteness {
+    Rich,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
+#[serde(transparent)]
+pub struct BlockRecordReadResponse(pub ResponseEnvelope<BlockRecordReadSnapshot>);
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
+#[serde(transparent)]
+pub struct BlockRecordApplyResponse(pub ResponseEnvelope<BlockRecordCommittedValue>);
+
 macro_rules! define_module_transport {
     (
         $read_request:ident,
@@ -946,6 +1301,30 @@ mod api {
         StoreAdministrationApplyRequest,
         StoreAdministrationApplyResponse
     );
+
+    #[utoipa::path(
+        post,
+        path = "/core/v1/modules/block-record/read",
+        request_body = BlockRecordReadRequest,
+        responses((status = 200, body = BlockRecordReadResponse))
+    )]
+    pub(super) fn block_record_read() {}
+
+    #[utoipa::path(
+        post,
+        path = "/core/v1/modules/block-record/apply",
+        request_body = BlockRecordApplyRequest,
+        responses((status = 200, body = BlockRecordApplyResponse))
+    )]
+    pub(super) fn block_record_apply() {}
+
+    #[utoipa::path(
+        get,
+        path = "/core/v1/local-commits",
+        params(("after" = Option<i64>, Query, description = "Last LocalCommit sequence observed")),
+        responses((status = 200, description = "Durable LocalCommit stream", body = BlockRecordApplyResponse, content_type = "text/event-stream"))
+    )]
+    pub(super) fn local_commits() {}
 }
 
 #[derive(OpenApi)]
@@ -968,6 +1347,9 @@ mod api {
         api::automation_apply,
         api::administration_read,
         api::administration_apply,
+        api::block_record_read,
+        api::block_record_apply,
+        api::local_commits,
     ),
     components(schemas(
         RuntimeDescriptor,
@@ -1018,6 +1400,22 @@ mod api {
         StoreAdministrationReadResponse,
         StoreAdministrationApplyRequest,
         StoreAdministrationApplyResponse,
+        BlockRecordReadRequest,
+        BlockRecordReadResponse,
+        BlockRecordApplyRequest,
+        BlockRecordApplyResponse,
+        BlockRecordRead,
+        BlockRecordPlacementParent,
+        BlockRecordOperation,
+        BlockRecordReadSnapshot,
+        BlockRecordGraph,
+        BlockRecordValue,
+        BlockPlacementValue,
+        BlockRecordContentValue,
+        BlockRecordCursor,
+        BlockRecordEffect,
+        BlockRecordCommittedValue,
+        BlockRecordPayloadCompleteness,
     ))
 )]
 pub struct CoreProtocolApi;
@@ -1045,8 +1443,11 @@ mod tests {
             "/core/v1/events",
             "/core/v1/handshake",
             "/core/v1/health",
+            "/core/v1/local-commits",
             "/core/v1/modules/administration/apply",
             "/core/v1/modules/administration/read",
+            "/core/v1/modules/block-record/apply",
+            "/core/v1/modules/block-record/read",
             "/core/v1/modules/automation/apply",
             "/core/v1/modules/automation/read",
             "/core/v1/modules/database/apply",
