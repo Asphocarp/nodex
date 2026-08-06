@@ -1,4 +1,3 @@
-import type { components } from "@nodex/core-protocol";
 import { createHash } from "node:crypto";
 import type {
   DocumentMutationRequest,
@@ -12,23 +11,23 @@ import {
   type PrepareNodexAgentPageUpdateResult,
 } from "../../shared/nodex-agent-tools/v3-write-runtime";
 import type { AgentDocumentEditEffects } from "../../shared/nodex-agent-tools/document-edit-compiler";
-import type { NewBlockDraftInput } from "../../shared/nodex-agent-tools/write-schemas";
 import type { ToolFailure } from "../../shared/nodex-agent-tools/base-schemas";
 import { UpdatePageV3OutputSchema } from "../../shared/nodex-agent-tools/v3-write-schemas";
 import {
   AgentDocumentEditCompilerError,
-  applyExactNfmPatches,
 } from "../../shared/nodex-agent-tools/exact-nfm-patches";
 import type { NodexAgentMutationEnvelope } from "../agent-tools/dynamic-service-v3-port";
 import { CoreModuleResponseError } from "./core-client";
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
 import { toCoreAgentExecutionAuthorization } from "./desktop-nodex-agent-resource-authority";
-
-type CoreAgentMutation = components["schemas"]["AgentDocumentSemanticMutation"];
-type CoreAgentPreparation = components["schemas"]["AgentOperationPreparation"];
-type CoreCommittedDocument = components["schemas"][
-  "CommittedModuleValue_OwnedDocumentCommitValue_OwnedDocumentReceipt"
-];
+import type { BlockRecordApplyInput, BlockRecordCommittedValue } from "./types";
+import {
+  materializeCanonicalAgentPage,
+  planCanonicalAgentPageUpdate,
+  CanonicalAgentPreconditionError,
+} from "./canonical-agent-page-update";
+import { blockRecordSnapshotToWindow } from "../../shared/block-records";
+import { canonicalAgentPageEtag } from "./canonical-agent-etag";
 type ToolError = ToolFailure["error"];
 
 const MAX_PENDING_NATIVE_AGENT_UPDATES = 1_024;
@@ -37,9 +36,10 @@ interface PendingNativePageUpdate {
   readonly request: PrepareNodexAgentPageUpdateRequest;
   readonly operationId: string;
   readonly clientSessionId: string;
-  readonly mutation: CoreAgentMutation;
-  readonly token: string;
-  committed?: CoreCommittedDocument;
+  readonly apply: BlockRecordApplyInput;
+  readonly effects: AgentDocumentEditEffects;
+  readonly observedCommitSeq: number;
+  committed?: BlockRecordCommittedValue;
 }
 
 const envelope = <Result>(
@@ -138,92 +138,17 @@ const operationIdFor = (
     request.tool,
   ])).digest("hex")}`;
 
-const emptyEffects = (): AgentDocumentEditEffects => ({
-  createdBlockIds: [],
-  localBlockIds: {},
-  copiedBlockIds: {},
-  updatedBlockIds: [],
-  movedBlockIds: [],
-  deletedBlockIds: [],
-  deletedOwnerBlockIds: [],
-  titleChanged: false,
-});
-
-const effectsFromPreparation = (
-  pageId: string,
-  preparation: CoreAgentPreparation,
-  titleChanged: boolean,
-): AgentDocumentEditEffects => {
-  const moved = new Set(
-    preparation.footprint.ownership_transformations.map((item) => item.resource_id),
-  );
-  const deleted = new Set(preparation.footprint.deleted_roots);
-  return {
-    ...emptyEffects(),
-    createdBlockIds: [...preparation.footprint.created_roots],
-    updatedBlockIds: preparation.footprint.updated_roots.filter((id) =>
-      id !== pageId && !moved.has(id) && !deleted.has(id)
-    ),
-    movedBlockIds: [...moved],
-    deletedBlockIds: [...deleted],
-    deletedOwnerBlockIds: [...preparation.footprint.deleted_owner_roots],
-    titleChanged,
-  };
-};
-
-const semanticAnchor = (
-  anchor: {
-    readonly kind: "start";
-    readonly parentBlockId?: string;
-  } | {
-    readonly kind: "end";
-    readonly parentBlockId?: string;
-  } | {
-    readonly kind: "before";
-    readonly blockId: string;
-  } | {
-    readonly kind: "after";
-    readonly blockId: string;
-  },
-): components["schemas"]["DocumentSemanticAnchor"] => {
-  if (anchor.kind === "start" || anchor.kind === "end") {
-    return {
-      kind: anchor.kind,
-      parent_block_id: anchor.parentBlockId ?? null,
-    };
-  }
-  return {
-    kind: anchor.kind,
-    block_id: anchor.blockId,
-  };
-};
-
-const semanticBlockDraft = (
-  block: NewBlockDraftInput,
-): components["schemas"]["DocumentSemanticBlockDraft"] => ({
-  local_id: block.localId,
-  block_type: block.type,
-  props: block.props ?? {},
-  content: block.content === undefined
-    ? { kind: "absent" }
-    : { kind: "value", value: block.content },
-  children: (block.children ?? []).map(semanticBlockDraft),
-});
-
-const effectFromCommit = (
-  committed: CoreCommittedDocument,
-): NonNullable<CoreCommittedDocument["value"]["mutation_effect"]> | null =>
-  committed.value.mutation_effect ?? null;
-
 const toDocumentOperationResult = (
   pending: PendingNativePageUpdate,
-  committed: CoreCommittedDocument,
+  committed: BlockRecordCommittedValue,
 ): DocumentOperationResult => {
-  const effect = effectFromCommit(committed);
-  const committedAt = committed.value.committed_at;
-  if (!committedAt) {
-    throw new Error("Core Agent Page update omitted its commit timestamp");
-  }
+  const effects = pending.effects;
+  const touchedBlockIds = [...new Set([
+    ...effects.createdBlockIds,
+    ...effects.updatedBlockIds,
+    ...effects.movedBlockIds,
+    ...effects.deletedBlockIds,
+  ])];
   return {
     version: 1,
     mutationKind: pending.request.tool === "update_page"
@@ -233,104 +158,24 @@ const toDocumentOperationResult = (
       : "document_operation_batch",
     mutationId: pending.operationId,
     projectId: pending.request.projectId,
-    storeEpoch: committed.store_epoch,
-    documentId: committed.value.document_id,
-    generation: committed.value.generation,
-    baseHeadSeq: effect?.base_head_seq ?? committed.value.head_seq,
-    headSeq: committed.value.head_seq,
-    touchedBlockIds: effect?.touched_block_ids ?? [],
-    createdBlockIds: effect?.created_block_ids ?? [],
-    deletedBlockIds: effect?.deleted_block_ids ?? [],
-    updatedBlockIds: effect?.updated_block_ids ?? [],
-    movedBlockIds: effect?.moved_block_ids ?? [],
-    writeFenceBlockIds: effect?.write_fence_block_ids ?? [],
-    titleChanged: effect?.title_changed ?? false,
-    coordination: effect?.coordination ?? "merge_friendly",
-    changeLogSeq: committed.event_sequence,
-    committedAt,
-    duplicate: committed.receipt.duplicate,
+    storeEpoch: committed.cursor.store_epoch,
+    documentId: pending.request.input.pageId,
+    generation: 1,
+    baseHeadSeq: pending.observedCommitSeq,
+    headSeq: committed.cursor.commit_seq,
+    touchedBlockIds,
+    createdBlockIds: effects.createdBlockIds,
+    deletedBlockIds: effects.deletedBlockIds,
+    updatedBlockIds: effects.updatedBlockIds,
+    movedBlockIds: effects.movedBlockIds,
+    writeFenceBlockIds: effects.deletedBlockIds,
+    titleChanged: effects.titleChanged,
+    coordination: effects.deletedBlockIds.length > 0 ? "write_fence" : "merge_friendly",
+    changeLogSeq: committed.cursor.commit_seq,
+    committedAt: committed.committed_at,
+    duplicate: committed.duplicate,
   };
 };
-
-const mutationCommands = (
-  request: PrepareNodexAgentPageUpdateRequest,
-): CoreAgentMutation["commands"] | ToolError => {
-  if (request.tool === "advanced_update_page") {
-    return request.input.edits.map((edit): CoreAgentMutation["commands"][number] => {
-      if (edit.kind === "insert") {
-        return {
-          kind: "insert_block",
-          anchor: semanticAnchor(edit.at),
-          block: semanticBlockDraft(edit.block),
-        };
-      }
-      if (edit.kind === "update") {
-        return {
-          kind: "update_block",
-          block_id: edit.blockId,
-          expected_etag: edit.ifMatch,
-          patch: {
-            ...(edit.patch.type === undefined
-              ? {}
-              : { block_type: edit.patch.type }),
-            ...(edit.patch.props === undefined
-              ? {}
-              : { props: edit.patch.props }),
-            content: edit.patch.content === undefined
-              ? { kind: "absent" }
-              : { kind: "value", value: edit.patch.content },
-            unset_content: edit.patch.unsetContent === true,
-          },
-        };
-      }
-      if (edit.kind === "delete") {
-        return {
-          kind: "delete_block",
-          block_id: edit.blockId,
-          expected_etag: edit.ifMatch,
-        };
-      }
-      return {
-        kind: "move_block",
-        block_id: edit.blockId,
-        anchor: semanticAnchor(edit.at),
-      };
-    });
-  }
-  return [
-    ...(request.input.title
-      ? [{
-          kind: "set_title" as const,
-          inline_markdown: request.input.title.markdown,
-          expected_etag: request.input.title.ifMatch,
-        }]
-      : []),
-    ...(request.input.body?.kind === "patch"
-      ? request.input.body.patches.map((patch) => ({
-          kind: "patch_body" as const,
-          old_fragment: patch.oldMarkdown,
-          new_fragment: patch.newMarkdown,
-          expected_matches: patch.expectedMatches ?? null,
-        }))
-      : request.input.body?.kind === "replace"
-        ? [{
-            kind: "replace_body" as const,
-            nested_markdown: request.input.body.markdown,
-            expected_etag: request.input.body.ifMatch,
-          }]
-        : request.input.body?.kind === "insert"
-          ? [{
-              kind: "insert_body" as const,
-              anchor: semanticAnchor(request.input.body.at),
-              nested_markdown: request.input.body.markdown,
-            }]
-        : []),
-  ];
-};
-
-const isToolError = (
-  value: CoreAgentMutation["commands"] | ToolError,
-): value is ToolError => !Array.isArray(value);
 
 export class NativeNodexAgentPageUpdateRuntime {
   private readonly pending = new Map<string, PendingNativePageUpdate>();
@@ -350,44 +195,9 @@ export class NativeNodexAgentPageUpdateRuntime {
             message: "Native Agent Page updates require exact Turn authority",
             retryable: false,
             recovery: "start_new_task",
-          },
-        }, operationId);
+        },
+      }, operationId);
       }
-      const commands = mutationCommands(request);
-      if (isToolError(commands)) {
-        return envelope({ ok: false, error: commands }, operationId);
-      }
-      const contentSnapshot = await this.runtime.rootClient.libraryRead({
-        kind: "page_content",
-        page_id: request.input.pageId,
-      });
-      if (contentSnapshot.value.kind !== "page_content") {
-        throw new Error("Core returned the wrong Agent Page content variant");
-      }
-      const content = contentSnapshot.value.value;
-      const targetMarkdown = request.tool === "update_page"
-        && request.input.body?.kind === "patch"
-        ? applyExactNfmPatches(
-            content.body_nfm,
-            request.input.body.patches.map((patch) => ({
-              oldNfm: patch.oldMarkdown,
-              newNfm: patch.newMarkdown,
-              ...(patch.expectedMatches !== undefined
-                ? { expectedMatches: patch.expectedMatches }
-                : {}),
-            })),
-          )
-        : request.tool === "update_page" && request.input.body?.kind === "replace"
-          ? request.input.body.markdown
-          : content.body_nfm;
-      const mutation: CoreAgentMutation = {
-        document_id: content.document_id,
-        generation: content.document_generation,
-        expected_head_seq: content.document_head_seq,
-        allow_deleting_owned_blocks:
-          request.input.safety?.allowDeletingOwnedBlocks === true,
-        commands,
-      };
       const authorization = toCoreAgentExecutionAuthorization(
         this.runtime.identity.profileId,
         request.authority,
@@ -396,38 +206,24 @@ export class NativeNodexAgentPageUpdateRuntime {
       );
       const clientSessionId = `nodex-agent:${request.threadId}`.slice(0, 512);
       const client = this.runtime.clientForProject(request.projectId);
-      const snapshot = await client.documentRead(clientSessionId, {
-        kind: "prepare_agent_semantic_mutation",
-        operation_id: operationId,
-        store_epoch: request.authority.storeEpoch,
+      const plan = await planCanonicalAgentPageUpdate({
+        client,
+        libraryId: request.authority.libraryId,
+        storeEpoch: request.authority.storeEpoch,
+        operationId,
+        actorId: `profile:${this.runtime.identity.profileId}`,
+        sessionId: clientSessionId,
+        pageId: request.input.pageId,
+        input: request.input,
         authorization,
-        mutation,
       });
-      if (snapshot.value.kind !== "agent_semantic_mutation_preparation") {
-        throw new Error("Core returned the wrong Agent Page update preparation variant");
-      }
-      if (snapshot.value.preparation.state === "committed_replay") {
-        if (!snapshot.value.committed) {
-          throw new Error("Core Agent replay omitted its committed result");
-        }
-        const output = await this.output(request, snapshot.value.committed);
-        return envelope({ ok: true, value: { kind: "completed", output } }, operationId);
-      }
-      const token = snapshot.value.preparation.token;
-      if (!token) throw new Error("Core Agent preparation omitted its execution token");
-      const effects = effectsFromPreparation(
-        request.input.pageId,
-        snapshot.value.preparation,
-        request.tool === "update_page" && request.input.title !== undefined,
-      );
-      const canonicalTargetMarkdown =
-        snapshot.value.preparation.preview_markdown ?? targetMarkdown;
       const pending: PendingNativePageUpdate = {
         request,
         operationId,
         clientSessionId,
-        mutation,
-        token,
+        apply: plan.apply,
+        effects: plan.effects,
+        observedCommitSeq: plan.current.observedLocalCommit.commitSeq,
       };
       this.retain(pending);
       const fakeMutation: DocumentMutationRequest = {
@@ -441,9 +237,9 @@ export class NativeNodexAgentPageUpdateRuntime {
           threadId: request.threadId,
           callId: request.callId,
         },
-        documentId: content.document_id,
-        generation: content.document_generation,
-        expectedHeadSeq: content.document_head_seq,
+        documentId: request.input.pageId,
+        generation: 1,
+        expectedHeadSeq: plan.current.observedLocalCommit.commitSeq,
         operations: [],
       };
       return envelope({
@@ -451,8 +247,8 @@ export class NativeNodexAgentPageUpdateRuntime {
         value: {
           kind: "prepared",
           mutation: fakeMutation,
-          effects,
-          targetMarkdown: canonicalTargetMarkdown,
+          effects: plan.effects,
+          targetMarkdown: plan.target.nfm,
           ...(request.resourceAccess
             ? { resourceAccess: request.resourceAccess }
             : {}),
@@ -469,6 +265,17 @@ export class NativeNodexAgentPageUpdateRuntime {
               ? "fetch_again" as const
               : "none" as const,
           }
+        : error instanceof CanonicalAgentPreconditionError
+          ? {
+              code: "conflict" as const,
+              message: error.message,
+              retryable: false,
+              recovery: "fetch_again" as const,
+              details: {
+                resourceId: error.resourceId,
+                domainCode: "canonical_etag_mismatch",
+              },
+            }
         : mapNativeNodexAgentCoreError(error);
       return envelope({ ok: false, error: mapped }, operationId);
     }
@@ -484,9 +291,9 @@ export class NativeNodexAgentPageUpdateRuntime {
       && request.projectId === pending.request.projectId
       && request.storeEpoch === authority.storeEpoch
       && request.clientSessionId === pending.clientSessionId
-      && request.documentId === pending.mutation.document_id
-      && request.generation === pending.mutation.generation
-      && request.expectedHeadSeq === pending.mutation.expected_head_seq
+      && request.documentId === pending.request.input.pageId
+      && request.generation === 1
+      && request.expectedHeadSeq === pending.observedCommitSeq
       && "operations" in request
       && request.operations.length === 0
       && request.actor.kind === "nodex_agent"
@@ -505,23 +312,7 @@ export class NativeNodexAgentPageUpdateRuntime {
     }
     try {
       const committed = await this.runtime.clientForProject(pending.request.projectId)
-        .documentApply({
-          operationId: pending.operationId,
-          clientSessionId: pending.clientSessionId,
-          intent: {
-            kind: "execute_prepared_agent_semantic_mutation",
-            authorization: {
-              authorization: toCoreAgentExecutionAuthorization(
-                this.runtime.identity.profileId,
-                authority,
-                pending.request.callId,
-                pending.request.resourceAccess,
-              ),
-              token: pending.token,
-            },
-            mutation: pending.mutation,
-          },
-        });
+        .blockRecordApply(pending.apply);
       pending.committed = committed;
       return { ok: true, value: toDocumentOperationResult(pending, committed) };
     } catch (error) {
@@ -555,10 +346,10 @@ export class NativeNodexAgentPageUpdateRuntime {
       && request.pageId === pending.request.input.pageId
       && request.result.mutationId === operationId
       && request.result.projectId === pending.request.projectId
-      && request.result.storeEpoch === committed.store_epoch
-      && request.result.documentId === committed.value.document_id
-      && request.result.generation === committed.value.generation
-      && request.result.headSeq === committed.value.head_seq;
+      && request.result.storeEpoch === committed.cursor.store_epoch
+      && request.result.documentId === pending.request.input.pageId
+      && request.result.generation === 1
+      && request.result.headSeq === committed.cursor.commit_seq;
     if (!matchesCommit) {
       return envelope({
         ok: false,
@@ -571,7 +362,7 @@ export class NativeNodexAgentPageUpdateRuntime {
       }, operationId);
     }
     try {
-      const output = await this.output(pending.request, committed);
+      const output = await this.output(pending.request);
       this.pending.delete(operationId);
       return envelope({ ok: true, output }, operationId);
     } catch (error) {
@@ -594,32 +385,32 @@ export class NativeNodexAgentPageUpdateRuntime {
 
   private async output(
     request: PrepareNodexAgentPageUpdateRequest,
-    committed: CoreCommittedDocument,
   ) {
-    const effect = effectFromCommit(committed);
     const wantsMarkdown = request.input.return?.includes("markdown") ?? false;
     const wantsBlockIds = request.input.return?.includes("block_ids") ?? false;
     const wantsEtags = request.input.return?.includes("etags") ?? false;
-    const semanticEtags = committed.value.semantic_etags;
-    const semanticLocalBlockIds = committed.value.semantic_local_block_ids ?? {};
-    if (wantsEtags && !semanticEtags) {
-      throw new Error("Core Agent Page update omitted its semantic ETags");
-    }
-    const contentSnapshot = wantsMarkdown
-      ? await this.runtime.rootClient.libraryRead({
-          kind: "page_content",
-          page_id: request.input.pageId,
-        })
+    const pending = this.pending.get(operationIdFor(request));
+    if (!pending) throw new Error("Canonical Agent Page update pending state disappeared");
+    const needsRead = wantsMarkdown || wantsEtags;
+    const read = {
+      kind: "window" as const,
+      parent: { kind: "block" as const, id: request.input.pageId },
+      include_content: needsRead,
+      include_descendants: needsRead,
+    };
+    const window = needsRead
+      ? blockRecordSnapshotToWindow(
+          await this.runtime.clientForProject(request.projectId).blockRecordRead(read),
+          read,
+        )
       : null;
-    const content = contentSnapshot?.value.kind === "page_content"
-      && contentSnapshot.value.value.document_generation === committed.value.generation
-      && contentSnapshot.value.value.document_head_seq === committed.value.head_seq
-      ? contentSnapshot.value.value
+    const materialization = window
+      ? materializeCanonicalAgentPage(window, request.input.pageId)
       : null;
-    const created = effect?.created_block_ids ?? [];
-    const updated = effect?.updated_block_ids ?? [];
-    const moved = effect?.moved_block_ids ?? [];
-    const deleted = effect?.deleted_block_ids ?? [];
+    const created = pending.effects.createdBlockIds;
+    const updated = pending.effects.updatedBlockIds;
+    const moved = pending.effects.movedBlockIds;
+    const deleted = pending.effects.deletedBlockIds;
     return UpdatePageV3OutputSchema.parse({
       data: {
         pageId: request.input.pageId,
@@ -632,7 +423,7 @@ export class NativeNodexAgentPageUpdateRuntime {
             ? {
                 blockIds: {
                   created,
-                  local: semanticLocalBlockIds,
+                  local: pending.effects.localBlockIds,
                   copied: {},
                   updated,
                   moved,
@@ -641,21 +432,29 @@ export class NativeNodexAgentPageUpdateRuntime {
               }
             : {}),
         },
-        ...(wantsEtags && semanticEtags
+        ...(wantsEtags && materialization
           ? {
               etags: {
-                title: semanticEtags.title,
-                body: semanticEtags.body,
+                title: canonicalAgentPageEtag(
+                  "title",
+                  request.input.pageId,
+                  materialization.richTitle,
+                ),
+                body: canonicalAgentPageEtag(
+                  "body",
+                  request.input.pageId,
+                  materialization.nfm,
+                ),
               },
             }
           : {}),
-        ...(content
+        ...(materialization && wantsMarkdown
           ? {
               body: {
                 format: "markdown",
-                markdown: content.body_nfm,
+                markdown: materialization.nfm,
                 contentHash: createHash("sha256")
-                  .update(content.body_nfm)
+                  .update(materialization.nfm)
                   .digest("hex"),
               },
             }
