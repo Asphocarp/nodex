@@ -5,7 +5,10 @@ import type {
   DatabasePropertyValueMutationV2,
   DatabaseModuleErrorCodeV2,
 } from "../../shared/database-module-v2";
-import type { DatabaseJsonValue } from "../../shared/database-kernel";
+import type {
+  DatabaseJsonValue,
+  DatabasePropertyValueType,
+} from "../../shared/database-kernel";
 import {
   blockRecordSnapshotToWindow,
   buildBatchBlockRecordApplyInput,
@@ -40,6 +43,11 @@ export interface CanonicalDatabaseValuesApplyInput {
   readonly actorId: string;
   readonly sessionId: string;
   readonly operations: readonly EditPropertyValuesOperation[];
+  /** Data Source schema observed in the same authority boundary as the apply. */
+  readonly propertyDefinitions: ReadonlyMap<
+    string,
+    ReadonlyMap<string, DatabasePropertyValueType>
+  >;
 }
 
 export interface CanonicalDatabaseValuesApplyResult {
@@ -169,7 +177,35 @@ const patchSet = (
 const applyEdit = (
   values: Map<string, ValueEntry>,
   edit: DatabasePropertyValueMutationV2,
+  propertyDefinitions?: ReadonlyMap<string, DatabasePropertyValueType>,
 ): void => {
+  const definition = propertyDefinitions?.get(edit.propertyId);
+  if (propertyDefinitions && !definition) {
+    throw new CanonicalDatabaseValueMutationError(
+      "resource_not_found",
+      `Data Source Property ${edit.propertyId} is not active`,
+    );
+  }
+  if (definition && edit.edit.kind === "replace" && edit.edit.value.kind !== "empty") {
+    const expectedKind = definition;
+    if (edit.edit.value.kind !== expectedKind) {
+      throw new CanonicalDatabaseValueMutationError(
+        "invalid_request",
+        `Data Source Property ${edit.propertyId} expects ${expectedKind} values`,
+      );
+    }
+  }
+  if (definition && edit.edit.kind === "patch_set") {
+    const expectedKind = definition === "multi_select" || definition === "relation"
+      ? definition
+      : null;
+    if (expectedKind === null || edit.edit.delta.kind !== expectedKind) {
+      throw new CanonicalDatabaseValueMutationError(
+        "invalid_request",
+        `Data Source Property ${edit.propertyId} does not support this set patch`,
+      );
+    }
+  }
   const current = values.get(edit.propertyId);
   const currentRevision = current?.revision ?? 0;
   let nextValue: DatabaseJsonValue;
@@ -303,7 +339,11 @@ export const applyCanonicalDatabaseValues = async (
         };
         pageStates.set(stateKey, state);
       }
-      applyEdit(state.values, edit);
+      applyEdit(
+        state.values,
+        edit,
+        input.propertyDefinitions.get(edit.dataSourceId),
+      );
     }
   }
 

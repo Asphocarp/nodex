@@ -11,6 +11,7 @@ import {
   parseDataSourceOptionId,
   parseDataSourcePropertyId,
 } from "../../shared/database-identities";
+import type { DatabasePropertyValueType } from "../../shared/database-kernel";
 import type { CoreDatabaseRowSummary } from "./types";
 import type { BlockRecordWindow } from "../../shared/block-records";
 import { overlayCanonicalDatabaseRows } from "./database-page-projection";
@@ -26,6 +27,12 @@ const STATUS_ID = parseDataSourcePropertyId("p_Abcd1234");
 const TAGS_ID = parseDataSourcePropertyId("p_Efgh5678");
 const ADD_TAG_ID = parseDataSourceOptionId({ propertyId: TAGS_ID, value: "o_Abcd1234" });
 const REMOVE_TAG_ID = parseDataSourceOptionId({ propertyId: TAGS_ID, value: "o_Efgh5678" });
+const propertyDefinitions = new Map<string, ReadonlyMap<string, DatabasePropertyValueType>>([
+  [SOURCE_ID, new Map<string, DatabasePropertyValueType>([
+    [STATUS_ID, "text"],
+    [TAGS_ID, "multi_select"],
+  ])],
+]);
 
 const rowWindow = (): BlockRecordReadSnapshot => ({
   library_id: identity.libraryId,
@@ -112,6 +119,7 @@ describe("canonical Data Source value mutations", () => {
       operationId: "operation:values",
       actorId: "database:library:values:renderer",
       sessionId: "session:values",
+      propertyDefinitions,
       operations: [{
         kind: "edit_property_values",
         edits: [
@@ -183,6 +191,7 @@ describe("canonical Data Source value mutations", () => {
       operationId: "operation:stale",
       actorId: "database:library:values:renderer",
       sessionId: "session:values",
+      propertyDefinitions,
       operations: [{
         kind: "edit_property_values",
         edits: [{
@@ -203,9 +212,72 @@ describe("canonical Data Source value mutations", () => {
     expect(client.blockRecordApplies).toHaveLength(0);
   });
 
+  test("rejects a value whose input kind contradicts the Data Source schema", async () => {
+    const client = new FakeCoreClient();
+    client.enqueueBlockRecordRead(rowWindow());
+
+    await expect(applyCanonicalDatabaseValues({
+      client,
+      libraryId: identity.libraryId,
+      storeEpoch: identity.storeEpoch,
+      operationId: "operation:wrong-kind",
+      actorId: "database:library:values:renderer",
+      sessionId: "session:values",
+      propertyDefinitions,
+      operations: [{
+        kind: "edit_property_values",
+        edits: [{
+          pageId: "page:values",
+          dataSourceId: SOURCE_ID,
+          propertyId: STATUS_ID,
+          edit: {
+            kind: "replace",
+            expectedValueRevision: 2,
+            value: { kind: "number", value: 42 },
+          },
+        }],
+      }],
+    })).rejects.toMatchObject({
+      code: "invalid_request",
+      retryable: false,
+    });
+    expect(client.blockRecordApplies).toHaveLength(0);
+  });
+
   test("routes a pure Database value apply through BlockRecord authority", async () => {
     const client = new FakeCoreClient();
     client.enqueueDatabaseRead(dataSourceMetadata());
+    client.enqueueDatabaseRead({
+      contract_version: 4,
+      store_epoch: identity.storeEpoch,
+      event_head: 11,
+      value: {
+        kind: "property_window",
+        properties: {
+          items: [{
+            property_id: STATUS_ID,
+            data_source_id: SOURCE_ID,
+            name: "Status",
+            schema: { kind: "text" },
+            capabilities: {
+              replace: true,
+              patch_set_member: null,
+              filter_operators: ["equals", "not_equals", "contains", "not_contains", "is_empty", "is_not_empty"],
+              sortable: true,
+              groupable: true,
+            },
+            option_count: 0,
+            rank_key: "a",
+            lifecycle: "active",
+            revision: 1,
+            created_at: "2026-08-06T00:00:00.000Z",
+            updated_at: "2026-08-06T00:00:00.000Z",
+          }],
+          next_cursor: null,
+          authority: { projection_revision: 11 },
+        },
+      },
+    });
     client.enqueueBlockRecordRead(rowWindow());
     client.enqueueBlockRecordApply({
       ...committed,

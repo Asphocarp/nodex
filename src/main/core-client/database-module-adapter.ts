@@ -21,6 +21,7 @@ import {
   parseLibraryDatabaseApplyResultV2,
   parseLibraryDatabaseModuleReadResultV2,
 } from "../../shared/database-module-v2-transport";
+import type { DatabasePropertyValueType } from "../../shared/database-kernel";
 import { CoreModuleResponseError } from "./core-client";
 import {
   applyCanonicalDatabaseValues,
@@ -243,12 +244,20 @@ const actorIdentity = (
   return `database:${libraryId}:${clientId}`;
 };
 
-const resolveDataSourceDatabaseIds = async (
+interface CanonicalDataSourceAuthorities {
+  readonly databaseIds: readonly string[];
+  readonly propertyDefinitions: ReadonlyMap<
+    string,
+    ReadonlyMap<string, DatabasePropertyValueType>
+  >;
+}
+
+const resolveDataSourceAuthorities = async (
   client: CoreClientPort,
   storeEpoch: string,
   dataSourceIds: readonly string[],
-): Promise<readonly string[]> => {
-  const databaseIds = await Promise.all(dataSourceIds.map(async (dataSourceId) => {
+): Promise<CanonicalDataSourceAuthorities> => {
+  const authorities = await Promise.all(dataSourceIds.map(async (dataSourceId) => {
     const snapshot = await readDatabaseSnapshotAtLeast(
       client,
       {
@@ -264,9 +273,62 @@ const resolveDataSourceDatabaseIds = async (
     }
     const descriptor = requireRecord(snapshot.value.value, "Core Data Source descriptor");
     const source = requireRecord(descriptor.dataSource, "Core Data Source record");
-    return requireString(source, "homeDatabaseId", "Core Data Source record");
+    const databaseId = requireString(source, "homeDatabaseId", "Core Data Source record");
+    const properties = new Map<string, DatabasePropertyValueType>();
+    let after: string | null = null;
+    let propertyCount = 0;
+    while (true) {
+      const propertySnapshot = await readDatabaseSnapshotAtLeast(
+        client,
+        {
+          target: { kind: "data_source", data_source_id: dataSourceId },
+          mode: "property_window",
+          filter: null,
+          sort: null,
+          page_ids: null,
+          window: { after, first: 200 },
+        },
+        storeEpoch,
+      );
+      if (propertySnapshot.value.kind !== "property_window") {
+        throw new Error("Core returned a non-Property window while authorizing value edits");
+      }
+      for (const candidate of propertySnapshot.value.properties.items) {
+        const property = requireRecord(candidate, "Core Data Source property");
+        const propertyId = requireString(property, "property_id", "Core Data Source property");
+        const schema = requireRecord(property.schema, "Core Data Source property schema");
+        const valueType = schema.kind;
+        if (
+          valueType !== "text"
+          && valueType !== "number"
+          && valueType !== "checkbox"
+          && valueType !== "select"
+          && valueType !== "multi_select"
+          && valueType !== "date"
+          && valueType !== "datetime"
+          && valueType !== "person"
+          && valueType !== "relation"
+        ) {
+          throw new Error(`Core Data Source property ${propertyId} has an unsupported schema`);
+        }
+        properties.set(propertyId, valueType);
+        propertyCount += 1;
+        if (propertyCount > 200) {
+          throw new Error("Core Data Source property collection exceeded its bound");
+        }
+      }
+      after = propertySnapshot.value.properties.next_cursor ?? null;
+      if (after === null) break;
+    }
+    return { dataSourceId, databaseId, properties };
   }));
-  return [...new Set(databaseIds)].sort((left, right) => left.localeCompare(right));
+  return {
+    databaseIds: [...new Set(authorities.map((authority) => authority.databaseId))]
+      .sort((left, right) => left.localeCompare(right)),
+    propertyDefinitions: new Map(
+      authorities.map((authority) => [authority.dataSourceId, authority.properties]),
+    ),
+  };
 };
 
 const committedRevisions = (
@@ -555,6 +617,10 @@ const applyCanonicalValueOperations = async (input: {
   readonly operationId: string;
   readonly actorId: string;
   readonly sessionId: string;
+  readonly propertyDefinitions: ReadonlyMap<
+    string,
+    ReadonlyMap<string, DatabasePropertyValueType>
+  >;
   readonly operations: readonly Extract<DatabaseApplyOperationV2, { readonly kind: "edit_property_values" }>[];
 }): Promise<CanonicalDatabaseValuesApplyResult> => applyCanonicalDatabaseValues(input);
 
@@ -884,7 +950,7 @@ export const createCoreDatabaseModuleAdapter = (
       if (valueOperations) {
         try {
           const dataSourceIds = canonicalValueDatabaseIds(valueOperations);
-          const databaseIds = await resolveDataSourceDatabaseIds(
+          const authorities = await resolveDataSourceAuthorities(
             input.client,
             input.storeEpoch,
             dataSourceIds,
@@ -896,6 +962,7 @@ export const createCoreDatabaseModuleAdapter = (
             operationId: request.operationId,
             actorId: actorIdentity(request.actor, input.libraryId),
             sessionId: `project:${request.projectId}`,
+            propertyDefinitions: authorities.propertyDefinitions,
             operations: valueOperations,
           });
           return parseDatabaseApplyResultV2({
@@ -908,7 +975,7 @@ export const createCoreDatabaseModuleAdapter = (
               ...canonicalValueReceipt(
                 result.committed,
                 request.operations.map((operation) => operation.kind),
-                databaseIds,
+                authorities.databaseIds,
                 result.dataSourceIds,
                 result.pageIds,
               ),
@@ -1003,7 +1070,7 @@ export const createCoreLibraryDatabaseModuleAdapter = (
     if (valueOperations) {
       try {
         const dataSourceIds = canonicalValueDatabaseIds(valueOperations);
-        const databaseIds = await resolveDataSourceDatabaseIds(
+        const authorities = await resolveDataSourceAuthorities(
           input.client,
           input.storeEpoch,
           dataSourceIds,
@@ -1015,6 +1082,7 @@ export const createCoreLibraryDatabaseModuleAdapter = (
           operationId: request.operationId,
           actorId: actorIdentity(undefined, input.libraryId),
           sessionId: `library:${input.libraryId}`,
+          propertyDefinitions: authorities.propertyDefinitions,
           operations: valueOperations,
         });
         return parseLibraryDatabaseApplyResultV2({
@@ -1027,7 +1095,7 @@ export const createCoreLibraryDatabaseModuleAdapter = (
             ...canonicalValueReceipt(
               result.committed,
               request.operations.map((operation) => operation.kind),
-              databaseIds,
+              authorities.databaseIds,
               result.dataSourceIds,
               result.pageIds,
             ),
