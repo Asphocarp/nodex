@@ -2559,6 +2559,50 @@
           },
           {
             "type": "object",
+            "description": "Places existing Page Blocks in a Data Source without changing their\nBlock kind. The owning placement and optional View position are one\natomic structural mutation.",
+            "required": [
+              "data_source_id",
+              "entries",
+              "kind"
+            ],
+            "properties": {
+              "data_source_id": {
+                "type": "string"
+              },
+              "entries": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/BlockRecordPagePlacementEntry"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "place_many_in_data_source"
+                ]
+              },
+              "placement_rebalances": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/BlockRecordPlacementRebalance"
+                }
+              },
+              "view_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "view_rebalances": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/BlockRecordViewPositionRebalance"
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
             "required": [
               "block_id",
               "slot",
@@ -2620,6 +2664,46 @@
             }
           }
         ]
+      },
+      "BlockRecordPagePlacementEntry": {
+        "type": "object",
+        "required": [
+          "block_id",
+          "rank_key",
+          "expected_block_revision",
+          "expected_placement_revision"
+        ],
+        "properties": {
+          "block_id": {
+            "type": "string"
+          },
+          "expected_block_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "expected_placement_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "rank_key": {
+            "type": "string"
+          },
+          "view_group_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "view_rank_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
       },
       "BlockRecordPayloadCompleteness": {
         "type": "string",

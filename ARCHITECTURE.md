@@ -10,7 +10,9 @@ apply response is admitted by Main before the durable LocalCommit tail replays
 the same identity. Canvas scene authority and explicitly non-terminal
 Document adapters remain separate domain implementations until their own
 writers are cut over; they do not own Page/Board placement or a second public
-commit cursor.
+commit cursor. Existing Page roots entering a Data Source use the
+placement-only \`PlaceManyInDataSource\` operation; ordinary Blocks entering a
+Data Source use \`PromoteManyToPage\`.
 
 ## Overview
 Nodex is a local-first, block-based agent orchestrator for coordinating coding-agent work. One detached native Rust Core is the exclusive SQLite and collaborative-document authority for each Profile. Electron is the Desktop Host for windows, typed renderer IPC, operating-system integration, and the pinned Codex-compatible app-server runtime; supported macOS Desktop Tool threads retain that app-server while launching their shared REPL through the vendor-signed Node and Codex ancestry required by native Browser and Computer Use authentication. The native CLI and desktop renderer reach product state through Core-backed semantic adapters.

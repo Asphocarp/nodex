@@ -870,6 +870,19 @@ pub enum BlockRecordOperation {
         #[serde(default)]
         placement_rebalances: Vec<BlockRecordPlacementRebalance>,
     },
+    /// Places existing Page Blocks in a Data Source without changing their
+    /// Block kind. The owning placement and optional View position are one
+    /// atomic structural mutation.
+    PlaceManyInDataSource {
+        data_source_id: String,
+        #[serde(default)]
+        view_id: Option<String>,
+        entries: Vec<BlockRecordPagePlacementEntry>,
+        #[serde(default)]
+        view_rebalances: Vec<BlockRecordViewPositionRebalance>,
+        #[serde(default)]
+        placement_rebalances: Vec<BlockRecordPlacementRebalance>,
+    },
     SetMaterializedContent {
         block_id: String,
         slot: String,
@@ -889,6 +902,19 @@ pub enum BlockRecordOperation {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct BlockRecordPromotionEntry {
+    pub block_id: String,
+    #[serde(default)]
+    pub view_group_key: Option<String>,
+    #[serde(default)]
+    pub view_rank_key: Option<String>,
+    pub rank_key: String,
+    pub expected_block_revision: u64,
+    pub expected_placement_revision: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BlockRecordPagePlacementEntry {
     pub block_id: String,
     #[serde(default)]
     pub view_group_key: Option<String>,

@@ -790,6 +790,14 @@ export interface components {
             readonly view_id?: string | null;
             readonly view_rebalances?: readonly components["schemas"]["BlockRecordViewPositionRebalance"][];
         } | {
+            readonly data_source_id: string;
+            readonly entries: readonly components["schemas"]["BlockRecordPagePlacementEntry"][];
+            /** @enum {string} */
+            readonly kind: "place_many_in_data_source";
+            readonly placement_rebalances?: readonly components["schemas"]["BlockRecordPlacementRebalance"][];
+            readonly view_id?: string | null;
+            readonly view_rebalances?: readonly components["schemas"]["BlockRecordViewPositionRebalance"][];
+        } | {
             readonly block_id: string;
             /** Format: int64 */
             readonly expected_revision: number;
@@ -804,6 +812,16 @@ export interface components {
             readonly kind: "reconcile_page_tree";
             readonly nodes: readonly components["schemas"]["BlockRecordTreeNode"][];
             readonly page_id: string;
+        };
+        readonly BlockRecordPagePlacementEntry: {
+            readonly block_id: string;
+            /** Format: int64 */
+            readonly expected_block_revision: number;
+            /** Format: int64 */
+            readonly expected_placement_revision: number;
+            readonly rank_key: string;
+            readonly view_group_key?: string | null;
+            readonly view_rank_key?: string | null;
         };
         /** @enum {string} */
         readonly BlockRecordPayloadCompleteness: "rich";

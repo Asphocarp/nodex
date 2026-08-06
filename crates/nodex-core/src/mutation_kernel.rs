@@ -108,6 +108,13 @@ pub enum BlockMutationOperation {
         view_rebalances: Vec<BlockViewPositionRebalance>,
         placement_rebalances: Vec<BlockPlacementRebalance>,
     },
+    PlaceManyInDataSource {
+        data_source_id: String,
+        view_id: Option<String>,
+        entries: Vec<BlockPagePlacementEntry>,
+        view_rebalances: Vec<BlockViewPositionRebalance>,
+        placement_rebalances: Vec<BlockPlacementRebalance>,
+    },
     SetMaterializedContent {
         block_id: String,
         slot: ContentSlot,
@@ -123,6 +130,16 @@ pub enum BlockMutationOperation {
 
 #[derive(Clone, Debug)]
 pub struct BlockPromotionEntry {
+    pub block_id: String,
+    pub view_group_key: Option<String>,
+    pub view_rank_key: Option<String>,
+    pub rank_key: String,
+    pub expected_block_revision: u64,
+    pub expected_placement_revision: u64,
+}
+
+#[derive(Clone, Debug)]
+pub struct BlockPagePlacementEntry {
     pub block_id: String,
     pub view_group_key: Option<String>,
     pub view_rank_key: Option<String>,
@@ -371,6 +388,16 @@ fn persist_delta(
                 StoreError::new(
                     StoreErrorCode::InvalidInput,
                     "Batch promotion must contain at least one entry",
+                    false,
+                )
+            })?,
+        BlockMutationOperation::PlaceManyInDataSource { entries, .. } => entries
+            .first()
+            .map(|entry| entry.block_id.as_str())
+            .ok_or_else(|| {
+                StoreError::new(
+                    StoreErrorCode::InvalidInput,
+                    "Page placement batch must contain at least one entry",
                     false,
                 )
             })?,
@@ -713,6 +740,25 @@ fn persist_delta(
             view_rebalances,
             placement_rebalances,
             committed_at,
+        );
+    }
+    if let BlockMutationOperation::PlaceManyInDataSource {
+        data_source_id,
+        view_id,
+        entries,
+        view_rebalances,
+        placement_rebalances,
+    } = operation
+    {
+        return persist_batch_page_placement(
+            transaction,
+            previous,
+            next,
+            data_source_id,
+            view_id.as_deref(),
+            entries,
+            view_rebalances,
+            placement_rebalances,
         );
     }
     if let BlockMutationOperation::MoveMany {
@@ -1225,6 +1271,226 @@ fn persist_batch_promotion(
         )?;
     }
     Ok(persisted_effects)
+}
+
+fn persist_batch_page_placement(
+    transaction: &Transaction<'_>,
+    previous: &RecordGraph,
+    next: &RecordGraph,
+    data_source_id: &str,
+    view_id: Option<&str>,
+    entries: &[BlockPagePlacementEntry],
+    view_rebalances: &[BlockViewPositionRebalance],
+    placement_rebalances: &[BlockPlacementRebalance],
+) -> Result<Vec<LocalCommitEffect>, StoreError> {
+    if data_source_id.trim().is_empty() || entries.is_empty() {
+        return Err(StoreError::new(
+            StoreErrorCode::InvalidInput,
+            "Page placement identity or entries are invalid",
+            false,
+        ));
+    }
+    crate::infrastructure::block_record_store::ensure_data_source(
+        transaction,
+        data_source_id,
+        next.library_id(),
+    )?;
+
+    let mut block_ids = BTreeSet::new();
+    let mut placement_changes = Vec::with_capacity(entries.len() + placement_rebalances.len());
+    for entry in entries {
+        if !block_ids.insert(entry.block_id.as_str()) {
+            return Err(StoreError::new(
+                StoreErrorCode::InvalidInput,
+                "Page placement contains a duplicate Block id",
+                false,
+            ));
+        }
+        let previous_record = previous.block(&entry.block_id).ok_or_else(|| {
+            StoreError::new(
+                StoreErrorCode::StoreCorrupt,
+                "Page placement source record is missing",
+                false,
+            )
+        })?;
+        if !matches!(previous_record.kind, BlockKind::Page) {
+            return Err(StoreError::new(
+                StoreErrorCode::InvalidInput,
+                "Page placement requires Page BlockRecords",
+                false,
+            ));
+        }
+        let previous_placement = previous.placement(&entry.block_id).ok_or_else(|| {
+            StoreError::new(
+                StoreErrorCode::StoreCorrupt,
+                "Page placement source placement is missing",
+                false,
+            )
+        })?;
+        let next_placement = next.placement(&entry.block_id).ok_or_else(|| {
+            StoreError::new(
+                StoreErrorCode::StoreCorrupt,
+                "Page placement target placement is missing",
+                false,
+            )
+        })?;
+        placement_changes.push((previous_placement.clone(), next_placement.clone()));
+    }
+    for rebalance in placement_rebalances {
+        if !block_ids.insert(rebalance.block_id.as_str()) {
+            return Err(StoreError::new(
+                StoreErrorCode::InvalidInput,
+                "Page placement rebalance repeats a Block id",
+                false,
+            ));
+        }
+        let previous_placement = previous.placement(&rebalance.block_id).ok_or_else(|| {
+            StoreError::new(
+                StoreErrorCode::StoreCorrupt,
+                "Page placement rebalance source is missing",
+                false,
+            )
+        })?;
+        let next_placement = next.placement(&rebalance.block_id).ok_or_else(|| {
+            StoreError::new(
+                StoreErrorCode::StoreCorrupt,
+                "Page placement rebalance target is missing",
+                false,
+            )
+        })?;
+        placement_changes.push((previous_placement.clone(), next_placement.clone()));
+    }
+    update_placements_atomically(transaction, &placement_changes)?;
+
+    let Some(view_id) = view_id else {
+        if entries
+            .iter()
+            .any(|entry| entry.view_group_key.is_some() || entry.view_rank_key.is_some())
+            || !view_rebalances.is_empty()
+        {
+            return Err(StoreError::new(
+                StoreErrorCode::InvalidInput,
+                "Page placement View data requires a View id",
+                false,
+            ));
+        }
+        return Ok(Vec::new());
+    };
+    if entries.iter().any(|entry| entry.view_rank_key.is_none()) {
+        return Err(StoreError::new(
+            StoreErrorCode::InvalidInput,
+            "Page placement View data is incomplete",
+            false,
+        ));
+    }
+    let library_id = next.library_id();
+    for rebalance in view_rebalances {
+        let (stored_data_source, stored_group, stored_rank, stored_revision) = transaction
+            .query_row(
+                "SELECT data_source_id, group_key, rank_key, revision
+                 FROM block_record_view_positions
+                 WHERE view_id = ?1 AND block_id = ?2 AND library_id = ?3",
+                rusqlite::params![view_id, rebalance.block_id, library_id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, i64>(3)?,
+                    ))
+                },
+            )
+            .optional()?
+            .ok_or_else(|| {
+                StoreError::new(
+                    StoreErrorCode::RevisionConflict,
+                    "Page placement View rebalance position is missing",
+                    true,
+                )
+            })?;
+        let stored_group = (!stored_group.is_empty()).then_some(stored_group);
+        if stored_data_source != data_source_id
+            || stored_group.as_deref() != rebalance.group_key.as_deref()
+            || u64::try_from(stored_revision).unwrap_or(u64::MAX) != rebalance.expected_revision
+        {
+            return Err(StoreError::new(
+                StoreErrorCode::RevisionConflict,
+                "Page placement View rebalance precondition does not match the canonical position",
+                true,
+            ));
+        }
+        transaction.execute(
+            "UPDATE block_record_view_positions
+             SET rank_key = ?1
+             WHERE view_id = ?2 AND block_id = ?3 AND library_id = ?4",
+            rusqlite::params![
+                format!("{}~placement~{}", stored_rank, rebalance.block_id),
+                view_id,
+                rebalance.block_id,
+                library_id,
+            ],
+        )?;
+    }
+    for rebalance in view_rebalances {
+        let revision = rebalance.expected_revision.checked_add(1).ok_or_else(|| {
+            StoreError::new(
+                StoreErrorCode::StoreCorrupt,
+                "Page placement View revision overflow",
+                false,
+            )
+        })?;
+        let changed = transaction.execute(
+            "UPDATE block_record_view_positions
+             SET group_key = ?1, rank_key = ?2, revision = ?3
+             WHERE view_id = ?4 AND block_id = ?5 AND library_id = ?6",
+            rusqlite::params![
+                rebalance.group_key.as_deref().unwrap_or(""),
+                rebalance.rank_key,
+                i64::try_from(revision).map_err(|_| {
+                    StoreError::new(
+                        StoreErrorCode::StoreCorrupt,
+                        "Page placement View revision exceeds SQLite range",
+                        false,
+                    )
+                })?,
+                view_id,
+                rebalance.block_id,
+                library_id,
+            ],
+        )?;
+        if changed != 1 {
+            return Err(StoreError::new(
+                StoreErrorCode::StoreCorrupt,
+                "Page placement View rebalance disappeared while persisting",
+                false,
+            ));
+        }
+    }
+    for entry in entries {
+        let record = next.block(&entry.block_id).ok_or_else(|| {
+            StoreError::new(
+                StoreErrorCode::StoreCorrupt,
+                "Page placement View record is missing",
+                false,
+            )
+        })?;
+        crate::infrastructure::block_record_store::upsert_view_position(
+            transaction,
+            &BlockViewPosition {
+                view_id: view_id.to_owned(),
+                data_source_id: data_source_id.to_owned(),
+                block_id: entry.block_id.clone(),
+                group_key: entry.view_group_key.clone(),
+                rank_key: entry
+                    .view_rank_key
+                    .clone()
+                    .expect("validated Page placement View rank"),
+                revision: 0,
+            },
+            &record.library_id,
+        )?;
+    }
+    Ok(Vec::new())
 }
 
 fn persist_reconcile_page_tree(
@@ -2476,6 +2742,213 @@ fn apply_operation(
                 effects,
             ))
         }
+        BlockMutationOperation::PlaceManyInDataSource {
+            data_source_id,
+            view_id,
+            entries,
+            view_rebalances,
+            placement_rebalances,
+        } => {
+            if data_source_id.trim().is_empty() || entries.is_empty() {
+                return Err(StoreError::new(
+                    StoreErrorCode::InvalidInput,
+                    "Page placement identity or entries are invalid",
+                    false,
+                ));
+            }
+            if view_id.is_none()
+                && (entries
+                    .iter()
+                    .any(|entry| entry.view_group_key.is_some() || entry.view_rank_key.is_some())
+                    || !view_rebalances.is_empty())
+            {
+                return Err(StoreError::new(
+                    StoreErrorCode::InvalidInput,
+                    "Page placement View data requires a View id",
+                    false,
+                ));
+            }
+            if view_id.is_some() && entries.iter().any(|entry| entry.view_rank_key.is_none()) {
+                return Err(StoreError::new(
+                    StoreErrorCode::InvalidInput,
+                    "Page placement View data is incomplete",
+                    false,
+                ));
+            }
+            let before = graph.clone();
+            let mut block_ids = BTreeSet::new();
+            let mut placement_changes =
+                Vec::with_capacity(entries.len() + placement_rebalances.len());
+            for rebalance in placement_rebalances {
+                if !block_ids.insert(rebalance.block_id.as_str()) {
+                    return Err(StoreError::new(
+                        StoreErrorCode::InvalidInput,
+                        "Page placement rebalance repeats a Block id",
+                        false,
+                    ));
+                }
+                let placement = graph.placement(&rebalance.block_id).ok_or_else(|| {
+                    StoreError::new(
+                        StoreErrorCode::NotFound,
+                        "Page placement rebalance Block is missing",
+                        false,
+                    )
+                })?;
+                if placement.revision != rebalance.expected_revision {
+                    return Err(StoreError::new(
+                        StoreErrorCode::RevisionConflict,
+                        "Page placement rebalance is stale",
+                        true,
+                    ));
+                }
+                placement_changes.push(crate::domain::block_record::PlacementChange {
+                    block_id: rebalance.block_id.clone(),
+                    parent: placement.parent.clone(),
+                    rank_key: rebalance.rank_key.clone(),
+                });
+            }
+            if !placement_changes.is_empty() {
+                graph
+                    .apply_placement_changes(&placement_changes)
+                    .map_err(map_graph_error)?;
+            }
+            let mut effects = Vec::with_capacity(
+                entries.len() * 2 + view_rebalances.len() + placement_rebalances.len() * 2,
+            );
+            for change in placement_changes {
+                let previous = before.placement(&change.block_id).ok_or_else(|| {
+                    StoreError::new(
+                        StoreErrorCode::StoreCorrupt,
+                        "Page placement rebalance source disappeared",
+                        false,
+                    )
+                })?;
+                let next = graph.placement(&change.block_id).ok_or_else(|| {
+                    StoreError::new(
+                        StoreErrorCode::StoreCorrupt,
+                        "Page placement rebalance target disappeared",
+                        false,
+                    )
+                })?;
+                let record = graph.block(&change.block_id).ok_or_else(|| {
+                    StoreError::new(
+                        StoreErrorCode::StoreCorrupt,
+                        "Page placement rebalance record disappeared",
+                        false,
+                    )
+                })?;
+                effects.push(record_effect(record));
+                effects.push(LocalCommitEffect {
+                    kind: "placement".to_owned(),
+                    value: json!({
+                        "blockId": change.block_id,
+                        "from": previous.parent,
+                        "to": next.parent,
+                        "rankKey": next.rank_key,
+                        "revision": next.revision,
+                    }),
+                });
+            }
+            for entry in entries {
+                if !block_ids.insert(entry.block_id.as_str()) {
+                    return Err(StoreError::new(
+                        StoreErrorCode::InvalidInput,
+                        "Page placement contains a duplicate Block id",
+                        false,
+                    ));
+                }
+                validate_revisions(
+                    graph,
+                    &entry.block_id,
+                    entry.expected_block_revision,
+                    entry.expected_placement_revision,
+                )?;
+                let record = graph.block(&entry.block_id).cloned().ok_or_else(|| {
+                    StoreError::new(
+                        StoreErrorCode::NotFound,
+                        "Page placement BlockRecord is missing",
+                        false,
+                    )
+                })?;
+                if !matches!(record.kind, BlockKind::Page) {
+                    return Err(StoreError::new(
+                        StoreErrorCode::InvalidInput,
+                        "Page placement requires Page BlockRecords",
+                        false,
+                    ));
+                }
+                let previous = graph.placement(&entry.block_id).cloned().ok_or_else(|| {
+                    StoreError::new(StoreErrorCode::NotFound, "Page placement is missing", false)
+                })?;
+                graph
+                    .move_block(
+                        &entry.block_id,
+                        PlacementParent::DataSource(data_source_id.clone()),
+                        entry.rank_key.clone(),
+                    )
+                    .map_err(map_graph_error)?;
+                let next = graph.placement(&entry.block_id).ok_or_else(|| {
+                    StoreError::new(
+                        StoreErrorCode::StoreCorrupt,
+                        "Page placement disappeared",
+                        false,
+                    )
+                })?;
+                effects.push(record_effect(&record));
+                effects.push(LocalCommitEffect {
+                    kind: "placement".to_owned(),
+                    value: json!({
+                        "blockId": entry.block_id,
+                        "from": previous.parent,
+                        "to": next.parent,
+                        "rankKey": next.rank_key,
+                        "revision": next.revision,
+                    }),
+                });
+                if let Some(view_id) = view_id {
+                    effects.push(LocalCommitEffect {
+                        kind: "view_position".to_owned(),
+                        value: json!({
+                            "viewId": view_id,
+                            "dataSourceId": data_source_id,
+                            "blockId": entry.block_id,
+                            "groupKey": entry.view_group_key,
+                            "rankKey": entry.view_rank_key,
+                            "revision": 0,
+                        }),
+                    });
+                }
+            }
+            if let Some(view_id) = view_id {
+                for rebalance in view_rebalances {
+                    let revision = rebalance.expected_revision.checked_add(1).ok_or_else(|| {
+                        StoreError::new(
+                            StoreErrorCode::StoreCorrupt,
+                            "Page placement View revision overflow",
+                            false,
+                        )
+                    })?;
+                    effects.push(LocalCommitEffect {
+                        kind: "view_position".to_owned(),
+                        value: json!({
+                            "viewId": view_id,
+                            "dataSourceId": data_source_id,
+                            "blockId": rebalance.block_id,
+                            "groupKey": rebalance.group_key,
+                            "rankKey": rebalance.rank_key,
+                            "revision": revision,
+                        }),
+                    });
+                }
+            }
+            Ok((
+                entries
+                    .first()
+                    .map(|entry| entry.block_id.clone())
+                    .expect("validated non-empty batch"),
+                effects,
+            ))
+        }
         BlockMutationOperation::SetMaterializedContent {
             block_id,
             slot,
@@ -3374,6 +3847,112 @@ mod tests {
                 PlacementParent::DataSource("board:test".to_owned())
             );
         }
+    }
+
+    #[test]
+    fn existing_page_moves_into_board_without_type_or_content_mutation() {
+        let mut connection = Connection::open_in_memory().expect("SQLite");
+        install_graph_schema(&connection).expect("graph schema");
+        install_view_position_schema(&connection).expect("view position schema");
+        install_commit_schema(&connection).expect("commit schema");
+        content_store::install_schema(&connection).expect("content schema");
+        let mut graph = graph();
+        {
+            let transaction = connection.transaction().expect("seed transaction");
+            crate::infrastructure::block_record_store::ensure_data_source(
+                &transaction,
+                "board:test",
+                "library:test",
+            )
+            .expect("data source");
+            crate::infrastructure::block_record_store::write_graph(&transaction, &graph)
+                .expect("seed graph");
+            for index in 0..100 {
+                crate::infrastructure::block_record_store::upsert_view_position(
+                    &transaction,
+                    &BlockViewPosition {
+                        view_id: "view:board".to_owned(),
+                        data_source_id: "board:test".to_owned(),
+                        block_id: format!("board-page-{index:03}"),
+                        group_key: Some("in_progress".to_owned()),
+                        rank_key: format!("{index:03}"),
+                        revision: 0,
+                    },
+                    "library:test",
+                )
+                .expect("seed view position");
+            }
+            transaction.commit().expect("seed commit");
+        }
+
+        let transaction = connection.transaction().expect("transaction");
+        let result = apply_block_mutation(
+            &transaction,
+            &mut graph,
+            request(
+                "place:page-a",
+                BlockMutationOperation::PlaceManyInDataSource {
+                    data_source_id: "board:test".to_owned(),
+                    view_id: Some("view:board".to_owned()),
+                    entries: vec![BlockPagePlacementEntry {
+                        block_id: "page-a".to_owned(),
+                        view_group_key: Some("in_progress".to_owned()),
+                        view_rank_key: Some("101".to_owned()),
+                        rank_key: "101".to_owned(),
+                        expected_block_revision: 0,
+                        expected_placement_revision: 0,
+                    }],
+                    view_rebalances: Vec::new(),
+                    placement_rebalances: Vec::new(),
+                },
+            ),
+        )
+        .expect("page placement");
+        transaction.commit().expect("commit");
+
+        assert!(!result.duplicate);
+        assert_eq!(result.envelope.effects.len(), 3);
+        assert_eq!(result.envelope.effects[0].kind, "record");
+        assert_eq!(result.envelope.effects[1].kind, "placement");
+        assert_eq!(result.envelope.effects[2].kind, "view_position");
+        assert_eq!(graph.block("page-a").expect("page").kind, BlockKind::Page);
+        assert_eq!(graph.block("page-a").expect("page").revision, 0);
+        assert_eq!(
+            graph.placement("page-a").expect("placement").parent,
+            PlacementParent::DataSource("board:test".to_owned())
+        );
+        let (block_revision, placement_revision, commit_count): (i64, i64, i64) = connection
+            .query_row(
+                "SELECT block.revision, placement.revision,
+                        (SELECT count(*) FROM local_commits)
+                 FROM block_records block
+                 JOIN block_placements placement ON placement.block_id = block.id
+                 WHERE block.id = 'page-a'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("canonical page state");
+        assert_eq!(
+            (block_revision, placement_revision, commit_count),
+            (0, 1, 1)
+        );
+        let view_position: (String, String, String) = connection
+            .query_row(
+                "SELECT view_id, group_key, rank_key
+                 FROM block_record_view_positions
+                 WHERE block_id = 'page-a'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("view position");
+        assert_eq!(
+            view_position,
+            (
+                "view:board".to_owned(),
+                "in_progress".to_owned(),
+                "101".to_owned()
+            )
+        );
     }
 
     #[test]

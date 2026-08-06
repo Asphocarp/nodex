@@ -48,8 +48,9 @@ use nodex_core::infrastructure::writer::StoreRuntimePhase;
 use nodex_core::library::LibraryModule;
 use nodex_core::local_commit::{AppendedLocalCommit, LocalCommitEnvelope};
 use nodex_core::mutation_kernel::{
-    BlockMoveEntry, BlockMutationOperation, BlockMutationRequest, BlockPlacementRebalance,
-    BlockPromotionEntry, BlockRecordUpdateEntry, BlockTreeNode, BlockViewPositionRebalance,
+    BlockMoveEntry, BlockMutationOperation, BlockMutationRequest, BlockPagePlacementEntry,
+    BlockPlacementRebalance, BlockPromotionEntry, BlockRecordUpdateEntry, BlockTreeNode,
+    BlockViewPositionRebalance,
 };
 use nodex_core::workspace::ProjectWorkspaceModule;
 use nodex_core_contracts::administration::StoreAdministrationIntent;
@@ -914,6 +915,44 @@ fn block_record_operation(
             entries: entries
                 .iter()
                 .map(|entry| BlockPromotionEntry {
+                    block_id: entry.block_id.clone(),
+                    view_group_key: entry.view_group_key.clone(),
+                    view_rank_key: entry.view_rank_key.clone(),
+                    rank_key: entry.rank_key.clone(),
+                    expected_block_revision: entry.expected_block_revision,
+                    expected_placement_revision: entry.expected_placement_revision,
+                })
+                .collect(),
+            view_rebalances: view_rebalances
+                .iter()
+                .map(|rebalance| BlockViewPositionRebalance {
+                    block_id: rebalance.block_id.clone(),
+                    group_key: rebalance.group_key.clone(),
+                    rank_key: rebalance.rank_key.clone(),
+                    expected_revision: rebalance.expected_revision,
+                })
+                .collect(),
+            placement_rebalances: placement_rebalances
+                .iter()
+                .map(|rebalance| BlockPlacementRebalance {
+                    block_id: rebalance.block_id.clone(),
+                    rank_key: rebalance.rank_key.clone(),
+                    expected_revision: rebalance.expected_revision,
+                })
+                .collect(),
+        }),
+        BlockRecordOperation::PlaceManyInDataSource {
+            data_source_id,
+            view_id,
+            entries,
+            view_rebalances,
+            placement_rebalances,
+        } => Ok(BlockMutationOperation::PlaceManyInDataSource {
+            data_source_id: data_source_id.clone(),
+            view_id: view_id.clone(),
+            entries: entries
+                .iter()
+                .map(|entry| BlockPagePlacementEntry {
                     block_id: entry.block_id.clone(),
                     view_group_key: entry.view_group_key.clone(),
                     view_rank_key: entry.view_rank_key.clone(),

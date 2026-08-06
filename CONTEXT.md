@@ -30,8 +30,9 @@ BlockRecord owns stable identity, kind, lifecycle, intrinsic properties, and
 one owning placement; placement rows form the acyclic containment forest.
 Page title/body content is read from BlockRecord content slots and materialized
 through the record-backed BlockNote adapter. Data Source membership and View
-position are part of the same typed mutation transaction when a Block becomes
-a Page. The Core apply response carries the LocalCommit envelope to Main
+position are part of the same typed mutation transaction: ordinary Blocks use
+promotion, while existing Pages use placement-only
+\`PlaceManyInDataSource\`. The Core apply response carries the LocalCommit envelope to Main
 immediately; the durable tail later replays the same envelope and is deduped.
 
 This is the authority for Page creation, Page/Board Move to, editor-to-Board

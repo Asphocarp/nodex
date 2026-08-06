@@ -98,6 +98,7 @@ const committedApply = (
 
 const blockRecordSnapshot = (
   read: "source" | "target",
+  sourceKind: "paragraph" | "page" = "paragraph",
 ): BlockRecordReadSnapshot => {
   const isSource = read === "source";
   const blockId = isSource ? "block:root" : "block:existing";
@@ -112,7 +113,7 @@ const blockRecordSnapshot = (
       blocks: [{
         id: blockId,
         library_id: identity.libraryId,
-        kind: isSource ? "paragraph" : "page",
+        kind: isSource ? sourceKind : "page",
         lifecycle: "active",
         properties: { title: isSource ? "Dragged source" : "Existing page" },
         content_shard_id: `shard:${blockId}`,
@@ -364,6 +365,54 @@ describe("Core Block Transfer Adapter", () => {
     expect(client.blockRecordApplies[0]?.operation).not.toHaveProperty(
       "write_fence",
     );
+  });
+
+  test("routes an existing Page into Board through one placement transaction", async () => {
+    const client = new FakeCoreClient();
+    const adapter = createCoreBlockTransferAdapter({ client, ...identity });
+    const dataSourceIntent: BlockTransferIntent = {
+      ...intent,
+      operationId: "transfer:existing-page-to-board",
+      target: {
+        kind: "data_source",
+        dataSourceId: "source:target",
+        viewId: "view:target",
+        groupKey: "triage",
+        beforePageId: "block:existing",
+      },
+    };
+    client.enqueueBlockRecordRead(blockRecordSnapshot("source", "page"));
+    client.enqueueBlockRecordRead(blockRecordSnapshot("target"));
+    client.enqueueBlockRecordApply(
+      committedBlockRecordApply(dataSourceIntent.operationId),
+    );
+
+    const committed = await adapter.commit(dataSourceIntent);
+
+    expect(committed).toMatchObject({
+      ok: true,
+      value: {
+        operationId: dataSourceIntent.operationId,
+        mode: "move",
+        transformationEvidence: [{
+          kind: "move",
+          sourceBlockId: "block:root",
+          resultPageId: "block:root",
+        }],
+      },
+    });
+    expect(client.blockRecordApplies).toHaveLength(1);
+    expect(client.blockRecordApplies[0]?.operation).toMatchObject({
+      kind: "place_many_in_data_source",
+      data_source_id: "source:target",
+      view_id: "view:target",
+      entries: [{
+        block_id: "block:root",
+        view_group_key: "triage",
+        expected_block_revision: 3,
+        expected_placement_revision: 4,
+      }],
+    });
   });
 
   test("rejects a cross-project intent before contacting Core", async () => {

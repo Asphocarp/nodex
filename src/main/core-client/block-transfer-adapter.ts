@@ -13,6 +13,7 @@ import type { BlockLocation } from "../../shared/block-documents/contracts";
 import type { BlockRecordRead } from "../../shared/core-modules/block-record-module";
 import {
   blockRecordSnapshotToWindow,
+  buildPlaceManyPagesInDataSourceApplyInput,
   buildPromoteManyBlockRecordApplyInput,
   planFractionalRank,
   type BlockRecordWindow,
@@ -171,7 +172,7 @@ const fromCoreTransformation = (
 ): BlockTransferTransformationEvidence => {
   const evidence = requireRecord(value, "Core Block transformation evidence");
   const kind = evidence.kind;
-  if (kind !== "promote" && kind !== "wrap") {
+  if (kind !== "move" && kind !== "promote" && kind !== "wrap") {
     throw new Error("Core Block transformation kind is invalid");
   }
   const sourceToResult = requireRecord(
@@ -297,13 +298,16 @@ const commitMoveIntoDataSource = async (
   const sourceRoots = intent.rootBlockIds.map((blockId) =>
     sourceWindow.records.find((record) => record.id === blockId)
   );
-  // PromoteManyToPage is deliberately narrow: it changes an ordinary
-  // canonical Block into a Page. Existing Page records already have their
-  // Page identity and still use the Library transfer path until the remaining
-  // Page placement writers are cut over to BlockRecord. A missing record has
-  // the same boundary meaning for legacy-created Pages; do not turn that
-  // absence into a fabricated promotion or an orphan canonical record.
-  if (sourceRoots.some((record) => !record || record.kind === "page")) {
+  // A Page already has its final identity. It must use the placement-only
+  // operation below; treating it as a promotion would either fail the graph
+  // invariant or increment its intrinsic revision for no semantic change.
+  // Missing records and mixed roots remain outside this terminal operation
+  // until the one-big store replacement has converted every legacy root.
+  const allExistingPages = sourceRoots.every((record) => record?.kind === "page");
+  const allPromotableBlocks = sourceRoots.every((record) => (
+    record !== undefined && record.kind !== "page"
+  ));
+  if (!allExistingPages && !allPromotableBlocks) {
     return null;
   }
   const targetWindow = await readBlockRecordWindow(input, targetRead);
@@ -411,8 +415,8 @@ const commitMoveIntoDataSource = async (
     placementItems.splice(placementIndex, 0, { id: blockId, rankKey: placementPlan.rankKey });
   }
 
-  const committed = await input.client.blockRecordApply(
-    await buildPromoteManyBlockRecordApplyInput({
+  const applyInput = allExistingPages
+    ? await buildPlaceManyPagesInDataSourceApplyInput({
       operationId: intent.operationId,
       actorId: intent.clientSessionId ?? "block-transfer",
       sessionId: intent.clientSessionId ?? "block-transfer",
@@ -421,8 +425,18 @@ const commitMoveIntoDataSource = async (
       entries,
       viewRebalances: [...viewRebalances.values()],
       placementRebalances: [...placementRebalances.values()],
-    }),
-  );
+    })
+    : await buildPromoteManyBlockRecordApplyInput({
+      operationId: intent.operationId,
+      actorId: intent.clientSessionId ?? "block-transfer",
+      sessionId: intent.clientSessionId ?? "block-transfer",
+      dataSourceId: target.dataSourceId,
+      viewId: target.viewId,
+      entries,
+      viewRebalances: [...viewRebalances.values()],
+      placementRebalances: [...placementRebalances.values()],
+    });
+  const committed = await input.client.blockRecordApply(applyInput);
   const evidence = intent.rootBlockIds.map((blockId) => {
     const record = sourceRecords.get(blockId)!;
     const titleContent = sourceWindow.content.find((content) => (
@@ -431,7 +445,7 @@ const commitMoveIntoDataSource = async (
     return {
       sourceBlockId: blockId,
       resultPageId: blockId,
-      kind: "promote" as const,
+      kind: allExistingPages ? "move" as const : "promote" as const,
       sourceBlockType: record.kind,
       semanticTitleHash: titleHash(titleContent?.content ?? record.properties.title),
       consumedPropertyKeys: [],

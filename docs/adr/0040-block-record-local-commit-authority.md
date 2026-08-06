@@ -30,7 +30,8 @@ mutation boundary:
 - Rich content is stored by stable Block ID and slot. Yrs remains useful for
   text concurrency and replay, but a Page-wide Yjs tree is not the structural
   ownership authority for this path.
-- `Create`, `Move`, `MoveMany`, `PromoteManyToPage`, `SetMaterializedContent`,
+- `Create`, `Move`, `MoveMany`, `PromoteManyToPage`,
+  `PlaceManyInDataSource`, `SetMaterializedContent`,
   `ReconcilePageTree`, `Update`, and `ArchiveSubtree` are typed Core
   operations. Validation, rank rebalance, canonical row updates, content
   materialization, and LocalCommit append happen in one SQLite transaction.
@@ -77,17 +78,16 @@ submitting the typed move, so the content mutation and relocation cannot race.
 For an ordinary canonical Block, `Move to → Board` uses the same transfer
 boundary as an external editor drop: the source Block IDs are read, the target
 Data Source/View is resolved, and one `PromoteManyToPage` commit changes kind,
-placement, membership, View position, and title projection. Descendant IDs and
-content shard identity remain stable; the operation does not copy a Page
-document or re-create a child subtree.
+placement, membership, View position, and title projection. For an existing
+canonical Page, the same boundary uses `PlaceManyInDataSource` and changes
+only owning placement, membership, and View position. Descendant IDs and
+content shard identity remain stable; neither operation copies a Page document
+or re-creates a child subtree.
 
-An already-Page root is not a promotion. Until the remaining Page copy and
-Page-placement writers are cut over, an already-Page or legacy-created root is
-deliberately handled by the existing Library transfer adapter; it is never
-fabricated into a BlockRecord promotion or admitted as an orphan canonical
-record. This is an explicit current-slice boundary, not the terminal model:
-the final replacement removes that route and moves existing Page roots with
-the same BlockRecord placement kernel.
+An already-Page root is therefore never a promotion. A legacy-created root
+without a BlockRecord remains outside this terminal operation until the
+one-time store replacement converts it; the final runtime must reject that
+state rather than silently fall back to the old Page transfer writer.
 
 ## Scope and follow-up
 

@@ -129,6 +129,30 @@ export interface PromoteManyBlockRecordApplyInput extends BlockRecordApplyIdenti
   }[];
 }
 
+export interface PlaceManyPagesInDataSourceApplyInput extends BlockRecordApplyIdentity {
+  readonly dataSourceId: string;
+  readonly viewId?: string | null;
+  readonly entries: readonly {
+    readonly blockId: string;
+    readonly viewGroupKey?: string | null;
+    readonly viewRankKey?: string | null;
+    readonly rankKey: string;
+    readonly expectedBlockRevision: number;
+    readonly expectedPlacementRevision: number;
+  }[];
+  readonly viewRebalances?: readonly {
+    readonly blockId: string;
+    readonly groupKey?: string | null;
+    readonly rankKey: string;
+    readonly expectedRevision: number;
+  }[];
+  readonly placementRebalances?: readonly {
+    readonly blockId: string;
+    readonly rankKey: string;
+    readonly expectedRevision: number;
+  }[];
+}
+
 export interface SetMaterializedContentBlockRecordApplyInput extends BlockRecordApplyIdentity {
   readonly blockId: string;
   readonly slot: "title" | "inline" | "body" | "properties";
@@ -583,6 +607,80 @@ export const buildPromoteManyBlockRecordApplyInput = async (
   });
   const operation = {
     kind: "promote_many_to_page" as const,
+    data_source_id: input.dataSourceId,
+    view_id: input.viewId ?? null,
+    entries,
+    view_rebalances: viewRebalances,
+    placement_rebalances: placementRebalances,
+  };
+  return {
+    ...await identityFields(input, operation),
+    operation,
+  };
+};
+
+export const buildPlaceManyPagesInDataSourceApplyInput = async (
+  input: PlaceManyPagesInDataSourceApplyInput,
+): Promise<BlockRecordApplyInput> => {
+  assertIdentity("dataSourceId", input.dataSourceId);
+  if (input.viewId !== null && input.viewId !== undefined) assertIdentity("viewId", input.viewId);
+  if (input.entries.length === 0) throw new Error("entries must not be empty");
+  const blockIds = new Set<string>();
+  const entries = input.entries.map((entry) => {
+    assertIdentity("blockId", entry.blockId);
+    assertIdentity("rankKey", entry.rankKey);
+    if (blockIds.has(entry.blockId)) throw new Error("entries contain a duplicate blockId");
+    blockIds.add(entry.blockId);
+    if (entry.viewGroupKey !== null && entry.viewGroupKey !== undefined) {
+      assertIdentity("viewGroupKey", entry.viewGroupKey);
+    }
+    if (entry.viewRankKey !== null && entry.viewRankKey !== undefined) {
+      assertIdentity("viewRankKey", entry.viewRankKey);
+    }
+    assertRevision("expectedBlockRevision", entry.expectedBlockRevision);
+    assertRevision("expectedPlacementRevision", entry.expectedPlacementRevision);
+    return {
+      block_id: entry.blockId,
+      view_group_key: entry.viewGroupKey ?? null,
+      view_rank_key: entry.viewRankKey ?? null,
+      rank_key: entry.rankKey,
+      expected_block_revision: entry.expectedBlockRevision,
+      expected_placement_revision: entry.expectedPlacementRevision,
+    };
+  });
+  const viewRebalances = (input.viewRebalances ?? []).map((rebalance) => {
+    assertIdentity("blockId", rebalance.blockId);
+    assertIdentity("rankKey", rebalance.rankKey);
+    assertRevision("expectedRevision", rebalance.expectedRevision);
+    if (rebalance.groupKey !== null && rebalance.groupKey !== undefined) {
+      assertIdentity("groupKey", rebalance.groupKey);
+    }
+    if (blockIds.has(rebalance.blockId)) {
+      throw new Error("viewRebalances repeat an entry blockId");
+    }
+    return {
+      block_id: rebalance.blockId,
+      group_key: rebalance.groupKey ?? null,
+      rank_key: rebalance.rankKey,
+      expected_revision: rebalance.expectedRevision,
+    };
+  });
+  const placementRebalances = (input.placementRebalances ?? []).map((rebalance) => {
+    assertIdentity("blockId", rebalance.blockId);
+    assertIdentity("rankKey", rebalance.rankKey);
+    assertRevision("expectedRevision", rebalance.expectedRevision);
+    if (blockIds.has(rebalance.blockId)) {
+      throw new Error("placementRebalances repeat an entry blockId");
+    }
+    blockIds.add(rebalance.blockId);
+    return {
+      block_id: rebalance.blockId,
+      rank_key: rebalance.rankKey,
+      expected_revision: rebalance.expectedRevision,
+    };
+  });
+  const operation = {
+    kind: "place_many_in_data_source" as const,
     data_source_id: input.dataSourceId,
     view_id: input.viewId ?? null,
     entries,
