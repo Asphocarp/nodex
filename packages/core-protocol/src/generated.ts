@@ -791,6 +791,14 @@ export interface components {
             readonly view_rebalances?: readonly components["schemas"]["BlockRecordViewPositionRebalance"][];
         } | {
             readonly block_id: string;
+            readonly data_source_id: string;
+            /** Format: int64 */
+            readonly expected_block_revision: number;
+            /** @enum {string} */
+            readonly kind: "set_data_source_values";
+            readonly values: readonly components["schemas"]["BlockRecordDataSourceValue"][];
+        } | {
+            readonly block_id: string;
             /** Format: int64 */
             readonly expected_revision: number;
             /** @enum {string} */
@@ -843,6 +851,10 @@ export interface components {
             /** Format: int64 */
             readonly commit_seq: number;
             readonly store_epoch: string;
+        };
+        readonly BlockRecordDataSourceValue: {
+            readonly property_id: string;
+            readonly value: unknown;
         };
         readonly BlockRecordEffect: {
             readonly kind: string;
@@ -999,6 +1011,14 @@ export interface components {
             readonly placement_rebalances?: readonly components["schemas"]["BlockRecordPlacementRebalance"][];
             readonly view_id?: string | null;
             readonly view_rebalances?: readonly components["schemas"]["BlockRecordViewPositionRebalance"][];
+        } | {
+            readonly block_id: string;
+            readonly data_source_id: string;
+            /** Format: int64 */
+            readonly expected_block_revision: number;
+            /** @enum {string} */
+            readonly kind: "set_data_source_values";
+            readonly values: readonly components["schemas"]["BlockRecordDataSourceValue"][];
         } | {
             readonly block_id: string;
             /** Format: int64 */

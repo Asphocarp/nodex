@@ -391,6 +391,46 @@ describe("Core Block Transfer Adapter", () => {
     );
   });
 
+  test("commits Agent Data Source values with the Board placement", async () => {
+    const client = new FakeCoreClient();
+    const adapter = createCoreBlockTransferAdapter({ client, ...identity });
+    const dataSourceIntent: BlockTransferIntent = {
+      ...intent,
+      operationId: "transfer:move-to-board-with-values",
+      target: {
+        kind: "data_source",
+        dataSourceId: "source:target",
+        viewId: "view:target",
+        groupKey: "triage",
+        values: [{ propertyId: "status", value: "done" }],
+      },
+    };
+    client.enqueueBlockRecordRead(blockRecordSnapshot("source"));
+    client.enqueueBlockRecordRead(blockRecordSnapshot("target"));
+    client.enqueueBlockRecordApply(
+      committedBlockRecordApply(dataSourceIntent.operationId),
+    );
+
+    await expect(adapter.commit(dataSourceIntent)).resolves.toMatchObject({
+      ok: true,
+      value: { operationId: dataSourceIntent.operationId },
+    });
+
+    expect(client.blockRecordApplies[0]?.operation).toMatchObject({
+      kind: "batch",
+      operations: [
+        { kind: "promote_many_to_page" },
+        {
+          kind: "set_data_source_values",
+          block_id: "block:root",
+          data_source_id: "source:target",
+          expected_block_revision: 4,
+          values: [{ property_id: "status", value: "done" }],
+        },
+      ],
+    });
+  });
+
   test("routes canonical Move to Library through one MoveMany BlockRecord commit", async () => {
     const client = new FakeCoreClient();
     const adapter = createCoreBlockTransferAdapter({ client, ...identity });

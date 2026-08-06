@@ -48,9 +48,9 @@ use nodex_core::infrastructure::writer::StoreRuntimePhase;
 use nodex_core::library::LibraryModule;
 use nodex_core::local_commit::{AppendedLocalCommit, LocalCommitEnvelope};
 use nodex_core::mutation_kernel::{
-    BlockCopyEntry, BlockMoveEntry, BlockMutationOperation, BlockMutationRequest,
-    BlockPagePlacementEntry, BlockPlacementRebalance, BlockPromotionEntry, BlockRecordUpdateEntry,
-    BlockTreeNode, BlockViewPositionRebalance,
+    BlockCopyEntry, BlockDataSourceValue, BlockMoveEntry, BlockMutationOperation,
+    BlockMutationRequest, BlockPagePlacementEntry, BlockPlacementRebalance, BlockPromotionEntry,
+    BlockRecordUpdateEntry, BlockTreeNode, BlockViewPositionRebalance,
 };
 use nodex_core::workspace::ProjectWorkspaceModule;
 use nodex_core_contracts::administration::StoreAdministrationIntent;
@@ -1108,6 +1108,23 @@ fn block_record_operation(
                     expected_revision: rebalance.expected_revision,
                 })
                 .collect(),
+        }),
+        BlockRecordOperation::SetDataSourceValues {
+            block_id,
+            data_source_id,
+            values,
+            expected_block_revision,
+        } => Ok(BlockMutationOperation::SetDataSourceValues {
+            block_id: block_id.clone(),
+            data_source_id: data_source_id.clone(),
+            values: values
+                .iter()
+                .map(|value| BlockDataSourceValue {
+                    property_id: value.property_id.clone(),
+                    value: value.value.clone(),
+                })
+                .collect(),
+            expected_block_revision: *expected_block_revision,
         }),
         BlockRecordOperation::SetMaterializedContent {
             block_id,

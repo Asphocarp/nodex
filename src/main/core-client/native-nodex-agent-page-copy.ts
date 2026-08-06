@@ -100,6 +100,10 @@ const canonicalIntent = (
       viewId: view.viewId,
       groupKey: view.groupKey,
       ...(view.beforePageId ? { beforePageId: view.beforePageId } : {}),
+      ...(request.input.destination.kind === "data_source"
+        && request.input.destination.values
+        ? { values: request.input.destination.values }
+        : {}),
     },
   };
 };

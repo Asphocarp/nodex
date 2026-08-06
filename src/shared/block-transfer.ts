@@ -46,6 +46,15 @@ export type BlockTransferIntentTarget =
       readonly viewId: string;
       readonly groupKey: string | null;
       readonly beforePageId?: BlockId;
+      /**
+       * Initial Page properties supplied by an Agent write. They are part of
+       * the same canonical BlockRecord operation as the placement change;
+       * ordinary renderer transfers leave this absent.
+       */
+      readonly values?: readonly {
+        readonly propertyId: string;
+        readonly value: DatabaseJsonValue;
+      }[];
     };
 
 /**
@@ -759,7 +768,7 @@ const parseIntentTarget = (
       target,
       "blockTransferIntent.target",
       ["kind", "dataSourceId", "viewId", "groupKey"],
-      ["beforePageId"],
+      ["beforePageId", "values"],
     );
     if (target.groupKey !== null && typeof target.groupKey !== "string") {
       throw new BlockTransferContractError(
@@ -776,6 +785,37 @@ const parseIntentTarget = (
         "blockTransferIntent.target.beforePageId cannot be a transferred root",
       );
     }
+    const values = target.values === undefined
+      ? undefined
+      : (() => {
+          if (!Array.isArray(target.values) || target.values.length > 512) {
+            throw new BlockTransferContractError(
+              "blockTransferIntent.target.values must contain at most 512 entries",
+            );
+          }
+          return target.values.map((entry, index) => {
+            const value = readRecord(
+              entry,
+              `blockTransferIntent.target.values[${index}]`,
+            );
+            assertExactKeys(
+              value,
+              `blockTransferIntent.target.values[${index}]`,
+              ["propertyId", "value"],
+            );
+            const propertyId = readString(
+              value,
+              "propertyId",
+              `blockTransferIntent.target.values[${index}]`,
+            );
+            return {
+              propertyId,
+              value: JSON.parse(
+                stableStringifyDatabaseJson(value.value),
+              ) as DatabaseJsonValue,
+            };
+          });
+        })();
     return {
       kind: "data_source",
       dataSourceId: readString(
@@ -786,6 +826,7 @@ const parseIntentTarget = (
       viewId: readString(target, "viewId", "blockTransferIntent.target"),
       groupKey: target.groupKey,
       ...(beforePageId ? { beforePageId } : {}),
+      ...(values ? { values } : {}),
     };
   }
   throw new BlockTransferContractError(

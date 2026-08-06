@@ -14,10 +14,12 @@ import type { BlockLocation } from "../../shared/block-documents/contracts";
 import type { BlockRecordRead } from "../../shared/core-modules/block-record-module";
 import {
   blockRecordSnapshotToWindow,
+  buildBatchBlockRecordApplyInput,
   buildCopySubtreeBlockRecordApplyInput,
   buildMoveManyBlockRecordApplyInput,
   buildPlaceManyPagesInDataSourceApplyInput,
   buildPromoteManyBlockRecordApplyInput,
+  buildSetDataSourceValuesBlockRecordApplyInput,
   planFractionalRank,
   type BlockPlacementParent,
   type BlockRecordWindow,
@@ -46,6 +48,19 @@ export interface CoreBlockTransferAdapter {
 
 type CoreTransferResult = NonNullable<LibraryCommittedValue["value"]["block_transfer"]>;
 type CoreTransferIntent = Extract<LibraryIntent, { kind: "transfer_blocks" }>["intent"];
+
+type BlockRecordOperation = components["schemas"]["BlockRecordOperation"];
+type BlockRecordBatchOperation = Exclude<BlockRecordOperation, { readonly kind: "batch" }>;
+
+const asBatchOperation = (
+  operation: BlockRecordOperation,
+): BlockRecordBatchOperation => {
+  if (operation.kind === "batch") {
+    throw new Error("Canonical Block transfer cannot nest a BlockRecord batch");
+  }
+  return operation;
+};
+
 
 const toCoreIntent = (intent: BlockTransferIntent): CoreTransferIntent => ({
   actor: intent.actor,
@@ -488,11 +503,32 @@ export const commitCanonicalCopyIntent = async (
       : {}),
     placementRebalances,
   });
+  const canonicalApplyInput = target.kind === "data_source"
+    && target.values
+    && target.values.length > 0
+    ? await buildBatchBlockRecordApplyInput({
+        operationId: intent.operationId,
+        actorId: intent.clientSessionId ?? "block-transfer",
+        sessionId: intent.clientSessionId ?? "block-transfer",
+        operations: [
+          asBatchOperation(applyInput.operation),
+          asBatchOperation((await buildSetDataSourceValuesBlockRecordApplyInput({
+            operationId: intent.operationId,
+            actorId: intent.clientSessionId ?? "block-transfer",
+            sessionId: intent.clientSessionId ?? "block-transfer",
+            blockId: targetRootBlockId,
+            dataSourceId: target.dataSourceId,
+            values: target.values,
+            expectedBlockRevision: 0,
+          })).operation),
+        ],
+      })
+    : applyInput;
   const committed = await applyBlockRecordWithResolution({
     client: input.client,
     storeEpoch: input.storeEpoch,
     input: {
-      ...applyInput,
+      ...canonicalApplyInput,
       ...(input.agentAuthorization
         ? { agent_authorization: input.agentAuthorization }
         : {}),
@@ -909,11 +945,38 @@ const commitMoveIntoDataSource = async (
       viewRebalances: [...viewRebalances.values()],
       placementRebalances: [...placementRebalances.values()],
     });
+  const valueOperations = target.values && target.values.length > 0
+    ? await Promise.all(entries.map(async (entry) => {
+        const sourceRecord = sourceRecords.get(entry.blockId);
+        if (!sourceRecord) {
+          throw new Error(`BlockRecord ${entry.blockId} is not available for value update`);
+        }
+        return asBatchOperation((await buildSetDataSourceValuesBlockRecordApplyInput({
+          operationId: intent.operationId,
+          actorId: intent.clientSessionId ?? "block-transfer",
+          sessionId: intent.clientSessionId ?? "block-transfer",
+          blockId: entry.blockId,
+          dataSourceId: target.dataSourceId,
+          values: target.values!,
+          expectedBlockRevision: allExistingPages
+            ? entry.expectedBlockRevision
+            : entry.expectedBlockRevision + 1,
+        })).operation);
+      }))
+    : [];
+  const canonicalApplyInput = valueOperations.length > 0
+    ? await buildBatchBlockRecordApplyInput({
+        operationId: intent.operationId,
+        actorId: intent.clientSessionId ?? "block-transfer",
+        sessionId: intent.clientSessionId ?? "block-transfer",
+        operations: [asBatchOperation(applyInput.operation), ...valueOperations],
+      })
+    : applyInput;
   const committed = await applyBlockRecordWithResolution({
     client: input.client,
     storeEpoch: input.storeEpoch,
     input: {
-      ...applyInput,
+      ...canonicalApplyInput,
       ...(input.agentAuthorization
         ? { agent_authorization: input.agentAuthorization }
         : {}),

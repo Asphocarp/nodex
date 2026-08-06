@@ -204,6 +204,16 @@ export interface PlaceManyPagesInDataSourceApplyInput extends BlockRecordApplyId
   }[];
 }
 
+export interface SetDataSourceValuesBlockRecordApplyInput extends BlockRecordApplyIdentity {
+  readonly blockId: string;
+  readonly dataSourceId: string;
+  readonly values: readonly {
+    readonly propertyId: string;
+    readonly value: unknown;
+  }[];
+  readonly expectedBlockRevision: number;
+}
+
 export interface SetMaterializedContentBlockRecordApplyInput extends BlockRecordApplyIdentity {
   readonly blockId: string;
   readonly slot: "title" | "inline" | "body" | "properties";
@@ -909,6 +919,38 @@ export const buildPlaceManyPagesInDataSourceApplyInput = async (
     entries,
     view_rebalances: viewRebalances,
     placement_rebalances: placementRebalances,
+  };
+  return {
+    ...await identityFields(input, operation),
+    operation,
+  };
+};
+
+export const buildSetDataSourceValuesBlockRecordApplyInput = async (
+  input: SetDataSourceValuesBlockRecordApplyInput,
+): Promise<BlockRecordApplyInput> => {
+  for (const [label, value] of [
+    ["blockId", input.blockId],
+    ["dataSourceId", input.dataSourceId],
+  ] as const) assertIdentity(label, value);
+  assertRevision("expectedBlockRevision", input.expectedBlockRevision);
+  const seen = new Set<string>();
+  const values = input.values.map((value) => {
+    assertIdentity("propertyId", value.propertyId);
+    if (!seen.add(value.propertyId)) {
+      throw new Error("values contain a duplicate propertyId");
+    }
+    return {
+      property_id: value.propertyId,
+      value: value.value,
+    };
+  });
+  const operation = {
+    kind: "set_data_source_values" as const,
+    block_id: input.blockId,
+    data_source_id: input.dataSourceId,
+    values,
+    expected_block_revision: input.expectedBlockRevision,
   };
   return {
     ...await identityFields(input, operation),

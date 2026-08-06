@@ -2575,6 +2575,41 @@
             "type": "object",
             "required": [
               "block_id",
+              "data_source_id",
+              "values",
+              "expected_block_revision",
+              "kind"
+            ],
+            "properties": {
+              "block_id": {
+                "type": "string"
+              },
+              "data_source_id": {
+                "type": "string"
+              },
+              "expected_block_revision": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "set_data_source_values"
+                ]
+              },
+              "values": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/BlockRecordDataSourceValue"
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "block_id",
               "slot",
               "materialized_json",
               "expected_revision",
@@ -2785,6 +2820,20 @@
           "store_epoch": {
             "type": "string"
           }
+        },
+        "additionalProperties": false
+      },
+      "BlockRecordDataSourceValue": {
+        "type": "object",
+        "required": [
+          "property_id",
+          "value"
+        ],
+        "properties": {
+          "property_id": {
+            "type": "string"
+          },
+          "value": {}
         },
         "additionalProperties": false
       },
@@ -3427,6 +3476,42 @@
                 "type": "array",
                 "items": {
                   "$ref": "#/components/schemas/BlockRecordViewPositionRebalance"
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Sets the canonical Page property values after it is placed in a Data\nSource. The operation is intended to be batched with placement so the\nBoard row never observes a Page without its initial values.",
+            "required": [
+              "block_id",
+              "data_source_id",
+              "values",
+              "expected_block_revision",
+              "kind"
+            ],
+            "properties": {
+              "block_id": {
+                "type": "string"
+              },
+              "data_source_id": {
+                "type": "string"
+              },
+              "expected_block_revision": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "set_data_source_values"
+                ]
+              },
+              "values": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/BlockRecordDataSourceValue"
                 }
               }
             }

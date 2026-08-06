@@ -1050,27 +1050,26 @@ describe("native desktop Nodex Agent dynamic service", () => {
   });
 
   test("searches native Library resources with Core authority and pagination", async () => {
-    const libraryRead = vi.fn(async () => ({
-      value: {
-        kind: "agent_search" as const,
-        items: [{
-          kind: "page" as const,
-          id: "page-native-search",
-          title: "Native Search",
-          location: {
-            kind: "data_source" as const,
-            data_source_id: "data-source-native-agent",
-          },
-          matches: [{
-            source: "property" as const,
-            quality: "fuzzy" as const,
-            property_id: "p_Abcd1234",
-            property_name: "Status",
-            excerpt: "In progress",
-          }],
-        }],
-        has_more: true,
-        next_cursor: "nxl1.search.signature",
+    const base = pageWindow("page-native-search", [], 12);
+    const blockRecordRead = vi.fn(async () => ({
+      ...base,
+      graph: {
+        ...base.graph,
+        blocks: base.graph.blocks.map((block) => block.id === "page-native-search"
+          ? {
+              ...block,
+              properties: {
+                title: "Native Search",
+                dataSourceValues: [{ propertyId: "p_Abcd1234", value: "In progress" }],
+              },
+            }
+          : block),
+        placements: base.graph.placements.map((placement) => placement.block_id === "page-native-search"
+          ? {
+              ...placement,
+              parent: { kind: "data_source" as const, id: "data-source-native-agent" },
+            }
+          : placement),
       },
     }));
     const runtime = {
@@ -1079,7 +1078,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
       rootClient: {
         handshake: nativeAgentHandshake(),
       },
-      clientForProject: () => ({ libraryRead }),
+      clientForProject: () => ({ blockRecordRead }),
     } as unknown as Extract<DesktopDataAuthorityRuntime, { backend: "rust" }>;
     const service = createDesktopNodexAgentV3DynamicService({
       authority: Promise.resolve(runtime),
@@ -1095,7 +1094,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
     }, {
       query: "nativ serch",
       scope: { kind: "data_source", dataSourceId: "data-source-native-agent" },
-      page: { cursor: "nxl1.previous.signature", limit: 1 },
+      page: { limit: 1 },
     }, context);
 
     expect(result.output).toEqual({
@@ -1109,28 +1108,25 @@ describe("native desktop Nodex Agent dynamic service", () => {
             dataSourceId: "data-source-native-agent",
           },
           matches: [{
-            source: "property",
+            source: "title",
+            quality: "exact",
+            excerpt: "Native Search",
+          }, {
+            source: "title",
             quality: "fuzzy",
-            propertyId: "p_Abcd1234",
-            propertyName: "Status",
-            excerpt: "In progress",
+            excerpt: "Native Search",
           }],
         }],
       },
-      page: { hasMore: true, nextCursor: "nxl1.search.signature" },
+      page: { hasMore: false },
     });
-    expect(libraryRead).toHaveBeenCalledWith(expect.objectContaining({
-      kind: "agent_search",
-      query: "nativ serch",
-      target: "pages",
-      scope: {
-        kind: "data_source",
-        data_source_id: "data-source-native-agent",
-      },
-      cursor: "nxl1.previous.signature",
-      limit: 1,
-      authorization: expect.objectContaining({ call_id: "call-native-agent" }),
-    }));
+    expect(blockRecordRead).toHaveBeenCalledWith(expect.objectContaining({
+      kind: "window",
+      parent: { kind: "data_source", id: "data-source-native-agent" },
+      include_content: true,
+      include_descendants: true,
+      include_archived: false,
+    }), expect.objectContaining({ call_id: "call-native-agent" }));
   });
 
   test("fetches native stable Blocks with Core-minted guards and pagination", async () => {

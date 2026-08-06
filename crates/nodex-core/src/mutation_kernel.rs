@@ -144,6 +144,15 @@ pub enum BlockMutationOperation {
         view_rebalances: Vec<BlockViewPositionRebalance>,
         placement_rebalances: Vec<BlockPlacementRebalance>,
     },
+    /// Updates the canonical Page property bag after a Data Source placement.
+    /// The values are intentionally part of the BlockRecord transaction, not
+    /// a follow-up Database projection write.
+    SetDataSourceValues {
+        block_id: String,
+        data_source_id: String,
+        values: Vec<BlockDataSourceValue>,
+        expected_block_revision: u64,
+    },
     SetMaterializedContent {
         block_id: String,
         slot: ContentSlot,
@@ -187,6 +196,12 @@ pub struct BlockRecordUpdateEntry {
     pub view_group_key: Option<String>,
     pub view_rank_key: Option<String>,
     pub expected_view_revision: Option<u64>,
+}
+
+#[derive(Clone, Debug)]
+pub struct BlockDataSourceValue {
+    pub property_id: String,
+    pub value: serde_json::Value,
 }
 
 #[derive(Clone, Debug)]
@@ -510,6 +525,7 @@ fn persist_delta(
                     false,
                 )
             })?,
+        BlockMutationOperation::SetDataSourceValues { block_id, .. } => block_id,
         BlockMutationOperation::SetMaterializedContent { block_id, .. } => block_id,
         BlockMutationOperation::ReconcilePageTree { page_id, .. } => page_id,
         BlockMutationOperation::EnsureDataSource { data_source_id } => {
@@ -810,6 +826,26 @@ fn persist_delta(
                 },
                 &next_record.library_id,
             )?;
+        }
+        return Ok(Vec::new());
+    }
+    if let BlockMutationOperation::SetDataSourceValues { block_id, .. } = operation {
+        let previous_record = previous.block(block_id).ok_or_else(|| {
+            StoreError::new(
+                StoreErrorCode::StoreCorrupt,
+                "Data Source value BlockRecord is missing from the previous graph",
+                false,
+            )
+        })?;
+        let next_record = next.block(block_id).ok_or_else(|| {
+            StoreError::new(
+                StoreErrorCode::StoreCorrupt,
+                "Data Source value BlockRecord is missing from the prepared graph",
+                false,
+            )
+        })?;
+        if previous_record != next_record {
+            update_block_record(transaction, previous_record, next_record)?;
         }
         return Ok(Vec::new());
     }
@@ -3811,6 +3847,113 @@ fn apply_operation(
                 effects,
             ))
         }
+        BlockMutationOperation::SetDataSourceValues {
+            block_id,
+            data_source_id,
+            values,
+            expected_block_revision,
+        } => {
+            if block_id.trim().is_empty()
+                || data_source_id.trim().is_empty()
+                || block_id != block_id.trim()
+                || data_source_id != data_source_id.trim()
+            {
+                return Err(StoreError::new(
+                    StoreErrorCode::InvalidInput,
+                    "Data Source value identity is invalid",
+                    false,
+                ));
+            }
+            let record = graph.block(block_id).cloned().ok_or_else(|| {
+                StoreError::new(
+                    StoreErrorCode::NotFound,
+                    "Data Source value Page is missing",
+                    false,
+                )
+            })?;
+            if !matches!(record.kind, BlockKind::Page) {
+                return Err(StoreError::new(
+                    StoreErrorCode::InvalidInput,
+                    "Data Source values require a Page BlockRecord",
+                    false,
+                ));
+            }
+            if record.revision != *expected_block_revision {
+                return Err(StoreError::new(
+                    StoreErrorCode::RevisionConflict,
+                    "Data Source value Page revision is stale",
+                    true,
+                ));
+            }
+            let placement = graph.placement(block_id).ok_or_else(|| {
+                StoreError::new(
+                    StoreErrorCode::StoreCorrupt,
+                    "Data Source value Page placement is missing",
+                    false,
+                )
+            })?;
+            if placement.parent != PlacementParent::DataSource(data_source_id.clone()) {
+                return Err(StoreError::new(
+                    StoreErrorCode::Conflict,
+                    "Data Source values do not match the Page placement",
+                    false,
+                ));
+            }
+            let mut seen = BTreeSet::new();
+            let values_json = values
+                .iter()
+                .map(|entry| {
+                    if entry.property_id.trim().is_empty()
+                        || entry.property_id != entry.property_id.trim()
+                        || !seen.insert(entry.property_id.clone())
+                    {
+                        return Err(StoreError::new(
+                            StoreErrorCode::InvalidInput,
+                            "Data Source values contain an invalid or duplicate Property id",
+                            false,
+                        ));
+                    }
+                    Ok(json!({
+                        "propertyId": entry.property_id,
+                        "value": entry.value,
+                    }))
+                })
+                .collect::<Result<Vec<_>, StoreError>>()?;
+            let mut properties = record.properties.as_object().cloned().ok_or_else(|| {
+                StoreError::new(
+                    StoreErrorCode::StoreCorrupt,
+                    "Page BlockRecord properties are not an object",
+                    false,
+                )
+            })?;
+            properties.insert("dataSourceValues".to_owned(), json!(values_json));
+            graph
+                .update_block(
+                    block_id,
+                    BlockKind::Page,
+                    serde_json::Value::Object(properties),
+                )
+                .map_err(map_graph_error)?;
+            let next_record = graph.block(block_id).ok_or_else(|| {
+                StoreError::new(
+                    StoreErrorCode::StoreCorrupt,
+                    "Data Source value Page disappeared",
+                    false,
+                )
+            })?;
+            Ok((
+                block_id.clone(),
+                vec![LocalCommitEffect {
+                    kind: "property_values".to_owned(),
+                    value: json!({
+                        "blockId": block_id,
+                        "dataSourceId": data_source_id,
+                        "values": values_json,
+                        "revision": next_record.revision,
+                    }),
+                }],
+            ))
+        }
         BlockMutationOperation::SetMaterializedContent {
             block_id,
             slot,
@@ -5073,6 +5216,91 @@ mod tests {
                 PlacementParent::DataSource("board:test".to_owned())
             );
         }
+    }
+
+    #[test]
+    fn data_source_values_follow_promotion_in_the_same_local_commit() {
+        let mut connection = Connection::open_in_memory().expect("SQLite");
+        install_graph_schema(&connection).expect("graph schema");
+        install_view_position_schema(&connection).expect("view position schema");
+        install_commit_schema(&connection).expect("commit schema");
+        content_store::install_schema(&connection).expect("content schema");
+        let mut graph = graph();
+        {
+            let transaction = connection.transaction().expect("seed transaction");
+            crate::infrastructure::block_record_store::ensure_data_source(
+                &transaction,
+                "board:test",
+                "library:test",
+            )
+            .expect("data source");
+            crate::infrastructure::block_record_store::write_graph(&transaction, &graph)
+                .expect("seed graph");
+            transaction.commit().expect("seed commit");
+        }
+        let transaction = connection.transaction().expect("mutation transaction");
+        let committed = apply_block_mutation(
+            &transaction,
+            &mut graph,
+            request(
+                "promote:title-a-with-values",
+                BlockMutationOperation::Batch {
+                    operations: vec![
+                        BlockMutationOperation::PromoteManyToPage {
+                            data_source_id: "board:test".to_owned(),
+                            view_id: None,
+                            entries: vec![BlockPromotionEntry {
+                                block_id: "title-a".to_owned(),
+                                view_group_key: None,
+                                view_rank_key: None,
+                                rank_key: "z".to_owned(),
+                                expected_block_revision: 0,
+                                expected_placement_revision: 0,
+                            }],
+                            view_rebalances: Vec::new(),
+                            placement_rebalances: Vec::new(),
+                        },
+                        BlockMutationOperation::SetDataSourceValues {
+                            block_id: "title-a".to_owned(),
+                            data_source_id: "board:test".to_owned(),
+                            values: vec![BlockDataSourceValue {
+                                property_id: "status".to_owned(),
+                                value: json!("done"),
+                            }],
+                            expected_block_revision: 1,
+                        },
+                    ],
+                },
+            ),
+        )
+        .expect("promotion and values");
+        transaction.commit().expect("commit");
+
+        assert_eq!(committed.envelope.effects.len(), 3);
+        assert_eq!(
+            graph.block("title-a").expect("Page").properties,
+            json!({
+                "title": "title-A",
+                "dataSourceValues": [{"propertyId": "status", "value": "done"}]
+            })
+        );
+        assert_eq!(graph.block("title-a").expect("Page").revision, 2);
+        assert_eq!(committed.envelope.effects[2].kind, "property_values");
+        let stored: String = connection
+            .query_row(
+                "SELECT properties_json FROM block_records WHERE id = 'title-a'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("stored Page properties");
+        assert!(stored.contains("status"));
+        assert_eq!(
+            connection
+                .query_row("SELECT count(*) FROM local_commits", [], |row| row
+                    .get::<_, i64>(0))
+                .expect("LocalCommit count"),
+            1
+        );
     }
 
     #[test]

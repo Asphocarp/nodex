@@ -932,6 +932,15 @@ pub enum BlockRecordOperation {
         #[serde(default)]
         placement_rebalances: Vec<BlockRecordPlacementRebalance>,
     },
+    /// Sets the canonical Page property values after it is placed in a Data
+    /// Source. The operation is intended to be batched with placement so the
+    /// Board row never observes a Page without its initial values.
+    SetDataSourceValues {
+        block_id: String,
+        data_source_id: String,
+        values: Vec<BlockRecordDataSourceValue>,
+        expected_block_revision: u64,
+    },
     SetMaterializedContent {
         block_id: String,
         slot: String,
@@ -1079,6 +1088,12 @@ pub enum BlockRecordBatchOperation {
         #[serde(default)]
         placement_rebalances: Vec<BlockRecordPlacementRebalance>,
     },
+    SetDataSourceValues {
+        block_id: String,
+        data_source_id: String,
+        values: Vec<BlockRecordDataSourceValue>,
+        expected_block_revision: u64,
+    },
     SetMaterializedContent {
         block_id: String,
         slot: String,
@@ -1116,6 +1131,13 @@ pub struct BlockRecordPagePlacementEntry {
     pub rank_key: String,
     pub expected_block_revision: u64,
     pub expected_placement_revision: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BlockRecordDataSourceValue {
+    pub property_id: String,
+    pub value: serde_json::Value,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
