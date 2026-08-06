@@ -119,3 +119,30 @@ test("rejects a commit from another Store epoch until reset", () => {
   dispatcher.resetForStoreEpoch(foreign.cursor);
   expect(dispatcher.accept(foreign, "tailer").kind).toBe("new");
 });
+
+test("compacts only tailer-confirmed commits and deduplicates late apply responses", async () => {
+  const received: number[] = [];
+  const dispatcher = new LocalCommitDispatcher({ maxRememberedCommits: 2 });
+  dispatcher.subscribe((commit) => {
+    received.push(commit.cursor.commitSeq);
+  });
+
+  for (const sequence of [1, 2, 3]) {
+    expect(dispatcher.accept(envelope(sequence), "apply").kind).toBe("new");
+    expect(dispatcher.accept(envelope(sequence), "tailer").kind).toBe("duplicate");
+  }
+  await dispatcher.waitForIdle();
+
+  expect(dispatcher.accept(envelope(1), "apply").kind).toBe("duplicate");
+  expect(dispatcher.accept(envelope(2), "apply").kind).toBe("duplicate");
+  expect(received).toEqual([1, 2, 3]);
+});
+
+test("does not evict apply-only commits before the durable tailer confirms them", () => {
+  const dispatcher = new LocalCommitDispatcher({ maxRememberedCommits: 1 });
+
+  dispatcher.accept(envelope(10), "apply");
+  dispatcher.accept(envelope(11), "apply");
+
+  expect(dispatcher.accept(envelope(10), "tailer").kind).toBe("duplicate");
+});

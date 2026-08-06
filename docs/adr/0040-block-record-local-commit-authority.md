@@ -88,6 +88,10 @@ Dispatcher admission is identity-based, so an out-of-order `N+1` response does
 not cause `N` to be skipped. A later duplicate may enrich a sparse envelope,
 but cannot regress an already accepted canonical cursor. A projection gap or
 missing bounded effect requests a canonical reread at the required cursor.
+The dispatcher keeps a bounded recent identity window. It only compacts entries
+that the durable tailer has crossed; apply-only entries remain remembered until
+that confirmation, and a late response for an older compacted cursor is treated
+as a duplicate against the durable ledger rather than delivered again.
 
 The Board may publish its canonical BlockRecord projection as soon as that
 window is loaded. The older View row windows are now metadata and pagination

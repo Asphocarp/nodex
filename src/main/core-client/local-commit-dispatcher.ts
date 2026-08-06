@@ -23,6 +23,13 @@ export type LocalCommitListener = (
 
 export interface LocalCommitDispatcherInput {
   readonly initialCursor?: LocalCommitCursor;
+  /**
+   * Number of tailer-confirmed commit identities retained for late apply
+   * responses.  Commits newer than the tailer cursor are never evicted just
+   * to satisfy this bound: without durable confirmation, eviction would make
+   * a later tailer delivery observable twice.
+   */
+  readonly maxRememberedCommits?: number;
   readonly onListenerError?: (error: unknown, envelope: LocalCommitEnvelope) => void;
 }
 
@@ -53,12 +60,22 @@ interface ListenerState {
  */
 export class LocalCommitDispatcher {
   readonly #onListenerError: LocalCommitDispatcherInput["onListenerError"];
+  readonly #maxRememberedCommits: number;
   readonly #commits = new Map<string, StoredCommit>();
   readonly #listeners = new Set<ListenerState>();
   #tailerCursor: LocalCommitCursor | undefined;
+  #evictedThrough: LocalCommitCursor | undefined;
 
   constructor(input: LocalCommitDispatcherInput = {}) {
     this.#onListenerError = input.onListenerError;
+    const maxRememberedCommits = input.maxRememberedCommits ?? 4096;
+    if (
+      !Number.isSafeInteger(maxRememberedCommits)
+      || maxRememberedCommits < 1
+    ) {
+      throw new Error("maxRememberedCommits must be a positive safe integer");
+    }
+    this.#maxRememberedCommits = maxRememberedCommits;
     this.#tailerCursor = input.initialCursor;
   }
 
@@ -97,6 +114,7 @@ export class LocalCommitDispatcher {
       this.#assertSameIdentity(existing.envelope, envelope);
       if (source === "tailer" || source === "replay") {
         this.#advanceTailerCursor(envelope.cursor);
+        this.#compactConfirmedCommits();
       }
       if (
         existing.payloadCompleteness === "sparse"
@@ -112,6 +130,17 @@ export class LocalCommitDispatcher {
       return { kind: "duplicate", identity };
     }
 
+    // Once the durable tailer has crossed a cursor and the identity has been
+    // compacted, a late apply/resolve response cannot be a new delivery.  The
+    // durable ledger remains the authority for the old envelope; keeping a
+    // second unbounded hash index here would defeat the memory bound.
+    if (this.#isEvicted(envelope.cursor)) {
+      if (source === "tailer" || source === "replay") {
+        this.#advanceTailerCursor(envelope.cursor);
+      }
+      return { kind: "duplicate", identity };
+    }
+
     this.#commits.set(key, {
       envelope,
       payloadCompleteness: envelope.payloadCompleteness,
@@ -119,6 +148,7 @@ export class LocalCommitDispatcher {
     if (source === "tailer" || source === "replay") {
       this.#advanceTailerCursor(envelope.cursor);
     }
+    this.#compactConfirmedCommits();
     this.#enqueue(envelope, source);
     return { kind: "new", identity };
   }
@@ -134,6 +164,7 @@ export class LocalCommitDispatcher {
     }
     this.#commits.clear();
     this.#tailerCursor = cursor;
+    this.#evictedThrough = undefined;
   }
 
   #advanceTailerCursor(cursor: LocalCommitCursor): void {
@@ -143,6 +174,38 @@ export class LocalCommitDispatcher {
     }
     if (compareLocalCommitCursor(cursor, this.#tailerCursor) > 0) {
       this.#tailerCursor = cursor;
+    }
+  }
+
+  #isEvicted(cursor: LocalCommitCursor): boolean {
+    return this.#evictedThrough !== undefined
+      && cursor.storeEpoch === this.#evictedThrough.storeEpoch
+      && cursor.commitSeq <= this.#evictedThrough.commitSeq;
+  }
+
+  #compactConfirmedCommits(): void {
+    const tailerCursor = this.#tailerCursor;
+    if (!tailerCursor) return;
+    const evictionFloor = tailerCursor.commitSeq - this.#maxRememberedCommits;
+    if (evictionFloor < 0) return;
+
+    for (const [key, stored] of this.#commits) {
+      if (
+        stored.envelope.cursor.storeEpoch === tailerCursor.storeEpoch
+        && stored.envelope.cursor.commitSeq <= evictionFloor
+      ) {
+        this.#commits.delete(key);
+      }
+    }
+    if (
+      this.#evictedThrough === undefined
+      || this.#evictedThrough.storeEpoch !== tailerCursor.storeEpoch
+      || this.#evictedThrough.commitSeq < evictionFloor
+    ) {
+      this.#evictedThrough = {
+        storeEpoch: tailerCursor.storeEpoch,
+        commitSeq: evictionFloor,
+      };
     }
   }
 

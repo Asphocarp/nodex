@@ -18,10 +18,14 @@ Store v105 retains Relation Page IDs only in normalized edge authority. Relation
   position, and the LocalCommit effect in one Core writer transaction. The
   response carries the same committed envelope to Main immediately; it does
   not wait for the LocalCommit tail, a projection reread, or renderer DOM
-  acknowledgement. The tail is the restart/replay path and the dispatcher
-  dedupes it by Store epoch and commit sequence. If a bounded effect cannot be
-  applied to a window, that window rereads at the required cursor; it never
-  invents a successful Page from an optimistic overlay.
+acknowledgement. The tail is the restart/replay path and the dispatcher
+dedupes it by Store epoch and commit sequence. If a bounded effect cannot be
+applied to a window, that window rereads at the required cursor; it never
+invents a successful Page from an optimistic overlay.
+- Main's dispatcher retains only a bounded recent identity window. It does not
+  evict apply-only commits before the durable tailer confirms them; after the
+  tailer crosses an older cursor, late apply/resolve delivery for that cursor
+  is acknowledged as a duplicate without re-running renderer effects.
 - Board cards are projected from the bounded BlockRecord window. Legacy View
   row windows may continue to supply View metadata, group totals, and
   pagination, but they cannot overwrite the canonical card projection. A
