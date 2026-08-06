@@ -627,6 +627,7 @@ describe.skipIf(!packagedCli)("packaged native CLI and Electron authority", () =
       document?.destroy();
       eventSubscription?.close();
       if (runtime) {
+        runtime.close();
         await runtime.rootClient.shutdown().catch(() => undefined);
         await waitUntil(
           () => !existsSync(path.join(home, "run/core/core.sock")),

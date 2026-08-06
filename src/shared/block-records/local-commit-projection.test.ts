@@ -114,7 +114,7 @@ describe("BlockRecord local commit projection", () => {
       {
         kind: "content",
         value: {
-          blockId: "page-a",
+          blockId: "missing",
           slot: "inline",
           shardId: "shard-a",
           head: 1,

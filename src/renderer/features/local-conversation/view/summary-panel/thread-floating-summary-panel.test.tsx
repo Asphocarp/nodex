@@ -55,6 +55,8 @@ vi.mock("../../../../lib/api", () => ({
     }
     return null;
   },
+  readDatabaseViewWindow: async () => null,
+  readDatabaseViewGroups: async () => null,
   subscribeBoardChanges: () => () => undefined,
   subscribeProjectSessionChanges: () => () => undefined,
   subscribeProjectChanges: () => () => undefined,

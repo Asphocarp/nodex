@@ -204,6 +204,14 @@ export const applyLocalCommitToBlockRecordWindow = (
       continue;
     }
     if (effect.kind === "content") {
+      const record = records.get(effect.value.blockId) ?? pendingRecords.get(effect.value.blockId);
+      if (!record) {
+        return {
+          kind: "requires_read",
+          reason: `Content ${effect.value.blockId} targets a BlockRecord outside this window`,
+          window,
+        };
+      }
       const key = `${effect.value.blockId}:${effect.value.slot}`;
       const current = content.get(key);
       if (!current && effect.value.materializedJson === undefined) {

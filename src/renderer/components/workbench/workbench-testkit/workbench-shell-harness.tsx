@@ -527,6 +527,74 @@ vi.mock("@/lib/api", () => {
     invokeCalls.push(["block-record:read", read]);
     const configured = await mockInvokeImpl?.("block-record:read", read);
     if (configured !== undefined && configured !== null) return configured;
+    const request = read as {
+      readonly parent?: { readonly kind?: string; readonly id?: string };
+      readonly view_id?: string;
+    };
+    const dataSourceId = request.parent?.kind === "data_source"
+      ? request.parent.id
+      : undefined;
+    const projectId = dataSourceId?.includes("beta")
+      ? "beta"
+      : dataSourceId?.includes("alpha")
+        ? "alpha"
+        : undefined;
+    if (projectId) {
+      const cards = projectId === "beta"
+        ? [{ id: "card-beta", title: "Beta Card" }]
+        : [
+            { id: "card-1", title: "Card One" },
+            { id: "card-2", title: "Card Two" },
+          ];
+      const viewId = request.view_id ?? `view:${projectId}`;
+      return {
+        library_id: "library:test",
+        graph: {
+          library_id: "library:test",
+          blocks: cards.map((card) => ({
+            id: card.id,
+            library_id: "library:test",
+            kind: "page",
+            lifecycle: "active",
+            properties: {
+              status: "build",
+              createdAt: "2026-06-07T00:00:00.000Z",
+            },
+            content_shard_id: `shard:${card.id}`,
+            revision: 1,
+          })),
+          placements: cards.map((card, index) => ({
+            block_id: card.id,
+            parent: { kind: "data_source", id: dataSourceId },
+            rank_key: String(index).padStart(8, "0"),
+            revision: 1,
+          })),
+        },
+        content: cards.map((card) => ({
+          block_id: card.id,
+          slot: "title",
+          library_id: "library:test",
+          shard_id: `shard:${card.id}`,
+          revision: 1,
+          materialized_json: [{ type: "text", text: card.title, styles: {} }],
+          state_vector_v1: [],
+          full_state_v1: [],
+          state_hash: `hash:${card.id}`,
+        })),
+        view_positions: cards.map((card, index) => ({
+          view_id: viewId,
+          data_source_id: dataSourceId,
+          block_id: card.id,
+          group_key: "build",
+          rank_key: String(index).padStart(8, "0"),
+          revision: 1,
+        })),
+        observed_cursor: {
+          store_epoch: "epoch:test",
+          commit_seq: 1,
+        },
+      };
+    }
     return {
       library_id: "library:test",
       graph: {

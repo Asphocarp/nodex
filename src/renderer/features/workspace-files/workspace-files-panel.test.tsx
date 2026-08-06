@@ -42,6 +42,8 @@ const fileContents: Record<string, string> = {
 };
 
 vi.mock("@/lib/api", () => ({
+  readDatabaseViewWindow: async () => null,
+  readDatabaseViewGroups: async () => null,
   invoke: async (channel: string, ...args: unknown[]) => {
     invokeCalls.push([channel, ...args]);
     if (channel === "workspace-directory-entries") {

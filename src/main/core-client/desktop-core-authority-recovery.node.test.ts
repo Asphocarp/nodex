@@ -106,12 +106,12 @@ describe("Desktop native Core generation recovery", () => {
     } finally {
       eventSubscription?.close();
       releaseState();
+      runtime.close();
       await rootClient.shutdown().catch(() => undefined);
       await waitUntil(
         () => !existsSync(path.join(nodexHome, "run/core/core.sock")),
         "Recovered Core socket remained during integration-test cleanup",
       ).catch(() => undefined);
-      runtime.close();
       rmSync(nodexHome, { recursive: true, force: true });
     }
   });

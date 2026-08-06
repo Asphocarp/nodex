@@ -2550,6 +2550,7 @@ describe("Electron native data authority", () => {
       }
     } finally {
       if (runtime) {
+        runtime.close();
         await runtime.rootClient.shutdown().catch(() => undefined);
         const socketPath = path.join(nodexHome, "run/core/core.sock");
         await waitUntil(

@@ -1234,9 +1234,13 @@ membership, and View position atomically. Descendant IDs and content shard
 identity remain stable. Board cards are materialized from the bounded
 BlockRecord window; the older Database View windows are limited to metadata,
 group totals, and pagination enrichment and cannot overwrite that projection.
-The same rule applies to `Move to → Board` and external editor drops. If the
-canonical window cannot be read, the production path reports a read boundary;
-it does not present a stale compatibility summary as a successful mutation.
+The same rule applies to canonical ordinary-Block `Move to → Board` and
+external editor drops. An already-Page root is not a promotion; until the
+remaining Page copy/placement writers are cut over, the adapter keeps that
+legacy Page transfer path explicit instead of fabricating a BlockRecord or
+pretending the Page was promoted. If a canonical window cannot be read for a
+terminal operation, the production path reports a read boundary; it does not
+present a stale compatibility summary as a successful mutation.
 
 The apply response is not gated on the durable tailer, projection reread, or
 renderer acknowledgement. Tail replay is still required for crash/restart

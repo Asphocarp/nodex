@@ -36,6 +36,9 @@ const { invokeMock } = vi.hoisted(() => ({
 }));
 
 vi.mock("./api", () => ({
+  readDatabaseViewWindow: async () => null,
+  readDatabaseViewGroups: async () => null,
+  subscribeBoardChanges: () => () => undefined,
   invoke: invokeMock,
 }));
 

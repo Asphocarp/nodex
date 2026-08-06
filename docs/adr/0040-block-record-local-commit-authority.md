@@ -72,13 +72,22 @@ the old read contract, but it is not a production authority.
 
 ## User-facing operations
 
-`Move to → Page` flushes the active record-backed editor before submitting the
-typed move, so the title/body mutation and relocation cannot race. `Move to →
-Board` uses the same transfer boundary as an external editor drop: the source
-Block IDs are read, the target Data Source/View is resolved, and one
-`PromoteManyToPage` commit changes kind, placement, membership, View position,
-and title projection. Descendant IDs and content shard identity remain stable;
-the operation does not copy a Page document or re-create a child subtree.
+For a record-backed editor, `Move to → Page` flushes the active editor before
+submitting the typed move, so the content mutation and relocation cannot race.
+For an ordinary canonical Block, `Move to → Board` uses the same transfer
+boundary as an external editor drop: the source Block IDs are read, the target
+Data Source/View is resolved, and one `PromoteManyToPage` commit changes kind,
+placement, membership, View position, and title projection. Descendant IDs and
+content shard identity remain stable; the operation does not copy a Page
+document or re-create a child subtree.
+
+An already-Page root is not a promotion. Until the remaining Page copy and
+Page-placement writers are cut over, an already-Page or legacy-created root is
+deliberately handled by the existing Library transfer adapter; it is never
+fabricated into a BlockRecord promotion or admitted as an orphan canonical
+record. This is an explicit current-slice boundary, not the terminal model:
+the final replacement removes that route and moves existing Page roots with
+the same BlockRecord placement kernel.
 
 ## Scope and follow-up
 

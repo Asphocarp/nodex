@@ -276,7 +276,7 @@ const readBlockRecordWindow = async (
 const commitMoveIntoDataSource = async (
   input: CoreBlockTransferAdapterInput,
   intent: BlockTransferIntent,
-): Promise<BlockTransferCommandResult> => {
+): Promise<BlockTransferCommandResult | null> => {
   const target = intent.target;
   if (target.kind !== "data_source") {
     throw new Error("Data Source transfer target is required");
@@ -293,10 +293,20 @@ const commitMoveIntoDataSource = async (
     include_content: true,
     include_descendants: true,
   };
-  const [sourceWindow, targetWindow] = await Promise.all([
-    readBlockRecordWindow(input, sourceRead),
-    readBlockRecordWindow(input, targetRead),
-  ]);
+  const sourceWindow = await readBlockRecordWindow(input, sourceRead);
+  const sourceRoots = intent.rootBlockIds.map((blockId) =>
+    sourceWindow.records.find((record) => record.id === blockId)
+  );
+  // PromoteManyToPage is deliberately narrow: it changes an ordinary
+  // canonical Block into a Page. Existing Page records already have their
+  // Page identity and still use the Library transfer path until the remaining
+  // Page placement writers are cut over to BlockRecord. A missing record has
+  // the same boundary meaning for legacy-created Pages; do not turn that
+  // absence into a fabricated promotion or an orphan canonical record.
+  if (sourceRoots.some((record) => !record || record.kind === "page")) {
+    return null;
+  }
+  const targetWindow = await readBlockRecordWindow(input, targetRead);
   const sourceRecords = new Map(sourceWindow.records.map((record) => [record.id, record]));
   const sourcePlacements = new Map(sourceWindow.placements.map((placement) => [placement.blockId, placement]));
   const targetPositions = targetWindow.viewPositions
@@ -525,7 +535,8 @@ export const createCoreBlockTransferAdapter = (
       if (scopeError) return { ok: false, error: scopeError };
       try {
         if (intent.mode === "move" && intent.target.kind === "data_source") {
-          return await commitMoveIntoDataSource(input, intent);
+          const terminal = await commitMoveIntoDataSource(input, intent);
+          if (terminal !== null) return terminal;
         }
         const committed = await input.client.libraryApply({
           operationId: intent.operationId,

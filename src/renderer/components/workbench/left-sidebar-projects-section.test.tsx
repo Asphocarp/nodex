@@ -15,6 +15,8 @@ let invokeCalls: unknown[][] = [];
 let mockInvokeImpl: ((channel: string, ...args: unknown[]) => Promise<unknown>) | null = null;
 
 vi.mock("@/lib/api", () => ({
+  readDatabaseViewWindow: async () => null,
+  readDatabaseViewGroups: async () => null,
   invoke: async (channel: string, ...args: unknown[]) => {
     invokeCalls.push([channel, ...args]);
     return mockInvokeImpl?.(channel, ...args) ?? null;
