@@ -278,6 +278,51 @@ describe("native desktop Nodex Agent dynamic service", () => {
         },
       };
     });
+    const blockRecordRead = vi.fn(async () => ({
+      library_id: "library-native-agent",
+      observed_cursor: { store_epoch: "store-native-agent", commit_seq: 29 },
+      graph: {
+        library_id: "library-native-agent",
+        blocks: [{
+          id: "page-create-target",
+          library_id: "library-native-agent",
+          kind: "page",
+          lifecycle: "active",
+          properties: { title: "Target" },
+          content_shard_id: "shard:target",
+          revision: 1,
+        }],
+        placements: [{
+          block_id: "page-create-target",
+          parent: { kind: "library" },
+          rank_key: "a",
+          revision: 1,
+        }],
+      },
+      view_positions: [],
+      content: [],
+    }));
+    const blockRecordApply = vi.fn(async (request: {
+      readonly operation: { readonly kind: string; readonly operations?: readonly unknown[] };
+      readonly operation_id: string;
+    }) => {
+      expect(request.operation.kind).toBe("batch");
+      expect(request.operation.operations).toHaveLength(4);
+      return {
+        actor_id: "profile:library-native-agent",
+        audience: { kind: "library", projectIds: [] },
+        canonical_hash: "a".repeat(64),
+        commit_id: `commit:${request.operation_id}`,
+        committed_at: "2026-08-06T00:00:00.000Z",
+        cursor: { store_epoch: "store-native-agent", commit_seq: 34 },
+        duplicate: false,
+        effects: [],
+        intent_hash: "b".repeat(64),
+        operation_id: request.operation_id,
+        payload_completeness: "rich" as const,
+        session_id: "call-native-agent",
+      };
+    });
     const coordinate = vi.fn(async (options: {
       readonly execute: () => Promise<unknown>;
     }) => await options.execute());
@@ -287,7 +332,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
       rootClient: {
         handshake: nativeAgentHandshake(),
       },
-      clientForProject: () => ({ libraryRead, libraryApply }),
+      clientForProject: () => ({ libraryRead, libraryApply, blockRecordRead, blockRecordApply }),
     } as unknown as Extract<DesktopDataAuthorityRuntime, { backend: "rust" }>;
     const service = createDesktopNodexAgentV3DynamicService({
       authority: Promise.resolve(runtime),
@@ -331,7 +376,8 @@ describe("native desktop Nodex Agent dynamic service", () => {
     });
     expect(libraryRead).toHaveBeenCalledTimes(2);
     expect(coordinate).toHaveBeenCalledOnce();
-    expect(libraryApply).toHaveBeenCalledOnce();
+    expect(libraryApply).not.toHaveBeenCalled();
+    expect(blockRecordApply).toHaveBeenCalledOnce();
   });
 
   test("moves a mixed-source Page batch through Core under one exact target lease", async () => {
@@ -462,6 +508,81 @@ describe("native desktop Nodex Agent dynamic service", () => {
         },
       };
     });
+    const blockRecordRead = vi.fn(async (read: {
+      readonly parent?: { readonly kind: string; readonly id?: string };
+      readonly block_ids?: readonly string[];
+    }) => {
+      const target = read.parent?.kind === "block"
+        || read.block_ids?.includes("page-copy-target") === true;
+      return {
+        library_id: "library-native-agent",
+        observed_cursor: { store_epoch: "store-native-agent", commit_seq: 41 },
+        graph: {
+          library_id: "library-native-agent",
+          blocks: target
+            ? [{
+                id: "page-move-target",
+                library_id: "library-native-agent",
+                kind: "page",
+                lifecycle: "active",
+                properties: { title: "Target" },
+                content_shard_id: "shard:target",
+                revision: 2,
+              }]
+            : [{
+                id: "page-move-database",
+                library_id: "library-native-agent",
+                kind: "page",
+                lifecycle: "active",
+                properties: { title: "Database page" },
+                content_shard_id: "shard:database",
+                revision: 3,
+              }, {
+                id: "page-move-library",
+                library_id: "library-native-agent",
+                kind: "page",
+                lifecycle: "active",
+                properties: { title: "Library page" },
+                content_shard_id: "shard:library",
+                revision: 4,
+              }],
+          placements: target
+            ? [{
+                block_id: "page-move-target",
+                parent: { kind: "library" },
+                rank_key: "a",
+                revision: 2,
+              }]
+            : [{
+                block_id: "page-move-database",
+                parent: { kind: "data_source", id: "data-source-move" },
+                rank_key: "b",
+                revision: 3,
+              }, {
+                block_id: "page-move-library",
+                parent: { kind: "library" },
+                rank_key: "c",
+                revision: 4,
+              }],
+        },
+        view_positions: [],
+        content: [],
+      };
+    });
+    const blockRecordApply = vi.fn(async (request: { readonly operation_id: string }) => ({
+      actor_id: "profile-native-agent",
+      audience: { kind: "library", projectIds: [] },
+      canonical_hash: "a".repeat(64),
+      commit_id: `commit:${request.operation_id}`,
+      committed_at: "2026-08-06T00:00:00.000Z",
+      cursor: { store_epoch: "store-native-agent", commit_seq: 42 },
+      duplicate: false,
+      effects: [],
+      intent_hash: "b".repeat(64),
+      operation_id: request.operation_id,
+      payload_completeness: "rich" as const,
+      session_id: "call-native-agent",
+    }));
     const coordinate = vi.fn(async (options: {
       readonly execute: () => Promise<unknown>;
     }) => await options.execute());
@@ -471,7 +592,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
       rootClient: {
         handshake: nativeAgentHandshake(),
       },
-      clientForProject: () => ({ libraryRead, libraryApply }),
+      clientForProject: () => ({ libraryRead, libraryApply, blockRecordRead, blockRecordApply }),
     } as unknown as Extract<DesktopDataAuthorityRuntime, { backend: "rust" }>;
     const service = createDesktopNodexAgentV3DynamicService({
       authority: Promise.resolve(runtime),
@@ -509,7 +630,8 @@ describe("native desktop Nodex Agent dynamic service", () => {
     });
     expect(libraryRead).toHaveBeenCalledTimes(2);
     expect(coordinate).toHaveBeenCalledOnce();
-    expect(libraryApply).toHaveBeenCalledOnce();
+    expect(libraryApply).not.toHaveBeenCalled();
+    expect(blockRecordApply).toHaveBeenCalledOnce();
   });
 
   test("duplicates a Page through Core only after coordinating its exact Document lease", async () => {
@@ -637,6 +759,118 @@ describe("native desktop Nodex Agent dynamic service", () => {
         },
       };
     });
+    const blockRecordRead = vi.fn(async (read: {
+      readonly parent?: { readonly kind: string; readonly id?: string };
+      readonly block_ids?: readonly string[];
+    }) => {
+      const target = read.parent?.kind === "block"
+        || read.block_ids?.includes("page-copy-target") === true;
+
+      return {
+        library_id: "library-native-agent",
+        observed_cursor: { store_epoch: "store-native-agent", commit_seq: 20 },
+        graph: {
+          library_id: "library-native-agent",
+          blocks: target
+            ? [{
+                id: "page-copy-target",
+                library_id: "library-native-agent",
+                kind: "page",
+                lifecycle: "active",
+                properties: { title: "Target" },
+                content_shard_id: "shard:target",
+                revision: 2,
+              }, {
+                id: "block-copy-anchor",
+                library_id: "library-native-agent",
+                kind: "paragraph",
+                lifecycle: "active",
+                properties: {},
+                content_shard_id: "shard:anchor",
+                revision: 3,
+              }]
+            : [{
+                id: "page-copy-source",
+                library_id: "library-native-agent",
+                kind: "page",
+                lifecycle: "active",
+                properties: { title: "Source" },
+                content_shard_id: "shard:source",
+                revision: 4,
+              }, {
+                id: "block-copy-source",
+                library_id: "library-native-agent",
+                kind: "paragraph",
+                lifecycle: "active",
+                properties: {},
+                content_shard_id: "shard:source-child",
+                revision: 5,
+              }, {
+                id: "block-copy-child",
+                library_id: "library-native-agent",
+                kind: "paragraph",
+                lifecycle: "active",
+                properties: {},
+                content_shard_id: "shard:source-child-2",
+                revision: 6,
+              }],
+          placements: target
+            ? [{
+                block_id: "page-copy-target",
+                parent: { kind: "library" },
+                rank_key: "a",
+                revision: 2,
+              }, {
+                block_id: "block-copy-anchor",
+                parent: { kind: "block", id: "page-copy-target" },
+                rank_key: "f",
+                revision: 3,
+              }]
+            : [{
+                block_id: "page-copy-source",
+                parent: { kind: "library" },
+                rank_key: "b",
+                revision: 4,
+              }, {
+                block_id: "block-copy-source",
+                parent: { kind: "block", id: "page-copy-source" },
+                rank_key: "b",
+                revision: 5,
+              }, {
+                block_id: "block-copy-child",
+                parent: { kind: "block", id: "page-copy-source" },
+                rank_key: "c",
+                revision: 6,
+              }],
+        },
+        view_positions: [],
+        content: target ? [] : [{
+          block_id: "page-copy-source",
+          library_id: "library-native-agent",
+          slot: "title",
+          shard_id: "shard:source",
+          revision: 1,
+          materialized_json: [{ type: "text", text: "Source" }],
+          full_state_v1: [],
+          state_vector_v1: [],
+          state_hash: "a".repeat(64),
+        }],
+      };
+    });
+    const blockRecordApply = vi.fn(async (request: { readonly operation_id: string }) => ({
+      actor_id: "profile-native-agent",
+      audience: { kind: "library", projectIds: [] },
+      canonical_hash: "a".repeat(64),
+      commit_id: `commit:${request.operation_id}`,
+      committed_at: "2026-08-06T00:00:00.000Z",
+      cursor: { store_epoch: "store-native-agent", commit_seq: 21 },
+      duplicate: false,
+      effects: [],
+      intent_hash: "b".repeat(64),
+      operation_id: request.operation_id,
+      payload_completeness: "rich" as const,
+      session_id: "call-native-agent",
+    }));
     const coordinate = vi.fn(async (options: {
       readonly projectId: string;
       readonly storeEpoch: string;
@@ -652,7 +886,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
       rootClient: {
         handshake: nativeAgentHandshake(),
       },
-      clientForProject: () => ({ libraryRead, libraryApply }),
+      clientForProject: () => ({ libraryRead, libraryApply, blockRecordRead, blockRecordApply }),
     } as unknown as Extract<DesktopDataAuthorityRuntime, { backend: "rust" }>;
     const service = createDesktopNodexAgentV3DynamicService({
       authority: Promise.resolve(runtime),
@@ -687,18 +921,23 @@ describe("native desktop Nodex Agent dynamic service", () => {
           bodyBlocksCreated: 2,
           blockMap: {
             "page-copy-source": "page-copy-result",
-            "block-copy-source": "block-copy-result",
-          },
-          etags: {
-            title: "nxe1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-            body: "nxe1.BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+            "block-copy-source": expect.any(String),
+            "block-copy-child": expect.any(String),
           },
         },
       },
     });
+    const copyData = (result.output as {
+      readonly data?: {
+        readonly etags?: { readonly title?: string; readonly body?: string };
+      };
+    }).data;
+    expect(copyData?.etags?.title).toMatch(/^nxe1\.[A-Za-z0-9_-]{43}$/u);
+    expect(copyData?.etags?.body).toMatch(/^nxe1\.[A-Za-z0-9_-]{43}$/u);
     expect(libraryRead).toHaveBeenCalledTimes(2);
     expect(coordinate).toHaveBeenCalledOnce();
-    expect(libraryApply).toHaveBeenCalledOnce();
+    expect(libraryApply).not.toHaveBeenCalled();
+    expect(blockRecordApply).toHaveBeenCalledOnce();
   });
 
   test("searches native Library resources with Core authority and pagination", async () => {

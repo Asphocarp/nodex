@@ -14,6 +14,7 @@ import type { BlockRecordRead } from "../../shared/core-modules/block-record-mod
 import {
   blockRecordSnapshotToWindow,
   buildCopySubtreeBlockRecordApplyInput,
+  buildMoveManyBlockRecordApplyInput,
   buildPlaceManyPagesInDataSourceApplyInput,
   buildPromoteManyBlockRecordApplyInput,
   planFractionalRank,
@@ -291,9 +292,10 @@ const tryReadBlockRecordWindow = async (
  * Document. Core receives the complete identity map and copies the current
  * content snapshots inside the same LocalCommit as the new placements.
  */
-const commitCopySubtree = async (
+export const commitCanonicalCopyIntent = async (
   input: CoreBlockTransferAdapterInput,
   intent: BlockTransferIntent,
+  targetRootBlockIdOverride?: string,
 ): Promise<BlockTransferCommandResult | null> => {
   if (intent.rootBlockIds.length !== 1 || intent.target.kind === "document") return null;
   const sourceBlockId = intent.rootBlockIds[0];
@@ -392,7 +394,12 @@ const commitCopySubtree = async (
   const beforeBlockId = target.kind === "data_source"
     ? target.beforePageId
     : target.beforeBlockId;
-  const placementPlan = planFractionalRank(targetItems, copyIdentity(intent.operationId, sourceBlockId), beforeBlockId);
+  const targetRootBlockId = targetRootBlockIdOverride
+    ?? copyIdentity(intent.operationId, sourceBlockId);
+  const copyTargetId = (sourceId: string): string => sourceId === sourceBlockId
+    ? targetRootBlockId
+    : copyIdentity(intent.operationId, sourceId);
+  const placementPlan = planFractionalRank(targetItems, targetRootBlockId, beforeBlockId);
   const placementRebalances = [...placementPlan.rebalancedRankKeys].map(([blockId, rankKey]) => {
     const placement = targetWindow.placements.find((candidate) => candidate.blockId === blockId);
     if (!placement) throw new Error(`Copy placement rebalance target ${blockId} is not loaded`);
@@ -420,7 +427,7 @@ const commitCopySubtree = async (
       .map((position) => ({ id: position.blockId, rankKey: position.rankKey }));
     const viewPlan = planFractionalRank(
       viewItems,
-      copyIdentity(intent.operationId, sourceBlockId),
+      targetRootBlockId,
       target.beforePageId,
     );
     viewRankKey = viewPlan.rankKey;
@@ -436,14 +443,13 @@ const commitCopySubtree = async (
     });
   }
 
-  const targetRootBlockId = copyIdentity(intent.operationId, sourceBlockId);
   const entries = sourceOrder.slice(1).map((sourceId) => {
     const record = sourceRecords.get(sourceId);
     const placement = sourcePlacements.get(sourceId);
     if (!record || !placement) throw new Error(`Copy source ${sourceId} is incomplete`);
     return {
       sourceBlockId: sourceId,
-      targetBlockId: copyIdentity(intent.operationId, sourceId),
+      targetBlockId: copyTargetId(sourceId),
       expectedBlockRevision: record.revision,
       expectedPlacementRevision: placement.revision,
     };
@@ -474,7 +480,7 @@ const commitCopySubtree = async (
   const committed = await input.client.blockRecordApply(applyInput);
   const sourceToTargetBlockIds = Object.fromEntries(sourceOrder.map((sourceId) => [
     sourceId,
-    copyIdentity(intent.operationId, sourceId),
+    copyTargetId(sourceId),
   ]));
   const titleContent = sourceWindow.content.find((content) => (
     content.blockId === sourceBlockId
@@ -517,6 +523,187 @@ const commitCopySubtree = async (
       finalLocationRevisions: { [targetRootBlockId]: 0 },
       documentCommits: [],
       affectedDatabaseBlockIds: target.kind === "data_source" ? [target.dataSourceId] : [],
+      changeLogSeq: committed.cursor.commit_seq,
+      committedAt: committed.committed_at,
+    },
+  };
+};
+
+/**
+ * Moves canonical roots to Library or Page ownership without involving the
+ * legacy Library transfer compiler. The whole root set is planned against
+ * one target snapshot and committed through one MoveMany operation, so a
+ * multi-page Agent move cannot expose a partially moved batch.
+ */
+export const commitCanonicalMoveIntent = async (
+  input: CoreBlockTransferAdapterInput,
+  intent: BlockTransferIntent,
+): Promise<BlockTransferCommandResult | null> => {
+  const target = intent.target;
+  if (target.kind !== "library" && target.kind !== "page") return null;
+  const sourceWindow = await tryReadBlockRecordWindow(input, {
+    kind: "window",
+    block_ids: [...intent.rootBlockIds],
+    include_content: true,
+    include_descendants: true,
+  });
+  if (!sourceWindow) return null;
+  const sourceRecords = new Map(sourceWindow.records.map((record) => [record.id, record]));
+  const sourcePlacements = new Map(
+    sourceWindow.placements.map((placement) => [placement.blockId, placement]),
+  );
+  if (intent.rootBlockIds.some((blockId) => (
+    !sourceRecords.has(blockId) || !sourcePlacements.has(blockId)
+  ))) {
+    return null;
+  }
+  const sourceClosure = new Set(sourceWindow.records.map((record) => record.id));
+  const targetParent: BlockPlacementParent = target.kind === "library"
+    ? { kind: "library", libraryId: input.libraryId }
+    : { kind: "block", blockId: target.pageId };
+  if (targetParent.kind === "block" && sourceClosure.has(targetParent.blockId)) {
+    throw new Error("A canonical Block cannot move into its own subtree");
+  }
+
+  const targetRead: BlockRecordRead = targetParent.kind === "library"
+    ? { kind: "window", include_content: false }
+    : {
+        kind: "window",
+        block_ids: [targetParent.blockId],
+        parent: { kind: "block", id: targetParent.blockId },
+        include_content: false,
+      };
+  const targetWindow = await tryReadBlockRecordWindow(input, targetRead);
+  if (!targetWindow) return null;
+  if (targetParent.kind === "block") {
+    const targetRecord = targetWindow.records.find(
+      (record) => record.id === targetParent.blockId,
+    );
+    if (!targetRecord || targetRecord.kind !== "page" || targetRecord.lifecycle !== "active") {
+      throw new Error("Canonical transfer target Page is unavailable");
+    }
+  }
+
+  const sameParent = (placement: BlockRecordWindow["placements"][number]): boolean => {
+    if (targetParent.kind === "library") return placement.parent.kind === "library";
+    return placement.parent.kind === "block"
+      && placement.parent.blockId === targetParent.blockId;
+  };
+  const movedRoots = new Set(intent.rootBlockIds);
+  const targetItems = targetWindow.placements
+    .filter((placement) => sameParent(placement) && !movedRoots.has(placement.blockId))
+    .sort((left, right) => (
+      left.rankKey.localeCompare(right.rankKey) || left.blockId.localeCompare(right.blockId)
+    ))
+    .map((placement) => ({ id: placement.blockId, rankKey: placement.rankKey }));
+  const beforeBlockId = target.beforeBlockId;
+  if (beforeBlockId && movedRoots.has(beforeBlockId)) {
+    throw new Error("Canonical transfer anchor cannot be one of the moved roots");
+  }
+  const placementRebalances = new Map<string, {
+    blockId: string;
+    rankKey: string;
+    expectedRevision: number;
+  }>();
+  const entries: {
+    blockId: string;
+    targetParent: BlockPlacementParent;
+    rankKey: string;
+    expectedBlockRevision: number;
+    expectedPlacementRevision: number;
+  }[] = [];
+  for (const blockId of intent.rootBlockIds) {
+    const record = sourceRecords.get(blockId);
+    const placement = sourcePlacements.get(blockId);
+    if (!record || !placement) return null;
+    const rank = planFractionalRank(targetItems, blockId, beforeBlockId);
+    for (const [rebalanceId, rankKey] of rank.rebalancedRankKeys) {
+      const rebalancePlacement = targetWindow.placements.find(
+        (candidate) => candidate.blockId === rebalanceId,
+      );
+      if (!rebalancePlacement) {
+        throw new Error(`Canonical transfer rebalance target ${rebalanceId} is not loaded`);
+      }
+      placementRebalances.set(rebalanceId, {
+        blockId: rebalanceId,
+        rankKey,
+        expectedRevision: rebalancePlacement.revision,
+      });
+      const item = targetItems.find((candidate) => candidate.id === rebalanceId);
+      if (item) item.rankKey = rankKey;
+    }
+    const anchorIndex = beforeBlockId === undefined
+      ? targetItems.length
+      : targetItems.findIndex((item) => item.id === beforeBlockId);
+    if (anchorIndex < 0) {
+      throw new Error(`Canonical transfer anchor ${beforeBlockId} is not loaded`);
+    }
+    targetItems.splice(anchorIndex, 0, { id: blockId, rankKey: rank.rankKey });
+    entries.push({
+      blockId,
+      targetParent,
+      rankKey: rank.rankKey,
+      expectedBlockRevision: record.revision,
+      expectedPlacementRevision: placement.revision,
+    });
+  }
+  const applyInput = await buildMoveManyBlockRecordApplyInput({
+    operationId: intent.operationId,
+    actorId: intent.clientSessionId ?? "block-transfer",
+    sessionId: intent.clientSessionId ?? "block-transfer",
+    entries,
+    placementRebalances: [...placementRebalances.values()],
+  });
+  const committed = await input.client.blockRecordApply(applyInput);
+  const evidence = intent.rootBlockIds.map((blockId) => {
+    const record = sourceRecords.get(blockId)!;
+    const titleContent = sourceWindow.content.find((content) => (
+      content.blockId === blockId
+      && (content.slot === "inline" || content.slot === "title")
+    ));
+    return {
+      sourceBlockId: blockId,
+      resultPageId: blockId,
+      kind: "move" as const,
+      sourceBlockType: record.kind,
+      semanticTitleHash: titleHash(titleContent?.content ?? record.properties.title),
+      consumedPropertyKeys: [],
+      bodyRootBlockIds: sourceWindow.placements
+        .filter((placement) => (
+          placement.parent.kind === "block" && placement.parent.blockId === blockId
+        ))
+        .sort((left, right) => (
+          left.rankKey.localeCompare(right.rankKey) || left.blockId.localeCompare(right.blockId)
+        ))
+        .map((placement) => placement.blockId),
+      sourceToResultBlockIds: { [blockId]: blockId },
+    };
+  });
+  const location: BlockLocation = target.kind === "library"
+    ? { kind: "space", projectId: intent.projectId, rankKey: entries[0]?.rankKey ?? "" }
+    : { kind: "document", documentId: `block-record:${target.pageId}` };
+  return {
+    ok: true,
+    value: {
+      version: BLOCK_TRANSFER_CONTRACT_VERSION,
+      operationId: intent.operationId,
+      projectId: intent.projectId,
+      storeEpoch: intent.storeEpoch,
+      mode: "move",
+      duplicate: committed.duplicate,
+      sourceRootBlockIds: intent.rootBlockIds,
+      resultRootBlockIds: intent.rootBlockIds,
+      copiedBlockIds: {},
+      transformationEvidence: evidence,
+      finalLocations: Object.fromEntries(
+        intent.rootBlockIds.map((blockId) => [blockId, location]),
+      ),
+      finalLocationRevisions: Object.fromEntries(entries.map((entry) => [
+        entry.blockId,
+        entry.expectedPlacementRevision + 1,
+      ])),
+      documentCommits: [],
+      affectedDatabaseBlockIds: [],
       changeLogSeq: committed.cursor.commit_seq,
       committedAt: committed.committed_at,
     },
@@ -805,7 +992,7 @@ export const createCoreBlockTransferAdapter = (
       if (scopeError) return { ok: false, error: scopeError };
       try {
         if (intent.mode === "copy") {
-          const terminal = await commitCopySubtree(input, intent);
+          const terminal = await commitCanonicalCopyIntent(input, intent);
           if (terminal !== null) return terminal;
         }
         if (intent.mode === "move" && intent.target.kind === "data_source") {

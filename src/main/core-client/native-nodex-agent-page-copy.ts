@@ -1,5 +1,9 @@
 import type { components } from "@nodex/core-protocol";
 import { createHash } from "node:crypto";
+import {
+  BLOCK_TRANSFER_INTENT_CONTRACT_VERSION,
+  type BlockTransferIntent,
+} from "../../shared/block-transfer";
 import type {
   ExecuteNodexAgentDuplicatePageResult,
   NodexAgentDuplicatePageCommand,
@@ -10,10 +14,10 @@ import { DuplicatePageV3OutputSchema } from "../../shared/nodex-agent-tools/v3-w
 import { TransferBlocksInputSchema } from "../../shared/nodex-agent-tools/write-schemas";
 import type { NodexAgentMutationEnvelope } from "../agent-tools/dynamic-service-v3-port";
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
+import { commitCanonicalCopyIntent } from "./block-transfer-adapter";
 import { toCoreAgentExecutionAuthorization } from "./desktop-nodex-agent-resource-authority";
 import {
   hasExactNativeAgentDocumentHeads,
-  nativeAgentDocumentCommits,
   nativeAgentPageLocation,
   nativeAgentDocumentHeads,
   preparedAgentPageDestination,
@@ -85,6 +89,119 @@ const output = (
       : {}),
   },
 });
+
+const canonicalEtag = (operationId: string, value: unknown): string => (
+  `nxe1.${createHash("sha256").update(JSON.stringify([operationId, value])).digest("base64url")}`
+);
+
+const canonicalIntent = (
+  request: PrepareNodexAgentDuplicatePageRequest,
+  command: NodexAgentDuplicatePageCommand,
+  libraryId: string,
+): BlockTransferIntent => {
+  const target = command.destination;
+  if (target.kind === "space") {
+    return {
+      version: BLOCK_TRANSFER_INTENT_CONTRACT_VERSION,
+      operationId: command.mutationId,
+      projectId: command.projectId,
+      storeEpoch: command.storeEpoch,
+      clientSessionId: command.callId,
+      actor: { kind: "nodex_agent", callId: command.callId },
+      mode: "copy",
+      rootBlockIds: [request.input.pageId],
+      source: { kind: "page", pageId: request.input.pageId },
+      target: {
+        kind: "library",
+        libraryId,
+        ...(target.beforeBlockId ? { beforeBlockId: target.beforeBlockId } : {}),
+      },
+    };
+  }
+  if (target.kind === "document") {
+    if (request.input.destination.kind !== "page") {
+      throw new Error("Canonical Agent Page copy destination does not identify a Page");
+    }
+    return {
+      version: BLOCK_TRANSFER_INTENT_CONTRACT_VERSION,
+      operationId: command.mutationId,
+      projectId: command.projectId,
+      storeEpoch: command.storeEpoch,
+      clientSessionId: command.callId,
+      actor: { kind: "nodex_agent", callId: command.callId },
+      mode: "copy",
+      rootBlockIds: [request.input.pageId],
+      source: { kind: "page", pageId: request.input.pageId },
+      target: {
+        kind: "page",
+        pageId: request.input.destination.pageId,
+        ...(target.beforeBlockId ? { beforeBlockId: target.beforeBlockId } : {}),
+      },
+    };
+  }
+  const view = target.view;
+  if (!view) throw new Error("Canonical Agent Board copy destination requires a View");
+  return {
+    version: BLOCK_TRANSFER_INTENT_CONTRACT_VERSION,
+    operationId: command.mutationId,
+    projectId: command.projectId,
+    storeEpoch: command.storeEpoch,
+    clientSessionId: command.callId,
+    actor: { kind: "nodex_agent", callId: command.callId },
+    mode: "copy",
+    rootBlockIds: [request.input.pageId],
+    source: { kind: "page", pageId: request.input.pageId },
+    target: {
+      kind: "data_source",
+      dataSourceId: target.dataSourceId,
+      viewId: view.viewId,
+      groupKey: view.groupKey,
+      ...(view.beforePageId ? { beforePageId: view.beforePageId } : {}),
+    },
+  };
+};
+
+const canonicalOutput = (
+  request: PrepareNodexAgentDuplicatePageRequest,
+  command: NodexAgentDuplicatePageCommand,
+  libraryId: string,
+  result: Extract<Awaited<ReturnType<typeof commitCanonicalCopyIntent>>, { readonly ok: true }> ["value"],
+) => {
+  const pageId = result.resultRootBlockIds[0];
+  if (!pageId) throw new Error("Canonical Agent Page copy omitted its target Page");
+  const location = command.destination.kind === "space"
+    ? { kind: "library" as const, libraryId }
+    : command.destination.kind === "document"
+      ? {
+          kind: "page" as const,
+          pageId: request.input.destination.kind === "page"
+            ? request.input.destination.pageId
+            : (() => { throw new Error("Canonical Agent Page copy destination is invalid"); })(),
+        }
+      : {
+          kind: "data_source" as const,
+          dataSourceId: command.destination.dataSourceId,
+        };
+  return DuplicatePageV3OutputSchema.parse({
+    data: {
+      sourcePageId: request.input.pageId,
+      pageId,
+      location,
+      bodyBlocksCreated: Math.max(0, Object.keys(result.copiedBlockIds).length - 1),
+      ...(request.input.return?.includes("block_map")
+        ? { blockMap: result.copiedBlockIds }
+        : {}),
+      ...(request.input.return?.includes("etags")
+        ? {
+            etags: {
+              title: canonicalEtag(command.mutationId, [pageId, "title"]),
+              body: canonicalEtag(command.mutationId, [pageId, "body"]),
+            },
+          }
+        : {}),
+    },
+  });
+};
 
 const preparedDestination = (
   _request: PrepareNodexAgentDuplicatePageRequest,
@@ -262,8 +379,7 @@ export class NativeNodexAgentPageCopyRuntime {
         },
       };
     }
-    const authority = pending.request.authority;
-    if (!authority) {
+    if (!pending.request.authority) {
       return {
         ok: false,
         error: {
@@ -275,37 +391,37 @@ export class NativeNodexAgentPageCopyRuntime {
       };
     }
     try {
-      const committed = await this.runtime.clientForProject(pending.request.projectId)
-        .libraryApply({
-          operationId: pending.operationId,
-          intent: {
-            kind: "execute_prepared_agent_page_copy",
-            authorization: {
-              authorization: toCoreAgentExecutionAuthorization(
-                this.runtime.identity.profileId,
-                authority,
-                pending.request.callId,
-                pending.request.resourceAccess,
-              ),
-              token: pending.token,
-            },
-            request: pending.coreRequest,
-          },
-        });
-      const result = committed.value.agent_page_copy;
-      if (!result) throw new Error("Core Agent Page copy commit omitted its result");
+      const targetPageId = command.canonical?.newPageId;
+      if (!targetPageId) {
+        throw new Error("Canonical Agent Page copy omitted its target identity");
+      }
+      const transfer = await commitCanonicalCopyIntent({
+        client: this.runtime.clientForProject(pending.request.projectId),
+        libraryId: this.runtime.identity.libraryId,
+        projectId: pending.request.projectId,
+        storeEpoch: command.storeEpoch,
+      }, canonicalIntent(pending.request, command, this.runtime.identity.libraryId), targetPageId);
+      if (!transfer) {
+        throw new Error("Canonical Agent Page copy has no BlockRecord source/target");
+      }
+      if (!transfer.ok) throw new Error(transfer.error.message);
+      const result = transfer.value;
       this.pending.delete(command.mutationId);
       return {
         ok: true,
         value: {
-          output: output(
+          output: canonicalOutput(
+            pending.request,
+            command,
+            this.runtime.identity.libraryId,
             result,
-            pending.request.input.return?.includes("block_map") ?? false,
           ),
-          duplicate: committed.receipt.duplicate,
-          documentCommits: nativeAgentDocumentCommits(result.document_commits),
-          affectedDatabaseBlockIds: [...result.affected_database_ids],
-          changeLogSeq: committed.event_sequence,
+          duplicate: result.duplicate,
+          documentCommits: [],
+          affectedDatabaseBlockIds: command.destination.kind === "database"
+            ? [command.destination.databaseBlockId]
+            : [],
+          changeLogSeq: result.changeLogSeq,
         },
       };
     } catch (error) {

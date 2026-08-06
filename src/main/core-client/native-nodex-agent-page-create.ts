@@ -12,10 +12,10 @@ import { CreatePagesV3OutputSchema } from "../../shared/nodex-agent-tools/v3-wri
 import { CreateInputSchema } from "../../shared/nodex-agent-tools/write-schemas";
 import type { NodexAgentMutationEnvelope } from "../agent-tools/dynamic-service-v3-port";
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
+import { commitCanonicalAgentPageCreate } from "./canonical-agent-page-commands";
 import { toCoreAgentExecutionAuthorization } from "./desktop-nodex-agent-resource-authority";
 import {
   hasExactNativeAgentDocumentHeads,
-  nativeAgentDocumentCommits,
   nativeAgentDocumentHeads,
   nativeAgentPageLocation,
   preparedAgentPageDestination,
@@ -96,6 +96,59 @@ const output = (
     created: result.pages.length,
   },
 });
+
+const canonicalEtag = (operationId: string, value: unknown): string => (
+  `nxe1.${createHash("sha256").update(JSON.stringify([operationId, value])).digest("base64url")}`
+);
+
+const canonicalOutput = (
+  request: PrepareNodexAgentCreatePagesRequest,
+  command: NodexAgentCreatePagesCommand,
+  libraryId: string,
+) => {
+  const location = command.destination.kind === "space"
+    ? { kind: "library" as const, libraryId }
+    : command.destination.kind === "document"
+      ? {
+          kind: "page" as const,
+          pageId: request.input.destination.kind === "page"
+            ? request.input.destination.pageId
+            : (() => { throw new Error("Canonical Agent Page destination is invalid"); })(),
+        }
+      : {
+          kind: "data_source" as const,
+          dataSourceId: command.destination.dataSourceId,
+        };
+  return CreatePagesV3OutputSchema.parse({
+    data: {
+      pages: command.pages.map((page, index) => {
+        const draft = request.input.pages[index];
+        if (!draft) throw new Error(`Canonical Agent Page draft ${index} is unavailable`);
+        return {
+          pageId: page.pageId,
+          location,
+          bodyBlocksCreated: page.bodyBlockIds.length,
+          ...(request.input.return?.includes("block_ids")
+            ? { blockIds: page.bodyBlockIds }
+            : {}),
+          ...(request.input.return?.includes("etags")
+            ? {
+                etags: {
+                  title: canonicalEtag(command.mutationId, [page.pageId, "title", draft.title]),
+                  body: canonicalEtag(command.mutationId, [
+                    page.pageId,
+                    "body",
+                    draft.markdown ?? "",
+                  ]),
+                },
+              }
+            : {}),
+        };
+      }),
+      created: command.pages.length,
+    },
+  });
+};
 
 const normalizedDestination = (
   request: PrepareNodexAgentCreatePagesRequest,
@@ -285,8 +338,7 @@ export class NativeNodexAgentPageCreateRuntime {
         },
       };
     }
-    const authority = pending.request.authority;
-    if (!authority) {
+    if (!pending.request.authority) {
       return {
         ok: false,
         error: {
@@ -298,34 +350,31 @@ export class NativeNodexAgentPageCreateRuntime {
       };
     }
     try {
-      const committed = await this.runtime.clientForProject(pending.request.projectId)
-        .libraryApply({
-          operationId: pending.operationId,
-          intent: {
-            kind: "execute_prepared_agent_create_pages",
-            authorization: {
-              authorization: toCoreAgentExecutionAuthorization(
-                this.runtime.identity.profileId,
-                authority,
-                pending.request.callId,
-                pending.request.resourceAccess,
-              ),
-              token: pending.token,
-            },
-            request: pending.coreRequest,
-          },
-        });
-      const result = committed.value.agent_create_pages;
-      if (!result) throw new Error("Core Agent Page-create commit omitted its result");
+      const committed = await commitCanonicalAgentPageCreate({
+        client: this.runtime.clientForProject(pending.request.projectId),
+        actorId: `profile:${this.runtime.identity.profileId}`,
+        libraryId: this.runtime.identity.libraryId,
+        projectId: pending.request.projectId,
+        storeEpoch: command.storeEpoch,
+        operationId: pending.operationId,
+        sessionId: pending.request.callId,
+        command,
+      });
       this.pending.delete(command.mutationId);
       return {
         ok: true,
         value: {
-          output: output(result, pending.request),
-          duplicate: committed.receipt.duplicate,
-          documentCommits: nativeAgentDocumentCommits(result.document_commits),
-          affectedDatabaseBlockIds: [...result.affected_database_ids],
-          changeLogSeq: committed.event_sequence,
+          output: canonicalOutput(
+            pending.request,
+            command,
+            this.runtime.identity.libraryId,
+          ),
+          duplicate: committed.duplicate,
+          documentCommits: [],
+          affectedDatabaseBlockIds: command.destination.kind === "database"
+            ? [command.destination.databaseBlockId]
+            : [],
+          changeLogSeq: committed.cursor.commit_seq,
         },
       };
     } catch (error) {

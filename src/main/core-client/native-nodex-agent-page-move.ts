@@ -7,14 +7,18 @@ import type {
   PrepareNodexAgentMovePagesRequest,
   PrepareNodexAgentMovePagesResult,
 } from "../../shared/nodex-agent-tools";
+import {
+  BLOCK_TRANSFER_INTENT_CONTRACT_VERSION,
+  type BlockTransferIntent,
+} from "../../shared/block-transfer";
 import { MovePagesV3OutputSchema } from "../../shared/nodex-agent-tools/v3-write-schemas";
 import { TransferBlocksInputSchema } from "../../shared/nodex-agent-tools/write-schemas";
 import type { NodexAgentMutationEnvelope } from "../agent-tools/dynamic-service-v3-port";
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
+import { commitCanonicalMoveIntent } from "./block-transfer-adapter";
 import { toCoreAgentExecutionAuthorization } from "./desktop-nodex-agent-resource-authority";
 import {
   hasExactNativeAgentDocumentHeads,
-  nativeAgentDocumentCommits,
   nativeAgentDocumentHeads,
   nativeAgentPageLocation,
   preparedAgentPageDestination,
@@ -77,6 +81,98 @@ const output = (result: CoreMoveResult) => MovePagesV3OutputSchema.parse({
     moved: result.pages.length,
   },
 });
+
+const canonicalOutput = (
+  request: PrepareNodexAgentMovePagesRequest,
+  destination: NodexAgentMovePagesCommand["destination"],
+  libraryId: string,
+) => {
+  const location = destination.kind === "space"
+    ? { kind: "library" as const, libraryId }
+    : destination.kind === "document"
+      ? {
+          kind: "page" as const,
+          pageId: request.input.destination.kind === "page"
+            ? request.input.destination.pageId
+            : (() => { throw new Error("Canonical Agent Page destination is invalid"); })(),
+        }
+      : { kind: "data_source" as const, dataSourceId: destination.dataSourceId };
+  return MovePagesV3OutputSchema.parse({
+    data: {
+      pages: request.input.pageIds.map((pageId) => ({ pageId, location })),
+      moved: request.input.pageIds.length,
+    },
+  });
+};
+
+const canonicalIntent = (
+  request: PrepareNodexAgentMovePagesRequest,
+  command: NodexAgentMovePagesCommand,
+  libraryId: string,
+): BlockTransferIntent => {
+  const sourcePageId = request.input.pageIds[0];
+  if (!sourcePageId) throw new Error("Canonical Agent Page movement has no source Page");
+  const target = command.destination;
+  if (target.kind === "space") {
+    return {
+      version: BLOCK_TRANSFER_INTENT_CONTRACT_VERSION,
+      operationId: command.mutationId,
+      projectId: command.projectId,
+      storeEpoch: command.storeEpoch,
+      clientSessionId: command.callId,
+      actor: { kind: "nodex_agent", callId: command.callId },
+      mode: "move",
+      rootBlockIds: [...request.input.pageIds],
+      source: { kind: "page", pageId: sourcePageId },
+      target: {
+        kind: "library",
+        libraryId,
+        ...(target.beforeBlockId ? { beforeBlockId: target.beforeBlockId } : {}),
+      },
+    };
+  }
+  if (target.kind === "document") {
+    if (request.input.destination.kind !== "page") {
+      throw new Error("Canonical Agent Page destination does not identify a Page");
+    }
+    return {
+      version: BLOCK_TRANSFER_INTENT_CONTRACT_VERSION,
+      operationId: command.mutationId,
+      projectId: command.projectId,
+      storeEpoch: command.storeEpoch,
+      clientSessionId: command.callId,
+      actor: { kind: "nodex_agent", callId: command.callId },
+      mode: "move",
+      rootBlockIds: [...request.input.pageIds],
+      source: { kind: "page", pageId: sourcePageId },
+      target: {
+        kind: "page",
+        pageId: request.input.destination.pageId,
+        ...(target.beforeBlockId ? { beforeBlockId: target.beforeBlockId } : {}),
+      },
+    };
+  }
+  const view = target.view;
+  if (!view) throw new Error("Canonical Agent Board destination requires a View");
+  return {
+    version: BLOCK_TRANSFER_INTENT_CONTRACT_VERSION,
+    operationId: command.mutationId,
+    projectId: command.projectId,
+    storeEpoch: command.storeEpoch,
+    clientSessionId: command.callId,
+    actor: { kind: "nodex_agent", callId: command.callId },
+    mode: "move",
+    rootBlockIds: [...request.input.pageIds],
+    source: { kind: "page", pageId: sourcePageId },
+    target: {
+      kind: "data_source",
+      dataSourceId: target.dataSourceId,
+      viewId: view.viewId,
+      groupKey: view.groupKey,
+      ...(view.beforePageId ? { beforePageId: view.beforePageId } : {}),
+    },
+  };
+};
 
 const sourceInput = (page: CoreMovePagePreparation) => {
   if (page.source.kind === "library") return { kind: "space" as const };
@@ -254,8 +350,7 @@ export class NativeNodexAgentPageMoveRuntime {
         },
       };
     }
-    const authority = pending.request.authority;
-    if (!authority) {
+    if (!pending.request.authority) {
       return {
         ok: false,
         error: {
@@ -267,34 +362,34 @@ export class NativeNodexAgentPageMoveRuntime {
       };
     }
     try {
-      const committed = await this.runtime.clientForProject(pending.request.projectId)
-        .libraryApply({
-          operationId: pending.operationId,
-          intent: {
-            kind: "execute_prepared_agent_move_pages",
-            authorization: {
-              authorization: toCoreAgentExecutionAuthorization(
-                this.runtime.identity.profileId,
-                authority,
-                pending.request.callId,
-                pending.request.resourceAccess,
-              ),
-              token: pending.token,
-            },
-            request: pending.coreRequest,
-          },
-        });
-      const result = committed.value.agent_move_pages;
-      if (!result) throw new Error("Core Agent Page-move commit omitted its result");
+      const transfer = await commitCanonicalMoveIntent({
+        client: this.runtime.clientForProject(pending.request.projectId),
+        libraryId: this.runtime.identity.libraryId,
+        projectId: pending.request.projectId,
+        storeEpoch: command.storeEpoch,
+      }, canonicalIntent(pending.request, command, this.runtime.identity.libraryId));
+      if (!transfer) {
+        throw new Error("Canonical Agent Page movement has no BlockRecord source/target");
+      }
+      if (!transfer.ok) {
+        throw new Error(transfer.error.message);
+      }
+      const receipt = transfer.value;
       this.pending.delete(command.mutationId);
       return {
         ok: true,
         value: {
-          output: output(result),
-          duplicate: committed.receipt.duplicate,
-          documentCommits: nativeAgentDocumentCommits(result.document_commits),
-          affectedDatabaseBlockIds: [...result.affected_database_ids],
-          changeLogSeq: committed.event_sequence,
+          output: canonicalOutput(
+            pending.request,
+            command.destination,
+            this.runtime.identity.libraryId,
+          ),
+          duplicate: receipt.duplicate,
+          documentCommits: [],
+          affectedDatabaseBlockIds: command.destination.kind === "database"
+            ? [command.destination.databaseBlockId]
+            : [],
+          changeLogSeq: receipt.changeLogSeq,
         },
       };
     } catch (error) {
