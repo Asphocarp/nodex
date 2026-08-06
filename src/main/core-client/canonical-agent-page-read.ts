@@ -5,6 +5,7 @@ import {
   type BlockPlacement,
 } from "../../shared/block-records";
 import type { CoreClientPort } from "./types";
+import type { components } from "@nodex/core-protocol";
 
 export interface CanonicalAgentPageRead {
   readonly pageId: string | null;
@@ -17,6 +18,7 @@ const readBlock = async (
   client: CoreClientPort,
   blockId: string,
   includeContent: boolean,
+  authorization: components["schemas"]["AgentExecutionAuthorization"],
 ): Promise<BlockRecordWindow> => {
   const read = {
     kind: "window" as const,
@@ -24,7 +26,10 @@ const readBlock = async (
     include_content: includeContent,
     include_descendants: false,
   };
-  return blockRecordSnapshotToWindow(await client.blockRecordRead(read), read);
+  return blockRecordSnapshotToWindow(
+    await client.blockRecordRead(read, authorization),
+    read,
+  );
 };
 
 const findRecord = (
@@ -54,9 +59,10 @@ const findPlacement = (
 export const readCanonicalAgentPage = async (
   client: CoreClientPort,
   targetBlockId: string,
+  authorization: components["schemas"]["AgentExecutionAuthorization"],
 ): Promise<CanonicalAgentPageRead> => {
   const visited = new Set<string>();
-  let currentWindow = await readBlock(client, targetBlockId, true);
+  let currentWindow = await readBlock(client, targetBlockId, true, authorization);
   let currentId = targetBlockId;
   const target = findRecord(currentWindow, targetBlockId);
   const targetPlacement = findPlacement(currentWindow, targetBlockId);
@@ -67,7 +73,7 @@ export const readCanonicalAgentPage = async (
     const placement = findPlacement(currentWindow, currentId);
     if (placement.parent.kind !== "block") break;
     currentId = placement.parent.blockId;
-    currentWindow = await readBlock(client, currentId, true);
+    currentWindow = await readBlock(client, currentId, true, authorization);
     const ancestor = findRecord(currentWindow, currentId);
     if (ancestor.kind === "page") pageId = ancestor.id;
   }
@@ -87,7 +93,10 @@ export const readCanonicalAgentPage = async (
     include_content: true,
     include_descendants: true,
   };
-  const window = blockRecordSnapshotToWindow(await client.blockRecordRead(read), read);
+  const window = blockRecordSnapshotToWindow(
+    await client.blockRecordRead(read, authorization),
+    read,
+  );
   return {
     pageId,
     target: findRecord(window, targetBlockId),

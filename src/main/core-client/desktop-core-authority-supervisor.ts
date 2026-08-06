@@ -13,6 +13,7 @@ import type {
   BlockRecordApplyInput,
   BlockRecordCommittedValue,
   BlockRecordRead,
+  BlockRecordReadAuthorization,
   BlockRecordReadSnapshot,
   CoreClientPort,
   CoreEventEnvelope,
@@ -426,8 +427,11 @@ class SupervisedCoreClient implements DesktopCoreClient {
     return this.supervisor.currentHandshake();
   }
 
-  blockRecordRead(read: BlockRecordRead): Promise<BlockRecordReadSnapshot> {
-    return this.#execute((client) => client.blockRecordRead(read));
+  blockRecordRead(
+    read: BlockRecordRead,
+    agentAuthorization?: BlockRecordReadAuthorization,
+  ): Promise<BlockRecordReadSnapshot> {
+    return this.#execute((client) => client.blockRecordRead(read, agentAuthorization));
   }
 
   blockRecordApply(input: BlockRecordApplyInput): Promise<BlockRecordCommittedValue> {

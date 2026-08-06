@@ -1050,6 +1050,7 @@ export interface components {
             readonly view_id?: string | null;
         };
         readonly BlockRecordReadRequest: {
+            readonly agent_authorization?: null | components["schemas"]["AgentExecutionAuthorization"];
             /** Format: int32 */
             readonly contract_version: number;
             readonly read: components["schemas"]["BlockRecordRead"];

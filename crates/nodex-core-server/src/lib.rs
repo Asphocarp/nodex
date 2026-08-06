@@ -627,7 +627,7 @@ async fn block_record_read(
 ) -> Json<BlockRecordReadResponse> {
     let response = (|| {
         require_block_record_contract(request.contract_version)?;
-        let _context = module_context(&state, &headers, &bound)?;
+        let context = module_context(&state, &headers, &bound)?;
         let BlockRecordRead::Window {
             parent,
             block_ids,
@@ -637,17 +637,29 @@ async fn block_record_read(
             view_id,
         } = &request.read;
         let parent = parent.as_ref().map(block_record_parent).transpose()?;
-        let (window, observed_cursor) = state
-            .block_record
-            .read_selection_with_cursor_and_view_and_descendants_and_lifecycle(
+        let (window, observed_cursor) = match request.agent_authorization.as_ref() {
+            Some(authorization) => state.block_record.read_selection_with_agent_authorization(
+                &context,
+                authorization,
                 parent.as_ref(),
                 block_ids.as_deref(),
                 *include_content,
                 view_id.as_deref(),
                 *include_descendants,
                 *include_archived,
-            )
-            .map_err(block_record_store_error)?;
+            ),
+            None => state
+                .block_record
+                .read_selection_with_cursor_and_view_and_descendants_and_lifecycle(
+                    parent.as_ref(),
+                    block_ids.as_deref(),
+                    *include_content,
+                    view_id.as_deref(),
+                    *include_descendants,
+                    *include_archived,
+                ),
+        }
+        .map_err(block_record_store_error)?;
         let observed_cursor = observed_cursor
             .map(|cursor| BlockRecordCursor {
                 store_epoch: cursor.store_epoch,

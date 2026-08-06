@@ -5,7 +5,6 @@ import type {
   NodexAgentCreatePagesCommand,
   NodexAgentDuplicatePageCommand,
   NodexAgentMovePagesCommand,
-  NodexAgentTransferAuthorizationEvidence,
   ToolFailure,
 } from "../../shared/nodex-agent-tools";
 import type {
@@ -204,7 +203,6 @@ function pageUpdatePreview(
 
 function movePagesPreview(
   input: NodexAgentV3ToolInput<"move_pages">,
-  authorization: NodexAgentTransferAuthorizationEvidence,
 ): NodexAgentAuthorizationPreview {
   return {
     title: `Move ${input.pageIds.length} Page${input.pageIds.length === 1 ? "" : "s"}`,
@@ -212,19 +210,12 @@ function movePagesPreview(
     details: [
       { label: "Destination", value: destinationLabel(input.destination) },
       { label: "Pages", value: input.pageIds.join(", ") },
-      ...(authorization.documentIds.length > 0
-        ? [{
-            label: "Document scope",
-            value: `${authorization.documentIds.length} Document${authorization.documentIds.length === 1 ? "" : "s"}`,
-          }]
-        : []),
     ],
   };
 }
 
 function duplicatePagePreview(
   input: NodexAgentV3ToolInput<"duplicate_page">,
-  authorization: NodexAgentTransferAuthorizationEvidence,
 ): NodexAgentAuthorizationPreview {
   return {
     title: "Duplicate Page",
@@ -232,12 +223,6 @@ function duplicatePagePreview(
     details: [
       { label: "Source Page", value: input.pageId },
       { label: "Destination", value: destinationLabel(input.destination) },
-      ...(authorization.documentIds.length > 0
-        ? [{
-            label: "Document scope",
-            value: `${authorization.documentIds.length} Document${authorization.documentIds.length === 1 ? "" : "s"}`,
-          }]
-        : []),
     ],
   };
 }
@@ -252,14 +237,13 @@ function createPagesFootprint(
     effect: "write",
     resources: [
       destinationResource(command.input.destination),
-      `compatibility_owner:${command.destination.contentProjectId ?? command.projectId}`,
       ...command.pages.map((page) => `page:${page.pageId}`),
     ],
     deletions: [],
     transformations: command.pages.map((page) =>
       `page.create:${page.pageId}:body-blocks:${page.bodyBlockIds.length}`
     ).concat([
-      `owner.create:${command.destination.contentProjectId ?? command.projectId}`,
+      `owner.create:${command.destination.kind}`,
     ]),
   });
 }
@@ -308,17 +292,12 @@ function movePagesFootprint(
     effect: "write",
     resources: [
       destinationResource(command.input.destination),
-      `compatibility_owner:${command.destination.contentProjectId ?? command.projectId}`,
       ...command.input.pageIds.map((pageId) => `page:${pageId}`),
-      ...command.documentHeads.map((head) => `document:${head.documentId}`),
-      ...command.transfers.flatMap((step) => [
-        ...(step.rehome?.blockIds.map((blockId) => `block:${blockId}`) ?? []),
-        ...(step.rehome?.documentIds.map((documentId) => `document:${documentId}`) ?? []),
-      ]),
+      ...command.transfers.map((step) => `page:${step.pageId}`),
     ],
     deletions: [],
     transformations: command.transfers.map((step) =>
-      `page.move:${step.pageId}:${step.sourceProjectId ?? command.projectId}->${step.targetProjectId ?? command.projectId}:${command.input.destination.kind}`
+      `page.move:${step.pageId}:${command.input.destination.kind}`
     ),
   });
 }
@@ -334,12 +313,10 @@ function duplicatePageFootprint(
     resources: [
       `page:${command.input.pageId}`,
       destinationResource(command.input.destination),
-      `compatibility_owner:${command.destination.contentProjectId ?? command.projectId}`,
-      ...command.documentHeads.map((head) => `document:${head.documentId}`),
     ],
     deletions: [],
     transformations: [
-      `page.duplicate:${command.input.pageId}:${command.transfer?.projectId ?? command.projectId}->${command.destination.contentProjectId ?? command.projectId}:${command.input.destination.kind}`,
+      `page.duplicate:${command.input.pageId}:${command.destination.kind}`,
     ],
   });
 }
@@ -525,7 +502,6 @@ export class NodexAgentV3DynamicService {
         const result = await withExecutionTimeout(
           async () => await this.documentHub.executeNodexAgentCreatePages(
             prepared.command,
-            prepared.documentHeads,
           ),
           this.executionTimeoutMs,
         );
@@ -569,9 +545,9 @@ export class NodexAgentV3DynamicService {
             return result.value;
           },
           footprint: (value) => movePagesFootprint(projectId, value.command),
-          authorization: (value) => ({
+          authorization: () => ({
             tool: "move_pages",
-            preview: movePagesPreview(input, value.authorization),
+            preview: movePagesPreview(input),
           }),
         });
         if (prepared.kind === "completed") return prepared.output;
@@ -615,9 +591,9 @@ export class NodexAgentV3DynamicService {
             return result.value;
           },
           footprint: (value) => duplicatePageFootprint(projectId, value.command),
-          authorization: (value) => ({
+          authorization: () => ({
             tool: "duplicate_page",
-            preview: duplicatePagePreview(input, value.authorization),
+            preview: duplicatePagePreview(input),
           }),
         });
         if (prepared.kind === "completed") return prepared.output;

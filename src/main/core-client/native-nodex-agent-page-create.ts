@@ -1,40 +1,34 @@
 import type { components } from "@nodex/core-protocol";
-import { createHash } from "node:crypto";
-import { parseInlineMarkdownTitle } from "../../shared/nfm/agent-title";
 import type {
   ExecuteNodexAgentCreatePagesResult,
   NodexAgentCreatePagesCommand,
-  NodexAgentDocumentHead,
   PrepareNodexAgentCreatePagesRequest,
   PrepareNodexAgentCreatePagesResult,
 } from "../../shared/nodex-agent-tools";
 import { CreatePagesV3OutputSchema } from "../../shared/nodex-agent-tools/v3-write-schemas";
-import { CreateInputSchema } from "../../shared/nodex-agent-tools/write-schemas";
 import type { NodexAgentMutationEnvelope } from "../agent-tools/dynamic-service-v3-port";
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
+import type { CoreClientPort } from "./types";
 import { commitCanonicalAgentPageCreate } from "./canonical-agent-page-commands";
-import { toCoreAgentExecutionAuthorization } from "./desktop-nodex-agent-resource-authority";
 import {
-  hasExactNativeAgentDocumentHeads,
-  nativeAgentDocumentHeads,
-  nativeAgentPageLocation,
-  preparedAgentPageDestination,
-  toCoreAgentPageDestination,
-} from "./native-nodex-agent-page-destination";
+  canonicalAgentIdentity,
+  canonicalAgentCommandFingerprint,
+  prepareCanonicalAgentDestination,
+} from "./canonical-agent-page-preparation";
+import { toCoreAgentExecutionAuthorization } from "./desktop-nodex-agent-resource-authority";
+import { parseNfm } from "../../shared/nfm/parser";
+import { nfmToBlockNoteWithIds } from "../../shared/block-documents/nfm-blocknote-adapter";
+import { parseInlineMarkdownTitle } from "../../shared/nfm/agent-title";
+import { serializeNfm } from "../../shared/nfm/serializer";
+import { canonicalAgentPageEtag } from "./canonical-agent-etag";
 import { mapNativeNodexAgentCoreError } from "./native-nodex-agent-page-update";
-
-type CoreCreateRequest = components["schemas"]["LibraryAgentCreatePagesRequest"];
-type CoreCreateResult = components["schemas"]["LibraryAgentCreatePagesResult"];
-type CoreCreatePreparation = components["schemas"]["LibraryAgentCreatePagesPreparation"];
 
 const MAX_PENDING_NATIVE_PAGE_CREATES = 1_024;
 
 interface PendingNativePageCreate {
   readonly request: PrepareNodexAgentCreatePagesRequest;
   readonly operationId: string;
-  readonly token: string;
-  readonly coreRequest: CoreCreateRequest;
-  readonly documentHeads: readonly NodexAgentDocumentHead[];
+  readonly commandFingerprint: string;
 }
 
 const envelope = <Result>(
@@ -54,192 +48,110 @@ const envelope = <Result>(
 
 const operationIdFor = (
   request: Pick<PrepareNodexAgentCreatePagesRequest, "threadId" | "callId">,
-): string =>
-  `nodex-agent-create-pages:${createHash("sha256").update(JSON.stringify([
-    request.threadId,
-    request.callId,
-    "create_pages",
-  ])).digest("hex")}`;
+): string => `nodex-agent-create-pages:${canonicalAgentCommandFingerprint([
+  request.threadId,
+  request.callId,
+  "create_pages",
+])}`;
 
-const coreRequest = (
-  request: PrepareNodexAgentCreatePagesRequest,
-): CoreCreateRequest => ({
-  destination: toCoreAgentPageDestination(request.input.destination, []),
-  pages: request.input.pages.map((page) => ({
-    title_markdown: page.title,
-    nfm: page.markdown ?? "",
-    values: (page.values ?? []).map((value) => ({
-      property_id: value.propertyId,
-      value: value.value,
-    })),
-  })),
-  include_block_ids: request.input.return?.includes("block_ids") ?? false,
-  include_etags: request.input.return?.includes("etags") ?? false,
+const flattenIds = (
+  blocks: readonly { readonly id?: string; readonly children?: readonly unknown[] }[],
+): readonly string[] => blocks.flatMap((block) => {
+  if (!block.id) throw new Error("Canonical Agent Page body Block is missing its ID");
+  return [
+    block.id,
+    ...flattenIds(
+      (block.children ?? []) as readonly {
+        readonly id?: string;
+        readonly children?: readonly unknown[];
+      }[],
+    ),
+  ];
 });
 
-const output = (
-  result: CoreCreateResult,
-  request: PrepareNodexAgentCreatePagesRequest,
-) => CreatePagesV3OutputSchema.parse({
-  data: {
-    pages: result.pages.map((page) => ({
-      pageId: page.page_id,
-      location: nativeAgentPageLocation(page.location),
-      bodyBlocksCreated: page.body_blocks_created,
-      ...(request.input.return?.includes("block_ids")
-        ? { blockIds: page.block_ids }
-        : {}),
-      ...(page.etags
-        ? { etags: { title: page.etags.title, body: page.etags.body } }
-        : {}),
-    })),
-    created: result.pages.length,
-  },
-});
-
-const canonicalEtag = (operationId: string, value: unknown): string => (
-  `nxe1.${createHash("sha256").update(JSON.stringify([operationId, value])).digest("base64url")}`
-);
-
-const canonicalOutput = (
-  request: PrepareNodexAgentCreatePagesRequest,
-  command: NodexAgentCreatePagesCommand,
-  libraryId: string,
-) => {
-  const location = command.destination.kind === "space"
-    ? { kind: "library" as const, libraryId }
-    : command.destination.kind === "document"
-      ? {
-          kind: "page" as const,
-          pageId: request.input.destination.kind === "page"
-            ? request.input.destination.pageId
-            : (() => { throw new Error("Canonical Agent Page destination is invalid"); })(),
-        }
-      : {
-          kind: "data_source" as const,
-          dataSourceId: command.destination.dataSourceId,
-        };
-  return CreatePagesV3OutputSchema.parse({
-    data: {
-      pages: command.pages.map((page, index) => {
-        const draft = request.input.pages[index];
-        if (!draft) throw new Error(`Canonical Agent Page draft ${index} is unavailable`);
-        return {
-          pageId: page.pageId,
-          location,
-          bodyBlocksCreated: page.bodyBlockIds.length,
-          ...(request.input.return?.includes("block_ids")
-            ? { blockIds: page.bodyBlockIds }
-            : {}),
-          ...(request.input.return?.includes("etags")
-            ? {
-                etags: {
-                  title: canonicalEtag(command.mutationId, [page.pageId, "title", draft.title]),
-                  body: canonicalEtag(command.mutationId, [
-                    page.pageId,
-                    "body",
-                    draft.markdown ?? "",
-                  ]),
-                },
-              }
-            : {}),
-        };
-      }),
-      created: command.pages.length,
-    },
-  });
+const bodyBlockIds = (operationId: string, pageIndex: number, markdown: string): readonly string[] => {
+  let ordinal = 0;
+  const blocks = nfmToBlockNoteWithIds(parseNfm(markdown), () => (
+    canonicalAgentIdentity(operationId, "block", `${pageIndex}:${ordinal++}`)
+  ));
+  const ids = flattenIds(blocks);
+  if (ids.length !== ordinal) throw new Error("Canonical Agent Page body identity allocation diverged");
+  return ids;
 };
 
-const normalizedDestination = (
+const buildCommand = async (
   request: PrepareNodexAgentCreatePagesRequest,
-  preparation: CoreCreatePreparation,
-  pageIndex: number,
-) => {
-  const destination = request.input.destination;
-  if (destination.kind === "library") {
-    return { kind: "space" as const, ...(destination.at ? { at: destination.at } : {}) };
-  }
-  if (destination.kind === "page") {
-    const target = preparation.destination_document;
-    if (!target) {
-      throw new Error("Core Agent Page creation omitted its target Document");
-    }
-    return {
-      kind: "document" as const,
-      documentId: target.document_id,
-      at: destination.at ?? { kind: "end" as const },
-    };
-  }
-  const databaseId = preparation.destination_database_id;
-  if (!databaseId) {
-    throw new Error("Core Agent Page creation omitted its target Database");
-  }
-  const page = request.input.pages[pageIndex];
-  if (!page) throw new Error(`Core Agent Page draft ${pageIndex} is unavailable`);
-  return {
-    kind: "database" as const,
-    databaseBlockId: databaseId,
-    ...(page.values ? { values: page.values } : {}),
-    ...(destination.view ? { view: destination.view } : {}),
-  };
-};
-
-const command = (
-  request: PrepareNodexAgentCreatePagesRequest,
+  client: CoreClientPort,
+  authorization: components["schemas"]["AgentExecutionAuthorization"],
   operationId: string,
-  preparation: CoreCreatePreparation,
-): NodexAgentCreatePagesCommand => {
-  if (!request.authority) {
-    throw new Error("Native Agent Page creation requires frozen Turn authority");
-  }
-  if (preparation.pages.length !== request.input.pages.length) {
-    throw new Error("Core Agent Page creation returned a divergent Page batch");
-  }
-  const destination = preparedAgentPageDestination(preparation);
+): Promise<NodexAgentCreatePagesCommand> => {
+  if (!request.authority) throw new Error("Native Agent Page creation requires frozen Turn authority");
+  const destination = await prepareCanonicalAgentDestination({
+    client,
+    destination: request.input.destination,
+    authorization,
+    libraryId: request.authority.libraryId,
+    storeEpoch: request.authority.storeEpoch,
+  });
   return {
     ...request,
     requestHash: operationId,
     mutationId: operationId,
     storeEpoch: request.authority.storeEpoch,
     input: request.input,
-    destination,
-    pages: preparation.pages.map((page, index) => {
-      const draft = request.input.pages[index];
-      if (!draft) throw new Error(`Agent Page draft ${index} is unavailable`);
-      return {
-        input: CreateInputSchema.parse({
-          resource: {
-            kind: "page",
-            title: {
-              kind: "rich",
-              richText: [...parseInlineMarkdownTitle(draft.title)],
-            },
-            ...(draft.markdown !== undefined
-              ? { body: { format: "nfm", content: draft.markdown } }
-              : {}),
-          },
-          destination: normalizedDestination(request, preparation, index),
-          ...(request.input.return
-            ? {
-                return: {
-                  ...(request.input.return.includes("block_ids")
-                    ? { blockIds: true }
-                    : {}),
-                  ...(request.input.return.includes("etags")
-                    ? { etags: true }
-                    : {}),
-                },
-              }
-            : {}),
-        }),
-        pageId: page.page_id,
-        bodyBlockIds: [...page.body_block_ids],
-        primaryMembershipId: page.primary_membership_id,
-        targetMembershipId: page.target_membership_id,
-      };
-    }),
+    destination: destination.destination,
+    pages: request.input.pages.map((page, index) => ({
+      pageId: canonicalAgentIdentity(operationId, "page", index),
+      bodyBlockIds: bodyBlockIds(operationId, index, page.markdown ?? ""),
+    })),
   };
 };
+
+const location = (
+  destination: NodexAgentCreatePagesCommand["destination"],
+  libraryId: string,
+): { readonly kind: "library"; readonly libraryId: string }
+  | { readonly kind: "page"; readonly pageId: string }
+  | { readonly kind: "data_source"; readonly dataSourceId: string } => destination.kind === "space"
+  ? { kind: "library", libraryId }
+  : destination.kind === "document"
+    ? { kind: "page", pageId: destination.pageId }
+    : { kind: "data_source", dataSourceId: destination.dataSourceId };
+
+const output = (
+  request: PrepareNodexAgentCreatePagesRequest,
+  commandValue: NodexAgentCreatePagesCommand,
+  libraryId: string,
+) => CreatePagesV3OutputSchema.parse({
+  data: {
+    pages: commandValue.pages.map((page, index) => {
+      const draft = request.input.pages[index];
+      if (!draft) throw new Error(`Canonical Agent Page draft ${index} is unavailable`);
+      const normalizedBody = serializeNfm(parseNfm(draft.markdown ?? ""));
+      return {
+        pageId: page.pageId,
+        location: location(commandValue.destination, libraryId),
+        bodyBlocksCreated: page.bodyBlockIds.length,
+        ...(request.input.return?.includes("block_ids")
+          ? { blockIds: page.bodyBlockIds }
+          : {}),
+        ...(request.input.return?.includes("etags")
+          ? {
+              etags: {
+                title: canonicalAgentPageEtag(
+                  "title",
+                  page.pageId,
+                  parseInlineMarkdownTitle(draft.title),
+                ),
+                body: canonicalAgentPageEtag("body", page.pageId, normalizedBody),
+              },
+            }
+          : {}),
+      };
+    }),
+    created: commandValue.pages.length,
+  },
+});
 
 export class NativeNodexAgentPageCreateRuntime {
   private readonly pending = new Map<string, PendingNativePageCreate>();
@@ -251,65 +163,38 @@ export class NativeNodexAgentPageCreateRuntime {
   ): Promise<NodexAgentMutationEnvelope<PrepareNodexAgentCreatePagesResult>> {
     const operationId = operationIdFor(request);
     try {
-      if (!request.authority) {
-        throw new Error("Native Agent Page creation requires frozen Turn authority");
-      }
-      const createRequest = coreRequest(request);
-      const snapshot = await this.runtime.clientForProject(request.projectId).libraryRead({
-        kind: "prepare_agent_create_pages",
-        operation_id: operationId,
-        store_epoch: request.authority.storeEpoch,
-        authorization: toCoreAgentExecutionAuthorization(
-          this.runtime.identity.profileId,
-          request.authority,
-          request.callId,
-          request.resourceAccess,
-        ),
-        request: createRequest,
-      });
-      if (snapshot.value.kind !== "agent_create_pages_preparation") {
-        throw new Error("Core returned the wrong Agent Page-create preparation variant");
-      }
-      const preparation = snapshot.value.value;
-      if (preparation.preparation.state === "committed_replay") {
-        const committed = preparation.committed?.value.agent_create_pages;
-        if (!committed) throw new Error("Core Agent Page-create replay omitted its result");
-        this.pending.delete(operationId);
-        return envelope({
-          ok: true,
-          value: { kind: "completed", output: output(committed, request) },
-        }, operationId);
-      }
-      const token = preparation.preparation.token;
-      if (!token) throw new Error("Core Agent Page-create preparation omitted its token");
-      if (!this.pending.has(operationId)
-        && this.pending.size >= MAX_PENDING_NATIVE_PAGE_CREATES) {
+      if (!request.authority) throw new Error("Native Agent Page creation requires frozen Turn authority");
+      const client = this.runtime.clientForProject(request.projectId);
+      const authorization = toCoreAgentExecutionAuthorization(
+        this.runtime.identity.profileId,
+        request.authority,
+        request.callId,
+        request.resourceAccess,
+      );
+      const preparedCommand = await buildCommand(request, client, authorization, operationId);
+      if (!this.pending.has(operationId) && this.pending.size >= MAX_PENDING_NATIVE_PAGE_CREATES) {
         throw new Error("Native Agent Page-create preparation capacity is exhausted");
       }
-      const documentHeads = nativeAgentDocumentHeads(preparation.document_heads);
       this.pending.set(operationId, {
         request,
         operationId,
-        token,
-        coreRequest: createRequest,
-        documentHeads,
+        commandFingerprint: canonicalAgentCommandFingerprint({
+          input: preparedCommand.input,
+          destination: preparedCommand.destination,
+          pages: preparedCommand.pages,
+        }),
       });
       return envelope({
         ok: true,
         value: {
           kind: "prepared",
-          command: command(request, operationId, preparation),
-          documentHeads,
-          previews: preparation.pages.map((page, index) => {
-            const draft = request.input.pages[index];
-            if (!draft) throw new Error(`Agent Page draft ${index} is unavailable`);
-            return {
-              pageId: page.page_id,
-              title: draft.title,
-              bodyBlockCount: page.body_block_ids.length,
-              targetMarkdown: draft.markdown ?? "",
-            };
-          }),
+          command: preparedCommand,
+          previews: preparedCommand.pages.map((page, index) => ({
+            pageId: page.pageId,
+            title: request.input.pages[index]?.title ?? "",
+            bodyBlockCount: page.bodyBlockIds.length,
+            targetMarkdown: request.input.pages[index]?.markdown ?? "",
+          })),
         },
       }, operationId);
     } catch (error) {
@@ -318,21 +203,27 @@ export class NativeNodexAgentPageCreateRuntime {
   }
 
   async execute(
-    command: NodexAgentCreatePagesCommand,
-    documentHeads: readonly NodexAgentDocumentHead[],
+    commandValue: NodexAgentCreatePagesCommand,
   ): Promise<ExecuteNodexAgentCreatePagesResult> {
-    const pending = this.pending.get(command.mutationId);
-    if (!pending
-      || pending.request.projectId !== command.projectId
-      || pending.request.callId !== command.callId
-      || pending.request.threadId !== command.threadId
-      || pending.request.authority?.storeEpoch !== command.storeEpoch
-      || !hasExactNativeAgentDocumentHeads(pending.documentHeads, documentHeads)) {
+    const pending = this.pending.get(commandValue.mutationId);
+    if (
+      !pending
+      || pending.request.projectId !== commandValue.projectId
+      || pending.request.callId !== commandValue.callId
+      || pending.request.threadId !== commandValue.threadId
+      || pending.request.authority?.storeEpoch !== commandValue.storeEpoch
+      || commandValue.requestHash !== pending.operationId
+      || canonicalAgentCommandFingerprint({
+        input: commandValue.input,
+        destination: commandValue.destination,
+        pages: commandValue.pages,
+      }) !== pending.commandFingerprint
+    ) {
       return {
         ok: false,
         error: {
           code: "idempotency_collision",
-          message: "Native Agent Page creation has no matching preparation",
+          message: "Native Agent Page creation has no matching canonical preparation",
           retryable: false,
           recovery: "none",
         },
@@ -361,24 +252,20 @@ export class NativeNodexAgentPageCreateRuntime {
         ),
         libraryId: this.runtime.identity.libraryId,
         projectId: pending.request.projectId,
-        storeEpoch: command.storeEpoch,
+        storeEpoch: commandValue.storeEpoch,
         operationId: pending.operationId,
         sessionId: pending.request.callId,
-        command,
+        command: commandValue,
       });
-      this.pending.delete(command.mutationId);
+      this.pending.delete(commandValue.mutationId);
       return {
         ok: true,
         value: {
-          output: canonicalOutput(
-            pending.request,
-            command,
-            this.runtime.identity.libraryId,
-          ),
+          output: output(pending.request, commandValue, this.runtime.identity.libraryId),
           duplicate: committed.duplicate,
           documentCommits: [],
-          affectedDatabaseBlockIds: command.destination.kind === "database"
-            ? [command.destination.databaseBlockId]
+          affectedDatabaseBlockIds: commandValue.destination.kind === "database"
+            ? [commandValue.destination.dataSourceId]
             : [],
           changeLogSeq: committed.cursor.commit_seq,
         },

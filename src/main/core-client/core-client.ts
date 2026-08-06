@@ -43,6 +43,7 @@ import type {
   BlockRecordApplyInput,
   BlockRecordCommittedValue,
   BlockRecordRead,
+  BlockRecordReadAuthorization,
   BlockRecordReadSnapshot,
   AutomationApplyInput,
   AutomationApplyResponse,
@@ -224,13 +225,20 @@ export class CoreClient implements CoreClientPort {
     return this.#transport.requestJson("GET", "/core/v1/health");
   }
 
-  async blockRecordRead(read: BlockRecordRead): Promise<BlockRecordReadSnapshot> {
+  async blockRecordRead(
+    read: BlockRecordRead,
+    agentAuthorization?: BlockRecordReadAuthorization,
+  ): Promise<BlockRecordReadSnapshot> {
     const response = await this.#transport.requestJson<
       components["schemas"]["BlockRecordReadResponse"]
     >(
       "POST",
       "/core/v1/modules/block-record/read",
-      { contract_version: BLOCK_RECORD_CONTRACT_VERSION, read },
+      {
+        contract_version: BLOCK_RECORD_CONTRACT_VERSION,
+        ...(agentAuthorization ? { agent_authorization: agentAuthorization } : {}),
+        read,
+      },
       this.#moduleHeaders(),
     );
     if (response.status === "ok") return response.payload;

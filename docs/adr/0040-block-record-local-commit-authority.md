@@ -140,12 +140,14 @@ domain writers through the same Core transaction/commit boundary, then remove
 the remaining Page-wide structural Document runtime and its old public write
 routes in one schema replacement.
 
-The native Agent Page preparation path still reads the older Library preparation
-contract while its execute path is canonical. That preparation seam is not a
-second write authority: the final BlockRecord apply revalidates the frozen
-authority and operation-derived source/target permissions in Core. The next
-slice replaces the preparation read and its Document-head evidence with a
-BlockRecord snapshot/authorization lease as well.
+Native Agent Page create, copy, move, update, and fetch now prepare and execute
+against an authorized BlockRecord window. The frozen Turn authorization travels
+with both read and write requests; Core revalidates the operation-derived
+source/target permissions inside the same read or writer transaction. The Agent
+command carries canonical Page/Block identities and placement anchors rather
+than Document generations or Page-owned heads. Agent search remains a derived
+search read and is still scheduled for the search/index closure cutover below;
+it must not be treated as a second Page authority.
 
 Schema versions 102–105 install and validate the current BlockRecord,
 materialized content, View-position, and lifecycle tables. This is an internal

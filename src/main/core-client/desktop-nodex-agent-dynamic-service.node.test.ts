@@ -241,7 +241,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
     expect(readDatabase).toHaveBeenCalledOnce();
   });
 
-  test("creates a Page batch through Core under the exact target Document lease", async () => {
+  test("creates a Page batch through canonical BlockRecord authority", async () => {
     let preparationCount = 0;
     const libraryRead = vi.fn(async (read: Record<string, unknown>) => {
       expect(read).toMatchObject({
@@ -468,23 +468,23 @@ describe("native desktop Nodex Agent dynamic service", () => {
       data: {
         created: 2,
         pages: [{
-          pageId: "page-created-1",
+          pageId: expect.stringMatching(/^agent-page:/u),
           location: { kind: "page", pageId: "page-create-target" },
-          blockIds: ["body-created-1"],
+          blockIds: [expect.stringMatching(/^agent-block:/u)],
         }, {
-          pageId: "page-created-2",
+          pageId: expect.stringMatching(/^agent-page:/u),
           location: { kind: "page", pageId: "page-create-target" },
-          blockIds: ["body-created-2"],
+          blockIds: [expect.stringMatching(/^agent-block:/u)],
         }],
       },
     });
-    expect(libraryRead).toHaveBeenCalledTimes(2);
+    expect(libraryRead).not.toHaveBeenCalled();
     expect(coordinate).toHaveBeenCalledOnce();
     expect(libraryApply).not.toHaveBeenCalled();
     expect(blockRecordApply).toHaveBeenCalledOnce();
   });
 
-  test("moves a mixed-source Page batch through Core under one exact target lease", async () => {
+  test("moves a mixed-source Page batch through one canonical commit", async () => {
     let preparationCount = 0;
     const libraryRead = vi.fn(async (read: Record<string, unknown>) => {
       expect(read).toMatchObject({
@@ -738,13 +738,13 @@ describe("native desktop Nodex Agent dynamic service", () => {
         moved: 2,
       },
     });
-    expect(libraryRead).toHaveBeenCalledTimes(2);
+    expect(libraryRead).not.toHaveBeenCalled();
     expect(coordinate).toHaveBeenCalledOnce();
     expect(libraryApply).not.toHaveBeenCalled();
     expect(blockRecordApply).toHaveBeenCalledOnce();
   });
 
-  test("duplicates a Page through Core only after coordinating its exact Document lease", async () => {
+  test("duplicates a Page through the canonical ownership subtree", async () => {
     let preparationCount = 0;
     const libraryRead = vi.fn(async (read: Record<string, unknown>) => {
       expect(read).toMatchObject({
@@ -1024,7 +1024,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
         pageId: "page-copy-target",
         at: { kind: "before", blockId: "block-copy-anchor" },
       },
-      return: ["block_map", "etags"],
+      return: ["block_map"],
     }, context);
 
     expect(result).toMatchObject({
@@ -1032,25 +1032,18 @@ describe("native desktop Nodex Agent dynamic service", () => {
       output: {
         data: {
           sourcePageId: "page-copy-source",
-          pageId: "page-copy-result",
+          pageId: expect.stringMatching(/^agent-page:/u),
           location: { kind: "page", pageId: "page-copy-target" },
           bodyBlocksCreated: 2,
           blockMap: {
-            "page-copy-source": "page-copy-result",
+            "page-copy-source": expect.stringMatching(/^agent-page:/u),
             "block-copy-source": expect.any(String),
             "block-copy-child": expect.any(String),
           },
         },
       },
     });
-    const copyData = (result.output as {
-      readonly data?: {
-        readonly etags?: { readonly title?: string; readonly body?: string };
-      };
-    }).data;
-    expect(copyData?.etags?.title).toMatch(/^nxe1\.[A-Za-z0-9_-]{43}$/u);
-    expect(copyData?.etags?.body).toMatch(/^nxe1\.[A-Za-z0-9_-]{43}$/u);
-    expect(libraryRead).toHaveBeenCalledTimes(2);
+    expect(libraryRead).not.toHaveBeenCalled();
     expect(coordinate).toHaveBeenCalledOnce();
     expect(libraryApply).not.toHaveBeenCalled();
     expect(blockRecordApply).toHaveBeenCalledOnce();
@@ -1155,7 +1148,19 @@ describe("native desktop Nodex Agent dynamic service", () => {
             : placement
         ),
         blocks: baseCanonicalSnapshot.graph.blocks.map((block, index) =>
-          index === 0 ? { ...block, properties: { title: "Fetch" } } : block
+          index === 0
+            ? {
+                ...block,
+                properties: {
+                  title: "Fetch",
+                  databaseId: "database-fetch",
+                  dataSourceValues: [
+                    { propertyId: "status", value: "todo" },
+                    { propertyId: "p_Abcd1234", value: "high" },
+                  ],
+                },
+              }
+            : block
         ),
       },
       content: baseCanonicalSnapshot.content.map((content, index) =>
@@ -1299,7 +1304,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
       },
       page: { hasMore: true, nextCursor: expect.stringMatching(/^nxc1\./u) },
     });
-    expect(libraryRead).toHaveBeenCalledOnce();
+    expect(libraryRead).not.toHaveBeenCalled();
     expect(blockRecordRead).toHaveBeenCalledTimes(2);
   });
 
@@ -1578,12 +1583,15 @@ describe("native desktop Nodex Agent dynamic service", () => {
       input,
     });
 
-    expect(blockRecordRead).toHaveBeenCalledWith({
-      kind: "window",
-      parent: { kind: "block", id: "page-insert" },
-      include_content: true,
-      include_descendants: true,
-    });
+    expect(blockRecordRead).toHaveBeenCalledWith(
+      {
+        kind: "window",
+        parent: { kind: "block", id: "page-insert" },
+        include_content: true,
+        include_descendants: true,
+      },
+      expect.objectContaining({ call_id: "call-insert" }),
+    );
     expect(prepared.result).toMatchObject({
       ok: true,
       value: {

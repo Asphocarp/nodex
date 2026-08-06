@@ -17,7 +17,7 @@ export const CORE_CLIENT_REQUIREMENTS = {
     },
     {
       "module": "block_record",
-      "contract_version": 4
+      "contract_version": 5
     },
     {
       "module": "owned_document",

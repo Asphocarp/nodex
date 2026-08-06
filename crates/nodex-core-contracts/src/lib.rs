@@ -188,7 +188,7 @@ pub use events::{
 pub use library::LIBRARY_CONTRACT_VERSION;
 pub use workspace::PROJECT_WORKSPACE_CONTRACT_VERSION;
 
-pub const BLOCK_RECORD_CONTRACT_VERSION: u32 = 4;
+pub const BLOCK_RECORD_CONTRACT_VERSION: u32 = 5;
 
 pub const fn module_contract_manifest() -> [ModuleContractVersion; 7] {
     [

@@ -1,44 +1,31 @@
-import type { components } from "@nodex/core-protocol";
-import { createHash } from "node:crypto";
-import type {
-  ExecuteNodexAgentMovePagesResult,
-  NodexAgentDocumentHead,
-  NodexAgentMovePagesCommand,
-  PrepareNodexAgentMovePagesRequest,
-  PrepareNodexAgentMovePagesResult,
-} from "../../shared/nodex-agent-tools";
 import {
   BLOCK_TRANSFER_INTENT_CONTRACT_VERSION,
   type BlockTransferIntent,
 } from "../../shared/block-transfer";
+import type {
+  ExecuteNodexAgentMovePagesResult,
+  NodexAgentMovePagesCommand,
+  PrepareNodexAgentMovePagesRequest,
+  PrepareNodexAgentMovePagesResult,
+} from "../../shared/nodex-agent-tools";
 import { MovePagesV3OutputSchema } from "../../shared/nodex-agent-tools/v3-write-schemas";
-import { TransferBlocksInputSchema } from "../../shared/nodex-agent-tools/write-schemas";
 import type { NodexAgentMutationEnvelope } from "../agent-tools/dynamic-service-v3-port";
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
 import { commitCanonicalMoveIntent } from "./block-transfer-adapter";
-import { toCoreAgentExecutionAuthorization } from "./desktop-nodex-agent-resource-authority";
 import {
-  hasExactNativeAgentDocumentHeads,
-  nativeAgentDocumentHeads,
-  nativeAgentPageLocation,
-  preparedAgentPageDestination,
-  toCoreAgentPageDestination,
-} from "./native-nodex-agent-page-destination";
+  canonicalAgentCommandFingerprint,
+  prepareCanonicalAgentDestination,
+  readCanonicalAgentBlockRoots,
+} from "./canonical-agent-page-preparation";
+import { toCoreAgentExecutionAuthorization } from "./desktop-nodex-agent-resource-authority";
 import { mapNativeNodexAgentCoreError } from "./native-nodex-agent-page-update";
-
-type CoreMoveRequest = components["schemas"]["LibraryAgentMovePagesRequest"];
-type CoreMoveResult = components["schemas"]["LibraryAgentMovePagesResult"];
-type CoreMovePreparation = components["schemas"]["LibraryAgentMovePagesPreparation"];
-type CoreMovePagePreparation = components["schemas"]["LibraryAgentMovePagePreparation"];
 
 const MAX_PENDING_NATIVE_PAGE_MOVES = 1_024;
 
 interface PendingNativePageMove {
   readonly request: PrepareNodexAgentMovePagesRequest;
   readonly operationId: string;
-  readonly token: string;
-  readonly coreRequest: CoreMoveRequest;
-  readonly documentHeads: readonly NodexAgentDocumentHead[];
+  readonly commandFingerprint: string;
 }
 
 const envelope = <Result>(
@@ -58,52 +45,11 @@ const envelope = <Result>(
 
 const operationIdFor = (
   request: Pick<PrepareNodexAgentMovePagesRequest, "threadId" | "callId">,
-): string =>
-  `nodex-agent-move-pages:${createHash("sha256").update(JSON.stringify([
-    request.threadId,
-    request.callId,
-    "move_pages",
-  ])).digest("hex")}`;
-
-const coreRequest = (
-  request: PrepareNodexAgentMovePagesRequest,
-): CoreMoveRequest => ({
-  page_ids: [...request.input.pageIds],
-  destination: toCoreAgentPageDestination(request.input.destination),
-});
-
-const output = (result: CoreMoveResult) => MovePagesV3OutputSchema.parse({
-  data: {
-    pages: result.pages.map((page) => ({
-      pageId: page.page_id,
-      location: nativeAgentPageLocation(page.location),
-    })),
-    moved: result.pages.length,
-  },
-});
-
-const canonicalOutput = (
-  request: PrepareNodexAgentMovePagesRequest,
-  destination: NodexAgentMovePagesCommand["destination"],
-  libraryId: string,
-) => {
-  const location = destination.kind === "space"
-    ? { kind: "library" as const, libraryId }
-    : destination.kind === "document"
-      ? {
-          kind: "page" as const,
-          pageId: request.input.destination.kind === "page"
-            ? request.input.destination.pageId
-            : (() => { throw new Error("Canonical Agent Page destination is invalid"); })(),
-        }
-      : { kind: "data_source" as const, dataSourceId: destination.dataSourceId };
-  return MovePagesV3OutputSchema.parse({
-    data: {
-      pages: request.input.pageIds.map((pageId) => ({ pageId, location })),
-      moved: request.input.pageIds.length,
-    },
-  });
-};
+): string => `nodex-agent-move-pages:${canonicalAgentCommandFingerprint([
+  request.threadId,
+  request.callId,
+  "move_pages",
+])}`;
 
 const canonicalIntent = (
   request: PrepareNodexAgentMovePagesRequest,
@@ -112,18 +58,21 @@ const canonicalIntent = (
 ): BlockTransferIntent => {
   const sourcePageId = request.input.pageIds[0];
   if (!sourcePageId) throw new Error("Canonical Agent Page movement has no source Page");
+  const base = {
+    version: BLOCK_TRANSFER_INTENT_CONTRACT_VERSION,
+    operationId: command.mutationId,
+    projectId: command.projectId,
+    storeEpoch: command.storeEpoch,
+    clientSessionId: command.callId,
+    actor: { kind: "nodex_agent" as const, callId: command.callId },
+    mode: "move" as const,
+    rootBlockIds: [...request.input.pageIds],
+    source: { kind: "page" as const, pageId: sourcePageId },
+  };
   const target = command.destination;
   if (target.kind === "space") {
     return {
-      version: BLOCK_TRANSFER_INTENT_CONTRACT_VERSION,
-      operationId: command.mutationId,
-      projectId: command.projectId,
-      storeEpoch: command.storeEpoch,
-      clientSessionId: command.callId,
-      actor: { kind: "nodex_agent", callId: command.callId },
-      mode: "move",
-      rootBlockIds: [...request.input.pageIds],
-      source: { kind: "page", pageId: sourcePageId },
+      ...base,
       target: {
         kind: "library",
         libraryId,
@@ -132,38 +81,20 @@ const canonicalIntent = (
     };
   }
   if (target.kind === "document") {
-    if (request.input.destination.kind !== "page") {
-      throw new Error("Canonical Agent Page destination does not identify a Page");
-    }
     return {
-      version: BLOCK_TRANSFER_INTENT_CONTRACT_VERSION,
-      operationId: command.mutationId,
-      projectId: command.projectId,
-      storeEpoch: command.storeEpoch,
-      clientSessionId: command.callId,
-      actor: { kind: "nodex_agent", callId: command.callId },
-      mode: "move",
-      rootBlockIds: [...request.input.pageIds],
-      source: { kind: "page", pageId: sourcePageId },
+      ...base,
       target: {
         kind: "page",
-        pageId: request.input.destination.pageId,
+        pageId: target.pageId,
+        ...(target.parentBlockId ? { parentBlockId: target.parentBlockId } : {}),
         ...(target.beforeBlockId ? { beforeBlockId: target.beforeBlockId } : {}),
       },
     };
   }
   const view = target.view;
-  if (!view) throw new Error("Canonical Agent Board destination requires a View");
+  if (!view) throw new Error("Canonical Agent Page movement into a Board requires a View");
   return {
-    version: BLOCK_TRANSFER_INTENT_CONTRACT_VERSION,
-    operationId: command.mutationId,
-    projectId: command.projectId,
-    storeEpoch: command.storeEpoch,
-    clientSessionId: command.callId,
-    actor: { kind: "nodex_agent", callId: command.callId },
-    mode: "move",
-    rootBlockIds: [...request.input.pageIds],
-    source: { kind: "page", pageId: sourcePageId },
+    ...base,
     target: {
       kind: "data_source",
       dataSourceId: target.dataSourceId,
@@ -174,88 +105,28 @@ const canonicalIntent = (
   };
 };
 
-const sourceInput = (page: CoreMovePagePreparation) => {
-  if (page.source.kind === "library") return { kind: "space" as const };
-  if (page.source.kind === "data_source") {
-    if (!page.source_database_id) {
-      throw new Error(`Core Agent Page move omitted source Database for ${page.page_id}`);
-    }
-    return { kind: "database" as const, databaseBlockId: page.source_database_id };
-  }
-  const documentId = page.source.kind === "document"
-    ? page.source.document_id
-    : page.source_document_id;
-  if (!documentId) {
-    throw new Error(`Core Agent Page move omitted source Document for ${page.page_id}`);
-  }
-  return { kind: "document" as const, documentId };
-};
+const location = (
+  destination: NodexAgentMovePagesCommand["destination"],
+  libraryId: string,
+) => destination.kind === "space"
+  ? { kind: "library" as const, libraryId }
+  : destination.kind === "document"
+    ? { kind: "page" as const, pageId: destination.pageId }
+    : { kind: "data_source" as const, dataSourceId: destination.dataSourceId };
 
-const destinationInput = (
+const output = (
   request: PrepareNodexAgentMovePagesRequest,
-  preparation: CoreMovePreparation,
-) => {
-  const destination = request.input.destination;
-  if (destination.kind === "library") {
-    return {
-      kind: "space" as const,
-      ...(destination.at ? { at: destination.at } : {}),
-    };
-  }
-  if (destination.kind === "page") {
-    const document = preparation.destination_document;
-    if (!document) throw new Error("Core Agent Page move omitted its target Document");
-    return {
-      kind: "document" as const,
-      documentId: document.document_id,
-      at: destination.at ?? { kind: "end" as const },
-    };
-  }
-  const databaseId = preparation.destination_database_id;
-  if (!databaseId) throw new Error("Core Agent Page move omitted its target Database");
-  return {
-    kind: "database" as const,
-    databaseBlockId: databaseId,
-    ...(destination.values ? { values: destination.values } : {}),
-    ...(destination.view ? { view: destination.view } : {}),
-  };
-};
-
-const command = (
-  request: PrepareNodexAgentMovePagesRequest,
-  operationId: string,
-  preparation: CoreMovePreparation,
-): NodexAgentMovePagesCommand => {
-  if (!request.authority) {
-    throw new Error("Native Agent Page movement requires frozen Turn authority");
-  }
-  if (preparation.pages.length !== request.input.pageIds.length) {
-    throw new Error("Core Agent Page movement returned a divergent Page batch");
-  }
-  const destination = preparedAgentPageDestination(preparation);
-  const normalizedDestination = destinationInput(request, preparation);
-  return {
-    ...request,
-    requestHash: operationId,
-    mutationId: operationId,
-    storeEpoch: request.authority.storeEpoch,
-    input: request.input,
-    destination,
-    transfers: preparation.pages.map((page) => ({
-      pageId: page.page_id,
-      sourceProjectId: page.source_project_id,
-      targetProjectId: page.target_project_id,
-      normalizedInput: TransferBlocksInputSchema.parse({
-        mode: "move",
-        blockIds: [page.page_id],
-        from: sourceInput(page),
-        destination: normalizedDestination,
-      }),
-      transfer: null,
+  command: NodexAgentMovePagesCommand,
+  libraryId: string,
+) => MovePagesV3OutputSchema.parse({
+  data: {
+    pages: request.input.pageIds.map((pageId) => ({
+      pageId,
+      location: location(command.destination, libraryId),
     })),
-    documentHeads: nativeAgentDocumentHeads(preparation.document_heads),
-  };
-};
+    moved: request.input.pageIds.length,
+  },
+});
 
 export class NativeNodexAgentPageMoveRuntime {
   private readonly pending = new Map<string, PendingNativePageMove>();
@@ -267,60 +138,65 @@ export class NativeNodexAgentPageMoveRuntime {
   ): Promise<NodexAgentMutationEnvelope<PrepareNodexAgentMovePagesResult>> {
     const operationId = operationIdFor(request);
     try {
-      if (!request.authority) {
-        throw new Error("Native Agent Page movement requires frozen Turn authority");
-      }
-      const moveRequest = coreRequest(request);
-      const snapshot = await this.runtime.clientForProject(request.projectId).libraryRead({
-        kind: "prepare_agent_move_pages",
-        operation_id: operationId,
-        store_epoch: request.authority.storeEpoch,
-        authorization: toCoreAgentExecutionAuthorization(
-          this.runtime.identity.profileId,
-          request.authority,
-          request.callId,
-          request.resourceAccess,
-        ),
-        request: moveRequest,
+      if (!request.authority) throw new Error("Native Agent Page movement requires frozen Turn authority");
+      const client = this.runtime.clientForProject(request.projectId);
+      const authorization = toCoreAgentExecutionAuthorization(
+        this.runtime.identity.profileId,
+        request.authority,
+        request.callId,
+        request.resourceAccess,
+      );
+      const destination = await prepareCanonicalAgentDestination({
+        client,
+        destination: request.input.destination,
+        authorization,
+        libraryId: request.authority.libraryId,
+        storeEpoch: request.authority.storeEpoch,
       });
-      if (snapshot.value.kind !== "agent_move_pages_preparation") {
-        throw new Error("Core returned the wrong Agent Page-move preparation variant");
+      const source = await readCanonicalAgentBlockRoots({
+        client,
+        blockIds: request.input.pageIds,
+        authorization,
+        libraryId: request.authority.libraryId,
+        storeEpoch: request.authority.storeEpoch,
+      });
+      for (const pageId of request.input.pageIds) {
+        const page = source.records.find((record) => record.id === pageId);
+        if (!page || page.kind !== "page" || page.lifecycle !== "active") {
+          throw new Error(`Canonical Agent Page ${pageId} is unavailable`);
+        }
       }
-      const preparation = snapshot.value.value;
-      if (preparation.preparation.state === "committed_replay") {
-        const committed = preparation.committed?.value.agent_move_pages;
-        if (!committed) throw new Error("Core Agent Page-move replay omitted its result");
-        this.pending.delete(operationId);
-        return envelope({
-          ok: true,
-          value: { kind: "completed", output: output(committed) },
-        }, operationId);
-      }
-      const token = preparation.preparation.token;
-      if (!token) throw new Error("Core Agent Page-move preparation omitted its token");
-      if (!this.pending.has(operationId)
-        && this.pending.size >= MAX_PENDING_NATIVE_PAGE_MOVES) {
+      const command: NodexAgentMovePagesCommand = {
+        ...request,
+        requestHash: operationId,
+        mutationId: operationId,
+        storeEpoch: request.authority.storeEpoch,
+        input: request.input,
+        destination: destination.destination,
+        transfers: request.input.pageIds.map((pageId) => ({ pageId })),
+      };
+      if (!this.pending.has(operationId) && this.pending.size >= MAX_PENDING_NATIVE_PAGE_MOVES) {
         throw new Error("Native Agent Page-move preparation capacity is exhausted");
       }
-      const documentHeads = nativeAgentDocumentHeads(preparation.document_heads);
       this.pending.set(operationId, {
         request,
         operationId,
-        token,
-        coreRequest: moveRequest,
-        documentHeads,
+        commandFingerprint: canonicalAgentCommandFingerprint({
+          input: command.input,
+          destination: command.destination,
+          transfers: command.transfers,
+        }),
       });
       return envelope({
         ok: true,
         value: {
           kind: "prepared",
-          command: command(request, operationId, preparation),
+          command,
           authorization: {
             roots: Object.fromEntries(request.input.pageIds.map((pageId) => [
               pageId,
               { type: "page" as const, transformation: "preserved" as const },
             ])),
-            documentIds: documentHeads.map((head) => head.documentId),
           },
         },
       }, operationId);
@@ -331,20 +207,24 @@ export class NativeNodexAgentPageMoveRuntime {
 
   async execute(command: NodexAgentMovePagesCommand): Promise<ExecuteNodexAgentMovePagesResult> {
     const pending = this.pending.get(command.mutationId);
-    if (!pending
+    if (
+      !pending
       || pending.request.projectId !== command.projectId
       || pending.request.callId !== command.callId
       || pending.request.threadId !== command.threadId
       || pending.request.authority?.storeEpoch !== command.storeEpoch
-      || !hasExactNativeAgentDocumentHeads(
-        pending.documentHeads,
-        command.documentHeads,
-      )) {
+      || command.requestHash !== pending.operationId
+      || canonicalAgentCommandFingerprint({
+        input: command.input,
+        destination: command.destination,
+        transfers: command.transfers,
+      }) !== pending.commandFingerprint
+    ) {
       return {
         ok: false,
         error: {
           code: "idempotency_collision",
-          message: "Native Agent Page movement has no matching preparation",
+          message: "Native Agent Page movement has no matching canonical preparation",
           retryable: false,
           recovery: "none",
         },
@@ -374,26 +254,19 @@ export class NativeNodexAgentPageMoveRuntime {
           pending.request.resourceAccess,
         ),
       }, canonicalIntent(pending.request, command, this.runtime.identity.libraryId));
-      if (!transfer) {
-        throw new Error("Canonical Agent Page movement has no BlockRecord source/target");
-      }
-      if (!transfer.ok) {
-        throw new Error(transfer.error.message);
+      if (!transfer || !transfer.ok) {
+        throw new Error(transfer?.error.message ?? "Canonical Agent Page movement has no BlockRecord source/target");
       }
       const receipt = transfer.value;
       this.pending.delete(command.mutationId);
       return {
         ok: true,
         value: {
-          output: canonicalOutput(
-            pending.request,
-            command.destination,
-            this.runtime.identity.libraryId,
-          ),
+          output: output(pending.request, command, this.runtime.identity.libraryId),
           duplicate: receipt.duplicate,
           documentCommits: [],
           affectedDatabaseBlockIds: command.destination.kind === "database"
-            ? [command.destination.databaseBlockId]
+            ? [command.destination.dataSourceId]
             : [],
           changeLogSeq: receipt.changeLogSeq,
         },

@@ -357,7 +357,7 @@ export const planCanonicalAgentPageUpdate = async (
     include_content: true,
     include_descendants: true,
   };
-  const snapshot = await input.client.blockRecordRead(read);
+  const snapshot = await input.client.blockRecordRead(read, input.authorization);
   if (
     snapshot.library_id !== input.libraryId
     || snapshot.observed_cursor.store_epoch !== input.storeEpoch

@@ -1,8 +1,11 @@
 import { createHash } from "node:crypto";
-import type { components } from "@nodex/core-protocol";
 import { canonicalizePortableRichText } from "../../shared/block-documents/portable-rich-text";
 import type { BlockNoteBlockValue } from "../../shared/block-documents/nfm-blocknote-adapter";
-import { materializeBlockRecordWindow, type BlockRecord } from "../../shared/block-records";
+import {
+  materializeBlockRecordWindow,
+  type BlockPlacementParent,
+  type BlockRecord,
+} from "../../shared/block-records";
 import type {
   NodexAgentV3ReadCommandResult,
   NodexAgentV3ReadRequest,
@@ -22,7 +25,6 @@ import {
 } from "./canonical-agent-etag";
 
 type FetchRequest = Extract<NodexAgentV3ReadRequest, { readonly tool: "fetch" }>;
-type CorePageDetail = components["schemas"]["LibraryPageDetail"];
 
 const record = (value: unknown): Readonly<Record<string, unknown>> | null =>
   typeof value === "object" && value !== null && !Array.isArray(value)
@@ -35,16 +37,21 @@ const requiredString = (value: unknown, label: string): string => {
 };
 
 const selectedProperties = (
-  detail: CorePageDetail | undefined,
+  page: BlockRecord | undefined,
   propertyIds: readonly string[] | undefined,
 ): Readonly<Record<string, { readonly value: unknown }>> | undefined => {
-  if (!propertyIds || !detail) return undefined;
+  if (!propertyIds || !page) return undefined;
   const values = new Map<string, unknown>();
-  for (const property of detail.intrinsic_properties) values.set(property.key, property.value);
-  if (detail.data_source_context.kind === "member") {
-    for (const [propertyId, entry] of Object.entries(detail.data_source_context.values)) {
-      const value = record(entry)?.value;
-      if (value !== undefined) values.set(propertyId, value);
+  for (const [key, value] of Object.entries(page.properties)) {
+    if (key !== "dataSourceValues") values.set(key, value);
+  }
+  const dataSourceValues = page.properties.dataSourceValues;
+  if (Array.isArray(dataSourceValues)) {
+    for (const entry of dataSourceValues) {
+      const value = record(entry);
+      if (typeof value?.propertyId === "string" && "value" in value) {
+        values.set(value.propertyId, value.value);
+      }
     }
   }
   return Object.fromEntries(
@@ -54,12 +61,15 @@ const selectedProperties = (
   );
 };
 
-const dataSource = (detail: CorePageDetail | undefined) => {
-  if (!detail || detail.data_source_context.kind !== "member") return undefined;
-  const database = record(detail.data_source_context.database);
+const canonicalDataSource = (
+  page: BlockRecord | undefined,
+  parent: BlockPlacementParent,
+) => {
+  if (!page || parent.kind !== "dataSource") return undefined;
+  const databaseId = page.properties.databaseId;
   return {
-    dataSourceId: detail.data_source_context.membership.data_source_id,
-    databaseId: requiredString(database?.databaseId, "Page Database identity"),
+    dataSourceId: parent.dataSourceId,
+    databaseId: typeof databaseId === "string" ? databaseId : parent.dataSourceId,
   };
 };
 
@@ -171,23 +181,11 @@ export async function readNativeFetch(
       request.callId ?? `nodex-agent:${request.tool}`,
       request.resourceAccess,
     );
-    // Library metadata remains a read-only projection seam until the Database
-    // and access-closure cutover is complete. It is not used for Page body,
-    // Block identity, ownership, or structural content.
-    const targetRead = await client.libraryRead({
-      kind: "agent_block_target",
-      block_id: request.input.id,
+    const canonical = await readCanonicalAgentPage(
+      client,
+      request.input.id,
       authorization,
-    });
-    if (targetRead.value.kind !== "agent_block_target") {
-      throw new Error("Core returned the wrong Agent Block target variant");
-    }
-    const targetMetadata = targetRead.value.value;
-    if (!targetMetadata) throw new CanonicalAgentFetchError(
-      "not_found",
-      `Page or Block ${request.input.id} was not found`,
     );
-    const canonical = await readCanonicalAgentPage(client, request.input.id);
     const pageRecord = canonical.pageId
       ? canonical.window.records.find((record) => record.id === canonical.pageId)
       : undefined;
@@ -311,10 +309,10 @@ export async function readNativeFetch(
       : undefined;
     const ownsPage = canonical.pageId === canonical.target.id;
     const properties = ownsPage
-      ? selectedProperties(targetMetadata.owner_page, request.input.propertyIds)
+      ? selectedProperties(pageRecord, request.input.propertyIds)
       : undefined;
     const membership = ownsPage
-      ? dataSource(targetMetadata.owner_page)
+      ? canonicalDataSource(pageRecord, pagePlacement?.parent ?? { kind: "library", libraryId: canonical.window.libraryId })
       : undefined;
     return {
       ok: true,

@@ -21,6 +21,8 @@ export type CoreEventReplayRequired = components["schemas"]["EventReplayRequired
 export type CoreModuleError = components["schemas"]["CoreError"];
 
 export type BlockRecordRead = components["schemas"]["BlockRecordRead"];
+export type BlockRecordReadAuthorization =
+  components["schemas"]["AgentExecutionAuthorization"];
 export type BlockRecordReadSnapshot = SuccessfulPayload<
   components["schemas"]["BlockRecordReadResponse"]
 >;
@@ -151,7 +153,10 @@ export interface CoreEventSubscription {
 }
 
 export interface CoreClientPort {
-  blockRecordRead(read: BlockRecordRead): Promise<BlockRecordReadSnapshot>;
+  blockRecordRead(
+    read: BlockRecordRead,
+    agentAuthorization?: BlockRecordReadAuthorization,
+  ): Promise<BlockRecordReadSnapshot>;
   blockRecordApply(input: BlockRecordApplyInput): Promise<BlockRecordCommittedValue>;
   openLocalCommitStream(
     after: number,

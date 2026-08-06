@@ -296,14 +296,11 @@ export function createDesktopNodexAgentV3DynamicService(
     },
     executeNodexAgentCreatePages: async (...args) => {
       const runtime = await input.authority;
-      const [command, documentHeads] = args;
+      const [command] = args;
       return await input.documentSync.executeNodexAgentMutation({
         projectId: command.projectId,
         storeEpoch: command.storeEpoch,
-        execute: async () => await pageCreatesFor(runtime).execute(
-          command,
-          documentHeads,
-        ),
+        execute: async () => await pageCreatesFor(runtime).execute(command),
         failure: nativeCreatePagesFailure,
         operationLabel: "Agent Page creation",
         conflictMessage: "A target Page Document changed while preparing Page creation",

@@ -127,18 +127,8 @@ describe("NodexAgentV3DynamicService", () => {
       input,
       destination: { kind: "space" },
       pages: [{
-        input: {
-          resource: {
-            kind: "page",
-            title: { kind: "plain", text: "Launch plan" },
-            body: { format: "nfm", content: "## Milestones\n\n- [ ] Ship" },
-          },
-          destination: { kind: "space" },
-        },
         pageId: output.data.pages[0]?.pageId ?? "page-created",
         bodyBlockIds: ["block-heading", "block-task"],
-        primaryMembershipId: "membership-primary",
-        targetMembershipId: "membership-target",
       }],
     };
     const trace: string[] = [];
@@ -154,7 +144,6 @@ describe("NodexAgentV3DynamicService", () => {
               ? { resourceAccess: request.resourceAccess }
               : {}),
           },
-          documentHeads: [],
           previews: [{
             pageId: "page-created",
             title: "Launch plan",

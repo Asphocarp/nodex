@@ -144,14 +144,14 @@ const nonBatch = (
 
 /**
  * Creates Agent Pages and their NFM body records in one BlockRecord Batch.
- * The old preparation still supplies stable IDs and authorization evidence;
+ * Preparation supplies deterministic Block identities and a canonical target;
  * this function owns the durable write and never creates a Page Document.
  */
 export const commitCanonicalAgentPageCreate = async (
   input: CanonicalAgentPageCreateInput,
 ): Promise<BlockRecordCommittedValue> => {
   const target = targetDefinition(input);
-  const snapshot = await input.client.blockRecordRead(target.read);
+  const snapshot = await input.client.blockRecordRead(target.read, input.authorization);
   assertSnapshotBoundary(snapshot, input);
   const window = blockRecordSnapshotToWindow(snapshot, target.read);
   const parent = target.parent;

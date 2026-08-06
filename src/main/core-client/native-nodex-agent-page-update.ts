@@ -400,7 +400,17 @@ export class NativeNodexAgentPageUpdateRuntime {
     };
     const window = needsRead
       ? blockRecordSnapshotToWindow(
-          await this.runtime.clientForProject(request.projectId).blockRecordRead(read),
+          await this.runtime.clientForProject(request.projectId).blockRecordRead(
+            read,
+            request.authority
+              ? toCoreAgentExecutionAuthorization(
+                  this.runtime.identity.profileId,
+                  request.authority,
+                  request.callId,
+                  request.resourceAccess,
+                )
+              : undefined,
+          ),
           read,
         )
       : null;

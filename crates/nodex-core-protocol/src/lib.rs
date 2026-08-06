@@ -749,6 +749,11 @@ pub struct EventReplayRequired {
 #[serde(deny_unknown_fields)]
 pub struct BlockRecordReadRequest {
     pub contract_version: u32,
+    /// Agent reads carry the frozen Core-verifiable Turn authority in the
+    /// same request as the canonical window. Trusted local UI reads omit it
+    /// and are admitted by the host-bound Module context.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_authorization: Option<AgentExecutionAuthorization>,
     pub read: BlockRecordRead,
 }
 

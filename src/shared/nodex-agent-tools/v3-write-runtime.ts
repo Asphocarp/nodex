@@ -7,12 +7,7 @@ import type { ToolFailure } from "./base-schemas";
 import type { AgentDocumentEditEffects } from "./document-edit-compiler";
 import type {
   NodexAgentCallIdentity,
-  NodexAgentDocumentHead,
-  NodexAgentTransferAuthorizationEvidence,
-  NodexAgentTransferCommand,
-  PreparedNodexAgentCreateDestination,
 } from "./write-runtime";
-import type { CreateInput } from "./write-schemas";
 import type {
   AdvancedUpdatePageV3InputSchema,
   AdvancedUpdatePageV3OutputSchema,
@@ -29,6 +24,44 @@ import type { z } from "zod";
 import type { NodexAgentResourceAccessOverlay } from "../nodex-agent-resource-access";
 
 export type NodexAgentPageUpdateTool = "update_page" | "advanced_update_page";
+
+/**
+ * The prepared command carries only canonical ownership coordinates. Page
+ * Document generations, Yjs heads and compatibility owner IDs are not part of
+ * the Agent write protocol anymore; Core validates BlockRecord revisions when
+ * the command is committed.
+ */
+export type NodexAgentCanonicalPageDestination =
+  | {
+      readonly kind: "space";
+      readonly beforeBlockId?: string;
+    }
+  | {
+      readonly kind: "document";
+      readonly pageId: string;
+      readonly parentBlockId?: string;
+      readonly beforeBlockId?: string;
+    }
+  | {
+      readonly kind: "database";
+      readonly dataSourceId: string;
+      readonly view?: {
+        readonly viewId: string;
+        readonly groupKey: string | null;
+        readonly beforePageId?: string;
+      };
+    };
+
+export interface NodexAgentCanonicalAuthorizationEvidence {
+  readonly roots: Readonly<Record<string, {
+    readonly type: string;
+    readonly transformation: "preserved" | "promote" | "wrap";
+    readonly wrapperReason?:
+      | "type_requires_wrapper"
+      | "unsupported_primary_content"
+      | "unmapped_type_state";
+  }>>;
+}
 
 export type PrepareNodexAgentPageUpdateRequest = NodexAgentCallIdentity & {
   readonly projectId: string;
@@ -74,11 +107,8 @@ export type CompleteNodexAgentPageUpdateResult =
   | { readonly ok: false; readonly error: ToolFailure["error"] };
 
 export interface PreparedNodexAgentCreatePageV3 {
-  readonly input: CreateInput;
   readonly pageId: string;
   readonly bodyBlockIds: readonly string[];
-  readonly primaryMembershipId: string;
-  readonly targetMembershipId: string;
 }
 
 export interface NodexAgentCreatePagesCommand extends NodexAgentCallIdentity {
@@ -87,7 +117,7 @@ export interface NodexAgentCreatePagesCommand extends NodexAgentCallIdentity {
   readonly mutationId: string;
   readonly storeEpoch: string;
   readonly input: z.infer<typeof CreatePagesV3InputSchema>;
-  readonly destination: PreparedNodexAgentCreateDestination;
+  readonly destination: NodexAgentCanonicalPageDestination;
   readonly pages: readonly PreparedNodexAgentCreatePageV3[];
 }
 
@@ -107,7 +137,6 @@ export type PrepareNodexAgentCreatePagesResult =
         | {
             readonly kind: "prepared";
             readonly command: NodexAgentCreatePagesCommand;
-            readonly documentHeads: readonly NodexAgentDocumentHead[];
             readonly previews: readonly {
               readonly pageId: string;
               readonly title: string;
@@ -131,13 +160,13 @@ export type ExecuteNodexAgentCreatePagesResult =
     }
   | { readonly ok: false; readonly error: ToolFailure["error"] };
 
-export interface NodexAgentDuplicatePageCommand extends Omit<
-  NodexAgentTransferCommand,
-  "input" | "transfer"
-> {
+export interface NodexAgentDuplicatePageCommand extends NodexAgentCallIdentity {
+  readonly projectId: string;
+  readonly requestHash: string;
+  readonly mutationId: string;
+  readonly storeEpoch: string;
   readonly input: z.infer<typeof DuplicatePageV3InputSchema>;
-  readonly normalizedInput: NodexAgentTransferCommand["input"];
-  readonly transfer?: NodexAgentTransferCommand["transfer"];
+  readonly destination: NodexAgentCanonicalPageDestination;
   readonly canonical?: {
     readonly newPageId: string;
     readonly primaryViewRankKey?: string;
@@ -160,7 +189,7 @@ export type PrepareNodexAgentDuplicatePageResult =
         | {
             readonly kind: "prepared";
             readonly command: NodexAgentDuplicatePageCommand;
-            readonly authorization: NodexAgentTransferAuthorizationEvidence;
+            readonly authorization: NodexAgentCanonicalAuthorizationEvidence;
           };
     }
   | { readonly ok: false; readonly error: ToolFailure["error"] };
@@ -180,30 +209,6 @@ export type ExecuteNodexAgentDuplicatePageResult =
 
 export interface NodexAgentMovePageTransferStep {
   readonly pageId: string;
-  readonly sourceProjectId?: string;
-  readonly targetProjectId?: string;
-  readonly normalizedInput: NodexAgentTransferCommand["input"];
-  readonly transfer: NodexAgentTransferCommand["transfer"] | null;
-  /** Frozen v81 authority coordinates for the canonical transfer path. */
-  readonly canonical?: {
-    readonly expectedParentRevision: number;
-    readonly expectedActiveMembershipRevision: number;
-  };
-  readonly rehome?: {
-    readonly operationId: string;
-    readonly callIdentity: string;
-    readonly requestHash: string;
-    readonly actorProjectId: string;
-    readonly sourceProjectId: string;
-    readonly targetProjectId: string;
-    readonly libraryId: string;
-    readonly storeEpoch: string;
-    readonly rootPageIds: readonly string[];
-    readonly blockIds: readonly string[];
-    readonly documentIds: readonly string[];
-    readonly databaseBlockIds: readonly string[];
-    readonly databaseViewIds: readonly string[];
-  };
 }
 
 export interface NodexAgentMovePagesCommand extends NodexAgentCallIdentity {
@@ -212,9 +217,8 @@ export interface NodexAgentMovePagesCommand extends NodexAgentCallIdentity {
   readonly mutationId: string;
   readonly storeEpoch: string;
   readonly input: z.infer<typeof MovePagesV3InputSchema>;
-  readonly destination: PreparedNodexAgentCreateDestination;
+  readonly destination: NodexAgentCanonicalPageDestination;
   readonly transfers: readonly NodexAgentMovePageTransferStep[];
-  readonly documentHeads: readonly NodexAgentDocumentHead[];
 }
 
 export interface PrepareNodexAgentMovePagesRequest extends NodexAgentCallIdentity {
@@ -233,7 +237,7 @@ export type PrepareNodexAgentMovePagesResult =
         | {
             readonly kind: "prepared";
             readonly command: NodexAgentMovePagesCommand;
-            readonly authorization: NodexAgentTransferAuthorizationEvidence;
+            readonly authorization: NodexAgentCanonicalAuthorizationEvidence;
           };
     }
   | { readonly ok: false; readonly error: ToolFailure["error"] };

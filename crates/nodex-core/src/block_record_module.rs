@@ -253,6 +253,104 @@ impl BlockRecordModule {
         })
     }
 
+    /// Reads a canonical window and authorizes the owning Page/Data Source in
+    /// the same SQLite read transaction. This keeps Agent preparation and
+    /// execution on one authority: a Library projection is not sufficient to
+    /// authorize a BlockRecord window.
+    pub fn read_selection_with_agent_authorization(
+        &self,
+        context: &BoundModuleContext,
+        authorization: &AgentExecutionAuthorization,
+        parent: Option<&PlacementParent>,
+        block_ids: Option<&[String]>,
+        include_content: bool,
+        view_id: Option<&str>,
+        include_descendants: bool,
+        include_archived: bool,
+    ) -> Result<
+        (
+            BlockRecordSelection,
+            Option<crate::local_commit::LocalCommitCursor>,
+        ),
+        StoreError,
+    > {
+        let library_id = self.library_id.clone();
+        let parent = parent.cloned();
+        let block_ids = block_ids.map(ToOwned::to_owned);
+        let view_id = view_id.map(ToOwned::to_owned);
+        let store_epoch = self.store_epoch.clone();
+        let context = context.clone();
+        let authorization = authorization.clone();
+        self.readers.read_default(move |connection| {
+            let transaction = connection.unchecked_transaction()?;
+            let graph = block_record_store::read_graph(&transaction, &library_id)?;
+            let targets =
+                read_authorization_targets(&graph, parent.as_ref(), block_ids.as_deref())?;
+            let mut seen_targets = std::collections::BTreeSet::new();
+            for target in targets {
+                let key = format!("{target:?}");
+                if seen_targets.insert(key) {
+                    crate::library::agent_authorization::authorize_execution(
+                        &transaction,
+                        &context,
+                        &library_id,
+                        &authorization,
+                        &target,
+                        AgentProjectResourceAction::Read,
+                    )?;
+                }
+            }
+            let (blocks, placements) =
+                block_record_store::read_selection_with_descendants_and_lifecycle(
+                    &transaction,
+                    &library_id,
+                    parent.as_ref(),
+                    block_ids.as_deref(),
+                    include_descendants,
+                    include_archived,
+                )?;
+            let content = if include_content {
+                let ids = blocks
+                    .iter()
+                    .map(|block| block.id.as_str())
+                    .collect::<Vec<_>>();
+                content_store::read_window(&transaction, &library_id, Some(&ids))?
+            } else {
+                ContentWindow {
+                    library_id: library_id.clone(),
+                    records: Vec::new(),
+                }
+            };
+            let view_positions = match (view_id.as_deref(), parent.as_ref()) {
+                (Some(view_id), Some(PlacementParent::DataSource(data_source_id))) => {
+                    block_record_store::read_view_positions(
+                        &transaction,
+                        &library_id,
+                        view_id,
+                        data_source_id,
+                        Some(
+                            &blocks
+                                .iter()
+                                .map(|block| block.id.clone())
+                                .collect::<Vec<_>>(),
+                        ),
+                    )?
+                }
+                _ => Vec::new(),
+            };
+            let selection = BlockRecordSelection {
+                library_id,
+                blocks,
+                placements,
+                view_positions,
+                content,
+            };
+            let cursor = crate::local_commit::head(&transaction, &store_epoch)?;
+            transaction.commit()?;
+            Ok((selection, cursor))
+        })
+    }
+
     pub fn apply(&self, request: BlockMutationRequest) -> Result<AppendedLocalCommit, StoreError> {
         self.apply_with_agent_authorization(request, None)
     }
@@ -329,6 +427,84 @@ impl BlockRecordModule {
     ) -> Result<Option<crate::local_commit::LocalCommitCursor>, StoreError> {
         self.readers
             .read_default(|connection| crate::local_commit::head(connection, &self.store_epoch))
+    }
+}
+
+fn read_authorization_targets(
+    graph: &RecordGraph,
+    parent: Option<&PlacementParent>,
+    block_ids: Option<&[String]>,
+) -> Result<Vec<AgentAuthorizationTarget>, StoreError> {
+    if let Some(PlacementParent::DataSource(data_source_id)) = parent {
+        return Ok(vec![AgentAuthorizationTarget::DataSource {
+            data_source_id: data_source_id.clone(),
+        }]);
+    }
+    if let Some(PlacementParent::Block(block_id)) = parent {
+        return Ok(vec![owner_page_target(graph, block_id)?]);
+    }
+    if let Some(ids) = block_ids {
+        if ids.is_empty() {
+            return Err(StoreError::new(
+                StoreErrorCode::InvalidInput,
+                "Agent BlockRecord read has no target",
+                false,
+            ));
+        }
+        return ids.iter().map(|id| owner_page_target(graph, id)).collect();
+    }
+    Ok(vec![AgentAuthorizationTarget::Library {
+        library_id: graph.library_id().to_owned(),
+    }])
+}
+
+fn owner_page_target(
+    graph: &RecordGraph,
+    block_id: &str,
+) -> Result<AgentAuthorizationTarget, StoreError> {
+    let mut current = block_id.to_owned();
+    let mut visited = std::collections::BTreeSet::new();
+    loop {
+        if !visited.insert(current.clone()) {
+            return Err(StoreError::new(
+                StoreErrorCode::StoreCorrupt,
+                "Agent BlockRecord read encountered an ownership cycle",
+                false,
+            ));
+        }
+        let record = graph.block(&current).ok_or_else(|| {
+            StoreError::new(
+                StoreErrorCode::NotFound,
+                "Agent BlockRecord target is unavailable",
+                false,
+            )
+        })?;
+        if matches!(record.kind, BlockKind::Page) {
+            if !record.lifecycle.is_active() {
+                return Err(unauthorized("Agent BlockRecord read target is not active"));
+            }
+            return Ok(AgentAuthorizationTarget::Page { page_id: current });
+        }
+        let placement = graph.placement(&current).ok_or_else(|| {
+            StoreError::new(
+                StoreErrorCode::StoreCorrupt,
+                "Agent BlockRecord target has no owning placement",
+                false,
+            )
+        })?;
+        match &placement.parent {
+            PlacementParent::Block(parent_id) => current = parent_id.clone(),
+            PlacementParent::DataSource(data_source_id) => {
+                return Ok(AgentAuthorizationTarget::DataSource {
+                    data_source_id: data_source_id.clone(),
+                });
+            }
+            PlacementParent::Library => {
+                return Ok(AgentAuthorizationTarget::Library {
+                    library_id: graph.library_id().to_owned(),
+                });
+            }
+        }
     }
 }
 
@@ -838,5 +1014,80 @@ mod tests {
         )
         .expect_err("ordinary Block cannot use Page Agent structural auth");
         assert_eq!(error.code, StoreErrorCode::Unauthorized);
+    }
+
+    #[test]
+    fn canonical_agent_window_collects_every_distinct_owner_target() {
+        let graph = RecordGraph::from_parts(
+            "library:test",
+            [
+                BlockRecord {
+                    id: "page:one".to_owned(),
+                    library_id: "library:test".to_owned(),
+                    kind: BlockKind::Page,
+                    lifecycle: BlockLifecycle::Active,
+                    properties: json!({}),
+                    content_shard_id: "shard:one".to_owned(),
+                    revision: 1,
+                },
+                BlockRecord {
+                    id: "block:one-child".to_owned(),
+                    library_id: "library:test".to_owned(),
+                    kind: BlockKind::Paragraph,
+                    lifecycle: BlockLifecycle::Active,
+                    properties: json!({}),
+                    content_shard_id: "shard:one".to_owned(),
+                    revision: 1,
+                },
+                BlockRecord {
+                    id: "page:two".to_owned(),
+                    library_id: "library:test".to_owned(),
+                    kind: BlockKind::Page,
+                    lifecycle: BlockLifecycle::Active,
+                    properties: json!({}),
+                    content_shard_id: "shard:two".to_owned(),
+                    revision: 1,
+                },
+            ],
+            [
+                BlockPlacement {
+                    block_id: "page:one".to_owned(),
+                    parent: PlacementParent::Library,
+                    rank_key: "a".to_owned(),
+                    revision: 1,
+                },
+                BlockPlacement {
+                    block_id: "block:one-child".to_owned(),
+                    parent: PlacementParent::Block("page:one".to_owned()),
+                    rank_key: "a".to_owned(),
+                    revision: 1,
+                },
+                BlockPlacement {
+                    block_id: "page:two".to_owned(),
+                    parent: PlacementParent::Library,
+                    rank_key: "b".to_owned(),
+                    revision: 1,
+                },
+            ],
+        )
+        .expect("valid graph");
+
+        let targets = read_authorization_targets(
+            &graph,
+            None,
+            Some(&["block:one-child".to_owned(), "page:two".to_owned()]),
+        )
+        .expect("owner targets");
+        assert_eq!(
+            targets,
+            vec![
+                AgentAuthorizationTarget::Page {
+                    page_id: "page:one".to_owned(),
+                },
+                AgentAuthorizationTarget::Page {
+                    page_id: "page:two".to_owned(),
+                },
+            ]
+        );
     }
 }

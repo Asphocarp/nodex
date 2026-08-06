@@ -3686,6 +3686,17 @@
           "read"
         ],
         "properties": {
+          "agent_authorization": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentExecutionAuthorization",
+                "description": "Agent reads carry the frozen Core-verifiable Turn authority in the\nsame request as the canonical window. Trusted local UI reads omit it\nand are admitted by the host-bound Module context."
+              }
+            ]
+          },
           "contract_version": {
             "type": "integer",
             "format": "int32",

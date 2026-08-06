@@ -273,7 +273,7 @@ const readBlockRecordWindow = async (
   input: CoreBlockTransferAdapterInput,
   read: BlockRecordRead,
 ): Promise<BlockRecordWindow> => blockRecordSnapshotToWindow(
-  await input.client.blockRecordRead(read),
+  await input.client.blockRecordRead(read, input.agentAuthorization),
   read,
 );
 
@@ -547,6 +547,7 @@ export const commitCanonicalMoveIntent = async (
   intent: BlockTransferIntent,
 ): Promise<BlockTransferCommandResult | null> => {
   const target = intent.target;
+  if (target.kind === "data_source") return commitMoveIntoDataSource(input, intent);
   if (target.kind !== "library" && target.kind !== "page") return null;
   const sourceWindow = await tryReadBlockRecordWindow(input, {
     kind: "window",
@@ -1010,10 +1011,6 @@ export const createCoreBlockTransferAdapter = (
       try {
         if (intent.mode === "copy") {
           const terminal = await commitCanonicalCopyIntent(input, intent);
-          if (terminal !== null) return terminal;
-        }
-        if (intent.mode === "move" && intent.target.kind === "data_source") {
-          const terminal = await commitMoveIntoDataSource(input, intent);
           if (terminal !== null) return terminal;
         }
         if (intent.mode === "move") {
