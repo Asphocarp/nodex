@@ -1,7 +1,10 @@
+import type { components } from "@nodex/core-protocol";
 import type { BlockRecordApplyInput } from "../core-modules/block-record-module";
 import type { BlockPlacementParent } from "./contracts";
 import type { BlockNoteBlockValue } from "../block-documents/nfm-blocknote-adapter";
 import { blockKindToCore } from "./kind";
+
+type CoreDatabaseIntent = components["schemas"]["DatabaseIntent"];
 
 export interface BlockRecordApplyIdentity {
   readonly operationId: string;
@@ -16,6 +19,10 @@ export interface BatchBlockRecordApplyInput extends BlockRecordApplyIdentity {
     BlockRecordApplyInput["operation"],
     { readonly kind: "batch" }
   >[];
+}
+
+export interface ApplyDatabaseBlockRecordApplyInput extends BlockRecordApplyIdentity {
+  readonly intents: readonly CoreDatabaseIntent[];
 }
 
 export interface PromoteBlockRecordApplyInput extends BlockRecordApplyIdentity {
@@ -391,6 +398,22 @@ export const buildBatchBlockRecordApplyInput = async (
   const operation = {
     kind: "batch" as const,
     operations: [...input.operations],
+  };
+  return {
+    ...await identityFields(input, operation),
+    operation,
+  };
+};
+
+export const buildApplyDatabaseBlockRecordApplyInput = async (
+  input: ApplyDatabaseBlockRecordApplyInput,
+): Promise<BlockRecordApplyInput> => {
+  if (input.intents.length === 0) {
+    throw new Error("Database BlockRecord operation must contain at least one intent");
+  }
+  const operation = {
+    kind: "apply_database" as const,
+    intents: [...input.intents],
   };
   return {
     ...await identityFields(input, operation),

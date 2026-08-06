@@ -22,6 +22,7 @@ import {
   parseLibraryDatabaseModuleReadResultV2,
 } from "../../shared/database-module-v2-transport";
 import type { DatabasePropertyValueType } from "../../shared/database-kernel";
+import { buildApplyDatabaseBlockRecordApplyInput } from "../../shared/block-records/apply-request";
 import { CoreModuleResponseError } from "./core-client";
 import {
   applyCanonicalDatabaseValues,
@@ -32,7 +33,6 @@ import type {
   CoreClientPort,
   CoreModuleError,
   BlockRecordCommittedValue,
-  DatabaseCommittedValue,
   DatabaseIntent,
   DatabaseRead,
   DatabaseReadSnapshot,
@@ -503,42 +503,62 @@ export const toCoreDatabaseIntent = (
   }
 };
 
-const validateCoreCommit = (
-  committed: DatabaseCommittedValue,
+const databaseReceiptFromBlockCommit = (
+  committed: BlockRecordCommittedValue,
   request: Pick<DatabaseApplyV2, "operationId" | "operations">,
-): readonly DatabaseApplyOperationV2["kind"][] => {
-  if (committed.receipt.operation_id !== request.operationId) {
-    throw new Error("Core Database receipt crossed its operation boundary");
+): {
+  readonly operationId: string;
+  readonly duplicate: boolean;
+  readonly operationKinds: readonly DatabaseApplyOperationV2["kind"][];
+  readonly affectedDatabaseIds: readonly string[];
+  readonly affectedDataSourceIds: readonly string[];
+  readonly affectedPageIds: readonly string[];
+  readonly affectedViewIds: readonly string[];
+  readonly committedRevisions: Readonly<Record<string, number>>;
+  readonly changeLogSeq: number;
+  readonly committedAt: string;
+} => {
+  if (committed.operation_id !== request.operationId) {
+    throw new Error("BlockRecord Database receipt crossed its operation boundary");
   }
-  const operationKinds = request.operations.map((operation) => operation.kind);
+  const effect = committed.effects.find((candidate) => candidate.kind === "database");
+  const value = requireRecord(effect?.value, "BlockRecord Database receipt");
+  const receipt = requireRecord(value.receipt, "BlockRecord Database receipt evidence");
+  const operationKinds = receipt.operation_kinds;
   if (
-    committed.value.operation_count !== request.operations.length
-    || committed.receipt.change_log_seq !== committed.event_sequence
-    || committed.receipt.operation_kinds.length !== operationKinds.length
-    || committed.receipt.operation_kinds.some((kind, index) =>
-      kind !== operationKinds[index]
-    )
+    !Array.isArray(operationKinds)
+    || operationKinds.length !== request.operations.length
+    || operationKinds.some((kind, index) => kind !== request.operations[index]?.kind)
   ) {
-    throw new Error("Core Database receipt evidence is inconsistent");
+    throw new Error("BlockRecord Database receipt evidence is inconsistent");
   }
-  return operationKinds;
+  const stringArray = (key: string): readonly string[] => {
+    const entries = receipt[key];
+    if (!Array.isArray(entries) || entries.some((entry) => typeof entry !== "string")) {
+      throw new Error(`BlockRecord Database receipt ${key} is invalid`);
+    }
+    return entries;
+  };
+  const revisions = requireRecord(receipt.committed_revisions, "Database committed revisions");
+  const committedAt = requireString(receipt, "committed_at", "BlockRecord Database receipt");
+  return {
+    operationId: committed.operation_id,
+    duplicate: committed.duplicate,
+    operationKinds: operationKinds as readonly DatabaseApplyOperationV2["kind"][],
+    affectedDatabaseIds: stringArray("affected_database_ids"),
+    affectedDataSourceIds: stringArray("affected_data_source_ids"),
+    affectedPageIds: stringArray("affected_page_ids"),
+    affectedViewIds: stringArray("affected_view_ids"),
+    committedRevisions: Object.fromEntries(
+      Object.entries(revisions).map(([key, revision]) => {
+        if (typeof revision !== "number") throw new Error("Database committed revision is invalid");
+        return [key, revision];
+      }),
+    ),
+    changeLogSeq: committed.cursor.commit_seq,
+    committedAt,
+  };
 };
-
-const coreReceiptEvidence = (
-  committed: DatabaseCommittedValue,
-  operationKinds: readonly DatabaseApplyOperationV2["kind"][],
-) => ({
-  operationId: committed.receipt.operation_id,
-  duplicate: committed.receipt.duplicate,
-  operationKinds,
-  affectedDatabaseIds: committed.receipt.affected_database_ids,
-  affectedDataSourceIds: committed.receipt.affected_data_source_ids,
-  affectedPageIds: committed.receipt.affected_page_ids,
-  affectedViewIds: committed.receipt.affected_view_ids,
-  committedRevisions: committed.receipt.committed_revisions,
-  changeLogSeq: committed.receipt.change_log_seq,
-  committedAt: committed.receipt.committed_at,
-});
 
 interface CoreWindowSlice {
   readonly items: readonly unknown[];
@@ -997,22 +1017,24 @@ export const createCoreDatabaseModuleAdapter = (
         }
       }
       try {
-        const committed = await input.client.databaseApply({
+        const apply = await buildApplyDatabaseBlockRecordApplyInput({
           operationId: request.operationId,
-          intent: request.operations.map(toCoreDatabaseIntent),
+          actorId: actorIdentity(request.actor, input.libraryId),
+          sessionId: `project:${request.projectId}`,
+          intents: request.operations.map(toCoreDatabaseIntent),
         });
-        if (committed.store_epoch !== input.storeEpoch) {
-          throw new Error("Core Database apply crossed its Store epoch boundary");
+        const committed = await input.client.blockRecordApply(apply);
+        if (committed.cursor.store_epoch !== input.storeEpoch) {
+          throw new Error("BlockRecord Database apply crossed its Store epoch boundary");
         }
-        const operationKinds = validateCoreCommit(committed, request);
         return parseDatabaseApplyResultV2({
           ok: true,
           value: {
             version: request.version,
             projectId: input.projectId,
             libraryId: input.libraryId,
-            storeEpoch: committed.store_epoch,
-            ...coreReceiptEvidence(committed, operationKinds),
+            storeEpoch: committed.cursor.store_epoch,
+            ...databaseReceiptFromBlockCommit(committed, request),
           },
         });
       } catch (error) {
@@ -1117,22 +1139,24 @@ export const createCoreLibraryDatabaseModuleAdapter = (
       }
     }
     try {
-      const committed = await input.client.databaseApply({
+      const apply = await buildApplyDatabaseBlockRecordApplyInput({
         operationId: request.operationId,
-        intent: request.operations.map(toCoreDatabaseIntent),
+        actorId: actorIdentity(undefined, input.libraryId),
+        sessionId: `library:${input.libraryId}`,
+        intents: request.operations.map(toCoreDatabaseIntent),
       });
-      if (committed.store_epoch !== input.storeEpoch) {
-        throw new Error("Core Library Database apply crossed its Store epoch boundary");
+      const committed = await input.client.blockRecordApply(apply);
+      if (committed.cursor.store_epoch !== input.storeEpoch) {
+        throw new Error("BlockRecord Library Database apply crossed its Store epoch boundary");
       }
-      const operationKinds = validateCoreCommit(committed, request);
       return parseLibraryDatabaseApplyResultV2({
         ok: true,
         value: {
           version: request.version,
           accessContext: { kind: "library" },
           libraryId: input.libraryId,
-          storeEpoch: committed.store_epoch,
-          ...coreReceiptEvidence(committed, operationKinds),
+          storeEpoch: committed.cursor.store_epoch,
+          ...databaseReceiptFromBlockCommit(committed, request),
         },
       });
     } catch (error) {

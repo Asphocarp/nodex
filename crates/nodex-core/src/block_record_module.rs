@@ -8,6 +8,7 @@ use nodex_core_contracts::BoundModuleContext;
 use nodex_core_contracts::agent::{
     AgentAuthorizationTarget, AgentExecutionAuthorization, AgentProjectResourceAction,
 };
+use nodex_core_contracts::database::{DatabaseIntent, DatabaseTransferTarget};
 
 use crate::content_store::{self, ContentWindow};
 use crate::domain::block_record::{
@@ -19,8 +20,8 @@ use crate::infrastructure::store::SqliteStoreKernel;
 use crate::infrastructure::writer::{StoreReaders, StoreWriter};
 use crate::local_commit::{AppendedLocalCommit, LocalCommitEnvelope};
 use crate::mutation_kernel::{
-    BlockMutationOperation, BlockMutationRequest, ContentMutationRequest, apply_block_mutation,
-    apply_content_mutation,
+    BlockMutationOperation, BlockMutationRequest, ContentMutationRequest,
+    apply_block_mutation_with_database_context, apply_content_mutation,
 };
 
 #[derive(Clone, Debug)]
@@ -360,6 +361,15 @@ impl BlockRecordModule {
         request: BlockMutationRequest,
         agent: Option<(BoundModuleContext, AgentExecutionAuthorization)>,
     ) -> Result<AppendedLocalCommit, StoreError> {
+        self.apply_with_context(None, request, agent)
+    }
+
+    pub fn apply_with_context(
+        &self,
+        context: Option<&BoundModuleContext>,
+        request: BlockMutationRequest,
+        agent: Option<(BoundModuleContext, AgentExecutionAuthorization)>,
+    ) -> Result<AppendedLocalCommit, StoreError> {
         if request.store_epoch != self.store_epoch {
             return Err(StoreError::new(
                 StoreErrorCode::StaleStoreEpoch,
@@ -377,6 +387,7 @@ impl BlockRecordModule {
             ));
         }
         let library_id = self.library_id.clone();
+        let context = context.cloned();
         self.writer.call(move |connection| {
             with_immediate_transaction(connection, |transaction| {
                 let mut graph = block_record_store::read_graph(transaction, &library_id)?;
@@ -390,7 +401,15 @@ impl BlockRecordModule {
                         &graph,
                     )?;
                 }
-                apply_block_mutation(transaction, &mut graph, request)
+                let database_context = context
+                    .as_ref()
+                    .or_else(|| agent.as_ref().map(|(context, _)| context));
+                apply_block_mutation_with_database_context(
+                    transaction,
+                    &mut graph,
+                    request,
+                    database_context,
+                )
             })
         })
     }
@@ -732,6 +751,70 @@ fn collect_agent_requirements(
                 },
                 AgentProjectResourceAction::ManageSchema,
             ));
+        }
+        BlockMutationOperation::ApplyDatabase { intents } => {
+            for intent in intents {
+                match intent {
+                    DatabaseIntent::PutProperty { data_source_id, .. }
+                    | DatabaseIntent::DeleteProperty { data_source_id, .. }
+                    | DatabaseIntent::PutOption { data_source_id, .. }
+                    | DatabaseIntent::DeleteOption { data_source_id, .. } => output.push((
+                        AgentAuthorizationTarget::DataSource {
+                            data_source_id: data_source_id.clone(),
+                        },
+                        AgentProjectResourceAction::ManageSchema,
+                    )),
+                    DatabaseIntent::EditPropertyValues { edits } => {
+                        for edit in edits {
+                            output.push((
+                                AgentAuthorizationTarget::DataSource {
+                                    data_source_id: edit.address.data_source_id.clone(),
+                                },
+                                AgentProjectResourceAction::Write,
+                            ));
+                        }
+                    }
+                    DatabaseIntent::PutView { database_id, .. }
+                    | DatabaseIntent::DeleteView { database_id, .. } => output.push((
+                        AgentAuthorizationTarget::Database {
+                            database_id: database_id.clone(),
+                        },
+                        AgentProjectResourceAction::ManageViews,
+                    )),
+                    DatabaseIntent::PositionPage { view_id, .. }
+                    | DatabaseIntent::PositionPages { view_id, .. } => output.push((
+                        AgentAuthorizationTarget::View {
+                            view_id: view_id.clone(),
+                        },
+                        AgentProjectResourceAction::Write,
+                    )),
+                    DatabaseIntent::TransferPage {
+                        page_id, target, ..
+                    } => {
+                        push_existing_root_requirement(page_id, graph, created_ids, output)?;
+                        match target {
+                            DatabaseTransferTarget::Library { library_id } => output.push((
+                                AgentAuthorizationTarget::Library {
+                                    library_id: library_id.clone(),
+                                },
+                                AgentProjectResourceAction::CreateChild,
+                            )),
+                            DatabaseTransferTarget::Page { page_id } => output.push((
+                                AgentAuthorizationTarget::Page {
+                                    page_id: page_id.clone(),
+                                },
+                                AgentProjectResourceAction::CreateChild,
+                            )),
+                            DatabaseTransferTarget::DataSource { data_source_id } => output.push((
+                                AgentAuthorizationTarget::DataSource {
+                                    data_source_id: data_source_id.clone(),
+                                },
+                                AgentProjectResourceAction::Write,
+                            )),
+                        }
+                    }
+                }
+            }
         }
         BlockMutationOperation::ReconcilePageTree { page_id, .. } => {
             if !created_ids.contains(page_id) {

@@ -81,6 +81,44 @@ const emptyViewDescriptorWindowSnapshot = () => ({
   },
 });
 
+const databaseBlockCommit = (
+  operationId: string,
+  operationKinds: readonly string[],
+  commitSeq: number,
+) => ({
+  actor_id: "database:library:test:renderer",
+  audience: { kind: "library", projectIds: [] },
+  canonical_hash: "a".repeat(64),
+  commit_id: `commit:${operationId}`,
+  committed_at: "2026-07-20T00:00:00.000Z",
+  cursor: { store_epoch: identity.storeEpoch, commit_seq: commitSeq },
+  duplicate: false,
+  effects: [{
+    kind: "database",
+    value: {
+      value: { operation_count: operationKinds.length },
+      receipt: {
+        operation_id: operationId,
+        duplicate: false,
+        affected_database_ids: ["database:test"],
+        affected_data_source_ids: ["source:test"],
+        affected_page_ids: ["page:test"],
+        affected_view_ids: ["view:test"],
+        operation_kinds: [...operationKinds],
+        committed_revisions: { "source:source:test": 2 },
+        change_log_seq: commitSeq,
+        committed_at: "2026-07-20T00:00:00.000Z",
+      },
+      event_sequence: commitSeq,
+      store_epoch: identity.storeEpoch,
+    },
+  }],
+  intent_hash: "b".repeat(64),
+  operation_id: operationId,
+  payload_completeness: "rich" as const,
+  session_id: "project:project:test",
+});
+
 describe("Core Database Module Adapter", () => {
   test("maps the Project-bound read and validates the shared v2 snapshot", async () => {
     const client = new FakeCoreClient();
@@ -437,23 +475,9 @@ describe("Core Database Module Adapter", () => {
       "position_page",
       "position_pages",
     ] as const;
-    client.enqueueDatabaseApply({
-      value: { operation_count: operationKinds.length },
-      receipt: {
-        operation_id: "operation:test",
-        duplicate: false,
-        affected_database_ids: [databaseId],
-        affected_data_source_ids: [dataSourceId],
-        affected_page_ids: ["page:test"],
-        affected_view_ids: [viewId],
-        operation_kinds: operationKinds,
-        committed_revisions: { [`source:${dataSourceId}`]: 2 },
-        change_log_seq: 41,
-        committed_at: "2026-07-20T00:00:00.000Z",
-      },
-      event_sequence: 41,
-      store_epoch: identity.storeEpoch,
-    });
+    client.enqueueBlockRecordApply(
+      databaseBlockCommit("operation:test", operationKinds, 41),
+    );
     const adapter = createCoreDatabaseModuleAdapter({ client, ...identity });
 
     await expect(adapter.apply({
@@ -571,9 +595,11 @@ describe("Core Database Module Adapter", () => {
         committedAt: "2026-07-20T00:00:00.000Z",
       },
     });
-    expect(client.databaseApplies).toEqual([{
-      operationId: "operation:test",
-      intent: [
+    expect(client.blockRecordApplies[0]).toMatchObject({
+      operation_id: "operation:test",
+      operation: {
+        kind: "apply_database",
+        intents: [
         {
           kind: "put_property",
           data_source_id: dataSourceId,
@@ -665,33 +691,18 @@ describe("Core Database Module Adapter", () => {
           group_key: "high",
           before_page_id: null,
         },
-      ],
-    }]);
+        ],
+      },
+    });
   });
 
   test("maps trusted Library writes without exposing a storage Project", async () => {
     const client = new FakeCoreClient();
     const dataSourceId = parseDataSourceId("source:library");
     const propertyId = parseDataSourcePropertyId("p_library1");
-    client.enqueueDatabaseApply({
-      value: { operation_count: 1 },
-      receipt: {
-        operation_id: "operation:library",
-        duplicate: false,
-        affected_database_ids: [],
-        affected_data_source_ids: [dataSourceId],
-        affected_page_ids: [],
-        affected_view_ids: [],
-        operation_kinds: ["put_property"],
-        committed_revisions: {
-          [`property:${dataSourceId}:${propertyId}`]: 1,
-        },
-        change_log_seq: 52,
-        committed_at: "2026-07-20T00:10:00.000Z",
-      },
-      event_sequence: 52,
-      store_epoch: identity.storeEpoch,
-    });
+    client.enqueueBlockRecordApply(
+      databaseBlockCommit("operation:library", ["put_property"], 52),
+    );
     const adapter = createCoreLibraryDatabaseModuleAdapter({
       client,
       libraryId: identity.libraryId,
@@ -720,16 +731,19 @@ describe("Core Database Module Adapter", () => {
         operationKinds: ["put_property"],
       },
     });
-    const [result] = client.databaseApplies;
+    const [result] = client.blockRecordApplies;
     expect(result).toMatchObject({
-      operationId: "operation:library",
-      intent: [{
+      operation_id: "operation:library",
+      operation: {
+        kind: "apply_database",
+        intents: [{
         kind: "put_property",
         data_source_id: dataSourceId,
         property_id: propertyId,
-      }],
+        }],
+      },
     });
-    expect(result && "projectId" in result).toBe(false);
+    expect(result && "project_id" in result).toBe(false);
   });
 
   test("selects one cached Core client for each Project", async () => {

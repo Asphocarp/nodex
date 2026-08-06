@@ -784,7 +784,7 @@ pub enum BlockRecordPlacementParent {
     DataSource(String),
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum BlockRecordOperation {
     /// Applies several typed operations under one LocalCommit. Operations are
@@ -823,6 +823,11 @@ pub enum BlockRecordOperation {
     },
     EnsureDataSource {
         data_source_id: String,
+    },
+    /// Applies Database schema, value, relation, View and placement intents
+    /// inside the BlockRecord LocalCommit transaction boundary.
+    ApplyDatabase {
+        intents: Vec<DatabaseIntent>,
     },
     Move {
         block_id: String,
@@ -960,7 +965,7 @@ pub enum BlockRecordOperation {
 /// The non-recursive child union used by `BlockRecordOperation::Batch`.
 /// Keeping this union separate lets OpenAPI generators emit a finite schema;
 /// nested batches are rejected by the Kernel.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum BlockRecordBatchOperation {
     Create {
@@ -987,6 +992,9 @@ pub enum BlockRecordBatchOperation {
     },
     EnsureDataSource {
         data_source_id: String,
+    },
+    ApplyDatabase {
+        intents: Vec<DatabaseIntent>,
     },
     Move {
         block_id: String,
@@ -1218,7 +1226,7 @@ pub struct BlockRecordTreeNode {
     pub materialized_json: serde_json::Value,
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct BlockRecordApplyRequest {
     pub contract_version: u32,

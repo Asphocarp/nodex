@@ -691,6 +691,10 @@ export interface components {
             /** @enum {string} */
             readonly kind: "ensure_data_source";
         } | {
+            readonly intents: readonly components["schemas"]["DatabaseIntent"][];
+            /** @enum {string} */
+            readonly kind: "apply_database";
+        } | {
             readonly block_id: string;
             /** Format: int64 */
             readonly expected_block_revision: number;
@@ -915,6 +919,10 @@ export interface components {
             readonly data_source_id: string;
             /** @enum {string} */
             readonly kind: "ensure_data_source";
+        } | {
+            readonly intents: readonly components["schemas"]["DatabaseIntent"][];
+            /** @enum {string} */
+            readonly kind: "apply_database";
         } | {
             readonly block_id: string;
             /** Format: int64 */

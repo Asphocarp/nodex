@@ -5,8 +5,11 @@
 //! LocalCommit transaction boundary in a Library or Board adapter.
 
 use rusqlite::{OptionalExtension, Transaction};
-use serde_json::json;
+use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
+
+use nodex_core_contracts::database::{DATABASE_CONTRACT_VERSION, DatabaseIntent};
+use nodex_core_contracts::{BoundModuleContext, ModuleApplyRequest, StoreEpoch};
 
 use crate::content_store::{ContentSlot, ContentSnapshot, ContentUpdateRequest, append_update};
 use crate::domain::block_record::{
@@ -66,6 +69,9 @@ pub enum BlockMutationOperation {
     },
     EnsureDataSource {
         data_source_id: String,
+    },
+    ApplyDatabase {
+        intents: Vec<DatabaseIntent>,
     },
     Move {
         block_id: String,
@@ -256,6 +262,15 @@ pub fn apply_block_mutation(
     graph: &mut RecordGraph,
     request: BlockMutationRequest,
 ) -> Result<AppendedLocalCommit, StoreError> {
+    apply_block_mutation_with_database_context(transaction, graph, request, None)
+}
+
+pub fn apply_block_mutation_with_database_context(
+    transaction: &Transaction<'_>,
+    graph: &mut RecordGraph,
+    request: BlockMutationRequest,
+    database_context: Option<&BoundModuleContext>,
+) -> Result<AppendedLocalCommit, StoreError> {
     validate_operation_identity(&request)?;
     if let Some(existing) =
         find_by_operation(transaction, &request.store_epoch, &request.operation_id)?
@@ -291,8 +306,17 @@ pub fn apply_block_mutation(
             operations,
             &request.committed_at,
             &request.operation_id,
+            &request.store_epoch,
+            database_context,
         ),
-        operation => apply_operation(transaction, graph, operation),
+        operation => apply_operation(
+            transaction,
+            graph,
+            operation,
+            &request.operation_id,
+            &request.store_epoch,
+            database_context,
+        ),
     } {
         Ok(result) => result,
         Err(error) => {
@@ -341,6 +365,7 @@ pub fn apply_block_mutation(
         if !matches!(
             &request.operation,
             BlockMutationOperation::EnsureDataSource { .. }
+                | BlockMutationOperation::ApplyDatabase { .. }
         ) {
             debug_assert!(
                 committed
@@ -422,6 +447,8 @@ fn apply_batch_operations(
     operations: &[BlockMutationOperation],
     committed_at: &str,
     operation_id: &str,
+    store_epoch: &str,
+    database_context: Option<&BoundModuleContext>,
 ) -> Result<(String, Vec<LocalCommitEffect>), StoreError> {
     if operations.is_empty() || operations.len() > MAX_BATCH_OPERATIONS {
         return Err(StoreError::new(
@@ -442,7 +469,14 @@ fn apply_batch_operations(
             ));
         }
         let before = graph.clone();
-        let (block_id, mut operation_effects) = apply_operation(transaction, graph, operation)?;
+        let (block_id, mut operation_effects) = apply_operation(
+            transaction,
+            graph,
+            operation,
+            operation_id,
+            store_epoch,
+            database_context,
+        )?;
         let persisted_effects = persist_delta(
             transaction,
             &before,
@@ -529,6 +563,7 @@ fn persist_delta(
         BlockMutationOperation::SetDataSourceValues { block_id, .. } => block_id,
         BlockMutationOperation::SetMaterializedContent { block_id, .. } => block_id,
         BlockMutationOperation::ReconcilePageTree { page_id, .. } => page_id,
+        BlockMutationOperation::ApplyDatabase { .. } => return Ok(Vec::new()),
         BlockMutationOperation::EnsureDataSource { data_source_id } => {
             crate::infrastructure::block_record_store::ensure_data_source(
                 transaction,
@@ -2263,6 +2298,9 @@ fn apply_operation(
     transaction: &Transaction<'_>,
     graph: &mut RecordGraph,
     operation: &BlockMutationOperation,
+    operation_id: &str,
+    store_epoch: &str,
+    database_context: Option<&BoundModuleContext>,
 ) -> Result<(String, Vec<LocalCommitEffect>), StoreError> {
     match operation {
         BlockMutationOperation::Batch { .. } => Err(StoreError::new(
@@ -2546,6 +2584,14 @@ fn apply_operation(
                 }],
             ))
         }
+        BlockMutationOperation::ApplyDatabase { intents } => apply_database_intents(
+            transaction,
+            graph,
+            intents,
+            operation_id,
+            store_epoch,
+            database_context,
+        ),
         BlockMutationOperation::Move {
             block_id,
             target_parent,
@@ -3987,6 +4033,259 @@ fn apply_operation(
             nodes,
         } => apply_reconcile_page_tree(transaction, graph, page_id, *expected_page_revision, nodes),
     }
+}
+
+fn apply_database_intents(
+    transaction: &Transaction<'_>,
+    graph: &mut RecordGraph,
+    intents: &[DatabaseIntent],
+    operation_id: &str,
+    store_epoch: &str,
+    database_context: Option<&BoundModuleContext>,
+) -> Result<(String, Vec<LocalCommitEffect>), StoreError> {
+    let context = database_context.ok_or_else(|| {
+        StoreError::new(
+            StoreErrorCode::InvalidInput,
+            "Database BlockRecord operations require a bound Module context",
+            false,
+        )
+    })?;
+    let request = ModuleApplyRequest {
+        contract_version: DATABASE_CONTRACT_VERSION,
+        operation_id: operation_id.to_owned(),
+        store_epoch: StoreEpoch(store_epoch.to_owned()),
+        intent: intents.to_vec(),
+    };
+    let outcome = crate::database::apply_intents_in_transaction(
+        transaction,
+        &context.profile_id.0,
+        &context.library_id.0,
+        context,
+        &request,
+    )?;
+    let primary = outcome
+        .committed
+        .receipt
+        .affected_page_ids
+        .first()
+        .cloned()
+        .or_else(|| {
+            outcome
+                .committed
+                .receipt
+                .affected_data_source_ids
+                .first()
+                .cloned()
+        })
+        .or_else(|| {
+            outcome
+                .committed
+                .receipt
+                .affected_database_ids
+                .first()
+                .cloned()
+        })
+        .ok_or_else(|| {
+            StoreError::new(
+                StoreErrorCode::InvalidInput,
+                "Database operation batch must affect an addressable record",
+                false,
+            )
+        })?;
+    let value = serde_json::to_value(&outcome.committed).map_err(|_| {
+        StoreError::new(
+            StoreErrorCode::StoreCorrupt,
+            "Database BlockRecord receipt cannot be encoded",
+            false,
+        )
+    })?;
+    let mut effects = vec![LocalCommitEffect {
+        kind: "database".to_owned(),
+        value,
+    }];
+    effects.extend(sync_database_value_records(transaction, graph, intents)?);
+    effects.extend(sync_database_view_positions(transaction, graph, intents)?);
+    Ok((primary, effects))
+}
+
+fn sync_database_value_records(
+    transaction: &Transaction<'_>,
+    graph: &mut RecordGraph,
+    intents: &[DatabaseIntent],
+) -> Result<Vec<LocalCommitEffect>, StoreError> {
+    let addresses = intents
+        .iter()
+        .filter_map(|intent| match intent {
+            DatabaseIntent::EditPropertyValues { edits } => Some(
+                edits
+                    .iter()
+                    .map(|edit| {
+                        (
+                            edit.address.page_id.clone(),
+                            edit.address.data_source_id.clone(),
+                        )
+                    })
+                    .collect::<Vec<_>>(),
+            ),
+            _ => None,
+        })
+        .flatten()
+        .collect::<BTreeSet<_>>();
+    let mut effects = Vec::with_capacity(addresses.len());
+    for (page_id, data_source_id) in addresses {
+        let previous = graph.block(&page_id).cloned().ok_or_else(|| {
+            StoreError::new(
+                StoreErrorCode::NotFound,
+                "Database value mutation Page is missing from BlockRecord authority",
+                false,
+            )
+        })?;
+        if !matches!(previous.kind, BlockKind::Page) || !previous.lifecycle.is_active() {
+            return Err(StoreError::new(
+                StoreErrorCode::NotFound,
+                "Database value mutation Page is not active",
+                false,
+            ));
+        }
+        let rows = transaction
+            .prepare(
+                "SELECT value.property_id, value.value_json, value.revision \
+                 FROM data_source_page_memberships membership \
+                 JOIN data_source_property_values value \
+                   ON value.data_source_id = membership.data_source_id \
+                  AND value.membership_id = membership.id \
+                 WHERE membership.data_source_id = ?1 \
+                   AND membership.page_block_id = ?2 \
+                   AND membership.removed_at IS NULL \
+                 ORDER BY value.property_id",
+            )?
+            .query_map(rusqlite::params![data_source_id, page_id], |row| {
+                let property_id = row.get::<_, String>(0)?;
+                let value_json = row.get::<_, String>(1)?;
+                let revision = row.get::<_, i64>(2)?;
+                let value = serde_json::from_str::<Value>(&value_json).map_err(|error| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        value_json.len(),
+                        rusqlite::types::Type::Text,
+                        Box::new(error),
+                    )
+                })?;
+                Ok(json!({
+                    "propertyId": property_id,
+                    "value": value,
+                    "revision": revision,
+                }))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut properties = previous.properties.as_object().cloned().ok_or_else(|| {
+            StoreError::new(
+                StoreErrorCode::StoreCorrupt,
+                "Page BlockRecord properties are not an object",
+                false,
+            )
+        })?;
+        properties.insert("dataSourceValues".to_owned(), Value::Array(rows.clone()));
+        graph
+            .update_block(&page_id, BlockKind::Page, Value::Object(properties))
+            .map_err(map_graph_error)?;
+        let next = graph.block(&page_id).ok_or_else(|| {
+            StoreError::new(
+                StoreErrorCode::StoreCorrupt,
+                "Database value mutation Page disappeared",
+                false,
+            )
+        })?;
+        crate::infrastructure::block_record_store::update_block_record(
+            transaction,
+            &previous,
+            next,
+        )?;
+        effects.push(LocalCommitEffect {
+            kind: "property_values".to_owned(),
+            value: json!({
+                "blockId": page_id,
+                "dataSourceId": data_source_id,
+                "values": rows,
+                "revision": next.revision,
+            }),
+        });
+    }
+    Ok(effects)
+}
+
+fn sync_database_view_positions(
+    transaction: &Transaction<'_>,
+    graph: &RecordGraph,
+    intents: &[DatabaseIntent],
+) -> Result<Vec<LocalCommitEffect>, StoreError> {
+    let positions = intents
+        .iter()
+        .flat_map(|intent| match intent {
+            DatabaseIntent::PositionPage {
+                view_id, page_id, ..
+            } => {
+                vec![(view_id.clone(), page_id.clone())]
+            }
+            DatabaseIntent::PositionPages { view_id, pages, .. } => pages
+                .iter()
+                .map(|page| (view_id.clone(), page.page_id.clone()))
+                .collect(),
+            _ => Vec::new(),
+        })
+        .collect::<BTreeSet<_>>();
+    let mut effects = Vec::with_capacity(positions.len());
+    for (view_id, page_id) in positions {
+        let record = graph.block(&page_id).ok_or_else(|| {
+            StoreError::new(
+                StoreErrorCode::NotFound,
+                "Database View position Page is missing from BlockRecord authority",
+                false,
+            )
+        })?;
+        let position = transaction
+            .query_row(
+                "SELECT view.data_source_id, position.group_key, position.rank_key, position.revision \
+                 FROM database_view_page_positions position \
+                 JOIN database_views view ON view.id = position.view_id \
+                 WHERE position.view_id = ?1 AND position.page_block_id = ?2",
+                rusqlite::params![view_id, page_id],
+                |row| {
+                    let revision = row.get::<_, i64>(3)?;
+                    let revision = u64::try_from(revision).map_err(|_| {
+                        rusqlite::Error::IntegralValueOutOfRange(3, revision)
+                    })?;
+                    Ok(BlockViewPosition {
+                        view_id: view_id.clone(),
+                        data_source_id: row.get(0)?,
+                        block_id: page_id.clone(),
+                        group_key: row.get(1)?,
+                        rank_key: row.get(2)?,
+                        revision,
+                    })
+                },
+            )
+            .optional()?;
+        let Some(position) = position else {
+            continue;
+        };
+        crate::infrastructure::block_record_store::upsert_view_position(
+            transaction,
+            &position,
+            &record.library_id,
+        )?;
+        effects.push(LocalCommitEffect {
+            kind: "view_position".to_owned(),
+            value: json!({
+                "viewId": position.view_id,
+                "dataSourceId": position.data_source_id,
+                "blockId": position.block_id,
+                "groupKey": position.group_key,
+                "rankKey": position.rank_key,
+                "revision": position.revision,
+            }),
+        });
+    }
+    Ok(effects)
 }
 
 fn apply_copy_subtree(

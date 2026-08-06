@@ -2123,6 +2123,27 @@
           {
             "type": "object",
             "required": [
+              "intents",
+              "kind"
+            ],
+            "properties": {
+              "intents": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/DatabaseIntent"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "apply_database"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
               "block_id",
               "target_parent",
               "rank_key",
@@ -3031,6 +3052,28 @@
                 "type": "string",
                 "enum": [
                   "ensure_data_source"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Applies Database schema, value, relation, View and placement intents\ninside the BlockRecord LocalCommit transaction boundary.",
+            "required": [
+              "intents",
+              "kind"
+            ],
+            "properties": {
+              "intents": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/DatabaseIntent"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "apply_database"
                 ]
               }
             }

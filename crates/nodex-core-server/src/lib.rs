@@ -687,6 +687,7 @@ async fn block_record_apply(
     let response = (|| {
         require_block_record_contract(request.contract_version)?;
         let context = module_context(&state, &headers, &bound)?;
+        let agent_context = context.clone();
         let operation = block_record_operation(&request.operation)?;
         let mutation = BlockMutationRequest {
             store_epoch: request.store_epoch,
@@ -704,11 +705,12 @@ async fn block_record_apply(
         };
         let committed = state
             .block_record
-            .apply_with_agent_authorization(
+            .apply_with_context(
+                Some(&context),
                 mutation,
                 request
                     .agent_authorization
-                    .map(|authorization| (context, authorization)),
+                    .map(|authorization| (agent_context, authorization)),
             )
             .map_err(block_record_store_error)?;
         let response_value = block_record_commit(committed.clone());
@@ -845,6 +847,11 @@ fn block_record_operation(
         BlockRecordOperation::EnsureDataSource { data_source_id } => {
             Ok(BlockMutationOperation::EnsureDataSource {
                 data_source_id: data_source_id.clone(),
+            })
+        }
+        BlockRecordOperation::ApplyDatabase { intents } => {
+            Ok(BlockMutationOperation::ApplyDatabase {
+                intents: intents.clone(),
             })
         }
         BlockRecordOperation::Move {

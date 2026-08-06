@@ -93,6 +93,30 @@ const effect = (kind: string, value: unknown): LocalCommitEffect[] => {
       },
     }];
   }
+  if (kind === "database") {
+    const databaseValue = value.value;
+    const receipt = value.receipt;
+    if (
+      !isRecord(databaseValue)
+      || !isRecord(receipt)
+      || typeof value.event_sequence !== "number"
+      || !Number.isSafeInteger(value.event_sequence)
+      || value.event_sequence < 0
+      || typeof value.store_epoch !== "string"
+      || !value.store_epoch.trim()
+    ) {
+      throw new Error("BlockRecord Database effect is invalid");
+    }
+    return [{
+      kind: "database",
+      value: {
+        value: databaseValue,
+        receipt,
+        eventSequence: value.event_sequence,
+        storeEpoch: value.store_epoch,
+      },
+    }];
+  }
   if (kind === "remove") {
     const lifecycle = value.lifecycle;
     if (lifecycle !== "archived" && lifecycle !== "retired") {

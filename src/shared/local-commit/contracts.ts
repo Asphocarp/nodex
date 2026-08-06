@@ -58,6 +58,19 @@ export interface LocalCommitViewPositionDelta {
   readonly revision: number;
 }
 
+/**
+ * Database domain receipt carried by a BlockRecord LocalCommit. The domain
+ * module keeps its detailed receipt shape in the Core contract; this boundary
+ * only requires an object so the dispatcher can preserve it without making
+ * Database a second publication channel.
+ */
+export interface LocalCommitDatabaseDelta {
+  readonly value: Readonly<Record<string, unknown>>;
+  readonly receipt: Readonly<Record<string, unknown>>;
+  readonly eventSequence: number;
+  readonly storeEpoch: string;
+}
+
 export interface LocalCommitRemoveDelta {
   readonly blockId: string;
   readonly lifecycle: "archived" | "retired";
@@ -76,6 +89,7 @@ export type LocalCommitEffect =
   | { readonly kind: "placement"; readonly value: LocalCommitPlacementDelta }
   | { readonly kind: "data_source"; readonly value: LocalCommitDataSourceDelta }
   | { readonly kind: "content"; readonly value: LocalCommitContentRef }
+  | { readonly kind: "database"; readonly value: LocalCommitDatabaseDelta }
   | { readonly kind: "view_position"; readonly value: LocalCommitViewPositionDelta }
   | { readonly kind: "remove"; readonly value: LocalCommitRemoveDelta }
   | { readonly kind: "projection"; readonly value: LocalCommitProjectionDelta };

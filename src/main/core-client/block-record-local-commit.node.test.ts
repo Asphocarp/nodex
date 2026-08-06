@@ -47,6 +47,47 @@ describe("blockRecordCommitToLocalCommit", () => {
     });
   });
 
+  it("preserves Database receipt effects inside the canonical LocalCommit", () => {
+    const envelope = blockRecordCommitToLocalCommit({
+      cursor: { store_epoch: "epoch:a", commit_seq: 8 },
+      commit_id: "commit:database",
+      operation_id: "operation:database",
+      intent_hash: "a".repeat(64),
+      canonical_hash: "b".repeat(64),
+      actor_id: "actor:a",
+      session_id: "session:a",
+      committed_at: "2026-08-06T00:00:00Z",
+      effects: [{
+        kind: "database",
+        value: {
+          value: { operation_count: 1 },
+          receipt: {
+            operation_id: "operation:database",
+            operation_kinds: ["put_property"],
+          },
+          event_sequence: 41,
+          store_epoch: "epoch:a",
+        },
+      }],
+      audience: { kind: "library", projectIds: [] },
+      payload_completeness: "rich",
+      duplicate: false,
+    });
+
+    expect(envelope.effects).toEqual([{
+      kind: "database",
+      value: {
+        value: { operation_count: 1 },
+        receipt: {
+          operation_id: "operation:database",
+          operation_kinds: ["put_property"],
+        },
+        eventSequence: 41,
+        storeEpoch: "epoch:a",
+      },
+    }]);
+  });
+
   it("fails closed for an audience that is not Core-shaped", () => {
     expect(() => blockRecordCommitToLocalCommit({
       cursor: { store_epoch: "epoch:a", commit_seq: 1 },
