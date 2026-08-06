@@ -28,13 +28,20 @@ import {
   type DatabaseViewReadModel,
   type ReadDatabaseViewReferenceInput,
 } from "../../shared/database-views";
-import { stableStringifyDatabaseJson } from "../../shared/database-kernel";
+import {
+  databaseGroupKeyForValue,
+  evaluateDatabaseViewFilter,
+  stableStringifyDatabaseJson,
+  type DatabaseJsonValue,
+  type DatabaseViewConfig,
+} from "../../shared/database-kernel";
 import { toDatabasePageSummary } from "../../shared/page-summary";
 import {
   WORKFLOW_STATUS_COLUMNS,
   isWorkflowStatus,
 } from "../../shared/workflow-status";
 import { assertValidPageInput } from "../../shared/page-input-validation";
+import type { BlockRecord, BlockRecordWindow } from "../../shared/block-records";
 
 const INTRINSIC_PROPERTY_KEYS = [
   "run.target",
@@ -549,6 +556,166 @@ export const projectCoreDatabaseRowSummaries = (
   });
 };
 
+export const canonicalDataSourceValues = (
+  page: BlockRecord,
+): {
+  readonly values: Readonly<Record<string, DatabaseJsonValue>>;
+  readonly revisions: Readonly<Record<string, number>>;
+} => {
+  const raw = page.properties.dataSourceValues;
+  if (!Array.isArray(raw)) return { values: {}, revisions: {} };
+  const values: Record<string, DatabaseJsonValue> = {};
+  const revisions: Record<string, number> = {};
+  for (const entry of raw) {
+    if (
+      typeof entry !== "object"
+      || entry === null
+      || Array.isArray(entry)
+      || typeof entry.propertyId !== "string"
+      || !("value" in entry)
+    ) continue;
+    values[entry.propertyId] = entry.value as DatabaseJsonValue;
+    if (typeof entry.revision === "number") {
+      revisions[entry.propertyId] = entry.revision;
+    }
+  }
+  return { values, revisions };
+};
+
+export interface CanonicalDatabaseViewGroupsProjection {
+  readonly grouped: boolean;
+  readonly totalRows: number;
+  readonly truncated: boolean;
+  readonly groups: readonly {
+    readonly groupKey: string | null;
+    readonly totalRows: number;
+  }[];
+  readonly groupKeysByPageId: ReadonlyMap<string, string | null>;
+  readonly rankKeysByPageId: ReadonlyMap<string, string>;
+}
+
+/**
+ * Projects View membership from the canonical Data Source window. The
+ * grouping value, View filter, explicit position override, and totals must be
+ * calculated from the same Page records; otherwise a local value commit can
+ * move a card while the column counts still describe the old projection.
+ */
+export const projectCanonicalDatabaseViewGroups = (
+  window: BlockRecordWindow,
+  config: Pick<DatabaseViewConfig, "filter" | "group">,
+): CanonicalDatabaseViewGroupsProjection => {
+  if (window.rootParent.kind !== "dataSource") {
+    throw new Error("Canonical Database View projection requires a Data Source root");
+  }
+  const dataSourceId = window.rootParent.dataSourceId;
+  const placements = new Map(
+    window.placements
+      .filter((placement) => placement.parent.kind === "dataSource")
+      .map((placement) => [placement.blockId, placement] as const),
+  );
+  const positions = new Map(
+    window.viewPositions.map((position) => [position.blockId, position] as const),
+  );
+  const records = window.records.filter((record) => {
+    if (record.kind !== "page" || record.lifecycle !== "active") return false;
+    const placement = placements.get(record.id);
+    return placement?.parent.kind === "dataSource"
+      && placement.parent.dataSourceId === dataSourceId;
+  });
+  const groupKeysByPageId = new Map<string, string | null>();
+  const rankKeysByPageId = new Map<string, string>();
+  const candidates = records.filter((record) => {
+    const values = canonicalDataSourceValues(record).values;
+    const matches = evaluateDatabaseViewFilter(
+      config.filter,
+      (propertyId) => values[propertyId],
+    );
+    if (!matches) return false;
+    const position = positions.get(record.id);
+    const fallbackGroupKey = config.group === null
+      ? null
+      : databaseGroupKeyForValue(
+          values[config.group.propertyId],
+        );
+    const groupKey = config.group === null
+      ? null
+      : position?.groupKey !== null
+        && position?.groupKey !== undefined
+        && position.groupKey !== ""
+        ? position.groupKey
+        : fallbackGroupKey;
+    groupKeysByPageId.set(record.id, groupKey);
+    const placement = placements.get(record.id);
+    if (placement) rankKeysByPageId.set(record.id, position?.rankKey ?? placement.rankKey);
+    return true;
+  });
+  if (config.group === null) {
+    return {
+      grouped: false,
+      totalRows: candidates.length,
+      truncated: false,
+      groups: [],
+      groupKeysByPageId,
+      rankKeysByPageId,
+    };
+  }
+  const totals = new Map<string | null, number>();
+  for (const record of candidates) {
+    const key = groupKeysByPageId.get(record.id) ?? null;
+    totals.set(key, (totals.get(key) ?? 0) + 1);
+  }
+  const groups = [...totals.entries()]
+    .sort(([left], [right]) => {
+      if (left === null) return right === null ? 0 : 1;
+      if (right === null) return -1;
+      return left.localeCompare(right);
+    })
+    .map(([groupKey, totalRows]) => ({ groupKey, totalRows }));
+  const truncated = groups.length > 200;
+  return {
+    grouped: true,
+    totalRows: candidates.length,
+    truncated,
+    groups: truncated ? groups.slice(0, 200) : groups,
+    groupKeysByPageId,
+    rankKeysByPageId,
+  };
+};
+
+/**
+ * Keeps the existing bounded View window for metadata/positioning while
+ * replacing row values with the canonical BlockRecord property bag. This is
+ * the read side paired with the canonical Database value mutation path.
+ */
+export const overlayCanonicalDatabaseRows = (
+  rows: readonly CoreDatabaseRowSummary[],
+  window: BlockRecordWindow | null,
+): readonly CoreDatabaseRowSummary[] => {
+  if (!window) return rows;
+  const records = new Map(window.records.map((record) => [record.id, record]));
+  return rows.map((row) => {
+    const page = records.get(row.page_id);
+    if (!page) return row;
+    const values = canonicalDataSourceValues(page);
+    return {
+      ...row,
+      ...(typeof page.properties.title === "string"
+        ? { title: page.properties.title }
+        : {}),
+      database_values: {
+        ...row.database_values,
+        ...values.values,
+      },
+      database_value_revisions: {
+        ...row.database_value_revisions,
+        ...values.revisions,
+      },
+      metadata_revision: page.revision,
+      lifecycle: page.lifecycle,
+    };
+  });
+};
+
 /**
  * Adapts an already-bounded Core View window for renderer code that still uses
  * the query-shaped view model. It never performs or permits a full-row query.
@@ -559,6 +726,7 @@ export const projectCoreDatabaseViewQuery = (
   databaseDescriptor: DatabaseContainerDescriptorV2,
   sourceDescriptor: DataSourceDescriptorV2,
   view: DatabaseViewRecordV2,
+  canonicalWindow: BlockRecordWindow | null = null,
 ): DatabaseViewQueryResultV2 => {
   const propertiesById = new Map(
     sourceDescriptor.properties.map((property) => [
@@ -566,12 +734,13 @@ export const projectCoreDatabaseViewQuery = (
       property,
     ] as const),
   );
+  const rows = overlayCanonicalDatabaseRows(window.rows.items, canonicalWindow);
   return {
     database: databaseDescriptor.database,
     dataSource: sourceDescriptor.dataSource,
     view,
     properties: sourceDescriptor.properties,
-    rows: window.rows.items.map((row) => ({
+    rows: rows.map((row) => ({
       page: {
         pageId: row.page_id,
         libraryId,

@@ -1138,6 +1138,11 @@ pub struct BlockRecordPagePlacementEntry {
 pub struct BlockRecordDataSourceValue {
     pub property_id: String,
     pub value: serde_json::Value,
+    /// Optional per-property revision used by Database value mutations. A
+    /// missing revision keeps structural promotion/transfer values simple;
+    /// canonical Database edits always provide it.
+    #[serde(default)]
+    pub revision: Option<u64>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]

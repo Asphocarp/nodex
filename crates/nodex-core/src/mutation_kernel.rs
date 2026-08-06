@@ -202,6 +202,7 @@ pub struct BlockRecordUpdateEntry {
 pub struct BlockDataSourceValue {
     pub property_id: String,
     pub value: serde_json::Value,
+    pub revision: Option<u64>,
 }
 
 #[derive(Clone, Debug)]
@@ -3913,10 +3914,13 @@ fn apply_operation(
                             false,
                         ));
                     }
-                    Ok(json!({
-                        "propertyId": entry.property_id,
-                        "value": entry.value,
-                    }))
+                    let mut value = serde_json::Map::new();
+                    value.insert("propertyId".to_owned(), json!(entry.property_id));
+                    value.insert("value".to_owned(), entry.value.clone());
+                    if let Some(revision) = entry.revision {
+                        value.insert("revision".to_owned(), json!(revision));
+                    }
+                    Ok(serde_json::Value::Object(value))
                 })
                 .collect::<Result<Vec<_>, StoreError>>()?;
             let mut properties = record.properties.as_object().cloned().ok_or_else(|| {
@@ -5266,6 +5270,7 @@ mod tests {
                             values: vec![BlockDataSourceValue {
                                 property_id: "status".to_owned(),
                                 value: json!("done"),
+                                revision: None,
                             }],
                             expected_block_revision: 1,
                         },

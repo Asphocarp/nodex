@@ -2833,6 +2833,15 @@
           "property_id": {
             "type": "string"
           },
+          "revision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Optional per-property revision used by Database value mutations. A\nmissing revision keeps structural promotion/transfer values simple;\ncanonical Database edits always provide it.",
+            "minimum": 0
+          },
           "value": {}
         },
         "additionalProperties": false

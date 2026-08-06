@@ -18,6 +18,7 @@ import {
   mapCoreLibraryDatabaseEvent,
 } from "./desktop-database-module-bridge";
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
+import type { BlockRecordReadSnapshot } from "./types";
 import {
   createFakeCoreHandshake,
   FakeCoreClient,
@@ -793,6 +794,73 @@ describe("Core Database Module Adapter", () => {
         },
       },
     });
+    client.enqueueDatabaseRead({
+      contract_version: 4 as const,
+      store_epoch: identity.storeEpoch,
+      event_head: 21,
+      value: {
+        kind: "view" as const,
+        value: {
+          viewId: "view:test",
+          databaseId: "database:test",
+          dataSourceId: "source:test",
+          name: "Board",
+          kind: "kanban",
+          config: {
+            schemaKey: "nodex.database-view",
+            schemaVersion: 2,
+            filter: { kind: "group", operator: "and", children: [] },
+            sort: [],
+            group: { propertyId: "p_abcdefgh" },
+            display: { propertyIds: ["p_abcdefgh"], showTitle: true },
+          },
+          isDefault: true,
+          revision: 1,
+          rankKey: "a",
+          lifecycle: "active",
+          createdAt: "2026-07-25T00:00:00.000Z",
+          updatedAt: "2026-07-25T00:00:00.000Z",
+        },
+      },
+    });
+    client.enqueueBlockRecordRead({
+      library_id: identity.libraryId,
+      observed_cursor: { store_epoch: identity.storeEpoch, commit_seq: 22 },
+      graph: {
+        library_id: identity.libraryId,
+        blocks: [{
+          id: "page:canonical",
+          library_id: identity.libraryId,
+          kind: "page",
+          lifecycle: "active",
+          properties: {
+            title: "Canonical",
+            dataSourceValues: [{
+              propertyId: "p_abcdefgh",
+              value: "todo",
+              revision: 3,
+            }],
+          },
+          content_shard_id: "shard:canonical",
+          revision: 4,
+        }],
+        placements: [{
+          block_id: "page:canonical",
+          parent: { kind: "data_source", id: "source:test" },
+          rank_key: "a",
+          revision: 2,
+        }],
+      },
+      view_positions: [{
+        view_id: "view:test",
+        data_source_id: "source:test",
+        block_id: "page:canonical",
+        group_key: null,
+        rank_key: "a",
+        revision: 2,
+      }],
+      content: [],
+    } satisfies BlockRecordReadSnapshot);
     const runtime = {
       backend: "rust",
       identity,
@@ -822,13 +890,13 @@ describe("Core Database Module Adapter", () => {
       libraryId: identity.libraryId,
       viewId: "view:test",
       grouped: true,
-      totalRows: 7,
+      totalRows: 1,
       truncated: false,
       groups: [
-        { groupKey: "triage", totalRows: 4 },
-        { groupKey: null, totalRows: 3 },
+        { groupKey: "todo", totalRows: 1 },
       ],
     });
+    expect(groups.changeLogSeq).toBe(22);
   });
 
   test("passes a window group scope through to the Core read", async () => {

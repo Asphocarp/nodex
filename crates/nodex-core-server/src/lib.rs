@@ -1122,6 +1122,7 @@ fn block_record_operation(
                 .map(|value| BlockDataSourceValue {
                     property_id: value.property_id.clone(),
                     value: value.value.clone(),
+                    revision: value.revision,
                 })
                 .collect(),
             expected_block_revision: *expected_block_revision,

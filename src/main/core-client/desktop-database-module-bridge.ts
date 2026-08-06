@@ -58,7 +58,13 @@ import {
   projectCoreDatabaseRowSummaries,
   projectCoreDatabaseViewBoard,
   projectCoreDatabaseViewQuery,
+  overlayCanonicalDatabaseRows,
+  projectCanonicalDatabaseViewGroups,
 } from "./database-page-projection";
+import {
+  blockRecordSnapshotToWindow,
+  type BlockRecordWindow,
+} from "../../shared/block-records";
 
 export interface DesktopDatabaseModuleBridgeInput {
   readonly authority: Promise<DesktopDataAuthorityRuntime>;
@@ -124,6 +130,10 @@ const readBoundedDatabaseViewWindow = async <
   readonly readDescriptor: (
     read: DatabaseReadV2,
   ) => Promise<DescriptorReadResult>;
+  readonly readCanonicalWindow: (
+    dataSourceId: string,
+    viewId: string,
+  ) => Promise<BlockRecordWindow>;
 }): Promise<DatabaseViewWindowSnapshot<ProjectScope>> => {
   const minimumCommitSeq = input.windowInput.minimumCommitSeq ?? 0;
   const snapshot = await input.readCore({
@@ -196,15 +206,31 @@ const readBoundedDatabaseViewWindow = async <
   ) {
     throw new Error("Database Core returned a non-View descriptor");
   }
+  const canonicalWindow = await input.readCanonicalWindow(
+    value.data_source_id,
+    value.view_id,
+  );
   const descriptor = viewResult.value.value.value;
   const databaseDescriptor = databaseResult.value.value.value;
   const sourceDescriptor = sourceResult.value.value.value;
-  const summaries = projectCoreDatabaseRowSummaries(value.rows.items);
+  const canonicalGroups = projectCanonicalDatabaseViewGroups(
+    canonicalWindow,
+    descriptor.config,
+  );
+  const canonicalRows = overlayCanonicalDatabaseRows(
+    value.rows.items,
+    canonicalWindow,
+  );
+  const summaries = projectCoreDatabaseRowSummaries(canonicalRows);
   const rows = summaries.map((page, index) => ({
     page,
-    groupKey: value.rows.items[index]?.effective_group_key ?? null,
+    groupKey:
+      canonicalGroups.groupKeysByPageId.get(page.id)
+      ?? value.rows.items[index]?.effective_group_key
+      ?? null,
     rankKey:
-      value.rows.items[index]?.rank_key
+      canonicalGroups.rankKeysByPageId.get(page.id)
+      ?? value.rows.items[index]?.rank_key
       ?? "ffffffffffffffffffffffffffffffff",
   }));
   const query = projectCoreDatabaseViewQuery(
@@ -213,6 +239,7 @@ const readBoundedDatabaseViewWindow = async <
     databaseDescriptor,
     sourceDescriptor,
     descriptor,
+    canonicalWindow,
   );
   return {
     projectId: input.projectId,
@@ -225,7 +252,7 @@ const readBoundedDatabaseViewWindow = async <
     projectionRevision: value.rows.authority.projection_revision,
     nextCursor: value.rows.next_cursor ?? null,
     rows,
-    board: projectCoreDatabaseViewBoard(value.rows.items),
+    board: projectCoreDatabaseViewBoard(canonicalRows),
     query,
     view: {
       id: descriptor.viewId,
@@ -250,6 +277,13 @@ const readBoundedDatabaseViewGroups = async <
   readonly libraryId: string;
   readonly groupsInput: DatabaseViewGroupsInput;
   readonly readCore: CoreDatabaseModuleAdapter["readCore"];
+  readonly readDescriptor: (
+    read: DatabaseReadV2,
+  ) => Promise<DescriptorReadResult>;
+  readonly readCanonicalWindow: (
+    dataSourceId: string,
+    viewId: string,
+  ) => Promise<BlockRecordWindow>;
 }): Promise<DatabaseViewGroupsSnapshot<ProjectScope>> => {
   const minimumCommitSeq = input.groupsInput.minimumCommitSeq ?? 0;
   const snapshot = await input.readCore({
@@ -268,6 +302,37 @@ const readBoundedDatabaseViewGroups = async <
     throw new Error("Database Core returned a non-groups View snapshot");
   }
   const value = snapshot.value.value;
+  const viewResult = await input.readDescriptor({
+    target: {
+      kind: "view",
+      viewId: parseDatabaseViewId(value.view_id),
+    },
+    mode: "view",
+    minimumCommitSeq,
+  });
+  if (!viewResult.ok) {
+    throw new Error(
+      `Database View descriptor read failed (${viewResult.error.code}): ${viewResult.error.message}`,
+    );
+  }
+  if (viewResult.value.value.kind !== "view") {
+    throw new Error("Database Core returned a non-View descriptor");
+  }
+  const canonicalWindow = await input.readCanonicalWindow(
+    value.data_source_id,
+    value.view_id,
+  );
+  if (
+    canonicalWindow.libraryId !== input.libraryId
+    || canonicalWindow.observedLocalCommit.storeEpoch.length === 0
+    || canonicalWindow.observedLocalCommit.commitSeq < minimumCommitSeq
+  ) {
+    throw new Error("Canonical Database View groups did not reach the requested commit");
+  }
+  const canonicalGroups = projectCanonicalDatabaseViewGroups(
+    canonicalWindow,
+    viewResult.value.value.value.config,
+  );
   return {
     projectId: input.projectId,
     libraryId: input.libraryId,
@@ -275,13 +340,13 @@ const readBoundedDatabaseViewGroups = async <
     dataSourceId: value.data_source_id,
     viewId: value.view_id,
     storeEpoch: snapshot.store_epoch,
-    changeLogSeq: snapshot.event_head,
-    grouped: value.grouped,
-    totalRows: value.total_rows,
-    truncated: value.truncated,
-    groups: value.groups.map((group) => ({
-      groupKey: group.group_key ?? null,
-      totalRows: group.total_rows,
+    changeLogSeq: canonicalWindow.observedLocalCommit.commitSeq,
+    grouped: canonicalGroups.grouped,
+    totalRows: canonicalGroups.totalRows,
+    truncated: canonicalGroups.truncated,
+    groups: canonicalGroups.groups.map((group) => ({
+      groupKey: group.groupKey,
+      totalRows: group.totalRows,
     })),
   };
 };
@@ -348,6 +413,20 @@ export const createDesktopDatabaseModuleBridge = (
           projectId,
           read,
         }),
+        readCanonicalWindow: async (dataSourceId, viewId) => {
+          const read = {
+            kind: "window" as const,
+            parent: { kind: "data_source" as const, id: dataSourceId },
+            view_id: viewId,
+            include_content: false,
+            include_descendants: false,
+            include_archived: false,
+          };
+          const snapshot = await runtime
+            .clientForProject(projectId)
+            .blockRecordRead(read);
+          return blockRecordSnapshotToWindow(snapshot, read);
+        },
       });
     },
     getDatabaseViewGroups: async (projectId, groupsInput) => {
@@ -358,6 +437,25 @@ export const createDesktopDatabaseModuleBridge = (
         libraryId: runtime.identity.libraryId,
         groupsInput,
         readCore: adapter.readCore,
+        readDescriptor: async (read) => await adapter.read({
+          version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+          projectId,
+          read,
+        }),
+        readCanonicalWindow: async (dataSourceId, viewId) => {
+          const read = {
+            kind: "window" as const,
+            parent: { kind: "data_source" as const, id: dataSourceId },
+            view_id: viewId,
+            include_content: false,
+            include_descendants: false,
+            include_archived: false,
+          };
+          const snapshot = await runtime
+            .clientForProject(projectId)
+            .blockRecordRead(read);
+          return blockRecordSnapshotToWindow(snapshot, read);
+        },
       });
     },
     getLibraryDatabaseViewWindow: async (windowInput) => {
@@ -372,6 +470,18 @@ export const createDesktopDatabaseModuleBridge = (
           version: DATABASE_MODULE_V2_CONTRACT_VERSION,
           read: read as LibraryDatabaseReadV2,
         }),
+        readCanonicalWindow: async (dataSourceId, viewId) => {
+          const read = {
+            kind: "window" as const,
+            parent: { kind: "data_source" as const, id: dataSourceId },
+            view_id: viewId,
+            include_content: false,
+            include_descendants: false,
+            include_archived: false,
+          };
+          const snapshot = await runtime.rootClient.blockRecordRead(read);
+          return blockRecordSnapshotToWindow(snapshot, read);
+        },
       });
     },
     getLibraryDatabaseViewGroups: async (groupsInput) => {
@@ -382,6 +492,22 @@ export const createDesktopDatabaseModuleBridge = (
         libraryId: runtime.identity.libraryId,
         groupsInput,
         readCore: adapter.readCore,
+        readDescriptor: async (read) => await adapter.read({
+          version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+          read: read as LibraryDatabaseReadV2,
+        }),
+        readCanonicalWindow: async (dataSourceId, viewId) => {
+          const read = {
+            kind: "window" as const,
+            parent: { kind: "data_source" as const, id: dataSourceId },
+            view_id: viewId,
+            include_content: false,
+            include_descendants: false,
+            include_archived: false,
+          };
+          const snapshot = await runtime.rootClient.blockRecordRead(read);
+          return blockRecordSnapshotToWindow(snapshot, read);
+        },
       });
     },
     getDatabaseRowPage: async (projectId, pageId, status) => {

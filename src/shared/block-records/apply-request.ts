@@ -210,6 +210,7 @@ export interface SetDataSourceValuesBlockRecordApplyInput extends BlockRecordApp
   readonly values: readonly {
     readonly propertyId: string;
     readonly value: unknown;
+    readonly revision?: number;
   }[];
   readonly expectedBlockRevision: number;
 }
@@ -940,9 +941,11 @@ export const buildSetDataSourceValuesBlockRecordApplyInput = async (
     if (!seen.add(value.propertyId)) {
       throw new Error("values contain a duplicate propertyId");
     }
+    if (value.revision !== undefined) assertRevision("revision", value.revision);
     return {
       property_id: value.propertyId,
       value: value.value,
+      ...(value.revision === undefined ? {} : { revision: value.revision }),
     };
   });
   const operation = {

@@ -854,6 +854,13 @@ export interface components {
         };
         readonly BlockRecordDataSourceValue: {
             readonly property_id: string;
+            /**
+             * Format: int64
+             * @description Optional per-property revision used by Database value mutations. A
+             *     missing revision keeps structural promotion/transfer values simple;
+             *     canonical Database edits always provide it.
+             */
+            readonly revision?: number | null;
             readonly value: unknown;
         };
         readonly BlockRecordEffect: {

@@ -22,9 +22,15 @@ import {
   parseLibraryDatabaseModuleReadResultV2,
 } from "../../shared/database-module-v2-transport";
 import { CoreModuleResponseError } from "./core-client";
+import {
+  applyCanonicalDatabaseValues,
+  CanonicalDatabaseValueMutationError,
+  type CanonicalDatabaseValuesApplyResult,
+} from "./canonical-database-values";
 import type {
   CoreClientPort,
   CoreModuleError,
+  BlockRecordCommittedValue,
   DatabaseCommittedValue,
   DatabaseIntent,
   DatabaseRead,
@@ -216,6 +222,63 @@ const applyFailure = (
     },
   };
 };
+
+const canonicalValueOperations = (
+  operations: readonly DatabaseApplyOperationV2[],
+): readonly Extract<DatabaseApplyOperationV2, { readonly kind: "edit_property_values" }>[] | null => {
+  if (operations.length === 0 || operations.some((operation) => operation.kind !== "edit_property_values")) {
+    return null;
+  }
+  return operations as readonly Extract<
+    DatabaseApplyOperationV2,
+    { readonly kind: "edit_property_values" }
+  >[];
+};
+
+const actorIdentity = (
+  actor: Readonly<Record<string, unknown>> | undefined,
+  libraryId: string,
+): string => {
+  const clientId = typeof actor?.clientId === "string" ? actor.clientId : "renderer";
+  return `database:${libraryId}:${clientId}`;
+};
+
+const resolveDataSourceDatabaseIds = async (
+  client: CoreClientPort,
+  storeEpoch: string,
+  dataSourceIds: readonly string[],
+): Promise<readonly string[]> => {
+  const databaseIds = await Promise.all(dataSourceIds.map(async (dataSourceId) => {
+    const snapshot = await readDatabaseSnapshotAtLeast(
+      client,
+      {
+        target: { kind: "data_source", data_source_id: dataSourceId },
+        mode: "data_source",
+        filter: null,
+        sort: null,
+      },
+      storeEpoch,
+    );
+    if (snapshot.value.kind !== "data_source") {
+      throw new Error("Core returned a non-Data Source metadata value");
+    }
+    const descriptor = requireRecord(snapshot.value.value, "Core Data Source descriptor");
+    const source = requireRecord(descriptor.dataSource, "Core Data Source record");
+    return requireString(source, "homeDatabaseId", "Core Data Source record");
+  }));
+  return [...new Set(databaseIds)].sort((left, right) => left.localeCompare(right));
+};
+
+const committedRevisions = (
+  committed: BlockRecordCommittedValue,
+): Readonly<Record<string, number>> => Object.fromEntries(
+  committed.effects.flatMap((effect) => {
+    if (effect.kind !== "property_values") return [];
+    const value = requireRecord(effect.value, "Canonical property value effect");
+    if (typeof value.blockId !== "string" || typeof value.revision !== "number") return [];
+    return [[`page:${value.blockId}:record`, value.revision] as const];
+  }),
+);
 
 type CoreDatabaseIntent = DatabaseIntent[number];
 
@@ -459,6 +522,41 @@ const requireString = (
   if (typeof result === "string" && result.length > 0) return result;
   throw new Error(`${label} has no ${key}`);
 };
+
+const canonicalValueDatabaseIds = (
+  operations: readonly Extract<DatabaseApplyOperationV2, { readonly kind: "edit_property_values" }>[],
+): readonly string[] => [...new Set(
+  operations.flatMap((operation) => operation.edits.map((edit) => edit.dataSourceId)),
+)].sort((left, right) => left.localeCompare(right));
+
+const canonicalValueReceipt = (
+  committed: BlockRecordCommittedValue,
+  operationKinds: readonly DatabaseApplyOperationV2["kind"][],
+  databaseIds: readonly string[],
+  dataSourceIds: readonly string[],
+  pageIds: readonly string[],
+) => ({
+  operationId: committed.operation_id,
+  duplicate: committed.duplicate,
+  operationKinds,
+  affectedDatabaseIds: databaseIds,
+  affectedDataSourceIds: dataSourceIds,
+  affectedPageIds: pageIds,
+  affectedViewIds: [],
+  committedRevisions: committedRevisions(committed),
+  changeLogSeq: committed.cursor.commit_seq,
+  committedAt: committed.committed_at,
+});
+
+const applyCanonicalValueOperations = async (input: {
+  readonly client: CoreClientPort;
+  readonly libraryId: string;
+  readonly storeEpoch: string;
+  readonly operationId: string;
+  readonly actorId: string;
+  readonly sessionId: string;
+  readonly operations: readonly Extract<DatabaseApplyOperationV2, { readonly kind: "edit_property_values" }>[];
+}): Promise<CanonicalDatabaseValuesApplyResult> => applyCanonicalDatabaseValues(input);
 
 export const mapCorePropertyDescriptor = (
   input: unknown,
@@ -782,6 +880,55 @@ export const createCoreDatabaseModuleAdapter = (
           },
         };
       }
+      const valueOperations = canonicalValueOperations(request.operations);
+      if (valueOperations) {
+        try {
+          const dataSourceIds = canonicalValueDatabaseIds(valueOperations);
+          const databaseIds = await resolveDataSourceDatabaseIds(
+            input.client,
+            input.storeEpoch,
+            dataSourceIds,
+          );
+          const result = await applyCanonicalValueOperations({
+            client: input.client,
+            libraryId: input.libraryId,
+            storeEpoch: input.storeEpoch,
+            operationId: request.operationId,
+            actorId: actorIdentity(request.actor, input.libraryId),
+            sessionId: `project:${request.projectId}`,
+            operations: valueOperations,
+          });
+          return parseDatabaseApplyResultV2({
+            ok: true,
+            value: {
+              version: request.version,
+              projectId: input.projectId,
+              libraryId: input.libraryId,
+              storeEpoch: result.committed.cursor.store_epoch,
+              ...canonicalValueReceipt(
+                result.committed,
+                request.operations.map((operation) => operation.kind),
+                databaseIds,
+                result.dataSourceIds,
+                result.pageIds,
+              ),
+            },
+          });
+        } catch (error) {
+          if (error instanceof CanonicalDatabaseValueMutationError) {
+            return {
+              ok: false,
+              error: {
+                code: error.code,
+                message: error.message,
+                retryable: error.retryable,
+                operationId: request.operationId,
+              },
+            };
+          }
+          return applyFailure(error, request.operationId);
+        }
+      }
       try {
         const committed = await input.client.databaseApply({
           operationId: request.operationId,
@@ -851,6 +998,55 @@ export const createCoreLibraryDatabaseModuleAdapter = (
           operationId: request.operationId,
         },
       };
+    }
+    const valueOperations = canonicalValueOperations(request.operations);
+    if (valueOperations) {
+      try {
+        const dataSourceIds = canonicalValueDatabaseIds(valueOperations);
+        const databaseIds = await resolveDataSourceDatabaseIds(
+          input.client,
+          input.storeEpoch,
+          dataSourceIds,
+        );
+        const result = await applyCanonicalValueOperations({
+          client: input.client,
+          libraryId: input.libraryId,
+          storeEpoch: input.storeEpoch,
+          operationId: request.operationId,
+          actorId: actorIdentity(undefined, input.libraryId),
+          sessionId: `library:${input.libraryId}`,
+          operations: valueOperations,
+        });
+        return parseLibraryDatabaseApplyResultV2({
+          ok: true,
+          value: {
+            version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+            accessContext: { kind: "library" },
+            libraryId: input.libraryId,
+            storeEpoch: result.committed.cursor.store_epoch,
+            ...canonicalValueReceipt(
+              result.committed,
+              request.operations.map((operation) => operation.kind),
+              databaseIds,
+              result.dataSourceIds,
+              result.pageIds,
+            ),
+          },
+        });
+      } catch (error) {
+        if (error instanceof CanonicalDatabaseValueMutationError) {
+          return {
+            ok: false,
+            error: {
+              code: error.code,
+              message: error.message,
+              retryable: error.retryable,
+              operationId: request.operationId,
+            },
+          };
+        }
+        return applyFailure(error, request.operationId);
+      }
     }
     try {
       const committed = await input.client.databaseApply({
