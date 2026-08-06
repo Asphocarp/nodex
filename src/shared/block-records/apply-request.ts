@@ -111,6 +111,11 @@ export interface RestoreBlockRecordSubtreeApplyInput extends BlockRecordApplyIde
   readonly rankKey: string;
   readonly expectedBlockRevision: number;
   readonly expectedPlacementRevision: number;
+  readonly placementRebalances?: readonly {
+    readonly blockId: string;
+    readonly rankKey: string;
+    readonly expectedRevision: number;
+  }[];
 }
 
 export interface PromoteManyBlockRecordApplyInput extends BlockRecordApplyIdentity {
@@ -569,6 +574,21 @@ export const buildRestoreBlockRecordSubtreeApplyInput = async (
   ] as const) assertIdentity(label, value);
   assertRevision("expectedBlockRevision", input.expectedBlockRevision);
   assertRevision("expectedPlacementRevision", input.expectedPlacementRevision);
+  const blockIds = new Set<string>([input.blockId]);
+  const placementRebalances = (input.placementRebalances ?? []).map((rebalance) => {
+    assertIdentity("blockId", rebalance.blockId);
+    assertIdentity("rankKey", rebalance.rankKey);
+    if (blockIds.has(rebalance.blockId)) {
+      throw new Error("placementRebalances contain a duplicate or restored blockId");
+    }
+    blockIds.add(rebalance.blockId);
+    assertRevision("expectedRevision", rebalance.expectedRevision);
+    return {
+      block_id: rebalance.blockId,
+      rank_key: rebalance.rankKey,
+      expected_revision: rebalance.expectedRevision,
+    };
+  });
   const operation = {
     kind: "restore_subtree" as const,
     block_id: input.blockId,
@@ -576,6 +596,7 @@ export const buildRestoreBlockRecordSubtreeApplyInput = async (
     rank_key: input.rankKey,
     expected_block_revision: input.expectedBlockRevision,
     expected_placement_revision: input.expectedPlacementRevision,
+    placement_rebalances: placementRebalances,
   };
   return {
     ...await identityFields(input, operation),

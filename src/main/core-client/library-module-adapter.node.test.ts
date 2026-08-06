@@ -1816,10 +1816,31 @@ describe("Core Library Module Adapter", () => {
       pageId: "page:one",
       lifecycle: "archived",
       parent: { kind: "library" },
-      rankKey: "__nodex_archived__page:one__40000000000000000000000000000000",
+      rankKey: "__nodex_archived__page:one__fffffffffffffffffffffffffffffffe",
       revision: 1,
     }));
-    client.enqueueBlockRecordRead(emptyCanonicalPageWindow());
+    const restoreDestination = {
+      ...emptyCanonicalPageWindow(),
+      graph: {
+        library_id: identity.libraryId,
+        blocks: [{
+          id: "page:two",
+          library_id: identity.libraryId,
+          kind: "page" as const,
+          lifecycle: "active" as const,
+          properties: { title: "page:two" },
+          content_shard_id: "shard:page:two",
+          revision: 9,
+        }],
+        placements: [{
+          block_id: "page:two",
+          parent: { kind: "library" as const },
+          rank_key: "fffffffffffffffffffffffffffffffe",
+          revision: 9,
+        }],
+      },
+    };
+    client.enqueueBlockRecordRead(restoreDestination);
     client.enqueueBlockRecordApply(canonicalPageCommit("operation:restore", "page:one"));
     const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
 
@@ -1860,9 +1881,14 @@ describe("Core Library Module Adapter", () => {
       operation: {
         block_id: "page:one",
         target_parent: { kind: "library" },
-        rank_key: "40000000000000000000000000000000",
+        rank_key: "bfffffffffffffffffffffffffffffff",
         expected_block_revision: 1,
         expected_placement_revision: 1,
+        placement_rebalances: [{
+          block_id: "page:two",
+          rank_key: "7fffffffffffffffffffffffffffffff",
+          expected_revision: 9,
+        }],
       },
     });
     expect(client.blockRecordReads[1]).toMatchObject({ include_archived: true });

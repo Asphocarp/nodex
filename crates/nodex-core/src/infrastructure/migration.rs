@@ -1108,6 +1108,13 @@ pub fn prepare_profile_store_with_observer(
     if version == CORE_SCHEMA_VERSION {
         validate_core_metadata(connection, CORE_SCHEMA_VERSION)?;
         validate_exact_current_schema(connection)?;
+        // A current store can contain active legacy Blocks created before the
+        // BlockRecord cutover. Claim those identities once, inside the same
+        // durable Core transaction, so runtime adapters never need to fall
+        // back to the old Library authority for ordinary reads or moves.
+        with_immediate_transaction(connection, |transaction| {
+            block_record_store::backfill_legacy_records(transaction)
+        })?;
         validate_store(connection)?;
         validate_codex_thread_timestamp_invariants(connection)?;
         validate_canonical_text_timestamp_invariants(connection)?;
@@ -4228,6 +4235,144 @@ mod tests {
         drop(kernel);
         let reopened = SqliteStoreKernel::open(&home).expect("reopen current store");
         assert!(!reopened.preparation().created_fresh);
+    }
+
+    #[test]
+    fn reopening_current_store_claims_unconverted_legacy_pages() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let mut connection = Connection::open_in_memory().expect("in-memory store");
+        create_fresh_store(&mut connection, &home, 1).expect("fresh current store");
+
+        with_immediate_transaction(&mut connection, |transaction| {
+            transaction.execute(
+                "INSERT INTO profiles(id, created_at, updated_at)
+                 VALUES ('profile:cutover', '2026-08-06T00:00:00.000Z',
+                         '2026-08-06T00:00:00.000Z')",
+                [],
+            )?;
+            transaction.execute(
+                "INSERT INTO libraries(id, profile_id, created_at, updated_at)
+                 VALUES ('library:cutover', 'profile:cutover', '2026-08-06T00:00:00.000Z',
+                         '2026-08-06T00:00:00.000Z')",
+                [],
+            )?;
+            transaction.execute(
+                "INSERT INTO projects(id, name, created, updated, library_id)
+                 VALUES ('project:cutover', 'Cutover', '2026-08-06T00:00:00.000Z',
+                         '2026-08-06T00:00:00.000Z',
+                         'library:cutover')",
+                [],
+            )?;
+            transaction.execute(
+                "INSERT INTO block_records(
+                   id, library_id, kind_json, lifecycle, properties_json,
+                   content_shard_id, revision
+                 ) VALUES (
+                   'canonical:page', 'library:cutover', '\"page\"', 'active', '{}',
+                   'canonical-shard', 4
+                 )",
+                [],
+            )?;
+            transaction.execute(
+                "INSERT INTO block_placements(
+                   block_id, parent_kind, parent_id, rank_key, revision
+                 ) VALUES ('canonical:page', 'library', NULL, 'a', 7)",
+                [],
+            )?;
+            transaction.execute(
+                "INSERT INTO documents(
+                   id, project_id, generation, head_seq, schema_key, schema_version,
+                   state_vector, state_hash, readiness, authority, created_at, updated_at,
+                   sync_engine
+                 ) VALUES (
+                   'document:legacy-page', 'project:cutover', 1, 0, 'blocknote', 1,
+                   X'', '', 'ready', 'ydoc_primary', '2026-08-06T00:00:00.000Z',
+                   '2026-08-06T00:00:00.000Z', 'yjs'
+                 )",
+                [],
+            )?;
+            transaction.execute(
+                "INSERT INTO blocks(
+                   id, project_id, type, lifecycle, location_kind,
+                   containing_document_id, containing_database_id,
+                   created_at, updated_at
+                 ) VALUES (
+                   'legacy:page', 'project:cutover', 'page', 'active', 'space',
+                   NULL, NULL, '2026-08-06T00:00:00.000Z',
+                   '2026-08-06T00:00:00.000Z'
+                 )",
+                [],
+            )?;
+            transaction.execute(
+                "INSERT INTO block_documents(block_id, document_id, project_id, created_at)
+                 VALUES ('legacy:page', 'document:legacy-page', 'project:cutover',
+                         '2026-08-06T00:00:00.000Z')",
+                [],
+            )?;
+            transaction.execute(
+                "INSERT INTO pages(
+                   block_id, library_id, document_id, parent_kind, parent_id,
+                   lifecycle, parent_revision, metadata_revision, created_at, updated_at
+                 ) VALUES (
+                   'legacy:page', 'library:cutover', 'document:legacy-page', 'library',
+                   'library:cutover', 'active', 3, 5, '2026-08-06T00:00:00.000Z',
+                   '2026-08-06T00:00:00.000Z'
+                 )",
+                [],
+            )?;
+            transaction.execute(
+                "INSERT INTO document_materializations(
+                   document_id, generation, projected_seq, schema_version, title,
+                   title_rich_json, title_rich_hash, nfm, plain_text, preview,
+                   block_tree_json, references_json, asset_refs_json, updated_at
+                 ) VALUES (
+                   'document:legacy-page', 1, 0, 1, 'Legacy page', '[]',
+                   '4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945',
+                   '', 'Legacy page', 'Legacy page', '[]', '[]', '[]',
+                   '2026-08-06T00:00:00.000Z'
+                 )",
+                [],
+            )?;
+            Ok(())
+        })
+        .expect("seed current store with legacy Page");
+
+        let preparation = prepare_profile_store(&mut connection, &home)
+            .expect("current store completes the BlockRecord cutover");
+        assert_eq!(preparation.migrated_from_version, None);
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT count(*) FROM block_records
+                     WHERE id IN ('canonical:page', 'legacy:page')",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .expect("canonical record count"),
+            2
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT json_extract(properties_json, '$.title')
+                     FROM block_records WHERE id = 'legacy:page'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .expect("converted Page title"),
+            "Legacy page"
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT revision FROM block_records WHERE id = 'canonical:page'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .expect("canonical Page revision"),
+            4
+        );
     }
 
     #[test]

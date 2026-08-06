@@ -36,6 +36,9 @@ mutation boundary:
   typed Core
   operations. Validation, rank rebalance, canonical row updates, content
   materialization, and LocalCommit append happen in one SQLite transaction.
+- `RestoreSubtree` carries any sibling placement rebalances in the same
+  operation. Restoring an archived Page never needs to reject a dense rank
+  space or split ordering into a second write.
 - Archive parks the existing placement under a Block-specific private rank and
   retains View positions. Active reads exclude the archived lifecycle, while a
   parent-first Restore reactivates the same records and placement edges. This
@@ -102,10 +105,13 @@ BlockRecord boundary. The adapter validates the observed placement or metadata
 revision against its local snapshot and returns the resulting LocalCommit
 cursor, so these menu actions do not wait for the legacy Page event stream.
 
-An already-Page root is therefore never a promotion. A legacy-created root
-without a BlockRecord remains outside this terminal operation until the
-one-time store replacement converts it; the final runtime must reject that
-state rather than silently fall back to the old Page transfer writer.
+An already-Page root is therefore never a promotion. On opening a current
+development store, Core claims any active legacy-created Block IDs that still
+lack a BlockRecord in a repeatable local conversion transaction; existing
+canonical records and content revisions are not rewritten. The final store
+replacement still removes the legacy tables and runtime writer, so an
+unconverted root is a corruption/conversion failure rather than a reason to
+silently fall back to the old Page transfer writer.
 
 ## Scope and follow-up
 

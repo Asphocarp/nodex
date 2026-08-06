@@ -855,6 +855,10 @@ pub enum BlockRecordOperation {
         rank_key: String,
         expected_block_revision: u64,
         expected_placement_revision: u64,
+        /// Existing sibling placements whose ranks must be rewritten in the
+        /// same transaction before the archived subtree is reactivated.
+        #[serde(default)]
+        placement_rebalances: Vec<BlockRecordPlacementRebalance>,
     },
     PromoteToPage {
         block_id: String,

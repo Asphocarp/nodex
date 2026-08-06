@@ -892,12 +892,21 @@ fn block_record_operation(
             rank_key,
             expected_block_revision,
             expected_placement_revision,
+            placement_rebalances,
         } => Ok(BlockMutationOperation::RestoreSubtree {
             block_id: block_id.clone(),
             target_parent: block_record_parent(target_parent)?,
             rank_key: rank_key.clone(),
             expected_block_revision: *expected_block_revision,
             expected_placement_revision: *expected_placement_revision,
+            placement_rebalances: placement_rebalances
+                .iter()
+                .map(|rebalance| BlockPlacementRebalance {
+                    block_id: rebalance.block_id.clone(),
+                    rank_key: rebalance.rank_key.clone(),
+                    expected_revision: rebalance.expected_revision,
+                })
+                .collect(),
         }),
         BlockRecordOperation::PromoteToPage {
             block_id,

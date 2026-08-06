@@ -338,15 +338,14 @@ pub fn ensure_lifecycle_schema(connection: &Connection) -> Result<(), StoreError
 /// after this function succeeds every active legacy Block has one canonical
 /// BlockRecord, one owning placement, and one local content slot.
 pub fn backfill_legacy_records(transaction: &Transaction<'_>) -> Result<(), StoreError> {
-    let record_count: i64 = transaction
-        .query_row("SELECT count(*) FROM block_records", [], |row| row.get(0))
-        .map_err(StoreError::from)?;
-    if record_count != 0 {
-        return backfill_legacy_content(transaction);
-    }
     let legacy_count: i64 = transaction
         .query_row(
-            "SELECT count(*) FROM blocks WHERE lifecycle = 'active'",
+            "SELECT count(*) FROM blocks AS legacy
+             WHERE legacy.lifecycle = 'active'
+               AND NOT EXISTS (
+                 SELECT 1 FROM block_records AS canonical
+                 WHERE canonical.id = legacy.id
+               )",
             [],
             |row| row.get(0),
         )
@@ -449,19 +448,41 @@ pub fn backfill_legacy_records(transaction: &Transaction<'_>) -> Result<(), Stor
                       WHEN base.page_parent_kind = 'page'
                         AND EXISTS (
                           SELECT 1 FROM blocks parent
+                          JOIN projects parent_project ON parent_project.id = parent.project_id
                           WHERE parent.id = base.page_parent_id
+                            AND parent.lifecycle = 'active'
+                            AND parent_project.library_id = base.library_id
+                        ) THEN 'block'
+                      WHEN base.page_parent_kind = 'page'
+                        AND EXISTS (
+                          SELECT 1 FROM block_records parent
+                          WHERE parent.id = base.page_parent_id
+                            AND parent.library_id = base.library_id
                             AND parent.lifecycle = 'active'
                         ) THEN 'block'
                       WHEN base.indexed_parent_id IS NOT NULL
                         AND EXISTS (
                           SELECT 1 FROM blocks parent
+                          JOIN projects parent_project ON parent_project.id = parent.project_id
                           WHERE parent.id = base.indexed_parent_id
+                            AND parent.lifecycle = 'active'
+                            AND parent_project.library_id = base.library_id
+                        ) THEN 'block'
+                      WHEN base.indexed_parent_id IS NOT NULL
+                        AND EXISTS (
+                          SELECT 1 FROM block_records parent
+                          WHERE parent.id = base.indexed_parent_id
+                            AND parent.library_id = base.library_id
                             AND parent.lifecycle = 'active'
                         ) THEN 'block'
                       ELSE 'library'
                     END AS selected_parent_kind
                   FROM base
                   WHERE base.library_id IS NOT NULL
+                    AND NOT EXISTS (
+                      SELECT 1 FROM block_records canonical
+                      WHERE canonical.id = base.block_id
+                    )
                 )
                 INSERT INTO block_record_legacy_map(
                   block_id, library_id, kind, properties_json, content_shard_id,
@@ -570,8 +591,12 @@ pub fn backfill_legacy_records(transaction: &Transaction<'_>) -> Result<(), Stor
             content_store::write_snapshot(transaction, &snapshot)?;
         }
 
-        backfill_legacy_view_positions(transaction)?;
-        backfill_legacy_content(transaction)?;
+        let legacy_ids = transaction
+            .prepare("SELECT block_id FROM block_record_legacy_map ORDER BY block_id")?
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<BTreeSet<_>>>()?;
+        backfill_legacy_view_positions_for_ids(transaction, &legacy_ids)?;
+        backfill_legacy_content_for_ids(transaction, Some(&legacy_ids))?;
         Ok::<(), StoreError>(())
     })();
     transaction
@@ -587,6 +612,15 @@ pub fn backfill_legacy_records(transaction: &Transaction<'_>) -> Result<(), Stor
 /// the cutover deterministic and lets every future edit use the new content
 /// transaction path.
 pub fn backfill_legacy_content(transaction: &Transaction<'_>) -> Result<(), StoreError> {
+    backfill_legacy_content_for_ids(transaction, None)
+}
+
+fn backfill_legacy_content_for_ids(
+    transaction: &Transaction<'_>,
+    block_ids: Option<&BTreeSet<String>>,
+) -> Result<(), StoreError> {
+    let filter_ids =
+        |block_id: &str| block_ids.map_or(true, |selected| selected.contains(block_id));
     let records = transaction
         .prepare(
             "SELECT id, kind_json, library_id, content_shard_id
@@ -627,6 +661,9 @@ pub fn backfill_legacy_content(transaction: &Transaction<'_>) -> Result<(), Stor
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     for (block_id, rich_title_json) in page_titles {
+        if !filter_ids(&block_id) {
+            continue;
+        }
         let Some((kind, library_id, shard_id)) = records.get(&block_id) else {
             continue;
         };
@@ -668,6 +705,9 @@ pub fn backfill_legacy_content(transaction: &Transaction<'_>) -> Result<(), Stor
         let mut nodes = Vec::new();
         collect_materialized_nodes(&tree, &mut nodes);
         for node in nodes {
+            if !filter_ids(&node.id) {
+                continue;
+            }
             let Some((kind, library_id, shard_id)) = records.get(&node.id) else {
                 continue;
             };
@@ -822,7 +862,10 @@ fn canonicalize_legacy_placement_ranks(transaction: &Transaction<'_>) -> Result<
     Ok(())
 }
 
-fn backfill_legacy_view_positions(transaction: &Transaction<'_>) -> Result<(), StoreError> {
+fn backfill_legacy_view_positions_for_ids(
+    transaction: &Transaction<'_>,
+    block_ids: &BTreeSet<String>,
+) -> Result<(), StoreError> {
     let rows = transaction
         .prepare(
             r##"SELECT
@@ -868,6 +911,9 @@ fn backfill_legacy_view_positions(transaction: &Transaction<'_>) -> Result<(), S
     let mut groups: BTreeMap<(String, String), Vec<(String, String, String, String, i64)>> =
         BTreeMap::new();
     for (view_id, data_source_id, block_id, library_id, group_key, rank_key, revision) in rows {
+        if !block_ids.contains(&block_id) {
+            continue;
+        }
         groups.entry((view_id, group_key)).or_default().push((
             block_id,
             data_source_id,
@@ -2112,6 +2158,38 @@ mod tests {
             4
         );
 
+        let transaction = connection.transaction().expect("content edit transaction");
+        content_store::replace_materialized_snapshot(
+            &transaction,
+            "page:test",
+            ContentSlot::Title,
+            0,
+            &json!([{"type": "text", "text": "Edited locally"}]),
+            "update:page:test",
+            "2026-08-06T00:00:01.000Z",
+        )
+        .expect("local Page title edit");
+        transaction.commit().expect("content edit commit");
+
+        connection
+            .execute_batch(
+                "INSERT INTO blocks(
+                   id, project_id, type, lifecycle, location_kind,
+                   containing_document_id, containing_database_id,
+                   location_revision, metadata_revision, created_at, updated_at
+                 ) VALUES (
+                   'later:block', 'project:test', 'paragraph', 'active', 'document',
+                   'document:test', NULL, 1, 1, '2026-08-06', '2026-08-06'
+                 );
+                 INSERT INTO document_block_index(
+                   document_id, block_id, parent_block_id, ordinal, block_type,
+                   text, projected_seq
+                 ) VALUES (
+                   'document:test', 'later:block', NULL, 2, 'paragraph', 'Later', 0
+                 );",
+            )
+            .expect("seed legacy Block after initial cutover");
+
         let transaction = connection.transaction().expect("idempotent transaction");
         backfill_legacy_records(&transaction).expect("second backfill");
         transaction.commit().expect("second commit");
@@ -2120,7 +2198,26 @@ mod tests {
                 .query_row("SELECT count(*) FROM block_records", [], |row| row
                     .get::<_, i64>(0))
                 .expect("record count"),
-            4
+            5
+        );
+        assert_eq!(
+            read_graph(&connection, "library:test")
+                .expect("incrementally converted graph")
+                .placement("later:block")
+                .expect("late Block placement")
+                .parent,
+            PlacementParent::Library
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT revision FROM block_contents
+                     WHERE block_id = 'page:test' AND slot = 'title'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .expect("edited title revision"),
+            1
         );
     }
 }

@@ -1834,9 +1834,6 @@ const applyCanonicalPageRestore = async (
     && !siblings.some((sibling) => sibling.rankKey === archivedRank)
     ? { rankKey: archivedRank, rebalancedRankKeys: new Map<string, string>() }
     : planFractionalRank(siblings, source.record.id);
-  if (rank.rebalancedRankKeys.size > 0) {
-    throw new Error("Canonical Page restore requires a placement rebalance");
-  }
   const apply = await buildRestoreBlockRecordSubtreeApplyInput({
     operationId: request.operationId,
     actorId: canonicalPageActorId(input.profileId),
@@ -1846,6 +1843,17 @@ const applyCanonicalPageRestore = async (
     rankKey: rank.rankKey,
     expectedBlockRevision: source.record.revision,
     expectedPlacementRevision: source.placement.revision,
+    placementRebalances: [...rank.rebalancedRankKeys].map(([blockId, rankKey]) => {
+      const placement = destination.window.placements.find(
+        (candidate) => candidate.blockId === blockId,
+      );
+      if (!placement) throw new Error(`Canonical sibling ${blockId} is not loaded`);
+      return {
+        blockId,
+        rankKey,
+        expectedRevision: placement.revision,
+      };
+    }),
   });
   const committed = await input.client.blockRecordApply(apply);
   if (

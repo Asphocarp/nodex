@@ -776,6 +776,11 @@ export interface components {
             readonly expected_placement_revision: number;
             /** @enum {string} */
             readonly kind: "restore_subtree";
+            /**
+             * @description Existing sibling placements whose ranks must be rewritten in the
+             *     same transaction before the archived subtree is reactivated.
+             */
+            readonly placement_rebalances?: readonly components["schemas"]["BlockRecordPlacementRebalance"][];
             readonly rank_key: string;
             readonly target_parent: components["schemas"]["BlockRecordPlacementParent"];
         } | {

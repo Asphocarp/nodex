@@ -97,6 +97,7 @@ pub enum BlockMutationOperation {
         rank_key: String,
         expected_block_revision: u64,
         expected_placement_revision: u64,
+        placement_rebalances: Vec<BlockPlacementRebalance>,
     },
     PromoteToPage {
         block_id: String,
@@ -702,8 +703,19 @@ fn persist_delta(
         }
         return Ok(Vec::new());
     }
-    if let BlockMutationOperation::RestoreSubtree { block_id, .. } = operation {
-        return persist_restore_subtree(transaction, previous, next, block_id);
+    if let BlockMutationOperation::RestoreSubtree {
+        block_id,
+        placement_rebalances,
+        ..
+    } = operation
+    {
+        return persist_restore_subtree(
+            transaction,
+            previous,
+            next,
+            block_id,
+            placement_rebalances,
+        );
     }
     if let BlockMutationOperation::SetMaterializedContent {
         block_id,
@@ -917,7 +929,30 @@ fn persist_restore_subtree(
     previous: &RecordGraph,
     next: &RecordGraph,
     root_id: &str,
+    placement_rebalances: &[BlockPlacementRebalance],
 ) -> Result<Vec<LocalCommitEffect>, StoreError> {
+    let placement_changes = placement_rebalances
+        .iter()
+        .map(|rebalance| {
+            let previous_placement = previous.placement(&rebalance.block_id).ok_or_else(|| {
+                StoreError::new(
+                    StoreErrorCode::StoreCorrupt,
+                    "Restore placement rebalance source is missing",
+                    false,
+                )
+            })?;
+            let next_placement = next.placement(&rebalance.block_id).ok_or_else(|| {
+                StoreError::new(
+                    StoreErrorCode::StoreCorrupt,
+                    "Restore placement rebalance target is missing",
+                    false,
+                )
+            })?;
+            Ok((previous_placement.clone(), next_placement.clone()))
+        })
+        .collect::<Result<Vec<_>, StoreError>>()?;
+    update_placements_atomically(transaction, &placement_changes)?;
+
     let ids = next.descendant_ids(root_id).map_err(map_graph_error)?;
     let restored_ids = ids
         .iter()
@@ -2600,6 +2635,7 @@ fn apply_operation(
             rank_key,
             expected_block_revision,
             expected_placement_revision,
+            placement_rebalances,
         } => {
             if graph.block(block_id).is_some() {
                 return Err(StoreError::new(
@@ -2607,6 +2643,56 @@ fn apply_operation(
                     "Cannot restore an active BlockRecord",
                     false,
                 ));
+            }
+            let mut seen_rebalances = BTreeSet::new();
+            let mut placement_changes = Vec::with_capacity(placement_rebalances.len());
+            for rebalance in placement_rebalances {
+                if !seen_rebalances.insert(rebalance.block_id.clone()) {
+                    return Err(StoreError::new(
+                        StoreErrorCode::InvalidInput,
+                        "Restore placement rebalances contain a duplicate Block id",
+                        false,
+                    ));
+                }
+                if rebalance.rank_key.trim().is_empty() {
+                    return Err(StoreError::new(
+                        StoreErrorCode::InvalidInput,
+                        "Restore placement rebalance rank is empty",
+                        false,
+                    ));
+                }
+                let placement = graph.placement(&rebalance.block_id).ok_or_else(|| {
+                    StoreError::new(
+                        StoreErrorCode::NotFound,
+                        "Restore placement rebalance Block is missing",
+                        false,
+                    )
+                })?;
+                if placement.parent != *target_parent {
+                    return Err(StoreError::new(
+                        StoreErrorCode::InvalidInput,
+                        "Restore placement rebalance targets another parent",
+                        false,
+                    ));
+                }
+                if placement.revision != rebalance.expected_revision {
+                    return Err(StoreError::new(
+                        StoreErrorCode::RevisionConflict,
+                        "Restore placement rebalance precondition is stale",
+                        true,
+                    ));
+                }
+                placement_changes.push(crate::domain::block_record::PlacementChange {
+                    block_id: rebalance.block_id.clone(),
+                    parent: placement.parent.clone(),
+                    rank_key: rebalance.rank_key.clone(),
+                });
+            }
+            let before_rebalances = graph.clone();
+            if !placement_changes.is_empty() {
+                graph
+                    .apply_placement_changes(&placement_changes)
+                    .map_err(map_graph_error)?;
             }
             let block_ids = vec![block_id.clone()];
             let (archived_records, archived_placements) =
@@ -2729,7 +2815,43 @@ fn apply_operation(
                 );
             }
             let mut pending = archived_ids;
-            let mut effects = Vec::with_capacity(pending.len() * 2);
+            let mut effects = Vec::with_capacity(pending.len() * 2 + placement_changes.len() * 2);
+            for change in placement_changes {
+                let previous = before_rebalances
+                    .placement(&change.block_id)
+                    .ok_or_else(|| {
+                        StoreError::new(
+                            StoreErrorCode::StoreCorrupt,
+                            "Restore placement rebalance source disappeared",
+                            false,
+                        )
+                    })?;
+                let next = graph.placement(&change.block_id).ok_or_else(|| {
+                    StoreError::new(
+                        StoreErrorCode::StoreCorrupt,
+                        "Restore placement rebalance target disappeared",
+                        false,
+                    )
+                })?;
+                let record = graph.block(&change.block_id).ok_or_else(|| {
+                    StoreError::new(
+                        StoreErrorCode::StoreCorrupt,
+                        "Restore placement rebalance record disappeared",
+                        false,
+                    )
+                })?;
+                effects.push(record_effect(record));
+                effects.push(LocalCommitEffect {
+                    kind: "placement".to_owned(),
+                    value: json!({
+                        "blockId": change.block_id,
+                        "from": previous.parent,
+                        "to": next.parent,
+                        "rankKey": next.rank_key,
+                        "revision": next.revision,
+                    }),
+                });
+            }
             while !pending.is_empty() {
                 let ready = pending
                     .iter()
@@ -4753,6 +4875,11 @@ mod tests {
                     rank_key: "100".to_owned(),
                     expected_block_revision: 1,
                     expected_placement_revision: 1,
+                    placement_rebalances: vec![BlockPlacementRebalance {
+                        block_id: "before-000".to_owned(),
+                        rank_key: "0000".to_owned(),
+                        expected_revision: 0,
+                    }],
                 },
             ),
         )
@@ -4760,7 +4887,7 @@ mod tests {
         transaction.commit().expect("restore commit");
 
         assert_eq!(committed.envelope.cursor.commit_seq, 2);
-        assert_eq!(committed.envelope.effects.len(), subtree.len() * 2);
+        assert_eq!(committed.envelope.effects.len(), subtree.len() * 2 + 2);
         assert_eq!(
             graph.descendant_ids("title-a").expect("restored subtree"),
             subtree
@@ -4776,6 +4903,13 @@ mod tests {
         assert_eq!(
             graph.placement("child-000").expect("restored child").parent,
             PlacementParent::Block("title-a".to_owned())
+        );
+        assert_eq!(
+            graph
+                .placement("before-000")
+                .expect("rebalanced sibling")
+                .rank_key,
+            "0000"
         );
         let (active, archived, placements): (i64, i64, i64) = connection
             .query_row(

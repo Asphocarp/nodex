@@ -2488,6 +2488,13 @@
                   "restore_subtree"
                 ]
               },
+              "placement_rebalances": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/BlockRecordPlacementRebalance"
+                },
+                "description": "Existing sibling placements whose ranks must be rewritten in the\nsame transaction before the archived subtree is reactivated."
+              },
               "rank_key": {
                 "type": "string"
               },
