@@ -899,6 +899,123 @@ describe("Core Database Module Adapter", () => {
     expect(groups.changeLogSeq).toBe(22);
   });
 
+  test("overlays canonical values into row detail without replacing its body projection", async () => {
+    const client = new FakeCoreClient();
+    client.enqueueBlockRecordRead({
+      library_id: identity.libraryId,
+      observed_cursor: { store_epoch: identity.storeEpoch, commit_seq: 31 },
+      graph: {
+        library_id: identity.libraryId,
+        blocks: [{
+          id: "page:detail",
+          library_id: identity.libraryId,
+          kind: "page",
+          lifecycle: "active",
+          properties: {
+            title: "Canonical title",
+            dataSourceValues: [{
+              propertyId: "status",
+              value: "ship",
+              revision: 4,
+            }],
+          },
+          content_shard_id: "shard:detail",
+          revision: 9,
+        }],
+        placements: [{
+          block_id: "page:detail",
+          parent: { kind: "data_source", id: "source:test" },
+          rank_key: "a",
+          revision: 3,
+        }],
+      },
+      view_positions: [],
+      content: [],
+    } satisfies BlockRecordReadSnapshot);
+    client.enqueueDatabaseRead({
+      contract_version: 4 as const,
+      store_epoch: identity.storeEpoch,
+      event_head: 30,
+      value: {
+        kind: "row_detail" as const,
+        value: {
+          summary: {
+            page_id: "page:detail",
+            lifecycle: "active",
+            title: "stale title",
+            rich_title: [],
+            description_preview: "stale preview",
+            description_length: 13,
+            has_description: true,
+            database_values: {
+              status: "triage",
+              priority: null,
+              estimate: null,
+              tags: [],
+              due_date: null,
+              scheduled_start: null,
+              scheduled_end: null,
+              assignee: null,
+            },
+            intrinsic_properties: {
+              "run.target": "localProject",
+              "run.localPath": null,
+              "run.baseBranch": null,
+              "run.worktreePath": null,
+              "run.environmentPath": null,
+              "schedule.isAllDay": false,
+              "schedule.timezone": null,
+              "recurrence.config": null,
+              "reminders.config": [],
+            },
+            database_value_revisions: { status: 3 },
+            metadata_revision: 3,
+            parent_revision: 1,
+            document_id: "document:detail",
+            document_generation: 1,
+            document_head_seq: 1,
+            membership_id: "membership:detail",
+            membership_revision: 1,
+            membership_created_at: "2026-08-06T00:00:00.000Z",
+            created_at: "2026-08-06T00:00:00.000Z",
+            updated_at: "2026-08-06T00:00:00.000Z",
+            effective_group_key: "triage",
+            rank_key: "a",
+            position_revision: 1,
+            position_order: 0,
+          },
+          body_nfm: "old body projection",
+        },
+      },
+    });
+    const runtime = {
+      backend: "rust",
+      identity,
+      rootClient: {
+        handshake: createFakeCoreHandshake({
+          libraryId: identity.libraryId,
+          profileId: identity.profileId,
+          storeEpoch: identity.storeEpoch,
+        }),
+      },
+      clientForProject: () => client,
+    } as unknown as RustDataAuthorityRuntime;
+    const bridge = createDesktopDatabaseModuleBridge({
+      authority: Promise.resolve(runtime),
+    });
+
+    await expect(bridge.getDatabaseRowPage(
+      identity.projectId,
+      "page:detail",
+    )).resolves.toMatchObject({
+      id: "page:detail",
+      title: "Canonical title",
+      status: "ship",
+      revision: 9,
+      description: "old body projection",
+    });
+  });
+
   test("passes a window group scope through to the Core read", async () => {
     const client = new FakeCoreClient();
     // A wrong-kind response makes the helper throw after the Core read has

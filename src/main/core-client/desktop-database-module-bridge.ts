@@ -513,6 +513,20 @@ export const createDesktopDatabaseModuleBridge = (
     getDatabaseRowPage: async (projectId, pageId, status) => {
       const runtime = await input.authority;
       try {
+        const canonicalRead = {
+          kind: "window" as const,
+          block_ids: [pageId],
+          include_content: false,
+          include_descendants: false,
+          include_archived: true,
+        };
+        const canonicalSnapshot = await runtime
+          .clientForProject(projectId)
+          .blockRecordRead(canonicalRead);
+        const canonicalWindow = blockRecordSnapshotToWindow(
+          canonicalSnapshot,
+          canonicalRead,
+        );
         const snapshot = await coreAdapterFor(runtime, projectId).readCore({
           target: { kind: "page", page_id: pageId },
           mode: "row_detail",
@@ -524,7 +538,17 @@ export const createDesktopDatabaseModuleBridge = (
         if (snapshot.value.kind !== "row_detail") {
           throw new Error("Database Core returned a non-detail Page snapshot");
         }
-        const page = projectCoreDatabaseRowDetail(snapshot.value.value);
+        const summary = overlayCanonicalDatabaseRows(
+          [snapshot.value.value.summary],
+          canonicalWindow,
+        )[0];
+        if (!summary) {
+          throw new Error("Canonical Database Page detail is empty");
+        }
+        const page = projectCoreDatabaseRowDetail({
+          summary,
+          body_nfm: snapshot.value.value.body_nfm,
+        });
         if (status && page.status !== status) return null;
         return page;
       } catch (error) {
