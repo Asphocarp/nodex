@@ -17,13 +17,15 @@
 window. BlockNote remains responsible for schema, selection, IME, menus, and
 rendering, while `RecordBackedBlockNoteAdapter` maps editor changes to typed
 Core operations. Page/Board Move to and editor-to-Board drops do not serialize
-or copy a Page-wide Y.Doc. The Core apply response is admitted through
+or copy a Page-wide Y.Doc. Canonical copy uses Core `CopySubtree` and copies
+current content snapshots into fresh Block identities. The Core apply response is admitted through
 `LocalCommitDispatcher`; the later LocalCommit tail is a replay/dedupe path.
 
 The current terminal Board promotion contract applies to ordinary canonical
-Blocks. An already-Page root, or a Page created by a writer not yet cut over to
-BlockRecord, is not passed through `PromoteManyToPage`; the explicit remaining
-Page transfer adapter handles it until the final Page-placement/copy cutover.
+Blocks. An already-Page root is not passed through `PromoteManyToPage`; it uses
+`PlaceManyInDataSource`. Only legacy, multi-root, and explicitly
+document-backed transfer requests remain outside this terminal operation until
+the final replacement.
 
 The older View row window is metadata/pagination enrichment only. It must never
 replace a canonical BlockRecord card or be used to claim that a mutation has

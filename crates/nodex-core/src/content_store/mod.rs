@@ -435,6 +435,48 @@ fn ensure_slot_from_slot(
     Ok(())
 }
 
+/// Copies every current content slot from one Block identity to another.
+/// Content history is intentionally not copied: a copy starts a new logical
+/// record with the source's current CRDT state, while future updates append
+/// under the new Block identity. The physical shard may remain shared.
+pub fn copy_block_contents(
+    transaction: &Transaction<'_>,
+    source_block_id: &str,
+    target_block_id: &str,
+) -> Result<Vec<ContentSnapshot>, StoreError> {
+    validate_id(source_block_id, "source_block_id")?;
+    validate_id(target_block_id, "target_block_id")?;
+    if source_block_id == target_block_id {
+        return Err(invalid("content copy source and target must differ"));
+    }
+    transaction.execute(
+        "INSERT INTO block_contents(
+           block_id, slot, library_id, shard_id, revision, state_vector, full_state, state_hash
+         )
+         SELECT ?2, slot, library_id, shard_id, revision, state_vector, full_state, state_hash
+         FROM block_contents
+         WHERE block_id = ?1",
+        params![source_block_id, target_block_id],
+    )?;
+    transaction.execute(
+        "INSERT INTO block_content_materializations(block_id, slot, materialized_json)
+         SELECT ?2, slot, materialized_json
+         FROM block_content_materializations
+         WHERE block_id = ?1",
+        params![source_block_id, target_block_id],
+    )?;
+    [
+        ContentSlot::Title,
+        ContentSlot::Inline,
+        ContentSlot::Body,
+        ContentSlot::Properties,
+    ]
+    .into_iter()
+    .map(|slot| read_snapshot_for_transaction(transaction, target_block_id, &slot))
+    .collect::<Result<Vec<_>, _>>()
+    .map(|snapshots| snapshots.into_iter().flatten().collect())
+}
+
 pub fn write_snapshot(
     transaction: &Transaction<'_>,
     snapshot: &ContentSnapshot,

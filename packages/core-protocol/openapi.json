@@ -2094,6 +2094,34 @@
         },
         "additionalProperties": false
       },
+      "BlockRecordCopyEntry": {
+        "type": "object",
+        "required": [
+          "source_block_id",
+          "target_block_id",
+          "expected_block_revision",
+          "expected_placement_revision"
+        ],
+        "properties": {
+          "expected_block_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "expected_placement_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "source_block_id": {
+            "type": "string"
+          },
+          "target_block_id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
       "BlockRecordCursor": {
         "type": "object",
         "required": [
@@ -2339,6 +2367,92 @@
                 "type": "array",
                 "items": {
                   "$ref": "#/components/schemas/BlockRecordPlacementRebalance"
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Copies one owning BlockRecord subtree into fresh identities. The\noperation carries the complete source-to-target identity map so Core\ncan validate the closure and perform the copy in one transaction.",
+            "required": [
+              "source_block_id",
+              "target_block_id",
+              "target_parent",
+              "rank_key",
+              "expected_block_revision",
+              "expected_placement_revision",
+              "entries",
+              "kind"
+            ],
+            "properties": {
+              "data_source_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "entries": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/BlockRecordCopyEntry"
+                }
+              },
+              "expected_block_revision": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "expected_placement_revision": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "copy_subtree"
+                ]
+              },
+              "placement_rebalances": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/BlockRecordPlacementRebalance"
+                }
+              },
+              "rank_key": {
+                "type": "string"
+              },
+              "source_block_id": {
+                "type": "string"
+              },
+              "target_block_id": {
+                "type": "string"
+              },
+              "target_parent": {
+                "$ref": "#/components/schemas/BlockRecordPlacementParent"
+              },
+              "view_group_key": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "view_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "view_rank_key": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "view_rebalances": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/BlockRecordViewPositionRebalance"
                 }
               }
             }

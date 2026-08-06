@@ -69,6 +69,36 @@ export interface MoveManyBlockRecordApplyInput extends BlockRecordApplyIdentity 
   }[];
 }
 
+export interface CopySubtreeBlockRecordApplyInput extends BlockRecordApplyIdentity {
+  readonly sourceBlockId: string;
+  readonly targetBlockId: string;
+  readonly targetParent: BlockPlacementParent;
+  readonly rankKey: string;
+  readonly expectedBlockRevision: number;
+  readonly expectedPlacementRevision: number;
+  readonly entries: readonly {
+    readonly sourceBlockId: string;
+    readonly targetBlockId: string;
+    readonly expectedBlockRevision: number;
+    readonly expectedPlacementRevision: number;
+  }[];
+  readonly viewId?: string | null;
+  readonly dataSourceId?: string | null;
+  readonly viewGroupKey?: string | null;
+  readonly viewRankKey?: string | null;
+  readonly placementRebalances?: readonly {
+    readonly blockId: string;
+    readonly rankKey: string;
+    readonly expectedRevision: number;
+  }[];
+  readonly viewRebalances?: readonly {
+    readonly blockId: string;
+    readonly groupKey?: string | null;
+    readonly rankKey: string;
+    readonly expectedRevision: number;
+  }[];
+}
+
 export interface UpdateBlockRecordApplyInput extends BlockRecordApplyIdentity {
   readonly blockId: string;
   readonly properties: Readonly<Record<string, unknown>>;
@@ -424,6 +454,123 @@ export const buildMoveManyBlockRecordApplyInput = async (
     kind: "move_many" as const,
     entries,
     placement_rebalances: placementRebalances,
+  };
+  return {
+    ...await identityFields(input, operation),
+    operation,
+  };
+};
+
+export const buildCopySubtreeBlockRecordApplyInput = async (
+  input: CopySubtreeBlockRecordApplyInput,
+): Promise<BlockRecordApplyInput> => {
+  for (const [label, value] of [
+    ["sourceBlockId", input.sourceBlockId],
+    ["targetBlockId", input.targetBlockId],
+    ["rankKey", input.rankKey],
+  ] as const) assertIdentity(label, value);
+  if (input.sourceBlockId === input.targetBlockId) {
+    throw new Error("Copy source and target identities must differ");
+  }
+  assertRevision("expectedBlockRevision", input.expectedBlockRevision);
+  assertRevision("expectedPlacementRevision", input.expectedPlacementRevision);
+  if (input.entries.some((entry) => entry.sourceBlockId === input.sourceBlockId)) {
+    throw new Error("Copy entries must not repeat the source root");
+  }
+  const sourceIds = new Set([input.sourceBlockId]);
+  const targetIds = new Set([input.targetBlockId]);
+  const entries = input.entries.map((entry) => {
+    assertIdentity("sourceBlockId", entry.sourceBlockId);
+    assertIdentity("targetBlockId", entry.targetBlockId);
+    if (sourceIds.has(entry.sourceBlockId) || targetIds.has(entry.targetBlockId)) {
+      throw new Error("Copy entries contain duplicate source or target identities");
+    }
+    if (entry.sourceBlockId === entry.targetBlockId) {
+      throw new Error("Copy entries must remap identities");
+    }
+    sourceIds.add(entry.sourceBlockId);
+    targetIds.add(entry.targetBlockId);
+    assertRevision("expectedBlockRevision", entry.expectedBlockRevision);
+    assertRevision("expectedPlacementRevision", entry.expectedPlacementRevision);
+    return {
+      source_block_id: entry.sourceBlockId,
+      target_block_id: entry.targetBlockId,
+      expected_block_revision: entry.expectedBlockRevision,
+      expected_placement_revision: entry.expectedPlacementRevision,
+    };
+  });
+  if (input.viewId !== null && input.viewId !== undefined) assertIdentity("viewId", input.viewId);
+  if (input.dataSourceId !== null && input.dataSourceId !== undefined) assertIdentity("dataSourceId", input.dataSourceId);
+  if (input.viewGroupKey !== null && input.viewGroupKey !== undefined) assertIdentity("viewGroupKey", input.viewGroupKey);
+  if (input.viewRankKey !== null && input.viewRankKey !== undefined) assertIdentity("viewRankKey", input.viewRankKey);
+  const hasView = input.viewId !== null && input.viewId !== undefined;
+  if (!hasView && (
+    input.dataSourceId !== null && input.dataSourceId !== undefined
+    || input.viewGroupKey !== null && input.viewGroupKey !== undefined
+    || input.viewRankKey !== null && input.viewRankKey !== undefined
+    || (input.viewRebalances?.length ?? 0) > 0
+  )) {
+    throw new Error("Copy View fields require a viewId");
+  }
+  if (hasView && (
+    input.dataSourceId === null || input.dataSourceId === undefined
+    || input.viewRankKey === null || input.viewRankKey === undefined
+  )) {
+    throw new Error("Copy View requires dataSourceId and viewRankKey");
+  }
+  const placementRebalanceIds = new Set<string>();
+  const placementRebalances = (input.placementRebalances ?? []).map((rebalance) => {
+    assertIdentity("blockId", rebalance.blockId);
+    assertIdentity("rankKey", rebalance.rankKey);
+    if (
+      targetIds.has(rebalance.blockId)
+      || sourceIds.has(rebalance.blockId)
+      || !placementRebalanceIds.add(rebalance.blockId)
+    ) {
+      throw new Error("Copy placement rebalance repeats a copied identity");
+    }
+    assertRevision("expectedRevision", rebalance.expectedRevision);
+    return {
+      block_id: rebalance.blockId,
+      rank_key: rebalance.rankKey,
+      expected_revision: rebalance.expectedRevision,
+    };
+  });
+  const viewRebalanceIds = new Set<string>();
+  const viewRebalances = (input.viewRebalances ?? []).map((rebalance) => {
+    assertIdentity("blockId", rebalance.blockId);
+    assertIdentity("rankKey", rebalance.rankKey);
+    if (
+      rebalance.blockId === input.targetBlockId
+      || sourceIds.has(rebalance.blockId)
+      || !viewRebalanceIds.add(rebalance.blockId)
+    ) {
+      throw new Error("Copy View rebalance repeats a copied identity");
+    }
+    if (rebalance.groupKey !== null && rebalance.groupKey !== undefined) assertIdentity("groupKey", rebalance.groupKey);
+    assertRevision("expectedRevision", rebalance.expectedRevision);
+    return {
+      block_id: rebalance.blockId,
+      group_key: rebalance.groupKey ?? null,
+      rank_key: rebalance.rankKey,
+      expected_revision: rebalance.expectedRevision,
+    };
+  });
+  const operation = {
+    kind: "copy_subtree" as const,
+    source_block_id: input.sourceBlockId,
+    target_block_id: input.targetBlockId,
+    target_parent: parentToWire(input.targetParent),
+    rank_key: input.rankKey,
+    expected_block_revision: input.expectedBlockRevision,
+    expected_placement_revision: input.expectedPlacementRevision,
+    entries,
+    view_id: input.viewId ?? null,
+    data_source_id: input.dataSourceId ?? null,
+    view_group_key: input.viewGroupKey ?? null,
+    view_rank_key: input.viewRankKey ?? null,
+    placement_rebalances: placementRebalances,
+    view_rebalances: viewRebalances,
   };
   return {
     ...await identityFields(input, operation),

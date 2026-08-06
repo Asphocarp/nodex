@@ -72,6 +72,21 @@ pub enum BlockMutationOperation {
         entries: Vec<BlockMoveEntry>,
         placement_rebalances: Vec<BlockPlacementRebalance>,
     },
+    CopySubtree {
+        source_block_id: String,
+        target_block_id: String,
+        target_parent: PlacementParent,
+        rank_key: String,
+        expected_block_revision: u64,
+        expected_placement_revision: u64,
+        entries: Vec<BlockCopyEntry>,
+        view_id: Option<String>,
+        data_source_id: Option<String>,
+        view_group_key: Option<String>,
+        view_rank_key: Option<String>,
+        placement_rebalances: Vec<BlockPlacementRebalance>,
+        view_rebalances: Vec<BlockViewPositionRebalance>,
+    },
     UpdateRecord {
         block_id: String,
         properties: serde_json::Value,
@@ -173,6 +188,14 @@ pub struct BlockMoveEntry {
     pub block_id: String,
     pub target_parent: PlacementParent,
     pub rank_key: String,
+    pub expected_block_revision: u64,
+    pub expected_placement_revision: u64,
+}
+
+#[derive(Clone, Debug)]
+pub struct BlockCopyEntry {
+    pub source_block_id: String,
+    pub target_block_id: String,
     pub expected_block_revision: u64,
     pub expected_placement_revision: u64,
 }
@@ -377,6 +400,9 @@ fn persist_delta(
                     false,
                 )
             })?,
+        BlockMutationOperation::CopySubtree {
+            target_block_id, ..
+        } => target_block_id,
         BlockMutationOperation::UpdateRecord { block_id, .. }
         | BlockMutationOperation::ArchiveSubtree { block_id, .. }
         | BlockMutationOperation::RestoreSubtree { block_id, .. } => block_id,
@@ -617,6 +643,37 @@ fn persist_delta(
             )?;
         }
         return Ok(effects);
+    }
+    if let BlockMutationOperation::CopySubtree {
+        source_block_id,
+        target_block_id,
+        target_parent,
+        entries,
+        view_id,
+        data_source_id,
+        view_group_key,
+        view_rank_key,
+        placement_rebalances,
+        view_rebalances,
+        ..
+    } = operation
+    {
+        return persist_copy_subtree(
+            transaction,
+            previous,
+            next,
+            source_block_id,
+            target_block_id,
+            target_parent,
+            entries,
+            view_id.as_deref(),
+            data_source_id.as_deref(),
+            view_group_key.as_deref(),
+            view_rank_key.as_deref(),
+            placement_rebalances,
+            view_rebalances,
+            committed_at,
+        );
     }
     if let BlockMutationOperation::UpdateRecord {
         block_id,
@@ -1095,6 +1152,217 @@ fn persist_restore_subtree(
     }
 
     Ok(Vec::new())
+}
+
+fn persist_copy_subtree(
+    transaction: &Transaction<'_>,
+    previous: &RecordGraph,
+    next: &RecordGraph,
+    source_block_id: &str,
+    target_block_id: &str,
+    target_parent: &PlacementParent,
+    entries: &[BlockCopyEntry],
+    view_id: Option<&str>,
+    data_source_id: Option<&str>,
+    view_group_key: Option<&str>,
+    view_rank_key: Option<&str>,
+    placement_rebalances: &[BlockPlacementRebalance],
+    view_rebalances: &[BlockViewPositionRebalance],
+    committed_at: &str,
+) -> Result<Vec<LocalCommitEffect>, StoreError> {
+    let source_ids = previous
+        .descendant_ids(source_block_id)
+        .map_err(map_graph_error)?;
+    if entries.len() + 1 != source_ids.len() {
+        return Err(StoreError::new(
+            StoreErrorCode::StoreCorrupt,
+            "Copy persistence identity map is incomplete",
+            false,
+        ));
+    }
+    let mut target_by_source = BTreeMap::new();
+    target_by_source.insert(source_block_id.to_owned(), target_block_id.to_owned());
+    for entry in entries {
+        if target_by_source
+            .insert(entry.source_block_id.clone(), entry.target_block_id.clone())
+            .is_some()
+        {
+            return Err(corrupt("Copy persistence identity map contains duplicates"));
+        }
+    }
+    if source_ids
+        .iter()
+        .any(|source_id| !target_by_source.contains_key(source_id))
+    {
+        return Err(corrupt("Copy persistence identity map omits a descendant"));
+    }
+
+    if let PlacementParent::DataSource(data_source_id) = target_parent {
+        let root = next
+            .block(target_block_id)
+            .ok_or_else(|| corrupt("Copied root record is missing"))?;
+        crate::infrastructure::block_record_store::ensure_data_source(
+            transaction,
+            data_source_id,
+            &root.library_id,
+        )?;
+    }
+    let placement_changes = placement_rebalances
+        .iter()
+        .map(|rebalance| {
+            let previous_placement = previous
+                .placement(&rebalance.block_id)
+                .ok_or_else(|| corrupt("Copy placement rebalance source is missing"))?;
+            let next_placement = next
+                .placement(&rebalance.block_id)
+                .ok_or_else(|| corrupt("Copy placement rebalance target is missing"))?;
+            Ok((previous_placement.clone(), next_placement.clone()))
+        })
+        .collect::<Result<Vec<_>, StoreError>>()?;
+    update_placements_atomically(transaction, &placement_changes)?;
+
+    let mut effects = Vec::new();
+    for source_id in source_ids {
+        let target_id = target_by_source
+            .get(&source_id)
+            .ok_or_else(|| corrupt("Copy target identity disappeared"))?;
+        let record = next
+            .block(target_id)
+            .ok_or_else(|| corrupt("Copied BlockRecord is missing"))?;
+        let placement = next
+            .placement(target_id)
+            .ok_or_else(|| corrupt("Copied Block placement is missing"))?;
+        crate::infrastructure::block_record_store::insert_block(transaction, record, placement)?;
+        crate::content_store::ensure_shard(
+            transaction,
+            &record.content_shard_id,
+            &record.library_id,
+            committed_at,
+        )?;
+        let snapshots =
+            crate::content_store::copy_block_contents(transaction, &source_id, target_id)?;
+        effects.extend(snapshots.iter().map(content_effect));
+    }
+
+    let Some(view_id) = view_id else {
+        if data_source_id.is_some()
+            || view_group_key.is_some()
+            || view_rank_key.is_some()
+            || !view_rebalances.is_empty()
+        {
+            return Err(StoreError::new(
+                StoreErrorCode::InvalidInput,
+                "Copy View data requires a View id",
+                false,
+            ));
+        }
+        return Ok(effects);
+    };
+    let data_source_id = data_source_id.ok_or_else(|| {
+        StoreError::new(
+            StoreErrorCode::InvalidInput,
+            "Copy View data is missing its Data Source",
+            false,
+        )
+    })?;
+    let root = next
+        .block(target_block_id)
+        .ok_or_else(|| corrupt("Copied View root record is missing"))?;
+    let library_id = root.library_id.as_str();
+
+    // Vacate all old View ranks before installing the rebalance and new copy.
+    // The apply phase already checked the preconditions; repeat the checks at
+    // the SQL boundary so a future writer cannot turn this into a blind write.
+    for rebalance in view_rebalances {
+        let (stored_data_source, stored_group, stored_rank, stored_revision) = transaction
+            .query_row(
+                "SELECT data_source_id, group_key, rank_key, revision
+                 FROM block_record_view_positions
+                 WHERE view_id = ?1 AND block_id = ?2 AND library_id = ?3",
+                rusqlite::params![view_id, rebalance.block_id, library_id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, i64>(3)?,
+                    ))
+                },
+            )
+            .optional()?
+            .ok_or_else(|| {
+                StoreError::new(
+                    StoreErrorCode::RevisionConflict,
+                    "Copy View rebalance position disappeared",
+                    true,
+                )
+            })?;
+        let stored_group = (!stored_group.is_empty()).then_some(stored_group);
+        if stored_data_source != data_source_id
+            || stored_group.as_deref() != rebalance.group_key.as_deref()
+            || u64::try_from(stored_revision).unwrap_or(u64::MAX) != rebalance.expected_revision
+        {
+            return Err(StoreError::new(
+                StoreErrorCode::RevisionConflict,
+                "Copy View rebalance precondition does not match the canonical position",
+                true,
+            ));
+        }
+        transaction.execute(
+            "UPDATE block_record_view_positions
+             SET rank_key = ?1
+             WHERE view_id = ?2 AND block_id = ?3 AND library_id = ?4",
+            rusqlite::params![
+                format!("{}~copy-rebalance~{}", stored_rank, rebalance.block_id),
+                view_id,
+                rebalance.block_id,
+                library_id,
+            ],
+        )?;
+    }
+    for rebalance in view_rebalances {
+        let revision = rebalance
+            .expected_revision
+            .checked_add(1)
+            .ok_or_else(|| corrupt("Copy View position revision overflow"))?;
+        let changed = transaction.execute(
+            "UPDATE block_record_view_positions
+             SET group_key = ?1, rank_key = ?2, revision = ?3
+             WHERE view_id = ?4 AND block_id = ?5 AND library_id = ?6",
+            rusqlite::params![
+                rebalance.group_key.as_deref().unwrap_or(""),
+                rebalance.rank_key,
+                i64::try_from(revision)
+                    .map_err(|_| { corrupt("Copy View position revision exceeds SQLite range") })?,
+                view_id,
+                rebalance.block_id,
+                library_id,
+            ],
+        )?;
+        if changed != 1 {
+            return Err(corrupt("Copy View rebalance disappeared while persisting"));
+        }
+    }
+    let view_rank_key = view_rank_key.ok_or_else(|| {
+        StoreError::new(
+            StoreErrorCode::InvalidInput,
+            "Copy View data is missing its rank",
+            false,
+        )
+    })?;
+    crate::infrastructure::block_record_store::upsert_view_position(
+        transaction,
+        &BlockViewPosition {
+            view_id: view_id.to_owned(),
+            data_source_id: data_source_id.to_owned(),
+            block_id: target_block_id.to_owned(),
+            group_key: view_group_key.map(ToOwned::to_owned),
+            rank_key: view_rank_key.to_owned(),
+            revision: 0,
+        },
+        library_id,
+    )?;
+    Ok(effects)
 }
 
 fn persist_batch_record_update(
@@ -2324,6 +2592,37 @@ fn apply_operation(
                 effects,
             ))
         }
+        BlockMutationOperation::CopySubtree {
+            source_block_id,
+            target_block_id,
+            target_parent,
+            rank_key,
+            expected_block_revision,
+            expected_placement_revision,
+            entries,
+            view_id,
+            data_source_id,
+            view_group_key,
+            view_rank_key,
+            placement_rebalances,
+            view_rebalances,
+        } => apply_copy_subtree(
+            transaction,
+            graph,
+            source_block_id,
+            target_block_id,
+            target_parent,
+            rank_key,
+            *expected_block_revision,
+            *expected_placement_revision,
+            entries,
+            view_id.as_deref(),
+            data_source_id.as_deref(),
+            view_group_key.as_deref(),
+            view_rank_key.as_deref(),
+            placement_rebalances,
+            view_rebalances,
+        ),
         BlockMutationOperation::UpdateRecord {
             block_id,
             properties,
@@ -3462,6 +3761,366 @@ fn apply_operation(
             nodes,
         } => apply_reconcile_page_tree(transaction, graph, page_id, *expected_page_revision, nodes),
     }
+}
+
+fn apply_copy_subtree(
+    transaction: &Transaction<'_>,
+    graph: &mut RecordGraph,
+    source_block_id: &str,
+    target_block_id: &str,
+    target_parent: &PlacementParent,
+    rank_key: &str,
+    expected_block_revision: u64,
+    expected_placement_revision: u64,
+    entries: &[BlockCopyEntry],
+    view_id: Option<&str>,
+    data_source_id: Option<&str>,
+    view_group_key: Option<&str>,
+    view_rank_key: Option<&str>,
+    placement_rebalances: &[BlockPlacementRebalance],
+    view_rebalances: &[BlockViewPositionRebalance],
+) -> Result<(String, Vec<LocalCommitEffect>), StoreError> {
+    if source_block_id.trim().is_empty()
+        || target_block_id.trim().is_empty()
+        || rank_key.trim().is_empty()
+        || source_block_id == target_block_id
+    {
+        return Err(StoreError::new(
+            StoreErrorCode::InvalidInput,
+            "Copy subtree identities or rank are invalid",
+            false,
+        ));
+    }
+    validate_revisions(
+        graph,
+        source_block_id,
+        expected_block_revision,
+        expected_placement_revision,
+    )?;
+    let source_root = graph.block(source_block_id).cloned().ok_or_else(|| {
+        StoreError::new(StoreErrorCode::NotFound, "Copy source is missing", false)
+    })?;
+    let source_ids = graph
+        .descendant_ids(source_block_id)
+        .map_err(map_graph_error)?;
+    if entries.len() + 1 != source_ids.len() {
+        return Err(StoreError::new(
+            StoreErrorCode::InvalidInput,
+            "Copy subtree identity map is not the complete owning closure",
+            false,
+        ));
+    }
+
+    let mut target_by_source = BTreeMap::new();
+    target_by_source.insert(source_block_id.to_owned(), target_block_id.to_owned());
+    let mut target_ids = BTreeSet::new();
+    target_ids.insert(target_block_id.to_owned());
+    let source_id_set = source_ids.iter().cloned().collect::<BTreeSet<_>>();
+    for entry in entries {
+        if entry.source_block_id == source_block_id
+            || !source_id_set.contains(&entry.source_block_id)
+            || entry.target_block_id.trim().is_empty()
+            || !target_ids.insert(entry.target_block_id.clone())
+            || source_id_set.contains(&entry.target_block_id)
+        {
+            return Err(StoreError::new(
+                StoreErrorCode::InvalidInput,
+                "Copy subtree identity map contains an invalid or duplicate identity",
+                false,
+            ));
+        }
+        target_by_source.insert(entry.source_block_id.clone(), entry.target_block_id.clone());
+        validate_revisions(
+            graph,
+            &entry.source_block_id,
+            entry.expected_block_revision,
+            entry.expected_placement_revision,
+        )?;
+    }
+    if target_by_source.len() != source_ids.len()
+        || source_ids
+            .iter()
+            .any(|source_id| !target_by_source.contains_key(source_id))
+    {
+        return Err(StoreError::new(
+            StoreErrorCode::InvalidInput,
+            "Copy subtree identity map omits an owning descendant",
+            false,
+        ));
+    }
+    for target_id in &target_ids {
+        if graph.block(target_id).is_some()
+            || transaction
+                .query_row(
+                    "SELECT 1 FROM block_records WHERE id = ?1",
+                    [target_id],
+                    |_| Ok(()),
+                )
+                .optional()?
+                .is_some()
+        {
+            return Err(StoreError::new(
+                StoreErrorCode::Conflict,
+                format!("Copy target Block identity {target_id} already exists"),
+                false,
+            ));
+        }
+    }
+
+    if view_id.is_none()
+        && (data_source_id.is_some()
+            || view_group_key.is_some()
+            || view_rank_key.is_some()
+            || !view_rebalances.is_empty())
+    {
+        return Err(StoreError::new(
+            StoreErrorCode::InvalidInput,
+            "Copy View fields require a View id",
+            false,
+        ));
+    }
+    if view_id.is_some() && (data_source_id.is_none() || view_rank_key.is_none()) {
+        return Err(StoreError::new(
+            StoreErrorCode::InvalidInput,
+            "Copy View requires a Data Source and rank",
+            false,
+        ));
+    }
+    if let Some(view_id) = view_id {
+        let data_source_id = data_source_id.expect("validated Data Source");
+        if target_parent != &PlacementParent::DataSource(data_source_id.to_owned())
+            || !matches!(source_root.kind, BlockKind::Page)
+        {
+            return Err(StoreError::new(
+                StoreErrorCode::InvalidInput,
+                "Copy View position requires a Page copied into its Data Source",
+                false,
+            ));
+        }
+        let mut view_ids = BTreeSet::new();
+        for rebalance in view_rebalances {
+            if !view_ids.insert(rebalance.block_id.clone())
+                || rebalance.block_id == target_block_id
+                || source_id_set.contains(&rebalance.block_id)
+                || rebalance.rank_key.trim().is_empty()
+            {
+                return Err(StoreError::new(
+                    StoreErrorCode::InvalidInput,
+                    "Copy View rebalances contain an invalid or duplicate target",
+                    false,
+                ));
+            }
+            let (stored_data_source, stored_group, stored_revision): (String, String, i64) =
+                transaction
+                    .query_row(
+                        "SELECT data_source_id, group_key, revision
+                         FROM block_record_view_positions
+                         WHERE view_id = ?1 AND block_id = ?2 AND library_id = ?3",
+                        rusqlite::params![view_id, rebalance.block_id, graph.library_id()],
+                        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                    )
+                    .optional()?
+                    .ok_or_else(|| {
+                        StoreError::new(
+                            StoreErrorCode::NotFound,
+                            "Copy View rebalance position is missing",
+                            false,
+                        )
+                    })?;
+            let stored_group = (!stored_group.is_empty()).then_some(stored_group);
+            let stored_revision = u64::try_from(stored_revision)
+                .map_err(|_| corrupt("Copy View rebalance revision is invalid"))?;
+            if stored_data_source != data_source_id
+                || stored_group.as_deref() != rebalance.group_key.as_deref()
+                || stored_revision != rebalance.expected_revision
+            {
+                return Err(StoreError::new(
+                    StoreErrorCode::RevisionConflict,
+                    "Copy View rebalance precondition is stale",
+                    true,
+                ));
+            }
+        }
+    }
+
+    let mut placement_ids = BTreeSet::new();
+    let mut placement_changes = Vec::with_capacity(placement_rebalances.len());
+    for rebalance in placement_rebalances {
+        if !placement_ids.insert(rebalance.block_id.clone())
+            || target_ids.contains(&rebalance.block_id)
+            || source_id_set.contains(&rebalance.block_id)
+            || rebalance.rank_key.trim().is_empty()
+        {
+            return Err(StoreError::new(
+                StoreErrorCode::InvalidInput,
+                "Copy placement rebalances contain an invalid or duplicate Block id",
+                false,
+            ));
+        }
+        let placement = graph.placement(&rebalance.block_id).ok_or_else(|| {
+            StoreError::new(
+                StoreErrorCode::NotFound,
+                "Copy placement rebalance Block is missing",
+                false,
+            )
+        })?;
+        if placement.revision != rebalance.expected_revision {
+            return Err(StoreError::new(
+                StoreErrorCode::RevisionConflict,
+                "Copy placement rebalance precondition is stale",
+                true,
+            ));
+        }
+        placement_changes.push(crate::domain::block_record::PlacementChange {
+            block_id: rebalance.block_id.clone(),
+            parent: placement.parent.clone(),
+            rank_key: rebalance.rank_key.clone(),
+        });
+    }
+    let placement_deltas = if placement_changes.is_empty() {
+        Vec::new()
+    } else {
+        graph
+            .apply_placement_changes(&placement_changes)
+            .map_err(map_graph_error)?
+    };
+
+    let mut copied_records = Vec::with_capacity(source_ids.len());
+    for source_id in &source_ids {
+        let source_record = graph
+            .block(source_id)
+            .cloned()
+            .ok_or_else(|| corrupt("Copy source disappeared while preparing subtree"))?;
+        let target_id = target_by_source
+            .get(source_id)
+            .cloned()
+            .ok_or_else(|| corrupt("Copy target identity map is incomplete"))?;
+        let placement = graph
+            .placement(source_id)
+            .cloned()
+            .ok_or_else(|| corrupt("Copy source placement disappeared"))?;
+        let target_parent = if source_id == source_block_id {
+            target_parent.clone()
+        } else {
+            let PlacementParent::Block(parent_id) = placement.parent else {
+                return Err(corrupt(
+                    "Copy descendant does not have an owning Block parent",
+                ));
+            };
+            PlacementParent::Block(
+                target_by_source
+                    .get(&parent_id)
+                    .cloned()
+                    .ok_or_else(|| corrupt("Copy descendant parent is outside the identity map"))?,
+            )
+        };
+        let target_placement = BlockPlacement {
+            block_id: target_id.clone(),
+            parent: target_parent,
+            rank_key: if source_id == source_block_id {
+                rank_key.to_owned()
+            } else {
+                placement.rank_key
+            },
+            revision: 0,
+        };
+        let target_record = BlockRecord {
+            id: target_id,
+            library_id: source_record.library_id,
+            kind: source_record.kind,
+            lifecycle: BlockLifecycle::Active,
+            properties: source_record.properties,
+            content_shard_id: source_record.content_shard_id,
+            revision: 0,
+        };
+        graph
+            .insert(target_record.clone(), target_placement.clone())
+            .map_err(map_graph_error)?;
+        copied_records.push((target_record, target_placement));
+    }
+
+    let mut effects = Vec::with_capacity(
+        copied_records.len() * 3 + placement_deltas.len() * 2 + view_rebalances.len() + 1,
+    );
+    for (previous, next) in placement_deltas {
+        let record = graph
+            .block(&next.block_id)
+            .ok_or_else(|| corrupt("Copy placement rebalance record disappeared"))?;
+        effects.push(record_effect(record));
+        effects.push(LocalCommitEffect {
+            kind: "placement".to_owned(),
+            value: json!({
+                "blockId": next.block_id,
+                "from": previous.parent,
+                "to": next.parent,
+                "rankKey": next.rank_key,
+                "revision": next.revision,
+            }),
+        });
+    }
+    let mut source_to_target = serde_json::Map::new();
+    for source_id in &source_ids {
+        let target_id = target_by_source
+            .get(source_id)
+            .ok_or_else(|| corrupt("Copy identity map disappeared"))?;
+        let (record, placement) = copied_records
+            .iter()
+            .find(|(record, _)| record.id == *target_id)
+            .ok_or_else(|| corrupt("Copied BlockRecord disappeared"))?;
+        source_to_target.insert(source_id.clone(), json!(target_id));
+        effects.push(record_effect(record));
+        effects.push(LocalCommitEffect {
+            kind: "placement".to_owned(),
+            value: json!({
+                "blockId": placement.block_id,
+                "from": null,
+                "to": placement.parent,
+                "rankKey": placement.rank_key,
+                "revision": placement.revision,
+            }),
+        });
+    }
+    effects.push(LocalCommitEffect {
+        kind: "copy".to_owned(),
+        value: json!({
+            "blockId": target_block_id,
+            "sourceRootBlockId": source_block_id,
+            "targetRootBlockId": target_block_id,
+            "sourceToTargetBlockIds": source_to_target,
+        }),
+    });
+    if let Some(view_id) = view_id {
+        let data_source_id = data_source_id.expect("validated Data Source");
+        for rebalance in view_rebalances {
+            let revision = rebalance
+                .expected_revision
+                .checked_add(1)
+                .ok_or_else(|| corrupt("Copy View position revision overflow"))?;
+            effects.push(LocalCommitEffect {
+                kind: "view_position".to_owned(),
+                value: json!({
+                    "viewId": view_id,
+                    "dataSourceId": data_source_id,
+                    "blockId": rebalance.block_id,
+                    "groupKey": rebalance.group_key,
+                    "rankKey": rebalance.rank_key,
+                    "revision": revision,
+                }),
+            });
+        }
+        effects.push(LocalCommitEffect {
+            kind: "view_position".to_owned(),
+            value: json!({
+                "viewId": view_id,
+                "dataSourceId": data_source_id,
+                "blockId": target_block_id,
+                "groupKey": view_group_key,
+                "rankKey": view_rank_key,
+                "revision": 0,
+            }),
+        });
+    }
+    Ok((target_block_id.to_owned(), effects))
 }
 
 const MAX_RECONCILE_PAGE_NODES: usize = 100_000;
@@ -5249,6 +5908,164 @@ mod tests {
             )
             .expect("archived placement rank");
         assert!(archived_rank.starts_with("__nodex_archived__before-000__"));
+    }
+
+    #[test]
+    fn copy_subtree_allocates_fresh_identity_and_copies_current_content_in_one_commit() {
+        let mut connection = Connection::open_in_memory().expect("SQLite");
+        install_graph_schema(&connection).expect("graph schema");
+        install_view_position_schema(&connection).expect("view position schema");
+        install_commit_schema(&connection).expect("commit schema");
+        content_store::install_schema(&connection).expect("content schema");
+        let mut graph = graph();
+        {
+            let transaction = connection.transaction().expect("seed transaction");
+            crate::infrastructure::block_record_store::ensure_data_source(
+                &transaction,
+                "board:test",
+                "library:test",
+            )
+            .expect("data source");
+            crate::infrastructure::block_record_store::write_graph(&transaction, &graph)
+                .expect("graph");
+            content_store::ensure_shard(
+                &transaction,
+                "shard:title-a",
+                "library:test",
+                "2026-08-06T00:00:00Z",
+            )
+            .expect("title shard");
+            let title = content_store::materialized_snapshot(
+                "title-a",
+                ContentSlot::Inline,
+                "library:test",
+                "shard:title-a",
+                &json!([{"type": "text", "text": "title-A"}]),
+            )
+            .expect("title snapshot");
+            content_store::write_snapshot(&transaction, &title).expect("title content");
+            transaction.commit().expect("seed commit");
+        }
+
+        let source_ids = graph.descendant_ids("page-a").expect("source closure");
+        let entries = source_ids
+            .iter()
+            .skip(1)
+            .map(|source_id| BlockCopyEntry {
+                source_block_id: source_id.clone(),
+                target_block_id: format!("copy:{source_id}"),
+                expected_block_revision: 0,
+                expected_placement_revision: 0,
+            })
+            .collect::<Vec<_>>();
+        let operation = BlockMutationOperation::CopySubtree {
+            source_block_id: "page-a".to_owned(),
+            target_block_id: "copy:page-a".to_owned(),
+            target_parent: PlacementParent::DataSource("board:test".to_owned()),
+            rank_key: "zzz".to_owned(),
+            expected_block_revision: 0,
+            expected_placement_revision: 0,
+            entries,
+            view_id: None,
+            data_source_id: None,
+            view_group_key: None,
+            view_rank_key: None,
+            placement_rebalances: Vec::new(),
+            view_rebalances: Vec::new(),
+        };
+        let transaction = connection.transaction().expect("copy transaction");
+        let committed = apply_block_mutation(
+            &transaction,
+            &mut graph,
+            request("copy:page-a", operation.clone()),
+        )
+        .expect("copy");
+        transaction.commit().expect("copy commit");
+
+        assert_eq!(
+            graph
+                .descendant_ids("copy:page-a")
+                .expect("copied closure")
+                .len(),
+            source_ids.len()
+        );
+        assert_eq!(
+            graph
+                .placement("copy:title-a")
+                .expect("copied title")
+                .parent,
+            PlacementParent::Block("copy:page-a".to_owned())
+        );
+        assert_eq!(
+            graph.placement("copy:page-a").expect("copied root").parent,
+            PlacementParent::DataSource("board:test".to_owned())
+        );
+        let copied_title = connection
+            .query_row(
+                "SELECT materialized_json FROM block_content_materializations
+                 WHERE block_id = 'copy:title-a' AND slot = 'inline'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .expect("copied title content");
+        assert!(copied_title.contains("title-A"));
+        assert!(
+            committed
+                .envelope
+                .effects
+                .iter()
+                .any(|effect| effect.kind == "copy")
+        );
+        let counts: (i64, i64) = connection
+            .query_row(
+                "SELECT (SELECT count(*) FROM block_records),
+                        (SELECT count(*) FROM local_commits)",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("copy counts");
+        assert_eq!(counts, (704, 1));
+
+        let transaction = connection
+            .transaction()
+            .expect("duplicate copy transaction");
+        let duplicate_entries = graph
+            .descendant_ids("page-a")
+            .expect("source closure for duplicate")
+            .into_iter()
+            .skip(1)
+            .map(|source_id| BlockCopyEntry {
+                target_block_id: format!("copy:{source_id}"),
+                source_block_id: source_id,
+                expected_block_revision: 0,
+                expected_placement_revision: 0,
+            })
+            .collect();
+        let duplicate = apply_block_mutation(
+            &transaction,
+            &mut graph,
+            request(
+                "copy:page-a",
+                BlockMutationOperation::CopySubtree {
+                    source_block_id: "page-a".to_owned(),
+                    target_block_id: "copy:page-a".to_owned(),
+                    target_parent: PlacementParent::DataSource("board:test".to_owned()),
+                    rank_key: "zzz".to_owned(),
+                    expected_block_revision: 0,
+                    expected_placement_revision: 0,
+                    entries: duplicate_entries,
+                    view_id: None,
+                    data_source_id: None,
+                    view_group_key: None,
+                    view_rank_key: None,
+                    placement_rebalances: Vec::new(),
+                    view_rebalances: Vec::new(),
+                },
+            ),
+        )
+        .expect("duplicate copy");
+        transaction.commit().expect("duplicate copy commit");
+        assert!(duplicate.duplicate);
     }
 
     #[test]

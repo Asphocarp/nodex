@@ -674,6 +674,14 @@ export interface components {
             readonly state_hash: string;
             readonly state_vector_v1: readonly number[];
         };
+        readonly BlockRecordCopyEntry: {
+            /** Format: int64 */
+            readonly expected_block_revision: number;
+            /** Format: int64 */
+            readonly expected_placement_revision: number;
+            readonly source_block_id: string;
+            readonly target_block_id: string;
+        };
         readonly BlockRecordCursor: {
             /** Format: int64 */
             readonly commit_seq: number;
@@ -742,6 +750,24 @@ export interface components {
             /** @enum {string} */
             readonly kind: "move_many";
             readonly placement_rebalances?: readonly components["schemas"]["BlockRecordPlacementRebalance"][];
+        } | {
+            readonly data_source_id?: string | null;
+            readonly entries: readonly components["schemas"]["BlockRecordCopyEntry"][];
+            /** Format: int64 */
+            readonly expected_block_revision: number;
+            /** Format: int64 */
+            readonly expected_placement_revision: number;
+            /** @enum {string} */
+            readonly kind: "copy_subtree";
+            readonly placement_rebalances?: readonly components["schemas"]["BlockRecordPlacementRebalance"][];
+            readonly rank_key: string;
+            readonly source_block_id: string;
+            readonly target_block_id: string;
+            readonly target_parent: components["schemas"]["BlockRecordPlacementParent"];
+            readonly view_group_key?: string | null;
+            readonly view_id?: string | null;
+            readonly view_rank_key?: string | null;
+            readonly view_rebalances?: readonly components["schemas"]["BlockRecordViewPositionRebalance"][];
         } | {
             readonly block_id: string;
             readonly data_source_id?: string | null;

@@ -30,7 +30,7 @@ mutation boundary:
 - Rich content is stored by stable Block ID and slot. Yrs remains useful for
   text concurrency and replay, but a Page-wide Yjs tree is not the structural
   ownership authority for this path.
-- `Create`, `Move`, `MoveMany`, `PromoteManyToPage`,
+- `Create`, `Move`, `MoveMany`, `CopySubtree`, `PromoteManyToPage`,
   `PlaceManyInDataSource`, `SetMaterializedContent`,
   `ReconcilePageTree`, `Update`, `ArchiveSubtree`, and `RestoreSubtree` are
   typed Core
@@ -99,6 +99,13 @@ canonical Page, the same boundary uses `PlaceManyInDataSource` and changes
 only owning placement, membership, and View position. Descendant IDs and
 content shard identity remain stable; neither operation copies a Page document
 or re-creates a child subtree.
+
+Canonical Page/Block copy uses `CopySubtree`. Core validates the complete
+owning closure and source revisions, copies only the current content snapshots
+into fresh Block IDs, and commits all new placements, content rows, and an
+optional Board View position in one LocalCommit. The copy therefore has
+independent future content history without introducing a second structural
+Document.
 
 Library Move, Archive, and Restore of a canonical Page use the same typed
 BlockRecord boundary. The adapter validates the observed placement or metadata

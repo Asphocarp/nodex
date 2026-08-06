@@ -203,6 +203,7 @@ describe("Core Block Transfer Adapter", () => {
       ...intent,
       operationId: "transfer:data-source",
       mode: "copy",
+      rootBlockIds: ["block:root", "block:second"],
       target: {
         kind: "data_source",
         dataSourceId: "source:target",
@@ -412,6 +413,49 @@ describe("Core Block Transfer Adapter", () => {
         expected_block_revision: 3,
         expected_placement_revision: 4,
       }],
+    });
+  });
+
+  test("routes canonical Page copy into Board through one CopySubtree commit", async () => {
+    const client = new FakeCoreClient();
+    const adapter = createCoreBlockTransferAdapter({ client, ...identity });
+    const copyIntent: BlockTransferIntent = {
+      ...intent,
+      mode: "copy",
+      operationId: "transfer:copy-page-to-board",
+      target: {
+        kind: "data_source",
+        dataSourceId: "source:target",
+        viewId: "view:target",
+        groupKey: "triage",
+        beforePageId: "block:existing",
+      },
+    };
+    client.enqueueBlockRecordRead(blockRecordSnapshot("source", "page"));
+    client.enqueueBlockRecordRead(blockRecordSnapshot("target"));
+    client.enqueueBlockRecordApply(
+      committedBlockRecordApply(copyIntent.operationId),
+    );
+
+    const committed = await adapter.commit(copyIntent);
+
+    expect(committed).toMatchObject({
+      ok: true,
+      value: {
+        operationId: copyIntent.operationId,
+        mode: "copy",
+        resultRootBlockIds: [expect.any(String)],
+        transformationEvidence: [{ kind: "copy" }],
+      },
+    });
+    expect(client.blockRecordApplies).toHaveLength(1);
+    expect(client.blockRecordApplies[0]?.operation).toMatchObject({
+      kind: "copy_subtree",
+      source_block_id: "block:root",
+      target_parent: { kind: "data_source", id: "source:target" },
+      data_source_id: "source:target",
+      view_id: "view:target",
+      entries: [],
     });
   });
 

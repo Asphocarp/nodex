@@ -138,7 +138,7 @@ export interface BlockTransferRequest {
 export interface BlockTransferTransformationEvidence {
   readonly sourceBlockId: BlockId;
   readonly resultPageId: BlockId;
-  readonly kind: "move" | "promote" | "wrap";
+  readonly kind: "move" | "copy" | "promote" | "wrap";
   readonly sourceBlockType: string;
   readonly semanticTitleHash: string;
   readonly consumedPropertyKeys: readonly string[];

@@ -48,9 +48,9 @@ use nodex_core::infrastructure::writer::StoreRuntimePhase;
 use nodex_core::library::LibraryModule;
 use nodex_core::local_commit::{AppendedLocalCommit, LocalCommitEnvelope};
 use nodex_core::mutation_kernel::{
-    BlockMoveEntry, BlockMutationOperation, BlockMutationRequest, BlockPagePlacementEntry,
-    BlockPlacementRebalance, BlockPromotionEntry, BlockRecordUpdateEntry, BlockTreeNode,
-    BlockViewPositionRebalance,
+    BlockCopyEntry, BlockMoveEntry, BlockMutationOperation, BlockMutationRequest,
+    BlockPagePlacementEntry, BlockPlacementRebalance, BlockPromotionEntry, BlockRecordUpdateEntry,
+    BlockTreeNode, BlockViewPositionRebalance,
 };
 use nodex_core::workspace::ProjectWorkspaceModule;
 use nodex_core_contracts::administration::StoreAdministrationIntent;
@@ -826,6 +826,58 @@ fn block_record_operation(
                 .iter()
                 .map(|rebalance| BlockPlacementRebalance {
                     block_id: rebalance.block_id.clone(),
+                    rank_key: rebalance.rank_key.clone(),
+                    expected_revision: rebalance.expected_revision,
+                })
+                .collect(),
+        }),
+        BlockRecordOperation::CopySubtree {
+            source_block_id,
+            target_block_id,
+            target_parent,
+            rank_key,
+            expected_block_revision,
+            expected_placement_revision,
+            entries,
+            view_id,
+            data_source_id,
+            view_group_key,
+            view_rank_key,
+            placement_rebalances,
+            view_rebalances,
+        } => Ok(BlockMutationOperation::CopySubtree {
+            source_block_id: source_block_id.clone(),
+            target_block_id: target_block_id.clone(),
+            target_parent: block_record_parent(target_parent)?,
+            rank_key: rank_key.clone(),
+            expected_block_revision: *expected_block_revision,
+            expected_placement_revision: *expected_placement_revision,
+            entries: entries
+                .iter()
+                .map(|entry| BlockCopyEntry {
+                    source_block_id: entry.source_block_id.clone(),
+                    target_block_id: entry.target_block_id.clone(),
+                    expected_block_revision: entry.expected_block_revision,
+                    expected_placement_revision: entry.expected_placement_revision,
+                })
+                .collect(),
+            view_id: view_id.clone(),
+            data_source_id: data_source_id.clone(),
+            view_group_key: view_group_key.clone(),
+            view_rank_key: view_rank_key.clone(),
+            placement_rebalances: placement_rebalances
+                .iter()
+                .map(|rebalance| BlockPlacementRebalance {
+                    block_id: rebalance.block_id.clone(),
+                    rank_key: rebalance.rank_key.clone(),
+                    expected_revision: rebalance.expected_revision,
+                })
+                .collect(),
+            view_rebalances: view_rebalances
+                .iter()
+                .map(|rebalance| BlockViewPositionRebalance {
+                    block_id: rebalance.block_id.clone(),
+                    group_key: rebalance.group_key.clone(),
                     rank_key: rebalance.rank_key.clone(),
                     expected_revision: rebalance.expected_revision,
                 })

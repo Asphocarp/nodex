@@ -824,6 +824,30 @@ pub enum BlockRecordOperation {
         #[serde(default)]
         placement_rebalances: Vec<BlockRecordPlacementRebalance>,
     },
+    /// Copies one owning BlockRecord subtree into fresh identities. The
+    /// operation carries the complete source-to-target identity map so Core
+    /// can validate the closure and perform the copy in one transaction.
+    CopySubtree {
+        source_block_id: String,
+        target_block_id: String,
+        target_parent: BlockRecordPlacementParent,
+        rank_key: String,
+        expected_block_revision: u64,
+        expected_placement_revision: u64,
+        entries: Vec<BlockRecordCopyEntry>,
+        #[serde(default)]
+        view_id: Option<String>,
+        #[serde(default)]
+        data_source_id: Option<String>,
+        #[serde(default)]
+        view_group_key: Option<String>,
+        #[serde(default)]
+        view_rank_key: Option<String>,
+        #[serde(default)]
+        placement_rebalances: Vec<BlockRecordPlacementRebalance>,
+        #[serde(default)]
+        view_rebalances: Vec<BlockRecordViewPositionRebalance>,
+    },
     UpdateRecord {
         block_id: String,
         properties: serde_json::Value,
@@ -962,6 +986,15 @@ pub struct BlockRecordMoveEntry {
     pub block_id: String,
     pub target_parent: BlockRecordPlacementParent,
     pub rank_key: String,
+    pub expected_block_revision: u64,
+    pub expected_placement_revision: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BlockRecordCopyEntry {
+    pub source_block_id: String,
+    pub target_block_id: String,
     pub expected_block_revision: u64,
     pub expected_placement_revision: u64,
 }

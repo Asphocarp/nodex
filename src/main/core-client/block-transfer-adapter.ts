@@ -13,9 +13,11 @@ import type { BlockLocation } from "../../shared/block-documents/contracts";
 import type { BlockRecordRead } from "../../shared/core-modules/block-record-module";
 import {
   blockRecordSnapshotToWindow,
+  buildCopySubtreeBlockRecordApplyInput,
   buildPlaceManyPagesInDataSourceApplyInput,
   buildPromoteManyBlockRecordApplyInput,
   planFractionalRank,
+  type BlockPlacementParent,
   type BlockRecordWindow,
 } from "../../shared/block-records";
 import { CoreModuleResponseError } from "./core-client";
@@ -172,7 +174,7 @@ const fromCoreTransformation = (
 ): BlockTransferTransformationEvidence => {
   const evidence = requireRecord(value, "Core Block transformation evidence");
   const kind = evidence.kind;
-  if (kind !== "move" && kind !== "promote" && kind !== "wrap") {
+  if (kind !== "move" && kind !== "copy" && kind !== "promote" && kind !== "wrap") {
     throw new Error("Core Block transformation kind is invalid");
   }
   const sourceToResult = requireRecord(
@@ -259,6 +261,11 @@ const fromCoreResult = (
 const titleHash = (value: unknown): string =>
   createHash("sha256").update(JSON.stringify(value ?? "")).digest("hex");
 
+const copyIdentity = (operationId: string, sourceBlockId: string): string =>
+  `copy:${createHash("sha256")
+    .update(`${operationId}\0copy\0${sourceBlockId}`)
+    .digest("hex")}`;
+
 const readBlockRecordWindow = async (
   input: CoreBlockTransferAdapterInput,
   read: BlockRecordRead,
@@ -266,6 +273,255 @@ const readBlockRecordWindow = async (
   await input.client.blockRecordRead(read),
   read,
 );
+
+const tryReadBlockRecordWindow = async (
+  input: CoreBlockTransferAdapterInput,
+  read: BlockRecordRead,
+): Promise<BlockRecordWindow | null> => {
+  try {
+    return await readBlockRecordWindow(input, read);
+  } catch (error) {
+    if (error instanceof CoreModuleResponseError) return null;
+    throw error;
+  }
+};
+
+/**
+ * Copies a canonical owning subtree without opening or cloning a Page-wide
+ * Document. Core receives the complete identity map and copies the current
+ * content snapshots inside the same LocalCommit as the new placements.
+ */
+const commitCopySubtree = async (
+  input: CoreBlockTransferAdapterInput,
+  intent: BlockTransferIntent,
+): Promise<BlockTransferCommandResult | null> => {
+  if (intent.rootBlockIds.length !== 1 || intent.target.kind === "document") return null;
+  const sourceBlockId = intent.rootBlockIds[0];
+  if (!sourceBlockId) return null;
+
+  const sourceRead: BlockRecordRead = {
+    kind: "window",
+    block_ids: [sourceBlockId],
+    include_content: true,
+    include_descendants: true,
+  };
+  const sourceWindow = await tryReadBlockRecordWindow(input, sourceRead);
+  if (!sourceWindow) return null;
+  const sourceRecords = new Map(sourceWindow.records.map((record) => [record.id, record]));
+  const sourcePlacements = new Map(
+    sourceWindow.placements.map((placement) => [placement.blockId, placement]),
+  );
+  const sourceRoot = sourceRecords.get(sourceBlockId);
+  if (!sourceRoot || !sourcePlacements.has(sourceBlockId)) return null;
+
+  const sourceOrder: string[] = [];
+  const visit = (blockId: string): void => {
+    sourceOrder.push(blockId);
+    sourceWindow.placements
+      .filter((placement) => (
+        placement.parent.kind === "block"
+        && placement.parent.blockId === blockId
+      ))
+      .sort((left, right) => left.rankKey.localeCompare(right.rankKey) || left.blockId.localeCompare(right.blockId))
+      .forEach((placement) => visit(placement.blockId));
+  };
+  visit(sourceBlockId);
+  if (sourceOrder.some((blockId) => !sourceRecords.has(blockId))) return null;
+
+  const target = intent.target;
+  let targetParent: BlockPlacementParent;
+  if (target.kind === "library") {
+    targetParent = { kind: "library", libraryId: input.libraryId };
+  } else if (target.kind === "page") {
+    const pageId = target.pageId;
+    if (!pageId) return null;
+    targetParent = {
+      kind: "block",
+      blockId: target.parentBlockId ?? pageId,
+    };
+  } else {
+    targetParent = { kind: "dataSource", dataSourceId: target.dataSourceId };
+  }
+  if (targetParent.kind === "block") {
+    const parentWindow = await tryReadBlockRecordWindow(input, {
+      kind: "window",
+      block_ids: [targetParent.blockId],
+      include_content: false,
+    });
+    if (!parentWindow) return null;
+    if (!parentWindow.records.some((record) => record.id === targetParent.blockId)) return null;
+  }
+  const targetBlockParentId = targetParent.kind === "block"
+    ? targetParent.blockId
+    : null;
+  let targetRead: BlockRecordRead;
+  if (target.kind === "data_source") {
+    targetRead = {
+      kind: "window",
+      parent: { kind: "data_source", id: target.dataSourceId },
+      view_id: target.viewId,
+      include_content: false,
+    };
+  } else if (targetParent.kind === "library") {
+    targetRead = { kind: "window", include_content: false };
+  } else {
+    if (!targetBlockParentId) return null;
+    targetRead = {
+      kind: "window",
+      parent: { kind: "block", id: targetBlockParentId },
+      include_content: false,
+    };
+  }
+  const targetWindow = await tryReadBlockRecordWindow(input, targetRead);
+  if (!targetWindow) return null;
+
+  const sameParent = (placement: BlockRecordWindow["placements"][number]): boolean => {
+    if (targetParent.kind === "library") {
+      return placement.parent.kind === "library";
+    }
+    if (targetParent.kind === "block") {
+      return placement.parent.kind === "block"
+        && placement.parent.blockId === targetBlockParentId;
+    }
+    return placement.parent.kind === "dataSource"
+      && placement.parent.dataSourceId === targetParent.dataSourceId;
+  };
+  const targetItems = targetWindow.placements
+    .filter(sameParent)
+    .map((placement) => ({ id: placement.blockId, rankKey: placement.rankKey }));
+  const beforeBlockId = target.kind === "data_source"
+    ? target.beforePageId
+    : target.beforeBlockId;
+  const placementPlan = planFractionalRank(targetItems, copyIdentity(intent.operationId, sourceBlockId), beforeBlockId);
+  const placementRebalances = [...placementPlan.rebalancedRankKeys].map(([blockId, rankKey]) => {
+    const placement = targetWindow.placements.find((candidate) => candidate.blockId === blockId);
+    if (!placement) throw new Error(`Copy placement rebalance target ${blockId} is not loaded`);
+    return {
+      blockId,
+      rankKey,
+      expectedRevision: placement.revision,
+    };
+  });
+
+  let viewRankKey: string | null = null;
+  let viewRebalances: {
+    blockId: string;
+    groupKey: string | null;
+    rankKey: string;
+    expectedRevision: number;
+  }[] = [];
+  if (target.kind === "data_source") {
+    if (sourceRoot.kind !== "page") return null;
+    const viewItems = targetWindow.viewPositions
+      .filter((position) => (
+        position.viewId === target.viewId
+        && position.groupKey === target.groupKey
+      ))
+      .map((position) => ({ id: position.blockId, rankKey: position.rankKey }));
+    const viewPlan = planFractionalRank(
+      viewItems,
+      copyIdentity(intent.operationId, sourceBlockId),
+      target.beforePageId,
+    );
+    viewRankKey = viewPlan.rankKey;
+    viewRebalances = [...viewPlan.rebalancedRankKeys].map(([blockId, rankKey]) => {
+      const position = targetWindow.viewPositions.find((candidate) => candidate.blockId === blockId);
+      if (!position) throw new Error(`Copy View rebalance target ${blockId} is not loaded`);
+      return {
+        blockId,
+        groupKey: position.groupKey,
+        rankKey,
+        expectedRevision: position.revision,
+      };
+    });
+  }
+
+  const targetRootBlockId = copyIdentity(intent.operationId, sourceBlockId);
+  const entries = sourceOrder.slice(1).map((sourceId) => {
+    const record = sourceRecords.get(sourceId);
+    const placement = sourcePlacements.get(sourceId);
+    if (!record || !placement) throw new Error(`Copy source ${sourceId} is incomplete`);
+    return {
+      sourceBlockId: sourceId,
+      targetBlockId: copyIdentity(intent.operationId, sourceId),
+      expectedBlockRevision: record.revision,
+      expectedPlacementRevision: placement.revision,
+    };
+  });
+  const rootPlacement = sourcePlacements.get(sourceBlockId)!;
+  const applyInput = await buildCopySubtreeBlockRecordApplyInput({
+    operationId: intent.operationId,
+    actorId: intent.clientSessionId ?? "block-transfer",
+    sessionId: intent.clientSessionId ?? "block-transfer",
+    sourceBlockId,
+    targetBlockId: targetRootBlockId,
+    targetParent,
+    rankKey: placementPlan.rankKey,
+    expectedBlockRevision: sourceRoot.revision,
+    expectedPlacementRevision: rootPlacement.revision,
+    entries,
+    ...(target.kind === "data_source"
+      ? {
+          viewId: target.viewId,
+          dataSourceId: target.dataSourceId,
+          viewGroupKey: target.groupKey,
+          viewRankKey,
+          viewRebalances,
+        }
+      : {}),
+    placementRebalances,
+  });
+  const committed = await input.client.blockRecordApply(applyInput);
+  const sourceToTargetBlockIds = Object.fromEntries(sourceOrder.map((sourceId) => [
+    sourceId,
+    copyIdentity(intent.operationId, sourceId),
+  ]));
+  const titleContent = sourceWindow.content.find((content) => (
+    content.blockId === sourceBlockId
+    && (content.slot === "inline" || content.slot === "title")
+  ));
+  const location: BlockLocation = target.kind === "library"
+    ? { kind: "space", projectId: intent.projectId, rankKey: placementPlan.rankKey }
+    : target.kind === "page"
+      ? { kind: "document", documentId: `block-record:${target.pageId}` }
+      : { kind: "database", databaseBlockId: target.dataSourceId };
+  return {
+    ok: true,
+    value: {
+      version: BLOCK_TRANSFER_CONTRACT_VERSION,
+      operationId: intent.operationId,
+      projectId: intent.projectId,
+      storeEpoch: intent.storeEpoch,
+      mode: "copy",
+      duplicate: committed.duplicate,
+      sourceRootBlockIds: [sourceBlockId],
+      resultRootBlockIds: [targetRootBlockId],
+      copiedBlockIds: sourceToTargetBlockIds,
+      transformationEvidence: [{
+        sourceBlockId,
+        resultPageId: targetRootBlockId,
+        kind: "copy",
+        sourceBlockType: sourceRoot.kind,
+        semanticTitleHash: titleHash(titleContent?.content ?? sourceRoot.properties.title),
+        consumedPropertyKeys: [],
+        bodyRootBlockIds: sourceWindow.placements
+          .filter((placement) => (
+            placement.parent.kind === "block"
+            && placement.parent.blockId === sourceBlockId
+          ))
+          .sort((left, right) => left.rankKey.localeCompare(right.rankKey) || left.blockId.localeCompare(right.blockId))
+          .map((placement) => placement.blockId),
+        sourceToResultBlockIds: sourceToTargetBlockIds,
+      }],
+      finalLocations: { [targetRootBlockId]: location },
+      finalLocationRevisions: { [targetRootBlockId]: 0 },
+      documentCommits: [],
+      affectedDatabaseBlockIds: target.kind === "data_source" ? [target.dataSourceId] : [],
+      changeLogSeq: committed.cursor.commit_seq,
+      committedAt: committed.committed_at,
+    },
+  };
+};
 
 /**
  * The move-to-Board path is a BlockRecord transaction, not a Library
@@ -548,6 +804,10 @@ export const createCoreBlockTransferAdapter = (
       const scopeError = assertIntentScope(input, intent);
       if (scopeError) return { ok: false, error: scopeError };
       try {
+        if (intent.mode === "copy") {
+          const terminal = await commitCopySubtree(input, intent);
+          if (terminal !== null) return terminal;
+        }
         if (intent.mode === "move" && intent.target.kind === "data_source") {
           const terminal = await commitMoveIntoDataSource(input, intent);
           if (terminal !== null) return terminal;
