@@ -10,6 +10,14 @@ export interface BlockRecordApplyIdentity {
   readonly committedAt?: string;
 }
 
+export interface BatchBlockRecordApplyInput extends BlockRecordApplyIdentity {
+  /** Wire operations must already be validated by their typed builders. */
+  readonly operations: readonly Exclude<
+    BlockRecordApplyInput["operation"],
+    { readonly kind: "batch" }
+  >[];
+}
+
 export interface PromoteBlockRecordApplyInput extends BlockRecordApplyIdentity {
   readonly blockId: string;
   readonly dataSourceId: string;
@@ -360,6 +368,22 @@ const identityFields = async (
     actor_id: identity.actorId,
     session_id: identity.sessionId,
     committed_at: identity.committedAt ?? new Date().toISOString(),
+  };
+};
+
+export const buildBatchBlockRecordApplyInput = async (
+  input: BatchBlockRecordApplyInput,
+): Promise<BlockRecordApplyInput> => {
+  if (input.operations.length === 0) {
+    throw new Error("Block operation batch must contain at least one operation");
+  }
+  const operation = {
+    kind: "batch" as const,
+    operations: [...input.operations],
+  };
+  return {
+    ...await identityFields(input, operation),
+    operation,
   };
 };
 

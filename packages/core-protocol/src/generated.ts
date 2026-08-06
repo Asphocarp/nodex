@@ -648,6 +648,146 @@ export interface components {
             readonly store_epoch: string;
         };
         readonly BlockRecordApplyResponse: components["schemas"]["ResponseEnvelope_BlockRecordCommittedValue"];
+        /**
+         * @description The non-recursive child union used by `BlockRecordOperation::Batch`.
+         *     Keeping this union separate lets OpenAPI generators emit a finite schema;
+         *     nested batches are rejected by the Kernel.
+         */
+        readonly BlockRecordBatchOperation: {
+            readonly block_id: string;
+            readonly block_kind: string;
+            readonly content_shard_id: string;
+            readonly data_source_id?: string | null;
+            /** @enum {string} */
+            readonly kind: "create";
+            readonly materialized_json?: unknown;
+            readonly parent: components["schemas"]["BlockRecordPlacementParent"];
+            readonly placement_rebalances?: readonly components["schemas"]["BlockRecordPlacementRebalance"][];
+            readonly properties: unknown;
+            readonly rank_key: string;
+            readonly view_group_key?: string | null;
+            readonly view_id?: string | null;
+            readonly view_rank_key?: string | null;
+            readonly view_rebalances?: readonly components["schemas"]["BlockRecordViewPositionRebalance"][];
+        } | {
+            readonly data_source_id: string;
+            /** @enum {string} */
+            readonly kind: "ensure_data_source";
+        } | {
+            readonly block_id: string;
+            /** Format: int64 */
+            readonly expected_block_revision: number;
+            /** Format: int64 */
+            readonly expected_placement_revision: number;
+            /** @enum {string} */
+            readonly kind: "move";
+            readonly rank_key: string;
+            readonly target_parent: components["schemas"]["BlockRecordPlacementParent"];
+        } | {
+            readonly entries: readonly components["schemas"]["BlockRecordMoveEntry"][];
+            /** @enum {string} */
+            readonly kind: "move_many";
+            readonly placement_rebalances?: readonly components["schemas"]["BlockRecordPlacementRebalance"][];
+        } | {
+            readonly data_source_id?: string | null;
+            readonly entries: readonly components["schemas"]["BlockRecordCopyEntry"][];
+            /** Format: int64 */
+            readonly expected_block_revision: number;
+            /** Format: int64 */
+            readonly expected_placement_revision: number;
+            /** @enum {string} */
+            readonly kind: "copy_subtree";
+            readonly placement_rebalances?: readonly components["schemas"]["BlockRecordPlacementRebalance"][];
+            readonly rank_key: string;
+            readonly source_block_id: string;
+            readonly target_block_id: string;
+            readonly target_parent: components["schemas"]["BlockRecordPlacementParent"];
+            readonly view_group_key?: string | null;
+            readonly view_id?: string | null;
+            readonly view_rank_key?: string | null;
+            readonly view_rebalances?: readonly components["schemas"]["BlockRecordViewPositionRebalance"][];
+        } | {
+            readonly block_id: string;
+            readonly data_source_id?: string | null;
+            /** Format: int64 */
+            readonly expected_block_revision: number;
+            /** Format: int64 */
+            readonly expected_view_revision?: number | null;
+            /** @enum {string} */
+            readonly kind: "update_record";
+            readonly properties: unknown;
+            readonly view_group_key?: string | null;
+            readonly view_id?: string | null;
+            readonly view_rank_key?: string | null;
+        } | {
+            readonly entries: readonly components["schemas"]["BlockRecordUpdateEntry"][];
+            /** @enum {string} */
+            readonly kind: "update_many";
+            readonly view_rebalances?: readonly components["schemas"]["BlockRecordViewPositionRebalance"][];
+        } | {
+            readonly block_id: string;
+            /** Format: int64 */
+            readonly expected_block_revision: number;
+            /** Format: int64 */
+            readonly expected_placement_revision: number;
+            /** @enum {string} */
+            readonly kind: "archive_subtree";
+        } | {
+            readonly block_id: string;
+            /** Format: int64 */
+            readonly expected_block_revision: number;
+            /** Format: int64 */
+            readonly expected_placement_revision: number;
+            /** @enum {string} */
+            readonly kind: "restore_subtree";
+            readonly placement_rebalances?: readonly components["schemas"]["BlockRecordPlacementRebalance"][];
+            readonly rank_key: string;
+            readonly target_parent: components["schemas"]["BlockRecordPlacementParent"];
+        } | {
+            readonly block_id: string;
+            readonly data_source_id: string;
+            /** Format: int64 */
+            readonly expected_block_revision: number;
+            /** Format: int64 */
+            readonly expected_placement_revision: number;
+            /** @enum {string} */
+            readonly kind: "promote_to_page";
+            readonly rank_key: string;
+            readonly view_group_key?: string | null;
+            readonly view_id?: string | null;
+            readonly view_rank_key?: string | null;
+        } | {
+            readonly data_source_id: string;
+            readonly entries: readonly components["schemas"]["BlockRecordPromotionEntry"][];
+            /** @enum {string} */
+            readonly kind: "promote_many_to_page";
+            readonly placement_rebalances?: readonly components["schemas"]["BlockRecordPlacementRebalance"][];
+            readonly view_id?: string | null;
+            readonly view_rebalances?: readonly components["schemas"]["BlockRecordViewPositionRebalance"][];
+        } | {
+            readonly data_source_id: string;
+            readonly entries: readonly components["schemas"]["BlockRecordPagePlacementEntry"][];
+            /** @enum {string} */
+            readonly kind: "place_many_in_data_source";
+            readonly placement_rebalances?: readonly components["schemas"]["BlockRecordPlacementRebalance"][];
+            readonly view_id?: string | null;
+            readonly view_rebalances?: readonly components["schemas"]["BlockRecordViewPositionRebalance"][];
+        } | {
+            readonly block_id: string;
+            /** Format: int64 */
+            readonly expected_revision: number;
+            /** @enum {string} */
+            readonly kind: "set_materialized_content";
+            readonly materialized_json: unknown;
+            readonly slot: string;
+        } | {
+            /** Format: int64 */
+            readonly expected_page_revision: number;
+            /** @enum {string} */
+            readonly kind: "reconcile_page_tree";
+            readonly nodes: readonly components["schemas"]["BlockRecordTreeNode"][];
+            readonly page_id: string;
+        };
         readonly BlockRecordCommittedValue: {
             readonly actor_id: string;
             readonly audience: unknown;
@@ -706,6 +846,10 @@ export interface components {
             readonly target_parent: components["schemas"]["BlockRecordPlacementParent"];
         };
         readonly BlockRecordOperation: {
+            /** @enum {string} */
+            readonly kind: "batch";
+            readonly operations: readonly components["schemas"]["BlockRecordBatchOperation"][];
+        } | {
             readonly block_id: string;
             readonly block_kind: string;
             readonly content_shard_id: string;

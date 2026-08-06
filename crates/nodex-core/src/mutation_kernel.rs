@@ -43,6 +43,12 @@ pub struct BlockMutationRequest {
 
 #[derive(Clone, Debug)]
 pub enum BlockMutationOperation {
+    /// A transaction-level composition of typed operations. The child
+    /// operations deliberately do not create their own LocalCommit; the
+    /// caller appends one envelope after every child has been applied.
+    Batch {
+        operations: Vec<BlockMutationOperation>,
+    },
     Create {
         block_id: String,
         kind: BlockKind,
@@ -261,25 +267,39 @@ pub fn apply_block_mutation(
     }
 
     let previous = graph.clone();
-    let (_block_id, mut effects) = match apply_operation(transaction, graph, &request.operation) {
+    let is_batch = matches!(&request.operation, BlockMutationOperation::Batch { .. });
+    let (_block_id, mut effects) = match match &request.operation {
+        BlockMutationOperation::Batch { operations } => apply_batch_operations(
+            transaction,
+            graph,
+            operations,
+            &request.committed_at,
+            &request.operation_id,
+        ),
+        operation => apply_operation(transaction, graph, operation),
+    } {
         Ok(result) => result,
         Err(error) => {
             *graph = previous;
             return Err(error);
         }
     };
-    let persisted_effects = match persist_delta(
-        transaction,
-        &previous,
-        graph,
-        &request.operation,
-        &request.committed_at,
-        &request.operation_id,
-    ) {
-        Ok(effects) => effects,
-        Err(error) => {
-            *graph = previous;
-            return Err(error);
+    let persisted_effects = if is_batch {
+        Vec::new()
+    } else {
+        match persist_delta(
+            transaction,
+            &previous,
+            graph,
+            &request.operation,
+            &request.committed_at,
+            &request.operation_id,
+        ) {
+            Ok(effects) => effects,
+            Err(error) => {
+                *graph = previous;
+                return Err(error);
+            }
         }
     };
     effects.extend(persisted_effects);
@@ -378,6 +398,53 @@ pub fn apply_content_mutation(
     crate::local_commit::append(transaction, commit)
 }
 
+const MAX_BATCH_OPERATIONS: usize = 10_000;
+
+fn apply_batch_operations(
+    transaction: &Transaction<'_>,
+    graph: &mut RecordGraph,
+    operations: &[BlockMutationOperation],
+    committed_at: &str,
+    operation_id: &str,
+) -> Result<(String, Vec<LocalCommitEffect>), StoreError> {
+    if operations.is_empty() || operations.len() > MAX_BATCH_OPERATIONS {
+        return Err(StoreError::new(
+            StoreErrorCode::InvalidInput,
+            "Block operation batch is empty or exceeds the Core bound",
+            false,
+        ));
+    }
+
+    let mut primary_block_id = None;
+    let mut effects = Vec::new();
+    for (index, operation) in operations.iter().enumerate() {
+        if matches!(operation, BlockMutationOperation::Batch { .. }) {
+            return Err(StoreError::new(
+                StoreErrorCode::InvalidInput,
+                "Nested Block operation batches are not supported",
+                false,
+            ));
+        }
+        let before = graph.clone();
+        let (block_id, mut operation_effects) = apply_operation(transaction, graph, operation)?;
+        let persisted_effects = persist_delta(
+            transaction,
+            &before,
+            graph,
+            operation,
+            committed_at,
+            &format!("{operation_id}:batch:{index}"),
+        )?;
+        primary_block_id.get_or_insert(block_id);
+        operation_effects.extend(persisted_effects);
+        effects.extend(operation_effects);
+    }
+
+    primary_block_id
+        .map(|block_id| (block_id, effects))
+        .ok_or_else(|| corrupt("Block operation batch lost its primary identity"))
+}
+
 fn persist_delta(
     transaction: &Transaction<'_>,
     previous: &RecordGraph,
@@ -387,6 +454,13 @@ fn persist_delta(
     operation_id: &str,
 ) -> Result<Vec<LocalCommitEffect>, StoreError> {
     let block_id = match operation {
+        BlockMutationOperation::Batch { .. } => {
+            return Err(StoreError::new(
+                StoreErrorCode::InvalidInput,
+                "Block operation batch must be persisted by its coordinator",
+                false,
+            ));
+        }
         BlockMutationOperation::Create { block_id, .. }
         | BlockMutationOperation::Move { block_id, .. }
         | BlockMutationOperation::PromoteToPage { block_id, .. } => block_id,
@@ -2154,6 +2228,11 @@ fn apply_operation(
     operation: &BlockMutationOperation,
 ) -> Result<(String, Vec<LocalCommitEffect>), StoreError> {
     match operation {
+        BlockMutationOperation::Batch { .. } => Err(StoreError::new(
+            StoreErrorCode::InvalidInput,
+            "Block operation batch must be applied by its coordinator",
+            false,
+        )),
         BlockMutationOperation::Create {
             block_id,
             kind,
@@ -6066,6 +6145,93 @@ mod tests {
         .expect("duplicate copy");
         transaction.commit().expect("duplicate copy commit");
         assert!(duplicate.duplicate);
+    }
+
+    #[test]
+    fn batch_applies_ordered_typed_operations_under_one_local_commit() {
+        let mut connection = Connection::open_in_memory().expect("SQLite");
+        install_graph_schema(&connection).expect("graph schema");
+        install_commit_schema(&connection).expect("commit schema");
+        content_store::install_schema(&connection).expect("content schema");
+        let mut graph = graph();
+        {
+            let transaction = connection.transaction().expect("seed transaction");
+            crate::infrastructure::block_record_store::ensure_data_source(
+                &transaction,
+                "board:test",
+                "library:test",
+            )
+            .expect("data source");
+            crate::infrastructure::block_record_store::write_graph(&transaction, &graph)
+                .expect("graph");
+            transaction.commit().expect("seed commit");
+        }
+
+        let transaction = connection.transaction().expect("batch transaction");
+        let committed = apply_block_mutation(
+            &transaction,
+            &mut graph,
+            request(
+                "batch:create-page-and-child",
+                BlockMutationOperation::Batch {
+                    operations: vec![
+                        BlockMutationOperation::Create {
+                            block_id: "batch:page".to_owned(),
+                            kind: BlockKind::Page,
+                            properties: json!({"title": "Batch Page"}),
+                            content_shard_id: "shard:batch:page".to_owned(),
+                            parent: PlacementParent::Block("page-a".to_owned()),
+                            rank_key: "301".to_owned(),
+                            view_id: None,
+                            data_source_id: None,
+                            view_group_key: None,
+                            view_rank_key: None,
+                            materialized_json: Some(
+                                json!([{"type": "text", "text": "Batch Page"}]),
+                            ),
+                            placement_rebalances: Vec::new(),
+                            view_rebalances: Vec::new(),
+                        },
+                        BlockMutationOperation::Create {
+                            block_id: "batch:child".to_owned(),
+                            kind: BlockKind::Paragraph,
+                            properties: json!({"text": "child"}),
+                            content_shard_id: "shard:batch:child".to_owned(),
+                            parent: PlacementParent::Block("batch:page".to_owned()),
+                            rank_key: "000".to_owned(),
+                            view_id: None,
+                            data_source_id: None,
+                            view_group_key: None,
+                            view_rank_key: None,
+                            materialized_json: Some(json!([{"type": "text", "text": "child"}])),
+                            placement_rebalances: Vec::new(),
+                            view_rebalances: Vec::new(),
+                        },
+                    ],
+                },
+            ),
+        )
+        .expect("batch");
+        transaction.commit().expect("batch commit");
+
+        assert_eq!(committed.envelope.cursor.commit_seq, 1);
+        assert_eq!(
+            graph.placement("batch:child").expect("child").parent,
+            PlacementParent::Block("batch:page".to_owned())
+        );
+        let counts: (i64, i64, i64, i64) = connection
+            .query_row(
+                "SELECT
+                   (SELECT count(*) FROM block_records WHERE id LIKE 'batch:%'),
+                   (SELECT count(*) FROM block_placements WHERE block_id LIKE 'batch:%'),
+                   (SELECT count(*) FROM block_contents WHERE block_id LIKE 'batch:%'),
+                   (SELECT count(*) FROM local_commits)",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .expect("batch counts");
+        assert_eq!(counts, (2, 2, 2, 1));
+        assert_eq!(committed.envelope.effects.len(), 6);
     }
 
     #[test]

@@ -30,12 +30,16 @@ mutation boundary:
 - Rich content is stored by stable Block ID and slot. Yrs remains useful for
   text concurrency and replay, but a Page-wide Yjs tree is not the structural
   ownership authority for this path.
-- `Create`, `Move`, `MoveMany`, `CopySubtree`, `PromoteManyToPage`,
+- `Batch`, `Create`, `Move`, `MoveMany`, `CopySubtree`, `PromoteManyToPage`,
   `PlaceManyInDataSource`, `SetMaterializedContent`,
   `ReconcilePageTree`, `Update`, `ArchiveSubtree`, and `RestoreSubtree` are
   typed Core
   operations. Validation, rank rebalance, canonical row updates, content
   materialization, and LocalCommit append happen in one SQLite transaction.
+- `Batch` is a finite, non-nesting composition of the same typed operations.
+  Child operations are applied in order against the prepared graph and share
+  one receipt/LocalCommit; callers must not emulate a cross-domain mutation by
+  awaiting several independent applies.
 - `RestoreSubtree` carries any sibling placement rebalances in the same
   operation. Restoring an archived Page never needs to reject a dense rank
   space or split ordering into a second write.

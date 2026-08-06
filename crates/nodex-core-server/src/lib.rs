@@ -62,24 +62,24 @@ use nodex_core_contracts::{
 use nodex_core_protocol::{
     AutomationApplyRequest, AutomationApplyResponse, AutomationReadRequest, AutomationReadResponse,
     BlockPlacementValue, BlockRecordApplyRequest, BlockRecordApplyResponse,
-    BlockRecordCommittedValue, BlockRecordContentValue, BlockRecordCursor, BlockRecordEffect,
-    BlockRecordGraph, BlockRecordOperation, BlockRecordPayloadCompleteness,
-    BlockRecordPlacementParent, BlockRecordRead, BlockRecordReadRequest, BlockRecordReadResponse,
-    BlockRecordReadSnapshot, BlockRecordValue, BlockRecordViewPositionValue, ClientKind,
-    CoreHealthMetrics, CoreReadiness, CoreSelectionDisposition, CoreSelectionPolicy,
-    CoreSelectionReason, CoreSelectionResult, CoreStartupEvent, CoreStartupEventFrame,
-    DatabaseApplyRequest, DatabaseApplyResponse, DatabaseReadRequest, DatabaseReadResponse,
-    EventEnvelope, EventReplayRequired, HandshakeRequest, HandshakeResponse, HealthDurationMetric,
-    HealthResponse, LauncherKind, LibraryApplyRequest, LibraryApplyResponse, LibraryReadRequest,
-    LibraryReadResponse, OwnedDocumentApplyRequest, OwnedDocumentApplyResponse,
-    OwnedDocumentReadRequest, OwnedDocumentReadResponse, ProjectWorkspaceApplyRequest,
-    ProjectWorkspaceApplyResponse, ProjectWorkspaceReadRequest, ProjectWorkspaceReadResponse,
-    ResponseEnvelope, RuntimeDescriptor, RuntimeGenerationIdentity, ShutdownRequest,
-    ShutdownResponse, ShutdownStatus, StoreAdministrationApplyRequest,
-    StoreAdministrationApplyResponse, StoreAdministrationReadRequest,
-    StoreAdministrationReadResponse, TRANSPORT_PROTOCOL_MAX, TRANSPORT_PROTOCOL_MIN,
-    canonical_manifest_digest, core_client_requirements, core_compatibility_manifest,
-    evaluate_compatibility, replacement_is_forward_safe, store_format,
+    BlockRecordBatchOperation, BlockRecordCommittedValue, BlockRecordContentValue,
+    BlockRecordCursor, BlockRecordEffect, BlockRecordGraph, BlockRecordOperation,
+    BlockRecordPayloadCompleteness, BlockRecordPlacementParent, BlockRecordRead,
+    BlockRecordReadRequest, BlockRecordReadResponse, BlockRecordReadSnapshot, BlockRecordValue,
+    BlockRecordViewPositionValue, ClientKind, CoreHealthMetrics, CoreReadiness,
+    CoreSelectionDisposition, CoreSelectionPolicy, CoreSelectionReason, CoreSelectionResult,
+    CoreStartupEvent, CoreStartupEventFrame, DatabaseApplyRequest, DatabaseApplyResponse,
+    DatabaseReadRequest, DatabaseReadResponse, EventEnvelope, EventReplayRequired,
+    HandshakeRequest, HandshakeResponse, HealthDurationMetric, HealthResponse, LauncherKind,
+    LibraryApplyRequest, LibraryApplyResponse, LibraryReadRequest, LibraryReadResponse,
+    OwnedDocumentApplyRequest, OwnedDocumentApplyResponse, OwnedDocumentReadRequest,
+    OwnedDocumentReadResponse, ProjectWorkspaceApplyRequest, ProjectWorkspaceApplyResponse,
+    ProjectWorkspaceReadRequest, ProjectWorkspaceReadResponse, ResponseEnvelope, RuntimeDescriptor,
+    RuntimeGenerationIdentity, ShutdownRequest, ShutdownResponse, ShutdownStatus,
+    StoreAdministrationApplyRequest, StoreAdministrationApplyResponse,
+    StoreAdministrationReadRequest, StoreAdministrationReadResponse, TRANSPORT_PROTOCOL_MAX,
+    TRANSPORT_PROTOCOL_MIN, canonical_manifest_digest, core_client_requirements,
+    core_compatibility_manifest, evaluate_compatibility, replacement_is_forward_safe, store_format,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -743,6 +743,12 @@ fn block_record_operation(
     operation: &BlockRecordOperation,
 ) -> Result<BlockMutationOperation, CoreError> {
     match operation {
+        BlockRecordOperation::Batch { operations } => Ok(BlockMutationOperation::Batch {
+            operations: operations
+                .iter()
+                .map(block_record_batch_operation)
+                .collect::<Result<Vec<_>, _>>()?,
+        }),
         BlockRecordOperation::Create {
             block_id,
             block_kind,
@@ -1101,6 +1107,16 @@ fn block_record_operation(
                 .collect::<Result<Vec<_>, CoreError>>()?,
         }),
     }
+}
+
+fn block_record_batch_operation(
+    operation: &BlockRecordBatchOperation,
+) -> Result<BlockMutationOperation, CoreError> {
+    let value = serde_json::to_value(operation)
+        .map_err(|_| invalid("BlockRecord batch operation cannot be encoded"))?;
+    let operation: BlockRecordOperation = serde_json::from_value(value)
+        .map_err(|_| invalid("BlockRecord batch operation is invalid"))?;
+    block_record_operation(&operation)
 }
 
 fn block_record_parent(parent: &BlockRecordPlacementParent) -> Result<PlacementParent, CoreError> {

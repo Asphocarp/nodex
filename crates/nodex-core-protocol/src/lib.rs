@@ -781,6 +781,12 @@ pub enum BlockRecordPlacementParent {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum BlockRecordOperation {
+    /// Applies several typed operations under one LocalCommit. Operations are
+    /// evaluated in order against the in-memory graph and persisted only after
+    /// each precondition has been validated within the same SQLite transaction.
+    Batch {
+        operations: Vec<BlockRecordBatchOperation>,
+    },
     Create {
         block_id: String,
         block_kind: String,
@@ -929,6 +935,150 @@ pub enum BlockRecordOperation {
     /// Reconciles one Page's complete owned BlockNote tree in one Core
     /// transaction. The Page root itself is implicit; each entry describes a
     /// direct/recursive descendant and its materialized inline content.
+    ReconcilePageTree {
+        page_id: String,
+        expected_page_revision: u64,
+        nodes: Vec<BlockRecordTreeNode>,
+    },
+}
+
+/// The non-recursive child union used by `BlockRecordOperation::Batch`.
+/// Keeping this union separate lets OpenAPI generators emit a finite schema;
+/// nested batches are rejected by the Kernel.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum BlockRecordBatchOperation {
+    Create {
+        block_id: String,
+        block_kind: String,
+        properties: serde_json::Value,
+        content_shard_id: String,
+        parent: BlockRecordPlacementParent,
+        rank_key: String,
+        #[serde(default)]
+        view_id: Option<String>,
+        #[serde(default)]
+        data_source_id: Option<String>,
+        #[serde(default)]
+        view_group_key: Option<String>,
+        #[serde(default)]
+        view_rank_key: Option<String>,
+        #[serde(default)]
+        materialized_json: Option<serde_json::Value>,
+        #[serde(default)]
+        placement_rebalances: Vec<BlockRecordPlacementRebalance>,
+        #[serde(default)]
+        view_rebalances: Vec<BlockRecordViewPositionRebalance>,
+    },
+    EnsureDataSource {
+        data_source_id: String,
+    },
+    Move {
+        block_id: String,
+        target_parent: BlockRecordPlacementParent,
+        rank_key: String,
+        expected_block_revision: u64,
+        expected_placement_revision: u64,
+    },
+    MoveMany {
+        entries: Vec<BlockRecordMoveEntry>,
+        #[serde(default)]
+        placement_rebalances: Vec<BlockRecordPlacementRebalance>,
+    },
+    CopySubtree {
+        source_block_id: String,
+        target_block_id: String,
+        target_parent: BlockRecordPlacementParent,
+        rank_key: String,
+        expected_block_revision: u64,
+        expected_placement_revision: u64,
+        entries: Vec<BlockRecordCopyEntry>,
+        #[serde(default)]
+        view_id: Option<String>,
+        #[serde(default)]
+        data_source_id: Option<String>,
+        #[serde(default)]
+        view_group_key: Option<String>,
+        #[serde(default)]
+        view_rank_key: Option<String>,
+        #[serde(default)]
+        placement_rebalances: Vec<BlockRecordPlacementRebalance>,
+        #[serde(default)]
+        view_rebalances: Vec<BlockRecordViewPositionRebalance>,
+    },
+    UpdateRecord {
+        block_id: String,
+        properties: serde_json::Value,
+        expected_block_revision: u64,
+        #[serde(default)]
+        view_id: Option<String>,
+        #[serde(default)]
+        data_source_id: Option<String>,
+        #[serde(default)]
+        view_group_key: Option<String>,
+        #[serde(default)]
+        view_rank_key: Option<String>,
+        #[serde(default)]
+        expected_view_revision: Option<u64>,
+    },
+    UpdateMany {
+        entries: Vec<BlockRecordUpdateEntry>,
+        #[serde(default)]
+        view_rebalances: Vec<BlockRecordViewPositionRebalance>,
+    },
+    ArchiveSubtree {
+        block_id: String,
+        expected_block_revision: u64,
+        expected_placement_revision: u64,
+    },
+    RestoreSubtree {
+        block_id: String,
+        target_parent: BlockRecordPlacementParent,
+        rank_key: String,
+        expected_block_revision: u64,
+        expected_placement_revision: u64,
+        #[serde(default)]
+        placement_rebalances: Vec<BlockRecordPlacementRebalance>,
+    },
+    PromoteToPage {
+        block_id: String,
+        data_source_id: String,
+        #[serde(default)]
+        view_id: Option<String>,
+        #[serde(default)]
+        view_group_key: Option<String>,
+        #[serde(default)]
+        view_rank_key: Option<String>,
+        rank_key: String,
+        expected_block_revision: u64,
+        expected_placement_revision: u64,
+    },
+    PromoteManyToPage {
+        data_source_id: String,
+        #[serde(default)]
+        view_id: Option<String>,
+        entries: Vec<BlockRecordPromotionEntry>,
+        #[serde(default)]
+        view_rebalances: Vec<BlockRecordViewPositionRebalance>,
+        #[serde(default)]
+        placement_rebalances: Vec<BlockRecordPlacementRebalance>,
+    },
+    PlaceManyInDataSource {
+        data_source_id: String,
+        #[serde(default)]
+        view_id: Option<String>,
+        entries: Vec<BlockRecordPagePlacementEntry>,
+        #[serde(default)]
+        view_rebalances: Vec<BlockRecordViewPositionRebalance>,
+        #[serde(default)]
+        placement_rebalances: Vec<BlockRecordPlacementRebalance>,
+    },
+    SetMaterializedContent {
+        block_id: String,
+        slot: String,
+        materialized_json: serde_json::Value,
+        expected_revision: u64,
+    },
     ReconcilePageTree {
         page_id: String,
         expected_page_revision: u64,
