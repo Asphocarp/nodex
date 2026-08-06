@@ -583,6 +583,11 @@ fn collect_created_ids(
         BlockMutationOperation::Create { block_id, .. } => {
             output.insert(block_id.clone());
         }
+        BlockMutationOperation::CopySubtree {
+            target_block_id, ..
+        } => {
+            output.insert(target_block_id.clone());
+        }
         _ => {}
     }
 }
@@ -643,9 +648,23 @@ fn collect_agent_requirements(
         }
         BlockMutationOperation::UpdateRecord { block_id, .. }
         | BlockMutationOperation::ArchiveSubtree { block_id, .. }
-        | BlockMutationOperation::SetDataSourceValues { block_id, .. }
         | BlockMutationOperation::SetMaterializedContent { block_id, .. } => {
             push_existing_write_requirement(block_id, graph, created_ids, output)?;
+        }
+        BlockMutationOperation::SetDataSourceValues { block_id, .. } => {
+            // A property batch may follow PromoteManyToPage for an ordinary
+            // Block in the same transaction. The preceding structural
+            // operation already authorizes the source Move and Data Source
+            // CreateChild; the pre-batch graph still quite correctly reports
+            // this root as a non-Page, so do not ask page_target to authorize
+            // a state that only exists after the earlier child operation.
+            if !created_ids.contains(block_id)
+                && graph
+                    .block(block_id)
+                    .is_some_and(|record| matches!(record.kind, BlockKind::Page))
+            {
+                push_existing_write_requirement(block_id, graph, created_ids, output)?;
+            }
         }
         BlockMutationOperation::UpdateMany { entries, .. } => {
             for entry in entries {

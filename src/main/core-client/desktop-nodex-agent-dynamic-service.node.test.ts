@@ -136,6 +136,67 @@ const pageWindow = (
   };
 };
 
+const databaseWindow = (
+  pages: readonly {
+    readonly id: string;
+    readonly title: string;
+    readonly values: Readonly<Record<string, unknown>>;
+  }[],
+  commitSeq = 13,
+): BlockRecordReadSnapshot => ({
+  library_id: nativeAgentIdentity.libraryId,
+  observed_cursor: {
+    store_epoch: nativeAgentIdentity.storeEpoch,
+    commit_seq: commitSeq,
+  },
+  graph: {
+    library_id: nativeAgentIdentity.libraryId,
+    blocks: pages.map((page) => ({
+      id: page.id,
+      library_id: nativeAgentIdentity.libraryId,
+      kind: "page" as const,
+      lifecycle: "active" as const,
+      properties: {
+        title: page.title,
+        dataSourceValues: Object.entries(page.values).map(([propertyId, value]) => ({
+          propertyId,
+          value,
+        })),
+      },
+      content_shard_id: `shard:${page.id}`,
+      revision: 1,
+    })),
+    placements: pages.map((page, index) => ({
+      block_id: page.id,
+      parent: {
+        kind: "data_source" as const,
+        id: "data-source-native-agent",
+      },
+      rank_key: String.fromCharCode(97 + index),
+      revision: 1,
+    })),
+  },
+  view_positions: pages.map((page, index) => ({
+    view_id: "view-native-agent",
+    data_source_id: "data-source-native-agent",
+    block_id: page.id,
+    group_key: null,
+    rank_key: String.fromCharCode(97 + index),
+    revision: 1,
+  })),
+  content: pages.map((page) => ({
+    block_id: page.id,
+    library_id: nativeAgentIdentity.libraryId,
+    slot: "title" as const,
+    shard_id: `shard:${page.id}`,
+    revision: 1,
+    materialized_json: [{ type: "text", text: page.title, styles: {} }],
+    full_state_v1: [],
+    state_vector_v1: [],
+    state_hash: "e".repeat(64),
+  })),
+});
+
 const committedBlockRecord = (
   operationId: string,
   commitSeq: number,
@@ -1384,7 +1445,25 @@ describe("native desktop Nodex Agent dynamic service", () => {
             return {
               kind: "property_window" as const,
               properties: {
-                items: [],
+                items: [{
+                  property_id: "p_Abcd1234",
+                  data_source_id: "data-source-native-agent",
+                  name: "Status",
+                  schema: { kind: "text" },
+                  capabilities: {
+                    replace: true,
+                    patch_set_member: null,
+                    filter_operators: ["equals"],
+                    sortable: true,
+                    groupable: true,
+                  },
+                  option_count: 0,
+                  rank_key: "a",
+                  lifecycle: "active",
+                  revision: 1,
+                  created_at: "2026-07-20T00:00:00.000Z",
+                  updated_at: "2026-07-20T00:00:00.000Z",
+                }],
                 next_cursor: null,
                 authority: { projection_revision: 13 },
               },
@@ -1400,7 +1479,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
                 view_id: "view-native-agent",
                 rows: {
                   items: [],
-                  next_cursor: "nxl1.query.signature",
+                  next_cursor: null,
                   authority: { projection_revision: 13 },
                 },
               },
@@ -1413,13 +1492,17 @@ describe("native desktop Nodex Agent dynamic service", () => {
         value,
       };
     });
+    const blockRecordRead = vi.fn(async () => databaseWindow([
+      { id: "page-native-a", title: "First", values: { p_Abcd1234: "todo" } },
+      { id: "page-native-b", title: "Second", values: { p_Abcd1234: "done" } },
+    ]));
     const runtime = {
       backend: "rust" as const,
       identity: nativeAgentIdentity,
       rootClient: {
         handshake: nativeAgentHandshake(),
       },
-      clientForProject: () => ({ databaseRead }),
+      clientForProject: () => ({ databaseRead, blockRecordRead }),
     } as unknown as Extract<DesktopDataAuthorityRuntime, { backend: "rust" }>;
     const service = createDesktopNodexAgentV3DynamicService({
       authority: Promise.resolve(runtime),
@@ -1434,7 +1517,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
       tool: "query_data_source",
     }, {
       dataSourceId: "data-source-native-agent",
-      page: { limit: 25 },
+      page: { limit: 1 },
     }, context);
 
     expect(result.output).toMatchObject({
@@ -1443,11 +1526,15 @@ describe("native desktop Nodex Agent dynamic service", () => {
         dataSource: {
           dataSourceId: "data-source-native-agent",
           name: "Tasks",
-          properties: [],
+          properties: [{ propertyId: "p_Abcd1234", name: "Status" }],
         },
-        rows: [],
+        rows: [{
+          pageId: "page-native-a",
+          title: "First",
+          values: { p_Abcd1234: "todo" },
+        }],
       },
-      page: { hasMore: true, nextCursor: "nxl1.query.signature" },
+      page: { hasMore: true, nextCursor: expect.stringMatching(/^nxc1\.database\./u) },
     });
     expect(databaseRead).toHaveBeenNthCalledWith(1, expect.objectContaining({
       target: expect.objectContaining({
@@ -1457,11 +1544,39 @@ describe("native desktop Nodex Agent dynamic service", () => {
           authorization: expect.objectContaining({
             call_id: "call-native-agent",
           }),
-          limit: 25,
+          cursor: null,
+          limit: 1,
         }),
       }),
       mode: "agent_query",
     }));
+    expect(blockRecordRead).toHaveBeenCalledWith(expect.objectContaining({
+      parent: {
+        kind: "data_source",
+        id: "data-source-native-agent",
+      },
+      view_id: "view-native-agent",
+      include_content: true,
+      include_descendants: true,
+    }), expect.objectContaining({
+      call_id: "call-native-agent",
+    }));
+
+    const firstCursor = (result.output as {
+      page: { nextCursor: string };
+    }).page.nextCursor;
+    const nextResult = await service.registry.execute({
+      namespace: NODEX_APP_TOOL_NAMESPACE,
+      toolsetRevision: NODEX_APP_V5_TOOLSET_REVISION,
+      tool: "query_data_source",
+    }, {
+      dataSourceId: "data-source-native-agent",
+      page: { limit: 25, cursor: firstCursor },
+    }, context);
+    expect(nextResult.output).toMatchObject({
+      data: { rows: [{ pageId: "page-native-b", title: "Second" }] },
+      page: { hasMore: false },
+    });
   });
 
   test("commits exact Page patches through one canonical BlockRecord transaction", async () => {
