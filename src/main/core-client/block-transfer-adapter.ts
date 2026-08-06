@@ -1079,6 +1079,21 @@ const coreFailure = (
   }
 };
 
+const isExplicitDocumentTransfer = (
+  intent: BlockTransferIntent,
+): boolean => intent.source.kind === "document" || intent.target.kind === "document";
+
+const canonicalTransferBoundaryFailure = (
+  intent: BlockTransferIntent,
+): BlockTransferCommandResult => ({
+  ok: false,
+  error: blockTransferFailure(
+    "unsupported_transfer",
+    "This structural transfer is not representable by the canonical BlockRecord operation set; document-backed content must declare an explicit Document target or source",
+    { operationId: intent.operationId },
+  ),
+});
+
 export const createCoreBlockTransferAdapter = (
   input: CoreBlockTransferAdapterInput,
 ): CoreBlockTransferAdapter => {
@@ -1100,6 +1115,9 @@ export const createCoreBlockTransferAdapter = (
         if (intent.mode === "move") {
           const terminal = await commitCanonicalMoveIntent(input, intent);
           if (terminal !== null) return terminal;
+        }
+        if (!isExplicitDocumentTransfer(intent)) {
+          return canonicalTransferBoundaryFailure(intent);
         }
         const committed = await input.client.libraryApply({
           operationId: intent.operationId,

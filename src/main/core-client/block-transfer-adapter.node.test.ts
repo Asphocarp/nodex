@@ -37,6 +37,20 @@ const intent: BlockTransferIntent = {
   },
 };
 
+const legacyDocumentIntent: BlockTransferIntent = {
+  ...intent,
+  source: {
+    kind: "document",
+    documentId: "document:source",
+  },
+  target: {
+    kind: "document",
+    documentId: "document:target",
+    parentBlockId: "block:parent",
+    beforeBlockId: "block:before",
+  },
+};
+
 const coreResult = () => ({
   mode: "move" as const,
   source_root_block_ids: ["block:root"],
@@ -190,13 +204,13 @@ class UnauthorizedBlockRecordClient extends FakeCoreClient {
 }
 
 describe("Core Block Transfer Adapter", () => {
-  test("commits a logical intent in one Core apply without a renderer fence", async () => {
+  test("commits an explicit Document intent through the legacy compiler", async () => {
     const client = new FakeCoreClient();
     const adapter = createCoreBlockTransferAdapter({ client, ...identity });
     client.enqueueApply(committedApply());
     client.enqueueBlockRecordRead(emptyBlockRecordSnapshot());
 
-    const committed = await adapter.commit(intent);
+    const committed = await adapter.commit(legacyDocumentIntent);
 
     expect(committed).toMatchObject({
       ok: true,
@@ -210,7 +224,7 @@ describe("Core Block Transfer Adapter", () => {
       },
     });
     expect(client.reads).toHaveLength(0);
-    expect(client.blockRecordReads).toHaveLength(1);
+    expect(client.blockRecordReads).toHaveLength(0);
     expect(client.applies).toHaveLength(1);
     expect(client.applies[0]?.intent).toMatchObject({
       kind: "transfer_blocks",
@@ -226,6 +240,10 @@ describe("Core Block Transfer Adapter", () => {
       operationId: "transfer:data-source",
       mode: "copy",
       rootBlockIds: ["block:root", "block:second"],
+      source: {
+        kind: "document",
+        documentId: "document:source",
+      },
       target: {
         kind: "data_source",
         dataSourceId: "source:target",
@@ -312,7 +330,7 @@ describe("Core Block Transfer Adapter", () => {
     client.enqueueApply(committedApply({ duplicate: true, did_mutate: false }));
     client.enqueueBlockRecordRead(emptyBlockRecordSnapshot());
 
-    await expect(adapter.commit(intent)).resolves.toMatchObject({
+    await expect(adapter.commit(legacyDocumentIntent)).resolves.toMatchObject({
       ok: true,
       value: {
         operationId: intent.operationId,
@@ -607,6 +625,21 @@ describe("Core Block Transfer Adapter", () => {
       error: {
         code: "invalid_transfer_request",
         message: "Agent target is not authorized",
+      },
+    });
+    expect(client.applies).toHaveLength(0);
+  });
+
+  test("does not downgrade an unrepresentable structural transfer", async () => {
+    const client = new FakeCoreClient();
+    const adapter = createCoreBlockTransferAdapter({ client, ...identity });
+    client.enqueueBlockRecordRead(emptyBlockRecordSnapshot());
+
+    await expect(adapter.commit(intent)).resolves.toMatchObject({
+      ok: false,
+      error: {
+        code: "unsupported_transfer",
+        operationId: intent.operationId,
       },
     });
     expect(client.applies).toHaveLength(0);
