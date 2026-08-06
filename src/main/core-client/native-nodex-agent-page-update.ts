@@ -26,6 +26,7 @@ import {
   planCanonicalAgentPageUpdate,
   CanonicalAgentPreconditionError,
 } from "./canonical-agent-page-update";
+import { applyBlockRecordWithResolution } from "./block-record-commit";
 import { blockRecordSnapshotToWindow } from "../../shared/block-records";
 import { canonicalAgentPageEtag } from "./canonical-agent-etag";
 type ToolError = ToolFailure["error"];
@@ -311,8 +312,11 @@ export class NativeNodexAgentPageUpdateRuntime {
       };
     }
     try {
-      const committed = await this.runtime.clientForProject(pending.request.projectId)
-        .blockRecordApply(pending.apply);
+      const committed = await applyBlockRecordWithResolution({
+        client: this.runtime.clientForProject(pending.request.projectId),
+        input: pending.apply,
+        storeEpoch: pending.request.authority?.storeEpoch ?? "",
+      });
       pending.committed = committed;
       return { ok: true, value: toDocumentOperationResult(pending, committed) };
     } catch (error) {

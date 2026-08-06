@@ -33,6 +33,8 @@ import type {
   StoreAdministrationRead,
   StoreAdministrationReadSnapshot,
   CoreHandshakeResponse,
+  LocalMutationResolveInput,
+  LocalMutationResolveResponse,
 } from "../types";
 import { CORE_CLIENT_REQUIREMENTS } from "@nodex/core-protocol";
 import type {
@@ -123,6 +125,7 @@ export class FakeCoreClient implements CoreClientPort {
   readonly #applyResults: LibraryCommittedValue[] = [];
   readonly #blockRecordReadResults: BlockRecordReadSnapshot[] = [];
   readonly #blockRecordApplyResults: BlockRecordCommittedValue[] = [];
+  readonly #localMutationResolveResults: LocalMutationResolveResponse[] = [];
   readonly #databaseReadResults: DatabaseReadSnapshot[] = [];
   readonly #databaseApplyResults: DatabaseCommittedValue[] = [];
   readonly #workspaceReadResults: ProjectWorkspaceReadSnapshot[] = [];
@@ -174,6 +177,10 @@ export class FakeCoreClient implements CoreClientPort {
 
   enqueueBlockRecordApply(result: BlockRecordCommittedValue): void {
     this.#blockRecordApplyResults.push(result);
+  }
+
+  enqueueLocalMutationResolve(result: LocalMutationResolveResponse): void {
+    this.#localMutationResolveResults.push(result);
   }
 
   enqueueDatabaseRead(result: DatabaseReadSnapshot): void {
@@ -244,6 +251,17 @@ export class FakeCoreClient implements CoreClientPort {
     this.blockRecordApplies.push(input);
     const result = this.#blockRecordApplyResults.shift();
     if (!result) throw new Error("Fake Core client has no queued BlockRecord apply");
+    return result;
+  }
+
+  async resolveLocalMutation(
+    input: LocalMutationResolveInput,
+  ): Promise<LocalMutationResolveResponse> {
+    void input;
+    const result = this.#localMutationResolveResults.shift();
+    if (result === undefined) {
+      throw new Error("Fake Core client has no queued Local mutation resolution");
+    }
     return result;
   }
 

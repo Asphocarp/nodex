@@ -15,6 +15,8 @@ import type {
   BlockRecordRead,
   BlockRecordReadAuthorization,
   BlockRecordReadSnapshot,
+  LocalMutationResolveInput,
+  LocalMutationResolveResponse,
   CoreClientPort,
   CoreEventEnvelope,
   CoreEventReplayRequired,
@@ -436,6 +438,12 @@ class SupervisedCoreClient implements DesktopCoreClient {
 
   blockRecordApply(input: BlockRecordApplyInput): Promise<BlockRecordCommittedValue> {
     return this.#execute((client) => client.blockRecordApply(input));
+  }
+
+  resolveLocalMutation(
+    input: LocalMutationResolveInput,
+  ): Promise<LocalMutationResolveResponse> {
+    return this.#execute((client) => client.resolveLocalMutation(input));
   }
 
   openLocalCommitStream(

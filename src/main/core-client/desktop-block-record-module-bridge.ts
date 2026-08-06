@@ -6,6 +6,7 @@ import type {
   BlockRecordReadSnapshot,
 } from "../../shared/core-modules/block-record-module";
 import type { DesktopDataAuthorityRuntime } from "./desktop-data-authority";
+import { applyBlockRecordWithResolution } from "./block-record-commit";
 
 export type DesktopBlockRecordModuleBridge = BlockRecordModule;
 
@@ -25,7 +26,11 @@ export function createDesktopBlockRecordModuleBridge(
       apply: BlockRecordApplyInput,
     ): Promise<BlockRecordCommittedValue> => {
       const runtime = await input.authority;
-      return await runtime.rootClient.blockRecordApply(apply);
+      return await applyBlockRecordWithResolution({
+        client: runtime.rootClient,
+        input: apply,
+        storeEpoch: runtime.identity.storeEpoch,
+      });
     },
   };
 }

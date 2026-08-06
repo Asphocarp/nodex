@@ -13,6 +13,7 @@ import {
   type BlockPlacementParent,
 } from "../../shared/block-records";
 import { parseInlineMarkdownTitle } from "../../shared/nfm/agent-title";
+import { applyBlockRecordWithResolution } from "./block-record-commit";
 
 type BatchOperation = Exclude<
   components["schemas"]["BlockRecordOperation"],
@@ -332,8 +333,12 @@ export const commitCanonicalAgentPageCreate = async (
     sessionId: input.sessionId,
     operations,
   });
-  return input.client.blockRecordApply({
-    ...batch,
-    agent_authorization: input.authorization,
+  return applyBlockRecordWithResolution({
+    client: input.client,
+    storeEpoch: input.storeEpoch,
+    input: {
+      ...batch,
+      agent_authorization: input.authorization,
+    },
   });
 };

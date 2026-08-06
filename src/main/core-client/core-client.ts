@@ -45,6 +45,8 @@ import type {
   BlockRecordRead,
   BlockRecordReadAuthorization,
   BlockRecordReadSnapshot,
+  LocalMutationResolveInput,
+  LocalMutationResolveResponse,
   AutomationApplyInput,
   AutomationApplyResponse,
   AutomationCommittedValue,
@@ -265,6 +267,27 @@ export class CoreClient implements CoreClientPort {
       return response.payload;
     }
     throw new CoreModuleResponseError(response.payload);
+  }
+
+  async resolveLocalMutation(
+    input: LocalMutationResolveInput,
+  ): Promise<LocalMutationResolveResponse> {
+    const response = await this.#transport.requestJson<
+      components["schemas"]["LocalMutationResolveResponse"]
+    >(
+      "POST",
+      "/core/v1/local-commits/resolve",
+      {
+        contract_version: BLOCK_RECORD_CONTRACT_VERSION,
+        ...input,
+      },
+      this.#moduleHeaders(),
+    );
+    if (response.status !== "ok") {
+      throw new CoreModuleResponseError(response.payload);
+    }
+    if (response.payload) this.#onBlockRecordCommit?.(response.payload);
+    return response.payload;
   }
 
   openLocalCommitStream(

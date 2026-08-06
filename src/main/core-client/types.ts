@@ -33,6 +33,13 @@ export type BlockRecordApplyInput = Omit<
   components["schemas"]["BlockRecordApplyRequest"],
   "contract_version" | "store_epoch"
 >;
+export type LocalMutationResolveInput = Omit<
+  components["schemas"]["LocalMutationResolveRequest"],
+  "contract_version"
+>;
+export type LocalMutationResolveResponse = SuccessfulPayload<
+  components["schemas"]["LocalMutationResolveResponse"]
+>;
 
 export type LibraryReadRequest = components["schemas"]["LibraryReadRequest"];
 export type LibraryRead = LibraryReadRequest["read"];
@@ -158,6 +165,9 @@ export interface CoreClientPort {
     agentAuthorization?: BlockRecordReadAuthorization,
   ): Promise<BlockRecordReadSnapshot>;
   blockRecordApply(input: BlockRecordApplyInput): Promise<BlockRecordCommittedValue>;
+  resolveLocalMutation(
+    input: LocalMutationResolveInput,
+  ): Promise<LocalMutationResolveResponse>;
   openLocalCommitStream(
     after: number,
     onCommit: (commit: BlockRecordCommittedValue) => void,

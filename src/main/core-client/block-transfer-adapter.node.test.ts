@@ -5,6 +5,7 @@ import {
   type BlockTransferIntent,
 } from "../../shared/block-transfer";
 import { createCoreBlockTransferAdapter } from "./block-transfer-adapter";
+import { CoreModuleResponseError } from "./core-client";
 import { FakeCoreClient } from "./testing/fake-core-client";
 import type {
   BlockRecordCommittedValue,
@@ -176,6 +177,17 @@ const committedBlockRecordApply = (
   payload_completeness: "rich",
   session_id: "renderer:test",
 });
+
+class UnauthorizedBlockRecordClient extends FakeCoreClient {
+  override blockRecordRead(): ReturnType<FakeCoreClient["blockRecordRead"]> {
+    return Promise.reject(new CoreModuleResponseError({
+      code: "unauthorized",
+      message: "Agent target is not authorized",
+      retryable: false,
+      recovery: { kind: "none" },
+    }));
+  }
+}
 
 describe("Core Block Transfer Adapter", () => {
   test("commits a logical intent in one Core apply without a renderer fence", async () => {
@@ -542,6 +554,20 @@ describe("Core Block Transfer Adapter", () => {
     })).resolves.toMatchObject({
       ok: false,
       error: { code: "invalid_transfer_request" },
+    });
+    expect(client.applies).toHaveLength(0);
+  });
+
+  test("does not downgrade canonical authorization failures to the legacy writer", async () => {
+    const client = new UnauthorizedBlockRecordClient();
+    const adapter = createCoreBlockTransferAdapter({ client, ...identity });
+
+    await expect(adapter.commit(intent)).resolves.toMatchObject({
+      ok: false,
+      error: {
+        code: "invalid_transfer_request",
+        message: "Agent target is not authorized",
+      },
     });
     expect(client.applies).toHaveLength(0);
   });

@@ -1000,6 +1000,20 @@ describe("CoreClient over a Unix socket", () => {
         "record",
         "placement",
       ]);
+      await expect(client.resolveLocalMutation({
+        store_epoch: client.handshake.store_epoch,
+        operation_id: identity(6).operation_id,
+        intent_hash: identity(6).intent_hash,
+      })).resolves.toMatchObject({
+        operation_id: identity(6).operation_id,
+        cursor: moved.cursor,
+        duplicate: true,
+      });
+      await expect(client.resolveLocalMutation({
+        store_epoch: client.handshake.store_epoch,
+        operation_id: "node-block-record-missing",
+        intent_hash: "c".repeat(64),
+      })).resolves.toBeNull();
 
       const movedWindow = await client.blockRecordRead({
         kind: "window",

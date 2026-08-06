@@ -422,6 +422,38 @@ impl BlockRecordModule {
             .read_default(|connection| crate::local_commit::read_after(connection, cursor, limit))
     }
 
+    pub fn resolve_local_mutation(
+        &self,
+        operation_id: &str,
+        intent_hash: &str,
+    ) -> Result<Option<LocalCommitEnvelope>, StoreError> {
+        if operation_id.trim().is_empty() || intent_hash.trim().is_empty() {
+            return Err(StoreError::new(
+                StoreErrorCode::InvalidInput,
+                "Local mutation resolution requires an operation and intent hash",
+                false,
+            ));
+        }
+        let store_epoch = self.store_epoch.clone();
+        let operation_id = operation_id.to_owned();
+        let intent_hash = intent_hash.to_owned();
+        self.readers.read_default(|connection| {
+            let Some(envelope) =
+                crate::local_commit::find_by_operation(connection, &store_epoch, &operation_id)?
+            else {
+                return Ok(None);
+            };
+            if envelope.intent_hash != intent_hash {
+                return Err(StoreError::new(
+                    StoreErrorCode::IdempotencyKeyReused,
+                    "Local mutation operation has a different intent hash",
+                    false,
+                ));
+            }
+            Ok(Some(envelope))
+        })
+    }
+
     pub fn local_commit_head(
         &self,
     ) -> Result<Option<crate::local_commit::LocalCommitCursor>, StoreError> {
@@ -887,7 +919,17 @@ mod tests {
                 10,
             )
             .expect("replay");
-        assert_eq!(replay, vec![committed.envelope]);
+        assert_eq!(replay, vec![committed.envelope.clone()]);
+
+        let resolved = module
+            .resolve_local_mutation("operation:move", &hash("intent"))
+            .expect("resolve local mutation")
+            .expect("committed operation");
+        assert_eq!(resolved, committed.envelope);
+        let conflict = module
+            .resolve_local_mutation("operation:move", &hash("different-intent"))
+            .expect_err("intent mismatch");
+        assert_eq!(conflict.code, StoreErrorCode::IdempotencyKeyReused);
     }
 
     #[test]

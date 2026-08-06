@@ -1326,6 +1326,19 @@ pub struct BlockRecordReadResponse(pub ResponseEnvelope<BlockRecordReadSnapshot>
 #[serde(transparent)]
 pub struct BlockRecordApplyResponse(pub ResponseEnvelope<BlockRecordCommittedValue>);
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LocalMutationResolveRequest {
+    pub contract_version: u32,
+    pub store_epoch: String,
+    pub operation_id: String,
+    pub intent_hash: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
+#[serde(transparent)]
+pub struct LocalMutationResolveResponse(pub ResponseEnvelope<Option<BlockRecordCommittedValue>>);
+
 macro_rules! define_module_transport {
     (
         $read_request:ident,
@@ -1558,6 +1571,14 @@ mod api {
         responses((status = 200, description = "Durable LocalCommit stream", body = BlockRecordApplyResponse, content_type = "text/event-stream"))
     )]
     pub(super) fn local_commits() {}
+
+    #[utoipa::path(
+        post,
+        path = "/core/v1/local-commits/resolve",
+        request_body = LocalMutationResolveRequest,
+        responses((status = 200, body = LocalMutationResolveResponse))
+    )]
+    pub(super) fn resolve_local_mutation() {}
 }
 
 #[derive(OpenApi)]
@@ -1583,6 +1604,7 @@ mod api {
         api::block_record_read,
         api::block_record_apply,
         api::local_commits,
+        api::resolve_local_mutation,
     ),
     components(schemas(
         RuntimeDescriptor,
@@ -1637,6 +1659,8 @@ mod api {
         BlockRecordReadResponse,
         BlockRecordApplyRequest,
         BlockRecordApplyResponse,
+        LocalMutationResolveRequest,
+        LocalMutationResolveResponse,
         BlockRecordRead,
         BlockRecordPlacementParent,
         BlockRecordOperation,
@@ -1677,6 +1701,7 @@ mod tests {
             "/core/v1/handshake",
             "/core/v1/health",
             "/core/v1/local-commits",
+            "/core/v1/local-commits/resolve",
             "/core/v1/modules/administration/apply",
             "/core/v1/modules/administration/read",
             "/core/v1/modules/block-record/apply",

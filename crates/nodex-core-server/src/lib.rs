@@ -72,14 +72,15 @@ use nodex_core_protocol::{
     DatabaseReadRequest, DatabaseReadResponse, EventEnvelope, EventReplayRequired,
     HandshakeRequest, HandshakeResponse, HealthDurationMetric, HealthResponse, LauncherKind,
     LibraryApplyRequest, LibraryApplyResponse, LibraryReadRequest, LibraryReadResponse,
-    OwnedDocumentApplyRequest, OwnedDocumentApplyResponse, OwnedDocumentReadRequest,
-    OwnedDocumentReadResponse, ProjectWorkspaceApplyRequest, ProjectWorkspaceApplyResponse,
-    ProjectWorkspaceReadRequest, ProjectWorkspaceReadResponse, ResponseEnvelope, RuntimeDescriptor,
-    RuntimeGenerationIdentity, ShutdownRequest, ShutdownResponse, ShutdownStatus,
-    StoreAdministrationApplyRequest, StoreAdministrationApplyResponse,
-    StoreAdministrationReadRequest, StoreAdministrationReadResponse, TRANSPORT_PROTOCOL_MAX,
-    TRANSPORT_PROTOCOL_MIN, canonical_manifest_digest, core_client_requirements,
-    core_compatibility_manifest, evaluate_compatibility, replacement_is_forward_safe, store_format,
+    LocalMutationResolveRequest, LocalMutationResolveResponse, OwnedDocumentApplyRequest,
+    OwnedDocumentApplyResponse, OwnedDocumentReadRequest, OwnedDocumentReadResponse,
+    ProjectWorkspaceApplyRequest, ProjectWorkspaceApplyResponse, ProjectWorkspaceReadRequest,
+    ProjectWorkspaceReadResponse, ResponseEnvelope, RuntimeDescriptor, RuntimeGenerationIdentity,
+    ShutdownRequest, ShutdownResponse, ShutdownStatus, StoreAdministrationApplyRequest,
+    StoreAdministrationApplyResponse, StoreAdministrationReadRequest,
+    StoreAdministrationReadResponse, TRANSPORT_PROTOCOL_MAX, TRANSPORT_PROTOCOL_MIN,
+    canonical_manifest_digest, core_client_requirements, core_compatibility_manifest,
+    evaluate_compatibility, replacement_is_forward_safe, store_format,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -718,6 +719,36 @@ async fn block_record_apply(
     })()
     .unwrap_or_else(|error| ResponseEnvelope::Error(record_core_error(error)));
     Json(BlockRecordApplyResponse(response))
+}
+
+async fn resolve_local_mutation(
+    State(state): State<Arc<ServerState>>,
+    Extension(bound): Extension<BoundConnection>,
+    headers: HeaderMap,
+    Json(request): Json<LocalMutationResolveRequest>,
+) -> Json<LocalMutationResolveResponse> {
+    let response = (|| {
+        require_block_record_contract(request.contract_version)?;
+        let _context = module_context(&state, &headers, &bound)?;
+        if request.store_epoch != state.block_record.store_epoch() {
+            return Err(CoreError {
+                code: CoreErrorCode::StaleStoreEpoch,
+                message: "Local mutation belongs to another Store epoch".to_owned(),
+                retryable: false,
+                recovery: CoreErrorRecovery::CurrentStoreEpoch {
+                    store_epoch: StoreEpoch(state.block_record.store_epoch().to_owned()),
+                },
+            });
+        }
+        let resolved = state
+            .block_record
+            .resolve_local_mutation(&request.operation_id, &request.intent_hash)
+            .map_err(block_record_store_error)?
+            .map(|envelope| block_record_commit_from_envelope(envelope, true));
+        Ok::<_, CoreError>(ResponseEnvelope::Ok(resolved))
+    })()
+    .unwrap_or_else(|error| ResponseEnvelope::Error(record_core_error(error)));
+    Json(LocalMutationResolveResponse(response))
 }
 
 fn require_block_record_contract(version: u32) -> Result<(), CoreError> {
@@ -2207,6 +2238,10 @@ fn router(state: Arc<ServerState>) -> Router {
     let connected_routes = Router::new()
         .route("/core/v1/events", get(events))
         .route("/core/v1/local-commits", get(local_commits))
+        .route(
+            "/core/v1/local-commits/resolve",
+            post(resolve_local_mutation),
+        )
         .route("/core/v1/modules/library/read", post(library_read))
         .route("/core/v1/modules/library/apply", post(library_apply))
         .route(

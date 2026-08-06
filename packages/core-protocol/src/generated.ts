@@ -84,6 +84,22 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/core/v1/local-commits/resolve": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        readonly post: operations["resolve_local_mutation"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/core/v1/modules/administration/apply": {
         readonly parameters: {
             readonly query?: never;
@@ -3961,6 +3977,14 @@ export interface components {
             readonly kind: "page";
             readonly page_id: string;
         };
+        readonly LocalMutationResolveRequest: {
+            /** Format: int32 */
+            readonly contract_version: number;
+            readonly intent_hash: string;
+            readonly operation_id: string;
+            readonly store_epoch: string;
+        };
+        readonly LocalMutationResolveResponse: components["schemas"]["ResponseEnvelope_Option_BlockRecordCommittedValue"];
         /** @enum {string} */
         readonly MaintenanceTask: "integrity_check" | "foreign_key_check" | "document_revision_finalize" | "document_compaction" | "history_retention" | "block_retention";
         readonly ModuleApplyRequest_AutomationIntent: {
@@ -6344,6 +6368,28 @@ export interface components {
             /** @enum {string} */
             readonly status: "error";
         };
+        readonly ResponseEnvelope_Option_BlockRecordCommittedValue: {
+            readonly payload: null | {
+                readonly actor_id: string;
+                readonly audience: unknown;
+                readonly canonical_hash: string;
+                readonly commit_id: string;
+                readonly committed_at: string;
+                readonly cursor: components["schemas"]["BlockRecordCursor"];
+                readonly duplicate: boolean;
+                readonly effects: readonly components["schemas"]["BlockRecordEffect"][];
+                readonly intent_hash: string;
+                readonly operation_id: string;
+                readonly payload_completeness: components["schemas"]["BlockRecordPayloadCompleteness"];
+                readonly session_id: string;
+            };
+            /** @enum {string} */
+            readonly status: "ok";
+        } | {
+            readonly payload: components["schemas"]["CoreError"];
+            /** @enum {string} */
+            readonly status: "error";
+        };
         readonly RuntimeDescriptor: {
             readonly actual_store_format: components["schemas"]["StoreFormatIdentity"];
             readonly artifact: components["schemas"]["CoreArtifactIdentity"];
@@ -6537,6 +6583,29 @@ export interface operations {
                 };
                 content: {
                     readonly "text/event-stream": components["schemas"]["BlockRecordApplyResponse"];
+                };
+            };
+        };
+    };
+    readonly resolve_local_mutation: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["LocalMutationResolveRequest"];
+            };
+        };
+        readonly responses: {
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["LocalMutationResolveResponse"];
                 };
             };
         };

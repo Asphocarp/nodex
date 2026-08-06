@@ -23,6 +23,7 @@ import {
   type BlockRecordWindow,
 } from "../../shared/block-records";
 import { CoreModuleResponseError } from "./core-client";
+import { applyBlockRecordWithResolution } from "./block-record-commit";
 import type {
   CoreClientPort,
   LibraryIntent,
@@ -284,7 +285,15 @@ const tryReadBlockRecordWindow = async (
   try {
     return await readBlockRecordWindow(input, read);
   } catch (error) {
-    if (error instanceof CoreModuleResponseError) return null;
+    // A missing canonical identity is the only condition that may reach the
+    // explicitly transitional legacy transfer compiler.  Authorization,
+    // epoch, revision, and corruption failures must remain terminal; falling
+    // back for those errors would turn a failed canonical command into an
+    // unverified Document mutation.
+    if (
+      error instanceof CoreModuleResponseError
+      && error.coreError.code === "not_found"
+    ) return null;
     throw error;
   }
 };
@@ -479,11 +488,15 @@ export const commitCanonicalCopyIntent = async (
       : {}),
     placementRebalances,
   });
-  const committed = await input.client.blockRecordApply({
-    ...applyInput,
-    ...(input.agentAuthorization
-      ? { agent_authorization: input.agentAuthorization }
-      : {}),
+  const committed = await applyBlockRecordWithResolution({
+    client: input.client,
+    storeEpoch: input.storeEpoch,
+    input: {
+      ...applyInput,
+      ...(input.agentAuthorization
+        ? { agent_authorization: input.agentAuthorization }
+        : {}),
+    },
   });
   const sourceToTargetBlockIds = Object.fromEntries(sourceOrder.map((sourceId) => [
     sourceId,
@@ -662,11 +675,15 @@ export const commitCanonicalMoveIntent = async (
     entries,
     placementRebalances: [...placementRebalances.values()],
   });
-  const committed = await input.client.blockRecordApply({
-    ...applyInput,
-    ...(input.agentAuthorization
-      ? { agent_authorization: input.agentAuthorization }
-      : {}),
+  const committed = await applyBlockRecordWithResolution({
+    client: input.client,
+    storeEpoch: input.storeEpoch,
+    input: {
+      ...applyInput,
+      ...(input.agentAuthorization
+        ? { agent_authorization: input.agentAuthorization }
+        : {}),
+    },
   });
   const evidence = intent.rootBlockIds.map((blockId) => {
     const record = sourceRecords.get(blockId)!;
@@ -892,11 +909,15 @@ const commitMoveIntoDataSource = async (
       viewRebalances: [...viewRebalances.values()],
       placementRebalances: [...placementRebalances.values()],
     });
-  const committed = await input.client.blockRecordApply({
-    ...applyInput,
-    ...(input.agentAuthorization
-      ? { agent_authorization: input.agentAuthorization }
-      : {}),
+  const committed = await applyBlockRecordWithResolution({
+    client: input.client,
+    storeEpoch: input.storeEpoch,
+    input: {
+      ...applyInput,
+      ...(input.agentAuthorization
+        ? { agent_authorization: input.agentAuthorization }
+        : {}),
+    },
   });
   const evidence = intent.rootBlockIds.map((blockId) => {
     const record = sourceRecords.get(blockId)!;

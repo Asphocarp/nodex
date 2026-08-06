@@ -154,6 +154,36 @@
         }
       }
     },
+    "/core/v1/local-commits/resolve": {
+      "post": {
+        "tags": [
+          "api"
+        ],
+        "operationId": "resolve_local_mutation",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LocalMutationResolveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalMutationResolveResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/core/v1/modules/administration/apply": {
       "post": {
         "tags": [
@@ -15810,6 +15840,35 @@
           }
         ]
       },
+      "LocalMutationResolveRequest": {
+        "type": "object",
+        "required": [
+          "contract_version",
+          "store_epoch",
+          "operation_id",
+          "intent_hash"
+        ],
+        "properties": {
+          "contract_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "intent_hash": {
+            "type": "string"
+          },
+          "operation_id": {
+            "type": "string"
+          },
+          "store_epoch": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "LocalMutationResolveResponse": {
+        "$ref": "#/components/schemas/ResponseEnvelope_Option_BlockRecordCommittedValue"
+      },
       "MaintenanceTask": {
         "type": "string",
         "enum": [
@@ -26403,6 +26462,107 @@
                     ]
                   }
                 }
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "ok"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "payload",
+              "status"
+            ],
+            "properties": {
+              "payload": {
+                "$ref": "#/components/schemas/CoreError"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "error"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "ResponseEnvelope_Option_BlockRecordCommittedValue": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "payload",
+              "status"
+            ],
+            "properties": {
+              "payload": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "object",
+                    "required": [
+                      "cursor",
+                      "commit_id",
+                      "operation_id",
+                      "intent_hash",
+                      "canonical_hash",
+                      "actor_id",
+                      "session_id",
+                      "committed_at",
+                      "effects",
+                      "audience",
+                      "payload_completeness",
+                      "duplicate"
+                    ],
+                    "properties": {
+                      "actor_id": {
+                        "type": "string"
+                      },
+                      "audience": {},
+                      "canonical_hash": {
+                        "type": "string"
+                      },
+                      "commit_id": {
+                        "type": "string"
+                      },
+                      "committed_at": {
+                        "type": "string"
+                      },
+                      "cursor": {
+                        "$ref": "#/components/schemas/BlockRecordCursor"
+                      },
+                      "duplicate": {
+                        "type": "boolean"
+                      },
+                      "effects": {
+                        "type": "array",
+                        "items": {
+                          "$ref": "#/components/schemas/BlockRecordEffect"
+                        }
+                      },
+                      "intent_hash": {
+                        "type": "string"
+                      },
+                      "operation_id": {
+                        "type": "string"
+                      },
+                      "payload_completeness": {
+                        "$ref": "#/components/schemas/BlockRecordPayloadCompleteness"
+                      },
+                      "session_id": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                ]
               },
               "status": {
                 "type": "string",

@@ -74,6 +74,7 @@ import type {
 } from "../../shared/page-ownership-paths";
 import { isWorkflowStatus } from "../../shared/workflow-status";
 import { CoreModuleResponseError } from "./core-client";
+import { applyBlockRecordWithResolution } from "./block-record-commit";
 import {
   mapCorePropertyDescriptor,
   toCoreDatabaseIntent,
@@ -1510,7 +1511,11 @@ const applyCanonicalPageCreate = async (
       };
     }),
   });
-  const committed = await input.client.blockRecordApply(apply);
+  const committed = await applyBlockRecordWithResolution({
+    client: input.client,
+    input: apply,
+    storeEpoch: input.storeEpoch,
+  });
   if (
     committed.operation_id !== request.operationId
     || committed.cursor.store_epoch !== input.storeEpoch
@@ -1699,7 +1704,11 @@ const applyCanonicalPageMove = async (
       };
     }),
   });
-  const committed = await input.client.blockRecordApply(apply);
+  const committed = await applyBlockRecordWithResolution({
+    client: input.client,
+    input: apply,
+    storeEpoch: input.storeEpoch,
+  });
   if (
     committed.operation_id !== request.operationId
     || committed.cursor.store_epoch !== input.storeEpoch
@@ -1761,7 +1770,11 @@ const applyCanonicalPageArchive = async (
     expectedBlockRevision: source.record.revision,
     expectedPlacementRevision: source.placement.revision,
   });
-  const committed = await input.client.blockRecordApply(apply);
+  const committed = await applyBlockRecordWithResolution({
+    client: input.client,
+    input: apply,
+    storeEpoch: input.storeEpoch,
+  });
   if (
     committed.operation_id !== request.operationId
     || committed.cursor.store_epoch !== input.storeEpoch
@@ -1855,7 +1868,11 @@ const applyCanonicalPageRestore = async (
       };
     }),
   });
-  const committed = await input.client.blockRecordApply(apply);
+  const committed = await applyBlockRecordWithResolution({
+    client: input.client,
+    input: apply,
+    storeEpoch: input.storeEpoch,
+  });
   if (
     committed.operation_id !== request.operationId
     || committed.cursor.store_epoch !== input.storeEpoch
