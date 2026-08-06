@@ -33,6 +33,40 @@ const identity = {
 
 const fakeHandshake = () => createFakeCoreHandshake(identity);
 
+const emptyCanonicalPageWindow = () => ({
+  store_epoch: identity.storeEpoch,
+  library_id: identity.libraryId,
+  graph: {
+    library_id: identity.libraryId,
+    blocks: [],
+    placements: [],
+  },
+  view_positions: [],
+  content: [],
+  observed_cursor: {
+    store_epoch: identity.storeEpoch,
+    commit_seq: 0,
+  },
+});
+
+const canonicalPageCommit = (operationId: string, pageId: string) => ({
+  cursor: { store_epoch: identity.storeEpoch, commit_seq: 8 },
+  commit_id: `commit:${operationId}`,
+  operation_id: operationId,
+  intent_hash: "a".repeat(64),
+  canonical_hash: "b".repeat(64),
+  actor_id: "profile:profile:test",
+  session_id: "library-module:library:test",
+  committed_at: "2026-07-19T15:01:00.000Z",
+  effects: [{
+    kind: "record",
+    value: { blockId: pageId, kind: "page", revision: 0 },
+  }],
+  audience: { kind: "library", projectIds: [] },
+  payload_completeness: "rich" as const,
+  duplicate: false,
+});
+
 const pageDetailSnapshot = () => ({
   contract_version: 9 as const,
   store_epoch: identity.storeEpoch,
@@ -1634,30 +1668,8 @@ describe("Core Library Module Adapter", () => {
 
   test("maps a committed aggregate and rejects a stale epoch before Core", async () => {
     const client = new FakeCoreClient();
-    client.enqueueApply({
-      value: {
-        affected_resource_ids: ["page:one"],
-        page_copy: null,
-        block_transfer: null,
-        page_lifecycle: null,
-      },
-      receipt: {
-        operation_id: "operation:create",
-        duplicate: false,
-        operation_kind: "create_page",
-        did_mutate: true,
-        created_target: { kind: "page", page_id: "page:one" },
-        affected_parent_keys: ["library"],
-        affected_page_ids: ["page:one"],
-        affected_database_ids: [],
-        affected_view_ids: [],
-        committed_revisions: { "page:one": 1 },
-        change_log_seq: 8,
-        committed_at: "2026-07-19T15:01:00.000Z",
-      },
-      event_sequence: 8,
-      store_epoch: identity.storeEpoch,
-    });
+    client.enqueueBlockRecordRead(emptyCanonicalPageWindow());
+    client.enqueueBlockRecordApply(canonicalPageCommit("operation:create", "page:one"));
     const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
     const request = {
       version: LIBRARY_MODULE_CONTRACT_VERSION,
@@ -1681,48 +1693,28 @@ describe("Core Library Module Adapter", () => {
         changeLogSeq: 8,
       },
     });
-    expect(client.applies).toEqual([{
-      operationId: request.operationId,
-      intent: {
-        kind: "create_page",
-        page_id: "page:one",
-        document_id: "document:one",
-        title: "One",
-        parent: { kind: "library", before: null },
+    expect(client.applies).toEqual([]);
+    expect(client.blockRecordApplies).toHaveLength(1);
+    expect(client.blockRecordApplies[0]).toMatchObject({
+      operation_id: request.operationId,
+      operation: {
+        kind: "create",
+        block_id: "page:one",
+        block_kind: "page",
+        parent: { kind: "library" },
+        materialized_json: plainTextToPortableRichText("One"),
       },
-    }]);
+    });
 
     await expect(adapter.apply({ ...request, storeEpoch: "epoch:stale" })).resolves
       .toMatchObject({ ok: false, error: { code: "store_epoch_mismatch" } });
-    expect(client.applies).toHaveLength(1);
+    expect(client.blockRecordApplies).toHaveLength(1);
   });
 
   test("routes trusted Library writes through the root Core client", async () => {
     const rootClient = new FakeCoreClient();
-    rootClient.enqueueApply({
-      value: {
-        affected_resource_ids: ["page:trusted"],
-        page_copy: null,
-        block_transfer: null,
-        page_lifecycle: null,
-      },
-      receipt: {
-        operation_id: "operation:trusted",
-        duplicate: false,
-        operation_kind: "create_page",
-        did_mutate: true,
-        created_target: { kind: "page", page_id: "page:trusted" },
-        affected_parent_keys: ["library"],
-        affected_page_ids: ["page:trusted"],
-        affected_database_ids: [],
-        affected_view_ids: [],
-        committed_revisions: { "page:trusted": 1 },
-        change_log_seq: 9,
-        committed_at: "2026-07-20T00:00:00.000Z",
-      },
-      event_sequence: 9,
-      store_epoch: identity.storeEpoch,
-    });
+    rootClient.enqueueBlockRecordRead(emptyCanonicalPageWindow());
+    rootClient.enqueueBlockRecordApply(canonicalPageCommit("operation:trusted", "page:trusted"));
     const runtime = {
       backend: "rust",
       identity,
@@ -1756,7 +1748,8 @@ describe("Core Library Module Adapter", () => {
         createdTarget: { kind: "page", pageId: "page:trusted" },
       },
     });
-    expect(rootClient.applies).toHaveLength(1);
+    expect(rootClient.applies).toHaveLength(0);
+    expect(rootClient.blockRecordApplies).toHaveLength(1);
   });
 
   test("maps only Library Core events into renderer invalidations", () => {

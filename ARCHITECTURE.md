@@ -13,6 +13,10 @@ writers are cut over; they do not own Page/Board placement or a second public
 commit cursor. Existing Page roots entering a Data Source use the
 placement-only \`PlaceManyInDataSource\` operation; ordinary Blocks entering a
 Data Source use \`PromoteManyToPage\`.
+Library New Page also compiles to the same BlockRecord authority: the title is
+created as a content slot and the root placement is committed atomically. The
+Library navigation/detail adapter can read that canonical record directly, so
+the create response does not wait for a Page-owned Document projection.
 
 ## Overview
 Nodex is a local-first, block-based agent orchestrator for coordinating coding-agent work. One detached native Rust Core is the exclusive SQLite and collaborative-document authority for each Profile. Electron is the Desktop Host for windows, typed renderer IPC, operating-system integration, and the pinned Codex-compatible app-server runtime; supported macOS Desktop Tool threads retain that app-server while launching their shared REPL through the vendor-signed Node and Codex ancestry required by native Browser and Computer Use authentication. The native CLI and desktop renderer reach product state through Core-backed semantic adapters.

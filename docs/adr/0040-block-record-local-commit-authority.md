@@ -40,6 +40,13 @@ mutation boundary:
   effects, and observed cursor. An operation ID plus intent hash is idempotent;
   a different intent for the same operation ID is a conflict.
 
+Library New Page is compiled into this same `Create` operation. Its title is
+the initial `title` content slot and its Library/Page parent is the owning
+placement; the Library adapter returns the BlockRecord commit cursor as the
+operation receipt. Library navigation and Page Detail have a canonical
+BlockRecord read path for this result, so Document genesis is not a local UI
+completion prerequisite.
+
 The Board and Page renderer paths consume bounded BlockRecord windows. BlockNote
 remains the editor, selection, IME, schema, and rendering surface; the
 record-backed adapter materializes its nested tree from records and placements.

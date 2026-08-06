@@ -4,11 +4,16 @@ import {
   parseDataSourceId,
 } from "../../shared/database-identities";
 import type { DatabaseViewKind } from "../../shared/database-kernel";
+import { plainTextToPortableRichText } from "../../shared/block-documents/portable-rich-text";
+import { blockRecordSnapshotToWindow } from "../../shared/block-records/wire";
+import { buildCreateBlockRecordApplyInput } from "../../shared/block-records/apply-request";
+import { planFractionalRank } from "../../shared/block-records/fractional-rank";
 import type {
   LibraryApplyOperation,
   LibraryCanvasDestination,
   LibraryModuleApplyRequest,
   LibraryModuleApplyResult,
+  LibraryModuleApplyReceipt,
   LibraryModuleError,
   LibraryModuleReadRequest,
   LibraryModuleReadResult,
@@ -74,6 +79,22 @@ import type {
   LibraryRead,
   LibraryReadSnapshot,
 } from "./types";
+
+const canonicalPageActorId = (profileId: string): string => `profile:${profileId}`;
+
+const canonicalPageSessionId = (libraryId: string): string =>
+  `library-module:${libraryId}`;
+
+const canonicalPageParent = (
+  libraryId: string,
+  parent: LibraryWriteParent,
+) => parent.kind === "library"
+  ? { kind: "library" as const, libraryId }
+  : { kind: "block" as const, blockId: parent.pageId };
+
+const canonicalPageParentKey = (
+  parent: LibraryWriteParent,
+): string => parent.kind === "library" ? "library" : `page:${parent.pageId}`;
 
 export interface CoreLibraryModuleAdapterInput {
   readonly client: CoreClientPort;
@@ -1385,6 +1406,99 @@ const fromCoreBlockPropertyOutcome = (
   };
 };
 
+const applyCanonicalPageCreate = async (
+  input: CoreLibraryModuleAdapterInput,
+  request: LibraryModuleApplyRequest & {
+    readonly operation: Extract<LibraryApplyOperation, { readonly kind: "create_page" }>;
+  },
+): Promise<LibraryModuleApplyReceipt> => {
+  const parent = canonicalPageParent(input.libraryId, request.operation.parent);
+  const read = {
+    kind: "window" as const,
+    parent: parent.kind === "library"
+      ? { kind: "library" as const }
+      : { kind: "block" as const, id: parent.blockId },
+    include_content: false,
+    include_descendants: false,
+  } as const;
+  const snapshot = await input.client.blockRecordRead(read);
+  if (
+    snapshot.library_id !== input.libraryId
+    || snapshot.observed_cursor.store_epoch !== input.storeEpoch
+  ) {
+    throw new Error("Canonical Page creation escaped its BlockRecord snapshot boundary");
+  }
+  const window = blockRecordSnapshotToWindow(snapshot, read);
+  const siblings = window.placements
+    .filter((placement) => {
+      if (parent.kind === "library") {
+        return placement.parent.kind === "library";
+      }
+      return placement.parent.kind === "block" && placement.parent.blockId === parent.blockId;
+    })
+    .sort((left, right) => (
+      left.rankKey.localeCompare(right.rankKey) || left.blockId.localeCompare(right.blockId)
+    ))
+    .map((placement) => ({ id: placement.blockId, rankKey: placement.rankKey }));
+  const before = request.operation.parent.before;
+  if (before) {
+    const anchor = window.placements.find((placement) => placement.blockId === before.blockId);
+    if (!anchor || anchor.revision !== before.expectedLocationRevision) {
+      throw new Error("Canonical Page creation anchor is stale");
+    }
+  }
+  const rank = planFractionalRank(siblings, request.operation.pageId, before?.blockId);
+  const apply = await buildCreateBlockRecordApplyInput({
+    operationId: request.operationId,
+    actorId: canonicalPageActorId(input.profileId),
+    sessionId: canonicalPageSessionId(input.libraryId),
+    blockId: request.operation.pageId,
+    blockKind: "page",
+    properties: {
+      title: request.operation.title,
+      createdAt: request.operationId,
+    },
+    contentShardId: `block-record-shard:${request.operation.pageId}`,
+    parent,
+    rankKey: rank.rankKey,
+    materializedJson: plainTextToPortableRichText(request.operation.title),
+    placementRebalances: [...rank.rebalancedRankKeys].map(([blockId, rankKey]) => {
+      const placement = window.placements.find((candidate) => candidate.blockId === blockId);
+      if (!placement) throw new Error(`Canonical Page sibling ${blockId} is not loaded`);
+      return {
+        blockId,
+        rankKey,
+        expectedRevision: placement.revision,
+      };
+    }),
+  });
+  const committed = await input.client.blockRecordApply(apply);
+  if (
+    committed.operation_id !== request.operationId
+    || committed.cursor.store_epoch !== input.storeEpoch
+  ) {
+    throw new Error("Canonical Page creation receipt escaped its operation boundary");
+  }
+  return {
+    version: request.version,
+    operationId: request.operationId,
+    storeEpoch: committed.cursor.store_epoch,
+    libraryId: input.libraryId,
+    operationKind: request.operation.kind,
+    duplicate: committed.duplicate,
+    didMutate: !committed.duplicate,
+    createdTarget: { kind: "page", pageId: request.operation.pageId },
+    canvasMutation: null,
+    affectedParentKeys: [canonicalPageParentKey(request.operation.parent)],
+    affectedPageIds: [request.operation.pageId],
+    affectedDatabaseIds: [],
+    affectedViewIds: [],
+    committedRevisions: { [request.operation.pageId]: 0 },
+    changeLogSeq: committed.cursor.commit_seq,
+    committedAt: committed.committed_at,
+  };
+};
+
 export const createCoreLibraryModuleAdapter = (
   input: CoreLibraryModuleAdapterInput,
 ): CoreLibraryModuleAdapter => {
@@ -1414,6 +1528,84 @@ export const createCoreLibraryModuleAdapter = (
     throw new Error(
       `Core Page Detail read did not reach local commit ${minimumCommitSeq}`,
     );
+  };
+
+  const readCanonicalPageDetail = async (
+    pageId: string,
+    minimumCommitSeq = 0,
+  ): Promise<LibraryPageDetailResult> => {
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      const read = {
+        kind: "window" as const,
+        block_ids: [pageId],
+        include_content: true,
+        include_descendants: false,
+      } as const;
+      const snapshot = await input.client.blockRecordRead(read);
+      if (
+        snapshot.library_id !== input.libraryId
+        || snapshot.observed_cursor.store_epoch !== input.storeEpoch
+      ) {
+        throw new Error("Canonical Page Detail escaped its BlockRecord snapshot boundary");
+      }
+      if (snapshot.observed_cursor.commit_seq < minimumCommitSeq) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 5));
+        continue;
+      }
+      const window = blockRecordSnapshotToWindow(snapshot, read);
+      const record = window.records.find((candidate) => candidate.id === pageId);
+      const placement = window.placements.find((candidate) => candidate.blockId === pageId);
+      if (!record || record.kind !== "page" || !placement) {
+        throw new Error("Canonical Page is unavailable");
+      }
+      const titleContent = window.content.find((candidate) => (
+        candidate.blockId === pageId && candidate.slot === "title"
+      ));
+      const title = typeof record.properties.title === "string"
+        ? record.properties.title
+        : "Untitled";
+      const richTitle = titleContent?.content ?? plainTextToPortableRichText(title);
+      const parent = placement.parent.kind === "library"
+        ? { kind: "library" as const, libraryId: input.libraryId }
+        : placement.parent.kind === "dataSource"
+          ? { kind: "data_source" as const, dataSourceId: placement.parent.dataSourceId }
+          : { kind: "page" as const, pageId: placement.parent.blockId };
+      return parseLibraryPageDetailResult({
+        ok: true,
+        value: {
+          version: 3,
+          libraryId: input.libraryId,
+          storeEpoch: snapshot.observed_cursor.store_epoch,
+          changeLogSeq: snapshot.observed_cursor.commit_seq,
+          page: {
+            pageId,
+            libraryId: input.libraryId,
+            parent,
+            lifecycle: record.lifecycle,
+            parentRevision: placement.revision,
+            metadataRevision: record.revision,
+            documentId: `block-record:${pageId}`,
+            documentGeneration: 0,
+            documentHeadSeq: 0,
+            title,
+            richTitle,
+            preview: "",
+            plainText: "",
+            createdAt: "1970-01-01T00:00:00.000Z",
+            updatedAt: "1970-01-01T00:00:00.000Z",
+          },
+          document: {
+            readiness: "ready",
+            schemaKey: "nodex.block-record",
+            schemaVersion: 1,
+          },
+          intrinsicProperties: [],
+          dataSourceContext: { kind: "standalone" },
+          accessContext: { kind: "library" },
+        },
+      });
+    }
+    throw new Error(`Canonical Page Detail did not reach local commit ${minimumCommitSeq}`);
   };
 
   const applyBlockProperty = async (request: {
@@ -1517,6 +1709,15 @@ export const createCoreLibraryModuleAdapter = (
         };
       }
       try {
+        if (request.operation.kind === "create_page") {
+          const pageRequest = request as LibraryModuleApplyRequest & {
+            readonly operation: Extract<LibraryApplyOperation, { readonly kind: "create_page" }>;
+          };
+          return {
+            ok: true,
+            value: await applyCanonicalPageCreate(input, pageRequest),
+          };
+        }
         const committed = await input.client.libraryApply({
           operationId: request.operationId,
           intent: toCoreIntent(request.operation),
@@ -1599,6 +1800,17 @@ export const createCoreLibraryModuleAdapter = (
           },
         });
       } catch (error) {
+        if (
+          error instanceof CoreModuleResponseError
+          && error.coreError.code === "not_found"
+        ) {
+          try {
+            return await readCanonicalPageDetail(pageId, minimumCommitSeq);
+          } catch {
+            // Preserve the established Library error mapping when neither
+            // canonical nor legacy Page authority can serve the request.
+          }
+        }
         return { ok: false, error: pageDetailError(error) };
       }
     },

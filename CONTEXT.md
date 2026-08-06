@@ -37,6 +37,11 @@ immediately; the durable tail later replays the same envelope and is deduped.
 
 This is the authority for Page creation, Page/Board Move to, editor-to-Board
 promotion, Board card projection, and the corresponding Page Stage surface.
+Library New Page creation uses the same authority directly: Main computes the
+canonical insertion rank from a BlockRecord window, Core commits the Page
+record, title slot, placement, and LocalCommit together, and Library
+navigation/detail reads can consume that record without a Document genesis
+round-trip.
 Canvas scene data and explicitly non-terminal Document adapters remain separate
 domain authorities until their writers are converted; they must not write
 Page/Board placement through a second public path.

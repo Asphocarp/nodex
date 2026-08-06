@@ -1017,11 +1017,24 @@ fn parse_json(serialized: &str, label: &str) -> rusqlite::Result<Value> {
 }
 
 pub(super) fn event_head(connection: &Connection) -> Result<i64, StoreError> {
-    connection
-        .query_row("SELECT COALESCE(MAX(seq), 0) FROM change_log", [], |row| {
+    let legacy_head: i64 =
+        connection.query_row("SELECT COALESCE(MAX(seq), 0) FROM change_log", [], |row| {
             row.get(0)
-        })
-        .map_err(Into::into)
+        })?;
+    let local_epoch = connection
+        .query_row(
+            "SELECT store_epoch FROM block_store_metadata WHERE id = 1",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    let local_head = match local_epoch {
+        Some(store_epoch) => crate::local_commit::head(connection, &store_epoch)?
+            .map(|cursor| cursor.commit_seq)
+            .unwrap_or(0),
+        None => 0,
+    };
+    Ok(legacy_head.max(local_head))
 }
 
 fn children(
@@ -1177,7 +1190,7 @@ fn root_node_window(
     let (after_sort_key, after_id) = keyset_text_coordinate(after)?;
     let query_limit =
         i64::try_from(limit.saturating_add(1)).map_err(|_| invalid("Library limit overflowed"))?;
-    let nodes = connection
+    let mut nodes = connection
         .prepare(
             "SELECT block.type, block.id, placement.rank_key, \
                materialization.title, page.parent_revision, page.metadata_revision, \
@@ -1219,7 +1232,7 @@ fn root_node_window(
             navigation_row,
         )?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    let total = connection.query_row(
+    let legacy_total = connection.query_row(
         "SELECT COUNT(*) FROM library_block_placements placement \
          INNER JOIN blocks block ON block.id = placement.block_id \
          LEFT JOIN pages page ON page.block_id = block.id \
@@ -1228,6 +1241,81 @@ fn root_node_window(
          WHERE placement.library_id = ?1 AND block.type IN ('page', 'database', 'canvas') \
            AND block.lifecycle = 'active' \
            AND COALESCE(page.lifecycle, container.lifecycle, block.lifecycle) = 'active'",
+        [library_id],
+        |row| row.get::<_, i64>(0),
+    )?;
+    let (mut canonical_nodes, canonical_total) =
+        canonical_root_node_window(connection, library_id, after, limit)?;
+    let legacy_ids = nodes
+        .iter()
+        .map(|ordered| navigation_node_id(&ordered.node).to_owned())
+        .collect::<HashSet<_>>();
+    canonical_nodes.retain(|ordered| !legacy_ids.contains(navigation_node_id(&ordered.node)));
+    nodes.append(&mut canonical_nodes);
+    nodes.sort_by(|left, right| {
+        left.sort_key
+            .cmp(&right.sort_key)
+            .then_with(|| navigation_node_id(&left.node).cmp(navigation_node_id(&right.node)))
+    });
+    let total = count_to_u64(legacy_total)?
+        .checked_add(canonical_total)
+        .ok_or_else(|| corrupt("Library navigation count overflowed"))?;
+    Ok((nodes, total))
+}
+
+fn canonical_root_node_window(
+    connection: &Connection,
+    library_id: &str,
+    after: Option<&cursor::KeysetCoordinate>,
+    limit: usize,
+) -> Result<(Vec<OrderedNavigationNode>, u64), StoreError> {
+    let (after_sort_key, after_id) = keyset_text_coordinate(after)?;
+    let query_limit =
+        i64::try_from(limit.saturating_add(1)).map_err(|_| invalid("Library limit overflowed"))?;
+    let nodes = connection
+        .prepare(
+            "SELECT record.id, placement.rank_key, \
+               COALESCE(json_extract(record.properties_json, '$.title'), 'Untitled'), \
+               placement.revision, record.revision, \
+               EXISTS(SELECT 1 FROM block_placements child \
+                 INNER JOIN block_records child_record ON child_record.id = child.block_id \
+                 WHERE child.parent_kind = 'block' AND child.parent_id = record.id \
+                   AND child_record.lifecycle = 'active'), \
+               record.library_id \
+             FROM block_records record \
+             INNER JOIN block_placements placement ON placement.block_id = record.id \
+             WHERE record.library_id = ?1 AND record.kind_json = '\"page\"' \
+               AND record.lifecycle = 'active' AND placement.parent_kind = 'library' \
+               AND (?2 IS NULL OR placement.rank_key > ?2 \
+                 OR (placement.rank_key = ?2 AND record.id > ?3)) \
+             ORDER BY placement.rank_key, record.id LIMIT ?4",
+        )?
+        .query_map(
+            params![library_id, after_sort_key, after_id, query_limit],
+            |row| {
+                let page_id = row.get::<_, String>(0)?;
+                Ok(OrderedNavigationNode {
+                    sort_key: row.get(1)?,
+                    node: LibraryNavigationNode::Page {
+                        page_id,
+                        title: row.get(2)?,
+                        parent_revision: row.get(3)?,
+                        metadata_revision: row.get(4)?,
+                        document_generation: 0,
+                        document_head_seq: 0,
+                        updated_at: "1970-01-01T00:00:00.000Z".to_owned(),
+                        has_children: row.get::<_, i64>(5)? == 1,
+                    },
+                })
+            },
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let total = connection.query_row(
+        "SELECT COUNT(*) FROM block_records record \
+         INNER JOIN block_placements placement ON placement.block_id = record.id \
+         WHERE record.library_id = ?1 AND record.kind_json = '\"page\"' \
+           AND record.lifecycle = 'active' AND placement.parent_kind = 'library' \
+           ",
         [library_id],
         |row| row.get::<_, i64>(0),
     )?;
@@ -1296,7 +1384,7 @@ fn standalone_root_node_window(
              OR (placement.rank_key = ?2 AND block.id > ?3)) \
          ORDER BY placement.rank_key, block.id LIMIT ?4"
     );
-    let nodes = connection
+    let mut nodes = connection
         .prepare(&rows_sql)?
         .query_map(
             params![library_id, after_sort_key, after_id, query_limit],
@@ -1313,8 +1401,25 @@ fn standalone_root_node_window(
            AND COALESCE(page.lifecycle, container.lifecycle, block.lifecycle) = 'active' \
            AND {eligibility}"
     );
-    let total = connection.query_row(&count_sql, [library_id], |row| row.get::<_, i64>(0))?;
-    Ok((nodes, count_to_u64(total)?))
+    let legacy_total =
+        connection.query_row(&count_sql, [library_id], |row| row.get::<_, i64>(0))?;
+    let (mut canonical_nodes, canonical_total) =
+        canonical_root_node_window(connection, library_id, after, limit)?;
+    let legacy_ids = nodes
+        .iter()
+        .map(|ordered| navigation_node_id(&ordered.node).to_owned())
+        .collect::<HashSet<_>>();
+    canonical_nodes.retain(|ordered| !legacy_ids.contains(navigation_node_id(&ordered.node)));
+    nodes.append(&mut canonical_nodes);
+    nodes.sort_by(|left, right| {
+        left.sort_key
+            .cmp(&right.sort_key)
+            .then_with(|| navigation_node_id(&left.node).cmp(navigation_node_id(&right.node)))
+    });
+    let total = count_to_u64(legacy_total)?
+        .checked_add(canonical_total)
+        .ok_or_else(|| corrupt("Library standalone root count overflowed"))?;
+    Ok((nodes, total))
 }
 
 fn standalone_root_is_eligible(
@@ -1382,15 +1487,22 @@ fn page_child_node_window(
     after: Option<&cursor::KeysetCoordinate>,
     limit: usize,
 ) -> Result<(Vec<OrderedNavigationNode>, u64), StoreError> {
-    let document_id = connection
+    let legacy_document_id = connection
         .query_row(
             "SELECT document_id FROM pages \
              WHERE block_id = ?1 AND library_id = ?2 AND lifecycle = 'active'",
             params![page_id, library_id],
             |row| row.get::<_, String>(0),
         )
-        .optional()?
-        .ok_or_else(|| not_found("Library Page is unavailable"))?;
+        .optional()?;
+    let Some(document_id) =
+        legacy_document_id.or(canonical_page_exists(connection, library_id, page_id)?)
+    else {
+        return Err(not_found("Library Page is unavailable"));
+    };
+    if document_id == "__canonical_block_record_page__" {
+        return canonical_page_child_node_window(connection, library_id, page_id, after, limit);
+    }
     let (after_sort_key, after_id) = keyset_text_coordinate(after)?;
     let query_limit =
         i64::try_from(limit.saturating_add(1)).map_err(|_| invalid("Library limit overflowed"))?;
@@ -1467,6 +1579,108 @@ fn page_child_node_window(
     Ok((nodes, count_to_u64(total)?))
 }
 
+fn canonical_page_exists(
+    connection: &Connection,
+    library_id: &str,
+    page_id: &str,
+) -> Result<Option<String>, StoreError> {
+    connection
+        .query_row(
+            "SELECT CASE WHEN EXISTS( \
+               SELECT 1 FROM block_records record \
+               WHERE record.id = ?1 AND record.library_id = ?2 \
+                 AND record.kind_json = '\"page\"' AND record.lifecycle = 'active' \
+             ) THEN '__canonical_block_record_page__' END",
+            params![page_id, library_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .map_err(Into::into)
+}
+
+fn canonical_page_child_node_window(
+    connection: &Connection,
+    library_id: &str,
+    page_id: &str,
+    after: Option<&cursor::KeysetCoordinate>,
+    limit: usize,
+) -> Result<(Vec<OrderedNavigationNode>, u64), StoreError> {
+    let (after_sort_key, after_id) = keyset_text_coordinate(after)?;
+    let query_limit =
+        i64::try_from(limit.saturating_add(1)).map_err(|_| invalid("Library limit overflowed"))?;
+    let nodes = connection
+        .prepare(
+            "WITH RECURSIVE ordered(block_id, path) AS ( \
+               SELECT placement.block_id, placement.rank_key || ':' || placement.block_id \
+               FROM block_placements placement \
+               INNER JOIN block_records record ON record.id = placement.block_id \
+               WHERE placement.parent_kind = 'block' AND placement.parent_id = ?1 \
+                 AND record.library_id = ?2 AND record.lifecycle = 'active' \
+               UNION ALL \
+               SELECT child.block_id, ordered.path || '/' || child.rank_key || ':' || child.block_id \
+               FROM ordered \
+               INNER JOIN block_placements child ON child.parent_kind = 'block' \
+                 AND child.parent_id = ordered.block_id \
+               INNER JOIN block_records child_record ON child_record.id = child.block_id \
+                 AND child_record.library_id = ?2 AND child_record.lifecycle = 'active' \
+             ) \
+             SELECT record.kind_json, record.id, ordered.path, \
+               COALESCE(json_extract(record.properties_json, '$.title'), 'Untitled'), \
+               placement.revision, record.revision, \
+               EXISTS(SELECT 1 FROM block_placements child \
+                 INNER JOIN block_records child_record ON child_record.id = child.block_id \
+                 WHERE child.parent_kind = 'block' AND child.parent_id = record.id \
+                   AND child_record.lifecycle = 'active'), \
+               record.library_id \
+             FROM ordered \
+             INNER JOIN block_records record ON record.id = ordered.block_id \
+             INNER JOIN block_placements placement ON placement.block_id = record.id \
+               AND placement.parent_kind = 'block' \
+             WHERE record.kind_json = '\"page\"' \
+               AND (?3 IS NULL OR ordered.path > ?3 \
+                 OR (ordered.path = ?3 AND record.id > ?4)) \
+             ORDER BY ordered.path, record.id LIMIT ?5",
+        )?
+        .query_map(
+            params![page_id, library_id, after_sort_key, after_id, query_limit],
+            |row| {
+                Ok(OrderedNavigationNode {
+                    node: LibraryNavigationNode::Page {
+                        page_id: row.get(1)?,
+                        title: row.get(3)?,
+                        parent_revision: row.get(4)?,
+                        metadata_revision: row.get(5)?,
+                        document_generation: 0,
+                        document_head_seq: 0,
+                        updated_at: "1970-01-01T00:00:00.000Z".to_owned(),
+                        has_children: row.get::<_, i64>(6)? == 1,
+                    },
+                    sort_key: row.get(2)?,
+                })
+            },
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let total = connection.query_row(
+        "WITH RECURSIVE ordered(block_id) AS ( \
+           SELECT placement.block_id FROM block_placements placement \
+           INNER JOIN block_records record ON record.id = placement.block_id \
+           WHERE placement.parent_kind = 'block' AND placement.parent_id = ?1 \
+             AND record.library_id = ?2 AND record.lifecycle = 'active' \
+           UNION ALL \
+           SELECT child.block_id FROM ordered \
+           INNER JOIN block_placements child ON child.parent_kind = 'block' \
+             AND child.parent_id = ordered.block_id \
+           INNER JOIN block_records record ON record.id = child.block_id \
+             AND record.library_id = ?2 AND record.lifecycle = 'active' \
+         ) \
+         SELECT COUNT(*) FROM ordered \
+         INNER JOIN block_records record ON record.id = ordered.block_id \
+         WHERE record.kind_json = '\"page\"'",
+        params![page_id, library_id],
+        |row| row.get::<_, i64>(0),
+    )?;
+    Ok((nodes, count_to_u64(total)?))
+}
+
 fn page_node(connection: &Connection, page_id: &str) -> Result<LibraryNavigationNode, StoreError> {
     connection
         .query_row(
@@ -1497,6 +1711,43 @@ fn page_node(connection: &Connection, page_id: &str) -> Result<LibraryNavigation
         )
         .optional()?
         .ok_or_else(|| not_found("Library Page projection is unavailable"))
+}
+
+fn canonical_page_node(
+    connection: &Connection,
+    library_id: &str,
+    page_id: &str,
+) -> Result<LibraryNavigationNode, StoreError> {
+    connection
+        .query_row(
+            "SELECT record.id, \
+               COALESCE(json_extract(record.properties_json, '$.title'), 'Untitled'), \
+               placement.revision, record.revision, \
+               EXISTS(SELECT 1 FROM block_placements child \
+                 INNER JOIN block_records child_record ON child_record.id = child.block_id \
+                 WHERE child.parent_kind = 'block' AND child.parent_id = record.id \
+                   AND child_record.lifecycle = 'active') \
+             FROM block_records record \
+             INNER JOIN block_placements placement ON placement.block_id = record.id \
+             WHERE record.id = ?1 AND record.library_id = ?2 \
+               AND record.kind_json = '\"page\"' AND record.lifecycle = 'active' \
+               ",
+            params![page_id, library_id],
+            |row| {
+                Ok(LibraryNavigationNode::Page {
+                    page_id: row.get(0)?,
+                    title: row.get(1)?,
+                    parent_revision: row.get(2)?,
+                    metadata_revision: row.get(3)?,
+                    document_generation: 0,
+                    document_head_seq: 0,
+                    updated_at: "1970-01-01T00:00:00.000Z".to_owned(),
+                    has_children: row.get::<_, i64>(4)? == 1,
+                })
+            },
+        )
+        .optional()?
+        .ok_or_else(|| not_found("Canonical Library Page projection is unavailable"))
 }
 
 fn database_node(
@@ -1832,6 +2083,9 @@ fn forced_child_node(
 ) -> Result<Option<LibraryNavigationNode>, StoreError> {
     match (parent, target) {
         (LibraryNavigationParent::Library, LibraryRouteTarget::Page { page_id }) => {
+            if canonical_page_exists(connection, library_id, page_id)?.is_some() {
+                return canonical_page_node(connection, library_id, page_id).map(Some);
+            }
             let exists = connection.query_row(
                 "SELECT EXISTS(SELECT 1 FROM library_block_placements placement \
                  INNER JOIN pages page ON page.block_id = placement.block_id \
