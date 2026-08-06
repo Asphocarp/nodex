@@ -4,9 +4,14 @@
 //! IPC, and future sync adapters should translate their wire contracts into
 //! these types instead of reimplementing graph/content/commit coordination.
 
+use nodex_core_contracts::BoundModuleContext;
+use nodex_core_contracts::agent::{
+    AgentAuthorizationTarget, AgentExecutionAuthorization, AgentProjectResourceAction,
+};
+
 use crate::content_store::{self, ContentWindow};
 use crate::domain::block_record::{
-    BlockPlacement, BlockRecord, BlockViewPosition, PlacementParent, RecordGraph,
+    BlockKind, BlockPlacement, BlockRecord, BlockViewPosition, PlacementParent, RecordGraph,
 };
 use crate::infrastructure::block_record_store;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode, with_immediate_transaction};
@@ -14,7 +19,8 @@ use crate::infrastructure::store::SqliteStoreKernel;
 use crate::infrastructure::writer::{StoreReaders, StoreWriter};
 use crate::local_commit::{AppendedLocalCommit, LocalCommitEnvelope};
 use crate::mutation_kernel::{
-    BlockMutationRequest, ContentMutationRequest, apply_block_mutation, apply_content_mutation,
+    BlockMutationOperation, BlockMutationRequest, ContentMutationRequest, apply_block_mutation,
+    apply_content_mutation,
 };
 
 #[derive(Clone, Debug)]
@@ -248,6 +254,14 @@ impl BlockRecordModule {
     }
 
     pub fn apply(&self, request: BlockMutationRequest) -> Result<AppendedLocalCommit, StoreError> {
+        self.apply_with_agent_authorization(request, None)
+    }
+
+    pub fn apply_with_agent_authorization(
+        &self,
+        request: BlockMutationRequest,
+        agent: Option<(BoundModuleContext, AgentExecutionAuthorization)>,
+    ) -> Result<AppendedLocalCommit, StoreError> {
         if request.store_epoch != self.store_epoch {
             return Err(StoreError::new(
                 StoreErrorCode::StaleStoreEpoch,
@@ -255,10 +269,29 @@ impl BlockRecordModule {
                 false,
             ));
         }
+        if agent.as_ref().is_some_and(|(_, authorization)| {
+            authorization.provenance.authority.store_epoch != self.store_epoch
+        }) {
+            return Err(StoreError::new(
+                StoreErrorCode::StaleStoreEpoch,
+                "Agent BlockRecord authorization belongs to a different Store epoch",
+                false,
+            ));
+        }
         let library_id = self.library_id.clone();
         self.writer.call(move |connection| {
             with_immediate_transaction(connection, |transaction| {
                 let mut graph = block_record_store::read_graph(transaction, &library_id)?;
+                if let Some((context, authorization)) = agent.as_ref() {
+                    authorize_agent_operation(
+                        transaction,
+                        context,
+                        &library_id,
+                        authorization,
+                        &request.operation,
+                        &graph,
+                    )?;
+                }
                 apply_block_mutation(transaction, &mut graph, request)
             })
         })
@@ -297,6 +330,260 @@ impl BlockRecordModule {
         self.readers
             .read_default(|connection| crate::local_commit::head(connection, &self.store_epoch))
     }
+}
+
+fn authorize_agent_operation(
+    connection: &rusqlite::Connection,
+    context: &BoundModuleContext,
+    library_id: &str,
+    authorization: &AgentExecutionAuthorization,
+    operation: &BlockMutationOperation,
+    graph: &RecordGraph,
+) -> Result<(), StoreError> {
+    let mut created_ids = std::collections::BTreeSet::new();
+    collect_created_ids(operation, &mut created_ids);
+    let mut requirements = Vec::new();
+    collect_agent_requirements(operation, graph, &created_ids, &mut requirements)?;
+    let mut seen = std::collections::BTreeSet::new();
+    for (target, action) in requirements {
+        let key = format!("{:?}:{:?}", target, action);
+        if !seen.insert(key) {
+            continue;
+        }
+        crate::library::agent_authorization::authorize_execution(
+            connection,
+            context,
+            library_id,
+            authorization,
+            &target,
+            action,
+        )?;
+    }
+    Ok(())
+}
+
+fn collect_created_ids(
+    operation: &BlockMutationOperation,
+    output: &mut std::collections::BTreeSet<String>,
+) {
+    match operation {
+        BlockMutationOperation::Batch { operations } => {
+            for operation in operations {
+                collect_created_ids(operation, output);
+            }
+        }
+        BlockMutationOperation::Create { block_id, .. } => {
+            output.insert(block_id.clone());
+        }
+        _ => {}
+    }
+}
+
+fn collect_agent_requirements(
+    operation: &BlockMutationOperation,
+    graph: &RecordGraph,
+    created_ids: &std::collections::BTreeSet<String>,
+    output: &mut Vec<(AgentAuthorizationTarget, AgentProjectResourceAction)>,
+) -> Result<(), StoreError> {
+    match operation {
+        BlockMutationOperation::Batch { operations } => {
+            for operation in operations {
+                collect_agent_requirements(operation, graph, created_ids, output)?;
+            }
+        }
+        BlockMutationOperation::Create { parent, .. } => {
+            output.push((
+                parent_target(graph, parent)?,
+                AgentProjectResourceAction::CreateChild,
+            ));
+        }
+        BlockMutationOperation::Move {
+            block_id,
+            target_parent,
+            ..
+        } => {
+            push_existing_root_requirement(block_id, graph, created_ids, output)?;
+            output.push((
+                parent_target(graph, target_parent)?,
+                AgentProjectResourceAction::CreateChild,
+            ));
+        }
+        BlockMutationOperation::MoveMany { entries, .. } => {
+            for entry in entries {
+                push_existing_root_requirement(&entry.block_id, graph, created_ids, output)?;
+                output.push((
+                    parent_target(graph, &entry.target_parent)?,
+                    AgentProjectResourceAction::CreateChild,
+                ));
+            }
+        }
+        BlockMutationOperation::CopySubtree {
+            source_block_id,
+            target_parent,
+            ..
+        } => {
+            if !created_ids.contains(source_block_id) {
+                output.push((
+                    page_target(graph, source_block_id)?,
+                    AgentProjectResourceAction::Read,
+                ));
+            }
+            output.push((
+                parent_target(graph, target_parent)?,
+                AgentProjectResourceAction::CreateChild,
+            ));
+        }
+        BlockMutationOperation::UpdateRecord { block_id, .. }
+        | BlockMutationOperation::ArchiveSubtree { block_id, .. }
+        | BlockMutationOperation::SetMaterializedContent { block_id, .. } => {
+            push_existing_write_requirement(block_id, graph, created_ids, output)?;
+        }
+        BlockMutationOperation::UpdateMany { entries, .. } => {
+            for entry in entries {
+                push_existing_write_requirement(&entry.block_id, graph, created_ids, output)?;
+            }
+        }
+        BlockMutationOperation::RestoreSubtree {
+            block_id,
+            target_parent,
+            ..
+        } => {
+            push_existing_write_requirement(block_id, graph, created_ids, output)?;
+            output.push((
+                parent_target(graph, target_parent)?,
+                AgentProjectResourceAction::CreateChild,
+            ));
+        }
+        BlockMutationOperation::PromoteToPage {
+            block_id,
+            data_source_id,
+            ..
+        } => {
+            push_existing_root_requirement(block_id, graph, created_ids, output)?;
+            output.push((
+                AgentAuthorizationTarget::DataSource {
+                    data_source_id: data_source_id.clone(),
+                },
+                AgentProjectResourceAction::CreateChild,
+            ));
+        }
+        BlockMutationOperation::PromoteManyToPage {
+            data_source_id,
+            entries,
+            ..
+        } => {
+            for entry in entries {
+                push_existing_root_requirement(&entry.block_id, graph, created_ids, output)?;
+            }
+            output.push((
+                AgentAuthorizationTarget::DataSource {
+                    data_source_id: data_source_id.clone(),
+                },
+                AgentProjectResourceAction::CreateChild,
+            ));
+        }
+        BlockMutationOperation::PlaceManyInDataSource {
+            data_source_id,
+            entries,
+            ..
+        } => {
+            for entry in entries {
+                push_existing_root_requirement(&entry.block_id, graph, created_ids, output)?;
+            }
+            output.push((
+                AgentAuthorizationTarget::DataSource {
+                    data_source_id: data_source_id.clone(),
+                },
+                AgentProjectResourceAction::CreateChild,
+            ));
+        }
+        BlockMutationOperation::EnsureDataSource { data_source_id } => {
+            output.push((
+                AgentAuthorizationTarget::DataSource {
+                    data_source_id: data_source_id.clone(),
+                },
+                AgentProjectResourceAction::ManageSchema,
+            ));
+        }
+        BlockMutationOperation::ReconcilePageTree { page_id, .. } => {
+            if !created_ids.contains(page_id) {
+                push_existing_write_requirement(page_id, graph, created_ids, output)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn push_existing_root_requirement(
+    block_id: &str,
+    graph: &RecordGraph,
+    created_ids: &std::collections::BTreeSet<String>,
+    output: &mut Vec<(AgentAuthorizationTarget, AgentProjectResourceAction)>,
+) -> Result<(), StoreError> {
+    if created_ids.contains(block_id) {
+        return Ok(());
+    }
+    output.push((
+        page_target(graph, block_id)?,
+        AgentProjectResourceAction::Move,
+    ));
+    Ok(())
+}
+
+fn push_existing_write_requirement(
+    block_id: &str,
+    graph: &RecordGraph,
+    created_ids: &std::collections::BTreeSet<String>,
+    output: &mut Vec<(AgentAuthorizationTarget, AgentProjectResourceAction)>,
+) -> Result<(), StoreError> {
+    if created_ids.contains(block_id) {
+        return Ok(());
+    }
+    output.push((
+        page_target(graph, block_id)?,
+        AgentProjectResourceAction::Write,
+    ));
+    Ok(())
+}
+
+fn page_target(
+    graph: &RecordGraph,
+    block_id: &str,
+) -> Result<AgentAuthorizationTarget, StoreError> {
+    let Some(record) = graph.block(block_id) else {
+        return Err(StoreError::new(
+            StoreErrorCode::NotFound,
+            "Agent BlockRecord target is unavailable",
+            false,
+        ));
+    };
+    if !matches!(record.kind, BlockKind::Page) || !record.lifecycle.is_active() {
+        return Err(unauthorized(
+            "Agent BlockRecord structural mutation requires a Page root",
+        ));
+    }
+    Ok(AgentAuthorizationTarget::Page {
+        page_id: block_id.to_owned(),
+    })
+}
+
+fn parent_target(
+    graph: &RecordGraph,
+    parent: &PlacementParent,
+) -> Result<AgentAuthorizationTarget, StoreError> {
+    match parent {
+        PlacementParent::Library => Ok(AgentAuthorizationTarget::Library {
+            library_id: graph.library_id().to_owned(),
+        }),
+        PlacementParent::Block(block_id) => page_target(graph, block_id),
+        PlacementParent::DataSource(data_source_id) => Ok(AgentAuthorizationTarget::DataSource {
+            data_source_id: data_source_id.clone(),
+        }),
+    }
+}
+
+fn unauthorized(message: impl Into<String>) -> StoreError {
+    StoreError::new(StoreErrorCode::Unauthorized, message, false)
 }
 
 #[cfg(test)]
@@ -425,5 +712,131 @@ mod tests {
             )
             .expect("replay");
         assert_eq!(replay, vec![committed.envelope]);
+    }
+
+    #[test]
+    fn agent_structural_requirements_cover_both_source_and_target() {
+        let graph = RecordGraph::from_parts(
+            "library:test",
+            [
+                BlockRecord {
+                    id: "page:source".to_owned(),
+                    library_id: "library:test".to_owned(),
+                    kind: BlockKind::Page,
+                    lifecycle: BlockLifecycle::Active,
+                    properties: json!({}),
+                    content_shard_id: "shard:source".to_owned(),
+                    revision: 1,
+                },
+                BlockRecord {
+                    id: "page:target".to_owned(),
+                    library_id: "library:test".to_owned(),
+                    kind: BlockKind::Page,
+                    lifecycle: BlockLifecycle::Active,
+                    properties: json!({}),
+                    content_shard_id: "shard:target".to_owned(),
+                    revision: 2,
+                },
+            ],
+            [
+                BlockPlacement {
+                    block_id: "page:source".to_owned(),
+                    parent: PlacementParent::Library,
+                    rank_key: "a".to_owned(),
+                    revision: 1,
+                },
+                BlockPlacement {
+                    block_id: "page:target".to_owned(),
+                    parent: PlacementParent::Library,
+                    rank_key: "b".to_owned(),
+                    revision: 1,
+                },
+            ],
+        )
+        .expect("valid Page graph");
+        let operation = BlockMutationOperation::Move {
+            block_id: "page:source".to_owned(),
+            target_parent: PlacementParent::Block("page:target".to_owned()),
+            rank_key: "a".to_owned(),
+            expected_block_revision: 1,
+            expected_placement_revision: 1,
+        };
+        let mut requirements = Vec::new();
+        collect_agent_requirements(
+            &operation,
+            &graph,
+            &std::collections::BTreeSet::new(),
+            &mut requirements,
+        )
+        .expect("Agent requirements");
+        assert!(requirements.contains(&(
+            AgentAuthorizationTarget::Page {
+                page_id: "page:source".to_owned(),
+            },
+            AgentProjectResourceAction::Move,
+        )));
+        assert!(requirements.contains(&(
+            AgentAuthorizationTarget::Page {
+                page_id: "page:target".to_owned(),
+            },
+            AgentProjectResourceAction::CreateChild,
+        )));
+    }
+
+    #[test]
+    fn agent_structural_requirements_reject_non_page_roots() {
+        let graph = RecordGraph::from_parts(
+            "library:test",
+            [
+                BlockRecord {
+                    id: "block:source".to_owned(),
+                    library_id: "library:test".to_owned(),
+                    kind: BlockKind::Paragraph,
+                    lifecycle: BlockLifecycle::Active,
+                    properties: json!({}),
+                    content_shard_id: "shard:source".to_owned(),
+                    revision: 1,
+                },
+                BlockRecord {
+                    id: "page:target".to_owned(),
+                    library_id: "library:test".to_owned(),
+                    kind: BlockKind::Page,
+                    lifecycle: BlockLifecycle::Active,
+                    properties: json!({}),
+                    content_shard_id: "shard:target".to_owned(),
+                    revision: 2,
+                },
+            ],
+            [
+                BlockPlacement {
+                    block_id: "block:source".to_owned(),
+                    parent: PlacementParent::Library,
+                    rank_key: "a".to_owned(),
+                    revision: 1,
+                },
+                BlockPlacement {
+                    block_id: "page:target".to_owned(),
+                    parent: PlacementParent::Library,
+                    rank_key: "b".to_owned(),
+                    revision: 1,
+                },
+            ],
+        )
+        .expect("valid graph");
+        let operation = BlockMutationOperation::Move {
+            block_id: "block:source".to_owned(),
+            target_parent: PlacementParent::Block("page:target".to_owned()),
+            rank_key: "a".to_owned(),
+            expected_block_revision: 1,
+            expected_placement_revision: 1,
+        };
+        let error = collect_agent_requirements(
+            &operation,
+            &graph,
+            &std::collections::BTreeSet::new(),
+            &mut Vec::new(),
+        )
+        .expect_err("ordinary Block cannot use Page Agent structural auth");
+        assert_eq!(error.code, StoreErrorCode::Unauthorized);
     }
 }

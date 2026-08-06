@@ -305,9 +305,11 @@ describe("native desktop Nodex Agent dynamic service", () => {
     const blockRecordApply = vi.fn(async (request: {
       readonly operation: { readonly kind: string; readonly operations?: readonly unknown[] };
       readonly operation_id: string;
+      readonly agent_authorization?: { readonly call_id: string };
     }) => {
       expect(request.operation.kind).toBe("batch");
       expect(request.operation.operations).toHaveLength(4);
+      expect(request.agent_authorization).toMatchObject({ call_id: "call-native-agent" });
       return {
         actor_id: "profile:library-native-agent",
         audience: { kind: "library", projectIds: [] },
@@ -569,7 +571,12 @@ describe("native desktop Nodex Agent dynamic service", () => {
         content: [],
       };
     });
-    const blockRecordApply = vi.fn(async (request: { readonly operation_id: string }) => ({
+    const blockRecordApply = vi.fn(async (request: {
+      readonly operation_id: string;
+      readonly agent_authorization?: { readonly call_id: string };
+    }) => {
+      expect(request.agent_authorization).toMatchObject({ call_id: "call-native-agent" });
+      return {
       actor_id: "profile-native-agent",
       audience: { kind: "library", projectIds: [] },
       canonical_hash: "a".repeat(64),
@@ -582,7 +589,8 @@ describe("native desktop Nodex Agent dynamic service", () => {
       operation_id: request.operation_id,
       payload_completeness: "rich" as const,
       session_id: "call-native-agent",
-    }));
+      };
+    });
     const coordinate = vi.fn(async (options: {
       readonly execute: () => Promise<unknown>;
     }) => await options.execute());
@@ -857,7 +865,12 @@ describe("native desktop Nodex Agent dynamic service", () => {
         }],
       };
     });
-    const blockRecordApply = vi.fn(async (request: { readonly operation_id: string }) => ({
+    const blockRecordApply = vi.fn(async (request: {
+      readonly operation_id: string;
+      readonly agent_authorization?: { readonly call_id: string };
+    }) => {
+      expect(request.agent_authorization).toMatchObject({ call_id: "call-native-agent" });
+      return {
       actor_id: "profile-native-agent",
       audience: { kind: "library", projectIds: [] },
       canonical_hash: "a".repeat(64),
@@ -870,7 +883,8 @@ describe("native desktop Nodex Agent dynamic service", () => {
       operation_id: request.operation_id,
       payload_completeness: "rich" as const,
       session_id: "call-native-agent",
-    }));
+      };
+    });
     const coordinate = vi.fn(async (options: {
       readonly projectId: string;
       readonly storeEpoch: string;

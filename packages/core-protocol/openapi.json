@@ -1951,6 +1951,17 @@
           "actor_id": {
             "type": "string"
           },
+          "agent_authorization": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentExecutionAuthorization",
+                "description": "Agent mutations carry the frozen Core-verifiable Turn authority in the\nsame request as the typed operation. Trusted local UI mutations omit\nthis field and are admitted by the host-bound Module context."
+              }
+            ]
+          },
           "canonical_hash": {
             "type": "string"
           },

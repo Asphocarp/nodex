@@ -367,6 +367,12 @@ export class NativeNodexAgentPageMoveRuntime {
         libraryId: this.runtime.identity.libraryId,
         projectId: pending.request.projectId,
         storeEpoch: command.storeEpoch,
+        agentAuthorization: toCoreAgentExecutionAuthorization(
+          this.runtime.identity.profileId,
+          pending.request.authority,
+          pending.request.callId,
+          pending.request.resourceAccess,
+        ),
       }, canonicalIntent(pending.request, command, this.runtime.identity.libraryId));
       if (!transfer) {
         throw new Error("Canonical Agent Page movement has no BlockRecord source/target");

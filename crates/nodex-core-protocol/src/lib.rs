@@ -8,6 +8,7 @@ use nodex_core_contracts::{
         StoreAdministrationCommitValue, StoreAdministrationIntent, StoreAdministrationRead,
         StoreAdministrationReadValue, StoreAdministrationReceipt,
     },
+    agent::AgentExecutionAuthorization,
     automation::{
         AutomationCommitValue, AutomationIntent, AutomationRead, AutomationReadValue,
         AutomationReceipt,
@@ -1197,6 +1198,11 @@ pub struct BlockRecordApplyRequest {
     pub actor_id: String,
     pub session_id: String,
     pub committed_at: String,
+    /// Agent mutations carry the frozen Core-verifiable Turn authority in the
+    /// same request as the typed operation. Trusted local UI mutations omit
+    /// this field and are admitted by the host-bound Module context.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_authorization: Option<AgentExecutionAuthorization>,
     pub operation: BlockRecordOperation,
 }
 

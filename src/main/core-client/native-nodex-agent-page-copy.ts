@@ -400,6 +400,12 @@ export class NativeNodexAgentPageCopyRuntime {
         libraryId: this.runtime.identity.libraryId,
         projectId: pending.request.projectId,
         storeEpoch: command.storeEpoch,
+        agentAuthorization: toCoreAgentExecutionAuthorization(
+          this.runtime.identity.profileId,
+          pending.request.authority,
+          pending.request.callId,
+          pending.request.resourceAccess,
+        ),
       }, canonicalIntent(pending.request, command, this.runtime.identity.libraryId), targetPageId);
       if (!transfer) {
         throw new Error("Canonical Agent Page copy has no BlockRecord source/target");

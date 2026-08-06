@@ -52,6 +52,11 @@ mutation boundary:
   Store epoch, commit sequence, operation identity, affected records, bounded
   effects, and observed cursor. An operation ID plus intent hash is idempotent;
   a different intent for the same operation ID is a conflict.
+- Agent Page mutations carry the frozen Turn authorization alongside the
+  typed operation. Core derives the required source and destination resource
+  actions from the operation itself and validates them inside the same writer
+  transaction before applying the mutation; Main cannot turn a preparation
+  result into an unbounded write capability.
 
 Library New Page is compiled into this same `Create` operation. Its title is
 the initial `title` content slot and its Library/Page parent is the owning
@@ -134,6 +139,13 @@ or invent a second LocalCommit cursor. The next cutover work is to route those
 domain writers through the same Core transaction/commit boundary, then remove
 the remaining Page-wide structural Document runtime and its old public write
 routes in one schema replacement.
+
+The native Agent Page preparation path still reads the older Library preparation
+contract while its execute path is canonical. That preparation seam is not a
+second write authority: the final BlockRecord apply revalidates the frozen
+authority and operation-derived source/target permissions in Core. The next
+slice replaces the preparation read and its Document-head evidence with a
+BlockRecord snapshot/authorization lease as well.
 
 Schema versions 102–105 install and validate the current BlockRecord,
 materialized content, View-position, and lifecycle tables. This is an internal

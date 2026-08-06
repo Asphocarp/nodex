@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { components } from "@nodex/core-protocol";
 import {
   BLOCK_TRANSFER_CONTRACT_VERSION,
   parseBlockTransferIntent,
@@ -33,6 +34,7 @@ export interface CoreBlockTransferAdapterInput {
   readonly libraryId: string;
   readonly projectId: string;
   readonly storeEpoch: string;
+  readonly agentAuthorization?: components["schemas"]["AgentExecutionAuthorization"];
 }
 
 export interface CoreBlockTransferAdapter {
@@ -477,7 +479,12 @@ export const commitCanonicalCopyIntent = async (
       : {}),
     placementRebalances,
   });
-  const committed = await input.client.blockRecordApply(applyInput);
+  const committed = await input.client.blockRecordApply({
+    ...applyInput,
+    ...(input.agentAuthorization
+      ? { agent_authorization: input.agentAuthorization }
+      : {}),
+  });
   const sourceToTargetBlockIds = Object.fromEntries(sourceOrder.map((sourceId) => [
     sourceId,
     copyTargetId(sourceId),
@@ -654,7 +661,12 @@ export const commitCanonicalMoveIntent = async (
     entries,
     placementRebalances: [...placementRebalances.values()],
   });
-  const committed = await input.client.blockRecordApply(applyInput);
+  const committed = await input.client.blockRecordApply({
+    ...applyInput,
+    ...(input.agentAuthorization
+      ? { agent_authorization: input.agentAuthorization }
+      : {}),
+  });
   const evidence = intent.rootBlockIds.map((blockId) => {
     const record = sourceRecords.get(blockId)!;
     const titleContent = sourceWindow.content.find((content) => (
@@ -879,7 +891,12 @@ const commitMoveIntoDataSource = async (
       viewRebalances: [...viewRebalances.values()],
       placementRebalances: [...placementRebalances.values()],
     });
-  const committed = await input.client.blockRecordApply(applyInput);
+  const committed = await input.client.blockRecordApply({
+    ...applyInput,
+    ...(input.agentAuthorization
+      ? { agent_authorization: input.agentAuthorization }
+      : {}),
+  });
   const evidence = intent.rootBlockIds.map((blockId) => {
     const record = sourceRecords.get(blockId)!;
     const titleContent = sourceWindow.content.find((content) => (

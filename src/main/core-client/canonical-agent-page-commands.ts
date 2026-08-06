@@ -22,6 +22,7 @@ type BatchOperation = Exclude<
 interface CanonicalAgentPageCreateInput {
   readonly client: CoreClientPort;
   readonly actorId: string;
+  readonly authorization: components["schemas"]["AgentExecutionAuthorization"];
   readonly libraryId: string;
   readonly projectId: string;
   readonly storeEpoch: string;
@@ -331,5 +332,8 @@ export const commitCanonicalAgentPageCreate = async (
     sessionId: input.sessionId,
     operations,
   });
-  return input.client.blockRecordApply(batch);
+  return input.client.blockRecordApply({
+    ...batch,
+    agent_authorization: input.authorization,
+  });
 };

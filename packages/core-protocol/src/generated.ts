@@ -636,6 +636,7 @@ export interface components {
         };
         readonly BlockRecordApplyRequest: {
             readonly actor_id: string;
+            readonly agent_authorization?: null | components["schemas"]["AgentExecutionAuthorization"];
             readonly canonical_hash: string;
             readonly commit_id: string;
             readonly committed_at: string;

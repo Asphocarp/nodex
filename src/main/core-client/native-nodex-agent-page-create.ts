@@ -353,6 +353,12 @@ export class NativeNodexAgentPageCreateRuntime {
       const committed = await commitCanonicalAgentPageCreate({
         client: this.runtime.clientForProject(pending.request.projectId),
         actorId: `profile:${this.runtime.identity.profileId}`,
+        authorization: toCoreAgentExecutionAuthorization(
+          this.runtime.identity.profileId,
+          pending.request.authority,
+          pending.request.callId,
+          pending.request.resourceAccess,
+        ),
         libraryId: this.runtime.identity.libraryId,
         projectId: pending.request.projectId,
         storeEpoch: command.storeEpoch,

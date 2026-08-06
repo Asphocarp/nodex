@@ -673,7 +673,7 @@ async fn block_record_apply(
     record_operation("block_record", &request.operation_id);
     let response = (|| {
         require_block_record_contract(request.contract_version)?;
-        let _context = module_context(&state, &headers, &bound)?;
+        let context = module_context(&state, &headers, &bound)?;
         let operation = block_record_operation(&request.operation)?;
         let mutation = BlockMutationRequest {
             store_epoch: request.store_epoch,
@@ -691,7 +691,12 @@ async fn block_record_apply(
         };
         let committed = state
             .block_record
-            .apply(mutation)
+            .apply_with_agent_authorization(
+                mutation,
+                request
+                    .agent_authorization
+                    .map(|authorization| (context, authorization)),
+            )
             .map_err(block_record_store_error)?;
         let response_value = block_record_commit(committed.clone());
         if !committed.duplicate {
