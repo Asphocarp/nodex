@@ -415,19 +415,24 @@ All Library and View placement receipts use the canonical 32-digit fractional
 rank format, including bounded repair of imported legacy ranks. Exact replay
 returns the original receipt without reverting a later restore or advancing a
 revision again.
-Page Property v2 writes use one native `apply_block_property_mutation` Library
-aggregate for each mixed intrinsic/Data Source field batch. Core keeps
-compare-and-swap sets, multi-select add/remove deltas, cross-field schedule
-validation, Page/Data Source authorization, metadata advancement, Page/View/
-schedule projections, the public change payload, and committed or rejected
-`block_mutations` evidence in one transaction. Project-bound calls retain the
-invoking Project while trusted Library calls resolve their private compatibility
-ledger coordinate inside Core. Electron IPC selects this authority through the
-same Core-backed desktop bridges used by Library/Database Module, Page
-detail/lifecycle/history, semantic Document command/history, and Block Transfer
-operations. The binary Yjs/Canvas realtime plane, descriptor/prepare calls, and
-renderer subscriptions select the same async Document bridge; subscription
-authorization completes before Main acknowledges the renderer binding.
+Page intrinsic Property writes use deterministic `PatchProperties` BlockRecord
+operations. A Library Page metadata action composes those patches before an
+`ApplyDatabase` child in one non-nesting BlockRecord `Batch`, so intrinsic
+metadata, Data Source values, canonical record revisions, and the one
+LocalCommit receipt cannot expose a half-applied Page. The patch itself—not a
+read-back full-properties replacement—is the operation identity, so response-
+loss retries retain the same intent hash. Core keeps compare-and-swap sets,
+multi-select add/remove deltas, cross-field schedule validation, Page/Data
+Source authorization, metadata advancement, Page/View/schedule projections,
+the public change payload, and committed or rejected evidence in one
+transaction. Project-bound calls retain the invoking Project while trusted
+Library calls resolve their private compatibility ledger coordinate inside
+Core. Electron IPC selects this authority through the same Core-backed desktop
+bridges used by Library/Database Module, Page detail/lifecycle/history,
+semantic Document command/history, and Block Transfer operations. The binary
+Yjs/Canvas realtime plane, descriptor/prepare calls, and renderer subscriptions
+select the same async Document bridge; subscription authorization completes
+before Main acknowledges the renderer binding.
 Settings and managed-asset filesystem concerns remain Host-owned; every durable
 data route is available only after Core readiness.
 Trusted Library Database access uses a distinct root-client capability accepted

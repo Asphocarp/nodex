@@ -118,6 +118,11 @@ pub enum BlockMutationOperation {
         view_rank_key: Option<String>,
         expected_view_revision: Option<u64>,
     },
+    PatchProperties {
+        block_id: String,
+        properties: serde_json::Value,
+        expected_block_revision: u64,
+    },
     UpdateMany {
         entries: Vec<BlockRecordUpdateEntry>,
         view_rebalances: Vec<BlockViewPositionRebalance>,
@@ -538,6 +543,7 @@ fn persist_delta(
             target_block_id, ..
         } => target_block_id,
         BlockMutationOperation::UpdateRecord { block_id, .. }
+        | BlockMutationOperation::PatchProperties { block_id, .. }
         | BlockMutationOperation::ArchiveSubtree { block_id, .. }
         | BlockMutationOperation::RestoreSubtree { block_id, .. } => block_id,
         BlockMutationOperation::UpdateMany { entries, .. } => entries
@@ -875,6 +881,26 @@ fn persist_delta(
                 },
                 &next_record.library_id,
             )?;
+        }
+        return Ok(Vec::new());
+    }
+    if let BlockMutationOperation::PatchProperties { block_id, .. } = operation {
+        let previous_record = previous.block(block_id).ok_or_else(|| {
+            StoreError::new(
+                StoreErrorCode::StoreCorrupt,
+                "Patched BlockRecord is missing from the previous graph",
+                false,
+            )
+        })?;
+        let next_record = next.block(block_id).ok_or_else(|| {
+            StoreError::new(
+                StoreErrorCode::StoreCorrupt,
+                "Patched BlockRecord is missing from the prepared graph",
+                false,
+            )
+        })?;
+        if previous_record != next_record {
+            update_block_record(transaction, previous_record, next_record)?;
         }
         return Ok(Vec::new());
     }
@@ -2894,6 +2920,79 @@ fn apply_operation(
                 });
             }
             Ok((block_id.clone(), effects))
+        }
+        BlockMutationOperation::PatchProperties {
+            block_id,
+            properties,
+            expected_block_revision,
+        } => {
+            let current = graph.block(block_id).cloned().ok_or_else(|| {
+                StoreError::new(StoreErrorCode::NotFound, "BlockRecord is missing", false)
+            })?;
+            if current.lifecycle != BlockLifecycle::Active {
+                return Err(StoreError::new(
+                    StoreErrorCode::NotFound,
+                    "Page BlockRecord is not active",
+                    false,
+                ));
+            }
+            if current.kind != BlockKind::Page {
+                return Err(StoreError::new(
+                    StoreErrorCode::InvalidInput,
+                    "Intrinsic properties require a Page BlockRecord",
+                    false,
+                ));
+            }
+            if current.revision != *expected_block_revision {
+                return Err(StoreError::new(
+                    StoreErrorCode::RevisionConflict,
+                    "BlockRecord property patch precondition is stale",
+                    true,
+                ));
+            }
+            let patch = properties.as_object().ok_or_else(|| {
+                StoreError::new(
+                    StoreErrorCode::InvalidInput,
+                    "BlockRecord property patch must be a JSON object",
+                    false,
+                )
+            })?;
+            if patch.is_empty() {
+                return Err(StoreError::new(
+                    StoreErrorCode::InvalidInput,
+                    "BlockRecord property patch must contain at least one field",
+                    false,
+                ));
+            }
+            let mut next_properties = current.properties.as_object().cloned().ok_or_else(|| {
+                StoreError::new(
+                    StoreErrorCode::StoreCorrupt,
+                    "BlockRecord properties are not a JSON object",
+                    false,
+                )
+            })?;
+            for (key, value) in patch {
+                next_properties.insert(key.clone(), value.clone());
+            }
+            let next_properties = Value::Object(next_properties);
+            if next_properties == current.properties {
+                return Err(StoreError::new(
+                    StoreErrorCode::InvalidInput,
+                    "BlockRecord property patch contains no change",
+                    false,
+                ));
+            }
+            graph
+                .update_block(block_id, current.kind.clone(), next_properties)
+                .map_err(map_graph_error)?;
+            let next_record = graph.block(block_id).ok_or_else(|| {
+                StoreError::new(
+                    StoreErrorCode::StoreCorrupt,
+                    "Patched BlockRecord disappeared",
+                    false,
+                )
+            })?;
+            Ok((block_id.clone(), vec![record_effect(next_record)]))
         }
         BlockMutationOperation::UpdateMany {
             entries,
@@ -6169,6 +6268,60 @@ mod tests {
                 1
             )
         );
+        let commit_count: i64 = connection
+            .query_row("SELECT count(*) FROM local_commits", [], |row| row.get(0))
+            .expect("commit count");
+        assert_eq!(commit_count, 1);
+    }
+
+    #[test]
+    fn patch_properties_merges_canonical_record_and_retries_by_operation_identity() {
+        let mut connection = Connection::open_in_memory().expect("SQLite");
+        install_graph_schema(&connection).expect("graph schema");
+        install_commit_schema(&connection).expect("commit schema");
+        let mut graph = graph();
+        {
+            let transaction = connection.transaction().expect("seed transaction");
+            crate::infrastructure::block_record_store::ensure_data_source(
+                &transaction,
+                "board:test",
+                "library:test",
+            )
+            .expect("board data source");
+            crate::infrastructure::block_record_store::write_graph(&transaction, &graph)
+                .expect("graph");
+            transaction.commit().expect("seed commit");
+        }
+
+        let mutation = || {
+            request(
+                "patch:page-a",
+                BlockMutationOperation::PatchProperties {
+                    block_id: "page-a".to_owned(),
+                    properties: json!({"run.target": "cloud"}),
+                    expected_block_revision: 0,
+                },
+            )
+        };
+        let transaction = connection.transaction().expect("patch transaction");
+        let committed = apply_block_mutation(&transaction, &mut graph, mutation()).expect("patch");
+        transaction.commit().expect("patch commit");
+
+        assert!(!committed.duplicate);
+        assert_eq!(graph.block("page-a").expect("page").revision, 1);
+        assert_eq!(
+            graph.block("page-a").expect("page").properties,
+            json!({"title": "Page A", "run.target": "cloud"})
+        );
+        assert_eq!(committed.envelope.effects[0].kind, "record");
+
+        let transaction = connection.transaction().expect("duplicate transaction");
+        let duplicate =
+            apply_block_mutation(&transaction, &mut graph, mutation()).expect("duplicate patch");
+        transaction.commit().expect("duplicate commit");
+
+        assert!(duplicate.duplicate);
+        assert_eq!(duplicate.envelope.cursor, committed.envelope.cursor);
         let commit_count: i64 = connection
             .query_row("SELECT count(*) FROM local_commits", [], |row| row.get(0))
             .expect("commit count");

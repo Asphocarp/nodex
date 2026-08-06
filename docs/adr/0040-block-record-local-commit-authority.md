@@ -32,10 +32,17 @@ mutation boundary:
   ownership authority for this path.
 - `Batch`, `Create`, `Move`, `MoveMany`, `CopySubtree`, `PromoteManyToPage`,
   `PlaceManyInDataSource`, `SetMaterializedContent`,
-  `ReconcilePageTree`, `Update`, `ArchiveSubtree`, and `RestoreSubtree` are
-  typed Core
+  `ReconcilePageTree`, `Update`, `PatchProperties`, `ArchiveSubtree`, and
+  `RestoreSubtree` are typed Core
   operations. Validation, rank rebalance, canonical row updates, content
   materialization, and LocalCommit append happen in one SQLite transaction.
+- Intrinsic Page Properties are patches against the owning BlockRecord. The
+  patch object and its expected raw record revision form the deterministic
+  operation identity; the writer never turns a read-back full property bag
+  into a new retry intent. A Page metadata action places its intrinsic
+  `PatchProperties` children before its optional `ApplyDatabase` child in one
+  `Batch`, so the final canonical record revision and Data Source values share
+  one LocalCommit even when both domains change the same Page.
 - `Batch` is a finite, non-nesting composition of the same typed operations.
   Child operations are applied in order against the prepared graph and share
   one receipt/LocalCommit; callers must not emulate a cross-domain mutation by
@@ -128,6 +135,11 @@ Library Move, Archive, and Restore of a canonical Page use the same typed
 BlockRecord boundary. The adapter validates the observed placement or metadata
 revision against its local snapshot and returns the resulting LocalCommit
 cursor, so these menu actions do not wait for the legacy Page event stream.
+
+Page Detail metadata edits use the same boundary: intrinsic fields are merged
+as canonical BlockRecord patches, Database value edits are an ordered child of
+the same batch, and the initiating window receives the resulting envelope
+before the durable tail replays it.
 
 An already-Page root is therefore never a promotion. On opening a current
 development store, Core claims any active legacy-created Block IDs that still

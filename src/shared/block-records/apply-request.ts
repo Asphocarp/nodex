@@ -152,6 +152,12 @@ export interface UpdateManyBlockRecordsApplyInput extends BlockRecordApplyIdenti
   }[];
 }
 
+export interface PatchBlockRecordPropertiesApplyInput extends BlockRecordApplyIdentity {
+  readonly blockId: string;
+  readonly properties: Readonly<Record<string, unknown>>;
+  readonly expectedBlockRevision: number;
+}
+
 export interface ArchiveBlockRecordSubtreeApplyInput extends BlockRecordApplyIdentity {
   readonly blockId: string;
   readonly expectedBlockRevision: number;
@@ -770,6 +776,26 @@ export const buildUpdateManyBlockRecordsApplyInput = async (
     kind: "update_many" as const,
     entries,
     view_rebalances: viewRebalances,
+  };
+  return {
+    ...await identityFields(input, operation),
+    operation,
+  };
+};
+
+export const buildPatchBlockRecordPropertiesApplyInput = async (
+  input: PatchBlockRecordPropertiesApplyInput,
+): Promise<BlockRecordApplyInput> => {
+  assertIdentity("blockId", input.blockId);
+  assertRevision("expectedBlockRevision", input.expectedBlockRevision);
+  if (Object.keys(input.properties).length === 0) {
+    throw new Error("properties must contain at least one field");
+  }
+  const operation = {
+    kind: "patch_properties" as const,
+    block_id: input.blockId,
+    properties: input.properties,
+    expected_block_revision: input.expectedBlockRevision,
   };
   return {
     ...await identityFields(input, operation),

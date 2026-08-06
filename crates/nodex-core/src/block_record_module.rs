@@ -666,6 +666,7 @@ fn collect_agent_requirements(
             ));
         }
         BlockMutationOperation::UpdateRecord { block_id, .. }
+        | BlockMutationOperation::PatchProperties { block_id, .. }
         | BlockMutationOperation::ArchiveSubtree { block_id, .. }
         | BlockMutationOperation::SetMaterializedContent { block_id, .. } => {
             push_existing_write_requirement(block_id, graph, created_ids, output)?;

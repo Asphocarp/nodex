@@ -7,6 +7,7 @@ import type { DatabaseViewKind } from "../../shared/database-kernel";
 import { plainTextToPortableRichText } from "../../shared/block-documents/portable-rich-text";
 import { blockRecordSnapshotToWindow } from "../../shared/block-records/wire";
 import {
+  buildBatchBlockRecordApplyInput,
   buildArchiveBlockRecordSubtreeApplyInput,
   buildCreateBlockRecordApplyInput,
   buildMoveManyBlockRecordApplyInput,
@@ -46,8 +47,12 @@ import {
 } from "../../shared/page-history-transport";
 import type { PageSearchInput, PageSearchResult } from "../../shared/types";
 import {
+  makeBlockPropertyFieldPathV2,
   parseBlockPropertyMutationCommandResultV2,
   parseLibraryBlockPropertyMutationCommandResultV2,
+  type BlockPropertyFieldMutationV2,
+  type BlockPropertyJsonValueV2,
+  type BlockPropertyMutationErrorCodeV2,
   type BlockPropertyMutationCommandResultV2,
   type BlockPropertyMutationFieldResultV2,
   type BlockPropertyMutationRequestV2,
@@ -320,7 +325,12 @@ const toCoreRead = (request: LibraryModuleReadRequest): LibraryRead => {
   }
 };
 
-const toCoreIntent = (operation: LibraryApplyOperation): LibraryIntent => {
+type LegacyLibraryApplyOperation = Exclude<
+  LibraryApplyOperation,
+  { readonly kind: "apply_page_metadata_properties" }
+>;
+
+const toCoreIntent = (operation: LegacyLibraryApplyOperation): LibraryIntent => {
   switch (operation.kind) {
     case "create_page":
       return {
@@ -418,16 +428,6 @@ const toCoreIntent = (operation: LibraryApplyOperation): LibraryIntent => {
           access: change.access,
           expected_revision: change.expectedRevision,
         })),
-      };
-    case "apply_page_metadata_properties":
-      return {
-        kind: operation.kind,
-        database_intents: operation.databaseOperations.map(toCoreDatabaseIntent),
-        intrinsic_mutation: toCoreBlockPropertyMutation(
-          operation.intrinsicFields,
-          { kind: "page_metadata" },
-          operation.clientSessionId,
-        ),
       };
   }
 };
@@ -1340,51 +1340,82 @@ const fromCoreCreatedTarget = (
   return { kind: target.kind, canvasId: target.canvas_id };
 };
 
-type CoreBlockPropertyMutation = Extract<
-  LibraryIntent,
-  { kind: "apply_block_property_mutation" }
->["mutation"];
-type CoreBlockPropertyOutcome = NonNullable<
-  Awaited<ReturnType<CoreClientPort["libraryApply"]>>["value"]["block_property_mutation"]
->["outcome"];
+const CANONICAL_INTRINSIC_PROPERTY_KEYS = new Set([
+  "run.target",
+  "run.localPath",
+  "run.baseBranch",
+  "run.worktreePath",
+  "run.environmentPath",
+  "schedule.isAllDay",
+  "schedule.timezone",
+  "recurrence.config",
+  "reminders.config",
+]);
 
-const toCoreBlockPropertyMutation = (
-  fields: BlockPropertyMutationRequestV2["fields"],
-  actor: BlockPropertyMutationRequestV2["actor"],
-  clientSessionId: string | undefined,
-): CoreBlockPropertyMutation => ({
-  actor,
-  client_session_id: clientSessionId ?? null,
-  fields: fields.map((field) => ({
-    kind: "intrinsic_set" as const,
-    block_id: field.blockId,
-    property_key: field.propertyKey,
-    expected_revision: field.expectedRevision,
-    value: field.value,
-  })),
-});
-
-const fromCoreBlockPropertyField = (
-  field: Extract<CoreBlockPropertyOutcome, { status: "committed" }>["fields"][number],
-): BlockPropertyMutationFieldResultV2 => {
-  if (field.scope !== "intrinsic") {
-    throw new Error("Core returned retired Data Source Property mutation evidence");
-  }
-  return {
-    path: field.path,
-    scope: "intrinsic",
-    blockId: field.block_id,
-    propertyKey: field.property_key,
-    operation: "set",
-    revision: field.revision,
-    value: field.value as BlockPropertyMutationFieldResultV2["value"],
-  };
+const canonicalIntrinsicValueType = (
+  value: unknown,
+): "null" | "boolean" | "number" | "string" | "json" => {
+  if (value === null) return "null";
+  if (typeof value === "boolean") return "boolean";
+  if (typeof value === "number") return "number";
+  if (typeof value === "string") return "string";
+  if (typeof value === "object") return "json";
+  throw new Error("Canonical Page intrinsic Property is not portable JSON");
 };
+
+const canonicalPageIntrinsicProperties = (
+  properties: Readonly<Record<string, unknown>>,
+  revision: number,
+) => Object.entries(properties)
+  .filter(([key]) => CANONICAL_INTRINSIC_PROPERTY_KEYS.has(key))
+  .sort(([left], [right]) => left.localeCompare(right))
+  .map(([key, value]) => ({
+    key,
+    valueType: canonicalIntrinsicValueType(value),
+    value,
+    revision: canonicalPublicRevision(revision),
+  }));
+
+class CanonicalBlockPropertyMutationError extends Error {
+  constructor(
+    readonly code: BlockPropertyMutationErrorCodeV2,
+    message: string,
+    readonly fieldPath?: string,
+    readonly expectedRevision?: number,
+    readonly actualRevision?: number,
+  ) {
+    super(message);
+    this.name = "CanonicalBlockPropertyMutationError";
+  }
+}
 
 const blockPropertyFailure = (
   mutationId: string,
   error: unknown,
+  conflict?: {
+    readonly fieldPath: string;
+    readonly expectedRevision: number;
+    readonly actualRevision: number;
+  },
 ): BlockPropertyMutationCommandResultV2 => {
+  if (error instanceof CanonicalBlockPropertyMutationError) {
+    return {
+      ok: false,
+      error: {
+        code: error.code,
+        message: error.message,
+        retryable: error.code === "property_conflict" ? false : true,
+        mutationId,
+        ...(error.fieldPath === undefined ? {} : { fieldPath: error.fieldPath }),
+        ...(error.expectedRevision === undefined
+          ? {}
+          : { expectedRevision: error.expectedRevision }),
+        ...(error.actualRevision === undefined
+          ? {}
+          : { actualRevision: error.actualRevision }),
+      },
+    };
+  }
   const coreError = error instanceof CoreModuleResponseError
     ? error.coreError
     : null;
@@ -1399,7 +1430,7 @@ const blockPropertyFailure = (
       case "not_found":
         return "block_not_found";
       case "revision_conflict":
-        return "property_conflict";
+        return conflict ? "property_conflict" : "unknown";
       default:
         return "unknown";
     }
@@ -1414,36 +1445,238 @@ const blockPropertyFailure = (
       message: error instanceof Error ? error.message : String(error),
       retryable: coreError?.retryable ?? true,
       mutationId,
+      ...(conflict === undefined ? {} : {
+        fieldPath: conflict.fieldPath,
+        expectedRevision: conflict.expectedRevision,
+        actualRevision: conflict.actualRevision,
+      }),
     },
   };
 };
 
-const fromCoreBlockPropertyOutcome = (
-  mutationId: string,
-  outcome: CoreBlockPropertyOutcome,
-): Extract<BlockPropertyMutationCommandResultV2, { readonly ok: false }> | null => {
-  if (outcome.status === "committed") return null;
-  return {
-    ok: false,
-    error: {
-      code: outcome.error.code,
-      message: outcome.error.message,
-      retryable: outcome.error.retryable,
-      mutationId,
-      ...(outcome.error.field_path === undefined
-        || outcome.error.field_path === null
-        ? {}
-        : { fieldPath: outcome.error.field_path }),
-      ...(outcome.error.expected_revision === undefined
-        || outcome.error.expected_revision === null
-        ? {}
-        : { expectedRevision: outcome.error.expected_revision }),
-      ...(outcome.error.actual_revision === undefined
-        || outcome.error.actual_revision === null
-        ? {}
-        : { actualRevision: outcome.error.actual_revision }),
-    },
+type ApplyPageMetadataPropertiesOperation = Extract<
+  LibraryApplyOperation,
+  { readonly kind: "apply_page_metadata_properties" }
+>;
+
+const canonicalPropertyRead = (blockIds: readonly string[]) => ({
+  kind: "window" as const,
+  block_ids: [...blockIds].sort((left, right) => left.localeCompare(right)),
+  include_content: false,
+  include_descendants: false,
+  include_archived: true,
+} as const);
+
+const databaseOperationPageIds = (
+  operations: ApplyPageMetadataPropertiesOperation["databaseOperations"],
+): readonly string[] => [...new Set(
+  operations.flatMap((operation) => operation.edits.map((edit) => edit.pageId)),
+)].sort((left, right) => left.localeCompare(right));
+
+const planCanonicalPropertyPatches = async (
+  input: CoreLibraryModuleAdapterInput,
+  fields: readonly BlockPropertyFieldMutationV2[],
+  additionalBlockIds: readonly string[] = [],
+) => {
+  const blockIds = [...new Set([
+    ...fields.map((field) => field.blockId),
+    ...additionalBlockIds,
+  ])].sort((left, right) => left.localeCompare(right));
+  if (blockIds.length === 0) {
+    throw new CanonicalBlockPropertyMutationError(
+      "invalid_property_mutation_request",
+      "Canonical Page metadata mutation has no target Page",
+    );
+  }
+  const read = canonicalPropertyRead(blockIds);
+  const snapshot = await input.client.blockRecordRead(read);
+  if (
+    snapshot.library_id !== input.libraryId
+    || snapshot.observed_cursor.store_epoch !== input.storeEpoch
+  ) {
+    throw new Error("Canonical Page metadata read escaped its BlockRecord snapshot boundary");
+  }
+  const window = blockRecordSnapshotToWindow(snapshot, read);
+  const records = new Map(window.records.map((record) => [record.id, record]));
+  const placements = new Map(
+    window.placements.map((placement) => [placement.blockId, placement]),
+  );
+  const patches = new Map<string, Record<string, BlockPropertyJsonValueV2>>();
+  const expectedRevisions = new Map<string, number>();
+  for (const field of fields) {
+    if (!CANONICAL_INTRINSIC_PROPERTY_KEYS.has(field.propertyKey)) {
+      throw new CanonicalBlockPropertyMutationError(
+        "invalid_property_mutation_request",
+        `Property ${field.propertyKey} is not a canonical Page intrinsic Property`,
+        makeBlockPropertyFieldPathV2(field),
+      );
+    }
+    const record = records.get(field.blockId);
+    if (!record) {
+      throw new CanonicalBlockPropertyMutationError(
+        "block_not_found",
+        `Canonical Page ${field.blockId} is unavailable`,
+        makeBlockPropertyFieldPathV2(field),
+      );
+    }
+    if (record.kind !== "page") {
+      throw new CanonicalBlockPropertyMutationError(
+        "block_type_mismatch",
+        `BlockRecord ${field.blockId} is not a Page`,
+        makeBlockPropertyFieldPathV2(field),
+      );
+    }
+    if (record.lifecycle !== "active") {
+      throw new CanonicalBlockPropertyMutationError(
+        "block_not_active",
+        `Canonical Page ${field.blockId} is not active`,
+        makeBlockPropertyFieldPathV2(field),
+      );
+    }
+    const expectedBlockRevision = Math.max(0, field.expectedRevision - 1);
+    const previousExpectedRevision = expectedRevisions.get(field.blockId);
+    if (
+      previousExpectedRevision !== undefined
+      && previousExpectedRevision !== expectedBlockRevision
+    ) {
+      throw new CanonicalBlockPropertyMutationError(
+        "invalid_property_mutation_request",
+        `All intrinsic fields for Page ${field.blockId} must share one BlockRecord revision`,
+        makeBlockPropertyFieldPathV2(field),
+      );
+    }
+    expectedRevisions.set(field.blockId, expectedBlockRevision);
+    const patch = patches.get(field.blockId) ?? {};
+    patch[field.propertyKey] = field.value;
+    patches.set(field.blockId, patch);
+  }
+  const operations = [...patches.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([blockId, properties]) => ({
+      kind: "patch_properties" as const,
+      block_id: blockId,
+      properties,
+      expected_block_revision: expectedRevisions.get(blockId) ?? 0,
+    }));
+  return { read, window, records, placements, operations, expectedRevisions };
+};
+
+const rawRevisionsFromCommitEffects = (
+  effects: Awaited<ReturnType<typeof applyBlockRecordWithResolution>>["effects"],
+): ReadonlyMap<string, number> => {
+  const revisions = new Map<string, number>();
+  for (const effect of effects) {
+    if (typeof effect.value !== "object" || effect.value === null || Array.isArray(effect.value)) {
+      continue;
+    }
+    const value = effect.value as Readonly<Record<string, unknown>>;
+    if (
+      typeof value.blockId === "string"
+      && typeof value.revision === "number"
+      && Number.isSafeInteger(value.revision)
+    ) {
+      revisions.set(value.blockId, value.revision);
+    }
+  }
+  return revisions;
+};
+
+const canonicalPageMetadataReceipt = (
+  input: CoreLibraryModuleAdapterInput,
+  request: LibraryModuleApplyRequest & {
+    readonly operation: ApplyPageMetadataPropertiesOperation;
+  },
+  committed: Awaited<ReturnType<typeof applyBlockRecordWithResolution>>,
+  plan: Awaited<ReturnType<typeof planCanonicalPropertyPatches>>,
+): LibraryModuleApplyReceipt => {
+  const pageIds = [...new Set([
+    ...request.operation.intrinsicFields.map((field) => field.blockId),
+    ...databaseOperationPageIds(request.operation.databaseOperations),
+  ])].sort((left, right) => left.localeCompare(right));
+  const effectRevisions = rawRevisionsFromCommitEffects(committed.effects);
+  const databaseTouches = new Map<string, Set<string>>();
+  for (const operation of request.operation.databaseOperations) {
+    for (const edit of operation.edits) {
+      const dataSources = databaseTouches.get(edit.pageId) ?? new Set<string>();
+      dataSources.add(edit.dataSourceId);
+      databaseTouches.set(edit.pageId, dataSources);
+    }
+  }
+  const rawRevision = (pageId: string): number => {
+    const fromEffect = effectRevisions.get(pageId);
+    if (fromEffect !== undefined) return fromEffect;
+    const expected = plan.expectedRevisions.get(pageId);
+    const initial = expected ?? plan.records.get(pageId)?.revision ?? 0;
+    const patchIncrement = expected === undefined ? 0 : 1;
+    return initial + patchIncrement + (databaseTouches.get(pageId)?.size ?? 0);
   };
+  const affectedParentKeys = pageIds
+    .map((pageId) => plan.placements.get(pageId)?.parent)
+    .filter((parent): parent is NonNullable<typeof parent> => parent !== undefined)
+    .map(canonicalPlacementKey)
+    .filter((key, index, keys) => keys.indexOf(key) === index)
+    .sort((left, right) => left.localeCompare(right));
+  return {
+    version: request.version,
+    operationId: request.operationId,
+    storeEpoch: committed.cursor.store_epoch,
+    libraryId: input.libraryId,
+    operationKind: request.operation.kind,
+    duplicate: committed.duplicate,
+    didMutate: !committed.duplicate,
+    createdTarget: null,
+    canvasMutation: null,
+    affectedParentKeys,
+    affectedPageIds: pageIds,
+    affectedDatabaseIds: [],
+    affectedViewIds: [],
+    committedRevisions: Object.fromEntries(
+      pageIds.map((pageId) => [
+        `blockMetadata:${pageId}`,
+        canonicalPublicRevision(rawRevision(pageId)),
+      ]),
+    ),
+    changeLogSeq: committed.cursor.commit_seq,
+    committedAt: committed.committed_at,
+  };
+};
+
+const applyCanonicalPageMetadataProperties = async (
+  input: CoreLibraryModuleAdapterInput,
+  request: LibraryModuleApplyRequest & {
+    readonly operation: ApplyPageMetadataPropertiesOperation;
+  },
+): Promise<LibraryModuleApplyReceipt> => {
+  const plan = await planCanonicalPropertyPatches(
+    input,
+    request.operation.intrinsicFields,
+    databaseOperationPageIds(request.operation.databaseOperations),
+  );
+  const databaseOperations = request.operation.databaseOperations.map(toCoreDatabaseIntent);
+  const operations = [
+    ...plan.operations,
+    ...(databaseOperations.length === 0
+      ? []
+      : [{ kind: "apply_database" as const, intents: databaseOperations }]),
+  ];
+  const apply = await buildBatchBlockRecordApplyInput({
+    operationId: request.operationId,
+    actorId: canonicalPageActorId(input.profileId),
+    sessionId: request.operation.clientSessionId ?? canonicalPageSessionId(input.libraryId),
+    operations,
+  });
+  const committed = await applyBlockRecordWithResolution({
+    client: input.client,
+    input: apply,
+    storeEpoch: input.storeEpoch,
+  });
+  if (
+    committed.operation_id !== request.operationId
+    || committed.cursor.store_epoch !== input.storeEpoch
+  ) {
+    throw new Error("Canonical Page metadata receipt escaped its operation boundary");
+  }
+  return canonicalPageMetadataReceipt(input, request, committed, plan);
 };
 
 const applyCanonicalPageCreate = async (
@@ -1497,6 +1730,15 @@ const applyCanonicalPageCreate = async (
     properties: {
       title: request.operation.title,
       createdAt: request.operationId,
+      "run.target": "localProject",
+      "run.localPath": null,
+      "run.baseBranch": null,
+      "run.worktreePath": null,
+      "run.environmentPath": null,
+      "schedule.isAllDay": false,
+      "schedule.timezone": null,
+      "recurrence.config": null,
+      "reminders.config": [],
     },
     contentShardId: `block-record-shard:${request.operation.pageId}`,
     parent,
@@ -2222,8 +2464,8 @@ export const createCoreLibraryModuleAdapter = (
             libraryId: input.libraryId,
             parent,
             lifecycle: record.lifecycle,
-            parentRevision: placement.revision,
-            metadataRevision: record.revision,
+            parentRevision: canonicalPublicRevision(placement.revision),
+            metadataRevision: canonicalPublicRevision(record.revision),
             documentId: `block-record:${pageId}`,
             documentGeneration: 0,
             documentHeadSeq: 0,
@@ -2239,7 +2481,10 @@ export const createCoreLibraryModuleAdapter = (
             schemaKey: "nodex.block-record",
             schemaVersion: 1,
           },
-          intrinsicProperties: [],
+          intrinsicProperties: canonicalPageIntrinsicProperties(
+            record.properties,
+            record.revision,
+          ),
           dataSourceContext: { kind: "standalone" },
           accessContext: { kind: "library" },
         },
@@ -2267,36 +2512,29 @@ export const createCoreLibraryModuleAdapter = (
         },
       };
     }
+    let read = canonicalPropertyRead(
+      [...new Set(request.fields.map((field) => field.blockId))],
+    );
     try {
-      const committed = await input.client.libraryApply({
+      void request.actor;
+      const plan = await planCanonicalPropertyPatches(input, request.fields);
+      read = plan.read;
+      const apply = await buildBatchBlockRecordApplyInput({
         operationId: request.mutationId,
-        intent: {
-          kind: "apply_block_property_mutation",
-          mutation: toCoreBlockPropertyMutation(
-            request.fields,
-            request.actor,
-            request.clientSessionId,
-          ),
-        },
+        actorId: canonicalPageActorId(input.profileId),
+        sessionId: request.clientSessionId ?? canonicalPageSessionId(input.libraryId),
+        operations: plan.operations,
       });
-      const receipt = committed.value.block_property_mutation;
+      const committed = await applyBlockRecordWithResolution({
+        client: input.client,
+        input: apply,
+        storeEpoch: input.storeEpoch,
+      });
       if (
-        !receipt
-        || committed.store_epoch !== request.storeEpoch
-        || committed.receipt.operation_id !== request.mutationId
-        || committed.receipt.operation_kind !== "property_batch"
+        committed.operation_id !== request.mutationId
+        || committed.cursor.store_epoch !== request.storeEpoch
       ) {
-        throw new Error(
-          "Core Property mutation receipt escaped its operation boundary",
-        );
-      }
-      const rejected = fromCoreBlockPropertyOutcome(
-        request.mutationId,
-        receipt.outcome,
-      );
-      if (rejected) return rejected;
-      if (receipt.outcome.status !== "committed") {
-        throw new Error("Core returned an invalid Property mutation outcome");
+        throw new Error("Core Property mutation receipt escaped its operation boundary");
       }
       return parseBlockPropertyMutationCommandResultV2({
         ok: true,
@@ -2304,16 +2542,57 @@ export const createCoreLibraryModuleAdapter = (
           version: 2,
           mutationId: request.mutationId,
           projectId: request.projectId,
-          storeEpoch: committed.store_epoch,
-          duplicate: committed.receipt.duplicate,
-          fields: receipt.outcome.fields.map(fromCoreBlockPropertyField),
-          blockMetadataRevisions:
-            receipt.outcome.block_metadata_revisions,
-          changeLogSeq: committed.receipt.change_log_seq,
-          committedAt: committed.receipt.committed_at,
+          storeEpoch: committed.cursor.store_epoch,
+          duplicate: committed.duplicate,
+          fields: request.fields.map((field) => {
+            const expectedBlockRevision = plan.expectedRevisions.get(field.blockId) ?? 0;
+            return {
+              path: makeBlockPropertyFieldPathV2(field),
+              scope: "intrinsic" as const,
+              blockId: field.blockId,
+              propertyKey: field.propertyKey,
+              operation: "set" as const,
+              revision: canonicalPublicRevision(expectedBlockRevision + 1),
+              value: field.value,
+            } satisfies BlockPropertyMutationFieldResultV2;
+          }),
+          blockMetadataRevisions: Object.fromEntries(
+            [...plan.expectedRevisions.entries()]
+              .sort(([left], [right]) => left.localeCompare(right))
+              .map(([blockId, expectedBlockRevision]) => [
+                blockId,
+                canonicalPublicRevision(expectedBlockRevision + 1),
+              ]),
+          ),
+          changeLogSeq: committed.cursor.commit_seq,
+          committedAt: committed.committed_at,
         },
       });
     } catch (error) {
+      if (
+        error instanceof CoreModuleResponseError
+        && error.coreError.code === "revision_conflict"
+      ) {
+        const field = request.fields[0];
+        if (field) {
+          try {
+            const snapshot = await input.client.blockRecordRead(read);
+            const record = snapshot.graph.blocks.find(
+              (candidate) => candidate.id === field.blockId,
+            );
+            if (record) {
+              return blockPropertyFailure(request.mutationId, error, {
+                fieldPath: makeBlockPropertyFieldPathV2(field),
+                expectedRevision: field.expectedRevision,
+                actualRevision: canonicalPublicRevision(record.revision),
+              });
+            }
+          } catch {
+            // Preserve the definitive Core conflict when conflict evidence is
+            // unavailable; the caller can refresh the Page Detail.
+          }
+        }
+      }
       return blockPropertyFailure(request.mutationId, error);
     }
   };
@@ -2356,6 +2635,14 @@ export const createCoreLibraryModuleAdapter = (
           return {
             ok: true,
             value: await applyCanonicalPageCreate(input, pageRequest),
+          };
+        }
+        if (request.operation.kind === "apply_page_metadata_properties") {
+          return {
+            ok: true,
+            value: await applyCanonicalPageMetadataProperties(input, request as LibraryModuleApplyRequest & {
+              readonly operation: ApplyPageMetadataPropertiesOperation;
+            }),
           };
         }
         if (request.operation.kind === "move_block") {

@@ -969,6 +969,15 @@ fn block_record_operation(
             view_rank_key: view_rank_key.clone(),
             expected_view_revision: *expected_view_revision,
         }),
+        BlockRecordOperation::PatchProperties {
+            block_id,
+            properties,
+            expected_block_revision,
+        } => Ok(BlockMutationOperation::PatchProperties {
+            block_id: block_id.clone(),
+            properties: properties.clone(),
+            expected_block_revision: *expected_block_revision,
+        }),
         BlockRecordOperation::UpdateMany {
             entries,
             view_rebalances,

@@ -2377,6 +2377,32 @@
           {
             "type": "object",
             "required": [
+              "block_id",
+              "properties",
+              "expected_block_revision",
+              "kind"
+            ],
+            "properties": {
+              "block_id": {
+                "type": "string"
+              },
+              "expected_block_revision": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "patch_properties"
+                ]
+              },
+              "properties": {}
+            }
+          },
+          {
+            "type": "object",
+            "required": [
               "entries",
               "kind"
             ],
@@ -3336,6 +3362,33 @@
                   "null"
                 ]
               }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Merges a deterministic JSON object patch into one BlockRecord. The\npatch, rather than a client-read full replacement, is the operation\nidentity so response-loss retries remain idempotent.",
+            "required": [
+              "block_id",
+              "properties",
+              "expected_block_revision",
+              "kind"
+            ],
+            "properties": {
+              "block_id": {
+                "type": "string"
+              },
+              "expected_block_revision": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "patch_properties"
+                ]
+              },
+              "properties": {}
             }
           },
           {

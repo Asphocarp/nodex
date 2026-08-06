@@ -886,6 +886,14 @@ pub enum BlockRecordOperation {
         #[serde(default)]
         expected_view_revision: Option<u64>,
     },
+    /// Merges a deterministic JSON object patch into one BlockRecord. The
+    /// patch, rather than a client-read full replacement, is the operation
+    /// identity so response-loss retries remain idempotent.
+    PatchProperties {
+        block_id: String,
+        properties: serde_json::Value,
+        expected_block_revision: u64,
+    },
     UpdateMany {
         entries: Vec<BlockRecordUpdateEntry>,
         #[serde(default)]
@@ -1053,6 +1061,11 @@ pub enum BlockRecordBatchOperation {
         view_rank_key: Option<String>,
         #[serde(default)]
         expected_view_revision: Option<u64>,
+    },
+    PatchProperties {
+        block_id: String,
+        properties: serde_json::Value,
+        expected_block_revision: u64,
     },
     UpdateMany {
         entries: Vec<BlockRecordUpdateEntry>,

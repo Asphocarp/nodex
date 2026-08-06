@@ -746,6 +746,13 @@ export interface components {
             readonly view_id?: string | null;
             readonly view_rank_key?: string | null;
         } | {
+            readonly block_id: string;
+            /** Format: int64 */
+            readonly expected_block_revision: number;
+            /** @enum {string} */
+            readonly kind: "patch_properties";
+            readonly properties: unknown;
+        } | {
             readonly entries: readonly components["schemas"]["BlockRecordUpdateEntry"][];
             /** @enum {string} */
             readonly kind: "update_many";
@@ -979,6 +986,13 @@ export interface components {
             readonly view_group_key?: string | null;
             readonly view_id?: string | null;
             readonly view_rank_key?: string | null;
+        } | {
+            readonly block_id: string;
+            /** Format: int64 */
+            readonly expected_block_revision: number;
+            /** @enum {string} */
+            readonly kind: "patch_properties";
+            readonly properties: unknown;
         } | {
             readonly entries: readonly components["schemas"]["BlockRecordUpdateEntry"][];
             /** @enum {string} */

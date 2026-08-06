@@ -479,7 +479,10 @@ const compileIntrinsicFields = (
       blockId: detail.page.pageId,
       propertyKey,
       operation: "set" as const,
-      expectedRevision: current?.revision ?? 0,
+      // Intrinsic fields are projected from one canonical Page BlockRecord.
+      // A missing field still belongs to the current record revision; zero is
+      // reserved for callers that have no Page snapshot at all.
+      expectedRevision: current?.revision ?? detail.page.metadataRevision,
       value,
     }];
   });

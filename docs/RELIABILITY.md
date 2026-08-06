@@ -26,6 +26,10 @@ invents a successful Page from an optimistic overlay.
   evict apply-only commits before the durable tailer confirms them; after the
   tailer crosses an older cursor, late apply/resolve delivery for that cursor
   is acknowledged as a duplicate without re-running renderer effects.
+- Intrinsic Page metadata uses a deterministic BlockRecord patch. A mixed Page
+  metadata mutation orders those patches before the Database value child in one
+  BlockRecord batch, so a response-loss retry does not hash a different
+  read-back property bag and no renderer can observe only half of the edit.
 - Board cards are projected from the bounded BlockRecord window. Legacy View
   row windows may continue to supply View metadata, group totals, and
   pagination, but they cannot overwrite the canonical card projection. A

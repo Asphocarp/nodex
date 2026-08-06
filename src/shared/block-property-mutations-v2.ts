@@ -23,6 +23,7 @@ export interface SetIntrinsicBlockPropertyV2 {
   readonly blockId: string;
   readonly propertyKey: string;
   readonly operation: "set";
+  /** Public one-based revision of the owning canonical Page BlockRecord. */
   readonly expectedRevision: number;
   readonly value: BlockPropertyJsonValueV2;
 }
@@ -50,6 +51,7 @@ export interface IntrinsicBlockPropertyMutationFieldResultV2 {
   readonly blockId: string;
   readonly propertyKey: string;
   readonly operation: "set";
+  /** Public one-based revision of the owning canonical Page BlockRecord. */
   readonly revision: number;
   readonly value: BlockPropertyJsonValueV2;
 }
