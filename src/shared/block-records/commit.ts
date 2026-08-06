@@ -74,6 +74,41 @@ const effect = (kind: string, value: unknown): LocalCommitEffect[] => {
       },
     }];
   }
+  if (kind === "view_position_remove") {
+    return [{
+      kind: "view_position_remove",
+      value: {
+        viewId: requiredString(value.viewId, "removed view id"),
+        dataSourceId: requiredString(value.dataSourceId, "removed view Data Source id"),
+        blockId: requiredString(value.blockId, "removed view position block id"),
+        revision: nonNegativeRevision(value.revision, "removed view position"),
+      },
+    }];
+  }
+  if (kind === "property_values") {
+    if (!Array.isArray(value.values)) {
+      throw new Error("BlockRecord property values are invalid");
+    }
+    const values = value.values.map((entry) => {
+      if (!isRecord(entry)) {
+        throw new Error("BlockRecord property value entry is invalid");
+      }
+      return {
+        propertyId: requiredString(entry.propertyId, "property id"),
+        value: entry.value,
+        revision: nonNegativeRevision(entry.revision, "property value"),
+      };
+    });
+    return [{
+      kind: "property_values",
+      value: {
+        blockId: requiredString(value.blockId, "property values block id"),
+        dataSourceId: requiredString(value.dataSourceId, "property values Data Source id"),
+        values,
+        revision: nonNegativeRevision(value.revision, "property values record"),
+      },
+    }];
+  }
   if (kind === "content") {
     const materializedJson = value.materializedJson;
     const stateHash = value.stateHash === undefined || value.stateHash === null
@@ -111,6 +146,30 @@ const effect = (kind: string, value: unknown): LocalCommitEffect[] => {
       kind: "database",
       value: {
         value: databaseValue,
+        receipt,
+        eventSequence: value.event_sequence,
+        storeEpoch: value.store_epoch,
+      },
+    }];
+  }
+  if (kind === "library") {
+    const libraryValue = value.value;
+    const receipt = value.receipt;
+    if (
+      !isRecord(libraryValue)
+      || !isRecord(receipt)
+      || typeof value.event_sequence !== "number"
+      || !Number.isSafeInteger(value.event_sequence)
+      || value.event_sequence < 0
+      || typeof value.store_epoch !== "string"
+      || !value.store_epoch.trim()
+    ) {
+      throw new Error("BlockRecord Library effect is invalid");
+    }
+    return [{
+      kind: "library",
+      value: {
+        value: libraryValue,
         receipt,
         eventSequence: value.event_sequence,
         storeEpoch: value.store_epoch,

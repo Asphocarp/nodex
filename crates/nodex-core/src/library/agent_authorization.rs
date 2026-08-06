@@ -426,7 +426,7 @@ fn validate_execution_transport_context(
     ))
 }
 
-pub(super) fn canonicalize_grants(
+pub(crate) fn canonicalize_grants(
     grants: &[AgentResourceGrantSpec],
 ) -> Result<Vec<AgentResourceGrantSpec>, StoreError> {
     if grants.len() > MAX_GRANTS {
@@ -458,7 +458,7 @@ pub(super) fn canonicalize_grants(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(super) fn persist_project_grants(
+pub(crate) fn persist_project_grants(
     connection: &Connection,
     context: &BoundModuleContext,
     store_epoch: &str,

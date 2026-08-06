@@ -88,6 +88,41 @@ describe("blockRecordCommitToLocalCommit", () => {
     }]);
   });
 
+  it("preserves Library receipts inside the canonical LocalCommit", () => {
+    const envelope = blockRecordCommitToLocalCommit({
+      cursor: { store_epoch: "epoch:a", commit_seq: 11 },
+      commit_id: "commit:library",
+      operation_id: "operation:library",
+      intent_hash: "a".repeat(64),
+      canonical_hash: "b".repeat(64),
+      actor_id: "agent:project:a",
+      session_id: "agent-grants:project:a",
+      committed_at: "2026-08-06T00:00:00Z",
+      effects: [{
+        kind: "library",
+        value: {
+          value: { affected_resource_ids: ["page:a"] },
+          receipt: { operation_kind: "persist_agent_project_resource_grants" },
+          event_sequence: 12,
+          store_epoch: "epoch:a",
+        },
+      }],
+      audience: { kind: "library", projectIds: [] },
+      payload_completeness: "rich",
+      duplicate: false,
+    });
+
+    expect(envelope.effects).toEqual([{
+      kind: "library",
+      value: {
+        value: { affected_resource_ids: ["page:a"] },
+        receipt: { operation_kind: "persist_agent_project_resource_grants" },
+        eventSequence: 12,
+        storeEpoch: "epoch:a",
+      },
+    }]);
+  });
+
   it("fails closed for an audience that is not Core-shaped", () => {
     expect(() => blockRecordCommitToLocalCommit({
       cursor: { store_epoch: "epoch:a", commit_seq: 1 },
@@ -103,5 +138,75 @@ describe("blockRecordCommitToLocalCommit", () => {
       payload_completeness: "rich",
       duplicate: false,
     })).toThrow(/audience/iu);
+  });
+
+  it("parses canonical Data Source property-value effects", () => {
+    const envelope = blockRecordCommitToLocalCommit({
+      cursor: { store_epoch: "epoch:a", commit_seq: 9 },
+      commit_id: "commit:values",
+      operation_id: "operation:values",
+      intent_hash: "a".repeat(64),
+      canonical_hash: "b".repeat(64),
+      actor_id: "actor:a",
+      session_id: "session:a",
+      committed_at: "2026-08-06T00:00:00Z",
+      effects: [{
+        kind: "property_values",
+        value: {
+          blockId: "page:a",
+          dataSourceId: "source:a",
+          values: [{ propertyId: "status", value: "done", revision: 4 }],
+          revision: 6,
+        },
+      }],
+      audience: { kind: "library", projectIds: [] },
+      payload_completeness: "rich",
+      duplicate: false,
+    });
+
+    expect(envelope.effects).toEqual([{
+      kind: "property_values",
+      value: {
+        blockId: "page:a",
+        dataSourceId: "source:a",
+        values: [{ propertyId: "status", value: "done", revision: 4 }],
+        revision: 6,
+      },
+    }]);
+  });
+
+  it("parses canonical View-position removals", () => {
+    const envelope = blockRecordCommitToLocalCommit({
+      cursor: { store_epoch: "epoch:a", commit_seq: 10 },
+      commit_id: "commit:view-remove",
+      operation_id: "operation:view-remove",
+      intent_hash: "a".repeat(64),
+      canonical_hash: "b".repeat(64),
+      actor_id: "actor:a",
+      session_id: "session:a",
+      committed_at: "2026-08-06T00:00:00Z",
+      effects: [{
+        kind: "view_position_remove",
+        value: {
+          viewId: "view:a",
+          dataSourceId: "source:a",
+          blockId: "page:a",
+          revision: 5,
+        },
+      }],
+      audience: { kind: "library", projectIds: [] },
+      payload_completeness: "rich",
+      duplicate: false,
+    });
+
+    expect(envelope.effects).toEqual([{
+      kind: "view_position_remove",
+      value: {
+        viewId: "view:a",
+        dataSourceId: "source:a",
+        blockId: "page:a",
+        revision: 5,
+      },
+    }]);
   });
 });

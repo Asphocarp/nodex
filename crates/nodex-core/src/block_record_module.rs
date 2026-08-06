@@ -816,6 +816,7 @@ fn collect_agent_requirements(
                 }
             }
         }
+        BlockMutationOperation::PersistAgentProjectResourceGrants { .. } => {}
         BlockMutationOperation::ReconcilePageTree { page_id, .. } => {
             if !created_ids.contains(page_id) {
                 push_existing_write_requirement(page_id, graph, created_ids, output)?;

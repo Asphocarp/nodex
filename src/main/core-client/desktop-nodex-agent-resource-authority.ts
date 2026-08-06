@@ -17,6 +17,7 @@ import type {
   DesktopDataAuthorityRuntime,
   RustDataAuthorityRuntime,
 } from "./desktop-data-authority";
+import { buildPersistAgentProjectResourceGrantsBlockRecordApplyInput } from "../../shared/block-records/apply-request";
 
 type CoreAgentTarget = components["schemas"]["AgentAuthorizationTarget"];
 type CoreAgentGrant = components["schemas"]["AgentResourceGrantSpec"];
@@ -306,25 +307,26 @@ const createCorePort = (
     persistProjectGrants: async (input) => {
       const committed = await runtime.clientForProject(
         input.authority.actorProjectId,
-      ).libraryApply({
-        operationId: input.operationId,
-        intent: {
-          kind: "persist_agent_project_resource_grants",
+      ).blockRecordApply(
+        await buildPersistAgentProjectResourceGrantsBlockRecordApplyInput({
+          operationId: input.operationId,
+          actorId: `agent:${input.authority.actorProjectId}`,
+          sessionId: `agent-grants:${input.authority.actorProjectId}`,
           provenance: toCoreAgentTurnProvenance(
             runtime.identity.profileId,
             input.authority,
           ),
           grants: canonicalizeNodexAgentResourceGrantSpecs(input.grants)
             .map(toCoreGrant),
-        },
-      });
+        }),
+      );
       if (
-        committed.store_epoch !== input.authority.storeEpoch
-        || committed.receipt.operation_id !== input.operationId
-        || committed.receipt.operation_kind
-          !== "persist_agent_project_resource_grants"
+        committed.cursor.store_epoch !== input.authority.storeEpoch
+        || committed.operation_id !== input.operationId
+        || committed.operation_id.trim() === ""
+        || !committed.effects.some((effect) => effect.kind === "library")
       ) {
-        throw new Error("Core Agent Project grants escaped their receipt boundary");
+        throw new Error("Core Agent Project grants escaped their LocalCommit boundary");
       }
     },
   };

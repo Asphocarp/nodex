@@ -2144,6 +2144,31 @@
           {
             "type": "object",
             "required": [
+              "provenance",
+              "grants",
+              "kind"
+            ],
+            "properties": {
+              "grants": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/AgentResourceGrantSpec"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "persist_agent_project_resource_grants"
+                ]
+              },
+              "provenance": {
+                "$ref": "#/components/schemas/AgentTurnProvenance"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
               "block_id",
               "target_parent",
               "rank_key",
@@ -3075,6 +3100,32 @@
                 "enum": [
                   "apply_database"
                 ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Persists the Project resource grants produced by an Agent consent\nflow under the same BlockRecord LocalCommit boundary.",
+            "required": [
+              "provenance",
+              "grants",
+              "kind"
+            ],
+            "properties": {
+              "grants": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/AgentResourceGrantSpec"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "persist_agent_project_resource_grants"
+                ]
+              },
+              "provenance": {
+                "$ref": "#/components/schemas/AgentTurnProvenance"
               }
             }
           },

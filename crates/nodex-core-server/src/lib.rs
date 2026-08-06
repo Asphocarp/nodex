@@ -854,6 +854,12 @@ fn block_record_operation(
                 intents: intents.clone(),
             })
         }
+        BlockRecordOperation::PersistAgentProjectResourceGrants { provenance, grants } => {
+            Ok(BlockMutationOperation::PersistAgentProjectResourceGrants {
+                provenance: provenance.clone(),
+                grants: grants.clone(),
+            })
+        }
         BlockRecordOperation::Move {
             block_id,
             target_parent,

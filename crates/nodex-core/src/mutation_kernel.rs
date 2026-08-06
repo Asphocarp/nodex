@@ -8,8 +8,13 @@ use rusqlite::{OptionalExtension, Transaction};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
-use nodex_core_contracts::database::{DATABASE_CONTRACT_VERSION, DatabaseIntent};
-use nodex_core_contracts::{BoundModuleContext, ModuleApplyRequest, StoreEpoch};
+use nodex_core_contracts::agent::{AgentResourceGrantSpec, AgentTurnProvenance};
+use nodex_core_contracts::database::{
+    DATABASE_CONTRACT_VERSION, DatabaseIntent, DatabaseTransferTarget,
+};
+use nodex_core_contracts::{
+    BoundModuleContext, LIBRARY_CONTRACT_VERSION, ModuleApplyRequest, StoreEpoch,
+};
 
 use crate::content_store::{ContentSlot, ContentSnapshot, ContentUpdateRequest, append_update};
 use crate::domain::block_record::{
@@ -72,6 +77,10 @@ pub enum BlockMutationOperation {
     },
     ApplyDatabase {
         intents: Vec<DatabaseIntent>,
+    },
+    PersistAgentProjectResourceGrants {
+        provenance: AgentTurnProvenance,
+        grants: Vec<AgentResourceGrantSpec>,
     },
     Move {
         block_id: String,
@@ -366,6 +375,7 @@ pub fn apply_block_mutation_with_database_context(
             &request.operation,
             BlockMutationOperation::EnsureDataSource { .. }
                 | BlockMutationOperation::ApplyDatabase { .. }
+                | BlockMutationOperation::PersistAgentProjectResourceGrants { .. }
         ) {
             debug_assert!(
                 committed
@@ -563,7 +573,10 @@ fn persist_delta(
         BlockMutationOperation::SetDataSourceValues { block_id, .. } => block_id,
         BlockMutationOperation::SetMaterializedContent { block_id, .. } => block_id,
         BlockMutationOperation::ReconcilePageTree { page_id, .. } => page_id,
-        BlockMutationOperation::ApplyDatabase { .. } => return Ok(Vec::new()),
+        BlockMutationOperation::ApplyDatabase { .. }
+        | BlockMutationOperation::PersistAgentProjectResourceGrants { .. } => {
+            return Ok(Vec::new());
+        }
         BlockMutationOperation::EnsureDataSource { data_source_id } => {
             crate::infrastructure::block_record_store::ensure_data_source(
                 transaction,
@@ -2592,6 +2605,16 @@ fn apply_operation(
             store_epoch,
             database_context,
         ),
+        BlockMutationOperation::PersistAgentProjectResourceGrants { provenance, grants } => {
+            apply_agent_project_resource_grants(
+                transaction,
+                operation_id,
+                store_epoch,
+                database_context,
+                provenance,
+                grants,
+            )
+        }
         BlockMutationOperation::Move {
             block_id,
             target_parent,
@@ -4103,9 +4126,202 @@ fn apply_database_intents(
         kind: "database".to_owned(),
         value,
     }];
+    if outcome.committed.receipt.mutation.duplicate {
+        return Ok((primary, effects));
+    }
+    effects.extend(sync_database_page_transfers(transaction, graph, intents)?);
     effects.extend(sync_database_value_records(transaction, graph, intents)?);
     effects.extend(sync_database_view_positions(transaction, graph, intents)?);
     Ok((primary, effects))
+}
+
+fn apply_agent_project_resource_grants(
+    transaction: &Transaction<'_>,
+    operation_id: &str,
+    store_epoch: &str,
+    module_context: Option<&BoundModuleContext>,
+    provenance: &AgentTurnProvenance,
+    grants: &[AgentResourceGrantSpec],
+) -> Result<(String, Vec<LocalCommitEffect>), StoreError> {
+    let context = module_context.ok_or_else(|| {
+        StoreError::new(
+            StoreErrorCode::InvalidInput,
+            "Agent Project grant operations require a bound Module context",
+            false,
+        )
+    })?;
+    let grants = crate::library::agent_authorization::canonicalize_grants(grants)?;
+    let store_epoch_value = StoreEpoch(store_epoch.to_owned());
+    let fingerprint = serde_json::to_vec(&(
+        "nodex.agent.project-resource-grants.v1",
+        &context.profile_id,
+        &context.library_id,
+        &context.project_id,
+        LIBRARY_CONTRACT_VERSION,
+        &store_epoch_value,
+        provenance,
+        &grants,
+    ))
+    .map_err(|_| corrupt("Agent Project grant intent cannot be fingerprinted"))?;
+    let request_hash = crate::document::sha256(&fingerprint);
+    let outcome = crate::library::agent_authorization::persist_project_grants(
+        transaction,
+        context,
+        store_epoch,
+        &context.library_id.0,
+        operation_id,
+        &request_hash,
+        provenance,
+        &grants,
+    )?;
+    let primary = provenance.authority.actor_project_id.clone();
+    let value = serde_json::to_value(outcome.committed).map_err(|_| {
+        StoreError::new(
+            StoreErrorCode::StoreCorrupt,
+            "Agent Project grant receipt cannot be encoded",
+            false,
+        )
+    })?;
+    Ok((
+        primary,
+        vec![LocalCommitEffect {
+            kind: "library".to_owned(),
+            value,
+        }],
+    ))
+}
+
+fn sync_database_page_transfers(
+    transaction: &Transaction<'_>,
+    graph: &mut RecordGraph,
+    intents: &[DatabaseIntent],
+) -> Result<Vec<LocalCommitEffect>, StoreError> {
+    let transfers = intents.iter().filter_map(|intent| match intent {
+        DatabaseIntent::TransferPage {
+            page_id, target, ..
+        } => Some((page_id.as_str(), target)),
+        _ => None,
+    });
+    let mut effects = Vec::new();
+    for (page_id, target) in transfers {
+        let previous = graph.placement(page_id).cloned().ok_or_else(|| {
+            StoreError::new(
+                StoreErrorCode::NotFound,
+                "Database Page transfer target is missing from BlockRecord authority",
+                false,
+            )
+        })?;
+        let target_parent = match target {
+            DatabaseTransferTarget::Library { library_id } => {
+                if library_id != graph.library_id() {
+                    return Err(StoreError::new(
+                        StoreErrorCode::Unauthorized,
+                        "Database Page transfer targets another Library",
+                        false,
+                    ));
+                }
+                PlacementParent::Library
+            }
+            DatabaseTransferTarget::Page { page_id } => PlacementParent::Block(page_id.clone()),
+            DatabaseTransferTarget::DataSource { data_source_id } => {
+                crate::infrastructure::block_record_store::ensure_data_source(
+                    transaction,
+                    data_source_id,
+                    graph.library_id(),
+                )?;
+                PlacementParent::DataSource(data_source_id.clone())
+            }
+        };
+        let rank_key = canonical_transfer_rank(transaction, graph, page_id, &target_parent)?;
+        if previous.parent == target_parent && previous.rank_key == rank_key {
+            continue;
+        }
+        graph
+            .move_block(page_id, target_parent, rank_key)
+            .map_err(map_graph_error)?;
+        let next = graph.placement(page_id).cloned().ok_or_else(|| {
+            StoreError::new(
+                StoreErrorCode::StoreCorrupt,
+                "Transferred Page placement disappeared from BlockRecord graph",
+                false,
+            )
+        })?;
+        crate::infrastructure::block_record_store::update_placement(transaction, &previous, &next)?;
+        effects.push(LocalCommitEffect {
+            kind: "placement".to_owned(),
+            value: json!({
+                "blockId": page_id,
+                "from": previous.parent,
+                "to": next.parent,
+                "rankKey": next.rank_key,
+                "revision": next.revision,
+            }),
+        });
+        let removed_positions =
+            crate::infrastructure::block_record_store::delete_view_positions_for_block(
+                transaction,
+                page_id,
+                graph.library_id(),
+            )?;
+        for position in removed_positions {
+            effects.push(LocalCommitEffect {
+                kind: "view_position_remove".to_owned(),
+                value: json!({
+                    "viewId": position.view_id,
+                    "dataSourceId": position.data_source_id,
+                    "blockId": position.block_id,
+                    "revision": position.revision.checked_add(1).ok_or_else(|| {
+                        StoreError::new(
+                            StoreErrorCode::StoreCorrupt,
+                            "View position revision overflow while transferring Page",
+                            false,
+                        )
+                    })?,
+                }),
+            });
+        }
+    }
+    Ok(effects)
+}
+
+fn canonical_transfer_rank(
+    transaction: &Transaction<'_>,
+    graph: &RecordGraph,
+    block_id: &str,
+    parent: &PlacementParent,
+) -> Result<String, StoreError> {
+    let legacy_rank = match parent {
+        PlacementParent::Library => transaction
+            .query_row(
+                "SELECT rank_key FROM library_block_placements WHERE block_id = ?1",
+                [block_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?,
+        PlacementParent::DataSource(data_source_id) => transaction
+            .query_row(
+                "SELECT position.rank_key
+                 FROM database_view_page_positions position
+                 JOIN database_views view ON view.id = position.view_id
+                 WHERE position.page_block_id = ?1 AND view.data_source_id = ?2
+                   AND view.lifecycle = 'active'
+                 ORDER BY view.rank_key, view.id
+                 LIMIT 1",
+                rusqlite::params![block_id, data_source_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?,
+        PlacementParent::Block(_) => None,
+    };
+    let base = legacy_rank
+        .filter(|rank| !rank.trim().is_empty())
+        .unwrap_or_else(|| format!("z:{block_id}"));
+    if graph.placements().any(|placement| {
+        placement.block_id != block_id && placement.parent == *parent && placement.rank_key == base
+    }) {
+        return Ok(format!("z:{block_id}"));
+    }
+    Ok(base)
 }
 
 fn sync_database_value_records(
@@ -4122,11 +4338,23 @@ fn sync_database_value_records(
                     .map(|edit| {
                         (
                             edit.address.page_id.clone(),
-                            edit.address.data_source_id.clone(),
+                            Some(edit.address.data_source_id.clone()),
                         )
                     })
                     .collect::<Vec<_>>(),
             ),
+            DatabaseIntent::TransferPage {
+                page_id, target, ..
+            } => Some(vec![(
+                page_id.clone(),
+                match target {
+                    DatabaseTransferTarget::DataSource { data_source_id } => {
+                        Some(data_source_id.clone())
+                    }
+                    DatabaseTransferTarget::Library { .. }
+                    | DatabaseTransferTarget::Page { .. } => None,
+                },
+            )]),
             _ => None,
         })
         .flatten()
@@ -4147,36 +4375,40 @@ fn sync_database_value_records(
                 false,
             ));
         }
-        let rows = transaction
-            .prepare(
-                "SELECT value.property_id, value.value_json, value.revision \
-                 FROM data_source_page_memberships membership \
-                 JOIN data_source_property_values value \
-                   ON value.data_source_id = membership.data_source_id \
-                  AND value.membership_id = membership.id \
-                 WHERE membership.data_source_id = ?1 \
-                   AND membership.page_block_id = ?2 \
-                   AND membership.removed_at IS NULL \
-                 ORDER BY value.property_id",
-            )?
-            .query_map(rusqlite::params![data_source_id, page_id], |row| {
-                let property_id = row.get::<_, String>(0)?;
-                let value_json = row.get::<_, String>(1)?;
-                let revision = row.get::<_, i64>(2)?;
-                let value = serde_json::from_str::<Value>(&value_json).map_err(|error| {
-                    rusqlite::Error::FromSqlConversionFailure(
-                        value_json.len(),
-                        rusqlite::types::Type::Text,
-                        Box::new(error),
-                    )
-                })?;
-                Ok(json!({
-                    "propertyId": property_id,
-                    "value": value,
-                    "revision": revision,
-                }))
-            })?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let rows = if let Some(data_source_id) = data_source_id.as_deref() {
+            transaction
+                .prepare(
+                    "SELECT value.property_id, value.value_json, value.revision \
+                     FROM data_source_page_memberships membership \
+                     JOIN data_source_property_values value \
+                       ON value.data_source_id = membership.data_source_id \
+                      AND value.membership_id = membership.id \
+                     WHERE membership.data_source_id = ?1 \
+                       AND membership.page_block_id = ?2 \
+                       AND membership.removed_at IS NULL \
+                     ORDER BY value.property_id",
+                )?
+                .query_map(rusqlite::params![data_source_id, page_id], |row| {
+                    let property_id = row.get::<_, String>(0)?;
+                    let value_json = row.get::<_, String>(1)?;
+                    let revision = row.get::<_, i64>(2)?;
+                    let value = serde_json::from_str::<Value>(&value_json).map_err(|error| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            value_json.len(),
+                            rusqlite::types::Type::Text,
+                            Box::new(error),
+                        )
+                    })?;
+                    Ok(json!({
+                        "propertyId": property_id,
+                        "value": value,
+                        "revision": revision,
+                    }))
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?
+        } else {
+            Vec::new()
+        };
         let mut properties = previous.properties.as_object().cloned().ok_or_else(|| {
             StoreError::new(
                 StoreErrorCode::StoreCorrupt,
@@ -4184,7 +4416,11 @@ fn sync_database_value_records(
                 false,
             )
         })?;
-        properties.insert("dataSourceValues".to_owned(), Value::Array(rows.clone()));
+        if data_source_id.is_some() {
+            properties.insert("dataSourceValues".to_owned(), Value::Array(rows.clone()));
+        } else {
+            properties.remove("dataSourceValues");
+        }
         graph
             .update_block(&page_id, BlockKind::Page, Value::Object(properties))
             .map_err(map_graph_error)?;
@@ -4200,15 +4436,19 @@ fn sync_database_value_records(
             &previous,
             next,
         )?;
-        effects.push(LocalCommitEffect {
-            kind: "property_values".to_owned(),
-            value: json!({
-                "blockId": page_id,
-                "dataSourceId": data_source_id,
-                "values": rows,
-                "revision": next.revision,
-            }),
-        });
+        if let Some(data_source_id) = data_source_id {
+            effects.push(LocalCommitEffect {
+                kind: "property_values".to_owned(),
+                value: json!({
+                    "blockId": page_id,
+                    "dataSourceId": data_source_id,
+                    "values": rows,
+                    "revision": next.revision,
+                }),
+            });
+        } else {
+            effects.push(record_effect(next));
+        }
     }
     Ok(effects)
 }

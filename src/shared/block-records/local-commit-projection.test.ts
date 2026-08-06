@@ -109,6 +109,60 @@ describe("BlockRecord local commit projection", () => {
     });
   });
 
+  it("projects Data Source values into the loaded canonical record", () => {
+    const result = applyLocalCommitToBlockRecordWindow(windowFor(), commit([
+      {
+        kind: "property_values",
+        value: {
+          blockId: "page-a",
+          dataSourceId: "source-a",
+          values: [{ propertyId: "status", value: "done", revision: 4 }],
+          revision: 6,
+        },
+      },
+    ]));
+
+    expect(result.kind).toBe("applied");
+    if (result.kind !== "applied") return;
+    expect(result.window.records[0]).toMatchObject({
+      revision: 6,
+      properties: {
+        dataSourceValues: [{ propertyId: "status", value: "done", revision: 4 }],
+      },
+    });
+  });
+
+  it("removes a stale View position from the loaded Board window", () => {
+    const current: BlockRecordWindow = {
+      ...windowFor(),
+      rootParent: { kind: "dataSource", dataSourceId: "source-a" },
+      viewId: "view-a",
+      viewPositions: [{
+        viewId: "view-a",
+        dataSourceId: "source-a",
+        blockId: "page-a",
+        groupKey: "todo",
+        rankKey: "a",
+        revision: 1,
+      }],
+    };
+    const result = applyLocalCommitToBlockRecordWindow(current, commit([
+      {
+        kind: "view_position_remove",
+        value: {
+          viewId: "view-a",
+          dataSourceId: "source-a",
+          blockId: "page-a",
+          revision: 2,
+        },
+      },
+    ]));
+
+    expect(result.kind).toBe("applied");
+    if (result.kind !== "applied") return;
+    expect(result.window.viewPositions).toEqual([]);
+  });
+
   it("requests a read for content effects outside a sparse window", () => {
     const result = applyLocalCommitToBlockRecordWindow(windowFor(), commit([
       {

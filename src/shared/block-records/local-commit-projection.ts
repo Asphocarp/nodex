@@ -71,6 +71,9 @@ const applyRecordDelta = (
   };
 };
 
+const isObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
 export const applyLocalCommitToBlockRecordWindow = (
   window: BlockRecordWindow,
   envelope: LocalCommitEnvelope,
@@ -176,6 +179,26 @@ export const applyLocalCommitToBlockRecordWindow = (
         window,
       };
     }
+    if (effect.kind === "property_values") {
+      const current = records.get(effect.value.blockId) ?? pendingRecords.get(effect.value.blockId);
+      if (!current) continue;
+      if (!isObject(current.properties)) {
+        return {
+          kind: "requires_read",
+          reason: `Property values ${effect.value.blockId} has invalid record properties`,
+          window,
+        };
+      }
+      records.set(effect.value.blockId, {
+        ...current,
+        properties: {
+          ...current.properties,
+          dataSourceValues: effect.value.values,
+        },
+        revision: effect.value.revision,
+      });
+      continue;
+    }
     if (effect.kind === "remove") {
       if (isWindowRootAnchor(window, effect.value.blockId)) {
         return {
@@ -201,6 +224,12 @@ export const applyLocalCommitToBlockRecordWindow = (
         rankKey: effect.value.rankKey,
         revision: effect.value.revision,
       });
+      continue;
+    }
+    if (effect.kind === "view_position_remove") {
+      if (window.viewId === effect.value.viewId) {
+        viewPositions.delete(effect.value.blockId);
+      }
       continue;
     }
     if (effect.kind === "content") {

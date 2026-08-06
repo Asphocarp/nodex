@@ -695,6 +695,11 @@ export interface components {
             /** @enum {string} */
             readonly kind: "apply_database";
         } | {
+            readonly grants: readonly components["schemas"]["AgentResourceGrantSpec"][];
+            /** @enum {string} */
+            readonly kind: "persist_agent_project_resource_grants";
+            readonly provenance: components["schemas"]["AgentTurnProvenance"];
+        } | {
             readonly block_id: string;
             /** Format: int64 */
             readonly expected_block_revision: number;
@@ -923,6 +928,11 @@ export interface components {
             readonly intents: readonly components["schemas"]["DatabaseIntent"][];
             /** @enum {string} */
             readonly kind: "apply_database";
+        } | {
+            readonly grants: readonly components["schemas"]["AgentResourceGrantSpec"][];
+            /** @enum {string} */
+            readonly kind: "persist_agent_project_resource_grants";
+            readonly provenance: components["schemas"]["AgentTurnProvenance"];
         } | {
             readonly block_id: string;
             /** Format: int64 */

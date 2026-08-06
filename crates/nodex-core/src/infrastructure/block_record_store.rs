@@ -1052,6 +1052,39 @@ pub fn upsert_view_position(
     Ok(())
 }
 
+pub fn delete_view_positions_for_block(
+    transaction: &Transaction<'_>,
+    block_id: &str,
+    library_id: &str,
+) -> Result<Vec<BlockViewPosition>, StoreError> {
+    let positions = transaction
+        .prepare(
+            "SELECT view_id, data_source_id, block_id, group_key, rank_key, revision
+             FROM block_record_view_positions
+             WHERE block_id = ?1 AND library_id = ?2
+             ORDER BY view_id",
+        )?
+        .query_map(params![block_id, library_id], |row| {
+            let group_key = row.get::<_, String>(3)?;
+            let revision = row.get::<_, i64>(5)?;
+            Ok(BlockViewPosition {
+                view_id: row.get(0)?,
+                data_source_id: row.get(1)?,
+                block_id: row.get(2)?,
+                group_key: (!group_key.is_empty()).then_some(group_key),
+                rank_key: row.get(4)?,
+                revision: u64::try_from(revision)
+                    .map_err(|_| rusqlite::Error::IntegralValueOutOfRange(5, revision))?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    transaction.execute(
+        "DELETE FROM block_record_view_positions WHERE block_id = ?1 AND library_id = ?2",
+        params![block_id, library_id],
+    )?;
+    Ok(positions)
+}
+
 pub fn read_view_positions(
     connection: &Connection,
     library_id: &str,

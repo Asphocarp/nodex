@@ -8,7 +8,7 @@ use nodex_core_contracts::{
         StoreAdministrationCommitValue, StoreAdministrationIntent, StoreAdministrationRead,
         StoreAdministrationReadValue, StoreAdministrationReceipt,
     },
-    agent::AgentExecutionAuthorization,
+    agent::{AgentExecutionAuthorization, AgentResourceGrantSpec, AgentTurnProvenance},
     automation::{
         AutomationCommitValue, AutomationIntent, AutomationRead, AutomationReadValue,
         AutomationReceipt,
@@ -829,6 +829,12 @@ pub enum BlockRecordOperation {
     ApplyDatabase {
         intents: Vec<DatabaseIntent>,
     },
+    /// Persists the Project resource grants produced by an Agent consent
+    /// flow under the same BlockRecord LocalCommit boundary.
+    PersistAgentProjectResourceGrants {
+        provenance: AgentTurnProvenance,
+        grants: Vec<AgentResourceGrantSpec>,
+    },
     Move {
         block_id: String,
         target_parent: BlockRecordPlacementParent,
@@ -995,6 +1001,10 @@ pub enum BlockRecordBatchOperation {
     },
     ApplyDatabase {
         intents: Vec<DatabaseIntent>,
+    },
+    PersistAgentProjectResourceGrants {
+        provenance: AgentTurnProvenance,
+        grants: Vec<AgentResourceGrantSpec>,
     },
     Move {
         block_id: String,

@@ -144,32 +144,30 @@ describe("Desktop Nodex Agent resource authority", () => {
 
   test("persists a canonical Project grant batch through one native receipt", async () => {
     const client = new FakeCoreClient();
-    client.enqueueApply({
-      value: {
-        affected_resource_ids: ["page:one"],
-        page_copy: null,
-        block_transfer: null,
-        page_lifecycle: null,
-        block_property_mutation: null,
-      },
-      receipt: {
-        operation_id: "agent-grants:one",
-        duplicate: false,
-        operation_kind: "persist_agent_project_resource_grants",
-        did_mutate: true,
-        created_target: null,
-        affected_parent_keys: [],
-        affected_page_ids: ["page:one"],
-        affected_database_ids: [],
-        affected_view_ids: [],
-        committed_revisions: {
-          "projectGrant:project:one:page:page:one": 1,
+    client.enqueueBlockRecordApply({
+      actor_id: "agent:project:one",
+      audience: { kind: "library", projectIds: [] },
+      canonical_hash: "a".repeat(64),
+      commit_id: "commit:agent-grants:one",
+      committed_at: "2026-07-20T09:20:00.000Z",
+      cursor: { store_epoch: "epoch:test", commit_seq: 9 },
+      duplicate: false,
+      effects: [{
+        kind: "library",
+        value: {
+          value: { affected_resource_ids: ["page:one"] },
+          receipt: {
+            operation_id: "agent-grants:one",
+            operation_kind: "persist_agent_project_resource_grants",
+          },
+          event_sequence: 9,
+          store_epoch: "epoch:test",
         },
-        change_log_seq: 9,
-        committed_at: "2026-07-20T09:20:00.000Z",
-      },
-      event_sequence: 9,
-      store_epoch: "epoch:test",
+      }],
+      intent_hash: "b".repeat(64),
+      operation_id: "agent-grants:one",
+      payload_completeness: "rich",
+      session_id: "agent-grants:project:one",
     });
     const port = createDesktopNodexAgentResourceAuthorityPort({
       authority: Promise.resolve(runtimeFor(client)),
@@ -183,9 +181,12 @@ describe("Desktop Nodex Agent resource authority", () => {
         { root: { kind: "page", pageId: "page:one" }, access: "read_write" },
       ],
     })).resolves.toBeUndefined();
-    expect(client.applies).toEqual([{
-      operationId: "agent-grants:one",
-      intent: {
+    expect(client.blockRecordApplies).toHaveLength(1);
+    expect(client.blockRecordApplies[0]).toMatchObject({
+      operation_id: "agent-grants:one",
+      actor_id: "agent:project:one",
+      session_id: "agent-grants:project:one",
+      operation: {
         kind: "persist_agent_project_resource_grants",
         provenance: {
           profile_id: "profile:test",
@@ -205,7 +206,7 @@ describe("Desktop Nodex Agent resource authority", () => {
           access: "read_write",
         }],
       },
-    }]);
+    });
   });
 
   test("rejects a Core task overlay outside the frozen Turn boundary", async () => {

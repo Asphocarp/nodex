@@ -38,6 +38,17 @@ export interface LocalCommitDataSourceDelta {
   readonly dataSourceId: string;
 }
 
+export interface LocalCommitPropertyValuesDelta {
+  readonly blockId: string;
+  readonly dataSourceId: string;
+  readonly values: readonly {
+    readonly propertyId: string;
+    readonly value: unknown;
+    readonly revision: number;
+  }[];
+  readonly revision: number;
+}
+
 export interface LocalCommitContentRef {
   readonly blockId: string;
   readonly slot: string;
@@ -58,6 +69,13 @@ export interface LocalCommitViewPositionDelta {
   readonly revision: number;
 }
 
+export interface LocalCommitViewPositionRemoveDelta {
+  readonly viewId: string;
+  readonly dataSourceId: string;
+  readonly blockId: string;
+  readonly revision: number;
+}
+
 /**
  * Database domain receipt carried by a BlockRecord LocalCommit. The domain
  * module keeps its detailed receipt shape in the Core contract; this boundary
@@ -65,6 +83,18 @@ export interface LocalCommitViewPositionDelta {
  * Database a second publication channel.
  */
 export interface LocalCommitDatabaseDelta {
+  readonly value: Readonly<Record<string, unknown>>;
+  readonly receipt: Readonly<Record<string, unknown>>;
+  readonly eventSequence: number;
+  readonly storeEpoch: string;
+}
+
+/**
+ * A legacy domain receipt carried by a BlockRecord LocalCommit while that
+ * domain's semantic tables are being folded into the canonical transaction.
+ * It is deliberately opaque here; only Core may define the receipt payload.
+ */
+export interface LocalCommitLibraryDelta {
   readonly value: Readonly<Record<string, unknown>>;
   readonly receipt: Readonly<Record<string, unknown>>;
   readonly eventSequence: number;
@@ -88,9 +118,12 @@ export type LocalCommitEffect =
   | { readonly kind: "record"; readonly value: LocalCommitRecordDelta }
   | { readonly kind: "placement"; readonly value: LocalCommitPlacementDelta }
   | { readonly kind: "data_source"; readonly value: LocalCommitDataSourceDelta }
+  | { readonly kind: "property_values"; readonly value: LocalCommitPropertyValuesDelta }
   | { readonly kind: "content"; readonly value: LocalCommitContentRef }
   | { readonly kind: "database"; readonly value: LocalCommitDatabaseDelta }
+  | { readonly kind: "library"; readonly value: LocalCommitLibraryDelta }
   | { readonly kind: "view_position"; readonly value: LocalCommitViewPositionDelta }
+  | { readonly kind: "view_position_remove"; readonly value: LocalCommitViewPositionRemoveDelta }
   | { readonly kind: "remove"; readonly value: LocalCommitRemoveDelta }
   | { readonly kind: "projection"; readonly value: LocalCommitProjectionDelta };
 

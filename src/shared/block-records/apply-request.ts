@@ -5,6 +5,8 @@ import type { BlockNoteBlockValue } from "../block-documents/nfm-blocknote-adapt
 import { blockKindToCore } from "./kind";
 
 type CoreDatabaseIntent = components["schemas"]["DatabaseIntent"];
+type CoreAgentGrant = components["schemas"]["AgentResourceGrantSpec"];
+type CoreAgentTurnProvenance = components["schemas"]["AgentTurnProvenance"];
 
 export interface BlockRecordApplyIdentity {
   readonly operationId: string;
@@ -23,6 +25,12 @@ export interface BatchBlockRecordApplyInput extends BlockRecordApplyIdentity {
 
 export interface ApplyDatabaseBlockRecordApplyInput extends BlockRecordApplyIdentity {
   readonly intents: readonly CoreDatabaseIntent[];
+}
+
+export interface PersistAgentProjectResourceGrantsBlockRecordApplyInput
+  extends BlockRecordApplyIdentity {
+  readonly provenance: CoreAgentTurnProvenance;
+  readonly grants: readonly CoreAgentGrant[];
 }
 
 export interface PromoteBlockRecordApplyInput extends BlockRecordApplyIdentity {
@@ -414,6 +422,23 @@ export const buildApplyDatabaseBlockRecordApplyInput = async (
   const operation = {
     kind: "apply_database" as const,
     intents: [...input.intents],
+  };
+  return {
+    ...await identityFields(input, operation),
+    operation,
+  };
+};
+
+export const buildPersistAgentProjectResourceGrantsBlockRecordApplyInput = async (
+  input: PersistAgentProjectResourceGrantsBlockRecordApplyInput,
+): Promise<BlockRecordApplyInput> => {
+  if (input.grants.length === 0) {
+    throw new Error("Agent Project grant operation must contain at least one grant");
+  }
+  const operation = {
+    kind: "persist_agent_project_resource_grants" as const,
+    provenance: input.provenance,
+    grants: [...input.grants],
   };
   return {
     ...await identityFields(input, operation),
