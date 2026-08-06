@@ -104,6 +104,10 @@ the old read contract, but it is not a production authority.
 
 For a record-backed editor, `Move to → Page` flushes the active editor before
 submitting the typed move, so the content mutation and relocation cannot race.
+The lifecycle transport used by Page menus follows the same rule for
+archive/unarchive/top-level reorder: its legacy receipt envelope is an adapter
+shape only, while the durable writer is `ArchiveSubtree`, `RestoreSubtree`, or
+`MoveMany` and the receipt identifies the record-backed Page authority.
 For an ordinary canonical Block, `Move to → Board` uses the same transfer
 boundary as an external editor drop: the source Block IDs are read, the target
 Data Source/View is resolved, and one `PromoteManyToPage` commit changes kind,

@@ -668,50 +668,19 @@ describe("Core Library Module Adapter", () => {
     }]);
   });
 
-  test("maps Page lifecycle mutations through one native Library aggregate", async () => {
+  test("maps legacy Page lifecycle requests to canonical BlockRecord operations", async () => {
     const client = new FakeCoreClient();
-    client.enqueueApply({
-      value: {
-        affected_resource_ids: ["page:one", "database:test"],
-        page_copy: null,
-        block_transfer: null,
-        page_lifecycle: {
-          operation_kind: "archive_page",
-          page_id: "page:one",
-          metadata_revision: 4,
-          parent_revision: 2,
-          lifecycle: "archived",
-          document_id: "document:one",
-          document_generation: 1,
-          document_head_seq: 4,
-          database_id: "database:test",
-          data_source_id: "source:test",
-          membership_id: "membership:one",
-          view_id: "view:test",
-          library_rank_key: null,
-          view_rank_key: "7fffffffffffffffffffffffffffffff",
-          created_block_ids: [],
-          created_tag_option_ids: [],
-          delete_evidence: null,
-        },
-      },
-      receipt: {
-        operation_id: "lifecycle:archive-one",
-        duplicate: false,
-        operation_kind: "archive_page",
-        did_mutate: true,
-        created_target: null,
-        affected_parent_keys: ["database:database:test"],
-        affected_page_ids: ["page:one"],
-        affected_database_ids: ["database:test"],
-        affected_view_ids: ["view:test"],
-        committed_revisions: { "blockMetadata:page:one": 4 },
-        change_log_seq: 16,
-        committed_at: "2026-07-20T08:30:00.000Z",
-      },
-      event_sequence: 16,
-      store_epoch: identity.storeEpoch,
-    });
+    client.enqueueBlockRecordRead(canonicalPageWindow({
+      pageId: "page:one",
+      lifecycle: "active",
+      parent: { kind: "library" },
+      rankKey: "40000000000000000000000000000000",
+      revision: 2,
+    }));
+    client.enqueueBlockRecordApply(canonicalPageCommit(
+      "lifecycle:archive-one",
+      "page:one",
+    ));
     const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
     const request = {
       version: 2 as const,
@@ -726,7 +695,7 @@ describe("Core Library Module Adapter", () => {
       },
     };
 
-    await expect(adapter.applyPageLifecycleMutation(request)).resolves.toEqual({
+    await expect(adapter.applyPageLifecycleMutation(request)).resolves.toMatchObject({
       ok: true,
       value: {
         version: 2,
@@ -737,34 +706,129 @@ describe("Core Library Module Adapter", () => {
         pageId: "page:one",
         duplicate: false,
         metadataRevision: 4,
-        parentRevision: 2,
+        parentRevision: 4,
         lifecycle: "archived",
-        documentId: "document:one",
-        documentGeneration: 1,
-        documentHeadSeq: 4,
-        databaseId: "database:test",
-        dataSourceId: "source:test",
-        membershipId: "membership:one",
-        viewId: "view:test",
+        documentId: "block-record:page:one",
+        documentGeneration: 0,
+        documentHeadSeq: 0,
         libraryRankKey: null,
-        viewRankKey: "7fffffffffffffffffffffffffffffff",
-        createdBlockIds: [],
-        createdTagOptionIds: [],
-        changeLogSeq: 16,
-        committedAt: "2026-07-20T08:30:00.000Z",
+        changeLogSeq: 8,
       },
     });
-    expect(client.applies).toEqual([{
-      operationId: request.operationId,
-      intent: {
-        kind: "apply_page_lifecycle",
-        mutation: {
-          kind: "archive_page",
-          page_id: "page:one",
-          expected_metadata_revision: 3,
-        },
+    expect(client.applies).toEqual([]);
+    expect(client.blockRecordApplies).toHaveLength(1);
+    expect(client.blockRecordApplies[0]).toMatchObject({
+      operation_id: request.operationId,
+      operation: {
+        kind: "archive_subtree",
+        block_id: "page:one",
+        expected_block_revision: 2,
+        expected_placement_revision: 2,
       },
-    }]);
+    });
+  });
+
+  test("restores and reorders canonical Pages through lifecycle V2", async () => {
+    const client = new FakeCoreClient();
+    client.enqueueBlockRecordRead(canonicalPageWindow({
+      pageId: "page:one",
+      lifecycle: "archived",
+      parent: { kind: "library" },
+      rankKey: "__nodex_archived__page:one__40000000000000000000000000000000",
+      revision: 1,
+    }));
+    client.enqueueBlockRecordRead(canonicalPageWindow({
+      pageId: "page:two",
+      lifecycle: "active",
+      parent: { kind: "library" },
+      rankKey: "c0000000000000000000000000000000",
+      revision: 4,
+    }));
+    client.enqueueBlockRecordApply(canonicalPageCommit(
+      "lifecycle:unarchive-one",
+      "page:one",
+    ));
+    client.enqueueBlockRecordRead(canonicalPageWindow({
+      pageId: "page:one",
+      lifecycle: "active",
+      parent: { kind: "library" },
+      rankKey: "40000000000000000000000000000000",
+      revision: 2,
+    }));
+    client.enqueueBlockRecordRead(canonicalPageWindow({
+      pageId: "page:two",
+      lifecycle: "active",
+      parent: { kind: "library" },
+      rankKey: "c0000000000000000000000000000000",
+      revision: 4,
+    }));
+    client.enqueueBlockRecordApply(canonicalPageCommit(
+      "lifecycle:move-one",
+      "page:one",
+    ));
+    const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
+
+    await expect(adapter.applyPageLifecycleMutation({
+      version: 2,
+      operationId: "lifecycle:unarchive-one",
+      projectId: "project:test",
+      storeEpoch: identity.storeEpoch,
+      actor: { kind: "electron_renderer" },
+      operation: {
+        kind: "unarchive_page",
+        pageId: "page:one",
+        expectedMetadataRevision: 2,
+      },
+    })).resolves.toMatchObject({
+      ok: true,
+      value: {
+        operationKind: "unarchive_page",
+        metadataRevision: 3,
+        parentRevision: 3,
+        lifecycle: "active",
+        documentId: "block-record:page:one",
+        documentGeneration: 0,
+        documentHeadSeq: 0,
+      },
+    });
+
+    await expect(adapter.applyPageLifecycleMutation({
+      version: 2,
+      operationId: "lifecycle:move-one",
+      projectId: "project:test",
+      storeEpoch: identity.storeEpoch,
+      actor: { kind: "electron_renderer" },
+      operation: {
+        kind: "move_page_in_library",
+        pageId: "page:one",
+        expectedParentRevision: 3,
+        beforeBlockId: "page:two",
+      },
+    })).resolves.toMatchObject({
+      ok: true,
+      value: {
+        operationKind: "move_page_in_library",
+        metadataRevision: 3,
+        parentRevision: 4,
+        lifecycle: "active",
+      },
+    });
+
+    expect(client.applies).toEqual([]);
+    expect(client.blockRecordApplies.map((entry) => entry.operation.kind)).toEqual([
+      "restore_subtree",
+      "move_many",
+    ]);
+    expect(client.blockRecordApplies[1]).toMatchObject({
+      operation: {
+        entries: [{
+          block_id: "page:one",
+          target_parent: { kind: "library" },
+          expected_block_revision: 2,
+          expected_placement_revision: 2,
+        }],
+      },
+    });
   });
 
   test("maps intrinsic Page Property mutations through one native Library intent", async () => {

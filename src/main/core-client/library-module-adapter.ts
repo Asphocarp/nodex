@@ -63,6 +63,7 @@ import {
   type PageLifecycleMutationErrorCodeV2,
   type PageLifecycleMutationRequestV2,
   type PageLifecycleOperationV2,
+  type PageLifecycleMutationReceiptV2,
 } from "../../shared/page-lifecycle-v2";
 import type {
   PageTargetReadModel,
@@ -1904,6 +1905,224 @@ const applyCanonicalPageRestore = async (
   };
 };
 
+type CanonicalPageMutationCommit = Awaited<
+  ReturnType<typeof applyBlockRecordWithResolution>
+>;
+
+const canonicalPageLifecycleReceipt = (
+  request: PageLifecycleMutationRequestV2,
+  committed: CanonicalPageMutationCommit,
+  details: {
+    readonly metadataRevision: number;
+    readonly parentRevision: number;
+    readonly lifecycle: "active" | "archived";
+    readonly libraryRankKey: string | null;
+  },
+): PageLifecycleMutationReceiptV2 => ({
+  version: 2,
+  operationKind: request.operation.kind,
+  operationId: committed.operation_id,
+  projectId: request.projectId,
+  storeEpoch: committed.cursor.store_epoch,
+  pageId: request.operation.pageId,
+  duplicate: committed.duplicate,
+  metadataRevision: canonicalPublicRevision(details.metadataRevision),
+  parentRevision: canonicalPublicRevision(details.parentRevision),
+  lifecycle: details.lifecycle,
+  documentId: `block-record:${request.operation.pageId}`,
+  documentGeneration: 0,
+  documentHeadSeq: 0,
+  databaseId: null,
+  dataSourceId: null,
+  membershipId: null,
+  viewId: null,
+  libraryRankKey: details.libraryRankKey,
+  viewRankKey: null,
+  createdBlockIds: [],
+  createdTagOptionIds: [],
+  changeLogSeq: committed.cursor.commit_seq,
+  committedAt: committed.committed_at,
+});
+
+const applyCanonicalPageLifecycleMutation = async (
+  input: CoreLibraryModuleAdapterInput,
+  request: PageLifecycleMutationRequestV2,
+): Promise<PageLifecycleMutationReceiptV2 | null> => {
+  if (request.operation.kind === "archive_page") {
+    const source = await readCanonicalPage(input, request.operation.pageId);
+    if (!source) return null;
+    if (
+      request.operation.expectedMetadataRevision
+      !== canonicalPublicRevision(source.record.revision)
+    ) {
+      throw new Error("Canonical Page metadata changed since this action began");
+    }
+    const apply = await buildArchiveBlockRecordSubtreeApplyInput({
+      operationId: request.operationId,
+      actorId: canonicalPageActorId(input.profileId),
+      sessionId: request.clientSessionId ?? canonicalPageSessionId(input.libraryId),
+      blockId: source.record.id,
+      expectedBlockRevision: source.record.revision,
+      expectedPlacementRevision: source.placement.revision,
+    });
+    const committed = await applyBlockRecordWithResolution({
+      client: input.client,
+      input: apply,
+      storeEpoch: input.storeEpoch,
+    });
+    if (
+      committed.operation_id !== request.operationId
+      || committed.cursor.store_epoch !== input.storeEpoch
+    ) {
+      throw new Error("Canonical Page archive receipt escaped its operation boundary");
+    }
+    return canonicalPageLifecycleReceipt(request, committed, {
+      metadataRevision: source.record.revision + 1,
+      parentRevision: source.placement.revision + 1,
+      lifecycle: "archived",
+      libraryRankKey: null,
+    });
+  }
+
+  if (request.operation.kind === "unarchive_page") {
+    const source = await readCanonicalArchivedPage(input, request.operation.pageId);
+    if (!source) return null;
+    if (
+      request.operation.expectedMetadataRevision
+      !== canonicalPublicRevision(source.record.revision)
+    ) {
+      throw new Error("Canonical Page metadata changed since this action began");
+    }
+    if (source.placement.parent.kind === "block") {
+      const parent = await readCanonicalPage(input, source.placement.parent.blockId);
+      if (!parent) throw new Error("Canonical Page restore parent is still archived");
+    }
+    const destination = await readCanonicalParentWindow(input, source.placement.parent);
+    const siblings = destination.window.placements
+      .filter((placement) => (
+        destination.canonicalParent.kind === "library"
+          ? placement.parent.kind === "library"
+          : destination.canonicalParent.kind === "block"
+            ? placement.parent.kind === "block"
+              && placement.parent.blockId === destination.canonicalParent.blockId
+            : placement.parent.kind === "dataSource"
+              && placement.parent.dataSourceId === destination.canonicalParent.dataSourceId
+      ))
+      .sort((left, right) => (
+        left.rankKey.localeCompare(right.rankKey) || left.blockId.localeCompare(right.blockId)
+      ))
+      .map((placement) => ({ id: placement.blockId, rankKey: placement.rankKey }));
+    const archivedRank = activeRankFromArchived(source.record.id, source.placement.rankKey);
+    const rank = archivedRank
+      && !siblings.some((sibling) => sibling.rankKey === archivedRank)
+      ? { rankKey: archivedRank, rebalancedRankKeys: new Map<string, string>() }
+      : planFractionalRank(siblings, source.record.id);
+    const apply = await buildRestoreBlockRecordSubtreeApplyInput({
+      operationId: request.operationId,
+      actorId: canonicalPageActorId(input.profileId),
+      sessionId: request.clientSessionId ?? canonicalPageSessionId(input.libraryId),
+      blockId: source.record.id,
+      targetParent: source.placement.parent,
+      rankKey: rank.rankKey,
+      expectedBlockRevision: source.record.revision,
+      expectedPlacementRevision: source.placement.revision,
+      placementRebalances: [...rank.rebalancedRankKeys].map(([blockId, rankKey]) => {
+        const placement = destination.window.placements.find(
+          (candidate) => candidate.blockId === blockId,
+        );
+        if (!placement) throw new Error(`Canonical sibling ${blockId} is not loaded`);
+        return { blockId, rankKey, expectedRevision: placement.revision };
+      }),
+    });
+    const committed = await applyBlockRecordWithResolution({
+      client: input.client,
+      input: apply,
+      storeEpoch: input.storeEpoch,
+    });
+    if (
+      committed.operation_id !== request.operationId
+      || committed.cursor.store_epoch !== input.storeEpoch
+    ) {
+      throw new Error("Canonical Page unarchive receipt escaped its operation boundary");
+    }
+    return canonicalPageLifecycleReceipt(request, committed, {
+      metadataRevision: source.record.revision + 1,
+      parentRevision: source.placement.revision + 1,
+      lifecycle: "active",
+      libraryRankKey: source.placement.parent.kind === "library" ? rank.rankKey : null,
+    });
+  }
+
+  const operation = request.operation;
+  if (operation.kind !== "move_page_in_library") return null;
+  const source = await readCanonicalPage(input, operation.pageId);
+  if (!source) return null;
+  if (source.placement.parent.kind !== "library") {
+    throw new Error("Canonical Page is not a top-level Library Page");
+  }
+  if (
+    operation.expectedParentRevision
+    !== canonicalPublicRevision(source.placement.revision)
+  ) {
+    throw new Error("Canonical Page parent revision changed since this action began");
+  }
+  if (operation.beforeBlockId === source.record.id) {
+    throw new Error("Canonical Page cannot move before itself");
+  }
+  const destination = await readCanonicalParentWindow(input, { kind: "library" });
+  const anchor = operation.beforeBlockId
+    ? destination.window.placements.find(
+        (placement) => placement.blockId === operation.beforeBlockId,
+      )
+    : undefined;
+  if (operation.beforeBlockId && !anchor) {
+    throw new Error("Canonical Page move anchor is not loaded");
+  }
+  const siblings = destination.window.placements
+    .filter((placement) => placement.parent.kind === "library" && placement.blockId !== source.record.id)
+    .sort((left, right) => (
+      left.rankKey.localeCompare(right.rankKey) || left.blockId.localeCompare(right.blockId)
+    ))
+    .map((placement) => ({ id: placement.blockId, rankKey: placement.rankKey }));
+  const rank = planFractionalRank(siblings, source.record.id, operation.beforeBlockId);
+  const apply = await buildMoveManyBlockRecordApplyInput({
+    operationId: request.operationId,
+    actorId: canonicalPageActorId(input.profileId),
+    sessionId: request.clientSessionId ?? canonicalPageSessionId(input.libraryId),
+    entries: [{
+      blockId: source.record.id,
+      targetParent: { kind: "library", libraryId: input.libraryId },
+      rankKey: rank.rankKey,
+      expectedBlockRevision: source.record.revision,
+      expectedPlacementRevision: source.placement.revision,
+    }],
+    placementRebalances: [...rank.rebalancedRankKeys].map(([blockId, rankKey]) => {
+      const placement = destination.window.placements.find(
+        (candidate) => candidate.blockId === blockId,
+      );
+      if (!placement) throw new Error(`Canonical sibling ${blockId} is not loaded`);
+      return { blockId, rankKey, expectedRevision: placement.revision };
+    }),
+  });
+  const committed = await applyBlockRecordWithResolution({
+    client: input.client,
+    input: apply,
+    storeEpoch: input.storeEpoch,
+  });
+  if (
+    committed.operation_id !== request.operationId
+    || committed.cursor.store_epoch !== input.storeEpoch
+  ) {
+    throw new Error("Canonical Page move receipt escaped its operation boundary");
+  }
+  return canonicalPageLifecycleReceipt(request, committed, {
+    metadataRevision: source.record.revision,
+    parentRevision: source.placement.revision + 1,
+    lifecycle: "active",
+    libraryRankKey: rank.rankKey,
+  });
+};
+
 export const createCoreLibraryModuleAdapter = (
   input: CoreLibraryModuleAdapterInput,
 ): CoreLibraryModuleAdapter => {
@@ -2452,6 +2671,22 @@ export const createCoreLibraryModuleAdapter = (
         });
       }
       try {
+        if (
+          request.operation.kind === "archive_page"
+          || request.operation.kind === "unarchive_page"
+          || request.operation.kind === "move_page_in_library"
+        ) {
+          const canonicalReceipt = await applyCanonicalPageLifecycleMutation(
+            input,
+            request,
+          );
+          if (canonicalReceipt) {
+            return parsePageLifecycleMutationCommandResultV2({
+              ok: true,
+              value: canonicalReceipt,
+            });
+          }
+        }
         const committed = await input.client.libraryApply({
           operationId: request.operationId,
           intent: {

@@ -1199,6 +1199,31 @@ export const parsePageLifecycleMutationReceiptV2 = (
       `${label}.committedAt must be canonical ISO time`,
     );
   }
+  const documentId = readId(receipt, "documentId", label);
+  const documentGeneration = readNonNegativeRevision(
+    receipt,
+    "documentGeneration",
+    label,
+  );
+  const documentHeadSeq = readNonNegativeRevision(
+    receipt,
+    "documentHeadSeq",
+    label,
+  );
+  const isRecordBackedPage = documentId.startsWith("block-record:");
+  if (
+    !isRecordBackedPage
+    && (documentGeneration < 1 || documentHeadSeq < 1)
+  ) {
+    throw new PageLifecycleV2ContractError(
+      `${label}.documentGeneration and documentHeadSeq must be >= 1 for a Document-backed Page`,
+    );
+  }
+  if (isRecordBackedPage && (documentGeneration !== 0 || documentHeadSeq !== 0)) {
+    throw new PageLifecycleV2ContractError(
+      `${label}.record-backed Page must not carry a Page Document head`,
+    );
+  }
   return {
     version: PAGE_LIFECYCLE_V2_CONTRACT_VERSION,
     operationId: readId(receipt, "operationId", label),
@@ -1214,13 +1239,9 @@ export const parsePageLifecycleMutationReceiptV2 = (
     ),
     parentRevision: readPositiveRevision(receipt, "parentRevision", label),
     lifecycle: receipt.lifecycle,
-    documentId: readId(receipt, "documentId", label),
-    documentGeneration: readPositiveRevision(
-      receipt,
-      "documentGeneration",
-      label,
-    ),
-    documentHeadSeq: readPositiveRevision(receipt, "documentHeadSeq", label),
+    documentId,
+    documentGeneration,
+    documentHeadSeq,
     databaseId: readNullableId(receipt, "databaseId", label),
     dataSourceId: readNullableDataSourceId(receipt, "dataSourceId", label),
     membershipId: readNullableId(receipt, "membershipId", label),
