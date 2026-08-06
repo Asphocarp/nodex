@@ -152,6 +152,14 @@ const blockRecordSnapshot = (
   };
 };
 
+const emptyBlockRecordSnapshot = (): BlockRecordReadSnapshot => ({
+  library_id: identity.libraryId,
+  observed_cursor: { store_epoch: identity.storeEpoch, commit_seq: 20 },
+  graph: { library_id: identity.libraryId, blocks: [], placements: [] },
+  view_positions: [],
+  content: [],
+});
+
 const committedBlockRecordApply = (
   operationId: string,
 ): BlockRecordCommittedValue => ({
@@ -174,6 +182,7 @@ describe("Core Block Transfer Adapter", () => {
     const client = new FakeCoreClient();
     const adapter = createCoreBlockTransferAdapter({ client, ...identity });
     client.enqueueApply(committedApply());
+    client.enqueueBlockRecordRead(emptyBlockRecordSnapshot());
 
     const committed = await adapter.commit(intent);
 
@@ -189,6 +198,7 @@ describe("Core Block Transfer Adapter", () => {
       },
     });
     expect(client.reads).toHaveLength(0);
+    expect(client.blockRecordReads).toHaveLength(1);
     expect(client.applies).toHaveLength(1);
     expect(client.applies[0]?.intent).toMatchObject({
       kind: "transfer_blocks",
@@ -288,6 +298,7 @@ describe("Core Block Transfer Adapter", () => {
     const client = new FakeCoreClient();
     const adapter = createCoreBlockTransferAdapter({ client, ...identity });
     client.enqueueApply(committedApply({ duplicate: true, did_mutate: false }));
+    client.enqueueBlockRecordRead(emptyBlockRecordSnapshot());
 
     await expect(adapter.commit(intent)).resolves.toMatchObject({
       ok: true,
@@ -366,6 +377,68 @@ describe("Core Block Transfer Adapter", () => {
     expect(client.blockRecordApplies[0]?.operation).not.toHaveProperty(
       "write_fence",
     );
+  });
+
+  test("routes canonical Move to Library through one MoveMany BlockRecord commit", async () => {
+    const client = new FakeCoreClient();
+    const adapter = createCoreBlockTransferAdapter({ client, ...identity });
+    const libraryIntent: BlockTransferIntent = {
+      ...intent,
+      operationId: "transfer:move-to-library",
+      target: { kind: "library", libraryId: identity.libraryId },
+    };
+    client.enqueueBlockRecordRead(blockRecordSnapshot("source"));
+    client.enqueueBlockRecordRead(blockRecordSnapshot("target"));
+    client.enqueueBlockRecordApply(committedBlockRecordApply(libraryIntent.operationId));
+
+    const committed = await adapter.commit(libraryIntent);
+
+    expect(committed).toMatchObject({
+      ok: true,
+      value: {
+        operationId: libraryIntent.operationId,
+        resultRootBlockIds: ["block:root"],
+        documentCommits: [],
+      },
+    });
+    expect(client.applies).toHaveLength(0);
+    expect(client.blockRecordApplies[0]?.operation).toMatchObject({
+      kind: "move_many",
+      entries: [{
+        block_id: "block:root",
+        target_parent: { kind: "library" },
+        expected_block_revision: 3,
+        expected_placement_revision: 4,
+      }],
+    });
+  });
+
+  test("routes canonical Move to Page through one MoveMany BlockRecord commit", async () => {
+    const client = new FakeCoreClient();
+    const adapter = createCoreBlockTransferAdapter({ client, ...identity });
+    const pageIntent: BlockTransferIntent = {
+      ...intent,
+      operationId: "transfer:move-to-page",
+      target: {
+        kind: "page",
+        pageId: "block:existing",
+      },
+    };
+    client.enqueueBlockRecordRead(blockRecordSnapshot("source"));
+    client.enqueueBlockRecordRead(blockRecordSnapshot("target"));
+    client.enqueueBlockRecordApply(committedBlockRecordApply(pageIntent.operationId));
+
+    const committed = await adapter.commit(pageIntent);
+
+    expect(committed).toMatchObject({ ok: true, value: { mode: "move" } });
+    expect(client.applies).toHaveLength(0);
+    expect(client.blockRecordApplies[0]?.operation).toMatchObject({
+      kind: "move_many",
+      entries: [{
+        block_id: "block:root",
+        target_parent: { kind: "block", id: "block:existing" },
+      }],
+    });
   });
 
   test("routes an existing Page into Board through one placement transaction", async () => {

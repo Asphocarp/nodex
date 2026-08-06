@@ -1016,6 +1016,10 @@ export const createCoreBlockTransferAdapter = (
           const terminal = await commitMoveIntoDataSource(input, intent);
           if (terminal !== null) return terminal;
         }
+        if (intent.mode === "move") {
+          const terminal = await commitCanonicalMoveIntent(input, intent);
+          if (terminal !== null) return terminal;
+        }
         const committed = await input.client.libraryApply({
           operationId: intent.operationId,
           intent: {
