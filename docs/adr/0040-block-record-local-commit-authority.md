@@ -32,9 +32,15 @@ mutation boundary:
   ownership authority for this path.
 - `Create`, `Move`, `MoveMany`, `PromoteManyToPage`,
   `PlaceManyInDataSource`, `SetMaterializedContent`,
-  `ReconcilePageTree`, `Update`, and `ArchiveSubtree` are typed Core
+  `ReconcilePageTree`, `Update`, `ArchiveSubtree`, and `RestoreSubtree` are
+  typed Core
   operations. Validation, rank rebalance, canonical row updates, content
   materialization, and LocalCommit append happen in one SQLite transaction.
+- Archive parks the existing placement under a Block-specific private rank and
+  retains View positions. Active reads exclude the archived lifecycle, while a
+  parent-first Restore reactivates the same records and placement edges. This
+  keeps recovery inside the same ownership authority instead of introducing an
+  archive-only copy of the subtree.
 - Every successful operation returns the committed envelope, including its
   Store epoch, commit sequence, operation identity, affected records, bounded
   effects, and observed cursor. An operation ID plus intent hash is idempotent;
@@ -90,6 +96,11 @@ canonical Page, the same boundary uses `PlaceManyInDataSource` and changes
 only owning placement, membership, and View position. Descendant IDs and
 content shard identity remain stable; neither operation copies a Page document
 or re-creates a child subtree.
+
+Library Move, Archive, and Restore of a canonical Page use the same typed
+BlockRecord boundary. The adapter validates the observed placement or metadata
+revision against its local snapshot and returns the resulting LocalCommit
+cursor, so these menu actions do not wait for the legacy Page event stream.
 
 An already-Page root is therefore never a promotion. A legacy-created root
 without a BlockRecord remains outside this terminal operation until the

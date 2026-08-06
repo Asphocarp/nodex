@@ -770,6 +770,16 @@ export interface components {
             readonly kind: "archive_subtree";
         } | {
             readonly block_id: string;
+            /** Format: int64 */
+            readonly expected_block_revision: number;
+            /** Format: int64 */
+            readonly expected_placement_revision: number;
+            /** @enum {string} */
+            readonly kind: "restore_subtree";
+            readonly rank_key: string;
+            readonly target_parent: components["schemas"]["BlockRecordPlacementParent"];
+        } | {
+            readonly block_id: string;
             readonly data_source_id: string;
             /** Format: int64 */
             readonly expected_block_revision: number;
@@ -855,6 +865,7 @@ export interface components {
         };
         readonly BlockRecordRead: {
             readonly block_ids?: readonly string[] | null;
+            readonly include_archived?: boolean;
             readonly include_content?: boolean;
             readonly include_descendants?: boolean;
             /** @enum {string} */

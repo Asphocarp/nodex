@@ -1223,6 +1223,12 @@ fn root_node_window(
              WHERE placement.library_id = ?1 AND block.type IN ('page', 'database', 'canvas') \
                AND block.lifecycle = 'active' \
                AND COALESCE(page.lifecycle, container.lifecycle, block.lifecycle) = 'active' \
+               AND NOT (block.type = 'page' AND EXISTS ( \
+                 SELECT 1 FROM block_records canonical_page \
+                 WHERE canonical_page.id = block.id \
+                   AND canonical_page.library_id = ?1 \
+                   AND canonical_page.kind_json = '\"page\"' \
+               )) \
                AND (?2 IS NULL OR placement.rank_key > ?2 \
                  OR (placement.rank_key = ?2 AND block.id > ?3)) \
              ORDER BY placement.rank_key, block.id LIMIT ?4",
@@ -1240,7 +1246,13 @@ fn root_node_window(
          LEFT JOIN canvas_owners canvas ON canvas.block_id = block.id \
          WHERE placement.library_id = ?1 AND block.type IN ('page', 'database', 'canvas') \
            AND block.lifecycle = 'active' \
-           AND COALESCE(page.lifecycle, container.lifecycle, block.lifecycle) = 'active'",
+           AND COALESCE(page.lifecycle, container.lifecycle, block.lifecycle) = 'active' \
+           AND NOT (block.type = 'page' AND EXISTS ( \
+             SELECT 1 FROM block_records canonical_page \
+             WHERE canonical_page.id = block.id \
+               AND canonical_page.library_id = ?1 \
+               AND canonical_page.kind_json = '\"page\"' \
+           ))",
         [library_id],
         |row| row.get::<_, i64>(0),
     )?;
@@ -1276,7 +1288,7 @@ fn canonical_root_node_window(
         .prepare(
             "SELECT record.id, placement.rank_key, \
                COALESCE(json_extract(record.properties_json, '$.title'), 'Untitled'), \
-               placement.revision, record.revision, \
+               placement.revision + 1, record.revision + 1, \
                EXISTS(SELECT 1 FROM block_placements child \
                  INNER JOIN block_records child_record ON child_record.id = child.block_id \
                  WHERE child.parent_kind = 'block' AND child.parent_id = record.id \
@@ -1286,6 +1298,11 @@ fn canonical_root_node_window(
              INNER JOIN block_placements placement ON placement.block_id = record.id \
              WHERE record.library_id = ?1 AND record.kind_json = '\"page\"' \
                AND record.lifecycle = 'active' AND placement.parent_kind = 'library' \
+               AND NOT EXISTS ( \
+                 SELECT 1 FROM library_block_placements legacy_placement \
+                 WHERE legacy_placement.library_id = ?1 \
+                   AND legacy_placement.block_id = record.id \
+               ) \
                AND (?2 IS NULL OR placement.rank_key > ?2 \
                  OR (placement.rank_key = ?2 AND record.id > ?3)) \
              ORDER BY placement.rank_key, record.id LIMIT ?4",
@@ -1301,7 +1318,7 @@ fn canonical_root_node_window(
                         title: row.get(2)?,
                         parent_revision: row.get(3)?,
                         metadata_revision: row.get(4)?,
-                        document_generation: 0,
+                        document_generation: 1,
                         document_head_seq: 0,
                         updated_at: "1970-01-01T00:00:00.000Z".to_owned(),
                         has_children: row.get::<_, i64>(5)? == 1,
@@ -1315,6 +1332,11 @@ fn canonical_root_node_window(
          INNER JOIN block_placements placement ON placement.block_id = record.id \
          WHERE record.library_id = ?1 AND record.kind_json = '\"page\"' \
            AND record.lifecycle = 'active' AND placement.parent_kind = 'library' \
+           AND NOT EXISTS ( \
+             SELECT 1 FROM library_block_placements legacy_placement \
+             WHERE legacy_placement.library_id = ?1 \
+               AND legacy_placement.block_id = record.id \
+           ) \
            ",
         [library_id],
         |row| row.get::<_, i64>(0),
@@ -1379,6 +1401,12 @@ fn standalone_root_node_window(
          WHERE placement.library_id = ?1 AND block.type IN ('page', 'database', 'canvas') \
            AND block.lifecycle = 'active' \
            AND COALESCE(page.lifecycle, container.lifecycle, block.lifecycle) = 'active' \
+           AND NOT (block.type = 'page' AND EXISTS ( \
+             SELECT 1 FROM block_records canonical_page \
+             WHERE canonical_page.id = block.id \
+               AND canonical_page.library_id = ?1 \
+               AND canonical_page.kind_json = '\"page\"' \
+           )) \
            AND {eligibility} \
            AND (?2 IS NULL OR placement.rank_key > ?2 \
              OR (placement.rank_key = ?2 AND block.id > ?3)) \
@@ -1399,6 +1427,12 @@ fn standalone_root_node_window(
          WHERE placement.library_id = ?1 AND block.type IN ('page', 'database', 'canvas') \
            AND block.lifecycle = 'active' \
            AND COALESCE(page.lifecycle, container.lifecycle, block.lifecycle) = 'active' \
+           AND NOT (block.type = 'page' AND EXISTS ( \
+             SELECT 1 FROM block_records canonical_page \
+             WHERE canonical_page.id = block.id \
+               AND canonical_page.library_id = ?1 \
+               AND canonical_page.kind_json = '\"page\"' \
+           )) \
            AND {eligibility}"
     );
     let legacy_total =
@@ -1427,6 +1461,20 @@ fn standalone_root_is_eligible(
     library_id: &str,
     target: &LibraryResourceTarget,
 ) -> Result<bool, StoreError> {
+    if let LibraryResourceTarget::Page { page_id } = target {
+        let canonical = connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM block_records record \
+             INNER JOIN block_placements placement ON placement.block_id = record.id \
+             WHERE record.id = ?1 AND record.library_id = ?2 \
+               AND record.kind_json = '\"page\"' AND record.lifecycle = 'active' \
+               AND placement.parent_kind = 'library')",
+            params![page_id, library_id],
+            |row| row.get::<_, bool>(0),
+        )?;
+        if canonical {
+            return Ok(true);
+        }
+    }
     let (block_type, block_id) = match target {
         LibraryResourceTarget::Page { page_id } => ("page", page_id),
         LibraryResourceTarget::Database { database_id } => ("database", database_id),
@@ -1487,17 +1535,20 @@ fn page_child_node_window(
     after: Option<&cursor::KeysetCoordinate>,
     limit: usize,
 ) -> Result<(Vec<OrderedNavigationNode>, u64), StoreError> {
-    let legacy_document_id = connection
-        .query_row(
-            "SELECT document_id FROM pages \
+    let canonical_page = canonical_page_exists(connection, library_id, page_id)?;
+    let legacy_document_id = if canonical_page.is_none() {
+        connection
+            .query_row(
+                "SELECT document_id FROM pages \
              WHERE block_id = ?1 AND library_id = ?2 AND lifecycle = 'active'",
-            params![page_id, library_id],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()?;
-    let Some(document_id) =
-        legacy_document_id.or(canonical_page_exists(connection, library_id, page_id)?)
-    else {
+                params![page_id, library_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+    } else {
+        None
+    };
+    let Some(document_id) = legacy_document_id.or(canonical_page) else {
         return Err(not_found("Library Page is unavailable"));
     };
     if document_id == "__canonical_block_record_page__" {
@@ -1625,7 +1676,7 @@ fn canonical_page_child_node_window(
              ) \
              SELECT record.kind_json, record.id, ordered.path, \
                COALESCE(json_extract(record.properties_json, '$.title'), 'Untitled'), \
-               placement.revision, record.revision, \
+                        placement.revision + 1, record.revision + 1, \
                EXISTS(SELECT 1 FROM block_placements child \
                  INNER JOIN block_records child_record ON child_record.id = child.block_id \
                  WHERE child.parent_kind = 'block' AND child.parent_id = record.id \
@@ -1649,7 +1700,7 @@ fn canonical_page_child_node_window(
                         title: row.get(3)?,
                         parent_revision: row.get(4)?,
                         metadata_revision: row.get(5)?,
-                        document_generation: 0,
+                        document_generation: 1,
                         document_head_seq: 0,
                         updated_at: "1970-01-01T00:00:00.000Z".to_owned(),
                         has_children: row.get::<_, i64>(6)? == 1,
@@ -1722,7 +1773,7 @@ fn canonical_page_node(
         .query_row(
             "SELECT record.id, \
                COALESCE(json_extract(record.properties_json, '$.title'), 'Untitled'), \
-               placement.revision, record.revision, \
+               placement.revision + 1, record.revision + 1, \
                EXISTS(SELECT 1 FROM block_placements child \
                  INNER JOIN block_records child_record ON child_record.id = child.block_id \
                  WHERE child.parent_kind = 'block' AND child.parent_id = record.id \
@@ -1739,7 +1790,7 @@ fn canonical_page_node(
                     title: row.get(1)?,
                     parent_revision: row.get(2)?,
                     metadata_revision: row.get(3)?,
-                    document_generation: 0,
+                    document_generation: 1,
                     document_head_seq: 0,
                     updated_at: "1970-01-01T00:00:00.000Z".to_owned(),
                     has_children: row.get::<_, i64>(4)? == 1,
@@ -2129,8 +2180,8 @@ fn forced_child_node(
                 page_id: parent_page_id,
             },
             LibraryRouteTarget::Page { page_id },
-        ) => forced_document_child(connection, library_id, parent_page_id, page_id)?
-            .then(|| page_node(connection, page_id))
+        ) => forced_page_child(connection, library_id, parent_page_id, page_id)?
+            .then(|| page_navigation_node(connection, library_id, page_id))
             .transpose(),
         (
             LibraryNavigationParent::Page {
@@ -2199,6 +2250,31 @@ fn forced_document_child(
         .map_err(Into::into)
 }
 
+fn forced_page_child(
+    connection: &Connection,
+    library_id: &str,
+    parent_page_id: &str,
+    target_id: &str,
+) -> Result<bool, StoreError> {
+    if canonical_page_exists(connection, library_id, parent_page_id)?.is_some() {
+        return connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM block_records child_record \
+                 INNER JOIN block_placements child_placement \
+                   ON child_placement.block_id = child_record.id \
+                 WHERE child_record.id = ?3 AND child_record.library_id = ?1 \
+                   AND child_record.kind_json = '\"page\"' \
+                   AND child_record.lifecycle = 'active' \
+                   AND child_placement.parent_kind = 'block' \
+                   AND child_placement.parent_id = ?2)",
+                params![library_id, parent_page_id, target_id],
+                |row| row.get(0),
+            )
+            .map_err(Into::into);
+    }
+    forced_document_child(connection, library_id, parent_page_id, target_id)
+}
+
 fn path(
     connection: &Connection,
     library_id: &str,
@@ -2233,6 +2309,9 @@ fn page_path(
     library_id: &str,
     page_id: &str,
 ) -> Result<Vec<LibraryNavigationNode>, StoreError> {
+    if canonical_page_exists(connection, library_id, page_id)?.is_some() {
+        return canonical_page_path(connection, library_id, page_id);
+    }
     let mut current = page_id.to_owned();
     let mut page_ids = Vec::new();
     let mut seen = HashSet::new();
@@ -2276,6 +2355,79 @@ fn page_path(
         .into_iter()
         .map(|page_id| page_node(connection, &page_id))
         .collect()
+}
+
+fn canonical_page_path(
+    connection: &Connection,
+    library_id: &str,
+    page_id: &str,
+) -> Result<Vec<LibraryNavigationNode>, StoreError> {
+    let mut current = page_id.to_owned();
+    let mut page_ids = Vec::new();
+    let mut seen = HashSet::new();
+    loop {
+        if page_ids.len() >= 512 {
+            return Err(corrupt("Library Page hierarchy exceeds 512 Page levels"));
+        }
+        if !seen.insert(current.clone()) {
+            return Err(corrupt("Library Page hierarchy contains a cycle"));
+        }
+        let (parent_kind, parent_id) = connection
+            .query_row(
+                "SELECT placement.parent_kind, COALESCE(placement.parent_id, ?2) \
+                 FROM block_records record \
+                 INNER JOIN block_placements placement ON placement.block_id = record.id \
+                 WHERE record.id = ?1 AND record.library_id = ?2 \
+                   AND record.kind_json = '\"page\"' \
+                   AND record.lifecycle = 'active'",
+                params![current, library_id],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .optional()?
+            .ok_or_else(|| not_found("Canonical Library Page is unavailable"))?;
+        page_ids.push(current.clone());
+        match parent_kind.as_str() {
+            "library" => break,
+            "block" => current = parent_id,
+            "data_source" => {
+                let database_id = connection
+                    .query_row(
+                        "SELECT home_database_block_id FROM data_sources \
+                         WHERE id = ?1 AND library_id = ?2 AND lifecycle <> 'deleted'",
+                        params![parent_id, library_id],
+                        |row| row.get::<_, String>(0),
+                    )
+                    .optional()?
+                    .ok_or_else(|| corrupt("Canonical Page has no owning Data Source"))?;
+                let mut nodes = database_path(connection, library_id, &database_id)?;
+                page_ids.reverse();
+                nodes.extend(
+                    page_ids
+                        .into_iter()
+                        .map(|id| page_navigation_node(connection, library_id, &id))
+                        .collect::<Result<Vec<_>, _>>()?,
+                );
+                return Ok(nodes);
+            }
+            _ => return Err(corrupt("Canonical Page has an invalid ownership parent")),
+        }
+    }
+    page_ids.reverse();
+    page_ids
+        .into_iter()
+        .map(|id| page_navigation_node(connection, library_id, &id))
+        .collect()
+}
+
+fn page_navigation_node(
+    connection: &Connection,
+    library_id: &str,
+    page_id: &str,
+) -> Result<LibraryNavigationNode, StoreError> {
+    if canonical_page_exists(connection, library_id, page_id)?.is_some() {
+        return canonical_page_node(connection, library_id, page_id);
+    }
+    page_node(connection, page_id)
 }
 
 fn database_path(
@@ -2382,6 +2534,28 @@ fn catalog(
         i64::try_from(limit.saturating_add(1)).map_err(|_| invalid("Library limit overflowed"))?;
     let catalog_cte = "\
       WITH catalog(id, kind, title, updated_at, location_revision, metadata_revision, location_label) AS ( \
+        SELECT record.id, 'page', \
+          COALESCE(json_extract(record.properties_json, '$.title'), 'Untitled'), \
+          COALESCE(\
+            json_extract(record.properties_json, '$.updatedAt'), \
+            json_extract(record.properties_json, '$.createdAt'), \
+            printf('%020d', record.revision)\
+          ), \
+          placement.revision + 1, record.revision + 1, \
+          CASE placement.parent_kind \
+            WHEN 'library' THEN 'Library' \
+            WHEN 'block' THEN COALESCE(( \
+              SELECT json_extract(parent.properties_json, '$.title') \
+              FROM block_records parent WHERE parent.id = placement.parent_id\
+            ), 'Page') \
+            WHEN 'data_source' THEN 'Board' \
+            ELSE 'Library' \
+          END \
+        FROM block_records record \
+        INNER JOIN block_placements placement ON placement.block_id = record.id \
+        WHERE ?3 AND record.library_id = ?1 AND record.lifecycle = ?2 \
+          AND record.kind_json = '\"page\"' \
+        UNION ALL \
         SELECT page.block_id, 'page', materialization.title, page.updated_at, \
           page.parent_revision, page.metadata_revision, \
           CASE page.parent_kind \
@@ -2404,6 +2578,12 @@ fn catalog(
         INNER JOIN document_materializations materialization \
           ON materialization.document_id = page.document_id \
         WHERE ?3 AND page.library_id = ?1 AND page.lifecycle = ?2 \
+          AND NOT EXISTS ( \
+            SELECT 1 FROM block_records canonical_page \
+            WHERE canonical_page.id = page.block_id \
+              AND canonical_page.library_id = page.library_id \
+              AND canonical_page.kind_json = '\"page\"' \
+          ) \
         UNION ALL \
         SELECT container.block_id, 'database', container.name, container.updated_at, \
           block.location_revision, container.metadata_revision, \

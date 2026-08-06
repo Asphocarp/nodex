@@ -6,8 +6,14 @@ import {
 import type { DatabaseViewKind } from "../../shared/database-kernel";
 import { plainTextToPortableRichText } from "../../shared/block-documents/portable-rich-text";
 import { blockRecordSnapshotToWindow } from "../../shared/block-records/wire";
-import { buildCreateBlockRecordApplyInput } from "../../shared/block-records/apply-request";
+import {
+  buildArchiveBlockRecordSubtreeApplyInput,
+  buildCreateBlockRecordApplyInput,
+  buildMoveManyBlockRecordApplyInput,
+  buildRestoreBlockRecordSubtreeApplyInput,
+} from "../../shared/block-records/apply-request";
 import { planFractionalRank } from "../../shared/block-records/fractional-rank";
+import type { BlockPlacementParent } from "../../shared/block-records/contracts";
 import type {
   LibraryApplyOperation,
   LibraryCanvasDestination,
@@ -95,6 +101,38 @@ const canonicalPageParent = (
 const canonicalPageParentKey = (
   parent: LibraryWriteParent,
 ): string => parent.kind === "library" ? "library" : `page:${parent.pageId}`;
+
+const canonicalPlacementKey = (
+  parent: {
+    readonly kind: "library" | "block" | "dataSource";
+    readonly libraryId?: string;
+    readonly blockId?: string;
+    readonly dataSourceId?: string;
+  },
+): string => {
+  if (parent.kind === "library") return "library";
+  if (parent.kind === "block") return `page:${parent.blockId}`;
+  return `data-source:${parent.dataSourceId}`;
+};
+
+/**
+ * Library navigation revisions are deliberately one-based because the old
+ * Library contract treats zero as an absent revision. BlockRecord revisions
+ * start at zero for a freshly inserted row, so the adapter translates the
+ * public fence back to the canonical value only after proving the row is the
+ * same record that the user acted on.
+ */
+const canonicalPublicRevision = (revision: number): number => revision + 1;
+
+const archivedRankPrefix = "__nodex_archived__";
+
+const activeRankFromArchived = (
+  blockId: string,
+  rankKey: string,
+): string | null => {
+  const prefix = `${archivedRankPrefix}${blockId}__`;
+  return rankKey.startsWith(prefix) ? rankKey.slice(prefix.length) || null : null;
+};
 
 export interface CoreLibraryModuleAdapterInput {
   readonly client: CoreClientPort;
@@ -1493,7 +1531,349 @@ const applyCanonicalPageCreate = async (
     affectedPageIds: [request.operation.pageId],
     affectedDatabaseIds: [],
     affectedViewIds: [],
-    committedRevisions: { [request.operation.pageId]: 0 },
+    committedRevisions: {
+      [`blockMetadata:${request.operation.pageId}`]: canonicalPublicRevision(0),
+      [`blockLocation:${request.operation.pageId}`]: canonicalPublicRevision(0),
+    },
+    changeLogSeq: committed.cursor.commit_seq,
+    committedAt: committed.committed_at,
+  };
+};
+
+const readCanonicalPageWithLifecycle = async (
+  input: CoreLibraryModuleAdapterInput,
+  pageId: string,
+  includeArchived: boolean,
+) => {
+  const read = {
+    kind: "window" as const,
+    block_ids: [pageId],
+    include_content: false,
+    include_descendants: false,
+    include_archived: includeArchived,
+  } as const;
+  const snapshot = await input.client.blockRecordRead(read);
+  if (
+    snapshot.library_id !== input.libraryId
+    || snapshot.observed_cursor.store_epoch !== input.storeEpoch
+  ) {
+    throw new Error("Canonical Page lookup escaped its BlockRecord snapshot boundary");
+  }
+  const window = blockRecordSnapshotToWindow(snapshot, read);
+  const record = window.records.find((candidate) => candidate.id === pageId);
+  const placement = window.placements.find((candidate) => candidate.blockId === pageId);
+  if (!record || record.kind !== "page" || !placement) {
+    return null;
+  }
+  return { read, snapshot, window, record, placement };
+};
+
+const readCanonicalPage = async (
+  input: CoreLibraryModuleAdapterInput,
+  pageId: string,
+) => {
+  const page = await readCanonicalPageWithLifecycle(input, pageId, false);
+  return page?.record.lifecycle === "active" ? page : null;
+};
+
+const readCanonicalArchivedPage = async (
+  input: CoreLibraryModuleAdapterInput,
+  pageId: string,
+) => {
+  const page = await readCanonicalPageWithLifecycle(input, pageId, true);
+  return page?.record.lifecycle === "archived" ? page : null;
+};
+
+const readCanonicalParentWindow = async (
+  input: CoreLibraryModuleAdapterInput,
+  parent: LibraryWriteParent | BlockPlacementParent,
+) => {
+  const canonicalParent = parent.kind === "library"
+    ? { kind: "library" as const, libraryId: input.libraryId }
+    : parent.kind === "page"
+      ? { kind: "block" as const, blockId: parent.pageId }
+      : parent;
+  const read = {
+    kind: "window" as const,
+    parent: canonicalParent.kind === "library"
+      ? { kind: "library" as const }
+      : canonicalParent.kind === "block"
+        ? { kind: "block" as const, id: canonicalParent.blockId }
+        : { kind: "data_source" as const, id: canonicalParent.dataSourceId },
+    include_content: false,
+    include_descendants: false,
+  } as const;
+  const snapshot = await input.client.blockRecordRead(read);
+  if (
+    snapshot.library_id !== input.libraryId
+    || snapshot.observed_cursor.store_epoch !== input.storeEpoch
+  ) {
+    throw new Error("Canonical Library parent escaped its BlockRecord snapshot boundary");
+  }
+  return {
+    canonicalParent,
+    read,
+    snapshot,
+    window: blockRecordSnapshotToWindow(snapshot, read),
+  };
+};
+
+const applyCanonicalPageMove = async (
+  input: CoreLibraryModuleAdapterInput,
+  request: LibraryModuleApplyRequest & {
+    readonly operation: Extract<LibraryApplyOperation, { readonly kind: "move_block" }>;
+  },
+): Promise<LibraryModuleApplyReceipt | null> => {
+  if (request.operation.target.kind !== "page") return null;
+  const source = await readCanonicalPage(input, request.operation.target.pageId);
+  if (!source) return null;
+  if (
+    request.operation.target.expectedLocationRevision
+    !== canonicalPublicRevision(source.placement.revision)
+  ) {
+    throw new Error("Canonical Page moved since this action began");
+  }
+
+  const destination = await readCanonicalParentWindow(input, request.operation.parent);
+  const targetPageId = request.operation.parent.kind === "page"
+    ? request.operation.parent.pageId
+    : null;
+  if (targetPageId) {
+    const target = destination.window.records.find((record) => (
+      record.id === targetPageId
+    ));
+    if (!target || target.kind !== "page" || target.lifecycle !== "active") {
+      throw new Error("Canonical destination Page is unavailable");
+    }
+    if (target.id === source.record.id) {
+      throw new Error("A Page cannot move below itself");
+    }
+  }
+  const anchor = request.operation.parent.before;
+  if (anchor) {
+    const anchorPlacement = destination.window.placements.find(
+      (placement) => placement.blockId === anchor.blockId,
+    );
+    if (
+      !anchorPlacement
+      || anchorPlacement.revision + 1 !== anchor.expectedLocationRevision
+    ) {
+      throw new Error("Canonical destination anchor is stale");
+    }
+  }
+  const siblings = destination.window.placements
+    .filter((placement) => (
+      destination.canonicalParent.kind === "library"
+        ? placement.parent.kind === "library"
+        : destination.canonicalParent.kind === "block"
+          ? placement.parent.kind === "block"
+            && placement.parent.blockId === destination.canonicalParent.blockId
+          : placement.parent.kind === "dataSource"
+            && placement.parent.dataSourceId === destination.canonicalParent.dataSourceId
+    ))
+    .sort((left, right) => (
+      left.rankKey.localeCompare(right.rankKey) || left.blockId.localeCompare(right.blockId)
+    ))
+    .map((placement) => ({ id: placement.blockId, rankKey: placement.rankKey }));
+  const rank = planFractionalRank(siblings, source.record.id, anchor?.blockId);
+  const apply = await buildMoveManyBlockRecordApplyInput({
+    operationId: request.operationId,
+    actorId: canonicalPageActorId(input.profileId),
+    sessionId: canonicalPageSessionId(input.libraryId),
+    entries: [{
+      blockId: source.record.id,
+      targetParent: destination.canonicalParent,
+      rankKey: rank.rankKey,
+      expectedBlockRevision: source.record.revision,
+      expectedPlacementRevision: source.placement.revision,
+    }],
+    placementRebalances: [...rank.rebalancedRankKeys].map(([blockId, rankKey]) => {
+      const placement = destination.window.placements.find(
+        (candidate) => candidate.blockId === blockId,
+      );
+      if (!placement) throw new Error(`Canonical sibling ${blockId} is not loaded`);
+      return {
+        blockId,
+        rankKey,
+        expectedRevision: placement.revision,
+      };
+    }),
+  });
+  const committed = await input.client.blockRecordApply(apply);
+  if (
+    committed.operation_id !== request.operationId
+    || committed.cursor.store_epoch !== input.storeEpoch
+  ) {
+    throw new Error("Canonical Page move receipt escaped its operation boundary");
+  }
+  const nextPlacementRevision = canonicalPublicRevision(source.placement.revision + 1);
+  const affectedParentKeys = [
+    canonicalPlacementKey(source.placement.parent),
+    canonicalPlacementKey(destination.canonicalParent),
+  ].filter((key, index, keys) => keys.indexOf(key) === index);
+  return {
+    version: request.version,
+    operationId: request.operationId,
+    storeEpoch: committed.cursor.store_epoch,
+    libraryId: input.libraryId,
+    operationKind: request.operation.kind,
+    duplicate: committed.duplicate,
+    didMutate: !committed.duplicate,
+    createdTarget: null,
+    canvasMutation: null,
+    affectedParentKeys,
+    affectedPageIds: [
+      source.record.id,
+      ...(request.operation.parent.kind === "page"
+        ? [request.operation.parent.pageId]
+        : []),
+    ].filter((id, index, ids) => ids.indexOf(id) === index),
+    affectedDatabaseIds: [],
+    affectedViewIds: [],
+    committedRevisions: {
+      [`blockLocation:${source.record.id}`]: nextPlacementRevision,
+    },
+    changeLogSeq: committed.cursor.commit_seq,
+    committedAt: committed.committed_at,
+  };
+};
+
+const applyCanonicalPageArchive = async (
+  input: CoreLibraryModuleAdapterInput,
+  request: LibraryModuleApplyRequest & {
+    readonly operation: Extract<LibraryApplyOperation, { readonly kind: "archive_resource" }>;
+  },
+): Promise<LibraryModuleApplyReceipt | null> => {
+  if (request.operation.target.kind !== "page") return null;
+  const source = await readCanonicalPage(input, request.operation.target.pageId);
+  if (!source) return null;
+  if (
+    request.operation.target.expectedMetadataRevision
+    !== canonicalPublicRevision(source.record.revision)
+  ) {
+    throw new Error("Canonical Page metadata changed since this action began");
+  }
+  const apply = await buildArchiveBlockRecordSubtreeApplyInput({
+    operationId: request.operationId,
+    actorId: canonicalPageActorId(input.profileId),
+    sessionId: canonicalPageSessionId(input.libraryId),
+    blockId: source.record.id,
+    expectedBlockRevision: source.record.revision,
+    expectedPlacementRevision: source.placement.revision,
+  });
+  const committed = await input.client.blockRecordApply(apply);
+  if (
+    committed.operation_id !== request.operationId
+    || committed.cursor.store_epoch !== input.storeEpoch
+  ) {
+    throw new Error("Canonical Page archive receipt escaped its operation boundary");
+  }
+  return {
+    version: request.version,
+    operationId: request.operationId,
+    storeEpoch: committed.cursor.store_epoch,
+    libraryId: input.libraryId,
+    operationKind: request.operation.kind,
+    duplicate: committed.duplicate,
+    didMutate: !committed.duplicate,
+    createdTarget: null,
+    canvasMutation: null,
+    affectedParentKeys: [canonicalPlacementKey(source.placement.parent)],
+    affectedPageIds: [source.record.id],
+    affectedDatabaseIds: [],
+    affectedViewIds: [],
+    committedRevisions: {
+      [`blockMetadata:${source.record.id}`]: canonicalPublicRevision(source.record.revision + 1),
+    },
+    changeLogSeq: committed.cursor.commit_seq,
+    committedAt: committed.committed_at,
+  };
+};
+
+const applyCanonicalPageRestore = async (
+  input: CoreLibraryModuleAdapterInput,
+  request: LibraryModuleApplyRequest & {
+    readonly operation: Extract<LibraryApplyOperation, { readonly kind: "restore_resource" }>;
+  },
+): Promise<LibraryModuleApplyReceipt | null> => {
+  if (request.operation.target.kind !== "page") return null;
+  const source = await readCanonicalArchivedPage(input, request.operation.target.pageId);
+  if (!source) return null;
+  if (
+    request.operation.target.expectedMetadataRevision
+    !== canonicalPublicRevision(source.record.revision)
+  ) {
+    throw new Error("Canonical Page metadata changed since this action began");
+  }
+  if (source.placement.parent.kind === "block") {
+    const parent = await readCanonicalPage(input, source.placement.parent.blockId);
+    if (!parent) {
+      throw new Error("Canonical Page restore parent is still archived");
+    }
+  }
+  const destination = await readCanonicalParentWindow(input, source.placement.parent);
+  const siblings = destination.window.placements
+    .filter((placement) => (
+      destination.canonicalParent.kind === "library"
+        ? placement.parent.kind === "library"
+        : destination.canonicalParent.kind === "block"
+          ? placement.parent.kind === "block"
+            && placement.parent.blockId === destination.canonicalParent.blockId
+          : placement.parent.kind === "dataSource"
+            && placement.parent.dataSourceId === destination.canonicalParent.dataSourceId
+    ))
+    .sort((left, right) => (
+      left.rankKey.localeCompare(right.rankKey) || left.blockId.localeCompare(right.blockId)
+    ))
+    .map((placement) => ({ id: placement.blockId, rankKey: placement.rankKey }));
+  const archivedRank = activeRankFromArchived(
+    source.record.id,
+    source.placement.rankKey,
+  );
+  const rank = archivedRank
+    && !siblings.some((sibling) => sibling.rankKey === archivedRank)
+    ? { rankKey: archivedRank, rebalancedRankKeys: new Map<string, string>() }
+    : planFractionalRank(siblings, source.record.id);
+  if (rank.rebalancedRankKeys.size > 0) {
+    throw new Error("Canonical Page restore requires a placement rebalance");
+  }
+  const apply = await buildRestoreBlockRecordSubtreeApplyInput({
+    operationId: request.operationId,
+    actorId: canonicalPageActorId(input.profileId),
+    sessionId: canonicalPageSessionId(input.libraryId),
+    blockId: source.record.id,
+    targetParent: source.placement.parent,
+    rankKey: rank.rankKey,
+    expectedBlockRevision: source.record.revision,
+    expectedPlacementRevision: source.placement.revision,
+  });
+  const committed = await input.client.blockRecordApply(apply);
+  if (
+    committed.operation_id !== request.operationId
+    || committed.cursor.store_epoch !== input.storeEpoch
+  ) {
+    throw new Error("Canonical Page restore receipt escaped its operation boundary");
+  }
+  const nextRevision = canonicalPublicRevision(source.record.revision + 1);
+  const affectedParentKeys = [canonicalPlacementKey(source.placement.parent)];
+  return {
+    version: request.version,
+    operationId: request.operationId,
+    storeEpoch: committed.cursor.store_epoch,
+    libraryId: input.libraryId,
+    operationKind: request.operation.kind,
+    duplicate: committed.duplicate,
+    didMutate: !committed.duplicate,
+    createdTarget: null,
+    canvasMutation: null,
+    affectedParentKeys,
+    affectedPageIds: [source.record.id],
+    affectedDatabaseIds: [],
+    affectedViewIds: [],
+    committedRevisions: {
+      [`blockMetadata:${source.record.id}`]: nextRevision,
+      [`blockLocation:${source.record.id}`]: nextRevision,
+    },
     changeLogSeq: committed.cursor.commit_seq,
     committedAt: committed.committed_at,
   };
@@ -1561,9 +1941,25 @@ export const createCoreLibraryModuleAdapter = (
       const titleContent = window.content.find((candidate) => (
         candidate.blockId === pageId && candidate.slot === "title"
       ));
-      const title = typeof record.properties.title === "string"
-        ? record.properties.title
-        : "Untitled";
+      const title = typeof titleContent?.content === "object"
+        && titleContent.content !== null
+        ? (() => {
+            const plainText = Array.isArray(titleContent.content)
+              ? titleContent.content
+                  .filter((item): item is { readonly type?: unknown; readonly text?: unknown } => (
+                    typeof item === "object" && item !== null
+                  ))
+                  .filter((item) => item.type === "text" && typeof item.text === "string")
+                  .map((item) => item.text as string)
+                  .join("")
+              : "";
+            return plainText || (typeof record.properties.title === "string"
+              ? record.properties.title
+              : "Untitled");
+          })()
+        : typeof record.properties.title === "string"
+          ? record.properties.title
+          : "Untitled";
       const richTitle = titleContent?.content ?? plainTextToPortableRichText(title);
       const parent = placement.parent.kind === "library"
         ? { kind: "library" as const, libraryId: input.libraryId }
@@ -1718,6 +2114,24 @@ export const createCoreLibraryModuleAdapter = (
             value: await applyCanonicalPageCreate(input, pageRequest),
           };
         }
+        if (request.operation.kind === "move_block") {
+          const canonicalReceipt = await applyCanonicalPageMove(input, request as LibraryModuleApplyRequest & {
+            readonly operation: Extract<LibraryApplyOperation, { readonly kind: "move_block" }>;
+          });
+          if (canonicalReceipt) return { ok: true, value: canonicalReceipt };
+        }
+        if (request.operation.kind === "archive_resource") {
+          const canonicalReceipt = await applyCanonicalPageArchive(input, request as LibraryModuleApplyRequest & {
+            readonly operation: Extract<LibraryApplyOperation, { readonly kind: "archive_resource" }>;
+          });
+          if (canonicalReceipt) return { ok: true, value: canonicalReceipt };
+        }
+        if (request.operation.kind === "restore_resource") {
+          const canonicalReceipt = await applyCanonicalPageRestore(input, request as LibraryModuleApplyRequest & {
+            readonly operation: Extract<LibraryApplyOperation, { readonly kind: "restore_resource" }>;
+          });
+          if (canonicalReceipt) return { ok: true, value: canonicalReceipt };
+        }
         const committed = await input.client.libraryApply({
           operationId: request.operationId,
           intent: toCoreIntent(request.operation),
@@ -1792,6 +2206,17 @@ export const createCoreLibraryModuleAdapter = (
     },
     readLibraryPageDetail: async (pageId, minimumCommitSeq) => {
       try {
+        let canonicalPage: Awaited<ReturnType<typeof readCanonicalPage>> = null;
+        try {
+          canonicalPage = await readCanonicalPage(input, pageId);
+        } catch {
+          // A legacy Page detail remains the fallback while the canonical
+          // BlockRecord catalog is being cut over. The final one-big model
+          // removes this probe and the legacy branch together.
+        }
+        if (canonicalPage) {
+          return await readCanonicalPageDetail(pageId, minimumCommitSeq);
+        }
         return parseLibraryPageDetailResult({
           ok: true,
           value: {

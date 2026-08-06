@@ -91,6 +91,13 @@ pub enum BlockMutationOperation {
         expected_block_revision: u64,
         expected_placement_revision: u64,
     },
+    RestoreSubtree {
+        block_id: String,
+        target_parent: PlacementParent,
+        rank_key: String,
+        expected_block_revision: u64,
+        expected_placement_revision: u64,
+    },
     PromoteToPage {
         block_id: String,
         data_source_id: String,
@@ -370,7 +377,8 @@ fn persist_delta(
                 )
             })?,
         BlockMutationOperation::UpdateRecord { block_id, .. }
-        | BlockMutationOperation::ArchiveSubtree { block_id, .. } => block_id,
+        | BlockMutationOperation::ArchiveSubtree { block_id, .. }
+        | BlockMutationOperation::RestoreSubtree { block_id, .. } => block_id,
         BlockMutationOperation::UpdateMany { entries, .. } => entries
             .first()
             .map(|entry| entry.block_id.as_str())
@@ -694,6 +702,9 @@ fn persist_delta(
         }
         return Ok(Vec::new());
     }
+    if let BlockMutationOperation::RestoreSubtree { block_id, .. } = operation {
+        return persist_restore_subtree(transaction, previous, next, block_id);
+    }
     if let BlockMutationOperation::SetMaterializedContent {
         block_id,
         slot,
@@ -899,6 +910,156 @@ fn persist_delta(
         )?;
     }
     Ok(persisted_effects)
+}
+
+fn persist_restore_subtree(
+    transaction: &Transaction<'_>,
+    previous: &RecordGraph,
+    next: &RecordGraph,
+    root_id: &str,
+) -> Result<Vec<LocalCommitEffect>, StoreError> {
+    let ids = next.descendant_ids(root_id).map_err(map_graph_error)?;
+    let restored_ids = ids
+        .iter()
+        .filter(|id| previous.block(id).is_none())
+        .cloned()
+        .collect::<Vec<_>>();
+    if restored_ids.is_empty() {
+        return Err(StoreError::new(
+            StoreErrorCode::StoreCorrupt,
+            "Restore prepared no archived BlockRecords",
+            false,
+        ));
+    }
+    let root = next.block(root_id).ok_or_else(|| {
+        StoreError::new(
+            StoreErrorCode::StoreCorrupt,
+            "Restored subtree root disappeared",
+            false,
+        )
+    })?;
+    if let PlacementParent::DataSource(data_source_id) = next
+        .placement(root_id)
+        .ok_or_else(|| corrupt("Restored subtree root has no placement"))?
+        .parent
+        .clone()
+    {
+        crate::infrastructure::block_record_store::ensure_data_source(
+            transaction,
+            &data_source_id,
+            &root.library_id,
+        )?;
+    }
+
+    for id in &restored_ids {
+        let next_record = next.block(id).ok_or_else(|| {
+            StoreError::new(
+                StoreErrorCode::StoreCorrupt,
+                "Restored BlockRecord disappeared",
+                false,
+            )
+        })?;
+        let expected_revision = next_record.revision.checked_sub(1).ok_or_else(|| {
+            StoreError::new(
+                StoreErrorCode::StoreCorrupt,
+                "Restored BlockRecord revision has no archived predecessor",
+                false,
+            )
+        })?;
+        let changed = transaction.execute(
+            "UPDATE block_records SET lifecycle = 'active', revision = ?1
+             WHERE id = ?2 AND library_id = ?3 AND lifecycle = 'archived' AND revision = ?4",
+            rusqlite::params![
+                i64::try_from(next_record.revision).map_err(|_| {
+                    corrupt("Restored BlockRecord revision exceeds SQLite range")
+                })?,
+                id,
+                next_record.library_id,
+                i64::try_from(expected_revision).map_err(|_| {
+                    corrupt("Archived BlockRecord revision exceeds SQLite range")
+                })?,
+            ],
+        )?;
+        if changed != 1 {
+            return Err(StoreError::new(
+                StoreErrorCode::RevisionConflict,
+                format!("Archived BlockRecord {id} changed before restore"),
+                true,
+            ));
+        }
+    }
+
+    // Archived descendants still point at archived parents. Publish placement
+    // edges in parent-first order so the active-parent trigger remains a
+    // meaningful invariant during the restore transaction.
+    let mut pending = restored_ids.iter().cloned().collect::<BTreeSet<_>>();
+    while !pending.is_empty() {
+        let ready = pending
+            .iter()
+            .filter(|id| {
+                let Some(placement) = next.placement(id) else {
+                    return false;
+                };
+                match &placement.parent {
+                    PlacementParent::Block(parent_id) => !pending.contains(parent_id),
+                    PlacementParent::Library | PlacementParent::DataSource(_) => true,
+                }
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        if ready.is_empty() {
+            return Err(StoreError::new(
+                StoreErrorCode::StoreCorrupt,
+                "Restored subtree placement order contains a cycle",
+                false,
+            ));
+        }
+        for id in ready {
+            pending.remove(&id);
+            let placement = next.placement(&id).ok_or_else(|| {
+                StoreError::new(
+                    StoreErrorCode::StoreCorrupt,
+                    "Restored BlockRecord has no final placement",
+                    false,
+                )
+            })?;
+            let expected_revision = placement
+                .revision
+                .checked_sub(1)
+                .ok_or_else(|| corrupt("Restored placement has no archived predecessor"))?;
+            let (parent_kind, parent_id) = match &placement.parent {
+                PlacementParent::Library => ("library", None),
+                PlacementParent::Block(parent_id) => ("block", Some(parent_id.as_str())),
+                PlacementParent::DataSource(data_source_id) => {
+                    ("data_source", Some(data_source_id.as_str()))
+                }
+            };
+            let changed = transaction.execute(
+                "UPDATE block_placements SET parent_kind = ?1, parent_id = ?2,
+                 rank_key = ?3, revision = ?4
+                 WHERE block_id = ?5 AND revision = ?6",
+                rusqlite::params![
+                    parent_kind,
+                    parent_id,
+                    placement.rank_key,
+                    i64::try_from(placement.revision)
+                        .map_err(|_| corrupt("Restored placement revision exceeds SQLite range"))?,
+                    id,
+                    i64::try_from(expected_revision)
+                        .map_err(|_| corrupt("Archived placement revision exceeds SQLite range"))?,
+                ],
+            )?;
+            if changed != 1 {
+                return Err(StoreError::new(
+                    StoreErrorCode::StoreCorrupt,
+                    format!("Restored placement {id} disappeared while publishing"),
+                    false,
+                ));
+            }
+        }
+    }
+
+    Ok(Vec::new())
 }
 
 fn persist_batch_record_update(
@@ -2433,6 +2594,207 @@ fn apply_operation(
             }
             Ok((block_id.clone(), effects))
         }
+        BlockMutationOperation::RestoreSubtree {
+            block_id,
+            target_parent,
+            rank_key,
+            expected_block_revision,
+            expected_placement_revision,
+        } => {
+            if graph.block(block_id).is_some() {
+                return Err(StoreError::new(
+                    StoreErrorCode::Conflict,
+                    "Cannot restore an active BlockRecord",
+                    false,
+                ));
+            }
+            let block_ids = vec![block_id.clone()];
+            let (archived_records, archived_placements) =
+                crate::infrastructure::block_record_store::read_selection_with_descendants_and_lifecycle(
+                    transaction,
+                    graph.library_id(),
+                    None,
+                    Some(&block_ids),
+                    true,
+                    true,
+                )?;
+            let archived_by_id = archived_records
+                .into_iter()
+                .map(|record| (record.id.clone(), record))
+                .collect::<BTreeMap<_, _>>();
+            let archived_placement_by_id = archived_placements
+                .into_iter()
+                .map(|placement| (placement.block_id.clone(), placement))
+                .collect::<BTreeMap<_, _>>();
+            let root_record = archived_by_id.get(block_id).ok_or_else(|| {
+                StoreError::new(
+                    StoreErrorCode::NotFound,
+                    "Archived BlockRecord is unavailable",
+                    false,
+                )
+            })?;
+            let root_placement = archived_placement_by_id.get(block_id).ok_or_else(|| {
+                StoreError::new(
+                    StoreErrorCode::NotFound,
+                    "Archived Block placement is unavailable",
+                    false,
+                )
+            })?;
+            if root_record.revision != *expected_block_revision
+                || root_placement.revision != *expected_placement_revision
+            {
+                return Err(StoreError::new(
+                    StoreErrorCode::RevisionConflict,
+                    "Archived BlockRecord changed before restore",
+                    true,
+                ));
+            }
+            if rank_key.trim().is_empty() {
+                return Err(StoreError::new(
+                    StoreErrorCode::InvalidInput,
+                    "Restored placement rank is invalid",
+                    false,
+                ));
+            }
+            let archived_ids = archived_by_id.keys().cloned().collect::<BTreeSet<_>>();
+            if let PlacementParent::Block(parent_id) = target_parent
+                && archived_ids.contains(parent_id)
+            {
+                return Err(StoreError::new(
+                    StoreErrorCode::InvalidInput,
+                    "A restored subtree cannot be placed below itself",
+                    false,
+                ));
+            }
+            let mut restored_records = BTreeMap::new();
+            let mut restored_placements = BTreeMap::new();
+            for (id, record) in &archived_by_id {
+                let placement = archived_placement_by_id.get(id).ok_or_else(|| {
+                    StoreError::new(
+                        StoreErrorCode::StoreCorrupt,
+                        "Archived subtree has a missing placement",
+                        false,
+                    )
+                })?;
+                let restored_revision = record.revision.checked_add(1).ok_or_else(|| {
+                    StoreError::new(
+                        StoreErrorCode::StoreCorrupt,
+                        "Restored BlockRecord revision overflow",
+                        false,
+                    )
+                })?;
+                let placement_revision = placement.revision.checked_add(1).ok_or_else(|| {
+                    StoreError::new(
+                        StoreErrorCode::StoreCorrupt,
+                        "Restored placement revision overflow",
+                        false,
+                    )
+                })?;
+                let next_parent = if id == block_id {
+                    target_parent.clone()
+                } else {
+                    placement.parent.clone()
+                };
+                let next_rank = if id == block_id {
+                    rank_key.clone()
+                } else {
+                    crate::infrastructure::block_record_store::active_rank_key_from_archived(
+                        id,
+                        &placement.rank_key,
+                    )
+                    .ok_or_else(|| {
+                        StoreError::new(
+                            StoreErrorCode::StoreCorrupt,
+                            "Archived placement rank cannot be restored",
+                            false,
+                        )
+                    })?
+                };
+                restored_records.insert(
+                    id.clone(),
+                    BlockRecord {
+                        lifecycle: BlockLifecycle::Active,
+                        revision: restored_revision,
+                        ..record.clone()
+                    },
+                );
+                restored_placements.insert(
+                    id.clone(),
+                    BlockPlacement {
+                        block_id: id.clone(),
+                        parent: next_parent,
+                        rank_key: next_rank,
+                        revision: placement_revision,
+                    },
+                );
+            }
+            let mut pending = archived_ids;
+            let mut effects = Vec::with_capacity(pending.len() * 2);
+            while !pending.is_empty() {
+                let ready = pending
+                    .iter()
+                    .filter(|id| {
+                        let Some(placement) = restored_placements.get(*id) else {
+                            return false;
+                        };
+                        match &placement.parent {
+                            PlacementParent::Block(parent_id) => {
+                                !pending.contains(parent_id) && graph.block(parent_id).is_some()
+                            }
+                            PlacementParent::Library | PlacementParent::DataSource(_) => true,
+                        }
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>();
+                if ready.is_empty() {
+                    return Err(StoreError::new(
+                        StoreErrorCode::InvalidInput,
+                        "Archived subtree cannot be restored as an ownership forest",
+                        false,
+                    ));
+                }
+                for id in ready {
+                    pending.remove(&id);
+                    let record = restored_records.get(&id).ok_or_else(|| {
+                        StoreError::new(
+                            StoreErrorCode::StoreCorrupt,
+                            "Restored BlockRecord disappeared during planning",
+                            false,
+                        )
+                    })?;
+                    let placement = restored_placements.get(&id).ok_or_else(|| {
+                        StoreError::new(
+                            StoreErrorCode::StoreCorrupt,
+                            "Restored placement disappeared during planning",
+                            false,
+                        )
+                    })?;
+                    let previous_placement =
+                        archived_placement_by_id.get(&id).ok_or_else(|| {
+                            StoreError::new(
+                                StoreErrorCode::StoreCorrupt,
+                                "Archived placement disappeared during planning",
+                                false,
+                            )
+                        })?;
+                    graph
+                        .insert(record.clone(), placement.clone())
+                        .map_err(map_graph_error)?;
+                    effects.push(record_effect(record));
+                    effects.push(LocalCommitEffect {
+                        kind: "placement".to_owned(),
+                        value: json!({
+                            "blockId": id,
+                            "from": previous_placement.parent,
+                            "to": placement.parent,
+                            "rankKey": placement.rank_key,
+                            "revision": placement.revision,
+                        }),
+                    });
+                }
+            }
+            Ok((block_id.clone(), effects))
+        }
         BlockMutationOperation::PromoteToPage {
             block_id,
             data_source_id,
@@ -3516,6 +3878,10 @@ fn map_graph_error(error: crate::domain::block_record::BlockRecordError) -> Stor
     StoreError::new(code, error.to_string(), false)
 }
 
+fn corrupt(message: impl Into<String>) -> StoreError {
+    StoreError::new(StoreErrorCode::StoreCorrupt, message, false)
+}
+
 fn validate_operation_identity(request: &BlockMutationRequest) -> Result<(), StoreError> {
     for (label, value) in [
         ("store_epoch", request.store_epoch.as_str()),
@@ -4334,7 +4700,96 @@ mod tests {
             )
             .expect("archive counts");
         assert_eq!(archived, subtree.len() as i64);
-        assert_eq!(live_placements, 301);
+        assert_eq!(live_placements, 402);
+    }
+
+    #[test]
+    fn restore_subtree_reactivates_owned_records_and_edges_atomically() {
+        let mut connection = Connection::open_in_memory().expect("SQLite");
+        install_graph_schema(&connection).expect("graph schema");
+        install_view_position_schema(&connection).expect("view schema");
+        install_commit_schema(&connection).expect("commit schema");
+        let mut graph = graph();
+        let subtree = graph.descendant_ids("title-a").expect("subtree");
+        {
+            let transaction = connection.transaction().expect("seed transaction");
+            crate::infrastructure::block_record_store::ensure_data_source(
+                &transaction,
+                "board:test",
+                "library:test",
+            )
+            .expect("data source");
+            crate::infrastructure::block_record_store::write_graph(&transaction, &graph)
+                .expect("graph");
+            transaction.commit().expect("seed commit");
+        }
+        {
+            let transaction = connection.transaction().expect("archive transaction");
+            apply_block_mutation(
+                &transaction,
+                &mut graph,
+                request(
+                    "archive:title-a",
+                    BlockMutationOperation::ArchiveSubtree {
+                        block_id: "title-a".to_owned(),
+                        expected_block_revision: 0,
+                        expected_placement_revision: 0,
+                    },
+                ),
+            )
+            .expect("archive");
+            transaction.commit().expect("archive commit");
+        }
+
+        let transaction = connection.transaction().expect("restore transaction");
+        let committed = apply_block_mutation(
+            &transaction,
+            &mut graph,
+            request(
+                "restore:title-a",
+                BlockMutationOperation::RestoreSubtree {
+                    block_id: "title-a".to_owned(),
+                    target_parent: PlacementParent::Block("page-a".to_owned()),
+                    rank_key: "100".to_owned(),
+                    expected_block_revision: 1,
+                    expected_placement_revision: 1,
+                },
+            ),
+        )
+        .expect("restore");
+        transaction.commit().expect("restore commit");
+
+        assert_eq!(committed.envelope.cursor.commit_seq, 2);
+        assert_eq!(committed.envelope.effects.len(), subtree.len() * 2);
+        assert_eq!(
+            graph.descendant_ids("title-a").expect("restored subtree"),
+            subtree
+        );
+        assert_eq!(
+            graph.placement("title-a").expect("restored root").parent,
+            PlacementParent::Block("page-a".to_owned())
+        );
+        assert_eq!(
+            graph.placement("title-a").expect("restored root").rank_key,
+            "100"
+        );
+        assert_eq!(
+            graph.placement("child-000").expect("restored child").parent,
+            PlacementParent::Block("title-a".to_owned())
+        );
+        let (active, archived, placements): (i64, i64, i64) = connection
+            .query_row(
+                "SELECT
+                   (SELECT count(*) FROM block_records WHERE lifecycle = 'active'),
+                   (SELECT count(*) FROM block_records WHERE lifecycle = 'archived'),
+                   (SELECT count(*) FROM block_placements)",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("restore counts");
+        assert_eq!(active, 402);
+        assert_eq!(archived, 0);
+        assert_eq!(placements, 402);
     }
 
     #[test]
@@ -4576,7 +5031,7 @@ mod tests {
                 |row| row.get(0),
             )
             .expect("placement count");
-        assert_eq!(placement_count, 2);
+        assert_eq!(placement_count, 3);
         let materialized: String = connection
             .query_row(
                 "SELECT materialized_json FROM block_content_materializations
@@ -4651,7 +5106,15 @@ mod tests {
                 |row| row.get(0),
             )
             .expect("archived placement");
-        assert_eq!(placement_count, 0);
+        assert_eq!(placement_count, 1);
+        let archived_rank: String = connection
+            .query_row(
+                "SELECT rank_key FROM block_placements WHERE block_id = 'before-000'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("archived placement rank");
+        assert!(archived_rank.starts_with("__nodex_archived__before-000__"));
     }
 
     #[test]

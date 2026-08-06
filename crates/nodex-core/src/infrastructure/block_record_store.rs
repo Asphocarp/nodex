@@ -19,6 +19,16 @@ use crate::domain::rich_text::{RichTextItem, RichTextStyles};
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 pub const MAX_BLOCK_RECORD_WINDOW: usize = 100_000;
+pub const ARCHIVED_RANK_PREFIX: &str = "__nodex_archived__";
+
+pub fn archived_rank_key(block_id: &str, rank_key: &str) -> String {
+    format!("{ARCHIVED_RANK_PREFIX}{block_id}__{rank_key}")
+}
+
+pub fn active_rank_key_from_archived(block_id: &str, rank_key: &str) -> Option<String> {
+    let prefix = format!("{ARCHIVED_RANK_PREFIX}{block_id}__");
+    rank_key.strip_prefix(&prefix).map(ToOwned::to_owned)
+}
 
 const SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS block_record_data_sources (
@@ -1200,11 +1210,10 @@ pub fn update_block_record(
     Ok(())
 }
 
-/// Archives an active record while retaining its identity and content history
-/// for recovery/history tooling. The live placement and View positions are
-/// removed in the same transaction: archived rows must not occupy a sibling
-/// rank or appear as an active membership, and a future new Block must be able
-/// to reuse the released ordering slot.
+/// Archives an active record while retaining its identity, ownership edge and
+/// content history for recovery/history tooling. The placement is parked under
+/// a Block-specific rank token instead of being deleted, so a restore can
+/// recover the complete owned subtree without a second placement authority.
 pub fn archive_block(
     transaction: &Transaction<'_>,
     previous: &BlockRecord,
@@ -1216,23 +1225,34 @@ pub fn archive_block(
         .revision
         .checked_add(1)
         .ok_or_else(|| corrupt("BlockRecord revision overflow while archiving"))?;
-    let has_view_positions: Option<i64> = transaction
+    let (placement_revision, rank_key): (i64, String) = transaction
         .query_row(
-            "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'block_record_view_positions'",
-            [],
-            |row| row.get(0),
-        )
-        .optional()?;
-    if has_view_positions.is_some() {
-        transaction.execute(
-            "DELETE FROM block_record_view_positions WHERE block_id = ?1",
+            "SELECT revision, rank_key FROM block_placements WHERE block_id = ?1",
             [previous.id.as_str()],
-        )?;
-    }
-    transaction.execute(
-        "DELETE FROM block_placements WHERE block_id = ?1",
-        [previous.id.as_str()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?
+        .ok_or_else(|| corrupt("Active BlockRecord has no placement while archiving"))?;
+    let archived_placement_revision = placement_revision
+        .checked_add(1)
+        .ok_or_else(|| corrupt("Placement revision overflow while archiving"))?;
+    let changed = transaction.execute(
+        "UPDATE block_placements SET rank_key = ?1, revision = ?2
+         WHERE block_id = ?3 AND revision = ?4",
+        params![
+            archived_rank_key(&previous.id, &rank_key),
+            archived_placement_revision,
+            previous.id,
+            placement_revision,
+        ],
     )?;
+    if changed != 1 {
+        return Err(StoreError::new(
+            StoreErrorCode::RevisionConflict,
+            format!("Block {} placement changed while archiving", previous.id),
+            true,
+        ));
+    }
     let changed = transaction.execute(
         "UPDATE block_records SET lifecycle = 'archived', revision = ?1
          WHERE id = ?2 AND library_id = ?3 AND lifecycle = 'active' AND revision = ?4",
@@ -1433,6 +1453,24 @@ pub fn read_selection_with_descendants(
     block_ids: Option<&[String]>,
     include_descendants: bool,
 ) -> Result<(Vec<BlockRecord>, Vec<BlockPlacement>), StoreError> {
+    read_selection_with_descendants_and_lifecycle(
+        connection,
+        library_id,
+        parent,
+        block_ids,
+        include_descendants,
+        false,
+    )
+}
+
+pub fn read_selection_with_descendants_and_lifecycle(
+    connection: &Connection,
+    library_id: &str,
+    parent: Option<&PlacementParent>,
+    block_ids: Option<&[String]>,
+    include_descendants: bool,
+    include_archived: bool,
+) -> Result<(Vec<BlockRecord>, Vec<BlockPlacement>), StoreError> {
     if library_id.trim().is_empty() {
         return Err(StoreError::new(
             StoreErrorCode::InvalidInput,
@@ -1450,7 +1488,7 @@ pub fn read_selection_with_descendants(
     if block_ids.is_some_and(|ids| ids.is_empty()) {
         return Ok((Vec::new(), Vec::new()));
     }
-    if parent.is_none() && block_ids.is_none() {
+    if parent.is_none() && block_ids.is_none() && !include_archived {
         let graph = read_graph(connection, library_id)?;
         if graph.blocks().count() > MAX_BLOCK_RECORD_WINDOW {
             return Err(StoreError::new(
@@ -1466,12 +1504,22 @@ pub fn read_selection_with_descendants(
     }
 
     let (parent_kind, parent_id) = parent.map(parent_to_sql).unwrap_or(("", None));
-    let mut placement_sql = String::from(
+    let lifecycle_filter = if include_archived {
+        "b.lifecycle IN ('active', 'archived')"
+    } else {
+        "b.lifecycle = 'active'"
+    };
+    let record_lifecycle_filter = if include_archived {
+        "lifecycle IN ('active', 'archived')"
+    } else {
+        "lifecycle = 'active'"
+    };
+    let mut placement_sql = String::from(format!(
         "SELECT p.block_id, p.parent_kind, p.parent_id, p.rank_key, p.revision
          FROM block_placements p
          JOIN block_records b ON b.id = p.block_id
-         WHERE b.library_id = ?1 AND b.lifecycle = 'active'",
-    );
+         WHERE b.library_id = ?1 AND {lifecycle_filter}"
+    ));
     let mut values = vec![rusqlite::types::Value::Text(library_id.to_owned())];
     if parent.is_some() {
         placement_sql.push_str(" AND p.parent_kind = ?2");
@@ -1512,15 +1560,14 @@ pub fn read_selection_with_descendants(
     // keeps the renderer graph-valid without hydrating siblings or body
     // content outside the requested parent.
     if let Some(PlacementParent::Block(parent_id)) = parent {
+        let anchor_sql = format!(
+            "SELECT p.block_id, p.parent_kind, p.parent_id, p.rank_key, p.revision
+             FROM block_placements p
+             JOIN block_records b ON b.id = p.block_id
+             WHERE b.library_id = ?1 AND {lifecycle_filter} AND p.block_id = ?2"
+        );
         let anchor_placement = connection
-            .query_row(
-                "SELECT p.block_id, p.parent_kind, p.parent_id, p.rank_key, p.revision
-                 FROM block_placements p
-                 JOIN block_records b ON b.id = p.block_id
-                 WHERE b.library_id = ?1 AND b.lifecycle = 'active' AND p.block_id = ?2",
-                params![library_id, parent_id],
-                read_placement,
-            )
+            .query_row(&anchor_sql, params![library_id, parent_id], read_placement)
             .optional()
             .map_err(StoreError::from)?
             .ok_or_else(|| corrupt("BlockRecord selection root parent has no placement"))?;
@@ -1551,7 +1598,7 @@ pub fn read_selection_with_descendants(
                     "SELECT p.block_id, p.parent_kind, p.parent_id, p.rank_key, p.revision
                      FROM block_placements p
                      JOIN block_records b ON b.id = p.block_id
-                     WHERE b.library_id = ?1 AND b.lifecycle = 'active' AND p.parent_kind = 'block'
+                     WHERE b.library_id = ?1 AND {lifecycle_filter} AND p.parent_kind = 'block'
                        AND p.parent_id IN ({placeholders})
                      ORDER BY p.parent_id, p.rank_key, p.block_id"
                 );
@@ -1600,7 +1647,7 @@ pub fn read_selection_with_descendants(
             "SELECT id, library_id, kind_json, lifecycle, properties_json,
                     content_shard_id, revision
              FROM block_records
-             WHERE library_id = ?1 AND lifecycle = 'active' AND id IN ({placeholders})
+             WHERE library_id = ?1 AND {record_lifecycle_filter} AND id IN ({placeholders})
              ORDER BY id"
         );
         let mut block_statement = connection.prepare(&sql).map_err(StoreError::from)?;

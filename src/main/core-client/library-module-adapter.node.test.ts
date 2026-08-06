@@ -49,6 +49,41 @@ const emptyCanonicalPageWindow = () => ({
   },
 });
 
+const canonicalPageWindow = (input: {
+  readonly pageId: string;
+  readonly lifecycle: "active" | "archived";
+  readonly parent: { readonly kind: "library" } | { readonly kind: "block"; readonly id: string };
+  readonly rankKey: string;
+  readonly revision?: number;
+}) => ({
+  store_epoch: identity.storeEpoch,
+  library_id: identity.libraryId,
+  graph: {
+    library_id: identity.libraryId,
+    blocks: [{
+      id: input.pageId,
+      library_id: identity.libraryId,
+      kind: "page",
+      lifecycle: input.lifecycle,
+      properties: { title: input.pageId },
+      content_shard_id: `shard:${input.pageId}`,
+      revision: input.revision ?? 0,
+    }],
+    placements: [{
+      block_id: input.pageId,
+      parent: input.parent,
+      rank_key: input.rankKey,
+      revision: input.revision ?? 0,
+    }],
+  },
+  view_positions: [],
+  content: [],
+  observed_cursor: {
+    store_epoch: identity.storeEpoch,
+    commit_seq: 8,
+  },
+});
+
 const canonicalPageCommit = (operationId: string, pageId: string) => ({
   cursor: { store_epoch: identity.storeEpoch, commit_seq: 8 },
   commit_id: `commit:${operationId}`,
@@ -1709,6 +1744,128 @@ describe("Core Library Module Adapter", () => {
     await expect(adapter.apply({ ...request, storeEpoch: "epoch:stale" })).resolves
       .toMatchObject({ ok: false, error: { code: "store_epoch_mismatch" } });
     expect(client.blockRecordApplies).toHaveLength(1);
+  });
+
+  test("routes canonical Page Move through one BlockRecord transaction", async () => {
+    const client = new FakeCoreClient();
+    client.enqueueBlockRecordRead(canonicalPageWindow({
+      pageId: "page:one",
+      lifecycle: "active",
+      parent: { kind: "library" },
+      rankKey: "40000000000000000000000000000000",
+    }));
+    client.enqueueBlockRecordRead(canonicalPageWindow({
+      pageId: "page:two",
+      lifecycle: "active",
+      parent: { kind: "library" },
+      rankKey: "80000000000000000000000000000000",
+    }));
+    client.enqueueBlockRecordApply(canonicalPageCommit("operation:move", "page:one"));
+    const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
+
+    await expect(adapter.apply({
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      operationId: "operation:move",
+      storeEpoch: identity.storeEpoch,
+      operation: {
+        kind: "move_block",
+        target: {
+          kind: "page",
+          pageId: "page:one",
+          expectedLocationRevision: 1,
+        },
+        parent: {
+          kind: "page",
+          pageId: "page:two",
+          expectedDocumentGeneration: 0,
+          expectedDocumentHeadSeq: 0,
+        },
+      },
+    })).resolves.toMatchObject({
+      ok: true,
+      value: {
+        operationKind: "move_block",
+        affectedParentKeys: ["library", "page:page:two"],
+      },
+    });
+    expect(client.applies).toHaveLength(0);
+    expect(client.blockRecordApplies[0]).toMatchObject({
+      operation_id: "operation:move",
+      operation: {
+        kind: "move_many",
+        entries: [{
+          block_id: "page:one",
+          target_parent: { kind: "block", id: "page:two" },
+          expected_block_revision: 0,
+          expected_placement_revision: 0,
+        }],
+      },
+    });
+  });
+
+  test("archives and restores a canonical Page without falling back to legacy Library writes", async () => {
+    const client = new FakeCoreClient();
+    client.enqueueBlockRecordRead(canonicalPageWindow({
+      pageId: "page:one",
+      lifecycle: "active",
+      parent: { kind: "library" },
+      rankKey: "40000000000000000000000000000000",
+    }));
+    client.enqueueBlockRecordApply(canonicalPageCommit("operation:archive", "page:one"));
+    client.enqueueBlockRecordRead(canonicalPageWindow({
+      pageId: "page:one",
+      lifecycle: "archived",
+      parent: { kind: "library" },
+      rankKey: "__nodex_archived__page:one__40000000000000000000000000000000",
+      revision: 1,
+    }));
+    client.enqueueBlockRecordRead(emptyCanonicalPageWindow());
+    client.enqueueBlockRecordApply(canonicalPageCommit("operation:restore", "page:one"));
+    const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
+
+    await expect(adapter.apply({
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      operationId: "operation:archive",
+      storeEpoch: identity.storeEpoch,
+      operation: {
+        kind: "archive_resource",
+        target: {
+          kind: "page",
+          pageId: "page:one",
+          expectedMetadataRevision: 1,
+        },
+      },
+    })).resolves.toMatchObject({ ok: true, value: { operationKind: "archive_resource" } });
+
+    await expect(adapter.apply({
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      operationId: "operation:restore",
+      storeEpoch: identity.storeEpoch,
+      operation: {
+        kind: "restore_resource",
+        target: {
+          kind: "page",
+          pageId: "page:one",
+          expectedMetadataRevision: 2,
+        },
+      },
+    })).resolves.toMatchObject({ ok: true, value: { operationKind: "restore_resource" } });
+
+    expect(client.applies).toHaveLength(0);
+    expect(client.blockRecordApplies.map((entry) => entry.operation.kind)).toEqual([
+      "archive_subtree",
+      "restore_subtree",
+    ]);
+    expect(client.blockRecordApplies[1]).toMatchObject({
+      operation: {
+        block_id: "page:one",
+        target_parent: { kind: "library" },
+        rank_key: "40000000000000000000000000000000",
+        expected_block_revision: 1,
+        expected_placement_revision: 1,
+      },
+    });
+    expect(client.blockRecordReads[1]).toMatchObject({ include_archived: true });
   });
 
   test("routes trusted Library writes through the root Core client", async () => {

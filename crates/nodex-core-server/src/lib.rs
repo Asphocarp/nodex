@@ -633,17 +633,19 @@ async fn block_record_read(
             block_ids,
             include_content,
             include_descendants,
+            include_archived,
             view_id,
         } = &request.read;
         let parent = parent.as_ref().map(block_record_parent).transpose()?;
         let (window, observed_cursor) = state
             .block_record
-            .read_selection_with_cursor_and_view_and_descendants(
+            .read_selection_with_cursor_and_view_and_descendants_and_lifecycle(
                 parent.as_ref(),
                 block_ids.as_deref(),
                 *include_content,
                 view_id.as_deref(),
                 *include_descendants,
+                *include_archived,
             )
             .map_err(block_record_store_error)?;
         let observed_cursor = observed_cursor
@@ -881,6 +883,19 @@ fn block_record_operation(
             expected_placement_revision,
         } => Ok(BlockMutationOperation::ArchiveSubtree {
             block_id: block_id.clone(),
+            expected_block_revision: *expected_block_revision,
+            expected_placement_revision: *expected_placement_revision,
+        }),
+        BlockRecordOperation::RestoreSubtree {
+            block_id,
+            target_parent,
+            rank_key,
+            expected_block_revision,
+            expected_placement_revision,
+        } => Ok(BlockMutationOperation::RestoreSubtree {
+            block_id: block_id.clone(),
+            target_parent: block_record_parent(target_parent)?,
+            rank_key: rank_key.clone(),
             expected_block_revision: *expected_block_revision,
             expected_placement_revision: *expected_placement_revision,
         }),

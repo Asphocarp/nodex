@@ -2462,6 +2462,44 @@
             "type": "object",
             "required": [
               "block_id",
+              "target_parent",
+              "rank_key",
+              "expected_block_revision",
+              "expected_placement_revision",
+              "kind"
+            ],
+            "properties": {
+              "block_id": {
+                "type": "string"
+              },
+              "expected_block_revision": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "expected_placement_revision": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "restore_subtree"
+                ]
+              },
+              "rank_key": {
+                "type": "string"
+              },
+              "target_parent": {
+                "$ref": "#/components/schemas/BlockRecordPlacementParent"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "block_id",
               "data_source_id",
               "rank_key",
               "expected_block_revision",
@@ -2843,6 +2881,9 @@
                 "items": {
                   "type": "string"
                 }
+              },
+              "include_archived": {
+                "type": "boolean"
               },
               "include_content": {
                 "type": "boolean"

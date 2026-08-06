@@ -105,6 +105,14 @@ export interface ArchiveBlockRecordSubtreeApplyInput extends BlockRecordApplyIde
   readonly expectedPlacementRevision: number;
 }
 
+export interface RestoreBlockRecordSubtreeApplyInput extends BlockRecordApplyIdentity {
+  readonly blockId: string;
+  readonly targetParent: BlockPlacementParent;
+  readonly rankKey: string;
+  readonly expectedBlockRevision: number;
+  readonly expectedPlacementRevision: number;
+}
+
 export interface PromoteManyBlockRecordApplyInput extends BlockRecordApplyIdentity {
   readonly dataSourceId: string;
   readonly viewId?: string | null;
@@ -543,6 +551,29 @@ export const buildArchiveBlockRecordSubtreeApplyInput = async (
   const operation = {
     kind: "archive_subtree" as const,
     block_id: input.blockId,
+    expected_block_revision: input.expectedBlockRevision,
+    expected_placement_revision: input.expectedPlacementRevision,
+  };
+  return {
+    ...await identityFields(input, operation),
+    operation,
+  };
+};
+
+export const buildRestoreBlockRecordSubtreeApplyInput = async (
+  input: RestoreBlockRecordSubtreeApplyInput,
+): Promise<BlockRecordApplyInput> => {
+  for (const [label, value] of [
+    ["blockId", input.blockId],
+    ["rankKey", input.rankKey],
+  ] as const) assertIdentity(label, value);
+  assertRevision("expectedBlockRevision", input.expectedBlockRevision);
+  assertRevision("expectedPlacementRevision", input.expectedPlacementRevision);
+  const operation = {
+    kind: "restore_subtree" as const,
+    block_id: input.blockId,
+    target_parent: parentToWire(input.targetParent),
+    rank_key: input.rankKey,
     expected_block_revision: input.expectedBlockRevision,
     expected_placement_revision: input.expectedPlacementRevision,
   };

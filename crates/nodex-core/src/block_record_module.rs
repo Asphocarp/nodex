@@ -164,6 +164,31 @@ impl BlockRecordModule {
         ),
         StoreError,
     > {
+        self.read_selection_with_cursor_and_view_and_descendants_and_lifecycle(
+            parent,
+            block_ids,
+            include_content,
+            view_id,
+            include_descendants,
+            false,
+        )
+    }
+
+    pub fn read_selection_with_cursor_and_view_and_descendants_and_lifecycle(
+        &self,
+        parent: Option<&PlacementParent>,
+        block_ids: Option<&[String]>,
+        include_content: bool,
+        view_id: Option<&str>,
+        include_descendants: bool,
+        include_archived: bool,
+    ) -> Result<
+        (
+            BlockRecordSelection,
+            Option<crate::local_commit::LocalCommitCursor>,
+        ),
+        StoreError,
+    > {
         let library_id = self.library_id.clone();
         let parent = parent.cloned();
         let block_ids = block_ids.map(ToOwned::to_owned);
@@ -171,13 +196,15 @@ impl BlockRecordModule {
         let store_epoch = self.store_epoch.clone();
         self.readers.read_default(move |connection| {
             let transaction = connection.unchecked_transaction()?;
-            let (blocks, placements) = block_record_store::read_selection_with_descendants(
-                &transaction,
-                &library_id,
-                parent.as_ref(),
-                block_ids.as_deref(),
-                include_descendants,
-            )?;
+            let (blocks, placements) =
+                block_record_store::read_selection_with_descendants_and_lifecycle(
+                    &transaction,
+                    &library_id,
+                    parent.as_ref(),
+                    block_ids.as_deref(),
+                    include_descendants,
+                    include_archived,
+                )?;
             let content = if include_content {
                 let ids = blocks
                     .iter()

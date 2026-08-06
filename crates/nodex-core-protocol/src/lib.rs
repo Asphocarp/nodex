@@ -765,6 +765,8 @@ pub enum BlockRecordRead {
         include_content: bool,
         #[serde(default)]
         include_descendants: bool,
+        #[serde(default)]
+        include_archived: bool,
     },
 }
 
@@ -844,6 +846,13 @@ pub enum BlockRecordOperation {
     },
     ArchiveSubtree {
         block_id: String,
+        expected_block_revision: u64,
+        expected_placement_revision: u64,
+    },
+    RestoreSubtree {
+        block_id: String,
+        target_parent: BlockRecordPlacementParent,
+        rank_key: String,
         expected_block_revision: u64,
         expected_placement_revision: u64,
     },
