@@ -38,49 +38,51 @@ import type {
   CoreEventEnvelope,
   CoreEventReplayRequired,
   CoreEventSubscription,
+  CoreDocumentEventSubscription,
+  CoreStreamCheckpoint,
   CoreHandshakeResponse,
   CoreLocalMutationResolveRequest,
   CoreLocalMutationResolveResponse,
   CoreModuleError,
   AutomationApplyInput,
   AutomationApplyResponse,
-  AutomationCommittedValue,
+  AutomationApplyResult,
   AutomationRead,
   AutomationReadResponse,
   AutomationReadSnapshot,
   DatabaseApplyInput,
   DatabaseApplyResponse,
-  DatabaseCommittedValue,
+  DatabaseApplyResult,
   DatabaseRead,
   DatabaseReadResponse,
   DatabaseReadSnapshot,
   LibraryApplyInput,
   LibraryApplyResponse,
-  LibraryCommittedValue,
+  LibraryApplyResult,
   LibraryRead,
   LibraryReadResponse,
   LibraryReadSnapshot,
-  DocumentResyncRequired,
+  DocumentLiveRepair,
   OwnedDocumentApplyInput,
   OwnedDocumentApplyResponse,
-  OwnedDocumentCommittedValue,
+  OwnedDocumentApplyResult,
   OwnedDocumentRead,
   OwnedDocumentReadResponse,
   OwnedDocumentReadSnapshot,
   ProjectWorkspaceRead,
   ProjectWorkspaceApplyInput,
   ProjectWorkspaceApplyResponse,
-  ProjectWorkspaceCommittedValue,
+  ProjectWorkspaceApplyResult,
   ProjectWorkspaceReadResponse,
   ProjectWorkspaceReadSnapshot,
   StoreAdministrationApplyInput,
   StoreAdministrationApplyResponse,
-  StoreAdministrationCommittedValue,
+  StoreAdministrationApplyResult,
   StoreAdministrationRead,
   StoreAdministrationReadResponse,
   StoreAdministrationReadSnapshot,
 } from "./types";
-import { UdsHttpTransport } from "./uds-http";
+import { CoreEventCompatibilityError, UdsHttpTransport } from "./uds-http";
 
 const DOCUMENT_FRAME_OVERHEAD_BYTES = MAX_DOCUMENT_HTTP_METADATA_BYTES + 8;
 
@@ -115,6 +117,7 @@ export interface ConnectCoreClientInput {
   readonly projectId?: string;
   readonly maximumJsonResponseBytes?: number;
   readonly requestTimeoutMs?: number;
+  readonly signal?: AbortSignal;
 }
 
 export class CoreModuleResponseError extends Error {
@@ -180,12 +183,16 @@ export class CoreClient implements CoreClientPort {
           readiness_generation: runtime.descriptor.readiness_generation,
         },
       },
+      {},
+      input.signal,
     );
     assertHandshake(runtime.descriptor, handshake);
     transport.configureEventContract({
       transportVersion: handshake.selected_transport_version,
       eventVersion: handshake.selected_event_version,
+      libraryId: handshake.library_id,
       storeEpoch: handshake.store_epoch,
+      coreGeneration: handshake.generation.start_nonce,
     });
     return new CoreClient(transport, handshake, input.projectId, connectionId);
   }
@@ -230,7 +237,7 @@ export class CoreClient implements CoreClientPort {
     throw new CoreModuleResponseError(response.payload);
   }
 
-  async libraryApply(input: LibraryApplyInput): Promise<LibraryCommittedValue> {
+  async libraryApply(input: LibraryApplyInput): Promise<LibraryApplyResult> {
     const response = await this.#transport.requestJson<LibraryApplyResponse>(
       "POST",
       "/core/v1/modules/library/apply",
@@ -272,7 +279,7 @@ export class CoreClient implements CoreClientPort {
     throw new CoreModuleResponseError(response.payload);
   }
 
-  async databaseApply(input: DatabaseApplyInput): Promise<DatabaseCommittedValue> {
+  async databaseApply(input: DatabaseApplyInput): Promise<DatabaseApplyResult> {
     const response = await this.#transport.requestJson<DatabaseApplyResponse>(
       "POST",
       "/core/v1/modules/database/apply",
@@ -303,7 +310,7 @@ export class CoreClient implements CoreClientPort {
 
   async workspaceApply(
     input: ProjectWorkspaceApplyInput,
-  ): Promise<ProjectWorkspaceCommittedValue> {
+  ): Promise<ProjectWorkspaceApplyResult> {
     const response = await this.#transport.requestJson<ProjectWorkspaceApplyResponse>(
       "POST",
       "/core/v1/modules/workspace/apply",
@@ -332,7 +339,7 @@ export class CoreClient implements CoreClientPort {
 
   async automationApply(
     input: AutomationApplyInput,
-  ): Promise<AutomationCommittedValue> {
+  ): Promise<AutomationApplyResult> {
     const response = await this.#transport.requestJson<AutomationApplyResponse>(
       "POST",
       "/core/v1/modules/automation/apply",
@@ -364,7 +371,7 @@ export class CoreClient implements CoreClientPort {
 
   async administrationApply(
     input: StoreAdministrationApplyInput,
-  ): Promise<StoreAdministrationCommittedValue> {
+  ): Promise<StoreAdministrationApplyResult> {
     const response =
       await this.#transport.requestJson<StoreAdministrationApplyResponse>(
         "POST",
@@ -397,7 +404,7 @@ export class CoreClient implements CoreClientPort {
 
   async documentApply(
     input: OwnedDocumentApplyInput,
-  ): Promise<OwnedDocumentCommittedValue> {
+  ): Promise<OwnedDocumentApplyResult> {
     const response = await this.#transport.requestJson<OwnedDocumentApplyResponse>(
       "POST",
       "/core/v1/modules/document/apply",
@@ -493,30 +500,36 @@ export class CoreClient implements CoreClientPort {
     input: {
       readonly documentId: string;
       readonly clientSessionId: string;
-      readonly after: number;
       readonly signal?: AbortSignal;
     },
     onEvent: (event: CoreEventEnvelope) => void,
-    onResyncRequired: (event: DocumentResyncRequired) => void,
+    onRepair: (repair: DocumentLiveRepair) => void,
     onRealtimeEvent: (event: DocumentSyncRealtimeEvent) => void,
-  ): Promise<CoreEventSubscription> {
-    return this.#transport.openEventStream(
-      input.after,
-      onEvent,
+  ): Promise<CoreDocumentEventSubscription> {
+    return this.#transport.openDocumentLiveStream(
       {
         ...this.#documentHeaders(input.clientSessionId),
         "x-nodex-document-id": input.documentId,
       },
-      onResyncRequired,
+      onEvent,
+      onRepair,
       onRealtimeEvent,
-      undefined,
       input.signal,
-    );
+    ).then((subscription) => {
+      if (subscription.barrier.document_id !== input.documentId) {
+        subscription.close();
+        throw new CoreEventCompatibilityError(
+          "Core Document live barrier does not match the requested Document",
+        );
+      }
+      return subscription;
+    });
   }
 
   openEventStream(
     after: number,
     onEvent: (event: CoreEventEnvelope) => void,
+    onCheckpoint: (checkpoint: CoreStreamCheckpoint) => void,
     onResyncRequired?: (event: CoreEventReplayRequired) => void,
     signal?: AbortSignal,
   ): Promise<CoreEventSubscription> {
@@ -525,8 +538,8 @@ export class CoreClient implements CoreClientPort {
       onEvent,
       this.#moduleHeaders(),
       undefined,
-      undefined,
       onResyncRequired,
+      onCheckpoint,
       signal,
     );
   }

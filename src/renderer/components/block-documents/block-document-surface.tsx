@@ -19,6 +19,7 @@ import type { OwnedDocumentEnvelope } from "../../../shared/block-documents/docu
 import { NodexButton } from "@/components/ui/button";
 import { createDocumentSyncAdapter } from "@/lib/api";
 import {
+  isBlockDocumentAccessRevoked,
   resolveBlockDocumentSurfaceFailure,
   type BlockDocumentSurfaceFailureReason,
 } from "@/lib/block-document-surface-failure";
@@ -31,7 +32,7 @@ import {
   type BlockDocumentSurfaceStatus,
 } from "@/lib/block-document-surface-runtime";
 import type { DocumentSyncAdapter } from "@/lib/nodex-y-provider";
-import type { PageEditorAwarenessLease } from "@/lib/page-editor-session-registry";
+import type { EditorSurfaceAwarenessLease } from "@/lib/document-session-registry";
 import type {
   OwnedBlockDocumentModel,
   ReadyPageBlockDocumentDescriptor,
@@ -80,7 +81,7 @@ export interface BlockDocumentSurfaceProps {
   readonly isActive: boolean;
   readonly localAwarenessState?: BlockDocumentLocalAwarenessState;
   /** Optional lease used when multiple views share one canonical provider. */
-  readonly awarenessLease?: PageEditorAwarenessLease;
+  readonly awarenessLease?: EditorSurfaceAwarenessLease;
   readonly onReload?: (
     context?: BlockDocumentSurfaceReloadContext,
   ) => void | Promise<void>;
@@ -109,7 +110,7 @@ export interface BlockDocumentSurfaceFailureStateProps {
   readonly error: Error;
   readonly reason: BlockDocumentSurfaceFailureReason;
   readonly reloading: boolean;
-  readonly reload: () => Promise<void>;
+  readonly reload?: () => Promise<void>;
 }
 
 const DEFAULT_DEPENDENCIES: BlockDocumentSurfaceDependencies = {};
@@ -191,15 +192,17 @@ export function BlockDocumentSurfaceFailureState({
         </div>
 
         <div className="mt-2.5 flex items-center gap-1.5 pl-5">
-          <NodexButton
-            type="button"
-            size="xs"
-            variant="secondary"
-            disabled={reloading}
-            onClick={() => void reload()}
-          >
-            {reloading ? "Reloading…" : "Reload"}
-          </NodexButton>
+          {reload ? (
+            <NodexButton
+              type="button"
+              size="xs"
+              variant="secondary"
+              disabled={reloading}
+              onClick={() => void reload()}
+            >
+              {reloading ? "Reloading…" : "Reload"}
+            </NodexButton>
+          ) : null}
           <NodexButton
             type="button"
             size="xs"
@@ -281,7 +284,7 @@ const useSurfaceAwareness = (
   descriptor: PrimaryOwnedBlockDocumentDescriptor,
   isActive: boolean,
   configured: BlockDocumentLocalAwarenessState | undefined,
-  awarenessLease?: PageEditorAwarenessLease,
+  awarenessLease?: EditorSurfaceAwarenessLease,
 ): void => {
   const retainedStateRef = useRef<Record<string, unknown> | null>(null);
   const configuredRef = useRef(configured);
@@ -292,16 +295,18 @@ const useSurfaceAwareness = (
     const localClientId = runtime.document.clientID;
 
     if (isActive) {
-      awarenessLease?.acquire();
-      awareness.setLocalState(
-        makeActiveAwarenessState(
-          runtime,
-          projectId,
-          descriptor,
-          configuredRef.current,
-          retainedStateRef.current,
-        ),
+      const activeState = makeActiveAwarenessState(
+        runtime,
+        projectId,
+        descriptor,
+        configuredRef.current,
+        awarenessLease?.getRetainedState() ?? retainedStateRef.current,
       );
+      if (awarenessLease) {
+        awarenessLease.publish(activeState);
+      } else {
+        awareness.setLocalState(activeState);
+      }
       return () => awarenessLease?.release();
     }
 
@@ -339,7 +344,7 @@ export interface OwnedBlockDocumentRuntimeSurfaceProps {
   readonly descriptor: PrimaryOwnedBlockDocumentDescriptor;
   readonly isActive: boolean;
   readonly localAwarenessState?: BlockDocumentLocalAwarenessState;
-  readonly awarenessLease?: PageEditorAwarenessLease;
+  readonly awarenessLease?: EditorSurfaceAwarenessLease;
   readonly startupError: Error | null;
   readonly onReload: () => Promise<void>;
   readonly pendingFallback?: ReactNode;
@@ -393,6 +398,7 @@ export function OwnedBlockDocumentRuntimeSurface({
 
   useEffect(() => {
     if (status.phase !== "reset-required" || reloadInFlightRef.current) return;
+    if (status.error && isBlockDocumentAccessRevoked(status.error)) return;
     reloadInFlightRef.current = true;
     setReloading(true);
     void runtime
@@ -402,16 +408,19 @@ export function OwnedBlockDocumentRuntimeSurface({
         reloadInFlightRef.current = false;
         setReloading(false);
       });
-  }, [onReload, runtime, status.phase]);
+  }, [onReload, runtime, status.error, status.phase]);
 
   const failure = startupError ?? status.error;
   if (failure) {
+    const accessRevoked = isBlockDocumentAccessRevoked(failure);
     const failureState: BlockDocumentSurfaceFailureStateProps = {
       descriptor,
       error: failure,
-      reason: status.phase === "reset-required" ? "reset-required" : "fatal",
+      reason: accessRevoked
+        ? "access-revoked"
+        : status.phase === "reset-required" ? "reset-required" : "fatal",
       reloading,
-      reload,
+      ...(accessRevoked ? {} : { reload }),
     };
     return failureFallback ? (
       failureFallback(failureState)

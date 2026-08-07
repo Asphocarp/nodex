@@ -549,7 +549,7 @@ fn read_page_file(
 
 fn mutation_output(
     page_id: &str,
-    committed: nodex_core_contracts::CommittedModuleValue<
+    committed: nodex_core_contracts::ApplyResponse<
         nodex_core_contracts::document::OwnedDocumentCommitValue,
         nodex_core_contracts::document::OwnedDocumentReceipt,
     >,
@@ -564,22 +564,24 @@ fn mutation_output(
 
 pub(crate) fn semantic_mutation_result(
     page_id: &str,
-    committed: &nodex_core_contracts::CommittedModuleValue<
+    committed: &nodex_core_contracts::ApplyResponse<
         nodex_core_contracts::document::OwnedDocumentCommitValue,
         nodex_core_contracts::document::OwnedDocumentReceipt,
     >,
     return_fields: &[String],
 ) -> Result<Value, CliError> {
-    let effect = committed.value.mutation_effect.as_ref();
-    let etags =
-        committed.value.semantic_etags.as_ref().ok_or_else(|| {
-            internal("Core native CLI semantic receipt omitted post-commit ETags")
-        })?;
+    let outcome = committed.outcome();
+    let receipt = committed.receipt();
+    let effect = outcome.mutation_effect.as_ref();
+    let etags = outcome
+        .semantic_etags
+        .as_ref()
+        .ok_or_else(|| internal("Core native CLI semantic receipt omitted post-commit ETags"))?;
     let mut etag_result = Map::from_iter([
         ("title".to_owned(), Value::String(etags.title.clone())),
         ("body".to_owned(), Value::String(etags.body.clone())),
     ]);
-    if let Some(blocks) = committed.value.semantic_block_etags.as_ref() {
+    if let Some(blocks) = outcome.semantic_block_etags.as_ref() {
         etag_result.insert(
             "blocks".to_owned(),
             serde_json::to_value(blocks).map_err(internal)?,
@@ -588,24 +590,24 @@ pub(crate) fn semantic_mutation_result(
     let mut result = Map::from_iter([
         (
             "operation_id".to_owned(),
-            Value::String(committed.receipt.mutation.operation_id.clone()),
+            Value::String(receipt.mutation.operation_id.clone()),
         ),
         (
             "duplicate".to_owned(),
-            Value::Bool(committed.receipt.mutation.duplicate),
+            Value::Bool(receipt.mutation.duplicate),
         ),
         ("page_id".to_owned(), Value::String(page_id.to_owned())),
         (
             "document_id".to_owned(),
-            Value::String(committed.value.document_id.clone()),
+            Value::String(outcome.document_id.clone()),
         ),
-        ("generation".to_owned(), json!(committed.value.generation)),
-        ("head_seq".to_owned(), json!(committed.value.head_seq)),
-        ("event_sequence".to_owned(), json!(committed.event_sequence)),
+        ("generation".to_owned(), json!(outcome.generation)),
+        ("head_seq".to_owned(), json!(outcome.head_seq)),
+        ("commit_seq".to_owned(), json!(committed.commit_cursor())),
         (
             "outcome".to_owned(),
             Value::String(
-                match &committed.value.outcome {
+                match &outcome.outcome {
                     DocumentCommitOutcome::Committed => "committed",
                     DocumentCommitOutcome::NoChange => "no_change",
                 }
@@ -627,7 +629,7 @@ pub(crate) fn semantic_mutation_result(
     if return_fields.iter().any(|field| field == "commit") {
         result.insert(
             "commit".to_owned(),
-            serde_json::to_value(&committed.value).map_err(internal)?,
+            serde_json::to_value(outcome).map_err(internal)?,
         );
     }
     Ok(Value::Object(result))

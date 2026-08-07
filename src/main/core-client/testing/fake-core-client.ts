@@ -1,31 +1,33 @@
 import type {
   AutomationApplyInput,
-  AutomationCommittedValue,
+  AutomationApplyResult,
   AutomationRead,
   AutomationReadSnapshot,
   CoreClientPort,
   CoreEventEnvelope,
   CoreEventReplayRequired,
   CoreEventSubscription,
+  CoreDocumentEventSubscription,
+  CoreStreamCheckpoint,
   DatabaseApplyInput,
-  DatabaseCommittedValue,
+  DatabaseApplyResult,
   DatabaseRead,
   DatabaseReadSnapshot,
-  DocumentResyncRequired,
+  DocumentLiveRepair,
   LibraryApplyInput,
-  LibraryCommittedValue,
+  LibraryApplyResult,
   LibraryRead,
   LibraryReadSnapshot,
   OwnedDocumentApplyInput,
-  OwnedDocumentCommittedValue,
+  OwnedDocumentApplyResult,
   OwnedDocumentRead,
   OwnedDocumentReadSnapshot,
   ProjectWorkspaceRead,
   ProjectWorkspaceApplyInput,
-  ProjectWorkspaceCommittedValue,
+  ProjectWorkspaceApplyResult,
   ProjectWorkspaceReadSnapshot,
   StoreAdministrationApplyInput,
-  StoreAdministrationCommittedValue,
+  StoreAdministrationApplyResult,
   StoreAdministrationRead,
   StoreAdministrationReadSnapshot,
   CoreHandshakeResponse,
@@ -47,6 +49,73 @@ import type {
   CanvasSceneSyncResponse,
 } from "../../../shared/block-documents/canvas-scene-sync";
 import type { ProjectionImpact } from "../../../shared/projection-stream";
+
+type ApplyOutcome<Result> = Result extends { readonly outcome: infer Outcome }
+  ? Outcome
+  : never;
+type ApplyReceipt<Result> = Result extends { readonly receipt: infer Receipt }
+  ? Receipt
+  : never;
+type ApplyFixtureInput<Result> = Result | {
+  readonly value: ApplyOutcome<Result>;
+  readonly receipt: ApplyReceipt<Result>;
+  readonly store_epoch: string;
+  readonly event_sequence: number;
+  readonly commit_seq?: number;
+  readonly delivery?: Result extends { readonly delivery?: infer Delivery }
+    ? Delivery
+    : never;
+};
+
+const fixtureReceiptCommitSeq = (receipt: unknown): number | undefined => {
+  if (typeof receipt !== "object" || receipt === null) return undefined;
+  const value = Reflect.get(receipt, "commit_seq");
+  return typeof value === "number" && Number.isSafeInteger(value)
+    ? value
+    : undefined;
+};
+
+/** Test-only builder boundary for concise command-result fixtures. */
+const normalizeApplyFixture = <Result extends {
+  readonly status: "committed" | "no_op";
+  readonly outcome: unknown;
+  readonly receipt: unknown;
+}>(input: ApplyFixtureInput<Result>): Result => {
+  if ("status" in input) return input;
+  const commitSeq = input.commit_seq
+    ?? fixtureReceiptCommitSeq(input.receipt)
+    ?? input.event_sequence;
+  if (commitSeq < 1) {
+    return {
+      status: "no_op",
+      outcome: input.value,
+      receipt: input.receipt,
+      observed: {
+        store_epoch: input.store_epoch,
+        commit_head: 0,
+      },
+    } as unknown as Result;
+  }
+  const delivery = input.delivery;
+  const identity = delivery && typeof delivery === "object" && "manifest" in delivery
+    ? (delivery as { readonly manifest: { readonly identity: {
+        readonly store_epoch: string;
+        readonly commit_seq: number;
+        readonly manifest_hash: string;
+      } } }).manifest.identity
+    : {
+        store_epoch: input.store_epoch,
+        commit_seq: commitSeq,
+        manifest_hash: "f".repeat(64),
+      };
+  return {
+    status: "committed",
+    outcome: input.value,
+    receipt: input.receipt,
+    commit: identity,
+    ...(delivery === undefined || delivery === null ? {} : { delivery }),
+  } as unknown as Result;
+};
 
 export interface FakeCoreHandshakeInput {
   readonly profileId: string;
@@ -115,22 +184,30 @@ export class FakeCoreClient implements CoreClientPort {
   readonly awarenessPublishes: DocumentAwarenessPublishRequest[] = [];
   readonly #readResults: LibraryReadSnapshot[] = [];
   readonly #automationReadResults: AutomationReadSnapshot[] = [];
-  readonly #automationApplyResults: AutomationCommittedValue[] = [];
-  readonly #applyResults: LibraryCommittedValue[] = [];
+  readonly #automationApplyResults: AutomationApplyResult[] = [];
+  readonly #applyResults: LibraryApplyResult[] = [];
   readonly #databaseReadResults: DatabaseReadSnapshot[] = [];
-  readonly #databaseApplyResults: DatabaseCommittedValue[] = [];
+  readonly #databaseApplyResults: DatabaseApplyResult[] = [];
   readonly #workspaceReadResults: ProjectWorkspaceReadSnapshot[] = [];
-  readonly #workspaceApplyResults: ProjectWorkspaceCommittedValue[] = [];
+  readonly #workspaceApplyResults: ProjectWorkspaceApplyResult[] = [];
   readonly #administrationReadResults: StoreAdministrationReadSnapshot[] = [];
-  readonly #administrationApplyResults: StoreAdministrationCommittedValue[] = [];
+  readonly #administrationApplyResults: StoreAdministrationApplyResult[] = [];
   readonly #documentReadResults: OwnedDocumentReadSnapshot[] = [];
-  readonly #documentApplyResults: OwnedDocumentCommittedValue[] = [];
+  readonly #documentApplyResults: OwnedDocumentApplyResult[] = [];
   readonly #documentSyncResults: DocumentSyncResponse[] = [];
   readonly #documentCanvasSyncResults: CanvasSceneSyncResponse[] = [];
   readonly #documentUpdateApplyResults: DocumentSyncApplyAck[] = [];
   readonly #awarenessResults: DocumentAwarenessPublishAck[] = [];
   readonly #localMutationResolveResults: CoreLocalMutationResolveResponse[] = [];
   readonly #eventConsumers = new Set<(event: CoreEventEnvelope) => void>();
+  readonly #documentEventConsumers = new Map<
+    string,
+    Set<(event: CoreEventEnvelope) => void>
+  >();
+  readonly #documentRepairConsumers = new Map<
+    string,
+    Set<(repair: DocumentLiveRepair) => void>
+  >();
 
   enqueueRead(result: LibraryReadSnapshot): void {
     this.#readResults.push(result);
@@ -155,44 +232,46 @@ export class FakeCoreClient implements CoreClientPort {
     this.#automationReadResults.push(result);
   }
 
-  enqueueAutomationApply(result: AutomationCommittedValue): void {
-    this.#automationApplyResults.push(result);
+  enqueueAutomationApply(result: ApplyFixtureInput<AutomationApplyResult>): void {
+    this.#automationApplyResults.push(normalizeApplyFixture(result));
   }
 
-  enqueueApply(result: LibraryCommittedValue): void {
-    this.#applyResults.push(result);
+  enqueueApply(result: ApplyFixtureInput<LibraryApplyResult>): void {
+    this.#applyResults.push(normalizeApplyFixture(result));
   }
 
   enqueueDatabaseRead(result: DatabaseReadSnapshot): void {
     this.#databaseReadResults.push(result);
   }
 
-  enqueueDatabaseApply(result: DatabaseCommittedValue): void {
-    this.#databaseApplyResults.push(result);
+  enqueueDatabaseApply(result: ApplyFixtureInput<DatabaseApplyResult>): void {
+    this.#databaseApplyResults.push(normalizeApplyFixture(result));
   }
 
   enqueueWorkspaceRead(result: ProjectWorkspaceReadSnapshot): void {
     this.#workspaceReadResults.push(result);
   }
 
-  enqueueWorkspaceApply(result: ProjectWorkspaceCommittedValue): void {
-    this.#workspaceApplyResults.push(result);
+  enqueueWorkspaceApply(result: ApplyFixtureInput<ProjectWorkspaceApplyResult>): void {
+    this.#workspaceApplyResults.push(normalizeApplyFixture(result));
   }
 
   enqueueAdministrationRead(result: StoreAdministrationReadSnapshot): void {
     this.#administrationReadResults.push(result);
   }
 
-  enqueueAdministrationApply(result: StoreAdministrationCommittedValue): void {
-    this.#administrationApplyResults.push(result);
+  enqueueAdministrationApply(
+    result: ApplyFixtureInput<StoreAdministrationApplyResult>,
+  ): void {
+    this.#administrationApplyResults.push(normalizeApplyFixture(result));
   }
 
   enqueueDocumentRead(result: OwnedDocumentReadSnapshot): void {
     this.#documentReadResults.push(result);
   }
 
-  enqueueDocumentApply(result: OwnedDocumentCommittedValue): void {
-    this.#documentApplyResults.push(result);
+  enqueueDocumentApply(result: ApplyFixtureInput<OwnedDocumentApplyResult>): void {
+    this.#documentApplyResults.push(normalizeApplyFixture(result));
   }
 
   enqueueDocumentSync(result: DocumentSyncResponse): void {
@@ -238,14 +317,14 @@ export class FakeCoreClient implements CoreClientPort {
     return result;
   }
 
-  async automationApply(input: AutomationApplyInput): Promise<AutomationCommittedValue> {
+  async automationApply(input: AutomationApplyInput): Promise<AutomationApplyResult> {
     this.automationApplies.push(input);
     const result = this.#automationApplyResults.shift();
     if (!result) throw new Error("Fake Core client has no queued Automation apply");
     return result;
   }
 
-  async libraryApply(input: LibraryApplyInput): Promise<LibraryCommittedValue> {
+  async libraryApply(input: LibraryApplyInput): Promise<LibraryApplyResult> {
     this.applies.push(input);
     const result = this.#applyResults.shift();
     if (!result) throw new Error("Fake Core client has no queued Library apply");
@@ -259,7 +338,7 @@ export class FakeCoreClient implements CoreClientPort {
     return result;
   }
 
-  async databaseApply(input: DatabaseApplyInput): Promise<DatabaseCommittedValue> {
+  async databaseApply(input: DatabaseApplyInput): Promise<DatabaseApplyResult> {
     this.databaseApplies.push(input);
     const result = this.#databaseApplyResults.shift();
     if (!result) throw new Error("Fake Core client has no queued Database apply");
@@ -277,7 +356,7 @@ export class FakeCoreClient implements CoreClientPort {
 
   async workspaceApply(
     input: ProjectWorkspaceApplyInput,
-  ): Promise<ProjectWorkspaceCommittedValue> {
+  ): Promise<ProjectWorkspaceApplyResult> {
     this.workspaceApplies.push(input);
     const result = this.#workspaceApplyResults.shift();
     if (!result) throw new Error("Fake Core client has no queued Project Workspace apply");
@@ -295,7 +374,7 @@ export class FakeCoreClient implements CoreClientPort {
 
   async administrationApply(
     input: StoreAdministrationApplyInput,
-  ): Promise<StoreAdministrationCommittedValue> {
+  ): Promise<StoreAdministrationApplyResult> {
     this.administrationApplies.push(input);
     const result = this.#administrationApplyResults.shift();
     if (!result) throw new Error("Fake Core client has no queued Store Administration apply");
@@ -314,7 +393,7 @@ export class FakeCoreClient implements CoreClientPort {
 
   async documentApply(
     input: OwnedDocumentApplyInput,
-  ): Promise<OwnedDocumentCommittedValue> {
+  ): Promise<OwnedDocumentApplyResult> {
     this.documentApplies.push(input);
     const result = this.#documentApplyResults.shift();
     if (!result) throw new Error("Fake Core client has no queued Document apply");
@@ -359,24 +438,58 @@ export class FakeCoreClient implements CoreClientPort {
     _input: {
       readonly documentId: string;
       readonly clientSessionId: string;
-      readonly after: number;
     },
     onEvent: (event: CoreEventEnvelope) => void,
-    _onResyncRequired: (event: DocumentResyncRequired) => void,
+    onRepair: (repair: DocumentLiveRepair) => void,
     _onRealtimeEvent: (event: DocumentSyncRealtimeEvent) => void,
-  ): Promise<CoreEventSubscription> {
-    void _onResyncRequired;
+  ): Promise<CoreDocumentEventSubscription> {
     void _onRealtimeEvent;
-    return this.openEventStream(0, onEvent);
+    const consumers = this.#documentEventConsumers.get(_input.documentId)
+      ?? new Set<(event: CoreEventEnvelope) => void>();
+    consumers.add(onEvent);
+    this.#documentEventConsumers.set(_input.documentId, consumers);
+    const repairConsumers = this.#documentRepairConsumers.get(_input.documentId)
+      ?? new Set<(repair: DocumentLiveRepair) => void>();
+    repairConsumers.add(onRepair);
+    this.#documentRepairConsumers.set(_input.documentId, repairConsumers);
+    let finish: (() => void) | undefined;
+    const done = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    return Promise.resolve({
+      barrier: {
+        store_epoch: "epoch:test",
+        core_generation: "fake-core-start",
+        document_id: _input.documentId,
+        document_generation: 1,
+        head_seq: 0,
+        commit_head: 0,
+        engine: _input.documentId.includes("canvas") ? "canvas_scene" : "yjs",
+      },
+      done,
+      close: () => {
+        consumers.delete(onEvent);
+        if (consumers.size === 0) {
+          this.#documentEventConsumers.delete(_input.documentId);
+        }
+        repairConsumers.delete(onRepair);
+        if (repairConsumers.size === 0) {
+          this.#documentRepairConsumers.delete(_input.documentId);
+        }
+        finish?.();
+      },
+    });
   }
 
   async openEventStream(
     _after: number,
     onEvent: (event: CoreEventEnvelope) => void,
+    _onCheckpoint: (checkpoint: CoreStreamCheckpoint) => void,
     _onResyncRequired?: (event: CoreEventReplayRequired) => void,
     _signal?: AbortSignal,
   ): Promise<CoreEventSubscription> {
     void _onResyncRequired;
+    void _onCheckpoint;
     void _signal;
     this.#eventConsumers.add(onEvent);
     let finish: (() => void) | undefined;
@@ -394,5 +507,17 @@ export class FakeCoreClient implements CoreClientPort {
 
   emit(event: CoreEventEnvelope): void {
     for (const consumer of this.#eventConsumers) consumer(event);
+  }
+
+  emitDocument(documentId: string, event: CoreEventEnvelope): void {
+    for (const consumer of this.#documentEventConsumers.get(documentId) ?? []) {
+      consumer(event);
+    }
+  }
+
+  emitDocumentRepair(documentId: string, repair: DocumentLiveRepair): void {
+    for (const consumer of this.#documentRepairConsumers.get(documentId) ?? []) {
+      consumer(repair);
+    }
   }
 }

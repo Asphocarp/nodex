@@ -18,6 +18,7 @@ import {
   createFakeCoreHandshake,
   FakeCoreClient,
 } from "./testing/fake-core-client";
+import { createCoreLocalCommitFixture } from "./testing/local-commit-fixture";
 import { createCoreLibraryModuleAdapter } from "./library-module-adapter";
 import {
   createDesktopLibraryModuleBridge,
@@ -388,6 +389,30 @@ describe("Core Library Module Adapter", () => {
       { kind: "page_detail", page_id: "page:one" },
       { kind: "page_detail", page_id: "page:one" },
     ]);
+  });
+
+  test("rejects a nested Page Detail from another LocalCommit coordinate", async () => {
+    const client = new FakeCoreClient();
+    const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
+    const snapshot = pageDetailSnapshot();
+    client.enqueueRead({
+      ...snapshot,
+      value: {
+        ...snapshot.value,
+        value: { ...snapshot.value.value, commit_seq: 10 },
+      },
+    });
+
+    await expect(adapter.readProjectPageDetail(
+      "project:test",
+      "page:one",
+    )).resolves.toMatchObject({
+      ok: false,
+      error: {
+        message: "Core Page Detail crossed its LocalCommit snapshot boundary",
+        retryable: true,
+      },
+    });
   });
 
   test("selects the Project client or trusted root client for Page Detail", async () => {
@@ -1759,15 +1784,13 @@ describe("Core Library Module Adapter", () => {
   });
 
   test("maps only Library Core events into renderer invalidations", () => {
-    expect(mapCoreLibraryEvent({
+    const envelope = {
       transport_version: 4,
-      event: {
-        event_version: 3,
-        commit_seq: 9,
-        store_epoch: identity.storeEpoch,
-        operation_id: "operation:create",
-        committed_at: "2026-07-19T15:02:00.000Z",
-        projection_impact: { kind: "none" },
+      packet: createCoreLocalCommitFixture({
+        commitSeq: 9,
+        storeEpoch: identity.storeEpoch,
+        operationId: "operation:create",
+        committedAt: "2026-07-19T15:02:00.000Z",
         payload: {
           module: "library",
           event: {
@@ -1778,10 +1801,14 @@ describe("Core Library Module Adapter", () => {
             parent_keys: ["library"],
           },
         },
-        effects: [],
-        canonical_hash: "0".repeat(64),
-      },
-    }, identity.libraryId)).toEqual({
+        canonicalHash: "0".repeat(64),
+      }),
+    } as const;
+    expect(mapCoreLibraryEvent(
+      envelope,
+      envelope.packet.effects[0]!,
+      identity.libraryId,
+    )).toEqual({
       version: LIBRARY_NAVIGATION_EVENT_VERSION,
       libraryId: identity.libraryId,
       storeEpoch: identity.storeEpoch,

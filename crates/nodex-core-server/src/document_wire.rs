@@ -4,18 +4,19 @@ use nodex_core_contracts::document::{
     OwnedDocumentCommitValue, OwnedDocumentReadValue, OwnedDocumentReceipt,
 };
 use nodex_core_contracts::{
-    CommittedModuleValue, CoreError, LocalCommitEnvelope, ModuleReadSnapshot,
+    ApplyResponse, AuthorizedDeliveryPacket, CommitIdentity, CoreError, ModuleReadSnapshot,
+    StoreObservation,
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 
-const MAGIC: [u8; 4] = [0x4e, 0x44, 0x58, 0x02];
+const MAGIC: [u8; 4] = [0x4e, 0x44, 0x58, 0x03];
 const HEADER_BYTES: usize = MAGIC.len() + size_of::<u32>();
 const MAX_METADATA_BYTES: usize = 8 * 1024 * 1024;
 const MAX_TRANSPORT_UPDATE_BYTES: usize = 2 * 1024 * 1024;
 const MAX_TRANSPORT_AWARENESS_BYTES: usize = 64 * 1024;
 pub(crate) const MAX_CANVAS_SCENE_SNAPSHOT_BYTES: usize = 16 * 1024 * 1024;
-pub(crate) const CONTENT_TYPE: &str = "application/vnd.nodex.document-sync.v2+octet-stream";
+pub(crate) const CONTENT_TYPE: &str = "application/vnd.nodex.document-sync.v3+octet-stream";
 pub(crate) const MAX_SYNC_FRAME_BYTES: usize =
     MAX_METADATA_BYTES + MAX_CANVAS_SCENE_SNAPSHOT_BYTES + HEADER_BYTES;
 pub(crate) const MAX_APPLY_FRAME_BYTES: usize =
@@ -110,8 +111,21 @@ struct ApplyAckMetadata<'a> {
     committed_seq: i64,
     head_seq: i64,
     duplicate: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    local_commit: Option<&'a LocalCommitEnvelope>,
+    #[serde(flatten)]
+    proof: ApplyAckProof<'a>,
+}
+
+#[derive(Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+enum ApplyAckProof<'a> {
+    Committed {
+        commit: &'a CommitIdentity,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        delivery: Option<&'a AuthorizedDeliveryPacket>,
+    },
+    NoOp {
+        observed: &'a StoreObservation,
+    },
 }
 
 #[derive(Serialize)]
@@ -238,7 +252,7 @@ pub(crate) fn parse_yjs_sync(
 pub(crate) fn encode_sync(value: &YjsSyncValue) -> Result<Vec<u8>, CoreError> {
     encode_envelope(
         &SyncResponseMetadata {
-            version: 2,
+            version: 3,
             engine: WireEngine::Yjs,
             document_id: &value.document_id,
             store_epoch: &value.store_epoch,
@@ -282,7 +296,7 @@ pub(crate) fn encode_canvas_sync(
     };
     encode_envelope(
         &CanvasSyncResponseMetadata {
-            version: 2,
+            version: 3,
             engine: WireEngine::CanvasScene,
             kind,
             sync_request_id,
@@ -298,22 +312,44 @@ pub(crate) fn encode_canvas_sync(
 }
 
 pub(crate) fn encode_apply_ack(
-    committed: &CommittedModuleValue<OwnedDocumentCommitValue, OwnedDocumentReceipt>,
+    response: &ApplyResponse<OwnedDocumentCommitValue, OwnedDocumentReceipt>,
     update_id: &str,
     sync: &YjsSyncValue,
 ) -> Result<Vec<u8>, CoreError> {
+    let (receipt, store_epoch, proof) = match response {
+        ApplyResponse::Committed {
+            receipt,
+            commit,
+            delivery,
+            ..
+        } => (
+            receipt,
+            &commit.store_epoch,
+            ApplyAckProof::Committed {
+                commit,
+                delivery: delivery.as_deref(),
+            },
+        ),
+        ApplyResponse::NoOp {
+            receipt, observed, ..
+        } => (
+            receipt,
+            &observed.store_epoch,
+            ApplyAckProof::NoOp { observed },
+        ),
+    };
     encode_envelope(
         &ApplyAckMetadata {
-            version: 2,
+            version: 3,
             engine: WireEngine::Yjs,
-            document_id: &committed.receipt.document_id,
-            store_epoch: &committed.store_epoch.0,
-            generation: committed.receipt.generation,
+            document_id: &receipt.document_id,
+            store_epoch: &store_epoch.0,
+            generation: receipt.generation,
             update_id,
-            committed_seq: committed.receipt.head_seq,
+            committed_seq: receipt.head_seq,
             head_seq: sync.head_seq,
-            duplicate: committed.receipt.mutation.duplicate,
-            local_commit: committed.local_commit.as_ref(),
+            duplicate: receipt.mutation.duplicate,
+            proof,
         },
         &sync.state_vector,
     )
@@ -328,12 +364,7 @@ pub(crate) fn encode_realtime_event(
         generation,
         client_session_id,
         update,
-    } = event
-    else {
-        return Err(invalid(
-            "Only ephemeral Document events use the transport frame",
-        ));
-    };
+    } = event;
     serde_json::to_string(&serde_json::json!({
         "version": 1,
         "kind": "awareness",

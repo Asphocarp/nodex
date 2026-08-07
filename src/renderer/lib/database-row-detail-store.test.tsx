@@ -5,6 +5,7 @@ import { installWindowApi } from "@/test/browser-globals";
 import {
   getDatabaseRowDetail,
   resetDatabaseRowDetailStoreForTests,
+  revokeDatabaseRowDetail,
   setDatabaseRowDetail,
   setDatabaseRowDetails,
   useDatabaseRowDetail,
@@ -36,6 +37,14 @@ function DetailHarness() {
       {detail.loading ? "loading" : detail.error ?? detail.card?.title ?? "empty"}
     </span>
   );
+}
+
+function deferred<Value>() {
+  let resolve!: (value: Value) => void;
+  const promise = new Promise<Value>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
 }
 
 describe("card detail store", () => {
@@ -226,5 +235,34 @@ describe("card detail store", () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
 
     expect(calls).toBe(1);
+  });
+
+  test("evicts a revoked row immediately and fences an older in-flight read", async () => {
+    const staleRead = deferred<DatabasePage>();
+    installWindowApi({
+      invoke: async (channel: string) => {
+        if (channel !== "database-row:get") {
+          throw new Error(`Unexpected channel: ${channel}`);
+        }
+        return await staleRead.promise;
+      },
+      on: () => () => {},
+    });
+    const view = render(<DetailHarness />);
+    await waitFor(() => {
+      expect(view.getByTestId("detail-state").textContent).toBe("loading");
+    });
+
+    await act(async () => {
+      revokeDatabaseRowDetail("project-1", "card-1");
+      await Promise.resolve();
+    });
+    expect(view.getByTestId("detail-state").textContent).toBe("Page not found");
+
+    await act(async () => {
+      staleRead.resolve(buildCard({ title: "Stale title" }));
+      await staleRead.promise;
+    });
+    expect(view.getByTestId("detail-state").textContent).toBe("Page not found");
   });
 });

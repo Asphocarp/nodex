@@ -5,7 +5,7 @@ import type {
   BlockTransferCommandResult,
   BlockTransferDocumentHead,
 } from "../../../../shared/block-transfer";
-import type { DocumentHeadToken } from "../../../lib/block-document-surface-runtime";
+import type { DocumentHeadFence } from "../../../lib/block-document-surface-runtime";
 import {
   blockTransferDropLabel,
   claimLocalBlockDragDropTarget,
@@ -48,11 +48,11 @@ export interface BlockTransferDropBoundary {
   readonly hostPageId?: string;
   readonly ancestorPageIds: readonly string[];
   /** Flushes unsent edits in the destination document before Core plans. */
-  readonly prepareLocalMutation?: () => Promise<DocumentHeadToken>;
+  readonly flushAndFence?: () => Promise<DocumentHeadFence>;
   /** Flushes the actual drag source session when it is mounted locally. */
-  readonly prepareSourceMutation?: (
+  readonly flushSourceAndFence?: (
     sourceSurfaceId: string,
-  ) => Promise<DocumentHeadToken | undefined>;
+  ) => Promise<DocumentHeadFence | undefined>;
   readonly transfer: (
     intent: PublicBlockTransferIntent,
   ) => Promise<BlockTransferCommandResult>;
@@ -244,20 +244,20 @@ export const setupBlockTransferDocumentDrop = (
 
   const prepareStructuralMutation = async (
     sourceSurfaceId?: string,
-  ): Promise<readonly DocumentHeadToken[]> => {
+  ): Promise<readonly DocumentHeadFence[]> => {
     const tokens = await Promise.all([
-      boundary.prepareLocalMutation?.(),
+      boundary.flushAndFence?.(),
       sourceSurfaceId === undefined
         ? undefined
-        : boundary.prepareSourceMutation?.(sourceSurfaceId),
+        : boundary.flushSourceAndFence?.(sourceSurfaceId),
     ]);
     return tokens.filter(
-      (token): token is DocumentHeadToken => token !== undefined,
+      (token): token is DocumentHeadFence => token !== undefined,
     );
   };
 
   const causalDependenciesFromTokens = (
-    tokens: readonly DocumentHeadToken[],
+    tokens: readonly DocumentHeadFence[],
   ): readonly BlockTransferDocumentHead[] => {
     const dependencies = new Map<string, BlockTransferDocumentHead>();
     for (const token of tokens) {

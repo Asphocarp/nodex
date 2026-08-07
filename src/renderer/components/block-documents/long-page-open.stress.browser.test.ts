@@ -77,6 +77,12 @@ class LongCardAdapter implements DocumentSyncAdapter {
         headSeq: this.headSeq,
         stateVector: Y.encodeStateVector(this.serverDocument),
         duplicate: false,
+        status: "committed" as const,
+        commit: {
+          store_epoch: request.storeEpoch,
+          commit_seq: this.headSeq,
+          manifest_hash: "f".repeat(64),
+        },
       },
     };
   };

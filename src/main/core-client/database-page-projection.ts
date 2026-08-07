@@ -35,6 +35,7 @@ import {
   isWorkflowStatus,
 } from "../../shared/workflow-status";
 import { assertValidPageInput } from "../../shared/page-input-validation";
+import { projectCoreDatabaseQueryRow } from "../../shared/core-database-row-projection";
 
 const INTRINSIC_PROPERTY_KEYS = [
   "run.target",
@@ -560,74 +561,15 @@ export const projectCoreDatabaseViewQuery = (
   sourceDescriptor: DataSourceDescriptorV2,
   view: DatabaseViewRecordV2,
 ): DatabaseViewQueryResultV2 => {
-  const propertiesById = new Map(
-    sourceDescriptor.properties.map((property) => [
-      property.propertyId,
-      property,
-    ] as const),
-  );
   return {
     database: databaseDescriptor.database,
     dataSource: sourceDescriptor.dataSource,
     view,
     properties: sourceDescriptor.properties,
-    rows: window.rows.items.map((row) => ({
-      page: {
-        pageId: row.page_id,
-        libraryId,
-        parent: {
-          kind: "data_source",
-          dataSourceId: sourceDescriptor.dataSource.dataSourceId,
-        },
-        lifecycle:
-          row.lifecycle === "archived" || row.lifecycle === "deleted"
-            ? row.lifecycle
-            : "active",
-        parentRevision: row.parent_revision,
-        metadataRevision: row.metadata_revision,
-        documentId: row.document_id,
-        documentGeneration: row.document_generation,
-        documentHeadSeq: row.document_head_seq,
-        title: row.title,
-        richTitle: Array.isArray(row.rich_title) ? row.rich_title : [],
-        preview: row.description_preview,
-        plainText: row.description_preview,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-      },
-      membership: {
-        membershipId: row.membership_id,
-        dataSourceId: sourceDescriptor.dataSource.dataSourceId,
-        revision: row.membership_revision,
-        createdAt: row.membership_created_at,
-      },
-      values: Object.fromEntries(
-        Object.entries(row.database_values).map(([propertyId, propertyValue]) => {
-          const property = propertiesById.get(propertyId as never);
-          return [propertyId, {
-            propertyId: propertyId as never,
-            valueType: property?.valueType ?? "text",
-            value: propertyValue as DatabaseViewJsonValue,
-            revision: row.database_value_revisions[propertyId] ?? 0,
-          }];
-        }),
-      ),
-      position: row.rank_key
-        ? {
-            groupKey: row.effective_group_key ?? null,
-            rankKey: row.rank_key,
-            revision: row.position_revision ?? 0,
-          }
-        : null,
-      effectiveGroupKey: row.effective_group_key ?? null,
-      intrinsicProperties: Object.entries(row.intrinsic_properties).map(
-        ([key, propertyValue]) => ({
-          key,
-          valueType: "json",
-          value: propertyValue as DatabaseViewJsonValue,
-          revision: 0,
-        }),
-      ),
+    rows: window.rows.items.map((row) => projectCoreDatabaseQueryRow(row, {
+      libraryId,
+      dataSourceId: sourceDescriptor.dataSource.dataSourceId,
+      properties: sourceDescriptor.properties,
     })),
   };
 };

@@ -18,7 +18,7 @@ use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 use crate::workspace::validate_persisted_turn_authority;
 
 use super::LibraryApplyOutcome;
-use super::mutation::{MutationEffects, finish_mutation, sqlite_now};
+use super::mutation::{MutationEffects, finish_prepared_mutation, prepare_mutation, sqlite_now};
 
 const MAX_ID_BYTES: usize = 512;
 const MAX_INTENTS: usize = 64;
@@ -487,6 +487,14 @@ pub(super) fn persist_project_grants(
     }
 
     let now = sqlite_now(connection)?;
+    let prepared = prepare_mutation(
+        connection,
+        context,
+        store_epoch,
+        operation_id,
+        request_hash,
+        &now,
+    )?;
     let mut did_mutate = false;
     let mut affected_page_ids = Vec::new();
     let mut affected_database_ids = Vec::new();
@@ -595,12 +603,11 @@ pub(super) fn persist_project_grants(
         }
     }
 
-    finish_mutation(
+    finish_prepared_mutation(
         connection,
+        prepared,
         context,
-        store_epoch,
         operation_id,
-        request_hash,
         MutationEffects {
             project_id: project_id.to_owned(),
             operation_kind: "persist_agent_project_resource_grants",

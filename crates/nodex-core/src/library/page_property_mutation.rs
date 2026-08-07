@@ -10,7 +10,7 @@ use nodex_core_contracts::library::{
     LibraryBlockPropertyMutationReceipt, LibraryCommitValue, LibraryReceipt,
 };
 use nodex_core_contracts::{
-    AdapterKind, BoundModuleContext, CommittedModuleValue, ModuleMutationReceipt, StoreEpoch,
+    AdapterKind, BoundModuleContext, ModuleMutationReceipt, ModuleName, StoreEpoch,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Map, Value, json};
@@ -20,11 +20,13 @@ use crate::automation::{
     validate_timezone_input,
 };
 use crate::document::sha256;
-use crate::infrastructure::module_receipts::{NewModuleReceipt, insert_module_receipt};
+use crate::infrastructure::durable_mutation::{
+    self, OperationIdentity, PreparedDurableMutation, ReceiptMetadata,
+};
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::mutation::{
-    MutationEffects, finish_mutation, refresh_page_intrinsic_projection,
+    MutationEffects, finish_prepared_mutation, prepare_mutation, refresh_page_intrinsic_projection,
     resolve_library_mutation_authority,
 };
 use super::{LibraryApplyOutcome, require_page_write_access};
@@ -123,6 +125,7 @@ struct MutationEvidence {
 pub(super) struct PagePropertyApplySupplement<'a> {
     pub(super) core_request_hash: &'a str,
     pub(super) database_receipt: Option<&'a DatabaseReceipt>,
+    pub(super) prepared: Option<PreparedDurableMutation<'a>>,
 }
 
 pub(super) fn apply(
@@ -137,8 +140,13 @@ pub(super) fn apply(
     let PagePropertyApplySupplement {
         core_request_hash,
         database_receipt,
+        prepared,
     } = supplement;
-    let now = sqlite_now(connection)?;
+    let now = prepared
+        .as_ref()
+        .map(PreparedDurableMutation::committed_at)
+        .map(str::to_owned)
+        .map_or_else(|| sqlite_now(connection), Ok)?;
     let ledger_project_id = ledger_project_id(connection, context, library_id)?;
     let evidence = match validate_request(
         context,
@@ -149,6 +157,9 @@ pub(super) fn apply(
     ) {
         Ok(evidence) => evidence,
         Err(PropertyApplyError::Rejected(error)) => {
+            if prepared.is_some() {
+                return Err(rejection_store_error(error));
+            }
             let evidence =
                 minimal_evidence(&ledger_project_id, store_epoch, operation_id, mutation)?;
             persist_property_ledger(
@@ -185,6 +196,9 @@ pub(super) fn apply(
         mutation.client_session_id.as_deref(),
         &evidence,
     )? {
+        if prepared.is_some() {
+            return Err(rejection_store_error(collision));
+        }
         return finish_rejection(
             connection,
             context,
@@ -199,6 +213,9 @@ pub(super) fn apply(
     let resolved = match resolve_fields(connection, context, library_id, operation_id, mutation) {
         Ok(fields) => fields,
         Err(PropertyApplyError::Rejected(error)) => {
+            if prepared.is_some() {
+                return Err(rejection_store_error(error));
+            }
             persist_property_ledger(
                 connection,
                 &ledger_project_id,
@@ -223,6 +240,18 @@ pub(super) fn apply(
             );
         }
         Err(PropertyApplyError::Store(error)) => return Err(error),
+    };
+
+    let prepared = match prepared {
+        Some(prepared) => prepared,
+        None => prepare_mutation(
+            connection,
+            context,
+            store_epoch,
+            operation_id,
+            core_request_hash,
+            &now,
+        )?,
     };
 
     let field_results = resolved
@@ -305,12 +334,11 @@ pub(super) fn apply(
         &field_results,
         &block_metadata_revisions,
     );
-    let result = finish_mutation(
+    let result = finish_prepared_mutation(
         connection,
+        prepared,
         context,
-        store_epoch,
         operation_id,
-        core_request_hash,
         MutationEffects {
             project_id: ledger_project_id.clone(),
             operation_kind: MUTATION_KIND,
@@ -1293,7 +1321,7 @@ fn finish_rejection(
             row.get::<_, i64>(0)
         })?;
     let commit_seq = crate::infrastructure::local_commit::head(connection)?;
-    let committed = CommittedModuleValue {
+    let committed = crate::ModuleWriterResult {
         value: LibraryCommitValue {
             affected_resource_ids: Vec::new(),
             page_create: None,
@@ -1327,20 +1355,21 @@ fn finish_rejection(
         commit_seq,
         event_sequence: commit_head,
         store_epoch: StoreEpoch(store_epoch.to_owned()),
-        local_commit: None,
     };
-    let result = serde_json::to_value(&committed)
-        .map_err(|_| internal("Property rejection result cannot encode"))?;
-    insert_module_receipt(
+    durable_mutation::record_no_op(
         connection,
-        NewModuleReceipt {
+        OperationIdentity {
+            module: ModuleName::Library,
             module_name: MODULE_NAME,
             operation_id,
             context,
-            operation_kind: MUTATION_KIND,
             store_epoch,
-            request_hash,
-            result: &result,
+            intent_hash: request_hash,
+            committed_at: now,
+        },
+        &committed,
+        ReceiptMetadata {
+            operation_kind: MUTATION_KIND,
             event_sequence: None,
             committed_at: now,
         },
@@ -1349,6 +1378,22 @@ fn finish_rejection(
         committed,
         event: None,
     })
+}
+
+fn rejection_store_error(error: LibraryBlockPropertyMutationError) -> StoreError {
+    let code = match error.code {
+        LibraryBlockPropertyMutationErrorCode::MutationIdCollision => {
+            StoreErrorCode::IdempotencyKeyReused
+        }
+        LibraryBlockPropertyMutationErrorCode::ProjectNotFound
+        | LibraryBlockPropertyMutationErrorCode::BlockNotFound
+        | LibraryBlockPropertyMutationErrorCode::PropertyNotFound => StoreErrorCode::NotFound,
+        LibraryBlockPropertyMutationErrorCode::PropertyConflict => StoreErrorCode::RevisionConflict,
+        LibraryBlockPropertyMutationErrorCode::PropertyValueCorrupt => StoreErrorCode::StoreCorrupt,
+        LibraryBlockPropertyMutationErrorCode::Unknown => StoreErrorCode::Internal,
+        _ => StoreErrorCode::InvalidInput,
+    };
+    StoreError::new(code, error.message, error.retryable)
 }
 
 fn mutation_path(field: &LibraryBlockPropertyFieldMutation) -> Result<String, StoreError> {

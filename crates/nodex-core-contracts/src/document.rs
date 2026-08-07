@@ -8,10 +8,51 @@ use crate::agent::{
     AgentExecutionAuthorization, AgentOperationPreparation, AgentPreparedExecution,
 };
 use crate::{
-    CommittedModuleValue, ModuleMutationReceipt, ModuleName, StoreEpoch, VersionedModuleContract,
+    ApplyResponse, ModuleMutationReceipt, ModuleName, StoreEpoch, VersionedModuleContract,
 };
 
-pub const OWNED_DOCUMENT_CONTRACT_VERSION: u32 = 5;
+pub const OWNED_DOCUMENT_CONTRACT_VERSION: u32 = 6;
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DocumentLiveEngine {
+    Yjs,
+    CanvasScene,
+}
+
+/// Atomic authorization and coverage boundary for one exact Document lease.
+/// Historical state through `commit_head` is supplied by canonical sync;
+/// only later addressed commits belong to this live stream.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct DocumentLiveBarrier {
+    pub store_epoch: StoreEpoch,
+    pub core_generation: String,
+    pub document_id: String,
+    pub document_generation: i64,
+    pub head_seq: i64,
+    pub commit_head: i64,
+    pub engine: DocumentLiveEngine,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DocumentLiveRepairReason {
+    ReceiverLagged,
+    PayloadUnavailable,
+    IdentityChanged,
+    AccessRevoked,
+    EventGap,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct DocumentLiveRepair {
+    pub document_id: String,
+    pub store_epoch: StoreEpoch,
+    pub document_generation: i64,
+    pub head_seq: i64,
+    pub commit_head: i64,
+    pub reason: DocumentLiveRepairReason,
+}
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct CanvasCompactionStats {
@@ -151,8 +192,7 @@ pub enum OwnedDocumentReadValue {
     AgentSemanticMutationPreparation {
         preparation: AgentOperationPreparation,
         #[serde(skip_serializing_if = "Option::is_none")]
-        committed:
-            Option<Box<CommittedModuleValue<OwnedDocumentCommitValue, OwnedDocumentReceipt>>>,
+        committed: Option<Box<ApplyResponse<OwnedDocumentCommitValue, OwnedDocumentReceipt>>>,
     },
     AgentSemanticSnapshot {
         snapshot: Box<AgentDocumentSemanticSnapshot>,

@@ -19,7 +19,7 @@ import {
   commitPageDetailMetadataPatch,
   commitPageDetailPropertyEdit,
 } from "@/lib/page-detail-metadata-runtime";
-import { makePageEditorSessionKey } from "@/lib/page-editor-session-registry";
+import { makeEditorSurfaceKey } from "@/lib/document-session-registry";
 import {
   projectPageDetailToStageModel,
 } from "@/lib/page-stage-page";
@@ -404,7 +404,7 @@ export function PageStageSessionTab({
         return (
           <PageStage
             contentAccessContext={projectContentAccess(tab.config.projectId)}
-            editorSessionKey={makePageEditorSessionKey(sessionId, tab.id)}
+            editorSessionKey={makeEditorSurfaceKey(sessionId, tab.id)}
             retainEditorSession={tab.preview !== true}
             documentAuthority={documentAuthority}
             page={page}

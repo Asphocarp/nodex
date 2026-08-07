@@ -1,7 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-use nodex_core_contracts::BoundModuleContext;
-use nodex_core_contracts::CommittedModuleValue;
 use nodex_core_contracts::database::{DatabaseRead, DatabaseReadMode, DatabaseTarget};
 use nodex_core_contracts::library::{
     LibraryCommitValue, LibraryDocumentHead, LibraryLifecycle, LibraryPageLifecycleDeleteEvidence,
@@ -11,6 +9,7 @@ use nodex_core_contracts::library::{
     LibraryPageLifecycleRestoreMembership, LibraryPageLifecycleRestorePosition,
     LibraryPageLifecycleState, LibraryPageWorkflowStatus, LibraryReceipt, LibraryResourceTarget,
 };
+use nodex_core_contracts::{BoundModuleContext, ModuleName};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
@@ -18,21 +17,23 @@ use serde_json::{Map, Value, json};
 use crate::database;
 use crate::document::{
     BlockDocumentSchema, DocumentBlockOperation, PAGE_SCHEMA_KEY, PAGE_SCHEMA_VERSION,
-    PersistYjsGenesis, persist_yjs_genesis, prepare_page_yjs_genesis_with_content,
-    read_document_authority, sha256,
+    PersistYjsGenesis, persist_yjs_genesis_with_local_commit,
+    prepare_page_yjs_genesis_with_content, read_document_authority, sha256,
 };
 use crate::domain::block_materialization::MaterializedBlockNode;
 use crate::domain::fractional_rank::{
     FractionalRankErrorCode, RankedItem, plan as plan_fractional_rank,
 };
 use crate::domain::rich_text::{RichTextItem, RichTextStyles};
-use crate::infrastructure::local_commit;
+use crate::infrastructure::durable_mutation::{
+    self, DurableMutationScope, OperationIdentity, SealedOutcome,
+};
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::LibraryApplyOutcome;
 use super::mutation::{
-    MutationEffects, finish_mutation_with_local_commit,
-    persist_parent_operations_detailed_with_local_commit, require_project_in_library,
+    MutationEffects, library_commit_result, persist_parent_operations_detailed_with_local_commit,
+    require_project_in_library, seal_mutation,
 };
 
 struct PageAuthority {
@@ -436,147 +437,161 @@ fn create_page(
         &created_block_ids,
     )?;
     let now = sqlite_now(connection)?;
-    if !new_tag_options.is_empty() {
-        let tags_config_json = tags_config_json
-            .as_ref()
-            .ok_or_else(|| corrupt("Tags Property disappeared during Page creation"))?;
-        let changed = connection.execute(
-            "UPDATE data_source_properties SET config_json = ?1, \
+    let commit_result = durable_mutation::run(
+        connection,
+        OperationIdentity {
+            module: ModuleName::Library,
+            module_name: "library",
+            operation_id,
+            intent_hash: request_hash,
+            store_epoch,
+            committed_at: &now,
+            context,
+        },
+        |scope| {
+            if !new_tag_options.is_empty() {
+                let tags_config_json = tags_config_json
+                    .as_ref()
+                    .ok_or_else(|| corrupt("Tags Property disappeared during Page creation"))?;
+                let changed = connection.execute(
+                    "UPDATE data_source_properties SET config_json = ?1, \
                schema_revision = schema_revision + 1, updated_at = ?2 \
              WHERE data_source_id = ?3 AND id = 'tags' AND lifecycle = 'active' \
                AND schema_revision = ?4",
-            params![
-                tags_config_json,
-                now,
-                data_source_id,
-                expected_tags_property_revision
-            ],
-        )?;
-        if changed != 1 {
-            return Err(conflict("Tags Property changed during Page creation"));
-        }
-    }
-    for (positioned_page_id, rank_key) in &view_rank_key.rebalanced_rank_keys {
-        connection.execute(
-            "UPDATE database_view_page_positions SET rank_key = ?1, updated_at = ?2 \
+                    params![
+                        tags_config_json,
+                        now,
+                        data_source_id,
+                        expected_tags_property_revision
+                    ],
+                )?;
+                if changed != 1 {
+                    return Err(conflict("Tags Property changed during Page creation"));
+                }
+            }
+            for (positioned_page_id, rank_key) in &view_rank_key.rebalanced_rank_keys {
+                connection.execute(
+                    "UPDATE database_view_page_positions SET rank_key = ?1, updated_at = ?2 \
              WHERE view_id = ?3 AND page_block_id = ?4",
-            params![rank_key, now, source.view_id, positioned_page_id],
-        )?;
-    }
-    let indexed_scheduled_start = values
-        .get("scheduled_start")
-        .and_then(|(_, value)| value.as_str());
-    let indexed_scheduled_end = values
-        .get("scheduled_end")
-        .and_then(|(_, value)| value.as_str());
-    let indexed_is_all_day =
-        *is_all_day && indexed_scheduled_start.is_some() && indexed_scheduled_end.is_some();
-    connection.execute(
-        "INSERT INTO blocks( \
+                    params![rank_key, now, source.view_id, positioned_page_id],
+                )?;
+            }
+            let indexed_scheduled_start = values
+                .get("scheduled_start")
+                .and_then(|(_, value)| value.as_str());
+            let indexed_scheduled_end = values
+                .get("scheduled_end")
+                .and_then(|(_, value)| value.as_str());
+            let indexed_is_all_day =
+                *is_all_day && indexed_scheduled_start.is_some() && indexed_scheduled_end.is_some();
+            connection.execute(
+                "INSERT INTO blocks( \
            id, project_id, type, lifecycle, location_kind, containing_document_id, \
            containing_database_id, location_revision, metadata_revision, created_at, updated_at \
          ) VALUES (?1, ?2, 'page', 'active', 'database', NULL, ?3, 1, 1, ?4, ?4)",
-        params![page_id, project_id, source.database_id, now],
-    )?;
-    connection.execute(
-        "INSERT INTO documents( \
+                params![page_id, project_id, source.database_id, now],
+            )?;
+            connection.execute(
+                "INSERT INTO documents( \
            id, project_id, generation, head_seq, schema_key, schema_version, state_vector, \
            state_hash, readiness, authority, genesis_source_revision, created_at, updated_at, \
            sync_engine \
          ) VALUES (?1, ?2, 1, 0, ?3, ?4, X'', '', 'pending_genesis', 'legacy_shadow', \
            NULL, ?5, ?5, 'yjs')",
-        params![
-            document_id,
-            project_id,
-            PAGE_SCHEMA_KEY,
-            i64::from(PAGE_SCHEMA_VERSION),
-            now
-        ],
-    )?;
-    connection.execute(
-        "INSERT INTO block_documents(block_id, document_id, project_id, created_at) \
+                params![
+                    document_id,
+                    project_id,
+                    PAGE_SCHEMA_KEY,
+                    i64::from(PAGE_SCHEMA_VERSION),
+                    now
+                ],
+            )?;
+            connection.execute(
+                "INSERT INTO block_documents(block_id, document_id, project_id, created_at) \
          VALUES (?1, ?2, ?3, ?4)",
-        params![page_id, document_id, project_id, now],
-    )?;
-    connection.execute(
-        "INSERT INTO pages( \
+                params![page_id, document_id, project_id, now],
+            )?;
+            connection.execute(
+                "INSERT INTO pages( \
            block_id, library_id, document_id, parent_kind, parent_id, lifecycle, \
            parent_revision, metadata_revision, created_at, updated_at \
          ) VALUES (?1, ?2, ?3, 'data_source', ?4, 'active', 1, 1, ?5, ?5)",
-        params![page_id, library_id, document_id, data_source_id, now],
-    )?;
-    let authority = read_document_authority(connection, &document_id)?
-        .ok_or_else(|| corrupt("Created Page has no Document authority"))?;
-    if authority.head.schema_key != BlockDocumentSchema::PageV2.schema_key()
-        || authority.head.schema_version != i64::from(PAGE_SCHEMA_VERSION)
-    {
-        return Err(corrupt("Created Page has the wrong Document schema"));
-    }
-    let genesis_update_id = format!("page-lifecycle-genesis:{}", sha256(operation_id.as_bytes()));
-    let full_state = prepared.engine.full_state_v1();
-    let persisted = persist_yjs_genesis(
-        connection,
-        PersistYjsGenesis {
-            authority: &authority,
-            materialization: &prepared.materialization,
-            update_id: &genesis_update_id,
-            client_session_id: "page-lifecycle-v2-create",
-            update: &prepared.update_v1,
-            state_vector: &prepared.state_vector_v1,
-            full_state: &full_state,
-            store_epoch,
-            operation_id: &genesis_update_id,
-            emit_event: false,
-        },
-    )?;
-    connection.execute(
-        "INSERT INTO data_source_page_memberships( \
+                params![page_id, library_id, document_id, data_source_id, now],
+            )?;
+            let authority = read_document_authority(connection, &document_id)?
+                .ok_or_else(|| corrupt("Created Page has no Document authority"))?;
+            if authority.head.schema_key != BlockDocumentSchema::PageV2.schema_key()
+                || authority.head.schema_version != i64::from(PAGE_SCHEMA_VERSION)
+            {
+                return Err(corrupt("Created Page has the wrong Document schema"));
+            }
+            let genesis_update_id =
+                format!("page-lifecycle-genesis:{}", sha256(operation_id.as_bytes()));
+            let full_state = prepared.engine.full_state_v1();
+            let persisted = persist_yjs_genesis_with_local_commit(
+                connection,
+                PersistYjsGenesis {
+                    authority: &authority,
+                    materialization: &prepared.materialization,
+                    update_id: &genesis_update_id,
+                    client_session_id: "page-lifecycle-v2-create",
+                    update: &prepared.update_v1,
+                    state_vector: &prepared.state_vector_v1,
+                    full_state: &full_state,
+                    store_epoch,
+                    operation_id: &genesis_update_id,
+                    emit_event: false,
+                },
+                scope.evidence(),
+            )?;
+            connection.execute(
+                "INSERT INTO data_source_page_memberships( \
            id, data_source_id, page_block_id, revision, created_at, removed_at \
          ) VALUES (?1, ?2, ?3, 1, ?4, NULL)",
-        params![membership_id, data_source_id, page_id, now],
-    )?;
-    for (property_id, (value_type, value)) in &values {
-        connection.execute(
-            "INSERT INTO data_source_property_values( \
+                params![membership_id, data_source_id, page_id, now],
+            )?;
+            for (property_id, (value_type, value)) in &values {
+                connection.execute(
+                    "INSERT INTO data_source_property_values( \
                data_source_id, membership_id, property_id, value_type, value_json, \
                revision, updated_at \
              ) VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6)",
-            params![
-                data_source_id,
-                membership_id,
-                property_id,
-                value_type,
-                serde_json::to_string(value)
-                    .map_err(|_| corrupt("Page Property value cannot encode"))?,
-                now
-            ],
-        )?;
-    }
-    let intrinsic_values = create_intrinsic_values(
-        run_in_target,
-        run_in_local_path.as_deref(),
-        run_in_base_branch.as_deref(),
-        run_in_worktree_path.as_deref(),
-        run_in_environment_path.as_deref(),
-        *is_all_day,
-        schedule_timezone.as_deref(),
-        recurrence.as_ref(),
-        reminders,
-    );
-    insert_intrinsic_properties(connection, page_id, project_id, &intrinsic_values, &now)?;
-    connection.execute(
-        "INSERT INTO database_view_page_positions( \
+                    params![
+                        data_source_id,
+                        membership_id,
+                        property_id,
+                        value_type,
+                        serde_json::to_string(value)
+                            .map_err(|_| corrupt("Page Property value cannot encode"))?,
+                        now
+                    ],
+                )?;
+            }
+            let intrinsic_values = create_intrinsic_values(
+                run_in_target,
+                run_in_local_path.as_deref(),
+                run_in_base_branch.as_deref(),
+                run_in_worktree_path.as_deref(),
+                run_in_environment_path.as_deref(),
+                *is_all_day,
+                schedule_timezone.as_deref(),
+                recurrence.as_ref(),
+                reminders,
+            );
+            insert_intrinsic_properties(connection, page_id, project_id, &intrinsic_values, &now)?;
+            connection.execute(
+                "INSERT INTO database_view_page_positions( \
            view_id, page_block_id, group_key, rank_key, revision, created_at, updated_at \
          ) VALUES (?1, ?2, ?3, ?4, 1, ?5, ?5)",
-        params![
-            source.view_id,
-            page_id,
-            view_group_key,
-            view_rank_key.rank_key,
-            now
-        ],
-    )?;
-    connection.execute(
+                params![
+                    source.view_id,
+                    page_id,
+                    view_group_key,
+                    view_rank_key.rank_key,
+                    now
+                ],
+            )?;
+            connection.execute(
         "INSERT INTO scheduled_page_index( \
            page_block_id, project_id, lifecycle, scheduled_start, scheduled_end, is_all_day, \
            recurrence_json, reminders_json, schedule_timezone, source_metadata_revision, updated_at \
@@ -595,96 +610,98 @@ fn create_page(
             now
         ],
     )?;
-    insert_created_page_projection(
-        connection,
-        page_id,
-        project_id,
-        &source,
-        &membership_id,
-        view_group_key.as_deref(),
-        &view_rank_key.rank_key,
-        &document_id,
-        persisted.head_seq,
-        &prepared.materialization,
-        &values,
-        &properties,
-        &intrinsic_values,
-        &now,
-    )?;
-    let receipt = LibraryPageLifecycleMutationReceipt {
-        operation_kind: "create_page".to_owned(),
-        page_id: page_id.clone(),
-        metadata_revision: 1,
-        parent_revision: 1,
-        lifecycle: LibraryPageLifecycleState::Active,
-        document_id: document_id.clone(),
-        document_generation: 1,
-        document_head_seq: persisted.head_seq,
-        database_id: Some(source.database_id.clone()),
-        data_source_id: Some(data_source_id.clone()),
-        membership_id: Some(membership_id.clone()),
-        view_id: Some(source.view_id.clone()),
-        library_rank_key: None,
-        view_rank_key: Some(view_rank_key.rank_key),
-        created_block_ids: created_block_ids.clone(),
-        created_tag_option_ids: if tags_config_json.is_some() {
-            new_tag_options
-                .iter()
-                .map(|option| option.option_id.clone())
-                .collect()
-        } else {
-            Vec::new()
-        },
-        delete_evidence: None,
-    };
-    super::mutation::finish_mutation(
-        connection,
-        context,
-        store_epoch,
-        operation_id,
-        request_hash,
-        MutationEffects {
-            project_id: project_id.to_owned(),
-            operation_kind: "create_page",
-            change_kind: "library.changed",
-            did_mutate: true,
-            created_target: Some(LibraryResourceTarget::Page {
+            insert_created_page_projection(
+                connection,
+                page_id,
+                project_id,
+                &source,
+                &membership_id,
+                view_group_key.as_deref(),
+                &view_rank_key.rank_key,
+                &document_id,
+                persisted.head_seq,
+                &prepared.materialization,
+                &values,
+                &properties,
+                &intrinsic_values,
+                &now,
+            )?;
+            let receipt = LibraryPageLifecycleMutationReceipt {
+                operation_kind: "create_page".to_owned(),
                 page_id: page_id.clone(),
-            }),
-            affected_parent_keys: vec![format!("database:{}", source.database_id)],
-            affected_block_ids: created_block_ids,
-            affected_page_ids: vec![page_id.clone()],
-            affected_database_ids: vec![source.database_id.clone()],
-            affected_view_ids: vec![source.view_id.clone()],
-            affected_document_ids: vec![document_id],
-            committed_revisions: {
-                let mut revisions = BTreeMap::from([
-                    (format!("blockMetadata:{page_id}"), 1),
-                    (format!("blockLocation:{page_id}"), 1),
-                    (format!("membership:{membership_id}"), 1),
-                    (format!("position:{}:{page_id}", source.view_id), 1),
-                ]);
-                if tags_config_json.is_some() {
-                    revisions.insert(
-                        format!("property:{data_source_id}:tags"),
-                        expected_tags_property_revision + i64::from(!new_tag_options.is_empty()),
-                    );
-                }
-                revisions
-            },
-            page_create: None,
-            page_copy: None,
-            canvas_mutation: None,
-            block_transfer: None,
-            page_lifecycle: Some(receipt),
-            block_property_mutation: None,
-            agent_page_copy: None,
-            agent_create_pages: None,
-            agent_move_pages: None,
-            change_payload: None,
-            committed_at: now,
+                metadata_revision: 1,
+                parent_revision: 1,
+                lifecycle: LibraryPageLifecycleState::Active,
+                document_id: document_id.clone(),
+                document_generation: 1,
+                document_head_seq: persisted.head_seq,
+                database_id: Some(source.database_id.clone()),
+                data_source_id: Some(data_source_id.clone()),
+                membership_id: Some(membership_id.clone()),
+                view_id: Some(source.view_id.clone()),
+                library_rank_key: None,
+                view_rank_key: Some(view_rank_key.rank_key),
+                created_block_ids: created_block_ids.clone(),
+                created_tag_option_ids: if tags_config_json.is_some() {
+                    new_tag_options
+                        .iter()
+                        .map(|option| option.option_id.clone())
+                        .collect()
+                } else {
+                    Vec::new()
+                },
+                delete_evidence: None,
+            };
+            seal_mutation(
+                scope,
+                context,
+                operation_id,
+                MutationEffects {
+                    project_id: project_id.to_owned(),
+                    operation_kind: "create_page",
+                    change_kind: "library.changed",
+                    did_mutate: true,
+                    created_target: Some(LibraryResourceTarget::Page {
+                        page_id: page_id.clone(),
+                    }),
+                    affected_parent_keys: vec![format!("database:{}", source.database_id)],
+                    affected_block_ids: created_block_ids,
+                    affected_page_ids: vec![page_id.clone()],
+                    affected_database_ids: vec![source.database_id.clone()],
+                    affected_view_ids: vec![source.view_id.clone()],
+                    affected_document_ids: vec![document_id],
+                    committed_revisions: {
+                        let mut revisions = BTreeMap::from([
+                            (format!("blockMetadata:{page_id}"), 1),
+                            (format!("blockLocation:{page_id}"), 1),
+                            (format!("membership:{membership_id}"), 1),
+                            (format!("position:{}:{page_id}", source.view_id), 1),
+                        ]);
+                        if tags_config_json.is_some() {
+                            revisions.insert(
+                                format!("property:{data_source_id}:tags"),
+                                expected_tags_property_revision
+                                    + i64::from(!new_tag_options.is_empty()),
+                            );
+                        }
+                        revisions
+                    },
+                    page_create: None,
+                    page_copy: None,
+                    canvas_mutation: None,
+                    block_transfer: None,
+                    page_lifecycle: Some(receipt),
+                    block_property_mutation: None,
+                    agent_page_copy: None,
+                    agent_create_pages: None,
+                    agent_move_pages: None,
+                    change_payload: None,
+                    committed_at: now.clone(),
+                },
+            )
         },
-    )
+    )?;
+    library_commit_result(connection, commit_result)
 }
 
 fn read_create_source(
@@ -1343,48 +1360,67 @@ fn transition_lifecycle(
         return Err(conflict("Page metadata revision changed"));
     }
     let now = sqlite_now(connection)?;
-    let metadata_revision = expected_metadata_revision + 1;
-    let changed = connection.execute(
-        "UPDATE blocks SET lifecycle = ?1, metadata_revision = ?2, updated_at = ?3 \
+    let commit_result = durable_mutation::run(
+        connection,
+        OperationIdentity {
+            module: ModuleName::Library,
+            module_name: "library",
+            operation_id,
+            intent_hash: request_hash,
+            store_epoch,
+            committed_at: &now,
+            context,
+        },
+        |scope| {
+            scope.observe_authorization_before(super::authorization_loss::capture(
+                connection,
+                library_id,
+                super::authorization_loss::AuthorizationRoots::page(page_id.to_owned()),
+                None,
+            )?);
+            let metadata_revision = expected_metadata_revision + 1;
+            let changed = connection.execute(
+                "UPDATE blocks SET lifecycle = ?1, metadata_revision = ?2, updated_at = ?3 \
          WHERE id = ?4 AND project_id = ?5 AND type = 'page' AND lifecycle = ?6 \
            AND metadata_revision = ?7",
-        params![
-            to,
-            metadata_revision,
-            now,
-            page_id,
-            page.project_id,
-            from,
-            expected_metadata_revision
-        ],
+                params![
+                    to,
+                    metadata_revision,
+                    now,
+                    page_id,
+                    page.project_id,
+                    from,
+                    expected_metadata_revision
+                ],
+            )?;
+            if changed != 1 {
+                return Err(conflict("Page changed during lifecycle transition"));
+            }
+            synchronize_page_lifecycle(connection, &page, to, metadata_revision, &now)?;
+            let library_rank_key = read_library_rank(connection, library_id, page_id)?;
+            let receipt = lifecycle_receipt(
+                operation_kind,
+                &page,
+                state,
+                metadata_revision,
+                membership.as_ref(),
+                library_rank_key,
+            );
+            seal_page_lifecycle(
+                scope,
+                context,
+                operation_id,
+                &page,
+                membership.as_ref(),
+                receipt,
+                BTreeMap::from([(format!("blockMetadata:{page_id}"), metadata_revision)]),
+                Vec::new(),
+                vec![page.document_id.clone()],
+                now.clone(),
+            )
+        },
     )?;
-    if changed != 1 {
-        return Err(conflict("Page changed during lifecycle transition"));
-    }
-    synchronize_page_lifecycle(connection, &page, to, metadata_revision, &now)?;
-    let library_rank_key = read_library_rank(connection, library_id, page_id)?;
-    let receipt = lifecycle_receipt(
-        operation_kind,
-        &page,
-        state,
-        metadata_revision,
-        membership.as_ref(),
-        library_rank_key,
-    );
-    finish_page_lifecycle(
-        connection,
-        context,
-        store_epoch,
-        operation_id,
-        request_hash,
-        &page,
-        membership.as_ref(),
-        receipt,
-        BTreeMap::from([(format!("blockMetadata:{page_id}"), metadata_revision)]),
-        Vec::new(),
-        vec![page.document_id.clone()],
-        now,
-    )
+    library_commit_result(connection, commit_result)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1439,97 +1475,110 @@ fn move_in_library(
         StoreError::new(StoreErrorCode::ResourceExhausted, error.message, false)
     })?;
     let now = sqlite_now(connection)?;
-    for (sibling_id, rank_key) in &plan.rebalanced_rank_keys {
-        connection.execute(
-            "UPDATE library_block_placements SET rank_key = ?1, revision = revision + 1, \
-               updated_at = ?2 WHERE block_id = ?3 AND library_id = ?4 AND rank_key <> ?1",
-            params![rank_key, now, sibling_id, library_id],
-        )?;
-    }
-    let changed = connection.execute(
-        "UPDATE library_block_placements SET rank_key = ?1, revision = revision + 1, \
-           updated_at = ?2 WHERE block_id = ?3 AND library_id = ?4",
-        params![plan.rank_key, now, page_id, library_id],
-    )?;
-    if changed != 1 {
-        return Err(corrupt("Page lost its Library placement during move"));
-    }
-    let parent_revision = expected_parent_revision + 1;
-    let changed = connection.execute(
-        "UPDATE blocks SET location_revision = ?1, updated_at = ?2 \
-         WHERE id = ?3 AND project_id = ?4 AND type = 'page' AND location_revision = ?5",
-        params![
-            parent_revision,
-            now,
-            page_id,
-            page.project_id,
-            expected_parent_revision
-        ],
-    )?;
-    if changed != 1 {
-        return Err(conflict("Page changed during Library move"));
-    }
-    let changed = connection.execute(
-        "UPDATE pages SET parent_revision = ?1, updated_at = ?2 \
-         WHERE block_id = ?3 AND library_id = ?4 AND parent_revision = ?5",
-        params![
-            parent_revision,
-            now,
-            page_id,
-            library_id,
-            expected_parent_revision
-        ],
-    )?;
-    if changed != 1 {
-        return Err(corrupt("Page parent authority disappeared during move"));
-    }
-    let changed = connection.execute(
-        "UPDATE page_read_model SET top_level_rank_key = ?1, location_revision = ?2, \
-           updated_at = ?3 WHERE page_block_id = ?4 AND project_id = ?5",
-        params![
-            plan.rank_key,
-            parent_revision,
-            now,
-            page_id,
-            page.project_id
-        ],
-    )?;
-    if changed != 1 {
-        return Err(corrupt("Page read projection disappeared during move"));
-    }
-    let receipt = LibraryPageLifecycleMutationReceipt {
-        operation_kind: "move_page_in_library".to_owned(),
-        page_id: page_id.to_owned(),
-        metadata_revision: page.metadata_revision,
-        parent_revision,
-        lifecycle: lifecycle_state(&page.lifecycle)?,
-        document_id: page.document_id.clone(),
-        document_generation: page.document_generation,
-        document_head_seq: page.document_head_seq,
-        database_id: None,
-        data_source_id: None,
-        membership_id: None,
-        view_id: None,
-        library_rank_key: Some(plan.rank_key),
-        view_rank_key: None,
-        created_block_ids: Vec::new(),
-        created_tag_option_ids: Vec::new(),
-        delete_evidence: None,
-    };
-    finish_page_lifecycle(
+    let commit_result = durable_mutation::run(
         connection,
-        context,
-        store_epoch,
-        operation_id,
-        request_hash,
-        &page,
-        None,
-        receipt,
-        BTreeMap::from([(format!("blockLocation:{page_id}"), parent_revision)]),
-        Vec::new(),
-        vec![page.document_id.clone()],
-        now,
-    )
+        OperationIdentity {
+            module: ModuleName::Library,
+            module_name: "library",
+            operation_id,
+            intent_hash: request_hash,
+            store_epoch,
+            committed_at: &now,
+            context,
+        },
+        |scope| {
+            for (sibling_id, rank_key) in &plan.rebalanced_rank_keys {
+                connection.execute(
+                    "UPDATE library_block_placements SET rank_key = ?1, revision = revision + 1, \
+               updated_at = ?2 WHERE block_id = ?3 AND library_id = ?4 AND rank_key <> ?1",
+                    params![rank_key, now, sibling_id, library_id],
+                )?;
+            }
+            let changed = connection.execute(
+                "UPDATE library_block_placements SET rank_key = ?1, revision = revision + 1, \
+           updated_at = ?2 WHERE block_id = ?3 AND library_id = ?4",
+                params![plan.rank_key, now, page_id, library_id],
+            )?;
+            if changed != 1 {
+                return Err(corrupt("Page lost its Library placement during move"));
+            }
+            let parent_revision = expected_parent_revision + 1;
+            let changed = connection.execute(
+                "UPDATE blocks SET location_revision = ?1, updated_at = ?2 \
+         WHERE id = ?3 AND project_id = ?4 AND type = 'page' AND location_revision = ?5",
+                params![
+                    parent_revision,
+                    now,
+                    page_id,
+                    page.project_id,
+                    expected_parent_revision
+                ],
+            )?;
+            if changed != 1 {
+                return Err(conflict("Page changed during Library move"));
+            }
+            let changed = connection.execute(
+                "UPDATE pages SET parent_revision = ?1, updated_at = ?2 \
+         WHERE block_id = ?3 AND library_id = ?4 AND parent_revision = ?5",
+                params![
+                    parent_revision,
+                    now,
+                    page_id,
+                    library_id,
+                    expected_parent_revision
+                ],
+            )?;
+            if changed != 1 {
+                return Err(corrupt("Page parent authority disappeared during move"));
+            }
+            let changed = connection.execute(
+                "UPDATE page_read_model SET top_level_rank_key = ?1, location_revision = ?2, \
+           updated_at = ?3 WHERE page_block_id = ?4 AND project_id = ?5",
+                params![
+                    plan.rank_key,
+                    parent_revision,
+                    now,
+                    page_id,
+                    page.project_id
+                ],
+            )?;
+            if changed != 1 {
+                return Err(corrupt("Page read projection disappeared during move"));
+            }
+            let receipt = LibraryPageLifecycleMutationReceipt {
+                operation_kind: "move_page_in_library".to_owned(),
+                page_id: page_id.to_owned(),
+                metadata_revision: page.metadata_revision,
+                parent_revision,
+                lifecycle: lifecycle_state(&page.lifecycle)?,
+                document_id: page.document_id.clone(),
+                document_generation: page.document_generation,
+                document_head_seq: page.document_head_seq,
+                database_id: None,
+                data_source_id: None,
+                membership_id: None,
+                view_id: None,
+                library_rank_key: Some(plan.rank_key),
+                view_rank_key: None,
+                created_block_ids: Vec::new(),
+                created_tag_option_ids: Vec::new(),
+                delete_evidence: None,
+            };
+            seal_page_lifecycle(
+                scope,
+                context,
+                operation_id,
+                &page,
+                None,
+                receipt,
+                BTreeMap::from([(format!("blockLocation:{page_id}"), parent_revision)]),
+                Vec::new(),
+                vec![page.document_id.clone()],
+                now.clone(),
+            )
+        },
+    )?;
+    library_commit_result(connection, commit_result)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1580,13 +1629,30 @@ fn delete_page(
         return Err(corrupt("Top-level Page has no Library placement"));
     }
     let now = sqlite_now(connection)?;
-    let local_commit_seq = local_commit::begin(connection, store_epoch, operation_id, &now)?;
-    connection.execute(
-        "DELETE FROM database_view_page_positions WHERE page_block_id = ?1",
-        [page_id],
-    )?;
-    if let Some(membership) = &membership {
-        let changed = connection.execute(
+    let commit_result = durable_mutation::run(
+        connection,
+        OperationIdentity {
+            module: ModuleName::Library,
+            module_name: "library",
+            operation_id,
+            intent_hash: request_hash,
+            store_epoch,
+            committed_at: &now,
+            context,
+        },
+        |scope| {
+            scope.observe_authorization_before(super::authorization_loss::capture(
+                connection,
+                library_id,
+                super::authorization_loss::AuthorizationRoots::page(page_id.to_owned()),
+                None,
+            )?);
+            connection.execute(
+                "DELETE FROM database_view_page_positions WHERE page_block_id = ?1",
+                [page_id],
+            )?;
+            if let Some(membership) = &membership {
+                let changed = connection.execute(
             "UPDATE data_source_page_memberships SET removed_at = ?1, revision = revision + 1 \
              WHERE id = ?2 AND data_source_id = ?3 AND page_block_id = ?4 \
                AND removed_at IS NULL AND revision = ?5",
@@ -1598,39 +1664,39 @@ fn delete_page(
                 membership.membership_revision
             ],
         )?;
-        if changed != 1 {
-            return Err(conflict("Page membership changed during delete"));
-        }
-    }
-    connection.execute(
-        "DELETE FROM library_block_placements WHERE block_id = ?1 AND library_id = ?2",
-        params![page_id, library_id],
-    )?;
-    let metadata_revision = expected_metadata_revision + 1;
-    let parent_revision = expected_parent_revision + 1;
-    let changed = connection.execute(
-        "UPDATE blocks SET lifecycle = 'deleted', metadata_revision = ?1, \
+                if changed != 1 {
+                    return Err(conflict("Page membership changed during delete"));
+                }
+            }
+            connection.execute(
+                "DELETE FROM library_block_placements WHERE block_id = ?1 AND library_id = ?2",
+                params![page_id, library_id],
+            )?;
+            let metadata_revision = expected_metadata_revision + 1;
+            let parent_revision = expected_parent_revision + 1;
+            let changed = connection.execute(
+                "UPDATE blocks SET lifecycle = 'deleted', metadata_revision = ?1, \
            location_revision = ?2, updated_at = ?3 \
          WHERE id = ?4 AND project_id = ?5 AND type = 'page' AND lifecycle = ?6 \
            AND metadata_revision = ?7 AND location_revision = ?8",
-        params![
-            metadata_revision,
-            parent_revision,
-            now,
-            page_id,
-            page.project_id,
-            page.lifecycle,
-            expected_metadata_revision,
-            expected_parent_revision
-        ],
-    )?;
-    if changed != 1 {
-        return Err(conflict("Page changed during delete"));
-    }
-    let mut tombstoned_blocks = Vec::with_capacity(closure.blocks.len());
-    for block in &closure.blocks {
-        let committed_revision = block.metadata_revision + 1;
-        let changed = connection.execute(
+                params![
+                    metadata_revision,
+                    parent_revision,
+                    now,
+                    page_id,
+                    page.project_id,
+                    page.lifecycle,
+                    expected_metadata_revision,
+                    expected_parent_revision
+                ],
+            )?;
+            if changed != 1 {
+                return Err(conflict("Page changed during delete"));
+            }
+            let mut tombstoned_blocks = Vec::with_capacity(closure.blocks.len());
+            for block in &closure.blocks {
+                let committed_revision = block.metadata_revision + 1;
+                let changed = connection.execute(
             "UPDATE blocks SET lifecycle = 'deleted', metadata_revision = ?1, updated_at = ?2 \
              WHERE id = ?3 AND project_id = ?4 AND lifecycle = 'active' \
                AND metadata_revision = ?5",
@@ -1642,137 +1708,137 @@ fn delete_page(
                 block.metadata_revision
             ],
         )?;
-        if changed != 1 {
-            return Err(conflict("Indexed Block changed during Page delete"));
-        }
-        tombstoned_blocks.push(LibraryPageLifecycleDeletedBlock {
-            block_id: block.block_id.clone(),
-            metadata_revision: committed_revision,
-            resource_metadata_revision: (block.block_type == "database")
-                .then_some(block.resource_metadata_revision)
-                .flatten()
-                .map(|revision| revision + 1),
-        });
-    }
-    synchronize_deleted_page(connection, &page, metadata_revision, parent_revision, &now)?;
-    synchronize_deleted_indexed_owners(connection, &page, &closure, &now)?;
-    let parent_commit = parent_document
-        .as_ref()
-        .map(|parent| {
-            persist_parent_operations_detailed_with_local_commit(
-                connection,
-                store_epoch,
-                operation_id,
-                "page-delete",
-                parent,
-                &[DocumentBlockOperation::DeleteBlock {
-                    block_id: page_id.to_owned(),
-                }],
-                Some(local_commit_seq),
-            )
-        })
-        .transpose()?;
-    let restore_membership =
-        membership
-            .as_ref()
-            .map(|membership| LibraryPageLifecycleMutationMembership {
-                membership_id: membership.membership_id.clone(),
-                database_id: membership.database_id.clone(),
-                data_source_id: membership.data_source_id.clone(),
-                status: membership.status,
-                position: membership.view_id.as_ref().map(|view_id| {
-                    LibraryPageLifecycleRestorePosition {
-                        view_id: view_id.clone(),
-                        before_view_page_id: None,
-                    }
-                }),
-            });
-    let delete_evidence = LibraryPageLifecycleDeleteEvidence {
-        previous_lifecycle,
-        membership: restore_membership,
-        tombstoned_blocks: tombstoned_blocks.clone(),
-        indexed_document_ids: closure.document_ids.clone(),
-        nested_parent,
-    };
-    let receipt = LibraryPageLifecycleMutationReceipt {
-        operation_kind: "delete_page".to_owned(),
-        page_id: page_id.to_owned(),
-        metadata_revision,
-        parent_revision,
-        lifecycle: LibraryPageLifecycleState::Deleted,
-        document_id: page.document_id.clone(),
-        document_generation: page.document_generation,
-        document_head_seq: page.document_head_seq,
-        database_id: membership
-            .as_ref()
-            .map(|membership| membership.database_id.clone()),
-        data_source_id: membership
-            .as_ref()
-            .map(|membership| membership.data_source_id.clone()),
-        membership_id: membership
-            .as_ref()
-            .map(|membership| membership.membership_id.clone()),
-        view_id: membership
-            .as_ref()
-            .and_then(|membership| membership.view_id.clone()),
-        library_rank_key: None,
-        view_rank_key: None,
-        created_block_ids: Vec::new(),
-        created_tag_option_ids: Vec::new(),
-        delete_evidence: Some(delete_evidence),
-    };
-    let mut affected_document_ids = closure.document_ids.clone();
-    if let Some(parent) = &parent_commit {
-        affected_document_ids.push(parent.document_id.clone());
-    }
-    affected_document_ids.sort();
-    affected_document_ids.dedup();
-    let mut committed_revisions = BTreeMap::from_iter(
-        [
-            (format!("blockMetadata:{page_id}"), metadata_revision),
-            (format!("blockLocation:{page_id}"), parent_revision),
-        ]
-        .into_iter()
-        .chain(tombstoned_blocks.iter().map(|block| {
-            (
-                format!("indexedBlockMetadata:{}", block.block_id),
-                block.metadata_revision,
-            )
-        }))
-        .chain(closure.blocks.iter().filter_map(|block| {
-            if block.block_type != "database" {
-                return None;
+                if changed != 1 {
+                    return Err(conflict("Indexed Block changed during Page delete"));
+                }
+                tombstoned_blocks.push(LibraryPageLifecycleDeletedBlock {
+                    block_id: block.block_id.clone(),
+                    metadata_revision: committed_revision,
+                    resource_metadata_revision: (block.block_type == "database")
+                        .then_some(block.resource_metadata_revision)
+                        .flatten()
+                        .map(|revision| revision + 1),
+                });
             }
-            block
-                .resource_metadata_revision
-                .map(|revision| (format!("databaseMetadata:{}", block.block_id), revision + 1))
-        })),
-    );
-    if let Some(parent) = &parent_commit {
-        committed_revisions.insert(
-            format!("documentHead:{}", parent.document_id),
-            parent.head_seq,
-        );
-    }
-    finish_page_lifecycle_with_local_commit(
-        connection,
-        context,
-        store_epoch,
-        operation_id,
-        request_hash,
-        &page,
-        membership.as_ref(),
-        receipt,
-        committed_revisions,
-        closure
-            .blocks
-            .iter()
-            .map(|block| block.block_id.clone())
-            .collect(),
-        affected_document_ids,
-        now,
-        Some(local_commit_seq),
-    )
+            synchronize_deleted_page(connection, &page, metadata_revision, parent_revision, &now)?;
+            synchronize_deleted_indexed_owners(connection, &page, &closure, &now)?;
+            let parent_commit = parent_document
+                .as_ref()
+                .map(|parent| {
+                    persist_parent_operations_detailed_with_local_commit(
+                        connection,
+                        store_epoch,
+                        operation_id,
+                        "page-delete",
+                        parent,
+                        &[DocumentBlockOperation::DeleteBlock {
+                            block_id: page_id.to_owned(),
+                        }],
+                        scope.evidence(),
+                    )
+                })
+                .transpose()?;
+            let restore_membership =
+                membership
+                    .as_ref()
+                    .map(|membership| LibraryPageLifecycleMutationMembership {
+                        membership_id: membership.membership_id.clone(),
+                        database_id: membership.database_id.clone(),
+                        data_source_id: membership.data_source_id.clone(),
+                        status: membership.status,
+                        position: membership.view_id.as_ref().map(|view_id| {
+                            LibraryPageLifecycleRestorePosition {
+                                view_id: view_id.clone(),
+                                before_view_page_id: None,
+                            }
+                        }),
+                    });
+            let delete_evidence = LibraryPageLifecycleDeleteEvidence {
+                previous_lifecycle,
+                membership: restore_membership,
+                tombstoned_blocks: tombstoned_blocks.clone(),
+                indexed_document_ids: closure.document_ids.clone(),
+                nested_parent,
+            };
+            let receipt = LibraryPageLifecycleMutationReceipt {
+                operation_kind: "delete_page".to_owned(),
+                page_id: page_id.to_owned(),
+                metadata_revision,
+                parent_revision,
+                lifecycle: LibraryPageLifecycleState::Deleted,
+                document_id: page.document_id.clone(),
+                document_generation: page.document_generation,
+                document_head_seq: page.document_head_seq,
+                database_id: membership
+                    .as_ref()
+                    .map(|membership| membership.database_id.clone()),
+                data_source_id: membership
+                    .as_ref()
+                    .map(|membership| membership.data_source_id.clone()),
+                membership_id: membership
+                    .as_ref()
+                    .map(|membership| membership.membership_id.clone()),
+                view_id: membership
+                    .as_ref()
+                    .and_then(|membership| membership.view_id.clone()),
+                library_rank_key: None,
+                view_rank_key: None,
+                created_block_ids: Vec::new(),
+                created_tag_option_ids: Vec::new(),
+                delete_evidence: Some(delete_evidence),
+            };
+            let mut affected_document_ids = closure.document_ids.clone();
+            if let Some(parent) = &parent_commit {
+                affected_document_ids.push(parent.document_id.clone());
+            }
+            affected_document_ids.sort();
+            affected_document_ids.dedup();
+            let mut committed_revisions = BTreeMap::from_iter(
+                [
+                    (format!("blockMetadata:{page_id}"), metadata_revision),
+                    (format!("blockLocation:{page_id}"), parent_revision),
+                ]
+                .into_iter()
+                .chain(tombstoned_blocks.iter().map(|block| {
+                    (
+                        format!("indexedBlockMetadata:{}", block.block_id),
+                        block.metadata_revision,
+                    )
+                }))
+                .chain(closure.blocks.iter().filter_map(|block| {
+                    if block.block_type != "database" {
+                        return None;
+                    }
+                    block.resource_metadata_revision.map(|revision| {
+                        (format!("databaseMetadata:{}", block.block_id), revision + 1)
+                    })
+                })),
+            );
+            if let Some(parent) = &parent_commit {
+                committed_revisions.insert(
+                    format!("documentHead:{}", parent.document_id),
+                    parent.head_seq,
+                );
+            }
+            seal_page_lifecycle(
+                scope,
+                context,
+                operation_id,
+                &page,
+                membership.as_ref(),
+                receipt,
+                committed_revisions,
+                closure
+                    .blocks
+                    .iter()
+                    .map(|block| block.block_id.clone())
+                    .collect(),
+                affected_document_ids,
+                now.clone(),
+            )
+        },
+    )?;
+    library_commit_result(connection, commit_result)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1834,56 +1900,65 @@ fn restore_page(
     let closure = read_indexed_closure(connection, &page)?;
     validate_delete_evidence(&page, evidence, &closure)?;
     let now = sqlite_now(connection)?;
-    let local_commit_seq = parent_document
-        .as_ref()
-        .map(|_| local_commit::begin(connection, store_epoch, operation_id, &now))
-        .transpose()?;
-    let mut library_rank_key = None;
-    let mut restored_membership = None;
-    let mut view_id = None;
-    let mut view_rank_key = None;
-    if let Some(requested) = requested_membership {
-        restored_membership = Some(restore_membership(connection, page_id, requested)?);
-        if let Some(position) = &requested.position {
-            let rank_key = restore_view_position(connection, page_id, requested, position, &now)?;
-            view_id = Some(position.view_id.clone());
-            view_rank_key = Some(rank_key);
-        }
-    } else if page.parent_kind == "library" {
-        library_rank_key = Some(restore_library_placement(
-            connection,
-            library_id,
-            page_id,
-            before_block_id,
-            &now,
-        )?);
-    }
-    let target_lifecycle = match evidence.previous_lifecycle {
-        LibraryLifecycle::Active => "active",
-        LibraryLifecycle::Archived => "archived",
-    };
-    let metadata_revision = expected_metadata_revision + 1;
-    let parent_revision = expected_parent_revision + 1;
-    let changed = connection.execute(
-        "UPDATE blocks SET lifecycle = ?1, metadata_revision = ?2, location_revision = ?3, \
+    let commit_result = durable_mutation::run(
+        connection,
+        OperationIdentity {
+            module: ModuleName::Library,
+            module_name: "library",
+            operation_id,
+            intent_hash: request_hash,
+            store_epoch,
+            committed_at: &now,
+            context,
+        },
+        |scope| {
+            let mut library_rank_key = None;
+            let mut restored_membership = None;
+            let mut view_id = None;
+            let mut view_rank_key = None;
+            if let Some(requested) = requested_membership {
+                restored_membership = Some(restore_membership(connection, page_id, requested)?);
+                if let Some(position) = &requested.position {
+                    let rank_key =
+                        restore_view_position(connection, page_id, requested, position, &now)?;
+                    view_id = Some(position.view_id.clone());
+                    view_rank_key = Some(rank_key);
+                }
+            } else if page.parent_kind == "library" {
+                library_rank_key = Some(restore_library_placement(
+                    connection,
+                    library_id,
+                    page_id,
+                    before_block_id,
+                    &now,
+                )?);
+            }
+            let target_lifecycle = match evidence.previous_lifecycle {
+                LibraryLifecycle::Active => "active",
+                LibraryLifecycle::Archived => "archived",
+            };
+            let metadata_revision = expected_metadata_revision + 1;
+            let parent_revision = expected_parent_revision + 1;
+            let changed = connection.execute(
+                "UPDATE blocks SET lifecycle = ?1, metadata_revision = ?2, location_revision = ?3, \
            updated_at = ?4 WHERE id = ?5 AND project_id = ?6 AND type = 'page' \
            AND lifecycle = 'deleted' AND metadata_revision = ?7 AND location_revision = ?8",
-        params![
-            target_lifecycle,
-            metadata_revision,
-            parent_revision,
-            now,
-            page_id,
-            page.project_id,
-            expected_metadata_revision,
-            expected_parent_revision
-        ],
-    )?;
-    if changed != 1 {
-        return Err(conflict("Page changed during restore"));
-    }
-    for block in &evidence.tombstoned_blocks {
-        let changed = connection.execute(
+                params![
+                    target_lifecycle,
+                    metadata_revision,
+                    parent_revision,
+                    now,
+                    page_id,
+                    page.project_id,
+                    expected_metadata_revision,
+                    expected_parent_revision
+                ],
+            )?;
+            if changed != 1 {
+                return Err(conflict("Page changed during restore"));
+            }
+            for block in &evidence.tombstoned_blocks {
+                let changed = connection.execute(
             "UPDATE blocks SET lifecycle = 'active', metadata_revision = metadata_revision + 1, \
                updated_at = ?1 WHERE id = ?2 AND project_id = ?3 AND lifecycle = 'deleted' \
                AND metadata_revision = ?4",
@@ -1894,132 +1969,132 @@ fn restore_page(
                 block.metadata_revision
             ],
         )?;
-        if changed != 1 {
-            return Err(conflict("Indexed Block changed during Page restore"));
-        }
-    }
-    synchronize_restored_indexed_owners(
-        connection,
-        &page,
-        &closure,
-        &evidence.tombstoned_blocks,
-        &now,
-    )?;
-    synchronize_restored_page(
-        connection,
-        &page,
-        target_lifecycle,
-        metadata_revision,
-        parent_revision,
-        restored_membership.as_ref(),
-        view_id.as_deref(),
-        view_rank_key.as_deref(),
-        library_rank_key.as_deref(),
-        &now,
-    )?;
-    let parent_commit = match (parent_document.as_ref(), nested_parent.as_ref()) {
-        (Some(parent), Some(nested_parent)) => {
-            Some(persist_parent_operations_detailed_with_local_commit(
+                if changed != 1 {
+                    return Err(conflict("Indexed Block changed during Page restore"));
+                }
+            }
+            synchronize_restored_indexed_owners(
                 connection,
-                store_epoch,
+                &page,
+                &closure,
+                &evidence.tombstoned_blocks,
+                &now,
+            )?;
+            synchronize_restored_page(
+                connection,
+                &page,
+                target_lifecycle,
+                metadata_revision,
+                parent_revision,
+                restored_membership.as_ref(),
+                view_id.as_deref(),
+                view_rank_key.as_deref(),
+                library_rank_key.as_deref(),
+                &now,
+            )?;
+            let parent_commit = match (parent_document.as_ref(), nested_parent.as_ref()) {
+                (Some(parent), Some(nested_parent)) => {
+                    Some(persist_parent_operations_detailed_with_local_commit(
+                        connection,
+                        store_epoch,
+                        operation_id,
+                        "page-restore",
+                        parent,
+                        &[DocumentBlockOperation::InsertBlock {
+                            block: MaterializedBlockNode {
+                                id: page_id.to_owned(),
+                                block_type: "page".to_owned(),
+                                props: BTreeMap::new(),
+                                content: None,
+                                children: Vec::new(),
+                            },
+                            parent_block_id: nested_parent.parent_block_id.clone(),
+                            before_block_id: nested_parent.before_block_id.clone(),
+                        }],
+                        scope.evidence(),
+                    )?)
+                }
+                (None, None) => None,
+                _ => {
+                    return Err(corrupt(
+                        "Nested Page restore parent resolution is incomplete",
+                    ));
+                }
+            };
+            let receipt = LibraryPageLifecycleMutationReceipt {
+                operation_kind: "restore_page".to_owned(),
+                page_id: page_id.to_owned(),
+                metadata_revision,
+                parent_revision,
+                lifecycle: lifecycle_state(target_lifecycle)?,
+                document_id: page.document_id.clone(),
+                document_generation: page.document_generation,
+                document_head_seq: page.document_head_seq,
+                database_id: restored_membership
+                    .as_ref()
+                    .map(|membership| membership.database_id.clone()),
+                data_source_id: restored_membership
+                    .as_ref()
+                    .map(|membership| membership.data_source_id.clone()),
+                membership_id: restored_membership
+                    .as_ref()
+                    .map(|membership| membership.membership_id.clone()),
+                view_id,
+                library_rank_key,
+                view_rank_key,
+                created_block_ids: Vec::new(),
+                created_tag_option_ids: Vec::new(),
+                delete_evidence: None,
+            };
+            let mut committed_revisions = BTreeMap::from_iter(
+                [
+                    (format!("blockMetadata:{page_id}"), metadata_revision),
+                    (format!("blockLocation:{page_id}"), parent_revision),
+                ]
+                .into_iter()
+                .chain(evidence.tombstoned_blocks.iter().map(|block| {
+                    (
+                        format!("indexedBlockMetadata:{}", block.block_id),
+                        block.metadata_revision + 1,
+                    )
+                }))
+                .chain(evidence.tombstoned_blocks.iter().filter_map(|block| {
+                    block.resource_metadata_revision.map(|revision| {
+                        (format!("databaseMetadata:{}", block.block_id), revision + 1)
+                    })
+                })),
+            );
+            if let Some(parent) = &parent_commit {
+                committed_revisions.insert(
+                    format!("documentHead:{}", parent.document_id),
+                    parent.head_seq,
+                );
+            }
+            let mut affected_document_ids = closure.document_ids.clone();
+            if let Some(parent) = &parent_commit {
+                affected_document_ids.push(parent.document_id.clone());
+            }
+            affected_document_ids.sort();
+            affected_document_ids.dedup();
+            seal_page_lifecycle(
+                scope,
+                context,
                 operation_id,
-                "page-restore",
-                parent,
-                &[DocumentBlockOperation::InsertBlock {
-                    block: MaterializedBlockNode {
-                        id: page_id.to_owned(),
-                        block_type: "page".to_owned(),
-                        props: BTreeMap::new(),
-                        content: None,
-                        children: Vec::new(),
-                    },
-                    parent_block_id: nested_parent.parent_block_id.clone(),
-                    before_block_id: nested_parent.before_block_id.clone(),
-                }],
-                local_commit_seq,
-            )?)
-        }
-        (None, None) => None,
-        _ => {
-            return Err(corrupt(
-                "Nested Page restore parent resolution is incomplete",
-            ));
-        }
-    };
-    let receipt = LibraryPageLifecycleMutationReceipt {
-        operation_kind: "restore_page".to_owned(),
-        page_id: page_id.to_owned(),
-        metadata_revision,
-        parent_revision,
-        lifecycle: lifecycle_state(target_lifecycle)?,
-        document_id: page.document_id.clone(),
-        document_generation: page.document_generation,
-        document_head_seq: page.document_head_seq,
-        database_id: restored_membership
-            .as_ref()
-            .map(|membership| membership.database_id.clone()),
-        data_source_id: restored_membership
-            .as_ref()
-            .map(|membership| membership.data_source_id.clone()),
-        membership_id: restored_membership
-            .as_ref()
-            .map(|membership| membership.membership_id.clone()),
-        view_id,
-        library_rank_key,
-        view_rank_key,
-        created_block_ids: Vec::new(),
-        created_tag_option_ids: Vec::new(),
-        delete_evidence: None,
-    };
-    let mut committed_revisions = BTreeMap::from_iter(
-        [
-            (format!("blockMetadata:{page_id}"), metadata_revision),
-            (format!("blockLocation:{page_id}"), parent_revision),
-        ]
-        .into_iter()
-        .chain(evidence.tombstoned_blocks.iter().map(|block| {
-            (
-                format!("indexedBlockMetadata:{}", block.block_id),
-                block.metadata_revision + 1,
+                &page,
+                restored_membership.as_ref(),
+                receipt,
+                committed_revisions,
+                closure
+                    .blocks
+                    .iter()
+                    .map(|block| block.block_id.clone())
+                    .collect(),
+                affected_document_ids,
+                now.clone(),
             )
-        }))
-        .chain(evidence.tombstoned_blocks.iter().filter_map(|block| {
-            block
-                .resource_metadata_revision
-                .map(|revision| (format!("databaseMetadata:{}", block.block_id), revision + 1))
-        })),
-    );
-    if let Some(parent) = &parent_commit {
-        committed_revisions.insert(
-            format!("documentHead:{}", parent.document_id),
-            parent.head_seq,
-        );
-    }
-    let mut affected_document_ids = closure.document_ids.clone();
-    if let Some(parent) = &parent_commit {
-        affected_document_ids.push(parent.document_id.clone());
-    }
-    affected_document_ids.sort();
-    affected_document_ids.dedup();
-    finish_page_lifecycle_with_local_commit(
-        connection,
-        context,
-        store_epoch,
-        operation_id,
-        request_hash,
-        &page,
-        restored_membership.as_ref(),
-        receipt,
-        committed_revisions,
-        closure
-            .blocks
-            .iter()
-            .map(|block| block.block_id.clone())
-            .collect(),
-        affected_document_ids,
-        now,
-        local_commit_seq,
-    )
+        },
+    )?;
+    library_commit_result(connection, commit_result)
 }
 
 fn resolve_nested_parent_document(
@@ -2489,11 +2564,10 @@ fn read_delete_receipt(
     let Some((result_json, event_sequence, receipt_store_epoch)) = stored else {
         return Err(invalid("Durable Page delete evidence does not exist"));
     };
-    let committed =
-        serde_json::from_str::<CommittedModuleValue<LibraryCommitValue, LibraryReceipt>>(
-            &result_json,
-        )
-        .map_err(|_| corrupt("Durable Page delete receipt is invalid"))?;
+    let committed = serde_json::from_str::<
+        crate::ModuleWriterResult<LibraryCommitValue, LibraryReceipt>,
+    >(&result_json)
+    .map_err(|_| corrupt("Durable Page delete receipt is invalid"))?;
     let lifecycle = committed
         .value
         .page_lifecycle
@@ -3216,12 +3290,10 @@ fn lifecycle_receipt(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn finish_page_lifecycle(
-    connection: &Connection,
+fn seal_page_lifecycle(
+    scope: &DurableMutationScope<'_>,
     context: &BoundModuleContext,
-    store_epoch: &str,
     operation_id: &str,
-    request_hash: &str,
     page: &PageAuthority,
     membership: Option<&MembershipCoordinates>,
     receipt: LibraryPageLifecycleMutationReceipt,
@@ -3229,40 +3301,9 @@ fn finish_page_lifecycle(
     affected_block_ids: Vec<String>,
     affected_document_ids: Vec<String>,
     committed_at: String,
-) -> Result<LibraryApplyOutcome, StoreError> {
-    finish_page_lifecycle_with_local_commit(
-        connection,
-        context,
-        store_epoch,
-        operation_id,
-        request_hash,
-        page,
-        membership,
-        receipt,
-        committed_revisions,
-        affected_block_ids,
-        affected_document_ids,
-        committed_at,
-        None,
-    )
-}
-
-#[allow(clippy::too_many_arguments)]
-fn finish_page_lifecycle_with_local_commit(
-    connection: &Connection,
-    context: &BoundModuleContext,
-    store_epoch: &str,
-    operation_id: &str,
-    request_hash: &str,
-    page: &PageAuthority,
-    membership: Option<&MembershipCoordinates>,
-    receipt: LibraryPageLifecycleMutationReceipt,
-    committed_revisions: BTreeMap<String, i64>,
-    affected_block_ids: Vec<String>,
-    affected_document_ids: Vec<String>,
-    committed_at: String,
-    attached_commit_seq: Option<i64>,
-) -> Result<LibraryApplyOutcome, StoreError> {
+) -> Result<SealedOutcome<crate::ModuleWriterResult<LibraryCommitValue, LibraryReceipt>>, StoreError>
+{
+    let connection = scope.connection();
     let operation_kind = match receipt.operation_kind.as_str() {
         "archive_page" => "archive_page",
         "unarchive_page" => "unarchive_page",
@@ -3298,12 +3339,10 @@ fn finish_page_lifecycle_with_local_commit(
     }
     affected_database_ids.sort();
     affected_database_ids.dedup();
-    finish_mutation_with_local_commit(
-        connection,
+    seal_mutation(
+        scope,
         context,
-        store_epoch,
         operation_id,
-        request_hash,
         MutationEffects {
             project_id: page.project_id.clone(),
             operation_kind,
@@ -3332,7 +3371,6 @@ fn finish_page_lifecycle_with_local_commit(
             change_payload: None,
             committed_at,
         },
-        attached_commit_seq,
     )
 }
 

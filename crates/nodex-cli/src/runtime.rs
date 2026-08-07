@@ -1774,7 +1774,7 @@ fn unwrap_administration(
 fn unwrap_administration_apply(
     result: Result<StoreAdministrationApplyResponse, ClientError>,
 ) -> Result<
-    nodex_core_contracts::CommittedModuleValue<
+    nodex_core_contracts::ApplyResponse<
         nodex_core_contracts::administration::StoreAdministrationCommitValue,
         nodex_core_contracts::administration::StoreAdministrationReceipt,
     >,

@@ -1,7 +1,11 @@
 import type { components } from "@nodex/core-protocol";
+import type { DatabasePageSummary } from "./types";
 
 export type ProjectionImpact = components["schemas"]["ProjectionImpact"];
+export type LocalProjectionScope = components["schemas"]["LocalProjectionScope"];
+export type CoreProjectionEffect = components["schemas"]["ProjectionEffect"];
 
+/** Authorization boundary for one renderer subscription. */
 export type ProjectionScope =
   | { readonly kind: "library"; readonly libraryId: string }
   | {
@@ -10,37 +14,97 @@ export type ProjectionScope =
       readonly projectId: string;
     };
 
+/** Durable stream progress. This is not a projection version. */
 export interface ProjectionCursor {
   readonly storeEpoch: string;
   readonly commitSeq: number;
 }
 
+/** Exact per-scope coordinate used for projection ordering. */
+export interface ProjectionCoordinate {
+  readonly storeEpoch: string;
+  readonly scopeKey: string;
+  readonly schemaVersion: number;
+  readonly revision: number;
+  readonly coveredCommitSeq: number;
+  readonly effectHash: string | null;
+}
+
+export type ProjectionPatch =
+  | {
+      readonly kind: "database_row_upsert";
+      readonly projectId: string;
+      readonly databaseId: string;
+      readonly dataSourceId: string;
+      readonly viewId: string;
+      readonly row: DatabasePageSummary;
+      readonly sourceRow: components["schemas"]["DatabaseRowSummary"];
+      readonly effectiveGroupKey: string | null;
+      readonly rankKey: string | null;
+      readonly totalRows: number;
+      readonly groupTotal: number | null;
+    }
+  | {
+      readonly kind: "database_row_remove";
+      readonly projectId: string;
+      readonly databaseId: string;
+      readonly dataSourceId: string;
+      readonly viewId: string;
+      readonly pageId: string;
+      readonly totalRows: number;
+      readonly groupKey: string | null;
+      readonly groupTotal: number | null;
+    }
+  | {
+      readonly kind: "page_changed";
+      readonly projectId: string;
+      readonly pageId: string;
+    };
+
+export interface ProjectionEffect {
+  readonly scope: CoreProjectionEffect["scope"];
+  readonly baseRevision: number;
+  readonly resultRevision: number;
+  readonly coveredCommitSeq: number;
+  readonly patch: ProjectionPatch | null;
+  readonly requiresReadAtLeast: boolean;
+  readonly effectHash: string;
+}
+
+export interface ProjectionDelivery {
+  readonly storeEpoch: string;
+  readonly commitSeq: number;
+  readonly manifestHash: string;
+  readonly operationId: string;
+  readonly committedAt: string;
+  readonly impact: ProjectionImpact;
+  readonly effect: ProjectionEffect;
+}
+
 export type ProjectionStreamMessage =
   | {
-      readonly version: 1;
+      readonly version: 2;
       readonly kind: "checkpoint";
       readonly scope: ProjectionScope;
-      readonly cursor: ProjectionCursor;
+      readonly stream: ProjectionCursor;
     }
   | {
-      readonly version: 1;
-      readonly kind: "changed";
+      readonly version: 2;
+      readonly kind: "effect";
       readonly scope: ProjectionScope;
-      readonly cursor: ProjectionCursor;
-      readonly impact: ProjectionImpact;
-      /** Top-level durable mutation identity when this event came from a commit. */
-      readonly operationId?: string | null;
-      readonly committedAt?: string;
+      readonly stream: ProjectionCursor;
+      readonly delivery: ProjectionDelivery;
     }
   | {
-      readonly version: 1;
-      readonly kind: "resync";
+      readonly version: 2;
+      readonly kind: "reset";
       readonly scope: ProjectionScope;
-      readonly cursor: ProjectionCursor;
+      readonly stream: ProjectionCursor;
       readonly reason:
         | "event_gap"
         | "reconnect"
-        | "authorization_filter_failed";
+        | "store_epoch_changed"
+        | "projection_integrity_failure";
     };
 
 export const projectionScopeKey = (scope: ProjectionScope): string =>
@@ -54,3 +118,17 @@ export const projectionCursorCovers = (
 ): boolean =>
   actual?.storeEpoch === required.storeEpoch
   && actual.commitSeq >= required.commitSeq;
+
+export const projectionCoordinateFromSnapshot = (input: {
+  readonly storeEpoch: string;
+  readonly projection: {
+    readonly scopeKey: string;
+    readonly schemaVersion: number;
+    readonly revision: number;
+    readonly coveredCommitSeq: number;
+    readonly effectHash: string | null;
+  };
+}): ProjectionCoordinate => ({
+  storeEpoch: input.storeEpoch,
+  ...input.projection,
+});

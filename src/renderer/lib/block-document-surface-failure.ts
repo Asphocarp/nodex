@@ -4,6 +4,7 @@ import type {
 } from "../../shared/block-documents";
 
 export type BlockDocumentSurfaceFailureReason =
+  | "access-revoked"
   | "fatal"
   | "reset-required"
   | "startup";
@@ -46,6 +47,7 @@ const resolveFailureTitle = (
   reason: BlockDocumentSurfaceFailureReason,
   syncError: DocumentSyncCommandError | undefined,
 ): string => {
+  if (reason === "access-revoked") return "Access to this content is unavailable";
   if (reason === "reset-required") return "This content needs to resync";
   if (syncError?.code === "unauthorized") {
     return "Nodex can’t access this content";
@@ -67,6 +69,10 @@ const resolveFailureTitle = (
   }
   return "Couldn’t open this collaborative content";
 };
+
+export const isBlockDocumentAccessRevoked = (error: Error): boolean =>
+  error instanceof BlockDocumentSurfaceError
+  && error.syncError?.code === "unauthorized";
 
 const appendDiagnostic = (
   diagnostics: string[],
@@ -107,7 +113,9 @@ export const resolveBlockDocumentSurfaceFailure = (
 
   return {
     title,
-    description: message && message !== title ? message : "Reload to try again.",
+    description: reason === "access-revoked"
+      ? "Your current access no longer includes this content."
+      : message && message !== title ? message : "Reload to try again.",
     diagnostics: diagnostics.join("\n"),
   };
 };

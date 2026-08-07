@@ -9,6 +9,7 @@ import type {
   ProjectionScope,
   ProjectionStreamMessage,
 } from "../../shared/projection-stream";
+import type { ResourceRevocationMessage } from "../../shared/resource-revocation-stream";
 
 export interface RendererTransport {
   sendGitWorkerMessage: (
@@ -122,6 +123,10 @@ export interface RendererTransport {
   subscribeProjectionStream: (
     scope: ProjectionScope,
     listener: (message: ProjectionStreamMessage) => void,
+  ) => () => void;
+  subscribeResourceRevocations: (
+    scope: ProjectionScope,
+    listener: (message: ResourceRevocationMessage) => void,
   ) => () => void;
   subscribePageOwnershipPathChanges: (
     projectId: string,

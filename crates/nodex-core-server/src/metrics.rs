@@ -9,6 +9,7 @@ struct ServerMetricsInner {
     event_replay_lag: AtomicU64,
     event_replay_lag_max: AtomicU64,
     backup_duration: DurationMetric,
+    local_commit_publication_duration: DurationMetric,
     canvas_sync_initial_snapshots: AtomicU64,
     canvas_sync_repair_snapshots: AtomicU64,
     canvas_sync_up_to_date: AtomicU64,
@@ -43,6 +44,16 @@ impl ServerMetrics {
 
     pub(crate) fn backup_duration(&self) -> DurationMetricSnapshot {
         self.inner.backup_duration.snapshot()
+    }
+
+    pub(crate) fn record_local_commit_publication(&self, duration: Duration) {
+        self.inner
+            .local_commit_publication_duration
+            .record(duration);
+    }
+
+    pub(crate) fn local_commit_publication_duration(&self) -> DurationMetricSnapshot {
+        self.inner.local_commit_publication_duration.snapshot()
     }
 
     pub(crate) fn record_canvas_sync(&self, initial_snapshot: bool, snapshot_bytes: Option<usize>) {
@@ -100,6 +111,16 @@ mod tests {
                 total_micros: 9,
                 last_micros: 9,
                 max_micros: 9,
+            }
+        );
+        metrics.record_local_commit_publication(Duration::from_micros(4));
+        assert_eq!(
+            metrics.local_commit_publication_duration(),
+            DurationMetricSnapshot {
+                count: 1,
+                total_micros: 4,
+                last_micros: 4,
+                max_micros: 4,
             }
         );
         metrics.record_canvas_sync(true, Some(12));

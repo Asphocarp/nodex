@@ -22,9 +22,9 @@ use nodex_core_contracts::workspace::{
     ProjectWorkspaceReadValue, ProjectWorkspaceReceipt,
 };
 use nodex_core_contracts::{
-    BoundModuleContext, CommittedCoreModuleEvent, CommittedModuleValue, CoreError, CoreErrorCode,
-    CoreErrorRecovery, ModuleApplyRequest, ModuleReadRequest, ModuleReadSnapshot,
-    PROJECT_WORKSPACE_CONTRACT_VERSION, StoreEpoch,
+    BoundModuleContext, CommittedCoreModuleEvent, CoreError, CoreErrorCode, CoreErrorRecovery,
+    ModuleApplyRequest, ModuleReadRequest, ModuleReadSnapshot, PROJECT_WORKSPACE_CONTRACT_VERSION,
+    StoreEpoch,
 };
 use rusqlite::OptionalExtension;
 
@@ -34,7 +34,7 @@ use crate::infrastructure::writer::{StoreReaders, StoreWriter};
 
 #[derive(Clone, Debug)]
 pub struct ProjectWorkspaceApplyOutcome {
-    pub committed: CommittedModuleValue<ProjectWorkspaceCommitValue, ProjectWorkspaceReceipt>,
+    pub committed: crate::ModuleWriterResult<ProjectWorkspaceCommitValue, ProjectWorkspaceReceipt>,
     pub event: Option<CommittedCoreModuleEvent>,
 }
 
@@ -106,17 +106,12 @@ impl ProjectWorkspaceModule {
                     )
                     .optional()?
                     .ok_or_else(|| corrupt("Profile store epoch is unavailable"))?;
-                let change_log_head = transaction.query_row(
-                    "SELECT COALESCE(max(seq), 0) FROM change_log",
-                    [],
-                    |row| row.get::<_, i64>(0),
-                )?;
                 let commit_seq = crate::infrastructure::local_commit::head(&transaction)?;
                 Ok(ModuleReadSnapshot {
                     contract_version: PROJECT_WORKSPACE_CONTRACT_VERSION,
                     store_epoch: StoreEpoch(store_epoch),
                     commit_head: commit_seq,
-                    value: read::read(&transaction, &library_id, change_log_head, request.read)?,
+                    value: read::read(&transaction, &library_id, commit_seq, request.read)?,
                 })
             })
             .map_err(core_error)

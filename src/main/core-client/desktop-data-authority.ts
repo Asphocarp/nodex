@@ -12,7 +12,7 @@ import {
   type DesktopCoreAuthoritySupervisorDependencies,
   type DesktopCoreClient,
 } from "./desktop-core-authority-supervisor";
-import type { CoreLocalCommitEnvelope } from "./types";
+import type { CoreAuthorizedDeliveryPacket } from "./types";
 
 export interface RustDataAuthorityRuntime {
   readonly backend: "rust";
@@ -20,7 +20,7 @@ export interface RustDataAuthorityRuntime {
   readonly launch: CoreLaunchResult;
   readonly rootClient: DesktopCoreClient;
   clientForProject(projectId: string): DesktopCoreClient;
-  close(): void;
+  close(): Promise<void>;
   retryCoreNow(): Promise<void>;
   subscribeToCoreAuthority(
     listener: (state: CoreAuthorityState) => void,
@@ -33,7 +33,7 @@ export interface InitializeDesktopDataAuthorityInput
   extends Omit<ConnectOrStartCoreInput, "nodexHome"> {
   readonly nodexHome: string;
   readonly supervisorDependencies?: DesktopCoreAuthoritySupervisorDependencies;
-  readonly onLocalCommit?: (commit: CoreLocalCommitEnvelope) => void;
+  readonly onLocalCommit?: (packet: CoreAuthorizedDeliveryPacket) => void;
 }
 
 export async function initializeDesktopDataAuthority(

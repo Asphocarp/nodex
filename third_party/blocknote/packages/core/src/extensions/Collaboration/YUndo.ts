@@ -9,7 +9,10 @@ import {
   yUndoPluginKey,
 } from "y-prosemirror";
 import * as Y from "yjs";
-import { createExtension } from "../../editor/BlockNoteExtension.js";
+import {
+  createExtension,
+  type ExtensionOptions,
+} from "../../editor/BlockNoteExtension.js";
 
 type RelativeSelection = ReturnType<typeof getRelativeSelection>;
 
@@ -31,7 +34,7 @@ interface UndoStackItemEvent {
   };
 }
 
-function createSurfaceUndoController() {
+function createSurfaceUndoController(transactionOrigin: object) {
   let manager: Y.UndoManager | null = null;
   let disposed = false;
 
@@ -43,7 +46,7 @@ function createSurfaceUndoController() {
       if (manager) return manager;
 
       manager = new Y.UndoManager(type, {
-        trackedOrigins: new Set([ySyncPluginKey]),
+        trackedOrigins: new Set([transactionOrigin]),
         deleteFilter: (item) =>
           defaultDeleteFilter(item, defaultProtectedNodes),
         captureTransaction: (transaction) =>
@@ -154,8 +157,12 @@ function createSurfaceYUndoPlugin(
   });
 }
 
-export const YUndoExtension = createExtension(() => {
-  const controller = createSurfaceUndoController();
+export const YUndoExtension = createExtension(({
+  options,
+}: ExtensionOptions<{
+  readonly transactionOrigin: object;
+}>) => {
+  const controller = createSurfaceUndoController(options.transactionOrigin);
   return {
     key: "yUndo",
     prosemirrorPlugins: [createSurfaceYUndoPlugin(controller)],

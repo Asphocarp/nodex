@@ -144,10 +144,6 @@ export function useKanban(options: UseKanbanOptions) {
     await store.fetchBoard();
   }, [store]);
 
-  const refreshAtLeast = useCallback(async (minimumCommitSeq: number) => {
-    await store.refreshBoardAtLeast(minimumCommitSeq);
-  }, [store]);
-
   const loadMore = useCallback(async () => {
     await store.loadMore();
   }, [store]);
@@ -600,7 +596,6 @@ export function useKanban(options: UseKanbanOptions) {
     totalRows: snapshot.totalRows,
     clearLastMutationError,
     refresh: fetchBoard,
-    refreshAtLeast,
     loadMore,
     loadMoreGroup,
     createPage,

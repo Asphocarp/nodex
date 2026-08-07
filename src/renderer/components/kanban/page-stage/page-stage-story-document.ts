@@ -45,6 +45,12 @@ class StoryDocumentSyncAdapter implements DocumentSyncAdapter {
         headSeq: this.headSeq,
         stateVector: Y.encodeStateVector(this.document),
         duplicate: false,
+        status: "committed",
+        commit: {
+          store_epoch: "storybook-store",
+          commit_seq: this.headSeq,
+          manifest_hash: "0".repeat(64),
+        },
       },
     };
   };

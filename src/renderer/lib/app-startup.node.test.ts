@@ -12,6 +12,20 @@ describe("app startup helpers", () => {
     );
   });
 
+  test("renders real Core migration progress", () => {
+    expect(getStartupStatus({
+      phase: "migrating",
+      fromVersion: 104,
+      toVersion: 107,
+      completed: 67,
+      total: 100,
+    })).toBe("Updating local data… 67%");
+  });
+
+  test("stops claiming migration after the Core store is ready", () => {
+    expect(getStartupStatus({ phase: "opening_workspace" })).toBe("Opening workspace…");
+  });
+
   test("keeps generic copy until the renderer is actually ready", () => {
     expect(getStartupStatus({ phase: "done" })).toBe("Opening Nodex…");
   });

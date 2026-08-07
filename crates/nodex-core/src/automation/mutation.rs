@@ -9,21 +9,21 @@ use nodex_core_contracts::automation::{
     ReminderLease, ReminderSnooze,
 };
 use nodex_core_contracts::{
-    AdapterKind, BoundModuleContext, CommittedModuleValue, CoreModuleEventPayload,
-    ModuleApplyRequest, ModuleMutationReceipt, StoreEpoch,
+    AdapterKind, BoundModuleContext, CoreModuleEventPayload, ModuleApplyRequest,
+    ModuleMutationReceipt, ModuleName, StoreEpoch,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
 use crate::document::sha256;
+use crate::infrastructure::durable_mutation::{
+    self, CommitResult, DurableMutationScope, OperationIdentity, ReceiptMetadata, SealedOutcome,
+};
 use crate::infrastructure::event_log::{
     NewChangeLogEntry, append_change_log, load_committed_event_by_sequence,
-    load_local_commit_by_event_sequence,
 };
-use crate::infrastructure::module_receipts::{
-    NewModuleReceipt, insert_module_receipt, read_module_receipt,
-};
+use crate::infrastructure::module_receipts::read_module_receipt;
 use crate::infrastructure::projection_impact::{expand_database_coordinates, impact_for_payload};
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode, with_immediate_transaction};
 use crate::infrastructure::writer::StoreWriter;
@@ -149,7 +149,7 @@ pub(super) fn apply(
                     ));
                 }
                 let mut committed = serde_json::from_value::<
-                    CommittedModuleValue<AutomationCommitValue, AutomationReceipt>,
+                    crate::ModuleWriterResult<AutomationCommitValue, AutomationReceipt>,
                 >(stored.result)
                 .map_err(|_| corrupt("Stored Automation receipt is invalid"))?;
                 committed.receipt.mutation.duplicate = true;
@@ -314,53 +314,68 @@ pub(super) fn apply(
                 intent @ (AutomationIntent::CompletePageOccurrence { .. }
                 | AutomationIntent::SkipPageOccurrence { .. }
                 | AutomationIntent::UpdatePageOccurrence { .. }) => {
-                    let effects = super::occurrence_mutation::apply(
+                    let committed_at = sqlite_now(transaction)?;
+                    let result = durable_mutation::run(
                         transaction,
-                        &library_id,
-                        &context,
-                        &store_epoch,
-                        &request.operation_id,
-                        intent,
-                        &assets_root,
-                    )?;
-                    if !effects.result.success {
-                        return finish_occurrence_rejection(
-                            transaction,
-                            &context,
-                            &store_epoch,
-                            &request.operation_id,
-                            &request_hash,
-                            effects,
-                        );
-                    }
-                    finish_mutation(
-                        transaction,
-                        &library_id,
-                        &context,
-                        &store_epoch,
-                        &request.operation_id,
-                        &request_hash,
-                        MutationEffects {
-                            operation_kind: effects.operation_kind,
-                            automation_ids: Vec::new(),
-                            definitions: Vec::new(),
-                            claimed_leases: Vec::new(),
-                            lease_ids: Vec::new(),
-                            runs: Vec::new(),
-                            deleted_run_ids: Vec::new(),
-                            run_ids: Vec::new(),
-                            run_bulk: None,
-                            reminder_leases: Vec::new(),
-                            reminder_snoozes: Vec::new(),
-                            reminder_lease_ids: Vec::new(),
-                            snooze_ids: Vec::new(),
-                            page_occurrence_mutation: Some(effects.result),
-                            page_ids: effects.page_ids,
-                            document_ids: effects.document_ids,
-                            database_ids: effects.database_ids,
-                            committed_at: effects.committed_at,
+                        OperationIdentity {
+                            module: ModuleName::Automation,
+                            module_name: MODULE_NAME,
+                            operation_id: &request.operation_id,
+                            intent_hash: &request_hash,
+                            store_epoch: &store_epoch,
+                            committed_at: &committed_at,
+                            context: &context,
                         },
-                    )
+                        |scope| {
+                            let effects = super::occurrence_mutation::apply(
+                                super::occurrence_mutation::OccurrenceMutationInput {
+                                    connection: transaction,
+                                    commit_context: scope.evidence(),
+                                    library_id: &library_id,
+                                    context: &context,
+                                    store_epoch: &store_epoch,
+                                    operation_id: &request.operation_id,
+                                    intent,
+                                    assets_root: &assets_root,
+                                    committed_at: &committed_at,
+                                },
+                            )?;
+                            if !effects.result.success {
+                                return seal_occurrence_rejection(
+                                    scope,
+                                    &request.operation_id,
+                                    effects,
+                                );
+                            }
+                            seal_mutation(
+                                scope,
+                                &library_id,
+                                &context,
+                                &request.operation_id,
+                                MutationEffects {
+                                    operation_kind: effects.operation_kind,
+                                    automation_ids: Vec::new(),
+                                    definitions: Vec::new(),
+                                    claimed_leases: Vec::new(),
+                                    lease_ids: Vec::new(),
+                                    runs: Vec::new(),
+                                    deleted_run_ids: Vec::new(),
+                                    run_ids: Vec::new(),
+                                    run_bulk: None,
+                                    reminder_leases: Vec::new(),
+                                    reminder_snoozes: Vec::new(),
+                                    reminder_lease_ids: Vec::new(),
+                                    snooze_ids: Vec::new(),
+                                    page_occurrence_mutation: Some(effects.result),
+                                    page_ids: effects.page_ids,
+                                    document_ids: effects.document_ids,
+                                    database_ids: effects.database_ids,
+                                    committed_at: effects.committed_at,
+                                },
+                            )
+                        },
+                    )?;
+                    automation_commit_result(transaction, result)
                 }
                 intent @ (AutomationIntent::BeginRun { .. }
                 | AutomationIntent::ReplacePendingRunThread { .. }
@@ -1089,8 +1104,75 @@ fn finish_mutation(
     store_epoch: &str,
     operation_id: &str,
     request_hash: &str,
-    mut effects: MutationEffects,
+    effects: MutationEffects,
 ) -> Result<AutomationApplyOutcome, StoreError> {
+    let committed_at = effects.committed_at.clone();
+    let result = durable_mutation::run(
+        connection,
+        OperationIdentity {
+            module: ModuleName::Automation,
+            module_name: MODULE_NAME,
+            operation_id,
+            intent_hash: request_hash,
+            store_epoch,
+            committed_at: &committed_at,
+            context,
+        },
+        |scope| seal_mutation(scope, library_id, context, operation_id, effects),
+    )?;
+    automation_commit_result(connection, result)
+}
+
+fn automation_commit_result(
+    connection: &Connection,
+    result: CommitResult<crate::ModuleWriterResult<AutomationCommitValue, AutomationReceipt>>,
+) -> Result<AutomationApplyOutcome, StoreError> {
+    result.verify_manifest_identity(|committed| {
+        (committed.commit_seq, committed.store_epoch.0.clone())
+    })?;
+    match result {
+        CommitResult::Committed {
+            outcome: committed, ..
+        } => {
+            let event = load_committed_event_by_sequence(connection, committed.event_sequence)?;
+            Ok(AutomationApplyOutcome {
+                committed,
+                event: Some(event),
+            })
+        }
+        CommitResult::NoOp { outcome: committed } => Ok(AutomationApplyOutcome {
+            committed,
+            event: None,
+        }),
+        CommitResult::IdempotentReplay {
+            outcome: mut committed,
+            ..
+        } => {
+            committed.receipt.mutation.duplicate = true;
+            if let Some(result) = committed.value.page_occurrence_mutation.as_mut() {
+                result.duplicate = true;
+            }
+            Ok(AutomationApplyOutcome {
+                committed,
+                event: None,
+            })
+        }
+    }
+}
+
+fn seal_mutation(
+    scope: &DurableMutationScope<'_>,
+    library_id: &str,
+    context: &BoundModuleContext,
+    operation_id: &str,
+    mut effects: MutationEffects,
+) -> Result<
+    SealedOutcome<crate::ModuleWriterResult<AutomationCommitValue, AutomationReceipt>>,
+    StoreError,
+> {
+    let connection = scope.connection();
+    let store_epoch = scope.store_epoch();
+    let commit = scope.evidence();
     let project_id = event_project_id(connection, library_id, context)?;
     let payload = json!({
         "module": MODULE_NAME,
@@ -1134,12 +1216,12 @@ fn finish_mutation(
             projection_impact: &projection_impact,
             committed_at: &effects.committed_at,
         },
+        commit,
     )?;
-    let local_commit = load_local_commit_by_event_sequence(connection, event_sequence)?;
     if let Some(result) = effects.page_occurrence_mutation.as_mut() {
-        result.commit_seq = Some(local_commit.commit_seq);
+        result.commit_seq = Some(commit.commit_seq());
     }
-    let committed = CommittedModuleValue {
+    let committed = crate::ModuleWriterResult {
         value: AutomationCommitValue {
             affected_automation_ids: effects.automation_ids.clone(),
             definitions: effects.definitions,
@@ -1165,49 +1247,36 @@ fn finish_mutation(
             affected_document_ids: effects.document_ids.clone(),
             affected_database_ids: effects.database_ids.clone(),
         },
-        commit_seq: local_commit.commit_seq,
+        commit_seq: commit.commit_seq(),
         event_sequence,
         store_epoch: StoreEpoch(store_epoch.to_owned()),
-        local_commit: Some(local_commit),
     };
-    let result = serde_json::to_value(&committed)
-        .map_err(|_| internal("Automation receipt result cannot be encoded"))?;
-    insert_module_receipt(
-        connection,
-        NewModuleReceipt {
-            module_name: MODULE_NAME,
-            operation_id,
-            context,
+    Ok(scope.seal(
+        committed,
+        ReceiptMetadata {
             operation_kind: effects.operation_kind,
-            store_epoch,
-            request_hash,
-            result: &result,
             event_sequence: Some(event_sequence),
             committed_at: &effects.committed_at,
         },
-    )?;
-    let event = load_committed_event_by_sequence(connection, event_sequence)?;
-    Ok(AutomationApplyOutcome {
-        committed,
-        event: Some(event),
-    })
+    ))
 }
 
 #[allow(clippy::too_many_arguments)]
-fn finish_occurrence_rejection(
-    connection: &Connection,
-    context: &BoundModuleContext,
-    store_epoch: &str,
+fn seal_occurrence_rejection(
+    scope: &DurableMutationScope<'_>,
     operation_id: &str,
-    request_hash: &str,
     effects: super::occurrence_mutation::OccurrenceMutationEffects,
-) -> Result<AutomationApplyOutcome, StoreError> {
+) -> Result<
+    SealedOutcome<crate::ModuleWriterResult<AutomationCommitValue, AutomationReceipt>>,
+    StoreError,
+> {
+    let connection = scope.connection();
     let commit_head =
         connection.query_row("SELECT COALESCE(MAX(seq), 0) FROM change_log", [], |row| {
             row.get::<_, i64>(0)
         })?;
     let commit_seq = crate::infrastructure::local_commit::head(connection)?;
-    let committed = CommittedModuleValue {
+    let committed = crate::ModuleWriterResult {
         value: AutomationCommitValue {
             affected_automation_ids: Vec::new(),
             definitions: Vec::new(),
@@ -1235,29 +1304,16 @@ fn finish_occurrence_rejection(
         },
         commit_seq,
         event_sequence: commit_head,
-        store_epoch: StoreEpoch(store_epoch.to_owned()),
-        local_commit: None,
+        store_epoch: StoreEpoch(scope.store_epoch().to_owned()),
     };
-    let result = serde_json::to_value(&committed)
-        .map_err(|_| internal("Automation rejection result cannot be encoded"))?;
-    insert_module_receipt(
-        connection,
-        NewModuleReceipt {
-            module_name: MODULE_NAME,
-            operation_id,
-            context,
+    Ok(scope.no_op(
+        committed,
+        ReceiptMetadata {
             operation_kind: effects.operation_kind,
-            store_epoch,
-            request_hash,
-            result: &result,
             event_sequence: None,
             committed_at: &effects.committed_at,
         },
-    )?;
-    Ok(AutomationApplyOutcome {
-        committed,
-        event: None,
-    })
+    ))
 }
 
 fn is_page_occurrence_intent(intent: &AutomationIntent) -> bool {
@@ -1715,6 +1771,14 @@ fn corrupt(message: &str) -> StoreError {
 
 fn internal(message: &str) -> StoreError {
     StoreError::new(StoreErrorCode::Internal, message, false)
+}
+
+fn sqlite_now(connection: &Connection) -> Result<String, StoreError> {
+    connection
+        .query_row("SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now')", [], |row| {
+            row.get(0)
+        })
+        .map_err(StoreError::from)
 }
 
 #[cfg(test)]

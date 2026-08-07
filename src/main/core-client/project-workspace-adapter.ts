@@ -1463,8 +1463,8 @@ export function createCoreProjectWorkspaceAdapter(
         limit,
       });
       return {
-        threadIds: committed.value.affected_thread_ids,
-        projectIds: committed.value.affected_project_ids,
+        threadIds: committed.outcome.affected_thread_ids,
+        projectIds: committed.outcome.affected_project_ids,
       };
     },
     readThreadExecutionContext,

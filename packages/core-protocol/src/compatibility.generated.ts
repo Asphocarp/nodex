@@ -2,14 +2,14 @@ import type { components } from "./generated";
 
 export const CORE_CLIENT_REQUIREMENTS = {
   "transport": {
-    "min": 4,
-    "max": 4
+    "min": 6,
+    "max": 6
   },
-  "event_version": 3,
+  "event_version": 6,
   "modules": [
     {
       "module": "library",
-      "contract_version": 9
+      "contract_version": 10
     },
     {
       "module": "database",
@@ -17,7 +17,7 @@ export const CORE_CLIENT_REQUIREMENTS = {
     },
     {
       "module": "owned_document",
-      "contract_version": 5
+      "contract_version": 6
     },
     {
       "module": "project_workspace",
@@ -35,8 +35,8 @@ export const CORE_CLIENT_REQUIREMENTS = {
   "accepted_store_formats": [
     {
       "lineage": "nodex-rust-core",
-      "version": 104,
-      "schema_fingerprint": "7deff572411b6a148d49ae07411d4c333c2bb821abb2983c7e3fdacb7a9a9800"
+      "version": 108,
+      "schema_fingerprint": "ffa034b48ecedc1a38020db6f669117ab3ebc27432b24c4d0ef9800f7504056e"
     }
   ]
 } as const satisfies components["schemas"]["CoreClientRequirements"];

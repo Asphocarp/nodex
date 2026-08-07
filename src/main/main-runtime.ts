@@ -202,8 +202,9 @@ import {
   mapCoreLibraryEvent,
   mapCoreProjectWorkspaceEvent,
   mapCoreStoreAdministrationEvent,
+  type CoreAuthorizedDeliveryPacket,
+  type CoreAuthorizedModuleEffect,
   type CoreEventEnvelope,
-  type CoreLocalCommitEnvelope,
   type CoreEventSubscription,
   type CoreAuthorityState,
   type DesktopAutomationModulePort,
@@ -214,13 +215,18 @@ import {
 } from "./core-client";
 import { createDesktopNodexAgentV3DynamicService } from "./core-client/desktop-nodex-agent-dynamic-service";
 import { superviseCoreEventStream } from "./core-client/core-event-stream-supervisor";
-import { LocalCommitDispatcher } from "./core-client/local-commit-dispatcher";
+import { LocalCommitCoordinator } from "./core-client/local-commit-coordinator";
 import { CoreEventCompatibilityError } from "./core-client/uds-http";
-import { ProjectionInvalidationRouter } from "./core-client/projection-invalidation-router";
+import { ProjectionDeliveryRouter } from "./core-client/projection-delivery-router";
+import { ResourceRevocationRouter } from "./core-client/resource-revocation-router";
 import {
-  requireProjectionInvalidationRouter,
-  setProjectionInvalidationRouter,
-} from "./projection-invalidation-runtime";
+  requireProjectionDeliveryRouter,
+  setProjectionDeliveryRouter,
+} from "./projection-delivery-runtime";
+import {
+  requireResourceRevocationRouter,
+  setResourceRevocationRouter,
+} from "./resource-revocation-runtime";
 import {
   allProjectSessionInvalidation,
   planCoreWorkspaceNotifications,
@@ -284,12 +290,15 @@ let browserPermissionHandlersRegistered = false;
 let rendererClientRouter: RendererClientRouter | null = null;
 let codexThreadNotificationCoordinator: CodexThreadNotificationCoordinator | null = null;
 let desktopDataAuthorityRuntime: DesktopDataAuthorityRuntime | null = null;
+let desktopDataAuthorityStartup: Promise<DesktopDataAuthorityRuntime> | null = null;
+let coreLaunchAbortController: AbortController | null = null;
+let coreAuthorityClosePromise: Promise<void> | null = null;
 let desktopAutomationModule: DesktopAutomationModulePort | null = null;
 let desktopLibraryModule: DesktopLibraryModuleBridge | null = null;
 let desktopDocumentSync: DesktopDocumentSyncPort | null = null;
 let desktopStoreAdministration: DesktopStoreAdministrationPort | null = null;
 let coreEventSubscription: CoreEventSubscription | null = null;
-let localCommitDispatcher: LocalCommitDispatcher | null = null;
+let localCommitCoordinator: LocalCommitCoordinator | null = null;
 let coreAuthorityStatus: CoreAuthorityStatus = { kind: "ready" };
 let releaseCoreAuthorityStatus: (() => void) | null = null;
 let storeAdministrationBackupScheduler: StoreAdministrationBackupScheduler | null = null;
@@ -781,6 +790,8 @@ function setAppInitializationStep(step: AppInitializationStep): void {
         appInitializationStep.phase === "migrating"
         && appInitializationStep.fromVersion === step.fromVersion
         && appInitializationStep.toVersion === step.toVersion
+        && appInitializationStep.completed === step.completed
+        && appInitializationStep.total === step.total
       )
     )
   ) return;
@@ -923,7 +934,8 @@ function registerInitializationIpcHandlers(): void {
 
 interface ProjectionIpcSenderSubscriptions {
   readonly sender: WebContents;
-  readonly releases: Map<string, () => void>;
+  readonly projectionReleases: Map<string, () => void>;
+  readonly revocationReleases: Map<string, () => void>;
   readonly onDestroyed: () => void;
 }
 
@@ -936,44 +948,73 @@ function registerProjectionStreamIpcHandlers(): void {
     if (!state) return;
     projectionIpcSubscriptions.delete(senderId);
     state.sender.removeListener("destroyed", state.onDestroyed);
-    for (const release of state.releases.values()) release();
-    state.releases.clear();
+    for (const release of state.projectionReleases.values()) release();
+    for (const release of state.revocationReleases.values()) release();
+    state.projectionReleases.clear();
+    state.revocationReleases.clear();
   };
   const ensureSender = (sender: WebContents): ProjectionIpcSenderSubscriptions => {
     const existing = projectionIpcSubscriptions.get(sender.id);
     if (existing) return existing;
     const state: ProjectionIpcSenderSubscriptions = {
       sender,
-      releases: new Map(),
+      projectionReleases: new Map(),
+      revocationReleases: new Map(),
       onDestroyed: () => releaseSender(sender.id),
     };
     projectionIpcSubscriptions.set(sender.id, state);
     sender.once("destroyed", state.onDestroyed);
     return state;
   };
-  const unsubscribe = (senderId: number, scope: ProjectionScope) => {
+  const unsubscribe = (
+    senderId: number,
+    scope: ProjectionScope,
+    lane: "projection" | "revocation",
+  ) => {
     const state = projectionIpcSubscriptions.get(senderId);
     if (!state) return;
     const key = projectionScopeKey(scope);
-    state.releases.get(key)?.();
-    state.releases.delete(key);
-    if (state.releases.size === 0) releaseSender(senderId);
+    const releases = lane === "projection"
+      ? state.projectionReleases
+      : state.revocationReleases;
+    releases.get(key)?.();
+    releases.delete(key);
+    if (
+      state.projectionReleases.size === 0
+      && state.revocationReleases.size === 0
+    ) releaseSender(senderId);
   };
 
   ipcMain.removeHandler("projection-stream:subscribe");
   ipcMain.handle("projection-stream:subscribe", (event, scope: ProjectionScope) => {
-    unsubscribe(event.sender.id, scope);
+    unsubscribe(event.sender.id, scope, "projection");
     const state = ensureSender(event.sender);
     const key = projectionScopeKey(scope);
     const release = requireProjectionRouter().subscribe(scope, (message) => {
       safeSendToWebContents(event.sender, "projection-stream:message", [message]);
     });
-    state.releases.set(key, release);
+    state.projectionReleases.set(key, release);
   });
 
   ipcMain.removeHandler("projection-stream:unsubscribe");
   ipcMain.handle("projection-stream:unsubscribe", (event, scope: ProjectionScope) => {
-    unsubscribe(event.sender.id, scope);
+    unsubscribe(event.sender.id, scope, "projection");
+  });
+
+  ipcMain.removeHandler("resource-revocation:subscribe");
+  ipcMain.handle("resource-revocation:subscribe", (event, scope: ProjectionScope) => {
+    unsubscribe(event.sender.id, scope, "revocation");
+    const state = ensureSender(event.sender);
+    const key = projectionScopeKey(scope);
+    const release = requireRevocationRouter().subscribe(scope, (message) => {
+      safeSendToWebContents(event.sender, "resource-revocation:message", [message]);
+    });
+    state.revocationReleases.set(key, release);
+  });
+
+  ipcMain.removeHandler("resource-revocation:unsubscribe");
+  ipcMain.handle("resource-revocation:unsubscribe", (event, scope: ProjectionScope) => {
+    unsubscribe(event.sender.id, scope, "revocation");
   });
 }
 
@@ -1691,7 +1732,8 @@ function registerDatabaseNotifierBridges(): void {
 async function publishCoreResync(eventHead: number): Promise<void> {
   const runtime = desktopDataAuthorityRuntime;
   if (runtime) {
-    await requireProjectionRouter().resync({
+    localCommitCoordinator?.resetStream("event_gap");
+    requireProjectionRouter().reset({
       storeEpoch: runtime.identity.storeEpoch,
       commitSeq: eventHead,
     }, "event_gap");
@@ -1719,6 +1761,7 @@ async function initializeDesktopApp(
 ): Promise<void> {
   const initializationStartedAt = performance.now();
   desktopDataAuthorityRuntime = await authority;
+  desktopDataAuthorityStartup = null;
   releaseCoreAuthorityStatus?.();
   releaseCoreAuthorityStatus =
     desktopDataAuthorityRuntime.subscribeToCoreAuthority(
@@ -1738,91 +1781,90 @@ async function initializeDesktopApp(
   const coreClient = desktopDataAuthorityRuntime.rootClient;
   const coreIdentity = desktopDataAuthorityRuntime.identity;
   let coreStreamInterruptionPublished = false;
-  setProjectionInvalidationRouter(new ProjectionInvalidationRouter({
+  setProjectionDeliveryRouter(new ProjectionDeliveryRouter({
     libraryId: coreIdentity.libraryId,
     initialCursor: {
       storeEpoch: coreIdentity.storeEpoch,
       commitSeq: coreClient.handshake.commit_head,
     },
-    filterForProject: async (projectId, impact) =>
-      await coreClient.filterProjectionImpactForProject(projectId, impact),
     onListenerError: (error, scope) => {
       logger.warn("Projection stream listener failed", {
         scope,
         error: error instanceof Error ? error.message : String(error),
       });
     },
-    onAuthorizationError: (error, scope) => {
-      logger.warn("Projection impact authorization failed closed", {
+  }));
+  setResourceRevocationRouter(new ResourceRevocationRouter({
+    libraryId: coreIdentity.libraryId,
+    onListenerError: (error, scope) => {
+      logger.warn("Resource revocation listener failed", {
         scope,
         error: error instanceof Error ? error.message : String(error),
       });
     },
   }));
-  localCommitDispatcher = new LocalCommitDispatcher({
+  localCommitCoordinator = new LocalCommitCoordinator({
+    expectedLibraryId: coreIdentity.libraryId,
     expectedStoreEpoch: coreIdentity.storeEpoch,
-    onAdmitted: (commit) => {
-      // The apply response is already committed by Core. Publish its
-      // document effects from the admission turn so an active editor never
-      // waits for the durable tailer or the projection authorization read.
-      // The microtask keeps Electron IPC/structured-clone work out of Core's
-      // apply-response stack while still running before the next user turn.
-      queueMicrotask(() => {
-        desktopDocumentSync?.publishLocalCommit(commit);
-      });
+    onDocument: (packet, documentId) => {
+      desktopDocumentSync?.publishDocumentEffects(packet, documentId);
     },
-    onEnriched: (commit) => {
-      // A ref-only/replayed envelope may later carry inline document bytes.
-      // Enrichment is resource delivery only; semantic projection work stays
-      // single-shot in onCommit.
-      queueMicrotask(() => {
-        desktopDocumentSync?.publishLocalCommit(commit);
-      });
+    onProjection: (packet, effect) => {
+      requireProjectionRouter().publish(packet, effect);
     },
-    onCommit: (commit) => {
+    onNotification: (packet, effect) => {
       const envelope: CoreEventEnvelope = {
         transport_version: coreClient.handshake.selected_transport_version,
-        event: commit,
+        packet,
       };
-      void requireProjectionRouter().accept(envelope).catch((error: unknown) => {
-        logger.error("LocalCommit projection dispatch failed", {
-          commitSeq: commit.commit_seq,
-          storeEpoch: commit.store_epoch,
-          error: error instanceof Error ? error.message : String(error),
-        });
-        void requireProjectionRouter().resync({
-          storeEpoch: commit.store_epoch,
-          commitSeq: commit.commit_seq,
-        }, "event_gap");
-      });
       publishCoreModuleEventToNotifiers(
         envelope,
+        effect,
         coreIdentity.libraryId,
       );
     },
-    onError: (error, commit) => {
-      logger.error("LocalCommit projection dispatch failed", {
-        commitSeq: commit.commit_seq,
-        storeEpoch: commit.store_epoch,
-        error: error instanceof Error ? error.message : String(error),
+    onRevocation: (packet, revocation) => {
+      requireRevocationRouter().publish(packet, revocation);
+      if (revocation.resource_kind === "document") {
+        desktopDocumentSync?.publishResourceRevocation(packet, revocation);
+      }
+    },
+    onError: (failure) => {
+      logger.error("LocalCommit delivery lane failed", {
+        lane: failure.lane,
+        laneKey: failure.laneKey,
+        commitSeq: failure.packet.manifest.identity.commit_seq,
+        storeEpoch: failure.packet.manifest.identity.store_epoch,
+        error: failure.error instanceof Error
+          ? failure.error.message
+          : String(failure.error),
       });
-      void requireProjectionRouter().resync({
-        storeEpoch: commit.store_epoch,
-        commitSeq: commit.commit_seq,
-      }, "event_gap");
+      if (failure.lane !== "projection") return;
+      requireProjectionRouter().reset({
+        storeEpoch: failure.packet.manifest.identity.store_epoch,
+        commitSeq: failure.packet.manifest.identity.commit_seq,
+      }, "projection_integrity_failure");
     },
   });
 
   coreEventSubscription = superviseCoreEventStream({
     initialAfter: coreClient.handshake.commit_head,
-    open: (after, onEvent, onResyncRequired, signal) =>
+    open: (after, onEvent, onCheckpoint, onResyncRequired, signal) =>
       coreClient.openEventStream(
         after,
         onEvent,
+        onCheckpoint,
         onResyncRequired,
         signal,
       ),
     onEvent: publishCoreModuleEvent,
+    onCheckpoint: (checkpoint) => {
+      localCommitCoordinator?.observeCheckpoint(checkpoint);
+      requireProjectionRouter().observeCheckpoint({
+        storeEpoch: checkpoint.store_epoch,
+        commitSeq: checkpoint.scanned_through_seq,
+      });
+    },
     onResyncRequired: async (resync) => {
       await publishCoreResync(resync.commit_head);
     },
@@ -1836,7 +1878,8 @@ async function initializeDesktopApp(
       }
       if (coreStreamInterruptionPublished) return;
       coreStreamInterruptionPublished = true;
-      void requireProjectionRouter().resync({
+      localCommitCoordinator?.resetStream("reconnect");
+      requireProjectionRouter().reset({
         storeEpoch: coreIdentity.storeEpoch,
         commitSeq: requireProjectionRouter().cursor.commitSeq,
       }, "reconnect");
@@ -1885,27 +1928,32 @@ async function initializeDesktopApp(
   maybeStartAutomaticAppUpdateChecks();
 }
 
-function requireProjectionRouter(): ProjectionInvalidationRouter {
-  return requireProjectionInvalidationRouter();
+function requireProjectionRouter(): ProjectionDeliveryRouter {
+  return requireProjectionDeliveryRouter();
 }
 
-function publishCoreModuleEvent(envelope: CoreEventEnvelope): void {
-  if (!desktopDataAuthorityRuntime || !localCommitDispatcher) return;
-  localCommitDispatcher.accept(envelope.event, "tailer");
+function requireRevocationRouter(): ResourceRevocationRouter {
+  return requireResourceRevocationRouter();
 }
 
-function publishLocalCommitFromApply(commit: CoreLocalCommitEnvelope): void {
-  if (!localCommitDispatcher) return;
-  localCommitDispatcher.accept(commit, "apply");
+async function publishCoreModuleEvent(envelope: CoreEventEnvelope): Promise<void> {
+  if (!desktopDataAuthorityRuntime || !localCommitCoordinator) return;
+  await localCommitCoordinator.admitAndWait(envelope.packet, "tailer");
+}
+
+function publishLocalCommitFromApply(packet: CoreAuthorizedDeliveryPacket): void {
+  if (!localCommitCoordinator) return;
+  localCommitCoordinator.admit(packet, "apply");
 }
 
 function publishCoreModuleEventToNotifiers(
   envelope: CoreEventEnvelope,
+  effect: CoreAuthorizedModuleEffect,
   libraryId: string,
 ): void {
-  const administrationEvent = mapCoreStoreAdministrationEvent(envelope);
+  const administrationEvent = mapCoreStoreAdministrationEvent(effect);
   if (administrationEvent) return;
-  const automationEvent = mapCoreAutomationEvent(envelope);
+  const automationEvent = mapCoreAutomationEvent(effect);
   if (automationEvent) {
     void codexService.synchronizeAutomationRuntime().catch((error) => {
       logger.warn("Failed to refresh Automation runtime cache", {
@@ -1937,6 +1985,7 @@ function publishCoreModuleEventToNotifiers(
   }
   const databaseEvent = mapCoreDatabaseEvent(
     envelope,
+    effect,
     libraryId,
   );
   if (databaseEvent) {
@@ -1951,6 +2000,7 @@ function publishCoreModuleEventToNotifiers(
   }
   const libraryDatabaseEvent = mapCoreLibraryDatabaseEvent(
     envelope,
+    effect,
     libraryId,
   );
   if (libraryDatabaseEvent) {
@@ -1959,13 +2009,14 @@ function publishCoreModuleEventToNotifiers(
   }
   const libraryEvent = mapCoreLibraryEvent(
     envelope,
+    effect,
     libraryId,
   );
   if (libraryEvent) {
     dbNotifier.notifyLibraryNavigationChanged(libraryEvent);
     return;
   }
-  const workspaceEvent = mapCoreProjectWorkspaceEvent(envelope);
+  const workspaceEvent = mapCoreProjectWorkspaceEvent(effect);
   if (!workspaceEvent) return;
   const notifications = planCoreWorkspaceNotifications(workspaceEvent);
   if (notifications.project) {
@@ -1978,8 +2029,8 @@ function publishCoreModuleEventToNotifiers(
     dbNotifier.notifyLibraryNavigationChanged({
       version: 1,
       libraryId,
-      storeEpoch: envelope.event.store_epoch,
-      commitSeq: envelope.event.commit_seq,
+      storeEpoch: envelope.packet.manifest.identity.store_epoch,
+      commitSeq: envelope.packet.manifest.identity.commit_seq,
       changeKind: "lifecycle",
       affectedParentKeys: ["standalone_roots"],
       affectedPageIds: [],
@@ -2120,17 +2171,27 @@ function beginMainRuntimeShutdown(): void {
   logger.info("Nodex before-quit");
   coreEventSubscription?.close();
   coreEventSubscription = null;
-  localCommitDispatcher = null;
+  localCommitCoordinator = null;
   desktopDocumentSync = null;
   releaseCoreAuthorityStatus?.();
   releaseCoreAuthorityStatus = null;
-  desktopDataAuthorityRuntime?.close();
+  coreLaunchAbortController?.abort(
+    new DOMException("Nodex runtime is shutting down", "AbortError"),
+  );
+  coreAuthorityClosePromise = desktopDataAuthorityRuntime?.close()
+    ?? desktopDataAuthorityStartup?.then(
+      async (runtime) => await runtime.close(),
+      () => undefined,
+    )
+    ?? Promise.resolve();
   for (const state of projectionIpcSubscriptions.values()) {
     state.sender.removeListener("destroyed", state.onDestroyed);
-    for (const release of state.releases.values()) release();
+    for (const release of state.projectionReleases.values()) release();
+    for (const release of state.revocationReleases.values()) release();
   }
   projectionIpcSubscriptions.clear();
-  setProjectionInvalidationRouter(null);
+  setProjectionDeliveryRouter(null);
+  setResourceRevocationRouter(null);
   storeAdministrationBackupScheduler?.dispose();
   storeAdministrationBackupScheduler = null;
   if (stopReminderScheduler) {
@@ -2188,6 +2249,13 @@ function shutdownMainRuntime(): Promise<void> {
   }
 
   runtimeShutdownPromise = (async () => {
+    await settleRuntimeShutdownStep(
+      "Core launcher",
+      async () => {
+        await coreAuthorityClosePromise;
+      },
+      RUNTIME_SHUTDOWN_STEP_TIMEOUT_MS,
+    );
     disposeManagedAssetProtocol?.();
     disposeManagedAssetProtocol = null;
     await settleRuntimeShutdownStep(
@@ -2604,12 +2672,14 @@ export async function runMainAppStartup(
   appUpdateService.initialize();
 
   setAppInitializationStep({ phase: "opening" });
+  coreLaunchAbortController = new AbortController();
   const dataAuthority = initializeDesktopDataAuthority({
     appResourcesPath: app.isPackaged ? process.resourcesPath : undefined,
     buildId: `nodex-desktop/${app.getVersion()}`,
     isPackaged: app.isPackaged,
     nodexHome: getNodexHome(),
     onLocalCommit: publishLocalCommitFromApply,
+    signal: coreLaunchAbortController.signal,
     onStartupEvent: (event) => {
       if (event.kind === "migration_started") {
         setAppInitializationStep({
@@ -2629,14 +2699,27 @@ export async function runMainAppStartup(
         });
         return;
       }
+      if (event.kind === "migration_progress") {
+        if (appInitializationStep.phase === "migrating") {
+          setAppInitializationStep({
+            ...appInitializationStep,
+            completed: event.completed,
+            total: event.total,
+          });
+        }
+        return;
+      }
+      if (event.kind === "migration_heartbeat") return;
       logger.info("Native Core Store ready", {
         createdFresh: event.createdFresh,
         migratedFromVersion: event.migratedFromVersion,
         storeOpenMs: event.storeOpenMs,
       });
+      setAppInitializationStep({ phase: "opening_workspace" });
     },
     repositoryRoot: app.getAppPath(),
   });
+  desktopDataAuthorityStartup = dataAuthority;
   codexService.setNodexAgentAuthorityPort(
     createDesktopNodexAgentAuthorityPort({
       authority: dataAuthority,

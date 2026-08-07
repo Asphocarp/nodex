@@ -36,6 +36,7 @@ pub use materialization::{
     DocumentMaterialization, DocumentMaterializationError, DocumentSearchMarkerKind,
     materialize_decoded_document, schema_metadata,
 };
+pub(crate) use module::require_owned_document_read_access;
 pub use module::{
     CanvasSceneSyncSnapshot, DocumentCacheMetrics, OwnedDocumentApplyOutcome, OwnedDocumentModule,
 };
@@ -49,10 +50,11 @@ pub use operations::{
     prepare_reference_hint_finalization_update,
 };
 pub use realtime::{
-    AwarenessPublication, DocumentRealtimeEvent, DocumentRealtimeReplay, DocumentSubscriptionAck,
+    AwarenessPublication, DocumentRealtimeEvent, DocumentSubscriptionAck,
     DocumentSubscriptionEngine, OwnedDocumentRealtimeAdapter,
 };
 pub(crate) use retention::run_block_retention_pass;
+pub(crate) use runtime::DocumentRuntimeCache;
 pub use yrs_engine::{
     AwarenessChange, CandidateCommit, DocumentAwareness, MAX_AWARENESS_UPDATE_BYTES,
     MAX_DOCUMENT_UPDATE_BYTES, MAX_STATE_VECTOR_BYTES, YrsDiagnostic, YrsDocumentEngine,
@@ -73,11 +75,12 @@ pub(crate) use genesis::{
     prepare_yjs_clone_genesis,
 };
 pub(crate) use history::{NewDocumentCheckpoint, insert_document_checkpoint};
+#[cfg(test)]
+pub(crate) use persistence::persist_yjs_genesis;
 pub(crate) use persistence::{
-    DocumentAuthorityRow, PersistYjsCommit, PersistYjsGenesis, persist_yjs_commit,
-    persist_yjs_commit_with_local_commit, persist_yjs_genesis,
-    persist_yjs_genesis_with_local_commit, read_document_authority, read_store_epoch,
-    rebuild_legacy_import_projections, sha256,
+    DocumentAuthorityRow, PersistYjsCommit, PersistYjsGenesis, clear_document_rebuild_projections,
+    persist_yjs_commit_with_local_commit, persist_yjs_genesis_with_local_commit,
+    read_document_authority, read_store_epoch, rebuild_legacy_import_projections, sha256,
 };
 pub(crate) use primary_canvas::{
     PrimaryCanvasIdentity, create_primary_canvas, is_primary_canvas_block_id,

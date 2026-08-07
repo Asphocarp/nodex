@@ -124,13 +124,14 @@ pub(crate) fn migrate_legacy_profile_if_needed_with_observer(
         from_version: source.version,
         to_version: CORE_SCHEMA_VERSION,
     });
-    migrate_legacy_source(profile_home, source, &migrator).map(Some)
+    migrate_legacy_source(profile_home, source, &migrator, observer).map(Some)
 }
 
 fn migrate_legacy_source(
     profile_home: &Path,
     source: LegacySource,
     migrator: &LegacyMigratorCommand,
+    observer: &mut dyn FnMut(StorePreparationEvent),
 ) -> Result<StorePreparation, StoreError> {
     let migration_id = migration_id()?;
     let backup_directory_name = format!(
@@ -174,6 +175,7 @@ fn migrate_legacy_source(
             profile_home,
             source.version,
             &backup_database,
+            observer,
         )?;
         candidate.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)")?;
         drop(candidate);
@@ -1327,7 +1329,7 @@ mod tests {
             let source = detect_legacy_source(&home)
                 .expect("classify source")
                 .expect("legacy source");
-            let preparation = migrate_legacy_source(&home, source, &migrator)
+            let preparation = migrate_legacy_source(&home, source, &migrator, &mut |_| {})
                 .unwrap_or_else(|error| panic!("v{version} import failed: {error}"));
             assert_eq!(preparation.schema_version, CORE_SCHEMA_VERSION);
             assert_eq!(preparation.migrated_from_version, Some(*version));
@@ -1534,7 +1536,7 @@ mod tests {
             .expect("classify source")
             .expect("legacy source");
 
-        let error = migrate_legacy_source(&home, source, &migrator_command())
+        let error = migrate_legacy_source(&home, source, &migrator_command(), &mut |_| {})
             .expect_err("symlinked backup ancestry rejected");
 
         assert_eq!(error.code, StoreErrorCode::InvalidProfile);
@@ -1692,7 +1694,7 @@ mod tests {
             script: fixture_path(82),
         };
 
-        let error = migrate_legacy_source(&home, source, &migrator)
+        let error = migrate_legacy_source(&home, source, &migrator, &mut |_| {})
             .expect_err("failed sidecar must abort import");
         assert_eq!(error.code, StoreErrorCode::UnsupportedSchema);
         let connection = open_writer(&home.join(STORE_FILE_NAME)).expect("source remains");

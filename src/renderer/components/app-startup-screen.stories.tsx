@@ -15,7 +15,19 @@ export const Opening: Story = {
 };
 
 export const Migrating: Story = {
-  args: { step: { phase: "migrating", fromVersion: 86, toVersion: 88 } },
+  args: {
+    step: {
+      phase: "migrating",
+      fromVersion: 86,
+      toVersion: 88,
+      completed: 13_409,
+      total: 20_000,
+    },
+  },
+};
+
+export const OpeningWorkspace: Story = {
+  args: { step: { phase: "opening_workspace" } },
 };
 
 export const Failed: Story = {

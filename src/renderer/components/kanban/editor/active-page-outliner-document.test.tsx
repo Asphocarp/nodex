@@ -129,7 +129,7 @@ function createSurface() {
       awareness: {},
       runtime: {
         subscribe: () => () => undefined,
-        prepareLocalMutation: async () => ({
+        flushAndFence: async () => ({
           documentId: "document:nested",
           storeEpoch: "epoch",
           generation: 1,

@@ -181,12 +181,44 @@ describe("Document HTTP contract", () => {
       headSeq: 6,
       stateVector: bytes(8, 9),
       duplicate: false,
+      status: "committed",
+      commit: {
+        store_epoch: "store-1",
+        commit_seq: 5,
+        manifest_hash: "f".repeat(64),
+      },
     } as const;
     const decodedAck = decodeDocumentApplyHttpAck(
       encodeDocumentApplyHttpAck(ack),
     );
+    expect(decodedAck.status).toBe("committed");
+    if (decodedAck.status !== "committed") {
+      throw new Error("Expected committed Document ACK");
+    }
     expect(decodedAck.committedSeq).toBe(5);
+    expect(decodedAck.commit.commit_seq).toBe(5);
     expect(Array.from(decodedAck.stateVector).join(",")).toBe("8,9");
+
+    const noOpAck = {
+      ...ack,
+      committedSeq: 6,
+      duplicate: true,
+      status: "no_op",
+      observed: { store_epoch: "store-1", commit_head: 6 },
+    } as const;
+    const decodedNoOpAck = decodeDocumentApplyHttpAck(
+      encodeDocumentApplyHttpAck(noOpAck),
+    );
+    expect(decodedNoOpAck.status).toBe("no_op");
+    if (decodedNoOpAck.status !== "no_op") {
+      throw new Error("Expected no-op Document ACK");
+    }
+    expect(decodedNoOpAck.observed).toEqual({
+      store_epoch: "store-1",
+      commit_head: 6,
+    });
+    expect("commit" in decodedNoOpAck).toBe(false);
+    expect("delivery" in decodedNoOpAck).toBe(false);
   });
 
   test("round-trips discriminated Canvas sync with raw canonical snapshot bytes", () => {
@@ -266,7 +298,7 @@ describe("Document HTTP contract", () => {
 
   test("rejects malformed Canvas binary sync payloads and engine confusion", () => {
     const metadata = {
-      version: 2,
+      version: 3,
       engine: "canvas_scene",
       kind: "snapshot",
       syncRequestId: "sync-1",
@@ -315,7 +347,7 @@ describe("Document HTTP contract", () => {
 
   test("accepts schema-valid Rust snapshot JSON with equivalent number encodings", () => {
     const metadata = {
-      version: 2,
+      version: 3,
       engine: "canvas_scene",
       kind: "snapshot",
       syncRequestId: "sync-rust-numbers",

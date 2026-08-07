@@ -1,8 +1,12 @@
 import { CoreModuleResponseError } from "./core-client";
-import type { SupervisedCoreEventSubscription } from "./core-event-stream-supervisor";
+
+interface ReconnectableDocumentSubscription {
+  waitUntilConnected(): Promise<void>;
+  reconnectAfterSubscriptionLoss(): Promise<void>;
+}
 
 export const executeWithDocumentSubscription = async <Value>(
-  subscription: SupervisedCoreEventSubscription,
+  subscription: ReconnectableDocumentSubscription,
   isCurrent: () => boolean,
   execute: () => Promise<Value>,
 ): Promise<Value> => {

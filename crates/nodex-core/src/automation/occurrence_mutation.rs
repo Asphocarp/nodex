@@ -9,6 +9,7 @@ use nodex_core_contracts::automation::{
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Map, Value};
 
+use crate::infrastructure::local_commit::CommitContext;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 use crate::library::{
     OccurrencePageCloneInput, clone_page_for_occurrence, require_page_write_access,
@@ -50,22 +51,38 @@ struct ScheduleState {
     schedule_timezone: Option<String>,
 }
 
+pub(super) struct OccurrenceMutationInput<'a> {
+    pub(super) connection: &'a Connection,
+    pub(super) commit_context: &'a CommitContext,
+    pub(super) library_id: &'a str,
+    pub(super) context: &'a BoundModuleContext,
+    pub(super) store_epoch: &'a str,
+    pub(super) operation_id: &'a str,
+    pub(super) intent: &'a AutomationIntent,
+    pub(super) assets_root: &'a Path,
+    pub(super) committed_at: &'a str,
+}
+
 pub(super) fn apply(
-    connection: &Connection,
-    library_id: &str,
-    context: &BoundModuleContext,
-    store_epoch: &str,
-    operation_id: &str,
-    intent: &AutomationIntent,
-    assets_root: &Path,
+    input: OccurrenceMutationInput<'_>,
 ) -> Result<OccurrenceMutationEffects, StoreError> {
+    let OccurrenceMutationInput {
+        connection,
+        commit_context,
+        library_id,
+        context,
+        store_epoch,
+        operation_id,
+        intent,
+        assets_root,
+        committed_at,
+    } = input;
     let project_id = context
         .project_id
         .as_ref()
         .map(|value| value.0.as_str())
         .ok_or_else(|| unauthorized("Page occurrence mutation requires a bound Project"))?;
     require_active_project(connection, library_id, project_id)?;
-    let now = sqlite_now(connection)?;
     match intent {
         AutomationIntent::CompletePageOccurrence {
             page_id,
@@ -73,6 +90,7 @@ pub(super) fn apply(
             created_page_id,
         } => complete(
             connection,
+            commit_context,
             library_id,
             project_id,
             store_epoch,
@@ -80,7 +98,7 @@ pub(super) fn apply(
             page_id,
             *occurrence_start_ms,
             created_page_id,
-            &now,
+            committed_at,
             assets_root,
         ),
         AutomationIntent::SkipPageOccurrence {
@@ -88,12 +106,13 @@ pub(super) fn apply(
             occurrence_start_ms,
         } => skip(
             connection,
+            commit_context,
             library_id,
             project_id,
             operation_id,
             page_id,
             *occurrence_start_ms,
-            &now,
+            committed_at,
         ),
         AutomationIntent::UpdatePageOccurrence {
             page_id,
@@ -103,6 +122,7 @@ pub(super) fn apply(
             updates,
         } => update(
             connection,
+            commit_context,
             library_id,
             project_id,
             store_epoch,
@@ -112,7 +132,7 @@ pub(super) fn apply(
             *scope,
             created_page_id.as_deref(),
             updates,
-            &now,
+            committed_at,
             assets_root,
         ),
         _ => Err(internal(
@@ -124,6 +144,7 @@ pub(super) fn apply(
 #[allow(clippy::too_many_arguments)]
 fn complete(
     connection: &Connection,
+    commit_context: &CommitContext,
     library_id: &str,
     requesting_project_id: &str,
     store_epoch: &str,
@@ -184,6 +205,7 @@ fn complete(
         store_epoch,
         assets_root,
         OccurrencePageCloneInput {
+            commit_context,
             operation_id,
             source_page_id: page_id,
             new_page_id: created_page_id,
@@ -228,6 +250,7 @@ fn complete(
 #[allow(clippy::too_many_arguments)]
 fn skip(
     connection: &Connection,
+    _commit_context: &CommitContext,
     library_id: &str,
     requesting_project_id: &str,
     operation_id: &str,
@@ -290,6 +313,7 @@ fn skip(
 #[allow(clippy::too_many_arguments)]
 fn update(
     connection: &Connection,
+    commit_context: &CommitContext,
     library_id: &str,
     requesting_project_id: &str,
     store_epoch: &str,
@@ -418,6 +442,7 @@ fn update(
             store_epoch,
             assets_root,
             OccurrencePageCloneInput {
+                commit_context,
                 operation_id,
                 source_page_id: page_id,
                 new_page_id: created_page_id,
@@ -544,6 +569,7 @@ fn update(
         store_epoch,
         assets_root,
         OccurrencePageCloneInput {
+            commit_context,
             operation_id,
             source_page_id: page_id,
             new_page_id: created_page_id,
@@ -1537,14 +1563,6 @@ fn parse_nullable_string(value: &str) -> Result<Option<String>, StoreError> {
         .as_str()
         .map(|value| Some(value.to_owned()))
         .ok_or_else(|| corrupt("Scheduled Page nullable string property is invalid"))
-}
-
-fn sqlite_now(connection: &Connection) -> Result<String, StoreError> {
-    connection
-        .query_row("SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now')", [], |row| {
-            row.get::<_, String>(0)
-        })
-        .map_err(Into::into)
 }
 
 fn invalid(message: &str) -> StoreError {

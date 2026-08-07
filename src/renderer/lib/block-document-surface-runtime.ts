@@ -44,7 +44,7 @@ export interface BlockDocumentSurfaceStatus {
 
 export type BlockDocumentSurfacePersistPreparer = () => void | Promise<void>;
 
-export interface DocumentHeadToken {
+export interface DocumentHeadFence {
   readonly documentId: string;
   readonly storeEpoch: string;
   readonly generation: number;
@@ -53,7 +53,7 @@ export interface DocumentHeadToken {
 
 /** Surface-scoped causal barrier for a structural mutation. */
 export interface BlockDocumentMutationBarrier {
-  readonly prepareLocalMutation: () => Promise<DocumentHeadToken>;
+  readonly flushAndFence: () => Promise<DocumentHeadFence>;
 }
 
 export interface BlockDocumentSurfaceCloseResult {
@@ -427,7 +427,7 @@ export class BlockDocumentSurfaceRuntime {
    * Local checkpoints are recovery cache and deliberately stay off this
    * transaction-critical path.
    */
-  prepareDurableMutation = (): Promise<BlockDocumentSurfaceStatus> => {
+  private flushDurableUpdates = (): Promise<BlockDocumentSurfaceStatus> => {
     if (this.terminal) return Promise.reject(this.terminal.error);
     if (this.closed || this.closing) {
       return Promise.reject(new Error("Block Document surface is closed"));
@@ -453,8 +453,8 @@ export class BlockDocumentSurfaceRuntime {
     return promise;
   };
 
-  prepareLocalMutation = async (): Promise<DocumentHeadToken> => {
-    const status = await this.prepareDurableMutation();
+  flushAndFence = async (): Promise<DocumentHeadFence> => {
+    const status = await this.flushDurableUpdates();
     const generation = status.provider.generation ?? status.descriptor.generation;
     const storeEpoch = status.provider.storeEpoch ?? status.descriptor.storeEpoch;
     if (

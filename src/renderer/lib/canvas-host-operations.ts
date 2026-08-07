@@ -19,7 +19,7 @@ import {
 
 export type CanvasHostDocumentRuntime = Pick<
   BlockDocumentSurfaceRuntime,
-  "getStatus" | "prepareDurableMutation"
+  "getStatus" | "flushAndFence"
 >;
 
 const canvasHostRuntimesBySurfaceId = new Map<
@@ -78,7 +78,7 @@ export function isCanvasHostDocumentRuntime(
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<CanvasHostDocumentRuntime>;
   return typeof candidate.getStatus === "function"
-    && typeof candidate.prepareDurableMutation === "function";
+    && typeof candidate.flushAndFence === "function";
 }
 
 export async function prepareCanvasHost(
@@ -89,20 +89,23 @@ export async function prepareCanvasHost(
     throw new Error("The Page Document is not ready for a Canvas change.");
   }
 
-  const status = await runtime.prepareDurableMutation();
+  const fence = await runtime.flushAndFence();
+  const status = runtime.getStatus();
   if (!status.ready || status.reloadRequired) {
     throw new Error("The Page Document changed while preparing Canvas.");
   }
   const storeEpoch = status.descriptor.storeEpoch;
   const documentId = status.descriptor.documentId;
   const ownerBlockId = status.descriptor.ownerBlockId;
-  const generation = status.provider.generation;
-  const headSeq = status.provider.headSeq;
+  const generation = fence.generation;
+  const headSeq = fence.expectedHeadSeq;
   if (
     !storeEpoch
     || storeEpoch !== storeEpoch.trim()
     || !documentId
     || documentId !== status.provider.documentId
+    || documentId !== fence.documentId
+    || storeEpoch !== fence.storeEpoch
     || !ownerBlockId
     || !Number.isSafeInteger(generation)
     || generation === undefined

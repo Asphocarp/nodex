@@ -7,26 +7,10 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::infrastructure::projection_impact::{decode as decode_projection_impact, replay_floor};
+use crate::infrastructure::projection_impact::decode as decode_projection_impact;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
-const DEFAULT_REPLAY_LIMIT: u32 = 256;
-const MAX_REPLAY_LIMIT: u32 = 1_024;
 const MAX_EVENT_PAYLOAD_BYTES: usize = 1024 * 1024;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum DocumentEventReplay {
-    Events {
-        events: Vec<CommittedCoreModuleEvent>,
-        next_after: i64,
-        commit_head: i64,
-    },
-    ResyncRequired {
-        requested_after: i64,
-        oldest_available: i64,
-        commit_head: i64,
-    },
-}
 
 #[derive(Debug)]
 pub(crate) struct ChangeLogRow {
@@ -66,92 +50,6 @@ struct DocumentEventMetadata {
     reason: Option<String>,
     #[serde(default)]
     local_commit_id: Option<String>,
-}
-
-pub(crate) fn replay_document_events(
-    connection: &Connection,
-    project_id: Option<&str>,
-    after: i64,
-    limit: Option<u32>,
-) -> Result<DocumentEventReplay, StoreError> {
-    if after < 0
-        || project_id.is_some_and(|project_id| project_id.is_empty() || project_id.len() > 512)
-    {
-        return Err(invalid("Document event replay boundary is invalid"));
-    }
-    let limit = limit
-        .unwrap_or(DEFAULT_REPLAY_LIMIT)
-        .clamp(1, MAX_REPLAY_LIMIT);
-    let (oldest_available, commit_head) = connection.query_row(
-        "SELECT COALESCE(min(seq), 0), COALESCE(max(seq), 0) FROM change_log",
-        [],
-        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
-    )?;
-    if oldest_available < 0 || commit_head < oldest_available {
-        return Err(corrupt("Change log retention boundary is invalid"));
-    }
-    let projection_floor = replay_floor(connection)?;
-    if after < projection_floor - 1 {
-        return Ok(DocumentEventReplay::ResyncRequired {
-            requested_after: after,
-            oldest_available: projection_floor,
-            commit_head,
-        });
-    }
-    if oldest_available > 1 && after < oldest_available - 1 {
-        return Ok(DocumentEventReplay::ResyncRequired {
-            requested_after: after,
-            oldest_available,
-            commit_head,
-        });
-    }
-
-    let rows = connection
-        .prepare(
-            "SELECT seq, project_id, store_epoch, kind, operation_id, payload_json, \
-                    projection_impact_json, committed_at \
-             FROM change_log WHERE seq > ?1 ORDER BY seq ASC LIMIT ?2",
-        )?
-        .query_map(params![after, i64::from(limit)], |row| {
-            Ok(ChangeLogRow {
-                sequence: row.get(0)?,
-                project_id: row.get(1)?,
-                store_epoch: row.get(2)?,
-                kind: row.get(3)?,
-                operation_id: row.get(4)?,
-                payload_json: row.get(5)?,
-                projection_impact_json: row.get(6)?,
-                committed_at: row.get(7)?,
-            })
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()
-        .map_err(|_| corrupt("Change log event row has invalid column types"))?;
-
-    let mut next_after = after;
-    let mut events = Vec::new();
-    for row in rows {
-        validate_change_log_row(&row, next_after, commit_head)?;
-        next_after = row.sequence;
-        if project_id.is_some_and(|project_id| row.project_id != project_id) {
-            continue;
-        }
-        if !row.kind.starts_with("owned_document.") {
-            continue;
-        }
-        let Some(event) = reconstruct_document_event(connection, &row)? else {
-            return Ok(DocumentEventReplay::ResyncRequired {
-                requested_after: after,
-                oldest_available: row.sequence,
-                commit_head,
-            });
-        };
-        events.push(event);
-    }
-    Ok(DocumentEventReplay::Events {
-        events,
-        next_after,
-        commit_head,
-    })
 }
 
 pub(crate) fn reconstruct_document_event(
@@ -386,10 +284,6 @@ fn is_sha256(value: &str) -> bool {
         && value
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-}
-
-fn invalid(message: &str) -> StoreError {
-    StoreError::new(StoreErrorCode::InvalidInput, message, false)
 }
 
 fn corrupt(message: &str) -> StoreError {

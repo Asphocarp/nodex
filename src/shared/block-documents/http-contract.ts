@@ -37,7 +37,7 @@ import {
 import type { components } from "@nodex/core-protocol";
 
 export const DOCUMENT_HTTP_CONTENT_TYPE =
-  "application/vnd.nodex.document-sync.v2+octet-stream";
+  "application/vnd.nodex.document-sync.v3+octet-stream";
 const DOCUMENT_SYNC_ERROR_CODES = new Set<DocumentSyncCommandError["code"]>([
   "transport_unavailable",
   "request_cancelled",
@@ -61,7 +61,7 @@ const DOCUMENT_SYNC_ERROR_CODES = new Set<DocumentSyncCommandError["code"]>([
 ]);
 
 interface VersionedMetadata {
-  readonly version: 2;
+  readonly version: 3;
   readonly engine: "yjs";
 }
 
@@ -86,7 +86,7 @@ interface ApplyRequestMetadata extends VersionedMetadata {
   readonly touchedBlockIds: readonly string[];
 }
 
-interface ApplyAckMetadata extends VersionedMetadata {
+interface ApplyAckMetadataBase extends VersionedMetadata {
   readonly documentId: string;
   readonly storeEpoch: string;
   readonly generation: number;
@@ -94,10 +94,24 @@ interface ApplyAckMetadata extends VersionedMetadata {
   readonly committedSeq: number;
   readonly headSeq: number;
   readonly duplicate: boolean;
-  readonly localCommit?: components["schemas"]["LocalCommitEnvelope"];
 }
 
-type LocalCommitEnvelope = components["schemas"]["LocalCommitEnvelope"];
+type AuthorizedDeliveryPacket = components["schemas"]["AuthorizedDeliveryPacket"];
+type CommitIdentity = components["schemas"]["CommitIdentity"];
+type StoreObservation = components["schemas"]["StoreObservation"];
+
+type ApplyAckMetadata = ApplyAckMetadataBase &
+  (
+    | {
+        readonly status: "committed";
+        readonly commit: CommitIdentity;
+        readonly delivery?: AuthorizedDeliveryPacket;
+      }
+    | {
+        readonly status: "no_op";
+        readonly observed: StoreObservation;
+      }
+  );
 
 interface AwarenessRequestMetadata extends VersionedMetadata {
   readonly clientSessionId: string;
@@ -120,7 +134,7 @@ interface EncodedRealtimeEvent {
 }
 
 interface CanvasSyncRequestMetadata {
-  readonly version: 2;
+  readonly version: 3;
   readonly engine: "canvas_scene";
   readonly syncRequestId: string;
   readonly clientSessionId: string;
@@ -131,7 +145,7 @@ interface CanvasSyncRequestMetadata {
 }
 
 interface CanvasSyncResponseMetadata {
-  readonly version: 2;
+  readonly version: 3;
   readonly engine: "canvas_scene";
   readonly kind: "up_to_date" | "snapshot";
   readonly syncRequestId: string;
@@ -196,8 +210,8 @@ const assertExactKeys = (
   throw new DocumentHttpWireError(`${label} has unsupported fields`);
 };
 
-const readWireVersion = (record: Readonly<Record<string, unknown>>): 2 => {
-  if (record.version === 2) return 2;
+const readWireVersion = (record: Readonly<Record<string, unknown>>): 3 => {
+  if (record.version === 3) return 3;
   throw new DocumentHttpWireError("Unsupported Document HTTP contract version");
 };
 
@@ -395,7 +409,7 @@ const parseApplyAckMetadata = (value: unknown): ApplyAckMetadata => {
   if (record.engine !== "yjs") {
     throw new DocumentHttpWireError("Yjs update ACK has the wrong engine");
   }
-  return {
+  const common: ApplyAckMetadataBase = {
     version: readWireVersion(record),
     engine: "yjs",
     documentId: readString(record, "documentId"),
@@ -405,35 +419,92 @@ const parseApplyAckMetadata = (value: unknown): ApplyAckMetadata => {
     committedSeq: readInteger(record, "committedSeq", 1),
     headSeq: readInteger(record, "headSeq", 1),
     duplicate: readBoolean(record, "duplicate"),
-    ...(record.localCommit === undefined
-      ? {}
-      : { localCommit: parseLocalCommitEnvelope(record.localCommit) }),
+  };
+  if (record.status === "committed") {
+    return {
+      ...common,
+      status: "committed",
+      commit: parseCommitIdentity(record.commit),
+      ...(record.delivery === undefined
+        ? {}
+        : { delivery: parseAuthorizedDeliveryPacket(record.delivery) }),
+    };
+  }
+  if (record.status === "no_op") {
+    return {
+      ...common,
+      status: "no_op",
+      observed: parseStoreObservation(record.observed),
+    };
+  }
+  throw new DocumentHttpWireError("Yjs update ACK has an invalid status");
+};
+
+const parseCommitIdentity = (value: unknown): CommitIdentity => {
+  const record = readRecord(value);
+  assertExactKeys(
+    record,
+    ["store_epoch", "commit_seq", "manifest_hash"],
+    "Document update commit identity",
+  );
+  return {
+    store_epoch: readString(record, "store_epoch"),
+    commit_seq: readInteger(record, "commit_seq", 1),
+    manifest_hash: readHash(record, "manifest_hash"),
   };
 };
 
-const parseLocalCommitEnvelope = (value: unknown): LocalCommitEnvelope => {
+const parseStoreObservation = (value: unknown): StoreObservation => {
   const record = readRecord(value);
+  assertExactKeys(
+    record,
+    ["store_epoch", "commit_head"],
+    "Document update store observation",
+  );
+  return {
+    store_epoch: readString(record, "store_epoch"),
+    commit_head: readInteger(record, "commit_head", 0),
+  };
+};
+
+const parseAuthorizedDeliveryPacket = (value: unknown): AuthorizedDeliveryPacket => {
+  const record = readRecord(value);
+  const manifest = readRecord(record.manifest);
+  const identity = readRecord(manifest.identity);
   if (
-    typeof record.canonical_hash !== "string"
-    || !/^[a-f0-9]{64}$/u.test(record.canonical_hash)
-    || typeof record.commit_seq !== "number"
-    || !Number.isSafeInteger(record.commit_seq)
-    || record.commit_seq < 1
-    || typeof record.event_version !== "number"
-    || !Number.isSafeInteger(record.event_version)
-    || typeof record.committed_at !== "string"
-    || typeof record.store_epoch !== "string"
-    || !("payload" in record)
-    || !isRecord(record.payload)
-    || typeof record.payload.module !== "string"
-    || !isRecord(record.payload.event)
-    || typeof record.payload.event.kind !== "string"
+    record.packet_version !== 2
+    || !isDeliveryAuthorizationScope(record.authorization_scope)
+    || typeof record.packet_hash !== "string"
+    || !/^[a-f0-9]{64}$/u.test(record.packet_hash)
+    || typeof manifest.event_version !== "number"
+    || !Number.isSafeInteger(manifest.event_version)
+    || typeof manifest.committed_at !== "string"
+    || typeof manifest.operation_id !== "string"
+    || typeof identity.commit_seq !== "number"
+    || !Number.isSafeInteger(identity.commit_seq)
+    || identity.commit_seq < 1
+    || typeof identity.manifest_hash !== "string"
+    || !/^[a-f0-9]{64}$/u.test(identity.manifest_hash)
+    || typeof identity.store_epoch !== "string"
     || !Array.isArray(record.effects)
-    || record.effects.some((effect) => !isRecord(effect))
+    || !Array.isArray(record.document_effects)
+    || !Array.isArray(record.projection_effects)
+    || !Array.isArray(record.revocations)
+    || !isRecord(record.coverage)
+    || !isRecord(record.projection_impact)
   ) {
-    throw new DocumentHttpWireError("Document update ACK LocalCommit is invalid");
+    throw new DocumentHttpWireError("Document update ACK delivery is invalid");
   }
-  return record as LocalCommitEnvelope;
+  return record as unknown as AuthorizedDeliveryPacket;
+};
+
+const isDeliveryAuthorizationScope = (value: unknown): boolean => {
+  if (!isRecord(value) || typeof value.library_id !== "string") return false;
+  if (value.kind === "library") return true;
+  if (value.kind === "project") return typeof value.project_id === "string";
+  return value.kind === "document"
+    && typeof value.document_id === "string"
+    && (value.project_id === null || typeof value.project_id === "string");
 };
 
 const parseAwarenessRequestMetadata = (
@@ -750,7 +821,7 @@ export const encodeDocumentSyncHttpRequest = (
   request: DocumentSyncRequest,
 ): Uint8Array =>
   encodeDocumentHttpEnvelope<SyncRequestMetadata>(
-    { version: 2, engine: "yjs", clientSessionId: request.clientSessionId },
+    { version: 3, engine: "yjs", clientSessionId: request.clientSessionId },
     request.stateVector,
   );
 
@@ -775,7 +846,7 @@ export const encodeDocumentSyncHttpResponse = (
 ): Uint8Array =>
   encodeDocumentHttpEnvelope<SyncResponseMetadata>(
     {
-      version: 2,
+      version: 3,
       engine: "yjs",
       documentId: response.documentId,
       storeEpoch: response.storeEpoch,
@@ -812,7 +883,7 @@ export const encodeCanvasSceneSyncHttpRequest = (
 ): Uint8Array =>
   encodeDocumentHttpEnvelope<CanvasSyncRequestMetadata>(
     {
-      version: 2,
+      version: 3,
       engine: "canvas_scene",
       syncRequestId: request.syncRequestId,
       clientSessionId: request.clientSessionId,
@@ -877,7 +948,7 @@ export const encodeCanvasSceneSyncHttpResponse = (
   }
   return encodeDocumentHttpEnvelope<CanvasSyncResponseMetadata>(
     {
-      version: 2,
+      version: 3,
       engine: "canvas_scene",
       kind: response.kind,
       syncRequestId: response.syncRequestId,
@@ -944,7 +1015,7 @@ export const encodeDocumentApplyHttpRequest = (
 ): Uint8Array =>
   encodeDocumentHttpEnvelope<ApplyRequestMetadata>(
     {
-      version: 2,
+      version: 3,
       engine: "yjs",
       storeEpoch: request.storeEpoch,
       generation: request.generation,
@@ -982,7 +1053,7 @@ export const encodeDocumentApplyHttpAck = (
 ): Uint8Array =>
   encodeDocumentHttpEnvelope<ApplyAckMetadata>(
     {
-      version: 2,
+      version: 3,
       engine: "yjs",
       documentId: ack.documentId,
       storeEpoch: ack.storeEpoch,
@@ -991,7 +1062,13 @@ export const encodeDocumentApplyHttpAck = (
       committedSeq: ack.committedSeq,
       headSeq: ack.headSeq,
       duplicate: ack.duplicate,
-      ...(ack.localCommit ? { localCommit: ack.localCommit } : {}),
+      ...(ack.status === "committed"
+        ? {
+            status: "committed" as const,
+            commit: ack.commit,
+            ...(ack.delivery ? { delivery: ack.delivery } : {}),
+          }
+        : { status: "no_op" as const, observed: ack.observed }),
     },
     ack.stateVector,
   );
@@ -1004,7 +1081,7 @@ export const decodeDocumentApplyHttpAck = (
     parseApplyAckMetadata,
     MAX_PAGE_DOCUMENT_STATE_BYTES,
   );
-  return {
+  const common = {
     documentId: envelope.metadata.documentId,
     storeEpoch: envelope.metadata.storeEpoch,
     generation: envelope.metadata.generation,
@@ -1013,10 +1090,21 @@ export const decodeDocumentApplyHttpAck = (
     headSeq: envelope.metadata.headSeq,
     stateVector: envelope.payload,
     duplicate: envelope.metadata.duplicate,
-    ...(envelope.metadata.localCommit
-      ? { localCommit: envelope.metadata.localCommit }
-      : {}),
   };
+  return envelope.metadata.status === "committed"
+    ? {
+        ...common,
+        status: "committed",
+        commit: envelope.metadata.commit,
+        ...(envelope.metadata.delivery
+          ? { delivery: envelope.metadata.delivery }
+          : {}),
+      }
+    : {
+        ...common,
+        status: "no_op",
+        observed: envelope.metadata.observed,
+      };
 };
 
 export const encodeDocumentAwarenessHttpRequest = (
@@ -1024,7 +1112,7 @@ export const encodeDocumentAwarenessHttpRequest = (
 ): Uint8Array =>
   encodeDocumentHttpEnvelope<AwarenessRequestMetadata>(
     {
-      version: 2,
+      version: 3,
       engine: "yjs",
       clientSessionId: request.clientSessionId,
       storeEpoch: request.storeEpoch,
@@ -1133,7 +1221,10 @@ export const decodeDocumentRealtimeSseEvent = (
     if (
       reason !== "event-gap" &&
       reason !== "history-compacted" &&
-      reason !== "transport-reconnected"
+      reason !== "transport-reconnected" &&
+      reason !== "resource-integrity-failure" &&
+      reason !== "identity-boundary-changed" &&
+      reason !== "access-revoked"
     ) {
       throw new DocumentHttpWireError("Document resync reason is invalid");
     }

@@ -87,10 +87,13 @@ describe("Page reference queries", () => {
     mocks.ownershipPathChangeListener = null;
     projectionListeners = new Set();
     projectionScopes = [];
-    projectionRegistry = new ProjectionInvalidationRegistry((scope, listener) => {
-      projectionScopes.push(scope);
-      projectionListeners.add(listener);
-      return () => projectionListeners.delete(listener);
+    projectionRegistry = new ProjectionInvalidationRegistry({
+      subscribeProjection: (scope, listener) => {
+        projectionScopes.push(scope);
+        projectionListeners.add(listener);
+        return () => projectionListeners.delete(listener);
+      },
+      subscribeRevocations: () => () => {},
     });
   });
 
@@ -124,21 +127,49 @@ describe("Page reference queries", () => {
     await act(async () => {
       for (const listener of projectionListeners) {
         listener({
-          version: 1,
-          kind: "changed",
+          version: 2,
+          kind: "effect",
           scope: {
             kind: "project",
             libraryId: "library-1",
             projectId: "host-project",
           },
-          cursor: { storeEpoch: "epoch-1", commitSeq: 2 },
-          impact: {
-            kind: "resources",
-            page_ids: ["parent-page"],
-            database_ids: [],
-            data_source_ids: [],
-            view_ids: [],
-            document_heads: [],
+          stream: { storeEpoch: "epoch-1", commitSeq: 2 },
+          delivery: {
+            storeEpoch: "epoch-1",
+            commitSeq: 2,
+            manifestHash: "b".repeat(64),
+            operationId: "operation-2",
+            committedAt: "2026-08-06T00:00:00.000Z",
+            impact: {
+              kind: "resources",
+              page_ids: ["parent-page"],
+              database_ids: [],
+              data_source_ids: [],
+              view_ids: [],
+              document_heads: [],
+            },
+            effect: {
+              scope: {
+                schema_version: 1,
+                canonical_key: "scope:parent-page",
+                scope: {
+                  kind: "page",
+                  project_id: "host-project",
+                  page_id: "parent-page",
+                },
+              },
+              baseRevision: 1,
+              resultRevision: 2,
+              coveredCommitSeq: 2,
+              patch: {
+                kind: "page_changed",
+                projectId: "host-project",
+                pageId: "parent-page",
+              },
+              requiresReadAtLeast: true,
+              effectHash: "a".repeat(64),
+            },
           },
         });
       }

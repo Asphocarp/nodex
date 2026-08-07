@@ -30,4 +30,13 @@ describe("AppStartupScreen", () => {
     expect(getByText("Updating local data…", { selector: "p" })).not.toBeNull();
     expect(queryByRole("progressbar")).toBeNull();
   });
+
+  test("shows workspace opening after local data is ready", () => {
+    const { getByText, queryByText } = render(
+      <AppStartupScreen step={{ phase: "opening_workspace" }} />,
+    );
+
+    expect(getByText("Opening workspace…", { selector: "p" })).not.toBeNull();
+    expect(queryByText("Updating local data…")).toBeNull();
+  });
 });

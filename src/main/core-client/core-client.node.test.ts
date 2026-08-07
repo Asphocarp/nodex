@@ -16,6 +16,12 @@ import type {
   CoreEventEnvelope,
   CoreEventSubscription,
   CoreRuntimeDescriptor,
+  DocumentLiveRepair,
+} from "./types";
+import {
+  applyResultCursor,
+  applyResultDelivery,
+  applyResultStoreEpoch,
 } from "./types";
 
 const CORE_BINARY = path.resolve("target/debug/nodex-core");
@@ -103,7 +109,7 @@ async function createInitialProject(
       },
     },
   });
-  return committed.event_sequence;
+  return applyResultCursor(committed);
 }
 
 describe("CoreClient over a Unix socket", () => {
@@ -123,7 +129,7 @@ describe("CoreClient over a Unix socket", () => {
       await createInitialProject(rootClient, nodexHome);
       const client = rootClient.forProject("project:default");
       const documentId = "document:stream-lifecycle";
-      await client.libraryApply({
+      const created = await client.libraryApply({
         operationId: "node-document-stream-lifecycle-page",
         intent: {
           kind: "create_page",
@@ -134,21 +140,27 @@ describe("CoreClient over a Unix socket", () => {
         },
       });
 
-      firstSubscription = await client.openDocumentEventStream(
+      const firstEvents: CoreEventEnvelope[] = [];
+
+      const openedFirstSubscription = await client.openDocumentEventStream(
         {
           documentId,
           clientSessionId: "session:stream-lifecycle:first",
-          after: 0,
         },
-        () => undefined,
+        (event) => firstEvents.push(event),
         () => undefined,
         () => undefined,
       );
+      firstSubscription = openedFirstSubscription;
+      expect(openedFirstSubscription.barrier.commit_head).toBeGreaterThanOrEqual(
+        applyResultCursor(created),
+      );
+      await new Promise<void>((resolve) => setTimeout(resolve, 25));
+      expect(firstEvents).toEqual([]);
       secondSubscription = await client.openDocumentEventStream(
         {
           documentId,
           clientSessionId: "session:stream-lifecycle:second",
-          after: 0,
         },
         () => undefined,
         () => undefined,
@@ -235,9 +247,14 @@ describe("CoreClient over a Unix socket", () => {
       subscription = await client.openEventStream(
         initialProjectEventSequence,
         (event) => resolveEvent?.(event),
+        () => undefined,
       );
       await expect(
-        client.openEventStream(initialProjectEventSequence, () => undefined),
+        client.openEventStream(
+          initialProjectEventSequence,
+          () => undefined,
+          () => undefined,
+        ),
       ).rejects.toMatchObject({ status: 409 });
 
       const applyInput = {
@@ -251,21 +268,29 @@ describe("CoreClient over a Unix socket", () => {
         },
       };
       const committed = await client.libraryApply(applyInput);
-      expect(committed.event_sequence).toBeGreaterThanOrEqual(1);
+      expect(applyResultCursor(committed)).toBeGreaterThanOrEqual(1);
       expect(committed.receipt.duplicate).toBe(false);
+      expect(applyResultDelivery(committed)?.manifest.identity.commit_seq).toBe(
+        applyResultCursor(committed),
+      );
 
       const event = await withTimeout(observedEvent, "Core Module event was not observed");
-      expect(event.event.commit_seq).toBe(committed.event_sequence);
-      expect(event.event.payload).toMatchObject({
-        module: "library",
-        event: {
-          kind: "library_changed",
-          page_ids: ["page:node-integration"],
-        },
-      });
+      expect(event.packet.manifest.identity.commit_seq).toBe(applyResultCursor(committed));
+      expect(event.packet.effects.map((effect) => effect.payload)).toContainEqual(
+        expect.objectContaining({
+          module: "library",
+          event: expect.objectContaining({
+            kind: "library_changed",
+            page_ids: ["page:node-integration"],
+          }),
+        }),
+      );
 
       const replay = await client.libraryApply(applyInput);
-      expect(replay.event_sequence).toBe(committed.event_sequence);
+      expect(applyResultCursor(replay)).toBe(applyResultCursor(committed));
+      expect(applyResultDelivery(replay)?.manifest.identity).toEqual(
+        applyResultDelivery(committed)?.manifest.identity,
+      );
       expect(replay.receipt.duplicate).toBe(true);
 
       const projects = await client.workspaceRead({
@@ -303,7 +328,9 @@ describe("CoreClient over a Unix socket", () => {
       };
       const threadCommitted = await client.workspaceApply(threadInput);
       const threadReplay = await client.workspaceApply(threadInput);
-      expect(threadReplay.event_sequence).toBe(threadCommitted.event_sequence);
+      expect(applyResultCursor(threadReplay)).toBe(
+        applyResultCursor(threadCommitted),
+      );
       expect(threadReplay.receipt.duplicate).toBe(true);
       await client.workspaceApply({
         operationId: "node-workspace-thread-catalogs-1",
@@ -483,7 +510,7 @@ describe("CoreClient over a Unix socket", () => {
         },
       };
       const automationCommitted = await client.automationApply(automationInput);
-      expect(automationCommitted.value.definitions).toMatchObject([
+      expect(automationCommitted.outcome.definitions).toMatchObject([
         {
           automation_id: "node-daily-report",
           definition_revision: 1,
@@ -492,7 +519,9 @@ describe("CoreClient over a Unix socket", () => {
         },
       ]);
       const automationReplay = await client.automationApply(automationInput);
-      expect(automationReplay.event_sequence).toBe(automationCommitted.event_sequence);
+      expect(applyResultCursor(automationReplay)).toBe(
+        applyResultCursor(automationCommitted),
+      );
       expect(automationReplay.receipt.duplicate).toBe(true);
       const automations = await client.automationRead({
         kind: "definitions",
@@ -514,7 +543,7 @@ describe("CoreClient over a Unix socket", () => {
           lease_duration_ms: 60_000,
         },
       });
-      expect(noDueWork.value.claimed_leases).toEqual([]);
+      expect(noDueWork.outcome.claimed_leases).toEqual([]);
       const noScheduledOccurrences = await client.automationRead({
         kind: "occurrences",
         window_start_ms: Date.now() - 60_000,
@@ -534,7 +563,7 @@ describe("CoreClient over a Unix socket", () => {
           lease_duration_ms: 60_000,
         },
       });
-      expect(noDueReminders.value.reminder_leases).toEqual([]);
+      expect(noDueReminders.outcome.reminder_leases).toEqual([]);
       const reminderLeases = await client.automationRead({
         kind: "reminder_leases",
         include_settled: true,
@@ -563,7 +592,7 @@ describe("CoreClient over a Unix socket", () => {
           source_cwd: path.join(nodexHome, "workspace"),
         },
       });
-      expect(begunRun.value.runs).toMatchObject([
+      expect(begunRun.outcome.runs).toMatchObject([
         {
           thread_id: "pending:node-automation-run",
           run_revision: 1,
@@ -579,7 +608,7 @@ describe("CoreClient over a Unix socket", () => {
           expected_revision: 1,
         },
       });
-      expect(replacedRun.value.runs[0]).toMatchObject({
+      expect(replacedRun.outcome.runs[0]).toMatchObject({
         thread_id: "thread:node-integration",
         run_revision: 2,
       });
@@ -593,7 +622,7 @@ describe("CoreClient over a Unix socket", () => {
           inbox_summary: "Review the native run.",
         },
       });
-      expect(completedRun.value.runs[0]).toMatchObject({
+      expect(completedRun.outcome.runs[0]).toMatchObject({
         run_revision: 3,
         status: "PENDING_REVIEW",
       });
@@ -624,7 +653,7 @@ describe("CoreClient over a Unix socket", () => {
           read: true,
         },
       });
-      expect(readRun.value.runs[0]).toMatchObject({
+      expect(readRun.outcome.runs[0]).toMatchObject({
         run_revision: 4,
         read_at_ms: expect.any(Number),
       });
@@ -647,7 +676,7 @@ describe("CoreClient over a Unix socket", () => {
       const missingOccurrence = await client.automationApply(
         missingOccurrenceInput,
       );
-      expect(missingOccurrence.value.page_occurrence_mutation).toMatchObject({
+      expect(missingOccurrence.outcome.page_occurrence_mutation).toMatchObject({
         success: false,
         duplicate: false,
         commit_seq: null,
@@ -656,11 +685,11 @@ describe("CoreClient over a Unix socket", () => {
       const missingOccurrenceReplay = await nativeCli.automationApply(
         missingOccurrenceInput,
       );
-      expect(missingOccurrenceReplay.event_sequence).toBe(
-        missingOccurrence.event_sequence,
+      expect(applyResultCursor(missingOccurrenceReplay)).toBe(
+        applyResultCursor(missingOccurrence),
       );
       expect(
-        missingOccurrenceReplay.value.page_occurrence_mutation,
+        missingOccurrenceReplay.outcome.page_occurrence_mutation,
       ).toMatchObject({
         success: false,
         duplicate: true,
@@ -709,11 +738,11 @@ describe("CoreClient over a Unix socket", () => {
         },
       };
       const backupCommitted = await nativeCli.administrationApply(backupInput);
-      expect(backupCommitted.value.backup_id).toEqual(expect.any(String));
+      expect(backupCommitted.outcome.backup_id).toEqual(expect.any(String));
       expect(backupCommitted.receipt.duplicate).toBe(false);
       const backupReplay = await client.administrationApply(backupInput);
-      expect(backupReplay.value.backup_id).toBe(backupCommitted.value.backup_id);
-      expect(backupReplay.event_sequence).toBe(backupCommitted.event_sequence);
+      expect(backupReplay.outcome.backup_id).toBe(backupCommitted.outcome.backup_id);
+      expect(applyResultCursor(backupReplay)).toBe(applyResultCursor(backupCommitted));
       expect(backupReplay.receipt.duplicate).toBe(true);
       const backups = await client.administrationRead({
         kind: "backups",
@@ -724,7 +753,7 @@ describe("CoreClient over a Unix socket", () => {
         backups: {
           items: [
             {
-              backup_id: backupCommitted.value.backup_id,
+              backup_id: backupCommitted.outcome.backup_id,
               label: "Node integration backup",
               byte_length: expect.any(Number),
             },
@@ -744,16 +773,16 @@ describe("CoreClient over a Unix socket", () => {
         },
       };
       const workspaceCommitted = await client.workspaceApply(workspaceInput);
-      expect(workspaceCommitted.event_sequence).toBeGreaterThan(
-        committed.event_sequence,
+      expect(applyResultCursor(workspaceCommitted)).toBeGreaterThan(
+        applyResultCursor(committed),
       );
       expect(workspaceCommitted.receipt.duplicate).toBe(false);
-      expect(workspaceCommitted.value.affected_project_ids).toEqual([
+      expect(workspaceCommitted.outcome.affected_project_ids).toEqual([
         "project:node-integration",
       ]);
       const workspaceReplay = await client.workspaceApply(workspaceInput);
-      expect(workspaceReplay.event_sequence).toBe(
-        workspaceCommitted.event_sequence,
+      expect(applyResultCursor(workspaceReplay)).toBe(
+        applyResultCursor(workspaceCommitted),
       );
       expect(workspaceReplay.receipt.duplicate).toBe(true);
       const createdProject = await client.workspaceRead({
@@ -769,37 +798,51 @@ describe("CoreClient over a Unix socket", () => {
         },
       });
 
+      const documentRepairs: DocumentLiveRepair[] = [];
       documentSubscription = await client.openDocumentEventStream(
         {
           documentId: "document:node-integration",
           clientSessionId: "session:before-store-restore",
-          after: 0,
         },
         () => undefined,
-        () => undefined,
+        (repair) => documentRepairs.push(repair),
         () => undefined,
       );
       const restoreInput = {
         operationId: "node-administration-restore-1",
         intent: {
           kind: "restore_backup" as const,
-          backup_id: backupCommitted.value.backup_id!,
+          backup_id: backupCommitted.outcome.backup_id!,
           create_safety_backup: true,
         },
       };
       const staleEventStream = subscription.done.catch((error: unknown) => error);
+      const staleDocumentEventStream = documentSubscription.done.catch(
+        (error: unknown) => error,
+      );
       const restored = await client.administrationApply(restoreInput);
       expect(restored.receipt.duplicate).toBe(false);
-      expect(restored.value.backup_id).toBe(backupCommitted.value.backup_id);
-      expect(restored.value.safety_backup_id).toEqual(expect.any(String));
-      expect(restored.store_epoch).not.toBe(client.handshake.store_epoch);
+      expect(restored.outcome.backup_id).toBe(backupCommitted.outcome.backup_id);
+      expect(restored.outcome.safety_backup_id).toEqual(expect.any(String));
+      expect(applyResultStoreEpoch(restored)).not.toBe(client.handshake.store_epoch);
       await expect(staleEventStream).resolves.toBeInstanceOf(
         CoreEventCompatibilityError,
       );
       subscription = undefined;
+      await expect(staleDocumentEventStream).resolves.toBeUndefined();
+      expect(documentRepairs).toEqual([
+        expect.objectContaining({
+          document_id: "document:node-integration",
+          reason: "identity_changed",
+          store_epoch: applyResultStoreEpoch(restored),
+        }),
+      ]);
+      documentSubscription = undefined;
 
       const replacedConnection = readCoreRuntimeConnection(nodexHome);
-      expect(replacedConnection.descriptor.store_epoch).toBe(restored.store_epoch);
+      expect(replacedConnection.descriptor.store_epoch).toBe(
+        applyResultStoreEpoch(restored),
+      );
       expect(replacedConnection.descriptor.readiness_generation).toBe(2);
       const reconnected = await CoreClient.connect({
         nodexHome,
@@ -807,7 +850,7 @@ describe("CoreClient over a Unix socket", () => {
         buildId: "node-restored-client-test",
         projectId: "project:default",
       });
-      expect(reconnected.handshake.store_epoch).toBe(restored.store_epoch);
+      expect(reconnected.handshake.store_epoch).toBe(applyResultStoreEpoch(restored));
 
       await expect(
         client.libraryApply({
@@ -830,7 +873,9 @@ describe("CoreClient over a Unix socket", () => {
       ).rejects.toMatchObject({ coreError: { code: "unauthorized" } });
       const restoreReplay = await client.administrationApply(restoreInput);
       expect(restoreReplay.receipt.duplicate).toBe(true);
-      expect(restoreReplay.store_epoch).toBe(restored.store_epoch);
+      expect(applyResultStoreEpoch(restoreReplay)).toBe(
+        applyResultStoreEpoch(restored),
+      );
       await expect(
         reconnected.workspaceRead({
           kind: "project",
@@ -838,9 +883,6 @@ describe("CoreClient over a Unix socket", () => {
         }),
       ).rejects.toMatchObject({ coreError: { code: "not_found" } });
 
-      documentSubscription.close();
-      await documentSubscription.done;
-      documentSubscription = undefined;
       await expect(client.shutdown()).resolves.toEqual({ status: "draining" });
       const exitCodes = await Promise.all(children.map(waitForExit));
       expect(exitCodes).toEqual([0, 0]);
@@ -863,27 +905,31 @@ describe("CoreClient over a Unix socket", () => {
         resolveReplayedEvent = resolve;
       });
       restartedSubscription = await restartedClient.openEventStream(0, (candidate) => {
-        if (candidate.event.operation_id !== applyInput.operationId) return;
+        if (candidate.packet.manifest.operation_id !== applyInput.operationId) return;
         resolveReplayedEvent?.(candidate);
-      });
+      }, () => undefined);
       const replayed = await withTimeout(
         replayedEvent,
         "Core did not replay a durable event after restart",
       );
       expect(replayed).toMatchObject({
-        event: {
-          commit_seq: committed.event_sequence,
-          operation_id: applyInput.operationId,
-          payload: {
-            module: "library",
-            event: { kind: "library_changed" },
+        packet: {
+          manifest: {
+            identity: { commit_seq: applyResultCursor(committed) },
+            operation_id: applyInput.operationId,
           },
         },
       });
-      expect(event.event.event_version).toBe(3);
-      expect(replayed.event.event_version).toBe(3);
-      expect(replayed.event.projection_impact).toEqual(
-        event.event.projection_impact,
+      expect(replayed.packet.effects.map((effect) => effect.payload)).toContainEqual(
+        expect.objectContaining({
+          module: "library",
+          event: expect.objectContaining({ kind: "library_changed" }),
+        }),
+      );
+      expect(event.packet.manifest.event_version).toBe(6);
+      expect(replayed.packet.manifest.event_version).toBe(6);
+      expect(replayed.packet.projection_impact).toEqual(
+        event.packet.projection_impact,
       );
       restartedSubscription.close();
       await restartedSubscription.done;

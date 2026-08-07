@@ -7,39 +7,43 @@ import type {
 import { connectOrStartCore } from "./core-launcher";
 import type {
   AutomationApplyInput,
-  AutomationCommittedValue,
+  AutomationApplyResult,
   AutomationRead,
   AutomationReadSnapshot,
+  CoreAuthorizedDeliveryPacket,
+  CoreApplyCoordinate,
   CoreClientPort,
   CoreEventEnvelope,
   CoreEventReplayRequired,
   CoreEventSubscription,
+  CoreDocumentEventSubscription,
+  CoreStreamCheckpoint,
   CoreHandshakeResponse,
-  CoreLocalCommitEnvelope,
   CoreLocalMutationResolveRequest,
   CoreLocalMutationResolveResponse,
   DatabaseApplyInput,
-  DatabaseCommittedValue,
+  DatabaseApplyResult,
   DatabaseRead,
   DatabaseReadSnapshot,
-  DocumentResyncRequired,
+  DocumentLiveRepair,
   LibraryApplyInput,
-  LibraryCommittedValue,
+  LibraryApplyResult,
   LibraryRead,
   LibraryReadSnapshot,
   OwnedDocumentApplyInput,
-  OwnedDocumentCommittedValue,
+  OwnedDocumentApplyResult,
   OwnedDocumentRead,
   OwnedDocumentReadSnapshot,
   ProjectWorkspaceApplyInput,
-  ProjectWorkspaceCommittedValue,
+  ProjectWorkspaceApplyResult,
   ProjectWorkspaceRead,
   ProjectWorkspaceReadSnapshot,
   StoreAdministrationApplyInput,
-  StoreAdministrationCommittedValue,
+  StoreAdministrationApplyResult,
   StoreAdministrationRead,
   StoreAdministrationReadSnapshot,
 } from "./types";
+import { applyResultDelivery } from "./types";
 import {
   CoreHttpError,
   isDefinitiveCoreGenerationLoss,
@@ -127,7 +131,7 @@ export interface DesktopCoreAuthoritySupervisorDependencies {
     input: ConnectOrStartCoreInput,
   ) => Promise<CoreGenerationLaunch>;
   readonly now?: () => number;
-  readonly onLocalCommit?: (commit: CoreLocalCommitEnvelope) => void;
+  readonly onLocalCommit?: (packet: CoreAuthorizedDeliveryPacket) => void;
 }
 
 export interface CreateDesktopCoreAuthoritySupervisorInput {
@@ -156,13 +160,14 @@ export class DesktopCoreAuthoritySupervisor {
   ) => Promise<CoreGenerationLaunch>;
   readonly #launchInput: ConnectOrStartCoreInput;
   readonly #now: () => number;
-  readonly #onLocalCommit: ((commit: CoreLocalCommitEnvelope) => void) | undefined;
+  readonly #onLocalCommit: ((packet: CoreAuthorizedDeliveryPacket) => void) | undefined;
   readonly #projectClients = new Map<string, DesktopCoreClient>();
   readonly #listeners = new Set<(state: CoreAuthorityState) => void>();
   #lostSessions = new WeakSet<CoreGenerationSession>();
   #failureTimestamps: number[] = [];
   #lifecycleEpoch = 0;
   #recoveryAttempt = 0;
+  #recoveryAbortController: AbortController | null = null;
   #recovery: Promise<CoreGenerationSession> | null = null;
   #session: CoreGenerationSession;
   #state: CoreAuthorityState;
@@ -191,8 +196,8 @@ export class DesktopCoreAuthoritySupervisor {
     return this.#state;
   }
 
-  publishLocalCommit(commit: CoreLocalCommitEnvelope): void {
-    this.#onLocalCommit?.(commit);
+  publishLocalCommit(packet: CoreAuthorizedDeliveryPacket): void {
+    this.#onLocalCommit?.(packet);
   }
 
   clientForProject(projectId: string): DesktopCoreClient {
@@ -222,11 +227,16 @@ export class DesktopCoreAuthoritySupervisor {
     await this.#recover(this.#session, new Error("Core recovery was requested"), true);
   }
 
-  close(): void {
-    if (this.#stopped) return;
-    this.#stopped = true;
-    this.#lifecycleEpoch += 1;
-    this.#publish({ kind: "stopped" });
+  async close(): Promise<void> {
+    if (!this.#stopped) {
+      this.#stopped = true;
+      this.#lifecycleEpoch += 1;
+      this.#recoveryAbortController?.abort(
+        new DOMException("Core authority supervisor stopped", "AbortError"),
+      );
+      this.#publish({ kind: "stopped" });
+    }
+    await this.#recovery?.catch(() => undefined);
   }
 
   currentHandshake(): CoreHandshakeResponse {
@@ -301,8 +311,13 @@ export class DesktopCoreAuthoritySupervisor {
       previousGeneration: failedSession.rootClient.handshake.generation,
     });
     const recoveryEpoch = this.#lifecycleEpoch;
+    const recoveryAbortController = new AbortController();
+    this.#recoveryAbortController = recoveryAbortController;
+    const launchSignal = this.#launchInput.signal
+      ? AbortSignal.any([this.#launchInput.signal, recoveryAbortController.signal])
+      : recoveryAbortController.signal;
     const recovery = Promise.resolve()
-      .then(() => this.#launch(this.#launchInput))
+      .then(() => this.#launch({ ...this.#launchInput, signal: launchSignal }))
       .then(async (launch) => {
         this.#assertRecoveryCurrent(recoveryEpoch);
         const health = await launch.client.health();
@@ -334,6 +349,9 @@ export class DesktopCoreAuthoritySupervisor {
         );
       })
       .finally(() => {
+        if (this.#recoveryAbortController === recoveryAbortController) {
+          this.#recoveryAbortController = null;
+        }
         if (this.#recovery === recovery) this.#recovery = null;
       });
     this.#recovery = recovery;
@@ -437,8 +455,8 @@ class SupervisedCoreClient implements DesktopCoreClient {
   ): Promise<CoreLocalMutationResolveResponse> {
     return this.#execute(async (client) => {
       const result = await client.resolveLocalMutation(input);
-      if (result.status === "committed" && result.local_commit) {
-        this.supervisor.publishLocalCommit(result.local_commit);
+      if (result.status === "committed" && result.delivery) {
+        this.supervisor.publishLocalCommit(result.delivery);
       }
       return result;
     });
@@ -448,7 +466,7 @@ class SupervisedCoreClient implements DesktopCoreClient {
     return this.#execute((client) => client.libraryRead(read));
   }
 
-  libraryApply(input: LibraryApplyInput): Promise<LibraryCommittedValue> {
+  libraryApply(input: LibraryApplyInput): Promise<LibraryApplyResult> {
     return this.#executeApply((client) => client.libraryApply(input));
   }
 
@@ -465,7 +483,7 @@ class SupervisedCoreClient implements DesktopCoreClient {
     return this.#execute((client) => client.databaseRead(read));
   }
 
-  databaseApply(input: DatabaseApplyInput): Promise<DatabaseCommittedValue> {
+  databaseApply(input: DatabaseApplyInput): Promise<DatabaseApplyResult> {
     return this.#executeApply((client) => client.databaseApply(input));
   }
 
@@ -475,7 +493,7 @@ class SupervisedCoreClient implements DesktopCoreClient {
 
   workspaceApply(
     input: ProjectWorkspaceApplyInput,
-  ): Promise<ProjectWorkspaceCommittedValue> {
+  ): Promise<ProjectWorkspaceApplyResult> {
     return this.#executeApply((client) => client.workspaceApply(input));
   }
 
@@ -483,7 +501,7 @@ class SupervisedCoreClient implements DesktopCoreClient {
     return this.#execute((client) => client.automationRead(read));
   }
 
-  automationApply(input: AutomationApplyInput): Promise<AutomationCommittedValue> {
+  automationApply(input: AutomationApplyInput): Promise<AutomationApplyResult> {
     return this.#executeApply((client) => client.automationApply(input));
   }
 
@@ -495,7 +513,7 @@ class SupervisedCoreClient implements DesktopCoreClient {
 
   administrationApply(
     input: StoreAdministrationApplyInput,
-  ): Promise<StoreAdministrationCommittedValue> {
+  ): Promise<StoreAdministrationApplyResult> {
     return this.#executeApply((client) => client.administrationApply(input));
   }
 
@@ -506,7 +524,7 @@ class SupervisedCoreClient implements DesktopCoreClient {
     return this.#execute((client) => client.documentRead(clientSessionId, read));
   }
 
-  documentApply(input: OwnedDocumentApplyInput): Promise<OwnedDocumentCommittedValue> {
+  documentApply(input: OwnedDocumentApplyInput): Promise<OwnedDocumentApplyResult> {
     return this.#executeApply((client) => client.documentApply(input));
   }
 
@@ -521,8 +539,9 @@ class SupervisedCoreClient implements DesktopCoreClient {
   documentApplyUpdate(input: DocumentSyncApplyRequest): Promise<DocumentSyncApplyAck> {
     return this.#execute(async (client) => {
       const result = await client.documentApplyUpdate(input);
-      if (result.localCommit) {
-        this.supervisor.publishLocalCommit(result.localCommit);
+      const delivery = applyResultDelivery(result);
+      if (delivery) {
+        this.supervisor.publishLocalCommit(delivery);
       }
       return result;
     });
@@ -542,17 +561,16 @@ class SupervisedCoreClient implements DesktopCoreClient {
     input: {
       readonly documentId: string;
       readonly clientSessionId: string;
-      readonly after: number;
       readonly signal?: AbortSignal;
     },
     onEvent: (event: CoreEventEnvelope) => void,
-    onResyncRequired: (event: DocumentResyncRequired) => void,
+    onRepair: (repair: DocumentLiveRepair) => void,
     onRealtimeEvent: (event: DocumentSyncRealtimeEvent) => void,
-  ): Promise<CoreEventSubscription> {
+  ): Promise<CoreDocumentEventSubscription> {
     return this.#execute((client) => client.openDocumentEventStream(
       input,
       onEvent,
-      onResyncRequired,
+      onRepair,
       onRealtimeEvent,
     ));
   }
@@ -560,12 +578,14 @@ class SupervisedCoreClient implements DesktopCoreClient {
   openEventStream(
     after: number,
     onEvent: (event: CoreEventEnvelope) => void,
+    onCheckpoint: (checkpoint: CoreStreamCheckpoint) => void,
     onResyncRequired?: (event: CoreEventReplayRequired) => void,
     signal?: AbortSignal,
   ): Promise<CoreEventSubscription> {
     return this.#execute((client) => client.openEventStream(
       after,
       onEvent,
+      onCheckpoint,
       onResyncRequired,
       signal,
     ));
@@ -581,13 +601,14 @@ class SupervisedCoreClient implements DesktopCoreClient {
     return this.supervisor.execute(this.projectId, operation);
   }
 
-  #executeApply<Result extends { readonly local_commit?: CoreLocalCommitEnvelope | null }>(
+  #executeApply<Result extends CoreApplyCoordinate>(
     operation: (client: CoreGenerationClient) => Promise<Result>,
   ): Promise<Result> {
     return this.#execute(async (client) => {
       const result = await operation(client);
-      if (result.local_commit) {
-        this.supervisor.publishLocalCommit(result.local_commit);
+      const delivery = applyResultDelivery(result);
+      if (delivery) {
+        this.supervisor.publishLocalCommit(delivery);
       }
       return result;
     });

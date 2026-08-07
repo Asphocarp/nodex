@@ -21,9 +21,10 @@ use nodex_core_contracts::document::{
     OwnedDocumentRead, OwnedDocumentReadValue, OwnedDocumentReceipt,
 };
 use nodex_core_contracts::{
-    AdapterKind, BoundModuleContext, CommittedCoreModuleEvent, CommittedModuleValue, CoreError,
-    CoreErrorCode, CoreErrorRecovery, ModuleApplyRequest, ModuleMutationReceipt, ModuleReadRequest,
-    ModuleReadSnapshot, OWNED_DOCUMENT_CONTRACT_VERSION, ProjectionImpact, StoreEpoch,
+    AdapterKind, ApplyResponse, BoundModuleContext, CommittedCoreModuleEvent, CoreError,
+    CoreErrorCode, CoreErrorRecovery, ModuleApplyRequest, ModuleMutationReceipt, ModuleName,
+    ModuleReadRequest, ModuleReadSnapshot, OWNED_DOCUMENT_CONTRACT_VERSION, ProjectionImpact,
+    StoreEpoch,
 };
 #[cfg(test)]
 use nodex_core_contracts::{CoreModuleEventPayload, document::OwnedDocumentEvent};
@@ -42,14 +43,14 @@ use crate::infrastructure::agent_operations::{
 use crate::infrastructure::document_repository::{
     DocumentAuthority, DocumentReadRepository, DocumentReadiness, DocumentSyncEngine,
 };
+use crate::infrastructure::durable_mutation::{
+    self, OperationIdentity, PreparedDurableMutation, ReceiptMetadata,
+};
 use crate::infrastructure::event_log::{
     NewChangeLogEntry, append_change_log, load_committed_event_by_sequence,
-    load_local_commit_by_event_sequence,
 };
 use crate::infrastructure::metrics::DurationMetricSnapshot;
-use crate::infrastructure::module_receipts::{
-    DurableModuleContext, NewModuleReceipt, insert_module_receipt, read_module_receipt,
-};
+use crate::infrastructure::module_receipts::{DurableModuleContext, read_module_receipt};
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 use crate::infrastructure::store::SqliteStoreKernel;
 use crate::infrastructure::writer::{StoreReaders, StoreWriter};
@@ -66,7 +67,6 @@ use super::canvas_scene::{
     parse_canvas_mutation, prepare_canvas_restore,
 };
 use super::compaction::{DocumentCompactionResult, compact_yjs_document};
-use super::event_log::{DocumentEventReplay, replay_document_events};
 use super::genesis::{prepare_editable_root, prepare_yjs_genesis};
 use super::history::{
     NewDocumentCheckpoint, get_document_version, insert_canvas_checkpoint,
@@ -82,8 +82,8 @@ use super::operations::{
 use super::owners::execute_owner_command;
 use super::persistence::{
     DocumentAuthorityRow, PersistYjsCommit, PersistYjsGenesis, derive_touched_block_ids,
-    persist_yjs_commit, persist_yjs_genesis, read_document_authority, read_event_head,
-    read_local_commit_head, read_store_epoch, sha256,
+    persist_yjs_commit_with_local_commit, persist_yjs_genesis_with_local_commit,
+    read_document_authority, read_event_head, read_local_commit_head, read_store_epoch, sha256,
 };
 use super::recovery::{StaleYjsUpdate, persist_recovery_if_barrier_crossed};
 use super::runtime::{DocumentRuntimeCache, reconstruction_duration_metrics};
@@ -144,7 +144,7 @@ enum AgentSemanticPreparationResult {
         store_epoch: String,
         commit_head: i64,
         footprint: AgentOperationFootprint,
-        committed: Box<CommittedModuleValue<OwnedDocumentCommitValue, OwnedDocumentReceipt>>,
+        committed: Box<ApplyResponse<OwnedDocumentCommitValue, OwnedDocumentReceipt>>,
     },
 }
 
@@ -181,7 +181,7 @@ pub struct DocumentCacheMetrics {
 
 #[derive(Debug, Clone)]
 pub struct OwnedDocumentApplyOutcome {
-    pub committed: CommittedModuleValue<OwnedDocumentCommitValue, OwnedDocumentReceipt>,
+    pub committed: crate::ModuleWriterResult<OwnedDocumentCommitValue, OwnedDocumentReceipt>,
     pub events: Vec<CommittedCoreModuleEvent>,
 }
 
@@ -243,7 +243,7 @@ impl OwnedDocumentModule {
             library_id: library_id.into(),
             writer: kernel.writer(),
             readers: kernel.readers(),
-            cache: Arc::new(Mutex::new(DocumentRuntimeCache::new())),
+            cache: kernel.document_runtime_cache(),
             fail_after_commit: Arc::new(AtomicBool::new(false)),
             prepared_agent_operations: PreparedAgentOperationRegistry::new(),
             assets_root: kernel
@@ -765,44 +765,24 @@ impl OwnedDocumentModule {
         self.validate_context(context)?;
         self.readers
             .read_default(|connection| {
-                let authority = read_document_authority(connection, document_id)?
+                let transaction = connection.unchecked_transaction()?;
+                let authority = read_document_authority(&transaction, document_id)?
                     .ok_or_else(|| not_found("Owned Document was not found"))?;
                 authorize_owned_document(
-                    connection,
+                    &transaction,
                     context,
                     &authority,
                     DocumentAccessKind::Read,
                 )?;
-                Ok(RealtimeDocumentBoundary {
-                    store_epoch: StoreEpoch(read_store_epoch(connection)?),
+                let boundary = RealtimeDocumentBoundary {
+                    store_epoch: StoreEpoch(read_store_epoch(&transaction)?),
                     generation: authority.head.generation,
                     head_seq: authority.head.head_seq,
-                    commit_head: read_local_commit_head(connection)?,
+                    commit_head: read_local_commit_head(&transaction)?,
                     engine: authority.head.sync_engine,
-                })
-            })
-            .map_err(core_error)
-    }
-
-    pub(crate) fn replay_document_events(
-        &self,
-        context: &BoundModuleContext,
-        after: i64,
-        limit: Option<u32>,
-    ) -> Result<DocumentEventReplay, CoreError> {
-        self.validate_context(context)?;
-        authorize_library_document_scope(context)?;
-        self.readers
-            .read_default(|connection| {
-                replay_document_events(
-                    connection,
-                    context
-                        .project_id
-                        .as_ref()
-                        .map(|project_id| project_id.0.as_str()),
-                    after,
-                    limit,
-                )
+                };
+                transaction.commit()?;
+                Ok(boundary)
             })
             .map_err(core_error)
     }
@@ -1101,8 +1081,9 @@ impl OwnedDocumentModule {
                             false,
                         ));
                     }
+                    let local_commit_seq = stored.local_commit_seq;
                     let mut committed = serde_json::from_value::<
-                        CommittedModuleValue<OwnedDocumentCommitValue, OwnedDocumentReceipt>,
+                        crate::ModuleWriterResult<OwnedDocumentCommitValue, OwnedDocumentReceipt>,
                     >(stored.result)
                     .map_err(|_| corrupt_receipt())?;
                     committed.receipt.mutation.duplicate = true;
@@ -1118,6 +1099,11 @@ impl OwnedDocumentModule {
                         .semantic_deleted_owner_block_ids
                         .clone()
                         .unwrap_or_default();
+                    let committed = durable_mutation::replay_apply_response(
+                        &transaction,
+                        local_commit_seq,
+                        committed,
+                    )?;
                     transaction.commit()?;
                     return Ok(AgentSemanticPreparationResult::CommittedReplay {
                         store_epoch,
@@ -1344,7 +1330,7 @@ impl OwnedDocumentModule {
                         ));
                     }
                     let mut committed = serde_json::from_value::<
-                        CommittedModuleValue<OwnedDocumentCommitValue, OwnedDocumentReceipt>,
+                        crate::ModuleWriterResult<OwnedDocumentCommitValue, OwnedDocumentReceipt>,
                     >(stored.result)
                     .map_err(|_| corrupt_receipt())?;
                     committed.receipt.mutation.duplicate = true;
@@ -1354,9 +1340,23 @@ impl OwnedDocumentModule {
                         events: Vec::new(),
                     });
                 }
+                let committed_at = sqlite_now(&transaction)?;
+                let commit_context = durable_mutation::prepare(
+                    &transaction,
+                    OperationIdentity {
+                        module: ModuleName::OwnedDocument,
+                        module_name: MODULE_NAME,
+                        operation_id: &operation_id,
+                        intent_hash: &request_hash,
+                        store_epoch: &store_epoch,
+                        committed_at: &committed_at,
+                        context: &context,
+                    },
+                )?;
                 let executed = execute_owner_command(
                     &transaction,
                     &context,
+                    commit_context.evidence(),
                     &store_epoch,
                     &operation_id,
                     &command,
@@ -1367,7 +1367,7 @@ impl OwnedDocumentModule {
                     .find(|event| event.sequence == executed.event_sequence)
                     .map(|event| event.committed_at.clone())
                     .map_or_else(|| sqlite_now(&transaction), Ok)?;
-                let mut committed = CommittedModuleValue {
+                let mut committed = crate::ModuleWriterResult {
                     value: OwnedDocumentCommitValue {
                         document_id: executed.primary_document_id.clone(),
                         generation: executed.generation,
@@ -1395,12 +1395,7 @@ impl OwnedDocumentModule {
                     commit_seq: 0,
                     event_sequence: executed.event_sequence,
                     store_epoch: StoreEpoch(store_epoch.clone()),
-                    local_commit: None,
                 };
-                let local_commit =
-                    load_local_commit_by_event_sequence(&transaction, executed.event_sequence)?;
-                committed.commit_seq = local_commit.commit_seq;
-                committed.local_commit = Some(local_commit);
                 insert_typed_receipt(
                     &transaction,
                     &context,
@@ -1408,8 +1403,9 @@ impl OwnedDocumentModule {
                     &request_hash,
                     &store_epoch,
                     owner_command_kind(&command),
-                    &committed,
+                    &mut committed,
                     executed.events.last().map(|event| event.sequence),
+                    Some(commit_context),
                 )?;
                 transaction.commit()?;
                 {
@@ -1475,7 +1471,7 @@ impl OwnedDocumentModule {
                         ));
                     }
                     let mut committed = serde_json::from_value::<
-                        CommittedModuleValue<OwnedDocumentCommitValue, OwnedDocumentReceipt>,
+                        crate::ModuleWriterResult<OwnedDocumentCommitValue, OwnedDocumentReceipt>,
                     >(stored.result)
                     .map_err(|_| corrupt_receipt())?;
                     committed.receipt.mutation.duplicate = true;
@@ -1531,7 +1527,6 @@ impl OwnedDocumentModule {
                         },
                         commit_head,
                     );
-                    committed.commit_seq = read_local_commit_head(&transaction)?;
                     insert_typed_receipt(
                         &transaction,
                         &context,
@@ -1539,7 +1534,8 @@ impl OwnedDocumentModule {
                         &request_hash,
                         &store_epoch,
                         "prepare_owner",
-                        &committed,
+                        &mut committed,
+                        None,
                         None,
                     )?;
                     transaction.commit()?;
@@ -1557,7 +1553,7 @@ impl OwnedDocumentModule {
                 }
                 let schema = registered_yjs_schema(&authority)?;
                 let root_block_id = allocate_document_block_id(&operation_id, 1);
-                let (committed, event, next_head, next_engine) =
+                let (mut committed, event, next_head, next_engine, commit_context) =
                     match (authority.head.readiness, authority.head.authority) {
                         (DocumentReadiness::PendingGenesis, DocumentAuthority::LegacyShadow) => {
                             if authority.head.head_seq != 0 {
@@ -1573,7 +1569,20 @@ impl OwnedDocumentModule {
                                 schema,
                                 &root_block_id,
                             )?;
-                            let persisted = persist_yjs_genesis(
+                            let committed_at = sqlite_now(&transaction)?;
+                            let commit_context = durable_mutation::prepare(
+                                &transaction,
+                                OperationIdentity {
+                                    module: ModuleName::OwnedDocument,
+                                    module_name: MODULE_NAME,
+                                    operation_id: &operation_id,
+                                    intent_hash: &request_hash,
+                                    store_epoch: &store_epoch,
+                                    committed_at: &committed_at,
+                                    context: &context,
+                                },
+                            )?;
+                            let persisted = persist_yjs_genesis_with_local_commit(
                                 &transaction,
                                 PersistYjsGenesis {
                                     authority: &authority,
@@ -1587,8 +1596,9 @@ impl OwnedDocumentModule {
                                     operation_id: &operation_id,
                                     emit_event: true,
                                 },
+                                commit_context.evidence(),
                             )?;
-                            let mut committed = committed_value(
+                            let committed = committed_value(
                                 &operation_id,
                                 &store_epoch,
                                 &authority,
@@ -1596,12 +1606,6 @@ impl OwnedDocumentModule {
                                 DocumentCommitOutcome::Committed,
                                 persisted.event_sequence,
                             );
-                            let local_commit = load_local_commit_by_event_sequence(
-                                &transaction,
-                                persisted.event_sequence,
-                            )?;
-                            committed.commit_seq = local_commit.commit_seq;
-                            committed.local_commit = Some(local_commit);
                             let event = load_committed_event_by_sequence(
                                 &transaction,
                                 persisted.event_sequence,
@@ -1611,7 +1615,13 @@ impl OwnedDocumentModule {
                             next_head.state_vector = persisted.state_vector;
                             next_head.readiness = DocumentReadiness::Ready;
                             next_head.authority = DocumentAuthority::YdocPrimary;
-                            (committed, Some(event), next_head, prepared.engine)
+                            (
+                                committed,
+                                Some(event),
+                                next_head,
+                                prepared.engine,
+                                commit_context,
+                            )
                         }
                         (DocumentReadiness::Ready, DocumentAuthority::YdocPrimary) => {
                             authorize_yjs(
@@ -1641,7 +1651,6 @@ impl OwnedDocumentModule {
                                     DocumentCommitOutcome::NoChange,
                                     commit_head,
                                 );
-                                committed.commit_seq = read_local_commit_head(&transaction)?;
                                 insert_typed_receipt(
                                     &transaction,
                                     &context,
@@ -1649,7 +1658,8 @@ impl OwnedDocumentModule {
                                     &request_hash,
                                     &store_epoch,
                                     "prepare_owner",
-                                    &committed,
+                                    &mut committed,
+                                    None,
                                     None,
                                 )?;
                                 transaction.commit()?;
@@ -1669,7 +1679,20 @@ impl OwnedDocumentModule {
                             let candidate_transaction = candidate.document().transact();
                             let state_vector = candidate_transaction.state_vector().encode_v1();
                             drop(candidate_transaction);
-                            let persisted = persist_yjs_commit(
+                            let committed_at = sqlite_now(&transaction)?;
+                            let commit_context = durable_mutation::prepare(
+                                &transaction,
+                                OperationIdentity {
+                                    module: ModuleName::OwnedDocument,
+                                    module_name: MODULE_NAME,
+                                    operation_id: &operation_id,
+                                    intent_hash: &request_hash,
+                                    store_epoch: &store_epoch,
+                                    committed_at: &committed_at,
+                                    context: &context,
+                                },
+                            )?;
+                            let persisted = persist_yjs_commit_with_local_commit(
                                 &transaction,
                                 PersistYjsCommit {
                                     authority: &authority,
@@ -1688,8 +1711,9 @@ impl OwnedDocumentModule {
                                     write_fence_block_ids: &prepared.write_fence_block_ids,
                                     title_write_fence_required: prepared.title_write_fence_required,
                                 },
+                                commit_context.evidence(),
                             )?;
-                            let mut committed = committed_value(
+                            let committed = committed_value(
                                 &operation_id,
                                 &store_epoch,
                                 &authority,
@@ -1697,12 +1721,6 @@ impl OwnedDocumentModule {
                                 DocumentCommitOutcome::Committed,
                                 persisted.event_sequence,
                             );
-                            let local_commit = load_local_commit_by_event_sequence(
-                                &transaction,
-                                persisted.event_sequence,
-                            )?;
-                            committed.commit_seq = local_commit.commit_seq;
-                            committed.local_commit = Some(local_commit);
                             let event = load_committed_event_by_sequence(
                                 &transaction,
                                 persisted.event_sequence,
@@ -1711,7 +1729,7 @@ impl OwnedDocumentModule {
                             let mut next_head = authority.head.clone();
                             next_head.head_seq = persisted.head_seq;
                             next_head.state_vector = persisted.state_vector;
-                            (committed, Some(event), next_head, engine)
+                            (committed, Some(event), next_head, engine, commit_context)
                         }
                         _ => {
                             return Err(StoreError::new(
@@ -1728,8 +1746,9 @@ impl OwnedDocumentModule {
                     &request_hash,
                     &store_epoch,
                     "prepare_owner",
-                    &committed,
+                    &mut committed,
                     event.as_ref().map(|event| event.sequence),
+                    Some(commit_context),
                 )?;
                 transaction.commit()?;
                 if fail_after_commit.swap(false, Ordering::AcqRel) {
@@ -1808,7 +1827,7 @@ impl OwnedDocumentModule {
                         ));
                     }
                     let mut committed = serde_json::from_value::<
-                        CommittedModuleValue<OwnedDocumentCommitValue, OwnedDocumentReceipt>,
+                        crate::ModuleWriterResult<OwnedDocumentCommitValue, OwnedDocumentReceipt>,
                     >(stored.result)
                     .map_err(|_| corrupt_receipt())?;
                     committed.receipt.mutation.duplicate = true;
@@ -1844,6 +1863,24 @@ impl OwnedDocumentModule {
                     &mutation,
                     &assets_root,
                 )?;
+                let committed_at = sqlite_now(&transaction)?;
+                let commit_context = prepared
+                    .changed()
+                    .then(|| {
+                        durable_mutation::prepare(
+                            &transaction,
+                            OperationIdentity {
+                                module: ModuleName::OwnedDocument,
+                                module_name: MODULE_NAME,
+                                operation_id: &operation_id,
+                                intent_hash: &request_hash,
+                                store_epoch: &store_epoch,
+                                committed_at: &committed_at,
+                                context: &context,
+                            },
+                        )
+                    })
+                    .transpose()?;
                 if prepared.changed() {
                     let revision_now = sqlite_now(&transaction)?;
                     if let Some(revision) =
@@ -1862,6 +1899,9 @@ impl OwnedDocumentModule {
                 }
                 let persisted = persist_prepared_canvas_mutation(
                     &transaction,
+                    commit_context
+                        .as_ref()
+                        .map(PreparedDurableMutation::evidence),
                     &authority,
                     &store_epoch,
                     &operation_id,
@@ -1896,15 +1936,6 @@ impl OwnedDocumentModule {
                     persisted.event_sequence,
                     persisted.result.clone(),
                 );
-                committed.commit_seq = read_local_commit_head(&transaction)?;
-                if persisted.event_delta.is_some() {
-                    let local_commit = load_local_commit_by_event_sequence(
-                        &transaction,
-                        persisted.event_sequence,
-                    )?;
-                    committed.commit_seq = local_commit.commit_seq;
-                    committed.local_commit = Some(local_commit);
-                }
                 insert_typed_receipt(
                     &transaction,
                     &context,
@@ -1912,11 +1943,12 @@ impl OwnedDocumentModule {
                     &request_hash,
                     &store_epoch,
                     "apply_canvas_mutation",
-                    &committed,
+                    &mut committed,
                     persisted
                         .event_delta
                         .as_ref()
                         .map(|_| persisted.event_sequence),
+                    commit_context,
                 )?;
                 let event = persisted
                     .event_delta
@@ -1995,7 +2027,7 @@ impl OwnedDocumentModule {
                         ));
                     }
                     let mut committed = serde_json::from_value::<
-                        CommittedModuleValue<OwnedDocumentCommitValue, OwnedDocumentReceipt>,
+                        crate::ModuleWriterResult<OwnedDocumentCommitValue, OwnedDocumentReceipt>,
                     >(stored.result)
                     .map_err(|_| corrupt_receipt())?;
                     committed.receipt.mutation.duplicate = true;
@@ -2035,6 +2067,22 @@ impl OwnedDocumentModule {
                 let prepared = prepare_canvas_compaction(&transaction, &authority)?;
                 let now = sqlite_now(&transaction)?;
                 let changed = prepared.stats.tombstone_count > 0;
+                let commit_context = changed
+                    .then(|| {
+                        durable_mutation::prepare(
+                            &transaction,
+                            OperationIdentity {
+                                module: ModuleName::OwnedDocument,
+                                module_name: MODULE_NAME,
+                                operation_id: &operation_id,
+                                intent_hash: &request_hash,
+                                store_epoch: &store_epoch,
+                                committed_at: &now,
+                                context: &context,
+                            },
+                        )
+                    })
+                    .transpose()?;
                 let (next_authority, checkpoint_version_id) = if changed {
                     let checkpoint = insert_canvas_checkpoint(
                         &transaction,
@@ -2124,6 +2172,12 @@ impl OwnedDocumentModule {
                             projection_impact: &ProjectionImpact::None,
                             committed_at: &now,
                         },
+                        commit_context
+                            .as_ref()
+                            .map(PreparedDurableMutation::evidence)
+                            .ok_or_else(|| {
+                                internal("Canvas compaction lost its LocalCommit context")
+                            })?,
                     )?
                 } else {
                     read_event_head(&transaction)?
@@ -2160,13 +2214,6 @@ impl OwnedDocumentModule {
                     event_sequence,
                     result,
                 );
-                committed.commit_seq = read_local_commit_head(&transaction)?;
-                if changed {
-                    let local_commit =
-                        load_local_commit_by_event_sequence(&transaction, event_sequence)?;
-                    committed.commit_seq = local_commit.commit_seq;
-                    committed.local_commit = Some(local_commit);
-                }
                 insert_typed_receipt(
                     &transaction,
                     &context,
@@ -2174,8 +2221,9 @@ impl OwnedDocumentModule {
                     &request_hash,
                     &store_epoch,
                     "compact_canvas_tombstones",
-                    &committed,
+                    &mut committed,
                     changed.then_some(event_sequence),
+                    commit_context,
                 )?;
                 let event = changed
                     .then(|| load_committed_event_by_sequence(&transaction, event_sequence))
@@ -2696,7 +2744,7 @@ impl OwnedDocumentModule {
                         ));
                     }
                     let mut committed = serde_json::from_value::<
-                        CommittedModuleValue<OwnedDocumentCommitValue, OwnedDocumentReceipt>,
+                        crate::ModuleWriterResult<OwnedDocumentCommitValue, OwnedDocumentReceipt>,
                     >(stored.result)
                     .map_err(|_| corrupt_receipt())?;
                     committed.receipt.mutation.duplicate = true;
@@ -2784,7 +2832,8 @@ impl OwnedDocumentModule {
                     &request_hash,
                     &store_epoch,
                     "create_checkpoint",
-                    &committed,
+                    &mut committed,
+                    None,
                     None,
                 )?;
                 transaction.commit()?;
@@ -2993,7 +3042,7 @@ impl OwnedDocumentModule {
                         ));
                     }
                     let mut committed = serde_json::from_value::<
-                        CommittedModuleValue<OwnedDocumentCommitValue, OwnedDocumentReceipt>,
+                        crate::ModuleWriterResult<OwnedDocumentCommitValue, OwnedDocumentReceipt>,
                     >(stored.result)
                     .map_err(|_| corrupt_receipt())?;
                     committed.receipt.mutation.duplicate = true;
@@ -3046,7 +3095,8 @@ impl OwnedDocumentModule {
                         &request_hash,
                         &store_epoch,
                         "restore_version",
-                        &committed,
+                        &mut committed,
+                        None,
                         None,
                     )?;
                     transaction.commit()?;
@@ -3056,6 +3106,18 @@ impl OwnedDocumentModule {
                     });
                 };
                 let now = sqlite_now(&transaction)?;
+                let commit_context = durable_mutation::prepare(
+                    &transaction,
+                    OperationIdentity {
+                        module: ModuleName::OwnedDocument,
+                        module_name: MODULE_NAME,
+                        operation_id: &operation_id,
+                        intent_hash: &request_hash,
+                        store_epoch: &store_epoch,
+                        committed_at: &now,
+                        context: &context,
+                    },
+                )?;
                 let safety_label = format!("Before restore {version_id}");
                 insert_canvas_checkpoint(
                     &transaction,
@@ -3076,6 +3138,7 @@ impl OwnedDocumentModule {
                 let applied = apply_canvas_candidate(&loaded.scene, &mutation)?;
                 let persisted = persist_canvas_mutation(
                     &transaction,
+                    Some(commit_context.evidence()),
                     &authority,
                     &store_epoch,
                     &operation_id,
@@ -3118,10 +3181,6 @@ impl OwnedDocumentModule {
                     persisted.event_sequence,
                     persisted.result,
                 );
-                let local_commit =
-                    load_local_commit_by_event_sequence(&transaction, persisted.event_sequence)?;
-                committed.commit_seq = local_commit.commit_seq;
-                committed.local_commit = Some(local_commit);
                 committed.value.committed_at = Some(persisted.committed_at.clone());
                 committed.value.mutation_effect = Some(DocumentMutationEffect {
                     base_head_seq: authority.head.head_seq,
@@ -3141,8 +3200,9 @@ impl OwnedDocumentModule {
                     &request_hash,
                     &store_epoch,
                     "restore_version",
-                    &committed,
+                    &mut committed,
                     Some(persisted.event_sequence),
+                    Some(commit_context),
                 )?;
                 let event =
                     load_committed_event_by_sequence(&transaction, persisted.event_sequence)?;
@@ -3205,7 +3265,7 @@ impl OwnedDocumentModule {
                         ));
                     }
                     let mut committed = serde_json::from_value::<
-                        CommittedModuleValue<OwnedDocumentCommitValue, OwnedDocumentReceipt>,
+                        crate::ModuleWriterResult<OwnedDocumentCommitValue, OwnedDocumentReceipt>,
                     >(stored.result)
                     .map_err(|_| {
                         StoreError::new(
@@ -3370,7 +3430,8 @@ impl OwnedDocumentModule {
                         &job.request_hash,
                         &store_epoch,
                         job.operation_kind,
-                        &committed,
+                        &mut committed,
+                        None,
                         None,
                     )?;
                     transaction.commit()?;
@@ -3416,7 +3477,8 @@ impl OwnedDocumentModule {
                         &job.request_hash,
                         &store_epoch,
                         job.operation_kind,
-                        &committed,
+                        &mut committed,
+                        None,
                         None,
                     )?;
                     transaction.commit()?;
@@ -3434,6 +3496,18 @@ impl OwnedDocumentModule {
                 let state_vector = candidate_transaction.state_vector().encode_v1();
                 drop(candidate_transaction);
                 let revision_now = sqlite_now(&transaction)?;
+                let commit_context = durable_mutation::prepare(
+                    &transaction,
+                    OperationIdentity {
+                        module: ModuleName::OwnedDocument,
+                        module_name: MODULE_NAME,
+                        operation_id: &job.operation_id,
+                        intent_hash: &job.request_hash,
+                        store_epoch: &store_epoch,
+                        committed_at: &revision_now,
+                        context: &job.context,
+                    },
+                )?;
                 prepare_document_revision(
                     &transaction,
                     &authority,
@@ -3441,7 +3515,7 @@ impl OwnedDocumentModule {
                     &job.context,
                     &revision_now,
                 )?;
-                let persisted = persist_yjs_commit(
+                let persisted = persist_yjs_commit_with_local_commit(
                     &transaction,
                     PersistYjsCommit {
                         authority: &authority,
@@ -3466,6 +3540,7 @@ impl OwnedDocumentModule {
                         write_fence_block_ids: &write_fence_block_ids,
                         title_write_fence_required,
                     },
+                    commit_context.evidence(),
                 )?;
                 if commit_checkpoint.is_some() {
                     let mut committed_authority = authority.clone();
@@ -3519,12 +3594,6 @@ impl OwnedDocumentModule {
                     DocumentCommitOutcome::Committed,
                     persisted.event_sequence,
                 );
-                let local_commit = load_local_commit_by_event_sequence(
-                    &transaction,
-                    persisted.event_sequence,
-                )?;
-                committed.commit_seq = local_commit.commit_seq;
-                committed.local_commit = Some(local_commit);
                 committed.value.committed_at = Some(persisted.committed_at.clone());
                 committed.value.mutation_effect = mutation_effect.map(|effect| *effect);
                 committed.value.semantic_local_block_ids = semantic_local_block_ids;
@@ -3545,8 +3614,9 @@ impl OwnedDocumentModule {
                     &job.request_hash,
                     &store_epoch,
                     job.operation_kind,
-                    &committed,
+                    &mut committed,
                     Some(persisted.event_sequence),
+                    Some(commit_context),
                 )?;
                 let event = load_committed_event_by_sequence(
                     &transaction,
@@ -3917,8 +3987,8 @@ fn committed_value(
     head_seq: i64,
     outcome: DocumentCommitOutcome,
     event_sequence: i64,
-) -> CommittedModuleValue<OwnedDocumentCommitValue, OwnedDocumentReceipt> {
-    CommittedModuleValue {
+) -> crate::ModuleWriterResult<OwnedDocumentCommitValue, OwnedDocumentReceipt> {
+    crate::ModuleWriterResult {
         value: OwnedDocumentCommitValue {
             document_id: authority.head.id.clone(),
             generation: authority.head.generation,
@@ -3946,7 +4016,6 @@ fn committed_value(
         commit_seq: 0,
         event_sequence,
         store_epoch: StoreEpoch(store_epoch.to_owned()),
-        local_commit: None,
     }
 }
 
@@ -3956,7 +4025,7 @@ fn attach_semantic_etags(
     store_epoch: &str,
     authority: &DocumentAuthorityRow,
     materialization: &DocumentMaterialization,
-    committed: &mut CommittedModuleValue<OwnedDocumentCommitValue, OwnedDocumentReceipt>,
+    committed: &mut crate::ModuleWriterResult<OwnedDocumentCommitValue, OwnedDocumentReceipt>,
 ) -> Result<(), StoreError> {
     let project_id = match job.prepared_agent.as_ref() {
         Some(prepared_agent) => {
@@ -4084,7 +4153,7 @@ fn committed_canvas_value(
     outcome: DocumentCommitOutcome,
     event_sequence: i64,
     canvas: Value,
-) -> CommittedModuleValue<OwnedDocumentCommitValue, OwnedDocumentReceipt> {
+) -> crate::ModuleWriterResult<OwnedDocumentCommitValue, OwnedDocumentReceipt> {
     let mut committed = committed_value(
         operation_id,
         store_epoch,
@@ -4105,25 +4174,44 @@ fn insert_typed_receipt(
     request_hash: &str,
     store_epoch: &str,
     operation_kind: &str,
-    committed: &CommittedModuleValue<OwnedDocumentCommitValue, OwnedDocumentReceipt>,
+    committed: &mut crate::ModuleWriterResult<OwnedDocumentCommitValue, OwnedDocumentReceipt>,
     event_sequence: Option<i64>,
+    commit_context: Option<PreparedDurableMutation<'_>>,
 ) -> Result<(), StoreError> {
-    let result = serde_json::to_value(committed)
-        .map_err(|_| internal("Owned Document result could not be encoded"))?;
-    insert_module_receipt(
-        connection,
-        NewModuleReceipt {
-            module_name: MODULE_NAME,
-            operation_id,
-            context,
-            operation_kind,
-            store_epoch,
-            request_hash,
-            result: &result,
-            event_sequence,
-            committed_at: &sqlite_now(connection)?,
-        },
-    )
+    committed.commit_seq = commit_context
+        .as_ref()
+        .map_or(read_local_commit_head(connection)?, |prepared| {
+            prepared.commit_seq()
+        });
+    let committed_at = commit_context
+        .as_ref()
+        .map(PreparedDurableMutation::committed_at)
+        .map(str::to_owned)
+        .map_or_else(|| sqlite_now(connection), Ok)?;
+    let receipt = ReceiptMetadata {
+        operation_kind,
+        event_sequence,
+        committed_at: &committed_at,
+    };
+    if let Some(prepared) = commit_context {
+        durable_mutation::finish_prepared(prepared, &*committed, receipt)?;
+    } else {
+        durable_mutation::record_no_op(
+            connection,
+            OperationIdentity {
+                module: ModuleName::OwnedDocument,
+                module_name: MODULE_NAME,
+                operation_id,
+                intent_hash: request_hash,
+                store_epoch,
+                context,
+                committed_at: &committed_at,
+            },
+            &*committed,
+            receipt,
+        )?;
+    }
+    Ok(())
 }
 
 fn authority_descriptor(authority: &DocumentAuthorityRow, store_epoch: &str) -> Value {
@@ -4958,6 +5046,26 @@ fn authorize_owned_document(
         DocumentSyncEngine::Yjs => authorize_yjs(connection, context, authority, access),
         DocumentSyncEngine::CanvasScene => authorize_canvas(connection, context, authority, access),
     }
+}
+
+/// Reuses the canonical post-state read boundary for resource delivery.
+///
+/// Delivery authorization is intentionally separate from command
+/// authorization, but it must resolve the same Page, granted Page, synced
+/// owner, and Canvas-shell ownership rules as a canonical Document read.
+pub(crate) fn require_owned_document_read_access(
+    connection: &Connection,
+    context: &BoundModuleContext,
+    document_id: &str,
+) -> Result<(), StoreError> {
+    let authority = read_document_authority(connection, document_id)?.ok_or_else(|| {
+        StoreError::new(
+            StoreErrorCode::NotFound,
+            "Owned Document is unavailable",
+            false,
+        )
+    })?;
+    authorize_owned_document(connection, context, &authority, DocumentAccessKind::Read)
 }
 
 fn registered_yjs_schema(
@@ -6213,15 +6321,40 @@ mod tests {
                 OwnedDocumentEvent::CanvasUpdated { .. }
             ))
         ));
-        let replayed = seeded
-            .module
-            .replay_document_events(&context(), 0, None)
-            .expect("Canvas event replay");
-        let DocumentEventReplay::Events { events, .. } = replayed else {
-            panic!("Canvas mutation receipt should replay exactly")
-        };
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].payload, applied.events[0].payload);
+        let event_log =
+            crate::infrastructure::event_log::CoreEventLog::new(seeded.kernel.readers());
+        let delivery = event_log
+            .authorized_packet(
+                applied.committed.commit_seq,
+                &context(),
+                Some(DOCUMENT_ID),
+                false,
+            )
+            .expect("authorize exact Canvas delivery")
+            .expect("Canvas mutation addresses its exact Document");
+        assert!(matches!(
+            delivery.effects.as_slice(),
+            [nodex_core_contracts::AuthorizedModuleEffect {
+                payload: nodex_core_contracts::AuthorizedModulePayload::OwnedDocument(
+                    nodex_core_contracts::AuthorizedOwnedDocumentEvent::CanvasUpdated {
+                        document_id,
+                        ..
+                    }
+                ),
+                ..
+            }] if document_id == DOCUMENT_ID
+        ));
+        assert!(
+            event_log
+                .authorized_packet(
+                    applied.committed.commit_seq,
+                    &context(),
+                    Some("document:unrelated"),
+                    false,
+                )
+                .expect("filter unrelated exact Document delivery")
+                .is_none()
+        );
         seeded
             .module
             .apply(
@@ -6341,19 +6474,6 @@ mod tests {
             panic!("stale Canvas merge should publish a durable event")
         };
         assert_eq!(*base_head_seq, 1);
-        let stale_replay = seeded
-            .module
-            .replay_document_events(&context(), 0, None)
-            .expect("stale Canvas event replay");
-        let DocumentEventReplay::Events { events, .. } = stale_replay else {
-            panic!("stale Canvas merge should replay")
-        };
-        let replayed_stale = events
-            .iter()
-            .find(|event| event.operation_id.as_deref() == Some("canvas:edit:2"))
-            .expect("stale Canvas event");
-        assert_eq!(replayed_stale.payload, stale_merge.events[0].payload);
-
         seeded.module.inject_failure_after_next_commit();
         let interrupted = seeded
             .module
@@ -7174,22 +7294,6 @@ mod tests {
                 Ok::<_, StoreError>(())
             })
             .expect("retained source evidence");
-
-        let replay = seeded
-            .module
-            .replay_document_events(&context(), 0, None)
-            .expect("owner event replay");
-        let DocumentEventReplay::Events { events, .. } = replay else {
-            panic!("expected retained owner events")
-        };
-        assert_eq!(events.len(), 2);
-        assert!(matches!(
-            &events[1].payload,
-            CoreModuleEventPayload::OwnedDocument(OwnedDocumentEvent::DocumentInvalidated {
-                reason: DocumentInvalidationReason::AccessChanged,
-                ..
-            })
-        ));
     }
 
     #[test]
@@ -7794,14 +7898,16 @@ mod tests {
                 })
             })
             .expect("move Page after its Document commit");
-        let replay = seeded
-            .module
-            .replay_document_events(&context(), applied.committed.event_sequence - 1, Some(1))
-            .expect("replay committed Page impact");
-        let DocumentEventReplay::Events { events, .. } = replay else {
-            panic!("expected replayed Page Document event")
-        };
-        assert_eq!(events, applied.events);
+        let packet = crate::infrastructure::event_log::CoreEventLog::new(seeded.kernel.readers())
+            .authorized_packet(
+                applied.committed.commit_seq,
+                &library_context_for("electron-host:projection-replay", AdapterKind::ElectronHost),
+                Some(DOCUMENT_ID),
+                false,
+            )
+            .expect("resolve committed Page impact")
+            .expect("Page Document delivery");
+        assert_eq!(packet.document_effects.len(), 1);
     }
 
     #[test]
@@ -7927,16 +8033,6 @@ mod tests {
             .apply(&first_context, "client:first", request)
             .expect("subscribed mutation");
         assert_eq!(applied.committed.value.head_seq, 2);
-        let replay = adapter
-            .replay("renderer:second", "client:second", 0, None)
-            .expect("durable replay");
-        assert_eq!(replay.events.len(), 1);
-        let DocumentRealtimeEvent::Committed(replayed) = &replay.events[0] else {
-            panic!("expected committed event")
-        };
-        assert_eq!(replayed.sequence, applied.committed.event_sequence);
-        assert_eq!(replayed.payload, applied.events[0].payload);
-
         let mut remote_awareness = DocumentAwareness::new("awareness:remote");
         remote_awareness
             .set_local_state(&json!({ "user": "first" }))
@@ -7971,9 +8067,7 @@ mod tests {
             .unsubscribe("renderer:first", "client:first")
             .expect("exact unsubscribe clears presence")
             .expect("Awareness leave publication");
-        let DocumentRealtimeEvent::Awareness { update, .. } = &unsubscribed.event else {
-            panic!("expected Awareness leave")
-        };
+        let DocumentRealtimeEvent::Awareness { update, .. } = &unsubscribed.event;
         observer.apply_update_v1(update).expect("observe leave");
         assert!(observer.state(awareness_client_id).is_none());
         adapter
@@ -8012,17 +8106,6 @@ mod tests {
                 2,
             )
             .expect("compact event update tail");
-        let compacted = adapter
-            .replay("renderer:second", "client:second", 0, None)
-            .expect("compacted replay returns resync");
-        assert!(matches!(
-            compacted.events.as_slice(),
-            [DocumentRealtimeEvent::ResyncRequired {
-                document_id,
-                head_seq: 2,
-                ..
-            }] if document_id == DOCUMENT_ID
-        ));
     }
 
     #[test]
@@ -8168,16 +8251,7 @@ mod tests {
                 ),
             )
             .expect("Library-scoped update");
-        let replay = adapter
-            .replay("renderer:library", "client:library", 0, None)
-            .expect("Library-scoped durable replay");
-        assert!(replay.events.iter().any(|event| {
-            matches!(
-                event,
-                DocumentRealtimeEvent::Committed(event)
-                    if event.sequence == applied.committed.event_sequence
-            )
-        }));
+        assert_eq!(applied.committed.value.head_seq, 2);
 
         seeded
             .kernel
@@ -8256,14 +8330,6 @@ mod tests {
             .apply(&reconnected_context, "client:faulted", request)
             .expect("exact retry recovers receipt");
         assert!(retry.committed.receipt.mutation.duplicate);
-        let replay = adapter
-            .replay("renderer:reconnected", "client:faulted", 0, None)
-            .expect("reconnect replay");
-        assert!(matches!(
-            replay.events.as_slice(),
-            [DocumentRealtimeEvent::Committed(event)]
-                if event.sequence == retry.committed.event_sequence
-        ));
         seeded
             .kernel
             .readers()
@@ -8999,17 +9065,6 @@ mod tests {
         );
         let duplicate = cold_module.apply(&context(), request).unwrap();
         assert!(duplicate.committed.receipt.mutation.duplicate);
-        assert!(matches!(
-            duplicate
-                .committed
-                .local_commit
-                .as_ref()
-                .and_then(|commit| commit.effects.first())
-                .map(|effect| &effect.payload),
-            Some(CoreModuleEventPayload::OwnedDocument(
-                OwnedDocumentEvent::DocumentResyncRequired { .. }
-            ))
-        ));
         let repeated = cold_module
             .compact(
                 &context(),
@@ -9564,7 +9619,7 @@ mod tests {
             AgentOperationPreparationState::CommittedReplay
         );
         assert!(preparation.token.is_none());
-        assert!(replayed.receipt.mutation.duplicate);
+        assert!(replayed.receipt().mutation.duplicate);
         seeded
             .kernel
             .readers()

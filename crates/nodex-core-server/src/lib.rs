@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod connections;
+mod document_live;
 mod document_wire;
 mod lifecycle;
 mod lifecycle_summary;
@@ -14,9 +15,10 @@ use std::fs;
 use std::io::{self, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, mpsc};
+use std::thread;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use axum::body::to_bytes;
 use axum::extract::{ConnectInfo, DefaultBodyLimit, Extension, Query, Request, State};
@@ -28,13 +30,16 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use fs2::FileExt;
+use nodex_core::ModuleWriterResult;
 use nodex_core::administration::StoreAdministrationModule;
 use nodex_core::automation::AutomationModule;
 use nodex_core::database::DatabaseModule;
 use nodex_core::document::{
     AwarenessPublication, DocumentRealtimeEvent, OwnedDocumentModule, OwnedDocumentRealtimeAdapter,
 };
-use nodex_core::infrastructure::event_log::{CoreEventLog, CoreEventReplay};
+use nodex_core::infrastructure::event_log::{
+    CoreAuthorizedEventReplay, CoreEventLog, DocumentLiveDelivery,
+};
 use nodex_core::infrastructure::metrics::DurationMetricSnapshot;
 use nodex_core::infrastructure::migration::StorePreparationEvent;
 use nodex_core::infrastructure::module_receipts::read_module_receipt;
@@ -46,11 +51,14 @@ use nodex_core::infrastructure::writer::StoreRuntimePhase;
 use nodex_core::library::LibraryModule;
 use nodex_core::workspace::ProjectWorkspaceModule;
 use nodex_core_contracts::administration::StoreAdministrationIntent;
-use nodex_core_contracts::document::{OwnedDocumentIntent, OwnedDocumentRead};
+use nodex_core_contracts::document::{
+    DocumentLiveBarrier, DocumentLiveEngine, DocumentLiveRepair, DocumentLiveRepairReason,
+    OwnedDocumentIntent, OwnedDocumentRead,
+};
 use nodex_core_contracts::{
-    AdapterKind, BoundModuleContext, CoreError, CoreErrorCode, CoreErrorRecovery,
-    CoreModuleEventPayload, LibraryId, LocalCommitEnvelope, ModuleName, ProfileId, ProjectId,
-    StoreEpoch,
+    AdapterKind, ApplyResponse, AuthorizedDeliveryPacket, BoundModuleContext, CoreError,
+    CoreErrorCode, CoreErrorRecovery, LibraryId, ModuleName, ProfileId, ProjectId, StoreEpoch,
+    StoreObservation, StreamCheckpoint,
 };
 use nodex_core_protocol::{
     AutomationApplyRequest, AutomationApplyResponse, AutomationReadRequest, AutomationReadResponse,
@@ -79,6 +87,9 @@ use connections::{
     BoundConnection, ConnectionActivity, ConnectionRegistry, ConnectionRegistryError,
     ConnectionRegistryErrorKind, EventSubscriptionKey, PeerIdentity,
 };
+use document_live::{
+    DocumentLiveHub, DocumentLiveNotice, DocumentLivePublisher, DocumentLiveRepairKind,
+};
 use document_wire::{ApplyFrame, CONTENT_TYPE as DOCUMENT_CONTENT_TYPE, CanvasSyncKind, SyncFrame};
 use lifecycle::{DrainReason, LifecycleCoordinator, configured_idle_timeout, monitor_idle};
 use lifecycle_summary::LifecycleSummaryWriter;
@@ -102,6 +113,7 @@ const LIBRARY_DATABASE_SCOPE: &str = "library";
 static NEXT_REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 const INTERNAL_STARTUP_EVENTS_ENV: &str = "NODEX_INTERNAL_STARTUP_EVENTS_VERSION";
 const INTERNAL_STARTUP_EVENTS_VERSION: u32 = 1;
+const MIGRATION_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
 
 fn report_internal_startup_event(event: CoreStartupEvent) {
     if std::env::var(INTERNAL_STARTUP_EVENTS_ENV).as_deref() != Ok("1") {
@@ -117,6 +129,57 @@ fn report_internal_startup_event(event: CoreStartupEvent) {
     let mut writer = stdout.lock();
     let _ = writeln!(writer, "{line}");
     let _ = writer.flush();
+}
+
+struct MigrationHeartbeat {
+    active: Arc<AtomicBool>,
+    stop: Option<mpsc::Sender<()>>,
+    worker: Option<thread::JoinHandle<()>>,
+}
+
+impl MigrationHeartbeat {
+    fn start() -> Self {
+        let active = Arc::new(AtomicBool::new(false));
+        if std::env::var(INTERNAL_STARTUP_EVENTS_ENV).as_deref() != Ok("1") {
+            return Self {
+                active,
+                stop: None,
+                worker: None,
+            };
+        }
+        let (stop, receiver) = mpsc::channel();
+        let worker_active = Arc::clone(&active);
+        let worker = thread::spawn(move || {
+            loop {
+                match receiver.recv_timeout(MIGRATION_HEARTBEAT_INTERVAL) {
+                    Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                    Err(mpsc::RecvTimeoutError::Timeout) => {
+                        if worker_active.load(Ordering::Acquire) {
+                            report_internal_startup_event(CoreStartupEvent::MigrationHeartbeat);
+                        }
+                    }
+                }
+            }
+        });
+        Self {
+            active,
+            stop: Some(stop),
+            worker: Some(worker),
+        }
+    }
+
+    fn activate(&self) {
+        self.active.store(true, Ordering::Release);
+    }
+}
+
+impl Drop for MigrationHeartbeat {
+    fn drop(&mut self) {
+        self.stop.take();
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
 }
 
 fn duration_millis(duration: std::time::Duration) -> u64 {
@@ -141,8 +204,9 @@ struct ServerState {
     document_realtime: OwnedDocumentRealtimeAdapter,
     store: SqliteStoreKernel,
     event_log: CoreEventLog,
-    event_sender: broadcast::Sender<EventEnvelope>,
-    document_sender: broadcast::Sender<DocumentTransportPublication>,
+    event_sender: broadcast::Sender<i64>,
+    document_live: DocumentLiveHub,
+    document_live_publisher: DocumentLivePublisher,
     metrics: ServerMetrics,
     logging: logging::LoggingHandle,
 }
@@ -153,12 +217,6 @@ fn descriptor_snapshot(state: &ServerState) -> RuntimeDescriptor {
         .lock()
         .expect("runtime descriptor mutex poisoned")
         .clone()
-}
-
-#[derive(Clone)]
-struct DocumentTransportPublication {
-    event: DocumentRealtimeEvent,
-    recipient_connections: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -410,6 +468,7 @@ fn health_metrics(state: &ServerState) -> (CoreReadiness, CoreHealthMetrics) {
         canvas_sync_snapshot_bytes,
     ) = state.metrics.canvas_sync();
     let store_metrics = state.store.metrics();
+    let block_transfer_metrics = state.library.block_transfer_metrics();
     (
         status,
         CoreHealthMetrics {
@@ -417,6 +476,8 @@ fn health_metrics(state: &ServerState) -> (CoreReadiness, CoreHealthMetrics) {
             active_writer_commands: usize_to_u64(store_activity.active_writes),
             active_read_commands: usize_to_u64(store_activity.active_reads),
             command_latency: health_duration(store_metrics.command_latency),
+            writer_queue_wait: health_duration(store_metrics.writer_queue_wait),
+            writer_execution: health_duration(store_metrics.writer_execution),
             transaction_duration: health_duration(transaction_duration_metrics()),
             document_cache_entries: usize_to_u64(cache.entries),
             document_cache_state_bytes: usize_to_u64(cache.state_bytes),
@@ -425,6 +486,27 @@ fn health_metrics(state: &ServerState) -> (CoreReadiness, CoreHealthMetrics) {
             document_cache_hit_rate_ppm: cache_hit_rate_ppm,
             document_reconstruction_duration: health_duration(
                 state.document.reconstruction_metrics(),
+            ),
+            block_transfer_prepare_duration: health_duration(
+                block_transfer_metrics.page_parent_prepare,
+            ),
+            block_transfer_reconstruct_duration: health_duration(
+                block_transfer_metrics.page_parent_reconstruct,
+            ),
+            block_transfer_decode_duration: health_duration(
+                block_transfer_metrics.page_parent_decode,
+            ),
+            block_transfer_transform_duration: health_duration(
+                block_transfer_metrics.page_parent_transform,
+            ),
+            block_transfer_encode_duration: health_duration(
+                block_transfer_metrics.page_parent_encode,
+            ),
+            block_transfer_apply_duration: health_duration(
+                block_transfer_metrics.page_parent_apply,
+            ),
+            local_commit_publication_duration: health_duration(
+                state.metrics.local_commit_publication_duration(),
             ),
             commit_head: commit_head.unwrap_or_default(),
             event_replay_lag,
@@ -587,6 +669,118 @@ fn module_storage_name(module: ModuleName) -> &'static str {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum LocalCommitDeliveryAudience {
+    BoundScope,
+    HostLibraryBroker,
+}
+
+/// Command authorization and local delivery authorization are separate
+/// capabilities. The Electron Host coordinates every mounted Project surface,
+/// but its broker audience never rewrites or discards the command context.
+fn local_commit_delivery_audience(context: &BoundModuleContext) -> LocalCommitDeliveryAudience {
+    if context.adapter == AdapterKind::ElectronHost {
+        return LocalCommitDeliveryAudience::HostLibraryBroker;
+    }
+    LocalCommitDeliveryAudience::BoundScope
+}
+
+fn authorized_apply_packet(
+    state: &ServerState,
+    commit_seq: i64,
+    context: &BoundModuleContext,
+) -> Result<Option<AuthorizedDeliveryPacket>, StoreError> {
+    match local_commit_delivery_audience(context) {
+        LocalCommitDeliveryAudience::BoundScope => state
+            .event_log
+            .authorized_packet(commit_seq, context, None, true),
+        LocalCommitDeliveryAudience::HostLibraryBroker => state
+            .event_log
+            .authorized_packet_for_library_broker(commit_seq, context, true),
+    }
+}
+
+fn build_authorized_apply_response<T, R>(
+    state: &ServerState,
+    module: ModuleName,
+    operation_id: &str,
+    context: &BoundModuleContext,
+    duplicate: bool,
+    committed: ModuleWriterResult<T, R>,
+) -> Result<ApplyResponse<T, R>, CoreError> {
+    let stored = state
+        .store
+        .readers()
+        .read_default(|connection| {
+            read_module_receipt(connection, module_storage_name(module), operation_id)
+        })
+        .map_err(apply_response_store_error)?
+        .ok_or_else(|| apply_response_corrupt("Committed command receipt is unavailable"))?;
+    let ModuleWriterResult {
+        value: outcome,
+        receipt,
+        commit_seq: observed_commit_seq,
+        store_epoch,
+        ..
+    } = committed;
+    let Some(commit_seq) = stored.local_commit_seq else {
+        let response = ApplyResponse::NoOp {
+            outcome,
+            receipt,
+            observed: StoreObservation {
+                store_epoch,
+                commit_head: observed_commit_seq,
+            },
+        };
+        record_apply_response(&response, duplicate);
+        return Ok(response);
+    };
+    let commit = state
+        .event_log
+        .commit_identity(commit_seq)
+        .map_err(apply_response_store_error)?;
+    if commit.commit_seq != observed_commit_seq || commit.store_epoch != store_epoch {
+        return Err(apply_response_corrupt(
+            "Committed command result diverges from its manifest identity",
+        ));
+    }
+
+    // Publication is an at-least-once wake for already-durable authority, not
+    // a consequence of successfully reconstructing the caller's optional
+    // delivery. Republish exact retries as well: scanners and resource
+    // dispatchers deduplicate by commit/resource identity, while a retry may
+    // be the first observable wake after a post-commit response failure.
+    publish_local_commit(state, commit_seq, commit.store_epoch.0.clone());
+    let delivery =
+        authorized_apply_packet(state, commit_seq, context).map_err(apply_response_store_error)?;
+    let response = ApplyResponse::Committed {
+        outcome,
+        receipt,
+        commit,
+        delivery: delivery.map(Box::new),
+    };
+    record_apply_response(&response, duplicate);
+    Ok(response)
+}
+
+fn apply_response_store_error(error: StoreError) -> CoreError {
+    CoreError {
+        code: CoreErrorCode::CoreUnavailable,
+        message: error.message,
+        retryable: true,
+        recovery: CoreErrorRecovery::None,
+    }
+}
+
+fn apply_response_corrupt(message: &str) -> CoreError {
+    CoreError {
+        code: CoreErrorCode::StoreCorrupt,
+        message: message.to_owned(),
+        retryable: false,
+        recovery: CoreErrorRecovery::None,
+    }
+}
+
 async fn resolve_local_mutation(
     State(state): State<Arc<ServerState>>,
     Extension(bound): Extension<BoundConnection>,
@@ -657,9 +851,9 @@ async fn resolve_local_mutation(
             observed_hash: stored.request_hash,
         }));
     }
-    let local_commit = stored
+    let delivery = stored
         .local_commit_seq
-        .map(|commit_seq| state.event_log.local_commit(commit_seq))
+        .map(|commit_seq| authorized_apply_packet(&state, commit_seq, &context))
         .transpose()
         .map_err(|error| {
             ApiError::new(
@@ -672,7 +866,7 @@ async fn resolve_local_mutation(
         operation_id: request.operation_id,
         request_hash: stored.request_hash,
         result: stored.result,
-        local_commit: local_commit.map(Box::new),
+        delivery: delivery.flatten().map(Box::new),
     }))
 }
 
@@ -683,19 +877,24 @@ async fn library_apply(
     Json(LibraryApplyRequest(request)): Json<LibraryApplyRequest>,
 ) -> Json<LibraryApplyResponse> {
     record_operation("library", &request.operation_id);
+    let operation_id = request.operation_id.clone();
     let response = match module_context(&state, &headers, &bound) {
         Ok(context) => match state.library.apply(&context, request) {
             Ok(outcome) => {
-                record_commit(
-                    outcome.committed.event_sequence,
-                    outcome.committed.receipt.mutation.duplicate,
-                );
-                publish_committed_if_new(
+                let committed = outcome.committed;
+
+                let duplicate = committed.receipt.mutation.duplicate;
+                match build_authorized_apply_response(
                     &state,
-                    outcome.committed.receipt.mutation.duplicate,
-                    outcome.committed.local_commit.clone(),
-                );
-                ResponseEnvelope::Ok(outcome.committed)
+                    ModuleName::Library,
+                    &operation_id,
+                    &context,
+                    duplicate,
+                    committed,
+                ) {
+                    Ok(response) => ResponseEnvelope::Ok(response),
+                    Err(error) => ResponseEnvelope::Error(record_core_error(error)),
+                }
             }
             Err(error) => ResponseEnvelope::Error(record_core_error(error)),
         },
@@ -727,19 +926,24 @@ async fn database_apply(
     Json(DatabaseApplyRequest(request)): Json<DatabaseApplyRequest>,
 ) -> Json<DatabaseApplyResponse> {
     record_operation("database", &request.operation_id);
+    let operation_id = request.operation_id.clone();
     let response = match database_context(&state, &headers, &bound) {
         Ok(context) => match state.database.apply(&context, request) {
             Ok(outcome) => {
-                record_commit(
-                    outcome.committed.event_sequence,
-                    outcome.committed.receipt.mutation.duplicate,
-                );
-                publish_committed_if_new(
+                let committed = outcome.committed;
+
+                let duplicate = committed.receipt.mutation.duplicate;
+                match build_authorized_apply_response(
                     &state,
-                    outcome.committed.receipt.mutation.duplicate,
-                    outcome.committed.local_commit.clone(),
-                );
-                ResponseEnvelope::Ok(outcome.committed)
+                    ModuleName::Database,
+                    &operation_id,
+                    &context,
+                    duplicate,
+                    committed,
+                ) {
+                    Ok(response) => ResponseEnvelope::Ok(response),
+                    Err(error) => ResponseEnvelope::Error(record_core_error(error)),
+                }
             }
             Err(error) => ResponseEnvelope::Error(record_core_error(error)),
         },
@@ -771,19 +975,24 @@ async fn workspace_apply(
     Json(ProjectWorkspaceApplyRequest(request)): Json<ProjectWorkspaceApplyRequest>,
 ) -> Json<ProjectWorkspaceApplyResponse> {
     record_operation("project_workspace", &request.operation_id);
+    let operation_id = request.operation_id.clone();
     let response = match module_context(&state, &headers, &bound) {
         Ok(context) => match state.workspace.apply(&context, request) {
             Ok(outcome) => {
-                record_commit(
-                    outcome.committed.event_sequence,
-                    outcome.committed.receipt.mutation.duplicate,
-                );
-                publish_committed_if_new(
+                let committed = outcome.committed;
+
+                let duplicate = committed.receipt.mutation.duplicate;
+                match build_authorized_apply_response(
                     &state,
-                    outcome.committed.receipt.mutation.duplicate,
-                    outcome.committed.local_commit.clone(),
-                );
-                ResponseEnvelope::Ok(outcome.committed)
+                    ModuleName::ProjectWorkspace,
+                    &operation_id,
+                    &context,
+                    duplicate,
+                    committed,
+                ) {
+                    Ok(response) => ResponseEnvelope::Ok(response),
+                    Err(error) => ResponseEnvelope::Error(record_core_error(error)),
+                }
             }
             Err(error) => ResponseEnvelope::Error(record_core_error(error)),
         },
@@ -815,19 +1024,24 @@ async fn automation_apply(
     Json(AutomationApplyRequest(request)): Json<AutomationApplyRequest>,
 ) -> Json<AutomationApplyResponse> {
     record_operation("automation", &request.operation_id);
+    let operation_id = request.operation_id.clone();
     let response = match module_context(&state, &headers, &bound) {
         Ok(context) => match state.automation.apply(&context, request) {
             Ok(outcome) => {
-                record_commit(
-                    outcome.committed.event_sequence,
-                    outcome.committed.receipt.mutation.duplicate,
-                );
-                publish_committed_if_new(
+                let committed = outcome.committed;
+
+                let duplicate = committed.receipt.mutation.duplicate;
+                match build_authorized_apply_response(
                     &state,
-                    outcome.committed.receipt.mutation.duplicate,
-                    outcome.committed.local_commit.clone(),
-                );
-                ResponseEnvelope::Ok(outcome.committed)
+                    ModuleName::Automation,
+                    &operation_id,
+                    &context,
+                    duplicate,
+                    committed,
+                ) {
+                    Ok(response) => ResponseEnvelope::Ok(response),
+                    Err(error) => ResponseEnvelope::Error(record_core_error(error)),
+                }
             }
             Err(error) => ResponseEnvelope::Error(record_core_error(error)),
         },
@@ -859,6 +1073,7 @@ async fn administration_apply(
     Json(StoreAdministrationApplyRequest(request)): Json<StoreAdministrationApplyRequest>,
 ) -> Json<StoreAdministrationApplyResponse> {
     record_operation("store_administration", &request.operation_id);
+    let operation_id = request.operation_id.clone();
     let backup_started_at = matches!(
         &request.intent,
         StoreAdministrationIntent::CreateBackup { .. }
@@ -867,16 +1082,20 @@ async fn administration_apply(
     let response = match module_context(&state, &headers, &bound) {
         Ok(context) => match state.administration.apply(&context, request) {
             Ok(outcome) => {
-                record_commit(
-                    outcome.committed.event_sequence,
-                    outcome.committed.receipt.mutation.duplicate,
-                );
-                publish_committed_if_new(
+                let committed = outcome.committed;
+
+                let duplicate = committed.receipt.mutation.duplicate;
+                match build_authorized_apply_response(
                     &state,
-                    outcome.committed.receipt.mutation.duplicate,
-                    outcome.committed.local_commit.clone(),
-                );
-                ResponseEnvelope::Ok(outcome.committed)
+                    ModuleName::StoreAdministration,
+                    &operation_id,
+                    &context,
+                    duplicate,
+                    committed,
+                ) {
+                    Ok(response) => ResponseEnvelope::Ok(response),
+                    Err(error) => ResponseEnvelope::Error(record_core_error(error)),
+                }
             }
             Err(error) => ResponseEnvelope::Error(record_core_error(error)),
         },
@@ -965,6 +1184,7 @@ async fn document_apply(State(state): State<Arc<ServerState>>, request: Request)
         Err(_) => return json_document_apply_error(invalid("Document apply request is invalid")),
     };
     record_operation("owned_document", &request.operation_id);
+    let operation_id = request.operation_id.clone();
     let response = match document_context(&state, &headers, &bound) {
         Ok(context) => {
             let realtime_bound = matches!(
@@ -984,16 +1204,20 @@ async fn document_apply(State(state): State<Arc<ServerState>>, request: Request)
             };
             match result {
                 Ok(outcome) => {
-                    record_commit(
-                        outcome.committed.event_sequence,
-                        outcome.committed.receipt.mutation.duplicate,
-                    );
-                    publish_committed_if_new(
+                    let committed = outcome.committed;
+
+                    let duplicate = committed.receipt.mutation.duplicate;
+                    match build_authorized_apply_response(
                         &state,
-                        outcome.committed.receipt.mutation.duplicate,
-                        outcome.committed.local_commit.clone(),
-                    );
-                    ResponseEnvelope::Ok(outcome.committed)
+                        ModuleName::OwnedDocument,
+                        &operation_id,
+                        &context,
+                        duplicate,
+                        committed,
+                    ) {
+                        Ok(response) => ResponseEnvelope::Ok(response),
+                        Err(error) => ResponseEnvelope::Error(record_core_error(error)),
+                    }
                 }
                 Err(error) => ResponseEnvelope::Error(record_core_error(error)),
             }
@@ -1140,15 +1364,16 @@ fn binary_document_apply(
                         },
                     },
                 )?;
-                record_commit(
-                    outcome.committed.event_sequence,
-                    outcome.committed.receipt.mutation.duplicate,
-                );
-                publish_committed_if_new(
+
+                let duplicate = outcome.committed.receipt.mutation.duplicate;
+                let response = build_authorized_apply_response(
                     state,
-                    outcome.committed.receipt.mutation.duplicate,
-                    outcome.committed.local_commit.clone(),
-                );
+                    ModuleName::OwnedDocument,
+                    &update_id,
+                    &context,
+                    duplicate,
+                    outcome.committed,
+                )?;
                 let snapshot = state.document_realtime.sync_yjs(
                     &context,
                     &metadata.client_session_id,
@@ -1156,7 +1381,7 @@ fn binary_document_apply(
                     Vec::new(),
                 )?;
                 let sync = document_wire::parse_yjs_sync(snapshot)?;
-                document_wire::encode_apply_ack(&outcome.committed, &update_id, &sync)
+                document_wire::encode_apply_ack(&response, &update_id, &sync)
             }
             ApplyFrame::Awareness(metadata, update) => {
                 if bytes.len() > document_wire::MAX_AWARENESS_FRAME_BYTES {
@@ -1208,257 +1433,336 @@ async fn events(
     Query(query): Query<EventQuery>,
 ) -> Result<Sse<impl futures_core::Stream<Item = Result<Event, Infallible>>>, ApiError> {
     let mut receiver = state.event_sender.subscribe();
-    let mut document_receiver = state.document_sender.subscribe();
-    let requested_document_id =
-        optional_header(&headers, DOCUMENT_HEADER, "Document").map_err(api_core_error)?;
-    let requested_client_session_id = requested_document_id
-        .as_ref()
-        .map(|_| required_header(&headers, CLIENT_SESSION_HEADER, "Document client session"))
-        .transpose()
-        .map_err(api_core_error)?;
-    let subscription_key = requested_client_session_id
-        .as_ref()
-        .map_or(EventSubscriptionKey::Global, |client_session_id| {
-            EventSubscriptionKey::Document(client_session_id.clone())
-        });
+    if query.after < 0 {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "Event sequence must be non-negative",
+        ));
+    }
+    if optional_header(&headers, DOCUMENT_HEADER, "Document")
+        .map_err(api_core_error)?
+        .is_some()
+    {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "Global event streams cannot bind an exact Document",
+        ));
+    }
     let event_subscription = state
         .connections
-        .acquire_event_subscription(&bound.id, subscription_key)
+        .acquire_event_subscription(&bound.id, EventSubscriptionKey::Global)
         .map_err(connection_registry_error)?;
-    let (
-        replay,
-        replay_head,
-        core_resync,
-        document_resync,
-        document_boundary,
-        initial_awareness,
-        connection_id,
-        disconnect,
-    ) = if let Some(document_id) = requested_document_id.as_ref() {
-        let context = document_context(&state, &headers, &bound).map_err(api_core_error)?;
-        let client_session_id = requested_client_session_id
-            .as_ref()
-            .expect("Document subscription validated a client session")
-            .clone();
-        let subscription = state
-            .document_realtime
-            .subscribe(&context, document_id.clone(), client_session_id.clone())
-            .map_err(api_core_error)?;
-        let subscription_guard = DocumentSubscriptionGuard {
-            adapter: state.document_realtime.clone(),
-            connection_id: context.connection_id.clone(),
-            client_session_id: client_session_id.clone(),
-            sender: state.document_sender.clone(),
-        };
-        let replay = state.event_log.replay(query.after, None).map_err(|error| {
-            ApiError::new(
-                StatusCode::CONFLICT,
-                format!(
-                    "Document local commit replay is unavailable: {}",
-                    error.message
-                ),
-            )
-        })?;
-        let document_boundary = serde_json::json!({
-            "document_id": subscription.document_id,
-            "store_epoch": subscription.store_epoch,
-            "generation": subscription.generation,
-            "head_seq": subscription.head_seq,
-            "commit_head": match &replay {
-                CoreEventReplay::Events { commit_head, .. }
-                | CoreEventReplay::ResyncRequired { commit_head, .. } => *commit_head,
-            },
-        });
-        let (committed, resync) = match replay {
-            CoreEventReplay::Events { events, .. } => (
-                events
-                    .into_iter()
-                    .filter_map(|event| scope_local_commit_to_document(event, document_id))
-                    .collect(),
-                None,
-            ),
-            CoreEventReplay::ResyncRequired { commit_head, .. } => (
-                Vec::new(),
-                Some(serde_json::json!({
-                    "document_id": document_id,
-                    "store_epoch": subscription.store_epoch,
-                    "generation": subscription.generation,
-                    "head_seq": subscription.head_seq,
-                    "commit_head": commit_head,
-                })),
-            ),
-        };
-        let replay_head = document_boundary
-            .get("commit_head")
-            .and_then(serde_json::Value::as_i64)
-            .unwrap_or(query.after);
-        (
-            committed,
-            replay_head,
-            None,
-            resync,
-            Some(document_boundary),
-            subscription
-                .awareness_update
-                .map(|update| DocumentRealtimeEvent::Awareness {
-                    document_id: subscription.document_id,
-                    store_epoch: subscription.store_epoch,
-                    generation: subscription.generation,
-                    client_session_id: "core:awareness-snapshot".to_owned(),
-                    update,
-                }),
-            Some(context.connection_id.clone()),
-            Some(subscription_guard),
-        )
-    } else {
-        match state.event_log.replay(query.after, None).map_err(|error| {
-            ApiError::new(
-                StatusCode::CONFLICT,
-                format!("Core event replay is unavailable: {}", error.message),
-            )
-        })? {
-            CoreEventReplay::Events {
-                events,
-                commit_head,
-            } => (
-                events
-                    .into_iter()
-                    .map(|event| EventEnvelope {
-                        transport_version: TRANSPORT_PROTOCOL_MAX,
-                        event,
-                    })
-                    .collect(),
-                commit_head,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-            ),
-            CoreEventReplay::ResyncRequired {
-                requested_after,
-                oldest_available,
-                commit_head,
-            } => (
-                Vec::new(),
-                commit_head,
-                Some(EventReplayRequired {
-                    requested_after,
-                    oldest_available,
-                    commit_head,
-                }),
-                None,
-                None,
-                None,
-                None,
-                None,
-            ),
-        }
-    };
-    state
-        .metrics
-        .record_event_replay_lag(replay_head, query.after);
-    let replay_count = u64::try_from(replay.len()).unwrap_or(u64::MAX);
-    if core_resync.is_some() || document_resync.is_some() {
-        tracing::warn!(
-            requestedAfter = query.after,
-            eventHead = replay_head,
-            replayCount = replay_count,
-            "Core event subscription requires resynchronization"
-        );
-    } else {
-        tracing::debug!(
-            requestedAfter = query.after,
-            eventHead = replay_head,
-            replayCount = replay_count,
-            "Core event subscription opened"
-        );
-    }
+    let context = module_context(&state, &headers, &bound).map_err(api_core_error)?;
+    let generation = descriptor_snapshot(&state).start_nonce;
     let event_log = state.event_log.clone();
+    let stream_context = context.clone();
+    let stream_generation = generation.clone();
+    let stream_metrics = state.metrics.clone();
     let mut stream_shutdown = state.lifecycle.subscribe_stream_shutdown();
     let stream = async_stream::stream! {
         let _event_subscription = event_subscription;
-        let _disconnect = disconnect;
-        let mut last_delivered = query.after;
-        for envelope in replay {
-            last_delivered = envelope.event.commit_seq;
-            yield Ok(sse_event(&envelope));
-        }
-        if let Some(resync) = core_resync {
-            yield Ok(sse_core_resync(&resync));
-            return;
-        }
-        if let Some(resync) = document_resync {
-            yield Ok(Event::default()
-                .event("document-resync-required")
-                .data(serde_json::to_string(&resync).expect("resync event serializes")));
-        }
-        if let Some(awareness) = initial_awareness {
-            yield Ok(sse_document_realtime_event(&awareness));
-        }
+        let mut scanned_through = query.after;
+        let mut opening = true;
+        let mut opening_packet_count = 0_u64;
         loop {
+            loop {
+                match scan_authorized(
+                    event_log.clone(),
+                    scanned_through,
+                    stream_generation.clone(),
+                    stream_context.clone(),
+                ).await {
+                    Ok(CoreAuthorizedEventReplay::Scan { packets, checkpoint, commit_head }) => {
+                        if opening {
+                            stream_metrics.record_event_replay_lag(commit_head, query.after);
+                            opening_packet_count = opening_packet_count.saturating_add(
+                                u64::try_from(packets.len()).unwrap_or(u64::MAX),
+                            );
+                        }
+                        for packet in packets {
+                            yield Ok(sse_event(&EventEnvelope {
+                                transport_version: TRANSPORT_PROTOCOL_MAX,
+                                packet,
+                            }));
+                        }
+                        let previous = scanned_through;
+                        scanned_through = checkpoint.scanned_through_seq;
+                        yield Ok(sse_stream_checkpoint(&checkpoint));
+                        if scanned_through >= commit_head {
+                            if opening {
+                                tracing::debug!(
+                                    requestedAfter = query.after,
+                                    eventHead = commit_head,
+                                    replayCount = opening_packet_count,
+                                    "Core event subscription opened"
+                                );
+                                opening = false;
+                            }
+                            break;
+                        }
+                        if scanned_through <= previous {
+                            yield Ok(sse_core_resync(&EventReplayRequired {
+                                requested_after: previous,
+                                oldest_available: checkpoint.oldest_available_seq,
+                                commit_head,
+                                generation: stream_generation.clone(),
+                                resync_token: checkpoint.resync_token.clone().unwrap_or_else(|| {
+                                    format!("{}:{previous}:{commit_head}", stream_generation)
+                                }),
+                            }));
+                            return;
+                        }
+                    }
+                    Ok(CoreAuthorizedEventReplay::ResyncRequired {
+                        requested_after,
+                        oldest_available,
+                        commit_head,
+                        resync_token,
+                    }) => {
+                        stream_metrics.record_event_replay_lag(commit_head, query.after);
+                        tracing::warn!(
+                            requestedAfter = requested_after,
+                            eventHead = commit_head,
+                            replayCount = opening_packet_count,
+                            "Core event subscription requires resynchronization"
+                        );
+                        yield Ok(sse_core_resync(&EventReplayRequired {
+                            requested_after,
+                            oldest_available,
+                            commit_head,
+                            generation: stream_generation.clone(),
+                            resync_token,
+                        }));
+                        return;
+                    }
+                    Err(error) => {
+                        tracing::error!(error = %error.message, "Authorized commit scanner failed");
+                        return;
+                    }
+                }
+            }
+
+            let mut rescan = false;
+            let mut wake_channel_closed = false;
+            loop {
+                match receiver.try_recv() {
+                    Ok(commit_seq) => rescan |= commit_seq > scanned_through,
+                    Err(broadcast::error::TryRecvError::Lagged(_)) => rescan = true,
+                    Err(broadcast::error::TryRecvError::Empty) => break,
+                    Err(broadcast::error::TryRecvError::Closed) => {
+                        wake_channel_closed = true;
+                        break;
+                    }
+                }
+            }
+            if wake_channel_closed {
+                break;
+            }
+            if rescan {
+                continue;
+            }
             tokio::select! {
                 () = LifecycleCoordinator::wait_for_stream_shutdown(&mut stream_shutdown) => {
                     break;
                 }
                 received = receiver.recv() => match received {
-                    Ok(envelope) => {
-                        if envelope.event.commit_seq <= replay_head {
+                    Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(broadcast::error::RecvError::Closed) => break,
+                },
+            }
+        }
+    };
+    Ok(Sse::new(stream))
+}
+
+async fn document_live_events(
+    State(state): State<Arc<ServerState>>,
+    Extension(bound): Extension<BoundConnection>,
+    headers: HeaderMap,
+) -> Result<Sse<impl futures_core::Stream<Item = Result<Event, Infallible>>>, ApiError> {
+    let document_id =
+        required_header(&headers, DOCUMENT_HEADER, "Document").map_err(api_core_error)?;
+    let client_session_id =
+        required_header(&headers, CLIENT_SESSION_HEADER, "Document client session")
+            .map_err(api_core_error)?;
+    let event_subscription = state
+        .connections
+        .acquire_event_subscription(
+            &bound.id,
+            EventSubscriptionKey::Document(client_session_id.clone()),
+        )
+        .map_err(connection_registry_error)?;
+    let context = document_context(&state, &headers, &bound).map_err(api_core_error)?;
+
+    // Both receivers are installed before the atomic authorization/read
+    // barrier. Notices at or below that barrier are harmless duplicates;
+    // every later addressed commit is guaranteed to be observed.
+    let mut live_subscription = state.document_live.subscribe(document_id.clone());
+    let subscription = state
+        .document_realtime
+        .subscribe(&context, document_id.clone(), client_session_id.clone())
+        .map_err(api_core_error)?;
+    let generation = descriptor_snapshot(&state).start_nonce;
+    let barrier = DocumentLiveBarrier {
+        store_epoch: subscription.store_epoch.clone(),
+        core_generation: generation.clone(),
+        document_id: subscription.document_id.clone(),
+        document_generation: subscription.generation,
+        head_seq: subscription.head_seq,
+        commit_head: subscription.commit_head,
+        engine: match subscription.engine {
+            nodex_core::document::DocumentSubscriptionEngine::Yjs => DocumentLiveEngine::Yjs,
+            nodex_core::document::DocumentSubscriptionEngine::CanvasScene => {
+                DocumentLiveEngine::CanvasScene
+            }
+        },
+    };
+    let initial_awareness =
+        subscription
+            .awareness_update
+            .map(|update| DocumentRealtimeEvent::Awareness {
+                document_id: subscription.document_id,
+                store_epoch: subscription.store_epoch,
+                generation: subscription.generation,
+                client_session_id: "core:awareness-snapshot".to_owned(),
+                update,
+            });
+    let disconnect = DocumentSubscriptionGuard {
+        adapter: state.document_realtime.clone(),
+        connection_id: context.connection_id.clone(),
+        client_session_id,
+        live_hub: state.document_live.clone(),
+    };
+    let connection_id = context.connection_id.clone();
+    let event_log = state.event_log.clone();
+    let mut stream_shutdown = state.lifecycle.subscribe_stream_shutdown();
+    tracing::debug!(
+        documentId = barrier.document_id,
+        commitHead = barrier.commit_head,
+        documentHead = barrier.head_seq,
+        "Exact Document live session opened"
+    );
+
+    let stream_barrier = barrier.clone();
+    let stream = async_stream::stream! {
+        let _event_subscription = event_subscription;
+        let _disconnect = disconnect;
+        yield Ok(sse_document_live_barrier(&stream_barrier));
+        if let Some(awareness) = initial_awareness {
+            yield Ok(sse_document_realtime_event(&awareness));
+        }
+        loop {
+            let (live_receiver, realtime_receiver) = live_subscription.receivers();
+            tokio::select! {
+                () = LifecycleCoordinator::wait_for_stream_shutdown(&mut stream_shutdown) => {
+                    break;
+                }
+                received = live_receiver.recv() => match received {
+                    Ok(DocumentLiveNotice::Commit(commit_seq)) => {
+                        if commit_seq <= stream_barrier.commit_head {
                             continue;
                         }
-                        last_delivered = envelope.event.commit_seq;
-                        if let Some(document_id) = requested_document_id.as_deref() {
-                            let Some(scoped) = scope_local_commit_to_document(
-                                envelope.event.clone(),
-                                document_id,
-                            ) else {
-                                continue;
-                            };
-                            yield Ok(sse_event(&scoped));
-                        } else {
-                            yield Ok(sse_event(&envelope));
+                        match resolve_document_live_delivery(
+                            event_log.clone(),
+                            commit_seq,
+                            context.clone(),
+                            stream_barrier.document_id.clone(),
+                            stream_barrier.store_epoch.clone(),
+                            stream_barrier.core_generation.clone(),
+                            stream_barrier.commit_head,
+                        ).await {
+                            Ok(DocumentLiveDelivery::Packet(packet)) => {
+                                yield Ok(sse_event(&EventEnvelope {
+                                    transport_version: TRANSPORT_PROTOCOL_MAX,
+                                    packet: *packet,
+                                }));
+                            }
+                            Ok(DocumentLiveDelivery::Unrelated) => {}
+                            Ok(DocumentLiveDelivery::AccessRevoked) => {
+                                yield Ok(sse_document_live_repair_at(
+                                    &stream_barrier,
+                                    stream_barrier.store_epoch.clone(),
+                                    commit_seq,
+                                    DocumentLiveRepairReason::AccessRevoked,
+                                ));
+                                return;
+                            }
+                            Ok(DocumentLiveDelivery::IdentityChanged(checkpoint)) => {
+                                yield Ok(sse_document_live_repair_at(
+                                    &stream_barrier,
+                                    checkpoint.store_epoch,
+                                    checkpoint.scanned_through_seq,
+                                    DocumentLiveRepairReason::IdentityChanged,
+                                ));
+                                return;
+                            }
+                            Err(error) => {
+                                tracing::error!(
+                                    error = %error.message,
+                                    documentId = stream_barrier.document_id,
+                                    commitSequence = commit_seq,
+                                    "Exact Document live delivery failed"
+                                );
+                                yield Ok(sse_document_live_repair_at(
+                                    &stream_barrier,
+                                    stream_barrier.store_epoch.clone(),
+                                    commit_seq,
+                                    DocumentLiveRepairReason::PayloadUnavailable,
+                                ));
+                                return;
+                            }
                         }
                     }
+                    Ok(DocumentLiveNotice::Repair { store_epoch, commit_head, reason }) => {
+                        let reason = match reason {
+                            DocumentLiveRepairKind::IdentityChanged => {
+                                DocumentLiveRepairReason::IdentityChanged
+                            }
+                            DocumentLiveRepairKind::PayloadUnavailable => {
+                                DocumentLiveRepairReason::PayloadUnavailable
+                            }
+                        };
+                        yield Ok(sse_document_live_repair_at(
+                            &stream_barrier,
+                            StoreEpoch(store_epoch),
+                            commit_head,
+                            reason,
+                        ));
+                        return;
+                    }
                     Err(broadcast::error::RecvError::Lagged(_)) => {
-                        if let Some(boundary) = document_boundary.as_ref() {
-                            yield Ok(Event::default()
-                                .event("document-resync-required")
-                                .data(serde_json::to_string(boundary).expect("resync event serializes")));
-                        } else {
-                            let commit_head = event_log.head().unwrap_or(last_delivered);
-                            yield Ok(sse_core_resync(&EventReplayRequired {
-                                requested_after: last_delivered,
-                                oldest_available: last_delivered.saturating_add(1),
-                                commit_head,
-                            }));
-                        }
-                        break;
+                        yield Ok(sse_document_live_repair_at(
+                            &stream_barrier,
+                            stream_barrier.store_epoch.clone(),
+                            stream_barrier.commit_head,
+                            DocumentLiveRepairReason::ReceiverLagged,
+                        ));
+                        return;
                     }
                     Err(broadcast::error::RecvError::Closed) => break,
                 },
-                received = document_receiver.recv() => match received {
+                received = realtime_receiver.recv() => match received {
                     Ok(publication) => {
-                        let Some(connection_id) = connection_id.as_deref() else {
-                            continue;
-                        };
-                        if !publication.recipient_connections.iter().any(|recipient| recipient == connection_id) {
+                        if !publication.recipient_connections.iter().any(
+                            |recipient| recipient == &connection_id,
+                        ) {
                             continue;
                         }
-                        if let Some(document_id) = requested_document_id.as_deref()
-                            && realtime_event_document_id(&publication.event) != document_id
+                        if realtime_event_document_id(&publication.event)
+                            != stream_barrier.document_id
                         {
                             continue;
                         }
                         yield Ok(sse_document_realtime_event(&publication.event));
                     }
                     Err(broadcast::error::RecvError::Lagged(_)) => {
-                        if let Some(boundary) = document_boundary.as_ref() {
-                            yield Ok(Event::default()
-                                .event("document-resync-required")
-                                .data(serde_json::to_string(boundary).expect("resync event serializes")));
-                        }
-                        break;
+                        yield Ok(sse_document_live_repair_at(
+                            &stream_barrier,
+                            stream_barrier.store_epoch.clone(),
+                            stream_barrier.commit_head,
+                            DocumentLiveRepairReason::ReceiverLagged,
+                        ));
+                        return;
                     }
                     Err(broadcast::error::RecvError::Closed) => break,
                 }
@@ -1466,6 +1770,51 @@ async fn events(
         }
     };
     Ok(Sse::new(stream))
+}
+
+async fn scan_authorized(
+    event_log: CoreEventLog,
+    after: i64,
+    generation: String,
+    context: BoundModuleContext,
+) -> Result<CoreAuthorizedEventReplay, StoreError> {
+    tokio::task::spawn_blocking(move || {
+        event_log.scan_authorized(after, Some(1_024), &generation, &context, None)
+    })
+    .await
+    .map_err(blocking_event_delivery_error)?
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn resolve_document_live_delivery(
+    event_log: CoreEventLog,
+    commit_seq: i64,
+    context: BoundModuleContext,
+    document_id: String,
+    store_epoch: StoreEpoch,
+    generation: String,
+    live_after: i64,
+) -> Result<DocumentLiveDelivery, StoreError> {
+    tokio::task::spawn_blocking(move || {
+        event_log.authorized_document_live_delivery(
+            commit_seq,
+            &context,
+            &document_id,
+            &store_epoch,
+            &generation,
+            live_after,
+        )
+    })
+    .await
+    .map_err(blocking_event_delivery_error)?
+}
+
+fn blocking_event_delivery_error(error: tokio::task::JoinError) -> StoreError {
+    StoreError::new(
+        StoreErrorCode::Internal,
+        format!("Event delivery worker failed: {error}"),
+        false,
+    )
 }
 
 async fn shutdown(
@@ -1611,6 +1960,7 @@ fn router(state: Arc<ServerState>) -> Router {
     let document_routes = Router::new()
         .route("/core/v1/modules/document/read", post(document_read))
         .route("/core/v1/modules/document/apply", post(document_apply))
+        .route("/core/v1/modules/document/live", get(document_live_events))
         .layer(middleware::from_fn_with_state(
             Arc::clone(&state),
             bind_connection,
@@ -1708,7 +2058,7 @@ fn json_document_apply_error(error: CoreError) -> Response {
 }
 
 fn require_wire_version(version: u32) -> Result<(), CoreError> {
-    if version == 2 {
+    if version == 3 {
         return Ok(());
     }
     Err(invalid("Document binary frame version is unsupported"))
@@ -1834,7 +2184,7 @@ struct DocumentSubscriptionGuard {
     adapter: OwnedDocumentRealtimeAdapter,
     connection_id: String,
     client_session_id: String,
-    sender: broadcast::Sender<DocumentTransportPublication>,
+    live_hub: DocumentLiveHub,
 }
 
 impl Drop for DocumentSubscriptionGuard {
@@ -1846,10 +2196,7 @@ impl Drop for DocumentSubscriptionGuard {
             return;
         };
         if let Some(publication) = publication {
-            let _ = self.sender.send(DocumentTransportPublication {
-                event: publication.event,
-                recipient_connections: publication.recipient_connections,
-            });
+            self.live_hub.publish_awareness(publication);
         }
     }
 }
@@ -1999,98 +2346,14 @@ fn connection_registry_error(error: ConnectionRegistryError) -> ApiError {
     ApiError::new(status, error.message)
 }
 
-fn payload_document_id(payload: &CoreModuleEventPayload) -> Option<&str> {
-    match payload {
-        CoreModuleEventPayload::OwnedDocument(event) => match event {
-            nodex_core_contracts::document::OwnedDocumentEvent::DocumentUpdated {
-                document_id,
-                ..
-            }
-            | nodex_core_contracts::document::OwnedDocumentEvent::DocumentResyncRequired {
-                document_id,
-                ..
-            }
-            | nodex_core_contracts::document::OwnedDocumentEvent::CanvasUpdated {
-                document_id,
-                ..
-            }
-            | nodex_core_contracts::document::OwnedDocumentEvent::CanvasGenerationChanged {
-                document_id,
-                ..
-            }
-            | nodex_core_contracts::document::OwnedDocumentEvent::DocumentInvalidated {
-                document_id,
-                ..
-            } => Some(document_id),
-        },
-        _ => None,
-    }
-}
-
-fn scope_local_commit_to_document(
-    commit: LocalCommitEnvelope,
-    document_id: &str,
-) -> Option<EventEnvelope> {
-    let effects = commit
-        .effects
-        .iter()
-        .filter(|effect| payload_document_id(&effect.payload) == Some(document_id))
-        .cloned()
-        .collect::<Vec<_>>();
-    if effects.is_empty() {
-        return None;
-    }
-    let payload = effects
-        .first()
-        .map(|effect| effect.payload.clone())
-        .unwrap_or_else(|| commit.payload.clone());
-    Some(EventEnvelope {
-        transport_version: TRANSPORT_PROTOCOL_MAX,
-        event: LocalCommitEnvelope {
-            payload,
-            effects,
-            ..commit
-        },
-    })
-}
-
 fn realtime_event_document_id(event: &DocumentRealtimeEvent) -> &str {
     match event {
-        DocumentRealtimeEvent::Committed(event) => match &event.payload {
-            CoreModuleEventPayload::OwnedDocument(event) => match event {
-                nodex_core_contracts::document::OwnedDocumentEvent::DocumentUpdated {
-                    document_id,
-                    ..
-                }
-                | nodex_core_contracts::document::OwnedDocumentEvent::DocumentResyncRequired {
-                    document_id,
-                    ..
-                }
-                | nodex_core_contracts::document::OwnedDocumentEvent::CanvasUpdated {
-                    document_id,
-                    ..
-                }
-                | nodex_core_contracts::document::OwnedDocumentEvent::CanvasGenerationChanged {
-                    document_id,
-                    ..
-                }
-                | nodex_core_contracts::document::OwnedDocumentEvent::DocumentInvalidated {
-                    document_id,
-                    ..
-                } => document_id,
-            },
-            _ => "",
-        },
-        DocumentRealtimeEvent::Awareness { document_id, .. }
-        | DocumentRealtimeEvent::ResyncRequired { document_id, .. } => document_id,
+        DocumentRealtimeEvent::Awareness { document_id, .. } => document_id,
     }
 }
 
 fn publish_document_transport(state: &ServerState, publication: AwarenessPublication) {
-    let _ = state.document_sender.send(DocumentTransportPublication {
-        event: publication.event,
-        recipient_connections: publication.recipient_connections,
-    });
+    state.document_live.publish_awareness(publication);
 }
 
 fn record_operation(module: &str, operation_id: &str) {
@@ -2106,227 +2369,78 @@ fn log_identity(identity: &str) -> String {
     format!("sha256:{}", &hex::encode(digest)[..32])
 }
 
-fn record_commit(event_sequence: i64, duplicate: bool) {
-    tracing::debug!(
-        eventSequence = event_sequence,
-        duplicate,
-        "Core mutation receipt resolved"
-    );
-}
-
-fn publish_committed_if_new(
-    state: &ServerState,
-    duplicate: bool,
-    commit: Option<nodex_core_contracts::LocalCommitEnvelope>,
-) {
-    if duplicate {
-        return;
-    }
-    let Some(commit) = commit else {
-        return;
-    };
-    publish_local_commit(state, commit);
-}
-
-fn publish_local_commit(state: &ServerState, commit: nodex_core_contracts::LocalCommitEnvelope) {
-    let (module, event_kind, resource_id, resource_count, generation, head_sequence) =
-        event_log_metadata(&commit.payload);
-    let operation_id = commit.operation_id.as_deref().map(log_identity);
-    let resource_id = resource_id.map(log_identity);
-    tracing::debug!(
-        module,
-        eventKind = event_kind,
-        commitSequence = commit.commit_seq,
-        operationId = operation_id.as_deref().unwrap_or("none"),
-        resourceIdHash = resource_id.as_deref().unwrap_or("none"),
-        resourceCount = resource_count,
-        generation = generation.unwrap_or_default(),
-        headSequence = head_sequence.unwrap_or_default(),
-        "Core event published"
-    );
-    let envelope = EventEnvelope {
-        transport_version: TRANSPORT_PROTOCOL_MAX,
-        event: commit,
-    };
-    let _ = state.event_sender.send(envelope);
-}
-
-fn event_log_metadata(
-    payload: &CoreModuleEventPayload,
-) -> (
-    &'static str,
-    &'static str,
-    Option<&str>,
-    u64,
-    Option<i64>,
-    Option<i64>,
-) {
-    match payload {
-        CoreModuleEventPayload::Library(event) => (
-            "library",
-            "library_changed",
-            event
-                .page_ids
-                .first()
-                .or_else(|| event.database_ids.first())
-                .or_else(|| event.parent_keys.first())
-                .map(String::as_str),
-            collection_count(&[
-                event.page_ids.len(),
-                event.database_ids.len(),
-                event.parent_keys.len(),
-            ]),
-            None,
-            None,
+fn record_apply_response<T, R>(response: &ApplyResponse<T, R>, duplicate: bool) {
+    match response {
+        ApplyResponse::Committed { commit, .. } => tracing::debug!(
+            commitSequence = commit.commit_seq,
+            duplicate,
+            status = "committed",
+            "Core mutation receipt resolved"
         ),
-        CoreModuleEventPayload::Database(event) => (
-            "database",
-            "database_changed",
-            event
-                .database_ids
-                .first()
-                .or_else(|| event.data_source_ids.first())
-                .or_else(|| event.page_ids.first())
-                .or_else(|| event.view_ids.first())
-                .map(String::as_str),
-            collection_count(&[
-                event.database_ids.len(),
-                event.data_source_ids.len(),
-                event.page_ids.len(),
-                event.view_ids.len(),
-            ]),
-            None,
-            None,
-        ),
-        CoreModuleEventPayload::OwnedDocument(event) => match event {
-            nodex_core_contracts::document::OwnedDocumentEvent::DocumentUpdated {
-                document_id,
-                generation,
-                head_seq,
-                ..
-            } => (
-                "owned_document",
-                "document_updated",
-                Some(document_id),
-                1,
-                Some(*generation),
-                Some(*head_seq),
-            ),
-            nodex_core_contracts::document::OwnedDocumentEvent::DocumentResyncRequired {
-                document_id,
-                generation,
-                head_seq,
-                ..
-            } => (
-                "owned_document",
-                "document_resync_required",
-                Some(document_id),
-                1,
-                Some(*generation),
-                Some(*head_seq),
-            ),
-            nodex_core_contracts::document::OwnedDocumentEvent::CanvasUpdated {
-                document_id,
-                generation,
-                head_seq,
-                ..
-            } => (
-                "owned_document",
-                "canvas_updated",
-                Some(document_id),
-                1,
-                Some(*generation),
-                Some(*head_seq),
-            ),
-            nodex_core_contracts::document::OwnedDocumentEvent::CanvasGenerationChanged {
-                document_id,
-                generation,
-                head_seq,
-                ..
-            } => (
-                "owned_document",
-                "canvas_generation_changed",
-                Some(document_id),
-                1,
-                Some(*generation),
-                Some(*head_seq),
-            ),
-            nodex_core_contracts::document::OwnedDocumentEvent::DocumentInvalidated {
-                document_id,
-                ..
-            } => (
-                "owned_document",
-                "document_invalidated",
-                Some(document_id),
-                1,
-                None,
-                None,
-            ),
-        },
-        CoreModuleEventPayload::ProjectWorkspace(event) => (
-            "project_workspace",
-            "workspace_changed",
-            event
-                .project_ids
-                .first()
-                .or_else(|| event.session_ids.first())
-                .or_else(|| event.thread_ids.first())
-                .map(String::as_str),
-            collection_count(&[
-                event.project_ids.len(),
-                event.session_ids.len(),
-                event.thread_ids.len(),
-            ]),
-            None,
-            None,
-        ),
-        CoreModuleEventPayload::Automation(event) => (
-            "automation",
-            "automation_changed",
-            event
-                .automation_ids
-                .first()
-                .or_else(|| event.lease_ids.first())
-                .or_else(|| event.run_ids.first())
-                .or_else(|| event.reminder_lease_ids.first())
-                .or_else(|| event.page_ids.first())
-                .or_else(|| event.document_ids.first())
-                .or_else(|| event.database_ids.first())
-                .map(String::as_str),
-            collection_count(&[
-                event.automation_ids.len(),
-                event.lease_ids.len(),
-                event.run_ids.len(),
-                event.reminder_lease_ids.len(),
-                event.snooze_ids.len(),
-                event.page_ids.len(),
-                event.document_ids.len(),
-                event.database_ids.len(),
-            ]),
-            None,
-            None,
-        ),
-        CoreModuleEventPayload::StoreAdministration(event) => (
-            "store_administration",
-            "store_administration_changed",
-            event.backup_ids.first().map(String::as_str),
-            collection_count(&[event.backup_ids.len()]),
-            None,
-            None,
+        ApplyResponse::NoOp { observed, .. } => tracing::debug!(
+            observedCommitHead = observed.commit_head,
+            duplicate,
+            status = "no_op",
+            "Core mutation receipt resolved"
         ),
     }
 }
 
-fn collection_count(lengths: &[usize]) -> u64 {
-    let count = lengths.iter().copied().fold(0_usize, usize::saturating_add);
-    u64::try_from(count).unwrap_or(u64::MAX)
+fn publish_local_commit(state: &ServerState, commit_seq: i64, store_epoch: String) {
+    let started_at = Instant::now();
+    tracing::debug!(
+        commitSequence = commit_seq,
+        "Core commit scanner wake published"
+    );
+    let _ = state.event_sender.send(commit_seq);
+    state
+        .document_live_publisher
+        .publish(commit_seq, store_epoch);
+    state
+        .metrics
+        .record_local_commit_publication(started_at.elapsed());
 }
 
 fn sse_event(envelope: &EventEnvelope) -> Event {
     Event::default()
         .event("module")
-        .id(envelope.event.commit_seq.to_string())
+        .id(envelope.packet.manifest.identity.commit_seq.to_string())
         .data(serde_json::to_string(envelope).expect("event envelope serializes"))
+}
+
+fn sse_stream_checkpoint(checkpoint: &StreamCheckpoint) -> Event {
+    Event::default()
+        .event("stream-checkpoint")
+        .id(checkpoint.scanned_through_seq.to_string())
+        .data(serde_json::to_string(checkpoint).expect("stream checkpoint serializes"))
+}
+
+fn sse_document_live_barrier(barrier: &DocumentLiveBarrier) -> Event {
+    Event::default()
+        .event("document-live-opened")
+        .data(serde_json::to_string(barrier).expect("Document live barrier serializes"))
+}
+
+fn sse_document_live_repair(repair: &DocumentLiveRepair) -> Event {
+    Event::default()
+        .event("document-live-repair")
+        .data(serde_json::to_string(repair).expect("Document live repair serializes"))
+}
+
+fn sse_document_live_repair_at(
+    barrier: &DocumentLiveBarrier,
+    store_epoch: StoreEpoch,
+    commit_head: i64,
+    reason: DocumentLiveRepairReason,
+) -> Event {
+    sse_document_live_repair(&DocumentLiveRepair {
+        document_id: barrier.document_id.clone(),
+        store_epoch,
+        document_generation: barrier.document_generation,
+        head_seq: barrier.head_seq,
+        commit_head,
+        reason,
+    })
 }
 
 fn sse_core_resync(resync: &EventReplayRequired) -> Event {
@@ -2523,15 +2637,23 @@ pub async fn run_with_selection(
     let start_nonce = random_hex(16)?;
     let proposed_profile_id = profile_id(&home);
     let store_started_at = Instant::now();
+    let migration_heartbeat = MigrationHeartbeat::start();
     let store = SqliteStoreKernel::open_with_observer(&home, |event| match event {
         StorePreparationEvent::MigrationStarted {
             from_version,
             to_version,
-        } => report_internal_startup_event(CoreStartupEvent::MigrationStarted {
-            from_version,
-            to_version,
-        }),
+        } => {
+            migration_heartbeat.activate();
+            report_internal_startup_event(CoreStartupEvent::MigrationStarted {
+                from_version,
+                to_version,
+            });
+        }
+        StorePreparationEvent::MigrationProgress { completed, total } => {
+            report_internal_startup_event(CoreStartupEvent::MigrationProgress { completed, total });
+        }
     })?;
+    drop(migration_heartbeat);
     report_internal_startup_event(CoreStartupEvent::StoreReady {
         created_fresh: store.preparation().created_fresh,
         migrated_from_version: store.preparation().migrated_from_version,
@@ -2588,7 +2710,9 @@ pub async fn run_with_selection(
     let descriptor = Arc::new(Mutex::new(descriptor));
     let event_log = CoreEventLog::new(store.readers());
     let (event_sender, _) = broadcast::channel(EVENT_CHANNEL_CAPACITY);
-    let (document_sender, _) = broadcast::channel(EVENT_CHANNEL_CAPACITY);
+    let document_live = DocumentLiveHub::new(store_epoch.clone(), EVENT_CHANNEL_CAPACITY);
+    let document_live_publisher =
+        DocumentLivePublisher::start(event_log.clone(), document_live.clone());
     let library = LibraryModule::new(&identity.profile_id, &identity.library_id, &store);
     let replacement_library_operations = library.prepared_agent_operation_registry();
     let replacement_search_snapshots = library.search_snapshot_lease_registry();
@@ -2602,6 +2726,7 @@ pub async fn run_with_selection(
     let document_realtime = OwnedDocumentRealtimeAdapter::new(document.clone());
     let replacement_document = document.clone();
     let replacement_realtime = document_realtime.clone();
+    let replacement_document_live = document_live.clone();
     let replacement_descriptor = Arc::clone(&descriptor);
     let replacement_paths = paths.clone();
     let replacement_lifecycle_summary = lifecycle_summary.clone();
@@ -2656,6 +2781,12 @@ pub async fn run_with_selection(
                     })?;
                 replacement_lifecycle_summary.replace_generation(&next);
                 *descriptor = next;
+                drop(descriptor);
+                replacement_document_live.publish_repair(
+                    store_epoch,
+                    0,
+                    DocumentLiveRepairKind::IdentityChanged,
+                );
                 Ok(())
             });
     let drain_lifecycle_summary = lifecycle_summary.clone();
@@ -2681,7 +2812,8 @@ pub async fn run_with_selection(
         descriptor,
         event_log,
         event_sender,
-        document_sender,
+        document_live,
+        document_live_publisher,
         metrics: ServerMetrics::default(),
         logging: logging_handle,
     });
@@ -2806,4 +2938,48 @@ fn unix_time_millis() -> Result<i64, std::time::SystemTimeError> {
 
 fn store_replacement_hook_error(error: CoreError) -> StoreError {
     StoreError::new(StoreErrorCode::Internal, error.message, error.retryable)
+}
+
+#[cfg(test)]
+mod local_commit_delivery_audience_tests {
+    use super::*;
+
+    fn context(adapter: AdapterKind) -> BoundModuleContext {
+        BoundModuleContext {
+            profile_id: ProfileId("profile:test".to_owned()),
+            library_id: LibraryId("library:test".to_owned()),
+            project_id: Some(ProjectId("project:test".to_owned())),
+            connection_id: "connection:test".to_owned(),
+            adapter,
+        }
+    }
+
+    #[test]
+    fn electron_host_receives_explicit_library_broker_audience() {
+        let command_context = context(AdapterKind::ElectronHost);
+        assert_eq!(
+            local_commit_delivery_audience(&command_context),
+            LocalCommitDeliveryAudience::HostLibraryBroker
+        );
+        assert_eq!(
+            command_context.project_id,
+            Some(ProjectId("project:test".to_owned()))
+        );
+    }
+
+    #[test]
+    fn non_broker_adapters_keep_their_exact_delivery_scope() {
+        for adapter in [
+            AdapterKind::NativeCli,
+            AdapterKind::Test,
+            AdapterKind::Agent,
+            AdapterKind::LoopbackHttp,
+        ] {
+            let command_context = context(adapter);
+            assert_eq!(
+                local_commit_delivery_audience(&command_context),
+                LocalCommitDeliveryAudience::BoundScope
+            );
+        }
+    }
 }

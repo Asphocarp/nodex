@@ -8,6 +8,7 @@ import { subscribeCodexEvents } from "./api";
 import { queryKeys } from "./query-keys";
 import type { CodexEvent } from "./types";
 import { ProjectionInvalidationProvider } from "./projection-invalidation-context";
+import { ResourceAuthorityQueryCacheBridge } from "./resource-authority-query-cache";
 
 const ReactQueryDevtools = lazy(async () => {
   const module = await import("@tanstack/react-query-devtools");
@@ -61,6 +62,7 @@ export function NodexQueryProvider({ children }: { children: ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
       <ProjectionInvalidationProvider>
+        <ResourceAuthorityQueryCacheBridge />
         {children}
       </ProjectionInvalidationProvider>
       <CodexHostCatalogQuerySync queryClient={queryClient} />

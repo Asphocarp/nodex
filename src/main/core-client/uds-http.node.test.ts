@@ -5,7 +5,8 @@ import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import { CORE_TRANSPORT_BUDGETS } from "@nodex/core-protocol";
 
-import type { CoreEventReplayRequired } from "./types";
+import type { CoreEventEnvelope, CoreEventReplayRequired } from "./types";
+import { createCoreLocalCommitFixture } from "./testing/local-commit-fixture";
 import {
   CoreEventCompatibilityError,
   CoreEventReplayError,
@@ -22,13 +23,17 @@ const replayBoundary: CoreEventReplayRequired = {
   requested_after: 4,
   oldest_available: 7,
   commit_head: 12,
+  generation: "generation:test",
+  resync_token: "resync:test",
 };
 
 const configureEventContract = (transport: UdsHttpTransport): UdsHttpTransport => {
   transport.configureEventContract({
-    transportVersion: 4,
-    eventVersion: 3,
+    transportVersion: 6,
+    eventVersion: 6,
+    libraryId: "library-1",
     storeEpoch: "epoch-1",
+    coreGeneration: "generation-1",
   });
   return transport;
 };
@@ -123,39 +128,35 @@ const serveJsonResponse = async (
   return socketPath;
 };
 
-const committedEvent = () => ({
-  transport_version: 4,
-  event: {
-    event_version: 3,
-    commit_seq: 1,
-    store_epoch: "epoch-1",
-    operation_id: null,
-    committed_at: "2026-07-22T00:00:00.000Z",
-    projection_impact: { kind: "none" },
+const committedEvent = (): CoreEventEnvelope => ({
+  transport_version: 6,
+  packet: createCoreLocalCommitFixture({
+    commitSeq: 1,
+    operationId: "operation-1",
+    committedAt: "2026-07-22T00:00:00.000Z",
     payload: {
       module: "project_workspace",
       event: {
-        kind: "project_workspace_changed",
+        kind: "workspace_changed",
+        project_catalog_change: null,
         project_ids: [],
-        catalog_change: "none",
-        session_invalidation: "none",
+        session_ids: [],
+        thread_ids: [],
+        session_summary_scopes: [],
+        session_detail_ids: [],
       },
     },
-    effects: [],
-    canonical_hash: "0".repeat(64),
-  },
+    canonicalHash: "0".repeat(64),
+  }),
 });
 
 const serveLargeCommittedEvent = async (): Promise<string> =>
   await serveCommittedEvent({
-    transport_version: 4,
-    event: {
-      event_version: 3,
-      commit_seq: 1,
-      store_epoch: "epoch-1",
-      operation_id: null,
-      committed_at: "2026-07-22T00:00:00.000Z",
-      projection_impact: {
+    transport_version: 6,
+    packet: createCoreLocalCommitFixture({
+      commitSeq: 1,
+      committedAt: "2026-07-22T00:00:00.000Z",
+      projectionImpact: {
         kind: "resources",
         page_ids: Array.from(
           { length: 1_400 },
@@ -166,18 +167,20 @@ const serveLargeCommittedEvent = async (): Promise<string> =>
         view_ids: [],
         document_heads: [],
       },
-      effects: [],
-      canonical_hash: "0".repeat(64),
       payload: {
         module: "project_workspace",
         event: {
-          kind: "project_workspace_changed",
+          kind: "workspace_changed",
+          project_catalog_change: null,
           project_ids: [],
-          catalog_change: "none",
-          session_invalidation: "none",
+          session_ids: [],
+          thread_ids: [],
+          session_summary_scopes: [],
+          session_detail_ids: [],
         },
       },
-    },
+      canonicalHash: "0".repeat(64),
+    }),
   });
 
 afterEach(async () => {
@@ -296,7 +299,6 @@ describe("UDS Core event replay boundaries", () => {
       () => undefined,
       {},
       undefined,
-      undefined,
       (boundary) => {
         observed = boundary;
       },
@@ -326,7 +328,7 @@ describe("UDS Core event replay boundaries", () => {
     );
     let sequence: number | undefined;
     const subscription = await transport.openEventStream(0, (envelope) => {
-      sequence = envelope.event.commit_seq;
+      sequence = envelope.packet.manifest.identity.commit_seq;
     });
 
     await expect(subscription.done).resolves.toBeUndefined();
@@ -334,8 +336,7 @@ describe("UDS Core event replay boundaries", () => {
   });
 
   test("rejects a legacy transport envelope before delivering it", async () => {
-    const event = committedEvent();
-    event.transport_version = 2;
+    const event = { ...committedEvent(), transport_version: 2 };
     const transport = configureEventContract(
       new UdsHttpTransport(await serveCommittedEvent(event), "test-capability"),
     );
@@ -350,10 +351,12 @@ describe("UDS Core event replay boundaries", () => {
     expect(deliveries).toBe(0);
   });
 
-  test("rejects a committed event without Projection impact before delivery", async () => {
-    const event: { transport_version: number; event: Record<string, unknown> } =
-      committedEvent();
-    delete event.event.projection_impact;
+  test("rejects a packet without Projection impact before delivery", async () => {
+    const event = structuredClone(committedEvent()) as unknown as {
+      transport_version: number;
+      packet: Record<string, unknown>;
+    };
+    delete event.packet.projection_impact;
     const transport = configureEventContract(
       new UdsHttpTransport(await serveCommittedEvent(event), "test-capability"),
     );
@@ -363,7 +366,126 @@ describe("UDS Core event replay boundaries", () => {
     });
 
     await expect(subscription.done).rejects.toEqual(
-      new CoreEventCompatibilityError("Core event payload is invalid"),
+      new CoreEventCompatibilityError("Authorized delivery packet is invalid"),
+    );
+    expect(deliveries).toBe(0);
+  });
+
+  test("rejects a packet without a Core-authored authorization scope", async () => {
+    const event = structuredClone(committedEvent()) as unknown as {
+      transport_version: number;
+      packet: Record<string, unknown>;
+    };
+    delete event.packet.authorization_scope;
+    const transport = configureEventContract(
+      new UdsHttpTransport(await serveCommittedEvent(event), "test-capability"),
+    );
+    let deliveries = 0;
+    const subscription = await transport.openEventStream(0, () => {
+      deliveries += 1;
+    });
+
+    await expect(subscription.done).rejects.toEqual(
+      new CoreEventCompatibilityError("Authorized delivery packet is invalid"),
+    );
+    expect(deliveries).toBe(0);
+  });
+
+  test("accepts canonical compound semantic resources", async () => {
+    const event: CoreEventEnvelope = {
+      transport_version: 6,
+      packet: createCoreLocalCommitFixture({
+        commitSeq: 2,
+        resources: {
+          block_ids: ["block-a", "block-b"],
+          document_ids: ["document-a", "document-b"],
+          database_ids: ["database-a", "database-b"],
+        },
+        payload: {
+          module: "library",
+          event: {
+            kind: "library_changed",
+            database_ids: [],
+            page_ids: [],
+            parent_keys: [],
+            view_ids: [],
+          },
+        },
+      }),
+    };
+    const transport = configureEventContract(
+      new UdsHttpTransport(await serveCommittedEvent(event), "test-capability"),
+    );
+    let deliveries = 0;
+    const subscription = await transport.openEventStream(0, () => {
+      deliveries += 1;
+    });
+
+    await expect(subscription.done).resolves.toBeUndefined();
+    expect(deliveries).toBe(1);
+  });
+
+  test("accepts a Canvas revocation through the generated transport boundary", async () => {
+    const event: CoreEventEnvelope = {
+      transport_version: 6,
+      packet: createCoreLocalCommitFixture({
+        commitSeq: 3,
+        revocations: [{
+          authorization_scope: {
+            kind: "project",
+            library_id: "library-1",
+            project_id: "project-1",
+          },
+          resource_kind: "canvas",
+          resource_id: "canvas-1",
+          reason: "ownership_moved",
+        }],
+      }),
+    };
+    const transport = configureEventContract(
+      new UdsHttpTransport(await serveCommittedEvent(event), "test-capability"),
+    );
+    const delivered: CoreEventEnvelope[] = [];
+    const subscription = await transport.openEventStream(0, (envelope) => {
+      delivered.push(envelope);
+    });
+
+    await expect(subscription.done).resolves.toBeUndefined();
+    expect(delivered[0]?.packet.revocations).toEqual(event.packet.revocations);
+  });
+
+  test("rejects noncanonical compound semantic resources", async () => {
+    const event: CoreEventEnvelope = {
+      transport_version: 6,
+      packet: createCoreLocalCommitFixture({
+        commitSeq: 2,
+        resources: {
+          block_ids: ["block-b", "block-a"],
+          document_ids: [],
+          database_ids: [],
+        },
+        payload: {
+          module: "library",
+          event: {
+            kind: "library_changed",
+            database_ids: [],
+            page_ids: [],
+            parent_keys: [],
+            view_ids: [],
+          },
+        },
+      }),
+    };
+    const transport = configureEventContract(
+      new UdsHttpTransport(await serveCommittedEvent(event), "test-capability"),
+    );
+    let deliveries = 0;
+    const subscription = await transport.openEventStream(0, () => {
+      deliveries += 1;
+    });
+
+    await expect(subscription.done).rejects.toEqual(
+      new CoreEventCompatibilityError("Authorized semantic effects are invalid"),
     );
     expect(deliveries).toBe(0);
   });

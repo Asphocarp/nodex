@@ -7,11 +7,11 @@ import type {
   RestoreBackupResult,
 } from "../../shared/types";
 import type { DesktopDataAuthorityRuntime } from "./desktop-data-authority";
-import type {
-  CoreClientPort,
-  CoreEventEnvelope,
-  StoreAdministrationCommittedValue,
-  StoreAdministrationIntent,
+import {
+  type CoreAuthorizedModuleEffect,
+  type CoreClientPort,
+  type StoreAdministrationApplyResult,
+  type StoreAdministrationIntent,
 } from "./types";
 
 type CoreBackupRecord = Extract<
@@ -65,9 +65,9 @@ const mapBackup = (backup: CoreBackupRecord): BackupRecord => ({
 });
 
 const requireBackupId = (
-  committed: StoreAdministrationCommittedValue,
+  committed: StoreAdministrationApplyResult,
 ): string => {
-  const backupId = committed.value.backup_id;
+  const backupId = committed.outcome.backup_id;
   if (backupId) return backupId;
   throw new Error("Core Store Administration commit omitted its Backup identity");
 };
@@ -130,8 +130,8 @@ const createCorePort = (
       return {
         success: true,
         restoredBackupId: requireBackupId(committed),
-        ...(committed.value.safety_backup_id
-          ? { safetyBackupId: committed.value.safety_backup_id }
+        ...(committed.outcome.safety_backup_id
+          ? { safetyBackupId: committed.outcome.safety_backup_id }
           : {}),
       };
     },
@@ -190,9 +190,9 @@ export function createDesktopStoreAdministrationBridge(
 }
 
 export function mapCoreStoreAdministrationEvent(
-  envelope: CoreEventEnvelope,
+  effect: CoreAuthorizedModuleEffect,
 ): CoreStoreAdministrationInvalidation | null {
-  const payload = envelope.event.payload;
+  const payload = effect.payload;
   if (payload.module !== "store_administration") return null;
   return {
     backupIds: payload.event.backup_ids,

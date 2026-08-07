@@ -1,6 +1,10 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
+use crate::document::DocumentRuntimeCache;
+
+use super::event_log::validate_local_commit_index;
 use super::legacy_migration::migrate_legacy_profile_if_needed_with_observer;
 use super::migration::{
     StorePreparation, StorePreparationEvent, prepare_profile_store_with_observer,
@@ -20,6 +24,7 @@ pub struct SqliteStoreKernel {
     runtime: StoreRuntime,
     _lock: ProfileStoreLock,
     database_path: PathBuf,
+    document_runtime_cache: Arc<Mutex<DocumentRuntimeCache>>,
 }
 
 impl SqliteStoreKernel {
@@ -54,6 +59,7 @@ impl SqliteStoreKernel {
                 &mut observer,
             )?,
         };
+        validate_local_commit_index(&migration_connection)?;
         drop(migration_connection);
 
         let runtime = StoreRuntime::start(
@@ -66,6 +72,7 @@ impl SqliteStoreKernel {
             runtime,
             _lock: lock,
             database_path,
+            document_runtime_cache: Arc::new(Mutex::new(DocumentRuntimeCache::new())),
         })
     }
 
@@ -95,5 +102,9 @@ impl SqliteStoreKernel {
 
     pub fn database_path(&self) -> &Path {
         &self.database_path
+    }
+
+    pub(crate) fn document_runtime_cache(&self) -> Arc<Mutex<DocumentRuntimeCache>> {
+        Arc::clone(&self.document_runtime_cache)
     }
 }

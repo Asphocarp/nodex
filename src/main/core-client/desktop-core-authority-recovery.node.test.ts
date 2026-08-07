@@ -15,6 +15,7 @@ import {
 } from "./core-event-stream-supervisor";
 import { initializeDesktopDataAuthority } from "./desktop-data-authority";
 import type { CoreAuthorityState } from "./desktop-core-authority-supervisor";
+import { applyResultCursor } from "./types";
 
 const CORE_BINARY = path.resolve("target/debug/nodex-core");
 
@@ -74,8 +75,14 @@ describe("Desktop native Core generation recovery", () => {
 
       eventSubscription = superviseCoreEventStream({
         initialAfter: rootClient.handshake.commit_head,
-        open: (after, onEvent, onResyncRequired, signal) =>
-          rootClient.openEventStream(after, onEvent, onResyncRequired, signal),
+        open: (after, onEvent, onCheckpoint, onResyncRequired, signal) =>
+          rootClient.openEventStream(
+            after,
+            onEvent,
+            onCheckpoint,
+            onResyncRequired,
+            signal,
+          ),
         onEvent: () => undefined,
         onResyncRequired: () => undefined,
         retryDelayMs: 10,
@@ -96,7 +103,7 @@ describe("Desktop native Core generation recovery", () => {
         profile_id: runtime.identity.profileId,
       });
       const replayed = await rootClient.workspaceApply(createProject);
-      expect(replayed.event_sequence).toBe(committed.event_sequence);
+      expect(applyResultCursor(replayed)).toBe(applyResultCursor(committed));
       expect(replayed.receipt.duplicate).toBe(true);
       expect(runtime.rootClient).toBe(rootClient);
       expect(runtime.clientForProject("project:recovery")).toBe(projectClient);
@@ -111,7 +118,7 @@ describe("Desktop native Core generation recovery", () => {
         () => !existsSync(path.join(nodexHome, "run/core/core.sock")),
         "Recovered Core socket remained during integration-test cleanup",
       ).catch(() => undefined);
-      runtime.close();
+      await runtime.close();
       rmSync(nodexHome, { recursive: true, force: true });
     }
   });

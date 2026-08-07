@@ -27,8 +27,12 @@ export function ProjectionInvalidationProvider({
   readonly registry?: ProjectionInvalidationRegistry;
 }) {
   const [ownedRegistry] = useState(() => new ProjectionInvalidationRegistry(
-    (scope, listener) =>
-      resolveRendererTransport().subscribeProjectionStream(scope, listener),
+    {
+      subscribeProjection: (scope, listener) =>
+        resolveRendererTransport().subscribeProjectionStream(scope, listener),
+      subscribeRevocations: (scope, listener) =>
+        resolveRendererTransport().subscribeResourceRevocations(scope, listener),
+    },
   ));
   const registry = providedRegistry ?? ownedRegistry;
   activeProjectionInvalidationRegistry = registry;

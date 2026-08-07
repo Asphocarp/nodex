@@ -1,6 +1,7 @@
 pub(crate) mod authorization;
 mod genesis;
 mod mutation;
+mod projection_delta;
 pub(crate) mod property_semantics;
 pub(crate) mod read;
 mod relation;
@@ -11,7 +12,7 @@ pub(crate) const MAX_DATA_SOURCE_PROPERTIES: usize = 200;
 pub(crate) const MAX_DATABASE_VIEWS: usize = 200;
 
 pub(crate) use genesis::create_database_authority_records;
-pub(crate) use mutation::apply_in_transaction as apply_intents_in_transaction;
+pub(crate) use mutation::apply_as_collaborator as apply_intents_as_collaborator;
 pub(crate) use mutation::{
     ExistingPageTransferTarget, PageCopyDataSourceDestination, PageCopyPositionAnchor,
     PageCopyValueDraft, PageCopyViewPlacement, StagedPagePlacementRevisions, active_property,
@@ -25,15 +26,16 @@ pub(crate) use mutation::{
     resolve_page_transfer_data_source_source, transfer_existing_page_for_agent_move_prevalidated,
     transfer_existing_page_for_block_transfer,
 };
+pub(crate) use projection_delta::record_local_projection_delta;
 pub(crate) use window::{default_page_move_view_id, mint_page_move_etag};
 
 use nodex_core_contracts::database::{
     DatabaseCommitValue, DatabaseIntent, DatabaseRead, DatabaseReadValue, DatabaseReceipt,
 };
 use nodex_core_contracts::{
-    AdapterKind, BoundModuleContext, CommittedCoreModuleEvent, CommittedModuleValue, CoreError,
-    CoreErrorCode, CoreErrorRecovery, DATABASE_CONTRACT_VERSION, ModuleApplyRequest,
-    ModuleReadRequest, ModuleReadSnapshot,
+    AdapterKind, BoundModuleContext, CommittedCoreModuleEvent, CoreError, CoreErrorCode,
+    CoreErrorRecovery, DATABASE_CONTRACT_VERSION, ModuleApplyRequest, ModuleReadRequest,
+    ModuleReadSnapshot,
 };
 use rusqlite::OptionalExtension;
 
@@ -43,7 +45,7 @@ use crate::infrastructure::writer::{StoreReaders, StoreWriter};
 
 #[derive(Clone, Debug)]
 pub struct DatabaseApplyOutcome {
-    pub committed: CommittedModuleValue<DatabaseCommitValue, DatabaseReceipt>,
+    pub committed: crate::ModuleWriterResult<DatabaseCommitValue, DatabaseReceipt>,
     pub event: Option<CommittedCoreModuleEvent>,
 }
 
@@ -116,16 +118,11 @@ impl DatabaseModule {
                     )
                     .optional()?
                     .ok_or_else(|| corrupt("Profile store epoch is unavailable"))?;
-                let change_log_head = transaction.query_row(
-                    "SELECT COALESCE(max(seq), 0) FROM change_log",
-                    [],
-                    |row| row.get::<_, i64>(0),
-                )?;
                 let commit_seq = crate::infrastructure::local_commit::head(&transaction)?;
-                let value = read::read_at_event_head(
+                let value = read::read_at_commit_head(
                     &transaction,
                     &library_id,
-                    change_log_head,
+                    commit_seq,
                     &context,
                     request.read,
                 )?;
@@ -2647,7 +2644,121 @@ mod tests {
             value.rows.authority.projection_revision,
             snapshot.commit_head
         );
-        Ok(value)
+        assert_eq!(value.projection.covered_commit_seq, snapshot.commit_head);
+        assert_eq!(value.projection.scope.schema_version, 1);
+        assert_eq!(
+            value.projection.scope.scope,
+            nodex_core_contracts::LocalProjectionScope::DatabaseView {
+                project_id: "project-1".to_owned(),
+                database_id: DATABASE_ID.to_owned(),
+                data_source_id: SOURCE_ID.to_owned(),
+                view_id: view_id.to_owned(),
+            }
+        );
+        Ok(*value)
+    }
+
+    #[test]
+    fn view_authority_uses_the_local_commit_head_after_a_physical_sequence_gap() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open(&home).expect("fresh store");
+        let module = seed_grouped_fixture(
+            &kernel,
+            vec![GroupRowSpec {
+                page_id: "page:sequence-gap-row",
+                title: "Sequence gap row",
+                value_json: Some("\"triage\""),
+                position: Some(("triage", "a")),
+            }],
+        );
+
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "UPDATE sqlite_sequence SET seq = seq + 100 WHERE name = 'change_log'",
+                    [],
+                )?;
+                Ok(())
+            })
+            .expect("advance the private physical sequence");
+        LibraryModule::new("profile-1", "library-1", &kernel)
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "operation:sequence-gap-page".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::CreatePage {
+                        page_id: "page:sequence-gap".to_owned(),
+                        document_id: "document:sequence-gap".to_owned(),
+                        title: "Physical sequence gap".to_owned(),
+                        parent: LibraryWriteParent::Library { before: None },
+                    },
+                },
+            )
+            .expect("append a valid commit after the physical sequence gap");
+
+        let (physical_head, semantic_head) = kernel
+            .writer()
+            .call(|connection| {
+                Ok((
+                    connection.query_row(
+                        "SELECT COALESCE(MAX(seq), 0) FROM change_log",
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )?,
+                    crate::infrastructure::local_commit::head(connection)?,
+                ))
+            })
+            .expect("read diverged heads");
+        assert!(physical_head > semantic_head);
+
+        for mode in [
+            DatabaseReadMode::ViewWindow,
+            DatabaseReadMode::ViewGroups,
+            DatabaseReadMode::ViewContext,
+        ] {
+            let snapshot = module
+                .read(
+                    &context(),
+                    ModuleReadRequest {
+                        contract_version: DATABASE_CONTRACT_VERSION,
+                        read: DatabaseRead {
+                            target: DatabaseTarget::View {
+                                view_id: VIEW_ID.to_owned(),
+                            },
+                            mode,
+                            filter: None,
+                            sort: None,
+                            window: Some(CollectionWindowRequest {
+                                after: None,
+                                first: Some(10),
+                            }),
+                            page_ids: None,
+                            group_scope: None,
+                        },
+                    },
+                )
+                .expect("read View authority");
+            assert_eq!(snapshot.commit_head, semantic_head);
+            match snapshot.value {
+                DatabaseReadValue::ViewWindow { value } => {
+                    assert_eq!(value.projection.covered_commit_seq, semantic_head);
+                    assert_eq!(value.rows.authority.projection_revision, semantic_head);
+                }
+                DatabaseReadValue::ViewGroups { value } => {
+                    assert_eq!(value.projection.covered_commit_seq, semantic_head);
+                }
+                DatabaseReadValue::ViewContext { value } => {
+                    assert_eq!(value.projection.covered_commit_seq, semantic_head);
+                    assert_eq!(value.groups.projection.covered_commit_seq, semantic_head);
+                    assert_eq!(value.rows.authority.projection_revision, semantic_head);
+                }
+                _ => panic!("unexpected View read value"),
+            }
+        }
     }
 
     #[test]

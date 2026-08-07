@@ -17,11 +17,12 @@ use nodex_core_contracts::collection::{
     CollectionWindow, CollectionWindowAuthority, CollectionWindowRequest,
 };
 use nodex_core_contracts::{
-    AdapterKind, BoundModuleContext, CommittedCoreModuleEvent, CommittedModuleValue, CoreError,
-    CoreErrorCode, CoreErrorRecovery, ModuleApplyRequest, ModuleMutationReceipt, ModuleReadRequest,
+    AdapterKind, BoundModuleContext, CommittedCoreModuleEvent, CoreError, CoreErrorCode,
+    CoreErrorRecovery, ModuleApplyRequest, ModuleMutationReceipt, ModuleName, ModuleReadRequest,
     ModuleReadSnapshot, ProjectionImpact, STORE_ADMINISTRATION_CONTRACT_VERSION, StoreEpoch,
 };
 use rusqlite::{Connection, OptionalExtension, params};
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
@@ -29,13 +30,14 @@ use crate::infrastructure::collection_window::{WindowCandidate, assemble, normal
 use crate::infrastructure::cursor::{
     self, CollectionCursorSubject, CursorDirection, KeysetCoordinate, KeysetValue,
 };
+use crate::infrastructure::durable_mutation::{
+    self, CommitResult, OperationIdentity, ReceiptMetadata,
+};
 use crate::infrastructure::event_log::{
     NewChangeLogEntry, append_change_log, load_committed_event_by_sequence,
-    load_local_commit_by_event_sequence,
 };
-use crate::infrastructure::module_receipts::{
-    NewModuleReceipt, insert_module_receipt, read_module_receipt,
-};
+use crate::infrastructure::local_commit::{self, CommitContext};
+use crate::infrastructure::module_receipts::read_module_receipt;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode, with_immediate_transaction};
 use crate::infrastructure::store::SqliteStoreKernel;
 use crate::infrastructure::store_replacement::{
@@ -53,8 +55,18 @@ type StoreReplacementHook = Arc<dyn Fn(&str) -> Result<(), StoreError> + Send + 
 
 #[derive(Clone, Debug)]
 pub struct StoreAdministrationApplyOutcome {
-    pub committed: CommittedModuleValue<StoreAdministrationCommitValue, StoreAdministrationReceipt>,
+    pub committed:
+        crate::ModuleWriterResult<StoreAdministrationCommitValue, StoreAdministrationReceipt>,
     pub event: Option<CommittedCoreModuleEvent>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DurableAdministrationOutcome {
+    committed:
+        crate::ModuleWriterResult<StoreAdministrationCommitValue, StoreAdministrationReceipt>,
+    #[serde(default)]
+    deleted_backup_ids: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -210,11 +222,11 @@ impl StoreAdministrationModule {
             .read_default(move |connection| {
                 let transaction = connection.unchecked_transaction()?;
                 assert_identity(&transaction, &profile_id, &library_id)?;
-                let (store_epoch, change_log_head) = transaction.query_row(
-                    "SELECT metadata.store_epoch, (SELECT COALESCE(max(seq), 0) FROM change_log) \
+                let store_epoch = transaction.query_row(
+                    "SELECT metadata.store_epoch \
                      FROM block_store_metadata metadata WHERE metadata.id = 1",
                     [],
-                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+                    |row| row.get::<_, String>(0),
                 )?;
                 let commit_seq = crate::infrastructure::local_commit::head(&transaction)?;
                 let value = match request.read {
@@ -252,7 +264,7 @@ impl StoreAdministrationModule {
                             backups: backup_window(
                                 &transaction,
                                 &library_id,
-                                change_log_head,
+                                commit_seq,
                                 items,
                                 &window,
                             )?,
@@ -397,26 +409,8 @@ impl StoreAdministrationModule {
                         true,
                     ));
                 }
-                if let Some(stored) = read_module_receipt(connection, MODULE_NAME, &operation_id)? {
-                    if stored.request_hash != request_hash {
-                        return Err(StoreError::new(
-                            StoreErrorCode::IdempotencyKeyReused,
-                            "operation_id is already bound to another Store Administration intent",
-                            false,
-                        ));
-                    }
-                    let mut committed = serde_json::from_value::<
-                        CommittedModuleValue<
-                            StoreAdministrationCommitValue,
-                            StoreAdministrationReceipt,
-                        >,
-                    >(stored.result)
-                    .map_err(|_| corrupt("Stored Store Administration receipt is invalid"))?;
-                    committed.receipt.mutation.duplicate = true;
-                    return Ok(StoreAdministrationApplyOutcome {
-                        committed,
-                        event: None,
-                    });
+                if let Some(outcome) = replay_outcome(connection, &operation_id, &request_hash)? {
+                    return Ok(outcome);
                 }
                 let backup_count = backup::list_backups(&profile_home)?.len();
                 if backup_count >= MAX_BACKUPS {
@@ -939,13 +933,11 @@ fn replay_outcome(
             false,
         ));
     }
-    let mut committed = serde_json::from_value::<
-        CommittedModuleValue<StoreAdministrationCommitValue, StoreAdministrationReceipt>,
-    >(stored.result)
-    .map_err(|_| corrupt("Stored Store Administration receipt is invalid"))?;
-    committed.receipt.mutation.duplicate = true;
+    let mut durable = serde_json::from_value::<DurableAdministrationOutcome>(stored.result)
+        .map_err(|_| corrupt("Stored Store Administration receipt is invalid"))?;
+    durable.committed.receipt.mutation.duplicate = true;
     Ok(Some(StoreAdministrationApplyOutcome {
-        committed,
+        committed: durable.committed,
         event: None,
     }))
 }
@@ -965,18 +957,16 @@ fn replay_cleanup_outcome(
             false,
         ));
     }
-    let deleted_backup_ids = deleted_backup_ids_from_result(&stored.result)?;
-    let mut committed = serde_json::from_value::<
-        CommittedModuleValue<StoreAdministrationCommitValue, StoreAdministrationReceipt>,
-    >(stored.result)
-    .map_err(|_| corrupt("Stored Store Administration cleanup receipt is invalid"))?;
-    committed.receipt.mutation.duplicate = true;
+    let mut durable = serde_json::from_value::<DurableAdministrationOutcome>(stored.result)
+        .map_err(|_| corrupt("Stored Store Administration cleanup receipt is invalid"))?;
+    validate_deleted_backup_ids(&durable.deleted_backup_ids)?;
+    durable.committed.receipt.mutation.duplicate = true;
     Ok(Some((
         StoreAdministrationApplyOutcome {
-            committed,
+            committed: durable.committed,
             event: None,
         },
-        deleted_backup_ids,
+        durable.deleted_backup_ids,
     )))
 }
 
@@ -996,35 +986,29 @@ fn logically_deleted_backup_ids(connection: &Connection) -> Result<BTreeSet<Stri
     }
     let mut deleted = BTreeSet::new();
     for raw in result_json {
-        let value = serde_json::from_str(&raw)
+        let durable = serde_json::from_str::<DurableAdministrationOutcome>(&raw)
             .map_err(|_| corrupt("Durable backup deletion receipt JSON is invalid"))?;
-        for backup_id in deleted_backup_ids_from_result(&value)? {
+        validate_deleted_backup_ids(&durable.deleted_backup_ids)?;
+        for backup_id in durable.deleted_backup_ids {
             deleted.insert(backup_id);
         }
     }
     Ok(deleted)
 }
 
-fn deleted_backup_ids_from_result(result: &serde_json::Value) -> Result<Vec<String>, StoreError> {
-    let values = result
-        .get("_coreDeletedBackupIds")
-        .and_then(serde_json::Value::as_array)
-        .ok_or_else(|| corrupt("Durable backup deletion receipt has no cleanup identities"))?;
+fn validate_deleted_backup_ids(values: &[String]) -> Result<(), StoreError> {
     if values.len() > 10_000 {
         return Err(corrupt(
             "Durable backup deletion receipt exceeds its identity bound",
         ));
     }
-    values
+    if values
         .iter()
-        .map(|value| {
-            let backup_id = value
-                .as_str()
-                .filter(|backup_id| backup::is_safe_backup_id(backup_id))
-                .ok_or_else(|| corrupt("Durable backup deletion identity is invalid"))?;
-            Ok(backup_id.to_owned())
-        })
-        .collect()
+        .any(|backup_id| !backup::is_safe_backup_id(backup_id))
+    {
+        return Err(corrupt("Durable backup deletion identity is invalid"));
+    }
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1035,6 +1019,7 @@ fn append_administration_event(
     operation_id: &str,
     payload: &serde_json::Value,
     committed_at: &str,
+    commit: Option<&CommitContext>,
 ) -> Result<i64, StoreError> {
     let Some(project_id) = project_id else {
         return connection
@@ -1044,6 +1029,8 @@ fn append_administration_event(
             .map_err(StoreError::from);
     };
     let payload_json = payload.to_string();
+    let commit =
+        commit.ok_or_else(|| corrupt("Store Administration event has no LocalCommit context"))?;
     append_change_log(
         connection,
         NewChangeLogEntry {
@@ -1058,6 +1045,7 @@ fn append_administration_event(
             projection_impact: &ProjectionImpact::None,
             committed_at,
         },
+        commit,
     )
 }
 
@@ -1071,6 +1059,131 @@ fn load_optional_administration_event(
         .transpose()
 }
 
+#[allow(clippy::too_many_arguments)]
+fn finish_administration_mutation(
+    connection: &mut Connection,
+    library_id: &str,
+    context: &BoundModuleContext,
+    operation_id: &str,
+    request_hash: &str,
+    store_epoch: &str,
+    operation_kind: &str,
+    committed_at: &str,
+    value: StoreAdministrationCommitValue,
+    deleted_backup_ids: Vec<String>,
+    payload: serde_json::Value,
+    changed: bool,
+) -> Result<StoreAdministrationApplyOutcome, StoreError> {
+    validate_deleted_backup_ids(&deleted_backup_ids)?;
+    with_immediate_transaction(connection, |transaction| {
+        let event_project_id = transaction
+            .query_row(
+                "SELECT id FROM projects WHERE library_id = ?1 \
+                 ORDER BY CASE lifecycle WHEN 'active' THEN 0 ELSE 1 END, created, id LIMIT 1",
+                [library_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        let result = durable_mutation::run(
+            transaction,
+            OperationIdentity {
+                module: ModuleName::StoreAdministration,
+                module_name: MODULE_NAME,
+                operation_id,
+                intent_hash: request_hash,
+                store_epoch,
+                committed_at,
+                context,
+            },
+            |scope| {
+                let event_sequence = if changed {
+                    append_administration_event(
+                        transaction,
+                        event_project_id.as_deref(),
+                        store_epoch,
+                        operation_id,
+                        &payload,
+                        committed_at,
+                        Some(scope.evidence()),
+                    )?
+                } else {
+                    append_administration_event(
+                        transaction,
+                        None,
+                        store_epoch,
+                        operation_id,
+                        &payload,
+                        committed_at,
+                        None,
+                    )?
+                };
+                let commit_seq = if changed {
+                    scope.commit_seq()
+                } else {
+                    local_commit::head(transaction)?
+                };
+                let committed = crate::ModuleWriterResult {
+                    value: value.clone(),
+                    receipt: StoreAdministrationReceipt {
+                        mutation: ModuleMutationReceipt {
+                            operation_id: operation_id.to_owned(),
+                            duplicate: false,
+                        },
+                        backup_id: value.backup_id.clone(),
+                        safety_backup_id: value.safety_backup_id.clone(),
+                    },
+                    commit_seq,
+                    event_sequence,
+                    store_epoch: StoreEpoch(store_epoch.to_owned()),
+                };
+                let durable = DurableAdministrationOutcome {
+                    committed,
+                    deleted_backup_ids: deleted_backup_ids.clone(),
+                };
+                let receipt = ReceiptMetadata {
+                    operation_kind,
+                    event_sequence: (changed && event_project_id.is_some())
+                        .then_some(event_sequence),
+                    committed_at,
+                };
+                Ok(if changed {
+                    scope.seal(durable, receipt)
+                } else {
+                    scope.no_op(durable, receipt)
+                })
+            },
+        )?;
+        result.verify_manifest_identity(|durable| {
+            (
+                durable.committed.commit_seq,
+                durable.committed.store_epoch.0.clone(),
+            )
+        })?;
+        let (mut durable, replayed) = match result {
+            CommitResult::Committed { outcome, .. } | CommitResult::NoOp { outcome } => {
+                (outcome, false)
+            }
+            CommitResult::IdempotentReplay { outcome, .. } => (outcome, true),
+        };
+        if replayed {
+            durable.committed.receipt.mutation.duplicate = true;
+        }
+        let event = if replayed || !changed {
+            None
+        } else {
+            load_optional_administration_event(
+                transaction,
+                event_project_id.as_deref(),
+                durable.committed.event_sequence,
+            )?
+        };
+        Ok(StoreAdministrationApplyOutcome {
+            committed: durable.committed,
+            event,
+        })
+    })
+}
+
 fn finish_backup_creation(
     connection: &mut Connection,
     library_id: &str,
@@ -1080,80 +1193,30 @@ fn finish_backup_creation(
     store_epoch: &str,
     backup: &BackupRecord,
 ) -> Result<StoreAdministrationApplyOutcome, StoreError> {
-    with_immediate_transaction(connection, |transaction| {
-        let payload = json!({
+    finish_administration_mutation(
+        connection,
+        library_id,
+        context,
+        operation_id,
+        request_hash,
+        store_epoch,
+        "create_backup",
+        &backup.created_at,
+        StoreAdministrationCommitValue {
+            backup_id: Some(backup.backup_id.clone()),
+            safety_backup_id: None,
+            completed_tasks: Vec::new(),
+        },
+        Vec::new(),
+        json!({
             "module": MODULE_NAME,
             "operationKind": "create_backup",
             "kind": "store_administration_changed",
             "backupIds": [&backup.backup_id],
             "readinessChanged": false,
-        });
-        let event_project_id = transaction
-            .query_row(
-                "SELECT id FROM projects WHERE library_id = ?1 \
-                 ORDER BY CASE lifecycle WHEN 'active' THEN 0 ELSE 1 END, created, id LIMIT 1",
-                [library_id],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()?;
-        let event_sequence = append_administration_event(
-            transaction,
-            event_project_id.as_deref(),
-            store_epoch,
-            operation_id,
-            &payload,
-            &backup.created_at,
-        )?;
-        let local_commit = event_project_id
-            .as_ref()
-            .map(|_| load_local_commit_by_event_sequence(transaction, event_sequence))
-            .transpose()?;
-        let commit_seq = local_commit.as_ref().map_or(
-            crate::infrastructure::local_commit::head(transaction)?,
-            |commit| commit.commit_seq,
-        );
-        let committed = CommittedModuleValue {
-            value: StoreAdministrationCommitValue {
-                backup_id: Some(backup.backup_id.clone()),
-                safety_backup_id: None,
-                completed_tasks: Vec::new(),
-            },
-            receipt: StoreAdministrationReceipt {
-                mutation: ModuleMutationReceipt {
-                    operation_id: operation_id.to_owned(),
-                    duplicate: false,
-                },
-                backup_id: Some(backup.backup_id.clone()),
-                safety_backup_id: None,
-            },
-            commit_seq,
-            event_sequence,
-            store_epoch: StoreEpoch(store_epoch.to_owned()),
-            local_commit,
-        };
-        let result = serde_json::to_value(&committed)
-            .map_err(|_| internal("Store Administration receipt could not be encoded"))?;
-        insert_module_receipt(
-            transaction,
-            NewModuleReceipt {
-                module_name: MODULE_NAME,
-                operation_id,
-                context,
-                operation_kind: "create_backup",
-                store_epoch,
-                request_hash,
-                result: &result,
-                event_sequence: (event_project_id.is_some()).then_some(event_sequence),
-                committed_at: &backup.created_at,
-            },
-        )?;
-        let event = load_optional_administration_event(
-            transaction,
-            event_project_id.as_deref(),
-            event_sequence,
-        )?;
-        Ok(StoreAdministrationApplyOutcome { committed, event })
-    })
+        }),
+        true,
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1169,88 +1232,30 @@ fn finish_cleanup_operation(
     deleted_backup_ids: &[String],
     committed_at: &str,
 ) -> Result<StoreAdministrationApplyOutcome, StoreError> {
-    with_immediate_transaction(connection, |transaction| {
-        let payload = json!({
+    finish_administration_mutation(
+        connection,
+        library_id,
+        context,
+        operation_id,
+        request_hash,
+        store_epoch,
+        operation_kind,
+        committed_at,
+        StoreAdministrationCommitValue {
+            backup_id: backup_id.map(str::to_owned),
+            safety_backup_id: None,
+            completed_tasks: Vec::new(),
+        },
+        deleted_backup_ids.to_vec(),
+        json!({
             "module": MODULE_NAME,
             "operationKind": operation_kind,
             "kind": "store_administration_changed",
             "backupIds": deleted_backup_ids,
             "readinessChanged": false,
-        });
-        let event_project_id = transaction
-            .query_row(
-                "SELECT id FROM projects WHERE library_id = ?1 \
-                 ORDER BY CASE lifecycle WHEN 'active' THEN 0 ELSE 1 END, created, id LIMIT 1",
-                [library_id],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()?;
-        let event_sequence = append_administration_event(
-            transaction,
-            event_project_id.as_deref(),
-            store_epoch,
-            operation_id,
-            &payload,
-            committed_at,
-        )?;
-        let local_commit = event_project_id
-            .as_ref()
-            .map(|_| load_local_commit_by_event_sequence(transaction, event_sequence))
-            .transpose()?;
-        let commit_seq = local_commit.as_ref().map_or(
-            crate::infrastructure::local_commit::head(transaction)?,
-            |commit| commit.commit_seq,
-        );
-        let committed = CommittedModuleValue {
-            value: StoreAdministrationCommitValue {
-                backup_id: backup_id.map(str::to_owned),
-                safety_backup_id: None,
-                completed_tasks: Vec::new(),
-            },
-            receipt: StoreAdministrationReceipt {
-                mutation: ModuleMutationReceipt {
-                    operation_id: operation_id.to_owned(),
-                    duplicate: false,
-                },
-                backup_id: backup_id.map(str::to_owned),
-                safety_backup_id: None,
-            },
-            commit_seq,
-            event_sequence,
-            store_epoch: StoreEpoch(store_epoch.to_owned()),
-            local_commit,
-        };
-        let mut result = serde_json::to_value(&committed)
-            .map_err(|_| internal("Store cleanup receipt could not be encoded"))?;
-        let object = result
-            .as_object_mut()
-            .ok_or_else(|| internal("Store cleanup receipt is not an object"))?;
-        object.insert(
-            "_coreDeletedBackupIds".to_owned(),
-            serde_json::to_value(deleted_backup_ids)
-                .map_err(|_| internal("Backup cleanup identities could not be encoded"))?,
-        );
-        insert_module_receipt(
-            transaction,
-            NewModuleReceipt {
-                module_name: MODULE_NAME,
-                operation_id,
-                context,
-                operation_kind,
-                store_epoch,
-                request_hash,
-                result: &result,
-                event_sequence: (event_project_id.is_some()).then_some(event_sequence),
-                committed_at,
-            },
-        )?;
-        let event = load_optional_administration_event(
-            transaction,
-            event_project_id.as_deref(),
-            event_sequence,
-        )?;
-        Ok(StoreAdministrationApplyOutcome { committed, event })
-    })
+        }),
+        !deleted_backup_ids.is_empty(),
+    )
 }
 
 fn run_maintenance_task(
@@ -1311,80 +1316,30 @@ fn finish_maintenance(
     completed_tasks: &[MaintenanceTask],
     committed_at: &str,
 ) -> Result<StoreAdministrationApplyOutcome, StoreError> {
-    with_immediate_transaction(connection, |transaction| {
-        let payload = json!({
+    finish_administration_mutation(
+        connection,
+        library_id,
+        context,
+        operation_id,
+        request_hash,
+        store_epoch,
+        "run_maintenance",
+        committed_at,
+        StoreAdministrationCommitValue {
+            backup_id: None,
+            safety_backup_id: None,
+            completed_tasks: completed_tasks.to_vec(),
+        },
+        Vec::new(),
+        json!({
             "module": MODULE_NAME,
             "operationKind": "run_maintenance",
             "kind": "store_administration_changed",
             "backupIds": [],
             "readinessChanged": true,
-        });
-        let event_project_id = transaction
-            .query_row(
-                "SELECT id FROM projects WHERE library_id = ?1 \
-                 ORDER BY CASE lifecycle WHEN 'active' THEN 0 ELSE 1 END, created, id LIMIT 1",
-                [library_id],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()?;
-        let event_sequence = append_administration_event(
-            transaction,
-            event_project_id.as_deref(),
-            store_epoch,
-            operation_id,
-            &payload,
-            committed_at,
-        )?;
-        let local_commit = event_project_id
-            .as_ref()
-            .map(|_| load_local_commit_by_event_sequence(transaction, event_sequence))
-            .transpose()?;
-        let commit_seq = local_commit.as_ref().map_or(
-            crate::infrastructure::local_commit::head(transaction)?,
-            |commit| commit.commit_seq,
-        );
-        let committed = CommittedModuleValue {
-            value: StoreAdministrationCommitValue {
-                backup_id: None,
-                safety_backup_id: None,
-                completed_tasks: completed_tasks.to_vec(),
-            },
-            receipt: StoreAdministrationReceipt {
-                mutation: ModuleMutationReceipt {
-                    operation_id: operation_id.to_owned(),
-                    duplicate: false,
-                },
-                backup_id: None,
-                safety_backup_id: None,
-            },
-            commit_seq,
-            event_sequence,
-            store_epoch: StoreEpoch(store_epoch.to_owned()),
-            local_commit,
-        };
-        let result = serde_json::to_value(&committed)
-            .map_err(|_| internal("Store maintenance receipt could not be encoded"))?;
-        insert_module_receipt(
-            transaction,
-            NewModuleReceipt {
-                module_name: MODULE_NAME,
-                operation_id,
-                context,
-                operation_kind: "run_maintenance",
-                store_epoch,
-                request_hash,
-                result: &result,
-                event_sequence: (event_project_id.is_some()).then_some(event_sequence),
-                committed_at,
-            },
-        )?;
-        let event = load_optional_administration_event(
-            transaction,
-            event_project_id.as_deref(),
-            event_sequence,
-        )?;
-        Ok(StoreAdministrationApplyOutcome { committed, event })
-    })
+        }),
+        !completed_tasks.is_empty(),
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1399,84 +1354,34 @@ fn finish_restore(
     safety_backup_id: Option<&str>,
     committed_at: &str,
 ) -> Result<StoreAdministrationApplyOutcome, StoreError> {
-    with_immediate_transaction(connection, |transaction| {
-        let mut backup_ids = vec![backup_id.to_owned()];
-        if let Some(safety_backup_id) = safety_backup_id {
-            backup_ids.push(safety_backup_id.to_owned());
-        }
-        let payload = json!({
+    let mut backup_ids = vec![backup_id.to_owned()];
+    if let Some(safety_backup_id) = safety_backup_id {
+        backup_ids.push(safety_backup_id.to_owned());
+    }
+    finish_administration_mutation(
+        connection,
+        library_id,
+        context,
+        operation_id,
+        request_hash,
+        store_epoch,
+        "restore_backup",
+        committed_at,
+        StoreAdministrationCommitValue {
+            backup_id: Some(backup_id.to_owned()),
+            safety_backup_id: safety_backup_id.map(str::to_owned),
+            completed_tasks: Vec::new(),
+        },
+        Vec::new(),
+        json!({
             "module": MODULE_NAME,
             "operationKind": "restore_backup",
             "kind": "store_administration_changed",
             "backupIds": backup_ids,
             "readinessChanged": true,
-        });
-        let event_project_id = transaction
-            .query_row(
-                "SELECT id FROM projects WHERE library_id = ?1 \
-                 ORDER BY CASE lifecycle WHEN 'active' THEN 0 ELSE 1 END, created, id LIMIT 1",
-                [library_id],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()?;
-        let event_sequence = append_administration_event(
-            transaction,
-            event_project_id.as_deref(),
-            store_epoch,
-            operation_id,
-            &payload,
-            committed_at,
-        )?;
-        let local_commit = event_project_id
-            .as_ref()
-            .map(|_| load_local_commit_by_event_sequence(transaction, event_sequence))
-            .transpose()?;
-        let commit_seq = local_commit.as_ref().map_or(
-            crate::infrastructure::local_commit::head(transaction)?,
-            |commit| commit.commit_seq,
-        );
-        let committed = CommittedModuleValue {
-            value: StoreAdministrationCommitValue {
-                backup_id: Some(backup_id.to_owned()),
-                safety_backup_id: safety_backup_id.map(str::to_owned),
-                completed_tasks: Vec::new(),
-            },
-            receipt: StoreAdministrationReceipt {
-                mutation: ModuleMutationReceipt {
-                    operation_id: operation_id.to_owned(),
-                    duplicate: false,
-                },
-                backup_id: Some(backup_id.to_owned()),
-                safety_backup_id: safety_backup_id.map(str::to_owned),
-            },
-            commit_seq,
-            event_sequence,
-            store_epoch: StoreEpoch(store_epoch.to_owned()),
-            local_commit,
-        };
-        let result = serde_json::to_value(&committed)
-            .map_err(|_| internal("Store restore receipt could not be encoded"))?;
-        insert_module_receipt(
-            transaction,
-            NewModuleReceipt {
-                module_name: MODULE_NAME,
-                operation_id,
-                context,
-                operation_kind: "restore_backup",
-                store_epoch,
-                request_hash,
-                result: &result,
-                event_sequence: (event_project_id.is_some()).then_some(event_sequence),
-                committed_at,
-            },
-        )?;
-        let event = load_optional_administration_event(
-            transaction,
-            event_project_id.as_deref(),
-            event_sequence,
-        )?;
-        Ok(StoreAdministrationApplyOutcome { committed, event })
-    })
+        }),
+        true,
+    )
 }
 
 fn assert_identity(

@@ -9,6 +9,7 @@ import {
 } from "@blocknote/core";
 import type { OwnedDocumentDescriptor } from "../../shared/block-documents";
 import type { BlockDocumentSurfaceRuntime } from "./block-document-surface-runtime";
+import { LIBRARY_DOCUMENT_SURFACE_SCOPE_ID } from "./owned-block-document";
 
 interface RetainedBlockNoteEditor {
   readonly _tiptapEditor: {
@@ -16,40 +17,46 @@ interface RetainedBlockNoteEditor {
   };
 }
 
-interface CanonicalPageDocumentEntry {
+interface DocumentSurfaceAwarenessState {
+  readonly state: Readonly<Record<string, unknown>>;
+  readonly sequence: number;
+}
+
+interface DocumentSession {
   readonly identity: string;
   readonly descriptor: OwnedDocumentDescriptor;
   readonly runtime: BlockDocumentSurfaceRuntime;
   readonly connectBarrier: Promise<void>;
   references: number;
-  activeAwarenessViews: number;
+  awarenessSequence: number;
+  readonly awarenessBySurface: Map<string, DocumentSurfaceAwarenessState>;
   closing: boolean;
   closePromise: Promise<void> | null;
 }
 
-export interface PageEditorAwarenessLease {
-  acquire: () => void;
+export interface EditorSurfaceAwarenessLease {
+  readonly surfaceId: string;
+  publish: (state: Readonly<Record<string, unknown>>) => void;
   release: () => void;
+  getRetainedState: () => Readonly<Record<string, unknown>> | null;
 }
 
-export const makePageEditorSessionKey = (
+export const makeEditorSurfaceKey = (
   projectSessionId: string,
   tabId: string,
 ): string => `${projectSessionId}\u0000${tabId}`;
 
-export const makePageEditorRuntimeIdentity = (
+export const makeDocumentSessionIdentity = (
   descriptor: OwnedDocumentDescriptor,
 ): string => [
-  descriptor.projectId,
-  descriptor.ownerBlockId,
-  descriptor.ownerType,
-  descriptor.ownerLifecycle,
-  descriptor.documentId,
   descriptor.storeEpoch,
+  descriptor.projectId === LIBRARY_DOCUMENT_SURFACE_SCOPE_ID
+    ? "library"
+    : `project:${descriptor.projectId}`,
+  descriptor.documentId,
   descriptor.generation,
   descriptor.schemaKey,
   descriptor.schemaVersion,
-  descriptor.readiness,
   descriptor.sync.kind,
 ].join("\u0000");
 
@@ -57,7 +64,7 @@ const hasSameRuntimeIdentity = (
   left: OwnedDocumentDescriptor,
   right: OwnedDocumentDescriptor,
 ): boolean =>
-  makePageEditorRuntimeIdentity(left) === makePageEditorRuntimeIdentity(right);
+  makeDocumentSessionIdentity(left) === makeDocumentSessionIdentity(right);
 
 const persistRuntime = async (
   runtime: BlockDocumentSurfaceRuntime,
@@ -75,17 +82,18 @@ const persistRuntime = async (
 };
 
 /**
- * One view's editor/selection lease over a canonical document session.
+ * One surface's editor/selection lease over a canonical DocumentSession.
  *
- * The Y.Doc/provider lives in PageEditorSessionRegistry's document map, not in
+ * The Y.Doc/provider lives in DocumentSessionRegistry's document map, not in
  * the tab key. This is the important boundary: two tab groups can render the
  * same Page without opening two independent local authorities.
  */
-export class PageEditorSession {
+export class EditorSurfaceLease {
   readonly key: string;
   readonly descriptor: OwnedDocumentDescriptor;
   readonly runtime: BlockDocumentSurfaceRuntime;
-  readonly awarenessLease: PageEditorAwarenessLease;
+  readonly awarenessLease: EditorSurfaceAwarenessLease;
+  readonly transactionOrigin: object;
 
   private readonly connectBarrier: Promise<void>;
   private readonly releaseRuntime: () => Promise<void>;
@@ -105,22 +113,25 @@ export class PageEditorSession {
     readonly runtime: BlockDocumentSurfaceRuntime;
     readonly connectBarrier?: Promise<void>;
     readonly releaseRuntime?: () => Promise<void>;
-    readonly awarenessLease?: PageEditorAwarenessLease;
+    readonly awarenessLease?: EditorSurfaceAwarenessLease;
   }) {
     this.key = input.key;
     this.descriptor = input.descriptor;
     this.runtime = input.runtime;
+    this.transactionOrigin = Object.freeze({ surfaceKey: input.key });
     this.connectBarrier = input.connectBarrier ?? Promise.resolve();
     this.releaseRuntime = input.releaseRuntime ?? (() => this.runtime.close().then(() => undefined));
     this.awarenessLease = input.awarenessLease ?? {
-      acquire: () => undefined,
+      surfaceId: input.key,
+      publish: (state) => this.runtime.awareness.setLocalState({ ...state }),
       release: () => this.runtime.clearLocalAwareness(),
+      getRetainedState: () => null,
     };
   }
 
   connect(): Promise<void> {
     if (this.disposed) {
-      return Promise.reject(new Error("Page editor session is disposed"));
+      return Promise.reject(new Error("Editor surface lease is disposed"));
     }
     if (this.connectPromise) return this.connectPromise;
 
@@ -130,7 +141,7 @@ export class PageEditorSession {
 
   claimView(): number {
     if (this.disposed) {
-      throw new Error("Cannot claim a disposed Page editor session");
+      throw new Error("Cannot claim a disposed editor surface lease");
     }
     this.nextViewGeneration += 1;
     this.activeViewGeneration = this.nextViewGeneration;
@@ -161,11 +172,11 @@ export class PageEditorSession {
     create: () => Editor,
   ): Editor {
     if (this.disposed) {
-      throw new Error("Cannot create an editor for a disposed Page session");
+      throw new Error("Cannot create an editor for a disposed surface lease");
     }
     if (this.editor) {
       if (this.editorKey !== editorKey) {
-        throw new Error("Page editor identity changed without a new session");
+        throw new Error("Editor identity changed without a new surface lease");
       }
       return this.editor as Editor;
     }
@@ -224,22 +235,22 @@ export class PageEditorSession {
   }
 }
 
-export class PageEditorSessionRegistry {
-  private readonly sessions = new Map<string, PageEditorSession>();
-  private readonly documents = new Map<string, CanonicalPageDocumentEntry>();
+export class DocumentSessionRegistry {
+  private readonly surfaces = new Map<string, EditorSurfaceLease>();
+  private readonly documents = new Map<string, DocumentSession>();
 
   acquire(input: {
     readonly key: string;
     readonly descriptor: OwnedDocumentDescriptor;
     readonly createRuntime: () => BlockDocumentSurfaceRuntime;
-  }): PageEditorSession {
-    const existing = this.sessions.get(input.key);
+  }): EditorSurfaceLease {
+    const existing = this.surfaces.get(input.key);
     if (existing && hasSameRuntimeIdentity(existing.descriptor, input.descriptor)) {
       return existing;
     }
 
     const connectBarrier = existing?.dispose() ?? Promise.resolve();
-    const identity = makePageEditorRuntimeIdentity(input.descriptor);
+    const identity = makeDocumentSessionIdentity(input.descriptor);
     const existingDocument = this.documents.get(identity);
     const document = existingDocument && !existingDocument.closing
       ? existingDocument
@@ -250,33 +261,33 @@ export class PageEditorSessionRegistry {
           connectBarrier: existingDocument?.closePromise ?? Promise.resolve(),
         });
     document.references += 1;
-    const session = new PageEditorSession({
+    const surface = new EditorSurfaceLease({
       key: input.key,
       descriptor: document.descriptor,
       runtime: document.runtime,
       connectBarrier,
       releaseRuntime: () => this.releaseDocument(document),
-      awarenessLease: this.createAwarenessLease(document),
+      awarenessLease: this.createAwarenessLease(document, input.key),
     });
-    this.sessions.set(input.key, session);
-    return session;
+    this.surfaces.set(input.key, surface);
+    return surface;
   }
 
-  get(key: string): PageEditorSession | null {
-    return this.sessions.get(key) ?? null;
+  get(key: string): EditorSurfaceLease | null {
+    return this.surfaces.get(key) ?? null;
   }
 
-  dispose(key: string, expected?: PageEditorSession): Promise<void> {
-    const session = this.sessions.get(key);
-    if (!session || (expected && session !== expected)) return Promise.resolve();
-    this.sessions.delete(key);
-    return session.dispose();
+  dispose(key: string, expected?: EditorSurfaceLease): Promise<void> {
+    const surface = this.surfaces.get(key);
+    if (!surface || (expected && surface !== expected)) return Promise.resolve();
+    this.surfaces.delete(key);
+    return surface.dispose();
   }
 
   async disposeAll(): Promise<void> {
-    const sessions = [...this.sessions.values()];
-    this.sessions.clear();
-    await Promise.all(sessions.map((session) => session.dispose()));
+    const surfaces = [...this.surfaces.values()];
+    this.surfaces.clear();
+    await Promise.all(surfaces.map((surface) => surface.dispose()));
   }
 
   async persistAll(): Promise<void> {
@@ -287,15 +298,15 @@ export class PageEditorSessionRegistry {
 
   async disposeProjectSession(projectSessionId: string): Promise<void> {
     const keyPrefix = `${projectSessionId}\u0000`;
-    const matches = [...this.sessions.entries()].filter(([key]) =>
+    const matches = [...this.surfaces.entries()].filter(([key]) =>
       key.startsWith(keyPrefix)
     );
-    for (const [key] of matches) this.sessions.delete(key);
-    await Promise.all(matches.map(([, session]) => session.dispose()));
+    for (const [key] of matches) this.surfaces.delete(key);
+    await Promise.all(matches.map(([, surface]) => surface.dispose()));
   }
 
   get size(): number {
-    return this.sessions.size;
+    return this.surfaces.size;
   }
 
   get canonicalDocumentSize(): number {
@@ -307,14 +318,15 @@ export class PageEditorSessionRegistry {
     readonly descriptor: OwnedDocumentDescriptor;
     readonly createRuntime: () => BlockDocumentSurfaceRuntime;
     readonly connectBarrier: Promise<void>;
-  }): CanonicalPageDocumentEntry {
-    const entry: CanonicalPageDocumentEntry = {
+  }): DocumentSession {
+    const entry: DocumentSession = {
       identity: input.identity,
       descriptor: input.descriptor,
       runtime: input.createRuntime(),
       connectBarrier: input.connectBarrier,
       references: 0,
-      activeAwarenessViews: 0,
+      awarenessSequence: 0,
+      awarenessBySurface: new Map(),
       closing: false,
       closePromise: null,
     };
@@ -323,32 +335,57 @@ export class PageEditorSessionRegistry {
   }
 
   private createAwarenessLease(
-    entry: CanonicalPageDocumentEntry,
-  ): PageEditorAwarenessLease {
-    let acquired = false;
+    entry: DocumentSession,
+    surfaceKey: string,
+  ): EditorSurfaceAwarenessLease {
+    const surfaceId = `surface:${surfaceKey}`;
+    let retainedState: Readonly<Record<string, unknown>> | null = null;
     return {
-      acquire: () => {
-        if (acquired || entry.closing) return;
-        acquired = true;
-        entry.activeAwarenessViews += 1;
+      surfaceId,
+      publish: (state) => {
+        if (entry.closing) return;
+        retainedState = { ...state };
+        entry.awarenessSequence += 1;
+        entry.awarenessBySurface.set(surfaceId, {
+          state: retainedState,
+          sequence: entry.awarenessSequence,
+        });
+        this.publishAggregatedAwareness(entry);
       },
       release: () => {
-        if (!acquired) {
-          if (entry.activeAwarenessViews === 0) {
-            entry.runtime.clearLocalAwareness();
-          }
-          return;
-        }
-        acquired = false;
-        entry.activeAwarenessViews = Math.max(0, entry.activeAwarenessViews - 1);
-        if (entry.activeAwarenessViews === 0) {
-          entry.runtime.clearLocalAwareness();
-        }
+        if (!entry.awarenessBySurface.delete(surfaceId)) return;
+        this.publishAggregatedAwareness(entry);
       },
+      getRetainedState: () => retainedState,
     };
   }
 
-  private releaseDocument(entry: CanonicalPageDocumentEntry): Promise<void> {
+  private publishAggregatedAwareness(entry: DocumentSession): void {
+    const activeSurfaces = [...entry.awarenessBySurface.entries()];
+    if (activeSurfaces.length === 0) {
+      entry.runtime.clearLocalAwareness();
+      return;
+    }
+
+    const [activeSurfaceId, active] = activeSurfaces.reduce((latest, current) =>
+      current[1].sequence > latest[1].sequence ? current : latest
+    );
+    const nodex = typeof active.state.nodex === "object"
+      && active.state.nodex !== null
+      && !Array.isArray(active.state.nodex)
+      ? active.state.nodex as Readonly<Record<string, unknown>>
+      : {};
+    entry.runtime.awareness.setLocalState({
+      ...active.state,
+      nodex: {
+        ...nodex,
+        activeSurfaceId,
+        surfaceIds: activeSurfaces.map(([surfaceId]) => surfaceId).sort(),
+      },
+    });
+  }
+
+  private releaseDocument(entry: DocumentSession): Promise<void> {
     if (entry.references > 0) entry.references -= 1;
     if (entry.references > 0 || entry.closePromise) {
       return entry.closePromise ?? Promise.resolve();
@@ -368,4 +405,4 @@ export class PageEditorSessionRegistry {
   }
 }
 
-export const pageEditorSessionRegistry = new PageEditorSessionRegistry();
+export const documentSessionRegistry = new DocumentSessionRegistry();

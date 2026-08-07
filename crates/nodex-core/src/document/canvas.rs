@@ -12,6 +12,7 @@ use crate::infrastructure::document_repository::{
     DocumentAuthority, DocumentReadiness, DocumentSyncEngine,
 };
 use crate::infrastructure::event_log::{NewChangeLogEntry, append_change_log};
+use crate::infrastructure::local_commit::CommitContext;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::canvas_scene::{
@@ -1400,6 +1401,7 @@ pub(crate) fn clone_canvas_genesis(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn persist_canvas_mutation(
     connection: &Connection,
+    commit_context: Option<&CommitContext>,
     authority: &DocumentAuthorityRow,
     store_epoch: &str,
     operation_id: &str,
@@ -1492,6 +1494,8 @@ pub(crate) fn persist_canvas_mutation(
                 projection_impact: &ProjectionImpact::None,
                 committed_at: &now,
             },
+            commit_context
+                .ok_or_else(|| corrupt("Canvas mutation changed without a LocalCommit context"))?,
         )?
     } else {
         read_event_head(connection)?
@@ -1553,6 +1557,7 @@ pub(crate) fn persist_canvas_mutation(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn persist_prepared_canvas_mutation(
     connection: &Connection,
+    commit_context: Option<&CommitContext>,
     authority: &DocumentAuthorityRow,
     store_epoch: &str,
     operation_id: &str,
@@ -1651,6 +1656,8 @@ pub(crate) fn persist_prepared_canvas_mutation(
                 projection_impact: &ProjectionImpact::None,
                 committed_at: &now,
             },
+            commit_context
+                .ok_or_else(|| corrupt("Canvas mutation changed without a LocalCommit context"))?,
         )?
     } else {
         read_event_head(connection)?

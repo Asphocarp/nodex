@@ -17,6 +17,7 @@ import { removePrivateTemporaryDirectory } from "../../scripts/verify-native-run
 import { initializeDesktopDataAuthority } from "./core-client/desktop-data-authority";
 import type { RustDataAuthorityRuntime } from "./core-client/desktop-data-authority";
 import { createCoreDocumentSyncAdapter } from "./core-client/document-sync-adapter";
+import type { CoreEventEnvelope } from "./core-client/types";
 import { NodexYProvider } from "../renderer/lib/nodex-y-provider";
 
 const execFileAsync = promisify(execFile);
@@ -190,12 +191,11 @@ describe.skipIf(!packagedCli)("packaged native CLI and Electron authority", () =
       );
       expect(electronFiles).not.toContain(databasePath);
 
-      const coreEvents: Array<{
-        event: { operation_id?: string | null };
-      }> = [];
+      const coreEvents: CoreEventEnvelope[] = [];
       eventSubscription = await runtime.rootClient.openEventStream(
         runtime.rootClient.handshake.commit_head,
         (event) => coreEvents.push(event),
+        () => undefined,
       );
       const createdEnvelope = await runCli<JsonObject>(home, [
         "--project",
@@ -216,7 +216,7 @@ describe.skipIf(!packagedCli)("packaged native CLI and Electron authority", () =
       const documentId = stringField(created, "document_id");
       await waitUntil(
         () => coreEvents.some((event) =>
-          event.event.operation_id === "packaged-cli-create-page"),
+          event.packet.manifest.operation_id === "packaged-cli-create-page"),
         "Electron did not observe the CLI Page creation event",
       );
 
@@ -368,12 +368,13 @@ describe.skipIf(!packagedCli)("packaged native CLI and Electron authority", () =
       expect(retriedTitle.duplicate).toBe(true);
       await waitUntil(
         () => coreEvents.some((event) =>
-          event.event.operation_id === "packaged-cli-title-live-update"),
+          event.packet.manifest.operation_id === "packaged-cli-title-live-update"),
         "Electron did not observe the CLI title event",
       );
       await new Promise((resolve) => setTimeout(resolve, 50));
       expect(coreEvents.filter((event) =>
-        event.event.operation_id === "packaged-cli-title-live-update")).toHaveLength(1);
+        event.packet.manifest.operation_id === "packaged-cli-title-live-update"))
+        .toHaveLength(1);
 
       document.transact(() => {
         const title = document?.getText("title");

@@ -21,7 +21,7 @@ import {
 } from "@/lib/use-workbench-command-ingress";
 import { registerAppCloseFlushHandler } from "@/lib/app-close-flush";
 import { workspaceTextDocumentRegistry } from "@/features/workspace-files/workspace-text-document-controller";
-import { pageEditorSessionRegistry } from "@/lib/page-editor-session-registry";
+import { documentSessionRegistry } from "@/lib/document-session-registry";
 import { canvasSceneSurfaceRegistry } from "@/lib/canvas-scene-surface-runtime";
 import {
   useWindowSessionLayoutPersistence,
@@ -197,7 +197,7 @@ export function WorkbenchShell({
   useEffect(() => {
     return registerAppCloseFlushHandler(async () => {
       await pageStagePersistRef.current?.();
-      await pageEditorSessionRegistry.persistAll();
+      await documentSessionRegistry.persistAll();
       await canvasSceneSurfaceRegistry.persistAllDurable();
       await workspaceTextDocumentRegistry.flushAll();
       await flushWindowSessionLayout();

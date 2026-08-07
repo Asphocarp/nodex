@@ -1,9 +1,13 @@
 import { describe, expect, test } from "vitest";
 import {
+  OWNER_OPERATION_MATRIX,
+  OWNER_OPERATIONS,
   hasTypedOwnerBlock,
   hasNestedTypedOwnerBlock,
   hasTypedOwnerType,
   isTypedOwnerBlockType,
+  ownerOperationRoute,
+  resolveOwnerSelectionOperation,
   typedOwnerBlocks,
 } from "./typed-owner-blocks";
 
@@ -53,5 +57,47 @@ describe("typed owner block boundary", () => {
     expect(hasNestedTypedOwnerBlock([ordinaryParent])).toBe(true);
     expect(hasNestedTypedOwnerBlock([pageWithNestedPage])).toBe(false);
     expect(typedOwnerBlocks([pageWithNestedPage])).toEqual([pageWithNestedPage]);
+  });
+
+  test("exhaustively assigns one route to every owner-operation cell", () => {
+    for (const [kind, row] of Object.entries(OWNER_OPERATION_MATRIX)) {
+      expect(Object.keys(row).sort()).toEqual([...OWNER_OPERATIONS].sort());
+      expect(Object.values(row).every((route) => route.length > 0)).toBe(true);
+      expect(kind.length).toBeGreaterThan(0);
+    }
+    expect(ownerOperationRoute("paragraph", "delete")).toBe("generic_document");
+    expect(ownerOperationRoute("page", "delete")).toBe("page_lifecycle");
+    expect(ownerOperationRoute("page", "move")).toBe("block_transfer");
+    expect(ownerOperationRoute("canvas", "duplicate")).toBe("canvas_lifecycle");
+    expect(ownerOperationRoute("database", "archive")).toBe("database_lifecycle");
+    expect(ownerOperationRoute("pageRef", "unlink")).toBe("reference_unlink");
+  });
+
+  test("routes only one exact owner and rejects mixed or nested destructive selections", () => {
+    expect(resolveOwnerSelectionOperation(
+      [{ id: "page", type: "page" }],
+      "delete",
+    )).toEqual({
+      kind: "typed",
+      block: { id: "page", type: "page" },
+      route: "page_lifecycle",
+    });
+    expect(resolveOwnerSelectionOperation(
+      [{ id: "reference", type: "pageRef" }],
+      "delete",
+    )).toEqual({ kind: "generic" });
+    expect(resolveOwnerSelectionOperation(
+      [{ id: "database", type: "database" }],
+      "delete",
+    )).toEqual({ kind: "forbidden", reason: "unsupported" });
+    expect(resolveOwnerSelectionOperation([
+      { id: "page", type: "page" },
+      { id: "text", type: "paragraph" },
+    ], "delete")).toEqual({ kind: "forbidden", reason: "mixed_selection" });
+    expect(resolveOwnerSelectionOperation([{
+      id: "parent",
+      type: "paragraph",
+      children: [{ id: "page", type: "page" }],
+    }], "delete")).toEqual({ kind: "forbidden", reason: "nested_owner" });
   });
 });

@@ -8,6 +8,7 @@ import { ForkYDocExtension } from "./ForkYDoc.js";
 import { SchemaMigration } from "./schemaMigration/SchemaMigration.js";
 import { YCursorExtension } from "./YCursorPlugin.js";
 import { YSyncExtension } from "./YSync.js";
+import { YSurfaceOriginExtension } from "./YSurfaceOrigin.js";
 import { YUndoExtension } from "./YUndo.js";
 
 export type CollaborationOptions = {
@@ -26,6 +27,8 @@ export type CollaborationOptions = {
    * A Yjs provider (used for awareness / cursor information)
    */
   provider?: { awareness?: Awareness };
+  /** Stable identity used to isolate undo history for one editor surface. */
+  transactionOrigin?: object;
   /**
    * Optional function to customize how cursors of users are rendered
    */
@@ -41,14 +44,20 @@ export type CollaborationOptions = {
 
 export const CollaborationExtension = createExtension(
   ({ options }: ExtensionOptions<CollaborationOptions>) => {
+    const transactionOrigin = options.transactionOrigin ?? {};
+    const surfaceOptions = { ...options, transactionOrigin };
     return {
       key: "collaboration",
       blockNoteExtensions: [
-        ForkYDocExtension(options),
-        YCursorExtension(options),
-        YSyncExtension(options),
-        YUndoExtension(),
-        SchemaMigration(options),
+        ForkYDocExtension(surfaceOptions),
+        YCursorExtension(surfaceOptions),
+        YSurfaceOriginExtension({
+          fragment: surfaceOptions.fragment,
+          transactionOrigin,
+        }),
+        YSyncExtension(surfaceOptions),
+        YUndoExtension({ transactionOrigin }),
+        SchemaMigration(surfaceOptions),
       ],
     } as const;
   },
