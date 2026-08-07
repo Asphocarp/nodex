@@ -64,6 +64,42 @@ export interface DocumentSyncResponse {
   readonly update: Uint8Array;
 }
 
+export interface DocumentUpdateResourceRef {
+  readonly documentId: DocumentId;
+  readonly generation: number;
+  readonly updateId: string;
+  readonly updateHash: string;
+}
+
+export type DocumentUpdateResourceUnavailableReason =
+  | "compacted"
+  | "generation_changed"
+  | "hash_mismatch"
+  | "missing";
+
+export type DocumentUpdateResourceReadResult =
+  | {
+      readonly kind: "available";
+      readonly documentId: DocumentId;
+      readonly generation: number;
+      readonly baseHeadSeq: number;
+      readonly headSeq: number;
+      readonly updateId: string;
+      readonly updateHash: string;
+      readonly updateByteLength: number;
+      readonly update: Uint8Array;
+    }
+  | {
+      readonly kind: "resync-required";
+      readonly documentId: DocumentId;
+      readonly requestedGeneration: number;
+      readonly currentGeneration: number;
+      readonly currentHeadSeq: number;
+      readonly updateId: string;
+      readonly updateHash: string;
+      readonly reason: DocumentUpdateResourceUnavailableReason;
+    };
+
 export type DocumentSyncApplyRequest = ApplyDocumentUpdate;
 
 export interface DocumentSyncApplyAck {

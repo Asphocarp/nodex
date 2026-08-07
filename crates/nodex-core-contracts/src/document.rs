@@ -11,7 +11,7 @@ use crate::{
     CommittedModuleValue, ModuleMutationReceipt, ModuleName, StoreEpoch, VersionedModuleContract,
 };
 
-pub const OWNED_DOCUMENT_CONTRACT_VERSION: u32 = 4;
+pub const OWNED_DOCUMENT_CONTRACT_VERSION: u32 = 5;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct CanvasCompactionStats {
@@ -22,6 +22,38 @@ pub struct CanvasCompactionStats {
     pub tombstone_count: i64,
     pub tombstone_bytes: i64,
     pub eligible: bool,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DocumentUpdateResourceUnavailableReason {
+    Compacted,
+    GenerationChanged,
+    HashMismatch,
+    Missing,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct DocumentUpdateResource {
+    pub document_id: String,
+    pub generation: i64,
+    pub base_head_seq: i64,
+    pub head_seq: i64,
+    pub update_id: String,
+    pub update_hash: String,
+    pub update_byte_length: i64,
+    pub update: Vec<u8>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct DocumentUpdateResourceUnavailable {
+    pub document_id: String,
+    pub requested_generation: i64,
+    pub current_generation: i64,
+    pub current_head_seq: i64,
+    pub update_id: String,
+    pub update_hash: String,
+    pub reason: DocumentUpdateResourceUnavailableReason,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -51,6 +83,12 @@ pub enum OwnedDocumentRead {
     SyncYjs {
         document_id: String,
         state_vector: Vec<u8>,
+    },
+    FetchUpdate {
+        document_id: String,
+        generation: i64,
+        update_id: String,
+        update_hash: String,
     },
     ListVersions {
         document_id: String,
@@ -93,6 +131,12 @@ pub enum OwnedDocumentReadValue {
     YjsSync {
         descriptor: Value,
         update: Vec<u8>,
+    },
+    UpdateResource {
+        resource: DocumentUpdateResource,
+    },
+    UpdateResourceUnavailable {
+        unavailable: DocumentUpdateResourceUnavailable,
     },
     Versions {
         items: Vec<Value>,
