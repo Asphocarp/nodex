@@ -1968,6 +1968,34 @@ export interface components {
             /** Format: int64 */
             readonly expected_location_revision: number;
         };
+        readonly DocumentUpdateResource: {
+            /** Format: int64 */
+            readonly base_head_seq: number;
+            readonly document_id: string;
+            /** Format: int64 */
+            readonly generation: number;
+            /** Format: int64 */
+            readonly head_seq: number;
+            readonly update: readonly number[];
+            /** Format: int64 */
+            readonly update_byte_length: number;
+            readonly update_hash: string;
+            readonly update_id: string;
+        };
+        readonly DocumentUpdateResourceUnavailable: {
+            /** Format: int64 */
+            readonly current_generation: number;
+            /** Format: int64 */
+            readonly current_head_seq: number;
+            readonly document_id: string;
+            readonly reason: components["schemas"]["DocumentUpdateResourceUnavailableReason"];
+            /** Format: int64 */
+            readonly requested_generation: number;
+            readonly update_hash: string;
+            readonly update_id: string;
+        };
+        /** @enum {string} */
+        readonly DocumentUpdateResourceUnavailableReason: "compacted" | "generation_changed" | "hash_mismatch" | "missing";
         readonly DocumentVersionCursor: {
             /** Format: int64 */
             readonly base_head_seq: number;
@@ -4567,6 +4595,14 @@ export interface components {
                 readonly kind: "sync_yjs";
                 readonly state_vector: readonly number[];
             } | {
+                readonly document_id: string;
+                /** Format: int64 */
+                readonly generation: number;
+                /** @enum {string} */
+                readonly kind: "fetch_update";
+                readonly update_hash: string;
+                readonly update_id: string;
+            } | {
                 readonly before?: null | components["schemas"]["DocumentVersionCursor"];
                 readonly document_id: string;
                 /** @enum {string} */
@@ -5813,6 +5849,14 @@ export interface components {
                     /** @enum {string} */
                     readonly kind: "yjs_sync";
                     readonly update: readonly number[];
+                } | {
+                    /** @enum {string} */
+                    readonly kind: "update_resource";
+                    readonly resource: components["schemas"]["DocumentUpdateResource"];
+                } | {
+                    /** @enum {string} */
+                    readonly kind: "update_resource_unavailable";
+                    readonly unavailable: components["schemas"]["DocumentUpdateResourceUnavailable"];
                 } | {
                     readonly items: readonly unknown[];
                     /** @enum {string} */

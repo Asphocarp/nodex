@@ -7465,6 +7465,101 @@
           }
         }
       },
+      "DocumentUpdateResource": {
+        "type": "object",
+        "required": [
+          "document_id",
+          "generation",
+          "base_head_seq",
+          "head_seq",
+          "update_id",
+          "update_hash",
+          "update_byte_length",
+          "update"
+        ],
+        "properties": {
+          "base_head_seq": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "document_id": {
+            "type": "string"
+          },
+          "generation": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "head_seq": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "update": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          "update_byte_length": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "update_hash": {
+            "type": "string"
+          },
+          "update_id": {
+            "type": "string"
+          }
+        }
+      },
+      "DocumentUpdateResourceUnavailable": {
+        "type": "object",
+        "required": [
+          "document_id",
+          "requested_generation",
+          "current_generation",
+          "current_head_seq",
+          "update_id",
+          "update_hash",
+          "reason"
+        ],
+        "properties": {
+          "current_generation": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "current_head_seq": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "document_id": {
+            "type": "string"
+          },
+          "reason": {
+            "$ref": "#/components/schemas/DocumentUpdateResourceUnavailableReason"
+          },
+          "requested_generation": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "update_hash": {
+            "type": "string"
+          },
+          "update_id": {
+            "type": "string"
+          }
+        }
+      },
+      "DocumentUpdateResourceUnavailableReason": {
+        "type": "string",
+        "enum": [
+          "compacted",
+          "generation_changed",
+          "hash_mismatch",
+          "missing"
+        ]
+      },
       "DocumentVersionCursor": {
         "type": "object",
         "required": [
@@ -18556,6 +18651,37 @@
                 "type": "object",
                 "required": [
                   "document_id",
+                  "generation",
+                  "update_id",
+                  "update_hash",
+                  "kind"
+                ],
+                "properties": {
+                  "document_id": {
+                    "type": "string"
+                  },
+                  "generation": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "fetch_update"
+                    ]
+                  },
+                  "update_hash": {
+                    "type": "string"
+                  },
+                  "update_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "document_id",
                   "kind"
                 ],
                 "properties": {
@@ -23977,6 +24103,42 @@
                               "format": "int32",
                               "minimum": 0
                             }
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "resource",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "update_resource"
+                            ]
+                          },
+                          "resource": {
+                            "$ref": "#/components/schemas/DocumentUpdateResource"
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "unavailable",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "update_resource_unavailable"
+                            ]
+                          },
+                          "unavailable": {
+                            "$ref": "#/components/schemas/DocumentUpdateResourceUnavailable"
                           }
                         }
                       },

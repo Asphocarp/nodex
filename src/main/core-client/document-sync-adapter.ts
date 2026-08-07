@@ -50,6 +50,8 @@ import type {
   DocumentSyncAdapter,
   DocumentSyncCommandError,
   DocumentSyncCommandResult,
+  DocumentUpdateResourceReadResult,
+  DocumentUpdateResourceRef,
   DocumentSyncRealtimeEvent,
   DocumentSyncRequest,
   DocumentSyncResponse,
@@ -84,6 +86,8 @@ interface CoreDocumentSyncAdapterOptions {
 
 const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
+
+class DocumentUpdateResourceIntegrityError extends Error {}
 
 const decodeCoreOwnedDocumentDescriptor = (
   value: unknown,
@@ -120,6 +124,9 @@ export interface CoreDocumentSyncAdapter extends DocumentSyncAdapter {
     readonly ownerBlockId: string;
     readonly clientSessionId: string;
   }): Promise<OwnedDocumentDescriptor>;
+  fetchUpdateResource(input: DocumentUpdateResourceRef & {
+    readonly clientSessionId: string;
+  }): Promise<DocumentSyncCommandResult<DocumentUpdateResourceReadResult>>;
   prepareOwner(input: {
     readonly ownerBlockId: string;
     readonly operationId: string;
@@ -710,6 +717,64 @@ export const createCoreDocumentSyncAdapter = (
     return descriptor;
   };
 
+  const fetchUpdateResource = async (
+    input: DocumentUpdateResourceRef & { readonly clientSessionId: string },
+  ): Promise<DocumentSyncCommandResult<DocumentUpdateResourceReadResult>> => {
+    try {
+      const snapshot = await client.documentRead(input.clientSessionId, {
+        kind: "fetch_update",
+        document_id: input.documentId,
+        generation: input.generation,
+        update_id: input.updateId,
+        update_hash: input.updateHash,
+      });
+      if (snapshot.value.kind === "update_resource_unavailable") {
+        const unavailable = snapshot.value.unavailable;
+        return success({
+          kind: "resync-required",
+          documentId: unavailable.document_id,
+          requestedGeneration: unavailable.requested_generation,
+          currentGeneration: unavailable.current_generation,
+          currentHeadSeq: unavailable.current_head_seq,
+          updateId: unavailable.update_id,
+          updateHash: unavailable.update_hash,
+          reason: unavailable.reason,
+        });
+      }
+      if (snapshot.value.kind !== "update_resource") {
+        throw new Error("Core returned a non-resource Document read value");
+      }
+      const resource = snapshot.value.resource;
+      const update = Uint8Array.from(resource.update);
+      const updateHash = createHash("sha256").update(update).digest("hex");
+      if (
+        resource.document_id !== input.documentId
+        || resource.generation !== input.generation
+        || resource.update_id !== input.updateId
+        || resource.update_hash !== input.updateHash
+        || updateHash !== resource.update_hash
+        || update.byteLength !== resource.update_byte_length
+      ) {
+        throw new DocumentUpdateResourceIntegrityError(
+          "Core Document update resource failed exact verification",
+        );
+      }
+      return success({
+        kind: "available",
+        documentId: resource.document_id,
+        generation: resource.generation,
+        baseHeadSeq: resource.base_head_seq,
+        headSeq: resource.head_seq,
+        updateId: resource.update_id,
+        updateHash: resource.update_hash,
+        updateByteLength: resource.update_byte_length,
+        update,
+      });
+    } catch (error) {
+      return failure(error);
+    }
+  };
+
   const subscribeWithLifecycle = (
     request: DocumentSyncSubscribeRequest,
     listener: (event: DocumentSyncRealtimeEvent) => void,
@@ -905,6 +970,7 @@ export const createCoreDocumentSyncAdapter = (
 
   return {
     readDescriptor,
+    fetchUpdateResource,
     prepareOwner: async (input) => {
       try {
         const committed = await client.documentApply({
@@ -1211,6 +1277,14 @@ const failure = <Value>(error: unknown): DocumentSyncCommandResult<Value> => ({
 });
 
 const commandError = (error: unknown): DocumentSyncCommandError => {
+  if (error instanceof DocumentUpdateResourceIntegrityError) {
+    return {
+      code: "invalid_response",
+      message: error.message,
+      retryable: false,
+      resetRequired: true,
+    };
+  }
   if (error instanceof CoreModuleResponseError) {
     const code = error.coreError.code;
     return {

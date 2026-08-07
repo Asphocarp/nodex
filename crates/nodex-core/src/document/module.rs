@@ -16,8 +16,9 @@ use nodex_core_contracts::document::{
     DocumentCommitOutcome, DocumentInvalidationReason, DocumentMutationCoordination,
     DocumentMutationEffect, DocumentOptionalValue, DocumentOwnerCommand, DocumentRevisionKind,
     DocumentSemanticAnchor, DocumentSemanticBlockEtags, DocumentSemanticCommand,
-    DocumentSemanticEtags, OwnedDocumentCommitValue, OwnedDocumentIntent, OwnedDocumentRead,
-    OwnedDocumentReadValue, OwnedDocumentReceipt,
+    DocumentSemanticEtags, DocumentUpdateResource, DocumentUpdateResourceUnavailable,
+    DocumentUpdateResourceUnavailableReason, OwnedDocumentCommitValue, OwnedDocumentIntent,
+    OwnedDocumentRead, OwnedDocumentReadValue, OwnedDocumentReceipt,
 };
 use nodex_core_contracts::{
     AdapterKind, BoundModuleContext, CommittedCoreModuleEvent, CommittedModuleValue, CoreError,
@@ -39,7 +40,7 @@ use crate::infrastructure::agent_operations::{
     PreparedAgentOperationBinding, PreparedAgentOperationLease, PreparedAgentOperationRegistry,
 };
 use crate::infrastructure::document_repository::{
-    DocumentAuthority, DocumentReadiness, DocumentSyncEngine,
+    DocumentAuthority, DocumentReadRepository, DocumentReadiness, DocumentSyncEngine,
 };
 use crate::infrastructure::event_log::{
     NewChangeLogEntry, append_change_log, load_committed_event_by_sequence,
@@ -354,6 +355,111 @@ impl OwnedDocumentModule {
                                 descriptor: authority_descriptor(&authority, &store_epoch),
                                 update,
                             },
+                        })
+                    })
+                    .map_err(core_error)
+            }
+            OwnedDocumentRead::FetchUpdate {
+                document_id,
+                generation,
+                update_id,
+                update_hash,
+            } => {
+                if generation < 1
+                    || update_id.is_empty()
+                    || update_id.len() > 512
+                    || update_id.trim() != update_id
+                    || !is_sha256(&update_hash)
+                {
+                    return Err(invalid("Document update resource identity is invalid"));
+                }
+                self.readers
+                    .read_default(|connection| {
+                        let authority = read_document_authority(connection, &document_id)?
+                            .ok_or_else(|| not_found("Owned Document was not found"))?;
+                        authorize_yjs(
+                            connection,
+                            context,
+                            &authority,
+                            DocumentAccessKind::Read,
+                        )?;
+                        let store_epoch = read_store_epoch(connection)?;
+                        let repository = DocumentReadRepository::new(connection);
+                        let unavailable = |reason| {
+                            OwnedDocumentReadValue::UpdateResourceUnavailable {
+                                unavailable: DocumentUpdateResourceUnavailable {
+                                    document_id: document_id.clone(),
+                                    requested_generation: generation,
+                                    current_generation: authority.head.generation,
+                                    current_head_seq: authority.head.head_seq,
+                                    update_id: update_id.clone(),
+                                    update_hash: update_hash.clone(),
+                                    reason,
+                                },
+                            }
+                        };
+                        let value = if authority.head.generation != generation {
+                            unavailable(DocumentUpdateResourceUnavailableReason::GenerationChanged)
+                        } else {
+                            match repository.update_by_identity(
+                                &document_id,
+                                generation,
+                                &update_id,
+                            )? {
+                                Some(update) if update.update_hash != update_hash => unavailable(
+                                    DocumentUpdateResourceUnavailableReason::HashMismatch,
+                                ),
+                                Some(update) if sha256(&update.update_blob) != update.update_hash => {
+                                    return Err(StoreError::new(
+                                        StoreErrorCode::StoreCorrupt,
+                                        "Document update resource hash does not match its durable bytes",
+                                        false,
+                                    ));
+                                }
+                                Some(update) => OwnedDocumentReadValue::UpdateResource {
+                                    resource: DocumentUpdateResource {
+                                        document_id: update.document_id,
+                                        generation: update.generation,
+                                        base_head_seq: update.base_head_seq,
+                                        head_seq: update.seq,
+                                        update_id: update.update_id,
+                                        update_hash: update.update_hash,
+                                        update_byte_length: i64::try_from(update.update_blob.len())
+                                            .map_err(|_| {
+                                                StoreError::new(
+                                                    StoreErrorCode::StoreCorrupt,
+                                                    "Document update resource length overflowed",
+                                                    false,
+                                                )
+                                            })?,
+                                        update: update.update_blob,
+                                    },
+                                },
+                                None => match repository
+                                    .update_receipt(&document_id, &update_id)?
+                                {
+                                    Some(receipt)
+                                        if receipt.generation == generation
+                                            && receipt.update_hash != update_hash =>
+                                    {
+                                        unavailable(
+                                            DocumentUpdateResourceUnavailableReason::HashMismatch,
+                                        )
+                                    }
+                                    Some(receipt) if receipt.generation == generation => unavailable(
+                                        DocumentUpdateResourceUnavailableReason::Compacted,
+                                    ),
+                                    _ => unavailable(
+                                        DocumentUpdateResourceUnavailableReason::Missing,
+                                    ),
+                                },
+                            }
+                        };
+                        Ok(ModuleReadSnapshot {
+                            contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
+                            store_epoch: StoreEpoch(store_epoch),
+                            commit_head: read_local_commit_head(connection)?,
+                            value,
                         })
                     })
                     .map_err(core_error)
@@ -5016,6 +5122,13 @@ fn core_error(error: StoreError) -> CoreError {
     }
 }
 
+fn is_sha256(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
 fn invalid(message: &str) -> CoreError {
     CoreError {
         code: CoreErrorCode::InvalidInput,
@@ -8908,6 +9021,108 @@ mod tests {
             .expect("repeat compaction");
         assert_eq!(repeated.pruned_update_count, 0);
         assert_eq!(repeated.retained_receipt_count, 2);
+    }
+
+    #[test]
+    fn exact_update_resource_read_verifies_identity_and_reports_compaction() {
+        let seeded = seeded_module();
+        let update = title_update(
+            &seeded.full_state,
+            &seeded.state_vector,
+            "Exact update resource",
+        );
+        let update_hash = sha256(&update);
+        seeded
+            .module
+            .apply(
+                &context(),
+                apply_request("update:exact-resource", 1, update.clone()),
+            )
+            .expect("commit exact resource");
+
+        let exact = seeded
+            .module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
+                    read: OwnedDocumentRead::FetchUpdate {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        generation: 1,
+                        update_id: "update:exact-resource".to_owned(),
+                        update_hash: update_hash.clone(),
+                    },
+                },
+            )
+            .expect("read exact update resource");
+        let OwnedDocumentReadValue::UpdateResource { resource } = exact.value else {
+            panic!("expected exact update resource")
+        };
+        assert_eq!(resource.base_head_seq, 1);
+        assert_eq!(resource.head_seq, 2);
+        assert_eq!(resource.update_hash, update_hash);
+        assert_eq!(resource.update_byte_length, update.len() as i64);
+        assert_eq!(resource.update, update);
+
+        let mismatched = seeded
+            .module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
+                    read: OwnedDocumentRead::FetchUpdate {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        generation: 1,
+                        update_id: "update:exact-resource".to_owned(),
+                        update_hash: "f".repeat(64),
+                    },
+                },
+            )
+            .expect("hash mismatch is a typed resync boundary");
+        assert!(matches!(
+            mismatched.value,
+            OwnedDocumentReadValue::UpdateResourceUnavailable {
+                unavailable: DocumentUpdateResourceUnavailable {
+                    reason: DocumentUpdateResourceUnavailableReason::HashMismatch,
+                    ..
+                }
+            }
+        ));
+
+        seeded
+            .module
+            .compact(
+                &context(),
+                StoreEpoch(STORE_EPOCH.to_owned()),
+                DOCUMENT_ID.to_owned(),
+                1,
+                2,
+            )
+            .expect("compact exact resource");
+        let compacted = seeded
+            .module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
+                    read: OwnedDocumentRead::FetchUpdate {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        generation: 1,
+                        update_id: "update:exact-resource".to_owned(),
+                        update_hash,
+                    },
+                },
+            )
+            .expect("compacted resource is a typed resync boundary");
+        assert!(matches!(
+            compacted.value,
+            OwnedDocumentReadValue::UpdateResourceUnavailable {
+                unavailable: DocumentUpdateResourceUnavailable {
+                    reason: DocumentUpdateResourceUnavailableReason::Compacted,
+                    ..
+                }
+            }
+        ));
     }
 
     #[test]
