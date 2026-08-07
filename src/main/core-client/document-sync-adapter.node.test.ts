@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { describe, expect, test, vi } from "vitest";
 
 import { CoreModuleResponseError } from "./core-client";
@@ -197,6 +199,103 @@ describe("Core Document sync adapter", () => {
       clientSessionId: "renderer:prepare",
       intent: { kind: "prepare_owner", owner_block_id: "page:one" },
     }]);
+  });
+
+  test("fetches one exact verified Document update resource", async () => {
+    const client = new FakeCoreClient();
+    const adapter = createCoreDocumentSyncAdapter(client);
+    const update = Uint8Array.from([1, 2, 3, 4]);
+    const updateHash = createHash("sha256").update(update).digest("hex");
+    client.enqueueDocumentRead({
+      contract_version: 5,
+      store_epoch: "epoch:test",
+      commit_head: 9,
+      value: {
+        kind: "update_resource",
+        resource: {
+          document_id: "document:one",
+          generation: 1,
+          base_head_seq: 4,
+          head_seq: 5,
+          update_id: "update:one",
+          update_hash: updateHash,
+          update_byte_length: update.byteLength,
+          update: [...update],
+        },
+      },
+    });
+
+    await expect(adapter.fetchUpdateResource({
+      documentId: "document:one",
+      generation: 1,
+      updateId: "update:one",
+      updateHash,
+      clientSessionId: "renderer:resource",
+    })).resolves.toEqual({
+      ok: true,
+      value: {
+        kind: "available",
+        documentId: "document:one",
+        generation: 1,
+        baseHeadSeq: 4,
+        headSeq: 5,
+        updateId: "update:one",
+        updateHash,
+        updateByteLength: update.byteLength,
+        update,
+      },
+    });
+    expect(client.documentReads).toEqual([{
+      clientSessionId: "renderer:resource",
+      read: {
+        kind: "fetch_update",
+        document_id: "document:one",
+        generation: 1,
+        update_id: "update:one",
+        update_hash: updateHash,
+      },
+    }]);
+  });
+
+  test("fails closed when exact Document update bytes do not match their ref", async () => {
+    const client = new FakeCoreClient();
+    const adapter = createCoreDocumentSyncAdapter(client);
+    const updateHash = createHash("sha256")
+      .update(Uint8Array.from([1, 2, 3]))
+      .digest("hex");
+    client.enqueueDocumentRead({
+      contract_version: 5,
+      store_epoch: "epoch:test",
+      commit_head: 9,
+      value: {
+        kind: "update_resource",
+        resource: {
+          document_id: "document:one",
+          generation: 1,
+          base_head_seq: 4,
+          head_seq: 5,
+          update_id: "update:one",
+          update_hash: updateHash,
+          update_byte_length: 3,
+          update: [9, 9, 9],
+        },
+      },
+    });
+
+    await expect(adapter.fetchUpdateResource({
+      documentId: "document:one",
+      generation: 1,
+      updateId: "update:one",
+      updateHash,
+      clientSessionId: "renderer:resource",
+    })).resolves.toMatchObject({
+      ok: false,
+      error: {
+        code: "invalid_response",
+        retryable: false,
+        resetRequired: true,
+      },
+    });
   });
 
   test("tracks subscriptions by exact Document and client session", async () => {

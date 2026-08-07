@@ -287,6 +287,45 @@ impl<'connection> DocumentReadRepository<'connection> {
         rows.into_iter().map(DocumentUpdateRow::try_from).collect()
     }
 
+    pub fn update_by_identity(
+        &self,
+        document_id: &str,
+        generation: i64,
+        update_id: &str,
+    ) -> Result<Option<DocumentUpdateRow>, StoreError> {
+        validate_identifier(document_id, "document_updates.document_id")?;
+        validate_positive(generation, "document_updates.generation")?;
+        validate_identifier(update_id, "document_updates.update_id")?;
+        let raw = self
+            .connection
+            .query_row(
+                "SELECT document_id, generation, seq, update_id, client_session_id, \
+                        base_head_seq, touched_block_ids_json, update_blob, update_hash, committed_at \
+                 FROM document_updates WHERE document_id = ?1 AND generation = ?2 \
+                   AND update_id = ?3",
+                params![document_id, generation, update_id],
+                |row| {
+                    Ok(RawDocumentUpdate {
+                        document_id: row.get(0)?,
+                        generation: row.get(1)?,
+                        seq: row.get(2)?,
+                        update_id: row.get(3)?,
+                        client_session_id: row.get(4)?,
+                        base_head_seq: row.get(5)?,
+                        touched_block_ids_json: row.get(6)?,
+                        update_blob: row.get(7)?,
+                        update_hash: row.get(8)?,
+                        committed_at: row.get(9)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(|_| {
+                corrupt_row("document_updates", "column types do not match the schema")
+            })?;
+        raw.map(DocumentUpdateRow::try_from).transpose()
+    }
+
     pub fn materialization(
         &self,
         document_id: &str,
