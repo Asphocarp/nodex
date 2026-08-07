@@ -24,7 +24,11 @@ import {
   type BoardTransform,
 } from "./kanban-optimistic-ops";
 import { toDatabasePageSummary } from "../../shared/page-summary";
-import { applyBoardChangeEventToBoard, upsertCardSummaryInBoard } from "./board-summary-events";
+import {
+  applyBoardChangeEventToBoard,
+  removePageSummaryFromBoard,
+  upsertCardSummaryInBoard,
+} from "./board-summary-events";
 import type { BoardChangeEvent } from "../../shared/ipc-api";
 import {
   UNGROUPED_SCOPE_KEY,
@@ -37,10 +41,21 @@ import type {
   ProjectionInvalidationRegistry,
 } from "./projection-invalidation-registry";
 import type { ProjectionStreamMessage } from "../../shared/projection-stream";
+import {
+  projectionCoordinateFromSnapshot,
+  type ProjectionCoordinate,
+  type ProjectionEffect,
+} from "../../shared/projection-stream";
+import {
+  CausalProjectionRuntime,
+  type ProjectionRepairRequest,
+} from "./causal-projection-runtime";
+import { projectCoreDatabaseQueryRow } from "../../shared/core-database-row-projection";
 
 const DEFAULT_BOARD_FRESHNESS_MS = 30_000;
 const GROUP_WINDOW_FIRST = 50;
 const GROUP_WINDOW_MAX_FIRST = 200;
+const CONSISTENT_WINDOW_READ_ATTEMPTS = 4;
 
 export interface IndexedPage extends DatabasePageSummary {
   columnId: string;
@@ -206,6 +221,30 @@ interface GroupWindowState {
   readonly inlineError: string | null;
 }
 
+type ProjectionSnapshot = Pick<
+  DatabaseViewWindowSnapshot,
+  "storeEpoch" | "projection"
+>;
+
+const hasSameProjectionAuthority = (
+  left: ProjectionSnapshot,
+  right: ProjectionSnapshot,
+): boolean =>
+  left.storeEpoch === right.storeEpoch
+  && left.projection.scopeKey === right.projection.scopeKey
+  && left.projection.schemaVersion === right.projection.schemaVersion
+  && left.projection.revision === right.projection.revision
+  && left.projection.effectHash === right.projection.effectHash;
+
+const scopeContainsGroup = (
+  scope: DatabaseViewGroupScopeInput | null,
+  groupKey: string | null,
+): boolean => {
+  if (scope === null) return true;
+  if (scope.kind === "unassigned") return groupKey === null;
+  return scope.key === groupKey;
+};
+
 const scopesFromGroups = (
   groups: DatabaseViewGroupsSnapshot,
 ): GroupWindowScope[] => {
@@ -249,6 +288,16 @@ const mergeGroupWindows = (
 ): DatabaseViewWindowSnapshot | null => {
   const first = windows[0];
   if (!first) return null;
+  const projection = first.projection;
+  if (windows.some((window) =>
+    window.storeEpoch !== first.storeEpoch
+    || window.projection.scopeKey !== projection.scopeKey
+    || window.projection.schemaVersion !== projection.schemaVersion
+    || window.projection.revision !== projection.revision
+    || window.projection.effectHash !== projection.effectHash
+  )) {
+    throw new Error("Database View windows crossed a projection revision");
+  }
   const seenRows = new Set<string>();
   const rows = windows.flatMap((window) =>
     window.rows.filter((row) => {
@@ -266,9 +315,12 @@ const mergeGroupWindows = (
   return {
     ...first,
     commitSeq: Math.min(...windows.map((window) => window.commitSeq)),
-    projectionRevision: Math.min(
-      ...windows.map((window) => window.projectionRevision),
-    ),
+    projection: {
+      ...projection,
+      coveredCommitSeq: Math.min(
+        ...windows.map((window) => window.projection.coveredCommitSeq),
+      ),
+    },
     nextCursor: null,
     rows,
     board: mergeBoards(windows.map((window) => window.board)),
@@ -302,6 +354,12 @@ const appendWindow = (
   current: DatabaseViewWindowSnapshot,
   next: DatabaseViewWindowSnapshot,
 ): DatabaseViewWindowSnapshot => {
+  if (
+    !hasSameProjectionAuthority(current, next)
+    || current.viewId !== next.viewId
+  ) {
+    throw new Error("Database View continuation crossed a projection revision");
+  }
   const existingIds = new Set(current.rows.map((row) => row.page.id));
   return {
     ...next,
@@ -356,6 +414,8 @@ class KanbanProjectStore {
   private unsubscribeBoardChanges: (() => void) | null = null;
 
   private unsubscribeProjectionInvalidation: (() => void) | null = null;
+
+  private causalProjectionRuntime: CausalProjectionRuntime | null = null;
 
   private requiredMinimumCommitSeq = 0;
 
@@ -431,6 +491,55 @@ class KanbanProjectStore {
     });
   }
 
+  private async readConsistentFirstWindows(
+    minimumCommitSeq: number,
+  ): Promise<{
+    readonly groups: DatabaseViewGroupsSnapshot;
+    readonly windows: readonly {
+      readonly scope: GroupWindowScope;
+      readonly snapshot: DatabaseViewWindowSnapshot;
+    }[];
+  }> {
+    let floor = minimumCommitSeq;
+    for (let attempt = 0; attempt < CONSISTENT_WINDOW_READ_ATTEMPTS; attempt += 1) {
+      const groups = await this.dependencies.readViewGroups(
+        this.projectId,
+        this.groupsInput(floor),
+      );
+      const scopes = scopesFromGroups(groups);
+      // An empty grouped View still needs one window for its descriptor.
+      const fetchScopes: GroupWindowScope[] = scopes.length > 0
+        ? scopes
+        : [{ scopeKey: UNGROUPED_SCOPE_KEY, scope: null }];
+      const windows = await Promise.all(fetchScopes.map(async (scope) => ({
+        scope,
+        snapshot: await this.readScopedWindow(
+          scope,
+          this.firstForScope(scope.scopeKey),
+          undefined,
+          floor,
+        ),
+      })));
+      if (windows.every(({ snapshot }) =>
+        hasSameProjectionAuthority(groups, snapshot)
+      )) {
+        return { groups, windows };
+      }
+      floor = Math.max(
+        floor,
+        groups.commitSeq,
+        groups.projection.coveredCommitSeq,
+        ...windows.flatMap(({ snapshot }) => [
+          snapshot.commitSeq,
+          snapshot.projection.coveredCommitSeq,
+        ]),
+      );
+    }
+    throw new Error(
+      "Database View changed faster than a consistent window snapshot could be read",
+    );
+  }
+
   private rebuildFromGroups(): void {
     const merged = mergeGroupWindows(
       [...this.groupWindows.values()].map((group) => group.snapshot),
@@ -459,24 +568,9 @@ class KanbanProjectStore {
     }
 
     try {
-      const groups = await this.dependencies.readViewGroups(
-        this.projectId,
-        this.groupsInput(minimumCommitSeq),
+      const { groups, windows } = await this.readConsistentFirstWindows(
+        minimumCommitSeq,
       );
-      const scopes = scopesFromGroups(groups);
-      // An empty grouped View still needs one window for its descriptor.
-      const fetchScopes: GroupWindowScope[] = scopes.length > 0
-        ? scopes
-        : [{ scopeKey: UNGROUPED_SCOPE_KEY, scope: null }];
-      const windows = await Promise.all(fetchScopes.map(async (scope) => ({
-        scope,
-        snapshot: await this.readScopedWindow(
-          scope,
-          this.firstForScope(scope.scopeKey),
-          undefined,
-          minimumCommitSeq,
-        ),
-      })));
       const currentAuthority = this.baseBoardAuthority;
       const incomingSeq = Math.min(
         ...windows.map((window) => window.snapshot.commitSeq),
@@ -486,11 +580,23 @@ class KanbanProjectStore {
           `Database View read did not reach local commit ${minimumCommitSeq}`,
         );
       }
+      const incomingAuthority = windows[0]?.snapshot;
       if (
         currentAuthority
-        && windows[0]
-        && windows[0].snapshot.storeEpoch === currentAuthority.storeEpoch
-        && incomingSeq < currentAuthority.commitSeq
+        && incomingAuthority
+        && incomingAuthority.storeEpoch === currentAuthority.storeEpoch
+        && incomingAuthority.projection.scopeKey
+          === currentAuthority.projection.scopeKey
+        && (
+          incomingAuthority.projection.revision
+            < currentAuthority.projection.revision
+          || (
+            incomingAuthority.projection.revision
+              === currentAuthority.projection.revision
+            && incomingAuthority.projection.coveredCommitSeq
+              < currentAuthority.projection.coveredCommitSeq
+          )
+        )
       ) {
         // Every fetched window predates what is already on screen; keep the
         // newer state and only refresh bookkeeping.
@@ -500,6 +606,21 @@ class KanbanProjectStore {
         this.recomputeSnapshot({ loading: false, error: null });
         succeeded = true;
         return true;
+      }
+      if (
+        currentAuthority
+        && incomingAuthority
+        && incomingAuthority.storeEpoch === currentAuthority.storeEpoch
+        && incomingAuthority.projection.scopeKey
+          === currentAuthority.projection.scopeKey
+        && incomingAuthority.projection.revision
+          === currentAuthority.projection.revision
+        && currentAuthority.projection.effectHash !== null
+        && incomingAuthority.projection.effectHash !== null
+        && incomingAuthority.projection.effectHash
+          !== currentAuthority.projection.effectHash
+      ) {
+        throw new Error("Database View canonical read conflicts with its projection revision");
       }
       this.groupsSnapshot = groups;
       this.groupWindows = new Map(windows.map(({ scope, snapshot }) => [
@@ -589,9 +710,13 @@ class KanbanProjectStore {
       const current = this.groupWindows.get(scopeKey);
       if (!current) return;
       if (
-        snapshot.storeEpoch === current.snapshot.storeEpoch
-        && snapshot.commitSeq < current.snapshot.commitSeq
+        !hasSameProjectionAuthority(snapshot, current.snapshot)
       ) {
+        this.stale = true;
+        await this.fetchBoard(snapshot.projection.coveredCommitSeq).catch(() => {});
+        return;
+      }
+      if (snapshot.commitSeq < current.snapshot.commitSeq) {
         return;
       }
       this.groupWindows = new Map(this.groupWindows).set(scopeKey, {
@@ -634,13 +759,13 @@ class KanbanProjectStore {
       const current = this.groupWindows.get(scopeKey);
       if (!current || current.snapshot.nextCursor !== after) return;
       if (
-        next.storeEpoch !== current.snapshot.storeEpoch
+        !hasSameProjectionAuthority(next, current.snapshot)
         || next.viewId !== current.snapshot.viewId
       ) {
-        // The continuation crossed a Store/View identity boundary; converge
-        // the whole board from its first windows instead of merging.
+        // Continuations are valid only inside one exact projection revision.
+        // Dispose the cursor and converge the whole Board from first windows.
         this.stale = true;
-        await this.fetchBoard().catch(() => {});
+        await this.fetchBoard(next.projection.coveredCommitSeq).catch(() => {});
         return;
       }
       this.groupWindows = new Map(this.groupWindows).set(scopeKey, {
@@ -794,6 +919,175 @@ class KanbanProjectStore {
       );
     }
     this.recomputeSnapshot();
+  };
+
+  private projectionCoordinate = (): ProjectionCoordinate | null => {
+    const authority = this.baseBoardAuthority;
+    return authority
+      ? projectionCoordinateFromSnapshot(authority)
+      : null;
+  };
+
+  private ensureCausalProjectionRuntime(): CausalProjectionRuntime | null {
+    const coordinate = this.projectionCoordinate();
+    if (!coordinate) return null;
+    if (this.causalProjectionRuntime) return this.causalProjectionRuntime;
+    this.causalProjectionRuntime = new CausalProjectionRuntime({
+      scopeKey: coordinate.scopeKey,
+      schemaVersion: coordinate.schemaVersion,
+      getCoordinate: this.projectionCoordinate,
+      apply: this.applyProjectionEffect,
+      readAtLeast: this.repairProjection,
+      onIntegrityFailure: (error) => {
+        this.recomputeSnapshot({ error: error.message });
+      },
+    });
+    return this.causalProjectionRuntime;
+  }
+
+  private applyProjectionEffect = (effect: ProjectionEffect): void => {
+    const authority = this.baseBoardAuthority;
+    const board = this.baseBoard;
+    const patch = effect.patch;
+    if (!authority || !board || !patch) {
+      throw new Error("Database View projection has no patchable base");
+    }
+    if (
+      patch.kind !== "database_row_upsert"
+      && patch.kind !== "database_row_remove"
+    ) {
+      throw new Error("Database View received a patch for another projection module");
+    }
+    if (
+      patch.projectId !== this.projectId
+      || patch.databaseId !== authority.databaseId
+      || patch.dataSourceId !== authority.dataSourceId
+      || patch.viewId !== authority.viewId
+    ) {
+      throw new Error("Database View projection patch targets another scope");
+    }
+
+    const pageId = patch.kind === "database_row_upsert"
+      ? patch.row.id
+      : patch.pageId;
+    const groupKey = patch.kind === "database_row_upsert"
+      ? patch.effectiveGroupKey
+      : patch.groupKey;
+    const advanceWindow = (
+      snapshot: DatabaseViewWindowSnapshot,
+      groupScope: DatabaseViewGroupScopeInput | null,
+    ): DatabaseViewWindowSnapshot => {
+      const includesUpsert = patch.kind === "database_row_upsert"
+        && scopeContainsGroup(groupScope, patch.effectiveGroupKey);
+      const nextRows = [
+        ...snapshot.rows.filter((row) => row.page.id !== pageId),
+        ...(includesUpsert
+          ? [{
+              page: patch.row,
+              groupKey: patch.effectiveGroupKey,
+              rankKey:
+                patch.rankKey ?? "ffffffffffffffffffffffffffffffff",
+            }]
+          : []),
+      ].sort((left, right) =>
+        left.rankKey.localeCompare(right.rankKey)
+        || left.page.id.localeCompare(right.page.id)
+      );
+      const queryRowsByPageId = new Map(
+        snapshot.query.rows
+          .filter((row) => row.page.pageId !== pageId)
+          .map((row) => [row.page.pageId, row] as const),
+      );
+      if (includesUpsert) {
+        queryRowsByPageId.set(pageId, projectCoreDatabaseQueryRow(
+          patch.sourceRow,
+          {
+            libraryId: snapshot.libraryId,
+            dataSourceId: snapshot.query.dataSource.dataSourceId,
+            properties: snapshot.query.properties,
+          },
+        ));
+      }
+      const nextBoard = patch.kind === "database_row_upsert"
+        ? upsertCardSummaryInBoard(snapshot.board, patch.row)
+        : removePageSummaryFromBoard(snapshot.board, patch.pageId);
+      return {
+        ...snapshot,
+        commitSeq: Math.max(snapshot.commitSeq, effect.coveredCommitSeq),
+        projection: {
+          scopeKey: effect.scope.canonical_key,
+          schemaVersion: effect.scope.schema_version,
+          revision: effect.resultRevision,
+          coveredCommitSeq: effect.coveredCommitSeq,
+          effectHash: effect.effectHash,
+        },
+        nextCursor: effect.requiresReadAtLeast ? null : snapshot.nextCursor,
+        rows: nextRows,
+        board: nextBoard,
+        query: {
+          ...snapshot.query,
+          rows: nextRows.flatMap((row) => {
+            const queryRow = queryRowsByPageId.get(row.page.id);
+            return queryRow ? [queryRow] : [];
+          }),
+        },
+      };
+    };
+
+    const nextAuthority = advanceWindow(authority, null);
+    this.baseBoard = nextAuthority.board;
+    this.baseBoardAuthority = nextAuthority;
+    this.baseDatabaseView = buildDatabaseViewWindowRenderModel(
+      nextAuthority,
+    );
+    this.groupWindows = new Map(
+      [...this.groupWindows].map(([scopeKey, state]) => [scopeKey, {
+        ...state,
+        snapshot: advanceWindow(state.snapshot, state.scope),
+      }]),
+    );
+    if (this.groupsSnapshot) {
+      const nextGroups = this.groupsSnapshot.groups
+        .map((group) => group.groupKey === groupKey && patch.groupTotal !== null
+          ? { ...group, totalRows: patch.groupTotal }
+          : group)
+        .filter((group) => group.totalRows > 0);
+      if (
+        this.groupsSnapshot.grouped
+        && patch.groupTotal !== null
+        && patch.groupTotal > 0
+        && !nextGroups.some((group) => group.groupKey === groupKey)
+      ) {
+        nextGroups.push({ groupKey, totalRows: patch.groupTotal });
+      }
+      this.groupsSnapshot = {
+        ...this.groupsSnapshot,
+        commitSeq: Math.max(
+          this.groupsSnapshot.commitSeq,
+          effect.coveredCommitSeq,
+        ),
+        projection: nextAuthority.projection,
+        totalRows: patch.totalRows,
+        groups: nextGroups,
+      };
+    }
+    this.requiredMinimumCommitSeq = Math.max(
+      this.requiredMinimumCommitSeq,
+      effect.coveredCommitSeq,
+    );
+    this.lastFetchedAt = this.dependencies.now();
+    this.stale = effect.requiresReadAtLeast;
+    this.recomputeSnapshot({ error: null });
+  };
+
+  private repairProjection = async (
+    request: ProjectionRepairRequest,
+  ): Promise<void> => {
+    const current = this.projectionCoordinate();
+    if (current && current.scopeKey !== request.scopeKey) {
+      throw new Error("Projection repair targets another Database View scope");
+    }
+    await this.refreshBoardAtLeast(request.minimumCommitSeq);
   };
 
   enqueueLocalOverlay = (options: LocalOverlayOptions): boolean => {
@@ -1103,14 +1397,14 @@ class KanbanProjectStore {
     cause: ProjectionStreamMessage,
   ): Promise<void> => {
     this.stale = true;
-    if (cause.kind === "resync") {
+    if (cause.kind === "reset") {
       // A new Store epoch has a new cursor origin; never carry an old
       // minimumCommitSeq into that coordinate space.
       this.requiredMinimumCommitSeq = 0;
     }
     if (this.listeners.size === 0) return;
     const refreshed = await this.fetchBoard(
-      cause.kind === "resync" ? 0 : cause.cursor.commitSeq,
+      cause.kind === "reset" ? 0 : cause.stream.commitSeq,
     );
     if (!refreshed) {
       throw new Error(this.snapshot.error ?? "Board projection refresh failed");
@@ -1174,7 +1468,8 @@ class KanbanProjectStore {
     if (this.unsubscribeProjectionInvalidation) return;
     const authority = this.baseBoardAuthority;
     const registry = this.dependencies.getProjectionInvalidationRegistry();
-    if (!authority || !registry) return;
+    const causalRuntime = this.ensureCausalProjectionRuntime();
+    if (!authority || !registry || !causalRuntime) return;
     this.unsubscribeProjectionInvalidation = registry.register({
       scope: {
         kind: "project",
@@ -1182,6 +1477,7 @@ class KanbanProjectStore {
         projectId: this.projectId,
       },
       consumerKey: `kanban:${this.projectId}:${this.databaseViewId ?? "primary"}`,
+      causalRuntime,
       getDependencies: () => {
         const current = this.baseBoardAuthority;
         return {
@@ -1196,7 +1492,7 @@ class KanbanProjectStore {
         return current
           ? {
               storeEpoch: current.storeEpoch,
-              commitSeq: current.commitSeq,
+              commitSeq: current.projection.coveredCommitSeq,
             }
           : null;
       },

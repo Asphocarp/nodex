@@ -147,8 +147,6 @@ export function KanbanBoard({
     movePage,
     movePages,
     refresh,
-    refreshAtLeast,
-    getPage,
     groupPagination,
     loadMoreGroup,
   } =
@@ -358,7 +356,7 @@ export function KanbanBoard({
       const sourceBarrier = resolveBlockDocumentMutationBarrier(
         authoritativePayload.sourceSurfaceId,
       );
-      const sourceHead = await sourceBarrier?.prepareLocalMutation();
+      const sourceHead = await sourceBarrier?.flushAndFence();
       if (sourceHead && sourceHead.storeEpoch !== databaseView.storeEpoch) {
         toast.danger("The dragged Document belongs to another store generation.");
         return;
@@ -390,20 +388,8 @@ export function KanbanBoard({
         toast.danger(result.error.message);
         return;
       }
-      const resultPageId = result.value.resultRootBlockIds[0];
-      if (resultPageId) {
-        // The row read is a small canonical fast path for the visible card;
-        // it does not render a pending placeholder or make the Board a second
-        // authority. The full floor read below reconciles totals/order in the
-        // background after the card is already visible.
-        await getPage(resultPageId, columnId, {
-          storeEpoch: databaseView.storeEpoch,
-          commitSeq: result.value.commitSeq,
-        });
-      }
-      void refreshAtLeast(result.value.commitSeq);
     },
-    [databaseView, filteredBoard, getPage, projectId, refreshAtLeast],
+    [databaseView, filteredBoard, projectId],
   );
 
   const performCardDrop = useCallback(async (

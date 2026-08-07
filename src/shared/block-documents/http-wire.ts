@@ -1,4 +1,4 @@
-const DOCUMENT_HTTP_MAGIC = new Uint8Array([0x4e, 0x44, 0x58, 0x02]);
+const DOCUMENT_HTTP_MAGIC = new Uint8Array([0x4e, 0x44, 0x58, 0x03]);
 const DOCUMENT_HTTP_HEADER_BYTES = DOCUMENT_HTTP_MAGIC.byteLength + 4;
 export const MAX_DOCUMENT_HTTP_METADATA_BYTES = 8 * 1024 * 1024;
 

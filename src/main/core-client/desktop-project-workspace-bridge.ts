@@ -1,5 +1,5 @@
 import type { DesktopDataAuthorityRuntime } from "./desktop-data-authority";
-import type { CoreEventEnvelope } from "./types";
+import { findCoreModulePayload, type CoreEventEnvelope } from "./types";
 import {
   createCoreProjectWorkspaceAdapter,
   type DesktopProjectWorkspacePort,
@@ -152,8 +152,8 @@ export interface CoreProjectWorkspaceInvalidation {
 export function mapCoreProjectWorkspaceEvent(
   envelope: CoreEventEnvelope,
 ): CoreProjectWorkspaceInvalidation | null {
-  const payload = envelope.event.payload;
-  if (payload.module !== "project_workspace") return null;
+  const payload = findCoreModulePayload(envelope, "project_workspace");
+  if (payload?.module !== "project_workspace") return null;
   return {
     projectCatalogChange: payload.event.project_catalog_change ?? undefined,
     projectIds: payload.event.project_ids,

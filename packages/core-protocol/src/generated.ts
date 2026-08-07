@@ -473,8 +473,244 @@ export interface components {
             readonly authority: components["schemas"]["ProjectWorkspaceTurnAuthority"];
             readonly profile_id: string;
         };
+        /**
+         * @description Closed result of an authorized command. A semantic mutation returns its
+         *     immutable commit identity; a validated no-op returns only the observed
+         *     store cursor and therefore cannot masquerade as a new commit.
+         */
+        readonly ApplyResponse_LibraryCommitValue_LibraryReceipt: {
+            readonly commit: components["schemas"]["CommitIdentity"];
+            readonly delivery?: null | components["schemas"]["AuthorizedDeliveryPacket"];
+            readonly outcome: {
+                readonly affected_resource_ids: readonly string[];
+                readonly agent_create_pages?: null | components["schemas"]["LibraryAgentCreatePagesResult"];
+                readonly agent_move_pages?: null | components["schemas"]["LibraryAgentMovePagesResult"];
+                readonly agent_page_copy?: null | components["schemas"]["LibraryAgentPageCopyResult"];
+                readonly block_property_mutation?: null | components["schemas"]["LibraryBlockPropertyMutationReceipt"];
+                readonly block_transfer?: null | components["schemas"]["LibraryBlockTransferResult"];
+                readonly canvas_mutation?: null | components["schemas"]["LibraryCanvasMutationResult"];
+                readonly page_copy?: null | components["schemas"]["LibraryPageCopyResult"];
+                readonly page_create?: null | components["schemas"]["LibraryPageCreateResult"];
+                readonly page_lifecycle?: null | components["schemas"]["LibraryPageLifecycleMutationReceipt"];
+            };
+            readonly receipt: components["schemas"]["ModuleMutationReceipt"] & {
+                readonly affected_database_ids: readonly string[];
+                readonly affected_page_ids: readonly string[];
+                readonly affected_parent_keys: readonly string[];
+                readonly affected_view_ids: readonly string[];
+                /** Format: int64 */
+                readonly commit_seq: number;
+                readonly committed_at: string;
+                readonly committed_revisions: {
+                    readonly [key: string]: number;
+                };
+                readonly created_target?: null | components["schemas"]["LibraryResourceTarget"];
+                readonly did_mutate: boolean;
+                readonly operation_kind: string;
+            };
+            /** @enum {string} */
+            readonly status: "committed";
+        } | {
+            readonly observed: components["schemas"]["StoreObservation"];
+            readonly outcome: {
+                readonly affected_resource_ids: readonly string[];
+                readonly agent_create_pages?: null | components["schemas"]["LibraryAgentCreatePagesResult"];
+                readonly agent_move_pages?: null | components["schemas"]["LibraryAgentMovePagesResult"];
+                readonly agent_page_copy?: null | components["schemas"]["LibraryAgentPageCopyResult"];
+                readonly block_property_mutation?: null | components["schemas"]["LibraryBlockPropertyMutationReceipt"];
+                readonly block_transfer?: null | components["schemas"]["LibraryBlockTransferResult"];
+                readonly canvas_mutation?: null | components["schemas"]["LibraryCanvasMutationResult"];
+                readonly page_copy?: null | components["schemas"]["LibraryPageCopyResult"];
+                readonly page_create?: null | components["schemas"]["LibraryPageCreateResult"];
+                readonly page_lifecycle?: null | components["schemas"]["LibraryPageLifecycleMutationReceipt"];
+            };
+            readonly receipt: components["schemas"]["ModuleMutationReceipt"] & {
+                readonly affected_database_ids: readonly string[];
+                readonly affected_page_ids: readonly string[];
+                readonly affected_parent_keys: readonly string[];
+                readonly affected_view_ids: readonly string[];
+                /** Format: int64 */
+                readonly commit_seq: number;
+                readonly committed_at: string;
+                readonly committed_revisions: {
+                    readonly [key: string]: number;
+                };
+                readonly created_target?: null | components["schemas"]["LibraryResourceTarget"];
+                readonly did_mutate: boolean;
+                readonly operation_kind: string;
+            };
+            /** @enum {string} */
+            readonly status: "no_op";
+        };
+        /**
+         * @description Closed result of an authorized command. A semantic mutation returns its
+         *     immutable commit identity; a validated no-op returns only the observed
+         *     store cursor and therefore cannot masquerade as a new commit.
+         */
+        readonly ApplyResponse_OwnedDocumentCommitValue_OwnedDocumentReceipt: {
+            readonly commit: components["schemas"]["CommitIdentity"];
+            readonly delivery?: null | components["schemas"]["AuthorizedDeliveryPacket"];
+            readonly outcome: {
+                readonly canvas?: unknown;
+                readonly checkpoint_effect?: null | components["schemas"]["DocumentCheckpointEffect"];
+                readonly committed_at?: string | null;
+                readonly document_id: string;
+                /** Format: int64 */
+                readonly generation: number;
+                /** Format: int64 */
+                readonly head_seq: number;
+                readonly mutation_effect?: null | components["schemas"]["DocumentMutationEffect"];
+                readonly outcome: components["schemas"]["DocumentCommitOutcome"];
+                readonly owner_effect?: null | components["schemas"]["DocumentOwnerEffect"];
+                readonly semantic_block_etags?: {
+                    readonly [key: string]: components["schemas"]["DocumentSemanticBlockEtags"];
+                } | null;
+                readonly semantic_deleted_owner_block_ids?: readonly string[] | null;
+                readonly semantic_etags?: null | components["schemas"]["DocumentSemanticEtags"];
+                readonly semantic_local_block_ids?: {
+                    readonly [key: string]: string;
+                } | null;
+            };
+            readonly receipt: components["schemas"]["ModuleMutationReceipt"] & {
+                readonly document_id: string;
+                /** Format: int64 */
+                readonly generation: number;
+                /** Format: int64 */
+                readonly head_seq: number;
+            };
+            /** @enum {string} */
+            readonly status: "committed";
+        } | {
+            readonly observed: components["schemas"]["StoreObservation"];
+            readonly outcome: {
+                readonly canvas?: unknown;
+                readonly checkpoint_effect?: null | components["schemas"]["DocumentCheckpointEffect"];
+                readonly committed_at?: string | null;
+                readonly document_id: string;
+                /** Format: int64 */
+                readonly generation: number;
+                /** Format: int64 */
+                readonly head_seq: number;
+                readonly mutation_effect?: null | components["schemas"]["DocumentMutationEffect"];
+                readonly outcome: components["schemas"]["DocumentCommitOutcome"];
+                readonly owner_effect?: null | components["schemas"]["DocumentOwnerEffect"];
+                readonly semantic_block_etags?: {
+                    readonly [key: string]: components["schemas"]["DocumentSemanticBlockEtags"];
+                } | null;
+                readonly semantic_deleted_owner_block_ids?: readonly string[] | null;
+                readonly semantic_etags?: null | components["schemas"]["DocumentSemanticEtags"];
+                readonly semantic_local_block_ids?: {
+                    readonly [key: string]: string;
+                } | null;
+            };
+            readonly receipt: components["schemas"]["ModuleMutationReceipt"] & {
+                readonly document_id: string;
+                /** Format: int64 */
+                readonly generation: number;
+                /** Format: int64 */
+                readonly head_seq: number;
+            };
+            /** @enum {string} */
+            readonly status: "no_op";
+        };
+        /**
+         * @description Post-state-authorized transport artifact. Packets for the apply response
+         *     and durable stream may have different coverage but always reference the
+         *     same immutable manifest identity.
+         */
+        readonly AuthorizedDeliveryPacket: {
+            readonly coverage: components["schemas"]["DeliveryCoverage"];
+            readonly document_effects: readonly components["schemas"]["AuthorizedDocumentEffect"][];
+            readonly effects: readonly components["schemas"]["AuthorizedModuleEffect"][];
+            readonly manifest: components["schemas"]["CommitManifestHeader"];
+            readonly packet_hash: string;
+            /** Format: int32 */
+            readonly packet_version: number;
+            readonly projection_effects: readonly components["schemas"]["ProjectionEffect"][];
+            readonly projection_impact: components["schemas"]["ProjectionImpact"];
+            readonly revocations: readonly components["schemas"]["ResourceRevocation"][];
+        };
+        readonly AuthorizedDocumentEffect: {
+            readonly inline_update?: readonly number[] | null;
+            readonly reference: components["schemas"]["DocumentEffectRef"];
+        };
+        readonly AuthorizedModuleEffect: {
+            readonly payload: components["schemas"]["AuthorizedModulePayload"];
+            readonly semantic: components["schemas"]["SemanticEffect"];
+        };
+        /**
+         * @description Module notification payloads that may cross the authorized delivery
+         *     boundary. Document updates are intentionally absent: their bytes are
+         *     available only through `DocumentEffectRef` and its optional inline body.
+         */
+        readonly AuthorizedModulePayload: {
+            readonly event: components["schemas"]["LibraryEvent"];
+            /** @enum {string} */
+            readonly module: "library";
+        } | {
+            readonly event: components["schemas"]["DatabaseEvent"];
+            /** @enum {string} */
+            readonly module: "database";
+        } | {
+            readonly event: components["schemas"]["AuthorizedOwnedDocumentEvent"];
+            /** @enum {string} */
+            readonly module: "owned_document";
+        } | {
+            readonly event: components["schemas"]["ProjectWorkspaceEvent"];
+            /** @enum {string} */
+            readonly module: "project_workspace";
+        } | {
+            readonly event: components["schemas"]["AutomationEvent"];
+            /** @enum {string} */
+            readonly module: "automation";
+        } | {
+            readonly event: components["schemas"]["StoreAdministrationEvent"];
+            /** @enum {string} */
+            readonly module: "store_administration";
+        };
+        readonly AuthorizedOwnedDocumentEvent: {
+            readonly document_id: string;
+            /** Format: int64 */
+            readonly generation: number;
+            /** Format: int64 */
+            readonly head_seq: number;
+            /** @enum {string} */
+            readonly kind: "document_resync_required";
+            readonly update_hash: string;
+            readonly update_id: string;
+        } | {
+            /** Format: int64 */
+            readonly base_head_seq: number;
+            readonly document_id: string;
+            /** Format: int64 */
+            readonly generation: number;
+            /** Format: int64 */
+            readonly head_seq: number;
+            /** @enum {string} */
+            readonly kind: "canvas_updated";
+            readonly mutation: unknown;
+            readonly scene_hash: string;
+        } | {
+            readonly document_id: string;
+            /** Format: int64 */
+            readonly generation: number;
+            /** Format: int64 */
+            readonly head_seq: number;
+            /** @enum {string} */
+            readonly kind: "canvas_generation_changed";
+            /** Format: int64 */
+            readonly previous_generation: number;
+            /** Format: int64 */
+            readonly previous_head_seq: number;
+            readonly scene_hash: string;
+        } | {
+            readonly document_id: string;
+            /** @enum {string} */
+            readonly kind: "document_invalidated";
+            readonly reason: components["schemas"]["DocumentInvalidationReason"];
+        };
         readonly AutomationApplyRequest: components["schemas"]["ModuleApplyRequest_AutomationIntent"];
-        readonly AutomationApplyResponse: components["schemas"]["ResponseEnvelope_CommittedModuleValue_AutomationCommitValue_AutomationReceipt"];
+        readonly AutomationApplyResponse: components["schemas"]["ResponseEnvelope_ApplyResponse_AutomationCommitValue_AutomationReceipt"];
         readonly AutomationDefinition: {
             readonly automation_id: string;
             /** Format: int64 */
@@ -1040,107 +1276,28 @@ export interface components {
             /** Format: int32 */
             readonly first?: number | null;
         };
-        readonly CommittedCoreModuleEvent: {
+        /**
+         * @description Stable identity shared by every authorized representation of one semantic
+         *     mutation. `manifest_hash` authenticates the immutable manifest; delivery
+         *     coverage and recipient identity are deliberately outside this coordinate.
+         */
+        readonly CommitIdentity: {
+            /** Format: int64 */
+            readonly commit_seq: number;
+            readonly manifest_hash: string;
+            readonly store_epoch: components["schemas"]["StoreEpoch"];
+        };
+        /**
+         * @description Minimal immutable manifest information carried by a delivery packet. It
+         *     proves which commit the packet represents without exposing unrelated
+         *     routing claims, intent evidence, or physical journal details.
+         */
+        readonly CommitManifestHeader: {
             readonly committed_at: string;
             /** Format: int32 */
             readonly event_version: number;
-            readonly operation_id?: string | null;
-            readonly payload: components["schemas"]["CoreModuleEventPayload"];
-            readonly projection_impact: components["schemas"]["ProjectionImpact"];
-            /** Format: int64 */
-            readonly sequence: number;
-            readonly store_epoch: components["schemas"]["StoreEpoch"];
-        };
-        readonly CommittedModuleValue_LibraryCommitValue_LibraryReceipt: {
-            /**
-             * Format: int64
-             * @description Semantic LocalCommit cursor after this operation. Unlike
-             *     `event_sequence`, this does not identify a physical change-log row.
-             *     A no-change receipt still carries the current cursor so callers never
-             *     mistake a physical sequence for projection freshness.
-             */
-            readonly commit_seq?: number;
-            /**
-             * Format: int64
-             * @description Physical change-log effect sequence retained for module-internal event
-             *     reconstruction. It is not a public projection cursor.
-             */
-            readonly event_sequence: number;
-            readonly local_commit?: null | components["schemas"]["LocalCommitEnvelope"];
-            readonly receipt: components["schemas"]["ModuleMutationReceipt"] & {
-                readonly affected_database_ids: readonly string[];
-                readonly affected_page_ids: readonly string[];
-                readonly affected_parent_keys: readonly string[];
-                readonly affected_view_ids: readonly string[];
-                /** Format: int64 */
-                readonly commit_seq: number;
-                readonly committed_at: string;
-                readonly committed_revisions: {
-                    readonly [key: string]: number;
-                };
-                readonly created_target?: null | components["schemas"]["LibraryResourceTarget"];
-                readonly did_mutate: boolean;
-                readonly operation_kind: string;
-            };
-            readonly store_epoch: components["schemas"]["StoreEpoch"];
-            readonly value: {
-                readonly affected_resource_ids: readonly string[];
-                readonly agent_create_pages?: null | components["schemas"]["LibraryAgentCreatePagesResult"];
-                readonly agent_move_pages?: null | components["schemas"]["LibraryAgentMovePagesResult"];
-                readonly agent_page_copy?: null | components["schemas"]["LibraryAgentPageCopyResult"];
-                readonly block_property_mutation?: null | components["schemas"]["LibraryBlockPropertyMutationReceipt"];
-                readonly block_transfer?: null | components["schemas"]["LibraryBlockTransferResult"];
-                readonly canvas_mutation?: null | components["schemas"]["LibraryCanvasMutationResult"];
-                readonly page_copy?: null | components["schemas"]["LibraryPageCopyResult"];
-                readonly page_create?: null | components["schemas"]["LibraryPageCreateResult"];
-                readonly page_lifecycle?: null | components["schemas"]["LibraryPageLifecycleMutationReceipt"];
-            };
-        };
-        readonly CommittedModuleValue_OwnedDocumentCommitValue_OwnedDocumentReceipt: {
-            /**
-             * Format: int64
-             * @description Semantic LocalCommit cursor after this operation. Unlike
-             *     `event_sequence`, this does not identify a physical change-log row.
-             *     A no-change receipt still carries the current cursor so callers never
-             *     mistake a physical sequence for projection freshness.
-             */
-            readonly commit_seq?: number;
-            /**
-             * Format: int64
-             * @description Physical change-log effect sequence retained for module-internal event
-             *     reconstruction. It is not a public projection cursor.
-             */
-            readonly event_sequence: number;
-            readonly local_commit?: null | components["schemas"]["LocalCommitEnvelope"];
-            readonly receipt: components["schemas"]["ModuleMutationReceipt"] & {
-                readonly document_id: string;
-                /** Format: int64 */
-                readonly generation: number;
-                /** Format: int64 */
-                readonly head_seq: number;
-            };
-            readonly store_epoch: components["schemas"]["StoreEpoch"];
-            readonly value: {
-                readonly canvas?: unknown;
-                readonly checkpoint_effect?: null | components["schemas"]["DocumentCheckpointEffect"];
-                readonly committed_at?: string | null;
-                readonly document_id: string;
-                /** Format: int64 */
-                readonly generation: number;
-                /** Format: int64 */
-                readonly head_seq: number;
-                readonly mutation_effect?: null | components["schemas"]["DocumentMutationEffect"];
-                readonly outcome: components["schemas"]["DocumentCommitOutcome"];
-                readonly owner_effect?: null | components["schemas"]["DocumentOwnerEffect"];
-                readonly semantic_block_etags?: {
-                    readonly [key: string]: components["schemas"]["DocumentSemanticBlockEtags"];
-                } | null;
-                readonly semantic_deleted_owner_block_ids?: readonly string[] | null;
-                readonly semantic_etags?: null | components["schemas"]["DocumentSemanticEtags"];
-                readonly semantic_local_block_ids?: {
-                    readonly [key: string]: string;
-                } | null;
-            };
+            readonly identity: components["schemas"]["CommitIdentity"];
+            readonly operation_id: string;
         };
         /** @enum {string} */
         readonly CompatibilityAxis: "manifest" | "transport" | "event" | "module" | "store";
@@ -1224,6 +1381,12 @@ export interface components {
             /** Format: int64 */
             readonly active_writer_commands: number;
             readonly backup_duration: components["schemas"]["HealthDurationMetric"];
+            readonly block_transfer_apply_duration: components["schemas"]["HealthDurationMetric"];
+            readonly block_transfer_decode_duration: components["schemas"]["HealthDurationMetric"];
+            readonly block_transfer_encode_duration: components["schemas"]["HealthDurationMetric"];
+            readonly block_transfer_prepare_duration: components["schemas"]["HealthDurationMetric"];
+            readonly block_transfer_reconstruct_duration: components["schemas"]["HealthDurationMetric"];
+            readonly block_transfer_transform_duration: components["schemas"]["HealthDurationMetric"];
             /** Format: int64 */
             readonly canvas_sync_initial_snapshots?: number;
             /** Format: int64 */
@@ -1252,36 +1415,14 @@ export interface components {
             readonly event_replay_lag: number;
             /** Format: int64 */
             readonly event_replay_lag_max: number;
+            readonly local_commit_publication_duration: components["schemas"]["HealthDurationMetric"];
             readonly transaction_duration: components["schemas"]["HealthDurationMetric"];
             /** Format: int64 */
             readonly wal_size_bytes: number;
+            readonly writer_execution: components["schemas"]["HealthDurationMetric"];
             /** Format: int64 */
             readonly writer_queue_depth: number;
-        };
-        readonly CoreModuleEventPayload: {
-            readonly event: components["schemas"]["LibraryEvent"];
-            /** @enum {string} */
-            readonly module: "library";
-        } | {
-            readonly event: components["schemas"]["DatabaseEvent"];
-            /** @enum {string} */
-            readonly module: "database";
-        } | {
-            readonly event: components["schemas"]["OwnedDocumentEvent"];
-            /** @enum {string} */
-            readonly module: "owned_document";
-        } | {
-            readonly event: components["schemas"]["ProjectWorkspaceEvent"];
-            /** @enum {string} */
-            readonly module: "project_workspace";
-        } | {
-            readonly event: components["schemas"]["AutomationEvent"];
-            /** @enum {string} */
-            readonly module: "automation";
-        } | {
-            readonly event: components["schemas"]["StoreAdministrationEvent"];
-            /** @enum {string} */
-            readonly module: "store_administration";
+            readonly writer_queue_wait: components["schemas"]["HealthDurationMetric"];
         };
         /** @enum {string} */
         readonly CoreReadiness: "starting" | "ready" | "maintenance" | "draining" | "failed";
@@ -1319,6 +1460,16 @@ export interface components {
             /** Format: int64 */
             readonly to_version: number;
         } | {
+            /** Format: int64 */
+            readonly completed: number;
+            /** @enum {string} */
+            readonly kind: "migration_progress";
+            /** Format: int64 */
+            readonly total: number;
+        } | {
+            /** @enum {string} */
+            readonly kind: "migration_heartbeat";
+        } | {
             readonly created_fresh: boolean;
             /** @enum {string} */
             readonly kind: "store_ready";
@@ -1351,7 +1502,7 @@ export interface components {
             readonly limit?: number | null;
         };
         readonly DatabaseApplyRequest: components["schemas"]["ModuleApplyRequest_Vec_DatabaseIntent"];
-        readonly DatabaseApplyResponse: components["schemas"]["ResponseEnvelope_CommittedModuleValue_DatabaseCommitValue_DatabaseReceipt"];
+        readonly DatabaseApplyResponse: components["schemas"]["ResponseEnvelope_ApplyResponse_DatabaseCommitValue_DatabaseReceipt"];
         readonly DatabaseEvent: {
             readonly data_source_ids: readonly string[];
             readonly database_ids: readonly string[];
@@ -1712,6 +1863,7 @@ export interface components {
             readonly data_source: unknown;
             readonly database: unknown;
             readonly groups: components["schemas"]["DatabaseViewGroups"];
+            readonly projection: components["schemas"]["ProjectionSnapshotAuthority"];
             readonly properties: readonly components["schemas"]["DatabasePropertyDescriptor"][];
             readonly rows: components["schemas"]["CollectionWindow_DatabaseViewContextRow"];
             readonly view: unknown;
@@ -1727,6 +1879,7 @@ export interface components {
             readonly database_id: string;
             readonly grouped: boolean;
             readonly groups: readonly components["schemas"]["DatabaseViewGroupSummary"][];
+            readonly projection: components["schemas"]["ProjectionSnapshotAuthority"];
             /** Format: int64 */
             readonly total_rows: number;
             readonly truncated: boolean;
@@ -1741,11 +1894,18 @@ export interface components {
         readonly DatabaseViewWindow: {
             readonly data_source_id: string;
             readonly database_id: string;
+            readonly projection: components["schemas"]["ProjectionSnapshotAuthority"];
             readonly rows: components["schemas"]["CollectionWindow_DatabaseRowSummary"];
             readonly view_id: string;
         };
         /** @enum {string} */
         readonly DeletableOwnedSourceKind: "synced_block" | "reusable_template";
+        readonly DeliveryCoverage: {
+            readonly document_effect_orders: readonly number[];
+            readonly inline_document_effect_orders: readonly number[];
+            readonly projection_scope_keys: readonly string[];
+            readonly semantic_effect_orders: readonly number[];
+        };
         readonly DocumentBlockOperation: {
             /** @enum {string} */
             readonly kind: "set_title";
@@ -1790,6 +1950,25 @@ export interface components {
         };
         /** @enum {string} */
         readonly DocumentCommitOutcome: "committed" | "no_change";
+        readonly DocumentEffectRef: {
+            /** Format: int64 */
+            readonly base_head_seq: number;
+            readonly document_id: string;
+            /** Format: int64 */
+            readonly effect_order: number;
+            /** Format: int64 */
+            readonly generation: number;
+            readonly page_id?: string | null;
+            readonly resource_kind: components["schemas"]["DocumentEffectResourceKind"];
+            /** Format: int64 */
+            readonly result_head_seq: number;
+            /** Format: int64 */
+            readonly update_byte_length: number;
+            readonly update_hash: string;
+            readonly update_id: string;
+        };
+        /** @enum {string} */
+        readonly DocumentEffectResourceKind: "document_update";
         readonly DocumentHeadRevision: {
             readonly document_id: string;
             /** Format: int64 */
@@ -2003,17 +2182,19 @@ export interface components {
             readonly version_id: string;
         };
         readonly EventEnvelope: {
-            readonly event: components["schemas"]["LocalCommitEnvelope"];
+            readonly packet: components["schemas"]["AuthorizedDeliveryPacket"];
             /** Format: int32 */
             readonly transport_version: number;
         };
         readonly EventReplayRequired: {
             /** Format: int64 */
             readonly commit_head: number;
+            readonly generation: string;
             /** Format: int64 */
             readonly oldest_available: number;
             /** Format: int64 */
             readonly requested_after: number;
+            readonly resync_token: string;
         };
         readonly HandshakeRequest: {
             readonly client: components["schemas"]["ClientIdentity"];
@@ -2092,7 +2273,7 @@ export interface components {
             readonly target_membership_id: string;
         };
         readonly LibraryAgentCreatePagesPreparation: {
-            readonly committed?: null | components["schemas"]["CommittedModuleValue_LibraryCommitValue_LibraryReceipt"];
+            readonly committed?: null | components["schemas"]["ApplyResponse_LibraryCommitValue_LibraryReceipt"];
             readonly destination?: null | components["schemas"]["LibraryPageCopyDestination"];
             readonly destination_database_id?: string | null;
             readonly destination_document?: null | components["schemas"]["LibraryAgentDocumentHead"];
@@ -2132,7 +2313,7 @@ export interface components {
             readonly target_project_id: string;
         };
         readonly LibraryAgentMovePagesPreparation: {
-            readonly committed?: null | components["schemas"]["CommittedModuleValue_LibraryCommitValue_LibraryReceipt"];
+            readonly committed?: null | components["schemas"]["ApplyResponse_LibraryCommitValue_LibraryReceipt"];
             readonly destination?: null | components["schemas"]["LibraryPageCopyDestination"];
             readonly destination_database_id?: string | null;
             readonly destination_document?: null | components["schemas"]["LibraryAgentDocumentHead"];
@@ -2153,7 +2334,7 @@ export interface components {
         readonly LibraryAgentPageCopyPreparation: {
             /** Format: int32 */
             readonly body_block_count: number;
-            readonly committed?: null | components["schemas"]["CommittedModuleValue_LibraryCommitValue_LibraryReceipt"];
+            readonly committed?: null | components["schemas"]["ApplyResponse_LibraryCommitValue_LibraryReceipt"];
             readonly destination?: null | components["schemas"]["LibraryPageCopyDestination"];
             readonly destination_database_id?: string | null;
             readonly destination_document?: null | components["schemas"]["LibraryAgentDocumentHead"];
@@ -2294,7 +2475,7 @@ export interface components {
             readonly kind: "after";
         };
         readonly LibraryApplyRequest: components["schemas"]["ModuleApplyRequest_LibraryIntent"];
-        readonly LibraryApplyResponse: components["schemas"]["ResponseEnvelope_CommittedModuleValue_LibraryCommitValue_LibraryReceipt"];
+        readonly LibraryApplyResponse: components["schemas"]["ResponseEnvelope_ApplyResponse_LibraryCommitValue_LibraryReceipt"];
         readonly LibraryBlockLocation: {
             /** @enum {string} */
             readonly kind: "library";
@@ -2392,33 +2573,8 @@ export interface components {
             readonly source: components["schemas"]["LibraryBlockTransferSource"];
             readonly target: components["schemas"]["LibraryBlockTransferTarget"];
         };
-        readonly LibraryBlockTransferMembership: {
-            readonly membership_id: string;
-            /** Format: int64 */
-            readonly revision: number;
-        };
         /** @enum {string} */
         readonly LibraryBlockTransferMode: "move" | "copy";
-        readonly LibraryBlockTransferPlan: {
-            /** @enum {string} */
-            readonly kind: "prepared";
-            readonly preparation: components["schemas"]["LibraryBlockTransferPreparation"];
-        } | {
-            /** Format: int64 */
-            readonly commit_seq: number;
-            readonly committed_at: string;
-            /** @enum {string} */
-            readonly kind: "committed";
-            readonly local_commit?: null | components["schemas"]["LocalCommitEnvelope"];
-            readonly result: components["schemas"]["LibraryBlockTransferResult"];
-        };
-        readonly LibraryBlockTransferPreparation: {
-            readonly source_database_id?: string | null;
-            readonly source_document_id?: string | null;
-            readonly target_database_id?: string | null;
-            readonly target_document_id?: string | null;
-            readonly write_fence: components["schemas"]["LibraryBlockTransferWriteFence"];
-        };
         readonly LibraryBlockTransferResult: {
             readonly affected_database_ids: readonly string[];
             readonly copied_block_ids: {
@@ -2486,15 +2642,6 @@ export interface components {
             /** @enum {string} */
             readonly kind: "data_source";
             readonly view_id: string;
-        };
-        readonly LibraryBlockTransferWriteFence: {
-            readonly documents: readonly components["schemas"]["LibraryBlockTransferDocumentHead"][];
-            readonly location_revisions: {
-                readonly [key: string]: number;
-            };
-            readonly source_memberships: {
-                readonly [key: string]: components["schemas"]["LibraryBlockTransferMembership"];
-            };
         };
         readonly LibraryCanvasDestination: {
             readonly before?: null | components["schemas"]["LibraryPlacementAnchor"];
@@ -3504,25 +3651,10 @@ export interface components {
             readonly kind: "page";
             readonly page_id: string;
         };
-        /**
-         * @description Canonical local-first publication envelope.
-         *
-         *     `effects` contains the committed physical details needed by document and
-         *     module consumers. `payload` is the primary transport view and may be
-         *     selected for the consumer's scope; it is not a second authority.
-         */
-        readonly LocalCommitEnvelope: {
-            readonly canonical_hash: string;
-            /** Format: int64 */
-            readonly commit_seq: number;
-            readonly committed_at: string;
-            readonly effects: readonly components["schemas"]["CommittedCoreModuleEvent"][];
-            /** Format: int32 */
-            readonly event_version: number;
-            readonly operation_id?: string | null;
-            readonly payload: components["schemas"]["CoreModuleEventPayload"];
-            readonly projection_impact: components["schemas"]["ProjectionImpact"];
-            readonly store_epoch: components["schemas"]["StoreEpoch"];
+        readonly LocalCommitResources: {
+            readonly block_ids: readonly string[];
+            readonly database_ids: readonly string[];
+            readonly document_ids: readonly string[];
         };
         readonly LocalMutationResolveRequest: {
             readonly intent_hash: string;
@@ -3531,7 +3663,7 @@ export interface components {
             readonly store_epoch: components["schemas"]["StoreEpoch"];
         };
         readonly LocalMutationResolveResponse: {
-            readonly local_commit?: null | components["schemas"]["LocalCommitEnvelope"];
+            readonly delivery?: null | components["schemas"]["AuthorizedDeliveryPacket"];
             readonly module: components["schemas"]["ModuleName"];
             readonly operation_id: string;
             readonly request_hash: string;
@@ -3555,6 +3687,62 @@ export interface components {
             readonly requested_store_epoch: components["schemas"]["StoreEpoch"];
             /** @enum {string} */
             readonly status: "epoch_mismatch";
+        };
+        /**
+         * @description Core-computed read-model result. A patch never grants write authority; it
+         *     only makes a committed relational result visible before canonical repair.
+         */
+        readonly LocalProjectionPatch: {
+            readonly data_source_id: string;
+            readonly database_id: string;
+            /** Format: int64 */
+            readonly group_total?: number | null;
+            /** @enum {string} */
+            readonly kind: "database_row_upsert";
+            readonly project_id: string;
+            readonly row: components["schemas"]["DatabaseRowSummary"];
+            /** Format: int64 */
+            readonly total_rows: number;
+            readonly view_id: string;
+        } | {
+            readonly data_source_id: string;
+            readonly database_id: string;
+            readonly group_key?: string | null;
+            /** Format: int64 */
+            readonly group_total?: number | null;
+            /** @enum {string} */
+            readonly kind: "database_row_remove";
+            readonly page_id: string;
+            readonly project_id: string;
+            /** Format: int64 */
+            readonly total_rows: number;
+            readonly view_id: string;
+        } | {
+            /** @enum {string} */
+            readonly kind: "page_changed";
+            readonly page_id: string;
+            readonly project_id: string;
+        };
+        readonly LocalProjectionScope: {
+            /** @enum {string} */
+            readonly kind: "library";
+            readonly library_id: string;
+        } | {
+            /** @enum {string} */
+            readonly kind: "project";
+            readonly project_id: string;
+        } | {
+            readonly data_source_id: string;
+            readonly database_id: string;
+            /** @enum {string} */
+            readonly kind: "database_view";
+            readonly project_id: string;
+            readonly view_id: string;
+        } | {
+            /** @enum {string} */
+            readonly kind: "page";
+            readonly page_id: string;
+            readonly project_id: string;
         };
         /** @enum {string} */
         readonly MaintenanceTask: "integrity_check" | "foreign_key_check" | "document_revision_finalize" | "document_compaction" | "history_retention" | "block_retention";
@@ -3905,7 +4093,6 @@ export interface components {
                 readonly intent: components["schemas"]["LibraryBlockTransferLogicalIntent"];
                 /** @enum {string} */
                 readonly kind: "transfer_blocks";
-                readonly write_fence?: null | components["schemas"]["LibraryBlockTransferWriteFence"];
             };
             readonly operation_id: string;
             readonly store_epoch: components["schemas"]["StoreEpoch"];
@@ -4574,12 +4761,6 @@ export interface components {
                 readonly operation_id: string;
                 readonly request: components["schemas"]["LibraryAgentMovePagesRequest"];
                 readonly store_epoch: string;
-            } | {
-                readonly intent: components["schemas"]["LibraryBlockTransferLogicalIntent"];
-                /** @enum {string} */
-                readonly kind: "plan_block_transfer";
-                readonly operation_id: string;
-                readonly store_epoch: string;
             };
         };
         readonly ModuleReadRequest_OwnedDocumentRead: {
@@ -4732,7 +4913,7 @@ export interface components {
             };
         };
         readonly OwnedDocumentApplyRequest: components["schemas"]["ModuleApplyRequest_OwnedDocumentIntent"];
-        readonly OwnedDocumentApplyResponse: components["schemas"]["ResponseEnvelope_CommittedModuleValue_OwnedDocumentCommitValue_OwnedDocumentReceipt"];
+        readonly OwnedDocumentApplyResponse: components["schemas"]["ResponseEnvelope_ApplyResponse_OwnedDocumentCommitValue_OwnedDocumentReceipt"];
         readonly OwnedDocumentEvent: {
             readonly document_id: string;
             /** Format: int64 */
@@ -4913,6 +5094,18 @@ export interface components {
             readonly start: string;
             readonly timezone?: string | null;
         };
+        readonly ProjectionEffect: {
+            /** Format: int64 */
+            readonly base_revision: number;
+            /** Format: int64 */
+            readonly covered_commit_seq: number;
+            readonly effect_hash: string;
+            readonly patch?: null | components["schemas"]["LocalProjectionPatch"];
+            readonly requires_read_at_least: boolean;
+            /** Format: int64 */
+            readonly result_revision: number;
+            readonly scope: components["schemas"]["ProjectionScopeKey"];
+        };
         readonly ProjectionImpact: {
             /** @enum {string} */
             readonly kind: "none";
@@ -4927,6 +5120,30 @@ export interface components {
             readonly kind: "resources";
             readonly page_ids: readonly string[];
             readonly view_ids: readonly string[];
+        };
+        /**
+         * @description One projection scope transition. Revisions are per scope and advance in the
+         *     same transaction as the mutation. `covered_commit_seq` is a floor, not a
+         *     replacement for the scope revision.
+         */
+        readonly ProjectionScopeKey: {
+            readonly canonical_key: string;
+            /** Format: int32 */
+            readonly schema_version: number;
+            readonly scope: components["schemas"]["LocalProjectionScope"];
+        };
+        /**
+         * @description Exact causal coordinate returned with a canonical projection snapshot.
+         *     `covered_commit_seq` records the durable read floor reached by the
+         *     snapshot; ordering within the projection is owned by `revision`.
+         */
+        readonly ProjectionSnapshotAuthority: {
+            /** Format: int64 */
+            readonly covered_commit_seq: number;
+            readonly effect_hash?: string | null;
+            /** Format: int64 */
+            readonly revision: number;
+            readonly scope: components["schemas"]["ProjectionScopeKey"];
         };
         /** @enum {string} */
         readonly ProjectLifecycle: "active" | "inactive" | "archived";
@@ -4991,7 +5208,7 @@ export interface components {
             readonly root: string;
         };
         readonly ProjectWorkspaceApplyRequest: components["schemas"]["ModuleApplyRequest_ProjectWorkspaceIntent"];
-        readonly ProjectWorkspaceApplyResponse: components["schemas"]["ResponseEnvelope_CommittedModuleValue_ProjectWorkspaceCommitValue_ProjectWorkspaceReceipt"];
+        readonly ProjectWorkspaceApplyResponse: components["schemas"]["ResponseEnvelope_ApplyResponse_ProjectWorkspaceCommitValue_ProjectWorkspaceReceipt"];
         readonly ProjectWorkspaceBackgroundProcess: {
             readonly command: string;
             readonly cwd?: string | null;
@@ -5280,35 +5497,23 @@ export interface components {
             /** Format: int64 */
             readonly snooze_id: number;
         };
-        readonly ResponseEnvelope_CommittedModuleValue_AutomationCommitValue_AutomationReceipt: {
+        readonly ResourceRevocation: {
+            readonly reason: components["schemas"]["ResourceRevocationReason"];
+            readonly resource_id: string;
+            readonly resource_kind: components["schemas"]["RevokedResourceKind"];
+        };
+        /** @enum {string} */
+        readonly ResourceRevocationReason: "ownership_moved" | "access_revoked" | "archived" | "deleted";
+        readonly ResponseEnvelope_ApplyResponse_AutomationCommitValue_AutomationReceipt: {
+            /**
+             * @description Closed result of an authorized command. A semantic mutation returns its
+             *     immutable commit identity; a validated no-op returns only the observed
+             *     store cursor and therefore cannot masquerade as a new commit.
+             */
             readonly payload: {
-                /**
-                 * Format: int64
-                 * @description Semantic LocalCommit cursor after this operation. Unlike
-                 *     `event_sequence`, this does not identify a physical change-log row.
-                 *     A no-change receipt still carries the current cursor so callers never
-                 *     mistake a physical sequence for projection freshness.
-                 */
-                readonly commit_seq?: number;
-                /**
-                 * Format: int64
-                 * @description Physical change-log effect sequence retained for module-internal event
-                 *     reconstruction. It is not a public projection cursor.
-                 */
-                readonly event_sequence: number;
-                readonly local_commit?: null | components["schemas"]["LocalCommitEnvelope"];
-                readonly receipt: components["schemas"]["ModuleMutationReceipt"] & {
-                    readonly affected_automation_ids: readonly string[];
-                    readonly affected_database_ids: readonly string[];
-                    readonly affected_document_ids: readonly string[];
-                    readonly affected_lease_ids: readonly string[];
-                    readonly affected_page_ids: readonly string[];
-                    readonly affected_reminder_lease_ids: readonly string[];
-                    readonly affected_run_ids: readonly string[];
-                    readonly affected_snooze_ids: readonly number[];
-                };
-                readonly store_epoch: components["schemas"]["StoreEpoch"];
-                readonly value: {
+                readonly commit: components["schemas"]["CommitIdentity"];
+                readonly delivery?: null | components["schemas"]["AuthorizedDeliveryPacket"];
+                readonly outcome: {
                     readonly affected_automation_ids: readonly string[];
                     readonly claimed_leases: readonly components["schemas"]["AutomationLease"][];
                     readonly definitions: readonly components["schemas"]["AutomationDefinition"][];
@@ -5319,6 +5524,43 @@ export interface components {
                     readonly run_bulk?: null | components["schemas"]["AutomationRunBulkResult"];
                     readonly runs: readonly components["schemas"]["AutomationRun"][];
                 };
+                readonly receipt: components["schemas"]["ModuleMutationReceipt"] & {
+                    readonly affected_automation_ids: readonly string[];
+                    readonly affected_database_ids: readonly string[];
+                    readonly affected_document_ids: readonly string[];
+                    readonly affected_lease_ids: readonly string[];
+                    readonly affected_page_ids: readonly string[];
+                    readonly affected_reminder_lease_ids: readonly string[];
+                    readonly affected_run_ids: readonly string[];
+                    readonly affected_snooze_ids: readonly number[];
+                };
+                /** @enum {string} */
+                readonly status: "committed";
+            } | {
+                readonly observed: components["schemas"]["StoreObservation"];
+                readonly outcome: {
+                    readonly affected_automation_ids: readonly string[];
+                    readonly claimed_leases: readonly components["schemas"]["AutomationLease"][];
+                    readonly definitions: readonly components["schemas"]["AutomationDefinition"][];
+                    readonly deleted_run_ids: readonly string[];
+                    readonly page_occurrence_mutation?: null | components["schemas"]["PageOccurrenceMutationResult"];
+                    readonly reminder_leases: readonly components["schemas"]["ReminderLease"][];
+                    readonly reminder_snoozes: readonly components["schemas"]["ReminderSnooze"][];
+                    readonly run_bulk?: null | components["schemas"]["AutomationRunBulkResult"];
+                    readonly runs: readonly components["schemas"]["AutomationRun"][];
+                };
+                readonly receipt: components["schemas"]["ModuleMutationReceipt"] & {
+                    readonly affected_automation_ids: readonly string[];
+                    readonly affected_database_ids: readonly string[];
+                    readonly affected_document_ids: readonly string[];
+                    readonly affected_lease_ids: readonly string[];
+                    readonly affected_page_ids: readonly string[];
+                    readonly affected_reminder_lease_ids: readonly string[];
+                    readonly affected_run_ids: readonly string[];
+                    readonly affected_snooze_ids: readonly number[];
+                };
+                /** @enum {string} */
+                readonly status: "no_op";
             };
             /** @enum {string} */
             readonly status: "ok";
@@ -5327,23 +5569,19 @@ export interface components {
             /** @enum {string} */
             readonly status: "error";
         };
-        readonly ResponseEnvelope_CommittedModuleValue_DatabaseCommitValue_DatabaseReceipt: {
+        readonly ResponseEnvelope_ApplyResponse_DatabaseCommitValue_DatabaseReceipt: {
+            /**
+             * @description Closed result of an authorized command. A semantic mutation returns its
+             *     immutable commit identity; a validated no-op returns only the observed
+             *     store cursor and therefore cannot masquerade as a new commit.
+             */
             readonly payload: {
-                /**
-                 * Format: int64
-                 * @description Semantic LocalCommit cursor after this operation. Unlike
-                 *     `event_sequence`, this does not identify a physical change-log row.
-                 *     A no-change receipt still carries the current cursor so callers never
-                 *     mistake a physical sequence for projection freshness.
-                 */
-                readonly commit_seq?: number;
-                /**
-                 * Format: int64
-                 * @description Physical change-log effect sequence retained for module-internal event
-                 *     reconstruction. It is not a public projection cursor.
-                 */
-                readonly event_sequence: number;
-                readonly local_commit?: null | components["schemas"]["LocalCommitEnvelope"];
+                readonly commit: components["schemas"]["CommitIdentity"];
+                readonly delivery?: null | components["schemas"]["AuthorizedDeliveryPacket"];
+                readonly outcome: {
+                    /** Format: int32 */
+                    readonly operation_count: number;
+                };
                 readonly receipt: components["schemas"]["ModuleMutationReceipt"] & {
                     readonly affected_data_source_ids: readonly string[];
                     readonly affected_database_ids: readonly string[];
@@ -5357,11 +5595,29 @@ export interface components {
                     };
                     readonly operation_kinds: readonly string[];
                 };
-                readonly store_epoch: components["schemas"]["StoreEpoch"];
-                readonly value: {
+                /** @enum {string} */
+                readonly status: "committed";
+            } | {
+                readonly observed: components["schemas"]["StoreObservation"];
+                readonly outcome: {
                     /** Format: int32 */
                     readonly operation_count: number;
                 };
+                readonly receipt: components["schemas"]["ModuleMutationReceipt"] & {
+                    readonly affected_data_source_ids: readonly string[];
+                    readonly affected_database_ids: readonly string[];
+                    readonly affected_page_ids: readonly string[];
+                    readonly affected_view_ids: readonly string[];
+                    /** Format: int64 */
+                    readonly commit_seq: number;
+                    readonly committed_at: string;
+                    readonly committed_revisions: {
+                        readonly [key: string]: number;
+                    };
+                    readonly operation_kinds: readonly string[];
+                };
+                /** @enum {string} */
+                readonly status: "no_op";
             };
             /** @enum {string} */
             readonly status: "ok";
@@ -5370,23 +5626,27 @@ export interface components {
             /** @enum {string} */
             readonly status: "error";
         };
-        readonly ResponseEnvelope_CommittedModuleValue_LibraryCommitValue_LibraryReceipt: {
+        readonly ResponseEnvelope_ApplyResponse_LibraryCommitValue_LibraryReceipt: {
+            /**
+             * @description Closed result of an authorized command. A semantic mutation returns its
+             *     immutable commit identity; a validated no-op returns only the observed
+             *     store cursor and therefore cannot masquerade as a new commit.
+             */
             readonly payload: {
-                /**
-                 * Format: int64
-                 * @description Semantic LocalCommit cursor after this operation. Unlike
-                 *     `event_sequence`, this does not identify a physical change-log row.
-                 *     A no-change receipt still carries the current cursor so callers never
-                 *     mistake a physical sequence for projection freshness.
-                 */
-                readonly commit_seq?: number;
-                /**
-                 * Format: int64
-                 * @description Physical change-log effect sequence retained for module-internal event
-                 *     reconstruction. It is not a public projection cursor.
-                 */
-                readonly event_sequence: number;
-                readonly local_commit?: null | components["schemas"]["LocalCommitEnvelope"];
+                readonly commit: components["schemas"]["CommitIdentity"];
+                readonly delivery?: null | components["schemas"]["AuthorizedDeliveryPacket"];
+                readonly outcome: {
+                    readonly affected_resource_ids: readonly string[];
+                    readonly agent_create_pages?: null | components["schemas"]["LibraryAgentCreatePagesResult"];
+                    readonly agent_move_pages?: null | components["schemas"]["LibraryAgentMovePagesResult"];
+                    readonly agent_page_copy?: null | components["schemas"]["LibraryAgentPageCopyResult"];
+                    readonly block_property_mutation?: null | components["schemas"]["LibraryBlockPropertyMutationReceipt"];
+                    readonly block_transfer?: null | components["schemas"]["LibraryBlockTransferResult"];
+                    readonly canvas_mutation?: null | components["schemas"]["LibraryCanvasMutationResult"];
+                    readonly page_copy?: null | components["schemas"]["LibraryPageCopyResult"];
+                    readonly page_create?: null | components["schemas"]["LibraryPageCreateResult"];
+                    readonly page_lifecycle?: null | components["schemas"]["LibraryPageLifecycleMutationReceipt"];
+                };
                 readonly receipt: components["schemas"]["ModuleMutationReceipt"] & {
                     readonly affected_database_ids: readonly string[];
                     readonly affected_page_ids: readonly string[];
@@ -5402,8 +5662,11 @@ export interface components {
                     readonly did_mutate: boolean;
                     readonly operation_kind: string;
                 };
-                readonly store_epoch: components["schemas"]["StoreEpoch"];
-                readonly value: {
+                /** @enum {string} */
+                readonly status: "committed";
+            } | {
+                readonly observed: components["schemas"]["StoreObservation"];
+                readonly outcome: {
                     readonly affected_resource_ids: readonly string[];
                     readonly agent_create_pages?: null | components["schemas"]["LibraryAgentCreatePagesResult"];
                     readonly agent_move_pages?: null | components["schemas"]["LibraryAgentMovePagesResult"];
@@ -5415,6 +5678,23 @@ export interface components {
                     readonly page_create?: null | components["schemas"]["LibraryPageCreateResult"];
                     readonly page_lifecycle?: null | components["schemas"]["LibraryPageLifecycleMutationReceipt"];
                 };
+                readonly receipt: components["schemas"]["ModuleMutationReceipt"] & {
+                    readonly affected_database_ids: readonly string[];
+                    readonly affected_page_ids: readonly string[];
+                    readonly affected_parent_keys: readonly string[];
+                    readonly affected_view_ids: readonly string[];
+                    /** Format: int64 */
+                    readonly commit_seq: number;
+                    readonly committed_at: string;
+                    readonly committed_revisions: {
+                        readonly [key: string]: number;
+                    };
+                    readonly created_target?: null | components["schemas"]["LibraryResourceTarget"];
+                    readonly did_mutate: boolean;
+                    readonly operation_kind: string;
+                };
+                /** @enum {string} */
+                readonly status: "no_op";
             };
             /** @enum {string} */
             readonly status: "ok";
@@ -5423,32 +5703,16 @@ export interface components {
             /** @enum {string} */
             readonly status: "error";
         };
-        readonly ResponseEnvelope_CommittedModuleValue_OwnedDocumentCommitValue_OwnedDocumentReceipt: {
+        readonly ResponseEnvelope_ApplyResponse_OwnedDocumentCommitValue_OwnedDocumentReceipt: {
+            /**
+             * @description Closed result of an authorized command. A semantic mutation returns its
+             *     immutable commit identity; a validated no-op returns only the observed
+             *     store cursor and therefore cannot masquerade as a new commit.
+             */
             readonly payload: {
-                /**
-                 * Format: int64
-                 * @description Semantic LocalCommit cursor after this operation. Unlike
-                 *     `event_sequence`, this does not identify a physical change-log row.
-                 *     A no-change receipt still carries the current cursor so callers never
-                 *     mistake a physical sequence for projection freshness.
-                 */
-                readonly commit_seq?: number;
-                /**
-                 * Format: int64
-                 * @description Physical change-log effect sequence retained for module-internal event
-                 *     reconstruction. It is not a public projection cursor.
-                 */
-                readonly event_sequence: number;
-                readonly local_commit?: null | components["schemas"]["LocalCommitEnvelope"];
-                readonly receipt: components["schemas"]["ModuleMutationReceipt"] & {
-                    readonly document_id: string;
-                    /** Format: int64 */
-                    readonly generation: number;
-                    /** Format: int64 */
-                    readonly head_seq: number;
-                };
-                readonly store_epoch: components["schemas"]["StoreEpoch"];
-                readonly value: {
+                readonly commit: components["schemas"]["CommitIdentity"];
+                readonly delivery?: null | components["schemas"]["AuthorizedDeliveryPacket"];
+                readonly outcome: {
                     readonly canvas?: unknown;
                     readonly checkpoint_effect?: null | components["schemas"]["DocumentCheckpointEffect"];
                     readonly committed_at?: string | null;
@@ -5469,6 +5733,47 @@ export interface components {
                         readonly [key: string]: string;
                     } | null;
                 };
+                readonly receipt: components["schemas"]["ModuleMutationReceipt"] & {
+                    readonly document_id: string;
+                    /** Format: int64 */
+                    readonly generation: number;
+                    /** Format: int64 */
+                    readonly head_seq: number;
+                };
+                /** @enum {string} */
+                readonly status: "committed";
+            } | {
+                readonly observed: components["schemas"]["StoreObservation"];
+                readonly outcome: {
+                    readonly canvas?: unknown;
+                    readonly checkpoint_effect?: null | components["schemas"]["DocumentCheckpointEffect"];
+                    readonly committed_at?: string | null;
+                    readonly document_id: string;
+                    /** Format: int64 */
+                    readonly generation: number;
+                    /** Format: int64 */
+                    readonly head_seq: number;
+                    readonly mutation_effect?: null | components["schemas"]["DocumentMutationEffect"];
+                    readonly outcome: components["schemas"]["DocumentCommitOutcome"];
+                    readonly owner_effect?: null | components["schemas"]["DocumentOwnerEffect"];
+                    readonly semantic_block_etags?: {
+                        readonly [key: string]: components["schemas"]["DocumentSemanticBlockEtags"];
+                    } | null;
+                    readonly semantic_deleted_owner_block_ids?: readonly string[] | null;
+                    readonly semantic_etags?: null | components["schemas"]["DocumentSemanticEtags"];
+                    readonly semantic_local_block_ids?: {
+                        readonly [key: string]: string;
+                    } | null;
+                };
+                readonly receipt: components["schemas"]["ModuleMutationReceipt"] & {
+                    readonly document_id: string;
+                    /** Format: int64 */
+                    readonly generation: number;
+                    /** Format: int64 */
+                    readonly head_seq: number;
+                };
+                /** @enum {string} */
+                readonly status: "no_op";
             };
             /** @enum {string} */
             readonly status: "ok";
@@ -5477,33 +5782,39 @@ export interface components {
             /** @enum {string} */
             readonly status: "error";
         };
-        readonly ResponseEnvelope_CommittedModuleValue_ProjectWorkspaceCommitValue_ProjectWorkspaceReceipt: {
+        readonly ResponseEnvelope_ApplyResponse_ProjectWorkspaceCommitValue_ProjectWorkspaceReceipt: {
+            /**
+             * @description Closed result of an authorized command. A semantic mutation returns its
+             *     immutable commit identity; a validated no-op returns only the observed
+             *     store cursor and therefore cannot masquerade as a new commit.
+             */
             readonly payload: {
-                /**
-                 * Format: int64
-                 * @description Semantic LocalCommit cursor after this operation. Unlike
-                 *     `event_sequence`, this does not identify a physical change-log row.
-                 *     A no-change receipt still carries the current cursor so callers never
-                 *     mistake a physical sequence for projection freshness.
-                 */
-                readonly commit_seq?: number;
-                /**
-                 * Format: int64
-                 * @description Physical change-log effect sequence retained for module-internal event
-                 *     reconstruction. It is not a public projection cursor.
-                 */
-                readonly event_sequence: number;
-                readonly local_commit?: null | components["schemas"]["LocalCommitEnvelope"];
-                readonly receipt: components["schemas"]["ModuleMutationReceipt"] & {
-                    readonly affected_project_ids: readonly string[];
-                    readonly affected_session_ids: readonly string[];
-                };
-                readonly store_epoch: components["schemas"]["StoreEpoch"];
-                readonly value: {
+                readonly commit: components["schemas"]["CommitIdentity"];
+                readonly delivery?: null | components["schemas"]["AuthorizedDeliveryPacket"];
+                readonly outcome: {
                     readonly affected_project_ids: readonly string[];
                     readonly affected_session_ids: readonly string[];
                     readonly affected_thread_ids: readonly string[];
                 };
+                readonly receipt: components["schemas"]["ModuleMutationReceipt"] & {
+                    readonly affected_project_ids: readonly string[];
+                    readonly affected_session_ids: readonly string[];
+                };
+                /** @enum {string} */
+                readonly status: "committed";
+            } | {
+                readonly observed: components["schemas"]["StoreObservation"];
+                readonly outcome: {
+                    readonly affected_project_ids: readonly string[];
+                    readonly affected_session_ids: readonly string[];
+                    readonly affected_thread_ids: readonly string[];
+                };
+                readonly receipt: components["schemas"]["ModuleMutationReceipt"] & {
+                    readonly affected_project_ids: readonly string[];
+                    readonly affected_session_ids: readonly string[];
+                };
+                /** @enum {string} */
+                readonly status: "no_op";
             };
             /** @enum {string} */
             readonly status: "ok";
@@ -5512,33 +5823,39 @@ export interface components {
             /** @enum {string} */
             readonly status: "error";
         };
-        readonly ResponseEnvelope_CommittedModuleValue_StoreAdministrationCommitValue_StoreAdministrationReceipt: {
+        readonly ResponseEnvelope_ApplyResponse_StoreAdministrationCommitValue_StoreAdministrationReceipt: {
+            /**
+             * @description Closed result of an authorized command. A semantic mutation returns its
+             *     immutable commit identity; a validated no-op returns only the observed
+             *     store cursor and therefore cannot masquerade as a new commit.
+             */
             readonly payload: {
-                /**
-                 * Format: int64
-                 * @description Semantic LocalCommit cursor after this operation. Unlike
-                 *     `event_sequence`, this does not identify a physical change-log row.
-                 *     A no-change receipt still carries the current cursor so callers never
-                 *     mistake a physical sequence for projection freshness.
-                 */
-                readonly commit_seq?: number;
-                /**
-                 * Format: int64
-                 * @description Physical change-log effect sequence retained for module-internal event
-                 *     reconstruction. It is not a public projection cursor.
-                 */
-                readonly event_sequence: number;
-                readonly local_commit?: null | components["schemas"]["LocalCommitEnvelope"];
-                readonly receipt: components["schemas"]["ModuleMutationReceipt"] & {
-                    readonly backup_id?: string | null;
-                    readonly safety_backup_id?: string | null;
-                };
-                readonly store_epoch: components["schemas"]["StoreEpoch"];
-                readonly value: {
+                readonly commit: components["schemas"]["CommitIdentity"];
+                readonly delivery?: null | components["schemas"]["AuthorizedDeliveryPacket"];
+                readonly outcome: {
                     readonly backup_id?: string | null;
                     readonly completed_tasks: readonly components["schemas"]["MaintenanceTask"][];
                     readonly safety_backup_id?: string | null;
                 };
+                readonly receipt: components["schemas"]["ModuleMutationReceipt"] & {
+                    readonly backup_id?: string | null;
+                    readonly safety_backup_id?: string | null;
+                };
+                /** @enum {string} */
+                readonly status: "committed";
+            } | {
+                readonly observed: components["schemas"]["StoreObservation"];
+                readonly outcome: {
+                    readonly backup_id?: string | null;
+                    readonly completed_tasks: readonly components["schemas"]["MaintenanceTask"][];
+                    readonly safety_backup_id?: string | null;
+                };
+                readonly receipt: components["schemas"]["ModuleMutationReceipt"] & {
+                    readonly backup_id?: string | null;
+                    readonly safety_backup_id?: string | null;
+                };
+                /** @enum {string} */
+                readonly status: "no_op";
             };
             /** @enum {string} */
             readonly status: "ok";
@@ -5820,10 +6137,6 @@ export interface components {
                     /** @enum {string} */
                     readonly kind: "agent_move_pages_preparation";
                     readonly value: components["schemas"]["LibraryAgentMovePagesPreparation"];
-                } | {
-                    /** @enum {string} */
-                    readonly kind: "block_transfer_plan";
-                    readonly value: components["schemas"]["LibraryBlockTransferPlan"];
                 };
             };
             /** @enum {string} */
@@ -5871,7 +6184,7 @@ export interface components {
                     readonly kind: "canvas_compaction_eligibility";
                     readonly stats: components["schemas"]["CanvasCompactionStats"];
                 } | {
-                    readonly committed?: null | components["schemas"]["CommittedModuleValue_OwnedDocumentCommitValue_OwnedDocumentReceipt"];
+                    readonly committed?: null | components["schemas"]["ApplyResponse_OwnedDocumentCommitValue_OwnedDocumentReceipt"];
                     /** @enum {string} */
                     readonly kind: "agent_semantic_mutation_preparation";
                     readonly preparation: components["schemas"]["AgentOperationPreparation"];
@@ -6000,6 +6313,8 @@ export interface components {
             /** @enum {string} */
             readonly status: "error";
         };
+        /** @enum {string} */
+        readonly RevokedResourceKind: "page" | "document" | "database" | "data_source" | "view";
         readonly RuntimeDescriptor: {
             readonly actual_store_format: components["schemas"]["StoreFormatIdentity"];
             readonly artifact: components["schemas"]["CoreArtifactIdentity"];
@@ -6027,6 +6342,22 @@ export interface components {
         };
         /** @enum {string} */
         readonly SchemaOwner: "type_script" | "rust";
+        /**
+         * @description A closed semantic index entry. The payload itself belongs to an authorized
+         *     delivery packet; the manifest records only the owning Module, effect kind,
+         *     resource index, and payload digest.
+         */
+        readonly SemanticEffect: {
+            readonly effect_kind: string;
+            /** Format: int64 */
+            readonly effect_order: number;
+            /** @enum {string} */
+            readonly kind: "module_changed";
+            readonly module: components["schemas"]["ModuleName"];
+            readonly payload_hash: string;
+            readonly projection_impact: components["schemas"]["ProjectionImpact"];
+            readonly resources: components["schemas"]["LocalCommitResources"];
+        };
         readonly ShutdownRequest: {
             /** @enum {string} */
             readonly kind: "shutdown";
@@ -6044,7 +6375,7 @@ export interface components {
         /** @enum {string} */
         readonly ShutdownStatus: "draining" | "busy" | "incompatible";
         readonly StoreAdministrationApplyRequest: components["schemas"]["ModuleApplyRequest_StoreAdministrationIntent"];
-        readonly StoreAdministrationApplyResponse: components["schemas"]["ResponseEnvelope_CommittedModuleValue_StoreAdministrationCommitValue_StoreAdministrationReceipt"];
+        readonly StoreAdministrationApplyResponse: components["schemas"]["ResponseEnvelope_ApplyResponse_StoreAdministrationCommitValue_StoreAdministrationReceipt"];
         readonly StoreAdministrationEvent: {
             readonly backup_ids: readonly string[];
             readonly kind: components["schemas"]["StoreAdministrationEventKind"];
@@ -6069,8 +6400,26 @@ export interface components {
         };
         /** @enum {string} */
         readonly StoreIntegrity: "unknown" | "ok" | "failed";
+        readonly StoreObservation: {
+            /** Format: int64 */
+            readonly commit_head: number;
+            readonly store_epoch: components["schemas"]["StoreEpoch"];
+        };
         /** @enum {string} */
         readonly StoreReadiness: "starting" | "ready" | "maintenance" | "failed";
+        /**
+         * @description Proof that Core's durable scanner inspected the ledger through a sequence.
+         *     Commit sequences are monotonic and unique but need not be contiguous.
+         */
+        readonly StreamCheckpoint: {
+            readonly generation: string;
+            /** Format: int64 */
+            readonly oldest_available_seq: number;
+            readonly resync_token?: string | null;
+            /** Format: int64 */
+            readonly scanned_through_seq: number;
+            readonly store_epoch: components["schemas"]["StoreEpoch"];
+        };
         readonly VersionRange: {
             /** Format: int32 */
             readonly max: number;

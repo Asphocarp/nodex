@@ -31,10 +31,11 @@ import {
   type SupervisedCoreEventSubscription,
 } from "./core-event-stream-supervisor";
 import { executeWithDocumentSubscription } from "./core-document-subscription-lifecycle";
-import type {
-  CoreClientPort,
-  CoreEventEnvelope,
-  DocumentResyncRequired,
+import {
+  findCoreModulePayload,
+  type CoreClientPort,
+  type CoreEventEnvelope,
+  type DocumentResyncRequired,
 } from "./types";
 
 type ActiveSubscription = SupervisedCoreEventSubscription;
@@ -113,7 +114,7 @@ export const createCoreCanvasSceneAdapter = (
       shouldRetry: isRetryableCoreEventStreamError,
       retryDelayMs: options.retryDelayMs,
       maxRetryDelayMs: options.maxRetryDelayMs,
-      open: async (after, onEvent, onResyncRequired, signal) => {
+      open: async (after, onEvent, onCheckpoint, onResyncRequired, signal) => {
         await predecessorDone;
         if (signal.aborted) throw signal.reason;
         return await client.openDocumentEventStream(
@@ -124,6 +125,7 @@ export const createCoreCanvasSceneAdapter = (
             signal,
           },
           onEvent,
+          onCheckpoint,
           onResyncRequired,
           () => undefined,
         );
@@ -132,9 +134,12 @@ export const createCoreCanvasSceneAdapter = (
         const event = canvasEvent(request, envelope);
         if (!event) return;
         const previous = lastSequences.get(key) ?? 0;
-        if (envelope.event.commit_seq <= previous) return;
+        const commitSeq = envelope.packet.manifest.identity.commit_seq;
+        if (commitSeq <= previous) return;
         listener(event);
-        lastSequences.set(key, envelope.event.commit_seq);
+      },
+      onCheckpoint: (checkpoint) => {
+        lastSequences.set(key, checkpoint.scanned_through_seq);
       },
       onResyncRequired: (resync) => {
         lastSequences.set(key, resync.commit_head);
@@ -208,13 +213,13 @@ export const createCoreCanvasSceneAdapter = (
             },
           }),
         );
-        if (committed.value.canvas === undefined) {
+        if (committed.outcome.canvas === undefined) {
           throw new CanvasSceneAdapterContractError(
             "Core Canvas mutation response has no Canvas result",
           );
         }
         const value = canonicalizeCanvasSceneMutationResult(
-          committed.value.canvas,
+          committed.outcome.canvas,
         );
         if (
           value.documentId !== canonical.documentId
@@ -279,12 +284,12 @@ export const createCoreCanvasSceneAdapter = (
             },
           }),
         );
-        if (committed.value.canvas === undefined) {
+        if (committed.outcome.canvas === undefined) {
           throw new CanvasSceneAdapterContractError(
             "Core Canvas compaction response has no Canvas result",
           );
         }
-        const value = parseCanvasSceneCompactionResult(committed.value.canvas);
+        const value = parseCanvasSceneCompactionResult(committed.outcome.canvas);
         if (
           value.documentId !== request.documentId
           || value.operationId !== request.mutationId
@@ -308,8 +313,8 @@ const canvasEvent = (
   request: CanvasSceneSubscribeRequest,
   envelope: CoreEventEnvelope,
 ): CanvasSceneRealtimeEvent | null => {
-  const payload = envelope.event.payload;
-  if (payload.module !== "owned_document") return null;
+  const payload = findCoreModulePayload(envelope, "owned_document");
+  if (payload?.module !== "owned_document") return null;
   const event = payload.event;
   if (
     event.kind === "canvas_generation_changed"
@@ -320,7 +325,7 @@ const canvasEvent = (
       version: CANVAS_SCENE_SYNC_VERSION,
       projectId: request.projectId,
       documentId: event.document_id,
-      storeEpoch: envelope.event.store_epoch,
+      storeEpoch: envelope.packet.manifest.identity.store_epoch,
       generation: event.generation,
       headSeq: event.head_seq,
     };
@@ -328,7 +333,7 @@ const canvasEvent = (
   if (event.kind !== "canvas_updated" || event.document_id !== request.documentId) {
     return null;
   }
-  if (!envelope.event.operation_id) return null;
+  if (!envelope.packet.manifest.operation_id) return null;
   if (typeof event.mutation !== "object" || event.mutation === null) return null;
   try {
     return decodeCanvasSceneSseEvent(JSON.stringify({
@@ -336,9 +341,9 @@ const canvasEvent = (
       version: CANVAS_SCENE_SYNC_VERSION,
       projectId: request.projectId,
       documentId: event.document_id,
-      storeEpoch: envelope.event.store_epoch,
+      storeEpoch: envelope.packet.manifest.identity.store_epoch,
       generation: event.generation,
-      mutationId: envelope.event.operation_id,
+      mutationId: envelope.packet.manifest.operation_id,
       baseHeadSeq: event.base_head_seq,
       headSeq: event.head_seq,
       sceneHash: event.scene_hash,

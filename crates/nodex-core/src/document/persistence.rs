@@ -6,9 +6,8 @@ use sha2::{Digest, Sha256};
 
 use crate::domain::derived_records::{BlockDocumentAssetKind, BlockDocumentReference};
 use crate::infrastructure::document_repository::{DocumentHeadRow, DocumentReadRepository};
-use crate::infrastructure::event_log::{
-    NewChangeLogEntry, append_change_log, append_change_log_with_local_commit,
-};
+use crate::infrastructure::event_log::{NewChangeLogEntry, append_change_log};
+use crate::infrastructure::local_commit::{self, CommitContext, RegisteredDocumentEffect};
 use crate::infrastructure::projection_impact::{
     PageProjectionCoordinates, PageProjectionDatabaseCoordinates, impact_for_page_document,
 };
@@ -235,25 +234,18 @@ pub(crate) fn read_local_commit_head(connection: &Connection) -> Result<i64, Sto
     crate::infrastructure::local_commit::head(connection)
 }
 
-pub(crate) fn persist_yjs_commit(
-    connection: &Connection,
-    input: PersistYjsCommit<'_>,
-) -> Result<PersistedDocumentCommit, StoreError> {
-    persist_yjs_commit_inner(connection, input, None)
-}
-
 pub(crate) fn persist_yjs_commit_with_local_commit(
     connection: &Connection,
     input: PersistYjsCommit<'_>,
-    commit_seq: i64,
+    context: &CommitContext,
 ) -> Result<PersistedDocumentCommit, StoreError> {
-    persist_yjs_commit_inner(connection, input, Some(commit_seq))
+    persist_yjs_commit_inner(connection, input, context)
 }
 
 fn persist_yjs_commit_inner(
     connection: &Connection,
     input: PersistYjsCommit<'_>,
-    attached_commit_seq: Option<i64>,
+    context: &CommitContext,
 ) -> Result<PersistedDocumentCommit, StoreError> {
     let next_head_seq = input
         .authority
@@ -336,6 +328,23 @@ fn persist_yjs_commit_inner(
             update_hash,
             now,
         ],
+    )?;
+    local_commit::record_document_effect(
+        connection,
+        context,
+        RegisteredDocumentEffect {
+            project_id: &input.authority.head.project_id,
+            page_id: (input.authority.owner_type == "page")
+                .then_some(input.authority.owner_block_id.as_str()),
+            document_id: &input.authority.head.id,
+            generation: input.authority.head.generation,
+            base_head_seq: input.base_head_seq,
+            head_seq: next_head_seq,
+            update_id: input.update_id,
+            update_hash: &update_hash,
+            update_byte_length: i64::try_from(input.update.len())
+                .map_err(|_| internal("Update length overflow"))?,
+        },
     )?;
     let changed = connection.execute(
         "UPDATE documents SET head_seq = ?1, state_vector = ?2, state_hash = '', updated_at = ?3 \
@@ -423,10 +432,7 @@ fn persist_yjs_commit_inner(
         projection_impact: &projection_impact,
         committed_at: &now,
     };
-    let event_sequence = match attached_commit_seq {
-        Some(commit_seq) => append_change_log_with_local_commit(connection, entry, commit_seq)?,
-        None => append_change_log(connection, entry)?,
-    };
+    let event_sequence = append_change_log(connection, entry, context)?;
     Ok(PersistedDocumentCommit {
         head_seq: next_head_seq,
         state_vector: input.state_vector.to_vec(),
@@ -436,29 +442,43 @@ fn persist_yjs_commit_inner(
     })
 }
 
+#[cfg(test)]
 pub(crate) fn persist_yjs_genesis(
     connection: &Connection,
     input: PersistYjsGenesis<'_>,
 ) -> Result<PersistedDocumentCommit, StoreError> {
+    let intent_hash =
+        sha256(format!("{}\0{}", input.operation_id, sha256(input.update)).as_bytes());
+    let context = local_commit::begin(
+        connection,
+        input.store_epoch,
+        input.operation_id,
+        &intent_hash,
+        &sqlite_now(connection)?,
+    )?;
     let page_projection_required = input.emit_event;
-    persist_yjs_genesis_inner(connection, input, None, page_projection_required)
+    let persisted =
+        persist_yjs_genesis_inner(connection, input, &context, page_projection_required)?;
+    record_internal_receipt(connection, &context, &intent_hash)?;
+    local_commit::finalize(connection, &context)?;
+    Ok(persisted)
 }
 
 pub(crate) fn persist_yjs_genesis_with_local_commit(
     connection: &Connection,
     input: PersistYjsGenesis<'_>,
-    commit_seq: i64,
+    context: &CommitContext,
 ) -> Result<PersistedDocumentCommit, StoreError> {
     // Page-parent promotion inserts its page read model immediately after
     // genesis. The durable event is part of the parent LocalCommit, but the
     // projection check belongs to that caller's explicit read-model write.
-    persist_yjs_genesis_inner(connection, input, Some(commit_seq), false)
+    persist_yjs_genesis_inner(connection, input, context, false)
 }
 
 fn persist_yjs_genesis_inner(
     connection: &Connection,
     input: PersistYjsGenesis<'_>,
-    attached_commit_seq: Option<i64>,
+    context: &CommitContext,
     page_projection_required: bool,
 ) -> Result<PersistedDocumentCommit, StoreError> {
     if input.authority.head.generation < 1
@@ -537,6 +557,23 @@ fn persist_yjs_genesis_inner(
             now,
         ],
     )?;
+    local_commit::record_document_effect(
+        connection,
+        context,
+        RegisteredDocumentEffect {
+            project_id: &input.authority.head.project_id,
+            page_id: (input.authority.owner_type == "page")
+                .then_some(input.authority.owner_block_id.as_str()),
+            document_id: &input.authority.head.id,
+            generation: input.authority.head.generation,
+            base_head_seq: 0,
+            head_seq: 1,
+            update_id: input.update_id,
+            update_hash: &update_hash,
+            update_byte_length: i64::try_from(input.update.len())
+                .map_err(|_| internal("Genesis update length"))?,
+        },
+    )?;
     let snapshot_hash = sha256(input.full_state);
     connection.execute(
         "INSERT INTO document_snapshots (\
@@ -613,10 +650,7 @@ fn persist_yjs_genesis_inner(
             projection_impact: &projection_impact,
             committed_at: &now,
         };
-        match attached_commit_seq {
-            Some(commit_seq) => append_change_log_with_local_commit(connection, entry, commit_seq)?,
-            None => append_change_log(connection, entry)?,
-        }
+        append_change_log(connection, entry, context)?
     } else {
         connection.query_row("SELECT COALESCE(MAX(seq), 0) FROM change_log", [], |row| {
             row.get(0)
@@ -742,9 +776,13 @@ fn reconcile_document_blocks(
             continue;
         }
         if TYPED_CREATION_BLOCK_TYPES.contains(&block_type.as_str()) && lifecycle != "deleted" {
-            return Err(invalid(format!(
-                "Block {block_id} requires a typed lifecycle operation"
-            )));
+            return Err(StoreError::new(
+                StoreErrorCode::ProtectedOwnerDeletion,
+                format!(
+                    "Typed owner Block {block_id} cannot be removed by a generic Document update"
+                ),
+                false,
+            ));
         }
     }
     for block_id in existing_ids.difference(&active_ids) {
@@ -775,6 +813,48 @@ fn reconcile_document_blocks(
         )?;
     }
     Ok(())
+}
+
+/// Clears derived rows whose keys can move between Documents in one atomic
+/// structural batch. Callers must rebuild every listed Document before their
+/// surrounding writer transaction commits.
+pub(crate) fn clear_document_rebuild_projections<'a>(
+    connection: &Connection,
+    document_ids: impl IntoIterator<Item = &'a str>,
+) -> Result<(), StoreError> {
+    for document_id in document_ids {
+        connection.execute(
+            "DELETE FROM document_block_index WHERE document_id = ?1",
+            [document_id],
+        )?;
+        connection.execute(
+            "DELETE FROM block_asset_refs WHERE document_id = ?1",
+            [document_id],
+        )?;
+        connection.execute(
+            "DELETE FROM block_search_units \
+             WHERE document_id = ?1 AND source_revision IS NULL",
+            [document_id],
+        )?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+fn record_internal_receipt(
+    connection: &Connection,
+    context: &local_commit::CommitContext,
+    result_hash: &str,
+) -> Result<(), StoreError> {
+    local_commit::record_receipt(
+        connection,
+        context,
+        &nodex_core_contracts::LocalCommitReceiptRef {
+            module: nodex_core_contracts::ModuleName::OwnedDocument,
+            operation_id: context.operation_id().to_owned(),
+            result_hash: result_hash.to_owned(),
+        },
+    )
 }
 
 fn persist_materialization(

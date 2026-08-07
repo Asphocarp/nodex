@@ -313,7 +313,7 @@ export function WorkbenchDatabaseViewSurface({
       invalidate: async (cause: ProjectionStreamMessage) => {
         requiredMinimumCommitSeqRef.current = Math.max(
           requiredMinimumCommitSeqRef.current,
-          cause.cursor.commitSeq,
+          cause.stream.commitSeq,
         );
         await invalidateExactQuery(queryClient, queryKey);
       },

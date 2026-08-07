@@ -115,9 +115,9 @@ import {
 } from "@/lib/sidebar-section-prefs";
 import { useWorkbenchSidebarState } from "@/lib/use-workbench-sidebar-state";
 import {
-  makePageEditorSessionKey,
-  pageEditorSessionRegistry,
-} from "@/lib/page-editor-session-registry";
+  makeEditorSurfaceKey,
+  documentSessionRegistry,
+} from "@/lib/document-session-registry";
 import {
   canvasSceneSurfaceRegistry,
   makeCanvasSceneSurfaceKey,
@@ -3405,7 +3405,7 @@ export function WorkbenchRuntime({
     }
     removeDescriptor();
     if (surface.kind !== "page_stage") return;
-    await pageEditorSessionRegistry.dispose(`library-page:${surface.id}`)
+    await documentSessionRegistry.dispose(`library-page:${surface.id}`)
       .catch(() => {
         toast.danger("Page changes could not be saved locally");
       });
@@ -3559,8 +3559,8 @@ export function WorkbenchRuntime({
     }
     removeDescriptor();
     if (surface.kind === "page_stage") {
-      await pageEditorSessionRegistry.dispose(
-        makePageEditorSessionKey(projectSceneKey, surface.id),
+      await documentSessionRegistry.dispose(
+        makeEditorSurfaceKey(projectSceneKey, surface.id),
       ).catch(() => {
         toast.danger("Page changes could not be saved locally");
       });

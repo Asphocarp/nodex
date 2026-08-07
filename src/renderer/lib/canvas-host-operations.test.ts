@@ -78,13 +78,19 @@ function makeRuntime(input: {
         generation,
         headSeq: flushed ? headSeq + 1 : headSeq,
         pendingUpdateCount: 0,
+        checkpoint: { phase: "ready", failureCount: 0 },
       },
     }) as ReturnType<CanvasHostDocumentRuntime["getStatus"]>;
   return {
     getStatus,
-    prepareDurableMutation: async () => {
+    flushAndFence: async () => {
       flushed = true;
-      return getStatus();
+      return {
+        documentId,
+        storeEpoch,
+        generation,
+        expectedHeadSeq: headSeq + 1,
+      };
     },
   };
 }

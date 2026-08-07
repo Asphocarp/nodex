@@ -18,6 +18,7 @@ import {
   createFakeCoreHandshake,
   FakeCoreClient,
 } from "./testing/fake-core-client";
+import { createCoreLocalCommitFixture } from "./testing/local-commit-fixture";
 import { createCoreLibraryModuleAdapter } from "./library-module-adapter";
 import {
   createDesktopLibraryModuleBridge,
@@ -1761,13 +1762,11 @@ describe("Core Library Module Adapter", () => {
   test("maps only Library Core events into renderer invalidations", () => {
     expect(mapCoreLibraryEvent({
       transport_version: 4,
-      event: {
-        event_version: 3,
-        commit_seq: 9,
-        store_epoch: identity.storeEpoch,
-        operation_id: "operation:create",
-        committed_at: "2026-07-19T15:02:00.000Z",
-        projection_impact: { kind: "none" },
+      packet: createCoreLocalCommitFixture({
+        commitSeq: 9,
+        storeEpoch: identity.storeEpoch,
+        operationId: "operation:create",
+        committedAt: "2026-07-19T15:02:00.000Z",
         payload: {
           module: "library",
           event: {
@@ -1778,9 +1777,8 @@ describe("Core Library Module Adapter", () => {
             parent_keys: ["library"],
           },
         },
-        effects: [],
-        canonical_hash: "0".repeat(64),
-      },
+        canonicalHash: "0".repeat(64),
+      }),
     }, identity.libraryId)).toEqual({
       version: LIBRARY_NAVIGATION_EVENT_VERSION,
       libraryId: identity.libraryId,

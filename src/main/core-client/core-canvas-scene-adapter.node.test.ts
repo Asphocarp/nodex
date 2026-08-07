@@ -10,9 +10,10 @@ import { DocumentHttpWireError } from "../../shared/block-documents/http-wire";
 import { createCoreCanvasSceneAdapter } from "./core-canvas-scene-adapter";
 import { CoreModuleResponseError } from "./core-client";
 import { FakeCoreClient } from "./testing/fake-core-client";
+import { createCoreLocalCommitFixture } from "./testing/local-commit-fixture";
 import type {
   CoreEventEnvelope,
-  OwnedDocumentCommittedValue,
+  OwnedDocumentApplyResult,
 } from "./types";
 
 const PROJECT_ID = "project:canvas";
@@ -96,10 +97,14 @@ const mutationResult = {
   },
 };
 
-const committedMutation = (): OwnedDocumentCommittedValue => ({
-  store_epoch: STORE_EPOCH,
-  event_sequence: 1,
-  value: {
+const committedMutation = (): OwnedDocumentApplyResult => ({
+  status: "committed",
+  commit: {
+    store_epoch: STORE_EPOCH,
+    commit_seq: 1,
+    manifest_hash: "f".repeat(64),
+  },
+  outcome: {
     document_id: DOCUMENT_ID,
     generation: 1,
     head_seq: 1,
@@ -117,13 +122,11 @@ const committedMutation = (): OwnedDocumentCommittedValue => ({
 
 const committedEvent = (): CoreEventEnvelope => ({
   transport_version: 4,
-  event: {
-    event_version: 3,
-    commit_seq: 1,
-    store_epoch: STORE_EPOCH,
-    operation_id: mutationResult.mutationId,
-    committed_at: COMMITTED_AT,
-    projection_impact: { kind: "none" },
+  packet: createCoreLocalCommitFixture({
+    commitSeq: 1,
+    storeEpoch: STORE_EPOCH,
+    operationId: mutationResult.mutationId,
+    committedAt: COMMITTED_AT,
     payload: {
       module: "owned_document",
       event: {
@@ -141,9 +144,8 @@ const committedEvent = (): CoreEventEnvelope => ({
         },
       },
     },
-    effects: [],
-    canonical_hash: "0".repeat(64),
-  },
+    canonicalHash: "0".repeat(64),
+  }),
 });
 
 describe("Core Canvas scene adapter", () => {
@@ -292,8 +294,8 @@ describe("Core Canvas scene adapter", () => {
     const physicalMutation = committedMutation();
     client.enqueueDocumentApply({
       ...physicalMutation,
-      value: {
-        ...physicalMutation.value,
+        outcome: {
+          ...physicalMutation.outcome,
         canvas: {
           ...mutationResult,
           projectId: "project:compatibility-storage",
@@ -414,13 +416,11 @@ describe("Core Canvas scene adapter", () => {
 
     client.emit({
       transport_version: 4,
-      event: {
-        event_version: 3,
-        commit_seq: 4,
-        store_epoch: STORE_EPOCH,
-        operation_id: request.mutationId,
-        committed_at: COMMITTED_AT,
-        projection_impact: { kind: "none" },
+      packet: createCoreLocalCommitFixture({
+        commitSeq: 4,
+        storeEpoch: STORE_EPOCH,
+        operationId: request.mutationId,
+        committedAt: COMMITTED_AT,
         payload: {
           module: "owned_document",
           event: {
@@ -433,9 +433,8 @@ describe("Core Canvas scene adapter", () => {
             scene_hash: compactionResult.sceneHash,
           },
         },
-        effects: [],
-        canonical_hash: "0".repeat(64),
-      },
+        canonicalHash: "0".repeat(64),
+      }),
     });
     await expect.poll(() => events).toEqual([{
       type: "canvas_scene_resync_required",

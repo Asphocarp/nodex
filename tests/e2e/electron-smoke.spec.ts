@@ -275,6 +275,14 @@ interface ConvergenceDatabase {
 }
 
 interface BoardTransferPerformanceMetrics {
+  fixtureSeed: string;
+  buildMode: string;
+  platform: string;
+  architecture: string;
+  osRelease: string;
+  cpuModel: string;
+  cpuCount: number;
+  totalMemoryBytes: number;
   fixturePreparationMs: number;
   boardInitialRenderMs: number;
   transferCommitMs: number;
@@ -291,15 +299,47 @@ interface BoardTransferPerformanceMetrics {
   rendererLongTaskCount: number;
   rendererLongTaskTotalMs: number;
   rendererMaxLongTaskMs: number;
+  peakWorkingSetBytes: number;
   transferCommitP50Ms: number;
   transferCommitP95Ms: number;
-  transferCommitP99Ms: number;
+  transferCommitP99Ms: number | null;
   transferCommitMaxMs: number;
   transferToCardP50Ms: number;
   transferToCardP95Ms: number;
-  transferToCardP99Ms: number;
+  transferToCardP99Ms: number | null;
   transferToCardMaxMs: number;
+  coreStages: Record<CoreTransferStage, CoreTransferStageSummary>;
+  rawSamples: {
+    transferCommitMs: number[];
+    transferToCardMs: number[];
+    coreStages: Record<CoreTransferStage, number[]>;
+  };
   rounds: number;
+}
+
+type CoreHealthMetrics = Awaited<ReturnType<CoreClient["health"]>>["metrics"];
+
+const CORE_TRANSFER_STAGES = {
+  writerQueueWait: "writer_queue_wait",
+  writerExecution: "writer_execution",
+  transaction: "transaction_duration",
+  prepare: "block_transfer_prepare_duration",
+  reconstruct: "block_transfer_reconstruct_duration",
+  decode: "block_transfer_decode_duration",
+  transform: "block_transfer_transform_duration",
+  encode: "block_transfer_encode_duration",
+  apply: "block_transfer_apply_duration",
+  packetPublication: "local_commit_publication_duration",
+} as const satisfies Record<string, keyof CoreHealthMetrics>;
+
+type CoreTransferStage = keyof typeof CORE_TRANSFER_STAGES;
+
+interface CoreTransferStageSummary {
+  p50Ms: number;
+  p95Ms: number;
+  p99Ms: number | null;
+  maxMs: number;
+  observationCount: number;
 }
 
 const HIGH_PRESSURE_SIBLING_BLOCK_COUNT = 100;
@@ -311,7 +351,7 @@ const HIGH_PRESSURE_BOARD_PLAN_PAGE_COUNT =
 const HIGH_PRESSURE_ROUNDS = Math.max(
   1,
   Math.min(
-    50,
+    100,
     Number.parseInt(process.env.NODEX_HIGH_PRESSURE_ROUNDS ?? "1", 10) || 1,
   ),
 );
@@ -335,7 +375,7 @@ const buildHighPressureSourceNfm = (titlePrefix = "title-A"): string => [
 const summarizeDurations = (values: readonly number[]): {
   p50: number;
   p95: number;
-  p99: number;
+  p99: number | null;
   max: number;
 } => {
   if (values.length === 0) {
@@ -347,8 +387,38 @@ const summarizeDurations = (values: readonly number[]): {
   return {
     p50: percentile(0.5),
     p95: percentile(0.95),
-    p99: percentile(0.99),
+    p99: values.length >= 100 ? percentile(0.99) : null,
     max: sorted.at(-1) ?? 0,
+  };
+};
+
+const durationMetricDelta = (
+  before: CoreHealthMetrics,
+  after: CoreHealthMetrics,
+  key: (typeof CORE_TRANSFER_STAGES)[CoreTransferStage],
+): { durationMs: number; observationCount: number } => {
+  const beforeMetric = before[key];
+  const afterMetric = after[key];
+  if (!isRecord(beforeMetric) || !isRecord(afterMetric)) {
+    throw new Error(`Core health metric ${key} is unavailable`);
+  }
+  const beforeTotal = beforeMetric.total_micros;
+  const afterTotal = afterMetric.total_micros;
+  const beforeCount = beforeMetric.count;
+  const afterCount = afterMetric.count;
+  if (
+    typeof beforeTotal !== "number"
+    || typeof afterTotal !== "number"
+    || typeof beforeCount !== "number"
+    || typeof afterCount !== "number"
+    || afterTotal < beforeTotal
+    || afterCount < beforeCount
+  ) {
+    throw new Error(`Core health metric ${key} moved backwards`);
+  }
+  return {
+    durationMs: (afterTotal - beforeTotal) / 1_000,
+    observationCount: afterCount - beforeCount,
   };
 };
 
@@ -1311,7 +1381,7 @@ test("converges a Block transfer into the live Board Page projection", async () 
   }
 });
 
-test("converges a high-pressure Page promotion across tab groups", async () => {
+test("converges a high-pressure Page promotion across tab groups", async ({}, testInfo) => {
   test.setTimeout(180_000);
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nx-cross-tab-"));
   const nodexHome = path.join(fixtureRoot, "profile");
@@ -1451,11 +1521,6 @@ test("converges a high-pressure Page promotion across tab groups", async () => {
       hasText: "title-A-cross-tab",
     }).first();
     await expect(titleBlock).toBeVisible({ timeout: 15_000 });
-    await titleBlock.hover();
-    const dragHandle = page.locator(
-      '.nfm-editor .bn-side-menu button[draggable="true"]',
-    ).last();
-    await expect(dragHandle).toBeVisible({ timeout: 5_000 });
 
     const sourceDescriptorBefore = requireIpcValue<Record<string, unknown>>(
       await invokeIpc(
@@ -1475,6 +1540,10 @@ test("converges a high-pressure Page promotion across tab groups", async () => {
       throw new Error("Cross-tab source Page did not expose a causal Document head");
     }
 
+    // Native pointer DnD is a manual smoke: Playwright does not reproduce the
+    // BlockNote side-menu gesture reliably. Keep this automated gate at the
+    // renderer IPC mutation boundary while both real destination/source
+    // surfaces remain mounted, then verify the complete publication outcome.
     const startedAt = performance.now();
     const transfer = requireIpcValue<Record<string, unknown>>(
       await invokeIpc(
@@ -1487,7 +1556,7 @@ test("converges a high-pressure Page promotion across tab groups", async () => {
           projectId: project.projectId,
           storeEpoch: project.storeEpoch,
           mode: "move",
-          rootBlockIds: [seededSource.blockIds[100]],
+          rootBlockIds: [seededSource.blockIds[HIGH_PRESSURE_SIBLING_BLOCK_COUNT]],
           causalDependencies: [{
             documentId: seededSource.documentId,
             generation: sourceGeneration,
@@ -1505,6 +1574,7 @@ test("converges a high-pressure Page promotion across tab groups", async () => {
       ),
       "Promote title-A in the live cross-tab surfaces",
     );
+    const committedAt = performance.now();
     const commitSeq = transfer.commitSeq;
     if (typeof commitSeq !== "number") {
       throw new Error("Cross-tab promotion returned no LocalCommit sequence");
@@ -1520,8 +1590,15 @@ test("converges a high-pressure Page promotion across tab groups", async () => {
     const transferredCard = page.locator('[data-kanban-uuid-v7]').filter({
       hasText: "title-A-cross-tab",
     }).first();
-    await expect(transferredCard).toBeVisible({ timeout: 15_000 });
-    await expect(transferredCard).toContainText("title-A-cross-tab");
+    const [cardVisibleAt, sourceRemovedAt] = await Promise.all([
+      expect(transferredCard).toBeVisible({ timeout: 15_000 })
+        .then(async () => {
+          await expect(transferredCard).toContainText("title-A-cross-tab");
+          return performance.now();
+        }),
+      expect(titleBlock).toHaveCount(0, { timeout: 15_000 })
+        .then(() => performance.now()),
+    ]);
     const sourceDescriptorAfter = requireIpcValue<Record<string, unknown>>(
       await invokeIpc(
         page,
@@ -1536,9 +1613,6 @@ test("converges a high-pressure Page promotion across tab groups", async () => {
       headSeq: expect.any(Number),
     });
     expect(sourceDescriptorAfter.headSeq).toBeGreaterThan(2);
-    const cardVisibleAt = performance.now();
-    await expect(titleBlock).toHaveCount(0, { timeout: 15_000 });
-    const sourceRemovedAt = performance.now();
 
     const detail = requireIpcValue<Record<string, unknown>>(
       await invokeIpc(
@@ -1566,21 +1640,29 @@ test("converges a high-pressure Page promotion across tab groups", async () => {
       HIGH_PRESSURE_SIBLING_BLOCK_COUNT * 2,
     );
 
-    test.info().attach("cross-tab-dnd-performance.json", {
-      body: JSON.stringify({
-        boardInitialPageCount: HIGH_PRESSURE_BOARD_PAGE_COUNT,
-        sourceBlockCount:
-          HIGH_PRESSURE_SIBLING_BLOCK_COUNT * 2
-          + HIGH_PRESSURE_CHILD_BLOCK_COUNT
-          + 1,
-        movedChildBlockCount: HIGH_PRESSURE_CHILD_BLOCK_COUNT,
-        dragToCardMs: cardVisibleAt - startedAt,
-        dragToSourceRemovalMs: sourceRemovedAt - startedAt,
-        transferPath: "renderer-block-transfer-boundary",
-        commitSeq,
-      }, null, 2),
+    const metrics = {
+      fixtureSeed: "cross-tab-board-transfer-v1-100x100x100",
+      boardInitialPageCount: HIGH_PRESSURE_BOARD_PAGE_COUNT,
+      sourceBlockCount:
+        HIGH_PRESSURE_SIBLING_BLOCK_COUNT * 2
+        + HIGH_PRESSURE_CHILD_BLOCK_COUNT
+        + 1,
+      movedChildBlockCount: HIGH_PRESSURE_CHILD_BLOCK_COUNT,
+      requestToCommitMs: committedAt - startedAt,
+      commitToCardMs: cardVisibleAt - committedAt,
+      commitToSourceRemovalMs: sourceRemovedAt - committedAt,
+      requestToCardMs: cardVisibleAt - startedAt,
+      requestToSourceRemovalMs: sourceRemovedAt - startedAt,
+      transferPath: "renderer-block-transfer-boundary",
+      commitSeq,
+    };
+    const metricsPath = testInfo.outputPath("cross-tab-transfer-performance.json");
+    fs.writeFileSync(metricsPath, `${JSON.stringify(metrics, null, 2)}\n`);
+    await testInfo.attach("cross-tab-transfer-performance", {
+      path: metricsPath,
       contentType: "application/json",
     });
+    console.info(`[cross-tab-transfer-performance] ${JSON.stringify(metrics)}`);
   } finally {
     if (application) await stopApplication(application);
     await shutdownTemporaryCore(nodexHome);
@@ -1710,10 +1792,16 @@ test("measures high-pressure nested Block transfer into a populated Board", asyn
     );
 
     await page.evaluate(() => {
-      const state = { longTasks: [] as number[] };
+      const state = {
+        longTasks: [] as number[],
+        projectionMessages: [] as unknown[],
+      };
       Object.defineProperty(window, "__nodexBoardTransferPerformance", {
         configurable: true,
         value: state,
+      });
+      window.api?.on("projection-stream:message", (...args: unknown[]) => {
+        state.projectionMessages.push(args[0]);
       });
       if (typeof PerformanceObserver === "undefined") return;
       const observer = new PerformanceObserver((list) => {
@@ -1724,6 +1812,18 @@ test("measures high-pressure nested Block transfer into a populated Board", asyn
 
     const transferCommitDurations: number[] = [];
     const transferToCardDurations: number[] = [];
+    const coreStageDurations = {} as Record<CoreTransferStage, number[]>;
+    const coreStageObservationCounts = {} as Record<CoreTransferStage, number>;
+    for (const stage of Object.keys(CORE_TRANSFER_STAGES) as CoreTransferStage[]) {
+      coreStageDurations[stage] = [];
+      coreStageObservationCounts[stage] = 0;
+    }
+    const metricsClient = await CoreClient.connect({
+      nodexHome,
+      clientKind: "test",
+      buildId: "electron-e2e-performance",
+      requestTimeoutMs: 15_000,
+    });
     let lastChangeLogSeq = 0;
     for (let index = 0; index < HIGH_PRESSURE_ROUNDS; index += 1) {
       // Keep the renderer interactive while fixture pressure is applied. A
@@ -1744,6 +1844,7 @@ test("measures high-pressure nested Block transfer into a populated Board", asyn
       expect(seededSource.blockIds).toHaveLength(blocksPerRound);
       const titleBlockId = seededSource.blockIds[HIGH_PRESSURE_SIBLING_BLOCK_COUNT];
       if (!titleBlockId) throw new Error("High-pressure source title Block is missing");
+      const coreMetricsBefore = (await metricsClient.health()).metrics;
       const transferStartedAt = performance.now();
       const receipt = requireIpcValue<Record<string, unknown>>(
         await invokeIpc(
@@ -1770,6 +1871,17 @@ test("measures high-pressure nested Block transfer into a populated Board", asyn
         `Transfer high-pressure title Block ${index + 1}`,
       );
       const transferCommittedAt = performance.now();
+      const coreMetricsAfter = (await metricsClient.health()).metrics;
+      for (const [stage, metricKey] of Object.entries(CORE_TRANSFER_STAGES) as Array<
+        [CoreTransferStage, (typeof CORE_TRANSFER_STAGES)[CoreTransferStage]]
+      >) {
+        const delta = durationMetricDelta(coreMetricsBefore, coreMetricsAfter, metricKey);
+        if (stage === "prepare" || stage === "apply") {
+          expect(delta.observationCount).toBe(1);
+        }
+        coreStageDurations[stage].push(delta.durationMs);
+        coreStageObservationCounts[stage] += delta.observationCount;
+      }
       transferCommitDurations.push(transferCommittedAt - transferStartedAt);
       if (!Array.isArray(receipt.resultRootBlockIds)) {
         throw new Error("High-pressure Block transfer returned no result Page id");
@@ -1822,7 +1934,21 @@ test("measures high-pressure nested Block transfer into a populated Board", asyn
       }
 
       const card = page.locator(`[data-kanban-uuid-v7="${resultPageId}"]`);
-      await expect(card).toBeVisible({ timeout: 15_000 });
+      try {
+        await expect(card).toBeVisible({ timeout: 15_000 });
+      } catch (error) {
+        const projectionMessages = await page.evaluate(() =>
+          (window as typeof window & {
+            __nodexBoardTransferPerformance?: {
+              projectionMessages: unknown[];
+            };
+          }).__nodexBoardTransferPerformance?.projectionMessages ?? []
+        );
+        console.info(
+          `[board-transfer-projection-messages] ${JSON.stringify(projectionMessages)}`,
+        );
+        throw error;
+      }
       await expect(card).toContainText(`title-A-${index}`);
       const cardVisibleAt = performance.now();
       transferToCardDurations.push(cardVisibleAt - transferCommittedAt);
@@ -1836,6 +1962,18 @@ test("measures high-pressure nested Block transfer into a populated Board", asyn
     );
     const transferCommitSummary = summarizeDurations(transferCommitDurations);
     const transferToCardSummary = summarizeDurations(transferToCardDurations);
+    const coreStages = Object.fromEntries(
+      Object.entries(coreStageDurations).map(([stage, durations]) => {
+        const summary = summarizeDurations(durations);
+        return [stage, {
+          p50Ms: summary.p50,
+          p95Ms: summary.p95,
+          p99Ms: summary.p99,
+          maxMs: summary.max,
+          observationCount: coreStageObservationCounts[stage as CoreTransferStage],
+        }];
+      }),
+    ) as Record<CoreTransferStage, CoreTransferStageSummary>;
 
     const rendererMetrics = await page.evaluate(() => {
       const state = (window as typeof window & {
@@ -1849,7 +1987,23 @@ test("measures high-pressure nested Block transfer into a populated Board", asyn
         rendererMaxLongTaskMs: Math.max(0, ...longTasks),
       };
     });
+    const peakWorkingSetBytes = await application.evaluate(({ app }) =>
+      Math.max(
+        0,
+        ...app.getAppMetrics().map((metric) => metric.memory.peakWorkingSetSize * 1_024),
+      ));
+    const cpus = os.cpus();
     const metrics: BoardTransferPerformanceMetrics = {
+      fixtureSeed: "board-transfer-v1-100x100x100",
+      buildMode: process.env.NODEX_CORE_EXECUTABLE?.includes("/release/")
+        ? "electron-test-release-core"
+        : "electron-test-debug-core",
+      platform: process.platform,
+      architecture: process.arch,
+      osRelease: os.release(),
+      cpuModel: cpus[0]?.model ?? "unknown",
+      cpuCount: cpus.length,
+      totalMemoryBytes: os.totalmem(),
       fixturePreparationMs: performance.now() - fixturePreparationStartedAt,
       boardInitialRenderMs,
       transferCommitMs: transferCommitSummary.p50,
@@ -1863,6 +2017,7 @@ test("measures high-pressure nested Block transfer into a populated Board", asyn
       finalRenderedBoardCardCount: await page.locator("[data-kanban-uuid-v7]").count(),
       initialDomNodes,
       ...rendererMetrics,
+      peakWorkingSetBytes,
       transferCommitP50Ms: transferCommitSummary.p50,
       transferCommitP95Ms: transferCommitSummary.p95,
       transferCommitP99Ms: transferCommitSummary.p99,
@@ -1871,6 +2026,12 @@ test("measures high-pressure nested Block transfer into a populated Board", asyn
       transferToCardP95Ms: transferToCardSummary.p95,
       transferToCardP99Ms: transferToCardSummary.p99,
       transferToCardMaxMs: transferToCardSummary.max,
+      coreStages,
+      rawSamples: {
+        transferCommitMs: transferCommitDurations,
+        transferToCardMs: transferToCardDurations,
+        coreStages: coreStageDurations,
+      },
       rounds: HIGH_PRESSURE_ROUNDS,
     };
     const metricsPath = testInfo.outputPath("board-transfer-high-pressure-metrics.json");
@@ -1890,13 +2051,27 @@ test("measures high-pressure nested Block transfer into a populated Board", asyn
       metrics.initialRenderedBoardCardCount,
     );
     if (process.env.NODEX_SKIP_PERFORMANCE_GATES !== "1") {
-      expect(metrics.transferCommitP95Ms).toBeLessThan(5_000);
-      expect(metrics.transferToCardP95Ms).toBeLessThan(5_000);
+      const isReleaseCore = metrics.buildMode === "electron-test-release-core";
+      expect(metrics.transferCommitP95Ms).toBeLessThan(isReleaseCore ? 250 : 750);
+      expect(metrics.transferToCardP95Ms).toBeLessThan(100);
+      if (isReleaseCore && metrics.rounds >= 100) {
+        expect(metrics.transferCommitP99Ms).not.toBeNull();
+        expect(metrics.transferCommitP99Ms ?? Number.POSITIVE_INFINITY).toBeLessThan(350);
+        expect(metrics.transferToCardP99Ms).not.toBeNull();
+        expect(metrics.transferToCardP99Ms ?? Number.POSITIVE_INFINITY).toBeLessThan(100);
+      }
+      expect(metrics.coreStages.writerQueueWait.p95Ms).toBeLessThan(5);
+      expect(metrics.coreStages.prepare.p95Ms).toBeLessThan(50);
+      expect(metrics.coreStages.packetPublication.p95Ms).toBeLessThan(5);
     }
   } finally {
     if (application) await stopApplication(application);
     await shutdownTemporaryCore(nodexHome);
-    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+    if (process.env.NODEX_KEEP_BOARD_TRANSFER_FIXTURE === "1") {
+      console.info(`[board-transfer-fixture] ${fixtureRoot}`);
+    } else {
+      fs.rmSync(fixtureRoot, { recursive: true, force: true });
+    }
   }
 });
 

@@ -9,8 +9,9 @@ import {
   createFakeCoreHandshake,
   FakeCoreClient,
 } from "./testing/fake-core-client";
+import { createCoreLocalCommitFixture } from "./testing/local-commit-fixture";
 import type {
-  StoreAdministrationCommittedValue,
+  StoreAdministrationApplyResult,
   StoreAdministrationReadSnapshot,
 } from "./types";
 
@@ -37,17 +38,21 @@ const readSnapshot = (
 });
 
 const committed = (
-  value: Partial<StoreAdministrationCommittedValue["value"]>,
-): StoreAdministrationCommittedValue => ({
-  store_epoch: "epoch:test",
-  event_sequence: 5,
+  value: Partial<StoreAdministrationApplyResult["outcome"]>,
+): StoreAdministrationApplyResult => ({
+  status: "committed",
+  commit: {
+    store_epoch: "epoch:test",
+    commit_seq: 5,
+    manifest_hash: "f".repeat(64),
+  },
   receipt: {
     operation_id: "operation:test",
     duplicate: false,
     backup_id: value.backup_id ?? null,
     safety_backup_id: value.safety_backup_id ?? null,
   },
-  value: {
+  outcome: {
     backup_id: null,
     safety_backup_id: null,
     completed_tasks: [],
@@ -131,13 +136,11 @@ describe("Desktop Store Administration bridge", () => {
   test("maps Store Administration events", () => {
     expect(mapCoreStoreAdministrationEvent({
       transport_version: 4,
-      event: {
-        event_version: 3,
-        commit_seq: 5,
-        store_epoch: "epoch:test",
-        operation_id: "operation:backup",
-        committed_at: "2026-07-19T20:00:00.000Z",
-        projection_impact: { kind: "none" },
+      packet: createCoreLocalCommitFixture({
+        commitSeq: 5,
+        storeEpoch: "epoch:test",
+        operationId: "operation:backup",
+        committedAt: "2026-07-19T20:00:00.000Z",
         payload: {
           module: "store_administration",
           event: {
@@ -147,9 +150,8 @@ describe("Desktop Store Administration bridge", () => {
             readiness_changed: false,
           },
         },
-        effects: [],
-        canonical_hash: "0".repeat(64),
-      },
+        canonicalHash: "0".repeat(64),
+      }),
     })).toEqual({
       backupIds: ["core-backup"],
       readinessChanged: false,

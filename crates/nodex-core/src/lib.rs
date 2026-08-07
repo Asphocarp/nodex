@@ -7,7 +7,10 @@ pub mod document;
 pub mod domain;
 pub mod infrastructure;
 pub mod library;
+mod module_writer_result;
 pub mod workspace;
+
+pub use module_writer_result::ModuleWriterResult;
 
 #[cfg(test)]
 mod read_budget_gate;

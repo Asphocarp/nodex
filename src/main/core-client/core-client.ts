@@ -38,44 +38,45 @@ import type {
   CoreEventEnvelope,
   CoreEventReplayRequired,
   CoreEventSubscription,
+  CoreStreamCheckpoint,
   CoreHandshakeResponse,
   CoreLocalMutationResolveRequest,
   CoreLocalMutationResolveResponse,
   CoreModuleError,
   AutomationApplyInput,
   AutomationApplyResponse,
-  AutomationCommittedValue,
+  AutomationApplyResult,
   AutomationRead,
   AutomationReadResponse,
   AutomationReadSnapshot,
   DatabaseApplyInput,
   DatabaseApplyResponse,
-  DatabaseCommittedValue,
+  DatabaseApplyResult,
   DatabaseRead,
   DatabaseReadResponse,
   DatabaseReadSnapshot,
   LibraryApplyInput,
   LibraryApplyResponse,
-  LibraryCommittedValue,
+  LibraryApplyResult,
   LibraryRead,
   LibraryReadResponse,
   LibraryReadSnapshot,
   DocumentResyncRequired,
   OwnedDocumentApplyInput,
   OwnedDocumentApplyResponse,
-  OwnedDocumentCommittedValue,
+  OwnedDocumentApplyResult,
   OwnedDocumentRead,
   OwnedDocumentReadResponse,
   OwnedDocumentReadSnapshot,
   ProjectWorkspaceRead,
   ProjectWorkspaceApplyInput,
   ProjectWorkspaceApplyResponse,
-  ProjectWorkspaceCommittedValue,
+  ProjectWorkspaceApplyResult,
   ProjectWorkspaceReadResponse,
   ProjectWorkspaceReadSnapshot,
   StoreAdministrationApplyInput,
   StoreAdministrationApplyResponse,
-  StoreAdministrationCommittedValue,
+  StoreAdministrationApplyResult,
   StoreAdministrationRead,
   StoreAdministrationReadResponse,
   StoreAdministrationReadSnapshot,
@@ -115,6 +116,7 @@ export interface ConnectCoreClientInput {
   readonly projectId?: string;
   readonly maximumJsonResponseBytes?: number;
   readonly requestTimeoutMs?: number;
+  readonly signal?: AbortSignal;
 }
 
 export class CoreModuleResponseError extends Error {
@@ -180,6 +182,8 @@ export class CoreClient implements CoreClientPort {
           readiness_generation: runtime.descriptor.readiness_generation,
         },
       },
+      {},
+      input.signal,
     );
     assertHandshake(runtime.descriptor, handshake);
     transport.configureEventContract({
@@ -230,7 +234,7 @@ export class CoreClient implements CoreClientPort {
     throw new CoreModuleResponseError(response.payload);
   }
 
-  async libraryApply(input: LibraryApplyInput): Promise<LibraryCommittedValue> {
+  async libraryApply(input: LibraryApplyInput): Promise<LibraryApplyResult> {
     const response = await this.#transport.requestJson<LibraryApplyResponse>(
       "POST",
       "/core/v1/modules/library/apply",
@@ -272,7 +276,7 @@ export class CoreClient implements CoreClientPort {
     throw new CoreModuleResponseError(response.payload);
   }
 
-  async databaseApply(input: DatabaseApplyInput): Promise<DatabaseCommittedValue> {
+  async databaseApply(input: DatabaseApplyInput): Promise<DatabaseApplyResult> {
     const response = await this.#transport.requestJson<DatabaseApplyResponse>(
       "POST",
       "/core/v1/modules/database/apply",
@@ -303,7 +307,7 @@ export class CoreClient implements CoreClientPort {
 
   async workspaceApply(
     input: ProjectWorkspaceApplyInput,
-  ): Promise<ProjectWorkspaceCommittedValue> {
+  ): Promise<ProjectWorkspaceApplyResult> {
     const response = await this.#transport.requestJson<ProjectWorkspaceApplyResponse>(
       "POST",
       "/core/v1/modules/workspace/apply",
@@ -332,7 +336,7 @@ export class CoreClient implements CoreClientPort {
 
   async automationApply(
     input: AutomationApplyInput,
-  ): Promise<AutomationCommittedValue> {
+  ): Promise<AutomationApplyResult> {
     const response = await this.#transport.requestJson<AutomationApplyResponse>(
       "POST",
       "/core/v1/modules/automation/apply",
@@ -364,7 +368,7 @@ export class CoreClient implements CoreClientPort {
 
   async administrationApply(
     input: StoreAdministrationApplyInput,
-  ): Promise<StoreAdministrationCommittedValue> {
+  ): Promise<StoreAdministrationApplyResult> {
     const response =
       await this.#transport.requestJson<StoreAdministrationApplyResponse>(
         "POST",
@@ -397,7 +401,7 @@ export class CoreClient implements CoreClientPort {
 
   async documentApply(
     input: OwnedDocumentApplyInput,
-  ): Promise<OwnedDocumentCommittedValue> {
+  ): Promise<OwnedDocumentApplyResult> {
     const response = await this.#transport.requestJson<OwnedDocumentApplyResponse>(
       "POST",
       "/core/v1/modules/document/apply",
@@ -497,6 +501,7 @@ export class CoreClient implements CoreClientPort {
       readonly signal?: AbortSignal;
     },
     onEvent: (event: CoreEventEnvelope) => void,
+    onCheckpoint: (checkpoint: CoreStreamCheckpoint) => void,
     onResyncRequired: (event: DocumentResyncRequired) => void,
     onRealtimeEvent: (event: DocumentSyncRealtimeEvent) => void,
   ): Promise<CoreEventSubscription> {
@@ -510,6 +515,7 @@ export class CoreClient implements CoreClientPort {
       onResyncRequired,
       onRealtimeEvent,
       undefined,
+      onCheckpoint,
       input.signal,
     );
   }
@@ -517,6 +523,7 @@ export class CoreClient implements CoreClientPort {
   openEventStream(
     after: number,
     onEvent: (event: CoreEventEnvelope) => void,
+    onCheckpoint: (checkpoint: CoreStreamCheckpoint) => void,
     onResyncRequired?: (event: CoreEventReplayRequired) => void,
     signal?: AbortSignal,
   ): Promise<CoreEventSubscription> {
@@ -527,6 +534,7 @@ export class CoreClient implements CoreClientPort {
       undefined,
       undefined,
       onResyncRequired,
+      onCheckpoint,
       signal,
     );
   }

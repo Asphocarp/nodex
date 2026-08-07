@@ -8,10 +8,10 @@ use crate::agent::{
     AgentExecutionAuthorization, AgentOperationPreparation, AgentPreparedExecution,
 };
 use crate::{
-    CommittedModuleValue, ModuleMutationReceipt, ModuleName, StoreEpoch, VersionedModuleContract,
+    ApplyResponse, ModuleMutationReceipt, ModuleName, StoreEpoch, VersionedModuleContract,
 };
 
-pub const OWNED_DOCUMENT_CONTRACT_VERSION: u32 = 5;
+pub const OWNED_DOCUMENT_CONTRACT_VERSION: u32 = 6;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct CanvasCompactionStats {
@@ -151,8 +151,7 @@ pub enum OwnedDocumentReadValue {
     AgentSemanticMutationPreparation {
         preparation: AgentOperationPreparation,
         #[serde(skip_serializing_if = "Option::is_none")]
-        committed:
-            Option<Box<CommittedModuleValue<OwnedDocumentCommitValue, OwnedDocumentReceipt>>>,
+        committed: Option<Box<ApplyResponse<OwnedDocumentCommitValue, OwnedDocumentReceipt>>>,
     },
     AgentSemanticSnapshot {
         snapshot: Box<AgentDocumentSemanticSnapshot>,

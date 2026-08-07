@@ -497,14 +497,22 @@ vi.mock("@/lib/api", () => {
       projectId,
       input,
     );
+    const viewId = projectId === "beta" ? "view:beta" : "view:alpha";
     return mocked ?? {
       projectId,
       libraryId: "library:test",
-      databaseId: `database:${projectId}:primary`,
-      dataSourceId: `database:${projectId}:primary:data-source:initial`,
-      viewId: `database-view:${projectId}:primary-kanban`,
+      databaseId: "database:test:primary",
+      dataSourceId: projectId === "beta" ? "data-source:beta" : "data-source:alpha",
+      viewId,
       storeEpoch: "epoch:test",
       commitSeq: 1,
+      projection: {
+        scopeKey: `scope:${viewId}`,
+        schemaVersion: 1,
+        revision: 1,
+        coveredCommitSeq: 1,
+        effectHash: "f".repeat(64),
+      },
       grouped: false,
       totalRows: 0,
       truncated: false,
@@ -2853,7 +2861,13 @@ export function renderWorkbench({
         viewId,
         storeEpoch: "epoch:test",
         commitSeq: 1,
-        projectionRevision: 1,
+        projection: {
+          scopeKey: `scope:${viewId}`,
+          schemaVersion: 1,
+          revision: 1,
+          coveredCommitSeq: 1,
+          effectHash: "f".repeat(64),
+        },
         nextCursor: null,
         rows: cards.map((page, index) => ({
           page,

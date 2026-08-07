@@ -22,6 +22,7 @@ import {
   createFakeCoreHandshake,
   FakeCoreClient,
 } from "./testing/fake-core-client";
+import { createCoreLocalCommitFixture } from "./testing/local-commit-fixture";
 
 const identity = {
   projectId: "project:test",
@@ -785,6 +786,22 @@ describe("Core Database Module Adapter", () => {
           database_id: "database:test",
           data_source_id: "source:test",
           view_id: "view:test",
+          projection: {
+            scope: {
+              schema_version: 1,
+              canonical_key: "scope:view:test",
+              scope: {
+                kind: "database_view",
+                project_id: identity.projectId,
+                database_id: "database:test",
+                data_source_id: "source:test",
+                view_id: "view:test",
+              },
+            },
+            revision: 3,
+            covered_commit_seq: 21,
+            effect_hash: "a".repeat(64),
+          },
           grouped: true,
           total_rows: 7,
           truncated: false,
@@ -872,13 +889,11 @@ describe("Core Database Module Adapter", () => {
   test("maps Database Core events into resource-scoped renderer invalidations", () => {
     expect(mapCoreDatabaseEvent({
       transport_version: 4,
-      event: {
-        event_version: 3,
-        commit_seq: 42,
-        store_epoch: identity.storeEpoch,
-        operation_id: "operation:database",
-        committed_at: "2026-07-20T00:00:00.000Z",
-        projection_impact: { kind: "none" },
+      packet: createCoreLocalCommitFixture({
+        commitSeq: 42,
+        storeEpoch: identity.storeEpoch,
+        operationId: "operation:database",
+        committedAt: "2026-07-20T00:00:00.000Z",
         payload: {
           module: "database",
           event: {
@@ -890,9 +905,8 @@ describe("Core Database Module Adapter", () => {
             view_ids: ["view:test"],
           },
         },
-        effects: [],
-        canonical_hash: "0".repeat(64),
-      },
+        canonicalHash: "0".repeat(64),
+      }),
     }, identity.libraryId)).toEqual({
       version: 2,
       projectId: identity.projectId,
@@ -911,13 +925,11 @@ describe("Core Database Module Adapter", () => {
   test("maps Library Database events without a compatibility Project", () => {
     expect(mapCoreLibraryDatabaseEvent({
       transport_version: 4,
-      event: {
-        event_version: 3,
-        commit_seq: 53,
-        store_epoch: identity.storeEpoch,
-        operation_id: "operation:library-database",
-        committed_at: "2026-07-20T00:11:00.000Z",
-        projection_impact: { kind: "none" },
+      packet: createCoreLocalCommitFixture({
+        commitSeq: 53,
+        storeEpoch: identity.storeEpoch,
+        operationId: "operation:library-database",
+        committedAt: "2026-07-20T00:11:00.000Z",
         payload: {
           module: "database",
           event: {
@@ -929,9 +941,8 @@ describe("Core Database Module Adapter", () => {
             view_ids: ["view:library"],
           },
         },
-        effects: [],
-        canonical_hash: "0".repeat(64),
-      },
+        canonicalHash: "0".repeat(64),
+      }),
     }, identity.libraryId)).toEqual({
       version: 1,
       libraryId: identity.libraryId,

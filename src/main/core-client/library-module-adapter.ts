@@ -63,6 +63,7 @@ import type {
 } from "../../shared/page-ownership-paths";
 import { isWorkflowStatus } from "../../shared/workflow-status";
 import { CoreModuleResponseError } from "./core-client";
+import { applyResultCursor, applyResultStoreEpoch } from "./types";
 import {
   mapCorePropertyDescriptor,
   toCoreDatabaseIntent,
@@ -1314,7 +1315,7 @@ type CoreBlockPropertyMutation = Extract<
   { kind: "apply_block_property_mutation" }
 >["mutation"];
 type CoreBlockPropertyOutcome = NonNullable<
-  Awaited<ReturnType<CoreClientPort["libraryApply"]>>["value"]["block_property_mutation"]
+  Awaited<ReturnType<CoreClientPort["libraryApply"]>>["outcome"]["block_property_mutation"]
 >["outcome"];
 
 const toCoreBlockPropertyMutation = (
@@ -1483,10 +1484,11 @@ export const createCoreLibraryModuleAdapter = (
           ),
         },
       });
-      const receipt = committed.value.block_property_mutation;
+      const receipt = committed.outcome.block_property_mutation;
+      const storeEpoch = applyResultStoreEpoch(committed);
       if (
         !receipt
-        || committed.store_epoch !== request.storeEpoch
+        || storeEpoch !== request.storeEpoch
         || committed.receipt.operation_id !== request.mutationId
         || committed.receipt.operation_kind !== "property_batch"
       ) {
@@ -1508,15 +1510,12 @@ export const createCoreLibraryModuleAdapter = (
           version: 2,
           mutationId: request.mutationId,
           projectId: request.projectId,
-          storeEpoch: committed.store_epoch,
+          storeEpoch,
           duplicate: committed.receipt.duplicate,
           fields: receipt.outcome.fields.map(fromCoreBlockPropertyField),
           blockMetadataRevisions:
             receipt.outcome.block_metadata_revisions,
-          commitSeq:
-            committed.commit_seq
-            ?? committed.local_commit?.commit_seq
-            ?? committed.receipt.commit_seq,
+          commitSeq: applyResultCursor(committed),
           committedAt: committed.receipt.committed_at,
         },
       });
@@ -1561,12 +1560,13 @@ export const createCoreLibraryModuleAdapter = (
           intent: toCoreIntent(request.operation),
         });
         const receipt = committed.receipt;
+        const storeEpoch = applyResultStoreEpoch(committed);
         return {
           ok: true,
           value: {
             version: request.version,
             operationId: receipt.operation_id,
-            storeEpoch: committed.store_epoch,
+            storeEpoch,
             libraryId: input.libraryId,
             operationKind: request.operation.kind,
             duplicate: receipt.duplicate,
@@ -1574,20 +1574,20 @@ export const createCoreLibraryModuleAdapter = (
             createdTarget: receipt.created_target
               ? fromCoreCreatedTarget(receipt.created_target)
               : null,
-            canvasMutation: committed.value.canvas_mutation
+            canvasMutation: committed.outcome.canvas_mutation
               ? {
                   operationKind:
-                    committed.value.canvas_mutation.operation_kind,
-                  canvasId: committed.value.canvas_mutation.canvas_id,
-                  documentId: committed.value.canvas_mutation.document_id,
+                    committed.outcome.canvas_mutation.operation_kind,
+                  canvasId: committed.outcome.canvas_mutation.canvas_id,
+                  documentId: committed.outcome.canvas_mutation.document_id,
                   sourceCanvasId:
-                    committed.value.canvas_mutation.source_canvas_id ?? null,
+                    committed.outcome.canvas_mutation.source_canvas_id ?? null,
                   locationRevision:
-                    committed.value.canvas_mutation.location_revision,
+                    committed.outcome.canvas_mutation.location_revision,
                   metadataRevision:
-                    committed.value.canvas_mutation.metadata_revision,
+                    committed.outcome.canvas_mutation.metadata_revision,
                   documentCommits:
-                    committed.value.canvas_mutation.document_commits.map(
+                    committed.outcome.canvas_mutation.document_commits.map(
                       (commit) => ({
                         documentId: commit.document_id,
                         generation: commit.generation,
@@ -1607,10 +1607,7 @@ export const createCoreLibraryModuleAdapter = (
             ),
             affectedViewIds: receipt.affected_view_ids.map(parseDatabaseViewId),
             committedRevisions: receipt.committed_revisions,
-            commitSeq:
-              committed.commit_seq
-              ?? committed.local_commit?.commit_seq
-              ?? receipt.commit_seq,
+            commitSeq: applyResultCursor(committed),
             committedAt: receipt.committed_at,
           },
         };
@@ -1839,10 +1836,11 @@ export const createCoreLibraryModuleAdapter = (
             mutation: toCorePageLifecycleMutation(request.operation),
           },
         });
-        const lifecycle = committed.value.page_lifecycle;
+        const lifecycle = committed.outcome.page_lifecycle;
+        const storeEpoch = applyResultStoreEpoch(committed);
         if (
           !lifecycle
-          || committed.store_epoch !== request.storeEpoch
+          || storeEpoch !== request.storeEpoch
           || committed.receipt.operation_id !== request.operationId
           || committed.receipt.operation_kind !== request.operation.kind
           || lifecycle.operation_kind !== request.operation.kind
@@ -1859,7 +1857,7 @@ export const createCoreLibraryModuleAdapter = (
             operationKind: lifecycle.operation_kind,
             operationId: committed.receipt.operation_id,
             projectId: request.projectId,
-            storeEpoch: committed.store_epoch,
+            storeEpoch,
             pageId: lifecycle.page_id,
             duplicate: committed.receipt.duplicate,
             metadataRevision: lifecycle.metadata_revision,
@@ -1876,10 +1874,7 @@ export const createCoreLibraryModuleAdapter = (
             viewRankKey: lifecycle.view_rank_key,
             createdBlockIds: lifecycle.created_block_ids,
             createdTagOptionIds: lifecycle.created_tag_option_ids,
-            commitSeq:
-              committed.commit_seq
-              ?? committed.local_commit?.commit_seq
-              ?? committed.receipt.commit_seq,
+            commitSeq: applyResultCursor(committed),
             committedAt: committed.receipt.committed_at,
           },
         });

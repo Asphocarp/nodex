@@ -1,5 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
+use std::sync::{Arc, Mutex};
 
 use nodex_core_contracts::agent::{
     AgentConsentRequirement, AgentEffectClass, AgentExecutionAuthorization,
@@ -10,34 +10,31 @@ use nodex_core_contracts::library::{
     LibraryAgentCreatePagePreparation, LibraryAgentCreatePagesPreparation,
     LibraryAgentCreatePagesRequest, LibraryAgentCreatePagesResult, LibraryAgentCreatedPage,
     LibraryAgentDocumentHead, LibraryAgentPageDestination, LibraryAgentPageEtags,
-    LibraryAgentPageLocation, LibraryBlockTransferLogicalIntent, LibraryBlockTransferMode,
-    LibraryBlockTransferPlan, LibraryBlockTransferSource, LibraryBlockTransferTarget,
-    LibraryPageCopyDestination, LibraryPageCopyValue, LibraryReadValue, LibraryResourceTarget,
+    LibraryAgentPageLocation, LibraryPageCopyDestination, LibraryPageCopyValue, LibraryReadValue,
+    LibraryResourceTarget,
 };
 use nodex_core_contracts::{
-    AdapterKind, BoundModuleContext, CommittedModuleValue, LIBRARY_CONTRACT_VERSION,
-    ModuleApplyRequest, ModuleReadSnapshot, ProjectId, StoreEpoch,
+    AdapterKind, ApplyResponse, BoundModuleContext, LIBRARY_CONTRACT_VERSION, ModuleApplyRequest,
+    ModuleName, ModuleReadSnapshot, StoreEpoch,
 };
 use rusqlite::{Connection, TransactionBehavior};
 use serde_json::json;
 
 use crate::database::{
-    PageCopyDataSourceDestination, PageCopyPositionAnchor, PageCopyValueDraft,
-    PageCopyViewPlacement, StagedPagePlacementRevisions, active_property, normalize_value,
-    place_staged_page_in_data_source_prevalidated,
+    ExistingPageTransferTarget, PageCopyDataSourceDestination, PageCopyPositionAnchor,
+    PageCopyValueDraft, PageCopyViewPlacement, StagedPagePlacementRevisions, active_property,
+    normalize_value, place_staged_page_in_data_source_prevalidated,
+    transfer_existing_page_for_agent_move_prevalidated,
 };
 use crate::document::{
-    BlockDocumentSchema, decode_block_document, materialize_decoded_document,
-    mint_document_semantic_etags, parse_inline_markdown_title,
-    prepare_page_yjs_genesis_with_content, read_document_authority, read_store_epoch,
-    reconstruct_yjs_engine, sha256,
+    DocumentMaterialization, DocumentRuntimeCache, mint_document_semantic_etags,
+    parse_inline_markdown_title, read_store_epoch, sha256,
 };
-use crate::domain::block_materialization::MaterializedBlockNode;
 use crate::domain::identity::stable_uuid_v7;
-use crate::domain::rich_text::RichTextItem;
 use crate::infrastructure::agent_operations::{
     PreparedAgentOperationBinding, PreparedAgentOperationRegistry,
 };
+use crate::infrastructure::durable_mutation::{self, DurableMutationScope, OperationIdentity};
 use crate::infrastructure::module_receipts::read_module_receipt;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 use crate::infrastructure::writer::{StoreReaders, StoreWriter};
@@ -46,7 +43,10 @@ use super::LibraryApplyOutcome;
 use super::agent_page_write::{
     ResolvedDestination, destination_before_id, destination_footprint_target, resolve_destination,
 };
-use super::mutation::{MutationEffects, finish_mutation, sqlite_now};
+use super::block_transfer::{
+    AppliedAgentPageDocumentBatch, PreparedAgentPageDocumentBatch, PreparedFreshPageGenesis,
+};
+use super::mutation::{MutationEffects, library_commit_result, seal_mutation_with, sqlite_now};
 
 const MODULE_NAME: &str = "library";
 const MAX_PAGES: usize = 16;
@@ -56,11 +56,11 @@ const MAX_ID_BYTES: usize = 512;
 struct PreparedPage {
     page_id: String,
     page_operation_id: String,
-    rich_title: Vec<RichTextItem>,
     body_block_ids: Vec<String>,
     primary_membership_id: String,
     target_membership_id: String,
     destination: LibraryPageCopyDestination,
+    genesis: Option<PreparedFreshPageGenesis>,
 }
 
 struct CreatePreflight {
@@ -69,7 +69,9 @@ struct CreatePreflight {
     destination_document: Option<LibraryAgentDocumentHead>,
     destination_database_id: Option<String>,
     destination_project_id: String,
+    destination_authority_hash: String,
     pages: Vec<PreparedPage>,
+    batch_documents: Option<PreparedAgentPageDocumentBatch>,
     document_heads: Vec<LibraryAgentDocumentHead>,
     footprint: AgentOperationFootprint,
 }
@@ -87,7 +89,7 @@ enum PreparationRead {
         commit_head: i64,
         footprint: AgentOperationFootprint,
         committed: Box<
-            CommittedModuleValue<
+            ApplyResponse<
                 nodex_core_contracts::library::LibraryCommitValue,
                 nodex_core_contracts::library::LibraryReceipt,
             >,
@@ -102,6 +104,7 @@ enum PreparationRead {
 
 pub(super) fn prepare_create_pages(
     readers: &StoreReaders,
+    document_runtime_cache: &Arc<Mutex<DocumentRuntimeCache>>,
     registry: &PreparedAgentOperationRegistry,
     context: &BoundModuleContext,
     library_id: &str,
@@ -116,6 +119,7 @@ pub(super) fn prepare_create_pages(
     validate_id(&operation_id, "operation_id")?;
     let context = context.clone();
     let library_id = library_id.to_owned();
+    let document_runtime_cache = Arc::clone(document_runtime_cache);
     let preparation = readers.read_default(|connection| {
         let transaction = connection.unchecked_transaction()?;
         let store_epoch = read_store_epoch(&transaction)?;
@@ -128,8 +132,9 @@ pub(super) fn prepare_create_pages(
             if stored.request_hash != request_hash {
                 return Err(reused());
             }
+            let local_commit_seq = stored.local_commit_seq;
             let mut committed = serde_json::from_value::<
-                CommittedModuleValue<
+                crate::ModuleWriterResult<
                     nodex_core_contracts::library::LibraryCommitValue,
                     nodex_core_contracts::library::LibraryReceipt,
                 >,
@@ -142,6 +147,8 @@ pub(super) fn prepare_create_pages(
                 .as_ref()
                 .ok_or_else(|| corrupt("Stored Library receipt is not an Agent Page create"))?;
             let footprint = committed_footprint(library_id.as_str(), result)?;
+            let committed =
+                durable_mutation::replay_apply_response(&transaction, local_commit_seq, committed)?;
             transaction.commit()?;
             return Ok(PreparationRead::Committed {
                 store_epoch,
@@ -152,6 +159,7 @@ pub(super) fn prepare_create_pages(
         }
         let preflight = compile_preflight(
             &transaction,
+            Some(&document_runtime_cache),
             &context,
             &library_id,
             &operation_id,
@@ -176,7 +184,7 @@ pub(super) fn prepare_create_pages(
             committed,
         } => {
             let result = committed
-                .value
+                .outcome()
                 .agent_create_pages
                 .as_ref()
                 .expect("validated committed Agent Page create");
@@ -249,6 +257,8 @@ pub(super) fn prepare_create_pages(
 #[allow(clippy::too_many_arguments)]
 pub(super) fn execute_create_pages(
     writer: &StoreWriter,
+    readers: &StoreReaders,
+    document_runtime_cache: &Arc<Mutex<DocumentRuntimeCache>>,
     registry: &PreparedAgentOperationRegistry,
     profile_id: &str,
     library_id: &str,
@@ -256,15 +266,53 @@ pub(super) fn execute_create_pages(
     request: ModuleApplyRequest<nodex_core_contracts::library::LibraryIntent>,
     authorization: AgentPreparedExecution,
     create_request: LibraryAgentCreatePagesRequest,
-    assets_root: &Path,
 ) -> Result<LibraryApplyOutcome, StoreError> {
     let profile_id = profile_id.to_owned();
     let library_id = library_id.to_owned();
     let context = context.clone();
-    let registry = registry.clone();
-    let assets_root = assets_root.to_path_buf();
     let operation_id = request.operation_id;
     let expected_store_epoch = request.store_epoch.0;
+    let prepared_preflight = readers.read_default(|connection| {
+        let transaction = connection.unchecked_transaction()?;
+        super::mutation::assert_identity(&transaction, &profile_id, &library_id)?;
+        let store_epoch = read_store_epoch(&transaction)?;
+        if store_epoch != expected_store_epoch {
+            return Err(stale_epoch());
+        }
+        let request_hash = request_hash(
+            &context,
+            &store_epoch,
+            &authorization.authorization,
+            &create_request,
+        )?;
+        if let Some(stored) = read_module_receipt(&transaction, MODULE_NAME, &operation_id)? {
+            if stored.request_hash != request_hash {
+                return Err(reused());
+            }
+            transaction.commit()?;
+            return Ok(None);
+        }
+        let preflight = compile_preflight(
+            &transaction,
+            Some(document_runtime_cache),
+            &context,
+            &library_id,
+            &operation_id,
+            &store_epoch,
+            &authorization.authorization,
+            &create_request,
+            request_hash,
+        )?;
+        transaction.commit()?;
+        Ok(Some(preflight))
+    })?;
+    let prepared_lease = prepared_preflight
+        .as_ref()
+        .map(|preflight| {
+            let token = authorization.token.as_deref().ok_or_else(stale_token)?;
+            registry.acquire(token, &preflight.binding)
+        })
+        .transpose()?;
     let result = writer.call(move |connection| {
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         super::mutation::assert_identity(&transaction, &profile_id, &library_id)?;
@@ -283,7 +331,7 @@ pub(super) fn execute_create_pages(
                 return Err(reused());
             }
             let mut committed = serde_json::from_value::<
-                CommittedModuleValue<
+                crate::ModuleWriterResult<
                     nodex_core_contracts::library::LibraryCommitValue,
                     nodex_core_contracts::library::LibraryReceipt,
                 >,
@@ -304,70 +352,96 @@ pub(super) fn execute_create_pages(
                 None,
             ));
         }
-        let preflight = compile_preflight(
+        let mut preflight = prepared_preflight.ok_or_else(|| {
+            corrupt("Agent Page create lost its execution preparation before commit")
+        })?;
+        revalidate_preflight(
             &transaction,
             &context,
             &library_id,
-            &operation_id,
-            &store_epoch,
             &authorization.authorization,
-            &create_request,
-            request_hash.clone(),
-        )?;
-        let token = authorization.token.as_deref().ok_or_else(stale_token)?;
-        let lease = registry.acquire(token, &preflight.binding)?;
-        let mut agent_context = context.clone();
-        agent_context.adapter = AdapterKind::Agent;
-        let execution = apply_pages(
-            &transaction,
-            &agent_context,
-            &library_id,
-            &operation_id,
-            &store_epoch,
             &create_request,
             &preflight,
-            &authorization.authorization,
-            &assets_root,
         )?;
-        let created_target =
-            (execution.result.pages.len() == 1).then(|| LibraryResourceTarget::Page {
-                page_id: execution.result.pages[0].page_id.clone(),
-            });
-        let outcome = finish_mutation(
+        let lease = prepared_lease.ok_or_else(stale_token)?;
+        let mut agent_context = context.clone();
+        agent_context.adapter = AdapterKind::Agent;
+        let committed_at = sqlite_now(&transaction)?;
+        let commit_result = durable_mutation::run(
             &transaction,
-            &agent_context,
-            &store_epoch,
-            &operation_id,
-            &request_hash,
-            MutationEffects {
-                project_id: preflight.destination_project_id,
-                operation_kind: "agent_create_pages",
-                change_kind: "library.changed",
-                did_mutate: true,
-                created_target,
-                affected_parent_keys: vec![destination_parent_key(
+            OperationIdentity {
+                module: ModuleName::Library,
+                module_name: MODULE_NAME,
+                operation_id: &operation_id,
+                intent_hash: &request_hash,
+                store_epoch: &store_epoch,
+                committed_at: &committed_at,
+                context: &agent_context,
+            },
+            |scope| {
+                let execution = apply_pages(
+                    &transaction,
+                    &agent_context,
+                    scope,
                     &library_id,
-                    &create_request.destination,
-                )],
-                affected_block_ids: execution.affected_block_ids,
-                affected_page_ids: execution.affected_page_ids,
-                affected_database_ids: execution.result.affected_database_ids.clone(),
-                affected_view_ids: execution.affected_view_ids,
-                affected_document_ids: execution.affected_document_ids,
-                committed_revisions: execution.committed_revisions,
-                page_create: None,
-                page_copy: None,
-                canvas_mutation: None,
-                block_transfer: None,
-                page_lifecycle: None,
-                block_property_mutation: None,
-                agent_page_copy: None,
-                agent_create_pages: Some(execution.result),
-                agent_move_pages: None,
-                change_payload: None,
-                committed_at: execution.committed_at,
+                    &operation_id,
+                    &store_epoch,
+                    &create_request,
+                    &mut preflight,
+                    &committed_at,
+                )?;
+                let created_target =
+                    (execution.result.pages.len() == 1).then(|| LibraryResourceTarget::Page {
+                        page_id: execution.result.pages[0].page_id.clone(),
+                    });
+                let document_batch = execution.document_batch;
+                seal_mutation_with(
+                    scope,
+                    &agent_context,
+                    &operation_id,
+                    MutationEffects {
+                        project_id: preflight.destination_project_id,
+                        operation_kind: "agent_create_pages",
+                        change_kind: "library.changed",
+                        did_mutate: true,
+                        created_target,
+                        affected_parent_keys: vec![destination_parent_key(
+                            &library_id,
+                            &create_request.destination,
+                        )],
+                        affected_block_ids: execution.affected_block_ids,
+                        affected_page_ids: execution.affected_page_ids,
+                        affected_database_ids: execution.result.affected_database_ids.clone(),
+                        affected_view_ids: execution.affected_view_ids,
+                        affected_document_ids: execution.affected_document_ids,
+                        committed_revisions: execution.committed_revisions,
+                        page_create: None,
+                        page_copy: None,
+                        canvas_mutation: None,
+                        block_transfer: None,
+                        page_lifecycle: None,
+                        block_property_mutation: None,
+                        agent_page_copy: None,
+                        agent_create_pages: Some(execution.result),
+                        agent_move_pages: None,
+                        change_payload: None,
+                        committed_at: execution.committed_at,
+                    },
+                    |_, event_sequence| {
+                        super::block_transfer::persist_agent_page_document_batch_checkpoints(
+                            &transaction,
+                            &agent_context,
+                            &operation_id,
+                            &agent_actor(&authorization.authorization),
+                            &document_batch,
+                            event_sequence,
+                            &committed_at,
+                        )
+                    },
+                )
             },
         )?;
+        let outcome = library_commit_result(&transaction, commit_result)?;
         transaction.commit()?;
         Ok((outcome, Some(lease)))
     })?;
@@ -384,6 +458,7 @@ struct CreateExecution {
     affected_view_ids: Vec<String>,
     affected_document_ids: Vec<String>,
     committed_revisions: BTreeMap<String, i64>,
+    document_batch: AppliedAgentPageDocumentBatch,
     committed_at: String,
 }
 
@@ -391,15 +466,15 @@ struct CreateExecution {
 fn apply_pages(
     connection: &Connection,
     context: &BoundModuleContext,
+    scope: &DurableMutationScope<'_>,
     library_id: &str,
     operation_id: &str,
     store_epoch: &str,
     request: &LibraryAgentCreatePagesRequest,
-    preflight: &CreatePreflight,
-    authorization: &AgentExecutionAuthorization,
-    assets_root: &Path,
+    preflight: &mut CreatePreflight,
+    committed_at: &str,
 ) -> Result<CreateExecution, StoreError> {
-    let now = sqlite_now(connection)?;
+    let now = committed_at.to_owned();
     let mut created = Vec::with_capacity(preflight.pages.len());
     let mut affected_block_ids = BTreeSet::new();
     let mut affected_page_ids = BTreeSet::new();
@@ -414,25 +489,22 @@ fn apply_pages(
     )
     .then(|| destination_before_id(&preflight.destination))
     .flatten();
-    for (index, page) in preflight.pages.iter().enumerate() {
-        let draft = request
-            .pages
-            .get(index)
-            .ok_or_else(|| corrupt("Prepared Page draft disappeared"))?;
+    for page in &mut preflight.pages {
         let document_id = format!("document:{}", page.page_id);
-        let staged = super::block_transfer::stage_fresh_page_in_library(
+        let staged = super::block_transfer::stage_prepared_fresh_page_in_library(
             connection,
+            scope.evidence(),
             library_id,
             &preflight.destination_project_id,
             &page.page_operation_id,
             store_epoch,
             &page.page_id,
             &document_id,
-            "agent_create_body",
-            &page.rich_title,
-            &draft.nfm,
             library_before.as_deref(),
             &now,
+            page.genesis
+                .take()
+                .ok_or_else(|| corrupt("Prepared Page genesis disappeared"))?,
         )?;
         if staged.body_block_ids != page.body_block_ids {
             return Err(StoreError::new(
@@ -509,58 +581,39 @@ fn apply_pages(
                     );
                 }
             }
-            LibraryPageCopyDestination::Page { .. } => {
-                let transfer_operation_id = format!("{operation_id}:placement:{index}");
-                let mut transfer_context = context.clone();
-                transfer_context.project_id =
-                    Some(ProjectId(preflight.destination_project_id.clone()));
-                let intent = page_target_transfer_intent(
+            LibraryPageCopyDestination::Page {
+                page_id: target_page_id,
+                ..
+            } => {
+                let placement = transfer_existing_page_for_agent_move_prevalidated(
+                    connection,
                     library_id,
+                    &preflight.destination_project_id,
                     &page.page_id,
-                    &page.destination,
-                    authorization,
+                    1,
+                    0,
+                    ExistingPageTransferTarget::Page {
+                        page_id: target_page_id,
+                    },
+                    &now,
+                    false,
                 )?;
-                let plan = super::block_transfer::plan(
-                    connection,
-                    &transfer_context,
-                    library_id,
-                    &transfer_operation_id,
-                    store_epoch,
-                    &intent,
-                )?;
-                let write_fence = match plan {
-                    LibraryBlockTransferPlan::Prepared { preparation } => preparation.write_fence,
-                    LibraryBlockTransferPlan::Committed { .. } => {
-                        return Err(corrupt(
-                            "Fresh Page placement unexpectedly matched a committed transfer",
-                        ));
-                    }
-                };
-                let transfer_hash = super::block_transfer::semantic_request_hash(
-                    &transfer_context,
-                    store_epoch,
-                    &intent,
-                )?;
-                let outcome = super::block_transfer::apply(
-                    connection,
-                    &transfer_context,
-                    library_id,
-                    &transfer_operation_id,
-                    store_epoch,
-                    &transfer_hash,
-                    &intent,
-                    Some(&write_fence),
-                    assets_root,
-                )?;
-                let transfer =
-                    outcome.committed.value.block_transfer.ok_or_else(|| {
-                        corrupt("Created Page placement omitted its transfer result")
-                    })?;
-                document_commits.extend(transfer.document_commits);
-                affected_database_ids.extend(transfer.affected_database_ids);
-                affected_page_ids.extend(outcome.committed.receipt.affected_page_ids);
-                affected_view_ids.extend(outcome.committed.receipt.affected_view_ids);
-                committed_revisions.extend(outcome.committed.receipt.committed_revisions);
+                affected_page_ids.insert(target_page_id.clone());
+                affected_database_ids.extend(placement.affected_database_ids);
+                affected_view_ids.extend(placement.affected_view_ids);
+                committed_revisions.extend(placement.committed_revisions);
+                committed_revisions.insert(
+                    format!("blockLocation:{}", page.page_id),
+                    placement.location_revision,
+                );
+                committed_revisions.insert(
+                    format!("blockMetadata:{}", page.page_id),
+                    placement.metadata_revision,
+                );
+                committed_revisions.insert(
+                    format!("pageParent:{}", page.page_id),
+                    placement.parent_revision,
+                );
             }
         }
         let etags = request
@@ -571,6 +624,7 @@ fn apply_pages(
                     &context_project_id(context)?,
                     store_epoch,
                     &staged.document_id,
+                    &staged.materialization,
                 )
             })
             .transpose()?;
@@ -582,6 +636,23 @@ fn apply_pages(
             block_ids: page.body_block_ids.clone(),
             etags,
         });
+    }
+    let document_batch = super::block_transfer::apply_agent_page_document_batch(
+        connection,
+        scope,
+        operation_id,
+        store_epoch,
+        preflight
+            .batch_documents
+            .take()
+            .ok_or_else(|| corrupt("Agent Page create omitted its prepared Document batch"))?,
+    )?;
+    document_commits.extend(document_batch.document_commits());
+    for commit in &document_commits {
+        committed_revisions.insert(
+            format!("documentHead:{}", commit.document_id),
+            commit.head_seq,
+        );
     }
     affected_document_ids.extend(
         document_commits
@@ -599,6 +670,7 @@ fn apply_pages(
         affected_view_ids: affected_view_ids.into_iter().collect(),
         affected_document_ids: affected_document_ids.into_iter().collect(),
         committed_revisions,
+        document_batch,
         committed_at: now,
     })
 }
@@ -606,6 +678,7 @@ fn apply_pages(
 #[allow(clippy::too_many_arguments)]
 fn compile_preflight(
     connection: &Connection,
+    document_runtime_cache: Option<&Arc<Mutex<DocumentRuntimeCache>>>,
     context: &BoundModuleContext,
     library_id: &str,
     operation_id: &str,
@@ -619,7 +692,7 @@ fn compile_preflight(
     let ResolvedDestination {
         destination,
         authorization_fingerprint,
-        document_heads,
+        mut document_heads,
         database_id: destination_database_id,
         project_id: destination_project_id,
     } = resolve_destination(
@@ -635,6 +708,13 @@ fn compile_preflight(
     )
     .then(|| document_heads.first().cloned())
     .flatten();
+    let destination_authority_hash = hash_serializable(&(
+        &authorization_fingerprint,
+        &destination,
+        &document_heads,
+        &destination_database_id,
+        &destination_project_id,
+    ))?;
     let mut pages = Vec::with_capacity(request.pages.len());
     let mut created_roots = Vec::new();
     for (index, draft) in request.pages.iter().enumerate() {
@@ -643,8 +723,15 @@ fn compile_preflight(
         let page_id = stable_uuid_v7(operation_id, "agent_create_page", &index.to_string());
         let rich_title = parse_inline_markdown_title(&draft.title_markdown)
             .map_err(|error| invalid(error.to_string()))?;
-        let body_block_ids =
-            preview_body_ids(&page_operation_id, &page_id, &rich_title, &draft.nfm)?;
+        let document_id = format!("document:{page_id}");
+        let genesis = super::block_transfer::prepare_fresh_page_genesis(
+            &page_operation_id,
+            &document_id,
+            "agent_create_body",
+            &rich_title,
+            &draft.nfm,
+        )?;
+        let body_block_ids = genesis.body_block_ids.clone();
         let primary_membership_id = allocation_id(&page_operation_id, "primary-membership");
         let target_membership_id = match &request.destination {
             LibraryAgentPageDestination::DataSource { data_source_id, .. } => {
@@ -660,13 +747,49 @@ fn compile_preflight(
         pages.push(PreparedPage {
             page_id,
             page_operation_id,
-            rich_title,
             body_block_ids,
             primary_membership_id,
             target_membership_id,
             destination: destination_with_values(&destination, &draft.values),
+            genesis: Some(genesis),
         });
     }
+    let batch_documents = super::block_transfer::prepare_agent_created_page_document_batch(
+        connection,
+        document_runtime_cache,
+        library_id,
+        &destination,
+        &pages
+            .iter()
+            .map(|page| page.page_id.clone())
+            .collect::<Vec<_>>(),
+    )?;
+    for head in batch_documents.document_heads() {
+        if let Some(existing) = document_heads
+            .iter()
+            .find(|existing| existing.document_id == head.document_id)
+        {
+            if existing.generation != head.generation
+                || existing.expected_head_seq != head.expected_head_seq
+            {
+                return Err(StoreError::new(
+                    StoreErrorCode::RevisionConflict,
+                    format!(
+                        "Document {} changed while preparing Agent Page creation",
+                        head.document_id
+                    ),
+                    true,
+                ));
+            }
+            continue;
+        }
+        document_heads.push(LibraryAgentDocumentHead {
+            document_id: head.document_id,
+            generation: head.generation,
+            expected_head_seq: head.expected_head_seq,
+        });
+    }
+    document_heads.sort_by(|left, right| left.document_id.cmp(&right.document_id));
     let target = destination_footprint_target(library_id, &request.destination);
     let parent_id = match &request.destination {
         LibraryAgentPageDestination::Library { .. } => library_id.to_owned(),
@@ -714,40 +837,58 @@ fn compile_preflight(
         destination_document,
         destination_database_id,
         destination_project_id,
+        destination_authority_hash,
         pages,
+        batch_documents: Some(batch_documents),
         document_heads,
         footprint,
     })
 }
 
-fn preview_body_ids(
-    page_operation_id: &str,
-    page_id: &str,
-    rich_title: &[RichTextItem],
-    nfm: &str,
-) -> Result<Vec<String>, StoreError> {
-    let document_id = format!("document:{page_id}");
-    let mut ordinal = 0usize;
-    let mut allocate = || {
-        let value = stable_uuid_v7(page_operation_id, "agent_create_body", &ordinal.to_string());
-        ordinal += 1;
-        value
-    };
-    let prepared =
-        prepare_page_yjs_genesis_with_content(&document_id, rich_title, nfm, &mut allocate)?;
-    if prepared
-        .materialization
-        .block_tree
-        .iter()
-        .any(contains_page)
+fn revalidate_preflight(
+    connection: &Connection,
+    context: &BoundModuleContext,
+    library_id: &str,
+    authorization: &AgentExecutionAuthorization,
+    request: &LibraryAgentCreatePagesRequest,
+    preflight: &CreatePreflight,
+) -> Result<(), StoreError> {
+    validate_request(request)?;
+    let base_destination = destination_without_values(&request.destination)?;
+    let ResolvedDestination {
+        destination,
+        authorization_fingerprint,
+        document_heads,
+        database_id: destination_database_id,
+        project_id: destination_project_id,
+    } = resolve_destination(
+        connection,
+        context,
+        library_id,
+        authorization,
+        &base_destination,
+    )?;
+    let destination_authority_hash = hash_serializable(&(
+        authorization_fingerprint,
+        destination,
+        document_heads,
+        destination_database_id,
+        &destination_project_id,
+    ))?;
+    if destination_authority_hash != preflight.destination_authority_hash
+        || destination_project_id != preflight.destination_project_id
     {
-        return Err(invalid(
-            "Page creation Nested Markdown cannot create an owning nested Page; use create_pages",
+        return Err(StoreError::new(
+            StoreErrorCode::RevisionConflict,
+            "Agent Page-create destination changed while it was prepared",
+            true,
         ));
     }
-    let mut ids = Vec::new();
-    collect_ids(&prepared.materialization.block_tree, &mut ids);
-    Ok(ids)
+    preflight
+        .batch_documents
+        .as_ref()
+        .ok_or_else(|| corrupt("Agent Page-create preparation lost its Document batch"))?
+        .revalidate(connection)
 }
 
 fn validate_request(request: &LibraryAgentCreatePagesRequest) -> Result<(), StoreError> {
@@ -899,40 +1040,14 @@ fn data_source_destination(
     })
 }
 
-fn page_target_transfer_intent(
-    library_id: &str,
-    page_id: &str,
-    destination: &LibraryPageCopyDestination,
-    authorization: &AgentExecutionAuthorization,
-) -> Result<LibraryBlockTransferLogicalIntent, StoreError> {
-    let LibraryPageCopyDestination::Page {
-        page_id: target_page_id,
-        before,
-        ..
-    } = destination
-    else {
-        return Err(corrupt("Created Page lost its target Page destination"));
-    };
+fn agent_actor(authorization: &AgentExecutionAuthorization) -> serde_json::Value {
     let authority = &authorization.provenance.authority;
-    Ok(LibraryBlockTransferLogicalIntent {
-        actor: json!({
-            "kind": "nodex_agent",
-            "tool": "create_pages",
-            "threadId": authority.thread_id,
-            "turnId": authority.turn_id,
-            "callId": authorization.call_id,
-        }),
-        mode: LibraryBlockTransferMode::Move,
-        root_block_ids: vec![page_id.to_owned()],
-        causal_dependencies: Vec::new(),
-        source: LibraryBlockTransferSource::Library {
-            library_id: library_id.to_owned(),
-        },
-        target: LibraryBlockTransferTarget::Page {
-            page_id: target_page_id.clone(),
-            parent_block_id: None,
-            before_block_id: before.as_ref().map(|anchor| anchor.block_id.clone()),
-        },
+    json!({
+        "kind": "nodex_agent",
+        "tool": "create_pages",
+        "threadId": authority.thread_id,
+        "turnId": authority.turn_id,
+        "callId": authorization.call_id,
     })
 }
 
@@ -941,25 +1056,14 @@ fn mint_etags(
     actor_project_id: &str,
     store_epoch: &str,
     document_id: &str,
+    materialization: &DocumentMaterialization,
 ) -> Result<LibraryAgentPageEtags, StoreError> {
-    let authority = read_document_authority(connection, document_id)?
-        .ok_or_else(|| corrupt("Created Page Document authority is unavailable"))?;
-    let schema = BlockDocumentSchema::from_identity(
-        &authority.head.schema_key,
-        authority.head.schema_version,
-    )
-    .ok_or_else(|| corrupt("Created Page Document schema is unsupported"))?;
-    let engine = reconstruct_yjs_engine(connection, &authority.head)?;
-    let decoded = decode_block_document(engine.document(), schema)
-        .map_err(|error| corrupt(format!("Created Page schema is invalid: {error}")))?;
-    let materialization = materialize_decoded_document(&decoded)
-        .map_err(|error| corrupt(format!("Created Page cannot materialize: {error}")))?;
     let (title, body) = mint_document_semantic_etags(
         connection,
         actor_project_id,
         store_epoch,
         document_id,
-        &materialization,
+        materialization,
     )
     .map_err(|error| internal(format!("Created Page ETags could not be minted: {error:?}")))?;
     Ok(LibraryAgentPageEtags { title, body })
@@ -1080,17 +1184,6 @@ fn allocation_id(operation_id: &str, role: &str) -> String {
         "membership:{}",
         sha256(format!("{operation_id}\0{role}").as_bytes())
     )
-}
-
-fn collect_ids(blocks: &[MaterializedBlockNode], output: &mut Vec<String>) {
-    for block in blocks {
-        output.push(block.id.clone());
-        collect_ids(&block.children, output);
-    }
-}
-
-fn contains_page(block: &MaterializedBlockNode) -> bool {
-    block.block_type == "page" || block.children.iter().any(contains_page)
 }
 
 fn context_project_id(context: &BoundModuleContext) -> Result<String, StoreError> {

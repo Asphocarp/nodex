@@ -10,11 +10,10 @@ use crate::agent::{
 };
 use crate::database::{DatabaseGroupScope, DatabaseIntent, DatabasePropertyDescriptor};
 use crate::document::DocumentHeadRevision;
-use crate::events::LocalCommitEnvelope;
 use crate::workspace::{ProjectAppearance, ProjectLifecycle};
-use crate::{CommittedModuleValue, ModuleMutationReceipt, ModuleName, VersionedModuleContract};
+use crate::{ApplyResponse, ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const LIBRARY_CONTRACT_VERSION: u32 = 9;
+pub const LIBRARY_CONTRACT_VERSION: u32 = 10;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -227,7 +226,7 @@ pub struct LibraryAgentPageCopyPreparation {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub destination_project_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub committed: Option<Box<CommittedModuleValue<LibraryCommitValue, LibraryReceipt>>>,
+    pub committed: Option<Box<ApplyResponse<LibraryCommitValue, LibraryReceipt>>>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -272,7 +271,7 @@ pub struct LibraryAgentCreatePagesPreparation {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub destination_project_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub committed: Option<Box<CommittedModuleValue<LibraryCommitValue, LibraryReceipt>>>,
+    pub committed: Option<Box<ApplyResponse<LibraryCommitValue, LibraryReceipt>>>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -318,7 +317,7 @@ pub struct LibraryAgentMovePagesPreparation {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub destination_project_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub committed: Option<Box<CommittedModuleValue<LibraryCommitValue, LibraryReceipt>>>,
+    pub committed: Option<Box<ApplyResponse<LibraryCommitValue, LibraryReceipt>>>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -400,28 +399,6 @@ pub struct LibraryBlockTransferDocumentHead {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
-pub struct LibraryBlockTransferMembership {
-    pub membership_id: String,
-    pub revision: i64,
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
-pub struct LibraryBlockTransferWriteFence {
-    pub documents: Vec<LibraryBlockTransferDocumentHead>,
-    pub location_revisions: std::collections::BTreeMap<String, i64>,
-    pub source_memberships: std::collections::BTreeMap<String, LibraryBlockTransferMembership>,
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
-pub struct LibraryBlockTransferPreparation {
-    pub write_fence: LibraryBlockTransferWriteFence,
-    pub source_document_id: Option<String>,
-    pub source_database_id: Option<String>,
-    pub target_document_id: Option<String>,
-    pub target_database_id: Option<String>,
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum LibraryBlockLocation {
     Library {
@@ -470,21 +447,6 @@ pub struct LibraryBlockTransferResult {
     pub page_etags: std::collections::BTreeMap<String, String>,
     pub move_etags: std::collections::BTreeMap<String, String>,
     pub page_view_placements: std::collections::BTreeMap<String, LibraryPageViewPlacementResult>,
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum LibraryBlockTransferPlan {
-    Prepared {
-        preparation: LibraryBlockTransferPreparation,
-    },
-    Committed {
-        result: Box<LibraryBlockTransferResult>,
-        commit_seq: i64,
-        committed_at: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        local_commit: Option<Box<LocalCommitEnvelope>>,
-    },
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -613,11 +575,6 @@ pub enum LibraryRead {
         store_epoch: String,
         authorization: Box<AgentExecutionAuthorization>,
         request: Box<LibraryAgentMovePagesRequest>,
-    },
-    PlanBlockTransfer {
-        operation_id: String,
-        store_epoch: String,
-        intent: LibraryBlockTransferLogicalIntent,
     },
 }
 
@@ -1828,9 +1785,6 @@ pub enum LibraryReadValue {
     AgentMovePagesPreparation {
         value: Box<LibraryAgentMovePagesPreparation>,
     },
-    BlockTransferPlan {
-        value: Box<LibraryBlockTransferPlan>,
-    },
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
@@ -1957,7 +1911,6 @@ pub enum LibraryIntent {
     },
     TransferBlocks {
         intent: LibraryBlockTransferLogicalIntent,
-        write_fence: Option<LibraryBlockTransferWriteFence>,
     },
 }
 

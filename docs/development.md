@@ -156,7 +156,10 @@ The test commands follow production boundaries:
   shared-CI gate.
 - `pnpm run core:fmt`, `pnpm run core:clippy`, and `pnpm run core:test` validate the native authority.
 - `pnpm run core:protocol:verify` and `pnpm run core:module-boundaries` verify generated contracts and the Rust-only production boundary.
-- `pnpm test:e2e` builds and exercises the complete Electron/preload/IPC/Core chain.
+- `pnpm test:e2e` rebuilds the native Core plus Electron application, then
+  exercises the complete Electron/preload/IPC/Core chain. Do not invoke the
+  Playwright config directly after changing Rust authority code; that can run
+  against a stale `target/debug/nodex-core` binary.
 
 Use the `.stress.` filename segment for a test that intentionally exercises
 high volume, repeated lifecycle work, concurrent calls, or resource pressure:

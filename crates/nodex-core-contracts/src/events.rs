@@ -2,10 +2,35 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::{
-    StoreEpoch, administration::StoreAdministrationEvent, automation::AutomationEvent,
-    database::DatabaseEvent, document::OwnedDocumentEvent, library::LibraryEvent,
+    ModuleName, StoreEpoch,
+    administration::StoreAdministrationEvent,
+    automation::AutomationEvent,
+    database::{DatabaseEvent, DatabaseRowSummary},
+    document::{DocumentInvalidationReason, OwnedDocumentEvent},
+    library::LibraryEvent,
     workspace::ProjectWorkspaceEvent,
 };
+
+/// Stable identity shared by every authorized representation of one semantic
+/// mutation. `manifest_hash` authenticates the immutable manifest; delivery
+/// coverage and recipient identity are deliberately outside this coordinate.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct CommitIdentity {
+    pub store_epoch: StoreEpoch,
+    pub commit_seq: i64,
+    pub manifest_hash: String,
+}
+
+/// Ordered digest of the private physical journal rows that prove a semantic
+/// mutation. Physical payloads and their row identities never cross the Core
+/// protocol boundary.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct PhysicalEvidenceDigest {
+    pub effect_count: u32,
+    pub first_change_log_seq: Option<i64>,
+    pub last_change_log_seq: Option<i64>,
+    pub ordered_digest: String,
+}
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "module", content = "event", rename_all = "snake_case")]
@@ -16,6 +41,78 @@ pub enum CoreModuleEventPayload {
     ProjectWorkspace(ProjectWorkspaceEvent),
     Automation(AutomationEvent),
     StoreAdministration(StoreAdministrationEvent),
+}
+
+impl CoreModuleEventPayload {
+    pub fn module_name(&self) -> ModuleName {
+        match self {
+            Self::Library(_) => ModuleName::Library,
+            Self::Database(_) => ModuleName::Database,
+            Self::OwnedDocument(_) => ModuleName::OwnedDocument,
+            Self::ProjectWorkspace(_) => ModuleName::ProjectWorkspace,
+            Self::Automation(_) => ModuleName::Automation,
+            Self::StoreAdministration(_) => ModuleName::StoreAdministration,
+        }
+    }
+}
+
+/// Module notification payloads that may cross the authorized delivery
+/// boundary. Document updates are intentionally absent: their bytes are
+/// available only through `DocumentEffectRef` and its optional inline body.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "module", content = "event", rename_all = "snake_case")]
+pub enum AuthorizedModulePayload {
+    Library(LibraryEvent),
+    Database(DatabaseEvent),
+    OwnedDocument(AuthorizedOwnedDocumentEvent),
+    ProjectWorkspace(ProjectWorkspaceEvent),
+    Automation(AutomationEvent),
+    StoreAdministration(StoreAdministrationEvent),
+}
+
+impl AuthorizedModulePayload {
+    pub fn module_name(&self) -> ModuleName {
+        match self {
+            Self::Library(_) => ModuleName::Library,
+            Self::Database(_) => ModuleName::Database,
+            Self::OwnedDocument(_) => ModuleName::OwnedDocument,
+            Self::ProjectWorkspace(_) => ModuleName::ProjectWorkspace,
+            Self::Automation(_) => ModuleName::Automation,
+            Self::StoreAdministration(_) => ModuleName::StoreAdministration,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum AuthorizedOwnedDocumentEvent {
+    DocumentResyncRequired {
+        document_id: String,
+        generation: i64,
+        head_seq: i64,
+        update_id: String,
+        update_hash: String,
+    },
+    CanvasUpdated {
+        document_id: String,
+        generation: i64,
+        base_head_seq: i64,
+        head_seq: i64,
+        scene_hash: String,
+        mutation: serde_json::Value,
+    },
+    CanvasGenerationChanged {
+        document_id: String,
+        previous_generation: i64,
+        previous_head_seq: i64,
+        generation: i64,
+        head_seq: i64,
+        scene_hash: String,
+    },
+    DocumentInvalidated {
+        document_id: String,
+        reason: DocumentInvalidationReason,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -51,29 +148,313 @@ pub struct CommittedCoreModuleEvent {
     pub payload: CoreModuleEventPayload,
 }
 
-/// The durable identity of one semantic local mutation. A single mutation may
-/// touch several Yrs documents and materialized SQL projections, so its
-/// physical change-log effects must not be exposed as separate public cursors.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
-pub struct LocalCommitCursor {
-    pub store_epoch: StoreEpoch,
-    pub commit_seq: i64,
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LocalCommitResources {
+    pub block_ids: Vec<String>,
+    pub document_ids: Vec<String>,
+    pub database_ids: Vec<String>,
 }
 
-/// Canonical local-first publication envelope.
-///
-/// `effects` contains the committed physical details needed by document and
-/// module consumers. `payload` is the primary transport view and may be
-/// selected for the consumer's scope; it is not a second authority.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DocumentEffectResourceKind {
+    DocumentUpdate,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
-pub struct LocalCommitEnvelope {
+pub struct DocumentEffectRef {
+    pub effect_order: i64,
+    pub page_id: Option<String>,
+    pub document_id: String,
+    pub generation: i64,
+    pub base_head_seq: i64,
+    pub result_head_seq: i64,
+    pub update_id: String,
+    pub update_hash: String,
+    pub update_byte_length: i64,
+    pub resource_kind: DocumentEffectResourceKind,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LocalProjectionScope {
+    Library {
+        library_id: String,
+    },
+    Project {
+        project_id: String,
+    },
+    DatabaseView {
+        project_id: String,
+        database_id: String,
+        data_source_id: String,
+        view_id: String,
+    },
+    Page {
+        project_id: String,
+        page_id: String,
+    },
+}
+
+/// Core-computed read-model result. A patch never grants write authority; it
+/// only makes a committed relational result visible before canonical repair.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LocalProjectionPatch {
+    DatabaseRowUpsert {
+        project_id: String,
+        database_id: String,
+        data_source_id: String,
+        view_id: String,
+        row: Box<DatabaseRowSummary>,
+        total_rows: i64,
+        group_total: Option<i64>,
+    },
+    DatabaseRowRemove {
+        project_id: String,
+        database_id: String,
+        data_source_id: String,
+        view_id: String,
+        page_id: String,
+        total_rows: i64,
+        group_key: Option<String>,
+        group_total: Option<i64>,
+    },
+    PageChanged {
+        project_id: String,
+        page_id: String,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LocalCommitReceiptRef {
+    pub module: ModuleName,
+    pub operation_id: String,
+    pub result_hash: String,
+}
+
+/// A closed semantic index entry. The payload itself belongs to an authorized
+/// delivery packet; the manifest records only the owning Module, effect kind,
+/// resource index, and payload digest.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SemanticEffect {
+    ModuleChanged {
+        effect_order: i64,
+        module: ModuleName,
+        effect_kind: String,
+        resources: LocalCommitResources,
+        payload_hash: String,
+        projection_impact: ProjectionImpact,
+    },
+}
+
+impl SemanticEffect {
+    pub fn effect_order(&self) -> i64 {
+        match self {
+            Self::ModuleChanged { effect_order, .. } => *effect_order,
+        }
+    }
+}
+
+/// Immutable authority scope affected by a mutation. A routing claim is used
+/// to find candidate subscriptions; it is never a recipient list or a read
+/// capability.
+#[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum RoutingClaim {
+    Library { library_id: String },
+    Project { project_id: String },
+    Document { document_id: String },
+    Page { page_id: String },
+    Database { database_id: String },
+    DataSource { data_source_id: String },
+    View { view_id: String },
+}
+
+/// One projection scope transition. Revisions are per scope and advance in the
+/// same transaction as the mutation. `covered_commit_seq` is a floor, not a
+/// replacement for the scope revision.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ProjectionScopeKey {
+    pub schema_version: u32,
+    pub canonical_key: String,
+    pub scope: LocalProjectionScope,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ProjectionEffect {
+    pub scope: ProjectionScopeKey,
+    pub base_revision: i64,
+    pub result_revision: i64,
+    pub covered_commit_seq: i64,
+    pub patch: Option<LocalProjectionPatch>,
+    pub requires_read_at_least: bool,
+    pub effect_hash: String,
+}
+
+/// Exact causal coordinate returned with a canonical projection snapshot.
+/// `covered_commit_seq` records the durable read floor reached by the
+/// snapshot; ordering within the projection is owned by `revision`.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ProjectionSnapshotAuthority {
+    pub scope: ProjectionScopeKey,
+    pub revision: i64,
+    pub covered_commit_seq: i64,
+    pub effect_hash: Option<String>,
+}
+
+/// Immutable semantic artifact sealed by Core. Dynamic recipients and inline
+/// resources are intentionally absent, so authorization changes cannot rewrite
+/// history or alter `manifest_hash`.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct CommitManifest {
     pub event_version: u32,
-    pub commit_seq: i64,
-    pub store_epoch: StoreEpoch,
-    pub operation_id: Option<String>,
+    pub identity: CommitIdentity,
+    pub operation_id: String,
+    pub intent_hash: String,
     pub committed_at: String,
+    pub semantic_effects: Vec<SemanticEffect>,
+    pub document_effects: Vec<DocumentEffectRef>,
+    pub projection_effects: Vec<ProjectionEffect>,
+    pub receipt: LocalCommitReceiptRef,
+    pub routing_claims: Vec<RoutingClaim>,
+    pub physical_evidence: PhysicalEvidenceDigest,
+}
+
+/// Minimal immutable manifest information carried by a delivery packet. It
+/// proves which commit the packet represents without exposing unrelated
+/// routing claims, intent evidence, or physical journal details.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct CommitManifestHeader {
+    pub event_version: u32,
+    pub identity: CommitIdentity,
+    pub operation_id: String,
+    pub committed_at: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct AuthorizedModuleEffect {
+    pub semantic: SemanticEffect,
+    pub payload: AuthorizedModulePayload,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct AuthorizedDocumentEffect {
+    pub reference: DocumentEffectRef,
+    pub inline_update: Option<Vec<u8>>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RevokedResourceKind {
+    Page,
+    Document,
+    Database,
+    DataSource,
+    View,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ResourceRevocationReason {
+    OwnershipMoved,
+    AccessRevoked,
+    Archived,
+    Deleted,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ResourceRevocation {
+    pub resource_kind: RevokedResourceKind,
+    pub resource_id: String,
+    pub reason: ResourceRevocationReason,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct DeliveryCoverage {
+    pub semantic_effect_orders: Vec<i64>,
+    pub document_effect_orders: Vec<i64>,
+    pub inline_document_effect_orders: Vec<i64>,
+    pub projection_scope_keys: Vec<String>,
+}
+
+/// Post-state-authorized transport artifact. Packets for the apply response
+/// and durable stream may have different coverage but always reference the
+/// same immutable manifest identity.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct AuthorizedDeliveryPacket {
+    pub packet_version: u32,
+    pub manifest: CommitManifestHeader,
+    pub effects: Vec<AuthorizedModuleEffect>,
+    pub document_effects: Vec<AuthorizedDocumentEffect>,
+    pub projection_effects: Vec<ProjectionEffect>,
+    pub revocations: Vec<ResourceRevocation>,
     pub projection_impact: ProjectionImpact,
-    pub payload: CoreModuleEventPayload,
-    pub effects: Vec<CommittedCoreModuleEvent>,
-    pub canonical_hash: String,
+    pub coverage: DeliveryCoverage,
+    pub packet_hash: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct StoreObservation {
+    pub store_epoch: StoreEpoch,
+    pub commit_head: i64,
+}
+
+/// Closed result of an authorized command. A semantic mutation returns its
+/// immutable commit identity; a validated no-op returns only the observed
+/// store cursor and therefore cannot masquerade as a new commit.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum ApplyResponse<T, R> {
+    Committed {
+        outcome: T,
+        receipt: R,
+        commit: CommitIdentity,
+        delivery: Option<Box<AuthorizedDeliveryPacket>>,
+    },
+    NoOp {
+        outcome: T,
+        receipt: R,
+        observed: StoreObservation,
+    },
+}
+
+impl<T, R> ApplyResponse<T, R> {
+    pub fn outcome(&self) -> &T {
+        match self {
+            Self::Committed { outcome, .. } | Self::NoOp { outcome, .. } => outcome,
+        }
+    }
+
+    pub fn receipt(&self) -> &R {
+        match self {
+            Self::Committed { receipt, .. } | Self::NoOp { receipt, .. } => receipt,
+        }
+    }
+
+    pub fn store_epoch(&self) -> &StoreEpoch {
+        match self {
+            Self::Committed { commit, .. } => &commit.store_epoch,
+            Self::NoOp { observed, .. } => &observed.store_epoch,
+        }
+    }
+
+    pub fn commit_cursor(&self) -> i64 {
+        match self {
+            Self::Committed { commit, .. } => commit.commit_seq,
+            Self::NoOp { observed, .. } => observed.commit_head,
+        }
+    }
+}
+
+/// Proof that Core's durable scanner inspected the ledger through a sequence.
+/// Commit sequences are monotonic and unique but need not be contiguous.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct StreamCheckpoint {
+    pub store_epoch: StoreEpoch,
+    pub generation: String,
+    pub scanned_through_seq: i64,
+    pub oldest_available_seq: i64,
+    pub resync_token: Option<String>,
 }

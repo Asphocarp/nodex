@@ -24,10 +24,10 @@ export {
   DesktopCoreAuthoritySupervisor,
 } from "./desktop-core-authority-supervisor";
 export {
-  LocalCommitDispatcher,
-  type LocalCommitDispatcherInput,
+  LocalCommitCoordinator,
+  type LocalCommitCoordinatorInput,
   type LocalCommitIngress,
-} from "./local-commit-dispatcher";
+} from "./local-commit-coordinator";
 export { createCoreLibraryModuleAdapter } from "./library-module-adapter";
 export {
   createDesktopLibraryModuleBridge,

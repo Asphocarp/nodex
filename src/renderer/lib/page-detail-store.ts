@@ -206,14 +206,14 @@ const requestPageDetailRefresh = (
     if (!listeners.has(key)) return;
     const detail = getPageDetail(projectId, pageId);
     if (
-      cause.kind !== "resync" &&
-      detail?.storeEpoch === cause.cursor.storeEpoch &&
-      detail.commitSeq >= cause.cursor.commitSeq
+      cause.kind !== "reset" &&
+      detail?.storeEpoch === cause.stream.storeEpoch &&
+      detail.commitSeq >= cause.stream.commitSeq
     ) {
       return;
     }
     await fetchPageDetail(projectId, pageId, {
-      minimumCommitSeq: cause.kind === "resync" ? 0 : cause.cursor.commitSeq,
+      minimumCommitSeq: cause.kind === "reset" ? 0 : cause.stream.commitSeq,
     });
   })();
 };

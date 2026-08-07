@@ -1325,11 +1325,1106 @@
           }
         }
       },
+      "ApplyResponse_LibraryCommitValue_LibraryReceipt": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "outcome",
+              "receipt",
+              "commit",
+              "status"
+            ],
+            "properties": {
+              "commit": {
+                "$ref": "#/components/schemas/CommitIdentity"
+              },
+              "delivery": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/AuthorizedDeliveryPacket"
+                  }
+                ]
+              },
+              "outcome": {
+                "type": "object",
+                "required": [
+                  "affected_resource_ids"
+                ],
+                "properties": {
+                  "affected_resource_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "agent_create_pages": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/LibraryAgentCreatePagesResult"
+                      }
+                    ]
+                  },
+                  "agent_move_pages": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/LibraryAgentMovePagesResult"
+                      }
+                    ]
+                  },
+                  "agent_page_copy": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/LibraryAgentPageCopyResult"
+                      }
+                    ]
+                  },
+                  "block_property_mutation": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/LibraryBlockPropertyMutationReceipt"
+                      }
+                    ]
+                  },
+                  "block_transfer": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/LibraryBlockTransferResult"
+                      }
+                    ]
+                  },
+                  "canvas_mutation": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/LibraryCanvasMutationResult"
+                      }
+                    ]
+                  },
+                  "page_copy": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/LibraryPageCopyResult"
+                      }
+                    ]
+                  },
+                  "page_create": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/LibraryPageCreateResult"
+                      }
+                    ]
+                  },
+                  "page_lifecycle": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/LibraryPageLifecycleMutationReceipt"
+                      }
+                    ]
+                  }
+                }
+              },
+              "receipt": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/ModuleMutationReceipt"
+                  },
+                  {
+                    "type": "object",
+                    "required": [
+                      "operation_kind",
+                      "did_mutate",
+                      "affected_parent_keys",
+                      "affected_page_ids",
+                      "affected_database_ids",
+                      "affected_view_ids",
+                      "committed_revisions",
+                      "commit_seq",
+                      "committed_at"
+                    ],
+                    "properties": {
+                      "affected_database_ids": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "affected_page_ids": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "affected_parent_keys": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "affected_view_ids": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "commit_seq": {
+                        "type": "integer",
+                        "format": "int64"
+                      },
+                      "committed_at": {
+                        "type": "string"
+                      },
+                      "committed_revisions": {
+                        "type": "object",
+                        "additionalProperties": {
+                          "type": "integer",
+                          "format": "int64"
+                        },
+                        "propertyNames": {
+                          "type": "string"
+                        }
+                      },
+                      "created_target": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "$ref": "#/components/schemas/LibraryResourceTarget"
+                          }
+                        ]
+                      },
+                      "did_mutate": {
+                        "type": "boolean"
+                      },
+                      "operation_kind": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                ]
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "committed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "outcome",
+              "receipt",
+              "observed",
+              "status"
+            ],
+            "properties": {
+              "observed": {
+                "$ref": "#/components/schemas/StoreObservation"
+              },
+              "outcome": {
+                "type": "object",
+                "required": [
+                  "affected_resource_ids"
+                ],
+                "properties": {
+                  "affected_resource_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "agent_create_pages": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/LibraryAgentCreatePagesResult"
+                      }
+                    ]
+                  },
+                  "agent_move_pages": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/LibraryAgentMovePagesResult"
+                      }
+                    ]
+                  },
+                  "agent_page_copy": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/LibraryAgentPageCopyResult"
+                      }
+                    ]
+                  },
+                  "block_property_mutation": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/LibraryBlockPropertyMutationReceipt"
+                      }
+                    ]
+                  },
+                  "block_transfer": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/LibraryBlockTransferResult"
+                      }
+                    ]
+                  },
+                  "canvas_mutation": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/LibraryCanvasMutationResult"
+                      }
+                    ]
+                  },
+                  "page_copy": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/LibraryPageCopyResult"
+                      }
+                    ]
+                  },
+                  "page_create": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/LibraryPageCreateResult"
+                      }
+                    ]
+                  },
+                  "page_lifecycle": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/LibraryPageLifecycleMutationReceipt"
+                      }
+                    ]
+                  }
+                }
+              },
+              "receipt": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/ModuleMutationReceipt"
+                  },
+                  {
+                    "type": "object",
+                    "required": [
+                      "operation_kind",
+                      "did_mutate",
+                      "affected_parent_keys",
+                      "affected_page_ids",
+                      "affected_database_ids",
+                      "affected_view_ids",
+                      "committed_revisions",
+                      "commit_seq",
+                      "committed_at"
+                    ],
+                    "properties": {
+                      "affected_database_ids": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "affected_page_ids": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "affected_parent_keys": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "affected_view_ids": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "commit_seq": {
+                        "type": "integer",
+                        "format": "int64"
+                      },
+                      "committed_at": {
+                        "type": "string"
+                      },
+                      "committed_revisions": {
+                        "type": "object",
+                        "additionalProperties": {
+                          "type": "integer",
+                          "format": "int64"
+                        },
+                        "propertyNames": {
+                          "type": "string"
+                        }
+                      },
+                      "created_target": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "$ref": "#/components/schemas/LibraryResourceTarget"
+                          }
+                        ]
+                      },
+                      "did_mutate": {
+                        "type": "boolean"
+                      },
+                      "operation_kind": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                ]
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "no_op"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "Closed result of an authorized command. A semantic mutation returns its\nimmutable commit identity; a validated no-op returns only the observed\nstore cursor and therefore cannot masquerade as a new commit."
+      },
+      "ApplyResponse_OwnedDocumentCommitValue_OwnedDocumentReceipt": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "outcome",
+              "receipt",
+              "commit",
+              "status"
+            ],
+            "properties": {
+              "commit": {
+                "$ref": "#/components/schemas/CommitIdentity"
+              },
+              "delivery": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/AuthorizedDeliveryPacket"
+                  }
+                ]
+              },
+              "outcome": {
+                "type": "object",
+                "required": [
+                  "document_id",
+                  "generation",
+                  "head_seq",
+                  "outcome"
+                ],
+                "properties": {
+                  "canvas": {},
+                  "checkpoint_effect": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/DocumentCheckpointEffect"
+                      }
+                    ]
+                  },
+                  "committed_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "document_id": {
+                    "type": "string"
+                  },
+                  "generation": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "head_seq": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "mutation_effect": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/DocumentMutationEffect"
+                      }
+                    ]
+                  },
+                  "outcome": {
+                    "$ref": "#/components/schemas/DocumentCommitOutcome"
+                  },
+                  "owner_effect": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/DocumentOwnerEffect"
+                      }
+                    ]
+                  },
+                  "semantic_block_etags": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "additionalProperties": {
+                      "$ref": "#/components/schemas/DocumentSemanticBlockEtags"
+                    },
+                    "propertyNames": {
+                      "type": "string"
+                    }
+                  },
+                  "semantic_deleted_owner_block_ids": {
+                    "type": [
+                      "array",
+                      "null"
+                    ],
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "semantic_etags": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/DocumentSemanticEtags"
+                      }
+                    ]
+                  },
+                  "semantic_local_block_ids": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "propertyNames": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "receipt": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/ModuleMutationReceipt"
+                  },
+                  {
+                    "type": "object",
+                    "required": [
+                      "document_id",
+                      "generation",
+                      "head_seq"
+                    ],
+                    "properties": {
+                      "document_id": {
+                        "type": "string"
+                      },
+                      "generation": {
+                        "type": "integer",
+                        "format": "int64"
+                      },
+                      "head_seq": {
+                        "type": "integer",
+                        "format": "int64"
+                      }
+                    }
+                  }
+                ]
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "committed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "outcome",
+              "receipt",
+              "observed",
+              "status"
+            ],
+            "properties": {
+              "observed": {
+                "$ref": "#/components/schemas/StoreObservation"
+              },
+              "outcome": {
+                "type": "object",
+                "required": [
+                  "document_id",
+                  "generation",
+                  "head_seq",
+                  "outcome"
+                ],
+                "properties": {
+                  "canvas": {},
+                  "checkpoint_effect": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/DocumentCheckpointEffect"
+                      }
+                    ]
+                  },
+                  "committed_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "document_id": {
+                    "type": "string"
+                  },
+                  "generation": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "head_seq": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "mutation_effect": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/DocumentMutationEffect"
+                      }
+                    ]
+                  },
+                  "outcome": {
+                    "$ref": "#/components/schemas/DocumentCommitOutcome"
+                  },
+                  "owner_effect": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/DocumentOwnerEffect"
+                      }
+                    ]
+                  },
+                  "semantic_block_etags": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "additionalProperties": {
+                      "$ref": "#/components/schemas/DocumentSemanticBlockEtags"
+                    },
+                    "propertyNames": {
+                      "type": "string"
+                    }
+                  },
+                  "semantic_deleted_owner_block_ids": {
+                    "type": [
+                      "array",
+                      "null"
+                    ],
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "semantic_etags": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/DocumentSemanticEtags"
+                      }
+                    ]
+                  },
+                  "semantic_local_block_ids": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "propertyNames": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "receipt": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/ModuleMutationReceipt"
+                  },
+                  {
+                    "type": "object",
+                    "required": [
+                      "document_id",
+                      "generation",
+                      "head_seq"
+                    ],
+                    "properties": {
+                      "document_id": {
+                        "type": "string"
+                      },
+                      "generation": {
+                        "type": "integer",
+                        "format": "int64"
+                      },
+                      "head_seq": {
+                        "type": "integer",
+                        "format": "int64"
+                      }
+                    }
+                  }
+                ]
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "no_op"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "Closed result of an authorized command. A semantic mutation returns its\nimmutable commit identity; a validated no-op returns only the observed\nstore cursor and therefore cannot masquerade as a new commit."
+      },
+      "AuthorizedDeliveryPacket": {
+        "type": "object",
+        "description": "Post-state-authorized transport artifact. Packets for the apply response\nand durable stream may have different coverage but always reference the\nsame immutable manifest identity.",
+        "required": [
+          "packet_version",
+          "manifest",
+          "effects",
+          "document_effects",
+          "projection_effects",
+          "revocations",
+          "projection_impact",
+          "coverage",
+          "packet_hash"
+        ],
+        "properties": {
+          "coverage": {
+            "$ref": "#/components/schemas/DeliveryCoverage"
+          },
+          "document_effects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuthorizedDocumentEffect"
+            }
+          },
+          "effects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuthorizedModuleEffect"
+            }
+          },
+          "manifest": {
+            "$ref": "#/components/schemas/CommitManifestHeader"
+          },
+          "packet_hash": {
+            "type": "string"
+          },
+          "packet_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "projection_effects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectionEffect"
+            }
+          },
+          "projection_impact": {
+            "$ref": "#/components/schemas/ProjectionImpact"
+          },
+          "revocations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ResourceRevocation"
+            }
+          }
+        }
+      },
+      "AuthorizedDocumentEffect": {
+        "type": "object",
+        "required": [
+          "reference"
+        ],
+        "properties": {
+          "inline_update": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          "reference": {
+            "$ref": "#/components/schemas/DocumentEffectRef"
+          }
+        }
+      },
+      "AuthorizedModuleEffect": {
+        "type": "object",
+        "required": [
+          "semantic",
+          "payload"
+        ],
+        "properties": {
+          "payload": {
+            "$ref": "#/components/schemas/AuthorizedModulePayload"
+          },
+          "semantic": {
+            "$ref": "#/components/schemas/SemanticEffect"
+          }
+        }
+      },
+      "AuthorizedModulePayload": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "event",
+              "module"
+            ],
+            "properties": {
+              "event": {
+                "$ref": "#/components/schemas/LibraryEvent"
+              },
+              "module": {
+                "type": "string",
+                "enum": [
+                  "library"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "event",
+              "module"
+            ],
+            "properties": {
+              "event": {
+                "$ref": "#/components/schemas/DatabaseEvent"
+              },
+              "module": {
+                "type": "string",
+                "enum": [
+                  "database"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "event",
+              "module"
+            ],
+            "properties": {
+              "event": {
+                "$ref": "#/components/schemas/AuthorizedOwnedDocumentEvent"
+              },
+              "module": {
+                "type": "string",
+                "enum": [
+                  "owned_document"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "event",
+              "module"
+            ],
+            "properties": {
+              "event": {
+                "$ref": "#/components/schemas/ProjectWorkspaceEvent"
+              },
+              "module": {
+                "type": "string",
+                "enum": [
+                  "project_workspace"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "event",
+              "module"
+            ],
+            "properties": {
+              "event": {
+                "$ref": "#/components/schemas/AutomationEvent"
+              },
+              "module": {
+                "type": "string",
+                "enum": [
+                  "automation"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "event",
+              "module"
+            ],
+            "properties": {
+              "event": {
+                "$ref": "#/components/schemas/StoreAdministrationEvent"
+              },
+              "module": {
+                "type": "string",
+                "enum": [
+                  "store_administration"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "Module notification payloads that may cross the authorized delivery\nboundary. Document updates are intentionally absent: their bytes are\navailable only through `DocumentEffectRef` and its optional inline body."
+      },
+      "AuthorizedOwnedDocumentEvent": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "document_id",
+              "generation",
+              "head_seq",
+              "update_id",
+              "update_hash",
+              "kind"
+            ],
+            "properties": {
+              "document_id": {
+                "type": "string"
+              },
+              "generation": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "head_seq": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "document_resync_required"
+                ]
+              },
+              "update_hash": {
+                "type": "string"
+              },
+              "update_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "document_id",
+              "generation",
+              "base_head_seq",
+              "head_seq",
+              "scene_hash",
+              "mutation",
+              "kind"
+            ],
+            "properties": {
+              "base_head_seq": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "document_id": {
+                "type": "string"
+              },
+              "generation": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "head_seq": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "canvas_updated"
+                ]
+              },
+              "mutation": {},
+              "scene_hash": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "document_id",
+              "previous_generation",
+              "previous_head_seq",
+              "generation",
+              "head_seq",
+              "scene_hash",
+              "kind"
+            ],
+            "properties": {
+              "document_id": {
+                "type": "string"
+              },
+              "generation": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "head_seq": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "canvas_generation_changed"
+                ]
+              },
+              "previous_generation": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "previous_head_seq": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "scene_hash": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "document_id",
+              "reason",
+              "kind"
+            ],
+            "properties": {
+              "document_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "document_invalidated"
+                ]
+              },
+              "reason": {
+                "$ref": "#/components/schemas/DocumentInvalidationReason"
+              }
+            }
+          }
+        ]
+      },
       "AutomationApplyRequest": {
         "$ref": "#/components/schemas/ModuleApplyRequest_AutomationIntent"
       },
       "AutomationApplyResponse": {
-        "$ref": "#/components/schemas/ResponseEnvelope_CommittedModuleValue_AutomationCommitValue_AutomationReceipt"
+        "$ref": "#/components/schemas/ResponseEnvelope_ApplyResponse_AutomationCommitValue_AutomationReceipt"
       },
       "AutomationDefinition": {
         "type": "object",
@@ -3673,15 +4768,35 @@
           }
         }
       },
-      "CommittedCoreModuleEvent": {
+      "CommitIdentity": {
         "type": "object",
+        "description": "Stable identity shared by every authorized representation of one semantic\nmutation. `manifest_hash` authenticates the immutable manifest; delivery\ncoverage and recipient identity are deliberately outside this coordinate.",
+        "required": [
+          "store_epoch",
+          "commit_seq",
+          "manifest_hash"
+        ],
+        "properties": {
+          "commit_seq": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "manifest_hash": {
+            "type": "string"
+          },
+          "store_epoch": {
+            "$ref": "#/components/schemas/StoreEpoch"
+          }
+        }
+      },
+      "CommitManifestHeader": {
+        "type": "object",
+        "description": "Minimal immutable manifest information carried by a delivery packet. It\nproves which commit the packet represents without exposing unrelated\nrouting claims, intent evidence, or physical journal details.",
         "required": [
           "event_version",
-          "sequence",
-          "store_epoch",
-          "committed_at",
-          "projection_impact",
-          "payload"
+          "identity",
+          "operation_id",
+          "committed_at"
         ],
         "properties": {
           "committed_at": {
@@ -3692,411 +4807,11 @@
             "format": "int32",
             "minimum": 0
           },
+          "identity": {
+            "$ref": "#/components/schemas/CommitIdentity"
+          },
           "operation_id": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "payload": {
-            "$ref": "#/components/schemas/CoreModuleEventPayload"
-          },
-          "projection_impact": {
-            "$ref": "#/components/schemas/ProjectionImpact"
-          },
-          "sequence": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "store_epoch": {
-            "$ref": "#/components/schemas/StoreEpoch"
-          }
-        }
-      },
-      "CommittedModuleValue_LibraryCommitValue_LibraryReceipt": {
-        "type": "object",
-        "required": [
-          "value",
-          "receipt",
-          "event_sequence",
-          "store_epoch"
-        ],
-        "properties": {
-          "commit_seq": {
-            "type": "integer",
-            "format": "int64",
-            "description": "Semantic LocalCommit cursor after this operation. Unlike\n`event_sequence`, this does not identify a physical change-log row.\nA no-change receipt still carries the current cursor so callers never\nmistake a physical sequence for projection freshness."
-          },
-          "event_sequence": {
-            "type": "integer",
-            "format": "int64",
-            "description": "Physical change-log effect sequence retained for module-internal event\nreconstruction. It is not a public projection cursor."
-          },
-          "local_commit": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/LocalCommitEnvelope",
-                "description": "Present when this response represents a durable semantic local commit.\nNo-change receipts intentionally have no new local commit."
-              }
-            ]
-          },
-          "receipt": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/ModuleMutationReceipt"
-              },
-              {
-                "type": "object",
-                "required": [
-                  "operation_kind",
-                  "did_mutate",
-                  "affected_parent_keys",
-                  "affected_page_ids",
-                  "affected_database_ids",
-                  "affected_view_ids",
-                  "committed_revisions",
-                  "commit_seq",
-                  "committed_at"
-                ],
-                "properties": {
-                  "affected_database_ids": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  },
-                  "affected_page_ids": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  },
-                  "affected_parent_keys": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  },
-                  "affected_view_ids": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  },
-                  "commit_seq": {
-                    "type": "integer",
-                    "format": "int64"
-                  },
-                  "committed_at": {
-                    "type": "string"
-                  },
-                  "committed_revisions": {
-                    "type": "object",
-                    "additionalProperties": {
-                      "type": "integer",
-                      "format": "int64"
-                    },
-                    "propertyNames": {
-                      "type": "string"
-                    }
-                  },
-                  "created_target": {
-                    "oneOf": [
-                      {
-                        "type": "null"
-                      },
-                      {
-                        "$ref": "#/components/schemas/LibraryResourceTarget"
-                      }
-                    ]
-                  },
-                  "did_mutate": {
-                    "type": "boolean"
-                  },
-                  "operation_kind": {
-                    "type": "string"
-                  }
-                }
-              }
-            ]
-          },
-          "store_epoch": {
-            "$ref": "#/components/schemas/StoreEpoch"
-          },
-          "value": {
-            "type": "object",
-            "required": [
-              "affected_resource_ids"
-            ],
-            "properties": {
-              "affected_resource_ids": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "agent_create_pages": {
-                "oneOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "$ref": "#/components/schemas/LibraryAgentCreatePagesResult"
-                  }
-                ]
-              },
-              "agent_move_pages": {
-                "oneOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "$ref": "#/components/schemas/LibraryAgentMovePagesResult"
-                  }
-                ]
-              },
-              "agent_page_copy": {
-                "oneOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "$ref": "#/components/schemas/LibraryAgentPageCopyResult"
-                  }
-                ]
-              },
-              "block_property_mutation": {
-                "oneOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "$ref": "#/components/schemas/LibraryBlockPropertyMutationReceipt"
-                  }
-                ]
-              },
-              "block_transfer": {
-                "oneOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "$ref": "#/components/schemas/LibraryBlockTransferResult"
-                  }
-                ]
-              },
-              "canvas_mutation": {
-                "oneOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "$ref": "#/components/schemas/LibraryCanvasMutationResult"
-                  }
-                ]
-              },
-              "page_copy": {
-                "oneOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "$ref": "#/components/schemas/LibraryPageCopyResult"
-                  }
-                ]
-              },
-              "page_create": {
-                "oneOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "$ref": "#/components/schemas/LibraryPageCreateResult"
-                  }
-                ]
-              },
-              "page_lifecycle": {
-                "oneOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "$ref": "#/components/schemas/LibraryPageLifecycleMutationReceipt"
-                  }
-                ]
-              }
-            }
-          }
-        }
-      },
-      "CommittedModuleValue_OwnedDocumentCommitValue_OwnedDocumentReceipt": {
-        "type": "object",
-        "required": [
-          "value",
-          "receipt",
-          "event_sequence",
-          "store_epoch"
-        ],
-        "properties": {
-          "commit_seq": {
-            "type": "integer",
-            "format": "int64",
-            "description": "Semantic LocalCommit cursor after this operation. Unlike\n`event_sequence`, this does not identify a physical change-log row.\nA no-change receipt still carries the current cursor so callers never\nmistake a physical sequence for projection freshness."
-          },
-          "event_sequence": {
-            "type": "integer",
-            "format": "int64",
-            "description": "Physical change-log effect sequence retained for module-internal event\nreconstruction. It is not a public projection cursor."
-          },
-          "local_commit": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/LocalCommitEnvelope",
-                "description": "Present when this response represents a durable semantic local commit.\nNo-change receipts intentionally have no new local commit."
-              }
-            ]
-          },
-          "receipt": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/ModuleMutationReceipt"
-              },
-              {
-                "type": "object",
-                "required": [
-                  "document_id",
-                  "generation",
-                  "head_seq"
-                ],
-                "properties": {
-                  "document_id": {
-                    "type": "string"
-                  },
-                  "generation": {
-                    "type": "integer",
-                    "format": "int64"
-                  },
-                  "head_seq": {
-                    "type": "integer",
-                    "format": "int64"
-                  }
-                }
-              }
-            ]
-          },
-          "store_epoch": {
-            "$ref": "#/components/schemas/StoreEpoch"
-          },
-          "value": {
-            "type": "object",
-            "required": [
-              "document_id",
-              "generation",
-              "head_seq",
-              "outcome"
-            ],
-            "properties": {
-              "canvas": {},
-              "checkpoint_effect": {
-                "oneOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "$ref": "#/components/schemas/DocumentCheckpointEffect"
-                  }
-                ]
-              },
-              "committed_at": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "document_id": {
-                "type": "string"
-              },
-              "generation": {
-                "type": "integer",
-                "format": "int64"
-              },
-              "head_seq": {
-                "type": "integer",
-                "format": "int64"
-              },
-              "mutation_effect": {
-                "oneOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "$ref": "#/components/schemas/DocumentMutationEffect"
-                  }
-                ]
-              },
-              "outcome": {
-                "$ref": "#/components/schemas/DocumentCommitOutcome"
-              },
-              "owner_effect": {
-                "oneOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "$ref": "#/components/schemas/DocumentOwnerEffect"
-                  }
-                ]
-              },
-              "semantic_block_etags": {
-                "type": [
-                  "object",
-                  "null"
-                ],
-                "additionalProperties": {
-                  "$ref": "#/components/schemas/DocumentSemanticBlockEtags"
-                },
-                "propertyNames": {
-                  "type": "string"
-                }
-              },
-              "semantic_deleted_owner_block_ids": {
-                "type": [
-                  "array",
-                  "null"
-                ],
-                "items": {
-                  "type": "string"
-                }
-              },
-              "semantic_etags": {
-                "oneOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "$ref": "#/components/schemas/DocumentSemanticEtags"
-                  }
-                ]
-              },
-              "semantic_local_block_ids": {
-                "type": [
-                  "object",
-                  "null"
-                ],
-                "additionalProperties": {
-                  "type": "string"
-                },
-                "propertyNames": {
-                  "type": "string"
-                }
-              }
-            }
+            "type": "string"
           }
         }
       },
@@ -4394,6 +5109,8 @@
           "active_writer_commands",
           "active_read_commands",
           "command_latency",
+          "writer_queue_wait",
+          "writer_execution",
           "transaction_duration",
           "document_cache_entries",
           "document_cache_state_bytes",
@@ -4401,6 +5118,13 @@
           "document_cache_misses",
           "document_cache_hit_rate_ppm",
           "document_reconstruction_duration",
+          "block_transfer_prepare_duration",
+          "block_transfer_reconstruct_duration",
+          "block_transfer_decode_duration",
+          "block_transfer_transform_duration",
+          "block_transfer_encode_duration",
+          "block_transfer_apply_duration",
+          "local_commit_publication_duration",
           "commit_head",
           "event_replay_lag",
           "event_replay_lag_max",
@@ -4449,6 +5173,24 @@
             "minimum": 0
           },
           "backup_duration": {
+            "$ref": "#/components/schemas/HealthDurationMetric"
+          },
+          "block_transfer_apply_duration": {
+            "$ref": "#/components/schemas/HealthDurationMetric"
+          },
+          "block_transfer_decode_duration": {
+            "$ref": "#/components/schemas/HealthDurationMetric"
+          },
+          "block_transfer_encode_duration": {
+            "$ref": "#/components/schemas/HealthDurationMetric"
+          },
+          "block_transfer_prepare_duration": {
+            "$ref": "#/components/schemas/HealthDurationMetric"
+          },
+          "block_transfer_reconstruct_duration": {
+            "$ref": "#/components/schemas/HealthDurationMetric"
+          },
+          "block_transfer_transform_duration": {
             "$ref": "#/components/schemas/HealthDurationMetric"
           },
           "canvas_sync_initial_snapshots": {
@@ -4521,6 +5263,9 @@
             "format": "int64",
             "minimum": 0
           },
+          "local_commit_publication_duration": {
+            "$ref": "#/components/schemas/HealthDurationMetric"
+          },
           "transaction_duration": {
             "$ref": "#/components/schemas/HealthDurationMetric"
           },
@@ -4529,124 +5274,18 @@
             "format": "int64",
             "minimum": 0
           },
+          "writer_execution": {
+            "$ref": "#/components/schemas/HealthDurationMetric"
+          },
           "writer_queue_depth": {
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          },
+          "writer_queue_wait": {
+            "$ref": "#/components/schemas/HealthDurationMetric"
           }
         }
-      },
-      "CoreModuleEventPayload": {
-        "oneOf": [
-          {
-            "type": "object",
-            "required": [
-              "event",
-              "module"
-            ],
-            "properties": {
-              "event": {
-                "$ref": "#/components/schemas/LibraryEvent"
-              },
-              "module": {
-                "type": "string",
-                "enum": [
-                  "library"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "event",
-              "module"
-            ],
-            "properties": {
-              "event": {
-                "$ref": "#/components/schemas/DatabaseEvent"
-              },
-              "module": {
-                "type": "string",
-                "enum": [
-                  "database"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "event",
-              "module"
-            ],
-            "properties": {
-              "event": {
-                "$ref": "#/components/schemas/OwnedDocumentEvent"
-              },
-              "module": {
-                "type": "string",
-                "enum": [
-                  "owned_document"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "event",
-              "module"
-            ],
-            "properties": {
-              "event": {
-                "$ref": "#/components/schemas/ProjectWorkspaceEvent"
-              },
-              "module": {
-                "type": "string",
-                "enum": [
-                  "project_workspace"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "event",
-              "module"
-            ],
-            "properties": {
-              "event": {
-                "$ref": "#/components/schemas/AutomationEvent"
-              },
-              "module": {
-                "type": "string",
-                "enum": [
-                  "automation"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "event",
-              "module"
-            ],
-            "properties": {
-              "event": {
-                "$ref": "#/components/schemas/StoreAdministrationEvent"
-              },
-              "module": {
-                "type": "string",
-                "enum": [
-                  "store_administration"
-                ]
-              }
-            }
-          }
-        ]
       },
       "CoreReadiness": {
         "type": "string",
@@ -4788,6 +5427,46 @@
           {
             "type": "object",
             "required": [
+              "completed",
+              "total",
+              "kind"
+            ],
+            "properties": {
+              "completed": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "migration_progress"
+                ]
+              },
+              "total": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "migration_heartbeat"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
               "created_fresh",
               "store_open_ms",
               "kind"
@@ -4902,7 +5581,7 @@
         "$ref": "#/components/schemas/ModuleApplyRequest_Vec_DatabaseIntent"
       },
       "DatabaseApplyResponse": {
-        "$ref": "#/components/schemas/ResponseEnvelope_CommittedModuleValue_DatabaseCommitValue_DatabaseReceipt"
+        "$ref": "#/components/schemas/ResponseEnvelope_ApplyResponse_DatabaseCommitValue_DatabaseReceipt"
       },
       "DatabaseEvent": {
         "type": "object",
@@ -6394,6 +7073,7 @@
           "view",
           "properties",
           "groups",
+          "projection",
           "rows"
         ],
         "properties": {
@@ -6401,6 +7081,9 @@
           "database": {},
           "groups": {
             "$ref": "#/components/schemas/DatabaseViewGroups"
+          },
+          "projection": {
+            "$ref": "#/components/schemas/ProjectionSnapshotAuthority"
           },
           "properties": {
             "type": "array",
@@ -6440,6 +7123,7 @@
           "database_id",
           "data_source_id",
           "view_id",
+          "projection",
           "grouped",
           "total_rows",
           "truncated",
@@ -6461,6 +7145,9 @@
               "$ref": "#/components/schemas/DatabaseViewGroupSummary"
             }
           },
+          "projection": {
+            "$ref": "#/components/schemas/ProjectionSnapshotAuthority"
+          },
           "total_rows": {
             "type": "integer",
             "format": "int64"
@@ -6479,6 +7166,7 @@
           "database_id",
           "data_source_id",
           "view_id",
+          "projection",
           "rows"
         ],
         "properties": {
@@ -6487,6 +7175,9 @@
           },
           "database_id": {
             "type": "string"
+          },
+          "projection": {
+            "$ref": "#/components/schemas/ProjectionSnapshotAuthority"
           },
           "rows": {
             "$ref": "#/components/schemas/CollectionWindow_DatabaseRowSummary"
@@ -6502,6 +7193,44 @@
           "synced_block",
           "reusable_template"
         ]
+      },
+      "DeliveryCoverage": {
+        "type": "object",
+        "required": [
+          "semantic_effect_orders",
+          "document_effect_orders",
+          "inline_document_effect_orders",
+          "projection_scope_keys"
+        ],
+        "properties": {
+          "document_effect_orders": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          "inline_document_effect_orders": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          "projection_scope_keys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "semantic_effect_orders": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        }
       },
       "DocumentBlockOperation": {
         "oneOf": [
@@ -6692,6 +7421,66 @@
         "enum": [
           "committed",
           "no_change"
+        ]
+      },
+      "DocumentEffectRef": {
+        "type": "object",
+        "required": [
+          "effect_order",
+          "document_id",
+          "generation",
+          "base_head_seq",
+          "result_head_seq",
+          "update_id",
+          "update_hash",
+          "update_byte_length",
+          "resource_kind"
+        ],
+        "properties": {
+          "base_head_seq": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "document_id": {
+            "type": "string"
+          },
+          "effect_order": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "generation": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "page_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "resource_kind": {
+            "$ref": "#/components/schemas/DocumentEffectResourceKind"
+          },
+          "result_head_seq": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "update_byte_length": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "update_hash": {
+            "type": "string"
+          },
+          "update_id": {
+            "type": "string"
+          }
+        }
+      },
+      "DocumentEffectResourceKind": {
+        "type": "string",
+        "enum": [
+          "document_update"
         ]
       },
       "DocumentHeadRevision": {
@@ -7584,11 +8373,11 @@
         "type": "object",
         "required": [
           "transport_version",
-          "event"
+          "packet"
         ],
         "properties": {
-          "event": {
-            "$ref": "#/components/schemas/LocalCommitEnvelope"
+          "packet": {
+            "$ref": "#/components/schemas/AuthorizedDeliveryPacket"
           },
           "transport_version": {
             "type": "integer",
@@ -7603,12 +8392,17 @@
         "required": [
           "requested_after",
           "oldest_available",
-          "commit_head"
+          "commit_head",
+          "generation",
+          "resync_token"
         ],
         "properties": {
           "commit_head": {
             "type": "integer",
             "format": "int64"
+          },
+          "generation": {
+            "type": "string"
           },
           "oldest_available": {
             "type": "integer",
@@ -7617,6 +8411,9 @@
           "requested_after": {
             "type": "integer",
             "format": "int64"
+          },
+          "resync_token": {
+            "type": "string"
           }
         }
       },
@@ -7884,7 +8681,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/CommittedModuleValue_LibraryCommitValue_LibraryReceipt"
+                "$ref": "#/components/schemas/ApplyResponse_LibraryCommitValue_LibraryReceipt"
               }
             ]
           },
@@ -8099,7 +8896,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/CommittedModuleValue_LibraryCommitValue_LibraryReceipt"
+                "$ref": "#/components/schemas/ApplyResponse_LibraryCommitValue_LibraryReceipt"
               }
             ]
           },
@@ -8233,7 +9030,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/CommittedModuleValue_LibraryCommitValue_LibraryReceipt"
+                "$ref": "#/components/schemas/ApplyResponse_LibraryCommitValue_LibraryReceipt"
               }
             ]
           },
@@ -8885,7 +9682,7 @@
         "$ref": "#/components/schemas/ModuleApplyRequest_LibraryIntent"
       },
       "LibraryApplyResponse": {
-        "$ref": "#/components/schemas/ResponseEnvelope_CommittedModuleValue_LibraryCommitValue_LibraryReceipt"
+        "$ref": "#/components/schemas/ResponseEnvelope_ApplyResponse_LibraryCommitValue_LibraryReceipt"
       },
       "LibraryBlockLocation": {
         "oneOf": [
@@ -9287,122 +10084,12 @@
           }
         }
       },
-      "LibraryBlockTransferMembership": {
-        "type": "object",
-        "required": [
-          "membership_id",
-          "revision"
-        ],
-        "properties": {
-          "membership_id": {
-            "type": "string"
-          },
-          "revision": {
-            "type": "integer",
-            "format": "int64"
-          }
-        }
-      },
       "LibraryBlockTransferMode": {
         "type": "string",
         "enum": [
           "move",
           "copy"
         ]
-      },
-      "LibraryBlockTransferPlan": {
-        "oneOf": [
-          {
-            "type": "object",
-            "required": [
-              "preparation",
-              "kind"
-            ],
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "prepared"
-                ]
-              },
-              "preparation": {
-                "$ref": "#/components/schemas/LibraryBlockTransferPreparation"
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "result",
-              "commit_seq",
-              "committed_at",
-              "kind"
-            ],
-            "properties": {
-              "commit_seq": {
-                "type": "integer",
-                "format": "int64"
-              },
-              "committed_at": {
-                "type": "string"
-              },
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "committed"
-                ]
-              },
-              "local_commit": {
-                "oneOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "$ref": "#/components/schemas/LocalCommitEnvelope"
-                  }
-                ]
-              },
-              "result": {
-                "$ref": "#/components/schemas/LibraryBlockTransferResult"
-              }
-            }
-          }
-        ]
-      },
-      "LibraryBlockTransferPreparation": {
-        "type": "object",
-        "required": [
-          "write_fence"
-        ],
-        "properties": {
-          "source_database_id": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "source_document_id": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "target_database_id": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "target_document_id": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "write_fence": {
-            "$ref": "#/components/schemas/LibraryBlockTransferWriteFence"
-          }
-        }
       },
       "LibraryBlockTransferResult": {
         "type": "object",
@@ -9706,41 +10393,6 @@
             }
           }
         ]
-      },
-      "LibraryBlockTransferWriteFence": {
-        "type": "object",
-        "required": [
-          "documents",
-          "location_revisions",
-          "source_memberships"
-        ],
-        "properties": {
-          "documents": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/LibraryBlockTransferDocumentHead"
-            }
-          },
-          "location_revisions": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "integer",
-              "format": "int64"
-            },
-            "propertyNames": {
-              "type": "string"
-            }
-          },
-          "source_memberships": {
-            "type": "object",
-            "additionalProperties": {
-              "$ref": "#/components/schemas/LibraryBlockTransferMembership"
-            },
-            "propertyNames": {
-              "type": "string"
-            }
-          }
-        }
       },
       "LibraryCanvasDestination": {
         "oneOf": [
@@ -13918,55 +14570,31 @@
           }
         ]
       },
-      "LocalCommitEnvelope": {
+      "LocalCommitResources": {
         "type": "object",
-        "description": "Canonical local-first publication envelope.\n\n`effects` contains the committed physical details needed by document and\nmodule consumers. `payload` is the primary transport view and may be\nselected for the consumer's scope; it is not a second authority.",
         "required": [
-          "event_version",
-          "commit_seq",
-          "store_epoch",
-          "committed_at",
-          "projection_impact",
-          "payload",
-          "effects",
-          "canonical_hash"
+          "block_ids",
+          "document_ids",
+          "database_ids"
         ],
         "properties": {
-          "canonical_hash": {
-            "type": "string"
-          },
-          "commit_seq": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "committed_at": {
-            "type": "string"
-          },
-          "effects": {
+          "block_ids": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/CommittedCoreModuleEvent"
+              "type": "string"
             }
           },
-          "event_version": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
+          "database_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
-          "operation_id": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "payload": {
-            "$ref": "#/components/schemas/CoreModuleEventPayload"
-          },
-          "projection_impact": {
-            "$ref": "#/components/schemas/ProjectionImpact"
-          },
-          "store_epoch": {
-            "$ref": "#/components/schemas/StoreEpoch"
+          "document_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -14006,13 +14634,13 @@
               "status"
             ],
             "properties": {
-              "local_commit": {
+              "delivery": {
                 "oneOf": [
                   {
                     "type": "null"
                   },
                   {
-                    "$ref": "#/components/schemas/LocalCommitEnvelope"
+                    "$ref": "#/components/schemas/AuthorizedDeliveryPacket"
                   }
                 ]
               },
@@ -14105,6 +14733,223 @@
                 "enum": [
                   "epoch_mismatch"
                 ]
+              }
+            }
+          }
+        ]
+      },
+      "LocalProjectionPatch": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "project_id",
+              "database_id",
+              "data_source_id",
+              "view_id",
+              "row",
+              "total_rows",
+              "kind"
+            ],
+            "properties": {
+              "data_source_id": {
+                "type": "string"
+              },
+              "database_id": {
+                "type": "string"
+              },
+              "group_total": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "database_row_upsert"
+                ]
+              },
+              "project_id": {
+                "type": "string"
+              },
+              "row": {
+                "$ref": "#/components/schemas/DatabaseRowSummary"
+              },
+              "total_rows": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "view_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "project_id",
+              "database_id",
+              "data_source_id",
+              "view_id",
+              "page_id",
+              "total_rows",
+              "kind"
+            ],
+            "properties": {
+              "data_source_id": {
+                "type": "string"
+              },
+              "database_id": {
+                "type": "string"
+              },
+              "group_key": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "group_total": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "database_row_remove"
+                ]
+              },
+              "page_id": {
+                "type": "string"
+              },
+              "project_id": {
+                "type": "string"
+              },
+              "total_rows": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "view_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "project_id",
+              "page_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "page_changed"
+                ]
+              },
+              "page_id": {
+                "type": "string"
+              },
+              "project_id": {
+                "type": "string"
+              }
+            }
+          }
+        ],
+        "description": "Core-computed read-model result. A patch never grants write authority; it\nonly makes a committed relational result visible before canonical repair."
+      },
+      "LocalProjectionScope": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "library_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "library"
+                ]
+              },
+              "library_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "project_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "project"
+                ]
+              },
+              "project_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "project_id",
+              "database_id",
+              "data_source_id",
+              "view_id",
+              "kind"
+            ],
+            "properties": {
+              "data_source_id": {
+                "type": "string"
+              },
+              "database_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "database_view"
+                ]
+              },
+              "project_id": {
+                "type": "string"
+              },
+              "view_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "project_id",
+              "page_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "page"
+                ]
+              },
+              "page_id": {
+                "type": "string"
+              },
+              "project_id": {
+                "type": "string"
               }
             }
           }
@@ -15549,16 +16394,6 @@
                     "type": "string",
                     "enum": [
                       "transfer_blocks"
-                    ]
-                  },
-                  "write_fence": {
-                    "oneOf": [
-                      {
-                        "type": "null"
-                      },
-                      {
-                        "$ref": "#/components/schemas/LibraryBlockTransferWriteFence"
-                      }
                     ]
                   }
                 }
@@ -18557,32 +19392,6 @@
                     "type": "string"
                   }
                 }
-              },
-              {
-                "type": "object",
-                "required": [
-                  "operation_id",
-                  "store_epoch",
-                  "intent",
-                  "kind"
-                ],
-                "properties": {
-                  "intent": {
-                    "$ref": "#/components/schemas/LibraryBlockTransferLogicalIntent"
-                  },
-                  "kind": {
-                    "type": "string",
-                    "enum": [
-                      "plan_block_transfer"
-                    ]
-                  },
-                  "operation_id": {
-                    "type": "string"
-                  },
-                  "store_epoch": {
-                    "type": "string"
-                  }
-                }
               }
             ]
           }
@@ -19264,7 +20073,7 @@
         "$ref": "#/components/schemas/ModuleApplyRequest_OwnedDocumentIntent"
       },
       "OwnedDocumentApplyResponse": {
-        "$ref": "#/components/schemas/ResponseEnvelope_CommittedModuleValue_OwnedDocumentCommitValue_OwnedDocumentReceipt"
+        "$ref": "#/components/schemas/ResponseEnvelope_ApplyResponse_OwnedDocumentCommitValue_OwnedDocumentReceipt"
       },
       "OwnedDocumentEvent": {
         "oneOf": [
@@ -20056,7 +20865,7 @@
         "$ref": "#/components/schemas/ModuleApplyRequest_ProjectWorkspaceIntent"
       },
       "ProjectWorkspaceApplyResponse": {
-        "$ref": "#/components/schemas/ResponseEnvelope_CommittedModuleValue_ProjectWorkspaceCommitValue_ProjectWorkspaceReceipt"
+        "$ref": "#/components/schemas/ResponseEnvelope_ApplyResponse_ProjectWorkspaceCommitValue_ProjectWorkspaceReceipt"
       },
       "ProjectWorkspaceBackgroundProcess": {
         "type": "object",
@@ -21418,6 +22227,50 @@
           }
         }
       },
+      "ProjectionEffect": {
+        "type": "object",
+        "required": [
+          "scope",
+          "base_revision",
+          "result_revision",
+          "covered_commit_seq",
+          "requires_read_at_least",
+          "effect_hash"
+        ],
+        "properties": {
+          "base_revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "covered_commit_seq": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "effect_hash": {
+            "type": "string"
+          },
+          "patch": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LocalProjectionPatch"
+              }
+            ]
+          },
+          "requires_read_at_least": {
+            "type": "boolean"
+          },
+          "result_revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/ProjectionScopeKey"
+          }
+        }
+      },
       "ProjectionImpact": {
         "oneOf": [
           {
@@ -21498,6 +22351,56 @@
             }
           }
         ]
+      },
+      "ProjectionScopeKey": {
+        "type": "object",
+        "description": "One projection scope transition. Revisions are per scope and advance in the\nsame transaction as the mutation. `covered_commit_seq` is a floor, not a\nreplacement for the scope revision.",
+        "required": [
+          "schema_version",
+          "canonical_key",
+          "scope"
+        ],
+        "properties": {
+          "canonical_key": {
+            "type": "string"
+          },
+          "schema_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "scope": {
+            "$ref": "#/components/schemas/LocalProjectionScope"
+          }
+        }
+      },
+      "ProjectionSnapshotAuthority": {
+        "type": "object",
+        "description": "Exact causal coordinate returned with a canonical projection snapshot.\n`covered_commit_seq` records the durable read floor reached by the\nsnapshot; ordering within the projection is owned by `revision`.",
+        "required": [
+          "scope",
+          "revision",
+          "covered_commit_seq"
+        ],
+        "properties": {
+          "covered_commit_seq": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "effect_hash": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/ProjectionScopeKey"
+          }
+        }
       },
       "ReminderLease": {
         "type": "object",
@@ -21639,7 +22542,35 @@
           }
         }
       },
-      "ResponseEnvelope_CommittedModuleValue_AutomationCommitValue_AutomationReceipt": {
+      "ResourceRevocation": {
+        "type": "object",
+        "required": [
+          "resource_kind",
+          "resource_id",
+          "reason"
+        ],
+        "properties": {
+          "reason": {
+            "$ref": "#/components/schemas/ResourceRevocationReason"
+          },
+          "resource_id": {
+            "type": "string"
+          },
+          "resource_kind": {
+            "$ref": "#/components/schemas/RevokedResourceKind"
+          }
+        }
+      },
+      "ResourceRevocationReason": {
+        "type": "string",
+        "enum": [
+          "ownership_moved",
+          "access_revoked",
+          "archived",
+          "deleted"
+        ]
+      },
+      "ResponseEnvelope_ApplyResponse_AutomationCommitValue_AutomationReceipt": {
         "oneOf": [
           {
             "type": "object",
@@ -21649,51 +22580,39 @@
             ],
             "properties": {
               "payload": {
-                "type": "object",
-                "required": [
-                  "value",
-                  "receipt",
-                  "event_sequence",
-                  "store_epoch"
-                ],
-                "properties": {
-                  "commit_seq": {
-                    "type": "integer",
-                    "format": "int64",
-                    "description": "Semantic LocalCommit cursor after this operation. Unlike\n`event_sequence`, this does not identify a physical change-log row.\nA no-change receipt still carries the current cursor so callers never\nmistake a physical sequence for projection freshness."
-                  },
-                  "event_sequence": {
-                    "type": "integer",
-                    "format": "int64",
-                    "description": "Physical change-log effect sequence retained for module-internal event\nreconstruction. It is not a public projection cursor."
-                  },
-                  "local_commit": {
-                    "oneOf": [
-                      {
-                        "type": "null"
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "required": [
+                      "outcome",
+                      "receipt",
+                      "commit",
+                      "status"
+                    ],
+                    "properties": {
+                      "commit": {
+                        "$ref": "#/components/schemas/CommitIdentity"
                       },
-                      {
-                        "$ref": "#/components/schemas/LocalCommitEnvelope",
-                        "description": "Present when this response represents a durable semantic local commit.\nNo-change receipts intentionally have no new local commit."
-                      }
-                    ]
-                  },
-                  "receipt": {
-                    "allOf": [
-                      {
-                        "$ref": "#/components/schemas/ModuleMutationReceipt"
+                      "delivery": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "$ref": "#/components/schemas/AuthorizedDeliveryPacket"
+                          }
+                        ]
                       },
-                      {
+                      "outcome": {
                         "type": "object",
                         "required": [
                           "affected_automation_ids",
-                          "affected_lease_ids",
-                          "affected_run_ids",
-                          "affected_reminder_lease_ids",
-                          "affected_snooze_ids",
-                          "affected_page_ids",
-                          "affected_document_ids",
-                          "affected_database_ids"
+                          "definitions",
+                          "claimed_leases",
+                          "runs",
+                          "deleted_run_ids",
+                          "reminder_leases",
+                          "reminder_snoozes"
                         ],
                         "properties": {
                           "affected_automation_ids": {
@@ -21702,543 +22621,312 @@
                               "type": "string"
                             }
                           },
-                          "affected_database_ids": {
+                          "claimed_leases": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/AutomationLease"
+                            }
+                          },
+                          "definitions": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/AutomationDefinition"
+                            }
+                          },
+                          "deleted_run_ids": {
                             "type": "array",
                             "items": {
                               "type": "string"
                             }
                           },
-                          "affected_document_ids": {
-                            "type": "array",
-                            "items": {
-                              "type": "string"
-                            }
-                          },
-                          "affected_lease_ids": {
-                            "type": "array",
-                            "items": {
-                              "type": "string"
-                            }
-                          },
-                          "affected_page_ids": {
-                            "type": "array",
-                            "items": {
-                              "type": "string"
-                            }
-                          },
-                          "affected_reminder_lease_ids": {
-                            "type": "array",
-                            "items": {
-                              "type": "string"
-                            }
-                          },
-                          "affected_run_ids": {
-                            "type": "array",
-                            "items": {
-                              "type": "string"
-                            }
-                          },
-                          "affected_snooze_ids": {
-                            "type": "array",
-                            "items": {
-                              "type": "integer",
-                              "format": "int64"
-                            }
-                          }
-                        }
-                      }
-                    ]
-                  },
-                  "store_epoch": {
-                    "$ref": "#/components/schemas/StoreEpoch"
-                  },
-                  "value": {
-                    "type": "object",
-                    "required": [
-                      "affected_automation_ids",
-                      "definitions",
-                      "claimed_leases",
-                      "runs",
-                      "deleted_run_ids",
-                      "reminder_leases",
-                      "reminder_snoozes"
-                    ],
-                    "properties": {
-                      "affected_automation_ids": {
-                        "type": "array",
-                        "items": {
-                          "type": "string"
-                        }
-                      },
-                      "claimed_leases": {
-                        "type": "array",
-                        "items": {
-                          "$ref": "#/components/schemas/AutomationLease"
-                        }
-                      },
-                      "definitions": {
-                        "type": "array",
-                        "items": {
-                          "$ref": "#/components/schemas/AutomationDefinition"
-                        }
-                      },
-                      "deleted_run_ids": {
-                        "type": "array",
-                        "items": {
-                          "type": "string"
-                        }
-                      },
-                      "page_occurrence_mutation": {
-                        "oneOf": [
-                          {
-                            "type": "null"
-                          },
-                          {
-                            "$ref": "#/components/schemas/PageOccurrenceMutationResult"
-                          }
-                        ]
-                      },
-                      "reminder_leases": {
-                        "type": "array",
-                        "items": {
-                          "$ref": "#/components/schemas/ReminderLease"
-                        }
-                      },
-                      "reminder_snoozes": {
-                        "type": "array",
-                        "items": {
-                          "$ref": "#/components/schemas/ReminderSnooze"
-                        }
-                      },
-                      "run_bulk": {
-                        "oneOf": [
-                          {
-                            "type": "null"
-                          },
-                          {
-                            "$ref": "#/components/schemas/AutomationRunBulkResult"
-                          }
-                        ]
-                      },
-                      "runs": {
-                        "type": "array",
-                        "items": {
-                          "$ref": "#/components/schemas/AutomationRun"
-                        }
-                      }
-                    }
-                  }
-                }
-              },
-              "status": {
-                "type": "string",
-                "enum": [
-                  "ok"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "payload",
-              "status"
-            ],
-            "properties": {
-              "payload": {
-                "$ref": "#/components/schemas/CoreError"
-              },
-              "status": {
-                "type": "string",
-                "enum": [
-                  "error"
-                ]
-              }
-            }
-          }
-        ]
-      },
-      "ResponseEnvelope_CommittedModuleValue_DatabaseCommitValue_DatabaseReceipt": {
-        "oneOf": [
-          {
-            "type": "object",
-            "required": [
-              "payload",
-              "status"
-            ],
-            "properties": {
-              "payload": {
-                "type": "object",
-                "required": [
-                  "value",
-                  "receipt",
-                  "event_sequence",
-                  "store_epoch"
-                ],
-                "properties": {
-                  "commit_seq": {
-                    "type": "integer",
-                    "format": "int64",
-                    "description": "Semantic LocalCommit cursor after this operation. Unlike\n`event_sequence`, this does not identify a physical change-log row.\nA no-change receipt still carries the current cursor so callers never\nmistake a physical sequence for projection freshness."
-                  },
-                  "event_sequence": {
-                    "type": "integer",
-                    "format": "int64",
-                    "description": "Physical change-log effect sequence retained for module-internal event\nreconstruction. It is not a public projection cursor."
-                  },
-                  "local_commit": {
-                    "oneOf": [
-                      {
-                        "type": "null"
-                      },
-                      {
-                        "$ref": "#/components/schemas/LocalCommitEnvelope",
-                        "description": "Present when this response represents a durable semantic local commit.\nNo-change receipts intentionally have no new local commit."
-                      }
-                    ]
-                  },
-                  "receipt": {
-                    "allOf": [
-                      {
-                        "$ref": "#/components/schemas/ModuleMutationReceipt"
-                      },
-                      {
-                        "type": "object",
-                        "required": [
-                          "affected_database_ids",
-                          "affected_data_source_ids",
-                          "affected_page_ids",
-                          "affected_view_ids",
-                          "operation_kinds",
-                          "committed_revisions",
-                          "commit_seq",
-                          "committed_at"
-                        ],
-                        "properties": {
-                          "affected_data_source_ids": {
-                            "type": "array",
-                            "items": {
-                              "type": "string"
-                            }
-                          },
-                          "affected_database_ids": {
-                            "type": "array",
-                            "items": {
-                              "type": "string"
-                            }
-                          },
-                          "affected_page_ids": {
-                            "type": "array",
-                            "items": {
-                              "type": "string"
-                            }
-                          },
-                          "affected_view_ids": {
-                            "type": "array",
-                            "items": {
-                              "type": "string"
-                            }
-                          },
-                          "commit_seq": {
-                            "type": "integer",
-                            "format": "int64"
-                          },
-                          "committed_at": {
-                            "type": "string"
-                          },
-                          "committed_revisions": {
-                            "type": "object",
-                            "additionalProperties": {
-                              "type": "integer",
-                              "format": "int64"
-                            },
-                            "propertyNames": {
-                              "type": "string"
-                            }
-                          },
-                          "operation_kinds": {
-                            "type": "array",
-                            "items": {
-                              "type": "string"
-                            }
-                          }
-                        }
-                      }
-                    ]
-                  },
-                  "store_epoch": {
-                    "$ref": "#/components/schemas/StoreEpoch"
-                  },
-                  "value": {
-                    "type": "object",
-                    "required": [
-                      "operation_count"
-                    ],
-                    "properties": {
-                      "operation_count": {
-                        "type": "integer",
-                        "format": "int32",
-                        "minimum": 0
-                      }
-                    }
-                  }
-                }
-              },
-              "status": {
-                "type": "string",
-                "enum": [
-                  "ok"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "payload",
-              "status"
-            ],
-            "properties": {
-              "payload": {
-                "$ref": "#/components/schemas/CoreError"
-              },
-              "status": {
-                "type": "string",
-                "enum": [
-                  "error"
-                ]
-              }
-            }
-          }
-        ]
-      },
-      "ResponseEnvelope_CommittedModuleValue_LibraryCommitValue_LibraryReceipt": {
-        "oneOf": [
-          {
-            "type": "object",
-            "required": [
-              "payload",
-              "status"
-            ],
-            "properties": {
-              "payload": {
-                "type": "object",
-                "required": [
-                  "value",
-                  "receipt",
-                  "event_sequence",
-                  "store_epoch"
-                ],
-                "properties": {
-                  "commit_seq": {
-                    "type": "integer",
-                    "format": "int64",
-                    "description": "Semantic LocalCommit cursor after this operation. Unlike\n`event_sequence`, this does not identify a physical change-log row.\nA no-change receipt still carries the current cursor so callers never\nmistake a physical sequence for projection freshness."
-                  },
-                  "event_sequence": {
-                    "type": "integer",
-                    "format": "int64",
-                    "description": "Physical change-log effect sequence retained for module-internal event\nreconstruction. It is not a public projection cursor."
-                  },
-                  "local_commit": {
-                    "oneOf": [
-                      {
-                        "type": "null"
-                      },
-                      {
-                        "$ref": "#/components/schemas/LocalCommitEnvelope",
-                        "description": "Present when this response represents a durable semantic local commit.\nNo-change receipts intentionally have no new local commit."
-                      }
-                    ]
-                  },
-                  "receipt": {
-                    "allOf": [
-                      {
-                        "$ref": "#/components/schemas/ModuleMutationReceipt"
-                      },
-                      {
-                        "type": "object",
-                        "required": [
-                          "operation_kind",
-                          "did_mutate",
-                          "affected_parent_keys",
-                          "affected_page_ids",
-                          "affected_database_ids",
-                          "affected_view_ids",
-                          "committed_revisions",
-                          "commit_seq",
-                          "committed_at"
-                        ],
-                        "properties": {
-                          "affected_database_ids": {
-                            "type": "array",
-                            "items": {
-                              "type": "string"
-                            }
-                          },
-                          "affected_page_ids": {
-                            "type": "array",
-                            "items": {
-                              "type": "string"
-                            }
-                          },
-                          "affected_parent_keys": {
-                            "type": "array",
-                            "items": {
-                              "type": "string"
-                            }
-                          },
-                          "affected_view_ids": {
-                            "type": "array",
-                            "items": {
-                              "type": "string"
-                            }
-                          },
-                          "commit_seq": {
-                            "type": "integer",
-                            "format": "int64"
-                          },
-                          "committed_at": {
-                            "type": "string"
-                          },
-                          "committed_revisions": {
-                            "type": "object",
-                            "additionalProperties": {
-                              "type": "integer",
-                              "format": "int64"
-                            },
-                            "propertyNames": {
-                              "type": "string"
-                            }
-                          },
-                          "created_target": {
+                          "page_occurrence_mutation": {
                             "oneOf": [
                               {
                                 "type": "null"
                               },
                               {
-                                "$ref": "#/components/schemas/LibraryResourceTarget"
+                                "$ref": "#/components/schemas/PageOccurrenceMutationResult"
                               }
                             ]
                           },
-                          "did_mutate": {
-                            "type": "boolean"
+                          "reminder_leases": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/ReminderLease"
+                            }
                           },
-                          "operation_kind": {
-                            "type": "string"
+                          "reminder_snoozes": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/ReminderSnooze"
+                            }
+                          },
+                          "run_bulk": {
+                            "oneOf": [
+                              {
+                                "type": "null"
+                              },
+                              {
+                                "$ref": "#/components/schemas/AutomationRunBulkResult"
+                              }
+                            ]
+                          },
+                          "runs": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/AutomationRun"
+                            }
                           }
                         }
+                      },
+                      "receipt": {
+                        "allOf": [
+                          {
+                            "$ref": "#/components/schemas/ModuleMutationReceipt"
+                          },
+                          {
+                            "type": "object",
+                            "required": [
+                              "affected_automation_ids",
+                              "affected_lease_ids",
+                              "affected_run_ids",
+                              "affected_reminder_lease_ids",
+                              "affected_snooze_ids",
+                              "affected_page_ids",
+                              "affected_document_ids",
+                              "affected_database_ids"
+                            ],
+                            "properties": {
+                              "affected_automation_ids": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "affected_database_ids": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "affected_document_ids": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "affected_lease_ids": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "affected_page_ids": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "affected_reminder_lease_ids": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "affected_run_ids": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "affected_snooze_ids": {
+                                "type": "array",
+                                "items": {
+                                  "type": "integer",
+                                  "format": "int64"
+                                }
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "committed"
+                        ]
                       }
-                    ]
+                    }
                   },
-                  "store_epoch": {
-                    "$ref": "#/components/schemas/StoreEpoch"
-                  },
-                  "value": {
+                  {
                     "type": "object",
                     "required": [
-                      "affected_resource_ids"
+                      "outcome",
+                      "receipt",
+                      "observed",
+                      "status"
                     ],
                     "properties": {
-                      "affected_resource_ids": {
-                        "type": "array",
-                        "items": {
-                          "type": "string"
+                      "observed": {
+                        "$ref": "#/components/schemas/StoreObservation"
+                      },
+                      "outcome": {
+                        "type": "object",
+                        "required": [
+                          "affected_automation_ids",
+                          "definitions",
+                          "claimed_leases",
+                          "runs",
+                          "deleted_run_ids",
+                          "reminder_leases",
+                          "reminder_snoozes"
+                        ],
+                        "properties": {
+                          "affected_automation_ids": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "claimed_leases": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/AutomationLease"
+                            }
+                          },
+                          "definitions": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/AutomationDefinition"
+                            }
+                          },
+                          "deleted_run_ids": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "page_occurrence_mutation": {
+                            "oneOf": [
+                              {
+                                "type": "null"
+                              },
+                              {
+                                "$ref": "#/components/schemas/PageOccurrenceMutationResult"
+                              }
+                            ]
+                          },
+                          "reminder_leases": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/ReminderLease"
+                            }
+                          },
+                          "reminder_snoozes": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/ReminderSnooze"
+                            }
+                          },
+                          "run_bulk": {
+                            "oneOf": [
+                              {
+                                "type": "null"
+                              },
+                              {
+                                "$ref": "#/components/schemas/AutomationRunBulkResult"
+                              }
+                            ]
+                          },
+                          "runs": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/AutomationRun"
+                            }
+                          }
                         }
                       },
-                      "agent_create_pages": {
-                        "oneOf": [
+                      "receipt": {
+                        "allOf": [
                           {
-                            "type": "null"
+                            "$ref": "#/components/schemas/ModuleMutationReceipt"
                           },
                           {
-                            "$ref": "#/components/schemas/LibraryAgentCreatePagesResult"
+                            "type": "object",
+                            "required": [
+                              "affected_automation_ids",
+                              "affected_lease_ids",
+                              "affected_run_ids",
+                              "affected_reminder_lease_ids",
+                              "affected_snooze_ids",
+                              "affected_page_ids",
+                              "affected_document_ids",
+                              "affected_database_ids"
+                            ],
+                            "properties": {
+                              "affected_automation_ids": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "affected_database_ids": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "affected_document_ids": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "affected_lease_ids": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "affected_page_ids": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "affected_reminder_lease_ids": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "affected_run_ids": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "affected_snooze_ids": {
+                                "type": "array",
+                                "items": {
+                                  "type": "integer",
+                                  "format": "int64"
+                                }
+                              }
+                            }
                           }
                         ]
                       },
-                      "agent_move_pages": {
-                        "oneOf": [
-                          {
-                            "type": "null"
-                          },
-                          {
-                            "$ref": "#/components/schemas/LibraryAgentMovePagesResult"
-                          }
-                        ]
-                      },
-                      "agent_page_copy": {
-                        "oneOf": [
-                          {
-                            "type": "null"
-                          },
-                          {
-                            "$ref": "#/components/schemas/LibraryAgentPageCopyResult"
-                          }
-                        ]
-                      },
-                      "block_property_mutation": {
-                        "oneOf": [
-                          {
-                            "type": "null"
-                          },
-                          {
-                            "$ref": "#/components/schemas/LibraryBlockPropertyMutationReceipt"
-                          }
-                        ]
-                      },
-                      "block_transfer": {
-                        "oneOf": [
-                          {
-                            "type": "null"
-                          },
-                          {
-                            "$ref": "#/components/schemas/LibraryBlockTransferResult"
-                          }
-                        ]
-                      },
-                      "canvas_mutation": {
-                        "oneOf": [
-                          {
-                            "type": "null"
-                          },
-                          {
-                            "$ref": "#/components/schemas/LibraryCanvasMutationResult"
-                          }
-                        ]
-                      },
-                      "page_copy": {
-                        "oneOf": [
-                          {
-                            "type": "null"
-                          },
-                          {
-                            "$ref": "#/components/schemas/LibraryPageCopyResult"
-                          }
-                        ]
-                      },
-                      "page_create": {
-                        "oneOf": [
-                          {
-                            "type": "null"
-                          },
-                          {
-                            "$ref": "#/components/schemas/LibraryPageCreateResult"
-                          }
-                        ]
-                      },
-                      "page_lifecycle": {
-                        "oneOf": [
-                          {
-                            "type": "null"
-                          },
-                          {
-                            "$ref": "#/components/schemas/LibraryPageLifecycleMutationReceipt"
-                          }
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "no_op"
                         ]
                       }
                     }
                   }
-                }
+                ],
+                "description": "Closed result of an authorized command. A semantic mutation returns its\nimmutable commit identity; a validated no-op returns only the observed\nstore cursor and therefore cannot masquerade as a new commit."
               },
               "status": {
                 "type": "string",
@@ -22268,7 +22956,7 @@
           }
         ]
       },
-      "ResponseEnvelope_CommittedModuleValue_OwnedDocumentCommitValue_OwnedDocumentReceipt": {
+      "ResponseEnvelope_ApplyResponse_DatabaseCommitValue_DatabaseReceipt": {
         "oneOf": [
           {
             "type": "object",
@@ -22278,48 +22966,771 @@
             ],
             "properties": {
               "payload": {
-                "type": "object",
-                "required": [
-                  "value",
-                  "receipt",
-                  "event_sequence",
-                  "store_epoch"
-                ],
-                "properties": {
-                  "commit_seq": {
-                    "type": "integer",
-                    "format": "int64",
-                    "description": "Semantic LocalCommit cursor after this operation. Unlike\n`event_sequence`, this does not identify a physical change-log row.\nA no-change receipt still carries the current cursor so callers never\nmistake a physical sequence for projection freshness."
-                  },
-                  "event_sequence": {
-                    "type": "integer",
-                    "format": "int64",
-                    "description": "Physical change-log effect sequence retained for module-internal event\nreconstruction. It is not a public projection cursor."
-                  },
-                  "local_commit": {
-                    "oneOf": [
-                      {
-                        "type": "null"
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "required": [
+                      "outcome",
+                      "receipt",
+                      "commit",
+                      "status"
+                    ],
+                    "properties": {
+                      "commit": {
+                        "$ref": "#/components/schemas/CommitIdentity"
                       },
-                      {
-                        "$ref": "#/components/schemas/LocalCommitEnvelope",
-                        "description": "Present when this response represents a durable semantic local commit.\nNo-change receipts intentionally have no new local commit."
+                      "delivery": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "$ref": "#/components/schemas/AuthorizedDeliveryPacket"
+                          }
+                        ]
+                      },
+                      "outcome": {
+                        "type": "object",
+                        "required": [
+                          "operation_count"
+                        ],
+                        "properties": {
+                          "operation_count": {
+                            "type": "integer",
+                            "format": "int32",
+                            "minimum": 0
+                          }
+                        }
+                      },
+                      "receipt": {
+                        "allOf": [
+                          {
+                            "$ref": "#/components/schemas/ModuleMutationReceipt"
+                          },
+                          {
+                            "type": "object",
+                            "required": [
+                              "affected_database_ids",
+                              "affected_data_source_ids",
+                              "affected_page_ids",
+                              "affected_view_ids",
+                              "operation_kinds",
+                              "committed_revisions",
+                              "commit_seq",
+                              "committed_at"
+                            ],
+                            "properties": {
+                              "affected_data_source_ids": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "affected_database_ids": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "affected_page_ids": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "affected_view_ids": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "commit_seq": {
+                                "type": "integer",
+                                "format": "int64"
+                              },
+                              "committed_at": {
+                                "type": "string"
+                              },
+                              "committed_revisions": {
+                                "type": "object",
+                                "additionalProperties": {
+                                  "type": "integer",
+                                  "format": "int64"
+                                },
+                                "propertyNames": {
+                                  "type": "string"
+                                }
+                              },
+                              "operation_kinds": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "committed"
+                        ]
                       }
-                    ]
+                    }
                   },
-                  "receipt": {
-                    "allOf": [
-                      {
-                        "$ref": "#/components/schemas/ModuleMutationReceipt"
+                  {
+                    "type": "object",
+                    "required": [
+                      "outcome",
+                      "receipt",
+                      "observed",
+                      "status"
+                    ],
+                    "properties": {
+                      "observed": {
+                        "$ref": "#/components/schemas/StoreObservation"
                       },
-                      {
+                      "outcome": {
+                        "type": "object",
+                        "required": [
+                          "operation_count"
+                        ],
+                        "properties": {
+                          "operation_count": {
+                            "type": "integer",
+                            "format": "int32",
+                            "minimum": 0
+                          }
+                        }
+                      },
+                      "receipt": {
+                        "allOf": [
+                          {
+                            "$ref": "#/components/schemas/ModuleMutationReceipt"
+                          },
+                          {
+                            "type": "object",
+                            "required": [
+                              "affected_database_ids",
+                              "affected_data_source_ids",
+                              "affected_page_ids",
+                              "affected_view_ids",
+                              "operation_kinds",
+                              "committed_revisions",
+                              "commit_seq",
+                              "committed_at"
+                            ],
+                            "properties": {
+                              "affected_data_source_ids": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "affected_database_ids": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "affected_page_ids": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "affected_view_ids": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "commit_seq": {
+                                "type": "integer",
+                                "format": "int64"
+                              },
+                              "committed_at": {
+                                "type": "string"
+                              },
+                              "committed_revisions": {
+                                "type": "object",
+                                "additionalProperties": {
+                                  "type": "integer",
+                                  "format": "int64"
+                                },
+                                "propertyNames": {
+                                  "type": "string"
+                                }
+                              },
+                              "operation_kinds": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "no_op"
+                        ]
+                      }
+                    }
+                  }
+                ],
+                "description": "Closed result of an authorized command. A semantic mutation returns its\nimmutable commit identity; a validated no-op returns only the observed\nstore cursor and therefore cannot masquerade as a new commit."
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "ok"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "payload",
+              "status"
+            ],
+            "properties": {
+              "payload": {
+                "$ref": "#/components/schemas/CoreError"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "error"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "ResponseEnvelope_ApplyResponse_LibraryCommitValue_LibraryReceipt": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "payload",
+              "status"
+            ],
+            "properties": {
+              "payload": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "required": [
+                      "outcome",
+                      "receipt",
+                      "commit",
+                      "status"
+                    ],
+                    "properties": {
+                      "commit": {
+                        "$ref": "#/components/schemas/CommitIdentity"
+                      },
+                      "delivery": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "$ref": "#/components/schemas/AuthorizedDeliveryPacket"
+                          }
+                        ]
+                      },
+                      "outcome": {
+                        "type": "object",
+                        "required": [
+                          "affected_resource_ids"
+                        ],
+                        "properties": {
+                          "affected_resource_ids": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "agent_create_pages": {
+                            "oneOf": [
+                              {
+                                "type": "null"
+                              },
+                              {
+                                "$ref": "#/components/schemas/LibraryAgentCreatePagesResult"
+                              }
+                            ]
+                          },
+                          "agent_move_pages": {
+                            "oneOf": [
+                              {
+                                "type": "null"
+                              },
+                              {
+                                "$ref": "#/components/schemas/LibraryAgentMovePagesResult"
+                              }
+                            ]
+                          },
+                          "agent_page_copy": {
+                            "oneOf": [
+                              {
+                                "type": "null"
+                              },
+                              {
+                                "$ref": "#/components/schemas/LibraryAgentPageCopyResult"
+                              }
+                            ]
+                          },
+                          "block_property_mutation": {
+                            "oneOf": [
+                              {
+                                "type": "null"
+                              },
+                              {
+                                "$ref": "#/components/schemas/LibraryBlockPropertyMutationReceipt"
+                              }
+                            ]
+                          },
+                          "block_transfer": {
+                            "oneOf": [
+                              {
+                                "type": "null"
+                              },
+                              {
+                                "$ref": "#/components/schemas/LibraryBlockTransferResult"
+                              }
+                            ]
+                          },
+                          "canvas_mutation": {
+                            "oneOf": [
+                              {
+                                "type": "null"
+                              },
+                              {
+                                "$ref": "#/components/schemas/LibraryCanvasMutationResult"
+                              }
+                            ]
+                          },
+                          "page_copy": {
+                            "oneOf": [
+                              {
+                                "type": "null"
+                              },
+                              {
+                                "$ref": "#/components/schemas/LibraryPageCopyResult"
+                              }
+                            ]
+                          },
+                          "page_create": {
+                            "oneOf": [
+                              {
+                                "type": "null"
+                              },
+                              {
+                                "$ref": "#/components/schemas/LibraryPageCreateResult"
+                              }
+                            ]
+                          },
+                          "page_lifecycle": {
+                            "oneOf": [
+                              {
+                                "type": "null"
+                              },
+                              {
+                                "$ref": "#/components/schemas/LibraryPageLifecycleMutationReceipt"
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      "receipt": {
+                        "allOf": [
+                          {
+                            "$ref": "#/components/schemas/ModuleMutationReceipt"
+                          },
+                          {
+                            "type": "object",
+                            "required": [
+                              "operation_kind",
+                              "did_mutate",
+                              "affected_parent_keys",
+                              "affected_page_ids",
+                              "affected_database_ids",
+                              "affected_view_ids",
+                              "committed_revisions",
+                              "commit_seq",
+                              "committed_at"
+                            ],
+                            "properties": {
+                              "affected_database_ids": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "affected_page_ids": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "affected_parent_keys": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "affected_view_ids": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "commit_seq": {
+                                "type": "integer",
+                                "format": "int64"
+                              },
+                              "committed_at": {
+                                "type": "string"
+                              },
+                              "committed_revisions": {
+                                "type": "object",
+                                "additionalProperties": {
+                                  "type": "integer",
+                                  "format": "int64"
+                                },
+                                "propertyNames": {
+                                  "type": "string"
+                                }
+                              },
+                              "created_target": {
+                                "oneOf": [
+                                  {
+                                    "type": "null"
+                                  },
+                                  {
+                                    "$ref": "#/components/schemas/LibraryResourceTarget"
+                                  }
+                                ]
+                              },
+                              "did_mutate": {
+                                "type": "boolean"
+                              },
+                              "operation_kind": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "committed"
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "required": [
+                      "outcome",
+                      "receipt",
+                      "observed",
+                      "status"
+                    ],
+                    "properties": {
+                      "observed": {
+                        "$ref": "#/components/schemas/StoreObservation"
+                      },
+                      "outcome": {
+                        "type": "object",
+                        "required": [
+                          "affected_resource_ids"
+                        ],
+                        "properties": {
+                          "affected_resource_ids": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "agent_create_pages": {
+                            "oneOf": [
+                              {
+                                "type": "null"
+                              },
+                              {
+                                "$ref": "#/components/schemas/LibraryAgentCreatePagesResult"
+                              }
+                            ]
+                          },
+                          "agent_move_pages": {
+                            "oneOf": [
+                              {
+                                "type": "null"
+                              },
+                              {
+                                "$ref": "#/components/schemas/LibraryAgentMovePagesResult"
+                              }
+                            ]
+                          },
+                          "agent_page_copy": {
+                            "oneOf": [
+                              {
+                                "type": "null"
+                              },
+                              {
+                                "$ref": "#/components/schemas/LibraryAgentPageCopyResult"
+                              }
+                            ]
+                          },
+                          "block_property_mutation": {
+                            "oneOf": [
+                              {
+                                "type": "null"
+                              },
+                              {
+                                "$ref": "#/components/schemas/LibraryBlockPropertyMutationReceipt"
+                              }
+                            ]
+                          },
+                          "block_transfer": {
+                            "oneOf": [
+                              {
+                                "type": "null"
+                              },
+                              {
+                                "$ref": "#/components/schemas/LibraryBlockTransferResult"
+                              }
+                            ]
+                          },
+                          "canvas_mutation": {
+                            "oneOf": [
+                              {
+                                "type": "null"
+                              },
+                              {
+                                "$ref": "#/components/schemas/LibraryCanvasMutationResult"
+                              }
+                            ]
+                          },
+                          "page_copy": {
+                            "oneOf": [
+                              {
+                                "type": "null"
+                              },
+                              {
+                                "$ref": "#/components/schemas/LibraryPageCopyResult"
+                              }
+                            ]
+                          },
+                          "page_create": {
+                            "oneOf": [
+                              {
+                                "type": "null"
+                              },
+                              {
+                                "$ref": "#/components/schemas/LibraryPageCreateResult"
+                              }
+                            ]
+                          },
+                          "page_lifecycle": {
+                            "oneOf": [
+                              {
+                                "type": "null"
+                              },
+                              {
+                                "$ref": "#/components/schemas/LibraryPageLifecycleMutationReceipt"
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      "receipt": {
+                        "allOf": [
+                          {
+                            "$ref": "#/components/schemas/ModuleMutationReceipt"
+                          },
+                          {
+                            "type": "object",
+                            "required": [
+                              "operation_kind",
+                              "did_mutate",
+                              "affected_parent_keys",
+                              "affected_page_ids",
+                              "affected_database_ids",
+                              "affected_view_ids",
+                              "committed_revisions",
+                              "commit_seq",
+                              "committed_at"
+                            ],
+                            "properties": {
+                              "affected_database_ids": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "affected_page_ids": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "affected_parent_keys": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "affected_view_ids": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "commit_seq": {
+                                "type": "integer",
+                                "format": "int64"
+                              },
+                              "committed_at": {
+                                "type": "string"
+                              },
+                              "committed_revisions": {
+                                "type": "object",
+                                "additionalProperties": {
+                                  "type": "integer",
+                                  "format": "int64"
+                                },
+                                "propertyNames": {
+                                  "type": "string"
+                                }
+                              },
+                              "created_target": {
+                                "oneOf": [
+                                  {
+                                    "type": "null"
+                                  },
+                                  {
+                                    "$ref": "#/components/schemas/LibraryResourceTarget"
+                                  }
+                                ]
+                              },
+                              "did_mutate": {
+                                "type": "boolean"
+                              },
+                              "operation_kind": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "no_op"
+                        ]
+                      }
+                    }
+                  }
+                ],
+                "description": "Closed result of an authorized command. A semantic mutation returns its\nimmutable commit identity; a validated no-op returns only the observed\nstore cursor and therefore cannot masquerade as a new commit."
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "ok"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "payload",
+              "status"
+            ],
+            "properties": {
+              "payload": {
+                "$ref": "#/components/schemas/CoreError"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "error"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "ResponseEnvelope_ApplyResponse_OwnedDocumentCommitValue_OwnedDocumentReceipt": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "payload",
+              "status"
+            ],
+            "properties": {
+              "payload": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "required": [
+                      "outcome",
+                      "receipt",
+                      "commit",
+                      "status"
+                    ],
+                    "properties": {
+                      "commit": {
+                        "$ref": "#/components/schemas/CommitIdentity"
+                      },
+                      "delivery": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "$ref": "#/components/schemas/AuthorizedDeliveryPacket"
+                          }
+                        ]
+                      },
+                      "outcome": {
                         "type": "object",
                         "required": [
                           "document_id",
                           "generation",
-                          "head_seq"
+                          "head_seq",
+                          "outcome"
                         ],
                         "properties": {
+                          "canvas": {},
+                          "checkpoint_effect": {
+                            "oneOf": [
+                              {
+                                "type": "null"
+                              },
+                              {
+                                "$ref": "#/components/schemas/DocumentCheckpointEffect"
+                              }
+                            ]
+                          },
+                          "committed_at": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
                           "document_id": {
                             "type": "string"
                           },
@@ -22330,120 +23741,266 @@
                           "head_seq": {
                             "type": "integer",
                             "format": "int64"
+                          },
+                          "mutation_effect": {
+                            "oneOf": [
+                              {
+                                "type": "null"
+                              },
+                              {
+                                "$ref": "#/components/schemas/DocumentMutationEffect"
+                              }
+                            ]
+                          },
+                          "outcome": {
+                            "$ref": "#/components/schemas/DocumentCommitOutcome"
+                          },
+                          "owner_effect": {
+                            "oneOf": [
+                              {
+                                "type": "null"
+                              },
+                              {
+                                "$ref": "#/components/schemas/DocumentOwnerEffect"
+                              }
+                            ]
+                          },
+                          "semantic_block_etags": {
+                            "type": [
+                              "object",
+                              "null"
+                            ],
+                            "additionalProperties": {
+                              "$ref": "#/components/schemas/DocumentSemanticBlockEtags"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            }
+                          },
+                          "semantic_deleted_owner_block_ids": {
+                            "type": [
+                              "array",
+                              "null"
+                            ],
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "semantic_etags": {
+                            "oneOf": [
+                              {
+                                "type": "null"
+                              },
+                              {
+                                "$ref": "#/components/schemas/DocumentSemanticEtags"
+                              }
+                            ]
+                          },
+                          "semantic_local_block_ids": {
+                            "type": [
+                              "object",
+                              "null"
+                            ],
+                            "additionalProperties": {
+                              "type": "string"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            }
                           }
                         }
+                      },
+                      "receipt": {
+                        "allOf": [
+                          {
+                            "$ref": "#/components/schemas/ModuleMutationReceipt"
+                          },
+                          {
+                            "type": "object",
+                            "required": [
+                              "document_id",
+                              "generation",
+                              "head_seq"
+                            ],
+                            "properties": {
+                              "document_id": {
+                                "type": "string"
+                              },
+                              "generation": {
+                                "type": "integer",
+                                "format": "int64"
+                              },
+                              "head_seq": {
+                                "type": "integer",
+                                "format": "int64"
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "committed"
+                        ]
                       }
-                    ]
+                    }
                   },
-                  "store_epoch": {
-                    "$ref": "#/components/schemas/StoreEpoch"
-                  },
-                  "value": {
+                  {
                     "type": "object",
                     "required": [
-                      "document_id",
-                      "generation",
-                      "head_seq",
-                      "outcome"
+                      "outcome",
+                      "receipt",
+                      "observed",
+                      "status"
                     ],
                     "properties": {
-                      "canvas": {},
-                      "checkpoint_effect": {
-                        "oneOf": [
-                          {
-                            "type": "null"
-                          },
-                          {
-                            "$ref": "#/components/schemas/DocumentCheckpointEffect"
-                          }
-                        ]
-                      },
-                      "committed_at": {
-                        "type": [
-                          "string",
-                          "null"
-                        ]
-                      },
-                      "document_id": {
-                        "type": "string"
-                      },
-                      "generation": {
-                        "type": "integer",
-                        "format": "int64"
-                      },
-                      "head_seq": {
-                        "type": "integer",
-                        "format": "int64"
-                      },
-                      "mutation_effect": {
-                        "oneOf": [
-                          {
-                            "type": "null"
-                          },
-                          {
-                            "$ref": "#/components/schemas/DocumentMutationEffect"
-                          }
-                        ]
+                      "observed": {
+                        "$ref": "#/components/schemas/StoreObservation"
                       },
                       "outcome": {
-                        "$ref": "#/components/schemas/DocumentCommitOutcome"
+                        "type": "object",
+                        "required": [
+                          "document_id",
+                          "generation",
+                          "head_seq",
+                          "outcome"
+                        ],
+                        "properties": {
+                          "canvas": {},
+                          "checkpoint_effect": {
+                            "oneOf": [
+                              {
+                                "type": "null"
+                              },
+                              {
+                                "$ref": "#/components/schemas/DocumentCheckpointEffect"
+                              }
+                            ]
+                          },
+                          "committed_at": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "document_id": {
+                            "type": "string"
+                          },
+                          "generation": {
+                            "type": "integer",
+                            "format": "int64"
+                          },
+                          "head_seq": {
+                            "type": "integer",
+                            "format": "int64"
+                          },
+                          "mutation_effect": {
+                            "oneOf": [
+                              {
+                                "type": "null"
+                              },
+                              {
+                                "$ref": "#/components/schemas/DocumentMutationEffect"
+                              }
+                            ]
+                          },
+                          "outcome": {
+                            "$ref": "#/components/schemas/DocumentCommitOutcome"
+                          },
+                          "owner_effect": {
+                            "oneOf": [
+                              {
+                                "type": "null"
+                              },
+                              {
+                                "$ref": "#/components/schemas/DocumentOwnerEffect"
+                              }
+                            ]
+                          },
+                          "semantic_block_etags": {
+                            "type": [
+                              "object",
+                              "null"
+                            ],
+                            "additionalProperties": {
+                              "$ref": "#/components/schemas/DocumentSemanticBlockEtags"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            }
+                          },
+                          "semantic_deleted_owner_block_ids": {
+                            "type": [
+                              "array",
+                              "null"
+                            ],
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "semantic_etags": {
+                            "oneOf": [
+                              {
+                                "type": "null"
+                              },
+                              {
+                                "$ref": "#/components/schemas/DocumentSemanticEtags"
+                              }
+                            ]
+                          },
+                          "semantic_local_block_ids": {
+                            "type": [
+                              "object",
+                              "null"
+                            ],
+                            "additionalProperties": {
+                              "type": "string"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            }
+                          }
+                        }
                       },
-                      "owner_effect": {
-                        "oneOf": [
+                      "receipt": {
+                        "allOf": [
                           {
-                            "type": "null"
+                            "$ref": "#/components/schemas/ModuleMutationReceipt"
                           },
                           {
-                            "$ref": "#/components/schemas/DocumentOwnerEffect"
+                            "type": "object",
+                            "required": [
+                              "document_id",
+                              "generation",
+                              "head_seq"
+                            ],
+                            "properties": {
+                              "document_id": {
+                                "type": "string"
+                              },
+                              "generation": {
+                                "type": "integer",
+                                "format": "int64"
+                              },
+                              "head_seq": {
+                                "type": "integer",
+                                "format": "int64"
+                              }
+                            }
                           }
                         ]
                       },
-                      "semantic_block_etags": {
-                        "type": [
-                          "object",
-                          "null"
-                        ],
-                        "additionalProperties": {
-                          "$ref": "#/components/schemas/DocumentSemanticBlockEtags"
-                        },
-                        "propertyNames": {
-                          "type": "string"
-                        }
-                      },
-                      "semantic_deleted_owner_block_ids": {
-                        "type": [
-                          "array",
-                          "null"
-                        ],
-                        "items": {
-                          "type": "string"
-                        }
-                      },
-                      "semantic_etags": {
-                        "oneOf": [
-                          {
-                            "type": "null"
-                          },
-                          {
-                            "$ref": "#/components/schemas/DocumentSemanticEtags"
-                          }
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "no_op"
                         ]
-                      },
-                      "semantic_local_block_ids": {
-                        "type": [
-                          "object",
-                          "null"
-                        ],
-                        "additionalProperties": {
-                          "type": "string"
-                        },
-                        "propertyNames": {
-                          "type": "string"
-                        }
                       }
                     }
                   }
-                }
+                ],
+                "description": "Closed result of an authorized command. A semantic mutation returns its\nimmutable commit identity; a validated no-op returns only the observed\nstore cursor and therefore cannot masquerade as a new commit."
               },
               "status": {
                 "type": "string",
@@ -22473,7 +24030,7 @@
           }
         ]
       },
-      "ResponseEnvelope_CommittedModuleValue_ProjectWorkspaceCommitValue_ProjectWorkspaceReceipt": {
+      "ResponseEnvelope_ApplyResponse_ProjectWorkspaceCommitValue_ProjectWorkspaceReceipt": {
         "oneOf": [
           {
             "type": "object",
@@ -22483,45 +24040,35 @@
             ],
             "properties": {
               "payload": {
-                "type": "object",
-                "required": [
-                  "value",
-                  "receipt",
-                  "event_sequence",
-                  "store_epoch"
-                ],
-                "properties": {
-                  "commit_seq": {
-                    "type": "integer",
-                    "format": "int64",
-                    "description": "Semantic LocalCommit cursor after this operation. Unlike\n`event_sequence`, this does not identify a physical change-log row.\nA no-change receipt still carries the current cursor so callers never\nmistake a physical sequence for projection freshness."
-                  },
-                  "event_sequence": {
-                    "type": "integer",
-                    "format": "int64",
-                    "description": "Physical change-log effect sequence retained for module-internal event\nreconstruction. It is not a public projection cursor."
-                  },
-                  "local_commit": {
-                    "oneOf": [
-                      {
-                        "type": "null"
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "required": [
+                      "outcome",
+                      "receipt",
+                      "commit",
+                      "status"
+                    ],
+                    "properties": {
+                      "commit": {
+                        "$ref": "#/components/schemas/CommitIdentity"
                       },
-                      {
-                        "$ref": "#/components/schemas/LocalCommitEnvelope",
-                        "description": "Present when this response represents a durable semantic local commit.\nNo-change receipts intentionally have no new local commit."
-                      }
-                    ]
-                  },
-                  "receipt": {
-                    "allOf": [
-                      {
-                        "$ref": "#/components/schemas/ModuleMutationReceipt"
+                      "delivery": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "$ref": "#/components/schemas/AuthorizedDeliveryPacket"
+                          }
+                        ]
                       },
-                      {
+                      "outcome": {
                         "type": "object",
                         "required": [
                           "affected_project_ids",
-                          "affected_session_ids"
+                          "affected_session_ids",
+                          "affected_thread_ids"
                         ],
                         "properties": {
                           "affected_project_ids": {
@@ -22535,43 +24082,129 @@
                             "items": {
                               "type": "string"
                             }
+                          },
+                          "affected_thread_ids": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
                           }
                         }
+                      },
+                      "receipt": {
+                        "allOf": [
+                          {
+                            "$ref": "#/components/schemas/ModuleMutationReceipt"
+                          },
+                          {
+                            "type": "object",
+                            "required": [
+                              "affected_project_ids",
+                              "affected_session_ids"
+                            ],
+                            "properties": {
+                              "affected_project_ids": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "affected_session_ids": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "committed"
+                        ]
                       }
-                    ]
+                    }
                   },
-                  "store_epoch": {
-                    "$ref": "#/components/schemas/StoreEpoch"
-                  },
-                  "value": {
+                  {
                     "type": "object",
                     "required": [
-                      "affected_project_ids",
-                      "affected_session_ids",
-                      "affected_thread_ids"
+                      "outcome",
+                      "receipt",
+                      "observed",
+                      "status"
                     ],
                     "properties": {
-                      "affected_project_ids": {
-                        "type": "array",
-                        "items": {
-                          "type": "string"
+                      "observed": {
+                        "$ref": "#/components/schemas/StoreObservation"
+                      },
+                      "outcome": {
+                        "type": "object",
+                        "required": [
+                          "affected_project_ids",
+                          "affected_session_ids",
+                          "affected_thread_ids"
+                        ],
+                        "properties": {
+                          "affected_project_ids": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "affected_session_ids": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "affected_thread_ids": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
                         }
                       },
-                      "affected_session_ids": {
-                        "type": "array",
-                        "items": {
-                          "type": "string"
-                        }
+                      "receipt": {
+                        "allOf": [
+                          {
+                            "$ref": "#/components/schemas/ModuleMutationReceipt"
+                          },
+                          {
+                            "type": "object",
+                            "required": [
+                              "affected_project_ids",
+                              "affected_session_ids"
+                            ],
+                            "properties": {
+                              "affected_project_ids": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "affected_session_ids": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          }
+                        ]
                       },
-                      "affected_thread_ids": {
-                        "type": "array",
-                        "items": {
-                          "type": "string"
-                        }
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "no_op"
+                        ]
                       }
                     }
                   }
-                }
+                ],
+                "description": "Closed result of an authorized command. A semantic mutation returns its\nimmutable commit identity; a validated no-op returns only the observed\nstore cursor and therefore cannot masquerade as a new commit."
               },
               "status": {
                 "type": "string",
@@ -22601,7 +24234,7 @@
           }
         ]
       },
-      "ResponseEnvelope_CommittedModuleValue_StoreAdministrationCommitValue_StoreAdministrationReceipt": {
+      "ResponseEnvelope_ApplyResponse_StoreAdministrationCommitValue_StoreAdministrationReceipt": {
         "oneOf": [
           {
             "type": "object",
@@ -22611,48 +24244,46 @@
             ],
             "properties": {
               "payload": {
-                "type": "object",
-                "required": [
-                  "value",
-                  "receipt",
-                  "event_sequence",
-                  "store_epoch"
-                ],
-                "properties": {
-                  "commit_seq": {
-                    "type": "integer",
-                    "format": "int64",
-                    "description": "Semantic LocalCommit cursor after this operation. Unlike\n`event_sequence`, this does not identify a physical change-log row.\nA no-change receipt still carries the current cursor so callers never\nmistake a physical sequence for projection freshness."
-                  },
-                  "event_sequence": {
-                    "type": "integer",
-                    "format": "int64",
-                    "description": "Physical change-log effect sequence retained for module-internal event\nreconstruction. It is not a public projection cursor."
-                  },
-                  "local_commit": {
-                    "oneOf": [
-                      {
-                        "type": "null"
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "required": [
+                      "outcome",
+                      "receipt",
+                      "commit",
+                      "status"
+                    ],
+                    "properties": {
+                      "commit": {
+                        "$ref": "#/components/schemas/CommitIdentity"
                       },
-                      {
-                        "$ref": "#/components/schemas/LocalCommitEnvelope",
-                        "description": "Present when this response represents a durable semantic local commit.\nNo-change receipts intentionally have no new local commit."
-                      }
-                    ]
-                  },
-                  "receipt": {
-                    "allOf": [
-                      {
-                        "$ref": "#/components/schemas/ModuleMutationReceipt"
+                      "delivery": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "$ref": "#/components/schemas/AuthorizedDeliveryPacket"
+                          }
+                        ]
                       },
-                      {
+                      "outcome": {
                         "type": "object",
+                        "required": [
+                          "completed_tasks"
+                        ],
                         "properties": {
                           "backup_id": {
                             "type": [
                               "string",
                               "null"
                             ]
+                          },
+                          "completed_tasks": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/MaintenanceTask"
+                            }
                           },
                           "safety_backup_id": {
                             "type": [
@@ -22661,39 +24292,111 @@
                             ]
                           }
                         }
-                      }
-                    ]
-                  },
-                  "store_epoch": {
-                    "$ref": "#/components/schemas/StoreEpoch"
-                  },
-                  "value": {
-                    "type": "object",
-                    "required": [
-                      "completed_tasks"
-                    ],
-                    "properties": {
-                      "backup_id": {
-                        "type": [
-                          "string",
-                          "null"
+                      },
+                      "receipt": {
+                        "allOf": [
+                          {
+                            "$ref": "#/components/schemas/ModuleMutationReceipt"
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "backup_id": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "safety_backup_id": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              }
+                            }
+                          }
                         ]
                       },
-                      "completed_tasks": {
-                        "type": "array",
-                        "items": {
-                          "$ref": "#/components/schemas/MaintenanceTask"
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "committed"
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "required": [
+                      "outcome",
+                      "receipt",
+                      "observed",
+                      "status"
+                    ],
+                    "properties": {
+                      "observed": {
+                        "$ref": "#/components/schemas/StoreObservation"
+                      },
+                      "outcome": {
+                        "type": "object",
+                        "required": [
+                          "completed_tasks"
+                        ],
+                        "properties": {
+                          "backup_id": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "completed_tasks": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/MaintenanceTask"
+                            }
+                          },
+                          "safety_backup_id": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
                         }
                       },
-                      "safety_backup_id": {
-                        "type": [
-                          "string",
-                          "null"
+                      "receipt": {
+                        "allOf": [
+                          {
+                            "$ref": "#/components/schemas/ModuleMutationReceipt"
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "backup_id": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "safety_backup_id": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "no_op"
                         ]
                       }
                     }
                   }
-                }
+                ],
+                "description": "Closed result of an authorized command. A semantic mutation returns its\nimmutable commit identity; a validated no-op returns only the observed\nstore cursor and therefore cannot masquerade as a new commit."
               },
               "status": {
                 "type": "string",
@@ -23982,24 +25685,6 @@
                             "$ref": "#/components/schemas/LibraryAgentMovePagesPreparation"
                           }
                         }
-                      },
-                      {
-                        "type": "object",
-                        "required": [
-                          "value",
-                          "kind"
-                        ],
-                        "properties": {
-                          "kind": {
-                            "type": "string",
-                            "enum": [
-                              "block_transfer_plan"
-                            ]
-                          },
-                          "value": {
-                            "$ref": "#/components/schemas/LibraryBlockTransferPlan"
-                          }
-                        }
                       }
                     ]
                   }
@@ -24218,7 +25903,7 @@
                                 "type": "null"
                               },
                               {
-                                "$ref": "#/components/schemas/CommittedModuleValue_OwnedDocumentCommitValue_OwnedDocumentReceipt"
+                                "$ref": "#/components/schemas/ApplyResponse_OwnedDocumentCommitValue_OwnedDocumentReceipt"
                               }
                             ]
                           },
@@ -24781,6 +26466,16 @@
           }
         ]
       },
+      "RevokedResourceKind": {
+        "type": "string",
+        "enum": [
+          "page",
+          "document",
+          "database",
+          "data_source",
+          "view"
+        ]
+      },
       "RuntimeDescriptor": {
         "type": "object",
         "required": [
@@ -24880,6 +26575,50 @@
           "rust"
         ]
       },
+      "SemanticEffect": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "effect_order",
+              "module",
+              "effect_kind",
+              "resources",
+              "payload_hash",
+              "projection_impact",
+              "kind"
+            ],
+            "properties": {
+              "effect_kind": {
+                "type": "string"
+              },
+              "effect_order": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "module_changed"
+                ]
+              },
+              "module": {
+                "$ref": "#/components/schemas/ModuleName"
+              },
+              "payload_hash": {
+                "type": "string"
+              },
+              "projection_impact": {
+                "$ref": "#/components/schemas/ProjectionImpact"
+              },
+              "resources": {
+                "$ref": "#/components/schemas/LocalCommitResources"
+              }
+            }
+          }
+        ],
+        "description": "A closed semantic index entry. The payload itself belongs to an authorized\ndelivery packet; the manifest records only the owning Module, effect kind,\nresource index, and payload digest."
+      },
       "ShutdownRequest": {
         "oneOf": [
           {
@@ -24957,7 +26696,7 @@
         "$ref": "#/components/schemas/ModuleApplyRequest_StoreAdministrationIntent"
       },
       "StoreAdministrationApplyResponse": {
-        "$ref": "#/components/schemas/ResponseEnvelope_CommittedModuleValue_StoreAdministrationCommitValue_StoreAdministrationReceipt"
+        "$ref": "#/components/schemas/ResponseEnvelope_ApplyResponse_StoreAdministrationCommitValue_StoreAdministrationReceipt"
       },
       "StoreAdministrationEvent": {
         "type": "object",
@@ -25056,6 +26795,22 @@
           "failed"
         ]
       },
+      "StoreObservation": {
+        "type": "object",
+        "required": [
+          "store_epoch",
+          "commit_head"
+        ],
+        "properties": {
+          "commit_head": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "store_epoch": {
+            "$ref": "#/components/schemas/StoreEpoch"
+          }
+        }
+      },
       "StoreReadiness": {
         "type": "string",
         "enum": [
@@ -25064,6 +26819,38 @@
           "maintenance",
           "failed"
         ]
+      },
+      "StreamCheckpoint": {
+        "type": "object",
+        "description": "Proof that Core's durable scanner inspected the ledger through a sequence.\nCommit sequences are monotonic and unique but need not be contiguous.",
+        "required": [
+          "store_epoch",
+          "generation",
+          "scanned_through_seq",
+          "oldest_available_seq"
+        ],
+        "properties": {
+          "generation": {
+            "type": "string"
+          },
+          "oldest_available_seq": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "resync_token": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scanned_through_seq": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "store_epoch": {
+            "$ref": "#/components/schemas/StoreEpoch"
+          }
+        }
       },
       "VersionRange": {
         "type": "object",

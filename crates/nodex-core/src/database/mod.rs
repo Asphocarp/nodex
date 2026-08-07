@@ -1,6 +1,7 @@
 pub(crate) mod authorization;
 mod genesis;
 mod mutation;
+mod projection_delta;
 pub(crate) mod property_semantics;
 pub(crate) mod read;
 mod relation;
@@ -11,7 +12,7 @@ pub(crate) const MAX_DATA_SOURCE_PROPERTIES: usize = 200;
 pub(crate) const MAX_DATABASE_VIEWS: usize = 200;
 
 pub(crate) use genesis::create_database_authority_records;
-pub(crate) use mutation::apply_in_transaction as apply_intents_in_transaction;
+pub(crate) use mutation::apply_as_collaborator as apply_intents_as_collaborator;
 pub(crate) use mutation::{
     ExistingPageTransferTarget, PageCopyDataSourceDestination, PageCopyPositionAnchor,
     PageCopyValueDraft, PageCopyViewPlacement, StagedPagePlacementRevisions, active_property,
@@ -25,15 +26,16 @@ pub(crate) use mutation::{
     resolve_page_transfer_data_source_source, transfer_existing_page_for_agent_move_prevalidated,
     transfer_existing_page_for_block_transfer,
 };
+pub(crate) use projection_delta::record_local_projection_delta;
 pub(crate) use window::{default_page_move_view_id, mint_page_move_etag};
 
 use nodex_core_contracts::database::{
     DatabaseCommitValue, DatabaseIntent, DatabaseRead, DatabaseReadValue, DatabaseReceipt,
 };
 use nodex_core_contracts::{
-    AdapterKind, BoundModuleContext, CommittedCoreModuleEvent, CommittedModuleValue, CoreError,
-    CoreErrorCode, CoreErrorRecovery, DATABASE_CONTRACT_VERSION, ModuleApplyRequest,
-    ModuleReadRequest, ModuleReadSnapshot,
+    AdapterKind, BoundModuleContext, CommittedCoreModuleEvent, CoreError, CoreErrorCode,
+    CoreErrorRecovery, DATABASE_CONTRACT_VERSION, ModuleApplyRequest, ModuleReadRequest,
+    ModuleReadSnapshot,
 };
 use rusqlite::OptionalExtension;
 
@@ -43,7 +45,7 @@ use crate::infrastructure::writer::{StoreReaders, StoreWriter};
 
 #[derive(Clone, Debug)]
 pub struct DatabaseApplyOutcome {
-    pub committed: CommittedModuleValue<DatabaseCommitValue, DatabaseReceipt>,
+    pub committed: crate::ModuleWriterResult<DatabaseCommitValue, DatabaseReceipt>,
     pub event: Option<CommittedCoreModuleEvent>,
 }
 
@@ -2647,7 +2649,18 @@ mod tests {
             value.rows.authority.projection_revision,
             snapshot.commit_head
         );
-        Ok(value)
+        assert_eq!(value.projection.covered_commit_seq, snapshot.commit_head);
+        assert_eq!(value.projection.scope.schema_version, 1);
+        assert_eq!(
+            value.projection.scope.scope,
+            nodex_core_contracts::LocalProjectionScope::DatabaseView {
+                project_id: "project-1".to_owned(),
+                database_id: DATABASE_ID.to_owned(),
+                data_source_id: SOURCE_ID.to_owned(),
+                view_id: view_id.to_owned(),
+            }
+        );
+        Ok(*value)
     }
 
     #[test]

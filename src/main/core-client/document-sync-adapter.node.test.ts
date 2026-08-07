@@ -225,13 +225,20 @@ describe("Core Document sync adapter", () => {
       },
     });
 
-    await expect(adapter.fetchUpdateResource({
+    const request = {
       documentId: "document:one",
       generation: 1,
       updateId: "update:one",
       updateHash,
       clientSessionId: "renderer:resource",
-    })).resolves.toEqual({
+    } as const;
+    const firstFetch = adapter.fetchUpdateResource(request);
+    const coalescedFetch = adapter.fetchUpdateResource({
+      ...request,
+      clientSessionId: "renderer:second-surface",
+    });
+    expect(coalescedFetch).toBe(firstFetch);
+    await expect(firstFetch).resolves.toEqual({
       ok: true,
       value: {
         kind: "available",
@@ -528,9 +535,13 @@ describe("Core Document sync adapter", () => {
     };
     const apply = vi.spyOn(client, "documentApply").mockImplementationOnce(
       async (input) => ({
-        store_epoch: "epoch:test",
-        event_sequence: 8,
-        value: {
+        status: "committed" as const,
+        commit: {
+          store_epoch: "epoch:test",
+          commit_seq: 8,
+          manifest_hash: "f".repeat(64),
+        },
+        outcome: {
           document_id: checkpointRequest.documentId,
           generation: checkpointRequest.expectedGeneration,
           head_seq: checkpointRequest.expectedHeadSeq,
@@ -643,9 +654,13 @@ describe("Core Document sync adapter", () => {
       actor: { kind: "electron_renderer", clientId: "renderer:history" },
     };
     client.enqueueDocumentApply({
-      store_epoch: request.storeEpoch,
-      event_sequence: 9,
-      value: {
+      status: "committed",
+      commit: {
+        store_epoch: request.storeEpoch,
+        commit_seq: 9,
+        manifest_hash: "f".repeat(64),
+      },
+      outcome: {
         document_id: request.documentId,
         generation: request.generation,
         head_seq: 3,
@@ -716,9 +731,12 @@ describe("Core Document sync adapter", () => {
       expectedHeadSeq: 3,
     };
     client.enqueueDocumentApply({
-      store_epoch: request.storeEpoch,
-      event_sequence: 9,
-      value: {
+      status: "no_op",
+      observed: {
+        store_epoch: request.storeEpoch,
+        commit_head: 9,
+      },
+      outcome: {
         document_id: request.documentId,
         generation: request.generation,
         head_seq: 3,

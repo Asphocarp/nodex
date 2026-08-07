@@ -99,6 +99,12 @@ class SurfaceTestAdapter implements DocumentSyncAdapter {
         headSeq: this.headSeq,
         stateVector: Y.encodeStateVector(this.server.document),
         duplicate: false,
+        status: "committed" as const,
+        commit: {
+          store_epoch: "store-1",
+          commit_seq: this.headSeq,
+          manifest_hash: "f".repeat(64),
+        },
       },
     };
   };

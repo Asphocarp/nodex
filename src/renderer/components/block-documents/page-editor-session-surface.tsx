@@ -16,11 +16,11 @@ import {
   type BlockDocumentSurfaceRuntimeOptions,
 } from "@/lib/block-document-surface-runtime";
 import {
-  makePageEditorRuntimeIdentity,
-  pageEditorSessionRegistry,
-  type PageEditorSession,
-  type PageEditorSessionRegistry,
-} from "@/lib/page-editor-session-registry";
+  makeDocumentSessionIdentity,
+  documentSessionRegistry,
+  type EditorSurfaceLease,
+  type DocumentSessionRegistry,
+} from "@/lib/document-session-registry";
 
 interface PageEditorSessionSurfaceProps extends Omit<
   BlockDocumentSurfaceProps,
@@ -28,15 +28,15 @@ interface PageEditorSessionSurfaceProps extends Omit<
 > {
   readonly sessionKey: string;
   readonly retainModelOnUnmount?: boolean;
-  readonly registry?: PageEditorSessionRegistry;
+  readonly registry?: DocumentSessionRegistry;
   readonly children: (
     surface: BlockDocumentSurfaceValue,
-    session: PageEditorSession,
+    session: EditorSurfaceLease,
   ) => ReactNode;
 }
 
 interface SessionOwnerState {
-  readonly session: PageEditorSession | null;
+  readonly session: EditorSurfaceLease | null;
   readonly startupError: Error | null;
 }
 
@@ -60,7 +60,7 @@ const createRuntime = (
 export function PageEditorSessionSurface({
   sessionKey,
   retainModelOnUnmount = true,
-  registry = pageEditorSessionRegistry,
+  registry = documentSessionRegistry,
   projectId,
   descriptor,
   isActive,
@@ -82,13 +82,13 @@ export function PageEditorSessionSurface({
   retainModelOnUnmountRef.current = retainModelOnUnmount;
   const onReloadRef = useRef(onReload);
   onReloadRef.current = onReload;
-  const identity = makePageEditorRuntimeIdentity(descriptor);
+  const identity = makeDocumentSessionIdentity(descriptor);
   const adapterFactory = dependencies?.createAdapter ?? createDocumentSyncAdapter;
   const runtimeFactory = dependencies?.createRuntime ?? createRuntime;
 
   useLayoutEffect(() => {
     let live = true;
-    let session: PageEditorSession | null = null;
+    let session: EditorSurfaceLease | null = null;
     let viewGeneration = 0;
     setOwnerState(EMPTY_SESSION_OWNER_STATE);
 

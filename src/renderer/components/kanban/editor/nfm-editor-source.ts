@@ -20,11 +20,30 @@ export interface NfmEditorSource {
   readonly provider?: {
     readonly awareness?: Awareness;
   };
+  /** Stable EditorSurface identity used to keep collaborative undo local. */
+  readonly transactionOrigin?: object;
   /** Editor-local invalidation hint. It is not a persistence callback. */
   readonly onDocumentChange?: () => void;
 }
 
 export type NfmEditorCollaborativeDocumentSource = NfmEditorSource;
+
+const transactionOriginsByFragment = new WeakMap<
+  Y.XmlFragment,
+  Map<string, object>
+>();
+
+const resolveTransactionOrigin = (source: NfmEditorSource): object => {
+  if (source.transactionOrigin) return source.transactionOrigin;
+  const origins = transactionOriginsByFragment.get(source.fragment)
+    ?? new Map<string, object>();
+  transactionOriginsByFragment.set(source.fragment, origins);
+  const existing = origins.get(source.clientSessionId);
+  if (existing) return existing;
+  const origin = Object.freeze({ clientSessionId: source.clientSessionId });
+  origins.set(source.clientSessionId, origin);
+  return origin;
+};
 
 export interface NfmEditorModeOptions {
   readonly collaboration: {
@@ -36,6 +55,7 @@ export interface NfmEditorModeOptions {
     readonly provider?: {
       readonly awareness?: Awareness;
     };
+    readonly transactionOrigin: object;
   };
   readonly initialContent?: never;
 }
@@ -48,6 +68,7 @@ export function createNfmEditorModeOptions(
       fragment: source.fragment,
       user: source.user,
       ...(source.provider ? { provider: source.provider } : {}),
+      transactionOrigin: resolveTransactionOrigin(source),
     },
   };
 }

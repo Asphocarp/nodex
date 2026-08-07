@@ -8,6 +8,7 @@ import {
 import { CollaborationOptions } from "./Collaboration.js";
 import { YCursorExtension } from "./YCursorPlugin.js";
 import { YSyncExtension } from "./YSync.js";
+import { YSurfaceOriginExtension } from "./YSurfaceOrigin.js";
 import { YUndoExtension } from "./YUndo.js";
 
 /**
@@ -91,6 +92,7 @@ export const ForkYDocExtension = createExtension(
         // Need to reset all the yjs plugins
         editor.unregisterExtension([
           YUndoExtension,
+          YSurfaceOriginExtension,
           YCursorExtension,
           YSyncExtension,
         ]);
@@ -100,9 +102,13 @@ export const ForkYDocExtension = createExtension(
         };
         // Register them again, based on the new forked fragment
         editor.registerExtension([
+          YSurfaceOriginExtension({
+            fragment: forkedFragment,
+            transactionOrigin: options.transactionOrigin ?? {},
+          }),
           YSyncExtension(newOptions),
           // No need to register the cursor plugin again, it's a local fork
-          YUndoExtension(),
+          YUndoExtension({ transactionOrigin: options.transactionOrigin ?? {} }),
         ]);
 
         // Tell the store that the editor is now forked
@@ -119,14 +125,23 @@ export const ForkYDocExtension = createExtension(
           return;
         }
         // Remove the forked fragment's plugins
-        editor.unregisterExtension(["ySync", "yCursor", "yUndo"]);
+        editor.unregisterExtension([
+          "ySurfaceOrigin",
+          "ySync",
+          "yCursor",
+          "yUndo",
+        ]);
 
         const { originalFragment, forkedFragment, undoStack } = forkedState;
         // Register the plugins again, based on the original fragment (which is still in the original options)
         editor.registerExtension([
+          YSurfaceOriginExtension({
+            fragment: originalFragment,
+            transactionOrigin: options.transactionOrigin ?? {},
+          }),
           YSyncExtension(options),
           YCursorExtension(options),
-          YUndoExtension(),
+          YUndoExtension({ transactionOrigin: options.transactionOrigin ?? {} }),
         ]);
 
         // Reset the undo stack to the original undo stack

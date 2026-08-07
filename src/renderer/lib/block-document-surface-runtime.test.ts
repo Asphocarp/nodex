@@ -97,6 +97,7 @@ class FakeSurfaceProvider implements BlockDocumentSurfaceProvider {
       connected: false,
       headSeq: 0,
       pendingUpdateCount: 0,
+      checkpoint: { phase: "idle", failureCount: 0 },
     };
   }
 
@@ -458,7 +459,7 @@ describe("BlockDocumentSurfaceRuntime", () => {
       events.push("prepare");
     });
 
-    await runtime.prepareDurableMutation();
+    await runtime.flushAndFence();
 
     expect(events).toEqual(["subscribe", "prepare", "flush"]);
     expect(events.includes("checkpoint")).toBe(false);

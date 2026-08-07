@@ -1,14 +1,37 @@
 # Architecture
 
-Current Rust Store authority is v104. Database contract v6 centralizes typed Property schema, capabilities, and edits. Relation definitions and Page-reference edges are normalized in `data_source_relation_properties` and `data_source_relation_edges`; JSON `null` headers retain revision/CAS leverage while reverse indexes support projection invalidation and retention. Main and renderer adapters map this contract mechanically: authorized Database catalogs, target-Source candidate windows, relation-value windows, and bounded summaries replace View-cache inference and per-Page hydration. Library contract v9 provides the upper transaction for Page Detail actions that combine Database-owned Source Properties with Library-owned intrinsic Properties, while preserving the lower ownership boundaries and restricting the composition to value edits over one identical Page set.
+Current Rust Store authority is v107. Database contract v6 centralizes typed Property schema, capabilities, and edits. Relation definitions and Page-reference edges are normalized in `data_source_relation_properties` and `data_source_relation_edges`; JSON `null` headers retain revision/CAS leverage while reverse indexes support projection invalidation and retention. Main and renderer adapters map this contract mechanically: authorized Database catalogs, target-Source candidate windows, relation-value windows, and bounded summaries replace View-cache inference and per-Page hydration. Library contract v10 provides the upper transaction for Page Detail actions that combine Database-owned Source Properties with Library-owned intrinsic Properties, while preserving the lower ownership boundaries and restricting the composition to value edits over one identical Page set.
 
-Store v104 completes the LocalCommit cutover. v102 introduced semantic local
-mutation identity, v103 added `(store_epoch, commit_seq)` foreign-key
-boundaries for effects, Document impacts, and module receipts, and v104
-canonicalizes the complete envelope evidence and verifies it on replay. The
-physical `change_log_seq` remains an internal effect/history coordinate and is
-not a renderer cursor. v104 is a logical integrity cutover; it reuses the
-validated v103 physical inventory and does not add a second storage authority.
+Store v107 retains the three-artifact semantic mutation model introduced by
+v105/v106. The existing
+`change_log`, Document update rows, and Module history form a private physical
+journal. An immutable `CommitManifest` records semantic identity, ordered
+physical evidence digest, Document refs, routing claims, receipts, and
+per-scope Projection effects. A post-state-authorized
+`AuthorizedDeliveryPacket` is generated for one access context and may carry
+inline Document bytes or refs without changing the Manifest identity. Dynamic
+recipients, inline bytes, and transport retries never enter `manifest_hash`.
+v106 added the persisted manifest and transactionally advanced
+`projection_scope_heads`; v107 adds exact Block child-key indexes for
+Project-key cascades. Physical `change_log_seq` remains an internal
+history coordinate rather than a public cursor.
+
+Every LocalCommit child artifact is addressed by the complete
+`(store_epoch, commit_seq)` coordinate. Manifest verification loads the parent,
+physical evidence, and canonical Document effects once as one verified bundle;
+authorization and delivery reuse that bundle instead of rescanning epoch-wide
+child tables. Raw physical payload bytes are checked against their persisted
+effect digest before typed reconstruction. Compacted Document update bytes are
+not historical authority: retained update receipts supply the immutable base
+head, result head, digest, and byte length needed by the Manifest. The Store
+epoch is therefore part of both semantic identity and the physical lookup
+contract, rather than a foreign-key decoration.
+
+Store preparation validates LocalCommit coverage and finalization once before
+the runtime starts. Authorized stream reads then use the current Store epoch's
+indexed first/last coordinates and keyset pages; they do not rescan the complete
+ledger to validate every page. The exclusive Core writer and atomic mutation
+transaction preserve that invariant until the next cold-open validation.
 
 ## Overview
 Nodex is a local-first, block-based agent orchestrator for coordinating coding-agent work. One detached native Rust Core is the exclusive SQLite and collaborative-document authority for each Profile. Electron is the Desktop Host for windows, typed renderer IPC, operating-system integration, and the pinned Codex-compatible app-server runtime; supported macOS Desktop Tool threads retain that app-server while launching their shared REPL through the vendor-signed Node and Codex ancestry required by native Browser and Computer Use authentication. The native CLI and desktop renderer reach product state through Core-backed semantic adapters.
@@ -92,24 +115,32 @@ Modules.
 
 ## Local mutation and projection convergence
 
-Durable user mutations have one semantic `LocalCommit` envelope. Core assigns
-the `(store_epoch, commit_seq)` identity inside the SQLite transaction and
-persists the envelope, its physical effect references, affected Document
-heads, and the idempotent receipt before returning the successful response.
-The older `change_log` effect sequence remains an internal storage coordinate;
-renderer-facing mutation results and projection cursors use the semantic local
-commit sequence.
+Durable user mutations have one immutable semantic Manifest. Core assigns its
+`(store_epoch, commit_seq, manifest_hash)` identity in the SQLite transaction
+and persists the Manifest, physical evidence links, affected Document refs,
+scope revisions, and idempotent receipt before returning success. Apply
+responses carry the command result independently from an optional authorized
+delivery packet. The initiator therefore admits readable local effects before
+waiting for the durable stream, while a caller that lost post-state read access
+still receives the successful command result and a typed revoke when needed.
 
-The Main process admits the envelope from an apply response synchronously into
-`LocalCommitDispatcher`. Admission is not projection completion: the response
-can return to the renderer immediately, while the dispatcher serializes
-document fanout, scoped projection invalidation, and domain notifications in a
-retryable background drain. The durable Core event tailer and replay path feed
-the same dispatcher. `(store_epoch, commit_seq)` plus the canonical hash makes
-the two paths at-least-once and deduplicated; a later richer envelope can
-replace a not-yet-started sparse admission, and an identity collision fails
-closed. The event supervisor therefore does not make a renderer wait for the
-durable stream or a projection listener.
+Core's durable stream is log-driven. Broadcast is only a wake signal: each
+subscriber first installs its receiver, scans a single SQLite read snapshot in
+ledger order, emits zero or more authorized packets, then emits an explicit
+`StreamCheckpoint`. Only that checkpoint proves `scanned_through_seq`; commit
+numbers may contain gaps and a packet's arrival alone never advances the resume
+cursor. A retention gap returns a generation-bound resync token. Main admits
+apply and stream packets by Manifest identity, delivers complementary coverage
+as enrichment, and rejects a hash collision. Core—not Main—filters all packet
+content against current post-state authority.
+
+An exact Document subscription is itself a resource boundary. Core authorizes
+the owned Document with the canonical Page/grant/synced-owner/Canvas-shell read
+rules, then filters semantic effects, Document refs, and revocations to that
+exact Document before delivery. A commit that contains only unrelated effects
+may advance the explicit stream checkpoint but cannot enter the surface lane;
+a Canvas scene commit cannot disappear merely because its shell is not a normal
+Page row.
 
 Document and Canvas realtime delivery has a separate per-surface durable head
 ordering barrier. A future head is buffered, a contiguous head drains in
@@ -117,11 +148,13 @@ order, and a bounded overflow emits an explicit resync. This ordering is
 independent of the semantic LocalCommit order because one commit may update
 multiple Documents and two apply responses may arrive out of order.
 
-Document payload bytes are operationally compactable, but the LocalCommit effect
-is not deleted from the durable semantic history. The v104 canonical hash covers
-the parent identity, every ordered physical effect, projection impact, and
-Document reference metadata, so changing any of those facts fails closed during
-replay. If replay finds a verified
+Document payload bytes are operationally compactable, but the Manifest effect
+index is not deleted from durable semantic history. The Manifest hash covers
+the parent identity, ordered physical evidence digest, semantic index,
+projection effects, routing claims, receipt ref, and Document reference
+metadata. It deliberately excludes inline bytes and recipients. A ref-only
+packet cannot encode `document_updated` bytes as a Module payload; those bytes
+cross the boundary only through an authorized Document resource. If replay finds a verified
 Document effect whose update bytes have been compacted, Core emits the typed
 `document_resync_required` effect with the Document generation/head and update
 identity/hash. Main turns it into a `history-compacted` surface resync; it never
@@ -139,17 +172,19 @@ membership mutation. The fence is a freshness precondition, not idempotent
 command identity; retries with a newly observed head retain the same semantic
 intent hash.
 
-Renderer stores treat projection invalidation as a minimum cursor, not a
-second authority. Each consumer tracks the `commitSeq` covered by its
-canonical read; an old response cannot replace a snapshot already covering a
-newer commit. Successful receipts and LocalCommit fanout drive the same
-invalidation registry, so Board membership, Page ownership, title/body
-materialization, and navigation converge without focus changes or manual
-refresh calls. The router admits invalidations without awaiting projection
-reads, serializes work per scope, and retries failed reads with bounded
-backoff. There is no per-item pending projection state: when Core has durably
-committed, the local commit is the current authority and the renderer
-reconciles through its normal canonical read boundary.
+Renderer stores order each derived read model by Core's exact projection
+coordinate: `(store_epoch, canonical_scope_key, schema_version, revision,
+covered_commit_seq, effect_hash)`. A global LocalCommit sequence is durable
+stream progress, never a projection version. Core compiles one exact effect per
+affected scope in the write transaction. A complete patch is reduced
+synchronously into the current renderer snapshot; missing patches, revision
+gaps, integrity conflicts, resets, and explicitly incomplete windows trigger a
+coalesced canonical `readAtLeast` repair. Database View groups and every group
+window carry the same authority, so readers reject a mixed-revision
+composition and continuations never cross a scope revision. There is no
+item-level pending projection state: after Core commits, the apply response is
+the initiating renderer's immediate authority and durable replay is only the
+later convergence path.
 
 ## Codemap
 
@@ -171,15 +206,34 @@ freshness policy. Its bounded selection result identifies one exact generation;
 only the following authenticated handshake proves authority. Electron may opt
 the launched candidate into a private, versioned, bounded NDJSON startup-event
 prefix on the same machine stdout channel. Those best-effort frames expose
-candidate timing and a Store migration only after Core has authoritatively
-classified a supported older schema and before its first migration write; they
-cannot select a process, extend authority, or replace the terminal selection
-result and authenticated generation handshake. Native CLI launch does not opt
+candidate timing and bounded, monotonic migration progress only after Core has
+authoritatively classified a supported older schema and before its first
+migration write; they cannot select a process, extend authority, or replace the
+terminal selection result and authenticated generation handshake. Historical
+LocalCommit artifacts are rebuilt once against the final target schema in the
+same atomic upgrade, rather than once per intermediate schema version. The
+validated source backup is published under its content digest; a source with a
+complete append-only LocalCommit source identity can reuse that exact recovery
+artifact before copying again, while older sources without such an identity
+still converge on one content-addressed file. A low-rate migration heartbeat
+covers backup, integrity checking, and other phases without a countable unit.
+Native CLI launch does not opt
 in and continues to receive the selection result as the first line. Main
 retains a monotonic UI projection so a window created after the event still
-receives the true migration state. Main initialization routes every durable
-port through Core before renderer windows become operational; disconnecting
-Electron does not terminate the detached Core. The active
+receives the true migration state and changes from migration to workspace
+opening as soon as Core reports Store readiness.
+
+The launcher owns a candidate until authenticated connection succeeds. Any
+valid startup frame resets a sliding inactivity deadline, while an independent
+hard deadline remains finite; the authenticated connection gets a fresh
+deadline after selection. Malformed output, cancellation, inactivity, artifact
+mismatch, or connection failure terminates and awaits the entire candidate
+process group before returning failure. Shutdown aborts and awaits candidate
+selection or recovery already in flight. Only a connected detached Core is
+unreferenced and allowed to outlive Electron. Main initialization
+routes every durable port through Core before renderer windows become
+operational; disconnecting Electron from an established authority does not
+terminate the detached Core. The active
 proxy slices cover the established Library catalog/navigation `read`/`apply`
 IPC pair, Project/Library Page Detail, explicit-authority Page references and
 ownership paths, trusted-root Page deep-link location, and the Project catalog
@@ -478,6 +532,12 @@ parent position evidence for restore. A stale or missing host head is a typed
 conflict, never permission to fall back to a raw Block removal. The apply
 response publishes the committed host-Document effect before the renderer
 command completes; the event tailer is only an at-least-once repair path.
+Renderer intent classification is governed by the closed owner-operation
+matrix in the product spec and `typed-owner-blocks.ts`. Generic Document
+materialization remains a fail-closed second boundary: removing a live Page,
+Database, or Canvas owner returns `protected_owner_deletion`, while `pageRef`
+remains a non-owning ordinary Block. This error is a programming/unsupported-
+operation signal, not the normal nested-Page deletion workflow.
 The recursive closure also advances every independent typed-owner authority it
 contains: an embedded Database tombstones/restores `database_containers` with
 its Block and records the owner revision in delete evidence. Closure validation
@@ -1282,7 +1342,7 @@ or the Electron client from reaching the local store.
 - `lib/use-workbench-session-catalog.ts`: Query-backed Project/projectless Session directory and exact selected-detail projection. Session Scene state stays in Window State; the catalog exposes only a leaf compatibility projection for the existing Session renderer and writes every resulting layout mutation back through the Scene owner.
 - `lib/use-workbench-panel-controller.ts` plus `workbench-ephemeral-panel-state.ts`: the command-shaped durable panel Adapter and renderer-lifetime auxiliary-surface reducer. Durable view mutations and preview/Side chat/MCP/Plan/Automation/Subagents/process placement are mutually explicit.
 - `lib/app-close-flush.ts`: renderer-side close-flush coordinator so all registered async flushers complete before one final Electron close ack is sent.
-- `lib/nodex-y-provider.ts`, `block-document-surface-runtime.ts`, `page-editor-session-registry.ts`, and `owned-block-document*.ts`: transport-neutral Yjs provider, registry-dispatched surface lifecycle, durable PageTab model sessions, and prepared-descriptor validation for one writable Block Document. They own state-vector synchronization, merged local-update batching, one durable command in flight, idempotent retry, realtime gap repair, remote-origin echo suppression, store-epoch/generation reset boundaries, bounded flush/checkpoint/close, accepted-lease drain across visual teardown, disposable-checkpoint isolation after fatal state, independent client sessions, and ephemeral Awareness. A PageTab session retains its Y.Doc/provider, BlockNote editor, UndoManager, and Yjs-relative cursor while inactive; React owns only a generation-fenced EditorView lease. Other owners use the same generic surface boundary with their schema-specific envelope and ordinary component lifetime.
+- `lib/nodex-y-provider.ts`, `block-document-surface-runtime.ts`, `document-session-registry.ts`, and `owned-block-document*.ts`: transport-neutral Yjs provider, registry-dispatched surface lifecycle, canonical `DocumentSession`, surface leases, and prepared-descriptor validation for one writable Block Document. A renderer shares exactly one Y.Doc/provider for `{storeEpoch, normalized access scope, documentId, generation, schema, sync engine}`; owner display metadata, lifecycle, durable head, tab, and tab group never create a second local authority. Every mounted editor has an independent `EditorSurfaceLease`, BlockNote instance, transaction origin, UndoManager, selection/focus state, and Awareness contribution. The provider owns state-vector synchronization, merged local-update batching, one durable command in flight, idempotent retry, exact-head gap repair, store/generation/integrity reset boundaries, and bounded close. IndexedDB whole-state checkpoints are an observable best-effort recovery lane: they can merge a missing causal diff after Core sync, but their latency or failure never blocks Core ACK or `flushAndFence()`.
 - `lib/electron-document-sync-adapter.ts`: typed binary structured-clone IPC provider transport. Exact local sessions are multiplexed by subscriber instance, and subscribe/unsubscribe reconciliation is serialized so an old disposer cannot close a revived session. A Library descriptor is validated without a Project coordinate before the renderer creates its local editor-surface scope.
 - `lib/window-sessions.ts`: renderer helpers for bootstrapping the assigned window session and saving workbench layout snapshots through IPC.
 - `lib/use-workbench-shortcuts.ts`: app-wide Project, command, search, navigation, and panel-command shortcut classification. Retired stage/sliding-window keys remain unhandled for the mounted surface.
@@ -1297,19 +1357,32 @@ or the Electron client from reaching the local store.
 2. The Electron transport sends the typed request through the context-isolated preload bridge and IPC.
    Focused-window UI commands do not enter this mutation transport: application-menu accelerators send a typed command request through preload, `useWorkbenchCommandIngress` translates the event directly to the registered runtime command port, and toolbar/command-palette entry points execute the same command owner.
 3. Main starts or reuses Core before opening the Profile. Every production capability enters its owning native deep Module; Electron never opens SQLite or reconstructs the transaction. Migration conformance uses exact frozen legacy inventories, the frozen final TypeScript v84 schema artifact, and disposable copies. A Page editor sends binary Yjs updates; there is no Page title/body snapshot command or main-process SQLite fallback. Agent reads publish no mutation events.
-4. Core captures domain events and a required canonical `ProjectionImpact` in the same `change_log` transaction as their semantic mutation and exact-head projections. The impact is `none`, `all`, or bounded Page/Database/Data Source/View/Page-bound Document-head coordinates; it carries no title, summary, property value, Project identity, or change kind. Ordinary mutations and Project creation enumerate their full projection closure. Visibility-changing moves, grants, and transfers use identity-free `all`, because the Project router's post-commit authorization view cannot safely name a resource the Project just lost. Schema v88 records the first sequence with complete impact history. Replay crossing older rows returns a resync boundary, while a missing or malformed post-floor impact is corruption. Live publication and replay both use the same committed-row decoder. Main's `ProjectionInvalidationRouter` consumes only the top-level impact, cursor, and handshake Library identity. Library scope receives the complete impact; each active Project scope filters all coordinates through one Core authorization read on its own ordered queue, reusing canonical Page/Database/View authorization predicates. Authorization failure emits a scoped resync without identities. The Core supervisor advances only after router acceptance, so fanout failure reconnects from the previous cursor. Database, Library, Workspace, Automation, and compatibility `board-changed` events retain their domain effects but do not own projection correctness.
+4. Core captures the canonical `ProjectionImpact` and sealed per-scope `ProjectionEffect`s in the same LocalCommit transaction as the semantic mutation and exact-head projections. Each effect names one canonical scope and carries `base_revision`, `result_revision`, `covered_commit_seq`, `effect_hash`, an optional complete patch, and an explicit `requires_read_at_least` bit. Main's `LocalCommitCoordinator` admits apply-response and durable-stream copies synchronously, validates Manifest/coverage identity, and deduplicates them by resource identity. Document heads, exact projection scopes, revocations, and domain notifications run in independent ordered retry lanes; failure or slowness in one lane cannot delay another or the mutation response. `ProjectionDeliveryRouter` only maps already-authorized effects to Library/Project renderer scopes and performs no projection read. The durable stream checkpoint advances replay bookkeeping but is never a local visibility prerequisite. Database, Library, Workspace, Automation, and compatibility `board-changed` events retain their domain effects but do not own projection correctness.
 5. Electron main broadcasts ordinary change events to all open windows through the safe IPC sender; Codex host-message/event fanout goes through the renderer-client router, which itself uses the safe sender. Direct `webContents.send` fanout is not allowed outside those helpers because renderer reload/close can dispose frames between lookup and send. Board subscriptions filter by `projectId`; Project-list and Session invalidation subscriptions are global, with Session summary scopes carried in the event.
-6. Each renderer window owns one `ProjectionInvalidationRegistry`, created synchronously above Query consumers. It reference-counts one Electron IPC stream per Library/Project scope and reads each consumer's dependencies and satisfied cursor dynamically. A new subscription receives a checkpoint behind already accepted Host work, closing the race between an initial query and later React effect. Resource intersection invalidates Page detail, Database Views, references, Library navigation, or management reads; `all`, resync, and Store-epoch changes invalidate the complete scope. Events arriving during an initial or background read set a required cursor, and callback completion triggers one trailing canonical read only if the returned snapshot does not cover it. TanStack Query families enumerate actual cached keys and invalidate each exact key. Cursor-fenced `board-changed` summaries may patch Kanban immediately but can never overwrite a newer canonical `BoardSummarySnapshot`. Ownership-path and navigation events remain for topology or permission side effects rather than freshness.
+6. Each renderer window owns one projection delivery registry before Query consumers render. Exact-scope consumers attach a `CausalProjectionRuntime`; it accepts only a contiguous `base_revision → result_revision`, applies a complete patch synchronously, buffers bounded future effects, detects duplicate-hash divergence, and coalesces canonical repairs for gaps, patchless effects, resets, or incomplete windows. The initial stream checkpoint closes only the read-before-subscribe race and never causes repeated global refreshes. Consumers without a direct reducer may still register bounded dependency rereads, but global impact cannot overwrite exact scope ordering. Canonical snapshots are admitted only when they do not move the current scope revision/floor backward and do not conflict on the same revision hash. Kanban's direct Database-row effect updates cards, query rows, per-group windows, totals, and the exact projection coordinate before any repair I/O. Ownership-path and navigation events remain for topology or permission side effects rather than freshness.
 7. Reminder scheduler polls occurrences, dedupes delivery via receipts, and emits `reminder:open` to renderer on notification click.
 
 Block-first migration foundation:
 
-1. Core accepts the exact frozen v26, both v57, v68, v82, and v83 TypeScript inventories as historical import sources, the exact final TypeScript v84 inventory as its direct handoff, and exact Rust-owned v85 through v103 stores. For a historical source, Core identifies the complete normalized physical inventory and takes an online database snapshot plus a validated asset-tree backup. The earlier v57 inventory receives a named-column rebuild of its Thread and Automation tables only inside that staging copy. Core then invokes the bundled hash-pinned migrator, reproducibly built from the fixed historical source plus reviewed compatibility overlays that retain legacy Page projection names and workflow-status identities, refresh recovered option registries, materialize explicit cross-Project Page references as same-Library read grants, retain missing targets as inert unresolved-reference diagnostics, and audit old identities on token boundaries in Database authority and committed evidence while leaving opaque historical Session UI state to schema validation only. Core advances the candidate to exact v84, reconstructs authoritative Yjs content through Yrs—including BlockNote `tableHeader` matrices as canonical `headerRows`/`headerCols`—rebuilds only derived projections, validates the complete v84 handoff, and atomically publishes current Rust ownership as v104 under a crash-recovery journal. Rust-owned v85 through v103 stores are validated exactly, backed up, and atomically upgraded before v104 publication. The historical v87 migration widened null tab ownership to Browser, Terminal, and exact-file Files; v88 added required projection impact plus its honest replay floor; v89 canonicalized Codex Thread clocks; v90 removes Project Session panel/tab authority, preserving only one valid initial Database View target as `initial_database_view_id` while intentionally discarding historical window arrangement; v91 moves sidebar lane order into normalized relation ranks while keeping Thread previews compact; v92 canonicalizes every schema-owned `TEXT` `*_at` timestamp to millisecond UTC; v93 replaces the denormalized per-Session `initial_database_view_id` pointer with the historical `database_starter` marker because the presented View resolves from Database authority at read time; v94 replaces the optional legacy Project icon with a constrained, non-null color-plus-marker appearance; v95 makes Canvas authority incrementally verifiable with exact counters, deterministic hash buckets, a projection head, compact intent receipts, and indexed element/file metadata; v96 adds exact incremental tombstone bytes for constant-time maintenance policy; v97 adds explicit Canvas owner metadata, normalizes the retired Database Canvas presentation to List, and makes first-class Canvas placement queryable; v98 validates every live Yjs Document before removing non-canonical reconstruction fingerprints and enforcing hash-free Yjs heads; v99 removes current database-starter state, deletes only unthreaded marked starter Sessions, and preserves threaded marked rows as ordinary Sessions; v100 adds normalized Relation Property definitions and Page-reference edges without interpreting legacy Property JSON; and v101 adds the persisted projectless permission-mode scope; v102 adds the LocalCommit ledger; v103 adds the composite LocalCommit identity constraints; and v104 adds canonical LocalCommit evidence hashing. Unfrozen same-version lineages, near-matches, ambiguous owners, and future stores fail closed; a Rust-owned v104 store is validated exactly, including timestamp, Database View-kind, Canvas ownership, scene integrity, Yjs hash-separation, and LocalCommit evidence invariants, and never silently repaired.
+1. Core accepts the exact frozen v26, both v57, v68, v82, and v83
+   TypeScript inventories as historical import sources, the exact final
+   TypeScript v84 inventory as its direct handoff, and exact Rust-owned v85
+   through v106 stores. Historical sources are snapshotted with their asset
+   closure, advanced only in staging by the hash-pinned migrator, reconstructed
+   through Yrs, semantically validated, and atomically published as v107 under
+   the crash-recovery journal. Direct native upgrades use the same exact-schema
+   validation and durable backup boundary. v102 introduced the LocalCommit
+   ledger, v103 its composite Store identity, v104 canonical physical evidence
+   hashing, v105 immutable Manifest/authorized packet separation, v106
+   Projection scope heads, and v107 exact child-key indexes for Block
+   Project-key cascades. Unfrozen same-version lineages, near-matches,
+   ambiguous owners, and future stores fail closed; a Rust-owned v107 Store is
+   validated exactly and never silently repaired.
 2. A successful Document apply tentatively reconstructs and validates a Y.Doc, derives the changed title/Block identities from before/after state, reconciles the registry/index, and writes the binary update, immutable receipt, exact-blob checksum, state vector, and new head under one immediate SQLite transaction. Receipts remain independently of update payload retention; compaction verifies and semantically reloads a full snapshot at the current head, then atomically removes only its covered payload tail. Store epoch, Document generation, update identity, `headSeq`, Yjs state vector, and exact retained-blob integrity remain separate concepts. Equivalent Y.Docs may produce different full-state wire bytes, so Store v98 removes Yjs reconstruction fingerprints and excludes full-state hashes from authority, integrity, and concurrency.
-3. Production Page Stage prepares the exact owned descriptor before rendering content. Only a ready `yjs`/`block_tree` descriptor enters the Page editor: it mounts one independent Y.Doc surface, completes state-vector sync before resolving `Y.Text("title")` / `Y.XmlFragment("body")`, and binds BlockNote through its collaboration extension without projection-based initialization. The NFM parser produces a zero-or-more Block forest without editor policy. Document create/replace/patch boundaries normalize an empty forest to one registered stable-ID paragraph, while Fragment insertion rejects an empty forest and points callers to `<empty-block/>`. A first root insertion into a semantically blank Document promotes the existing seed ID through a fenced Block update, preventing the authority scaffold from appearing in canonical NFM.
-4. A writable Block Document runtime normally belongs to one visible React effect incarnation. A durable PageTab is the explicit exception: its Window Session view/tab-keyed model session retains the Y.Doc/provider, BlockNote editor, and UndoManager while the inactive React body and EditorView are absent. Switching away removes local Awareness and backgrounds a bounded persist without disconnecting the provider; returning mounts a fresh EditorView, reconciles current CRDT state, restores the selection from Yjs-relative positions plus PageTab-local scroll, and reactivates the main NFM editor only when it owned the Page's last focus intent. Local tab close, Window Session view teardown, store-epoch/Document-generation/schema/owner identity replacement, or terminal reload destroys the retained model and provider exactly once; renderer close flushes every ready retained session before acknowledging shutdown. An unpromoted preview disposes on final view teardown, while promotion keeps its stable model identity. This is a deep runtime Module, never hidden DOM or Maitai state. Normal durable ACKs are quiet; sustained pending/offline/error/reset states are the only Page Stage sync chrome.
+3. Production Page Stage prepares the exact owned descriptor before rendering content. Only a ready `yjs`/`block_tree` descriptor enters the Page editor: its canonical DocumentSession completes Core state-vector sync before resolving `Y.Text("title")` / `Y.XmlFragment("body")`, then starts disposable checkpoint recovery in a separate lane. BlockNote binds directly to that fragment without projection-based initialization. The NFM parser produces a zero-or-more Block forest without editor policy. Document create/replace/patch boundaries normalize an empty forest to one registered stable-ID paragraph, while Fragment insertion rejects an empty forest and points callers to `<empty-block/>`. A first root insertion into a semantically blank Document promotes the existing seed ID through a fenced Block update, preventing the authority scaffold from appearing in canonical NFM.
+4. Two Page tabs or tab groups opening the same authorized Document share the canonical Y.Doc/provider but never their editor interaction state. Each tab-keyed `EditorSurfaceLease` retains its own BlockNote editor, surface-tagged Yjs undo history, and Yjs-relative cursor while its React body and EditorView are absent. Switching away removes only that surface's aggregated Awareness contribution and backgrounds a bounded persist; another active surface keeps presence and sync alive. Returning mounts a fresh EditorView over the same Y.Doc. The final lease closes the DocumentSession; store epoch, access scope, generation, or schema changes create a new session, while owner metadata and head advancement do not. Renderer close flushes every ready retained DocumentSession once.
 5. Canonical Page and Database View references are childless and store only stable targets. A nested `page` shell and non-owning `pageRef` resolve through the same flat Page outliner Adapter; collapsed rows use summary projections without a provider, while disclosure mounts the target Page's independent Document. Runtime boundaries never copy a target title or body into the host Y.Doc.
-6. The relocation Hub makes `Move to Page` a stable-ID, dual-Document transaction. Every active surface locally commits composition, flushes its provider, becomes temporarily non-editable, and ACKs its durable head. The writer prepares again after those ACKs; failure before commit cancels the lease, while response loss after commit resolves through the immutable receipt and state-vector resync.
+6. The relocation Hub makes `Move to Page` a stable-ID, dual-Document transaction. Each consumed source calls `flushAndFence()`, which waits only for pending provider updates to receive a Core durable ACK and returns the exact store/generation/head. IndexedDB checkpoint work stays parallel and the editor does not freeze or expose a structural pending projection. Core validates every fence before committing the structural mutation; response loss resolves through the immutable receipt, exact authorized Document effect, durable stream replay, or state-vector resync.
 7. Whole-store backup/restore is a Core-wide maintenance boundary, not a raw file operation. Core drains admitted writes and managed-asset mutations, takes an online SQLite snapshot, validates the complete staged database/assets closure, and records DB/WAL/assets replacement in an fsynced journal. Startup rolls every pre-commit phase back to the complete old store or finishes cleanup after a durable `committed` phase. The installed DB rotates `storeEpoch`, clears native caches/subscriptions/connection-bound operations, and republishes the runtime descriptor. Electron performs a controlled relaunch after the successful restore result so every Host Adapter reconnects to the new epoch.
 8. The owned-Document registry has another concrete owner: `synced_block_source` with `nodex.synced-block@1` and a body-only `block_tree` Y.Doc. A system-managed source has a real but user-hidden Library placement; visible `syncedBlockRef` instances contain only `sourceBlockId` and never foreign body content. The authority kernel shares Document persistence, projections, history, relocation, immutable receipts, caller `storeEpoch`, and first-attempt actor audit.
 9. Reusable Template sources are registered `block_tree` owners over the same body-only root primitive, Yjs DocumentStore, provider, history, projection, and relocation Modules. Template sources carry an authoritative intrinsic display name; `templateRef` is childless and instantiation renews every copied subtree ID against exact source/target heads. Long documents remain Pages and code remains an ordinary `codeBlock`; size-dependent loading, caching, and compaction never create durable owner types.

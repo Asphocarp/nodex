@@ -15,6 +15,8 @@ import type {
   CoreEventEnvelope,
   CoreEventReplayRequired,
   CoreEventSubscription,
+  CoreModuleEventPayload,
+  CoreStreamCheckpoint,
   DocumentResyncRequired,
 } from "./types";
 
@@ -201,6 +203,7 @@ export class UdsHttpTransport {
     requestPath: string,
     body?: unknown,
     requestHeaders: Readonly<Record<string, string>> = {},
+    signal?: AbortSignal,
   ): Promise<Response> {
     const documentRoute = requestPath.startsWith(DOCUMENT_ROUTE_PREFIX);
     const maximumRequestBytes = documentRoute
@@ -226,6 +229,7 @@ export class UdsHttpTransport {
           path: requestPath,
           method,
           agent: false,
+          signal,
           headers: {
             ...requestHeaders,
             accept: "application/json",
@@ -348,6 +352,7 @@ export class UdsHttpTransport {
     onResyncRequired?: (event: DocumentResyncRequired) => void,
     onDocumentRealtime?: (event: DocumentSyncRealtimeEvent) => void,
     onCoreResyncRequired?: (event: CoreEventReplayRequired) => void,
+    onCheckpoint?: (checkpoint: CoreStreamCheckpoint) => void,
     signal?: AbortSignal,
   ): Promise<CoreEventSubscription> {
     if (!Number.isSafeInteger(after) || after < 0) {
@@ -418,6 +423,10 @@ export class UdsHttpTransport {
             }
             if (frame.event === "document-realtime") {
               onDocumentRealtime?.(decodeDocumentRealtimeSseEvent(frame.data));
+              return;
+            }
+            if (frame.event === "stream-checkpoint") {
+              onCheckpoint?.(parseStreamCheckpoint(frame.data, eventContract));
               return;
             }
             if (frame.event !== "core-resync-required") return;
@@ -555,72 +564,193 @@ const parseEventEnvelope = (
   if (
     typeof value !== "object" ||
     value === null ||
-    !hasExactKeys(value, ["event", "transport_version"]) ||
+    !hasExactKeys(value, ["packet", "transport_version"]) ||
     !("transport_version" in value) ||
     value.transport_version !== contract.transportVersion ||
-    !("event" in value)
+    !("packet" in value)
   ) {
     throw new CoreEventCompatibilityError("Core event transport version is invalid");
   }
-  const event = value.event;
+  assertAuthorizedDeliveryPacket(value.packet, contract);
+  return value as CoreEventEnvelope;
+};
+
+const assertAuthorizedDeliveryPacket = (
+  packet: unknown,
+  contract: CoreEventContract,
+): void => {
   if (
-    typeof event !== "object" ||
-    event === null ||
-    !hasExactKeys(event, [
-      "canonical_hash",
-      "commit_seq",
-      "committed_at",
+    typeof packet !== "object" ||
+    packet === null ||
+    !hasExactKeys(packet, [
+      "coverage",
+      "document_effects",
       "effects",
-      "event_version",
-      "operation_id",
-      "payload",
+      "manifest",
+      "packet_hash",
+      "packet_version",
+      "projection_effects",
       "projection_impact",
-      "store_epoch",
+      "revocations",
     ])
   ) {
-    throw new CoreEventCompatibilityError("Core event payload is invalid");
-  }
-  if (!("event_version" in event) || event.event_version !== contract.eventVersion) {
-    throw new CoreEventCompatibilityError("Core event version is invalid");
+    throw new CoreEventCompatibilityError("Authorized delivery packet is invalid");
   }
   if (
-    !("commit_seq" in event) ||
-    typeof event.commit_seq !== "number" ||
-    !Number.isSafeInteger(event.commit_seq) ||
-    event.commit_seq < 1
+    !("packet_version" in packet)
+    || packet.packet_version !== 1
+    || !("packet_hash" in packet)
+    || !isSha256(packet.packet_hash)
+    || !("projection_impact" in packet)
+    || !isProjectionImpact(packet.projection_impact)
   ) {
-    throw new CoreEventCompatibilityError("Core event commit sequence is invalid");
+    throw new CoreEventCompatibilityError("Authorized delivery integrity is invalid");
   }
-  if (!("store_epoch" in event) || event.store_epoch !== contract.storeEpoch) {
-    throw new CoreEventCompatibilityError("Core event Store epoch is invalid");
-  }
+
+  const manifest = "manifest" in packet ? packet.manifest : null;
   if (
-    !("committed_at" in event) ||
-    typeof event.committed_at !== "string" ||
-    event.committed_at.length === 0 ||
-    event.committed_at.length > 64 ||
-    !("operation_id" in event) ||
-    (event.operation_id !== null && typeof event.operation_id !== "string") ||
-    !("payload" in event) ||
-    !isModuleEventPayload(event.payload)
+    typeof manifest !== "object"
+    || manifest === null
+    || !hasExactKeys(manifest, [
+      "committed_at",
+      "event_version",
+      "identity",
+      "operation_id",
+    ])
+    || !("event_version" in manifest)
+    || manifest.event_version !== contract.eventVersion
+    || !("operation_id" in manifest)
+    || !isIdentity(manifest.operation_id)
+    || !("committed_at" in manifest)
+    || typeof manifest.committed_at !== "string"
+    || manifest.committed_at.length === 0
+    || manifest.committed_at.length > 64
   ) {
-    throw new CoreEventCompatibilityError("Core event payload is invalid");
+    throw new CoreEventCompatibilityError("Commit manifest header is invalid");
   }
-  if (!("projection_impact" in event) || !isProjectionImpact(event.projection_impact)) {
-    throw new CoreEventCompatibilityError("Core Projection impact is invalid");
-  }
+
+  const identity = "identity" in manifest ? manifest.identity : null;
   if (
-    !("canonical_hash" in event) ||
-    typeof event.canonical_hash !== "string" ||
-    !/^[0-9a-f]{64}$/.test(event.canonical_hash) ||
-    !("effects" in event) ||
-    !Array.isArray(event.effects) ||
-    event.effects.length > 10_000 ||
-    event.effects.some((effect) => typeof effect !== "object" || effect === null)
+    typeof identity !== "object"
+    || identity === null
+    || !hasExactKeys(identity, ["commit_seq", "manifest_hash", "store_epoch"])
+    || !("commit_seq" in identity)
+    || !isPositiveSafeInteger(identity.commit_seq)
+    || !("manifest_hash" in identity)
+    || !isSha256(identity.manifest_hash)
+    || !("store_epoch" in identity)
+    || identity.store_epoch !== contract.storeEpoch
   ) {
-    throw new CoreEventCompatibilityError("Core local commit integrity fields are invalid");
+    throw new CoreEventCompatibilityError("Commit manifest identity is invalid");
   }
-  return value as CoreEventEnvelope;
+
+  const effects = "effects" in packet ? packet.effects : null;
+  if (
+    !Array.isArray(effects)
+    || effects.length > 10_000
+    || effects.some((effect) => !isAuthorizedModuleEffect(effect))
+  ) {
+    throw new CoreEventCompatibilityError("Authorized semantic effects are invalid");
+  }
+
+  const documentEffects = "document_effects" in packet
+    ? packet.document_effects
+    : null;
+  if (
+    !Array.isArray(documentEffects)
+    || documentEffects.length > 10_000
+    || documentEffects.some((effect) => !isAuthorizedDocumentEffect(effect))
+  ) {
+    throw new CoreEventCompatibilityError("Authorized Document effects are invalid");
+  }
+
+  const projectionEffects = "projection_effects" in packet
+    ? packet.projection_effects
+    : null;
+  if (
+    !Array.isArray(projectionEffects)
+    || projectionEffects.length > 10_000
+    || projectionEffects.some((effect) => !isProjectionEffect(effect))
+  ) {
+    throw new CoreEventCompatibilityError("Authorized Projection effects are invalid");
+  }
+
+  const revocations = "revocations" in packet ? packet.revocations : null;
+  if (
+    !Array.isArray(revocations)
+    || revocations.length > 10_000
+    || revocations.some((revocation) => !isResourceRevocation(revocation))
+  ) {
+    throw new CoreEventCompatibilityError("Authorized revocations are invalid");
+  }
+
+  const coverage = "coverage" in packet ? packet.coverage : null;
+  if (!isDeliveryCoverage(coverage)) {
+    throw new CoreEventCompatibilityError("Authorized delivery coverage is invalid");
+  }
+  const semanticOrders = effects.map((effect) =>
+    (effect as { readonly semantic: { readonly effect_order: number } }).semantic.effect_order
+  );
+  const documentOrders = documentEffects.map((effect) =>
+    (effect as { readonly reference: { readonly effect_order: number } }).reference.effect_order
+  );
+  const inlineOrders = documentEffects
+    .filter((effect) =>
+      (effect as { readonly inline_update?: unknown }).inline_update !== null
+      && (effect as { readonly inline_update?: unknown }).inline_update !== undefined
+    )
+    .map((effect) =>
+      (effect as { readonly reference: { readonly effect_order: number } }).reference.effect_order
+    );
+  const projectionScopes = projectionEffects.map((effect) =>
+    (effect as {
+      readonly scope: { readonly canonical_key: string };
+    }).scope.canonical_key
+  );
+  if (
+    !sameNumberArray(coverage.semantic_effect_orders, semanticOrders)
+    || !sameNumberArray(coverage.document_effect_orders, documentOrders)
+    || !sameNumberArray(coverage.inline_document_effect_orders, inlineOrders)
+    || !sameStringArray(coverage.projection_scope_keys, projectionScopes)
+  ) {
+    throw new CoreEventCompatibilityError("Authorized delivery coverage does not match packet resources");
+  }
+};
+
+const parseStreamCheckpoint = (
+  json: string,
+  contract: CoreEventContract,
+): CoreStreamCheckpoint => {
+  const value = decodeBoundedJson<unknown>(
+    Buffer.from(json, "utf8"),
+    MAX_EVENT_FRAME_BYTES,
+    "Core stream checkpoint",
+  );
+  if (
+    typeof value !== "object"
+    || value === null
+    || !hasExactKeys(value, [
+      "generation",
+      "oldest_available_seq",
+      "resync_token",
+      "scanned_through_seq",
+      "store_epoch",
+    ])
+    || !("store_epoch" in value)
+    || value.store_epoch !== contract.storeEpoch
+    || !("generation" in value)
+    || !isIdentity(value.generation)
+    || !("scanned_through_seq" in value)
+    || !isNonNegativeSafeInteger(value.scanned_through_seq)
+    || !("oldest_available_seq" in value)
+    || !isNonNegativeSafeInteger(value.oldest_available_seq)
+    || value.oldest_available_seq > value.scanned_through_seq
+    || !("resync_token" in value)
+    || (value.resync_token !== null && !isIdentity(value.resync_token))
+  ) {
+    throw new CoreEventCompatibilityError("Core stream checkpoint is invalid");
+  }
+  return value as CoreStreamCheckpoint;
 };
 
 const hasExactKeys = (
@@ -648,7 +778,234 @@ const isCanonicalIdentityArray = (value: unknown): value is readonly string[] =>
   return true;
 };
 
-const isModuleEventPayload = (value: unknown): boolean => {
+const isSha256 = (value: unknown): value is string =>
+  typeof value === "string" && /^[0-9a-f]{64}$/u.test(value);
+
+const isNonNegativeSafeInteger = (value: unknown): value is number =>
+  typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+
+const isPositiveSafeInteger = (value: unknown): value is number =>
+  typeof value === "number" && Number.isSafeInteger(value) && value >= 1;
+
+const isCanonicalIntegerArray = (value: unknown): value is readonly number[] => {
+  if (!Array.isArray(value) || value.length > 10_000) return false;
+  let previous = -1;
+  for (const entry of value) {
+    if (!isNonNegativeSafeInteger(entry) || entry <= previous) return false;
+    previous = entry;
+  }
+  return true;
+};
+
+const isLocalCommitResources = (value: unknown): boolean => {
+  if (
+    typeof value !== "object"
+    || value === null
+    || !hasExactKeys(value, ["block_ids", "database_ids", "document_ids"])
+  ) return false;
+  return "block_ids" in value
+    && isCanonicalIdentityArray(value.block_ids)
+    && "database_ids" in value
+    && isCanonicalIdentityArray(value.database_ids)
+    && "document_ids" in value
+    && isCanonicalIdentityArray(value.document_ids);
+};
+
+const isAuthorizedModuleEffect = (value: unknown): boolean => {
+  if (
+    typeof value !== "object"
+    || value === null
+    || !hasExactKeys(value, ["payload", "semantic"])
+    || !("payload" in value)
+    || !isModuleEventPayload(value.payload)
+    || !("semantic" in value)
+  ) return false;
+  const semantic = value.semantic;
+  if (
+    typeof semantic !== "object"
+    || semantic === null
+    || !hasExactKeys(semantic, [
+      "effect_kind",
+      "effect_order",
+      "kind",
+      "module",
+      "payload_hash",
+      "projection_impact",
+      "resources",
+    ])
+    || !("kind" in semantic)
+    || semantic.kind !== "module_changed"
+    || !("effect_kind" in semantic)
+    || !isIdentity(semantic.effect_kind)
+    || !("effect_order" in semantic)
+    || !isNonNegativeSafeInteger(semantic.effect_order)
+    || !("payload_hash" in semantic)
+    || !isSha256(semantic.payload_hash)
+    || !("projection_impact" in semantic)
+    || !isProjectionImpact(semantic.projection_impact)
+    || !("resources" in semantic)
+    || !isLocalCommitResources(semantic.resources)
+    || !("module" in semantic)
+    || !("module" in value.payload)
+    || semantic.module !== value.payload.module
+  ) return false;
+  return true;
+};
+
+const isByteArray = (value: unknown): value is readonly number[] =>
+  Array.isArray(value)
+  && value.length <= MAX_EVENT_FRAME_BYTES
+  && value.every((byte) =>
+    typeof byte === "number"
+    && Number.isInteger(byte)
+    && byte >= 0
+    && byte <= 255
+  );
+
+const isAuthorizedDocumentEffect = (value: unknown): boolean => {
+  if (
+    typeof value !== "object"
+    || value === null
+    || !hasExactKeys(value, ["inline_update", "reference"])
+    || !("inline_update" in value)
+    || (value.inline_update !== null && !isByteArray(value.inline_update))
+    || !("reference" in value)
+  ) return false;
+  const reference = value.reference;
+  if (
+    typeof reference !== "object"
+    || reference === null
+    || !hasExactKeys(reference, [
+      "base_head_seq",
+      "document_id",
+      "effect_order",
+      "generation",
+      "page_id",
+      "resource_kind",
+      "result_head_seq",
+      "update_byte_length",
+      "update_hash",
+      "update_id",
+    ])
+    || !("base_head_seq" in reference)
+    || !isNonNegativeSafeInteger(reference.base_head_seq)
+    || !("result_head_seq" in reference)
+    || !isPositiveSafeInteger(reference.result_head_seq)
+    || reference.result_head_seq <= reference.base_head_seq
+    || !("generation" in reference)
+    || !isPositiveSafeInteger(reference.generation)
+    || !("effect_order" in reference)
+    || !isNonNegativeSafeInteger(reference.effect_order)
+    || !("document_id" in reference)
+    || !isIdentity(reference.document_id)
+    || !("page_id" in reference)
+    || (reference.page_id !== null && !isIdentity(reference.page_id))
+    || !("resource_kind" in reference)
+    || reference.resource_kind !== "document_update"
+    || !("update_id" in reference)
+    || !isIdentity(reference.update_id)
+    || !("update_hash" in reference)
+    || !isSha256(reference.update_hash)
+    || !("update_byte_length" in reference)
+    || !isNonNegativeSafeInteger(reference.update_byte_length)
+  ) return false;
+  return value.inline_update === null
+    || value.inline_update.length === reference.update_byte_length;
+};
+
+const isProjectionEffect = (value: unknown): boolean => {
+  if (
+    typeof value !== "object"
+    || value === null
+    || !hasExactKeys(value, [
+      "base_revision",
+      "covered_commit_seq",
+      "effect_hash",
+      "patch",
+      "requires_read_at_least",
+      "result_revision",
+      "scope",
+    ])
+    || !("base_revision" in value)
+    || !isNonNegativeSafeInteger(value.base_revision)
+    || !("result_revision" in value)
+    || !isPositiveSafeInteger(value.result_revision)
+    || value.result_revision !== value.base_revision + 1
+    || !("covered_commit_seq" in value)
+    || !isPositiveSafeInteger(value.covered_commit_seq)
+    || !("effect_hash" in value)
+    || !isSha256(value.effect_hash)
+    || !("requires_read_at_least" in value)
+    || typeof value.requires_read_at_least !== "boolean"
+    || !("patch" in value)
+    || (value.patch !== null && typeof value.patch !== "object")
+    || !("scope" in value)
+  ) return false;
+  const scope = value.scope;
+  return typeof scope === "object"
+    && scope !== null
+    && hasExactKeys(scope, ["canonical_key", "schema_version", "scope"])
+    && "canonical_key" in scope
+    && typeof scope.canonical_key === "string"
+    && /^v1:[0-9a-f]{64}$/u.test(scope.canonical_key)
+    && "schema_version" in scope
+    && scope.schema_version === 1
+    && "scope" in scope
+    && typeof scope.scope === "object"
+    && scope.scope !== null;
+};
+
+const isResourceRevocation = (value: unknown): boolean => {
+  if (
+    typeof value !== "object"
+    || value === null
+    || !hasExactKeys(value, ["reason", "resource_id", "resource_kind"])
+  ) return false;
+  return "resource_id" in value
+    && isIdentity(value.resource_id)
+    && "resource_kind" in value
+    && ["page", "document", "database", "data_source", "view"]
+      .includes(String(value.resource_kind))
+    && "reason" in value
+    && ["ownership_moved", "access_revoked", "archived", "deleted"]
+      .includes(String(value.reason));
+};
+
+const isDeliveryCoverage = (value: unknown): value is {
+  readonly document_effect_orders: readonly number[];
+  readonly inline_document_effect_orders: readonly number[];
+  readonly projection_scope_keys: readonly string[];
+  readonly semantic_effect_orders: readonly number[];
+} => typeof value === "object"
+  && value !== null
+  && hasExactKeys(value, [
+    "document_effect_orders",
+    "inline_document_effect_orders",
+    "projection_scope_keys",
+    "semantic_effect_orders",
+  ])
+  && "document_effect_orders" in value
+  && isCanonicalIntegerArray(value.document_effect_orders)
+  && "inline_document_effect_orders" in value
+  && isCanonicalIntegerArray(value.inline_document_effect_orders)
+  && "projection_scope_keys" in value
+  && isCanonicalIdentityArray(value.projection_scope_keys)
+  && "semantic_effect_orders" in value
+  && isCanonicalIntegerArray(value.semantic_effect_orders);
+
+const sameNumberArray = (
+  left: readonly number[],
+  right: readonly number[],
+): boolean => left.length === right.length
+  && left.every((entry, index) => entry === right[index]);
+
+const sameStringArray = (
+  left: readonly string[],
+  right: readonly string[],
+): boolean => left.length === right.length
+  && left.every((entry, index) => entry === right[index]);
+
+const isModuleEventPayload = (value: unknown): value is CoreModuleEventPayload => {
   if (
     typeof value !== "object" ||
     value === null ||
@@ -752,19 +1109,27 @@ const parseCoreResync = (json: string): CoreEventReplayRequired => {
     "Core resync event",
   );
   if (
-    typeof value !== "object" ||
-    value === null ||
-    !("requested_after" in value) ||
-    !isNonNegativeSafeInteger(value.requested_after) ||
-    !("oldest_available" in value) ||
-    !isNonNegativeSafeInteger(value.oldest_available) ||
-    !("commit_head" in value) ||
-    !isNonNegativeSafeInteger(value.commit_head)
+    typeof value !== "object"
+    || value === null
+    || !hasExactKeys(value, [
+      "commit_head",
+      "generation",
+      "oldest_available",
+      "requested_after",
+      "resync_token",
+    ])
+    || !("requested_after" in value)
+    || !isNonNegativeSafeInteger(value.requested_after)
+    || !("oldest_available" in value)
+    || !isNonNegativeSafeInteger(value.oldest_available)
+    || !("commit_head" in value)
+    || !isNonNegativeSafeInteger(value.commit_head)
+    || !("generation" in value)
+    || !isIdentity(value.generation)
+    || !("resync_token" in value)
+    || !isIdentity(value.resync_token)
   ) {
     throw new Error("Core resync event is invalid");
   }
   return value as CoreEventReplayRequired;
 };
-
-const isNonNegativeSafeInteger = (value: unknown): value is number =>
-  typeof value === "number" && Number.isSafeInteger(value) && value >= 0;

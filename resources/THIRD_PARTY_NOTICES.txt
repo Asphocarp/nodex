@@ -20489,6 +20489,7 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ================================================================================
 - hashlink@0.11.1 (Rust crate) — MIT OR Apache-2.0 — https://github.com/djc/hashlink
+- hashlink@0.12.1 (Rust crate) — MIT OR Apache-2.0 — https://github.com/djc/hashlink
 ================================================================================
 
 --- LICENSE-APACHE ---

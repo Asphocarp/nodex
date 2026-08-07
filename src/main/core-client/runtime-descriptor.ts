@@ -225,15 +225,10 @@ const inspectEntry = (
   return stats;
 };
 
-const parseDescriptor = (
-  bytes: Uint8Array,
+export const parseCoreRuntimeDescriptor = (
+  value: unknown,
   expectedSocketPath: string,
 ): CoreRuntimeDescriptor => {
-  const value = decodeBoundedJson<unknown>(
-    bytes,
-    MAX_DESCRIPTOR_BYTES,
-    "Core runtime descriptor",
-  );
   if (!isRecord(value)) throw new Error("Core runtime descriptor must be an object");
 
   assertOnlyKeys(
@@ -303,6 +298,18 @@ const parseDescriptor = (
   assertRuntimeCompatibility(descriptor);
   return descriptor;
 };
+
+const parseDescriptor = (
+  bytes: Uint8Array,
+  expectedSocketPath: string,
+): CoreRuntimeDescriptor => parseCoreRuntimeDescriptor(
+  decodeBoundedJson<unknown>(
+    bytes,
+    MAX_DESCRIPTOR_BYTES,
+    "Core runtime descriptor",
+  ),
+  expectedSocketPath,
+);
 
 export const readCoreRuntimeConnection = (
   nodexHome: string,

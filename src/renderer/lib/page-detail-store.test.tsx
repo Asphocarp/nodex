@@ -64,26 +64,50 @@ const pageEvent = (
   headSeq: number,
   storeEpoch = "epoch-1",
 ): ProjectionStreamMessage => ({
-  version: 1,
-  kind: "changed",
+  version: 2,
+  kind: "effect",
   scope: {
     kind: "project",
     libraryId: "library-1",
     projectId: "project-1",
   },
-  cursor: { storeEpoch, commitSeq: headSeq },
-  impact: {
-    kind: "resources",
-    page_ids: [pageId],
-    database_ids: [],
-    data_source_ids: [],
-    view_ids: [],
-    document_heads: [{
-      page_id: pageId,
-      document_id: pageId === "page-1" ? "document-1" : `document:${pageId}`,
-      generation: 1,
-      head_seq: headSeq,
-    }],
+  stream: { storeEpoch, commitSeq: headSeq },
+  delivery: {
+    storeEpoch,
+    commitSeq: headSeq,
+    manifestHash: String(headSeq).padStart(64, "b").slice(-64),
+    operationId: `operation-${headSeq}`,
+    committedAt: "2026-08-06T00:00:00.000Z",
+    impact: {
+      kind: "resources",
+      page_ids: [pageId],
+      database_ids: [],
+      data_source_ids: [],
+      view_ids: [],
+      document_heads: [{
+        page_id: pageId,
+        document_id: pageId === "page-1" ? "document-1" : `document:${pageId}`,
+        generation: 1,
+        head_seq: headSeq,
+      }],
+    },
+    effect: {
+      scope: {
+        schema_version: 1,
+        canonical_key: `scope:${pageId}`,
+        scope: {
+          kind: "page",
+          project_id: "project-1",
+          page_id: pageId,
+        },
+      },
+      baseRevision: Math.max(0, headSeq - 1),
+      resultRevision: headSeq,
+      coveredCommitSeq: headSeq,
+      patch: { kind: "page_changed", projectId: "project-1", pageId },
+      requiresReadAtLeast: true,
+      effectHash: String(headSeq).padStart(64, "a").slice(-64),
+    },
   },
 });
 
@@ -118,10 +142,10 @@ describe("Page Detail store realtime convergence", () => {
       projectionListener = listener;
       if (latestMessage) {
         listener({
-          version: 1,
+          version: 2,
           kind: "checkpoint",
           scope,
-          cursor: latestMessage.cursor,
+          stream: latestMessage.stream,
         });
       }
       return () => {

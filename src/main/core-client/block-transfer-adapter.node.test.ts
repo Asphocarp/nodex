@@ -6,7 +6,7 @@ import {
 } from "../../shared/block-transfer";
 import { createCoreBlockTransferAdapter } from "./block-transfer-adapter";
 import { FakeCoreClient } from "./testing/fake-core-client";
-import type { LibraryCommittedValue, LibraryReadSnapshot } from "./types";
+import type { LibraryApplyResult } from "./types";
 
 const identity = {
   libraryId: "library:test",
@@ -67,9 +67,10 @@ const coreResult = () => ({
 });
 
 const committedApply = (
-  overrides: Partial<LibraryCommittedValue["receipt"]> = {},
-): LibraryCommittedValue => ({
-  value: {
+  overrides: Partial<LibraryApplyResult["receipt"]> = {},
+): LibraryApplyResult => ({
+  status: "committed",
+  outcome: {
     affected_resource_ids: ["block:root"],
     page_copy: null,
     block_transfer: coreResult(),
@@ -89,57 +90,17 @@ const committedApply = (
     committed_at: "2026-07-19T19:00:00.000Z",
     ...overrides,
   },
-  event_sequence: 11,
-  store_epoch: identity.storeEpoch,
-});
-
-const preparedPlan = (): LibraryReadSnapshot => ({
-  contract_version: 9,
-  store_epoch: identity.storeEpoch,
-  commit_head: 10,
-  value: {
-    kind: "block_transfer_plan",
-    value: {
-      kind: "prepared",
-      preparation: {
-        source_document_id: "document:source",
-        source_database_id: null,
-        target_document_id: "document:target",
-        target_database_id: null,
-        write_fence: {
-          documents: [
-            { document_id: "document:source", generation: 1, expected_head_seq: 3 },
-            { document_id: "document:target", generation: 2, expected_head_seq: 7 },
-          ],
-          location_revisions: { "block:root": 1 },
-          source_memberships: {},
-        },
-      },
-    },
-  },
-});
-
-const committedPlan = (): LibraryReadSnapshot => ({
-  contract_version: 9,
-  store_epoch: identity.storeEpoch,
-  commit_head: 11,
-  value: {
-    kind: "block_transfer_plan",
-    value: {
-      kind: "committed",
-      result: coreResult(),
-      commit_seq: 11,
-      committed_at: "2026-07-19T19:00:00.000Z",
-      local_commit: null,
-    },
+  commit: {
+    commit_seq: 11,
+    store_epoch: identity.storeEpoch,
+    manifest_hash: "f".repeat(64),
   },
 });
 
 describe("Core Block Transfer Adapter", () => {
-  test("commits a logical intent with Core's causal write fence", async () => {
+  test("commits one logical intent without a client-visible preparation round trip", async () => {
     const client = new FakeCoreClient();
     const adapter = createCoreBlockTransferAdapter({ client, ...identity });
-    client.enqueueRead(preparedPlan());
     client.enqueueApply(committedApply());
 
     const committed = await adapter.commit(intent);
@@ -155,16 +116,11 @@ describe("Core Block Transfer Adapter", () => {
         ],
       },
     });
-    expect(client.reads).toHaveLength(1);
+    expect(client.reads).toHaveLength(0);
     expect(client.applies).toHaveLength(1);
     expect(client.applies[0]?.intent).toMatchObject({
       kind: "transfer_blocks",
-      write_fence: {
-        documents: [
-          { document_id: "document:source", expected_head_seq: 3 },
-          { document_id: "document:target", expected_head_seq: 7 },
-        ],
-      },
+      intent: { root_block_ids: ["block:root"] },
     });
   });
 
@@ -208,10 +164,9 @@ describe("Core Block Transfer Adapter", () => {
       final_location_revisions: { "page:wrapper": 2 },
       affected_database_ids: ["database:target"],
     };
-    client.enqueueRead(preparedPlan());
     client.enqueueApply({
       ...committedApply(),
-      value: {
+      outcome: {
         affected_resource_ids: ["page:wrapper", "database:target"],
         page_copy: null,
         block_transfer: dataSourceResult,
@@ -252,19 +207,13 @@ describe("Core Block Transfer Adapter", () => {
           group_key: "ship",
         },
       },
-      write_fence: {
-        documents: [
-          { document_id: "document:source", expected_head_seq: 3 },
-          { document_id: "document:target", expected_head_seq: 7 },
-        ],
-      },
     });
   });
 
-  test("returns a previously committed transfer without a null fence or second apply", async () => {
+  test("lets Core resolve an idempotent replay through the same apply command", async () => {
     const client = new FakeCoreClient();
     const adapter = createCoreBlockTransferAdapter({ client, ...identity });
-    client.enqueueRead(committedPlan());
+    client.enqueueApply(committedApply({ duplicate: true }));
 
     await expect(adapter.commit(intent)).resolves.toMatchObject({
       ok: true,
@@ -274,7 +223,8 @@ describe("Core Block Transfer Adapter", () => {
         commitSeq: 11,
       },
     });
-    expect(client.applies).toHaveLength(0);
+    expect(client.reads).toHaveLength(0);
+    expect(client.applies).toHaveLength(1);
   });
 
   test("rejects a cross-project intent before contacting Core", async () => {

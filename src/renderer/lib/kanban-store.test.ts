@@ -208,6 +208,7 @@ function createBoardSnapshot(
   commitSeq = 1,
   viewId = "view-primary",
   primary = true,
+  projectionRevision = 1,
 ): DatabaseViewWindowSnapshot {
   const card = board.columns.flatMap((column) => column.cards)[0]
     ?? createPageSummary();
@@ -242,7 +243,15 @@ function createBoardSnapshot(
     viewId,
     storeEpoch: "epoch-1",
     commitSeq,
-    projectionRevision: commitSeq,
+    projection: {
+      scopeKey: `scope:${viewId}`,
+      schemaVersion: 1,
+      revision: projectionRevision,
+      coveredCommitSeq: commitSeq,
+      effectHash: projectionRevision > 0
+        ? String(projectionRevision).padStart(64, "a").slice(-64)
+        : null,
+    },
     nextCursor: null,
     rows: [{
       page: card,
@@ -276,6 +285,13 @@ function createGroupsSnapshot(
     viewId: "view-primary",
     storeEpoch: "epoch-1",
     commitSeq: 1,
+    projection: {
+      scopeKey: "scope:view-primary",
+      schemaVersion: 1,
+      revision: 1,
+      coveredCommitSeq: 1,
+      effectHash: "1".padStart(64, "a"),
+    },
     grouped: false,
     totalRows: 1,
     truncated: false,
@@ -292,7 +308,21 @@ function createTestRegistry(
   dependencies: Partial<KanbanStoreDependencies> = {},
 ) {
   return createKanbanStoreRegistry({
-    readViewGroups: async () => createGroupsSnapshot(),
+    readViewGroups: async (_projectId, input) => {
+      const viewId = input.databaseViewId ?? "view-primary";
+      const revision = input.minimumCommitSeq ?? 1;
+      return createGroupsSnapshot({
+        viewId,
+        commitSeq: revision,
+        projection: {
+          scopeKey: `scope:${viewId}`,
+          schemaVersion: 1,
+          revision,
+          coveredCommitSeq: revision,
+          effectHash: String(revision).padStart(64, "a").slice(-64),
+        },
+      });
+    },
     ...dependencies,
   });
 }
@@ -304,10 +334,10 @@ function createProjectionHarness() {
     listeners.add(listener);
     if (latestMessage) {
       listener({
-        version: 1,
+        version: 2,
         kind: "checkpoint",
         scope,
-        cursor: latestMessage.cursor,
+        stream: latestMessage.stream,
       });
     }
     return () => listeners.delete(listener);
@@ -324,28 +354,134 @@ function createProjectionHarness() {
 function pageChanged(
   commitSeq: number,
   pageId = "card-1",
+  viewId = "view-primary",
 ): ProjectionStreamMessage {
   return {
-    version: 1,
-    kind: "changed",
+    version: 2,
+    kind: "effect",
     scope: {
       kind: "project",
       libraryId: "library-1",
       projectId: "project-1",
     },
-    cursor: { storeEpoch: "epoch-1", commitSeq },
-    impact: {
-      kind: "resources",
-      page_ids: [pageId],
-      database_ids: ["database-1"],
-      data_source_ids: ["source-1"],
-      view_ids: ["view-focused", "view-primary"],
-      document_heads: [{
-        page_id: pageId,
-        document_id: "document-1",
-        generation: 1,
-        head_seq: commitSeq,
-      }],
+    stream: { storeEpoch: "epoch-1", commitSeq },
+    delivery: {
+      storeEpoch: "epoch-1",
+      commitSeq,
+      manifestHash: String(commitSeq).padStart(64, "b").slice(-64),
+      operationId: `operation-${commitSeq}`,
+      committedAt: "2026-08-06T00:00:00.000Z",
+      impact: {
+        kind: "resources",
+        page_ids: [pageId],
+        database_ids: ["database-1"],
+        data_source_ids: ["source-1"],
+        view_ids: ["view-focused", "view-primary"],
+        document_heads: [{
+          page_id: pageId,
+          document_id: "document-1",
+          generation: 1,
+          head_seq: commitSeq,
+        }],
+      },
+      effect: {
+        scope: {
+          schema_version: 1,
+          canonical_key: `scope:${viewId}`,
+          scope: {
+            kind: "database_view",
+            project_id: "project-1",
+            database_id: "database-1",
+            data_source_id: "source-1",
+            view_id: viewId,
+          },
+        },
+        baseRevision: Math.max(0, commitSeq - 1),
+        resultRevision: commitSeq,
+        coveredCommitSeq: commitSeq,
+        patch: null,
+        requiresReadAtLeast: true,
+        effectHash: String(commitSeq).padStart(64, "a").slice(-64),
+      },
+    },
+  };
+}
+
+function pageRemoved(commitSeq: number, pageId: string): ProjectionStreamMessage {
+  const message = pageChanged(commitSeq, pageId);
+  if (message.kind !== "effect") throw new Error("Projection fixture is invalid");
+  return {
+    ...message,
+    delivery: {
+      ...message.delivery,
+      effect: {
+        ...message.delivery.effect,
+        patch: {
+          kind: "database_row_remove",
+          projectId: "project-1",
+          databaseId: "database-1",
+          dataSourceId: "source-1",
+          viewId: "view-primary",
+          pageId,
+          totalRows: 0,
+          groupKey: "triage",
+          groupTotal: 0,
+        },
+      },
+    },
+  };
+}
+
+function pageUpserted(
+  commitSeq: number,
+  page: DatabasePageSummary,
+): ProjectionStreamMessage {
+  const message = pageChanged(commitSeq, page.id);
+  if (message.kind !== "effect") throw new Error("Projection fixture is invalid");
+  return {
+    ...message,
+    delivery: {
+      ...message.delivery,
+      effect: {
+        ...message.delivery.effect,
+        patch: {
+          kind: "database_row_upsert",
+          projectId: "project-1",
+          databaseId: "database-1",
+          dataSourceId: "source-1",
+          viewId: "view-primary",
+          row: page,
+          sourceRow: {
+            page_id: page.id,
+            lifecycle: "active",
+            title: page.title,
+            rich_title: page.richTitle,
+            description_preview: page.descriptionPreview,
+            description_length: page.descriptionPreview.length,
+            has_description: page.descriptionPreview.length > 0,
+            database_values: { status: page.status },
+            intrinsic_properties: {},
+            database_value_revisions: { status: 1 },
+            metadata_revision: page.revision ?? 1,
+            parent_revision: 1,
+            document_id: `document:${page.id}`,
+            document_generation: 1,
+            document_head_seq: 1,
+            membership_id: `membership:${page.id}`,
+            membership_revision: 1,
+            membership_created_at: "2026-08-06T00:00:00.000Z",
+            created_at: "2026-08-06T00:00:00.000Z",
+            updated_at: "2026-08-06T00:00:00.000Z",
+            effective_group_key: page.status,
+            rank_key: "b",
+            position_revision: 1,
+          },
+          effectiveGroupKey: page.status,
+          rankKey: "b",
+          totalRows: 2,
+          groupTotal: 2,
+        },
+      },
     },
   };
 }
@@ -428,14 +564,15 @@ describe("kanban store", () => {
     expect(focused.getSnapshot().loading).toBe(false);
   });
 
-  test("invalidates a shared consumer key once from one project-scoped receipt", async () => {
+  test("repairs each independent Board scope consumer from one effect", async () => {
     const projection = createProjectionHarness();
     let fetchCount = 0;
     const makeRegistry = () =>
       createTestRegistry({
         readViewWindow: async () => {
           fetchCount += 1;
-          return createBoardSnapshot(createBoard(), fetchCount <= 2 ? 1 : 8);
+          const revision = fetchCount <= 2 ? 1 : 8;
+          return createBoardSnapshot(createBoard(), revision, "view-primary", true, revision);
         },
         subscribeBoardChanges: () => () => {},
         getProjectionInvalidationRegistry: projection.getRegistry,
@@ -451,7 +588,7 @@ describe("kanban store", () => {
     await waitForMicrotasks();
     await waitForMicrotasks();
 
-    expect(fetchCount).toBe(3);
+    expect(fetchCount).toBe(4);
     unsubscribeFirst();
     unsubscribeSecond();
   });
@@ -469,6 +606,7 @@ describe("kanban store", () => {
           readCount === 1 ? 1 : 9,
           "view-focused",
           false,
+          readCount === 1 ? 1 : 9,
         );
       },
       subscribeBoardChanges: () => () => {},
@@ -481,7 +619,11 @@ describe("kanban store", () => {
       "Before Document edit",
     );
 
-    projection.publish(pageChanged(9, "card-filtered-out-before-title-change"));
+    projection.publish(pageChanged(
+      9,
+      "card-filtered-out-before-title-change",
+      "view-focused",
+    ));
     await waitForMicrotasks();
 
     expect(readCount).toBe(2);
@@ -504,6 +646,7 @@ describe("kanban store", () => {
           10,
           "view-focused",
           false,
+          10,
         );
       },
       subscribeBoardChanges: () => () => {},
@@ -512,7 +655,7 @@ describe("kanban store", () => {
     const store = registry.getStore("project-1", "view-focused");
     const unsubscribe = store.subscribe(() => {});
 
-    projection.publish(pageChanged(10));
+    projection.publish(pageChanged(10, "card-1", "view-focused"));
     firstRead.resolve(createBoardSnapshot(
       createBoard("Stale in-flight head"),
       1,
@@ -643,6 +786,48 @@ describe("kanban store", () => {
     expect(windowReads).toBe(1);
     expect(Object.hasOwn(indexedPage ?? {}, "description")).toBe(false);
     expect(indexedPage?.descriptionPreview).toBe("Initial description");
+  });
+
+  test("retries instead of composing groups and windows from different projection revisions", async () => {
+    let groupReads = 0;
+    let windowReads = 0;
+    const authority = (revision: number) => ({
+      scopeKey: "scope:view-primary",
+      schemaVersion: 1,
+      revision,
+      coveredCommitSeq: revision,
+      effectHash: String(revision).padStart(64, "a").slice(-64),
+    });
+    const registry = createTestRegistry({
+      readViewGroups: async () => {
+        groupReads += 1;
+        const revision = groupReads === 1 ? 1 : 2;
+        return createGroupsSnapshot({
+          commitSeq: revision,
+          projection: authority(revision),
+        });
+      },
+      readViewWindow: async () => {
+        windowReads += 1;
+        return createBoardSnapshot(
+          createBoard("Consistent head"),
+          2,
+          "view-primary",
+          true,
+          2,
+        );
+      },
+      subscribeBoardChanges: () => () => {},
+    });
+
+    const store = registry.getStore("project-1");
+    await store.fetchBoard();
+
+    expect(groupReads).toBe(2);
+    expect(windowReads).toBe(2);
+    expect(store.getSnapshot().pageIndex.get("card-1")?.title).toBe(
+      "Consistent head",
+    );
   });
 
   test("appends a real continuation window without duplicating loaded rows", async () => {
@@ -1174,6 +1359,49 @@ describe("kanban store", () => {
     ).toEqual(["card-1", "page-promoted"]);
   });
 
+  test("applies a promoted Page effect before a delayed canonical repair", async () => {
+    const projection = createProjectionHarness();
+    const delayedRepair = createDeferred<DatabaseViewWindowSnapshot>();
+    let readCount = 0;
+    const registry = createTestRegistry({
+      readViewWindow: async () => {
+        readCount += 1;
+        if (readCount === 1) return createBoardSnapshot();
+        return await delayedRepair.promise;
+      },
+      subscribeBoardChanges: () => () => {},
+      getProjectionInvalidationRegistry: projection.getRegistry,
+    });
+    const store = registry.getStore("project-1");
+    const release = store.subscribe(() => {});
+    await waitForMicrotasks();
+    const promoted = {
+      ...createPageSummary("Promoted immediately"),
+      id: "page-promoted",
+      order: 1,
+    };
+
+    projection.publish(pageUpserted(2, promoted));
+
+    expect(store.getSnapshot().pageIndex.get("page-promoted")?.title).toBe(
+      "Promoted immediately",
+    );
+    expect(
+      store.getSnapshot().databaseView?.columns
+        .flatMap((column) => column.rows)
+        .some((row) => row.pageId === "page-promoted"),
+    ).toBe(true);
+    await waitForMicrotasks();
+    expect(readCount).toBe(2);
+    delayedRepair.resolve(createBoardSnapshot({
+      columns: createBoard().columns.map((column) => column.id === "triage"
+        ? { ...column, cards: [...column.cards, promoted] }
+        : column),
+    }, 2, "view-primary", true, 2));
+    await waitForMicrotasks();
+    release();
+  });
+
   test("local draft overlays do not bump card revision", async () => {
     const board = createBoard();
     const registry = createTestRegistry({
@@ -1410,9 +1638,16 @@ describe("kanban store", () => {
     let boardFetchCount = 0;
 
     const registry = createTestRegistry({
-      readViewWindow: async () => {
+      readViewWindow: async (_projectId, input) => {
         boardFetchCount += 1;
-        return createBoardSnapshot(board, boardFetchCount);
+        const revision = input.minimumCommitSeq ?? 1;
+        return createBoardSnapshot(
+          board,
+          revision,
+          "view-primary",
+          true,
+          revision,
+        );
       },
       subscribeBoardChanges: (_projectId, callback) => {
         callbacks.onBoardChange = callback;
@@ -1479,22 +1714,13 @@ describe("kanban store", () => {
       },
       getProjectionInvalidationRegistry: projection.getRegistry,
     });
-    const store = registry.getStore("default");
+    const store = registry.getStore("project-1");
     const unsubscribe = store.subscribe(() => {});
     await waitForMicrotasks();
 
     const refresh = store.refreshBoard();
     await waitForMicrotasks();
-    callbacks.onBoardChange?.({
-      projectId: "default",
-      changeType: "delete",
-      columnId: "triage",
-      status: "triage",
-      pageId: "card-1",
-      storeEpoch: "epoch-1",
-      commitSeq: 2,
-    });
-    projection.publish(pageChanged(2, "card-1"));
+    projection.publish(pageRemoved(2, "card-1"));
     lateRead.resolve(createBoardSnapshot(cloneBoard(board), 1));
     await refresh;
     await waitForMicrotasks();

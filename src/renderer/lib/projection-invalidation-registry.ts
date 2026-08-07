@@ -8,6 +8,7 @@ import {
   projectionCursorCovers,
   projectionScopeKey,
 } from "../../shared/projection-stream";
+import type { CausalProjectionRuntime } from "./causal-projection-runtime";
 
 export interface ProjectionDependencies {
   readonly pageIds?: readonly string[];
@@ -21,6 +22,7 @@ export interface ProjectionDependencies {
 export interface ProjectionRegistration {
   readonly scope: ProjectionScope;
   readonly consumerKey: string;
+  readonly causalRuntime?: CausalProjectionRuntime;
   getDependencies(): ProjectionDependencies;
   getCursor(): ProjectionCursor | null;
   invalidate(cause: ProjectionStreamMessage): void | Promise<void>;
@@ -38,6 +40,7 @@ interface ConsumerState {
   required: ProjectionStreamMessage | null;
   retryTimer: ReturnType<typeof setTimeout> | null;
   retryAttempt: number;
+  initialCheckpointObserved: boolean;
 }
 
 interface ScopeState {
@@ -72,6 +75,7 @@ export class ProjectionInvalidationRegistry {
       required: null,
       retryTimer: null,
       retryAttempt: 0,
+      initialCheckpointObserved: false,
     };
     scope.consumers.set(registration.consumerKey, consumer);
     const token = Symbol(registration.consumerKey);
@@ -83,13 +87,7 @@ export class ProjectionInvalidationRegistry {
       });
     }
     if (!existingConsumer && scope.latestMessage) {
-      const latest = scope.latestMessage;
-      this.#schedule(consumer, latest.kind === "resync" ? latest : {
-        version: 1,
-        kind: "checkpoint",
-        scope: scope.scope,
-        cursor: latest.cursor,
-      });
+      this.#handleConsumer(consumer, scope.latestMessage);
     }
 
     let active = true;
@@ -122,25 +120,61 @@ export class ProjectionInvalidationRegistry {
     if (projectionScopeKey(message.scope) !== projectionScopeKey(scope.scope)) return;
     scope.latestMessage = laterCause(scope.latestMessage, message);
     for (const consumer of scope.consumers.values()) {
-      const registration = consumer.registrations.values().next().value as
-        | ProjectionRegistration
-        | undefined;
-      if (!registration) continue;
-      if (!this.#shouldInvalidate(registration, message)) continue;
-      this.#schedule(consumer, message);
+      this.#handleConsumer(consumer, message);
     }
+  }
+
+  #handleConsumer(
+    consumer: ConsumerState,
+    message: ProjectionStreamMessage,
+  ): void {
+    const registrations = [...consumer.registrations.values()];
+    if (registrations.length === 0) return;
+    const runtimes = new Set(
+      registrations
+        .map((registration) => registration.causalRuntime)
+        .filter((runtime): runtime is CausalProjectionRuntime => Boolean(runtime)),
+    );
+    for (const runtime of runtimes) {
+      if (message.kind === "effect") runtime.accept(message.delivery);
+      if (message.kind === "checkpoint") {
+        runtime.observeInitialCheckpoint({
+          storeEpoch: message.stream.storeEpoch,
+          scannedThroughCommitSeq: message.stream.commitSeq,
+        });
+      }
+      if (message.kind === "reset") {
+        runtime.reset({
+          storeEpoch: message.stream.storeEpoch,
+          commitSeq: message.stream.commitSeq,
+        });
+      }
+    }
+
+    const registration = registrations[0];
+    if (!registration) return;
+    if (message.kind === "checkpoint") {
+      if (consumer.initialCheckpointObserved) return;
+      consumer.initialCheckpointObserved = true;
+    }
+    if (!this.#shouldInvalidate(registration, message)) return;
+    this.#schedule(consumer, message);
   }
 
   #shouldInvalidate(
     registration: ProjectionRegistration,
     message: ProjectionStreamMessage,
   ): boolean {
-    if (message.kind === "resync") return true;
+    if (registration.causalRuntime) return false;
+    if (message.kind === "reset") return true;
     const cursor = registration.getCursor();
-    if (cursor && cursor.storeEpoch !== message.cursor.storeEpoch) return true;
-    if (projectionCursorCovers(cursor, message.cursor)) return false;
+    if (cursor && cursor.storeEpoch !== message.stream.storeEpoch) return true;
+    if (projectionCursorCovers(cursor, message.stream)) return false;
     if (message.kind === "checkpoint") return true;
-    return impactMatches(registration.getDependencies(), message.impact);
+    return impactMatches(
+      registration.getDependencies(),
+      message.delivery.impact,
+    );
   }
 
   #schedule(consumer: ConsumerState, message: ProjectionStreamMessage): void {
@@ -159,7 +193,6 @@ export class ProjectionInvalidationRegistry {
   }
 
   async #drain(consumer: ConsumerState): Promise<void> {
-    let trailingBudget = 1;
     let failureRetryBudget = 1;
     while (consumer.pending) {
       const cause = consumer.pending;
@@ -169,8 +202,8 @@ export class ProjectionInvalidationRegistry {
         | undefined;
       if (!registration) return;
       if (
-        cause.kind !== "resync"
-        && projectionCursorCovers(registration.getCursor(), cause.cursor)
+        cause.kind !== "reset"
+        && projectionCursorCovers(registration.getCursor(), cause.stream)
       ) {
         continue;
       }
@@ -187,26 +220,6 @@ export class ProjectionInvalidationRegistry {
         this.#scheduleRetry(consumer);
         return;
       }
-
-      const pending = readPending(consumer);
-      if (pending) {
-        if (
-          pending.kind !== "resync"
-          && projectionCursorCovers(registration.getCursor(), pending.cursor)
-        ) {
-          consumer.pending = null;
-        }
-        continue;
-      }
-      if (
-        cause.kind === "resync"
-        || projectionCursorCovers(registration.getCursor(), cause.cursor)
-        || trailingBudget === 0
-      ) {
-        return;
-      }
-      trailingBudget -= 1;
-      consumer.pending = cause;
     }
   }
 
@@ -258,22 +271,21 @@ export const impactMatches = (
     );
 };
 
-const readPending = (consumer: ConsumerState): ProjectionStreamMessage | null =>
-  consumer.pending;
+const messagePriority = (message: ProjectionStreamMessage): number => {
+  if (message.kind === "reset") return 3;
+  if (message.kind === "effect") return 2;
+  return 1;
+};
 
 const laterCause = (
   current: ProjectionStreamMessage | null,
   incoming: ProjectionStreamMessage,
 ): ProjectionStreamMessage => {
   if (!current) return incoming;
-  if (current.cursor.storeEpoch !== incoming.cursor.storeEpoch) return incoming;
-  if (incoming.cursor.commitSeq > current.cursor.commitSeq) return incoming;
-  if (incoming.cursor.commitSeq < current.cursor.commitSeq) return current;
-  if (current.kind === "resync" || incoming.kind === "resync") {
-    return incoming.kind === "resync" ? incoming : current;
-  }
-  if (current.kind === "checkpoint" || incoming.kind === "checkpoint") {
-    return incoming.kind === "checkpoint" ? incoming : current;
-  }
-  return incoming;
+  if (current.stream.storeEpoch !== incoming.stream.storeEpoch) return incoming;
+  if (incoming.stream.commitSeq > current.stream.commitSeq) return incoming;
+  if (incoming.stream.commitSeq < current.stream.commitSeq) return current;
+  return messagePriority(incoming) >= messagePriority(current)
+    ? incoming
+    : current;
 };

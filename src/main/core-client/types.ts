@@ -17,13 +17,51 @@ import type {
 export type CoreRuntimeDescriptor = components["schemas"]["RuntimeDescriptor"];
 export type CoreHandshakeResponse = components["schemas"]["HandshakeResponse"];
 export type CoreEventEnvelope = components["schemas"]["EventEnvelope"];
-export type CoreLocalCommitEnvelope = CoreEventEnvelope["event"];
+export type CoreAuthorizedDeliveryPacket = CoreEventEnvelope["packet"];
+export type CoreAuthorizedModuleEffect = CoreAuthorizedDeliveryPacket["effects"][number];
+export type CoreModuleEventPayload = CoreAuthorizedModuleEffect["payload"];
 export type CoreEventReplayRequired = components["schemas"]["EventReplayRequired"];
+export type CoreStreamCheckpoint = components["schemas"]["StreamCheckpoint"];
 export type CoreModuleError = components["schemas"]["CoreError"];
 export type CoreLocalMutationResolveRequest =
   components["schemas"]["LocalMutationResolveRequest"];
 export type CoreLocalMutationResolveResponse =
   components["schemas"]["LocalMutationResolveResponse"];
+
+export type CoreApplyCoordinate =
+  | {
+      readonly status: "committed";
+      readonly commit: components["schemas"]["CommitIdentity"];
+      readonly delivery?: null | CoreAuthorizedDeliveryPacket;
+    }
+  | {
+      readonly status: "no_op";
+      readonly observed: components["schemas"]["StoreObservation"];
+    };
+
+/** Semantic commit cursor, or the exact store cursor observed by a no-op. */
+export const applyResultCursor = (result: CoreApplyCoordinate): number =>
+  result.status === "committed"
+    ? result.commit.commit_seq
+    : result.observed.commit_head;
+
+export const applyResultStoreEpoch = (result: CoreApplyCoordinate): string =>
+  result.status === "committed"
+    ? result.commit.store_epoch
+    : result.observed.store_epoch;
+
+/** Post-state-authorized fast-path packet. No-op commands never fabricate one. */
+export const applyResultDelivery = (
+  result: CoreApplyCoordinate,
+): CoreAuthorizedDeliveryPacket | undefined =>
+  result.status === "committed" ? result.delivery ?? undefined : undefined;
+
+export const findCoreModulePayload = (
+  envelope: CoreEventEnvelope,
+  module: CoreModuleEventPayload["module"],
+): CoreModuleEventPayload | undefined => envelope.packet.effects
+  .find((effect) => effect.payload.module === module)
+  ?.payload;
 
 export type LibraryReadRequest = components["schemas"]["LibraryReadRequest"];
 export type LibraryRead = LibraryReadRequest["read"];
@@ -40,7 +78,7 @@ type SuccessfulPayload<Response> = Response extends {
   : never;
 
 export type LibraryReadSnapshot = SuccessfulPayload<LibraryReadResponse>;
-export type LibraryCommittedValue = SuccessfulPayload<LibraryApplyResponse>;
+export type LibraryApplyResult = SuccessfulPayload<LibraryApplyResponse>;
 
 export type DatabaseReadRequest = components["schemas"]["DatabaseReadRequest"];
 export type DatabaseRead = DatabaseReadRequest["read"];
@@ -49,7 +87,7 @@ export type DatabaseApplyRequest = components["schemas"]["DatabaseApplyRequest"]
 export type DatabaseIntent = DatabaseApplyRequest["intent"];
 export type DatabaseApplyResponse = components["schemas"]["DatabaseApplyResponse"];
 export type DatabaseReadSnapshot = SuccessfulPayload<DatabaseReadResponse>;
-export type DatabaseCommittedValue = SuccessfulPayload<DatabaseApplyResponse>;
+export type DatabaseApplyResult = SuccessfulPayload<DatabaseApplyResponse>;
 export type CoreDatabaseRowSummary =
   components["schemas"]["DatabaseRowSummary"];
 export type CoreDatabaseRowDetail =
@@ -64,7 +102,7 @@ export type ProjectWorkspaceReadSnapshot = SuccessfulPayload<ProjectWorkspaceRea
 export type ProjectWorkspaceApplyRequest = components["schemas"]["ProjectWorkspaceApplyRequest"];
 export type ProjectWorkspaceIntent = ProjectWorkspaceApplyRequest["intent"];
 export type ProjectWorkspaceApplyResponse = components["schemas"]["ProjectWorkspaceApplyResponse"];
-export type ProjectWorkspaceCommittedValue = SuccessfulPayload<ProjectWorkspaceApplyResponse>;
+export type ProjectWorkspaceApplyResult = SuccessfulPayload<ProjectWorkspaceApplyResponse>;
 
 export type AutomationReadRequest = components["schemas"]["AutomationReadRequest"];
 export type AutomationRead = AutomationReadRequest["read"];
@@ -73,7 +111,7 @@ export type AutomationReadSnapshot = SuccessfulPayload<AutomationReadResponse>;
 export type AutomationApplyRequest = components["schemas"]["AutomationApplyRequest"];
 export type AutomationIntent = AutomationApplyRequest["intent"];
 export type AutomationApplyResponse = components["schemas"]["AutomationApplyResponse"];
-export type AutomationCommittedValue = SuccessfulPayload<AutomationApplyResponse>;
+export type AutomationApplyResult = SuccessfulPayload<AutomationApplyResponse>;
 
 export type StoreAdministrationReadRequest =
   components["schemas"]["StoreAdministrationReadRequest"];
@@ -87,7 +125,7 @@ export type StoreAdministrationApplyRequest =
 export type StoreAdministrationIntent = StoreAdministrationApplyRequest["intent"];
 export type StoreAdministrationApplyResponse =
   components["schemas"]["StoreAdministrationApplyResponse"];
-export type StoreAdministrationCommittedValue =
+export type StoreAdministrationApplyResult =
   SuccessfulPayload<StoreAdministrationApplyResponse>;
 
 export interface ProjectWorkspaceApplyInput {
@@ -112,7 +150,7 @@ export type OwnedDocumentApplyRequest = components["schemas"]["OwnedDocumentAppl
 export type OwnedDocumentIntent = OwnedDocumentApplyRequest["intent"];
 export type OwnedDocumentApplyResponse = components["schemas"]["OwnedDocumentApplyResponse"];
 export type OwnedDocumentReadSnapshot = SuccessfulPayload<OwnedDocumentReadResponse>;
-export type OwnedDocumentCommittedValue = SuccessfulPayload<OwnedDocumentApplyResponse>;
+export type OwnedDocumentApplyResult = SuccessfulPayload<OwnedDocumentApplyResponse>;
 
 export interface LibraryApplyInput {
   readonly operationId: string;
@@ -148,28 +186,28 @@ export interface CoreClientPort {
     input: CoreLocalMutationResolveRequest,
   ): Promise<CoreLocalMutationResolveResponse>;
   libraryRead(read: LibraryRead): Promise<LibraryReadSnapshot>;
-  libraryApply(input: LibraryApplyInput): Promise<LibraryCommittedValue>;
+  libraryApply(input: LibraryApplyInput): Promise<LibraryApplyResult>;
   filterProjectionImpactForProject(
     projectId: string,
     impact: ProjectionImpact,
   ): Promise<ProjectionImpact>;
   databaseRead(read: DatabaseRead): Promise<DatabaseReadSnapshot>;
-  databaseApply(input: DatabaseApplyInput): Promise<DatabaseCommittedValue>;
+  databaseApply(input: DatabaseApplyInput): Promise<DatabaseApplyResult>;
   workspaceRead(read: ProjectWorkspaceRead): Promise<ProjectWorkspaceReadSnapshot>;
-  workspaceApply(input: ProjectWorkspaceApplyInput): Promise<ProjectWorkspaceCommittedValue>;
+  workspaceApply(input: ProjectWorkspaceApplyInput): Promise<ProjectWorkspaceApplyResult>;
   automationRead(read: AutomationRead): Promise<AutomationReadSnapshot>;
-  automationApply(input: AutomationApplyInput): Promise<AutomationCommittedValue>;
+  automationApply(input: AutomationApplyInput): Promise<AutomationApplyResult>;
   administrationRead(
     read: StoreAdministrationRead,
   ): Promise<StoreAdministrationReadSnapshot>;
   administrationApply(
     input: StoreAdministrationApplyInput,
-  ): Promise<StoreAdministrationCommittedValue>;
+  ): Promise<StoreAdministrationApplyResult>;
   documentRead(
     clientSessionId: string,
     read: OwnedDocumentRead,
   ): Promise<OwnedDocumentReadSnapshot>;
-  documentApply(input: OwnedDocumentApplyInput): Promise<OwnedDocumentCommittedValue>;
+  documentApply(input: OwnedDocumentApplyInput): Promise<OwnedDocumentApplyResult>;
   documentSync(input: DocumentSyncRequest): Promise<DocumentSyncResponse>;
   documentCanvasSync(input: CanvasSceneSyncRequest): Promise<CanvasSceneSyncResponse>;
   documentApplyUpdate(input: DocumentSyncApplyRequest): Promise<DocumentSyncApplyAck>;
@@ -184,12 +222,14 @@ export interface CoreClientPort {
       readonly signal?: AbortSignal;
     },
     onEvent: (event: CoreEventEnvelope) => void,
+    onCheckpoint: (checkpoint: CoreStreamCheckpoint) => void,
     onResyncRequired: (event: DocumentResyncRequired) => void,
     onRealtimeEvent: (event: DocumentSyncRealtimeEvent) => void,
   ): Promise<CoreEventSubscription>;
   openEventStream(
     after: number,
     onEvent: (event: CoreEventEnvelope) => void,
+    onCheckpoint: (checkpoint: CoreStreamCheckpoint) => void,
     onResyncRequired?: (event: CoreEventReplayRequired) => void,
     signal?: AbortSignal,
   ): Promise<CoreEventSubscription>;

@@ -303,7 +303,22 @@ impl OwnedDocumentRealtimeAdapter {
                 events: events
                     .into_iter()
                     .filter(|event| event_document_id(event) == Some(document_id.as_str()))
-                    .map(|event| DocumentRealtimeEvent::Committed(Box::new(event)))
+                    .map(|event| match &event.payload {
+                        CoreModuleEventPayload::OwnedDocument(
+                            OwnedDocumentEvent::DocumentResyncRequired {
+                                generation,
+                                head_seq,
+                                ..
+                            },
+                        ) => DocumentRealtimeEvent::ResyncRequired {
+                            document_id: document_id.clone(),
+                            store_epoch: event.store_epoch.clone(),
+                            generation: *generation,
+                            head_seq: *head_seq,
+                            commit_head,
+                        },
+                        _ => DocumentRealtimeEvent::Committed(Box::new(event)),
+                    })
                     .collect(),
                 next_after,
                 commit_head,

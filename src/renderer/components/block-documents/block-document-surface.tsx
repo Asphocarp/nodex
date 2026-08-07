@@ -31,7 +31,7 @@ import {
   type BlockDocumentSurfaceStatus,
 } from "@/lib/block-document-surface-runtime";
 import type { DocumentSyncAdapter } from "@/lib/nodex-y-provider";
-import type { PageEditorAwarenessLease } from "@/lib/page-editor-session-registry";
+import type { EditorSurfaceAwarenessLease } from "@/lib/document-session-registry";
 import type {
   OwnedBlockDocumentModel,
   ReadyPageBlockDocumentDescriptor,
@@ -80,7 +80,7 @@ export interface BlockDocumentSurfaceProps {
   readonly isActive: boolean;
   readonly localAwarenessState?: BlockDocumentLocalAwarenessState;
   /** Optional lease used when multiple views share one canonical provider. */
-  readonly awarenessLease?: PageEditorAwarenessLease;
+  readonly awarenessLease?: EditorSurfaceAwarenessLease;
   readonly onReload?: (
     context?: BlockDocumentSurfaceReloadContext,
   ) => void | Promise<void>;
@@ -281,7 +281,7 @@ const useSurfaceAwareness = (
   descriptor: PrimaryOwnedBlockDocumentDescriptor,
   isActive: boolean,
   configured: BlockDocumentLocalAwarenessState | undefined,
-  awarenessLease?: PageEditorAwarenessLease,
+  awarenessLease?: EditorSurfaceAwarenessLease,
 ): void => {
   const retainedStateRef = useRef<Record<string, unknown> | null>(null);
   const configuredRef = useRef(configured);
@@ -292,16 +292,18 @@ const useSurfaceAwareness = (
     const localClientId = runtime.document.clientID;
 
     if (isActive) {
-      awarenessLease?.acquire();
-      awareness.setLocalState(
-        makeActiveAwarenessState(
-          runtime,
-          projectId,
-          descriptor,
-          configuredRef.current,
-          retainedStateRef.current,
-        ),
+      const activeState = makeActiveAwarenessState(
+        runtime,
+        projectId,
+        descriptor,
+        configuredRef.current,
+        awarenessLease?.getRetainedState() ?? retainedStateRef.current,
       );
+      if (awarenessLease) {
+        awarenessLease.publish(activeState);
+      } else {
+        awareness.setLocalState(activeState);
+      }
       return () => awarenessLease?.release();
     }
 
@@ -339,7 +341,7 @@ export interface OwnedBlockDocumentRuntimeSurfaceProps {
   readonly descriptor: PrimaryOwnedBlockDocumentDescriptor;
   readonly isActive: boolean;
   readonly localAwarenessState?: BlockDocumentLocalAwarenessState;
-  readonly awarenessLease?: PageEditorAwarenessLease;
+  readonly awarenessLease?: EditorSurfaceAwarenessLease;
   readonly startupError: Error | null;
   readonly onReload: () => Promise<void>;
   readonly pendingFallback?: ReactNode;

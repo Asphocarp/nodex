@@ -181,6 +181,7 @@ pub(crate) fn read_at_event_head(
         .map(|project_id| project_primary_database(connection, library_id, project_id))
         .transpose()?
         .flatten();
+    let store_epoch = crate::document::read_store_epoch(connection)?;
     let mut value = match (&request.target, request.mode) {
         (DatabaseTarget::ProjectDefault, DatabaseReadMode::ViewWindow) => {
             let database_id =
@@ -199,13 +200,17 @@ pub(crate) fn read_at_event_head(
                 value: super::window::view_window(
                     connection,
                     library_id,
-                    commit_head,
                     &view_id,
-                    request
-                        .window
-                        .as_ref()
-                        .unwrap_or(&CollectionWindowRequest::default()),
-                    request.group_scope.as_ref(),
+                    super::window::ViewWindowRead {
+                        commit_head,
+                        project_id: Some(project_id),
+                        store_epoch: &store_epoch,
+                        window: request
+                            .window
+                            .as_ref()
+                            .unwrap_or(&CollectionWindowRequest::default()),
+                        group_scope: request.group_scope.as_ref(),
+                    },
                 )?,
             })
         }
@@ -289,13 +294,17 @@ pub(crate) fn read_at_event_head(
                 value: super::window::view_window(
                     connection,
                     library_id,
-                    commit_head,
                     &view_id,
-                    request
-                        .window
-                        .as_ref()
-                        .unwrap_or(&CollectionWindowRequest::default()),
-                    request.group_scope.as_ref(),
+                    super::window::ViewWindowRead {
+                        commit_head,
+                        project_id,
+                        store_epoch: &store_epoch,
+                        window: request
+                            .window
+                            .as_ref()
+                            .unwrap_or(&CollectionWindowRequest::default()),
+                        group_scope: request.group_scope.as_ref(),
+                    },
                 )?,
             })
         }
@@ -451,13 +460,17 @@ pub(crate) fn read_at_event_head(
                 value: super::window::view_window(
                     connection,
                     library_id,
-                    commit_head,
                     view_id,
-                    request
-                        .window
-                        .as_ref()
-                        .unwrap_or(&CollectionWindowRequest::default()),
-                    request.group_scope.as_ref(),
+                    super::window::ViewWindowRead {
+                        commit_head,
+                        project_id,
+                        store_epoch: &store_epoch,
+                        window: request
+                            .window
+                            .as_ref()
+                            .unwrap_or(&CollectionWindowRequest::default()),
+                        group_scope: request.group_scope.as_ref(),
+                    },
                 )?,
             })
         }
@@ -471,7 +484,6 @@ pub(crate) fn read_at_event_head(
                 primary_database_id.as_deref(),
                 &database_id,
             )?;
-            let store_epoch = crate::document::read_store_epoch(connection)?;
             let projection = super::window::view_context(
                 connection,
                 library_id,
@@ -497,14 +509,15 @@ pub(crate) fn read_at_event_head(
                 .filter(|property| property_ids.contains(property.property_id.as_str()))
                 .collect();
             Ok(DatabaseReadValue::ViewContext {
-                value: DatabaseViewContext {
+                value: Box::new(DatabaseViewContext {
                     database: container_record(connection, library_id, &projection.database_id)?,
                     data_source: source_record(connection, library_id, &projection.data_source_id)?,
                     view: view_record(connection, library_id, Some(project_id), view_id)?,
                     properties,
                     groups: projection.groups,
+                    projection: projection.projection,
                     rows: projection.rows,
-                },
+                }),
             })
         }
         (DatabaseTarget::View { view_id }, DatabaseReadMode::RowsById) => {
@@ -565,13 +578,17 @@ pub(crate) fn read_at_event_head(
                 value: super::window::view_window(
                     connection,
                     library_id,
-                    commit_head,
                     &view_id,
-                    &CollectionWindowRequest {
-                        after: query.cursor.clone(),
-                        first: query.limit,
+                    super::window::ViewWindowRead {
+                        commit_head,
+                        project_id,
+                        store_epoch: &store_epoch,
+                        window: &CollectionWindowRequest {
+                            after: query.cursor.clone(),
+                            first: query.limit,
+                        },
+                        group_scope: None,
                     },
-                    None,
                 )?,
             })
         }
@@ -590,13 +607,17 @@ pub(crate) fn read_at_event_head(
                 value: super::window::view_window(
                     connection,
                     library_id,
-                    commit_head,
                     view_id,
-                    &CollectionWindowRequest {
-                        after: query.cursor.clone(),
-                        first: query.limit,
+                    super::window::ViewWindowRead {
+                        commit_head,
+                        project_id,
+                        store_epoch: &store_epoch,
+                        window: &CollectionWindowRequest {
+                            after: query.cursor.clone(),
+                            first: query.limit,
+                        },
+                        group_scope: None,
                     },
-                    None,
                 )?,
             })
         }
@@ -614,7 +635,16 @@ pub(crate) fn read_at_event_head(
             let view_id = default_view_for_database(connection, &database_id)?;
             validate_view_filter_access_by_id(connection, library_id, Some(project_id), &view_id)?;
             Ok(DatabaseReadValue::ViewGroups {
-                value: super::window::view_groups(connection, library_id, &view_id)?,
+                value: super::window::view_groups(
+                    connection,
+                    library_id,
+                    &view_id,
+                    super::window::ViewGroupsRead {
+                        commit_head,
+                        project_id: Some(project_id),
+                        store_epoch: &store_epoch,
+                    },
+                )?,
             })
         }
         (DatabaseTarget::Database { database_id }, DatabaseReadMode::ViewGroups) => {
@@ -627,7 +657,16 @@ pub(crate) fn read_at_event_head(
             let view_id = default_view_for_database(connection, database_id)?;
             validate_view_filter_access_by_id(connection, library_id, project_id, &view_id)?;
             Ok(DatabaseReadValue::ViewGroups {
-                value: super::window::view_groups(connection, library_id, &view_id)?,
+                value: super::window::view_groups(
+                    connection,
+                    library_id,
+                    &view_id,
+                    super::window::ViewGroupsRead {
+                        commit_head,
+                        project_id,
+                        store_epoch: &store_epoch,
+                    },
+                )?,
             })
         }
         (DatabaseTarget::View { view_id }, DatabaseReadMode::ViewGroups) => {
@@ -640,7 +679,16 @@ pub(crate) fn read_at_event_head(
             )?;
             validate_view_filter_access_by_id(connection, library_id, project_id, view_id)?;
             Ok(DatabaseReadValue::ViewGroups {
-                value: super::window::view_groups(connection, library_id, view_id)?,
+                value: super::window::view_groups(
+                    connection,
+                    library_id,
+                    view_id,
+                    super::window::ViewGroupsRead {
+                        commit_head,
+                        project_id,
+                        store_epoch: &store_epoch,
+                    },
+                )?,
             })
         }
         (

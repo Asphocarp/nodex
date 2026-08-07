@@ -18,8 +18,8 @@ import {
   buildSessionDeepLink,
 } from "@/lib/page-deeplink";
 import {
-  pageEditorSessionRegistry,
-} from "@/lib/page-editor-session-registry";
+  documentSessionRegistry,
+} from "@/lib/document-session-registry";
 import {
   queryKeys,
 } from "@/lib/query-keys";
@@ -673,7 +673,7 @@ export function useWorkbenchSidebarController({
         }
       } finally {
         panelController.pruneSession(session.id);
-        await pageEditorSessionRegistry.disposeProjectSession(
+        await documentSessionRegistry.disposeProjectSession(
           session.id,
         );
       }

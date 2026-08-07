@@ -8,8 +8,8 @@ use nodex_core_contracts::database::{
     DatabaseTransferTarget,
 };
 use nodex_core_contracts::{
-    BoundModuleContext, CommittedModuleValue, CoreModuleEventPayload, ModuleApplyRequest,
-    ModuleMutationReceipt, ProjectionImpact, StoreEpoch,
+    BoundModuleContext, CoreModuleEventPayload, ModuleApplyRequest, ModuleMutationReceipt,
+    ModuleName, ProjectionImpact, StoreEpoch,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
@@ -24,12 +24,11 @@ use crate::domain::view_position::{
     LogicalViewPositionItem, ViewPositionPlanError, ViewSiblingRankWriteKind,
     plan_view_position_run,
 };
+use crate::infrastructure::durable_mutation::{
+    self, CommitResult, DurableMutationScope, OperationIdentity, ReceiptMetadata, SealedOutcome,
+};
 use crate::infrastructure::event_log::{
     NewChangeLogEntry, append_change_log, load_committed_event_by_sequence,
-    load_local_commit_by_event_sequence,
-};
-use crate::infrastructure::module_receipts::{
-    NewModuleReceipt, insert_module_receipt, read_module_receipt,
 };
 use crate::infrastructure::projection_impact::impact_for_payload;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode, with_immediate_transaction};
@@ -167,48 +166,119 @@ pub(crate) fn apply_in_transaction(
     ))
     .map_err(|_| internal("Database mutation cannot be fingerprinted"))?;
     let request_hash = sha256(&fingerprint);
-    if let Some(stored) = read_module_receipt(connection, MODULE_NAME, &request.operation_id)? {
-        if stored.request_hash != request_hash {
-            return Err(StoreError::new(
-                StoreErrorCode::IdempotencyKeyReused,
-                "operation_id is already bound to another Database intent",
-                false,
-            ));
+    let now = sqlite_now(connection)?;
+    let result = durable_mutation::run(
+        connection,
+        OperationIdentity {
+            module: ModuleName::Database,
+            module_name: MODULE_NAME,
+            operation_id: &request.operation_id,
+            intent_hash: &request_hash,
+            store_epoch: &store_epoch,
+            committed_at: &now,
+            context,
+        },
+        |scope| {
+            let mut effects = MutationEffects::default();
+            for intent in &request.intent {
+                apply_intent(
+                    scope.connection(),
+                    library_id,
+                    &authority,
+                    intent,
+                    &now,
+                    &mut effects,
+                )?;
+            }
+            refresh_scheduled_page_indexes(scope.connection(), &effects.page_ids, &now)?;
+            seal_commit(
+                scope,
+                context,
+                request,
+                &request_hash,
+                &authority,
+                &now,
+                effects,
+            )
+        },
+    )?;
+    result.verify_manifest_identity(|committed| {
+        (committed.commit_seq, committed.store_epoch.0.clone())
+    })?;
+    match result {
+        CommitResult::Committed {
+            outcome: committed, ..
+        } => {
+            let event = load_committed_event_by_sequence(connection, committed.event_sequence)?;
+            Ok(DatabaseApplyOutcome {
+                committed,
+                event: Some(event),
+            })
         }
-        let mut committed = serde_json::from_value::<
-            CommittedModuleValue<DatabaseCommitValue, DatabaseReceipt>,
-        >(stored.result)
-        .map_err(|_| corrupt("Stored Database receipt is invalid"))?;
-        committed.receipt.mutation.duplicate = true;
-        return Ok(DatabaseApplyOutcome {
+        CommitResult::NoOp { outcome: committed } => Ok(DatabaseApplyOutcome {
             committed,
             event: None,
-        });
+        }),
+        CommitResult::IdempotentReplay {
+            outcome: mut committed,
+            manifest: _,
+        } => {
+            committed.receipt.mutation.duplicate = true;
+            Ok(DatabaseApplyOutcome {
+                committed,
+                event: None,
+            })
+        }
     }
+}
 
-    let now = sqlite_now(connection)?;
+/// Applies Database canonical writes as part of an owning domain mutation.
+/// The owner publishes the single receipt/event/manifest; this collaborator
+/// must never allocate an independent commit for the same user command.
+pub(crate) fn apply_as_collaborator(
+    connection: &Connection,
+    library_id: &str,
+    context: &BoundModuleContext,
+    operation_id: &str,
+    intents: &[DatabaseIntent],
+    committed_at: &str,
+) -> Result<DatabaseReceipt, StoreError> {
+    if intents.is_empty() || intents.len() > MAX_OPERATIONS {
+        return Err(invalid("Database collaborator operation count is invalid"));
+    }
+    let authority = mutation_authority(connection, library_id, context)?;
     let mut effects = MutationEffects::default();
-    for intent in &request.intent {
+    for intent in intents {
         apply_intent(
             connection,
             library_id,
             &authority,
             intent,
-            &now,
+            committed_at,
             &mut effects,
         )?;
     }
-    refresh_scheduled_page_indexes(connection, &effects.page_ids, &now)?;
-    commit(
-        connection,
-        context,
-        request,
-        &store_epoch,
-        &request_hash,
-        &authority,
-        &now,
-        effects,
-    )
+    refresh_scheduled_page_indexes(connection, &effects.page_ids, committed_at)?;
+    Ok(DatabaseReceipt {
+        mutation: ModuleMutationReceipt {
+            // The owning receipt carries the public operation identity. This
+            // private collaborator value is used only to merge typed effects.
+            operation_id: operation_id.to_owned(),
+            duplicate: false,
+        },
+        affected_database_ids: effects.database_ids.into_iter().collect(),
+        affected_data_source_ids: effects.data_source_ids.into_iter().collect(),
+        affected_page_ids: effects.page_ids.into_iter().collect(),
+        affected_view_ids: effects.view_ids.into_iter().collect(),
+        operation_kinds: intents
+            .iter()
+            .map(database_intent_kind)
+            .map(str::to_owned)
+            .collect(),
+        committed_revisions: effects.revisions,
+        commit_seq: 0,
+        committed_at: committed_at.to_owned(),
+    })
 }
 
 fn validate_request(request: &ModuleApplyRequest<Vec<DatabaseIntent>>) -> Result<(), StoreError> {
@@ -1306,7 +1376,6 @@ pub(crate) struct StagedPagePlacementRevisions {
 
 pub(crate) struct ResolvedPageTransferDataSourceDestination {
     pub(crate) project_id: String,
-    pub(crate) database_id: String,
     pub(crate) destination: PageCopyDataSourceDestination,
 }
 
@@ -1502,7 +1571,6 @@ fn resolve_page_transfer_data_source_destination_with_access(
         .transpose()?;
     Ok(ResolvedPageTransferDataSourceDestination {
         project_id,
-        database_id: source.database_id,
         destination: PageCopyDataSourceDestination {
             data_source_id: source.id,
             expected_data_source_revision: source.revision,
@@ -4864,16 +4932,20 @@ fn database_group_key(value: &Value) -> Result<Option<String>, StoreError> {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn commit(
-    connection: &Connection,
+fn seal_commit(
+    scope: &DurableMutationScope<'_>,
     context: &BoundModuleContext,
     request: &ModuleApplyRequest<Vec<DatabaseIntent>>,
-    store_epoch: &str,
     request_hash: &str,
     authority: &DatabaseMutationAuthority,
     now: &str,
     effects: MutationEffects,
-) -> Result<DatabaseApplyOutcome, StoreError> {
+) -> Result<
+    SealedOutcome<crate::ModuleWriterResult<DatabaseCommitValue, DatabaseReceipt>>,
+    StoreError,
+> {
+    let connection = scope.connection();
+    let store_epoch = scope.store_epoch();
     let database_ids = effects.database_ids.into_iter().collect::<Vec<_>>();
     let data_source_ids = effects.data_source_ids.into_iter().collect::<Vec<_>>();
     let page_ids = effects.page_ids.into_iter().collect::<Vec<_>>();
@@ -4925,6 +4997,13 @@ fn commit(
     };
     let payload_json =
         serde_json::to_string(&payload).map_err(|_| internal("Database event payload"))?;
+    super::record_local_projection_delta(
+        connection,
+        scope.evidence(),
+        &context.library_id.0,
+        authority.project_id.as_deref(),
+        &projection_impact,
+    )?;
     let event_sequence = append_change_log(
         connection,
         NewChangeLogEntry {
@@ -4939,8 +5018,8 @@ fn commit(
             projection_impact: &projection_impact,
             committed_at: now,
         },
+        scope.evidence(),
     )?;
-    let local_commit = load_local_commit_by_event_sequence(connection, event_sequence)?;
     let receipt = DatabaseReceipt {
         mutation: ModuleMutationReceipt {
             operation_id: request.operation_id.clone(),
@@ -4952,40 +5031,27 @@ fn commit(
         affected_view_ids: view_ids.clone(),
         operation_kinds,
         committed_revisions,
-        commit_seq: local_commit.commit_seq,
+        commit_seq: scope.commit_seq(),
         committed_at: now.to_owned(),
     };
-    let committed = CommittedModuleValue {
+    let committed = crate::ModuleWriterResult {
         value: DatabaseCommitValue {
             operation_count: u32::try_from(request.intent.len())
                 .map_err(|_| internal("Database operation count"))?,
         },
         receipt,
-        commit_seq: local_commit.commit_seq,
+        commit_seq: scope.commit_seq(),
         event_sequence,
         store_epoch: StoreEpoch(store_epoch.to_owned()),
-        local_commit: Some(local_commit),
     };
-    insert_module_receipt(
-        connection,
-        NewModuleReceipt {
-            module_name: MODULE_NAME,
-            operation_id: &request.operation_id,
-            context,
+    Ok(scope.seal(
+        committed,
+        ReceiptMetadata {
             operation_kind: "apply",
-            store_epoch,
-            request_hash,
-            result: &serde_json::to_value(&committed)
-                .map_err(|_| internal("Database receipt encoding"))?,
             event_sequence: Some(event_sequence),
             committed_at: now,
         },
-    )?;
-    let event = load_committed_event_by_sequence(connection, event_sequence)?;
-    Ok(DatabaseApplyOutcome {
-        committed,
-        event: Some(event),
-    })
+    ))
 }
 
 fn require_source(

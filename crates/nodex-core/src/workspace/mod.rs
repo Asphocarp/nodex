@@ -22,9 +22,9 @@ use nodex_core_contracts::workspace::{
     ProjectWorkspaceReadValue, ProjectWorkspaceReceipt,
 };
 use nodex_core_contracts::{
-    BoundModuleContext, CommittedCoreModuleEvent, CommittedModuleValue, CoreError, CoreErrorCode,
-    CoreErrorRecovery, ModuleApplyRequest, ModuleReadRequest, ModuleReadSnapshot,
-    PROJECT_WORKSPACE_CONTRACT_VERSION, StoreEpoch,
+    BoundModuleContext, CommittedCoreModuleEvent, CoreError, CoreErrorCode, CoreErrorRecovery,
+    ModuleApplyRequest, ModuleReadRequest, ModuleReadSnapshot, PROJECT_WORKSPACE_CONTRACT_VERSION,
+    StoreEpoch,
 };
 use rusqlite::OptionalExtension;
 
@@ -34,7 +34,7 @@ use crate::infrastructure::writer::{StoreReaders, StoreWriter};
 
 #[derive(Clone, Debug)]
 pub struct ProjectWorkspaceApplyOutcome {
-    pub committed: CommittedModuleValue<ProjectWorkspaceCommitValue, ProjectWorkspaceReceipt>,
+    pub committed: crate::ModuleWriterResult<ProjectWorkspaceCommitValue, ProjectWorkspaceReceipt>,
     pub event: Option<CommittedCoreModuleEvent>,
 }
 

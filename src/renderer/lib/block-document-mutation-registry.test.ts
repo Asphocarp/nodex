@@ -6,8 +6,8 @@ import {
 
 describe("Block Document mutation barrier registry", () => {
   test("does not let an older surface disposer remove the current runtime", () => {
-    const first = { prepareDurableMutation: async () => undefined } as never;
-    const second = { prepareDurableMutation: async () => undefined } as never;
+    const first = { flushAndFence: async () => undefined } as never;
+    const second = { flushAndFence: async () => undefined } as never;
     const unregisterFirst = registerBlockDocumentMutationBarrier("surface-1", first);
     const unregisterSecond = registerBlockDocumentMutationBarrier("surface-1", second);
 

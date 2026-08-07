@@ -22,11 +22,12 @@ import type {
 import { canonicalizePortableRichText } from "../../shared/block-documents/portable-rich-text";
 import { isWorkflowStatus } from "../../shared/workflow-status";
 import type { DesktopDataAuthorityRuntime } from "./desktop-data-authority";
-import type {
-  AutomationCommittedValue,
-  AutomationReadSnapshot,
-  CoreClientPort,
-  CoreEventEnvelope,
+import {
+  findCoreModulePayload,
+  type AutomationApplyResult,
+  type AutomationReadSnapshot,
+  type CoreClientPort,
+  type CoreEventEnvelope,
 } from "./types";
 
 type CoreAutomationDefinition = Extract<
@@ -223,8 +224,8 @@ export interface CoreAutomationInvalidation {
 export function mapCoreAutomationEvent(
   envelope: CoreEventEnvelope,
 ): CoreAutomationInvalidation | null {
-  const payload = envelope.event.payload;
-  if (payload.module !== "automation") return null;
+  const payload = findCoreModulePayload(envelope, "automation");
+  if (payload?.module !== "automation") return null;
   return {
     automationIds: payload.event.automation_ids,
     runIds: payload.event.run_ids,
@@ -510,10 +511,10 @@ const createAutomationId = async (
 };
 
 const requireDefinition = (
-  committed: AutomationCommittedValue,
+  committed: AutomationApplyResult,
   automationId: string,
 ): CoreAutomationDefinition => {
-  const definition = committed.value.definitions.find((candidate) =>
+  const definition = committed.outcome.definitions.find((candidate) =>
     candidate.automation_id === automationId
   );
   if (definition) return definition;
@@ -521,10 +522,10 @@ const requireDefinition = (
 };
 
 const requireRun = (
-  committed: AutomationCommittedValue,
+  committed: AutomationApplyResult,
   threadId: string,
 ): CoreAutomationRun => {
-  const run = committed.value.runs.find((candidate) =>
+  const run = committed.outcome.runs.find((candidate) =>
     candidate.thread_id === threadId
   );
   if (run) return run;
@@ -587,7 +588,7 @@ const createCoreAutomationPort = (
       operationId,
       intent,
     });
-    const result = committed.value.page_occurrence_mutation;
+    const result = committed.outcome.page_occurrence_mutation;
     if (!result) {
       throw new Error("Core Automation commit omitted its occurrence result");
     }
@@ -677,7 +678,7 @@ const createCoreAutomationPort = (
         item: mapDefinition(current),
         success: true,
         status: "deleted",
-        deletedRunCount: committed.value.deleted_run_ids.length,
+        deletedRunCount: committed.outcome.deleted_run_ids.length,
       };
     },
     dispatchDefinitionNow: async (id) => {
@@ -715,12 +716,12 @@ const createCoreAutomationPort = (
         },
       });
       const definitions = new Map(
-        committed.value.definitions.map((item) => [
+        committed.outcome.definitions.map((item) => [
           item.automation_id,
           item,
         ]),
       );
-      return committed.value.claimed_leases.map((lease) => {
+      return committed.outcome.claimed_leases.map((lease) => {
         const claimedDefinition = definitions.get(lease.automation_id);
         if (!claimedDefinition) {
           throw new Error("Core Automation claim omitted its Definition");
@@ -758,9 +759,9 @@ const createCoreAutomationPort = (
       });
       return {
         archivedPendingCount:
-          committed.value.run_bulk?.archived_pending_count ?? 0,
+          committed.outcome.run_bulk?.archived_pending_count ?? 0,
         pendingReviewCount:
-          committed.value.run_bulk?.pending_review_count ?? 0,
+          committed.outcome.run_bulk?.pending_review_count ?? 0,
       };
     },
     getRun: async (threadId) => {
@@ -778,7 +779,7 @@ const createCoreAutomationPort = (
           source_cwd: input.sourceCwd ?? null,
         },
       });
-      return committed.value.runs.some((candidate) =>
+      return committed.outcome.runs.some((candidate) =>
         candidate.thread_id === input.threadId
       );
     },
@@ -796,7 +797,7 @@ const createCoreAutomationPort = (
           expected_revision: pending.run_revision,
         },
       });
-      return committed.value.runs.some((candidate) =>
+      return committed.outcome.runs.some((candidate) =>
         candidate.thread_id === input.threadId
       );
     },
@@ -849,7 +850,7 @@ const createCoreAutomationPort = (
           expected_revision: run.run_revision,
         },
       });
-      return committed.value.deleted_run_ids.includes(threadId);
+      return committed.outcome.deleted_run_ids.includes(threadId);
     },
     unarchiveRun: async (threadId) =>
       (await applyRun(threadId, (run) => ({
@@ -926,7 +927,7 @@ const createCoreAutomationPort = (
         operationId: operationId("mark-all-read"),
         intent: { kind: "mark_all_runs_read" },
       });
-      return committed.value.run_bulk?.changed_count ?? 0;
+      return committed.outcome.run_bulk?.changed_count ?? 0;
     },
     listPageOccurrences: async (
       projectId,
@@ -1017,7 +1018,7 @@ const createCoreAutomationPort = (
           lease_duration_ms: leaseDurationMs,
         },
       });
-      return committed.value.reminder_leases.map((lease) => ({
+      return committed.outcome.reminder_leases.map((lease) => ({
         leaseId: lease.lease_id,
         projectId: lease.project_id,
         pageId: lease.page_id,

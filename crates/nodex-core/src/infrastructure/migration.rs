@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::fs::{self, File};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -1062,6 +1063,89 @@ CREATE INDEX idx_core_module_receipts_local_commit
   ON core_module_receipts(store_epoch, local_commit_seq);
 "#;
 
+const V105_LOCAL_COMMIT_MANIFEST_SCHEMA_SQL: &str = r#"
+ALTER TABLE local_commits ADD COLUMN intent_hash TEXT NOT NULL
+  DEFAULT '0000000000000000000000000000000000000000000000000000000000000000'
+  CHECK (length(intent_hash) = 64 AND intent_hash NOT GLOB '*[^0-9a-f]*');
+ALTER TABLE local_commits ADD COLUMN projection_json TEXT NOT NULL DEFAULT '{}'
+  CHECK (json_valid(projection_json) AND json_type(projection_json) = 'object');
+ALTER TABLE local_commits ADD COLUMN receipt_json TEXT NOT NULL DEFAULT '{}'
+  CHECK (json_valid(receipt_json) AND json_type(receipt_json) = 'object');
+ALTER TABLE local_commits ADD COLUMN audience_json TEXT NOT NULL DEFAULT '{}'
+  CHECK (json_valid(audience_json) AND json_type(audience_json) = 'object');
+ALTER TABLE local_commits ADD COLUMN finalized INTEGER NOT NULL DEFAULT 0
+  CHECK (finalized IN (0, 1));
+
+ALTER TABLE local_commit_effects ADD COLUMN module_name TEXT NOT NULL DEFAULT 'library'
+  CHECK (module_name IN (
+    'library', 'database', 'owned_document', 'project_workspace',
+    'automation', 'store_administration'
+  ));
+ALTER TABLE local_commit_effects ADD COLUMN effect_kind TEXT NOT NULL DEFAULT 'historical';
+ALTER TABLE local_commit_effects ADD COLUMN project_id TEXT NOT NULL DEFAULT 'historical';
+ALTER TABLE local_commit_effects ADD COLUMN resources_json TEXT NOT NULL DEFAULT '{}'
+  CHECK (json_valid(resources_json) AND json_type(resources_json) = 'object');
+ALTER TABLE local_commit_effects ADD COLUMN payload_hash TEXT NOT NULL
+  DEFAULT '0000000000000000000000000000000000000000000000000000000000000000'
+  CHECK (length(payload_hash) = 64 AND payload_hash NOT GLOB '*[^0-9a-f]*');
+ALTER TABLE local_commit_effects ADD COLUMN projection_impact_json TEXT NOT NULL DEFAULT '{}'
+  CHECK (
+    json_valid(projection_impact_json)
+    AND json_type(projection_impact_json) = 'object'
+  );
+
+ALTER TABLE local_commit_documents ADD COLUMN document_order INTEGER NOT NULL DEFAULT 0
+  CHECK (document_order >= 0);
+ALTER TABLE local_commit_documents ADD COLUMN project_id TEXT NOT NULL DEFAULT 'historical';
+ALTER TABLE local_commit_documents ADD COLUMN page_id TEXT;
+ALTER TABLE local_commit_documents ADD COLUMN base_head_seq INTEGER NOT NULL DEFAULT 0
+  CHECK (base_head_seq >= 0);
+ALTER TABLE local_commit_documents ADD COLUMN update_byte_length INTEGER NOT NULL DEFAULT 0
+  CHECK (update_byte_length >= 0);
+
+CREATE INDEX idx_local_commit_documents_commit_order
+  ON local_commit_documents(store_epoch, commit_seq, document_order);
+"#;
+
+const V106_PROJECTION_SCOPE_HEAD_SCHEMA_SQL: &str = r#"
+ALTER TABLE local_commits ADD COLUMN manifest_json TEXT NOT NULL DEFAULT '{}'
+  CHECK (json_valid(manifest_json) AND json_type(manifest_json) = 'object');
+
+CREATE TABLE projection_scope_heads (
+  store_epoch TEXT NOT NULL,
+  scope_key TEXT NOT NULL,
+  scope_schema_version INTEGER NOT NULL CHECK (scope_schema_version >= 1),
+  scope_json TEXT NOT NULL,
+  revision INTEGER NOT NULL CHECK (revision >= 1),
+  covered_commit_seq INTEGER NOT NULL CHECK (covered_commit_seq >= 1),
+  effect_hash TEXT NOT NULL,
+  PRIMARY KEY (store_epoch, scope_key),
+  FOREIGN KEY (store_epoch, covered_commit_seq)
+    REFERENCES local_commits(store_epoch, commit_seq) ON DELETE RESTRICT,
+  CHECK (length(store_epoch) BETWEEN 1 AND 512),
+  CHECK (length(scope_key) BETWEEN 1 AND 128),
+  CHECK (json_valid(scope_json) AND json_type(scope_json) = 'object'),
+  CHECK (length(effect_hash) = 64 AND effect_hash NOT GLOB '*[^0-9a-f]*')
+) WITHOUT ROWID, STRICT;
+
+CREATE INDEX idx_projection_scope_heads_commit
+  ON projection_scope_heads(store_epoch, covered_commit_seq);
+"#;
+
+const V107_BLOCK_PROJECT_CASCADE_INDEXES_SQL: &str = r#"
+CREATE INDEX IF NOT EXISTS idx_block_search_units_owner
+  ON block_search_units(owner_block_id, project_id);
+
+CREATE INDEX IF NOT EXISTS idx_block_search_units_block
+  ON block_search_units(block_id, project_id);
+
+CREATE INDEX IF NOT EXISTS idx_block_asset_refs_block
+  ON block_asset_refs(block_id, project_id);
+
+CREATE INDEX IF NOT EXISTS idx_block_asset_refs_owner
+  ON block_asset_refs(owner_block_id, project_id);
+"#;
+
 const V94_PROJECT_APPEARANCE_SCHEMA_SQL: &str = r#"
 ALTER TABLE projects ADD COLUMN appearance_color TEXT NOT NULL DEFAULT 'black'
   CHECK (appearance_color IN ('black', 'red', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink'));
@@ -1247,6 +1331,7 @@ pub struct StorePreparation {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StorePreparationEvent {
     MigrationStarted { from_version: i64, to_version: i64 },
+    MigrationProgress { completed: u64, total: u64 },
 }
 
 pub fn prepare_profile_store(
@@ -1328,7 +1413,7 @@ pub fn prepare_profile_store_with_observer(
         from_version: source_version,
         to_version: CORE_SCHEMA_VERSION,
     });
-    let backup_path = create_migration_backup(connection, profile_home, now, source_version)?;
+    let backup_path = create_migration_backup(connection, profile_home, source_version)?;
     let validated_yjs_documents = validate_live_yjs_documents(connection)?;
     let backup_name = backup_path
         .file_name()
@@ -1346,6 +1431,7 @@ pub fn prepare_profile_store_with_observer(
         Some(source_version),
         Some(backup_name),
         now,
+        observer,
     )?;
     validate_store(connection)?;
     validate_core_metadata(connection, CORE_SCHEMA_VERSION)?;
@@ -1367,6 +1453,7 @@ pub(crate) fn prepare_legacy_import_candidate(
     profile_home: &Path,
     source_version: i64,
     source_backup_path: &Path,
+    observer: &mut dyn FnMut(StorePreparationEvent),
 ) -> Result<StorePreparation, StoreError> {
     validate_store(connection)?;
     validate_exact_v84_schema(connection)?;
@@ -1399,6 +1486,7 @@ pub(crate) fn prepare_legacy_import_candidate(
         Some(TYPESCRIPT_SCHEMA_VERSION),
         Some(backup_name),
         now,
+        observer,
     )?;
     validate_store(connection)?;
     validate_core_metadata(connection, CORE_SCHEMA_VERSION)?;
@@ -1454,6 +1542,9 @@ fn upgrade_owned_store(
         101 => validate_exact_v101_schema(connection)?,
         102 => validate_exact_v102_schema(connection)?,
         103 => validate_exact_v103_schema(connection)?,
+        104 => validate_exact_v104_schema(connection)?,
+        105 => validate_exact_v105_schema(connection)?,
+        106 => validate_exact_v106_schema(connection)?,
         _ => return Err(corrupt("Rust Core forward-migration source is unsupported")),
     }
 
@@ -1462,8 +1553,7 @@ fn upgrade_owned_store(
         to_version: CORE_SCHEMA_VERSION,
     });
 
-    let now = unix_time_millis()?;
-    let backup_path = create_migration_backup(connection, profile_home, now, source_version)?;
+    let backup_path = create_migration_backup(connection, profile_home, source_version)?;
     let validated_yjs_documents = validate_live_yjs_documents(connection)?;
     with_immediate_transaction(connection, |transaction| {
         if source_version < 86 {
@@ -1515,13 +1605,22 @@ fn upgrade_owned_store(
             ensure_v101_projectless_permission_mode_schema(transaction)?;
         }
         if source_version < 102 {
-            ensure_v102_local_commit_schema(transaction)?;
+            ensure_v102_local_commit_schema(transaction, &mut |_, _| {})?;
         }
         if source_version < 103 {
             ensure_v103_local_commit_composite_identity(transaction)?;
         }
-        if source_version < 104 {
-            ensure_v104_local_commit_canonical_hash(transaction)?;
+        if source_version < 106 {
+            upgrade_local_commit_artifacts(
+                transaction,
+                source_version,
+                &mut |completed, total| {
+                    observer(StorePreparationEvent::MigrationProgress { completed, total });
+                },
+            )?;
+        }
+        if source_version < 107 {
+            ensure_v107_block_project_cascade_indexes(transaction)?;
         }
         let updated = transaction.execute(
             "UPDATE core_store_metadata SET store_format_version = ?1 \
@@ -1556,43 +1655,213 @@ fn upgrade_owned_store(
 fn create_migration_backup(
     connection: &Connection,
     profile_home: &Path,
-    now: u64,
     source_version: i64,
 ) -> Result<PathBuf, StoreError> {
-    let directory = profile_home.join("backups/core-migrations");
-    fs::create_dir_all(&directory).map_err(io_error)?;
-    if fs::symlink_metadata(&directory)
-        .map_err(io_error)?
-        .file_type()
-        .is_symlink()
+    let directory = prepare_migration_backup_directory(profile_home)?;
+    let source_identity = read_migration_source_identity(connection, source_version)?;
+    if let Some(source_identity) = source_identity.as_ref()
+        && let Some(existing) =
+            find_reusable_migration_backup(&directory, source_version, source_identity)?
     {
-        return Err(StoreError::new(
-            StoreErrorCode::InvalidProfile,
-            "Core migration backup directory must not be a symlink",
-            false,
-        ));
+        return Ok(existing);
     }
-    let backup_path = directory.join(format!(
-        "v{source_version}-to-v{CORE_SCHEMA_VERSION}-{now}.db"
+    let pending_path = directory.join(format!(
+        ".v{source_version}-to-v{CORE_SCHEMA_VERSION}.pending.db"
     ));
-    if backup_path.exists() {
-        return Err(StoreError::new(
-            StoreErrorCode::Internal,
-            "Core migration backup path already exists",
-            false,
-        ));
+    if let Ok(metadata) = fs::symlink_metadata(&pending_path) {
+        if !metadata.file_type().is_file() || metadata.file_type().is_symlink() {
+            return Err(StoreError::new(
+                StoreErrorCode::InvalidProfile,
+                "Core migration pending backup must be a regular file",
+                false,
+            ));
+        }
+        fs::remove_file(&pending_path).map_err(io_error)?;
     }
-    connection.backup(MAIN_DB, &backup_path, None)?;
-    File::open(&backup_path)
+    connection.backup(MAIN_DB, &pending_path, None)?;
+    File::open(&pending_path)
         .map_err(io_error)?
         .sync_all()
         .map_err(io_error)?;
+    validate_migration_backup(&pending_path, source_version)?;
+    let digest = file_sha256(&pending_path)?;
+    let backup_path = directory.join(format!(
+        "v{source_version}-to-v{CORE_SCHEMA_VERSION}-{digest}.db"
+    ));
+    if let Ok(metadata) = fs::symlink_metadata(&backup_path) {
+        if !metadata.file_type().is_file() || metadata.file_type().is_symlink() {
+            return Err(StoreError::new(
+                StoreErrorCode::InvalidProfile,
+                "Core migration backup must be a regular file",
+                false,
+            ));
+        }
+        validate_migration_backup(&backup_path, source_version)?;
+        if file_sha256(&backup_path)? != digest {
+            return Err(corrupt(
+                "Content-addressed migration backup digest diverges",
+            ));
+        }
+        fs::remove_file(&pending_path).map_err(io_error)?;
+    } else {
+        fs::rename(&pending_path, &backup_path).map_err(io_error)?;
+    }
     File::open(&directory)
         .map_err(io_error)?
         .sync_all()
         .map_err(io_error)?;
+    Ok(backup_path)
+}
 
-    let backup = open_immutable_reader(&backup_path)?;
+fn prepare_migration_backup_directory(profile_home: &Path) -> Result<PathBuf, StoreError> {
+    let mut directory = profile_home.to_path_buf();
+    for component in ["backups", "core-migrations"] {
+        directory.push(component);
+        match fs::symlink_metadata(&directory) {
+            Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+                return Err(StoreError::new(
+                    StoreErrorCode::InvalidProfile,
+                    "Core migration backup ancestry must contain only real directories",
+                    false,
+                ));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                fs::create_dir(&directory).map_err(io_error)?;
+            }
+            Err(error) => return Err(io_error(error)),
+        }
+    }
+    Ok(directory)
+}
+
+fn find_reusable_migration_backup(
+    directory: &Path,
+    source_version: i64,
+    source_identity: &MigrationSourceIdentity,
+) -> Result<Option<PathBuf>, StoreError> {
+    let prefix = format!("v{source_version}-to-v{CORE_SCHEMA_VERSION}-");
+    let mut candidates = Vec::new();
+    for entry in fs::read_dir(directory).map_err(io_error)? {
+        let path = entry.map_err(io_error)?.path();
+        if path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with(&prefix) && name.ends_with(".db"))
+        {
+            candidates.push(path);
+        }
+    }
+    candidates.sort();
+    for candidate in candidates {
+        let metadata = fs::symlink_metadata(&candidate).map_err(io_error)?;
+        if metadata.file_type().is_symlink() || !metadata.is_file() {
+            return Err(StoreError::new(
+                StoreErrorCode::InvalidProfile,
+                "Core migration backup candidate must be a regular file",
+                false,
+            ));
+        }
+        if validate_migration_backup(&candidate, source_version).is_err() {
+            continue;
+        }
+        let backup = open_immutable_reader(&candidate)?;
+        if read_migration_source_identity(&backup, source_version)?.as_ref()
+            == Some(source_identity)
+        {
+            return Ok(Some(candidate));
+        }
+    }
+    Ok(None)
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct MigrationSourceIdentity {
+    store_epoch: String,
+    commit_count: i64,
+    commit_head: i64,
+    commit_head_hash: Option<String>,
+    change_log_count: i64,
+    change_log_head: i64,
+    effect_count: i64,
+    document_effect_count: i64,
+    document_receipt_count: i64,
+    module_receipt_count: i64,
+}
+
+fn read_migration_source_identity(
+    connection: &Connection,
+    source_version: i64,
+) -> Result<Option<MigrationSourceIdentity>, StoreError> {
+    if source_version < 102 {
+        return Ok(None);
+    }
+    let Some(store_epoch) = connection
+        .query_row(
+            "SELECT store_epoch FROM block_store_metadata WHERE id = 1",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?
+    else {
+        return Ok(None);
+    };
+    let (commit_count, commit_head) = connection.query_row(
+        "SELECT count(*), COALESCE(max(commit_seq), 0) FROM local_commits",
+        [],
+        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+    )?;
+    let commit_head_hash = if commit_head == 0 {
+        None
+    } else {
+        connection
+            .query_row(
+                "SELECT canonical_hash FROM local_commits WHERE commit_seq = ?1",
+                [commit_head],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+    };
+    let (change_log_count, change_log_head) = connection.query_row(
+        "SELECT count(*), COALESCE(max(seq), 0) FROM change_log",
+        [],
+        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+    )?;
+    let effect_count =
+        connection.query_row("SELECT count(*) FROM local_commit_effects", [], |row| {
+            row.get::<_, i64>(0)
+        })?;
+    if change_log_count != effect_count {
+        return Ok(None);
+    }
+    let document_effect_count =
+        connection.query_row("SELECT count(*) FROM local_commit_documents", [], |row| {
+            row.get::<_, i64>(0)
+        })?;
+    let document_receipt_count =
+        connection.query_row("SELECT count(*) FROM document_update_receipts", [], |row| {
+            row.get::<_, i64>(0)
+        })?;
+    let module_receipt_count =
+        connection.query_row("SELECT count(*) FROM core_module_receipts", [], |row| {
+            row.get::<_, i64>(0)
+        })?;
+    Ok(Some(MigrationSourceIdentity {
+        store_epoch,
+        commit_count,
+        commit_head,
+        commit_head_hash,
+        change_log_count,
+        change_log_head,
+        effect_count,
+        document_effect_count,
+        document_receipt_count,
+        module_receipt_count,
+    }))
+}
+
+fn validate_migration_backup(path: &Path, source_version: i64) -> Result<(), StoreError> {
+    let backup = open_immutable_reader(path)?;
     let version: i64 = backup.query_row("PRAGMA user_version", [], |row| row.get(0))?;
     if version != source_version {
         return Err(StoreError::new(
@@ -1601,8 +1870,20 @@ fn create_migration_backup(
             false,
         ));
     }
-    validate_store(&backup)?;
-    Ok(backup_path)
+    validate_store(&backup)
+}
+
+fn file_sha256(path: &Path) -> Result<String, StoreError> {
+    let mut file = File::open(path).map_err(io_error)?;
+    let mut digest = Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let read = file.read(&mut buffer).map_err(io_error)?;
+        if read == 0 {
+            return Ok(format!("{:x}", digest.finalize()));
+        }
+        digest.update(&buffer[..read]);
+    }
 }
 
 fn validate_live_yjs_documents(connection: &Connection) -> Result<usize, StoreError> {
@@ -1753,6 +2034,7 @@ fn publish_current_store(
     migrated_from: Option<i64>,
     backup_name: Option<&str>,
     now: u64,
+    observer: &mut dyn FnMut(StorePreparationEvent),
 ) -> Result<(), StoreError> {
     with_immediate_transaction(connection, |transaction| {
         transaction.execute_batch(V85_SCHEMA_SQL)?;
@@ -1776,9 +2058,16 @@ fn publish_current_store(
         ensure_v99_owner_scoped_scenes_schema(transaction)?;
         ensure_v100_relation_properties_schema(transaction)?;
         ensure_v101_projectless_permission_mode_schema(transaction)?;
-        ensure_v102_local_commit_schema(transaction)?;
+        ensure_v102_local_commit_schema(transaction, &mut |_, _| {})?;
         ensure_v103_local_commit_composite_identity(transaction)?;
-        ensure_v104_local_commit_canonical_hash(transaction)?;
+        upgrade_local_commit_artifacts(
+            transaction,
+            TYPESCRIPT_SCHEMA_VERSION,
+            &mut |completed, total| {
+                observer(StorePreparationEvent::MigrationProgress { completed, total });
+            },
+        )?;
+        ensure_v107_block_project_cascade_indexes(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
@@ -1812,9 +2101,10 @@ fn create_fresh_store(
         ensure_v99_owner_scoped_scenes_schema(transaction)?;
         ensure_v100_relation_properties_schema(transaction)?;
         ensure_v101_projectless_permission_mode_schema(transaction)?;
-        ensure_v102_local_commit_schema(transaction)?;
+        ensure_v102_local_commit_schema(transaction, &mut |_, _| {})?;
         ensure_v103_local_commit_composite_identity(transaction)?;
-        ensure_v104_local_commit_canonical_hash(transaction)?;
+        upgrade_local_commit_artifacts(transaction, TYPESCRIPT_SCHEMA_VERSION, &mut |_, _| {})?;
+        ensure_v107_block_project_cascade_indexes(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
@@ -2093,7 +2383,10 @@ fn ensure_v101_projectless_permission_mode_schema(
     Ok(())
 }
 
-fn ensure_v102_local_commit_schema(connection: &Connection) -> Result<(), StoreError> {
+fn ensure_v102_local_commit_schema(
+    connection: &Connection,
+    progress: &mut dyn FnMut(u64, u64),
+) -> Result<(), StoreError> {
     let local_commits_exists: i64 = connection.query_row(
         "SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name = 'local_commits'",
         [],
@@ -2117,7 +2410,7 @@ fn ensure_v102_local_commit_schema(connection: &Connection) -> Result<(), StoreE
             )?;
         }
     }
-    crate::infrastructure::local_commit::backfill(connection)?;
+    crate::infrastructure::local_commit::backfill(connection, progress)?;
     connection.execute(
         "UPDATE core_module_receipts
          SET local_commit_seq = (
@@ -2154,8 +2447,50 @@ fn ensure_v103_local_commit_composite_identity(connection: &Connection) -> Resul
     Ok(())
 }
 
-fn ensure_v104_local_commit_canonical_hash(connection: &Connection) -> Result<(), StoreError> {
-    crate::infrastructure::local_commit::rebuild_canonical_hashes(connection)
+fn ensure_v105_local_commit_manifest_schema(connection: &Connection) -> Result<(), StoreError> {
+    let has_intent_hash: i64 = connection.query_row(
+        "SELECT count(*) FROM pragma_table_info('local_commits') WHERE name = 'intent_hash'",
+        [],
+        |row| row.get(0),
+    )?;
+    if has_intent_hash == 0 {
+        connection.execute_batch(V105_LOCAL_COMMIT_MANIFEST_SCHEMA_SQL)?;
+    }
+    Ok(())
+}
+
+fn ensure_v106_projection_scope_heads_schema(connection: &Connection) -> Result<(), StoreError> {
+    let exists: i64 = connection.query_row(
+        "SELECT count(*) FROM sqlite_schema
+         WHERE type = 'table' AND name = 'projection_scope_heads'",
+        [],
+        |row| row.get(0),
+    )?;
+    if exists == 0 {
+        connection.execute_batch(V106_PROJECTION_SCOPE_HEAD_SCHEMA_SQL)?;
+    }
+    Ok(())
+}
+
+fn upgrade_local_commit_artifacts(
+    connection: &Connection,
+    source_version: i64,
+    progress: &mut dyn FnMut(u64, u64),
+) -> Result<(), StoreError> {
+    if source_version >= 106 {
+        return Ok(());
+    }
+    ensure_v105_local_commit_manifest_schema(connection)?;
+    ensure_v106_projection_scope_heads_schema(connection)?;
+    if source_version < 105 {
+        return crate::infrastructure::local_commit::upgrade_v105_manifest(connection, progress);
+    }
+    crate::infrastructure::local_commit::upgrade_v106_manifest(connection, progress)
+}
+
+fn ensure_v107_block_project_cascade_indexes(connection: &Connection) -> Result<(), StoreError> {
+    connection.execute_batch(V107_BLOCK_PROJECT_CASCADE_INDEXES_SQL)?;
+    Ok(())
 }
 
 fn ensure_v95_canvas_incremental_schema(connection: &Connection) -> Result<(), StoreError> {
@@ -3558,6 +3893,18 @@ fn validate_exact_v103_schema(connection: &Connection) -> Result<(), StoreError>
     validate_exact_core_schema(connection, true, true, true, true, true, true, true, 103)
 }
 
+fn validate_exact_v104_schema(connection: &Connection) -> Result<(), StoreError> {
+    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 104)
+}
+
+fn validate_exact_v105_schema(connection: &Connection) -> Result<(), StoreError> {
+    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 105)
+}
+
+fn validate_exact_v106_schema(connection: &Connection) -> Result<(), StoreError> {
+    validate_exact_core_schema(connection, true, true, true, true, true, true, true, 106)
+}
+
 fn validate_exact_current_schema(connection: &Connection) -> Result<(), StoreError> {
     validate_exact_core_schema(
         connection,
@@ -3633,10 +3980,19 @@ fn validate_exact_core_schema(
         ensure_v101_projectless_permission_mode_schema(&expected)?;
     }
     if schema_version >= 102 {
-        ensure_v102_local_commit_schema(&expected)?;
+        ensure_v102_local_commit_schema(&expected, &mut |_, _| {})?;
     }
     if schema_version >= 103 {
         ensure_v103_local_commit_composite_identity(&expected)?;
+    }
+    if schema_version >= 105 {
+        ensure_v105_local_commit_manifest_schema(&expected)?;
+    }
+    if schema_version >= 106 {
+        ensure_v106_projection_scope_heads_schema(&expected)?;
+    }
+    if schema_version >= 107 {
+        ensure_v107_block_project_cascade_indexes(&expected)?;
     }
 
     let expected_inventory = read_schema_inventory(&expected)?;
@@ -3728,10 +4084,19 @@ pub fn expected_store_schema_fingerprint(version: i64) -> Result<String, StoreEr
         ensure_v101_projectless_permission_mode_schema(&expected)?;
     }
     if version >= 102 {
-        ensure_v102_local_commit_schema(&expected)?;
+        ensure_v102_local_commit_schema(&expected, &mut |_, _| {})?;
     }
     if version >= 103 {
         ensure_v103_local_commit_composite_identity(&expected)?;
+    }
+    if version >= 105 {
+        ensure_v105_local_commit_manifest_schema(&expected)?;
+    }
+    if version >= 106 {
+        ensure_v106_projection_scope_heads_schema(&expected)?;
+    }
+    if version >= 107 {
+        ensure_v107_block_project_cascade_indexes(&expected)?;
     }
     read_schema_inventory(&expected).map(|inventory| schema_inventory_fingerprint(&inventory))
 }
@@ -5724,6 +6089,76 @@ mod tests {
     }
 
     #[test]
+    fn high_cardinality_v87_ledger_migrates_with_bounded_monotonic_progress() {
+        const COMMIT_COUNT: u64 = 10_000;
+
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        seed_owned_v86_store(
+            &home,
+            r#"{"projectId":"migration-project","terminalSessionId":"terminal:legacy"}"#,
+        );
+        let mut legacy = open_writer(&home.join("nodex.db")).expect("v86 writer");
+        with_immediate_transaction(&mut legacy, |transaction| {
+            ensure_v87_project_session_tabs_schema(transaction)?;
+            transaction.execute_batch(
+                "WITH RECURSIVE sequence(value) AS (
+                   SELECT 1 UNION ALL SELECT value + 1 FROM sequence WHERE value < 10000
+                 )
+                 INSERT INTO change_log(
+                   project_id, store_epoch, kind, operation_id, payload_json, committed_at
+                 )
+                 SELECT 'migration-project', 'epoch:legacy', 'project_workspace.changed',
+                        printf('legacy:event:%05d', value),
+                        '{\"module\":\"project_workspace\",\"kind\":\"workspace_changed\",
+                          \"projectIds\":[],\"sessionIds\":[],\"threadIds\":[],
+                          \"sessionSummaryScopes\":[],\"sessionDetailIds\":[]}',
+                        '2026-07-22T00:00:00Z'
+                 FROM sequence;",
+            )?;
+            transaction.execute(
+                "UPDATE core_store_metadata SET store_format_version = 87 WHERE id = 1",
+                [],
+            )?;
+            transaction.pragma_update(None, "user_version", 87)?;
+            Ok(())
+        })
+        .expect("seed high-cardinality v87 ledger");
+        drop(legacy);
+
+        let mut events = Vec::new();
+        let upgraded = SqliteStoreKernel::open_with_observer(&home, |event| events.push(event))
+            .expect("upgrade high-cardinality ledger");
+        let progress = events
+            .iter()
+            .filter_map(|event| match event {
+                StorePreparationEvent::MigrationProgress { completed, total } => {
+                    Some((*completed, *total))
+                }
+                StorePreparationEvent::MigrationStarted { .. } => None,
+            })
+            .collect::<Vec<_>>();
+        assert!(!progress.is_empty());
+        assert!(progress.len() <= 20);
+        assert!(progress.windows(2).all(|pair| pair[0].0 < pair[1].0));
+        assert_eq!(progress.last(), Some(&(COMMIT_COUNT, COMMIT_COUNT)));
+
+        upgraded
+            .readers()
+            .read_default(|connection| {
+                let migrated: (i64, i64, i64) = connection.query_row(
+                    "SELECT count(*), sum(finalized), sum(manifest_json <> '{}')
+                     FROM local_commits",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )?;
+                assert_eq!(migrated, (10_000, 10_000, 10_000));
+                Ok(())
+            })
+            .expect("verify high-cardinality LocalCommit manifests");
+    }
+
+    #[test]
     fn failed_v87_tab_rebuild_rolls_back_the_live_store_and_keeps_its_backup() {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
@@ -5747,6 +6182,9 @@ mod tests {
             .expect("legacy terminal config"),
             "not-json"
         );
+        drop(live);
+        let retry_error = open_error(&home);
+        assert_eq!(retry_error.code, StoreErrorCode::SqliteFailure);
         let backups = fs::read_dir(home.join("backups/core-migrations"))
             .expect("migration backup directory")
             .map(|entry| entry.expect("backup entry").path())
@@ -5758,6 +6196,80 @@ mod tests {
                 .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
                 .expect("backup version"),
             86
+        );
+    }
+
+    #[test]
+    fn migration_reuses_only_an_exact_local_commit_source_snapshot() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open(&home).expect("current Core store");
+        drop(kernel);
+        let connection = open_writer(&home.join("nodex.db")).expect("current writer");
+        connection
+            .execute(
+                "INSERT INTO block_store_metadata(id, store_epoch, created_at, updated_at)
+                 VALUES (1, 'epoch:backup-reuse', '2026-08-08', '2026-08-08')",
+                [],
+            )
+            .expect("Store epoch");
+        let backup_directory = prepare_migration_backup_directory(&home).expect("backup directory");
+        let existing = backup_directory.join(format!(
+            "v{CORE_SCHEMA_VERSION}-to-v{CORE_SCHEMA_VERSION}-existing.db"
+        ));
+        connection
+            .backup(MAIN_DB, &existing, None)
+            .expect("existing source backup");
+        let pending = backup_directory.join(format!(
+            ".v{CORE_SCHEMA_VERSION}-to-v{CORE_SCHEMA_VERSION}.pending.db"
+        ));
+        fs::create_dir(&pending).expect("sentinel pending path");
+
+        let reused = create_migration_backup(&connection, &home, CORE_SCHEMA_VERSION)
+            .expect("exact source backup reuse");
+
+        assert_eq!(reused, existing);
+        assert!(pending.is_dir(), "exact reuse copied the source again");
+
+        connection
+            .execute_batch(
+                "INSERT INTO projects(id, name, created, updated)
+                 VALUES ('project:backup-change', 'Changed', '2026-08-08', '2026-08-08');
+                 INSERT INTO change_log(
+                   project_id, store_epoch, kind, operation_id, payload_json,
+                   projection_impact_json, committed_at
+                 ) VALUES (
+                   'project:backup-change', 'epoch:backup-reuse', 'library.changed',
+                   'operation:backup-change', '{}', '{\"kind\":\"none\"}', '2026-08-08'
+                 );",
+            )
+            .expect("advance source without matching LocalCommit evidence");
+        let error = create_migration_backup(&connection, &home, CORE_SCHEMA_VERSION)
+            .expect_err("changed source cannot reuse an epoch-only backup");
+        assert_eq!(error.code, StoreErrorCode::InvalidProfile);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn migration_rejects_a_symlinked_backup_ancestor() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempdir().expect("Profile");
+        let outside = tempdir().expect("outside backup directory");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        seed_owned_v86_store(
+            &home,
+            r#"{"projectId":"migration-project","terminalSessionId":"terminal:legacy"}"#,
+        );
+        symlink(outside.path(), home.join("backups")).expect("symlinked backup ancestor");
+
+        let error = open_error(&home);
+        assert_eq!(error.code, StoreErrorCode::InvalidProfile);
+        assert_eq!(
+            fs::read_dir(outside.path())
+                .expect("outside directory")
+                .count(),
+            0,
         );
     }
 
@@ -6161,6 +6673,54 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    #[test]
+    fn current_store_uses_exact_child_key_indexes_for_block_project_cascades() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open(&home).expect("current Core store");
+
+        kernel
+            .readers()
+            .read_default(|connection| {
+                for (table, child_key, expected_index) in [
+                    (
+                        "block_search_units",
+                        "block_id",
+                        "idx_block_search_units_block",
+                    ),
+                    (
+                        "block_search_units",
+                        "owner_block_id",
+                        "idx_block_search_units_owner",
+                    ),
+                    ("block_asset_refs", "block_id", "idx_block_asset_refs_block"),
+                    (
+                        "block_asset_refs",
+                        "owner_block_id",
+                        "idx_block_asset_refs_owner",
+                    ),
+                ] {
+                    let sql = format!(
+                        "EXPLAIN QUERY PLAN SELECT 1 FROM {table} \
+                         WHERE {child_key} = ?1 AND project_id = ?2"
+                    );
+                    let plan = connection
+                        .prepare(&sql)?
+                        .query_map(["block:test", "project:test"], |row| {
+                            row.get::<_, String>(3)
+                        })?
+                        .collect::<rusqlite::Result<Vec<_>>>()?
+                        .join("\n");
+                    assert!(
+                        plan.contains(expected_index),
+                        "{table}.{child_key} lost {expected_index}:\n{plan}",
+                    );
+                }
+                Ok(())
+            })
+            .expect("query plans use exact child-key indexes");
     }
 
     #[test]

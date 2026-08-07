@@ -10,7 +10,7 @@ import {
 } from "./desktop-core-authority-supervisor";
 import type {
   LibraryApplyInput,
-  LibraryCommittedValue,
+  LibraryApplyResult,
   LibraryRead,
   LibraryReadSnapshot,
 } from "./types";
@@ -21,7 +21,7 @@ import {
 } from "./testing/fake-core-client";
 
 interface GenerationBehavior {
-  readonly apply?: (input: LibraryApplyInput) => Promise<LibraryCommittedValue>;
+  readonly apply?: (input: LibraryApplyInput) => Promise<LibraryApplyResult>;
   readonly read: (read: LibraryRead) => Promise<LibraryReadSnapshot>;
 }
 
@@ -218,7 +218,7 @@ describe("DesktopCoreAuthoritySupervisor", () => {
     const replacementApply = vi.fn(async () => ({
       event_sequence: 2,
       value: { kind: "project_deleted" },
-    } as unknown as LibraryCommittedValue));
+    } as unknown as LibraryApplyResult));
     const replacement = generationClient({
       generation: 2,
       behavior: {
@@ -240,12 +240,48 @@ describe("DesktopCoreAuthoritySupervisor", () => {
     });
 
     await vi.waitFor(() => expect(launchNext).toHaveBeenCalledTimes(1));
-    supervisor.close();
+    const closed = supervisor.close();
     resolveLaunch(launch(replacement));
 
+    await closed;
     await rejected;
     expect(supervisor.state).toEqual({ kind: "stopped" });
     expect(replacementApply).not.toHaveBeenCalled();
+  });
+
+  test("close aborts and awaits an in-flight candidate launch", async () => {
+    const initial = generationClient({
+      generation: 1,
+      behavior: { read: async () => { throw lostGeneration(); } },
+    });
+    let launchSignal: AbortSignal | undefined;
+    const launchNext = vi.fn(async (input) => {
+      launchSignal = input.signal;
+      return await new Promise<CoreGenerationLaunch>((_resolve, reject) => {
+        input.signal?.addEventListener("abort", () => reject(input.signal?.reason), {
+          once: true,
+        });
+      });
+    });
+    const supervisor = new DesktopCoreAuthoritySupervisor({
+      initialLaunch: launch(initial),
+      launchInput: {
+        buildId: "supervisor-abort-test",
+        isPackaged: false,
+        nodexHome: "/tmp/nodex-supervisor-abort-test",
+      },
+      dependencies: { launch: launchNext },
+    });
+    const pending = supervisor.rootClient.libraryRead(metadataRead);
+    const rejected = expect(pending).rejects.toMatchObject({
+      authorityState: { kind: "stopped" },
+    });
+    await vi.waitFor(() => expect(launchNext).toHaveBeenCalledTimes(1));
+
+    await supervisor.close();
+
+    expect(launchSignal?.aborted).toBe(true);
+    await rejected;
   });
 
   test("fails closed when recovery crosses the Store epoch boundary", async () => {
@@ -303,7 +339,7 @@ describe("DesktopCoreAuthoritySupervisor", () => {
     const committed = ({
       event_sequence: 5,
       value: { kind: "project_deleted" },
-    } as unknown as LibraryCommittedValue);
+    } as unknown as LibraryApplyResult);
     const replacement = generationClient({
       generation: 2,
       behavior: {

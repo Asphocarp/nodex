@@ -46,7 +46,7 @@ import type {
   DesktopDataAuthorityRuntime,
   RustDataAuthorityRuntime,
 } from "./desktop-data-authority";
-import type { CoreEventEnvelope } from "./types";
+import { findCoreModulePayload, type CoreEventEnvelope } from "./types";
 import {
   createCoreDatabaseModuleAdapter,
   type CoreDatabaseModuleAdapter,
@@ -223,7 +223,13 @@ const readBoundedDatabaseViewWindow = async <
     viewId: value.view_id,
     storeEpoch: snapshot.store_epoch,
     commitSeq: snapshot.commit_head,
-    projectionRevision: value.rows.authority.projection_revision,
+    projection: {
+      scopeKey: value.projection.scope.canonical_key,
+      schemaVersion: value.projection.scope.schema_version,
+      revision: value.projection.revision,
+      coveredCommitSeq: value.projection.covered_commit_seq,
+      effectHash: value.projection.effect_hash ?? null,
+    },
     nextCursor: value.rows.next_cursor ?? null,
     rows,
     board: projectCoreDatabaseViewBoard(value.rows.items),
@@ -277,6 +283,13 @@ const readBoundedDatabaseViewGroups = async <
     viewId: value.view_id,
     storeEpoch: snapshot.store_epoch,
     commitSeq: snapshot.commit_head,
+    projection: {
+      scopeKey: value.projection.scope.canonical_key,
+      schemaVersion: value.projection.scope.schema_version,
+      revision: value.projection.revision,
+      coveredCommitSeq: value.projection.covered_commit_seq,
+      effectHash: value.projection.effect_hash ?? null,
+    },
     grouped: value.grouped,
     totalRows: value.total_rows,
     truncated: value.truncated,
@@ -469,23 +482,23 @@ export const mapCoreDatabaseEvent = (
   envelope: CoreEventEnvelope,
   libraryId: string,
 ): DatabaseChangeEvent | null => {
-  const payload = envelope.event.payload;
-  if (payload.module !== "database") return null;
-  const operationId = envelope.event.operation_id;
+  const payload = findCoreModulePayload(envelope, "database");
+  if (payload?.module !== "database") return null;
+  const operationId = envelope.packet.manifest.operation_id;
   const projectId = payload.event.project_id;
   if (!operationId || !projectId) return null;
   return {
     version: DATABASE_CHANGE_EVENT_VERSION,
     projectId,
     libraryId,
-    storeEpoch: envelope.event.store_epoch,
+    storeEpoch: envelope.packet.manifest.identity.store_epoch,
     operationId,
     sourceKind: "database_module",
     affectedDatabaseIds: payload.event.database_ids,
     affectedDataSourceIds: payload.event.data_source_ids,
     affectedPageIds: payload.event.page_ids,
     affectedViewIds: payload.event.view_ids,
-    commitSeq: envelope.event.commit_seq,
+    commitSeq: envelope.packet.manifest.identity.commit_seq,
   };
 };
 
@@ -493,13 +506,13 @@ export const mapCoreLibraryDatabaseEvent = (
   envelope: CoreEventEnvelope,
   libraryId: string,
 ): LibraryNavigationChangedEvent | null => {
-  const payload = envelope.event.payload;
-  if (payload.module !== "database" || payload.event.project_id) return null;
+  const payload = findCoreModulePayload(envelope, "database");
+  if (payload?.module !== "database" || payload.event.project_id) return null;
   return {
     version: LIBRARY_NAVIGATION_EVENT_VERSION,
     libraryId,
-    storeEpoch: envelope.event.store_epoch,
-    commitSeq: envelope.event.commit_seq,
+    storeEpoch: envelope.packet.manifest.identity.store_epoch,
+    commitSeq: envelope.packet.manifest.identity.commit_seq,
     changeKind: "database",
     affectedParentKeys: [
       "library",

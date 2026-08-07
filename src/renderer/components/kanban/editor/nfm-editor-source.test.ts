@@ -43,6 +43,14 @@ describe("NfmEditor source boundary", () => {
     expect(collaboration !== undefined).toBe(true);
     expect(collaboration?.fragment ?? null).toBe(fragment);
     expect(collaboration?.user.name ?? "").toBe("Local editor");
+    expect(createNfmEditorModeOptions(source).collaboration.transactionOrigin)
+      .toBe(collaboration.transactionOrigin);
+    expect(createNfmEditorModeOptions({
+      ...source,
+      clientSessionId: "surface-2",
+    }).collaboration.transactionOrigin).not.toBe(
+      collaboration.transactionOrigin,
+    );
 
     document.destroy();
   });

@@ -237,6 +237,8 @@ pub struct StoreRuntimeActivity {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct StoreRuntimeMetrics {
     pub command_latency: DurationMetricSnapshot,
+    pub writer_queue_wait: DurationMetricSnapshot,
+    pub writer_execution: DurationMetricSnapshot,
 }
 
 struct RuntimeState {
@@ -253,6 +255,8 @@ struct RuntimeControl {
     state: Mutex<RuntimeState>,
     drained: Condvar,
     command_latency: DurationMetric,
+    writer_queue_wait: DurationMetric,
+    writer_execution: DurationMetric,
 }
 
 impl RuntimeControl {
@@ -280,6 +284,8 @@ impl RuntimeControl {
             }),
             drained: Condvar::new(),
             command_latency: DurationMetric::default(),
+            writer_queue_wait: DurationMetric::default(),
+            writer_execution: DurationMetric::default(),
         }))
     }
 
@@ -420,6 +426,8 @@ impl RuntimeControl {
     fn metrics(&self) -> StoreRuntimeMetrics {
         StoreRuntimeMetrics {
             command_latency: self.command_latency.snapshot(),
+            writer_queue_wait: self.writer_queue_wait.snapshot(),
+            writer_execution: self.writer_execution.snapshot(),
         }
     }
 }
@@ -550,16 +558,19 @@ impl StoreWriter {
         let rejected_span = command_span.clone();
         let (result_sender, result_receiver) = mpsc::sync_channel(1);
         let queued_jobs = Arc::clone(&endpoint.queued_jobs);
+        let runtime_metrics = Arc::clone(&self.control);
         let queued_at = Instant::now();
         let job = Box::new(move |connection: &mut Connection| {
             command_span.in_scope(|| {
                 queued_jobs.fetch_sub(1, Ordering::AcqRel);
-                let queue_wait_ms =
-                    u64::try_from(queued_at.elapsed().as_millis()).unwrap_or(u64::MAX);
+                let queue_wait = queued_at.elapsed();
+                runtime_metrics.writer_queue_wait.record(queue_wait);
+                let queue_wait_ms = u64::try_from(queue_wait.as_millis()).unwrap_or(u64::MAX);
                 let operation_started_at = Instant::now();
                 let result = with_mut_query_budget(connection, budget, &cancellation, operation);
-                let duration_ms =
-                    u64::try_from(operation_started_at.elapsed().as_millis()).unwrap_or(u64::MAX);
+                let execution = operation_started_at.elapsed();
+                runtime_metrics.writer_execution.record(execution);
+                let duration_ms = u64::try_from(execution.as_millis()).unwrap_or(u64::MAX);
                 match &result {
                     Ok(_) => tracing::debug!(
                         queueWaitMs = queue_wait_ms,

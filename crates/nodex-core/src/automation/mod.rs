@@ -14,9 +14,9 @@ use nodex_core_contracts::automation::{
     AutomationCommitValue, AutomationIntent, AutomationRead, AutomationReadValue, AutomationReceipt,
 };
 use nodex_core_contracts::{
-    AUTOMATION_CONTRACT_VERSION, BoundModuleContext, CommittedCoreModuleEvent,
-    CommittedModuleValue, CoreError, CoreErrorCode, CoreErrorRecovery, ModuleApplyRequest,
-    ModuleReadRequest, ModuleReadSnapshot, StoreEpoch,
+    AUTOMATION_CONTRACT_VERSION, BoundModuleContext, CommittedCoreModuleEvent, CoreError,
+    CoreErrorCode, CoreErrorRecovery, ModuleApplyRequest, ModuleReadRequest, ModuleReadSnapshot,
+    StoreEpoch,
 };
 use rusqlite::OptionalExtension;
 use std::path::PathBuf;
@@ -27,7 +27,7 @@ use crate::infrastructure::writer::{StoreReaders, StoreWriter};
 
 #[derive(Clone, Debug)]
 pub struct AutomationApplyOutcome {
-    pub committed: CommittedModuleValue<AutomationCommitValue, AutomationReceipt>,
+    pub committed: crate::ModuleWriterResult<AutomationCommitValue, AutomationReceipt>,
     pub event: Option<CommittedCoreModuleEvent>,
 }
 

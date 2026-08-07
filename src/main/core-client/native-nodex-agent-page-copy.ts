@@ -20,6 +20,7 @@ import {
   toCoreAgentPageDestination,
 } from "./native-nodex-agent-page-destination";
 import { mapNativeNodexAgentCoreError } from "./native-nodex-agent-page-update";
+import { applyResultCursor } from "./types";
 
 type CoreCopyRequest = components["schemas"]["LibraryAgentPageCopyRequest"];
 type CoreCopyResult = components["schemas"]["LibraryAgentPageCopyResult"];
@@ -179,7 +180,7 @@ export class NativeNodexAgentPageCopyRuntime {
       }
       const preparation = snapshot.value.value;
       if (preparation.preparation.state === "committed_replay") {
-        const committed = preparation.committed?.value.agent_page_copy;
+        const committed = preparation.committed?.outcome.agent_page_copy;
         if (!committed) throw new Error("Core Agent Page copy replay omitted its result");
         this.pending.delete(operationId);
         return envelope({
@@ -292,7 +293,7 @@ export class NativeNodexAgentPageCopyRuntime {
             request: pending.coreRequest,
           },
         });
-      const result = committed.value.agent_page_copy;
+      const result = committed.outcome.agent_page_copy;
       if (!result) throw new Error("Core Agent Page copy commit omitted its result");
       this.pending.delete(command.mutationId);
       return {
@@ -305,10 +306,7 @@ export class NativeNodexAgentPageCopyRuntime {
           duplicate: committed.receipt.duplicate,
           documentCommits: nativeAgentDocumentCommits(result.document_commits),
           affectedDatabaseBlockIds: [...result.affected_database_ids],
-          commitSeq:
-            committed.commit_seq
-            ?? committed.local_commit?.commit_seq
-            ?? committed.event_sequence,
+          commitSeq: applyResultCursor(committed),
         },
       };
     } catch (error) {

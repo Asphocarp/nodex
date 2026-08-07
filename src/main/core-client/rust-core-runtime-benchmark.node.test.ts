@@ -256,7 +256,7 @@ describe.runIf(enabled)("Rust Core Gate E runtime", () => {
         },
       }),
       );
-      const createdPageId = committed.value.page_create?.page_id;
+      const createdPageId = committed.outcome.page_create?.page_id;
       if (!createdPageId) throw new Error("Gate E Page creation omitted its identity");
       pageIds.push(createdPageId);
     }

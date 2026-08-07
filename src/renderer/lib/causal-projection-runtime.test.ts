@@ -1,0 +1,179 @@
+import { describe, expect, test, vi } from "vitest";
+import type {
+  ProjectionCoordinate,
+  ProjectionDelivery,
+} from "../../shared/projection-stream";
+import { CausalProjectionRuntime } from "./causal-projection-runtime";
+
+const scope = {
+  schema_version: 1,
+  canonical_key: "scope:page-1",
+  scope: {
+    kind: "page" as const,
+    project_id: "project-1",
+    page_id: "page-1",
+  },
+};
+
+const coordinate = (
+  revision: number,
+  coveredCommitSeq = revision,
+): ProjectionCoordinate => ({
+  storeEpoch: "epoch-1",
+  scopeKey: scope.canonical_key,
+  schemaVersion: scope.schema_version,
+  revision,
+  coveredCommitSeq,
+  effectHash: revision === 0
+    ? null
+    : String(revision).padStart(64, "a").slice(-64),
+});
+
+const delivery = (
+  resultRevision: number,
+  options: {
+    readonly patch?: boolean;
+    readonly requiresRead?: boolean;
+    readonly hash?: string;
+  } = {},
+): ProjectionDelivery => ({
+  storeEpoch: "epoch-1",
+  commitSeq: resultRevision,
+  manifestHash: String(resultRevision).padStart(64, "b").slice(-64),
+  operationId: `operation-${resultRevision}`,
+  committedAt: "2026-08-06T00:00:00.000Z",
+  impact: {
+    kind: "resources",
+    page_ids: ["page-1"],
+    database_ids: [],
+    data_source_ids: [],
+    view_ids: [],
+    document_heads: [],
+  },
+  effect: {
+    scope,
+    baseRevision: resultRevision - 1,
+    resultRevision,
+    coveredCommitSeq: resultRevision,
+    patch: options.patch === false
+      ? null
+      : {
+          kind: "page_changed",
+          projectId: "project-1",
+          pageId: "page-1",
+        },
+    requiresReadAtLeast: options.requiresRead ?? false,
+    effectHash: options.hash
+      ?? String(resultRevision).padStart(64, "a").slice(-64),
+  },
+});
+
+const flush = async (): Promise<void> => {
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+};
+
+describe("CausalProjectionRuntime", () => {
+  test("applies a contiguous patch synchronously before background repair", async () => {
+    let current = coordinate(0, 0);
+    let visibleRevision = 0;
+    let release!: () => void;
+    const repairGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const runtime = new CausalProjectionRuntime({
+      scopeKey: scope.canonical_key,
+      schemaVersion: 1,
+      getCoordinate: () => current,
+      apply: (effect) => {
+        visibleRevision = effect.resultRevision;
+        current = coordinate(effect.resultRevision);
+      },
+      readAtLeast: async () => await repairGate,
+    });
+
+    runtime.accept(delivery(1, { requiresRead: true }));
+
+    expect(visibleRevision).toBe(1);
+    expect(current.revision).toBe(1);
+    await flush();
+    expect(runtime.diagnostics().repairing).toBe(true);
+    release();
+    await flush();
+  });
+
+  test("buffers an out-of-order successor and replays it after the missing effect", () => {
+    let current = coordinate(0, 0);
+    const applied: number[] = [];
+    const runtime = new CausalProjectionRuntime({
+      scopeKey: scope.canonical_key,
+      schemaVersion: 1,
+      getCoordinate: () => current,
+      apply: (effect) => {
+        applied.push(effect.resultRevision);
+        current = coordinate(effect.resultRevision);
+      },
+      readAtLeast: () => new Promise(() => undefined),
+    });
+
+    runtime.accept(delivery(2));
+    expect(applied).toEqual([]);
+    expect(runtime.diagnostics().bufferedEffects).toBe(1);
+    runtime.accept(delivery(1));
+
+    expect(applied).toEqual([1, 2]);
+    expect(current.revision).toBe(2);
+  });
+
+  test("treats an exact replay as a no-op and repairs a hash collision", async () => {
+    let current = coordinate(1);
+    const apply = vi.fn();
+    const repair = vi.fn(async () => undefined);
+    const integrity = vi.fn();
+    const runtime = new CausalProjectionRuntime({
+      scopeKey: scope.canonical_key,
+      schemaVersion: 1,
+      getCoordinate: () => current,
+      apply,
+      readAtLeast: repair,
+      onIntegrityFailure: integrity,
+    });
+
+    runtime.accept(delivery(1));
+    runtime.accept(delivery(1, { hash: "f".repeat(64) }));
+    await flush();
+
+    expect(apply).not.toHaveBeenCalled();
+    expect(integrity).toHaveBeenCalledOnce();
+    expect(repair).toHaveBeenCalledOnce();
+    current = coordinate(1);
+  });
+
+  test("uses the first stream checkpoint only to close subscribe-read races", async () => {
+    let current = coordinate(0, 4);
+    const repair = vi.fn(async () => {
+      current = coordinate(0, 5);
+    });
+    const runtime = new CausalProjectionRuntime({
+      scopeKey: scope.canonical_key,
+      schemaVersion: 1,
+      getCoordinate: () => current,
+      apply: vi.fn(),
+      readAtLeast: repair,
+    });
+    runtime.observeInitialCheckpoint({
+      storeEpoch: "epoch-1",
+      scannedThroughCommitSeq: 5,
+    });
+    runtime.observeInitialCheckpoint({
+      storeEpoch: "epoch-1",
+      scannedThroughCommitSeq: 6,
+    });
+    await flush();
+
+    expect(repair).toHaveBeenCalledOnce();
+    expect(repair).toHaveBeenCalledWith(expect.objectContaining({
+      minimumCommitSeq: 5,
+      reason: "initial_subscription_gap",
+    }));
+  });
+});

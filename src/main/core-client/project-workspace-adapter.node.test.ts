@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import { createCoreProjectWorkspaceAdapter } from "./project-workspace-adapter";
 import { mapCoreProjectWorkspaceEvent } from "./desktop-project-workspace-bridge";
 import { FakeCoreClient } from "./testing/fake-core-client";
+import { createCoreLocalCommitFixture } from "./testing/local-commit-fixture";
 
 const project = (overrides: Record<string, unknown> = {}) => ({
   id: "project:one",
@@ -75,13 +76,11 @@ describe("Core Project Workspace adapter", () => {
   test("maps Workspace events into authority-neutral invalidations", () => {
     expect(mapCoreProjectWorkspaceEvent({
       transport_version: 4,
-      event: {
-        event_version: 3,
-        commit_seq: 3,
-        store_epoch: "epoch:test",
-        operation_id: "operation:workspace",
-        committed_at: "2026-07-19T15:02:00.000Z",
-        projection_impact: { kind: "none" },
+      packet: createCoreLocalCommitFixture({
+        commitSeq: 3,
+        storeEpoch: "epoch:test",
+        operationId: "operation:workspace",
+        committedAt: "2026-07-19T15:02:00.000Z",
         payload: {
           module: "project_workspace",
           event: {
@@ -97,9 +96,8 @@ describe("Core Project Workspace adapter", () => {
             session_detail_ids: ["session:one"],
           },
         },
-        effects: [],
-        canonical_hash: "0".repeat(64),
-      },
+        canonicalHash: "0".repeat(64),
+      }),
     })).toEqual({
       projectCatalogChange: "sources_updated",
       projectIds: ["project:one"],

@@ -23,49 +23,69 @@ projection cursor.
 
 ## Decision
 
-Core writes a semantic `LocalCommit` envelope in the same transaction as the
-mutation and idempotent receipt. Its identity is `(store_epoch, commit_seq)`;
-the physical `change_log` effect sequence is internal. The envelope includes
-the projection impact, physical effect references, and affected Document heads.
-All successful mutation responses that have a commit carry this envelope.
+Core separates one semantic mutation into three artifacts. Private physical
+journal rows retain reconstruction evidence. One immutable `CommitManifest`
+owns `(store_epoch, commit_seq, manifest_hash)`, semantic effects, exact
+Document refs, Projection effects, routing claims, and the receipt reference.
+An `AuthorizedDeliveryPacket` is resolved after commit for one current access
+context and may carry complementary inline/ref coverage without changing the
+Manifest identity. A committed apply response always returns command outcome,
+receipt, and Manifest identity; its delivery packet is optional and cannot
+expand post-state read capability.
 
-For a Page-to-Board promotion, Core allocates the LocalCommit parent before
-writing any physical effect and explicitly attaches every effect to it. The
-same SQLite transaction then persists the source Document update (which
-removes the Block from the mounted Page), the new Page Document genesis, the
-exclusive ownership/membership and Board projection rows, and the final
-Library receipt effect. The transaction cannot return a successful response
-with only the final Library effect or with an inferred operation-id grouping.
-The v104 canonical hash covers the parent identity, ordered effect metadata
-and payloads, merged projection impact, and Document update references, and
-Core verifies it whenever a LocalCommit is loaded for replay or resolve.
+For a Page-to-Board promotion, heavy Yrs reconstruction and transformation run
+against isolated working clones outside the SQLite writer. The writer then
+revalidates command authorization, Document heads, ownership revisions,
+membership, and Projection scope heads before one short transaction persists
+the source removal, target Page genesis, exclusive ownership/membership,
+Board patch, typed receipt, and one sealed Manifest. Same-Document Agent
+batches compile one ordered Yrs update per Document and one outer Manifest;
+they never prepare several updates against the same stale target head. The
+transaction cannot return a successful response with only a final Library
+effect or with an inferred operation-id grouping.
 
-Main admits both apply-response and durable-tail/replay envelopes into one
-synchronous `LocalCommitDispatcher`. Admission only queues work. The dispatcher
-then performs document fanout, projection invalidation, and domain notification
-in a retryable drain. It verifies canonical hashes, retains identities rather
-than a single max cursor, deduplicates the later tailer copy, and fails closed
-on an identity collision. The event supervisor is allowed to advance its
-transport cursor after admission; replay/resync repairs failed delivery.
+Main admits both apply-response and durable-tail/replay packets into one
+synchronous `LocalCommitCoordinator`. Admission validates Manifest hash and
+coverage, claims semantic/resource identities, and schedules independent
+ordered retry lanes for each exact Document, exact projection scope,
+revocation, and domain notification. Transactions affecting overlapping
+Document sets serialize on each shared Document without creating a composite
+lane that blocks unrelated Documents. One lane cannot delay another or the
+apply response.
+The later tailer copy enriches or deduplicates already delivered resources; an
+identity collision fails closed. Stream checkpoints advance replay bookkeeping
+only.
 
-Projection consumers keep a minimum semantic cursor for their canonical reads.
-An older asynchronous response cannot replace a snapshot that covers a newer
-commit. The same invalidation registry handles apply and tailer delivery, so
-Board membership, navigation, Page detail, and search do not need manual
-refresh calls or item-level pending projection state.
+Core seals each affected projection scope with an independent
+`base_revision`, `result_revision`, `covered_commit_seq`, `effect_hash`, an
+optional complete patch, and `requires_read_at_least`. Main routes the already
+authorized effect without reading. A renderer `CausalProjectionRuntime`
+accepts only a contiguous revision edge, applies complete patches
+synchronously, buffers bounded future edges, and coalesces canonical repair for
+gaps, patchless effects, resets, or integrity conflicts. Canonical reads carry
+the exact coordinate and cannot replace newer local authority. The global
+LocalCommit sequence is never treated as a projection version.
 
 Every mounted collaborative Document surface exposes a
 `BlockDocumentMutationBarrier`. It flushes local durable updates and returns a
 `DocumentHeadToken` containing Document identity, Store epoch, generation, and
 head sequence. Move-to and cross-surface Block DnD pass the tokens as causal
-dependencies. Core verifies the dependencies during plan and apply against the
-current SQLite Document rows. The dependency is excluded from the semantic
+dependencies. Core verifies them while preparing and revalidates them in the
+writer transaction against current SQLite Document rows. The dependency is excluded from the semantic
 intent hash so a retry after a fresh read remains the same idempotent command.
 
 Document/Canvas realtime streams independently enforce per-surface head order.
 They buffer a bounded future-head gap and emit resync on overflow or epoch
 change. This preserves Yjs/scene convergence without making projection replay a
 prerequisite for local command visibility.
+
+Each exact Document subscription is also a post-state authorization and
+resource-filtering boundary. Core resolves read access through the canonical
+owned-Document rules, including Canvas shells and granted host Pages, and
+delivers only effects, refs, and revocations that address that Document.
+Unrelated commits may advance the scanner checkpoint but cannot enter the
+surface lane. This rule applies equally to the initiating apply packet and the
+durable replay packet.
 
 Compaction may remove a retained Yjs update body but never removes the semantic
 LocalCommit effect. Replay of such an effect returns the typed
@@ -75,10 +95,12 @@ canonical snapshot/state vector rather than applying an invented empty update.
 
 ## Consequences
 
-The initiating window can render the committed result with the same latency as
-the Core response, while other windows and a restarted process converge from
-the durable stream. The Main process owns delivery deduplication and retry;
-renderer stores own only canonical read snapshots and cursor fences.
+The initiating window renders the committed source-Document and target-View
+result with the same latency as the Core response, while other windows and a
+restarted process converge from the durable stream. Main owns resource-level
+deduplication and independent delivery retry; renderer stores own Core-derived
+snapshots, exact scope coordinates, and deterministic reducers—not speculative
+ownership state.
 
 Structural commands can still return a retryable revision conflict when a
 mounted provider changes after its barrier or when an unmounted target changes
@@ -103,10 +125,22 @@ or UI freeze is needed for the normal commit path.
 ## Acceptance
 
 - Apply response returns without waiting for projection or durable tailer work.
-- The same envelope arriving from apply and tailer produces one Main delivery.
+- Packets for the same Manifest arriving from apply and tailer produce one delivery per
+  resource identity, while complementary authorized coverage is preserved.
 - N and N+1 remain independently deliverable when they arrive out of order.
+- A projection-lane failure cannot delay Document fanout, another projection
+  scope, a revocation, or the apply response.
+- A contiguous Database View patch updates Board cards, query rows, grouped
+  windows, totals, and exact authority before repair I/O; mixed-revision reads
+  and continuations are rejected.
 - A mounted source/target body is flushed before Move-to or Board DnD, and Core
   rejects a stale causal head without a partial ownership/membership commit.
-- A high-pressure populated Board test moves a nested 100-child subtree at
-  least 20 times and reports commit/card visibility p50/p95/p99/max without a
-  fixed sleep or manual refresh.
+- An exact Page or Canvas Document subscription receives its own authorized
+  updates and never receives unrelated semantic effects from a multi-resource
+  Manifest.
+- A high-pressure populated Board test moves 100 independently seeded nested
+  100-child subtrees and reports commit/card visibility p50/p95/p99/max without
+  a fixed sleep or manual refresh. Automated Electron coverage invokes the real
+  renderer IPC mutation/projection boundary; native pointer DnD remains a
+  manual smoke check because synthetic drag events are not a reliable product
+  input model.

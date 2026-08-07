@@ -2,8 +2,10 @@ import { expect, test } from "vitest";
 import type {
   CoreEventEnvelope,
   CoreEventReplayRequired,
+  CoreStreamCheckpoint,
 } from "./types";
 import { superviseCoreEventStream } from "./core-event-stream-supervisor";
+import { createCoreLocalCommitFixture } from "./testing/local-commit-fixture";
 import {
   CoreEventCompatibilityError,
   CoreHttpError,
@@ -28,12 +30,10 @@ type DeferredValue<Value> = ReturnType<typeof deferred<Value>>;
 function envelope(sequence: number): CoreEventEnvelope {
   return {
     transport_version: 4,
-    event: {
-      event_version: 3,
-      commit_seq: sequence,
-      store_epoch: "epoch:test",
-      committed_at: "2026-07-22T00:00:00.000Z",
-      projection_impact: { kind: "none" },
+    packet: createCoreLocalCommitFixture({
+      commitSeq: sequence,
+      storeEpoch: "epoch:test",
+      committedAt: "2026-07-22T00:00:00.000Z",
       payload: {
         module: "project_workspace",
         event: {
@@ -45,25 +45,33 @@ function envelope(sequence: number): CoreEventEnvelope {
           session_detail_ids: [],
         },
       },
-      effects: [],
-      canonical_hash: "0".repeat(64),
-    },
+      canonicalHash: "0".repeat(64),
+    }),
   };
 }
+
+const checkpoint = (sequence: number): CoreStreamCheckpoint => ({
+  store_epoch: "epoch:test",
+  generation: "generation:test",
+  scanned_through_seq: sequence,
+  oldest_available_seq: 0,
+  resync_token: null,
+});
 
 test("reconnects from the last delivered sequence after a stream ends", async () => {
   const afterValues: number[] = [];
   const streams: Array<{
     readonly done: DeferredValue<void>;
     readonly onEvent: (event: CoreEventEnvelope) => void;
+    readonly onCheckpoint: (checkpoint: CoreStreamCheckpoint) => void;
   }> = [];
   const supervisor = superviseCoreEventStream({
     initialAfter: 2,
     retryDelayMs: 0,
-    open: async (after, onEvent) => {
+    open: async (after, onEvent, onCheckpoint) => {
       afterValues.push(after);
       const done = deferred();
-      streams.push({ done, onEvent });
+      streams.push({ done, onEvent, onCheckpoint });
       return { done: done.promise, close: done.resolve };
     },
     onEvent: () => undefined,
@@ -72,6 +80,7 @@ test("reconnects from the last delivered sequence after a stream ends", async ()
 
   await expect.poll(() => streams.length).toBe(1);
   streams[0]!.onEvent(envelope(7));
+  streams[0]!.onCheckpoint(checkpoint(7));
   streams[0]!.done.resolve(undefined);
   await expect.poll(() => streams.length).toBe(2);
   expect(afterValues).toEqual([2, 7]);
@@ -84,15 +93,16 @@ test("replays from the old cursor when ordered delivery fails", async () => {
   const streams: Array<{
     readonly done: DeferredValue<void>;
     readonly onEvent: (event: CoreEventEnvelope) => void;
+    readonly onCheckpoint: (checkpoint: CoreStreamCheckpoint) => void;
   }> = [];
   let deliveries = 0;
   const supervisor = superviseCoreEventStream({
     initialAfter: 0,
     retryDelayMs: 0,
-    open: async (after, onEvent) => {
+    open: async (after, onEvent, onCheckpoint) => {
       afterValues.push(after);
       const done = deferred();
-      streams.push({ done, onEvent });
+      streams.push({ done, onEvent, onCheckpoint });
       return { done: done.promise, close: done.resolve };
     },
     onEvent: async () => {
@@ -107,6 +117,7 @@ test("replays from the old cursor when ordered delivery fails", async () => {
   await expect.poll(() => streams.length).toBe(2);
   expect(afterValues).toEqual([0, 0]);
   streams[1]!.onEvent(envelope(1));
+  streams[1]!.onCheckpoint(checkpoint(1));
   streams[1]!.done.resolve(undefined);
   await expect.poll(() => streams.length).toBe(3);
   expect(afterValues).toEqual([0, 0, 1]);
@@ -124,7 +135,7 @@ test("heals a resync boundary and immediately resumes from its event head", asyn
   const supervisor = superviseCoreEventStream({
     initialAfter: 4,
     retryDelayMs: 0,
-    open: async (after, _onEvent, onResync) => {
+    open: async (after, _onEvent, _onCheckpoint, onResync) => {
       afterValues.push(after);
       const done = deferred();
       streams.push({ done, onResync });
@@ -139,6 +150,8 @@ test("heals a resync boundary and immediately resumes from its event head", asyn
     requested_after: 4,
     oldest_available: 10,
     commit_head: 14,
+    generation: "generation:test",
+    resync_token: "resync:test",
   });
   await expect.poll(() => streams.length).toBe(2);
   expect(afterValues).toEqual([4, 14]);
@@ -274,7 +287,7 @@ test("aborts an opening request when the logical subscription closes", async () 
   let aborted = false;
   const supervisor = superviseCoreEventStream({
     initialAfter: 0,
-    open: async (_after, _onEvent, _onResyncRequired, signal) =>
+    open: async (_after, _onEvent, _onCheckpoint, _onResyncRequired, signal) =>
       await new Promise((resolve, reject) => {
         signal.addEventListener("abort", () => {
           aborted = true;

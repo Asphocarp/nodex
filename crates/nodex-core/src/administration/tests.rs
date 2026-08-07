@@ -474,6 +474,11 @@ fn restores_database_assets_epoch_and_exact_retry_with_a_safety_backup() {
         Some("epoch seed"),
         false,
     );
+    fixture.create_backup(
+        "administration:create-backup:second-scope-revision",
+        Some("second scope revision"),
+        false,
+    );
     let target = fixture.create_backup(
         "administration:create-backup:restore-target",
         Some("restore target"),

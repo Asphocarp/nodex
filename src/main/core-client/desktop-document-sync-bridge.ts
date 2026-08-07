@@ -91,7 +91,11 @@ import {
 } from "./block-transfer-adapter";
 import { createCoreDocumentSyncAdapter } from "./document-sync-adapter";
 import type { CoreDocumentSyncAdapter } from "./document-sync-adapter";
-import type { CoreLocalCommitEnvelope } from "./types";
+import {
+  resolveAuthorizedDocumentEffect,
+  resolveInlineAuthorizedDocumentEffect,
+} from "./document-effect-delivery";
+import type { CoreAuthorizedDeliveryPacket } from "./types";
 
 const DOCUMENT_SYNC_EVENT_CHANNEL = "document-sync:event";
 
@@ -127,8 +131,11 @@ export interface NativeNodexAgentMutationExecution<
 }
 
 export interface DesktopDocumentSyncPort {
-  /** Publishes one Core-authoritative LocalCommit to every authorized session. */
-  publishLocalCommit(commit: CoreLocalCommitEnvelope): void;
+  /** Publishes one post-state-authorized commit packet to active sessions. */
+  publishLocalCommit(
+    packet: CoreAuthorizedDeliveryPacket,
+    documentId?: string,
+  ): void;
   getOwnedDocumentDescriptor(
     projectId: string,
     ownerBlockId: string,
@@ -1002,11 +1009,12 @@ export function createDesktopDocumentSyncBridge(
       return committed;
     }, request.mutationId);
 
-  const publishLocalCommit = (commit: CoreLocalCommitEnvelope): void => {
-    if (commit.effects.length === 0) {
-      throw new Error("Core LocalCommit envelope has no physical effects");
-    }
-    const effects = commit.effects;
+  const publishLocalCommit = (
+    packet: CoreAuthorizedDeliveryPacket,
+    onlyDocumentId?: string,
+  ): void => {
+    const identity = packet.manifest.identity;
+    const effects = packet.effects;
     const invalidatedDocuments = new Set(
       effects
         .filter((effect) =>
@@ -1033,44 +1041,87 @@ export function createDesktopDocumentSyncBridge(
         )
         .filter((documentId): documentId is string => documentId !== null),
     );
-    effects.forEach((effect, effectIndex) => {
+    packet.document_effects.forEach((effect) => {
+      const reference = effect.reference;
+      if (onlyDocumentId && reference.document_id !== onlyDocumentId) return;
+      if (
+        invalidatedDocuments.has(reference.document_id)
+        || resyncRequiredDocuments.has(reference.document_id)
+      ) return;
+      const scopes = new Map<string, {
+        readonly scope: DesktopDocumentSyncScope;
+        readonly recipients: Map<string, NativeSubscription>;
+      }>();
+      for (const [key, subscription] of subscriptions) {
+        if (
+          subscription.engine === "yjs"
+          && subscription.documentId === reference.document_id
+        ) {
+          const keyForScope = scopeKey(subscription.scope);
+          const group = scopes.get(keyForScope) ?? {
+            scope: subscription.scope,
+            recipients: new Map(),
+          };
+          group.recipients.set(key, subscription);
+          scopes.set(keyForScope, group);
+        }
+      }
+      for (const [, { scope, recipients }] of scopes) {
+        const deliverResolvedEvent = (event: OrderedDocumentRealtimeEvent): void => {
+          for (const [key, subscription] of recipients) {
+            if (subscriptions.get(key) !== subscription) continue;
+            if (
+              subscription.storeEpoch
+              && subscription.storeEpoch !== identity.store_epoch
+            ) {
+              closeSubscription(key);
+              continue;
+            }
+            deliverDocumentRealtimeEvent(key, subscription.target, event, {
+              revokeAfter: event.kind === "resync-required"
+                && event.reason === "access-revoked",
+            });
+          }
+        };
+        const inline = resolveInlineAuthorizedDocumentEffect(effect, identity);
+        if (inline) {
+          deliverResolvedEvent(inline);
+          continue;
+        }
+        void resolveAuthorizedDocumentEffect(
+          effect,
+          identity,
+          async (request) => {
+            try {
+              const runtime = await input.authority;
+              return await adapterFor(runtime, scope).fetchUpdateResource(request);
+            } catch (error) {
+              return transportUnavailable(error);
+            }
+          },
+        ).catch(() => ({
+          kind: "resync-required" as const,
+          documentId: reference.document_id,
+          storeEpoch: identity.store_epoch,
+          generation: reference.generation,
+          headSeq: reference.base_head_seq,
+          commitSeq: identity.commit_seq,
+          effectSequence: reference.effect_order,
+          reason: "resource-integrity-failure" as const,
+        })).then(deliverResolvedEvent);
+      }
+    });
+    effects.forEach((effect) => {
       if (effect.payload.module !== "owned_document") return;
       const event = effect.payload.event;
-      // Build one delivery buffer per physical effect. Electron still
-      // serializes each recipient at its IPC boundary, but Main must not
-      // allocate/copy the same large Yjs update once per subscription.
-      const update = event.kind === "document_updated"
-        ? Uint8Array.from(event.update)
-        : undefined;
+      if (onlyDocumentId && event.document_id !== onlyDocumentId) return;
       for (const [key, subscription] of [...subscriptions]) {
         if (subscription.documentId !== event.document_id) continue;
-        if (subscription.storeEpoch && subscription.storeEpoch !== commit.store_epoch) {
+        if (subscription.storeEpoch && subscription.storeEpoch !== identity.store_epoch) {
           closeSubscription(key);
           continue;
         }
         if (subscription.engine === "yjs") {
-          if (event.kind === "document_updated") {
-            if (
-              invalidatedDocuments.has(event.document_id)
-              || resyncRequiredDocuments.has(event.document_id)
-            ) continue;
-            const delivered = deliverDocumentRealtimeEvent(key, subscription.target, {
-              kind: "document-update",
-              documentId: event.document_id,
-              storeEpoch: commit.store_epoch,
-              generation: event.generation,
-              headSeq: event.head_seq,
-              commitSeq: commit.commit_seq,
-              effectSequence: effect.sequence ?? effectIndex,
-              updateId: effect.operation_id
-                ?? commit.operation_id
-                ?? `commit:${commit.commit_seq}:${effectIndex}`,
-              clientSessionId: "core:local-commit",
-              update: update ?? new Uint8Array(),
-            });
-            void delivered;
-            continue;
-          }
           if (
             event.kind === "document_invalidated"
             || event.kind === "document_resync_required"
@@ -1079,12 +1130,16 @@ export function createDesktopDocumentSyncBridge(
             const delivered = deliverDocumentRealtimeEvent(key, subscription.target, {
               kind: "resync-required",
               documentId: event.document_id,
-              storeEpoch: commit.store_epoch,
+              storeEpoch: identity.store_epoch,
               generation: compacted ? event.generation : subscription.generation ?? 1,
               headSeq: compacted ? event.head_seq : subscription.headSeq ?? 0,
-              commitSeq: commit.commit_seq,
-              effectSequence: effect.sequence ?? effectIndex,
-              reason: compacted ? "history-compacted" : "event-gap",
+              commitSeq: identity.commit_seq,
+              effectSequence: effect.semantic.effect_order,
+              reason: compacted
+                ? "history-compacted"
+                : event.reason === "access_changed"
+                  ? "access-revoked"
+                  : "identity-boundary-changed",
             }, compacted ? {} : { revokeAfter: true });
             void delivered;
           }
@@ -1099,7 +1154,7 @@ export function createDesktopDocumentSyncBridge(
             version: 1,
             projectId: subscription.scope.projectId,
             documentId: event.document_id,
-            storeEpoch: commit.store_epoch,
+            storeEpoch: identity.store_epoch,
             generation: event.generation,
             headSeq: event.head_seq,
           });
@@ -1110,7 +1165,7 @@ export function createDesktopDocumentSyncBridge(
           event.kind !== "canvas_updated"
           || typeof event.mutation !== "object"
           || event.mutation === null
-          || !commit.operation_id
+          || !packet.manifest.operation_id
         ) {
           continue;
         }
@@ -1121,9 +1176,9 @@ export function createDesktopDocumentSyncBridge(
             version: 1,
             projectId: subscription.scope.projectId,
             documentId: event.document_id,
-            storeEpoch: commit.store_epoch,
+            storeEpoch: identity.store_epoch,
             generation: event.generation,
-            mutationId: commit.operation_id,
+            mutationId: packet.manifest.operation_id,
             baseHeadSeq: event.base_head_seq,
             headSeq: event.head_seq,
             sceneHash: event.scene_hash,
@@ -1137,6 +1192,28 @@ export function createDesktopDocumentSyncBridge(
           subscription.target,
           realtimeEvent,
         );
+        void delivered;
+      }
+    });
+    packet.revocations.forEach((revocation, revocationIndex) => {
+      if (revocation.resource_kind !== "document") return;
+      if (onlyDocumentId && revocation.resource_id !== onlyDocumentId) return;
+      for (const [key, subscription] of [...subscriptions]) {
+        if (subscription.documentId !== revocation.resource_id) continue;
+        if (subscription.engine !== "yjs") {
+          closeSubscription(key);
+          continue;
+        }
+        const delivered = deliverDocumentRealtimeEvent(key, subscription.target, {
+          kind: "resync-required",
+          documentId: revocation.resource_id,
+          storeEpoch: identity.store_epoch,
+          generation: subscription.generation ?? 1,
+          headSeq: subscription.headSeq ?? 0,
+          commitSeq: identity.commit_seq,
+          effectSequence: packet.effects.length + revocationIndex,
+          reason: "access-revoked",
+        }, { revokeAfter: true });
         void delivered;
       }
     });

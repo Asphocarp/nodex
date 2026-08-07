@@ -428,10 +428,11 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
     assert!(apply.starts_with("HTTP/1.1 200"));
     let apply_json = response_json(&apply);
     assert_eq!(apply_json["status"], "ok");
-    let page_event_sequence = apply_json["payload"]["event_sequence"]
+    assert_eq!(apply_json["payload"]["status"], "committed");
+    let page_commit_sequence = apply_json["payload"]["commit"]["commit_seq"]
         .as_i64()
-        .expect("Page event sequence");
-    assert!(page_event_sequence >= 1);
+        .expect("Page commit sequence");
+    assert!(page_commit_sequence >= 1);
     assert_eq!(apply_json["payload"]["receipt"]["duplicate"], false);
 
     const PRIVATE_LOG_SENTINEL: &str = "PRIVATE_TITLE_MUST_NOT_REACH_CORE_LOGS";
@@ -459,9 +460,9 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
     );
     let logged_apply = response_json(&logged_apply);
     assert_eq!(logged_apply["status"], "ok");
-    let logged_event_sequence = logged_apply["payload"]["event_sequence"]
+    let logged_commit_sequence = logged_apply["payload"]["commit"]["commit_seq"]
         .as_i64()
-        .expect("logged event sequence");
+        .expect("logged commit sequence");
 
     let replay = request_with_headers(
         &expected.socket_path,
@@ -476,8 +477,8 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
         true
     );
     assert_eq!(
-        response_json(&replay)["payload"]["event_sequence"],
-        page_event_sequence
+        response_json(&replay)["payload"]["commit"]["commit_seq"],
+        page_commit_sequence
     );
 
     const DATABASE_ID: &str = "018f2000-0000-7000-8000-000000000001";
@@ -528,6 +529,29 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
         &module_headers,
     );
     assert_eq!(response_json(&granted_database)["status"], "ok");
+
+    let redundant_grant = grant_database.replace(
+        "lifecycle-database-grant",
+        "lifecycle-database-grant-redundant",
+    );
+    let redundant_grant = request_with_headers(
+        &expected.socket_path,
+        &auth,
+        "POST",
+        "/core/v1/modules/library/apply",
+        &redundant_grant,
+        &module_headers,
+    );
+    let redundant_grant = response_json(&redundant_grant);
+    assert_eq!(redundant_grant["status"], "ok");
+    assert_eq!(redundant_grant["payload"]["status"], "no_op");
+    assert!(redundant_grant["payload"].get("commit").is_none());
+    assert!(redundant_grant["payload"].get("delivery").is_none());
+    assert_eq!(
+        redundant_grant["payload"]["observed"]["store_epoch"],
+        expected.store_epoch,
+    );
+    assert_eq!(redundant_grant["payload"]["receipt"]["did_mutate"], false,);
 
     let database_read = serde_json::json!({
         "contract_version": DATABASE_CONTRACT_VERSION,
@@ -800,17 +824,15 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
     assert!(
         correlated
             .iter()
-            .any(|entry| { entry["eventSequence"].as_i64() == Some(logged_event_sequence) })
+            .any(|entry| { entry["commitSequence"].as_i64() == Some(logged_commit_sequence) })
     );
     assert!(correlated.iter().all(|entry| entry["module"] == "library"));
     assert!(correlated.iter().all(|entry| entry["adapter"] == "test"));
-    assert!(log_entries.iter().any(|entry| {
-        entry["eventKind"] == "library_changed"
-            && entry["resourceIdHash"] == log_identity("page:logging-correlation")
-            && entry["resourceCount"]
-                .as_u64()
-                .is_some_and(|count| count > 0)
-    }));
+    assert!(
+        correlated
+            .iter()
+            .all(|entry| entry.get("eventSequence").is_none())
+    );
     for forbidden in [
         auth.as_str(),
         PRIVATE_LOG_SENTINEL,
