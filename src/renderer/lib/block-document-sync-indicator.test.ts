@@ -17,6 +17,7 @@ const status = (
   headSeq: 3,
   pendingUpdateCount: 0,
   ...overrides,
+  checkpoint: overrides.checkpoint ?? { phase: "ready", failureCount: 0 },
 });
 
 const TEST_THRESHOLDS = {

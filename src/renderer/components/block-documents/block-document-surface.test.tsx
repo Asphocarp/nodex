@@ -99,6 +99,12 @@ class SurfaceTestAdapter implements DocumentSyncAdapter {
         headSeq: this.headSeq,
         stateVector: Y.encodeStateVector(this.server.document),
         duplicate: false,
+        status: "committed" as const,
+        commit: {
+          store_epoch: "store-1",
+          commit_seq: this.headSeq,
+          manifest_hash: "f".repeat(64),
+        },
       },
     };
   };
@@ -439,7 +445,7 @@ describe("BlockDocumentSurface", () => {
         failureFallback={({ error, reload }) => (
           <section data-testid="embedding-shell">
             <span>{error.message}</span>
-            <button type="button" onClick={() => void reload()}>
+            <button type="button" onClick={() => void reload?.()}>
               Retry in place
             </button>
           </section>
@@ -499,6 +505,48 @@ describe("BlockDocumentSurface", () => {
     });
     await waitFor(() => expect(reloads).toBe(1));
     await waitFor(() => expect(adapter.unsubscriptions > 0).toBe(true));
+
+    view.unmount();
+    adapter.destroy();
+  });
+
+  test("keeps access revocation terminal without entering an automatic reload loop", async () => {
+    const adapter = new SurfaceTestAdapter();
+    let reloads = 0;
+    const view = render(
+      <BlockDocumentSurface
+        projectId="project-1"
+        descriptor={descriptor()}
+        isActive
+        dependencies={{ createAdapter: () => adapter }}
+        onReload={async () => {
+          reloads += 1;
+        }}
+      >
+        {(surface) => <div>{surface.title.toString()}</div>}
+      </BlockDocumentSurface>,
+    );
+    await waitFor(() => expect(view.getByText("Synced title")).toBeTruthy());
+
+    await act(async () => {
+      adapter.emit({
+        kind: "resync-required",
+        documentId: "document:card-1",
+        storeEpoch: "store-1",
+        generation: 1,
+        headSeq: 0,
+        commitSeq: 2,
+        effectSequence: 0,
+        reason: "access-revoked",
+      });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(view.getByText("Access to this content is unavailable")).toBeTruthy();
+    });
+    expect(view.queryByRole("button", { name: "Reload" })).toBeNull();
+    expect(reloads).toBe(0);
 
     view.unmount();
     adapter.destroy();

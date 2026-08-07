@@ -24,6 +24,15 @@ const nativeAgentIdentity = {
 
 const nativeAgentHandshake = () => createFakeCoreHandshake(nativeAgentIdentity);
 
+const committedCoordinate = (commitSeq: number) => ({
+  status: "committed" as const,
+  commit: {
+    store_epoch: nativeAgentIdentity.storeEpoch,
+    commit_seq: commitSeq,
+    manifest_hash: "f".repeat(64),
+  },
+});
+
 const documentSync = {
   executeNodexAgentMutation: async (options: {
     readonly execute: () => Promise<unknown>;
@@ -230,12 +239,13 @@ describe("native desktop Nodex Agent dynamic service", () => {
       expect(request.operationId).toMatch(/^nodex-agent-create-pages:/u);
       expect(request.intent.authorization.token).toBe("create-token-2");
       return {
+        ...committedCoordinate(33),
         event_sequence: 33,
         receipt: {
           operation_id: request.operationId,
           duplicate: false,
         },
-        value: {
+        outcome: {
           agent_create_pages: {
             pages: [{
               page_id: "page-created-1",
@@ -429,9 +439,10 @@ describe("native desktop Nodex Agent dynamic service", () => {
       expect(request.operationId).toMatch(/^nodex-agent-move-pages:/u);
       expect(request.intent.authorization.token).toBe("move-token-2");
       return {
+        ...committedCoordinate(43),
         event_sequence: 43,
         receipt: { operation_id: request.operationId, duplicate: false },
-        value: {
+        outcome: {
           agent_move_pages: {
             pages: [{
               page_id: "page-move-database",
@@ -603,13 +614,14 @@ describe("native desktop Nodex Agent dynamic service", () => {
       expect(request.operationId).toMatch(/^nodex-agent-duplicate:/u);
       expect(request.intent.authorization.token).toBe("copy-token-2");
       return {
+        ...committedCoordinate(21),
         store_epoch: "store-native-agent",
         event_sequence: 21,
         receipt: {
           operation_id: request.operationId,
           duplicate: false,
         },
-        value: {
+        outcome: {
           agent_page_copy: {
             source_page_id: "page-copy-source",
             page_id: "page-copy-result",
@@ -1181,6 +1193,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
       }]);
       committed = true;
       return {
+        ...committedCoordinate(10),
         store_epoch: "store-native-agent",
         event_sequence: 10,
         receipt: {
@@ -1190,7 +1203,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
           generation: 1,
           head_seq: 8,
         },
-        value: {
+        outcome: {
           document_id: "document-update",
           generation: 1,
           head_seq: 8,
@@ -1388,6 +1401,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
       },
     }));
     const documentApply = vi.fn(async () => ({
+      ...committedCoordinate(10),
       store_epoch: "store-native-agent",
       event_sequence: 10,
       receipt: {
@@ -1397,7 +1411,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
         generation: 2,
         head_seq: 9,
       },
-      value: {
+      outcome: {
         document_id: "document-stable",
         generation: 2,
         head_seq: 9,

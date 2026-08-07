@@ -15,6 +15,7 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 - Fixed parent-linked subagent tasks so they remain in parent-conversation activity without appearing as standalone Project or projectless sidebar chats; any leaked Session is retired when late parent metadata arrives.
 - Fixed Page Detail losing its entire Property surface after an optional Source Property was deleted; remaining and custom Properties now stay editable, schema changes refresh open Pages, and destructive deletion is confirmed with exact View blockers.
+- Fixed Project-scoped Pages, Documents, and Database Views remaining visible from stale client caches after ownership or access was revoked.
 
 ## [0.2.1] - 2026-08-02
 
@@ -94,7 +95,7 @@ All notable changes to this project will be documented in this file.
 ### Changed
 - Workbench keyboard navigation now follows Projects, Sessions, routes, and panel tabs exclusively: obsolete stage/sliding-window shortcuts no longer intercept `Ctrl+Tab`, `Cmd/Ctrl+H`, or `Cmd/Ctrl+1`–`4`, and `Cmd/Ctrl+F` consistently opens the mounted Workbench content-search surface.
 - macOS distribution now treats the notarized app bundle as the single app/CLI/Core runtime closure: Homebrew exposes the bundled CLI while preserving Profile data on zap, app updates require an Applications install, and local source deployment uses a verified rollback-safe command instead of a destructive source installer.
-- Repeated local restarts can reuse a content-verified production bundle and release-lock-verified agent runtime, while Core startup is substantially faster and the blocking launch surface now uses the Nodex shimmer with real migration-only status instead of a fabricated progress bar.
+- Repeated local restarts can reuse a content-verified production bundle and release-lock-verified agent runtime, while Core startup is substantially faster, historical Store upgrades report truthful progress without duplicate retry backups, active long migrations no longer look dead, failed or cancelled candidates release the Profile lock, and the blocking launch surface distinguishes data migration from workspace opening.
 - Nodex now starts every production Profile through the native Rust Core; the former TypeScript/Rust authority selector and JavaScript storage engine are retired, exact published v26, v57, v68, v82, v83, and final v84 Profiles plus native v85-v89 stores are safely backed up and migrated one way to the Rust-owned v90 store before readiness, shared Session tab/panel authority is removed during that migration, and task-history search delegates exclusively to Codex app-server.
 - Nodex Profile storage is now configured exclusively through `NODEX_HOME` or `[server].home`; the previous environment variable and TOML key are no longer accepted.
 - Page workflows now use the action-oriented Triage, Plan, Build, Review, and Ship stages; CLI and API callers must use the corresponding `triage`, `plan`, `build`, `review`, and `ship` identifiers.

@@ -6,6 +6,7 @@ use utoipa::ToSchema;
 
 use crate::agent::AgentExecutionAuthorization;
 use crate::collection::{CollectionWindow, CollectionWindowRequest};
+use crate::events::ProjectionSnapshotAuthority;
 use crate::{ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
 pub const DATABASE_CONTRACT_VERSION: u32 = 6;
@@ -187,7 +188,7 @@ pub enum DatabaseReadValue {
         value: DatabaseViewGroups,
     },
     ViewContext {
-        value: DatabaseViewContext,
+        value: Box<DatabaseViewContext>,
     },
     RowsById {
         value: DatabaseRowsById,
@@ -242,6 +243,7 @@ pub struct DatabaseViewWindow {
     pub database_id: String,
     pub data_source_id: String,
     pub view_id: String,
+    pub projection: ProjectionSnapshotAuthority,
     pub rows: CollectionWindow<DatabaseRowSummary>,
 }
 
@@ -254,6 +256,7 @@ pub struct DatabaseViewGroups {
     pub database_id: String,
     pub data_source_id: String,
     pub view_id: String,
+    pub projection: ProjectionSnapshotAuthority,
     pub grouped: bool,
     pub total_rows: i64,
     pub truncated: bool,
@@ -276,6 +279,7 @@ pub struct DatabaseViewContext {
     pub view: Value,
     pub properties: Vec<DatabasePropertyDescriptor>,
     pub groups: DatabaseViewGroups,
+    pub projection: ProjectionSnapshotAuthority,
     pub rows: CollectionWindow<DatabaseViewContextRow>,
 }
 

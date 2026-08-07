@@ -31,7 +31,7 @@ import { toast } from "@/components/ui/toast";
 import { buildPageDeepLink } from "@/lib/page-deeplink";
 import { writeTextToClipboard } from "@/lib/clipboard";
 import type { BlockDocumentSurfaceRuntime } from "@/lib/block-document-surface-runtime";
-import type { PageEditorSession } from "@/lib/page-editor-session-registry";
+import type { EditorSurfaceLease } from "@/lib/document-session-registry";
 import { RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE } from "@/lib/right-panel-composer-overlay-reserve";
 import { materializePageDocument } from "../../../shared/block-documents/block-document-codec";
 
@@ -81,7 +81,7 @@ interface PageStageDescriptionEditorProps {
   readonly isActivePanelTab: boolean;
   readonly headingRailPortalElement: HTMLElement | null;
   readonly scrollContainerRef: RefObject<HTMLDivElement | null>;
-  readonly editorSession?: PageEditorSession;
+  readonly editorSession?: EditorSurfaceLease;
 }
 
 const useLivePageDocumentNfm = (document: Y.Doc): string => {
@@ -155,6 +155,9 @@ const PageStageDescriptionEditor = memo(
           fragment: body,
           user: { name: "You", color: "#3b82f6" },
           provider: { awareness },
+          ...(editorSession
+            ? { transactionOrigin: editorSession.transactionOrigin }
+            : {}),
         }}
         sourcePageContext={{ pageId }}
         surfaceMutationBarrier={surfaceMutationBarrier}
@@ -287,7 +290,7 @@ export function PageStage(props: PageStageProps) {
   const page = controller.page;
   const renderDocumentSurface = (
     surface: BlockDocumentSurfaceValue,
-    editorSession?: PageEditorSession,
+    editorSession?: EditorSurfaceLease,
   ): ReactNode => (
     <PageStageContent
       controller={controller}

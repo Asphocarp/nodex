@@ -6,20 +6,19 @@ import { CoreModuleResponseError } from "./core-client";
 import { createCoreDocumentSyncAdapter } from "./document-sync-adapter";
 import { FakeCoreClient } from "./testing/fake-core-client";
 import type {
-  CoreEventSubscription,
+  CoreDocumentEventSubscription,
 } from "./types";
 
 class ControllableDocumentStreamClient extends FakeCoreClient {
   readonly openings: Array<{
-    readonly after: number;
     open(): void;
     end(error?: unknown): void;
   }> = [];
 
   override openDocumentEventStream(
-    input: { readonly after: number },
-  ): Promise<CoreEventSubscription> {
-    let resolveOpen: (subscription: CoreEventSubscription) => void =
+    input: { readonly documentId: string },
+  ): Promise<CoreDocumentEventSubscription> {
+    let resolveOpen: (subscription: CoreDocumentEventSubscription) => void =
       () => undefined;
     let resolveDone: () => void = () => undefined;
     let rejectDone: (error: unknown) => void = () => undefined;
@@ -27,15 +26,23 @@ class ControllableDocumentStreamClient extends FakeCoreClient {
       resolveDone = resolve;
       rejectDone = reject;
     });
-    const subscription: CoreEventSubscription = {
+    const subscription: CoreDocumentEventSubscription = {
+      barrier: {
+        store_epoch: "epoch:test",
+        core_generation: "fake-core-start",
+        document_id: input.documentId,
+        document_generation: 1,
+        head_seq: 0,
+        commit_head: 0,
+        engine: "yjs",
+      },
       done,
       close: resolveDone,
     };
-    const opening = new Promise<CoreEventSubscription>((resolve) => {
+    const opening = new Promise<CoreDocumentEventSubscription>((resolve) => {
       resolveOpen = resolve;
     });
     this.openings.push({
-      after: input.after,
       open: () => resolveOpen(subscription),
       end: (error) => {
         if (error === undefined) {
@@ -225,13 +232,20 @@ describe("Core Document sync adapter", () => {
       },
     });
 
-    await expect(adapter.fetchUpdateResource({
+    const request = {
       documentId: "document:one",
       generation: 1,
       updateId: "update:one",
       updateHash,
       clientSessionId: "renderer:resource",
-    })).resolves.toEqual({
+    } as const;
+    const firstFetch = adapter.fetchUpdateResource(request);
+    const coalescedFetch = adapter.fetchUpdateResource({
+      ...request,
+      clientSessionId: "renderer:second-surface",
+    });
+    expect(coalescedFetch).toBe(firstFetch);
+    await expect(firstFetch).resolves.toEqual({
       ok: true,
       value: {
         kind: "available",
@@ -350,7 +364,11 @@ describe("Core Document sync adapter", () => {
       expect(client.openings).toHaveLength(1);
     });
     client.openings[0]?.open();
-    await expect(lifecycle.ready).resolves.toBeUndefined();
+    await expect(lifecycle.ready).resolves.toMatchObject({
+      document_id: request.documentId,
+      engine: "yjs",
+      commit_head: 0,
+    });
 
     client.openings[0]?.end(new Error("socket interrupted"));
     await vi.waitFor(() => {
@@ -377,7 +395,7 @@ describe("Core Document sync adapter", () => {
       ok: true,
       value: { documentId: request.documentId, headSeq: 2 },
     });
-    expect(client.openings.map((opening) => opening.after)).toEqual([0, 0]);
+    expect(client.openings).toHaveLength(2);
     lifecycle.close();
     await lifecycle.done;
   });
@@ -528,9 +546,13 @@ describe("Core Document sync adapter", () => {
     };
     const apply = vi.spyOn(client, "documentApply").mockImplementationOnce(
       async (input) => ({
-        store_epoch: "epoch:test",
-        event_sequence: 8,
-        value: {
+        status: "committed" as const,
+        commit: {
+          store_epoch: "epoch:test",
+          commit_seq: 8,
+          manifest_hash: "f".repeat(64),
+        },
+        outcome: {
           document_id: checkpointRequest.documentId,
           generation: checkpointRequest.expectedGeneration,
           head_seq: checkpointRequest.expectedHeadSeq,
@@ -643,9 +665,13 @@ describe("Core Document sync adapter", () => {
       actor: { kind: "electron_renderer", clientId: "renderer:history" },
     };
     client.enqueueDocumentApply({
-      store_epoch: request.storeEpoch,
-      event_sequence: 9,
-      value: {
+      status: "committed",
+      commit: {
+        store_epoch: request.storeEpoch,
+        commit_seq: 9,
+        manifest_hash: "f".repeat(64),
+      },
+      outcome: {
         document_id: request.documentId,
         generation: request.generation,
         head_seq: 3,
@@ -716,9 +742,12 @@ describe("Core Document sync adapter", () => {
       expectedHeadSeq: 3,
     };
     client.enqueueDocumentApply({
-      store_epoch: request.storeEpoch,
-      event_sequence: 9,
-      value: {
+      status: "no_op",
+      observed: {
+        store_epoch: request.storeEpoch,
+        commit_head: 9,
+      },
+      outcome: {
         document_id: request.documentId,
         generation: request.generation,
         head_seq: 3,

@@ -49,7 +49,8 @@ Options:
 
 Environment:
   NODEX_REMOTE_DEBUGGING_PORT
-                    Electron CDP port for built runs (default: 9333).
+                    Electron CDP port (default: 0, letting the OS select an
+                    available port for this run).
   NODEX_INITIAL_PROJECTS_DIR
                     Initial Project parent. Isolated runs set this to the run
                     root's workspace directory.
@@ -311,8 +312,10 @@ else
   printf 'NODEX_HOME=<inherited or default>\n'
   printf 'NODEX_INITIAL_PROJECTS_DIR=<inherited or Documents/Nodex>\n'
 fi
+printf 'NODEX_REMOTE_DEBUGGING_PORT=%s\n' "${NODEX_REMOTE_DEBUGGING_PORT:-0}"
 
 (
+  export NODEX_REMOTE_DEBUGGING_PORT="${NODEX_REMOTE_DEBUGGING_PORT:-0}"
   if [[ "${use_codex_home}" == "true" ]]; then
     export CODEX_HOME="${isolated_codex_home}"
   fi

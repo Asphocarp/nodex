@@ -14,9 +14,9 @@ import {
   workspaceTextDocumentRegistry,
 } from "@/features/workspace-files/workspace-text-document-controller";
 import {
-  makePageEditorSessionKey,
-  pageEditorSessionRegistry,
-} from "./page-editor-session-registry";
+  makeEditorSurfaceKey,
+  documentSessionRegistry,
+} from "./document-session-registry";
 import {
   canvasSceneSurfaceRegistry,
   makeCanvasSceneSurfaceKey,
@@ -392,7 +392,7 @@ const updateSessionPanel = useCallback(async (
     if (!activeSession) return;
     const closingTab = activeSession.tabs.find((tab) => tab.id === tabId) ?? null;
     const closingPageEditorSessionKey = closingTab?.kind === "page_stage"
-      ? makePageEditorSessionKey(activeSession.id, closingTab.id)
+      ? makeEditorSurfaceKey(activeSession.id, closingTab.id)
       : null;
     const deleteInput = {
       tabId,
@@ -428,7 +428,7 @@ const updateSessionPanel = useCallback(async (
         closeBrowserRuntime: closeActiveSessionBrowserRuntime,
         disposePageEditor: async () => {
           if (!closingPageEditorSessionKey) return;
-          await pageEditorSessionRegistry.dispose(
+          await documentSessionRegistry.dispose(
             closingPageEditorSessionKey,
           );
         },

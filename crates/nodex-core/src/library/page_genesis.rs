@@ -9,12 +9,14 @@ use crate::database::{
     place_staged_page_in_data_source_prevalidated,
 };
 use crate::document::{mint_document_semantic_etags, parse_inline_markdown_title};
+use crate::infrastructure::local_commit::CommitContext;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 const MAX_ID_BYTES: usize = 512;
 const MAX_PAGE_TITLE_BYTES: usize = 10_000;
 
 pub(crate) struct PageGenesisInput<'a> {
+    pub(crate) commit_context: &'a CommitContext,
     pub(crate) library_id: &'a str,
     pub(crate) project_id: &'a str,
     pub(crate) actor_project_id: &'a str,
@@ -52,6 +54,7 @@ pub(crate) fn create_page_in_data_source(
         .map_err(|error| invalid(error.to_string()))?;
     let staged = super::block_transfer::stage_fresh_page_in_library(
         connection,
+        input.commit_context,
         input.library_id,
         input.project_id,
         input.operation_id,

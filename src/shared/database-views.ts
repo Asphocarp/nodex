@@ -13,6 +13,7 @@ import type {
   Priority,
 } from "./types";
 import type { ContentAccessContext } from "./content-access-context";
+import type { ProjectionCoordinate } from "./projection-stream";
 
 export interface ReadDatabaseViewReferenceInput {
   /** Authority inherited from the content surface containing the reference. */
@@ -112,6 +113,7 @@ export interface DatabaseViewGroupsSnapshot<
   readonly viewId: string;
   readonly storeEpoch: string;
   readonly commitSeq: number;
+  readonly projection: Omit<ProjectionCoordinate, "storeEpoch">;
   readonly grouped: boolean;
   readonly totalRows: number;
   readonly truncated: boolean;
@@ -136,7 +138,7 @@ export interface DatabaseViewWindowSnapshot<
   readonly viewId: string;
   readonly storeEpoch: string;
   readonly commitSeq: number;
-  readonly projectionRevision: number;
+  readonly projection: Omit<ProjectionCoordinate, "storeEpoch">;
   readonly nextCursor: string | null;
   readonly rows: readonly DatabaseViewPageRow[];
   readonly board: BoardSummary;

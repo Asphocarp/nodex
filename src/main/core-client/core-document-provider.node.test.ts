@@ -229,7 +229,7 @@ describe("Rust Core renderer Document adapter", () => {
         },
       });
       expect(committed).toMatchObject({
-        value: {
+        outcome: {
           head_seq: 3,
           semantic_etags: {
             title: expect.stringMatching(/^nxe1\./u),
@@ -252,9 +252,9 @@ describe("Rust Core renderer Document adapter", () => {
         },
       });
       expect(replay).toMatchObject({
-        value: {
+        outcome: {
           head_seq: 3,
-          semantic_etags: committed.value.semantic_etags,
+          semantic_etags: committed.outcome.semantic_etags,
         },
         receipt: { duplicate: true },
       });
@@ -319,7 +319,7 @@ describe("Rust Core renderer Document adapter", () => {
           mutation: insertMutation,
         },
       });
-      expect(insertCommitted.value).toMatchObject({
+      expect(insertCommitted.outcome).toMatchObject({
         head_seq: 4,
         mutation_effect: {
           created_block_ids: insertPreflight.value.preparation.footprint.created_roots,
@@ -385,7 +385,7 @@ describe("Rust Core renderer Document adapter", () => {
           mutation: stableMutation,
         },
       });
-      const stableRootId = stableCommitted.value.semantic_local_block_ids?.["stable-root"];
+      const stableRootId = stableCommitted.outcome.semantic_local_block_ids?.["stable-root"];
       expect(stableRootId).toEqual(expect.any(String));
       const stableSnapshot = await host.documentRead("agent:prepared", {
         kind: "agent_semantic_snapshot",
@@ -459,7 +459,7 @@ describe("Rust Core renderer Document adapter", () => {
           mutation: stableUpdateMutation,
         },
       });
-      expect(stableUpdated.value).toMatchObject({
+      expect(stableUpdated.outcome).toMatchObject({
         head_seq: 6,
         mutation_effect: { updated_block_ids: [stableRootId] },
       });
@@ -496,6 +496,7 @@ describe("Rust Core renderer Document adapter", () => {
       expect(provider.getStatus()).toMatchObject({
         phase: "synced",
         headSeq: 2,
+        error: undefined,
       });
       expect(materialized(document).nfm).toContain("Base body");
 
@@ -617,6 +618,8 @@ describe("Rust Core renderer Document adapter", () => {
     });
     try {
       await Promise.all([providerA.connect(), providerB.connect()]);
+      expect(providerA.getStatus().error).toBeUndefined();
+      expect(providerB.getStatus().error).toBeUndefined();
       providerA.awareness.setLocalState({ user: { name: "Alice" } });
       await waitUntil(
         () => awarenessName(providerB, documentA.clientID) === "Alice",

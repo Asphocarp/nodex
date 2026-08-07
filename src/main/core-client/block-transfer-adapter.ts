@@ -10,11 +10,11 @@ import {
 import { blockTransferFailure } from "../../shared/block-transfer-transport";
 import type { BlockLocation } from "../../shared/block-documents/contracts";
 import { CoreModuleResponseError } from "./core-client";
+import { applyResultCursor } from "./types";
 import type {
   CoreClientPort,
   LibraryIntent,
-  LibraryCommittedValue,
-  LibraryReadSnapshot,
+  LibraryApplyResult,
 } from "./types";
 
 export interface CoreBlockTransferAdapterInput {
@@ -30,13 +30,8 @@ export interface CoreBlockTransferAdapter {
   ): Promise<BlockTransferCommandResult>;
 }
 
-type CoreTransferResult = NonNullable<LibraryCommittedValue["value"]["block_transfer"]>;
+type CoreTransferResult = NonNullable<LibraryApplyResult["outcome"]["block_transfer"]>;
 type CoreTransferIntent = Extract<LibraryIntent, { kind: "transfer_blocks" }>["intent"];
-type CoreTransferPlan = Extract<
-  LibraryReadSnapshot["value"],
-  { kind: "block_transfer_plan" }
->["value"];
-
 const toCoreIntent = (intent: BlockTransferIntent): CoreTransferIntent => ({
   actor: intent.actor,
   mode: intent.mode,
@@ -317,42 +312,14 @@ export const createCoreBlockTransferAdapter = (
       const scopeError = assertIntentScope(input, intent);
       if (scopeError) return { ok: false, error: scopeError };
       try {
-        const planSnapshot = await input.client.libraryRead({
-          kind: "plan_block_transfer",
-          operation_id: intent.operationId,
-          store_epoch: intent.storeEpoch,
-          intent: toCoreIntent(intent),
-        });
-        if (
-          planSnapshot.store_epoch !== input.storeEpoch
-          || planSnapshot.value.kind !== "block_transfer_plan"
-        ) {
-          throw new Error("Core returned an invalid Block transfer plan snapshot");
-        }
-        const plan: CoreTransferPlan = planSnapshot.value.value;
-        if (plan.kind === "committed") {
-          return {
-            ok: true,
-            value: fromCoreResult(
-              intent,
-              plan.result,
-              true,
-              plan.commit_seq
-                ?? plan.local_commit?.commit_seq
-                ?? plan.commit_seq,
-              plan.committed_at,
-            ),
-          };
-        }
         const committed = await input.client.libraryApply({
           operationId: intent.operationId,
           intent: {
             kind: "transfer_blocks",
             intent: toCoreIntent(intent),
-            write_fence: plan.preparation.write_fence,
           },
         });
-        const result = committed.value.block_transfer;
+        const result = committed.outcome.block_transfer;
         if (!result || committed.receipt.operation_kind !== "transfer_blocks") {
           throw new Error("Core returned the wrong Library commit for Block transfer");
         }
@@ -362,9 +329,7 @@ export const createCoreBlockTransferAdapter = (
             intent,
             result,
             committed.receipt.duplicate,
-            committed.commit_seq
-              ?? committed.local_commit?.commit_seq
-              ?? committed.receipt.commit_seq,
+            applyResultCursor(committed),
             committed.receipt.committed_at,
           ),
         };

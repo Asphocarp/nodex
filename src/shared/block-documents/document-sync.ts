@@ -102,7 +102,7 @@ export type DocumentUpdateResourceReadResult =
 
 export type DocumentSyncApplyRequest = ApplyDocumentUpdate;
 
-export interface DocumentSyncApplyAck {
+interface DocumentSyncApplyAckBase {
   readonly documentId: DocumentId;
   readonly storeEpoch: string;
   readonly generation: number;
@@ -112,13 +112,29 @@ export interface DocumentSyncApplyAck {
    * use the unchanged current head; an advancing commit uses its assigned seq.
    */
   readonly committedSeq: number;
-  /** The semantic LocalCommit cursor that durably contains this update. */
-  readonly localCommit?: import("@nodex/core-protocol").components["schemas"]["LocalCommitEnvelope"];
   /** Latest durable sequence observed by the writer while producing the ACK. */
   readonly headSeq: number;
   readonly stateVector: Uint8Array;
   readonly duplicate: boolean;
 }
+
+/**
+ * Closed acknowledgement of a Yjs command. Document head causality is common
+ * to both cases, while only a semantic commit may carry a manifest identity
+ * and post-state-authorized delivery.
+ */
+export type DocumentSyncApplyAck = DocumentSyncApplyAckBase &
+  (
+    | {
+        readonly status: "committed";
+        readonly commit: import("@nodex/core-protocol").components["schemas"]["CommitIdentity"];
+        readonly delivery?: import("@nodex/core-protocol").components["schemas"]["AuthorizedDeliveryPacket"];
+      }
+    | {
+        readonly status: "no_op";
+        readonly observed: import("@nodex/core-protocol").components["schemas"]["StoreObservation"];
+      }
+  );
 
 export interface DocumentSyncSubscribeRequest {
   readonly documentId: DocumentId;
@@ -237,7 +253,12 @@ export type DocumentSyncRealtimeEvent =
       readonly commitSeq?: number;
       readonly effectSequence?: number;
       readonly reason:
-        "event-gap" | "history-compacted" | "transport-reconnected";
+        | "event-gap"
+        | "history-compacted"
+        | "transport-reconnected"
+        | "resource-integrity-failure"
+        | "identity-boundary-changed"
+        | "access-revoked";
     }
   ;
 

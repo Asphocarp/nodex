@@ -8,10 +8,9 @@ use nodex_core_contracts::library::{
     LibraryReadValue, LibraryReceipt, LibraryResourceTarget,
 };
 use nodex_core_contracts::{
-    BoundModuleContext, CORE_EVENT_VERSION, CommittedCoreModuleEvent, CommittedModuleValue,
-    CoreError, CoreErrorCode, CoreErrorRecovery, CoreModuleEventPayload, LIBRARY_CONTRACT_VERSION,
-    ModuleApplyRequest, ModuleMutationReceipt, ModuleReadRequest, ModuleReadSnapshot,
-    ProjectionImpact, StoreEpoch,
+    BoundModuleContext, CORE_EVENT_VERSION, CommittedCoreModuleEvent, CoreError, CoreErrorCode,
+    CoreErrorRecovery, CoreModuleEventPayload, LIBRARY_CONTRACT_VERSION, ModuleApplyRequest,
+    ModuleMutationReceipt, ModuleReadRequest, ModuleReadSnapshot, ProjectionImpact, StoreEpoch,
 };
 use rusqlite::OptionalExtension;
 
@@ -22,6 +21,7 @@ use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 use crate::infrastructure::store::SqliteStoreKernel;
 use crate::infrastructure::writer::{StoreReaders, StoreWriter};
 
+mod authorization_loss;
 mod page_projection;
 mod projection_authorization;
 mod resource_access;
@@ -47,7 +47,7 @@ fn require_trusted_library_authority(context: &BoundModuleContext) -> Result<(),
 
 #[derive(Clone, Debug)]
 pub struct LibraryApplyOutcome {
-    pub committed: CommittedModuleValue<LibraryCommitValue, LibraryReceipt>,
+    pub committed: crate::ModuleWriterResult<LibraryCommitValue, LibraryReceipt>,
     pub event: Option<CommittedCoreModuleEvent>,
 }
 
@@ -88,7 +88,7 @@ impl LibrarySearchSnapshotLeaseRegistry {
 #[derive(Clone)]
 struct AppliedOperation {
     fingerprint: Vec<u8>,
-    committed: CommittedModuleValue<LibraryCommitValue, LibraryReceipt>,
+    committed: crate::ModuleWriterResult<LibraryCommitValue, LibraryReceipt>,
 }
 
 #[derive(Default)]
@@ -108,6 +108,7 @@ pub struct LibraryModule {
     assets_root: Option<PathBuf>,
     search_snapshots: Option<LibrarySearchSnapshotLeaseRegistry>,
     prepared_agent_operations: PreparedAgentOperationRegistry,
+    document_runtime_cache: Option<Arc<Mutex<crate::document::DocumentRuntimeCache>>>,
 }
 
 impl LibraryModule {
@@ -122,6 +123,7 @@ impl LibraryModule {
             assets_root: None,
             search_snapshots: None,
             prepared_agent_operations: PreparedAgentOperationRegistry::new(),
+            document_runtime_cache: None,
         }
     }
 
@@ -152,7 +154,12 @@ impl LibraryModule {
             assets_root: Some(profile_home.join("assets")),
             search_snapshots: Some(LibrarySearchSnapshotLeaseRegistry::new(search_snapshots)),
             prepared_agent_operations: PreparedAgentOperationRegistry::new(),
+            document_runtime_cache: Some(kernel.document_runtime_cache()),
         }
+    }
+
+    pub fn block_transfer_metrics(&self) -> BlockTransferMetrics {
+        block_transfer::metric_snapshot()
     }
 
     pub fn read(
@@ -219,13 +226,12 @@ impl LibraryModule {
                 .read_default(move |connection| {
                     let transaction = connection.unchecked_transaction()?;
                     let store_epoch = crate::document::read_store_epoch(&transaction)?;
-                    let change_log_head = navigation::change_log_head(&transaction)?;
                     let commit_seq = navigation::commit_head(&transaction)?;
                     let prepared = search_snapshot::prepare(
                         &transaction,
                         &library_id,
                         &store_epoch,
-                        change_log_head,
+                        commit_seq,
                         &prepare_context,
                         prepare_scope,
                         strict_materialization,
@@ -328,8 +334,13 @@ impl LibraryModule {
                 .readers
                 .as_ref()
                 .ok_or_else(|| invalid_input("the Library tracer cannot prepare Agent writes"))?;
+            let cache = self
+                .document_runtime_cache
+                .as_ref()
+                .ok_or_else(|| invalid_input("the Library tracer has no Document runtime cache"))?;
             return agent_page_create::prepare_create_pages(
                 readers,
+                cache,
                 &self.prepared_agent_operations,
                 context,
                 &self.library_id,
@@ -354,8 +365,13 @@ impl LibraryModule {
                 .readers
                 .as_ref()
                 .ok_or_else(|| invalid_input("the Library tracer cannot prepare Agent writes"))?;
+            let cache = self
+                .document_runtime_cache
+                .as_ref()
+                .ok_or_else(|| invalid_input("the Library tracer has no Document runtime cache"))?;
             return agent_page_move::prepare_move_pages(
                 readers,
+                cache,
                 &self.prepared_agent_operations,
                 context,
                 &self.library_id,
@@ -390,7 +406,6 @@ impl LibraryModule {
                                 false,
                             )
                         })?;
-                    let change_log_head = navigation::change_log_head(&transaction)?;
                     let commit_seq = navigation::commit_head(&transaction)?;
                     let value = match request.read {
                         LibraryRead::Metadata => LibraryReadValue::Metadata {
@@ -419,20 +434,6 @@ impl LibraryModule {
                                 )?,
                             }
                         }
-                        LibraryRead::PlanBlockTransfer {
-                            operation_id,
-                            store_epoch,
-                            intent,
-                        } => LibraryReadValue::BlockTransferPlan {
-                            value: Box::new(block_transfer::plan(
-                                &transaction,
-                                &context,
-                                &library_id,
-                                &operation_id,
-                                &store_epoch,
-                                &intent,
-                            )?),
-                        },
                         LibraryRead::PageLifecyclePreflight { page_id } => {
                             LibraryReadValue::PageLifecyclePreflight {
                                 value: Box::new(page_lifecycle::read_preflight(
@@ -463,7 +464,7 @@ impl LibraryModule {
                             &transaction,
                             &library_id,
                             &store_epoch,
-                            change_log_head,
+                            commit_seq,
                             &context,
                             read,
                         )?,
@@ -543,8 +544,18 @@ impl LibraryModule {
                 .writer
                 .as_ref()
                 .ok_or_else(|| invalid_input("the Library tracer cannot execute Agent writes"))?;
+            let readers = self
+                .readers
+                .as_ref()
+                .ok_or_else(|| invalid_input("the Library tracer cannot prepare Agent writes"))?;
+            let cache = self
+                .document_runtime_cache
+                .as_ref()
+                .ok_or_else(|| invalid_input("the Library tracer has no Document runtime cache"))?;
             return agent_page_create::execute_create_pages(
                 writer,
+                readers,
+                cache,
                 &self.prepared_agent_operations,
                 &self.profile_id,
                 &self.library_id,
@@ -552,9 +563,6 @@ impl LibraryModule {
                 request,
                 *authorization,
                 *create_request,
-                self.assets_root
-                    .as_ref()
-                    .expect("persistent Library has an assets root"),
             )
             .map_err(core_error);
         }
@@ -567,8 +575,18 @@ impl LibraryModule {
                 .writer
                 .as_ref()
                 .ok_or_else(|| invalid_input("the Library tracer cannot execute Agent writes"))?;
+            let readers = self
+                .readers
+                .as_ref()
+                .ok_or_else(|| invalid_input("the Library tracer cannot prepare Agent writes"))?;
+            let cache = self
+                .document_runtime_cache
+                .as_ref()
+                .ok_or_else(|| invalid_input("the Library tracer has no Document runtime cache"))?;
             return agent_page_move::execute_move_pages(
                 writer,
+                readers,
+                cache,
                 &self.prepared_agent_operations,
                 &self.profile_id,
                 &self.library_id,
@@ -583,6 +601,49 @@ impl LibraryModule {
             .map_err(core_error);
         }
         if let Some(writer) = &self.writer {
+            let prepared_transfer =
+                if let LibraryIntent::TransferBlocks { intent } = &request.intent {
+                    let readers = self.readers.as_ref().ok_or_else(|| {
+                        invalid_input("the Library tracer cannot prepare Block transfers")
+                    })?;
+                    let cache = self.document_runtime_cache.as_ref().ok_or_else(|| {
+                        invalid_input("the Library tracer has no Document runtime cache")
+                    })?;
+                    let context = context.clone();
+                    let library_id = self.library_id.clone();
+                    let operation_id = request.operation_id.clone();
+                    let store_epoch = request.store_epoch.0.clone();
+                    let intent = intent.clone();
+                    let cache = Arc::clone(cache);
+                    readers
+                        .read_default(move |connection| {
+                            let transaction = connection.unchecked_transaction()?;
+                            if !block_transfer::requires_preparation(
+                                &transaction,
+                                &context,
+                                &operation_id,
+                                &store_epoch,
+                                &intent,
+                            )? {
+                                transaction.commit()?;
+                                return Ok(None);
+                            }
+                            let prepared = block_transfer::prepare_for_apply(
+                                &transaction,
+                                Some(&cache),
+                                &context,
+                                &library_id,
+                                &operation_id,
+                                &store_epoch,
+                                &intent,
+                            )?;
+                            transaction.commit()?;
+                            Ok(Some(prepared))
+                        })
+                        .map_err(core_error)?
+                } else {
+                    None
+                };
             return mutation::apply(
                 writer,
                 &self.profile_id,
@@ -592,6 +653,7 @@ impl LibraryModule {
                 self.assets_root
                     .as_ref()
                     .expect("persistent Library has an assets root"),
+                prepared_transfer,
             )
             .map_err(core_error);
         }
@@ -686,7 +748,7 @@ impl LibraryModule {
             committed_at: committed_at.clone(),
         };
         let commit_seq = event_sequence;
-        let committed = CommittedModuleValue {
+        let committed = crate::ModuleWriterResult {
             value: LibraryCommitValue {
                 affected_resource_ids: vec![resource_id],
                 page_create: None,
@@ -703,7 +765,6 @@ impl LibraryModule {
             commit_seq,
             event_sequence,
             store_epoch: self.store_epoch.clone(),
-            local_commit: None,
         };
         let event_payload = CoreModuleEventPayload::Library(LibraryEvent {
             kind: LibraryEventKind::LibraryChanged,
@@ -866,17 +927,17 @@ mod tests {
     };
     use nodex_core_contracts::document::{
         DocumentBlockOperation as ContractDocumentBlockOperation, DocumentBlockUpdatePatch,
-        DocumentOptionalValue, OwnedDocumentEvent, OwnedDocumentIntent,
+        DocumentOptionalValue, OwnedDocumentIntent,
     };
     use nodex_core_contracts::library::{
         LibraryAccess, LibraryAgentSearchResult, LibraryAgentSearchScope, LibraryAgentSearchTarget,
         LibraryBlockLocation, LibraryBlockPropertyFieldMutation, LibraryBlockPropertyMutation,
         LibraryBlockPropertyMutationErrorCode, LibraryBlockPropertyMutationOutcome,
-        LibraryBlockTransferLogicalIntent, LibraryBlockTransferMode, LibraryBlockTransferPlan,
-        LibraryBlockTransferSource, LibraryBlockTransferTarget, LibraryDocumentHead,
-        LibraryNavigationParent, LibraryPageFileKind, LibraryPageLifecycleMutation,
-        LibraryPageLifecycleState, LibraryPageLifecycleTagOption, LibraryPagePrepareKind,
-        LibraryPageWorkflowStatus, LibraryWriteParent,
+        LibraryBlockTransferLogicalIntent, LibraryBlockTransferMode, LibraryBlockTransferSource,
+        LibraryBlockTransferTarget, LibraryDocumentHead, LibraryNavigationParent,
+        LibraryPageFileKind, LibraryPageLifecycleMutation, LibraryPageLifecycleState,
+        LibraryPageLifecycleTagOption, LibraryPagePrepareKind, LibraryPageWorkflowStatus,
+        LibraryWriteParent,
     };
     use nodex_core_contracts::workspace::{
         PROJECT_WORKSPACE_CONTRACT_VERSION, ProjectWorkspaceIntent, ProjectWorkspaceThreadPatch,
@@ -884,8 +945,9 @@ mod tests {
         ProjectWorkspaceTurnAuthoritySource,
     };
     use nodex_core_contracts::{
-        AdapterKind, DATABASE_CONTRACT_VERSION, LibraryId, OWNED_DOCUMENT_CONTRACT_VERSION,
-        ProfileId, ProjectId,
+        AdapterKind, DATABASE_CONTRACT_VERSION, LibraryId, LocalProjectionPatch,
+        LocalProjectionScope, ModuleName, OWNED_DOCUMENT_CONTRACT_VERSION, ProfileId, ProjectId,
+        SemanticEffect,
     };
     use rusqlite::params;
     use sha2::{Digest, Sha256};
@@ -893,7 +955,7 @@ mod tests {
 
     use crate::database::DatabaseModule;
     use crate::document::OwnedDocumentModule;
-    use crate::infrastructure::event_log::CoreEventLog;
+    use crate::infrastructure::local_commit;
     use crate::infrastructure::sqlite::with_immediate_transaction;
     use crate::infrastructure::store::SqliteStoreKernel;
     use crate::workspace::ProjectWorkspaceModule;
@@ -922,6 +984,18 @@ mod tests {
                 },
                 access: LibraryAccess::Read,
             },
+        }
+    }
+
+    fn transfer_request(
+        operation_id: &str,
+        intent: LibraryBlockTransferLogicalIntent,
+    ) -> ModuleApplyRequest<LibraryIntent> {
+        ModuleApplyRequest {
+            contract_version: LIBRARY_CONTRACT_VERSION,
+            operation_id: operation_id.to_owned(),
+            store_epoch: StoreEpoch("epoch-1".to_owned()),
+            intent: LibraryIntent::TransferBlocks { intent },
         }
     }
 
@@ -1993,17 +2067,25 @@ mod tests {
                         params![SOURCE, NOW],
                     )?;
                     transaction.execute(
-                        "INSERT INTO database_views( \
-                           id, database_block_id, data_source_id, name, kind, config_json, \
-                           rank_key, created_at, updated_at \
-                         ) VALUES (?1, ?2, ?3, 'All', 'list', '{}', 'a', ?4, ?4)",
+                        r#"INSERT INTO database_views(
+                           id, database_block_id, data_source_id, name, kind, config_json,
+                           rank_key, created_at, updated_at
+                         ) VALUES (?1, ?2, ?3, 'All', 'list',
+                           '{"filter":{"kind":"group","operator":"and","children":[]},
+                             "sort":[],"group":null,
+                             "display":{"propertyIds":[],"showTitle":true}}',
+                           'a', ?4, ?4)"#,
                         params![VIEW, DATABASE, SOURCE, NOW],
                     )?;
                     transaction.execute(
-                        "INSERT INTO database_views( \
-                           id, database_block_id, data_source_id, name, kind, config_json, \
-                           rank_key, lifecycle, created_at, updated_at \
-                         ) VALUES (?1, ?2, ?3, 'Deleted', 'list', '{}', 'b', 'deleted', ?4, ?4)",
+                        r#"INSERT INTO database_views(
+                           id, database_block_id, data_source_id, name, kind, config_json,
+                           rank_key, lifecycle, created_at, updated_at
+                         ) VALUES (?1, ?2, ?3, 'Deleted', 'list',
+                           '{"filter":{"kind":"group","operator":"and","children":[]},
+                             "sort":[],"group":null,
+                             "display":{"propertyIds":[],"showTitle":true}}',
+                           'b', 'deleted', ?4, ?4)"#,
                         params![DELETED_VIEW, DATABASE, SOURCE, NOW],
                     )?;
                     transaction.execute(
@@ -2933,7 +3015,7 @@ mod tests {
     }
 
     #[test]
-    fn native_block_transfer_moves_copies_fences_and_replays_document_subtrees() {
+    fn native_block_transfer_moves_copies_and_replays_document_subtrees() {
         const NOW: &str = "2026-07-19T23:30:00.000Z";
         const SOURCE_PAGE: &str = "018f0000-0000-7000-8000-000000000101";
         const TARGET_PAGE: &str = "018f0000-0000-7000-8000-000000000102";
@@ -3032,46 +3114,6 @@ mod tests {
                 before_block_id: None,
             },
         };
-        let plan = module
-            .read(
-                &persistent_context,
-                ModuleReadRequest {
-                    contract_version: LIBRARY_CONTRACT_VERSION,
-                    read: LibraryRead::PlanBlockTransfer {
-                        operation_id: "move-transfer-root".to_owned(),
-                        store_epoch: "epoch-1".to_owned(),
-                        intent: move_intent.clone(),
-                    },
-                },
-            )
-            .expect("plan move");
-        serde_json::to_value(&plan).expect("Block transfer plan serializes for transport");
-        let LibraryReadValue::BlockTransferPlan { value } = plan.value else {
-            panic!("Block transfer plan");
-        };
-        let LibraryBlockTransferPlan::Prepared { preparation } = *value else {
-            panic!("prepared transfer");
-        };
-        assert_eq!(preparation.write_fence.documents.len(), 2);
-        let mut stale_write_fence = preparation.write_fence.clone();
-        stale_write_fence
-            .location_revisions
-            .insert(source_root.clone(), 0);
-        let stale = module
-            .apply(
-                &persistent_context,
-                ModuleApplyRequest {
-                    contract_version: LIBRARY_CONTRACT_VERSION,
-                    operation_id: "move-transfer-root".to_owned(),
-                    store_epoch: StoreEpoch("epoch-1".to_owned()),
-                    intent: LibraryIntent::TransferBlocks {
-                        intent: move_intent.clone(),
-                        write_fence: Some(stale_write_fence),
-                    },
-                },
-            )
-            .expect_err("stale location fence must be rejected");
-        assert_eq!(stale.code, CoreErrorCode::RevisionConflict);
         let moved = module
             .apply(
                 &persistent_context,
@@ -3081,7 +3123,6 @@ mod tests {
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::TransferBlocks {
                         intent: move_intent.clone(),
-                        write_fence: Some(preparation.write_fence.clone()),
                     },
                 },
             )
@@ -3122,24 +3163,26 @@ mod tests {
         );
         let mut reconnected = persistent_context.clone();
         reconnected.connection_id = "connection:reconnected".to_owned();
+        let prepare_count = module.block_transfer_metrics().page_parent_prepare.count;
         let replay = module
-            .read(
+            .apply(
                 &reconnected,
-                ModuleReadRequest {
+                ModuleApplyRequest {
                     contract_version: LIBRARY_CONTRACT_VERSION,
-                    read: LibraryRead::PlanBlockTransfer {
-                        operation_id: "move-transfer-root".to_owned(),
-                        store_epoch: "epoch-1".to_owned(),
+                    operation_id: "move-transfer-root".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::TransferBlocks {
                         intent: move_intent,
                     },
                 },
             )
-            .expect("receipt-first replay");
-        assert!(matches!(
-            replay.value,
-            LibraryReadValue::BlockTransferPlan { value }
-                if matches!(*value, LibraryBlockTransferPlan::Committed { .. })
-        ));
+            .expect("apply-path replay");
+        assert!(replay.committed.receipt.mutation.duplicate);
+        assert_eq!(
+            module.block_transfer_metrics().page_parent_prepare.count,
+            prepare_count,
+            "an idempotent apply replay must not repeat heavy Yrs preparation"
+        );
 
         let copy_intent = LibraryBlockTransferLogicalIntent {
             actor: serde_json::json!({ "kind": "test" }),
@@ -3155,25 +3198,6 @@ mod tests {
                 before_block_id: None,
             },
         };
-        let copy_plan = module
-            .read(
-                &persistent_context,
-                ModuleReadRequest {
-                    contract_version: LIBRARY_CONTRACT_VERSION,
-                    read: LibraryRead::PlanBlockTransfer {
-                        operation_id: "copy-transfer-root".to_owned(),
-                        store_epoch: "epoch-1".to_owned(),
-                        intent: copy_intent.clone(),
-                    },
-                },
-            )
-            .expect("plan copy");
-        let LibraryReadValue::BlockTransferPlan { value } = copy_plan.value else {
-            panic!("copy plan");
-        };
-        let LibraryBlockTransferPlan::Prepared { preparation } = *value else {
-            panic!("prepared copy");
-        };
         let copied = module
             .apply(
                 &persistent_context,
@@ -3183,7 +3207,6 @@ mod tests {
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::TransferBlocks {
                         intent: copy_intent,
-                        write_fence: Some(preparation.write_fence),
                     },
                 },
             )
@@ -3333,16 +3356,9 @@ mod tests {
             },
         };
         let denied = module
-            .read(
+            .apply(
                 &local_context,
-                ModuleReadRequest {
-                    contract_version: LIBRARY_CONTRACT_VERSION,
-                    read: LibraryRead::PlanBlockTransfer {
-                        operation_id: "copy-without-source-grant".to_owned(),
-                        store_epoch: "epoch-1".to_owned(),
-                        intent: copy_from_foreign.clone(),
-                    },
-                },
+                transfer_request("copy-without-source-grant", copy_from_foreign.clone()),
             )
             .expect_err("foreign source requires a grant");
         assert_eq!(denied.code, CoreErrorCode::NotFound);
@@ -3360,16 +3376,9 @@ mod tests {
             },
         };
         let denied = module
-            .read(
+            .apply(
                 &local_context,
-                ModuleReadRequest {
-                    contract_version: LIBRARY_CONTRACT_VERSION,
-                    read: LibraryRead::PlanBlockTransfer {
-                        operation_id: "copy-page-without-source-grant".to_owned(),
-                        store_epoch: "epoch-1".to_owned(),
-                        intent: copy_foreign_page.clone(),
-                    },
-                },
+                transfer_request("copy-page-without-source-grant", copy_foreign_page.clone()),
             )
             .expect_err("foreign Page copy requires a read grant");
         assert_eq!(denied.code, CoreErrorCode::NotFound);
@@ -3404,25 +3413,6 @@ mod tests {
         )
         .expect("grant target write access");
 
-        let page_copy_plan = module
-            .read(
-                &local_context,
-                ModuleReadRequest {
-                    contract_version: LIBRARY_CONTRACT_VERSION,
-                    read: LibraryRead::PlanBlockTransfer {
-                        operation_id: "copy-granted-page-to-library".to_owned(),
-                        store_epoch: "epoch-1".to_owned(),
-                        intent: copy_foreign_page.clone(),
-                    },
-                },
-            )
-            .expect("read grant authorizes recursive Page Copy");
-        let LibraryReadValue::BlockTransferPlan { value } = page_copy_plan.value else {
-            panic!("Page copy plan");
-        };
-        let LibraryBlockTransferPlan::Prepared { preparation } = *value else {
-            panic!("prepared Page copy");
-        };
         let copied_page = module
             .apply(
                 &local_context,
@@ -3432,7 +3422,6 @@ mod tests {
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::TransferBlocks {
                         intent: copy_foreign_page,
-                        write_fence: Some(preparation.write_fence),
                     },
                 },
             )
@@ -3446,25 +3435,6 @@ mod tests {
             .copied_block_ids[FOREIGN_SOURCE_PAGE]
             .clone();
 
-        let copy_plan = module
-            .read(
-                &local_context,
-                ModuleReadRequest {
-                    contract_version: LIBRARY_CONTRACT_VERSION,
-                    read: LibraryRead::PlanBlockTransfer {
-                        operation_id: "copy-from-granted-source".to_owned(),
-                        store_epoch: "epoch-1".to_owned(),
-                        intent: copy_from_foreign.clone(),
-                    },
-                },
-            )
-            .expect("read grant authorizes Copy source");
-        let LibraryReadValue::BlockTransferPlan { value } = copy_plan.value else {
-            panic!("copy plan");
-        };
-        let LibraryBlockTransferPlan::Prepared { preparation } = *value else {
-            panic!("prepared copy");
-        };
         let copied = module
             .apply(
                 &local_context,
@@ -3474,7 +3444,6 @@ mod tests {
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::TransferBlocks {
                         intent: copy_from_foreign,
-                        write_fence: Some(preparation.write_fence),
                     },
                 },
             )
@@ -3503,16 +3472,9 @@ mod tests {
             },
         };
         let denied = module
-            .read(
+            .apply(
                 &local_context,
-                ModuleReadRequest {
-                    contract_version: LIBRARY_CONTRACT_VERSION,
-                    read: LibraryRead::PlanBlockTransfer {
-                        operation_id: "move-with-read-source-grant".to_owned(),
-                        store_epoch: "epoch-1".to_owned(),
-                        intent: move_foreign.clone(),
-                    },
-                },
+                transfer_request("move-with-read-source-grant", move_foreign.clone()),
             )
             .expect_err("Move requires source write access");
         assert_eq!(denied.code, CoreErrorCode::NotFound);
@@ -3522,25 +3484,6 @@ mod tests {
             LibraryAccess::ReadWrite,
         )
         .expect("upgrade source write access");
-        let move_plan = module
-            .read(
-                &local_context,
-                ModuleReadRequest {
-                    contract_version: LIBRARY_CONTRACT_VERSION,
-                    read: LibraryRead::PlanBlockTransfer {
-                        operation_id: "move-between-granted-pages".to_owned(),
-                        store_epoch: "epoch-1".to_owned(),
-                        intent: move_foreign.clone(),
-                    },
-                },
-            )
-            .expect("write grants authorize Move");
-        let LibraryReadValue::BlockTransferPlan { value } = move_plan.value else {
-            panic!("move plan");
-        };
-        let LibraryBlockTransferPlan::Prepared { preparation } = *value else {
-            panic!("prepared move");
-        };
         module
             .apply(
                 &local_context,
@@ -3550,7 +3493,6 @@ mod tests {
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::TransferBlocks {
                         intent: move_foreign,
-                        write_fence: Some(preparation.write_fence),
                     },
                 },
             )
@@ -3570,25 +3512,6 @@ mod tests {
                 before_block_id: None,
             },
         };
-        let cross_plan = module
-            .read(
-                &local_context,
-                ModuleReadRequest {
-                    contract_version: LIBRARY_CONTRACT_VERSION,
-                    read: LibraryRead::PlanBlockTransfer {
-                        operation_id: "move-into-granted-storage".to_owned(),
-                        store_epoch: "epoch-1".to_owned(),
-                        intent: move_across_storage.clone(),
-                    },
-                },
-            )
-            .expect("plan cross-storage Move");
-        let LibraryReadValue::BlockTransferPlan { value } = cross_plan.value else {
-            panic!("cross-storage plan");
-        };
-        let LibraryBlockTransferPlan::Prepared { preparation } = *value else {
-            panic!("prepared cross-storage move");
-        };
         module
             .apply(
                 &local_context,
@@ -3598,7 +3521,6 @@ mod tests {
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::TransferBlocks {
                         intent: move_across_storage,
-                        write_fence: Some(preparation.write_fence),
                     },
                 },
             )
@@ -3903,27 +3825,6 @@ mod tests {
                 before_block_id: Some(ANCHOR_PAGE.to_owned()),
             },
         };
-        let plan = library
-            .read(
-                &context,
-                ModuleReadRequest {
-                    contract_version: LIBRARY_CONTRACT_VERSION,
-                    read: LibraryRead::PlanBlockTransfer {
-                        operation_id: "promote-root-to-library".to_owned(),
-                        store_epoch: "epoch-1".to_owned(),
-                        intent: promote_intent.clone(),
-                    },
-                },
-            )
-            .expect("plan promotion");
-        let LibraryReadValue::BlockTransferPlan { value } = plan.value else {
-            panic!("promotion plan");
-        };
-        let LibraryBlockTransferPlan::Prepared { preparation } = *value else {
-            panic!("prepared promotion");
-        };
-        assert_eq!(preparation.write_fence.documents.len(), 1);
-        assert_eq!(preparation.target_document_id, None);
         let promoted = library
             .apply(
                 &context,
@@ -3933,7 +3834,6 @@ mod tests {
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::TransferBlocks {
                         intent: promote_intent.clone(),
-                        write_fence: Some(preparation.write_fence.clone()),
                     },
                 },
             )
@@ -3946,37 +3846,39 @@ mod tests {
             .expect("promotion result");
         assert_eq!(promoted_result.result_root_block_ids, vec![roots.0.clone()]);
         assert_eq!(promoted_result.document_commits.len(), 2);
-        let promotion_commit = promoted
-            .committed
-            .local_commit
-            .as_ref()
-            .expect("promotion LocalCommit");
-        assert_eq!(promotion_commit.effects.len(), 3);
+        let promotion_commit = kernel
+            .readers()
+            .read_default(|connection| {
+                local_commit::read_manifest(connection, promoted.committed.commit_seq)
+            })
+            .expect("promotion CommitManifest");
+        assert_eq!(promotion_commit.semantic_effects.len(), 3);
         assert_eq!(
             promotion_commit
-                .effects
+                .semantic_effects
                 .iter()
                 .filter(|effect| matches!(
-                    effect.payload,
-                    CoreModuleEventPayload::OwnedDocument(
-                        OwnedDocumentEvent::DocumentUpdated { .. }
-                    )
+                    effect,
+                    SemanticEffect::ModuleChanged {
+                        module: ModuleName::OwnedDocument,
+                        ..
+                    }
                 ))
                 .count(),
             2
         );
         assert!(matches!(
             promotion_commit
-                .effects
+                .semantic_effects
                 .last()
-                .map(|effect| &effect.payload),
-            Some(CoreModuleEventPayload::Library(_))
+                .map(|effect| match effect {
+                    SemanticEffect::ModuleChanged { module, .. } => module,
+                }),
+            Some(ModuleName::Library)
         ));
         assert_eq!(
-            CoreEventLog::new(kernel.readers())
-                .local_commit(promotion_commit.commit_seq)
-                .expect("replay promotion LocalCommit"),
-            *promotion_commit,
+            promotion_commit.identity.commit_seq,
+            promoted.committed.commit_seq,
         );
         assert_eq!(
             promoted_result.transformation_evidence[0]["kind"],
@@ -3991,16 +3893,12 @@ mod tests {
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::TransferBlocks {
                         intent: promote_intent,
-                        write_fence: Some(preparation.write_fence),
                     },
                 },
             )
             .expect("replay promotion");
         assert!(replayed.committed.receipt.mutation.duplicate);
-        assert_eq!(
-            replayed.committed.local_commit,
-            promoted.committed.local_commit,
-        );
+        assert_eq!(replayed.committed.commit_seq, promoted.committed.commit_seq);
 
         let wrap_intent = LibraryBlockTransferLogicalIntent {
             actor: serde_json::json!({ "kind": "test" }),
@@ -4015,25 +3913,6 @@ mod tests {
                 before_block_id: Some(ANCHOR_PAGE.to_owned()),
             },
         };
-        let plan = library
-            .read(
-                &context,
-                ModuleReadRequest {
-                    contract_version: LIBRARY_CONTRACT_VERSION,
-                    read: LibraryRead::PlanBlockTransfer {
-                        operation_id: "copy-wrapper-to-library".to_owned(),
-                        store_epoch: "epoch-1".to_owned(),
-                        intent: wrap_intent.clone(),
-                    },
-                },
-            )
-            .expect("plan wrapper");
-        let LibraryReadValue::BlockTransferPlan { value } = plan.value else {
-            panic!("wrapper plan");
-        };
-        let LibraryBlockTransferPlan::Prepared { preparation } = *value else {
-            panic!("prepared wrapper");
-        };
         let wrapped = library
             .apply(
                 &context,
@@ -4043,7 +3922,6 @@ mod tests {
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::TransferBlocks {
                         intent: wrap_intent,
-                        write_fence: Some(preparation.write_fence),
                     },
                 },
             )
@@ -4078,28 +3956,6 @@ mod tests {
                 before_page_id: None,
             },
         };
-        let plan = library
-            .read(
-                &context,
-                ModuleReadRequest {
-                    contract_version: LIBRARY_CONTRACT_VERSION,
-                    read: LibraryRead::PlanBlockTransfer {
-                        operation_id: "copy-wrapper-to-data-source".to_owned(),
-                        store_epoch: "epoch-1".to_owned(),
-                        intent: data_source_intent.clone(),
-                    },
-                },
-            )
-            .expect("plan Data Source wrapper");
-        let LibraryReadValue::BlockTransferPlan { value } = plan.value else {
-            panic!("Data Source plan");
-        };
-        let LibraryBlockTransferPlan::Prepared { preparation } = *value else {
-            panic!("prepared Data Source wrapper");
-        };
-        assert_eq!(preparation.write_fence.documents.len(), 1);
-        assert_eq!(preparation.target_document_id, None);
-        assert_eq!(preparation.target_database_id.as_deref(), Some(DATABASE));
         let data_source_transfer = library
             .apply(
                 &context,
@@ -4109,7 +3965,6 @@ mod tests {
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::TransferBlocks {
                         intent: data_source_intent,
-                        write_fence: Some(preparation.write_fence),
                     },
                 },
             )
@@ -4286,52 +4141,6 @@ mod tests {
                 before_block_id: Some(ANCHOR_PAGE.to_owned()),
             },
         };
-        let plan = library
-            .read(
-                &context,
-                ModuleReadRequest {
-                    contract_version: LIBRARY_CONTRACT_VERSION,
-                    read: LibraryRead::PlanBlockTransfer {
-                        operation_id: "return-page-to-library".to_owned(),
-                        store_epoch: "epoch-1".to_owned(),
-                        intent: return_to_library.clone(),
-                    },
-                },
-            )
-            .expect("plan Data Source Page return");
-        let LibraryReadValue::BlockTransferPlan { value } = plan.value else {
-            panic!("Data Source Page return plan");
-        };
-        let LibraryBlockTransferPlan::Prepared { preparation } = *value else {
-            panic!("prepared Data Source Page return");
-        };
-        assert!(preparation.write_fence.documents.is_empty());
-        assert_eq!(preparation.source_database_id.as_deref(), Some(DATABASE));
-        assert_eq!(
-            preparation.write_fence.source_memberships[&data_source_page_id].revision,
-            1
-        );
-        let mut stale_fence = preparation.write_fence.clone();
-        stale_fence
-            .source_memberships
-            .get_mut(&data_source_page_id)
-            .expect("membership fence")
-            .revision = 0;
-        let stale = library
-            .apply(
-                &context,
-                ModuleApplyRequest {
-                    contract_version: LIBRARY_CONTRACT_VERSION,
-                    operation_id: "return-page-to-library".to_owned(),
-                    store_epoch: StoreEpoch("epoch-1".to_owned()),
-                    intent: LibraryIntent::TransferBlocks {
-                        intent: return_to_library.clone(),
-                        write_fence: Some(stale_fence),
-                    },
-                },
-            )
-            .expect_err("stale membership fence must fail");
-        assert_eq!(stale.code, CoreErrorCode::RevisionConflict);
         let returned = library
             .apply(
                 &context,
@@ -4341,7 +4150,6 @@ mod tests {
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::TransferBlocks {
                         intent: return_to_library,
-                        write_fence: Some(preparation.write_fence),
                     },
                 },
             )
@@ -4381,28 +4189,6 @@ mod tests {
                 before_page_id: None,
             },
         };
-        let plan = library
-            .read(
-                &context,
-                ModuleReadRequest {
-                    contract_version: LIBRARY_CONTRACT_VERSION,
-                    read: LibraryRead::PlanBlockTransfer {
-                        operation_id: "return-page-to-data-source".to_owned(),
-                        store_epoch: "epoch-1".to_owned(),
-                        intent: return_to_data_source.clone(),
-                    },
-                },
-            )
-            .expect("plan Library Page Data Source placement");
-        let LibraryReadValue::BlockTransferPlan { value } = plan.value else {
-            panic!("Library Page Data Source plan");
-        };
-        let LibraryBlockTransferPlan::Prepared { preparation } = *value else {
-            panic!("prepared Library Page Data Source placement");
-        };
-        assert!(preparation.write_fence.documents.is_empty());
-        assert!(preparation.write_fence.source_memberships.is_empty());
-        assert_eq!(preparation.target_database_id.as_deref(), Some(DATABASE));
         let returned = library
             .apply(
                 &context,
@@ -4412,7 +4198,6 @@ mod tests {
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::TransferBlocks {
                         intent: return_to_data_source,
-                        write_fence: Some(preparation.write_fence),
                     },
                 },
             )
@@ -4462,34 +4247,6 @@ mod tests {
                 before_block_id: None,
             },
         };
-        let plan = library
-            .read(
-                &context,
-                ModuleReadRequest {
-                    contract_version: LIBRARY_CONTRACT_VERSION,
-                    read: LibraryRead::PlanBlockTransfer {
-                        operation_id: "move-data-source-page-into-page".to_owned(),
-                        store_epoch: "epoch-1".to_owned(),
-                        intent: move_into_page.clone(),
-                    },
-                },
-            )
-            .expect("plan Data Source Page nesting");
-        let LibraryReadValue::BlockTransferPlan { value } = plan.value else {
-            panic!("Data Source Page nesting plan");
-        };
-        let LibraryBlockTransferPlan::Prepared { preparation } = *value else {
-            panic!("prepared Data Source Page nesting");
-        };
-        assert_eq!(preparation.write_fence.documents.len(), 1);
-        assert_eq!(
-            preparation.target_document_id.as_deref(),
-            Some(ANCHOR_DOCUMENT)
-        );
-        assert_eq!(
-            preparation.write_fence.source_memberships[&data_source_page_id].revision,
-            3
-        );
         let nested = library
             .apply(
                 &context,
@@ -4499,7 +4256,6 @@ mod tests {
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::TransferBlocks {
                         intent: move_into_page,
-                        write_fence: Some(preparation.write_fence),
                     },
                 },
             )
@@ -4586,7 +4342,6 @@ mod tests {
                 .lifecycle,
             LibraryPageLifecycleState::Deleted
         );
-        assert!(nested_delete.committed.local_commit.is_some());
         let host_head_after_delete = *nested_delete
             .committed
             .receipt
@@ -4676,7 +4431,6 @@ mod tests {
                 .lifecycle,
             LibraryPageLifecycleState::Active
         );
-        assert!(nested_restore.committed.local_commit.is_some());
         kernel
             .readers()
             .read_default(|connection| {
@@ -4726,30 +4480,6 @@ mod tests {
                 before_block_id: Some(ANCHOR_PAGE.to_owned()),
             },
         };
-        let plan = library
-            .read(
-                &context,
-                ModuleReadRequest {
-                    contract_version: LIBRARY_CONTRACT_VERSION,
-                    read: LibraryRead::PlanBlockTransfer {
-                        operation_id: "move-nested-page-to-library".to_owned(),
-                        store_epoch: "epoch-1".to_owned(),
-                        intent: move_nested_to_library.clone(),
-                    },
-                },
-            )
-            .expect("plan nested Page Library return");
-        let LibraryReadValue::BlockTransferPlan { value } = plan.value else {
-            panic!("nested Page Library plan");
-        };
-        let LibraryBlockTransferPlan::Prepared { preparation } = *value else {
-            panic!("prepared nested Page Library return");
-        };
-        assert_eq!(preparation.write_fence.documents.len(), 1);
-        assert_eq!(
-            preparation.source_document_id.as_deref(),
-            Some(ANCHOR_DOCUMENT)
-        );
         let returned = library
             .apply(
                 &context,
@@ -4759,7 +4489,6 @@ mod tests {
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::TransferBlocks {
                         intent: move_nested_to_library,
-                        write_fence: Some(preparation.write_fence),
                     },
                 },
             )
@@ -4807,25 +4536,6 @@ mod tests {
                 before_block_id: None,
             },
         };
-        let plan = library
-            .read(
-                &context,
-                ModuleReadRequest {
-                    contract_version: LIBRARY_CONTRACT_VERSION,
-                    read: LibraryRead::PlanBlockTransfer {
-                        operation_id: "move-library-page-into-document".to_owned(),
-                        store_epoch: "epoch-1".to_owned(),
-                        intent: move_library_page_into_document.clone(),
-                    },
-                },
-            )
-            .expect("plan Library Page nesting");
-        let LibraryReadValue::BlockTransferPlan { value } = plan.value else {
-            panic!("Library Page nesting plan");
-        };
-        let LibraryBlockTransferPlan::Prepared { preparation } = *value else {
-            panic!("prepared Library Page nesting");
-        };
         let nested = library
             .apply(
                 &context,
@@ -4835,7 +4545,6 @@ mod tests {
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::TransferBlocks {
                         intent: move_library_page_into_document,
-                        write_fence: Some(preparation.write_fence),
                     },
                 },
             )
@@ -4866,26 +4575,6 @@ mod tests {
                 before_block_id: None,
             },
         };
-        let plan = library
-            .read(
-                &context,
-                ModuleReadRequest {
-                    contract_version: LIBRARY_CONTRACT_VERSION,
-                    read: LibraryRead::PlanBlockTransfer {
-                        operation_id: "move-page-between-documents".to_owned(),
-                        store_epoch: "epoch-1".to_owned(),
-                        intent: move_between_pages.clone(),
-                    },
-                },
-            )
-            .expect("plan Page-to-Page move");
-        let LibraryReadValue::BlockTransferPlan { value } = plan.value else {
-            panic!("Page-to-Page move plan");
-        };
-        let LibraryBlockTransferPlan::Prepared { preparation } = *value else {
-            panic!("prepared Page-to-Page move");
-        };
-        assert_eq!(preparation.write_fence.documents.len(), 2);
         let moved = library
             .apply(
                 &context,
@@ -4895,7 +4584,6 @@ mod tests {
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::TransferBlocks {
                         intent: move_between_pages,
-                        write_fence: Some(preparation.write_fence),
                     },
                 },
             )
@@ -4927,16 +4615,9 @@ mod tests {
             },
         };
         let cycle = library
-            .read(
+            .apply(
                 &context,
-                ModuleReadRequest {
-                    contract_version: LIBRARY_CONTRACT_VERSION,
-                    read: LibraryRead::PlanBlockTransfer {
-                        operation_id: "reject-page-ownership-cycle".to_owned(),
-                        store_epoch: "epoch-1".to_owned(),
-                        intent: cycle_intent,
-                    },
-                },
+                transfer_request("reject-page-ownership-cycle", cycle_intent),
             )
             .expect_err("Page ownership cycle must fail");
         assert_eq!(cycle.code, CoreErrorCode::InvalidInput);
@@ -4954,26 +4635,6 @@ mod tests {
                 before_block_id: None,
             },
         };
-        let plan = library
-            .read(
-                &context,
-                ModuleReadRequest {
-                    contract_version: LIBRARY_CONTRACT_VERSION,
-                    read: LibraryRead::PlanBlockTransfer {
-                        operation_id: "copy-recursive-page-ownership".to_owned(),
-                        store_epoch: "epoch-1".to_owned(),
-                        intent: recursive_copy.clone(),
-                    },
-                },
-            )
-            .expect("plan recursive Page copy");
-        let LibraryReadValue::BlockTransferPlan { value } = plan.value else {
-            panic!("recursive Page copy plan");
-        };
-        let LibraryBlockTransferPlan::Prepared { preparation } = *value else {
-            panic!("prepared recursive Page copy");
-        };
-        assert!(preparation.write_fence.documents.len() >= 2);
         let copied = library
             .apply(
                 &context,
@@ -4983,7 +4644,6 @@ mod tests {
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::TransferBlocks {
                         intent: recursive_copy,
-                        write_fence: Some(preparation.write_fence),
                     },
                 },
             )
@@ -5032,32 +4692,18 @@ mod tests {
                 before_block_id: Some(WRAP_NESTED_ANCHOR.to_owned()),
             },
         };
-        let plan = library
-            .read(
-                &context,
-                ModuleReadRequest {
-                    contract_version: LIBRARY_CONTRACT_VERSION,
-                    read: LibraryRead::PlanBlockTransfer {
-                        operation_id: "copy-multiple-pages-into-nested-target".to_owned(),
-                        store_epoch: "epoch-1".to_owned(),
-                        intent: nested_multi_copy.clone(),
-                    },
-                },
-            )
-            .expect("plan nested multi-root Page copy");
-        let LibraryReadValue::BlockTransferPlan { value } = plan.value else {
-            panic!("nested multi-root Page copy plan");
-        };
-        let LibraryBlockTransferPlan::Prepared { preparation } = *value else {
-            panic!("prepared nested multi-root Page copy");
-        };
-        let target_head = preparation
-            .write_fence
-            .documents
-            .iter()
-            .find(|head| head.document_id == WRAP_DOCUMENT)
-            .expect("target Document fence")
-            .expected_head_seq;
+        let target_head = kernel
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .query_row(
+                        "SELECT head_seq FROM documents WHERE id = ?1",
+                        [WRAP_DOCUMENT],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .map_err(StoreError::from)
+            })
+            .expect("target Document head before copy");
         let copied = library
             .apply(
                 &context,
@@ -5067,7 +4713,6 @@ mod tests {
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::TransferBlocks {
                         intent: nested_multi_copy,
-                        write_fence: Some(preparation.write_fence),
                     },
                 },
             )
@@ -5151,25 +4796,6 @@ mod tests {
                 before_page_id: None,
             },
         };
-        let move_plan = library
-            .read(
-                &context,
-                ModuleReadRequest {
-                    contract_version: LIBRARY_CONTRACT_VERSION,
-                    read: LibraryRead::PlanBlockTransfer {
-                        operation_id: "move-wrapper-to-data-source".to_owned(),
-                        store_epoch: "epoch-1".to_owned(),
-                        intent: move_to_data_source_intent.clone(),
-                    },
-                },
-            )
-            .expect("plan moving wrapper to Data Source");
-        let LibraryReadValue::BlockTransferPlan { value } = move_plan.value else {
-            panic!("moving wrapper to Data Source plan");
-        };
-        let LibraryBlockTransferPlan::Prepared { preparation } = *value else {
-            panic!("prepared moving wrapper to Data Source");
-        };
         let moved = library
             .apply(
                 &context,
@@ -5179,7 +4805,6 @@ mod tests {
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::TransferBlocks {
                         intent: move_to_data_source_intent,
-                        write_fence: Some(preparation.write_fence),
                     },
                 },
             )
@@ -5190,29 +4815,72 @@ mod tests {
             .block_transfer
             .as_ref()
             .expect("moved Data Source result");
-        let moved_commit = moved
-            .committed
-            .local_commit
-            .as_ref()
-            .expect("moved Data Source LocalCommit");
+        let moved_commit = kernel
+            .readers()
+            .read_default(|connection| {
+                local_commit::read_manifest(connection, moved.committed.commit_seq)
+            })
+            .expect("moved Data Source CommitManifest");
         assert_eq!(moved_result.document_commits.len(), 2);
-        assert_eq!(moved_commit.effects.len(), 3);
+        assert_eq!(moved_commit.semantic_effects.len(), 3);
         assert_eq!(
             moved_commit
-                .effects
+                .semantic_effects
                 .iter()
                 .filter(|effect| matches!(
-                    effect.payload,
-                    CoreModuleEventPayload::OwnedDocument(
-                        OwnedDocumentEvent::DocumentUpdated { .. }
-                    )
+                    effect,
+                    SemanticEffect::ModuleChanged {
+                        module: ModuleName::OwnedDocument,
+                        ..
+                    }
                 ))
                 .count(),
             2
         );
         assert!(matches!(
-            moved_commit.effects.last().map(|effect| &effect.payload),
-            Some(CoreModuleEventPayload::Library(_))
+            moved_commit
+                .semantic_effects
+                .last()
+                .map(|effect| match effect {
+                    SemanticEffect::ModuleChanged { module, .. } => module,
+                }),
+            Some(ModuleName::Library)
+        ));
+        let library_projection_impact = moved_commit
+            .semantic_effects
+            .iter()
+            .find_map(|effect| match effect {
+                SemanticEffect::ModuleChanged {
+                    module: ModuleName::Library,
+                    projection_impact,
+                    ..
+                } => Some(projection_impact),
+                SemanticEffect::ModuleChanged { .. } => None,
+            })
+            .expect("Library projection impact");
+        assert!(matches!(
+            library_projection_impact,
+            ProjectionImpact::Resources { view_ids, .. } if view_ids == &[VIEW.to_owned()]
+        ));
+        let promoted_page_id = moved_result
+            .result_root_block_ids
+            .first()
+            .expect("promoted Page id");
+        let view_effect = moved_commit
+            .projection_effects
+            .iter()
+            .find(|effect| {
+                matches!(
+                    &effect.scope.scope,
+                    LocalProjectionScope::DatabaseView { view_id, .. } if view_id == VIEW
+                )
+            })
+            .expect("exact Database View projection effect");
+        assert!(view_effect.requires_read_at_least);
+        assert!(matches!(
+            &view_effect.patch,
+            Some(LocalProjectionPatch::DatabaseRowUpsert { row, .. })
+                if &row.page_id == promoted_page_id
         ));
     }
 
@@ -5790,6 +5458,7 @@ mod agent_page_move;
 mod agent_page_write;
 mod agent_search;
 mod block_transfer;
+pub use block_transfer::BlockTransferMetrics;
 mod canvas_mutation;
 mod content;
 mod content_rehome;

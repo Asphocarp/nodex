@@ -61,6 +61,12 @@ class MemoryDurableBackend {
       headSeq: this.headSeq,
       stateVector: Y.encodeStateVector(this.document),
       duplicate: false,
+      status: "committed",
+      commit: {
+        store_epoch: "store-1",
+        commit_seq: this.headSeq,
+        manifest_hash: "f".repeat(64),
+      },
     };
     this.committed.set(request.updateId, ack);
     return success(ack);

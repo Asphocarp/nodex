@@ -23,7 +23,14 @@ const EMPTY_DETAIL: DatabaseRowDetailSnapshot = {
 const listenersByKey = new Map<string, Set<Listener>>();
 const keyVersions = new Map<string, number>();
 const detailEntries = new Map<string, DatabaseRowDetailSnapshot>();
-const inFlightSingleRequests = new Map<string, Promise<DatabasePage | null>>();
+interface InFlightRowDetail {
+  readonly generation: number;
+  readonly promise: Promise<DatabasePage | null>;
+  readonly token: object;
+}
+const inFlightSingleRequests = new Map<string, InFlightRowDetail>();
+const entryGenerations = new Map<string, number>();
+let storeGeneration = 0;
 
 function detailKey(projectId: string, pageId: string): string {
   return `${projectId}:${pageId}`;
@@ -37,6 +44,12 @@ function toErrorMessage(value: unknown): string {
 
 function bumpKeyVersion(key: string): void {
   keyVersions.set(key, (keyVersions.get(key) ?? 0) + 1);
+}
+
+function advanceEntryGeneration(key: string): number {
+  const generation = (entryGenerations.get(key) ?? 0) + 1;
+  entryGenerations.set(key, generation);
+  return generation;
 }
 
 function emitKeys(keys: Iterable<string>): void {
@@ -62,6 +75,8 @@ function subscribeKey(key: string, listener: Listener): () => void {
     listeners.delete(listener);
     if (listeners.size === 0) {
       listenersByKey.delete(key);
+      advanceEntryGeneration(key);
+      detailEntries.delete(key);
     }
   };
 }
@@ -142,10 +157,40 @@ export function getDatabaseRowDetail(projectId: string, pageId: string): Databas
   return detailEntries.get(detailKey(projectId, pageId))?.card ?? null;
 }
 
+export function revokeDatabaseRowDetail(projectId: string, pageId: string): void {
+  const key = detailKey(projectId, pageId);
+  advanceEntryGeneration(key);
+  detailEntries.set(key, {
+    card: null,
+    loading: false,
+    error: "Page not found",
+  });
+  emitKeys([key]);
+}
+
+/** Clears a Project's row cache when a stream checkpoint proves events were missed. */
+export function fenceDatabaseRowDetailsForProject(projectId: string): void {
+  const prefix = `${projectId}:`;
+  const affected = new Set<string>();
+  for (const key of new Set([
+    ...detailEntries.keys(),
+    ...listenersByKey.keys(),
+    ...inFlightSingleRequests.keys(),
+  ])) {
+    if (!key.startsWith(prefix)) continue;
+    advanceEntryGeneration(key);
+    detailEntries.delete(key);
+    affected.add(key);
+  }
+  emitKeys(affected);
+}
+
 export function resetDatabaseRowDetailStoreForTests(): void {
+  storeGeneration += 1;
   const subscribedKeys = [...listenersByKey.keys()];
   detailEntries.clear();
   inFlightSingleRequests.clear();
+  entryGenerations.clear();
   keyVersions.clear();
   emitKeys(subscribedKeys);
 }
@@ -156,8 +201,9 @@ export async function fetchDatabaseRowDetail(
   status?: DatabasePage["status"],
 ): Promise<DatabasePage | null> {
   const key = detailKey(projectId, pageId);
+  const generation = entryGenerations.get(key) ?? 0;
   const existing = inFlightSingleRequests.get(key);
-  if (existing) return existing;
+  if (existing?.generation === generation) return existing.promise;
 
   const currentEntry = detailEntries.get(key);
   if (!currentEntry?.card) {
@@ -176,9 +222,15 @@ export async function fetchDatabaseRowDetail(
     emitKeys([key]);
   }
 
+  const requestStoreGeneration = storeGeneration;
+  const requestToken = {};
   const request = (async () => {
     try {
       const card = (await invoke("database-row:get", projectId, pageId, status)) as DatabasePage | null;
+      if (
+        requestStoreGeneration !== storeGeneration
+        || generation !== (entryGenerations.get(key) ?? 0)
+      ) return null;
       if (card) {
         setDatabaseRowDetail(projectId, card);
       } else {
@@ -191,6 +243,10 @@ export async function fetchDatabaseRowDetail(
       }
       return card;
     } catch (error) {
+      if (
+        requestStoreGeneration !== storeGeneration
+        || generation !== (entryGenerations.get(key) ?? 0)
+      ) return null;
       detailEntries.set(key, {
         card: detailEntries.get(key)?.card ?? null,
         loading: false,
@@ -199,11 +255,17 @@ export async function fetchDatabaseRowDetail(
       emitKeys([key]);
       return null;
     } finally {
-      inFlightSingleRequests.delete(key);
+      if (inFlightSingleRequests.get(key)?.token === requestToken) {
+        inFlightSingleRequests.delete(key);
+      }
     }
   })();
 
-  inFlightSingleRequests.set(key, request);
+  inFlightSingleRequests.set(key, {
+    generation,
+    promise: request,
+    token: requestToken,
+  });
   return request;
 }
 

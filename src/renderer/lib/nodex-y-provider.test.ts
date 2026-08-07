@@ -155,6 +155,7 @@ class MemoryDocumentLocalCheckpointStore implements DocumentLocalCheckpointStore
   private readonly checkpoints = new Map<string, DocumentLocalCheckpoint>();
   readonly clearedDocuments: string[] = [];
   writeGate: Promise<void> | null = null;
+  writeError: Error | null = null;
 
   read = async (
     boundary: DocumentCheckpointBoundary,
@@ -167,6 +168,7 @@ class MemoryDocumentLocalCheckpointStore implements DocumentLocalCheckpointStore
 
   write = async (checkpoint: DocumentLocalCheckpoint): Promise<void> => {
     await this.writeGate;
+    if (this.writeError) throw this.writeError;
     const key = checkpointKey(checkpoint);
     const existing = this.checkpoints.get(key);
     this.checkpoints.set(key, {
@@ -286,6 +288,14 @@ const recoverDisconnectedRegisteredDocumentEdit = async (input: {
   });
   try {
     await restarted.connect();
+    await waitUntil(() => {
+      try {
+        input.assertRecovered(restartedDocument, schemaAdapter);
+        return true;
+      } catch {
+        return false;
+      }
+    });
     input.assertRecovered(restartedDocument, schemaAdapter);
     await restarted.flush();
     input.assertRecovered(adapter.serverDocument, schemaAdapter);
@@ -414,6 +424,12 @@ class MemoryDocumentSyncAdapter implements DocumentSyncAdapter {
       headSeq: this.headSeq,
       stateVector: Y.encodeStateVector(this.serverDocument),
       duplicate: false,
+      status: "committed",
+      commit: {
+        store_epoch: this.storeEpoch,
+        commit_seq: this.headSeq,
+        manifest_hash: "f".repeat(64),
+      },
     };
     this.committedAcks.set(request.updateId, ack);
     return success(ack);
@@ -440,13 +456,23 @@ describe("NodexYProvider", () => {
   test("accepts a redundant CRDT replay at the unchanged durable head", () => {
     expect(
       isDocumentApplyAckHeadValid(
-        { committedSeq: 4, headSeq: 4, duplicate: true },
+        {
+          status: "no_op",
+          committedSeq: 4,
+          headSeq: 4,
+          duplicate: true,
+        },
         { baseHeadSeq: 4 },
       ),
     ).toBe(true);
     expect(
       isDocumentApplyAckHeadValid(
-        { committedSeq: 4, headSeq: 4, duplicate: false },
+        {
+          status: "committed",
+          committedSeq: 4,
+          headSeq: 4,
+          duplicate: false,
+        },
         { baseHeadSeq: 4 },
       ),
     ).toBe(false);
@@ -990,6 +1016,42 @@ describe("NodexYProvider", () => {
     }
   });
 
+  test.each([
+    ["resource-integrity-failure", "recovery_required"],
+    ["identity-boundary-changed", "recovery_required"],
+    ["access-revoked", "unauthorized"],
+  ] as const)("resets the DocumentSession on %s", async (reason, code) => {
+    const adapter = new MemoryDocumentSyncAdapter();
+    const document = new Y.Doc({ guid: "document-1" });
+    const provider = new NodexYProvider({
+      documentId: "document-1",
+      document,
+      adapter,
+      clientSessionId: `window:${reason}`,
+      autoConnect: false,
+    });
+    try {
+      await provider.connect();
+      adapter.emit({
+        kind: "resync-required",
+        documentId: "document-1",
+        storeEpoch: adapter.storeEpoch,
+        generation: adapter.generation,
+        headSeq: adapter.headSeq,
+        reason,
+      });
+
+      expect(provider.getStatus()).toMatchObject({
+        phase: "reset-required",
+        error: { code, resetRequired: true, retryable: false },
+      });
+    } finally {
+      provider.destroy();
+      document.destroy();
+      adapter.destroy();
+    }
+  });
+
   test("drops old-epoch outbox and checkpoint state on an explicit store reset", async () => {
     const adapter = new MemoryDocumentSyncAdapter();
     const checkpoints = new MemoryDocumentLocalCheckpointStore();
@@ -1103,6 +1165,10 @@ describe("NodexYProvider", () => {
     });
     try {
       await restarted.connect();
+      await waitUntil(
+        () => openPageDocument(restartedDocument).title.toString()
+          === "Base offline",
+      );
       expect(openPageDocument(restartedDocument).title.toString()).toBe(
         "Base offline",
       );
@@ -1148,7 +1214,7 @@ describe("NodexYProvider", () => {
     });
   });
 
-  test("checkpoints local state before sending its durable update", async () => {
+  test("does not let a stalled checkpoint block a durable update or fence", async () => {
     const adapter = new MemoryDocumentSyncAdapter();
     const checkpoints = new MemoryDocumentLocalCheckpointStore();
     seedCanonicalPageDocument(adapter, "Base");
@@ -1168,16 +1234,55 @@ describe("NodexYProvider", () => {
       checkpoints.writeGate = gate.promise;
       openPageDocument(document).title.insert(4, " pending");
       const flushing = provider.flush();
-      await waitUntil(() => provider.getStatus().pendingUpdateCount === 1);
-      expect(adapter.applyCalls.length).toBe(0);
-
-      gate.resolve(undefined);
       await flushing;
       expect(adapter.applyCalls.length).toBe(1);
       expect(openPageDocument(adapter.serverDocument).title.toString()).toBe(
         "Base pending",
       );
+      expect(provider.getStatus().checkpoint.phase).toBe("saving");
+
+      gate.resolve(undefined);
+      await waitUntil(() => provider.getStatus().checkpoint.phase === "ready");
     } finally {
+      provider.destroy();
+      document.destroy();
+      adapter.destroy();
+    }
+  });
+
+  test("reports checkpoint failure without failing Core durability", async () => {
+    const adapter = new MemoryDocumentSyncAdapter();
+    const checkpoints = new MemoryDocumentLocalCheckpointStore();
+    seedCanonicalPageDocument(adapter, "Base");
+    const document = new Y.Doc({ guid: "document-1" });
+    const provider = new NodexYProvider({
+      documentId: "document-1",
+      document,
+      adapter,
+      clientSessionId: "window-1",
+      localCheckpointStore: checkpoints,
+      autoConnect: false,
+    });
+    try {
+      await provider.connect();
+      await provider.checkpoint();
+      checkpoints.writeError = new Error("checkpoint quota exhausted");
+
+      openPageDocument(document).title.insert(4, " durable");
+      await provider.flush();
+      await waitUntil(() => provider.getStatus().checkpoint.phase === "degraded");
+
+      expect(openPageDocument(adapter.serverDocument).title.toString()).toBe(
+        "Base durable",
+      );
+      expect(provider.getStatus().phase).toBe("synced");
+      expect(provider.getStatus().checkpoint).toMatchObject({
+        phase: "degraded",
+        lastFailureMessage: "checkpoint quota exhausted",
+      });
+      expect(provider.getStatus().checkpoint.failureCount).toBeGreaterThan(0);
+    } finally {
+      checkpoints.writeError = null;
       provider.destroy();
       document.destroy();
       adapter.destroy();

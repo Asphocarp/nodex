@@ -110,7 +110,7 @@ function PageOutlinerFailure({
 }: Pick<ActivePageOutlinerDocumentProps, "target" | "rowProps"> & {
   readonly error: { readonly message: string };
   readonly reloading: boolean;
-  readonly reload: () => Promise<void>;
+  readonly reload?: () => Promise<void>;
 }) {
   return (
     <ProjectedRow target={target} rowProps={rowProps}>
@@ -121,15 +121,17 @@ function PageOutlinerFailure({
         <span className="min-w-0 flex-1 truncate text-token-error-foreground">
           {error.message || "Couldn’t open this collaborative content."}
         </span>
-        <NodexButton
-          type="button"
-          size="xs"
-          variant="secondary"
-          disabled={reloading}
-          onClick={() => void reload()}
-        >
-          {reloading ? "Retrying…" : "Retry"}
-        </NodexButton>
+        {reload ? (
+          <NodexButton
+            type="button"
+            size="xs"
+            variant="secondary"
+            disabled={reloading}
+            onClick={() => void reload()}
+          >
+            {reloading ? "Retrying…" : "Retry"}
+          </NodexButton>
+        ) : null}
       </div>
     </ProjectedRow>
   );

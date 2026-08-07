@@ -10,8 +10,9 @@ import {
   createFakeCoreHandshake,
   FakeCoreClient,
 } from "./testing/fake-core-client";
+import { createCoreLocalCommitFixture } from "./testing/local-commit-fixture";
 import type {
-  AutomationCommittedValue,
+  AutomationApplyResult,
   AutomationReadSnapshot,
 } from "./types";
 
@@ -116,10 +117,14 @@ const collectionWindow = <T>(
 });
 
 const committed = (
-  value: Partial<AutomationCommittedValue["value"]>,
-): AutomationCommittedValue => ({
-  store_epoch: "epoch:test",
-  event_sequence: 8,
+  value: Partial<AutomationApplyResult["outcome"]>,
+): AutomationApplyResult => ({
+  status: "committed",
+  commit: {
+    store_epoch: "epoch:test",
+    commit_seq: 8,
+    manifest_hash: "f".repeat(64),
+  },
   receipt: {
     operation_id: "operation:test",
     duplicate: false,
@@ -132,7 +137,7 @@ const committed = (
     affected_document_ids: [],
     affected_database_ids: [],
   },
-  value: {
+  outcome: {
     affected_automation_ids: ["daily-report"],
     definitions: [],
     claimed_leases: [],
@@ -169,33 +174,28 @@ const createInput: CodexScheduledAutomationCreateInput = {
 
 describe("Desktop Automation Module bridge", () => {
   test("maps Automation events into authority-neutral invalidations", () => {
-    expect(mapCoreAutomationEvent({
-      transport_version: 4,
-      event: {
-        event_version: 3,
-        commit_seq: 8,
-        store_epoch: "epoch:test",
-        operation_id: "operation:automation",
-        committed_at: "2026-07-19T15:02:00.000Z",
-        projection_impact: { kind: "none" },
-        payload: {
-          module: "automation",
-          event: {
-            kind: "automation_changed",
-            automation_ids: ["daily-report"],
-            lease_ids: ["lease:daily-report"],
-            run_ids: ["thread:daily-report"],
-            reminder_lease_ids: [],
-            snooze_ids: [],
-            page_ids: [],
-            document_ids: [],
-            database_ids: [],
-          },
+    const packet = createCoreLocalCommitFixture({
+      commitSeq: 8,
+      storeEpoch: "epoch:test",
+      operationId: "operation:automation",
+      committedAt: "2026-07-19T15:02:00.000Z",
+      payload: {
+        module: "automation",
+        event: {
+          kind: "automation_changed",
+          automation_ids: ["daily-report"],
+          lease_ids: ["lease:daily-report"],
+          run_ids: ["thread:daily-report"],
+          reminder_lease_ids: [],
+          snooze_ids: [],
+          page_ids: [],
+          document_ids: [],
+          database_ids: [],
         },
-        effects: [],
-        canonical_hash: "0".repeat(64),
       },
-    })).toEqual({
+      canonicalHash: "0".repeat(64),
+    });
+    expect(mapCoreAutomationEvent(packet.effects[0]!)).toEqual({
       automationIds: ["daily-report"],
       runIds: ["thread:daily-report"],
     });

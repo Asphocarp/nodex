@@ -2,6 +2,7 @@ import type {
   CoreEventEnvelope,
   CoreEventReplayRequired,
   CoreEventSubscription,
+  CoreStreamCheckpoint,
 } from "./types";
 import {
   CoreEventCompatibilityError,
@@ -19,10 +20,12 @@ export interface CoreEventStreamSupervisorInput<
   readonly open: (
     after: number,
     onEvent: (event: CoreEventEnvelope) => void,
+    onCheckpoint: (checkpoint: CoreStreamCheckpoint) => void,
     onResyncRequired: (event: ResyncBoundary) => void,
     signal: AbortSignal,
   ) => Promise<CoreEventSubscription>;
   readonly onEvent: (event: CoreEventEnvelope) => unknown;
+  readonly onCheckpoint?: (checkpoint: CoreStreamCheckpoint) => unknown;
   readonly onResyncRequired: (
     event: ResyncBoundary,
   ) => unknown;
@@ -169,7 +172,12 @@ export function superviseCoreEventStream<
             (envelope) => {
               enqueue(async () => {
                 await input.onEvent(envelope);
-                after = Math.max(after, envelope.event.commit_seq);
+              });
+            },
+            (checkpoint) => {
+              enqueue(async () => {
+                await input.onCheckpoint?.(checkpoint);
+                after = Math.max(after, checkpoint.scanned_through_seq);
               });
             },
             (boundary) => {

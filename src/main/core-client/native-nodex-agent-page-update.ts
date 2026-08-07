@@ -23,12 +23,15 @@ import type { NodexAgentMutationEnvelope } from "../agent-tools/dynamic-service-
 import { CoreModuleResponseError } from "./core-client";
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
 import { toCoreAgentExecutionAuthorization } from "./desktop-nodex-agent-resource-authority";
+import {
+  applyResultCursor,
+  applyResultStoreEpoch,
+  type OwnedDocumentApplyResult,
+} from "./types";
 
 type CoreAgentMutation = components["schemas"]["AgentDocumentSemanticMutation"];
 type CoreAgentPreparation = components["schemas"]["AgentOperationPreparation"];
-type CoreCommittedDocument = components["schemas"][
-  "CommittedModuleValue_OwnedDocumentCommitValue_OwnedDocumentReceipt"
-];
+type CoreCommittedDocument = OwnedDocumentApplyResult;
 type ToolError = ToolFailure["error"];
 
 const MAX_PENDING_NATIVE_AGENT_UPDATES = 1_024;
@@ -212,15 +215,15 @@ const semanticBlockDraft = (
 
 const effectFromCommit = (
   committed: CoreCommittedDocument,
-): NonNullable<CoreCommittedDocument["value"]["mutation_effect"]> | null =>
-  committed.value.mutation_effect ?? null;
+): NonNullable<CoreCommittedDocument["outcome"]["mutation_effect"]> | null =>
+  committed.outcome.mutation_effect ?? null;
 
 const toDocumentOperationResult = (
   pending: PendingNativePageUpdate,
   committed: CoreCommittedDocument,
 ): DocumentOperationResult => {
   const effect = effectFromCommit(committed);
-  const committedAt = committed.value.committed_at;
+  const committedAt = committed.outcome.committed_at;
   if (!committedAt) {
     throw new Error("Core Agent Page update omitted its commit timestamp");
   }
@@ -233,11 +236,11 @@ const toDocumentOperationResult = (
       : "document_operation_batch",
     mutationId: pending.operationId,
     projectId: pending.request.projectId,
-    storeEpoch: committed.store_epoch,
-    documentId: committed.value.document_id,
-    generation: committed.value.generation,
-    baseHeadSeq: effect?.base_head_seq ?? committed.value.head_seq,
-    headSeq: committed.value.head_seq,
+    storeEpoch: applyResultStoreEpoch(committed),
+    documentId: committed.outcome.document_id,
+    generation: committed.outcome.generation,
+    baseHeadSeq: effect?.base_head_seq ?? committed.outcome.head_seq,
+    headSeq: committed.outcome.head_seq,
     touchedBlockIds: effect?.touched_block_ids ?? [],
     createdBlockIds: effect?.created_block_ids ?? [],
     deletedBlockIds: effect?.deleted_block_ids ?? [],
@@ -246,10 +249,7 @@ const toDocumentOperationResult = (
     writeFenceBlockIds: effect?.write_fence_block_ids ?? [],
     titleChanged: effect?.title_changed ?? false,
     coordination: effect?.coordination ?? "merge_friendly",
-    commitSeq:
-      committed.commit_seq
-      ?? committed.local_commit?.commit_seq
-      ?? committed.event_sequence,
+    commitSeq: applyResultCursor(committed),
     committedAt,
     duplicate: committed.receipt.duplicate,
   };
@@ -558,10 +558,10 @@ export class NativeNodexAgentPageUpdateRuntime {
       && request.pageId === pending.request.input.pageId
       && request.result.mutationId === operationId
       && request.result.projectId === pending.request.projectId
-      && request.result.storeEpoch === committed.store_epoch
-      && request.result.documentId === committed.value.document_id
-      && request.result.generation === committed.value.generation
-      && request.result.headSeq === committed.value.head_seq;
+      && request.result.storeEpoch === applyResultStoreEpoch(committed)
+      && request.result.documentId === committed.outcome.document_id
+      && request.result.generation === committed.outcome.generation
+      && request.result.headSeq === committed.outcome.head_seq;
     if (!matchesCommit) {
       return envelope({
         ok: false,
@@ -603,8 +603,8 @@ export class NativeNodexAgentPageUpdateRuntime {
     const wantsMarkdown = request.input.return?.includes("markdown") ?? false;
     const wantsBlockIds = request.input.return?.includes("block_ids") ?? false;
     const wantsEtags = request.input.return?.includes("etags") ?? false;
-    const semanticEtags = committed.value.semantic_etags;
-    const semanticLocalBlockIds = committed.value.semantic_local_block_ids ?? {};
+    const semanticEtags = committed.outcome.semantic_etags;
+    const semanticLocalBlockIds = committed.outcome.semantic_local_block_ids ?? {};
     if (wantsEtags && !semanticEtags) {
       throw new Error("Core Agent Page update omitted its semantic ETags");
     }
@@ -615,8 +615,8 @@ export class NativeNodexAgentPageUpdateRuntime {
         })
       : null;
     const content = contentSnapshot?.value.kind === "page_content"
-      && contentSnapshot.value.value.document_generation === committed.value.generation
-      && contentSnapshot.value.value.document_head_seq === committed.value.head_seq
+      && contentSnapshot.value.value.document_generation === committed.outcome.generation
+      && contentSnapshot.value.value.document_head_seq === committed.outcome.head_seq
       ? contentSnapshot.value.value
       : null;
     const created = effect?.created_block_ids ?? [];

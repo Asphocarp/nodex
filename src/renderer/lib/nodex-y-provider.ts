@@ -45,6 +45,19 @@ export type NodexYProviderPhase =
   | "reset-required"
   | "destroyed";
 
+export type DocumentCheckpointPhase =
+  | "idle"
+  | "saving"
+  | "ready"
+  | "degraded"
+  | "disabled";
+
+export interface DocumentCheckpointStatus {
+  readonly phase: DocumentCheckpointPhase;
+  readonly failureCount: number;
+  readonly lastFailureMessage?: string;
+}
+
 export interface NodexYProviderStatus {
   readonly phase: NodexYProviderPhase;
   readonly documentId: DocumentId;
@@ -55,6 +68,7 @@ export interface NodexYProviderStatus {
   readonly headSeq: number;
   readonly pendingUpdateCount: number;
   readonly inFlightUpdateId?: string;
+  readonly checkpoint: DocumentCheckpointStatus;
   readonly error?: DocumentSyncCommandError;
 }
 
@@ -179,12 +193,17 @@ const isNonNegativeInteger = (value: number): boolean =>
   Number.isInteger(value) && value >= 0;
 
 export const isDocumentApplyAckHeadValid = (
-  ack: Pick<DocumentSyncApplyAck, "committedSeq" | "headSeq" | "duplicate">,
+  ack: Pick<
+    DocumentSyncApplyAck,
+    "status" | "committedSeq" | "headSeq" | "duplicate"
+  >,
   request: Pick<DocumentSyncApplyRequest, "baseHeadSeq">,
 ): boolean =>
   isNonNegativeInteger(ack.committedSeq) &&
   isNonNegativeInteger(ack.headSeq) &&
-  ack.committedSeq >= request.baseHeadSeq + (ack.duplicate ? 0 : 1) &&
+  ack.committedSeq >= request.baseHeadSeq + (
+    ack.status === "committed" && !ack.duplicate ? 1 : 0
+  ) &&
   ack.committedSeq <= ack.headSeq;
 
 const requireNonEmpty = (value: string, field: string): string => {
@@ -257,6 +276,9 @@ export class NodexYProvider {
   private checkpointHydrated = false;
   private checkpointDisabled = false;
   private checkpointChain: Promise<void> = Promise.resolve();
+  private checkpointPhase: DocumentCheckpointPhase;
+  private checkpointFailureCount = 0;
+  private checkpointLastFailureMessage: string | undefined;
   private localUpdateSequence = 0;
 
   private readonly handleDocumentUpdate = (
@@ -275,7 +297,7 @@ export class NodexYProvider {
     this.localUpdateSequence += 1;
     this.queuedUpdates.push(copyBytes(update));
     this.scheduleBatch();
-    void this.queueLocalCheckpoint();
+    this.queueLocalCheckpointBestEffort();
     this.refreshStatus();
   };
 
@@ -330,6 +352,7 @@ export class NodexYProvider {
       options.localCheckpointStore === undefined
         ? createDefaultDocumentLocalCheckpointStore()
         : options.localCheckpointStore;
+    this.checkpointPhase = this.localCheckpointStore ? "idle" : "disabled";
     this.documentSchemaAdapter = getYjsDocumentSchemaAdapter(
       options.documentSchema ?? DEFAULT_PAGE_DOCUMENT_SCHEMA,
     );
@@ -411,10 +434,7 @@ export class NodexYProvider {
     }
 
     this.batchScheduled = false;
-    if (
-      this.retryCancel ||
-      (!this.connected && (this.queuedUpdates.length > 0 || this.inFlight))
-    ) {
+    if (this.retryCancel || !this.connected) {
       this.cancelRetry();
       void this.connect();
     } else {
@@ -441,7 +461,7 @@ export class NodexYProvider {
       return;
     }
 
-    void this.queueLocalCheckpoint();
+    this.queueLocalCheckpointBestEffort();
     if (this.awareness.getLocalState() !== null) {
       this.awareness.setLocalState(null);
     }
@@ -493,6 +513,23 @@ export class NodexYProvider {
       return;
     }
     if (event.kind === "resync-required") {
+      if (
+        event.reason === "resource-integrity-failure"
+        || event.reason === "identity-boundary-changed"
+        || event.reason === "access-revoked"
+      ) {
+        this.enterReset({
+          code: event.reason === "access-revoked"
+            ? "unauthorized"
+            : "recovery_required",
+          message: event.reason === "access-revoked"
+            ? `Access to Document ${this.documentId} was revoked`
+            : `Document ${this.documentId} crossed a local identity or integrity boundary`,
+          retryable: false,
+          resetRequired: true,
+        });
+        return;
+      }
       if (!this.assertBoundary(event.storeEpoch, event.generation)) {
         return;
       }
@@ -584,8 +621,6 @@ export class NodexYProvider {
       }
       this.syncing = false;
       this.refreshStatus();
-      this.resolveFlushWaitersIfIdle();
-
       const shouldSyncAgain = this.syncAgain;
       this.syncAgain = false;
       if (
@@ -594,9 +629,10 @@ export class NodexYProvider {
         !this.terminalError &&
         this.connected
       ) {
-        queueMicrotask(() => void this.requestSync());
+        void this.requestSync();
         return;
       }
+      this.resolveFlushWaitersIfIdle();
       this.pumpDurableQueue();
     });
     this.syncPromise = promise;
@@ -646,17 +682,12 @@ export class NodexYProvider {
       return;
     }
 
-    await this.hydrateLocalCheckpoint(response);
-    if (this.destroyed || this.terminalError || !this.connected) {
-      return;
-    }
-
     this.headSeq = response.headSeq;
     this.transientError = undefined;
     this.syncRetryAttempt = 0;
     this.drainBufferedEvents();
     this.publishLocalAwareness();
-    void this.queueLocalCheckpoint();
+    this.startLocalCheckpointHydration(response);
     this.refreshStatus();
   }
 
@@ -786,7 +817,7 @@ export class NodexYProvider {
     }
     this.headSeq = event.headSeq;
     this.transientError = undefined;
-    void this.queueLocalCheckpoint();
+    this.queueLocalCheckpointBestEffort();
     this.refreshStatus();
   }
 
@@ -898,7 +929,7 @@ export class NodexYProvider {
   private async applyDurableUpdate(
     pending: PendingDurableUpdate,
   ): Promise<void> {
-    await this.queueLocalCheckpoint();
+    this.queueLocalCheckpointBestEffort();
     if (this.inFlight !== pending || this.destroyed || this.terminalError) {
       return;
     }
@@ -933,7 +964,7 @@ export class NodexYProvider {
     } else if (ack.headSeq > previousHeadSeq) {
       this.requestResync();
     }
-    void this.queueLocalCheckpoint();
+    this.queueLocalCheckpointBestEffort();
     this.refreshStatus();
   }
 
@@ -987,6 +1018,13 @@ export class NodexYProvider {
         this.checkpointHydrated = false;
         return;
       }
+      if (
+        this.storeEpoch !== response.storeEpoch
+        || this.generation !== response.generation
+      ) {
+        this.checkpointHydrated = false;
+        return;
+      }
       if (!checkpoint) return;
       if (checkpoint.headSeq > response.headSeq) {
         await this.localCheckpointStore.clearDocument(this.documentId);
@@ -1000,18 +1038,51 @@ export class NodexYProvider {
         LOCAL_CHECKPOINT_ORIGIN,
         this.documentSchemaAdapter,
       );
-      this.queuedUpdates = hasDocumentUpdateContent(missingOnServer)
-        ? [copyBytes(missingOnServer)]
-        : [];
-    } catch {
-      // The cache is disposable. Corruption or quota failure must not block
-      // the SQLite-backed state-vector handshake.
+      if (hasDocumentUpdateContent(missingOnServer)) {
+        this.queuedUpdates.push(copyBytes(missingOnServer));
+        this.scheduleBatch();
+        this.refreshStatus();
+      }
+    } catch (error) {
       try {
         await this.localCheckpointStore.clearDocument(this.documentId);
       } catch {
         // A failed best-effort cleanup does not change durable authority.
       }
+      throw error;
     }
+  }
+
+  private startLocalCheckpointHydration(
+    response: DocumentSyncResponse,
+  ): void {
+    if (
+      this.checkpointHydrated
+      || this.checkpointDisabled
+      || !this.localCheckpointStore
+    ) {
+      return;
+    }
+
+    this.checkpointPhase = "saving";
+    this.refreshStatus();
+    const hydration = this.checkpointChain
+      .then(() => this.hydrateLocalCheckpoint(response))
+      .then(() => {
+        if (this.checkpointDisabled) return;
+        this.checkpointPhase = "ready";
+        this.checkpointLastFailureMessage = undefined;
+        this.refreshStatus();
+      })
+      .catch((error: unknown) => {
+        this.recordCheckpointFailure(error);
+      });
+    this.checkpointChain = hydration;
+    void hydration.then(() => this.queueLocalCheckpointBestEffort());
+  }
+
+  private queueLocalCheckpointBestEffort(): void {
+    void this.queueLocalCheckpoint().catch(() => undefined);
   }
 
   private queueLocalCheckpoint(): Promise<void> {
@@ -1021,39 +1092,65 @@ export class NodexYProvider {
       !this.storeEpoch ||
       this.generation === undefined
     ) {
-      return this.checkpointChain;
+      return Promise.resolve();
     }
 
-    let checkpoint;
-    try {
-      checkpoint = captureDocumentLocalCheckpoint(this.document, {
-        documentId: this.documentId,
-        storeEpoch: this.storeEpoch,
-        generation: this.generation,
-        headSeq: this.headSeq,
-      }, this.documentSchemaAdapter);
-    } catch {
-      return this.checkpointChain;
-    }
-
-    this.checkpointChain = this.checkpointChain
-      .then(() => this.localCheckpointStore?.write(
-        checkpoint,
-        this.documentSchemaAdapter.limits,
-      ))
-      .then(() => undefined)
-      .catch(() => undefined);
-    return this.checkpointChain;
+    this.checkpointPhase = "saving";
+    this.refreshStatus();
+    const write = this.checkpointChain
+      .then(async () => {
+        if (
+          this.checkpointDisabled
+          || !this.localCheckpointStore
+          || !this.storeEpoch
+          || this.generation === undefined
+        ) {
+          return;
+        }
+        const checkpoint = captureDocumentLocalCheckpoint(this.document, {
+          documentId: this.documentId,
+          storeEpoch: this.storeEpoch,
+          generation: this.generation,
+          headSeq: this.headSeq,
+        }, this.documentSchemaAdapter);
+        await this.localCheckpointStore.write(
+          checkpoint,
+          this.documentSchemaAdapter.limits,
+        );
+      })
+      .then(() => {
+        if (this.checkpointDisabled) return;
+        this.checkpointPhase = "ready";
+        this.checkpointLastFailureMessage = undefined;
+        this.refreshStatus();
+      })
+      .catch((error: unknown) => {
+        this.recordCheckpointFailure(error);
+        throw error;
+      });
+    this.checkpointChain = write.catch(() => undefined);
+    return write;
   }
 
   private clearLocalCheckpoints(): void {
     if (this.checkpointDisabled) return;
     this.checkpointDisabled = true;
+    this.checkpointPhase = "disabled";
+    this.refreshStatus();
     if (!this.localCheckpointStore) return;
     this.checkpointChain = this.checkpointChain
       .then(() => this.localCheckpointStore?.clearDocument(this.documentId))
       .then(() => undefined)
       .catch(() => undefined);
+  }
+
+  private recordCheckpointFailure(error: unknown): void {
+    this.checkpointFailureCount += 1;
+    this.checkpointLastFailureMessage = error instanceof Error
+      ? error.message
+      : String(error);
+    this.checkpointPhase = this.checkpointDisabled ? "disabled" : "degraded";
+    this.refreshStatus();
   }
 
   private handleCommandError(
@@ -1257,6 +1354,13 @@ export class NodexYProvider {
       headSeq: this.headSeq,
       pendingUpdateCount,
       inFlightUpdateId: this.inFlight?.request.updateId,
+      checkpoint: {
+        phase: this.checkpointPhase,
+        failureCount: this.checkpointFailureCount,
+        ...(this.checkpointLastFailureMessage
+          ? { lastFailureMessage: this.checkpointLastFailureMessage }
+          : {}),
+      },
       error: this.terminalError ?? this.transientError,
     };
   }
@@ -1272,6 +1376,9 @@ export class NodexYProvider {
       current.headSeq === next.headSeq &&
       current.pendingUpdateCount === next.pendingUpdateCount &&
       current.inFlightUpdateId === next.inFlightUpdateId &&
+      current.checkpoint.phase === next.checkpoint.phase &&
+      current.checkpoint.failureCount === next.checkpoint.failureCount &&
+      current.checkpoint.lastFailureMessage === next.checkpoint.lastFailureMessage &&
       sameError(current.error, next.error)
     ) {
       return;
@@ -1283,10 +1390,17 @@ export class NodexYProvider {
 
   private isDurablyIdle(): boolean {
     return (
+      this.connected &&
+      Boolean(this.storeEpoch) &&
+      this.generation !== undefined &&
+      !this.syncing &&
+      !this.syncPromise &&
+      !this.syncAgain &&
       this.queuedUpdates.length === 0 &&
       !this.inFlight &&
       !this.applyCallActive &&
-      this.retryKind !== "apply"
+      !this.retryCancel &&
+      this.retryKind === null
     );
   }
 

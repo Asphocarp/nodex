@@ -36,7 +36,7 @@ hyper = { version = "1.10.1", features = ["http1", "server"] }
 hyper-util = { version = "0.1.20", features = ["tokio"] }
 regex = "1.13.1"
 rrule = "=0.14.0"
-rusqlite = { version = "=0.40.1", default-features = false, features = ["backup", "bundled", "hooks", "limits", "trace"] }
+rusqlite = { version = "=0.40.1", default-features = false, features = ["backup", "bundled", "cache", "hooks", "limits", "trace"] }
 rustix = { version = "=1.1.4", features = ["fs", "process"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"

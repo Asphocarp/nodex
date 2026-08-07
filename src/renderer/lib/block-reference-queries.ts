@@ -20,6 +20,7 @@ import {
   projectIdFromContentAccessContext,
   type ContentAccessContext,
 } from "../../shared/content-access-context";
+import { resourceAuthorityQueryMeta } from "./resource-authority-query-cache";
 
 export interface ReferenceQueryResult<T> {
   readonly data: T | null;
@@ -54,6 +55,24 @@ const pageTargetQueryOptions = (
     enabled: targetBlockId.length > 0,
     staleTime: 5_000,
     refetchOnWindowFocus: true,
+    meta: resourceAuthorityQueryMeta((_queryKey, data) => {
+      const snapshot = data as PageTargetReadModel | undefined;
+      if (!snapshot) return null;
+      return {
+        scope: accessContext.kind === "library"
+          ? { kind: "library", libraryId: snapshot.libraryId }
+          : {
+              kind: "project",
+              libraryId: snapshot.libraryId,
+              projectId: accessContext.projectId,
+            },
+        cursor: {
+          storeEpoch: snapshot.storeEpoch,
+          commitSeq: snapshot.commitSeq,
+        },
+        dependencies: { pageIds: [targetBlockId] },
+      };
+    }),
   };
 };
 
@@ -152,6 +171,28 @@ export const usePageOwnershipPathReadModel = (
     enabled,
     staleTime: 5_000,
     refetchOnWindowFocus: true,
+    meta: resourceAuthorityQueryMeta((_queryKey, data) => {
+      const snapshot = data as PageOwnershipPathReadModel | undefined;
+      if (!snapshot) return null;
+      return {
+        scope: accessContext.kind === "library"
+          ? { kind: "library", libraryId: snapshot.libraryId }
+          : {
+              kind: "project",
+              libraryId: snapshot.libraryId,
+              projectId: accessContext.projectId,
+            },
+        cursor: {
+          storeEpoch: snapshot.storeEpoch,
+          commitSeq: snapshot.commitSeq,
+        },
+        dependencies: {
+          pageIds: snapshot.status === "available"
+            ? [targetPageId, ...snapshot.ancestors.map((ancestor) => ancestor.pageId)]
+            : [targetPageId],
+        },
+      };
+    }),
   });
   const libraryId = library.data?.libraryId ?? query.data?.libraryId ?? null;
   const observedPageIds = query.data?.status === "available"
@@ -219,6 +260,29 @@ export const useDatabaseViewReadModel = (
     enabled,
     staleTime: 5_000,
     refetchOnWindowFocus: true,
+    meta: resourceAuthorityQueryMeta((_queryKey, value) => {
+      const snapshot = value as DatabaseViewReadModel | undefined;
+      if (!snapshot) return null;
+      return {
+        scope: accessContext.kind === "library"
+          ? { kind: "library", libraryId: snapshot.libraryId }
+          : {
+              kind: "project",
+              libraryId: snapshot.libraryId,
+              projectId: accessContext.projectId,
+            },
+        cursor: {
+          storeEpoch: snapshot.storeEpoch,
+          commitSeq: snapshot.commitSeq,
+        },
+        dependencies: {
+          databaseIds: [snapshot.view.databaseBlockId],
+          dataSourceIds: [snapshot.dataSourceId],
+          viewIds: [databaseViewId],
+          pageIds: snapshot.rows.map((row) => row.page.id),
+        },
+      };
+    }),
   });
   const libraryId = library.data?.libraryId ?? data?.libraryId ?? null;
   useProjectionQueryRefresh({

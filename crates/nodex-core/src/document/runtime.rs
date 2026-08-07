@@ -28,11 +28,17 @@ pub(crate) struct DocumentRuntimeCache {
     misses: u64,
 }
 
+pub(crate) struct DocumentWorkingCopy {
+    pub engine: YrsDocumentEngine,
+    pub full_state: Vec<u8>,
+}
+
 struct CacheEntry {
     generation: i64,
     head_seq: i64,
     state_vector: Vec<u8>,
     state_bytes: usize,
+    full_state: Vec<u8>,
     engine: YrsDocumentEngine,
 }
 
@@ -80,18 +86,36 @@ impl DocumentRuntimeCache {
         connection: &Connection,
         head: &DocumentHeadRow,
     ) -> Result<YrsDocumentEngine, StoreError> {
+        self.clone_engine_with_state(connection, head)
+            .map(|working| working.engine)
+    }
+
+    pub(crate) fn clone_engine_with_state(
+        &mut self,
+        connection: &Connection,
+        head: &DocumentHeadRow,
+    ) -> Result<DocumentWorkingCopy, StoreError> {
         if let Some(entry) = self.entries.get(&head.id)
             && entry_matches(entry, head)
         {
-            let full_state = entry.engine.full_state_v1();
+            let full_state = entry.full_state.clone();
             self.hits += 1;
             self.touch(&head.id);
-            return YrsDocumentEngine::from_full_state_v1(&head.id, &full_state)
-                .map_err(|error| corrupt(format!("Cached Document clone failed: {error}")));
+            let engine = YrsDocumentEngine::from_full_state_v1(&head.id, &full_state)
+                .map_err(|error| corrupt(format!("Cached Document clone failed: {error}")))?;
+            return Ok(DocumentWorkingCopy { engine, full_state });
         }
         self.remove(&head.id);
         self.misses += 1;
-        reconstruct_yjs_engine(connection, head)
+        let engine = reconstruct_yjs_engine(connection, head)?;
+        let full_state = engine.full_state_v1();
+        let working = YrsDocumentEngine::from_full_state_v1(&head.id, &full_state)
+            .map_err(|error| corrupt(format!("Reconstructed Document clone failed: {error}")))?;
+        self.install_with_state(head, engine, full_state.clone());
+        Ok(DocumentWorkingCopy {
+            engine: working,
+            full_state,
+        })
     }
 
     pub(crate) fn sync_diff(
@@ -122,8 +146,18 @@ impl DocumentRuntimeCache {
     }
 
     pub(crate) fn install(&mut self, head: &DocumentHeadRow, engine: YrsDocumentEngine) {
+        let full_state = engine.full_state_v1();
+        self.install_with_state(head, engine, full_state);
+    }
+
+    fn install_with_state(
+        &mut self,
+        head: &DocumentHeadRow,
+        engine: YrsDocumentEngine,
+        full_state: Vec<u8>,
+    ) {
         self.remove(&head.id);
-        let state_bytes = engine.full_state_v1().len();
+        let state_bytes = full_state.len();
         if self.maximum_documents == 0
             || self.maximum_state_bytes == 0
             || state_bytes > self.maximum_state_bytes
@@ -149,6 +183,7 @@ impl DocumentRuntimeCache {
                 head_seq: head.head_seq,
                 state_vector: head.state_vector.clone(),
                 state_bytes,
+                full_state,
                 engine,
             },
         );
@@ -332,4 +367,121 @@ fn json_error(error: serde_json::Error) -> StoreError {
         format!("Document materialization could not be encoded: {error}"),
         false,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use rusqlite::Connection;
+    use yrs::{Text, Transact};
+
+    use super::*;
+    use crate::infrastructure::document_repository::{
+        DocumentAuthority, DocumentHeadRow, DocumentReadiness, DocumentSyncEngine,
+    };
+
+    fn ready_head(engine: &YrsDocumentEngine) -> DocumentHeadRow {
+        let full_state = engine.full_state_v1();
+        DocumentHeadRow {
+            id: engine.document_id().to_owned(),
+            project_id: "project:cache".to_owned(),
+            generation: 1,
+            head_seq: 1,
+            schema_key: "nodex.page".to_owned(),
+            schema_version: 2,
+            state_vector: engine.state_vector_v1(),
+            state_hash: sha256(&full_state),
+            readiness: DocumentReadiness::Ready,
+            authority: DocumentAuthority::YdocPrimary,
+            genesis_source_revision: None,
+            created_at: "2026-08-07T00:00:00.000Z".to_owned(),
+            updated_at: "2026-08-07T00:00:00.000Z".to_owned(),
+            sync_engine: DocumentSyncEngine::Yjs,
+        }
+    }
+
+    fn engine_with_title(document_id: &str, title: &str) -> YrsDocumentEngine {
+        let engine = YrsDocumentEngine::new(document_id);
+        let text = engine.document().get_or_insert_text("title");
+        text.insert(&mut engine.document().transact_mut(), 0, title);
+        engine
+    }
+
+    fn set_title(engine: &YrsDocumentEngine, title: &str) {
+        let text = engine.document().get_or_insert_text("title");
+        let mut transaction = engine.document().transact_mut();
+        let length = text.len(&transaction);
+        if length > 0 {
+            text.remove_range(&mut transaction, 0, length);
+        }
+        text.insert(&mut transaction, 0, title);
+    }
+
+    #[test]
+    fn cached_base_is_immutable_across_isolated_working_clones() {
+        let connection = Connection::open_in_memory().expect("in-memory connection");
+        let base = engine_with_title("document:cache", "base");
+        let head = ready_head(&base);
+        let expected = base.full_state_v1();
+        let mut cache = DocumentRuntimeCache::with_limits(4, 1024 * 1024);
+        cache.install(&head, base);
+
+        let first = cache
+            .clone_engine(&connection, &head)
+            .expect("first working clone");
+        let second = cache
+            .clone_engine(&connection, &head)
+            .expect("second working clone");
+        set_title(&first, "first mutation");
+
+        let third = cache
+            .clone_engine(&connection, &head)
+            .expect("clone after working mutation");
+        assert_ne!(first.full_state_v1(), expected);
+        assert_eq!(second.full_state_v1(), expected);
+        assert_eq!(third.full_state_v1(), expected);
+        assert_eq!(cache.stats().hits, 3);
+    }
+
+    #[test]
+    fn concurrent_prepares_clone_the_same_base_without_cross_contamination() {
+        let base = engine_with_title("document:concurrent-cache", "base");
+        let head = ready_head(&base);
+        let expected = base.full_state_v1();
+        let cache = Arc::new(Mutex::new(DocumentRuntimeCache::with_limits(
+            4,
+            1024 * 1024,
+        )));
+        cache.lock().expect("cache lock").install(&head, base);
+
+        let workers = ["left", "right"].map(|title| {
+            let cache = Arc::clone(&cache);
+            let head = head.clone();
+            std::thread::spawn(move || {
+                let connection = Connection::open_in_memory().expect("worker connection");
+                let working = cache
+                    .lock()
+                    .expect("cache lock")
+                    .clone_engine(&connection, &head)
+                    .expect("working clone");
+                set_title(&working, title);
+                working.full_state_v1()
+            })
+        });
+        let mut results = workers
+            .into_iter()
+            .map(|worker| worker.join().expect("worker"));
+        let left = results.next().expect("left worker");
+        let right = results.next().expect("right worker");
+
+        assert_ne!(left, right);
+        let connection = Connection::open_in_memory().expect("verification connection");
+        let cached = cache
+            .lock()
+            .expect("cache lock")
+            .clone_engine(&connection, &head)
+            .expect("cached base clone");
+        assert_eq!(cached.full_state_v1(), expected);
+    }
 }

@@ -6,13 +6,16 @@ import { performance } from "node:perf_hooks";
 
 import type { components } from "@nodex/core-protocol";
 import { CoreClient } from "./core-client";
+import { parseCoreRuntimeDescriptor } from "./runtime-descriptor";
 
 const DEFAULT_STARTUP_TIMEOUT_MS = 300_000;
+const DEFAULT_STARTUP_HARD_TIMEOUT_MS = 2 * 60 * 60 * 1_000;
 const DEFAULT_POLL_INTERVAL_MS = 25;
 const MAX_STARTUP_STDERR_CHARS = 16_384;
 const MAX_SELECTION_STDOUT_CHARS = 128 * 1024;
 const MAX_SELECTION_STDOUT_LINE_CHARS = 64 * 1024;
-const MAX_STARTUP_EVENT_COUNT = 32;
+const MAX_STARTUP_EVENT_COUNT = 512;
+const CANDIDATE_TERMINATION_GRACE_MS = 2_000;
 
 export interface ResolveCoreExecutableInput {
   readonly appResourcesPath?: string;
@@ -29,6 +32,8 @@ export interface ConnectOrStartCoreInput extends ResolveCoreExecutableInput {
   readonly onStartupEvent?: (event: CoreStartupEvent) => void;
   readonly pollIntervalMs?: number;
   readonly requestTimeoutMs?: number;
+  readonly signal?: AbortSignal;
+  readonly startupHardTimeoutMs?: number;
   readonly startupTimeoutMs?: number;
 }
 
@@ -46,6 +51,12 @@ export type CoreStartupEvent =
     readonly kind: "migration_started";
     readonly toVersion: number;
   }
+  | {
+    readonly completed: number;
+    readonly kind: "migration_progress";
+    readonly total: number;
+  }
+  | { readonly kind: "migration_heartbeat" }
   | {
     readonly createdFresh: boolean;
     readonly kind: "store_ready";
@@ -78,8 +89,56 @@ interface LegacyMigratorManifest {
 type CoreSelectionResult = components["schemas"]["CoreSelectionResult"];
 type CoreStartupEventFrame = components["schemas"]["CoreStartupEventFrame"];
 
+const CORE_SELECTION_REASONS = new Set<CoreSelectionResult["reason"]>([
+  "started_no_incumbent",
+  "reused_compatible",
+  "replaced_contract",
+  "replaced_artifact",
+]);
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
+
+const requireOnlyKeys = (
+  value: Readonly<Record<string, unknown>>,
+  expected: readonly string[],
+  label: string,
+): void => {
+  const keys = new Set(expected);
+  if (Object.keys(value).every((key) => keys.has(key))) return;
+  throw new Error(`${label} has unknown fields`);
+};
+
+const parseCoreSelectionResult = (
+  value: unknown,
+  nodexHome: string,
+): CoreSelectionResult => {
+  if (!isRecord(value)) {
+    throw new Error("Native Rust Core selection result must be an object");
+  }
+  requireOnlyKeys(
+    value,
+    ["selection_version", "disposition", "reason", "descriptor"],
+    "Native Rust Core selection result",
+  );
+  if (
+    value.selection_version !== 1
+    || (value.disposition !== "started" && value.disposition !== "reused")
+    || typeof value.reason !== "string"
+    || !CORE_SELECTION_REASONS.has(value.reason as CoreSelectionResult["reason"])
+  ) {
+    throw new Error("Native Rust Core returned an invalid selection result");
+  }
+  return {
+    selection_version: 1,
+    disposition: value.disposition,
+    reason: value.reason as CoreSelectionResult["reason"],
+    descriptor: parseCoreRuntimeDescriptor(
+      value.descriptor,
+      path.join(nodexHome, "run/core/core.sock"),
+    ),
+  };
+};
 
 const requireNonNegativeInteger = (value: unknown, label: string): number => {
   if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) {
@@ -108,6 +167,17 @@ export function parseCoreStartupEventFrame(value: unknown): CoreStartupEvent | n
       toVersion: requireNonNegativeInteger(event.to_version, "to_version"),
     };
   }
+  if (event.kind === "migration_progress") {
+    const completed = requireNonNegativeInteger(event.completed, "completed");
+    const total = requireNonNegativeInteger(event.total, "total");
+    if (total < 1 || completed > total) {
+      throw new Error("Native Rust Core startup event has invalid migration progress");
+    }
+    return { completed, kind: "migration_progress", total };
+  }
+  if (event.kind === "migration_heartbeat") {
+    return { kind: "migration_heartbeat" };
+  }
   if (event.kind === "store_ready") {
     if (typeof event.created_fresh !== "boolean") {
       throw new Error("Native Rust Core startup event has invalid created_fresh");
@@ -132,8 +202,131 @@ interface NativeCoreManifest {
   }[];
 }
 
-const delay = (durationMs: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, durationMs));
+const abortError = (signal: AbortSignal): Error => {
+  const reason = signal.reason;
+  if (reason instanceof Error) return reason;
+  return new DOMException("Native Rust Core startup was aborted", "AbortError");
+};
+
+const throwIfAborted = (signal?: AbortSignal): void => {
+  if (signal?.aborted) throw abortError(signal);
+};
+
+const delay = (durationMs: number, signal?: AbortSignal): Promise<void> =>
+  new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(abortError(signal));
+      return;
+    }
+    const timeout = setTimeout(finish, durationMs);
+    const onAbort = (): void => {
+      clearTimeout(timeout);
+      signal?.removeEventListener("abort", onAbort);
+      reject(signal ? abortError(signal) : new Error("Startup delay was aborted"));
+    };
+    function finish(): void {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+
+const waitForChildExit = async (
+  exit: ChildExitState,
+  timeoutMs: number,
+): Promise<boolean> => {
+  const deadline = Date.now() + timeoutMs;
+  while (!exit.exited && Date.now() < deadline) {
+    await delay(DEFAULT_POLL_INTERVAL_MS);
+  }
+  return exit.exited;
+};
+
+const posixCandidateGroupExists = (child: ReturnType<typeof spawn>): boolean => {
+  const pid = child.pid;
+  if (!pid) return false;
+  try {
+    process.kill(-pid, 0);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ESRCH") return false;
+    throw error;
+  }
+};
+
+const runWindowsTaskkill = async (pid: number, force: boolean): Promise<void> => {
+  const taskkill = spawn(
+    "taskkill.exe",
+    ["/pid", String(pid), "/t", ...(force ? ["/f"] : [])],
+    { stdio: "ignore", windowsHide: true },
+  );
+  const code = await new Promise<number | null>((resolve, reject) => {
+    taskkill.once("error", reject);
+    taskkill.once("close", resolve);
+  });
+  if (code === 0 || code === 128) return;
+  throw new Error(`taskkill exited with code ${String(code)}`);
+};
+
+const signalPosixCandidateGroup = (
+  child: ReturnType<typeof spawn>,
+  signal: NodeJS.Signals,
+): void => {
+  const pid = child.pid;
+  if (!pid) return;
+  try {
+    process.kill(-pid, signal);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ESRCH") return;
+    throw error;
+  }
+};
+
+const terminateCandidate = async (
+  child: ReturnType<typeof spawn>,
+  exit: ChildExitState,
+): Promise<void> => {
+  const pid = child.pid;
+  if (!pid) return;
+  if (process.platform === "win32") {
+    await runWindowsTaskkill(pid, false);
+    if (await waitForChildExit(exit, CANDIDATE_TERMINATION_GRACE_MS)) return;
+    await runWindowsTaskkill(pid, true);
+    if (await waitForChildExit(exit, CANDIDATE_TERMINATION_GRACE_MS)) return;
+    throw new Error("Timed out terminating the pre-ready native Rust Core candidate tree");
+  }
+
+  if (!posixCandidateGroupExists(child)) return;
+  signalPosixCandidateGroup(child, "SIGTERM");
+  const gracefulDeadline = Date.now() + CANDIDATE_TERMINATION_GRACE_MS;
+  while (posixCandidateGroupExists(child) && Date.now() < gracefulDeadline) {
+    await delay(DEFAULT_POLL_INTERVAL_MS);
+  }
+  if (!posixCandidateGroupExists(child)) return;
+  signalPosixCandidateGroup(child, "SIGKILL");
+  const forcedDeadline = Date.now() + CANDIDATE_TERMINATION_GRACE_MS;
+  while (posixCandidateGroupExists(child) && Date.now() < forcedDeadline) {
+    await delay(DEFAULT_POLL_INTERVAL_MS);
+  }
+  if (!posixCandidateGroupExists(child)) return;
+  throw new Error("Timed out terminating the pre-ready native Rust Core candidate group");
+};
+
+const terminateAfterStartupFailure = async (
+  child: ReturnType<typeof spawn>,
+  exit: ChildExitState,
+  startupError: unknown,
+): Promise<never> => {
+  try {
+    await terminateCandidate(child, exit);
+  } catch (terminationError) {
+    throw new AggregateError(
+      [startupError, terminationError],
+      "Native Rust Core startup failed and its candidate could not be terminated",
+    );
+  }
+  throw startupError;
+};
 
 const requireAbsolutePath = (candidate: string, label: string): string => {
   if (path.isAbsolute(candidate)) return path.normalize(candidate);
@@ -270,6 +463,7 @@ const connect = (input: ConnectOrStartCoreInput): Promise<CoreClient> =>
     connectionId: input.connectionId,
     maximumJsonResponseBytes: input.maximumJsonResponseBytes,
     requestTimeoutMs: input.requestTimeoutMs,
+    signal: input.signal,
   });
 
 export async function connectOrStartCore(
@@ -283,6 +477,7 @@ export async function connectOrStartCore(
   const expectedArtifactDigest = expectedCoreArtifactDigest(input, executablePath);
   const artifactValidationMs = performance.now() - artifactValidationStartedAt;
   const legacyMigratorEnvironment = resolveLegacyMigratorEnvironment(input);
+  throwIfAborted(input.signal);
   const child = spawn(executablePath, [
     "--home",
     input.nodexHome,
@@ -323,78 +518,101 @@ export async function connectOrStartCore(
     exit.exited = true;
   });
   const startupTimeoutMs = input.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS;
+  const startupHardTimeoutMs = input.startupHardTimeoutMs
+    ?? DEFAULT_STARTUP_HARD_TIMEOUT_MS;
   const pollIntervalMs = input.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
-  const deadline = Date.now() + startupTimeoutMs;
   const selectionStartedAt = performance.now();
-  const selection = await readSelectionResult(
-    child,
-    exit,
-    startupTimeoutMs,
-    input.onStartupEvent,
-  );
-  const selectionMs = performance.now() - selectionStartedAt;
-  if (selection.descriptor.artifact.sha256 !== expectedArtifactDigest) {
-    throw new Error("Selected Core artifact does not match the launched candidate");
-  }
-  const startedProcessId = selection.disposition === "started" ? child.pid ?? null : null;
-  child.unref();
-  let lastConnectionError: unknown;
-  const connectStartedAt = performance.now();
-
-  while (Date.now() < deadline) {
-    if (exit.error) throw new Error("Could not start native Rust Core", { cause: exit.error });
-    if (exit.exited && !(selection.disposition === "reused" && exit.code === 0)) {
-      const status = exit.code === null ? "without an exit code" : `with code ${exit.code}`;
-      const diagnostic = exit.stderr.trim();
-      const suffix = diagnostic ? `: ${diagnostic}` : "";
-      throw new Error(`Native Rust Core exited during startup ${status}${suffix}`);
+  try {
+    const selection = await readSelectionResult(
+      child,
+      exit,
+      startupTimeoutMs,
+      startupHardTimeoutMs,
+      input.nodexHome,
+      input.onStartupEvent,
+      input.signal,
+    );
+    const selectionMs = performance.now() - selectionStartedAt;
+    if (selection.descriptor.artifact.sha256 !== expectedArtifactDigest) {
+      throw new Error("Selected Core artifact does not match the launched candidate");
     }
+    const startedProcessId = selection.disposition === "started" ? child.pid ?? null : null;
+    let lastConnectionError: unknown;
+    const connectStartedAt = performance.now();
+    const connectionDeadline = Date.now() + startupTimeoutMs;
 
-    try {
-      const client = await connect(input);
-      if (
-        client.handshake.generation.manifest_digest !==
-          selection.descriptor.manifest_digest ||
-        client.handshake.generation.artifact_sha256 !==
-          selection.descriptor.artifact.sha256 ||
-        client.handshake.generation.start_nonce !== selection.descriptor.start_nonce
-      ) {
-        throw new Error("Core generation changed after selector completion");
+    while (Date.now() < connectionDeadline) {
+      throwIfAborted(input.signal);
+      if (exit.error) {
+        throw new Error("Could not start native Rust Core", { cause: exit.error });
       }
-      return {
-        client,
-        executablePath,
-        startedProcessId,
-        timings: {
-          artifactValidationMs,
-          connectMs: performance.now() - connectStartedAt,
-          disposition: selection.disposition,
-          reason: selection.reason,
-          selectionMs,
-          totalMs: performance.now() - launchStartedAt,
-        },
-      };
-    } catch (error) {
-      lastConnectionError = error;
-    }
-    await delay(pollIntervalMs);
-  }
+      if (exit.exited && !(selection.disposition === "reused" && exit.code === 0)) {
+        const status = exit.code === null ? "without an exit code" : `with code ${exit.code}`;
+        const diagnostic = exit.stderr.trim();
+        const suffix = diagnostic ? `: ${diagnostic}` : "";
+        throw new Error(`Native Rust Core exited during startup ${status}${suffix}`);
+      }
 
-  const diagnostic = exit.stderr.trim();
-  const suffix = diagnostic ? `: ${diagnostic}` : "";
-  throw new Error(
-    `Native Rust Core did not become ready before the startup deadline${suffix}`,
-    { cause: lastConnectionError },
-  );
+      try {
+        const client = await connect(input);
+        if (
+          client.handshake.generation.manifest_digest !==
+            selection.descriptor.manifest_digest ||
+          client.handshake.generation.artifact_sha256 !==
+            selection.descriptor.artifact.sha256 ||
+          client.handshake.generation.start_nonce !== selection.descriptor.start_nonce
+        ) {
+          throw new Error("Core generation changed after selector completion");
+        }
+        const stdout = child.stdout as (NonNullable<typeof child.stdout> & {
+          unref?: () => void;
+        }) | null;
+        stdout?.unref?.();
+        child.unref();
+        return {
+          client,
+          executablePath,
+          startedProcessId,
+          timings: {
+            artifactValidationMs,
+            connectMs: performance.now() - connectStartedAt,
+            disposition: selection.disposition,
+            reason: selection.reason,
+            selectionMs,
+            totalMs: performance.now() - launchStartedAt,
+          },
+        };
+      } catch (error) {
+        lastConnectionError = error;
+      }
+      await delay(pollIntervalMs, input.signal);
+    }
+
+    const diagnostic = exit.stderr.trim();
+    const suffix = diagnostic ? `: ${diagnostic}` : "";
+    throw new Error(
+      `Native Rust Core did not become ready before the startup deadline${suffix}`,
+      { cause: lastConnectionError },
+    );
+  } catch (error) {
+    return terminateAfterStartupFailure(child, exit, error);
+  }
 }
 
 const readSelectionResult = (
   child: ReturnType<typeof spawn>,
   exit: ChildExitState,
   timeoutMs: number,
+  hardTimeoutMs: number,
+  nodexHome: string,
   onStartupEvent?: (event: CoreStartupEvent) => void,
+  signal?: AbortSignal,
 ): Promise<CoreSelectionResult> =>
   new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(abortError(signal));
+      return;
+    }
     const stdout = child.stdout;
     if (!stdout) {
       reject(new Error("Native Rust Core selection stdout is unavailable"));
@@ -404,15 +622,31 @@ const readSelectionResult = (
     let buffered = "";
     let startupEventCount = 0;
     let totalCharacters = 0;
-    const timeout = setTimeout(() => {
+    let inactivityTimeout: ReturnType<typeof setTimeout> | undefined;
+    const onTimeout = (): void => {
       cleanup();
-      reject(new Error("Native Rust Core selection timed out"));
-    }, timeoutMs);
+      reject(new Error("Native Rust Core selection timed out due to inactivity"));
+    };
+    const onHardTimeout = (): void => {
+      cleanup();
+      reject(new Error("Native Rust Core selection exceeded its hard deadline"));
+    };
+    const hardTimeout = setTimeout(onHardTimeout, hardTimeoutMs);
+    const armTimeout = (): void => {
+      clearTimeout(inactivityTimeout);
+      inactivityTimeout = setTimeout(onTimeout, timeoutMs);
+    };
     const cleanup = (): void => {
-      clearTimeout(timeout);
+      clearTimeout(inactivityTimeout);
+      clearTimeout(hardTimeout);
       stdout.removeListener("data", onData);
       child.removeListener("close", onClose);
       child.removeListener("error", onError);
+      signal?.removeEventListener("abort", onAbort);
+    };
+    const onAbort = (): void => {
+      cleanup();
+      reject(signal ? abortError(signal) : new Error("Core startup was aborted"));
     };
     const onError = (error: Error): void => {
       cleanup();
@@ -453,19 +687,7 @@ const readSelectionResult = (
         }
         try {
           const value = JSON.parse(line) as unknown;
-          let startupEvent: CoreStartupEvent | null;
-          try {
-            startupEvent = parseCoreStartupEventFrame(value);
-          } catch (error) {
-            if (isRecord(value) && "startup_event_version" in value) {
-              exit.stderr = appendBoundedStderr(
-                exit.stderr,
-                `Ignored invalid Core startup event: ${error instanceof Error ? error.message : String(error)}\n`,
-              );
-              continue;
-            }
-            throw error;
-          }
+          const startupEvent = parseCoreStartupEventFrame(value);
           if (startupEvent) {
             startupEventCount += 1;
             if (startupEventCount > MAX_STARTUP_EVENT_COUNT) {
@@ -476,16 +698,10 @@ const readSelectionResult = (
             } catch {
               // Startup events are advisory and must not affect authority selection.
             }
+            armTimeout();
             continue;
           }
-          const selection = value as CoreSelectionResult;
-          if (
-            selection.selection_version !== 1
-            || (selection.disposition !== "started" && selection.disposition !== "reused")
-            || typeof selection.descriptor?.manifest_digest !== "string"
-          ) {
-            throw new Error("Native Rust Core returned an invalid selection result");
-          }
+          const selection = parseCoreSelectionResult(value, nodexHome);
           cleanup();
           resolve(selection);
           return;
@@ -496,7 +712,9 @@ const readSelectionResult = (
         }
       }
     };
+    armTimeout();
     stdout.on("data", onData);
     child.once("close", onClose);
     child.once("error", onError);
+    signal?.addEventListener("abort", onAbort, { once: true });
   });

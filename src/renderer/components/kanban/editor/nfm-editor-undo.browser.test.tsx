@@ -10,7 +10,7 @@ import * as Y from "yjs";
 
 import { createPageDocumentGenesis } from "../../../../shared/block-documents/block-document-codec";
 import type { BlockDocumentSurfaceRuntime } from "../../../lib/block-document-surface-runtime";
-import { PageEditorSession } from "../../../lib/page-editor-session-registry";
+import { EditorSurfaceLease } from "../../../lib/document-session-registry";
 import { createNfmEditorModeOptions } from "./nfm-editor-source";
 
 const settleEditor = async () => {
@@ -52,6 +52,69 @@ describe("collaborative NFM undo in Chromium", () => {
     expect(destroy).toHaveBeenCalledTimes(1);
   });
 
+  test("keeps undo local to each surface sharing one Y.Doc", async () => {
+    const genesis = createPageDocumentGenesis({
+      documentId: "document:two-surface-undo",
+      title: "Two surfaces",
+      nfm: "Base paragraph",
+      allocateBlockId: () => "block-base",
+    });
+    const document = genesis.document;
+    const createSurfaceEditor = (clientSessionId: string, name: string) =>
+      BlockNoteEditor.create(createNfmEditorModeOptions({
+        kind: "collaborative-document",
+        documentId: document.guid,
+        storeEpoch: "epoch:two-surface-undo",
+        generation: 1,
+        clientSessionId,
+        fragment: document.getXmlFragment("body"),
+        user: { name, color: name === "Left" ? "#2563eb" : "#16a34a" },
+      }));
+    const left = createSurfaceEditor("surface:left", "Left");
+    const right = createSurfaceEditor("surface:right", "Right");
+    const leftHost = globalThis.document.createElement("div");
+    const rightHost = globalThis.document.createElement("div");
+    globalThis.document.body.append(leftHost, rightHost);
+    left.mount(leftHost);
+    right.mount(rightHost);
+
+    try {
+      await act(settleEditor);
+      const leftBase = left.getBlock("block-base");
+      const rightBase = right.getBlock("block-base");
+      if (!leftBase || !rightBase) throw new Error("Expected the shared base Block");
+
+      await act(async () => {
+        left.updateBlock(leftBase, { content: "Left edit" });
+        right.insertBlocks([{
+          id: "block-right",
+          type: "paragraph",
+          content: "Right edit",
+        }], rightBase, "after");
+        await settleEditor();
+      });
+      expect(left.getBlock("block-base")?.content).not.toEqual(leftBase.content);
+      expect(left.getBlock("block-right")).toBeDefined();
+
+      await act(async () => {
+        expect(left.undo()).toBe(true);
+        await settleEditor();
+      });
+
+      expect(left.getBlock("block-base")?.content).toEqual(leftBase.content);
+      expect(left.getBlock("block-right")).toBeDefined();
+      expect(right.getBlock("block-right")).toBeDefined();
+    } finally {
+      left.unmount();
+      right.unmount();
+      leftHost.remove();
+      rightHost.remove();
+      left._tiptapEditor.destroy();
+      right._tiptapEditor.destroy();
+      document.destroy();
+    }
+  });
+
   test("restores the inline cursor and editor focus after remote edits while the EditorView is unmounted", async () => {
     const genesis = createPageDocumentGenesis({
       documentId: "document:relative-cursor-browser",
@@ -85,7 +148,7 @@ describe("collaborative NFM undo in Chromium", () => {
     const remoteHost = globalThis.document.createElement("div");
     globalThis.document.body.append(remoteHost);
     remoteEditor.mount(remoteHost);
-    const editorSession = new PageEditorSession({
+    const editorSession = new EditorSurfaceLease({
       key: "session-browser\u0000tab-relative-cursor",
       descriptor: {
         projectId: "project-browser",

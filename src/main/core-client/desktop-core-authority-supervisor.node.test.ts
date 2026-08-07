@@ -9,8 +9,9 @@ import {
   DesktopCoreAuthoritySupervisor,
 } from "./desktop-core-authority-supervisor";
 import type {
+  CoreAuthorizedDeliveryPacket,
   LibraryApplyInput,
-  LibraryCommittedValue,
+  LibraryApplyResult,
   LibraryRead,
   LibraryReadSnapshot,
 } from "./types";
@@ -19,9 +20,10 @@ import {
   createFakeCoreHandshake,
   FakeCoreClient,
 } from "./testing/fake-core-client";
+import { createCoreLocalCommitFixture } from "./testing/local-commit-fixture";
 
 interface GenerationBehavior {
-  readonly apply?: (input: LibraryApplyInput) => Promise<LibraryCommittedValue>;
+  readonly apply?: (input: LibraryApplyInput) => Promise<LibraryApplyResult>;
   readonly read: (read: LibraryRead) => Promise<LibraryReadSnapshot>;
 }
 
@@ -88,6 +90,7 @@ const launch = (client: CoreGenerationClient): CoreGenerationLaunch => ({
 const createSupervisor = (
   initialClient: CoreGenerationClient,
   launchNext: () => Promise<CoreGenerationLaunch>,
+  onLocalCommit?: (packet: CoreAuthorizedDeliveryPacket) => void,
 ): DesktopCoreAuthoritySupervisor => new DesktopCoreAuthoritySupervisor({
   initialLaunch: launch(initialClient),
   launchInput: {
@@ -95,7 +98,10 @@ const createSupervisor = (
     isPackaged: false,
     nodexHome: "/tmp/nodex-supervisor-test",
   },
-  dependencies: { launch: launchNext },
+  dependencies: {
+    launch: launchNext,
+    ...(onLocalCommit ? { onLocalCommit } : {}),
+  },
 });
 
 const metadataRead: LibraryRead = { kind: "metadata" };
@@ -218,7 +224,7 @@ describe("DesktopCoreAuthoritySupervisor", () => {
     const replacementApply = vi.fn(async () => ({
       event_sequence: 2,
       value: { kind: "project_deleted" },
-    } as unknown as LibraryCommittedValue));
+    } as unknown as LibraryApplyResult));
     const replacement = generationClient({
       generation: 2,
       behavior: {
@@ -240,12 +246,48 @@ describe("DesktopCoreAuthoritySupervisor", () => {
     });
 
     await vi.waitFor(() => expect(launchNext).toHaveBeenCalledTimes(1));
-    supervisor.close();
+    const closed = supervisor.close();
     resolveLaunch(launch(replacement));
 
+    await closed;
     await rejected;
     expect(supervisor.state).toEqual({ kind: "stopped" });
     expect(replacementApply).not.toHaveBeenCalled();
+  });
+
+  test("close aborts and awaits an in-flight candidate launch", async () => {
+    const initial = generationClient({
+      generation: 1,
+      behavior: { read: async () => { throw lostGeneration(); } },
+    });
+    let launchSignal: AbortSignal | undefined;
+    const launchNext = vi.fn(async (input) => {
+      launchSignal = input.signal;
+      return await new Promise<CoreGenerationLaunch>((_resolve, reject) => {
+        input.signal?.addEventListener("abort", () => reject(input.signal?.reason), {
+          once: true,
+        });
+      });
+    });
+    const supervisor = new DesktopCoreAuthoritySupervisor({
+      initialLaunch: launch(initial),
+      launchInput: {
+        buildId: "supervisor-abort-test",
+        isPackaged: false,
+        nodexHome: "/tmp/nodex-supervisor-abort-test",
+      },
+      dependencies: { launch: launchNext },
+    });
+    const pending = supervisor.rootClient.libraryRead(metadataRead);
+    const rejected = expect(pending).rejects.toMatchObject({
+      authorityState: { kind: "stopped" },
+    });
+    await vi.waitFor(() => expect(launchNext).toHaveBeenCalledTimes(1));
+
+    await supervisor.close();
+
+    expect(launchSignal?.aborted).toBe(true);
+    await rejected;
   });
 
   test("fails closed when recovery crosses the Store epoch boundary", async () => {
@@ -303,7 +345,7 @@ describe("DesktopCoreAuthoritySupervisor", () => {
     const committed = ({
       event_sequence: 5,
       value: { kind: "project_deleted" },
-    } as unknown as LibraryCommittedValue);
+    } as unknown as LibraryApplyResult);
     const replacement = generationClient({
       generation: 2,
       behavior: {
@@ -322,6 +364,50 @@ describe("DesktopCoreAuthoritySupervisor", () => {
 
     await expect(supervisor.rootClient.libraryApply(operation)).resolves.toBe(committed);
     expect(observedInputs).toEqual([operation, operation]);
+  });
+
+  test("publishes the Host-authorized apply packet before resolving the command", async () => {
+    const delivery = createCoreLocalCommitFixture({
+      authorizationScope: {
+        kind: "library",
+        library_id: "library-a",
+      },
+      commitSeq: 7,
+      operationId: "cross-project-move",
+    });
+    const committed = {
+      status: "committed",
+      commit: delivery.manifest.identity,
+      delivery,
+    } as unknown as LibraryApplyResult;
+    const initial = generationClient({
+      generation: 1,
+      behavior: {
+        read: async () => snapshot(1),
+        apply: async () => committed,
+      },
+    });
+    const order: string[] = [];
+    const onLocalCommit = vi.fn(() => {
+      order.push("published");
+    });
+    const supervisor = createSupervisor(
+      initial,
+      async () => launch(initial),
+      onLocalCommit,
+    );
+
+    const result = await supervisor.clientForProject("project-a").libraryApply({
+      operationId: "cross-project-move",
+      intent: { kind: "delete_project", project_id: "project-a" },
+    } as unknown as LibraryApplyInput).then((value) => {
+      order.push("resolved");
+      return value;
+    });
+
+    expect(result).toBe(committed);
+    expect(order).toEqual(["published", "resolved"]);
+    expect(onLocalCommit).toHaveBeenCalledWith(delivery);
   });
 
   test("opens its circuit across independent rebound sessions to one generation", async () => {

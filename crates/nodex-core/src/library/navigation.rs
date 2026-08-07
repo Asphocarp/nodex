@@ -389,9 +389,6 @@ pub(super) fn read(
                 limit,
             )?),
         }),
-        LibraryRead::PlanBlockTransfer { .. } => Err(invalid(
-            "Block transfer planning is assembled by the Library Module",
-        )),
         LibraryRead::PlanAgentResourceAccess { .. } => Err(invalid(
             "Agent resource planning is assembled by the Library Module",
         )),
@@ -1016,20 +1013,7 @@ fn parse_json(serialized: &str, label: &str) -> rusqlite::Result<Value> {
     })
 }
 
-pub(super) fn change_log_head(connection: &Connection) -> Result<i64, StoreError> {
-    connection
-        .query_row("SELECT COALESCE(MAX(seq), 0) FROM change_log", [], |row| {
-            row.get(0)
-        })
-        .map_err(Into::into)
-}
-
 /// The semantic cursor exposed by Library snapshots.
-///
-/// `change_log_head` remains the physical change-log boundary used by the
-/// historical projection queries below. A single durable mutation can append
-/// several such rows, so exposing that boundary as the public freshness cursor
-/// would let a reader skip a later LocalCommit.
 pub(super) fn commit_head(connection: &Connection) -> Result<i64, StoreError> {
     crate::infrastructure::local_commit::head(connection)
 }

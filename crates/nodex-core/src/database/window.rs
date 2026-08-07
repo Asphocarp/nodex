@@ -8,6 +8,7 @@ use nodex_core_contracts::database::{
     DatabaseViewContextRow, DatabaseViewGroupSummary, DatabaseViewGroups, DatabaseViewWindow,
     MAX_VIEW_GROUP_SUMMARIES,
 };
+use nodex_core_contracts::events::{LocalProjectionScope, ProjectionSnapshotAuthority};
 use rusqlite::types::Value as SqlValue;
 use rusqlite::{Connection, OptionalExtension, Row, params, params_from_iter};
 use serde::{Deserialize, Serialize};
@@ -51,7 +52,22 @@ pub(super) struct ViewContextProjection {
     pub data_source_id: String,
     pub property_ids: Vec<String>,
     pub groups: DatabaseViewGroups,
+    pub projection: ProjectionSnapshotAuthority,
     pub rows: CollectionWindow<DatabaseViewContextRow>,
+}
+
+pub(super) struct ViewWindowRead<'a> {
+    pub commit_head: i64,
+    pub project_id: Option<&'a str>,
+    pub store_epoch: &'a str,
+    pub window: &'a CollectionWindowRequest,
+    pub group_scope: Option<&'a DatabaseGroupScope>,
+}
+
+pub(super) struct ViewGroupsRead<'a> {
+    pub commit_head: i64,
+    pub project_id: Option<&'a str>,
+    pub store_epoch: &'a str,
 }
 
 pub(super) struct ViewContextRead<'a> {
@@ -165,19 +181,26 @@ struct SummaryRow {
 pub(super) fn view_window(
     connection: &Connection,
     library_id: &str,
-    commit_head: i64,
     view_id: &str,
-    request: &CollectionWindowRequest,
-    group_scope: Option<&DatabaseGroupScope>,
+    read: ViewWindowRead<'_>,
 ) -> Result<DatabaseViewWindow, StoreError> {
     let view = resolve_view(connection, library_id, view_id)?;
+    let projection = projection_snapshot_authority(
+        connection,
+        library_id,
+        read.store_epoch,
+        read.commit_head,
+        read.project_id,
+        &view,
+    )?;
     view_window_for(
         connection,
         library_id,
-        commit_head,
+        read.commit_head,
         &view,
-        request,
-        group_scope,
+        read.window,
+        read.group_scope,
+        projection,
     )
 }
 
@@ -188,6 +211,7 @@ fn view_window_for(
     view: &ResolvedView,
     request: &CollectionWindowRequest,
     group_scope: Option<&DatabaseGroupScope>,
+    projection: ProjectionSnapshotAuthority,
 ) -> Result<DatabaseViewWindow, StoreError> {
     let normalized = normalize_request(request)?;
     let fingerprint = cursor::query_fingerprint(&(
@@ -333,7 +357,37 @@ fn view_window_for(
         database_id: view.database_id.clone(),
         data_source_id: view.data_source_id.clone(),
         view_id: view.view_id.clone(),
+        projection,
         rows,
+    })
+}
+
+fn projection_snapshot_authority(
+    connection: &Connection,
+    library_id: &str,
+    store_epoch: &str,
+    commit_head: i64,
+    project_id: Option<&str>,
+    view: &ResolvedView,
+) -> Result<ProjectionSnapshotAuthority, StoreError> {
+    let scope = match project_id {
+        Some(project_id) => LocalProjectionScope::DatabaseView {
+            project_id: project_id.to_owned(),
+            database_id: view.database_id.clone(),
+            data_source_id: view.data_source_id.clone(),
+            view_id: view.view_id.clone(),
+        },
+        None => LocalProjectionScope::Library {
+            library_id: library_id.to_owned(),
+        },
+    };
+    let scope = crate::infrastructure::projection_scope_head::canonical_scope_key(scope)?;
+    let head = crate::infrastructure::projection_scope_head::read(connection, store_epoch, &scope)?;
+    Ok(ProjectionSnapshotAuthority {
+        scope,
+        revision: head.as_ref().map_or(0, |value| value.revision),
+        covered_commit_seq: commit_head,
+        effect_hash: head.map(|value| value.effect_hash),
     })
 }
 
@@ -341,18 +395,28 @@ fn view_window_for(
 /// set (memberships, lifecycle, exact-head joins, View filter) and the same
 /// effective-group expression as `view_window`, so counts always agree with
 /// what group-scoped windows can reach.
-pub(super) fn view_groups(
+pub(crate) fn view_groups(
     connection: &Connection,
     library_id: &str,
     view_id: &str,
+    read: ViewGroupsRead<'_>,
 ) -> Result<DatabaseViewGroups, StoreError> {
     let view = resolve_view(connection, library_id, view_id)?;
-    view_groups_for(connection, &view)
+    let projection = projection_snapshot_authority(
+        connection,
+        library_id,
+        read.store_epoch,
+        read.commit_head,
+        read.project_id,
+        &view,
+    )?;
+    view_groups_for(connection, &view, projection)
 }
 
 fn view_groups_for(
     connection: &Connection,
     view: &ResolvedView,
+    projection: ProjectionSnapshotAuthority,
 ) -> Result<DatabaseViewGroups, StoreError> {
     let mut parameters = Vec::new();
     let effective_group = effective_group_expression(&view.config, &mut parameters)?;
@@ -395,6 +459,7 @@ fn view_groups_for(
             database_id: view.database_id.clone(),
             data_source_id: view.data_source_id.clone(),
             view_id: view.view_id.clone(),
+            projection,
             grouped: false,
             total_rows,
             truncated: false,
@@ -430,6 +495,7 @@ fn view_groups_for(
         database_id: view.database_id.clone(),
         data_source_id: view.data_source_id.clone(),
         view_id: view.view_id.clone(),
+        projection,
         grouped: true,
         total_rows,
         truncated,
@@ -444,6 +510,14 @@ pub(super) fn view_context(
     read: ViewContextRead<'_>,
 ) -> Result<ViewContextProjection, StoreError> {
     let view = resolve_view(connection, library_id, view_id)?;
+    let projection = projection_snapshot_authority(
+        connection,
+        library_id,
+        read.store_epoch,
+        read.commit_head,
+        Some(read.project_id),
+        &view,
+    )?;
     let window = view_window_for(
         connection,
         library_id,
@@ -451,8 +525,9 @@ pub(super) fn view_context(
         &view,
         read.window,
         read.group_scope,
+        projection.clone(),
     )?;
-    let groups = view_groups_for(connection, &view)?;
+    let groups = view_groups_for(connection, &view, projection.clone())?;
     let rows = CollectionWindow {
         items: window
             .rows
@@ -478,6 +553,7 @@ pub(super) fn view_context(
         data_source_id: view.data_source_id.clone(),
         property_ids: projected_property_ids(&view.config)?.into_iter().collect(),
         groups,
+        projection,
         rows,
     })
 }
@@ -699,7 +775,7 @@ fn normalize_grouping_value(raw: &str) -> Option<String> {
     }
 }
 
-pub(super) fn rows_by_id(
+pub(crate) fn rows_by_id(
     connection: &Connection,
     library_id: &str,
     view_id: &str,

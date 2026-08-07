@@ -1,8 +1,9 @@
 #![forbid(unsafe_code)]
 
 use nodex_core_contracts::{
-    CORE_EVENT_VERSION, CommittedModuleValue, CoreError, LocalCommitEnvelope, ModuleApplyRequest,
+    ApplyResponse, AuthorizedDeliveryPacket, CORE_EVENT_VERSION, CoreError, ModuleApplyRequest,
     ModuleContractVersion, ModuleName, ModuleReadRequest, ModuleReadSnapshot, StoreEpoch,
+    StreamCheckpoint,
     administration::{
         StoreAdministrationCommitValue, StoreAdministrationIntent, StoreAdministrationRead,
         StoreAdministrationReadValue, StoreAdministrationReceipt,
@@ -15,8 +16,8 @@ use nodex_core_contracts::{
         DatabaseCommitValue, DatabaseIntent, DatabaseRead, DatabaseReadValue, DatabaseReceipt,
     },
     document::{
-        OwnedDocumentCommitValue, OwnedDocumentIntent, OwnedDocumentRead, OwnedDocumentReadValue,
-        OwnedDocumentReceipt,
+        OwnedDocumentCommitValue, OwnedDocumentEvent, OwnedDocumentIntent, OwnedDocumentRead,
+        OwnedDocumentReadValue, OwnedDocumentReceipt,
     },
     library::{LibraryCommitValue, LibraryIntent, LibraryRead, LibraryReadValue, LibraryReceipt},
     workspace::{
@@ -29,13 +30,13 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use utoipa::{OpenApi, ToSchema};
 
-pub const TRANSPORT_PROTOCOL_MIN: u32 = 4;
-pub const TRANSPORT_PROTOCOL_MAX: u32 = 4;
+pub const TRANSPORT_PROTOCOL_MIN: u32 = 6;
+pub const TRANSPORT_PROTOCOL_MAX: u32 = 6;
 pub const COMPATIBILITY_MANIFEST_VERSION: u32 = 1;
 pub const STORE_LINEAGE: &str = "nodex-rust-core";
-pub const CURRENT_STORE_VERSION: u32 = 104;
+pub const CURRENT_STORE_VERSION: u32 = 108;
 pub const CURRENT_STORE_SCHEMA_FINGERPRINT: &str =
-    "7deff572411b6a148d49ae07411d4c333c2bb821abb2983c7e3fdacb7a9a9800";
+    "ffa034b48ecedc1a38020db6f669117ab3ebc27432b24c4d0ef9800f7504056e";
 pub const MAX_ORDINARY_JSON_REQUEST_BYTES: usize = 2 * 1024 * 1024;
 pub const MAX_ORDINARY_JSON_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 pub const MAX_EVENT_FRAME_BYTES: usize = (2 * 1024 * 1024) + (256 * 1024);
@@ -85,7 +86,11 @@ pub fn store_format(version: u32) -> Option<StoreFormatIdentity> {
         100 => "1da44f6990e48a3b5e80f4d3f464c6be52e927a777a5b8bb1f03be3de0d176a6",
         101 => "58379bc7f98dbc857ee21a6453270a4c0b6f18265105c7dfad7004f2a3b32eb6",
         102 => "c56d246e4d4b68ee40cc3c8e889e13dc82f23d2b970cf1a43ab37df95948f380",
-        103 | 104 => CURRENT_STORE_SCHEMA_FINGERPRINT,
+        103 | 104 => "7deff572411b6a148d49ae07411d4c333c2bb821abb2983c7e3fdacb7a9a9800",
+        105 => "9ad0f89aece0f783e9aaf8c7a8cb360413e8289430304b5cb0c243e9795490f2",
+        106 => "358843161ba6222ee89bb9000a6025145b477daa47ea8b5a5c7685b8787bc891",
+        107 => "21aa9712f987c67678e1df3911955b0f9a68a239993468fa11d49f26bb744d5e",
+        108 => CURRENT_STORE_SCHEMA_FINGERPRINT,
         _ => return None,
     };
     Some(StoreFormatIdentity {
@@ -565,6 +570,8 @@ pub struct CoreHealthMetrics {
     pub active_writer_commands: u64,
     pub active_read_commands: u64,
     pub command_latency: HealthDurationMetric,
+    pub writer_queue_wait: HealthDurationMetric,
+    pub writer_execution: HealthDurationMetric,
     pub transaction_duration: HealthDurationMetric,
     pub document_cache_entries: u64,
     pub document_cache_state_bytes: u64,
@@ -572,6 +579,13 @@ pub struct CoreHealthMetrics {
     pub document_cache_misses: u64,
     pub document_cache_hit_rate_ppm: u32,
     pub document_reconstruction_duration: HealthDurationMetric,
+    pub block_transfer_prepare_duration: HealthDurationMetric,
+    pub block_transfer_reconstruct_duration: HealthDurationMetric,
+    pub block_transfer_decode_duration: HealthDurationMetric,
+    pub block_transfer_transform_duration: HealthDurationMetric,
+    pub block_transfer_encode_duration: HealthDurationMetric,
+    pub block_transfer_apply_duration: HealthDurationMetric,
+    pub local_commit_publication_duration: HealthDurationMetric,
     pub commit_head: i64,
     pub event_replay_lag: u64,
     pub event_replay_lag_max: u64,
@@ -697,6 +711,11 @@ pub enum CoreStartupEvent {
         from_version: i64,
         to_version: i64,
     },
+    MigrationProgress {
+        completed: u64,
+        total: u64,
+    },
+    MigrationHeartbeat,
     StoreReady {
         created_fresh: bool,
         migrated_from_version: Option<i64>,
@@ -731,7 +750,7 @@ pub enum ResponseEnvelope<T> {
 #[serde(deny_unknown_fields)]
 pub struct EventEnvelope {
     pub transport_version: u32,
-    pub event: LocalCommitEnvelope,
+    pub packet: AuthorizedDeliveryPacket,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -739,6 +758,8 @@ pub struct EventReplayRequired {
     pub requested_after: i64,
     pub oldest_available: i64,
     pub commit_head: i64,
+    pub generation: String,
+    pub resync_token: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -759,7 +780,7 @@ pub enum LocalMutationResolveResponse {
         request_hash: String,
         result: Value,
         #[serde(skip_serializing_if = "Option::is_none")]
-        local_commit: Option<Box<LocalCommitEnvelope>>,
+        delivery: Option<Box<AuthorizedDeliveryPacket>>,
     },
     NotCommitted {
         module: ModuleName,
@@ -803,9 +824,7 @@ macro_rules! define_module_transport {
 
         #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
         #[serde(transparent)]
-        pub struct $apply_response(
-            pub ResponseEnvelope<CommittedModuleValue<$commit_value, $receipt>>,
-        );
+        pub struct $apply_response(pub ResponseEnvelope<ApplyResponse<$commit_value, $receipt>>);
     };
 }
 
@@ -1042,6 +1061,8 @@ mod api {
         RuntimeGenerationIdentity,
         EventEnvelope,
         EventReplayRequired,
+        StreamCheckpoint,
+        OwnedDocumentEvent,
         LocalMutationResolveRequest,
         LocalMutationResolveResponse,
         LibraryReadRequest,
@@ -1095,6 +1116,7 @@ mod tests {
             "/core/v1/events",
             "/core/v1/handshake",
             "/core/v1/health",
+            "/core/v1/local-mutations/resolve",
             "/core/v1/modules/administration/apply",
             "/core/v1/modules/administration/read",
             "/core/v1/modules/automation/apply",

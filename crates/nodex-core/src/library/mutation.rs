@@ -10,8 +10,8 @@ use nodex_core_contracts::library::{
     LibraryProjectAccessChange, LibraryReceipt, LibraryResourceTarget, LibraryWriteParent,
 };
 use nodex_core_contracts::{
-    AdapterKind, BoundModuleContext, CommittedModuleValue, ModuleApplyRequest,
-    ModuleMutationReceipt, PageDocumentHeadImpact, ProjectionImpact, StoreEpoch,
+    AdapterKind, BoundModuleContext, ModuleApplyRequest, ModuleMutationReceipt, ModuleName,
+    PageDocumentHeadImpact, ProjectionImpact, StoreEpoch,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::json;
@@ -23,23 +23,28 @@ use crate::document::{
     BlockDocumentSchema, DocumentAuthorityRow, DocumentBlockOperation, DocumentMaterialization,
     PAGE_SCHEMA_KEY, PAGE_SCHEMA_VERSION, PersistYjsCommit, PersistYjsGenesis, YrsDocumentEngine,
     decode_block_document, materialize_decoded_document, mint_document_semantic_etags,
-    parse_inline_markdown_title, persist_yjs_commit, persist_yjs_commit_with_local_commit,
-    persist_yjs_genesis, prepare_document_operation_update, prepare_page_yjs_genesis,
-    prepare_page_yjs_genesis_with_content, read_document_authority, read_store_epoch,
-    reconstruct_yjs_engine, sha256,
+    parse_inline_markdown_title, persist_yjs_commit_with_local_commit,
+    persist_yjs_genesis_with_local_commit, prepare_document_operation_update,
+    prepare_page_yjs_genesis, prepare_page_yjs_genesis_with_content, read_document_authority,
+    read_store_epoch, reconstruct_yjs_engine, sha256,
 };
 use crate::domain::block_materialization::MaterializedBlockNode;
 use crate::domain::fractional_rank::{
     FractionalRankErrorCode, RankedItem, plan as plan_fractional_rank,
 };
 use crate::domain::identity::stable_uuid_v7;
+use crate::infrastructure::durable_mutation::{
+    self, CommitResult, DurableMutationScope, OperationIdentity, PreparedDurableMutation,
+    ReceiptMetadata, SealedOutcome,
+};
 use crate::infrastructure::event_log::{
     NewChangeLogEntry, append_change_log, load_committed_event_by_sequence,
-    load_local_commit_by_event_sequence,
 };
-use crate::infrastructure::module_receipts::{
-    NewModuleReceipt, insert_module_receipt, read_module_receipt,
-};
+use crate::infrastructure::local_commit;
+use crate::infrastructure::local_commit::CommitContext;
+use crate::infrastructure::module_receipts::read_module_receipt;
+#[cfg(test)]
+use crate::infrastructure::module_receipts::{NewModuleReceipt, insert_module_receipt};
 use crate::infrastructure::projection_impact::expand_database_coordinates;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode, with_immediate_transaction};
 use crate::infrastructure::writer::StoreWriter;
@@ -118,6 +123,7 @@ pub(super) fn apply(
     context: &BoundModuleContext,
     request: ModuleApplyRequest<LibraryIntent>,
     assets_root: &Path,
+    prepared_transfer: Option<super::block_transfer::PreparedBlockTransfer>,
 ) -> Result<LibraryApplyOutcome, StoreError> {
     let profile_id = profile_id.to_owned();
     let library_id = library_id.to_owned();
@@ -190,7 +196,7 @@ pub(super) fn apply(
                     ));
                 }
                 let mut committed = serde_json::from_value::<
-                    CommittedModuleValue<LibraryCommitValue, LibraryReceipt>,
+                    crate::ModuleWriterResult<LibraryCommitValue, LibraryReceipt>,
                 >(stored.result)
                 .map_err(|_| corrupt("Stored Library receipt is invalid"))?;
                 committed.receipt.mutation.duplicate = true;
@@ -203,7 +209,6 @@ pub(super) fn apply(
                     event: Some(event),
                 });
             }
-
             match &request.intent {
                 LibraryIntent::CreatePage {
                     page_id,
@@ -476,6 +481,7 @@ pub(super) fn apply(
                         super::page_property_mutation::PagePropertyApplySupplement {
                             core_request_hash: &request_hash,
                             database_receipt: None,
+                            prepared: None,
                         },
                     )
                 }
@@ -487,25 +493,23 @@ pub(super) fn apply(
                         database_intents,
                         intrinsic_mutation,
                     )?;
-                    let database_outcome = crate::database::apply_intents_in_transaction(
+                    let database_committed_at = sqlite_now(transaction)?;
+                    let prepared = prepare_mutation(
                         transaction,
-                        &profile_id,
+                        &context,
+                        &store_epoch,
+                        &request.operation_id,
+                        &request_hash,
+                        &database_committed_at,
+                    )?;
+                    let database_receipt = crate::database::apply_intents_as_collaborator(
+                        transaction,
                         &library_id,
                         &context,
-                        &ModuleApplyRequest {
-                            contract_version: nodex_core_contracts::DATABASE_CONTRACT_VERSION,
-                            operation_id: request.operation_id.clone(),
-                            store_epoch: request.store_epoch.clone(),
-                            intent: database_intents.clone(),
-                        },
+                        &request.operation_id,
+                        database_intents,
+                        &database_committed_at,
                     )?;
-                    if database_outcome.committed.receipt.mutation.duplicate {
-                        return Err(StoreError::new(
-                            StoreErrorCode::IdempotencyKeyReused,
-                            "operation_id is already bound to an independent Database mutation",
-                            false,
-                        ));
-                    }
                     let outcome = super::page_property_mutation::apply(
                         transaction,
                         &context,
@@ -515,7 +519,8 @@ pub(super) fn apply(
                         intrinsic_mutation,
                         super::page_property_mutation::PagePropertyApplySupplement {
                             core_request_hash: &request_hash,
-                            database_receipt: Some(&database_outcome.committed.receipt),
+                            database_receipt: Some(&database_receipt),
+                            prepared: Some(prepared),
                         },
                     )?;
                     if let Some(receipt) = &outcome.committed.value.block_property_mutation
@@ -587,10 +592,7 @@ pub(super) fn apply(
                     *expected_location_revision,
                     parent,
                 ),
-                LibraryIntent::TransferBlocks {
-                    intent,
-                    write_fence,
-                } => super::block_transfer::apply(
+                LibraryIntent::TransferBlocks { intent } => super::block_transfer::apply(
                     transaction,
                     &context,
                     &library_id,
@@ -598,8 +600,10 @@ pub(super) fn apply(
                     &store_epoch,
                     &request_hash,
                     intent,
-                    write_fence.as_ref(),
                     &assets_root,
+                    prepared_transfer.ok_or_else(|| {
+                        internal("Block transfer apply has no prepared artifact")
+                    })?,
                 ),
                 LibraryIntent::ExecutePreparedAgentPageCopy { .. } => Err(invalid(
                     "Prepared Agent Page copy is assembled by the Library Module",
@@ -736,232 +740,261 @@ fn move_block(
         })
         .unwrap_or_else(|| embedded_resource_block(&authority.id, authority.resource_kind));
     let now = sqlite_now(connection)?;
+    let commit_result = durable_mutation::run(
+        connection,
+        OperationIdentity {
+            module: ModuleName::Library,
+            module_name: MODULE_NAME,
+            operation_id,
+            intent_hash: request_hash,
+            store_epoch,
+            committed_at: &now,
+            context,
+        },
+        |scope| {
+            scope.observe_authorization_before(super::authorization_loss::capture(
+                connection,
+                library_id,
+                super::authorization_loss::AuthorizationRoots::typed(
+                    authority.resource_kind,
+                    authority.id.clone(),
+                )?,
+                None,
+            )?);
+            if authority.location_kind == "space" && target_document_id.is_some() {
+                connection.execute(
+                    "DELETE FROM top_level_block_placements WHERE block_id = ?1",
+                    [&authority.id],
+                )?;
+                connection.execute(
+                    "DELETE FROM library_block_placements WHERE block_id = ?1 AND library_id = ?2",
+                    params![authority.id, library_id],
+                )?;
+            }
 
-    if authority.location_kind == "space" && target_document_id.is_some() {
-        connection.execute(
-            "DELETE FROM top_level_block_placements WHERE block_id = ?1",
-            [&authority.id],
-        )?;
-        connection.execute(
-            "DELETE FROM library_block_placements WHERE block_id = ?1 AND library_id = ?2",
-            params![authority.id, library_id],
-        )?;
-    }
-
-    let changed = connection.execute(
-        "UPDATE blocks SET location_kind = ?1, containing_document_id = ?2, \
+            let changed = connection.execute(
+                "UPDATE blocks SET location_kind = ?1, containing_document_id = ?2, \
            containing_database_id = NULL, location_revision = location_revision + 1, \
            updated_at = ?3 WHERE id = ?4 AND location_revision = ?5",
-        params![
-            if target_document_id.is_some() {
-                "document"
-            } else {
-                "space"
-            },
-            target_document_id,
-            now,
-            authority.id,
-            expected_location_revision
-        ],
-    )?;
-    if changed != 1 {
-        return Err(StoreError::new(
-            StoreErrorCode::RevisionConflict,
-            "Library resource changed during move",
-            true,
-        ));
-    }
-
-    if target_document_id.is_none() {
-        connection.execute(
-            "DELETE FROM library_block_placements WHERE block_id = ?1 AND library_id = ?2",
-            params![authority.id, library_id],
-        )?;
-        if authority.location_kind != "space" {
-            let rank = append_rank(
-                connection,
-                "top_level_block_placements",
-                &authority.project_id,
+                params![
+                    if target_document_id.is_some() {
+                        "document"
+                    } else {
+                        "space"
+                    },
+                    target_document_id,
+                    now,
+                    authority.id,
+                    expected_location_revision
+                ],
             )?;
-            connection.execute(
-                "INSERT INTO top_level_block_placements(\
+            if changed != 1 {
+                return Err(StoreError::new(
+                    StoreErrorCode::RevisionConflict,
+                    "Library resource changed during move",
+                    true,
+                ));
+            }
+
+            if target_document_id.is_none() {
+                connection.execute(
+                    "DELETE FROM library_block_placements WHERE block_id = ?1 AND library_id = ?2",
+                    params![authority.id, library_id],
+                )?;
+                if authority.location_kind != "space" {
+                    let rank = append_rank(
+                        connection,
+                        "top_level_block_placements",
+                        &authority.project_id,
+                    )?;
+                    connection.execute(
+                        "INSERT INTO top_level_block_placements(\
                    block_id, project_id, rank_key, created_at, updated_at\
                  ) VALUES (?1, ?2, ?3, ?4, ?4)",
-                params![authority.id, authority.project_id, rank, now],
-            )?;
-        }
-        insert_library_placement(
-            connection,
-            library_id,
-            &authority.id,
-            match parent {
-                LibraryWriteParent::Library { before } => before.as_ref(),
-                LibraryWriteParent::Page { .. } => None,
-            },
-            &now,
-        )?;
-    }
+                        params![authority.id, authority.project_id, rank, now],
+                    )?;
+                }
+                insert_library_placement(
+                    connection,
+                    library_id,
+                    &authority.id,
+                    match parent {
+                        LibraryWriteParent::Library { before } => before.as_ref(),
+                        LibraryWriteParent::Page { .. } => None,
+                    },
+                    &now,
+                )?;
+            }
 
-    let mut committed_document_heads = BTreeMap::new();
-    if same_document {
-        let target_document = resolved_parent
-            .document
-            .as_ref()
-            .ok_or_else(|| corrupt("Same-Document move lost its target"))?;
-        let head_seq = persist_parent_operations(
-            connection,
-            store_epoch,
-            operation_id,
-            "move",
-            target_document,
-            &[DocumentBlockOperation::MoveBlock {
-                block_id: authority.id.clone(),
-                parent_block_id: None,
-                before_block_id: resolved_parent.before_block_id.clone(),
-            }],
-        )?;
-        committed_document_heads.insert(target_document.authority.head.id.clone(), head_seq);
-    } else {
-        if let Some(source) = &source_document {
-            let head_seq = persist_parent_operations(
-                connection,
-                store_epoch,
-                operation_id,
-                "source",
-                source,
-                &[DocumentBlockOperation::DeleteBlock {
-                    block_id: authority.id.clone(),
-                }],
-            )?;
-            committed_document_heads.insert(source.authority.head.id.clone(), head_seq);
-        }
-        if let Some(target_document) = &resolved_parent.document {
-            let head_seq = persist_parent_operations(
-                connection,
-                store_epoch,
-                operation_id,
-                "target",
-                target_document,
-                &[DocumentBlockOperation::InsertBlock {
-                    block: moved_block,
-                    parent_block_id: None,
-                    before_block_id: resolved_parent.before_block_id.clone(),
-                }],
-            )?;
-            committed_document_heads.insert(target_document.authority.head.id.clone(), head_seq);
-        }
-    }
+            let mut committed_document_heads = BTreeMap::new();
+            if same_document {
+                let target_document = resolved_parent
+                    .document
+                    .as_ref()
+                    .ok_or_else(|| corrupt("Same-Document move lost its target"))?;
+                let head_seq = persist_parent_operations(
+                    connection,
+                    store_epoch,
+                    operation_id,
+                    "move",
+                    target_document,
+                    &[DocumentBlockOperation::MoveBlock {
+                        block_id: authority.id.clone(),
+                        parent_block_id: None,
+                        before_block_id: resolved_parent.before_block_id.clone(),
+                    }],
+                    scope.evidence(),
+                )?;
+                committed_document_heads
+                    .insert(target_document.authority.head.id.clone(), head_seq);
+            } else {
+                if let Some(source) = &source_document {
+                    let head_seq = persist_parent_operations(
+                        connection,
+                        store_epoch,
+                        operation_id,
+                        "source",
+                        source,
+                        &[DocumentBlockOperation::DeleteBlock {
+                            block_id: authority.id.clone(),
+                        }],
+                        scope.evidence(),
+                    )?;
+                    committed_document_heads.insert(source.authority.head.id.clone(), head_seq);
+                }
+                if let Some(target_document) = &resolved_parent.document {
+                    let head_seq = persist_parent_operations(
+                        connection,
+                        store_epoch,
+                        operation_id,
+                        "target",
+                        target_document,
+                        &[DocumentBlockOperation::InsertBlock {
+                            block: moved_block,
+                            parent_block_id: None,
+                            before_block_id: resolved_parent.before_block_id.clone(),
+                        }],
+                        scope.evidence(),
+                    )?;
+                    committed_document_heads
+                        .insert(target_document.authority.head.id.clone(), head_seq);
+                }
+            }
 
-    if authority.resource_kind == "page" {
-        let parent_kind = if resolved_parent.page_id.is_some() {
-            "page"
-        } else {
-            "library"
-        };
-        let parent_id = resolved_parent.page_id.as_deref().unwrap_or(library_id);
-        let changed = connection.execute(
-            "UPDATE pages SET parent_kind = ?1, parent_id = ?2, parent_revision = ?3, \
+            if authority.resource_kind == "page" {
+                let parent_kind = if resolved_parent.page_id.is_some() {
+                    "page"
+                } else {
+                    "library"
+                };
+                let parent_id = resolved_parent.page_id.as_deref().unwrap_or(library_id);
+                let changed = connection.execute(
+                    "UPDATE pages SET parent_kind = ?1, parent_id = ?2, parent_revision = ?3, \
                updated_at = ?4 WHERE block_id = ?5 AND library_id = ?6",
-            params![
-                parent_kind,
-                parent_id,
-                expected_location_revision + 1,
-                now,
-                authority.id,
-                library_id
-            ],
-        )?;
-        if changed != 1 {
-            return Err(corrupt("Moved Page lost its canonical coordinates"));
-        }
-        let top_level_rank = if target_document_id.is_none() {
-            connection
-                .query_row(
-                    "SELECT rank_key FROM top_level_block_placements WHERE block_id = ?1",
-                    [&authority.id],
-                    |row| row.get::<_, String>(0),
-                )
-                .optional()?
-        } else {
-            None
-        };
-        connection.execute(
-            "UPDATE page_read_model SET location_kind = ?1, containing_document_id = ?2, \
+                    params![
+                        parent_kind,
+                        parent_id,
+                        expected_location_revision + 1,
+                        now,
+                        authority.id,
+                        library_id
+                    ],
+                )?;
+                if changed != 1 {
+                    return Err(corrupt("Moved Page lost its canonical coordinates"));
+                }
+                let top_level_rank = if target_document_id.is_none() {
+                    connection
+                        .query_row(
+                            "SELECT rank_key FROM top_level_block_placements WHERE block_id = ?1",
+                            [&authority.id],
+                            |row| row.get::<_, String>(0),
+                        )
+                        .optional()?
+                } else {
+                    None
+                };
+                connection.execute(
+                    "UPDATE page_read_model SET location_kind = ?1, containing_document_id = ?2, \
                containing_database_id = NULL, top_level_rank_key = ?3, location_revision = ?4, \
                updated_at = ?5 WHERE page_block_id = ?6",
-            params![
-                if target_document_id.is_some() {
-                    "document"
-                } else {
-                    "space"
-                },
-                target_document_id,
-                top_level_rank,
-                expected_location_revision + 1,
-                now,
-                authority.id
-            ],
-        )?;
-    }
+                    params![
+                        if target_document_id.is_some() {
+                            "document"
+                        } else {
+                            "space"
+                        },
+                        target_document_id,
+                        top_level_rank,
+                        expected_location_revision + 1,
+                        now,
+                        authority.id
+                    ],
+                )?;
+            }
 
-    let mut affected_page_ids = vec![];
-    if authority.resource_kind == "page" {
-        affected_page_ids.push(authority.id.clone());
-    }
-    affected_page_ids.extend(source_parent_page_id);
-    affected_page_ids.extend(resolved_parent.page_id.clone());
-    normalize_ids(&mut affected_page_ids);
-    let mut affected_parent_keys = vec![source_parent_key, resolved_parent.parent_key];
-    normalize_ids(&mut affected_parent_keys);
-    let mut affected_document_ids = committed_document_heads.keys().cloned().collect::<Vec<_>>();
-    normalize_ids(&mut affected_document_ids);
-    let committed_revisions = BTreeMap::from_iter(
-        [(
-            format!("blockLocation:{}", authority.id),
-            expected_location_revision + 1,
-        )]
-        .into_iter()
-        .chain(
-            committed_document_heads
+            let mut affected_page_ids = vec![];
+            if authority.resource_kind == "page" {
+                affected_page_ids.push(authority.id.clone());
+            }
+            affected_page_ids.extend(source_parent_page_id);
+            affected_page_ids.extend(resolved_parent.page_id.clone());
+            normalize_ids(&mut affected_page_ids);
+            let mut affected_parent_keys = vec![source_parent_key, resolved_parent.parent_key];
+            normalize_ids(&mut affected_parent_keys);
+            let mut affected_document_ids =
+                committed_document_heads.keys().cloned().collect::<Vec<_>>();
+            normalize_ids(&mut affected_document_ids);
+            let committed_revisions = BTreeMap::from_iter(
+                [(
+                    format!("blockLocation:{}", authority.id),
+                    expected_location_revision + 1,
+                )]
                 .into_iter()
-                .map(|(document_id, head_seq)| (format!("documentHead:{document_id}"), head_seq)),
-        ),
-    );
-    finish_mutation(
-        connection,
-        context,
-        store_epoch,
-        operation_id,
-        request_hash,
-        MutationEffects {
-            project_id: authority.project_id,
-            operation_kind: "move_block",
-            change_kind: "library.changed",
-            did_mutate: true,
-            created_target: None,
-            affected_parent_keys,
-            affected_block_ids: Vec::new(),
-            affected_page_ids,
-            affected_database_ids: (authority.resource_kind == "database")
-                .then(|| authority.id.clone())
-                .into_iter()
-                .collect(),
-            affected_view_ids: Vec::new(),
-            affected_document_ids,
-            committed_revisions,
-            page_create: None,
-            page_copy: None,
-            canvas_mutation: None,
-            block_transfer: None,
-            page_lifecycle: None,
-            block_property_mutation: None,
-            agent_page_copy: None,
-            agent_create_pages: None,
-            agent_move_pages: None,
-            change_payload: None,
-            committed_at: now,
+                .chain(
+                    committed_document_heads
+                        .into_iter()
+                        .map(|(document_id, head_seq)| {
+                            (format!("documentHead:{document_id}"), head_seq)
+                        }),
+                ),
+            );
+            seal_mutation(
+                scope,
+                context,
+                operation_id,
+                MutationEffects {
+                    project_id: authority.project_id,
+                    operation_kind: "move_block",
+                    change_kind: "library.changed",
+                    did_mutate: true,
+                    created_target: None,
+                    affected_parent_keys,
+                    affected_block_ids: Vec::new(),
+                    affected_page_ids,
+                    affected_database_ids: (authority.resource_kind == "database")
+                        .then(|| authority.id.clone())
+                        .into_iter()
+                        .collect(),
+                    affected_view_ids: Vec::new(),
+                    affected_document_ids,
+                    committed_revisions,
+                    page_create: None,
+                    page_copy: None,
+                    canvas_mutation: None,
+                    block_transfer: None,
+                    page_lifecycle: None,
+                    block_property_mutation: None,
+                    agent_page_copy: None,
+                    agent_create_pages: None,
+                    agent_move_pages: None,
+                    change_payload: None,
+                    committed_at: now.clone(),
+                },
+            )
         },
-    )
+    )?;
+    library_commit_result(connection, commit_result)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1046,6 +1079,23 @@ fn change_resource_lifecycle(
         }
     }
     let now = sqlite_now(connection)?;
+    let prepared = prepare_mutation(
+        connection,
+        context,
+        store_epoch,
+        operation_id,
+        request_hash,
+        &now,
+    )?;
+    prepared.observe_authorization_before(super::authorization_loss::capture(
+        connection,
+        library_id,
+        super::authorization_loss::AuthorizationRoots::typed(
+            authority.resource_kind,
+            authority.id.clone(),
+        )?,
+        None,
+    )?);
     let changed = connection.execute(
         "UPDATE blocks SET lifecycle = ?1, metadata_revision = metadata_revision + 1, \
            updated_at = ?2 WHERE id = ?3 AND lifecycle = ?4 AND metadata_revision = ?5",
@@ -1115,12 +1165,11 @@ fn change_resource_lifecycle(
     } else {
         Vec::new()
     };
-    finish_mutation(
+    finish_prepared_mutation(
         connection,
+        prepared,
         context,
-        store_epoch,
         operation_id,
-        request_hash,
         MutationEffects {
             project_id: authority.project_id,
             operation_kind,
@@ -1186,6 +1235,23 @@ fn grant_project_access(
         ));
     }
     let now = sqlite_now(connection)?;
+    let prepared = prepare_mutation(
+        connection,
+        context,
+        store_epoch,
+        operation_id,
+        request_hash,
+        &now,
+    )?;
+    prepared.observe_authorization_before(super::authorization_loss::capture(
+        connection,
+        library_id,
+        super::authorization_loss::AuthorizationRoots::typed(
+            authority.resource_kind,
+            authority.id.clone(),
+        )?,
+        Some(&[project_id.to_owned()]),
+    )?);
     let mutation = mutate_direct_project_access(
         connection,
         library_id,
@@ -1196,12 +1262,11 @@ fn grant_project_access(
         PrimaryDatabaseAccessUpdate::Noop,
         &now,
     )?;
-    finish_mutation(
+    finish_prepared_mutation(
         connection,
+        prepared,
         context,
-        store_epoch,
         operation_id,
-        request_hash,
         MutationEffects {
             project_id: project_id.to_owned(),
             operation_kind: "grant_project_access",
@@ -1275,6 +1340,27 @@ fn set_project_access(
     }
 
     let now = sqlite_now(connection)?;
+    let prepared = prepare_mutation(
+        connection,
+        context,
+        store_epoch,
+        operation_id,
+        request_hash,
+        &now,
+    )?;
+    let restricted_project_ids = changes
+        .iter()
+        .map(|change| change.project_id.clone())
+        .collect::<Vec<_>>();
+    prepared.observe_authorization_before(super::authorization_loss::capture(
+        connection,
+        library_id,
+        super::authorization_loss::AuthorizationRoots::typed(
+            authority.resource_kind,
+            authority.id.clone(),
+        )?,
+        Some(&restricted_project_ids),
+    )?);
     let mut did_mutate = false;
     let mut committed_revisions = BTreeMap::new();
     for change in changes {
@@ -1294,12 +1380,11 @@ fn set_project_access(
         }
     }
 
-    finish_mutation(
+    finish_prepared_mutation(
         connection,
+        prepared,
         context,
-        store_epoch,
         operation_id,
-        request_hash,
         MutationEffects {
             project_id: authority.project_id,
             operation_kind: "set_project_access",
@@ -1830,8 +1915,9 @@ pub(super) fn persist_parent_insert(
     parent: &ResolvedParentDocument,
     block: MaterializedBlockNode,
     before_block_id: Option<String>,
+    commit: &CommitContext,
 ) -> Result<LibraryBlockTransferDocumentCommit, StoreError> {
-    persist_parent_operations_detailed(
+    persist_parent_operations_detailed_with_local_commit(
         connection,
         store_epoch,
         operation_id,
@@ -1842,6 +1928,7 @@ pub(super) fn persist_parent_insert(
             parent_block_id: None,
             before_block_id,
         }],
+        commit,
     )
 }
 
@@ -1852,26 +1939,8 @@ fn persist_parent_operations(
     phase: &str,
     parent: &ResolvedParentDocument,
     operations: &[DocumentBlockOperation],
+    commit: &CommitContext,
 ) -> Result<i64, StoreError> {
-    persist_parent_operations_detailed(
-        connection,
-        store_epoch,
-        operation_id,
-        phase,
-        parent,
-        operations,
-    )
-    .map(|commit| commit.head_seq)
-}
-
-pub(super) fn persist_parent_operations_detailed(
-    connection: &Connection,
-    store_epoch: &str,
-    operation_id: &str,
-    phase: &str,
-    parent: &ResolvedParentDocument,
-    operations: &[DocumentBlockOperation],
-) -> Result<LibraryBlockTransferDocumentCommit, StoreError> {
     persist_parent_operations_detailed_with_local_commit(
         connection,
         store_epoch,
@@ -1879,8 +1948,9 @@ pub(super) fn persist_parent_operations_detailed(
         phase,
         parent,
         operations,
-        None,
+        commit,
     )
+    .map(|commit| commit.head_seq)
 }
 
 pub(super) fn persist_parent_operations_detailed_with_local_commit(
@@ -1890,7 +1960,7 @@ pub(super) fn persist_parent_operations_detailed_with_local_commit(
     phase: &str,
     parent: &ResolvedParentDocument,
     operations: &[DocumentBlockOperation],
-    attached_commit_seq: Option<i64>,
+    attached_commit: &CommitContext,
 ) -> Result<LibraryBlockTransferDocumentCommit, StoreError> {
     let full_state = parent.engine.full_state_v1();
     let prepared = prepare_document_operation_update(
@@ -1916,49 +1986,27 @@ pub(super) fn persist_parent_operations_detailed_with_local_commit(
         "library-document-{phase}:{}",
         sha256(operation_id.as_bytes())
     );
-    let persisted = match attached_commit_seq {
-        Some(commit_seq) => persist_yjs_commit_with_local_commit(
-            connection,
-            PersistYjsCommit {
-                authority: &parent.authority,
-                base_materialization: &parent.base_materialization,
-                materialization: &prepared.materialization,
-                update_id: &update_id,
-                client_session_id: "library-module",
-                base_head_seq: parent.authority.head.head_seq,
-                client_touched_block_ids: &[],
-                update: &prepared.update_v1,
-                state_vector: &state_vector,
-                store_epoch,
-                operation_id: &update_id,
-                local_commit_id: Some(operation_id),
-                event_kind: "document_updated",
-                write_fence_block_ids: &prepared.write_fence_block_ids,
-                title_write_fence_required: prepared.title_write_fence_required,
-            },
-            commit_seq,
-        )?,
-        None => persist_yjs_commit(
-            connection,
-            PersistYjsCommit {
-                authority: &parent.authority,
-                base_materialization: &parent.base_materialization,
-                materialization: &prepared.materialization,
-                update_id: &update_id,
-                client_session_id: "library-module",
-                base_head_seq: parent.authority.head.head_seq,
-                client_touched_block_ids: &[],
-                update: &prepared.update_v1,
-                state_vector: &state_vector,
-                store_epoch,
-                operation_id: &update_id,
-                local_commit_id: Some(operation_id),
-                event_kind: "document_updated",
-                write_fence_block_ids: &prepared.write_fence_block_ids,
-                title_write_fence_required: prepared.title_write_fence_required,
-            },
-        )?,
-    };
+    let persisted = persist_yjs_commit_with_local_commit(
+        connection,
+        PersistYjsCommit {
+            authority: &parent.authority,
+            base_materialization: &parent.base_materialization,
+            materialization: &prepared.materialization,
+            update_id: &update_id,
+            client_session_id: "library-module",
+            base_head_seq: parent.authority.head.head_seq,
+            client_touched_block_ids: &[],
+            update: &prepared.update_v1,
+            state_vector: &state_vector,
+            store_epoch,
+            operation_id: &update_id,
+            local_commit_id: Some(operation_id),
+            event_kind: "document_updated",
+            write_fence_block_ids: &prepared.write_fence_block_ids,
+            title_write_fence_required: prepared.title_write_fence_required,
+        },
+        attached_commit,
+    )?;
     Ok(LibraryBlockTransferDocumentCommit {
         document_id: parent.authority.head.id.clone(),
         generation: parent.authority.head.generation,
@@ -2015,124 +2063,142 @@ fn create_database(
     }
     let project_id = resolved_parent.project_id.clone();
     let now = sqlite_now(connection)?;
-    connection.execute(
-        "INSERT INTO blocks(\
+    let commit_result = durable_mutation::run(
+        connection,
+        OperationIdentity {
+            module: ModuleName::Library,
+            module_name: MODULE_NAME,
+            operation_id,
+            intent_hash: request_hash,
+            store_epoch,
+            committed_at: &now,
+            context,
+        },
+        |scope| {
+            connection.execute(
+                "INSERT INTO blocks(\
            id, project_id, type, lifecycle, location_kind, containing_document_id, \
            containing_database_id, location_revision, metadata_revision, created_at, updated_at\
          ) VALUES (?1, ?2, 'database', 'active', ?3, ?4, NULL, 1, 1, ?5, ?5)",
-        params![
-            database_id,
-            project_id,
-            if resolved_parent.document.is_some() {
-                "document"
-            } else {
-                "space"
-            },
-            resolved_parent
-                .document
-                .as_ref()
-                .map(|parent| parent.authority.head.id.as_str()),
-            now
-        ],
-    )?;
-    if resolved_parent.document.is_none() {
-        let top_level_rank = append_rank(connection, "top_level_block_placements", &project_id)?;
-        connection.execute(
-            "INSERT INTO top_level_block_placements(\
+                params![
+                    database_id,
+                    project_id,
+                    if resolved_parent.document.is_some() {
+                        "document"
+                    } else {
+                        "space"
+                    },
+                    resolved_parent.document.as_ref().map(|parent| parent
+                        .authority
+                        .head
+                        .id
+                        .as_str()),
+                    now
+                ],
+            )?;
+            if resolved_parent.document.is_none() {
+                let top_level_rank =
+                    append_rank(connection, "top_level_block_placements", &project_id)?;
+                connection.execute(
+                    "INSERT INTO top_level_block_placements(\
                block_id, project_id, rank_key, created_at, updated_at\
              ) VALUES (?1, ?2, ?3, ?4, ?4)",
-            params![database_id, project_id, top_level_rank, now],
-        )?;
-        insert_library_placement(
-            connection,
-            library_id,
-            database_id,
-            match parent {
-                LibraryWriteParent::Library { before } => before.as_ref(),
-                LibraryWriteParent::Page { .. } => None,
-            },
-            &now,
-        )?;
-    }
-    create_database_authority_records(
-        connection,
-        library_id,
-        database_id,
-        data_source_id,
-        view_id,
-        name,
-        &now,
-    )?;
-    let parent_head_seq = resolved_parent
-        .document
-        .as_ref()
-        .map(|parent| {
-            persist_parent_insert(
+                    params![database_id, project_id, top_level_rank, now],
+                )?;
+                insert_library_placement(
+                    connection,
+                    library_id,
+                    database_id,
+                    match parent {
+                        LibraryWriteParent::Library { before } => before.as_ref(),
+                        LibraryWriteParent::Page { .. } => None,
+                    },
+                    &now,
+                )?;
+            }
+            create_database_authority_records(
                 connection,
-                store_epoch,
-                operation_id,
-                parent,
-                embedded_resource_block(database_id, "database"),
-                resolved_parent.before_block_id.clone(),
-            )
-        })
-        .transpose()?;
-    finish_mutation(
-        connection,
-        context,
-        store_epoch,
-        operation_id,
-        request_hash,
-        MutationEffects {
-            project_id,
-            operation_kind: "create_database",
-            change_kind: "library.changed",
-            did_mutate: true,
-            created_target: Some(LibraryResourceTarget::Database {
-                database_id: database_id.to_owned(),
-            }),
-            affected_parent_keys: vec![resolved_parent.parent_key.clone()],
-            affected_block_ids: Vec::new(),
-            affected_page_ids: resolved_parent.page_id.clone().into_iter().collect(),
-            affected_database_ids: vec![database_id.to_owned()],
-            affected_view_ids: vec![view_id.to_owned()],
-            affected_document_ids: resolved_parent
+                library_id,
+                database_id,
+                data_source_id,
+                view_id,
+                name,
+                &now,
+            )?;
+            let parent_head_seq = resolved_parent
                 .document
                 .as_ref()
-                .map(|parent| parent.authority.head.id.clone())
-                .into_iter()
-                .collect(),
-            committed_revisions: BTreeMap::from_iter(
-                [
-                    (format!("blockLocation:{database_id}"), 1),
-                    (format!("blockMetadata:{database_id}"), 1),
-                    (format!("databaseMetadata:{database_id}"), 1),
-                    (format!("dataSourceSchema:{data_source_id}"), 1),
-                    (format!("view:{view_id}"), 1),
-                ]
-                .into_iter()
-                .chain(parent_head_seq.zip(resolved_parent.document.as_ref()).map(
-                    |(commit, parent)| {
-                        (
-                            format!("documentHead:{}", parent.authority.head.id),
-                            commit.head_seq,
-                        )
-                    },
-                )),
-            ),
-            page_create: None,
-            page_copy: None,
-            canvas_mutation: None,
-            block_transfer: None,
-            page_lifecycle: None,
-            block_property_mutation: None,
-            agent_page_copy: None,
-            agent_create_pages: None,
-            agent_move_pages: None,
-            change_payload: None,
-            committed_at: now,
+                .map(|parent| {
+                    persist_parent_insert(
+                        connection,
+                        store_epoch,
+                        operation_id,
+                        parent,
+                        embedded_resource_block(database_id, "database"),
+                        resolved_parent.before_block_id.clone(),
+                        scope.evidence(),
+                    )
+                })
+                .transpose()?;
+            seal_mutation(
+                scope,
+                context,
+                operation_id,
+                MutationEffects {
+                    project_id,
+                    operation_kind: "create_database",
+                    change_kind: "library.changed",
+                    did_mutate: true,
+                    created_target: Some(LibraryResourceTarget::Database {
+                        database_id: database_id.to_owned(),
+                    }),
+                    affected_parent_keys: vec![resolved_parent.parent_key.clone()],
+                    affected_block_ids: Vec::new(),
+                    affected_page_ids: resolved_parent.page_id.clone().into_iter().collect(),
+                    affected_database_ids: vec![database_id.to_owned()],
+                    affected_view_ids: vec![view_id.to_owned()],
+                    affected_document_ids: resolved_parent
+                        .document
+                        .as_ref()
+                        .map(|parent| parent.authority.head.id.clone())
+                        .into_iter()
+                        .collect(),
+                    committed_revisions: BTreeMap::from_iter(
+                        [
+                            (format!("blockLocation:{database_id}"), 1),
+                            (format!("blockMetadata:{database_id}"), 1),
+                            (format!("databaseMetadata:{database_id}"), 1),
+                            (format!("dataSourceSchema:{data_source_id}"), 1),
+                            (format!("view:{view_id}"), 1),
+                        ]
+                        .into_iter()
+                        .chain(
+                            parent_head_seq.zip(resolved_parent.document.as_ref()).map(
+                                |(commit, parent)| {
+                                    (
+                                        format!("documentHead:{}", parent.authority.head.id),
+                                        commit.head_seq,
+                                    )
+                                },
+                            ),
+                        ),
+                    ),
+                    page_create: None,
+                    page_copy: None,
+                    canvas_mutation: None,
+                    block_transfer: None,
+                    page_lifecycle: None,
+                    block_property_mutation: None,
+                    agent_page_copy: None,
+                    agent_create_pages: None,
+                    agent_move_pages: None,
+                    change_payload: None,
+                    committed_at: now.clone(),
+                },
+            )
         },
-    )
+    )?;
+    library_commit_result(connection, commit_result)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2174,245 +2240,272 @@ fn create_page(
     }
     let project_id = resolved_parent.project_id.clone();
     let now = sqlite_now(connection)?;
-    let prepared = match genesis {
-        PageGenesisInput::PlainTitle(title) => {
-            let root_block_id = deterministic_block_id(operation_id);
-            prepare_page_yjs_genesis(document_id, title, &root_block_id)?
-        }
-        PageGenesisInput::NestedMarkdown {
-            title_markdown,
-            nfm,
-        } => {
-            let rich_title = parse_inline_markdown_title(title_markdown)
-                .map_err(|error| invalid(&error.to_string()))?;
-            let mut ordinal = 0_u64;
-            prepare_page_yjs_genesis_with_content(document_id, &rich_title, nfm, &mut || {
-                let block_id =
-                    stable_uuid_v7(operation_id, "page_body_block", &ordinal.to_string());
-                ordinal += 1;
-                block_id
-            })?
-        }
-    };
+    let commit_result = durable_mutation::run(
+        connection,
+        OperationIdentity {
+            module: ModuleName::Library,
+            module_name: MODULE_NAME,
+            operation_id,
+            intent_hash: request_hash,
+            store_epoch,
+            committed_at: &now,
+            context,
+        },
+        |scope| {
+            let prepared = match genesis {
+                PageGenesisInput::PlainTitle(title) => {
+                    let root_block_id = deterministic_block_id(operation_id);
+                    prepare_page_yjs_genesis(document_id, title, &root_block_id)?
+                }
+                PageGenesisInput::NestedMarkdown {
+                    title_markdown,
+                    nfm,
+                } => {
+                    let rich_title = parse_inline_markdown_title(title_markdown)
+                        .map_err(|error| invalid(&error.to_string()))?;
+                    let mut ordinal = 0_u64;
+                    prepare_page_yjs_genesis_with_content(
+                        document_id,
+                        &rich_title,
+                        nfm,
+                        &mut || {
+                            let block_id = stable_uuid_v7(
+                                operation_id,
+                                "page_body_block",
+                                &ordinal.to_string(),
+                            );
+                            ordinal += 1;
+                            block_id
+                        },
+                    )?
+                }
+            };
 
-    connection.execute(
-        "INSERT INTO blocks (\
+            connection.execute(
+                "INSERT INTO blocks (\
            id, project_id, type, lifecycle, location_kind, containing_document_id, \
            containing_database_id, location_revision, metadata_revision, created_at, updated_at\
          ) VALUES (?1, ?2, 'page', 'active', ?3, ?4, NULL, 1, 1, ?5, ?5)",
-        params![
-            page_id,
-            project_id,
-            if resolved_parent.document.is_some() {
-                "document"
-            } else {
-                "space"
-            },
-            resolved_parent
-                .document
-                .as_ref()
-                .map(|parent| parent.authority.head.id.as_str()),
-            now
-        ],
-    )?;
-    let top_level_rank = if resolved_parent.document.is_none() {
-        let rank = append_rank(connection, "top_level_block_placements", &project_id)?;
-        connection.execute(
-            "INSERT INTO top_level_block_placements(\
+                params![
+                    page_id,
+                    project_id,
+                    if resolved_parent.document.is_some() {
+                        "document"
+                    } else {
+                        "space"
+                    },
+                    resolved_parent.document.as_ref().map(|parent| parent
+                        .authority
+                        .head
+                        .id
+                        .as_str()),
+                    now
+                ],
+            )?;
+            let top_level_rank = if resolved_parent.document.is_none() {
+                let rank = append_rank(connection, "top_level_block_placements", &project_id)?;
+                connection.execute(
+                    "INSERT INTO top_level_block_placements(\
                block_id, project_id, rank_key, created_at, updated_at\
              ) VALUES (?1, ?2, ?3, ?4, ?4)",
-            params![page_id, project_id, rank, now],
-        )?;
-        Some(rank)
-    } else {
-        None
-    };
-    connection.execute(
-        "INSERT INTO documents(\
+                    params![page_id, project_id, rank, now],
+                )?;
+                Some(rank)
+            } else {
+                None
+            };
+            connection.execute(
+                "INSERT INTO documents(\
            id, project_id, generation, head_seq, schema_key, schema_version, state_vector, \
            state_hash, readiness, authority, genesis_source_revision, created_at, updated_at, \
            sync_engine\
          ) VALUES (?1, ?2, 1, 0, ?3, ?4, X'', '', 'pending_genesis', 'legacy_shadow', \
            NULL, ?5, ?5, 'yjs')",
-        params![
-            document_id,
-            project_id,
-            PAGE_SCHEMA_KEY,
-            i64::from(PAGE_SCHEMA_VERSION),
-            now
-        ],
-    )?;
-    connection.execute(
-        "INSERT INTO block_documents(block_id, document_id, project_id, created_at) \
+                params![
+                    document_id,
+                    project_id,
+                    PAGE_SCHEMA_KEY,
+                    i64::from(PAGE_SCHEMA_VERSION),
+                    now
+                ],
+            )?;
+            connection.execute(
+                "INSERT INTO block_documents(block_id, document_id, project_id, created_at) \
          VALUES (?1, ?2, ?3, ?4)",
-        params![page_id, document_id, project_id, now],
-    )?;
-    connection.execute(
-        "INSERT INTO pages(\
+                params![page_id, document_id, project_id, now],
+            )?;
+            connection.execute(
+                "INSERT INTO pages(\
            block_id, library_id, document_id, parent_kind, parent_id, lifecycle, \
            parent_revision, metadata_revision, created_at, updated_at\
          ) VALUES (?1, ?2, ?3, ?4, ?5, 'active', 1, 1, ?6, ?6)",
-        params![
-            page_id,
-            library_id,
-            document_id,
-            if resolved_parent.page_id.is_some() {
-                "page"
-            } else {
-                "library"
-            },
-            resolved_parent.page_id.as_deref().unwrap_or(library_id),
-            now
-        ],
-    )?;
-    if resolved_parent.document.is_none() {
-        insert_library_placement(
-            connection,
-            library_id,
-            page_id,
-            match parent {
-                LibraryWriteParent::Library { before } => before.as_ref(),
-                LibraryWriteParent::Page { .. } => None,
-            },
-            &now,
-        )?;
-    }
-    let authority = read_document_authority(connection, document_id)?
-        .ok_or_else(|| corrupt("Created Page has no Document authority"))?;
-    if authority.head.schema_key != BlockDocumentSchema::PageV2.schema_key()
-        || authority.head.schema_version != i64::from(PAGE_SCHEMA_VERSION)
-    {
-        return Err(corrupt("Created Page has the wrong Document schema"));
-    }
-    let genesis_update_id = format!("library-page-genesis:{}", sha256(operation_id.as_bytes()));
-    let full_state = prepared.engine.full_state_v1();
-    let persisted = persist_yjs_genesis(
-        connection,
-        PersistYjsGenesis {
-            authority: &authority,
-            materialization: &prepared.materialization,
-            update_id: &genesis_update_id,
-            client_session_id: "library-module",
-            update: &prepared.update_v1,
-            state_vector: &prepared.state_vector_v1,
-            full_state: &full_state,
-            store_epoch,
-            operation_id: &genesis_update_id,
-            emit_event: false,
-        },
-    )?;
-    insert_page_read_model(
-        connection,
-        page_id,
-        &project_id,
-        document_id,
-        if resolved_parent.document.is_some() {
-            "document"
-        } else {
-            "space"
-        },
-        resolved_parent
-            .document
-            .as_ref()
-            .map(|parent| parent.authority.head.id.as_str()),
-        top_level_rank.as_deref(),
-        &prepared.materialization,
-        persisted.head_seq,
-        &now,
-    )?;
-    ensure_default_page_intrinsic_properties(connection, page_id, &project_id, &now)?;
-    refresh_page_intrinsic_projection(connection, page_id, &project_id, &now)?;
-
-    let parent_head_seq = resolved_parent
-        .document
-        .as_ref()
-        .map(|parent| {
-            persist_parent_insert(
-                connection,
-                store_epoch,
-                operation_id,
-                parent,
-                embedded_resource_block(page_id, "page"),
-                resolved_parent.before_block_id.clone(),
-            )
-        })
-        .transpose()?;
-    let (title_etag, body_etag) = mint_document_semantic_etags(
-        connection,
-        &project_id,
-        store_epoch,
-        document_id,
-        &prepared.materialization,
-    )
-    .map_err(|error| internal(&error.to_string()))?;
-    let page_create = LibraryPageCreateResult {
-        page_id: page_id.to_owned(),
-        document_id: document_id.to_owned(),
-        document_generation: 1,
-        document_head_seq: persisted.head_seq,
-        block_ids: materialized_block_ids(&prepared.materialization.block_tree),
-        title_etag,
-        body_etag,
-    };
-
-    finish_mutation(
-        connection,
-        context,
-        store_epoch,
-        operation_id,
-        request_hash,
-        MutationEffects {
-            project_id,
-            operation_kind: "create_page",
-            change_kind: "library.changed",
-            did_mutate: true,
-            created_target: Some(LibraryResourceTarget::Page {
-                page_id: page_id.to_owned(),
-            }),
-            affected_parent_keys: vec![resolved_parent.parent_key.clone()],
-            affected_block_ids: Vec::new(),
-            affected_page_ids: std::iter::once(page_id.to_owned())
-                .chain(resolved_parent.page_id.clone())
-                .collect(),
-            affected_database_ids: Vec::new(),
-            affected_view_ids: Vec::new(),
-            affected_document_ids: std::iter::once(document_id.to_owned())
-                .chain(
-                    resolved_parent
-                        .document
-                        .as_ref()
-                        .map(|parent| parent.authority.head.id.clone()),
-                )
-                .collect(),
-            committed_revisions: BTreeMap::from_iter(
-                [
-                    (format!("blockLocation:{page_id}"), 1),
-                    (format!("blockMetadata:{page_id}"), 1),
-                    (format!("documentHead:{document_id}"), persisted.head_seq),
-                ]
-                .into_iter()
-                .chain(parent_head_seq.zip(resolved_parent.document.as_ref()).map(
-                    |(commit, parent)| {
-                        (
-                            format!("documentHead:{}", parent.authority.head.id),
-                            commit.head_seq,
-                        )
+                params![
+                    page_id,
+                    library_id,
+                    document_id,
+                    if resolved_parent.page_id.is_some() {
+                        "page"
+                    } else {
+                        "library"
                     },
-                )),
-            ),
-            page_create: Some(page_create),
-            page_copy: None,
-            canvas_mutation: None,
-            block_transfer: None,
-            page_lifecycle: None,
-            block_property_mutation: None,
-            agent_page_copy: None,
-            agent_create_pages: None,
-            agent_move_pages: None,
-            change_payload: None,
-            committed_at: now,
+                    resolved_parent.page_id.as_deref().unwrap_or(library_id),
+                    now
+                ],
+            )?;
+            if resolved_parent.document.is_none() {
+                insert_library_placement(
+                    connection,
+                    library_id,
+                    page_id,
+                    match parent {
+                        LibraryWriteParent::Library { before } => before.as_ref(),
+                        LibraryWriteParent::Page { .. } => None,
+                    },
+                    &now,
+                )?;
+            }
+            let authority = read_document_authority(connection, document_id)?
+                .ok_or_else(|| corrupt("Created Page has no Document authority"))?;
+            if authority.head.schema_key != BlockDocumentSchema::PageV2.schema_key()
+                || authority.head.schema_version != i64::from(PAGE_SCHEMA_VERSION)
+            {
+                return Err(corrupt("Created Page has the wrong Document schema"));
+            }
+            let genesis_update_id =
+                format!("library-page-genesis:{}", sha256(operation_id.as_bytes()));
+            let full_state = prepared.engine.full_state_v1();
+            let persisted = persist_yjs_genesis_with_local_commit(
+                connection,
+                PersistYjsGenesis {
+                    authority: &authority,
+                    materialization: &prepared.materialization,
+                    update_id: &genesis_update_id,
+                    client_session_id: "library-module",
+                    update: &prepared.update_v1,
+                    state_vector: &prepared.state_vector_v1,
+                    full_state: &full_state,
+                    store_epoch,
+                    operation_id: &genesis_update_id,
+                    emit_event: false,
+                },
+                scope.evidence(),
+            )?;
+            insert_page_read_model(
+                connection,
+                page_id,
+                &project_id,
+                document_id,
+                if resolved_parent.document.is_some() {
+                    "document"
+                } else {
+                    "space"
+                },
+                resolved_parent
+                    .document
+                    .as_ref()
+                    .map(|parent| parent.authority.head.id.as_str()),
+                top_level_rank.as_deref(),
+                &prepared.materialization,
+                persisted.head_seq,
+                &now,
+            )?;
+            ensure_default_page_intrinsic_properties(connection, page_id, &project_id, &now)?;
+            refresh_page_intrinsic_projection(connection, page_id, &project_id, &now)?;
+
+            let parent_head_seq = resolved_parent
+                .document
+                .as_ref()
+                .map(|parent| {
+                    persist_parent_insert(
+                        connection,
+                        store_epoch,
+                        operation_id,
+                        parent,
+                        embedded_resource_block(page_id, "page"),
+                        resolved_parent.before_block_id.clone(),
+                        scope.evidence(),
+                    )
+                })
+                .transpose()?;
+            let (title_etag, body_etag) = mint_document_semantic_etags(
+                connection,
+                &project_id,
+                store_epoch,
+                document_id,
+                &prepared.materialization,
+            )
+            .map_err(|error| internal(&error.to_string()))?;
+            let page_create = LibraryPageCreateResult {
+                page_id: page_id.to_owned(),
+                document_id: document_id.to_owned(),
+                document_generation: 1,
+                document_head_seq: persisted.head_seq,
+                block_ids: materialized_block_ids(&prepared.materialization.block_tree),
+                title_etag,
+                body_etag,
+            };
+
+            seal_mutation(
+                scope,
+                context,
+                operation_id,
+                MutationEffects {
+                    project_id,
+                    operation_kind: "create_page",
+                    change_kind: "library.changed",
+                    did_mutate: true,
+                    created_target: Some(LibraryResourceTarget::Page {
+                        page_id: page_id.to_owned(),
+                    }),
+                    affected_parent_keys: vec![resolved_parent.parent_key.clone()],
+                    affected_block_ids: Vec::new(),
+                    affected_page_ids: std::iter::once(page_id.to_owned())
+                        .chain(resolved_parent.page_id.clone())
+                        .collect(),
+                    affected_database_ids: Vec::new(),
+                    affected_view_ids: Vec::new(),
+                    affected_document_ids: std::iter::once(document_id.to_owned())
+                        .chain(
+                            resolved_parent
+                                .document
+                                .as_ref()
+                                .map(|parent| parent.authority.head.id.clone()),
+                        )
+                        .collect(),
+                    committed_revisions: BTreeMap::from_iter(
+                        [
+                            (format!("blockLocation:{page_id}"), 1),
+                            (format!("blockMetadata:{page_id}"), 1),
+                            (format!("documentHead:{document_id}"), persisted.head_seq),
+                        ]
+                        .into_iter()
+                        .chain(
+                            parent_head_seq.zip(resolved_parent.document.as_ref()).map(
+                                |(commit, parent)| {
+                                    (
+                                        format!("documentHead:{}", parent.authority.head.id),
+                                        commit.head_seq,
+                                    )
+                                },
+                            ),
+                        ),
+                    ),
+                    page_create: Some(page_create),
+                    page_copy: None,
+                    canvas_mutation: None,
+                    block_transfer: None,
+                    page_lifecycle: None,
+                    block_property_mutation: None,
+                    agent_page_copy: None,
+                    agent_create_pages: None,
+                    agent_move_pages: None,
+                    change_payload: None,
+                    committed_at: now.clone(),
+                },
+            )
         },
-    )
+    )?;
+    library_commit_result(connection, commit_result)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2463,34 +2556,184 @@ impl PageGenesisInput<'_> {
     }
 }
 
-pub(super) fn finish_mutation(
-    connection: &Connection,
+pub(super) fn prepare_mutation<'connection>(
+    connection: &'connection Connection,
     context: &BoundModuleContext,
     store_epoch: &str,
     operation_id: &str,
     request_hash: &str,
-    effects: MutationEffects,
-) -> Result<LibraryApplyOutcome, StoreError> {
-    finish_mutation_with_local_commit(
+    committed_at: &str,
+) -> Result<PreparedDurableMutation<'connection>, StoreError> {
+    durable_mutation::prepare(
         connection,
-        context,
-        store_epoch,
-        operation_id,
-        request_hash,
-        effects,
-        None,
+        OperationIdentity {
+            module: ModuleName::Library,
+            module_name: MODULE_NAME,
+            operation_id,
+            intent_hash: request_hash,
+            store_epoch,
+            committed_at,
+            context,
+        },
     )
 }
 
-pub(super) fn finish_mutation_with_local_commit(
+pub(super) fn finish_prepared_mutation(
+    connection: &Connection,
+    prepared: PreparedDurableMutation<'_>,
+    context: &BoundModuleContext,
+    operation_id: &str,
+    effects: MutationEffects,
+) -> Result<LibraryApplyOutcome, StoreError> {
+    let result = durable_mutation::run_prepared(prepared, |scope| {
+        seal_mutation(scope, context, operation_id, effects)
+    })?;
+    library_commit_result(connection, result)
+}
+
+pub(super) fn library_commit_result(
+    connection: &Connection,
+    result: CommitResult<crate::ModuleWriterResult<LibraryCommitValue, LibraryReceipt>>,
+) -> Result<LibraryApplyOutcome, StoreError> {
+    result.verify_manifest_identity(|committed| {
+        (committed.commit_seq, committed.store_epoch.0.clone())
+    })?;
+    match result {
+        CommitResult::Committed {
+            outcome: committed, ..
+        } => {
+            let event = load_committed_event_by_sequence(connection, committed.event_sequence)?;
+            Ok(LibraryApplyOutcome {
+                committed,
+                event: Some(event),
+            })
+        }
+        CommitResult::NoOp { outcome: committed } => Ok(LibraryApplyOutcome {
+            committed,
+            event: None,
+        }),
+        CommitResult::IdempotentReplay {
+            outcome: mut committed,
+            ..
+        } => {
+            committed.receipt.mutation.duplicate = true;
+            Ok(LibraryApplyOutcome {
+                committed,
+                event: None,
+            })
+        }
+    }
+}
+
+pub(super) fn seal_mutation(
+    scope: &DurableMutationScope<'_>,
+    context: &BoundModuleContext,
+    operation_id: &str,
+    effects: MutationEffects,
+) -> Result<SealedOutcome<crate::ModuleWriterResult<LibraryCommitValue, LibraryReceipt>>, StoreError>
+{
+    seal_mutation_with(scope, context, operation_id, effects, |_, _| Ok(()))
+}
+
+pub(super) fn seal_mutation_with(
+    scope: &DurableMutationScope<'_>,
+    context: &BoundModuleContext,
+    operation_id: &str,
+    effects: MutationEffects,
+    before_seal: impl FnOnce(
+        &crate::ModuleWriterResult<LibraryCommitValue, LibraryReceipt>,
+        i64,
+    ) -> Result<(), StoreError>,
+) -> Result<SealedOutcome<crate::ModuleWriterResult<LibraryCommitValue, LibraryReceipt>>, StoreError>
+{
+    let committed_at = effects.committed_at.clone();
+    let operation_kind = effects.operation_kind;
+    if !effects.did_mutate {
+        let commit_seq = local_commit::head(scope.connection())?;
+        let event_sequence = scope.connection().query_row(
+            "SELECT COALESCE(MAX(seq), 0) FROM change_log",
+            [],
+            |row| row.get::<_, i64>(0),
+        )?;
+        let committed = assemble_mutation_result(
+            scope.store_epoch(),
+            operation_id,
+            effects,
+            commit_seq,
+            event_sequence,
+        );
+        before_seal(&committed, event_sequence)?;
+        return Ok(scope.no_op(
+            committed,
+            ReceiptMetadata {
+                operation_kind,
+                event_sequence: None,
+                committed_at: &committed_at,
+            },
+        ));
+    }
+    if let Some(reason) = revocation_reason(effects.operation_kind) {
+        super::authorization_loss::record_losses(
+            scope.connection(),
+            scope.evidence(),
+            &scope.authorization_before(),
+            reason,
+        )?;
+    }
+    let (committed, event_sequence) = build_mutation_result(
+        scope.connection(),
+        context,
+        scope.store_epoch(),
+        operation_id,
+        effects,
+        scope.evidence(),
+    )?;
+    before_seal(&committed, event_sequence)?;
+    Ok(scope.seal(
+        committed,
+        ReceiptMetadata {
+            operation_kind,
+            event_sequence: Some(event_sequence),
+            committed_at: &committed_at,
+        },
+    ))
+}
+
+fn revocation_reason(
+    operation_kind: &str,
+) -> Option<nodex_core_contracts::ResourceRevocationReason> {
+    use nodex_core_contracts::ResourceRevocationReason;
+
+    match operation_kind {
+        "set_project_access" | "grant_project_access" | "persist_agent_project_resource_grants" => {
+            Some(ResourceRevocationReason::AccessRevoked)
+        }
+        "move_block"
+        | "move_canvas"
+        | "move_page_in_library"
+        | "transfer_blocks"
+        | "agent_move_pages" => Some(ResourceRevocationReason::OwnershipMoved),
+        "archive_page" | "archive_resource" => Some(ResourceRevocationReason::Archived),
+        "delete_canvas" | "delete_page" => Some(ResourceRevocationReason::Deleted),
+        _ => None,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_mutation_result(
     connection: &Connection,
     context: &BoundModuleContext,
     store_epoch: &str,
     operation_id: &str,
-    request_hash: &str,
     effects: MutationEffects,
-    attached_commit_seq: Option<i64>,
-) -> Result<LibraryApplyOutcome, StoreError> {
+    commit: &CommitContext,
+) -> Result<
+    (
+        crate::ModuleWriterResult<LibraryCommitValue, LibraryReceipt>,
+        i64,
+    ),
+    StoreError,
+> {
     let block_ids = effects
         .affected_block_ids
         .iter()
@@ -2534,7 +2777,23 @@ pub(super) fn finish_mutation_with_local_commit(
         .iter()
         .filter_map(|key| key.strip_prefix("data_source:"))
         .map(str::to_owned)
-        .collect();
+        .collect::<Vec<_>>();
+    // Database projection compilation is intentionally driven by the
+    // relational resources named by the Library mutation itself. Document
+    // owner Pages are added to the semantic impact below so open editors can
+    // advance their heads, but cross-producting those owners with every
+    // affected View would manufacture unrelated row removals and collapse an
+    // otherwise exact row upsert into a read-only invalidation.
+    let database_projection_impact = expand_database_coordinates(
+        connection,
+        ProjectionImpact::Resources {
+            page_ids: effects.affected_page_ids.clone(),
+            database_ids: effects.affected_database_ids.clone(),
+            data_source_ids: data_source_ids.clone(),
+            view_ids: effects.affected_view_ids.clone(),
+            document_heads: Vec::new(),
+        },
+    )?;
     let document_heads = document_head_impacts(connection, &effects.affected_document_ids)?;
     let mut affected_page_ids = effects.affected_page_ids.clone();
     for head in &document_heads {
@@ -2544,7 +2803,7 @@ pub(super) fn finish_mutation_with_local_commit(
     }
     affected_page_ids.sort();
     affected_page_ids.dedup();
-    let projection_impact = if changes_project_visibility(effects.operation_kind) {
+    let projection_impact = if requires_library_projection_reset(effects.operation_kind) {
         ProjectionImpact::All
     } else {
         expand_database_coordinates(
@@ -2558,6 +2817,22 @@ pub(super) fn finish_mutation_with_local_commit(
             },
         )?
     };
+    crate::database::record_local_projection_delta(
+        connection,
+        commit,
+        &context.library_id.0,
+        Some(&effects.project_id),
+        &database_projection_impact,
+    )?;
+    if matches!(projection_impact, ProjectionImpact::All) {
+        local_commit::require_projection_read(
+            connection,
+            commit,
+            nodex_core_contracts::LocalProjectionScope::Library {
+                library_id: context.library_id.0.clone(),
+            },
+        )?;
+    }
     let payload_json =
         serde_json::to_string(&payload).map_err(|_| internal("Library event payload"))?;
     let event_entry = NewChangeLogEntry {
@@ -2572,17 +2847,33 @@ pub(super) fn finish_mutation_with_local_commit(
         projection_impact: &projection_impact,
         committed_at: &effects.committed_at,
     };
-    let event_sequence = match attached_commit_seq {
-        Some(commit_seq) => {
-            super::super::infrastructure::event_log::append_change_log_with_local_commit(
-                connection,
-                event_entry,
-                commit_seq,
-            )?
-        }
-        None => append_change_log(connection, event_entry)?,
-    };
-    let local_commit = load_local_commit_by_event_sequence(connection, event_sequence)?;
+    let event_sequence = append_change_log(connection, event_entry, commit)?;
+    Ok((
+        assemble_mutation_result(
+            store_epoch,
+            operation_id,
+            effects,
+            commit.commit_seq(),
+            event_sequence,
+        ),
+        event_sequence,
+    ))
+}
+
+fn assemble_mutation_result(
+    store_epoch: &str,
+    operation_id: &str,
+    effects: MutationEffects,
+    commit_seq: i64,
+    event_sequence: i64,
+) -> crate::ModuleWriterResult<LibraryCommitValue, LibraryReceipt> {
+    let block_ids = effects
+        .affected_block_ids
+        .iter()
+        .chain(effects.affected_page_ids.iter())
+        .chain(&effects.affected_database_ids)
+        .cloned()
+        .collect::<Vec<_>>();
     let receipt = LibraryReceipt {
         mutation: ModuleMutationReceipt {
             operation_id: operation_id.to_owned(),
@@ -2596,10 +2887,10 @@ pub(super) fn finish_mutation_with_local_commit(
         affected_database_ids: effects.affected_database_ids.clone(),
         affected_view_ids: effects.affected_view_ids.clone(),
         committed_revisions: effects.committed_revisions,
-        commit_seq: local_commit.commit_seq,
+        commit_seq,
         committed_at: effects.committed_at.clone(),
     };
-    let committed = CommittedModuleValue {
+    crate::ModuleWriterResult {
         value: LibraryCommitValue {
             affected_resource_ids: block_ids,
             page_create: effects.page_create,
@@ -2613,32 +2904,10 @@ pub(super) fn finish_mutation_with_local_commit(
             agent_move_pages: effects.agent_move_pages,
         },
         receipt,
-        commit_seq: local_commit.commit_seq,
+        commit_seq,
         event_sequence,
         store_epoch: StoreEpoch(store_epoch.to_owned()),
-        local_commit: Some(local_commit),
-    };
-    let result = serde_json::to_value(&committed)
-        .map_err(|_| internal("Library result could not be encoded"))?;
-    insert_module_receipt(
-        connection,
-        NewModuleReceipt {
-            module_name: MODULE_NAME,
-            operation_id,
-            context,
-            operation_kind: effects.operation_kind,
-            store_epoch,
-            request_hash,
-            result: &result,
-            event_sequence: Some(event_sequence),
-            committed_at: &effects.committed_at,
-        },
-    )?;
-    let event = load_committed_event_by_sequence(connection, event_sequence)?;
-    Ok(LibraryApplyOutcome {
-        committed,
-        event: Some(event),
-    })
+    }
 }
 
 fn document_head_impacts(
@@ -2677,15 +2946,10 @@ fn document_head_impacts(
     Ok(impacts)
 }
 
-fn changes_project_visibility(operation_kind: &str) -> bool {
+fn requires_library_projection_reset(operation_kind: &str) -> bool {
     matches!(
         operation_kind,
-        "move_block"
-            | "transfer_blocks"
-            | "agent_move_pages"
-            | "grant_project_access"
-            | "set_project_access"
-            | "persist_agent_project_resource_grants"
+        "grant_project_access" | "set_project_access" | "persist_agent_project_resource_grants"
     )
 }
 
@@ -3129,7 +3393,7 @@ mod tests {
     };
     use nodex_core_contracts::{
         AdapterKind, CoreErrorCode, LibraryId, ModuleReadRequest, OWNED_DOCUMENT_CONTRACT_VERSION,
-        ProfileId, ProjectId,
+        ProfileId, ProjectId, ResourceRevocationReason, RevokedResourceKind,
     };
     use tempfile::tempdir;
 
@@ -3142,19 +3406,23 @@ mod tests {
     const NOW: &str = "2026-07-18T23:59:00.000Z";
 
     #[test]
-    fn project_visibility_changes_require_broad_projection_invalidation() {
+    fn only_unbounded_access_changes_require_library_projection_reset() {
         for operation in [
-            "move_block",
-            "transfer_blocks",
-            "agent_move_pages",
             "grant_project_access",
             "set_project_access",
             "persist_agent_project_resource_grants",
         ] {
-            assert!(changes_project_visibility(operation), "{operation}");
+            assert!(requires_library_projection_reset(operation), "{operation}");
         }
-        assert!(!changes_project_visibility("create_page"));
-        assert!(!changes_project_visibility("mutate_block_properties"));
+        for operation in [
+            "move_block",
+            "transfer_blocks",
+            "agent_move_pages",
+            "create_page",
+            "mutate_block_properties",
+        ] {
+            assert!(!requires_library_projection_reset(operation), "{operation}");
+        }
     }
 
     fn context() -> BoundModuleContext {
@@ -4089,6 +4357,17 @@ mod tests {
                 },
             )
             .expect("grant Page access");
+        let before_redundant_grant = kernel
+            .readers()
+            .read_default(|connection| {
+                Ok((
+                    local_commit::head(connection)?,
+                    connection.query_row("SELECT COUNT(*) FROM change_log", [], |row| {
+                        row.get::<_, i64>(0)
+                    })?,
+                ))
+            })
+            .expect("read semantic heads before redundant grant");
         let already_granted = module
             .apply(
                 &context(),
@@ -4108,6 +4387,19 @@ mod tests {
             .expect("recognize existing grant");
         assert!(first_grant.committed.receipt.did_mutate);
         assert!(!already_granted.committed.receipt.did_mutate);
+        assert!(already_granted.event.is_none());
+        let after_redundant_grant = kernel
+            .readers()
+            .read_default(|connection| {
+                Ok((
+                    local_commit::head(connection)?,
+                    connection.query_row("SELECT COUNT(*) FROM change_log", [], |row| {
+                        row.get::<_, i64>(0)
+                    })?,
+                ))
+            })
+            .expect("read semantic heads after redundant grant");
+        assert_eq!(after_redundant_grant, before_redundant_grant);
         let project_bound_access_read = module
             .read(
                 &context(),
@@ -4684,6 +4976,115 @@ mod tests {
     }
 
     #[test]
+    fn seals_project_access_revocation_as_immutable_commit_evidence() {
+        let (_directory, kernel, module) = seeded_library();
+        module
+            .apply(
+                &context(),
+                create_request("operation:create-revocation-page", "Shared Page"),
+            )
+            .expect("create shared Page");
+        kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    transaction.execute(
+                        "INSERT INTO projects(id, library_id, name, created, updated)
+                         VALUES ('project-2', 'library-1', 'Reader', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    Ok(())
+                })
+            })
+            .expect("seed reader Project");
+        module
+            .apply(
+                &library_context(),
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "operation:grant-reader-page".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::SetProjectAccess {
+                        target: LibraryResourceTarget::Page {
+                            page_id: "page:created".to_owned(),
+                        },
+                        changes: vec![LibraryProjectAccessChange {
+                            project_id: "project-2".to_owned(),
+                            access: Some(LibraryAccess::Read),
+                            expected_revision: None,
+                        }],
+                    },
+                },
+            )
+            .expect("grant reader access");
+        let revoked = module
+            .apply(
+                &library_context(),
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "operation:revoke-reader-page".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::SetProjectAccess {
+                        target: LibraryResourceTarget::Page {
+                            page_id: "page:created".to_owned(),
+                        },
+                        changes: vec![LibraryProjectAccessChange {
+                            project_id: "project-2".to_owned(),
+                            access: None,
+                            expected_revision: Some(1),
+                        }],
+                    },
+                },
+            )
+            .expect("revoke reader access");
+        let manifest = kernel
+            .readers()
+            .read_default(|connection| {
+                local_commit::read_manifest(connection, revoked.committed.receipt.commit_seq)
+            })
+            .expect("read revocation Manifest");
+
+        assert!(manifest.revocations.iter().any(|revocation| {
+            revocation.resource_kind == RevokedResourceKind::Page
+                && revocation.resource_id == "page:created"
+                && revocation.reason == ResourceRevocationReason::AccessRevoked
+                && matches!(
+                    &revocation.authorization_scope,
+                    nodex_core_contracts::events::DeliveryAuthorizationScope::Project {
+                        project_id,
+                        ..
+                    } if project_id == "project-2"
+                )
+        }));
+        assert!(manifest.revocations.iter().any(|revocation| {
+            revocation.resource_kind == RevokedResourceKind::Document
+                && revocation.reason == ResourceRevocationReason::AccessRevoked
+                && matches!(
+                    &revocation.authorization_scope,
+                    nodex_core_contracts::events::DeliveryAuthorizationScope::Project {
+                        project_id,
+                        ..
+                    } if project_id == "project-2"
+                )
+        }));
+        assert!(manifest.revocations.iter().any(|revocation| {
+            revocation.resource_kind == RevokedResourceKind::Document
+                && revocation.reason == ResourceRevocationReason::AccessRevoked
+                && matches!(
+                    &revocation.authorization_scope,
+                    nodex_core_contracts::events::DeliveryAuthorizationScope::Document {
+                        project_id: Some(project_id),
+                        ..
+                    } if project_id == "project-2"
+                )
+        }));
+        assert!(!manifest.revocations.iter().any(|revocation| matches!(
+            revocation.authorization_scope,
+            nodex_core_contracts::events::DeliveryAuthorizationScope::Library { .. }
+        )));
+    }
+
+    #[test]
     fn canvas_lifecycle_is_atomic_with_its_host_page_shell() {
         let (_directory, kernel, module) = seeded_library();
         module
@@ -4780,6 +5181,14 @@ mod tests {
             .call(move |connection| {
                 with_immediate_transaction(connection, |transaction| {
                     let parent = load_parent_document(transaction, &guard_host_document_id)?;
+                    let request_hash = sha256(b"guard-setup");
+                    let commit = local_commit::begin(
+                        transaction,
+                        "epoch-1",
+                        "operation:add-guard-paragraph",
+                        &request_hash,
+                        "2026-08-07T00:00:00Z",
+                    )?;
                     persist_parent_operations(
                         transaction,
                         "epoch-1",
@@ -4801,7 +5210,25 @@ mod tests {
                             parent_block_id: None,
                             before_block_id: None,
                         }],
-                    )
+                        &commit,
+                    )?;
+                    insert_module_receipt(
+                        transaction,
+                        NewModuleReceipt {
+                            module_name: "owned_document",
+                            operation_id: "operation:add-guard-paragraph",
+                            context: &context(),
+                            operation_kind: "test_setup",
+                            store_epoch: "epoch-1",
+                            request_hash: &request_hash,
+                            result: &json!({}),
+                            event_sequence: None,
+                            local_commit: Some(&commit),
+                            committed_at: "2026-08-07T00:00:00Z",
+                        },
+                    )?;
+                    local_commit::finalize(transaction, &commit)?;
+                    Ok(())
                 })
             })
             .expect("add editable sibling for guard test");
@@ -4812,6 +5239,13 @@ mod tests {
             .call(move |connection| {
                 with_immediate_transaction(connection, |transaction| {
                     let parent = load_parent_document(transaction, &ordinary_delete_document_id)?;
+                    let commit = local_commit::begin(
+                        transaction,
+                        "epoch-1",
+                        "operation:ordinary-canvas-delete",
+                        &sha256(b"ordinary-canvas-delete"),
+                        "2026-08-07T00:00:00Z",
+                    )?;
                     persist_parent_operations(
                         transaction,
                         "epoch-1",
@@ -4821,15 +5255,16 @@ mod tests {
                         &[DocumentBlockOperation::DeleteBlock {
                             block_id: "018f0000-0000-7000-8000-000000000010".to_owned(),
                         }],
+                        &commit,
                     )
                 })
             })
             .expect_err("ordinary Document update cannot delete Canvas owner");
-        assert_eq!(ordinary_delete.code, StoreErrorCode::InvalidInput);
+        assert_eq!(ordinary_delete.code, StoreErrorCode::ProtectedOwnerDeletion);
         assert!(
             ordinary_delete
                 .message
-                .contains("typed lifecycle operation"),
+                .contains("cannot be removed by a generic Document update"),
             "{}",
             ordinary_delete.message,
         );

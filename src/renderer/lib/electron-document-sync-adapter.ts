@@ -235,19 +235,75 @@ const normalizeApplyResult = (
       error: invalidResponseError("Invalid document update ACK"),
     };
   }
+  const common = {
+    documentId: value.documentId,
+    storeEpoch: value.storeEpoch,
+    generation: value.generation,
+    updateId: value.updateId,
+    committedSeq: value.committedSeq,
+    headSeq: value.headSeq,
+    stateVector,
+    duplicate: value.duplicate,
+  };
+  if (value.status === "committed" && isRecord(value.commit)) {
+    const commit = value.commit;
+    if (
+      typeof commit.store_epoch !== "string"
+      || typeof commit.commit_seq !== "number"
+      || typeof commit.manifest_hash !== "string"
+    ) {
+      return {
+        ok: false,
+        error: invalidResponseError("Invalid document update commit identity"),
+      };
+    }
+    return {
+      ok: true,
+      value: {
+        ...common,
+        status: "committed",
+        commit: {
+          store_epoch: commit.store_epoch,
+          commit_seq: commit.commit_seq,
+          manifest_hash: commit.manifest_hash,
+        },
+        ...(isRecord(value.delivery)
+          ? {
+              delivery: value.delivery as Extract<
+                DocumentSyncApplyAck,
+                { readonly status: "committed" }
+              >["delivery"],
+            }
+          : {}),
+      },
+    };
+  }
+  if (value.status === "no_op" && isRecord(value.observed)) {
+    const observed = value.observed;
+    if (
+      typeof observed.store_epoch !== "string"
+      || typeof observed.commit_head !== "number"
+    ) {
+      return {
+        ok: false,
+        error: invalidResponseError("Invalid document update observation"),
+      };
+    }
+    return {
+      ok: true,
+      value: {
+        ...common,
+        status: "no_op",
+        observed: {
+          store_epoch: observed.store_epoch,
+          commit_head: observed.commit_head,
+        },
+      },
+    };
+  }
   return {
-    ok: true,
-    value: {
-      documentId: value.documentId,
-      storeEpoch: value.storeEpoch,
-      generation: value.generation,
-      updateId: value.updateId,
-      committedSeq: value.committedSeq,
-      ...(isRecord(value.localCommit) ? { localCommit: value.localCommit as DocumentSyncApplyAck["localCommit"] } : {}),
-      headSeq: value.headSeq,
-      stateVector,
-      duplicate: value.duplicate,
-    },
+    ok: false,
+    error: invalidResponseError("Invalid document update ACK status"),
   };
 };
 
@@ -338,7 +394,10 @@ const normalizeRealtimeEvent = (
     typeof value.headSeq !== "number" ||
     (value.reason !== "event-gap" &&
       value.reason !== "history-compacted" &&
-      value.reason !== "transport-reconnected")
+      value.reason !== "transport-reconnected" &&
+      value.reason !== "resource-integrity-failure" &&
+      value.reason !== "identity-boundary-changed" &&
+      value.reason !== "access-revoked")
   ) {
     return null;
   }

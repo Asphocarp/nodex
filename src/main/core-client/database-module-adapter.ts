@@ -22,10 +22,15 @@ import {
   parseLibraryDatabaseModuleReadResultV2,
 } from "../../shared/database-module-v2-transport";
 import { CoreModuleResponseError } from "./core-client";
+import {
+  applyResultCursor,
+  applyResultDelivery,
+  applyResultStoreEpoch,
+} from "./types";
 import type {
   CoreClientPort,
   CoreModuleError,
-  DatabaseCommittedValue,
+  DatabaseApplyResult,
   DatabaseIntent,
   DatabaseRead,
   DatabaseReadSnapshot,
@@ -379,23 +384,20 @@ export const toCoreDatabaseIntent = (
 };
 
 const validateCoreCommit = (
-  committed: DatabaseCommittedValue,
+  committed: DatabaseApplyResult,
   request: Pick<DatabaseApplyV2, "operationId" | "operations">,
 ): readonly DatabaseApplyOperationV2["kind"][] => {
   if (committed.receipt.operation_id !== request.operationId) {
     throw new Error("Core Database receipt crossed its operation boundary");
   }
   const operationKinds = request.operations.map((operation) => operation.kind);
-  const semanticCommitSeq =
-    committed.commit_seq
-    ?? committed.local_commit?.commit_seq
-    ?? committed.receipt.commit_seq;
+  const semanticCommitSeq = applyResultCursor(committed);
+  const delivery = applyResultDelivery(committed);
   if (
-    committed.value.operation_count !== request.operations.length
+    committed.outcome.operation_count !== request.operations.length
     || committed.receipt.commit_seq !== semanticCommitSeq
-    || (committed.local_commit !== null
-      && committed.local_commit !== undefined
-      && committed.local_commit.commit_seq !== semanticCommitSeq)
+    || (delivery !== undefined
+      && delivery.manifest.identity.commit_seq !== semanticCommitSeq)
     || committed.receipt.operation_kinds.length !== operationKinds.length
     || committed.receipt.operation_kinds.some((kind, index) =>
       kind !== operationKinds[index]
@@ -407,7 +409,7 @@ const validateCoreCommit = (
 };
 
 const coreReceiptEvidence = (
-  committed: DatabaseCommittedValue,
+  committed: DatabaseApplyResult,
   operationKinds: readonly DatabaseApplyOperationV2["kind"][],
 ) => ({
   operationId: committed.receipt.operation_id,
@@ -418,10 +420,7 @@ const coreReceiptEvidence = (
   affectedPageIds: committed.receipt.affected_page_ids,
   affectedViewIds: committed.receipt.affected_view_ids,
   committedRevisions: committed.receipt.committed_revisions,
-  commitSeq:
-    committed.commit_seq
-    ?? committed.local_commit?.commit_seq
-    ?? committed.receipt.commit_seq,
+  commitSeq: applyResultCursor(committed),
   committedAt: committed.receipt.committed_at,
 });
 
@@ -797,7 +796,8 @@ export const createCoreDatabaseModuleAdapter = (
           operationId: request.operationId,
           intent: request.operations.map(toCoreDatabaseIntent),
         });
-        if (committed.store_epoch !== input.storeEpoch) {
+        const storeEpoch = applyResultStoreEpoch(committed);
+        if (storeEpoch !== input.storeEpoch) {
           throw new Error("Core Database apply crossed its Store epoch boundary");
         }
         const operationKinds = validateCoreCommit(committed, request);
@@ -807,7 +807,7 @@ export const createCoreDatabaseModuleAdapter = (
             version: request.version,
             projectId: input.projectId,
             libraryId: input.libraryId,
-            storeEpoch: committed.store_epoch,
+            storeEpoch,
             ...coreReceiptEvidence(committed, operationKinds),
           },
         });
@@ -867,7 +867,8 @@ export const createCoreLibraryDatabaseModuleAdapter = (
         operationId: request.operationId,
         intent: request.operations.map(toCoreDatabaseIntent),
       });
-      if (committed.store_epoch !== input.storeEpoch) {
+      const storeEpoch = applyResultStoreEpoch(committed);
+      if (storeEpoch !== input.storeEpoch) {
         throw new Error("Core Library Database apply crossed its Store epoch boundary");
       }
       const operationKinds = validateCoreCommit(committed, request);
@@ -877,7 +878,7 @@ export const createCoreLibraryDatabaseModuleAdapter = (
           version: request.version,
           accessContext: { kind: "library" },
           libraryId: input.libraryId,
-          storeEpoch: committed.store_epoch,
+          storeEpoch,
           ...coreReceiptEvidence(committed, operationKinds),
         },
       });

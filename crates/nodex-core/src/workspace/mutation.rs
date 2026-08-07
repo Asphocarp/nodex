@@ -7,7 +7,7 @@ use nodex_core_contracts::workspace::{
     ProjectWorkspaceReceipt, ProjectWorkspaceStarterPage,
 };
 use nodex_core_contracts::{
-    BoundModuleContext, CommittedModuleValue, ModuleApplyRequest, ModuleMutationReceipt,
+    BoundModuleContext, ModuleApplyRequest, ModuleMutationReceipt, ModuleName,
     PageDocumentHeadImpact, ProjectionImpact, StoreEpoch,
 };
 use rusqlite::{Connection, OptionalExtension, params};
@@ -24,13 +24,18 @@ use crate::domain::identity::stable_uuid_v7;
 use crate::domain::project_appearance::{
     normalize_project_appearance, project_marker_color_literal, project_marker_icon_literal,
 };
+use crate::infrastructure::durable_mutation::{
+    self, CommitResult, DurableMutationScope, OperationIdentity, ReceiptMetadata, SealedOutcome,
+};
 use crate::infrastructure::event_log::{
     NewChangeLogEntry, append_change_log, load_committed_event_by_sequence,
-    load_local_commit_by_event_sequence,
 };
-use crate::infrastructure::module_receipts::{
-    NewModuleReceipt, insert_module_receipt, read_module_receipt,
-};
+#[cfg(test)]
+use crate::infrastructure::local_commit;
+use crate::infrastructure::local_commit::CommitContext;
+use crate::infrastructure::module_receipts::read_module_receipt;
+#[cfg(test)]
+use crate::infrastructure::module_receipts::{NewModuleReceipt, insert_module_receipt};
 use crate::infrastructure::projection_impact::expand_database_coordinates;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode, with_immediate_transaction};
 use crate::infrastructure::writer::StoreWriter;
@@ -62,7 +67,6 @@ struct CreatedProjectAggregate {
     identities: ProjectAggregateIdentities,
     canvas: PrimaryCanvasIdentity,
     starter_page: Option<crate::library::page_genesis::CreatedPageGenesis>,
-    committed_at: String,
 }
 
 struct StarterPageGenesisRequest<'a> {
@@ -115,8 +119,20 @@ pub(super) fn seed_rootless_default_project_for_test(
     writer.call(move |connection| {
         with_immediate_transaction(connection, |transaction| {
             assert_identity(transaction, &profile_id, &library_id)?;
+            let operation_id = "test:rootless-default-project:v1";
+            let request_hash = sha256(operation_id.as_bytes());
+            let committed_at = sqlite_now(transaction)?;
+            let commit = local_commit::begin(
+                transaction,
+                &read_store_epoch(transaction)?,
+                operation_id,
+                &request_hash,
+                &committed_at,
+            )?;
             create_project_records(
                 transaction,
+                &commit,
+                &committed_at,
                 &library_id,
                 "project:default",
                 "Nodex",
@@ -127,6 +143,53 @@ pub(super) fn seed_rootless_default_project_for_test(
                 &assets_root,
                 None,
             )?;
+            let receipt_context = nodex_core_contracts::BoundModuleContext {
+                profile_id: nodex_core_contracts::ProfileId(profile_id.clone()),
+                library_id: nodex_core_contracts::LibraryId(library_id.clone()),
+                project_id: Some(nodex_core_contracts::ProjectId(
+                    "project:default".to_owned(),
+                )),
+                connection_id: "test:rootless-default-project".to_owned(),
+                adapter: nodex_core_contracts::AdapterKind::Test,
+            };
+            let event_sequence = append_change_log(
+                transaction,
+                NewChangeLogEntry {
+                    project_id: "project:default",
+                    store_epoch: commit.store_epoch(),
+                    kind: "project_workspace.changed",
+                    operation_id: Some(operation_id),
+                    block_ids: &[],
+                    document_ids: &[],
+                    database_block_ids: &[],
+                    payload_json: &json!({
+                        "module": MODULE_NAME,
+                        "operationKind": "test_seed",
+                        "kind": "workspace_changed",
+                        "projectIds": ["project:default"],
+                    })
+                    .to_string(),
+                    projection_impact: &ProjectionImpact::All,
+                    committed_at: &committed_at,
+                },
+                &commit,
+            )?;
+            insert_module_receipt(
+                transaction,
+                NewModuleReceipt {
+                    module_name: MODULE_NAME,
+                    operation_id,
+                    context: &receipt_context,
+                    operation_kind: "test_seed",
+                    store_epoch: commit.store_epoch(),
+                    request_hash: &request_hash,
+                    result: &json!({}),
+                    event_sequence: Some(event_sequence),
+                    local_commit: Some(&commit),
+                    committed_at: &committed_at,
+                },
+            )?;
+            local_commit::finalize(transaction, &commit)?;
             Ok(())
         })
     })
@@ -178,7 +241,7 @@ pub(super) fn apply(
                     ));
                 }
                 let mut committed = serde_json::from_value::<
-                    CommittedModuleValue<ProjectWorkspaceCommitValue, ProjectWorkspaceReceipt>,
+                    crate::ModuleWriterResult<ProjectWorkspaceCommitValue, ProjectWorkspaceReceipt>,
                 >(stored.result)
                 .map_err(|_| corrupt("Stored Project Workspace receipt is invalid"))?;
                 committed.receipt.mutation.duplicate = true;
@@ -736,61 +799,77 @@ fn create_project(
         .transpose()
         .map_err(invalid)?
         .unwrap_or_default();
-    let created = create_project_records(
+    let committed_at = sqlite_now(connection)?;
+    let commit_result = durable_mutation::run(
         connection,
-        library_id,
-        project_id,
-        &name,
-        description,
-        &appearance,
-        &sources,
-        operation_id,
-        assets_root,
-        starter_page.map(|page| StarterPageGenesisRequest { page, store_epoch }),
-    )?;
-    let mut block_ids = vec![
-        created.identities.database_id.clone(),
-        created.canvas.block_id,
-    ];
-    let mut document_ids = vec![created.canvas.document_id];
-    let mut page_ids = Vec::new();
-    let mut data_source_ids = Vec::new();
-    let mut view_ids = Vec::new();
-    let mut document_heads = Vec::new();
-    if let Some(starter_page) = &created.starter_page {
-        page_ids.push(starter_page.page_create.page_id.clone());
-        block_ids.push(starter_page.page_create.page_id.clone());
-        block_ids.extend(starter_page.page_create.block_ids.iter().cloned());
-        document_ids.push(starter_page.page_create.document_id.clone());
-        data_source_ids.push(starter_page.data_source_id.clone());
-        view_ids.extend(starter_page.affected_view_ids.iter().cloned());
-        document_heads.push(starter_page.document_head.clone());
-    }
-    finish_mutation(
-        connection,
-        context,
-        store_epoch,
-        operation_id,
-        request_hash,
-        WorkspaceMutationEffects {
-            operation_kind: "create_project",
-            project_catalog_change: Some(ProjectCatalogChangeKind::Created),
-            change_project_id: project_id.to_owned(),
-            project_ids: vec![project_id.to_owned()],
-            session_ids: Vec::new(),
-            thread_ids: Vec::new(),
-            session_summary_scopes: Vec::new(),
-            session_detail_ids: Vec::new(),
-            block_ids,
-            document_ids,
-            database_ids: vec![created.identities.database_id],
-            page_ids,
-            data_source_ids,
-            view_ids,
-            document_heads,
-            committed_at: created.committed_at,
+        OperationIdentity {
+            module: ModuleName::ProjectWorkspace,
+            module_name: MODULE_NAME,
+            operation_id,
+            intent_hash: request_hash,
+            store_epoch,
+            committed_at: &committed_at,
+            context,
         },
-    )
+        |scope| {
+            let created = create_project_records(
+                connection,
+                scope.evidence(),
+                &committed_at,
+                library_id,
+                project_id,
+                &name,
+                description,
+                &appearance,
+                &sources,
+                operation_id,
+                assets_root,
+                starter_page.map(|page| StarterPageGenesisRequest { page, store_epoch }),
+            )?;
+            let mut block_ids = vec![
+                created.identities.database_id.clone(),
+                created.canvas.block_id,
+            ];
+            let mut document_ids = vec![created.canvas.document_id];
+            let mut page_ids = Vec::new();
+            let mut data_source_ids = Vec::new();
+            let mut view_ids = Vec::new();
+            let mut document_heads = Vec::new();
+            if let Some(starter_page) = &created.starter_page {
+                page_ids.push(starter_page.page_create.page_id.clone());
+                block_ids.push(starter_page.page_create.page_id.clone());
+                block_ids.extend(starter_page.page_create.block_ids.iter().cloned());
+                document_ids.push(starter_page.page_create.document_id.clone());
+                data_source_ids.push(starter_page.data_source_id.clone());
+                view_ids.extend(starter_page.affected_view_ids.iter().cloned());
+                document_heads.push(starter_page.document_head.clone());
+            }
+            seal_mutation(
+                scope,
+                context,
+                operation_id,
+                WorkspaceMutationEffects {
+                    operation_kind: "create_project",
+                    project_catalog_change: Some(ProjectCatalogChangeKind::Created),
+                    change_project_id: project_id.to_owned(),
+                    project_ids: vec![project_id.to_owned()],
+                    session_ids: Vec::new(),
+                    thread_ids: Vec::new(),
+                    session_summary_scopes: Vec::new(),
+                    session_detail_ids: Vec::new(),
+                    block_ids,
+                    document_ids,
+                    database_ids: vec![created.identities.database_id],
+                    page_ids,
+                    data_source_ids,
+                    view_ids,
+                    document_heads,
+                    committed_at: committed_at.clone(),
+                },
+            )
+        },
+    )?;
+    workspace_commit_result(connection, commit_result)
 }
 
 pub(super) fn finish_mutation(
@@ -801,6 +880,70 @@ pub(super) fn finish_mutation(
     request_hash: &str,
     effects: WorkspaceMutationEffects,
 ) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
+    let committed_at = effects.committed_at.clone();
+    let result = durable_mutation::run(
+        connection,
+        OperationIdentity {
+            module: ModuleName::ProjectWorkspace,
+            module_name: MODULE_NAME,
+            operation_id,
+            intent_hash: request_hash,
+            store_epoch,
+            committed_at: &committed_at,
+            context,
+        },
+        |scope| seal_mutation(scope, context, operation_id, effects),
+    )?;
+    workspace_commit_result(connection, result)
+}
+
+fn workspace_commit_result(
+    connection: &Connection,
+    result: CommitResult<
+        crate::ModuleWriterResult<ProjectWorkspaceCommitValue, ProjectWorkspaceReceipt>,
+    >,
+) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
+    result.verify_manifest_identity(|committed| {
+        (committed.commit_seq, committed.store_epoch.0.clone())
+    })?;
+    match result {
+        CommitResult::Committed {
+            outcome: committed, ..
+        } => {
+            let event = load_committed_event_by_sequence(connection, committed.event_sequence)?;
+            Ok(ProjectWorkspaceApplyOutcome {
+                committed,
+                event: Some(event),
+            })
+        }
+        CommitResult::NoOp { outcome: committed } => Ok(ProjectWorkspaceApplyOutcome {
+            committed,
+            event: None,
+        }),
+        CommitResult::IdempotentReplay {
+            outcome: mut committed,
+            ..
+        } => {
+            committed.receipt.mutation.duplicate = true;
+            Ok(ProjectWorkspaceApplyOutcome {
+                committed,
+                event: None,
+            })
+        }
+    }
+}
+
+fn seal_mutation(
+    scope: &DurableMutationScope<'_>,
+    _context: &BoundModuleContext,
+    operation_id: &str,
+    effects: WorkspaceMutationEffects,
+) -> Result<
+    SealedOutcome<crate::ModuleWriterResult<ProjectWorkspaceCommitValue, ProjectWorkspaceReceipt>>,
+    StoreError,
+> {
+    let connection = scope.connection();
+    let store_epoch = scope.store_epoch();
     let payload = json!({
         "module": MODULE_NAME,
         "operationKind": effects.operation_kind,
@@ -838,9 +981,9 @@ pub(super) fn finish_mutation(
             projection_impact: &projection_impact,
             committed_at: &effects.committed_at,
         },
+        scope.evidence(),
     )?;
-    let local_commit = load_local_commit_by_event_sequence(connection, event_sequence)?;
-    let committed = CommittedModuleValue {
+    let committed = crate::ModuleWriterResult {
         value: ProjectWorkspaceCommitValue {
             affected_project_ids: effects.project_ids.clone(),
             affected_session_ids: effects.session_ids.clone(),
@@ -854,32 +997,18 @@ pub(super) fn finish_mutation(
             affected_project_ids: effects.project_ids.clone(),
             affected_session_ids: effects.session_ids.clone(),
         },
-        commit_seq: local_commit.commit_seq,
+        commit_seq: scope.commit_seq(),
         event_sequence,
         store_epoch: StoreEpoch(store_epoch.to_owned()),
-        local_commit: Some(local_commit),
     };
-    let result = serde_json::to_value(&committed)
-        .map_err(|_| internal("Project Workspace receipt result"))?;
-    insert_module_receipt(
-        connection,
-        NewModuleReceipt {
-            module_name: MODULE_NAME,
-            operation_id,
-            context,
+    Ok(scope.seal(
+        committed,
+        ReceiptMetadata {
             operation_kind: effects.operation_kind,
-            store_epoch,
-            request_hash,
-            result: &result,
             event_sequence: Some(event_sequence),
             committed_at: &effects.committed_at,
         },
-    )?;
-    let event = load_committed_event_by_sequence(connection, event_sequence)?;
-    Ok(ProjectWorkspaceApplyOutcome {
-        committed,
-        event: Some(event),
-    })
+    ))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1354,6 +1483,8 @@ fn lifecycle_literal(lifecycle: ProjectLifecycle) -> &'static str {
 #[allow(clippy::too_many_arguments)]
 fn create_project_records(
     connection: &Connection,
+    commit_context: &CommitContext,
+    committed_at: &str,
     library_id: &str,
     project_id: &str,
     name: &str,
@@ -1394,7 +1525,7 @@ fn create_project_records(
     }
     let database_name = derive_project_resource_name(name, PROJECT_DATABASE_NAME_SUFFIX);
     let canvas_name = derive_project_resource_name(name, PROJECT_CANVAS_NAME_SUFFIX);
-    let now = sqlite_now(connection)?;
+    let now = committed_at.to_owned();
     let appearance_storage = project_appearance_storage(appearance);
     connection.execute("UPDATE project_order SET \"order\" = \"order\" + 1", [])?;
     connection.execute(
@@ -1467,6 +1598,7 @@ fn create_project_records(
             crate::library::page_genesis::create_page_in_data_source(
                 connection,
                 crate::library::page_genesis::PageGenesisInput {
+                    commit_context,
                     library_id,
                     project_id,
                     actor_project_id: project_id,
@@ -1488,7 +1620,6 @@ fn create_project_records(
         identities,
         canvas,
         starter_page,
-        committed_at: now,
     })
 }
 

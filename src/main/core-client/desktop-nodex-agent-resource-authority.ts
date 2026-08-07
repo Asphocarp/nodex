@@ -17,6 +17,7 @@ import type {
   DesktopDataAuthorityRuntime,
   RustDataAuthorityRuntime,
 } from "./desktop-data-authority";
+import { applyResultStoreEpoch } from "./types";
 
 type CoreAgentTarget = components["schemas"]["AgentAuthorizationTarget"];
 type CoreAgentGrant = components["schemas"]["AgentResourceGrantSpec"];
@@ -319,7 +320,7 @@ const createCorePort = (
         },
       });
       if (
-        committed.store_epoch !== input.authority.storeEpoch
+        applyResultStoreEpoch(committed) !== input.authority.storeEpoch
         || committed.receipt.operation_id !== input.operationId
         || committed.receipt.operation_kind
           !== "persist_agent_project_resource_grants"

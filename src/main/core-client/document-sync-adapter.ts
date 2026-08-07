@@ -58,16 +58,21 @@ import type {
   DocumentSyncSubscribeRequest,
 } from "../../shared/block-documents/document-sync";
 import { CoreModuleResponseError } from "./core-client";
+import { applyResultCursor, applyResultStoreEpoch } from "./types";
+import { isRetryableCoreEventStreamError } from "./core-event-stream-supervisor";
 import {
-  isRetryableCoreEventStreamError,
-  superviseCoreEventStream,
-  type SupervisedCoreEventSubscription,
-} from "./core-event-stream-supervisor";
+  superviseDocumentLiveStream,
+  type SupervisedDocumentLiveSubscription,
+} from "./document-live-stream-supervisor";
 import { executeWithDocumentSubscription } from "./core-document-subscription-lifecycle";
+import {
+  resolveAuthorizedDocumentEffect,
+  type ExactDocumentUpdateFetcher,
+} from "./document-effect-delivery";
 import type {
   CoreClientPort,
   CoreEventEnvelope,
-  DocumentResyncRequired,
+  DocumentLiveRepair,
   OwnedDocumentIntent,
 } from "./types";
 
@@ -76,7 +81,7 @@ type CoreDocumentOwnerCommand = Extract<
   { readonly kind: "apply_owner_command" }
 >["command"];
 
-type ActiveSubscription = SupervisedCoreEventSubscription;
+type ActiveSubscription = SupervisedDocumentLiveSubscription;
 
 interface CoreDocumentSyncAdapterOptions {
   readonly retryDelayMs?: number;
@@ -119,7 +124,7 @@ export interface CoreDocumentSyncAdapter extends DocumentSyncAdapter {
   subscribeWithLifecycle(
     request: DocumentSyncSubscribeRequest,
     listener: (event: DocumentSyncRealtimeEvent) => void,
-  ): SupervisedCoreEventSubscription;
+  ): SupervisedDocumentLiveSubscription;
   readDescriptor(input: {
     readonly ownerBlockId: string;
     readonly clientSessionId: string;
@@ -655,7 +660,10 @@ export const createCoreDocumentSyncAdapter = (
   options: CoreDocumentSyncAdapterOptions = {},
 ): CoreDocumentSyncAdapter => {
   const subscriptions = new Map<string, ActiveSubscription>();
-  const lastSequences = new Map<string, number>();
+  const updateResourceFetches = new Map<
+    string,
+    Promise<DocumentSyncCommandResult<DocumentUpdateResourceReadResult>>
+  >();
 
   const subscriptionFor = (
     request: Pick<DocumentSyncSubscribeRequest, "clientSessionId" | "documentId">,
@@ -717,7 +725,7 @@ export const createCoreDocumentSyncAdapter = (
     return descriptor;
   };
 
-  const fetchUpdateResource = async (
+  const readUpdateResource = async (
     input: DocumentUpdateResourceRef & { readonly clientSessionId: string },
   ): Promise<DocumentSyncCommandResult<DocumentUpdateResourceReadResult>> => {
     try {
@@ -775,55 +783,88 @@ export const createCoreDocumentSyncAdapter = (
     }
   };
 
+  const fetchUpdateResource = (
+    input: DocumentUpdateResourceRef & { readonly clientSessionId: string },
+  ): Promise<DocumentSyncCommandResult<DocumentUpdateResourceReadResult>> => {
+    const key = JSON.stringify([
+      input.documentId,
+      input.generation,
+      input.updateId,
+      input.updateHash,
+    ]);
+    const existing = updateResourceFetches.get(key);
+    if (existing) return existing;
+
+    const fetch = readUpdateResource(input).finally(() => {
+      if (updateResourceFetches.get(key) === fetch) {
+        updateResourceFetches.delete(key);
+      }
+    });
+    updateResourceFetches.set(key, fetch);
+    return fetch;
+  };
+
   const subscribeWithLifecycle = (
     request: DocumentSyncSubscribeRequest,
     listener: (event: DocumentSyncRealtimeEvent) => void,
-  ): SupervisedCoreEventSubscription => {
+  ): SupervisedDocumentLiveSubscription => {
     const key = subscriptionKey(request);
     const predecessor = subscriptions.get(key);
     predecessor?.close();
     const predecessorDone = predecessor?.done.catch(() => undefined)
       ?? Promise.resolve();
-    const supervisor = superviseCoreEventStream<DocumentResyncRequired>({
-      initialAfter: lastSequences.get(key) ?? 0,
+    const supervisor = superviseDocumentLiveStream({
       maxInitialOpenAttempts: options.maxInitialOpenAttempts ?? 3,
       shouldRetry: isRetryableCoreEventStreamError,
       retryDelayMs: options.retryDelayMs,
       maxRetryDelayMs: options.maxRetryDelayMs,
-      open: async (after, onEvent, onResyncRequired, signal) => {
+      open: async (onEvent, onRepair, onRealtime, signal) => {
         await predecessorDone;
         if (signal.aborted) throw signal.reason;
         return await client.openDocumentEventStream(
           {
             documentId: request.documentId,
             clientSessionId: request.clientSessionId,
-            after,
             signal,
           },
           onEvent,
-          onResyncRequired,
-          (event) => listener(event),
+          onRepair,
+          onRealtime,
         );
       },
-      onEvent: (envelope) => {
-        const previous = lastSequences.get(key) ?? 0;
-        if (envelope.event.commit_seq <= previous) return;
-        lastSequences.set(key, envelope.event.commit_seq);
-        for (const event of documentEvents(request, envelope)) {
-          listener(event);
+      onEvent: async (envelope) => {
+        const commitSeq = envelope.packet.manifest.identity.commit_seq;
+        try {
+          const events = await documentEvents(request, envelope, fetchUpdateResource);
+          events.forEach(listener);
+        } catch {
+          listener({
+            kind: "resync-required",
+            documentId: request.documentId,
+            storeEpoch: envelope.packet.manifest.identity.store_epoch,
+            generation: 1,
+            headSeq: 0,
+            commitSeq,
+            reason: "resource-integrity-failure",
+          });
         }
       },
-      onResyncRequired: (resync) => {
-        lastSequences.set(key, resync.commit_head);
+      onRepair: (repair: DocumentLiveRepair) => {
         listener({
           kind: "resync-required",
-          documentId: resync.document_id,
-          storeEpoch: resync.store_epoch,
-          generation: resync.generation,
-          headSeq: resync.head_seq,
-          reason: "history-compacted",
+          documentId: repair.document_id,
+          storeEpoch: repair.store_epoch,
+          generation: repair.document_generation,
+          headSeq: repair.head_seq,
+          commitSeq: repair.commit_head,
+          reason: repair.reason === "identity_changed"
+            ? "identity-boundary-changed"
+            : repair.reason === "access_revoked"
+            ? "access-revoked"
+            : "event-gap",
         });
       },
+      onRealtime: (event) => listener(event),
       onConnectionStateChanged: (state) => {
         listener({
           kind: "connection",
@@ -865,21 +906,27 @@ export const createCoreDocumentSyncAdapter = (
           request.clientSessionId ?? "electron:document-mutation",
         intent: coreDocumentMutationIntent(request),
       });
+      const storeEpoch = applyResultStoreEpoch(committed);
       if (
-        committed.store_epoch !== request.storeEpoch
+        storeEpoch !== request.storeEpoch
         || committed.receipt.operation_id !== request.mutationId
         || committed.receipt.document_id !== request.documentId
         || committed.receipt.generation !== request.generation
-        || committed.value.document_id !== request.documentId
-        || committed.value.generation !== request.generation
-        || committed.value.head_seq !== committed.receipt.head_seq
+        || committed.outcome.document_id !== request.documentId
+        || committed.outcome.generation !== request.generation
+        || committed.outcome.head_seq !== committed.receipt.head_seq
       ) {
         throw new DocumentOperationContractError(
           "Core Document mutation receipt escaped its request boundary",
         );
       }
-      if (committed.value.outcome === "no_change") {
-        if (committed.value.head_seq !== request.expectedHeadSeq) {
+      if (committed.outcome.outcome === "no_change") {
+        if (committed.status !== "no_op") {
+          throw new DocumentOperationContractError(
+            "Core no-change Document mutation claimed a semantic commit",
+          );
+        }
+        if (committed.outcome.head_seq !== request.expectedHeadSeq) {
           throw new DocumentOperationContractError(
             "Core no-change Document mutation advanced the head",
           );
@@ -895,13 +942,18 @@ export const createCoreDocumentSyncAdapter = (
           ),
         };
       }
-      const effect = committed.value.mutation_effect;
-      const committedAt = committed.value.committed_at;
+      if (committed.status !== "committed") {
+        throw new DocumentOperationContractError(
+          "Core advancing Document mutation omitted its commit identity",
+        );
+      }
+      const effect = committed.outcome.mutation_effect;
+      const committedAt = committed.outcome.committed_at;
       if (
         !effect
         || !committedAt
         || effect.base_head_seq !== request.expectedHeadSeq
-        || committed.value.head_seq !== request.expectedHeadSeq + 1
+        || committed.outcome.head_seq !== request.expectedHeadSeq + 1
       ) {
         throw new DocumentOperationContractError(
           "Core Document mutation effect escaped its exact head boundary",
@@ -933,11 +985,11 @@ export const createCoreDocumentSyncAdapter = (
         mutationKind: documentMutationKind(request),
         mutationId: request.mutationId,
         projectId: request.projectId,
-        storeEpoch: committed.store_epoch,
-        documentId: committed.value.document_id,
-        generation: committed.value.generation,
+        storeEpoch,
+        documentId: committed.outcome.document_id,
+        generation: committed.outcome.generation,
         baseHeadSeq: effect.base_head_seq,
-        headSeq: committed.value.head_seq,
+        headSeq: committed.outcome.head_seq,
         touchedBlockIds: effect.touched_block_ids,
         createdBlockIds: effect.created_block_ids,
         deletedBlockIds: effect.deleted_block_ids,
@@ -946,10 +998,7 @@ export const createCoreDocumentSyncAdapter = (
         writeFenceBlockIds: effect.write_fence_block_ids,
         titleChanged: effect.title_changed,
         coordination: effect.coordination,
-        commitSeq:
-          committed.commit_seq
-          ?? committed.local_commit?.commit_seq
-          ?? committed.event_sequence,
+        commitSeq: applyResultCursor(committed),
         committedAt,
         duplicate: committed.receipt.duplicate,
       });
@@ -982,13 +1031,14 @@ export const createCoreDocumentSyncAdapter = (
           },
         });
         const descriptor = await readDescriptor(input);
+        const storeEpoch = applyResultStoreEpoch(committed);
         if (
           committed.receipt.operation_id !== input.operationId
           || committed.receipt.document_id !== descriptor.documentId
-          || committed.value.document_id !== descriptor.documentId
-          || committed.value.generation !== descriptor.generation
-          || committed.value.head_seq > descriptor.headSeq
-          || committed.store_epoch !== descriptor.storeEpoch
+          || committed.outcome.document_id !== descriptor.documentId
+          || committed.outcome.generation !== descriptor.generation
+          || committed.outcome.head_seq > descriptor.headSeq
+          || storeEpoch !== descriptor.storeEpoch
         ) {
           throw new Error("Core Owned Document preparation escaped its owner boundary");
         }
@@ -1013,10 +1063,11 @@ export const createCoreDocumentSyncAdapter = (
             command: coreOwnerCommand(request),
           },
         });
-        const effect = committed.value.owner_effect;
-        const committedAt = committed.value.committed_at;
+        const effect = committed.outcome.owner_effect;
+        const committedAt = committed.outcome.committed_at;
+        const storeEpoch = applyResultStoreEpoch(committed);
         if (
-          committed.store_epoch !== request.storeEpoch
+          storeEpoch !== request.storeEpoch
           || committed.receipt.operation_id !== request.operationId
           || !effect
           || !committedAt
@@ -1034,7 +1085,7 @@ export const createCoreDocumentSyncAdapter = (
             version: 1,
             operationId: request.operationId,
             projectId: request.projectId,
-            storeEpoch: committed.store_epoch,
+            storeEpoch,
             operationKind: request.operation.kind,
             semanticHash,
             duplicate: committed.receipt.duplicate,
@@ -1048,10 +1099,7 @@ export const createCoreDocumentSyncAdapter = (
                 headSeq: head.head_seq,
               })),
             },
-            commitSeq:
-              committed.commit_seq
-              ?? committed.local_commit?.commit_seq
-              ?? committed.event_sequence,
+            commitSeq: applyResultCursor(committed),
             committedAt,
           },
         });
@@ -1080,9 +1128,10 @@ export const createCoreDocumentSyncAdapter = (
             source_change_seq: request.sourceChangeSeq,
           },
         });
-        const effect = committed.value.checkpoint_effect;
+        const effect = committed.outcome.checkpoint_effect;
+        const storeEpoch = applyResultStoreEpoch(committed);
         if (
-          committed.store_epoch !== request.storeEpoch ||
+          storeEpoch !== request.storeEpoch ||
           committed.receipt.operation_id !== operationId ||
           committed.receipt.document_id !== request.documentId ||
           committed.receipt.generation !== request.expectedGeneration ||
@@ -1206,46 +1255,47 @@ export const createCoreDocumentSyncAdapter = (
   };
 };
 
-const documentEvents = (
+const documentEvents = async (
   request: DocumentSyncSubscribeRequest,
   envelope: CoreEventEnvelope,
-): readonly DocumentSyncRealtimeEvent[] => {
-  if (envelope.event.effects.length === 0) {
-    throw new Error("Core LocalCommit envelope has no physical effects");
-  }
-  const effects = envelope.event.effects;
+  fetchUpdateResource: ExactDocumentUpdateFetcher,
+): Promise<readonly DocumentSyncRealtimeEvent[]> => {
+  const identity = envelope.packet.manifest.identity;
   const events: DocumentSyncRealtimeEvent[] = [];
-  effects.forEach((effect, effectIndex) => {
+  const requiresResync = envelope.packet.effects.some((effect) =>
+    effect.payload.module === "owned_document"
+    && effect.payload.event.document_id === request.documentId
+    && (
+      effect.payload.event.kind === "document_resync_required"
+      || effect.payload.event.kind === "document_invalidated"
+    )
+  );
+  const documentEffects = requiresResync
+    ? []
+    : envelope.packet.document_effects.filter(
+        (effect) => effect.reference.document_id === request.documentId,
+      );
+  events.push(...await Promise.all(documentEffects.map((effect) =>
+    resolveAuthorizedDocumentEffect(
+      effect,
+      envelope.packet.manifest.identity,
+      fetchUpdateResource,
+    )
+  )));
+  envelope.packet.effects.forEach((effect) => {
     const payload = effect.payload;
     if (payload.module !== "owned_document") return;
     const event = payload.event;
     if (event.document_id !== request.documentId) return;
-    if (event.kind === "document_updated") {
-      events.push({
-        kind: "document-update",
-        documentId: event.document_id,
-        storeEpoch: envelope.event.store_epoch,
-        generation: event.generation,
-        headSeq: event.head_seq,
-        commitSeq: envelope.event.commit_seq,
-        effectSequence: effect.sequence,
-        updateId: effect.operation_id
-          ?? envelope.event.operation_id
-          ?? `event:${envelope.event.commit_seq}:${effectIndex}`,
-        clientSessionId: "core",
-        update: Uint8Array.from(event.update),
-      });
-      return;
-    }
     if (event.kind === "document_resync_required") {
       events.push({
         kind: "resync-required",
         documentId: event.document_id,
-        storeEpoch: envelope.event.store_epoch,
+        storeEpoch: identity.store_epoch,
         generation: event.generation,
         headSeq: event.head_seq,
-        commitSeq: envelope.event.commit_seq,
-        effectSequence: effect.sequence,
+        commitSeq: identity.commit_seq,
+        effectSequence: effect.semantic.effect_order,
         reason: "history-compacted",
       });
       return;
@@ -1254,15 +1304,32 @@ const documentEvents = (
       events.push({
         kind: "resync-required",
         documentId: event.document_id,
-        storeEpoch: envelope.event.store_epoch,
+        storeEpoch: identity.store_epoch,
         generation: 1,
         headSeq: 0,
-        commitSeq: envelope.event.commit_seq,
-        effectSequence: effect.sequence,
-        reason: "event-gap",
+        commitSeq: identity.commit_seq,
+        effectSequence: effect.semantic.effect_order,
+        reason: event.reason === "access_changed"
+          ? "access-revoked"
+          : "identity-boundary-changed",
       });
     }
   });
+  if (envelope.packet.revocations.some((revocation) =>
+    revocation.resource_kind === "document"
+    && revocation.resource_id === request.documentId
+  )) {
+    events.push({
+      kind: "resync-required",
+      documentId: request.documentId,
+      storeEpoch: identity.store_epoch,
+      generation: 1,
+      headSeq: 0,
+      commitSeq: identity.commit_seq,
+      effectSequence: 0,
+      reason: "access-revoked",
+    });
+  }
   return events;
 };
 

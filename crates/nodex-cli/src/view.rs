@@ -61,7 +61,7 @@ pub(crate) fn query(
         return Err(internal("Core returned the wrong saved View context"));
     };
     let labels = read_group_labels(client, &project.id, &value)?;
-    let output = project_context(value, labels)?;
+    let output = project_context(*value, labels)?;
     if json_output {
         return serde_json::to_value(output)
             .map(CommandOutput::Json)
@@ -470,6 +470,9 @@ mod tests {
         DatabasePropertyCapabilities, DatabasePropertyFilterOperator, DatabaseRowSummary,
         DatabaseViewGroupSummary, DatabaseViewGroups,
     };
+    use nodex_core_contracts::{
+        LocalProjectionScope, ProjectionScopeKey, ProjectionSnapshotAuthority,
+    };
     use serde_json::json;
 
     use super::*;
@@ -533,6 +536,7 @@ mod tests {
                 database_id: "database-1".to_owned(),
                 data_source_id: "source-1".to_owned(),
                 view_id: "view-1".to_owned(),
+                projection: projection_authority(),
                 grouped: true,
                 total_rows: 1,
                 truncated: false,
@@ -541,6 +545,7 @@ mod tests {
                     total_rows: 1,
                 }],
             },
+            projection: projection_authority(),
             rows: CollectionWindow {
                 items: vec![DatabaseViewContextRow {
                     summary: row_summary(),
@@ -565,6 +570,24 @@ mod tests {
         assert_eq!(output.page_info.projection_revision, 42);
         let human = render_human(&output);
         assert!(human.contains("triage\tShip\t@page-1"));
+    }
+
+    fn projection_authority() -> ProjectionSnapshotAuthority {
+        ProjectionSnapshotAuthority {
+            scope: ProjectionScopeKey {
+                schema_version: 1,
+                canonical_key: "scope:view-1".to_owned(),
+                scope: LocalProjectionScope::DatabaseView {
+                    project_id: "project-1".to_owned(),
+                    database_id: "database-1".to_owned(),
+                    data_source_id: "source-1".to_owned(),
+                    view_id: "view-1".to_owned(),
+                },
+            },
+            revision: 42,
+            covered_commit_seq: 42,
+            effect_hash: Some("f".repeat(64)),
+        }
     }
 
     fn row_summary() -> DatabaseRowSummary {

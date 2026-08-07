@@ -30,7 +30,10 @@ export function TestQueryProvider({
   projectionRegistry?: ProjectionInvalidationRegistry;
 }) {
   const [projectionRegistry] = useState(
-    () => new ProjectionInvalidationRegistry(() => () => {}),
+    () => new ProjectionInvalidationRegistry({
+      subscribeProjection: () => () => {},
+      subscribeRevocations: () => () => {},
+    }),
   );
   return (
     <QueryClientProvider client={client}>

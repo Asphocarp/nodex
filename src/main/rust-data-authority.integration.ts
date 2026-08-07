@@ -188,6 +188,7 @@ describe("Electron native data authority", () => {
       const databaseEventSubscription = await runtime.rootClient.openEventStream(
         runtime.rootClient.handshake.commit_head,
         (event) => databaseEvents.push(event),
+        () => undefined,
       );
       const databaseWriteResult = await database.apply(databaseWrite);
       expect(databaseWriteResult).toMatchObject({
@@ -204,17 +205,19 @@ describe("Electron native data authority", () => {
       });
       await waitUntil(
         () => databaseEvents.some((event) =>
-          event.event.operation_id === databaseWrite.operationId),
+          event.packet.manifest.operation_id === databaseWrite.operationId),
         "Core Database event was not published",
       );
       expect(databaseEvents.find((event) =>
-        event.event.operation_id === databaseWrite.operationId
+        event.packet.manifest.operation_id === databaseWrite.operationId
       )).toMatchObject({
-        event: {
-          payload: {
-            module: "database",
-            event: { project_id: projectId },
-          },
+        packet: {
+          effects: [expect.objectContaining({
+            payload: {
+              module: "database",
+              event: expect.objectContaining({ project_id: projectId }),
+            },
+          })],
         },
       });
       await expect(database.apply(databaseWrite)).resolves.toMatchObject({
@@ -304,18 +307,20 @@ describe("Electron native data authority", () => {
       expect("projectId" in libraryDatabaseWrite.value).toBe(false);
       await waitUntil(
         () => databaseEvents.some((event) =>
-          event.event.operation_id
+          event.packet.manifest.operation_id
             === "electron-library-database-put-property"),
         "Core Library Database event was not published",
       );
       expect(databaseEvents.find((event) =>
-        event.event.operation_id === "electron-library-database-put-property"
+        event.packet.manifest.operation_id === "electron-library-database-put-property"
       )).toMatchObject({
-        event: {
-          payload: {
-            module: "database",
-            event: { project_id: null },
-          },
+        packet: {
+          effects: [expect.objectContaining({
+            payload: {
+              module: "database",
+              event: expect.objectContaining({ project_id: null }),
+            },
+          })],
         },
       });
       const projectDocuments = createCoreDocumentSyncAdapter(
@@ -2164,11 +2169,13 @@ describe("Electron native data authority", () => {
         firstCanvasRequest,
         () => undefined,
       );
-      const closeSecondCanvas = secondCanvas.subscribe(
+      const secondCanvasSubscription = secondCanvas.subscribeWithLifecycle(
         secondCanvasRequest,
         (event) => secondCanvasEvents.push(event),
       );
+      const closeSecondCanvas = secondCanvasSubscription.close;
       try {
+        await secondCanvasSubscription.ready;
         const firstCanvasSync = await firstCanvas.sync({
           ...firstCanvasRequest,
           syncRequestId: "sync:electron:first",

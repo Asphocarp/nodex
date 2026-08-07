@@ -1,23 +1,24 @@
 use std::path::Path;
 
-use nodex_core_contracts::BoundModuleContext;
 use nodex_core_contracts::database::DatabaseGroupScope;
 use nodex_core_contracts::library::{
     LibraryAgentSiblingAnchor, LibraryBlockTransferLogicalIntent, LibraryBlockTransferMode,
-    LibraryBlockTransferPlan, LibraryBlockTransferSource, LibraryBlockTransferTarget,
-    LibraryPageCopyDestination, LibraryPageCopyPositionAnchor, LibraryPageCopyValue,
-    LibraryPageCopyViewPlacement, LibraryPageWriteDestination, LibraryResourceTarget,
+    LibraryBlockTransferSource, LibraryBlockTransferTarget, LibraryPageCopyDestination,
+    LibraryPageCopyPositionAnchor, LibraryPageCopyValue, LibraryPageCopyViewPlacement,
+    LibraryPageWriteDestination, LibraryResourceTarget,
 };
+use nodex_core_contracts::{BoundModuleContext, ModuleName};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::json;
 
 use crate::database::{
     resolve_page_copy_data_source_project, resolve_page_transfer_data_source_destination,
 };
+use crate::infrastructure::durable_mutation::{self, OperationIdentity};
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::LibraryApplyOutcome;
-use super::mutation::{MutationEffects, finish_mutation, sqlite_now};
+use super::mutation::{MutationEffects, library_commit_result, seal_mutation, sqlite_now};
 
 const MAX_ID_BYTES: usize = 512;
 
@@ -95,60 +96,74 @@ fn create_page_in_data_source(
         destination.expected_data_source_revision,
     )?;
     let now = sqlite_now(connection)?;
-    let created = super::page_genesis::create_page_in_data_source(
+    let commit_result = durable_mutation::run(
         connection,
-        super::page_genesis::PageGenesisInput {
-            library_id,
-            project_id: &project_id,
-            actor_project_id: requesting_project_id,
-            placement_access_project_id: Some(requesting_project_id),
+        OperationIdentity {
+            module: ModuleName::Library,
+            module_name: "library",
             operation_id,
+            intent_hash: request_hash,
             store_epoch,
-            page_id,
-            document_id,
-            title_markdown,
-            nfm,
-            destination: &destination,
-            now: &now,
+            committed_at: &now,
+            context,
+        },
+        |scope| {
+            let created = super::page_genesis::create_page_in_data_source(
+                connection,
+                super::page_genesis::PageGenesisInput {
+                    commit_context: scope.evidence(),
+                    library_id,
+                    project_id: &project_id,
+                    actor_project_id: requesting_project_id,
+                    placement_access_project_id: Some(requesting_project_id),
+                    operation_id,
+                    store_epoch,
+                    page_id,
+                    document_id,
+                    title_markdown,
+                    nfm,
+                    destination: &destination,
+                    now: &now,
+                },
+            )?;
+            let affected_block_ids = created.page_create.block_ids.clone();
+            let affected_document_id = created.page_create.document_id.clone();
+
+            seal_mutation(
+                scope,
+                context,
+                operation_id,
+                MutationEffects {
+                    project_id: created.project_id,
+                    operation_kind: "create_page",
+                    change_kind: "library.changed",
+                    did_mutate: true,
+                    created_target: Some(LibraryResourceTarget::Page {
+                        page_id: page_id.to_owned(),
+                    }),
+                    affected_parent_keys: vec![format!("data_source:{}", created.data_source_id)],
+                    affected_block_ids,
+                    affected_page_ids: vec![page_id.to_owned()],
+                    affected_database_ids: vec![created.database_id],
+                    affected_view_ids: created.affected_view_ids,
+                    affected_document_ids: vec![affected_document_id],
+                    committed_revisions: created.committed_revisions,
+                    page_create: Some(created.page_create),
+                    page_copy: None,
+                    canvas_mutation: None,
+                    block_transfer: None,
+                    page_lifecycle: None,
+                    block_property_mutation: None,
+                    agent_page_copy: None,
+                    agent_create_pages: None,
+                    agent_move_pages: None,
+                    change_payload: None,
+                    committed_at: now.clone(),
+                },
+            )
         },
     )?;
-    let affected_block_ids = created.page_create.block_ids.clone();
-    let affected_document_id = created.page_create.document_id.clone();
-
-    finish_mutation(
-        connection,
-        context,
-        store_epoch,
-        operation_id,
-        request_hash,
-        MutationEffects {
-            project_id: created.project_id,
-            operation_kind: "create_page",
-            change_kind: "library.changed",
-            did_mutate: true,
-            created_target: Some(LibraryResourceTarget::Page {
-                page_id: page_id.to_owned(),
-            }),
-            affected_parent_keys: vec![format!("data_source:{}", created.data_source_id)],
-            affected_block_ids,
-            affected_page_ids: vec![page_id.to_owned()],
-            affected_database_ids: vec![created.database_id],
-            affected_view_ids: created.affected_view_ids,
-            affected_document_ids: vec![affected_document_id],
-            committed_revisions: created.committed_revisions,
-            page_create: Some(created.page_create),
-            page_copy: None,
-            canvas_mutation: None,
-            block_transfer: None,
-            page_lifecycle: None,
-            block_property_mutation: None,
-            agent_page_copy: None,
-            agent_create_pages: None,
-            agent_move_pages: None,
-            change_payload: None,
-            committed_at: now,
-        },
-    )
+    library_commit_result(connection, commit_result)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -258,19 +273,15 @@ pub(super) fn move_page(
         source,
         target,
     };
-    let plan = super::block_transfer::plan(
+    let prepared = super::block_transfer::prepare_for_apply(
         connection,
+        None,
         context,
         library_id,
         operation_id,
         store_epoch,
         &intent,
     )?;
-    let LibraryBlockTransferPlan::Prepared { preparation } = plan else {
-        return Err(corrupt(
-            "Fresh semantic Page move matched a committed transfer",
-        ));
-    };
     super::block_transfer::apply(
         connection,
         context,
@@ -279,8 +290,8 @@ pub(super) fn move_page(
         store_epoch,
         request_hash,
         &intent,
-        Some(&preparation.write_fence),
         assets_root,
+        prepared,
     )
 }
 

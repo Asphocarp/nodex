@@ -9,16 +9,19 @@ use nodex_core_contracts::workspace::{
     ProjectWorkspaceEventKind,
 };
 use nodex_core_contracts::{
-    CORE_EVENT_VERSION, CommittedCoreModuleEvent, CoreModuleEventPayload, LocalCommitEnvelope,
-    ProjectionImpact, StoreEpoch,
+    AuthorizedDeliveryPacket, BoundModuleContext, CORE_EVENT_VERSION, CommitIdentity,
+    CommittedCoreModuleEvent, CoreModuleEventPayload, LocalCommitResources, ProjectionImpact,
+    StoreEpoch, StreamCheckpoint,
 };
 use rusqlite::{Connection, params};
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 
 use crate::document::event_log::{
     ChangeLogRow, reconstruct_document_event, validate_change_log_row,
 };
 
+use super::authorized_delivery::{self, DeliveryAudience, DeliveryRequest, DeliveryResourceMode};
 use super::local_commit;
 use super::projection_impact::{
     canonicalize as canonicalize_projection_impact, decode as decode_projection_impact,
@@ -29,6 +32,54 @@ use super::writer::StoreReaders;
 
 const DEFAULT_REPLAY_LIMIT: u32 = 256;
 const MAX_REPLAY_LIMIT: u32 = 1_024;
+const AUTHORIZED_STREAM_BOUNDS_SQL: &str = "SELECT metadata.store_epoch,
+            COALESCE((
+              SELECT ledger.commit_seq FROM local_commits ledger
+              WHERE ledger.store_epoch = metadata.store_epoch
+              ORDER BY ledger.commit_seq ASC LIMIT 1
+            ), 0),
+            COALESCE((
+              SELECT ledger.commit_seq FROM local_commits ledger
+              WHERE ledger.store_epoch = metadata.store_epoch
+              ORDER BY ledger.commit_seq DESC LIMIT 1
+            ), 0)
+     FROM block_store_metadata metadata WHERE metadata.id = 1";
+const AUTHORIZED_STREAM_PAGE_SQL: &str = "SELECT commit_seq FROM local_commits
+     WHERE store_epoch = ?1 AND finalized = 1 AND commit_seq > ?2
+     ORDER BY commit_seq ASC LIMIT ?3";
+const DOCUMENT_LIVE_ROUTE_SQL: &str = "SELECT
+       EXISTS(
+         SELECT 1 FROM local_commit_documents document
+         WHERE document.store_epoch = ?1
+           AND document.commit_seq = ?2 AND document.document_id = ?3
+       ) OR EXISTS(
+         SELECT 1 FROM local_commit_revocations revocation
+         WHERE revocation.store_epoch = ?1 AND revocation.commit_seq = ?2
+           AND revocation.resource_kind = 'document'
+           AND revocation.resource_id = ?3
+       ) OR EXISTS(
+         SELECT 1 FROM local_commit_effects effect
+         JOIN change_log change ON change.seq = effect.change_log_seq
+         JOIN json_each(change.document_ids_json) routed
+         WHERE effect.store_epoch = ?1 AND effect.commit_seq = ?2
+           AND routed.value = ?3
+       )";
+const DOCUMENT_LIVE_ROUTES_SQL: &str = "SELECT document_id FROM (
+       SELECT document.document_id AS document_id
+       FROM local_commit_documents document
+       WHERE document.store_epoch = ?1 AND document.commit_seq = ?2
+       UNION
+       SELECT revocation.resource_id AS document_id
+       FROM local_commit_revocations revocation
+       WHERE revocation.store_epoch = ?1 AND revocation.commit_seq = ?2
+         AND revocation.resource_kind = 'document'
+       UNION
+       SELECT CAST(routed.value AS TEXT) AS document_id
+       FROM local_commit_effects effect
+       JOIN change_log change ON change.seq = effect.change_log_seq
+       JOIN json_each(change.document_ids_json) routed
+       WHERE effect.store_epoch = ?1 AND effect.commit_seq = ?2
+     ) ORDER BY document_id";
 const MAX_EVENT_PAYLOAD_BYTES: usize = 1024 * 1024;
 const MAX_EVENT_IDENTITIES: usize = 10_000;
 
@@ -48,23 +99,21 @@ pub(crate) struct NewChangeLogEntry<'a> {
 pub(crate) fn append_change_log(
     connection: &Connection,
     entry: NewChangeLogEntry<'_>,
+    context: &local_commit::CommitContext,
 ) -> Result<i64, StoreError> {
-    append_change_log_inner(connection, entry, None)
-}
-
-pub(crate) fn append_change_log_with_local_commit(
-    connection: &Connection,
-    entry: NewChangeLogEntry<'_>,
-    commit_seq: i64,
-) -> Result<i64, StoreError> {
-    append_change_log_inner(connection, entry, Some(commit_seq))
+    append_change_log_inner(connection, entry, context)
 }
 
 fn append_change_log_inner(
     connection: &Connection,
     entry: NewChangeLogEntry<'_>,
-    attached_commit_seq: Option<i64>,
+    context: &local_commit::CommitContext,
 ) -> Result<i64, StoreError> {
+    if entry.store_epoch != context.store_epoch() {
+        return Err(corrupt(
+            "Change-log effect and LocalCommit context have different Store epochs",
+        ));
+    }
     let projection_impact = canonicalize_projection_impact(entry.projection_impact.clone())?;
     let projection_impact_json = encode_projection_impact(&projection_impact)?;
     connection.execute(
@@ -89,66 +138,62 @@ fn append_change_log_inner(
         ],
     )?;
     let sequence = connection.last_insert_rowid();
+    let resources = LocalCommitResources {
+        block_ids: entry.block_ids.to_vec(),
+        document_ids: entry.document_ids.to_vec(),
+        database_ids: entry.database_block_ids.to_vec(),
+    };
     local_commit::record_effect(
         connection,
-        entry.store_epoch,
-        entry.operation_id,
-        attached_commit_seq,
-        entry.committed_at,
-        &projection_impact,
-        sequence,
-        entry.document_ids,
-        entry.payload_json,
+        context,
+        local_commit::RegisteredPhysicalEffect {
+            change_log_seq: sequence,
+            project_id: entry.project_id,
+            module: local_commit::module_from_kind(entry.kind)?,
+            kind: entry.kind,
+            operation_id: entry.operation_id,
+            resources: &resources,
+            payload_hash: &format!("{:x}", Sha256::digest(entry.payload_json.as_bytes())),
+            projection_impact: &projection_impact,
+        },
     )?;
     Ok(sequence)
 }
 
-pub(crate) fn load_local_commit_by_event_sequence(
-    connection: &Connection,
-    sequence: i64,
-) -> Result<LocalCommitEnvelope, StoreError> {
-    let commit_seq = local_commit::commit_seq_for_effect(connection, sequence)?
-        .ok_or_else(|| corrupt("LocalCommit effect is not indexed"))?;
-    load_local_commit(connection, commit_seq, Some(sequence))
+#[cfg(test)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct TestCommitEffect {
+    payload: CoreModuleEventPayload,
 }
 
-pub(crate) fn load_local_commit(
+#[cfg(test)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct TestCommitEnvelope {
+    pub(crate) commit_seq: i64,
+    effects: Vec<TestCommitEffect>,
+}
+
+#[cfg(test)]
+fn load_test_commit(
     connection: &Connection,
     commit_seq: i64,
-    preferred_effect: Option<i64>,
-) -> Result<LocalCommitEnvelope, StoreError> {
-    let row = local_commit::read_commit(connection, commit_seq)?
-        .ok_or_else(|| corrupt("LocalCommit parent is missing"))?;
-    let sequences = local_commit::effect_sequences(connection, commit_seq)?;
-    if sequences.is_empty() {
-        return Err(corrupt("LocalCommit has no effects"));
+) -> Result<TestCommitEnvelope, StoreError> {
+    let verified = local_commit::load_verified_commit(connection, commit_seq)?;
+    let mut effects = Vec::with_capacity(verified.physical_effects.len());
+    for (_, change_log_seq, _, module, _, _, _, _, _) in verified.physical_effects {
+        let event = load_committed_event_by_sequence(connection, change_log_seq)?;
+        if event.payload.module_name() != module {
+            return Err(corrupt(
+                "LocalCommit physical effect Module facet is inconsistent",
+            ));
+        }
+        effects.push(TestCommitEffect {
+            payload: event.payload,
+        });
     }
-    let mut effects = Vec::with_capacity(sequences.len());
-    for sequence in &sequences {
-        let event = load_committed_event_by_sequence(connection, *sequence)?;
-        effects.push(event);
-    }
-    local_commit::verify_commit(connection, commit_seq)?;
-    let primary_index = preferred_effect
-        .and_then(|sequence| {
-            sequences
-                .iter()
-                .position(|candidate| *candidate == sequence)
-        })
-        .unwrap_or_else(|| effects.len().saturating_sub(1));
-    let primary = effects
-        .get(primary_index)
-        .ok_or_else(|| corrupt("LocalCommit primary effect is missing"))?;
-    Ok(LocalCommitEnvelope {
-        event_version: CORE_EVENT_VERSION,
-        commit_seq: row.commit_seq,
-        store_epoch: StoreEpoch(row.store_epoch),
-        operation_id: Some(row.operation_id),
-        committed_at: row.committed_at,
-        projection_impact: row.projection_impact,
-        payload: primary.payload.clone(),
+    Ok(TestCommitEnvelope {
+        commit_seq,
         effects,
-        canonical_hash: row.canonical_hash,
     })
 }
 
@@ -187,10 +232,11 @@ pub(crate) fn load_committed_event_by_sequence(
         .ok_or_else(|| corrupt("Committed Core event cannot be reconstructed"))
 }
 
+#[cfg(test)]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum CoreEventReplay {
+pub(crate) enum CoreEventReplay {
     Events {
-        events: Vec<LocalCommitEnvelope>,
+        events: Vec<TestCommitEnvelope>,
         commit_head: i64,
     },
     ResyncRequired {
@@ -198,6 +244,29 @@ pub enum CoreEventReplay {
         oldest_available: i64,
         commit_head: i64,
     },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CoreAuthorizedEventReplay {
+    Scan {
+        packets: Vec<AuthorizedDeliveryPacket>,
+        checkpoint: StreamCheckpoint,
+        commit_head: i64,
+    },
+    ResyncRequired {
+        requested_after: i64,
+        oldest_available: i64,
+        commit_head: i64,
+        resync_token: String,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DocumentLiveDelivery {
+    Unrelated,
+    Packet(Box<AuthorizedDeliveryPacket>),
+    IdentityChanged(StreamCheckpoint),
+    AccessRevoked,
 }
 
 #[derive(Clone)]
@@ -214,30 +283,227 @@ impl CoreEventLog {
         self.readers.read_default(local_commit_head)
     }
 
-    pub fn replay(&self, after: i64, limit: Option<u32>) -> Result<CoreEventReplay, StoreError> {
+    pub fn commit_identity(&self, commit_seq: i64) -> Result<CommitIdentity, StoreError> {
+        self.readers.read_default(move |connection| {
+            local_commit::read_manifest(connection, commit_seq).map(|manifest| manifest.identity)
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn replay(
+        &self,
+        after: i64,
+        limit: Option<u32>,
+    ) -> Result<CoreEventReplay, StoreError> {
         self.readers.read_default(move |connection| {
             let transaction = connection.unchecked_transaction()?;
-            ensure_local_commit_index(&transaction)?;
+            validate_local_commit_index(&transaction)?;
             let replay = replay_core_events(&transaction, after, limit)?;
             transaction.commit()?;
             Ok(replay)
         })
     }
 
-    pub fn local_commit_for_effect(
+    pub fn authorized_packet(
         &self,
-        change_log_seq: i64,
-    ) -> Result<LocalCommitEnvelope, StoreError> {
+        commit_seq: i64,
+        context: &BoundModuleContext,
+        document_id: Option<&str>,
+        inline_resources: bool,
+    ) -> Result<Option<AuthorizedDeliveryPacket>, StoreError> {
+        self.authorized_packet_for_audience(
+            commit_seq,
+            context,
+            document_id,
+            inline_resources,
+            DeliveryAudience::BoundScope,
+        )
+    }
+
+    /// Resolves one post-barrier packet for an exact Document subscription.
+    /// The immutable route indexes are checked before manifest verification so
+    /// unrelated commits never pay the reconstruction cost per open surface.
+    pub fn authorized_document_live_delivery(
+        &self,
+        commit_seq: i64,
+        context: &BoundModuleContext,
+        document_id: &str,
+        expected_store_epoch: &StoreEpoch,
+        generation: &str,
+        live_after: i64,
+    ) -> Result<DocumentLiveDelivery, StoreError> {
+        if commit_seq <= 0
+            || document_id.is_empty()
+            || document_id.len() > 512
+            || generation.is_empty()
+            || generation.len() > 512
+            || live_after < 0
+        {
+            return Err(corrupt("Document live delivery coordinate is invalid"));
+        }
+        let context = context.clone();
+        let document_id = document_id.to_owned();
+        let expected_store_epoch = expected_store_epoch.clone();
+        let generation = generation.to_owned();
         self.readers.read_default(move |connection| {
-            ensure_local_commit_index(connection)?;
-            load_local_commit_by_event_sequence(connection, change_log_seq)
+            let transaction = connection.unchecked_transaction()?;
+            let (store_epoch, oldest_available_seq, scanned_through_seq) =
+                authorized_stream_bounds(&transaction)?;
+            if store_epoch != expected_store_epoch.0 {
+                transaction.commit()?;
+                return Ok(DocumentLiveDelivery::IdentityChanged(StreamCheckpoint {
+                    store_epoch: StoreEpoch(store_epoch),
+                    generation,
+                    scanned_through_seq,
+                    oldest_available_seq,
+                    resync_token: None,
+                }));
+            }
+            if commit_seq <= live_after {
+                transaction.commit()?;
+                return Ok(DocumentLiveDelivery::Unrelated);
+            }
+            let addressed = transaction.query_row(
+                DOCUMENT_LIVE_ROUTE_SQL,
+                params![&expected_store_epoch.0, commit_seq, &document_id],
+                |row| row.get::<_, i64>(0),
+            )? == 1;
+            if !addressed {
+                transaction.commit()?;
+                return Ok(DocumentLiveDelivery::Unrelated);
+            }
+            if let Err(error) = crate::document::require_owned_document_read_access(
+                &transaction,
+                &context,
+                &document_id,
+            ) {
+                if matches!(
+                    error.code,
+                    StoreErrorCode::NotFound | StoreErrorCode::Unauthorized
+                ) {
+                    transaction.commit()?;
+                    return Ok(DocumentLiveDelivery::AccessRevoked);
+                }
+                return Err(error);
+            }
+            let packet = authorized_delivery::resolve(
+                &transaction,
+                commit_seq,
+                DeliveryRequest {
+                    context: &context,
+                    audience: DeliveryAudience::BoundScope,
+                    document_id: Some(&document_id),
+                    resource_mode: DeliveryResourceMode::RefOnly,
+                },
+            )?;
+            transaction.commit()?;
+            Ok(packet.map_or(DocumentLiveDelivery::Unrelated, |packet| {
+                DocumentLiveDelivery::Packet(Box::new(packet))
+            }))
         })
     }
 
-    pub fn local_commit(&self, commit_seq: i64) -> Result<LocalCommitEnvelope, StoreError> {
+    /// Resolves the immutable routing claims for one committed mutation once,
+    /// before the server wakes exact-resource live streams. Authorization is
+    /// deliberately not decided here; every addressed stream still resolves
+    /// its own scoped packet through Core.
+    pub fn document_live_routes(
+        &self,
+        store_epoch: &str,
+        commit_seq: i64,
+    ) -> Result<Vec<String>, StoreError> {
+        if store_epoch.is_empty() || store_epoch.len() > 512 || commit_seq <= 0 {
+            return Err(corrupt("Document live route commit sequence is invalid"));
+        }
+        let store_epoch = store_epoch.to_owned();
         self.readers.read_default(move |connection| {
-            ensure_local_commit_index(connection)?;
-            load_local_commit(connection, commit_seq, None)
+            let mut statement = connection.prepare_cached(DOCUMENT_LIVE_ROUTES_SQL)?;
+            let rows = statement.query_map(params![store_epoch, commit_seq], |row| {
+                row.get::<_, String>(0)
+            })?;
+            let mut routes = Vec::new();
+            for row in rows {
+                let document_id = row?;
+                if document_id.is_empty() || document_id.len() > 512 {
+                    return Err(corrupt("Document live route identity is invalid"));
+                }
+                routes.push(document_id);
+            }
+            Ok(routes)
+        })
+    }
+
+    /// Resolves a packet for the trusted Electron Host's Library broker while
+    /// preserving the command's original Project-bound context.
+    pub fn authorized_packet_for_library_broker(
+        &self,
+        commit_seq: i64,
+        context: &BoundModuleContext,
+        inline_resources: bool,
+    ) -> Result<Option<AuthorizedDeliveryPacket>, StoreError> {
+        self.authorized_packet_for_audience(
+            commit_seq,
+            context,
+            None,
+            inline_resources,
+            DeliveryAudience::HostLibraryBroker,
+        )
+    }
+
+    fn authorized_packet_for_audience(
+        &self,
+        commit_seq: i64,
+        context: &BoundModuleContext,
+        document_id: Option<&str>,
+        inline_resources: bool,
+        audience: DeliveryAudience,
+    ) -> Result<Option<AuthorizedDeliveryPacket>, StoreError> {
+        let context = context.clone();
+        let document_id = document_id.map(str::to_owned);
+        self.readers.read_default(move |connection| {
+            let transaction = connection.unchecked_transaction()?;
+            let packet = authorized_delivery::resolve(
+                &transaction,
+                commit_seq,
+                DeliveryRequest {
+                    context: &context,
+                    audience,
+                    document_id: document_id.as_deref(),
+                    resource_mode: if inline_resources {
+                        DeliveryResourceMode::Inline
+                    } else {
+                        DeliveryResourceMode::RefOnly
+                    },
+                },
+            )?;
+            transaction.commit()?;
+            Ok(packet)
+        })
+    }
+
+    pub fn scan_authorized(
+        &self,
+        after: i64,
+        limit: Option<u32>,
+        generation: &str,
+        context: &BoundModuleContext,
+        document_id: Option<&str>,
+    ) -> Result<CoreAuthorizedEventReplay, StoreError> {
+        let generation = generation.to_owned();
+        let context = context.clone();
+        let document_id = document_id.map(str::to_owned);
+        self.readers.read_default(move |connection| {
+            let transaction = connection.unchecked_transaction()?;
+            let replay = scan_authorized_events(
+                &transaction,
+                after,
+                limit,
+                &generation,
+                &context,
+                document_id.as_deref(),
+            )?;
+            transaction.commit()?;
+            Ok(replay)
         })
     }
 }
@@ -314,6 +580,7 @@ struct AdministrationMetadata {
     readiness_changed: bool,
 }
 
+#[cfg(test)]
 fn replay_core_events(
     connection: &Connection,
     after: i64,
@@ -362,7 +629,7 @@ fn replay_core_events(
 
     let mut events = Vec::with_capacity(rows.len());
     for commit_seq in rows {
-        events.push(load_local_commit(connection, commit_seq, None)?);
+        events.push(load_test_commit(connection, commit_seq)?);
     }
     Ok(CoreEventReplay::Events {
         events,
@@ -370,7 +637,109 @@ fn replay_core_events(
     })
 }
 
-fn ensure_local_commit_index(connection: &Connection) -> Result<(), StoreError> {
+fn scan_authorized_events(
+    connection: &Connection,
+    after: i64,
+    limit: Option<u32>,
+    generation: &str,
+    context: &BoundModuleContext,
+    document_id: Option<&str>,
+) -> Result<CoreAuthorizedEventReplay, StoreError> {
+    if after < 0 || generation.is_empty() || generation.len() > 512 {
+        return Err(corrupt("Authorized commit stream cursor is invalid"));
+    }
+    let limit = limit.unwrap_or(DEFAULT_REPLAY_LIMIT).min(MAX_REPLAY_LIMIT);
+    if limit == 0 {
+        return Err(corrupt("Authorized commit stream limit is invalid"));
+    }
+    let (store_epoch, oldest_commit, commit_head) = authorized_stream_bounds(connection)?;
+    if oldest_commit < 0 || commit_head < oldest_commit {
+        return Err(corrupt("Authorized commit retention boundary is invalid"));
+    }
+    if oldest_commit > 0 && after < oldest_commit - 1 {
+        let token = format!(
+            "{:x}",
+            Sha256::digest(
+                format!("resync\0{store_epoch}\0{generation}\0{oldest_commit}\0{commit_head}")
+                    .as_bytes()
+            )
+        );
+        return Ok(CoreAuthorizedEventReplay::ResyncRequired {
+            requested_after: after,
+            oldest_available: oldest_commit,
+            commit_head,
+            resync_token: token,
+        });
+    }
+
+    let mut sequences = connection
+        .prepare_cached(AUTHORIZED_STREAM_PAGE_SQL)?
+        .query_map(params![&store_epoch, after, i64::from(limit) + 1], |row| {
+            row.get::<_, i64>(0)
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let has_more = sequences.len() > usize::try_from(limit).expect("bounded stream limit");
+    if has_more {
+        sequences.pop();
+    }
+    let scanned_through_seq = if has_more {
+        sequences.last().copied().unwrap_or(after)
+    } else {
+        commit_head.max(after)
+    };
+    let mut packets = Vec::new();
+    for commit_seq in sequences {
+        if let Some(packet) = authorized_delivery::resolve(
+            connection,
+            commit_seq,
+            DeliveryRequest {
+                context,
+                audience: DeliveryAudience::BoundScope,
+                document_id,
+                resource_mode: DeliveryResourceMode::RefOnly,
+            },
+        )? {
+            packets.push(packet);
+        }
+    }
+    Ok(CoreAuthorizedEventReplay::Scan {
+        packets,
+        checkpoint: StreamCheckpoint {
+            store_epoch: StoreEpoch(store_epoch),
+            generation: generation.to_owned(),
+            scanned_through_seq,
+            oldest_available_seq: oldest_commit,
+            resync_token: None,
+        },
+        commit_head,
+    })
+}
+
+fn authorized_stream_bounds(connection: &Connection) -> Result<(String, i64, i64), StoreError> {
+    let bounds = connection.query_row(AUTHORIZED_STREAM_BOUNDS_SQL, [], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, i64>(1)?,
+            row.get::<_, i64>(2)?,
+        ))
+    })?;
+    if bounds.1 < 0 || bounds.2 < bounds.1 {
+        return Err(corrupt("Authorized commit retention boundary is invalid"));
+    }
+    Ok(bounds)
+}
+
+pub(crate) fn validate_local_commit_index(connection: &Connection) -> Result<(), StoreError> {
+    let unfinished_count: i64 = connection.query_row(
+        "SELECT count(*) FROM local_commits WHERE finalized <> 1",
+        [],
+        |row| row.get(0),
+    )?;
+    if unfinished_count != 0 {
+        return Err(corrupt(
+            "Durable LocalCommit history contains unfinished transactions",
+        ));
+    }
     let physical_count: i64 =
         connection.query_row("SELECT count(*) FROM change_log", [], |row| row.get(0))?;
     let indexed_count: i64 =
@@ -382,41 +751,47 @@ fn ensure_local_commit_index(connection: &Connection) -> Result<(), StoreError> 
             "LocalCommit index does not cover the durable change log exactly",
         ));
     }
-    let mismatched_effect_epochs: i64 = connection.query_row(
+    let orphaned_effects: i64 = connection.query_row(
         "SELECT count(*) FROM local_commit_effects effect
-         JOIN local_commits parent ON parent.commit_seq = effect.commit_seq
-         WHERE effect.store_epoch <> parent.store_epoch",
+         LEFT JOIN local_commits parent
+           ON parent.store_epoch = effect.store_epoch
+          AND parent.commit_seq = effect.commit_seq
+         WHERE parent.commit_seq IS NULL",
         [],
         |row| row.get(0),
     )?;
-    if mismatched_effect_epochs > 0 {
+    if orphaned_effects > 0 {
         return Err(corrupt(
-            "LocalCommit effect and parent epochs are inconsistent",
+            "LocalCommit effects are not addressable by their complete parent coordinate",
         ));
     }
-    let mismatched_document_epochs: i64 = connection.query_row(
+    let orphaned_documents: i64 = connection.query_row(
         "SELECT count(*) FROM local_commit_documents document
-         JOIN local_commits parent ON parent.commit_seq = document.commit_seq
-         WHERE document.store_epoch <> parent.store_epoch",
+         LEFT JOIN local_commits parent
+           ON parent.store_epoch = document.store_epoch
+          AND parent.commit_seq = document.commit_seq
+         WHERE parent.commit_seq IS NULL",
         [],
         |row| row.get(0),
     )?;
-    if mismatched_document_epochs > 0 {
+    if orphaned_documents > 0 {
         return Err(corrupt(
-            "LocalCommit document and parent epochs are inconsistent",
+            "LocalCommit Documents are not addressable by their complete parent coordinate",
         ));
     }
-    let mismatched_receipt_epochs: i64 = connection.query_row(
+    let orphaned_receipts: i64 = connection.query_row(
         "SELECT count(*) FROM core_module_receipts receipt
-         JOIN local_commits parent ON parent.commit_seq = receipt.local_commit_seq
+         LEFT JOIN local_commits parent
+           ON parent.store_epoch = receipt.store_epoch
+          AND parent.commit_seq = receipt.local_commit_seq
          WHERE receipt.local_commit_seq IS NOT NULL
-           AND receipt.store_epoch <> parent.store_epoch",
+           AND parent.commit_seq IS NULL",
         [],
         |row| row.get(0),
     )?;
-    if mismatched_receipt_epochs > 0 {
+    if orphaned_receipts > 0 {
         return Err(corrupt(
-            "LocalCommit receipt and parent epochs are inconsistent",
+            "LocalCommit receipts are not addressable by their complete parent coordinate",
         ));
     }
     Ok(())
@@ -692,6 +1067,7 @@ fn validate_identity(value: &str, label: &str) -> Result<(), StoreError> {
     Err(corrupt(&format!("{label} event identity is invalid")))
 }
 
+#[cfg(test)]
 fn invalid(message: &str) -> StoreError {
     StoreError::new(StoreErrorCode::InvalidInput, message, false)
 }
@@ -702,10 +1078,112 @@ fn corrupt(message: &str) -> StoreError {
 
 #[cfg(test)]
 mod tests {
+    use nodex_core_contracts::{
+        AdapterKind, BoundModuleContext, LibraryId, ProfileId, ProjectId, ResourceRevocation,
+        ResourceRevocationReason, RevokedResourceKind, events::DeliveryAuthorizationScope,
+    };
+    use rusqlite::OptionalExtension;
     use tempfile::tempdir;
 
     use super::*;
+    use crate::infrastructure::module_receipts::{NewModuleReceipt, insert_module_receipt};
     use crate::infrastructure::store::SqliteStoreKernel;
+
+    fn context(library_id: &str, project_id: &str) -> BoundModuleContext {
+        BoundModuleContext {
+            profile_id: ProfileId("profile:events".to_owned()),
+            library_id: LibraryId(library_id.to_owned()),
+            project_id: Some(ProjectId(project_id.to_owned())),
+            connection_id: format!("connection:{project_id}"),
+            adapter: AdapterKind::Test,
+        }
+    }
+
+    fn store_identity(connection: &Connection) -> Result<(String, String), StoreError> {
+        let store_epoch = connection
+            .query_row(
+                "SELECT store_epoch FROM block_store_metadata WHERE id = 1",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+            .unwrap_or_else(|| "epoch:events".to_owned());
+        connection.execute(
+            "INSERT OR IGNORE INTO block_store_metadata(id, store_epoch, created_at, updated_at)
+             VALUES (1, ?1, '2026-08-07', '2026-08-07')",
+            [&store_epoch],
+        )?;
+        connection.execute_batch(
+            "INSERT OR IGNORE INTO profiles(id, created_at, updated_at)
+             VALUES ('profile:events', '2026-08-07', '2026-08-07');
+             INSERT OR IGNORE INTO libraries(id, profile_id, created_at, updated_at)
+             VALUES ('library:events', 'profile:events', '2026-08-07', '2026-08-07');",
+        )?;
+        let library_id = "library:events".to_owned();
+        Ok((store_epoch, library_id))
+    }
+
+    fn append_finalized_test_event(
+        connection: &Connection,
+        module_name: &str,
+        entry: NewChangeLogEntry<'_>,
+    ) -> Result<i64, StoreError> {
+        append_finalized_test_event_with_revocations(connection, module_name, entry, &[])
+    }
+
+    fn append_finalized_test_event_with_revocations(
+        connection: &Connection,
+        module_name: &str,
+        entry: NewChangeLogEntry<'_>,
+        revocations: &[ResourceRevocation],
+    ) -> Result<i64, StoreError> {
+        let operation_id = entry
+            .operation_id
+            .ok_or_else(|| corrupt("Test LocalCommit needs an operation identity"))?
+            .to_owned();
+        let store_epoch = entry.store_epoch.to_owned();
+        let project_id = entry.project_id.to_owned();
+        let committed_at = entry.committed_at.to_owned();
+        let request_hash = format!(
+            "{:x}",
+            Sha256::digest(format!("{module_name}\0{operation_id}").as_bytes())
+        );
+        let commit = local_commit::begin(
+            connection,
+            &store_epoch,
+            &operation_id,
+            &request_hash,
+            &committed_at,
+        )?;
+        let event_sequence = append_change_log(connection, entry, &commit)?;
+        for revocation in revocations {
+            local_commit::record_revocation(connection, &commit, revocation)?;
+        }
+        let result = serde_json::json!({ "eventSequence": event_sequence });
+        insert_module_receipt(
+            connection,
+            NewModuleReceipt {
+                module_name,
+                operation_id: &operation_id,
+                context: &BoundModuleContext {
+                    profile_id: ProfileId("profile:events".to_owned()),
+                    library_id: LibraryId("library:events".to_owned()),
+                    project_id: Some(ProjectId(project_id)),
+                    connection_id: "connection:events".to_owned(),
+                    adapter: AdapterKind::Test,
+                },
+                operation_kind: "test_event",
+                store_epoch: &store_epoch,
+                request_hash: &request_hash,
+                result: &result,
+                event_sequence: Some(event_sequence),
+                local_commit: Some(&commit),
+                committed_at: &committed_at,
+            },
+        )?;
+        local_commit::finalize(connection, &commit)?;
+        Ok(event_sequence)
+    }
 
     #[test]
     fn ledger_append_canonicalizes_required_projection_impact() {
@@ -730,8 +1208,9 @@ mod tests {
                     view_ids: Vec::new(),
                     document_heads: Vec::new(),
                 };
-                append_change_log(
+                append_finalized_test_event(
                     connection,
+                    "project_workspace",
                     NewChangeLogEntry {
                         project_id: "project:events",
                         store_epoch: "epoch:events",
@@ -763,6 +1242,43 @@ mod tests {
                 document_heads: Vec::new(),
             }
         );
+    }
+
+    #[test]
+    fn authorized_stream_boundaries_and_pages_use_epoch_indexes() {
+        let directory = tempdir().expect("temporary Profile");
+        let kernel = SqliteStoreKernel::open(directory.path()).expect("Core store");
+
+        kernel
+            .readers()
+            .read_default(|connection| {
+                let bounds = connection
+                    .prepare(&format!(
+                        "EXPLAIN QUERY PLAN {AUTHORIZED_STREAM_BOUNDS_SQL}"
+                    ))?
+                    .query_map([], |row| row.get::<_, String>(3))?
+                    .collect::<rusqlite::Result<Vec<_>>>()?
+                    .join("\n");
+                assert_eq!(
+                    bounds
+                        .matches("idx_local_commits_epoch_seq (store_epoch=?)")
+                        .count(),
+                    2,
+                    "stream boundaries lost their epoch point lookups:\n{bounds}",
+                );
+
+                let page = connection
+                    .prepare(&format!("EXPLAIN QUERY PLAN {AUTHORIZED_STREAM_PAGE_SQL}"))?
+                    .query_map(params!["epoch:test", 0, 257], |row| row.get::<_, String>(3))?
+                    .collect::<rusqlite::Result<Vec<_>>>()?
+                    .join("\n");
+                assert!(
+                    page.contains("idx_local_commits_epoch_seq (store_epoch=? AND commit_seq>?)"),
+                    "stream page lost its bounded epoch range lookup:\n{page}",
+                );
+                Ok(())
+            })
+            .expect("authorized stream query plans");
     }
 
     #[test]
@@ -810,7 +1326,7 @@ mod tests {
                         params![kind, operation_id, payload.to_string()],
                     )?;
                 }
-                local_commit::backfill(connection)?;
+                local_commit::backfill(connection, &mut |_, _| {})?;
                 Ok(())
             })
             .expect("event fixtures");
@@ -826,11 +1342,11 @@ mod tests {
         assert_eq!(commit_head, 2);
         assert_eq!(events.len(), 2);
         assert!(matches!(
-            events[0].payload,
+            events[0].effects[0].payload,
             CoreModuleEventPayload::Library(_)
         ));
         assert!(matches!(
-            events[1].payload,
+            events[1].effects[0].payload,
             CoreModuleEventPayload::Database(_)
         ));
     }
@@ -869,7 +1385,7 @@ mod tests {
                         ],
                     )?;
                 }
-                local_commit::backfill(connection)?;
+                local_commit::backfill(connection, &mut |_, _| {})?;
                 Ok(())
             })
             .expect("grouped event fixture");
@@ -901,8 +1417,9 @@ mod tests {
                      VALUES ('project:events', 'Events', '2026-01-01', '2026-01-01')",
                     [],
                 )?;
-                append_change_log(
+                append_finalized_test_event(
                     connection,
+                    "library",
                     NewChangeLogEntry {
                         project_id: "project:events",
                         store_epoch: "epoch:events",
@@ -942,6 +1459,105 @@ mod tests {
     }
 
     #[test]
+    fn rejects_change_payload_bytes_that_diverge_from_effect_evidence() {
+        let directory = tempdir().expect("temporary Profile");
+        let kernel = SqliteStoreKernel::open(directory.path()).expect("Core store");
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "INSERT INTO projects(id, name, created, updated) \
+                     VALUES ('project:events', 'Events', '2026-01-01', '2026-01-01')",
+                    [],
+                )?;
+                append_finalized_test_event(
+                    connection,
+                    "library",
+                    NewChangeLogEntry {
+                        project_id: "project:events",
+                        store_epoch: "epoch:events",
+                        kind: "library.changed",
+                        operation_id: Some("library:payload-evidence"),
+                        block_ids: &[],
+                        document_ids: &[],
+                        database_block_ids: &[],
+                        payload_json: r#"{
+                          "module":"library",
+                          "affectedPageIds":["page:original"],
+                          "affectedDatabaseIds":[],
+                          "affectedParentKeys":["library:root"]
+                        }"#,
+                        projection_impact: &ProjectionImpact::None,
+                        committed_at: "2026-01-01",
+                    },
+                )?;
+                connection.execute("DROP TRIGGER change_log_is_immutable", [])?;
+                connection.execute(
+                    "UPDATE change_log SET payload_json = ?1 WHERE operation_id = ?2",
+                    params![
+                        r#"{"module":"library","affectedPageIds":["page:tampered"],"affectedDatabaseIds":[],"affectedParentKeys":["library:root"]}"#,
+                        "library:payload-evidence"
+                    ],
+                )?;
+                Ok(())
+            })
+            .expect("tampered payload fixture");
+
+        let error = CoreEventLog::new(kernel.readers())
+            .replay(0, None)
+            .expect_err("payload bytes must remain bound to LocalCommit evidence");
+        assert_eq!(error.code, StoreErrorCode::StoreCorrupt);
+    }
+
+    #[test]
+    fn rejects_physical_effects_that_claim_a_different_project() {
+        let directory = tempdir().expect("temporary Profile");
+        let kernel = SqliteStoreKernel::open(directory.path()).expect("Core store");
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute_batch(
+                    "INSERT INTO projects(id, name, created, updated)
+                     VALUES ('project:events', 'Events', '2026-01-01', '2026-01-01');
+                     INSERT INTO projects(id, name, created, updated)
+                     VALUES ('project:other', 'Other', '2026-01-01', '2026-01-01');",
+                )?;
+                append_finalized_test_event(
+                    connection,
+                    "library",
+                    NewChangeLogEntry {
+                        project_id: "project:events",
+                        store_epoch: "epoch:events",
+                        kind: "library.changed",
+                        operation_id: Some("library:project-evidence"),
+                        block_ids: &[],
+                        document_ids: &[],
+                        database_block_ids: &[],
+                        payload_json: r#"{
+                          "module":"library",
+                          "affectedPageIds":["page:original"],
+                          "affectedDatabaseIds":[],
+                          "affectedParentKeys":["library:root"]
+                        }"#,
+                        projection_impact: &ProjectionImpact::None,
+                        committed_at: "2026-01-01",
+                    },
+                )?;
+                connection.execute(
+                    "UPDATE local_commit_effects SET project_id = 'project:other'",
+                    [],
+                )?;
+                Ok(())
+            })
+            .expect("mismatched project fixture");
+
+        let error = CoreEventLog::new(kernel.readers())
+            .replay(0, None)
+            .expect_err("effect evidence cannot escape its physical change");
+        assert_eq!(error.code, StoreErrorCode::StoreCorrupt);
+    }
+
+    #[test]
     fn rejects_local_commit_effects_that_escape_the_parent_epoch() {
         let directory = tempdir().expect("temporary Profile");
         let kernel = SqliteStoreKernel::open(directory.path()).expect("Core store");
@@ -967,7 +1583,7 @@ mod tests {
                     })
                     .to_string()],
                 )?;
-                local_commit::backfill(connection)?;
+                local_commit::backfill(connection, &mut |_, _| {})?;
                 connection.execute(
                     "UPDATE local_commit_effects SET store_epoch = 'epoch:other'",
                     [],
@@ -1009,7 +1625,7 @@ mod tests {
                         ],
                     )?;
                 }
-                local_commit::backfill(connection)?;
+                local_commit::backfill(connection, &mut |_, _| {})?;
                 Ok(())
             })
             .expect("event fixtures");
@@ -1088,7 +1704,7 @@ mod tests {
                     })
                     .to_string()],
                 )?;
-                local_commit::backfill(connection)?;
+                local_commit::backfill(connection, &mut |_, _| {})?;
                 Ok(())
             })
             .expect("legacy event fixture");
@@ -1099,7 +1715,7 @@ mod tests {
         else {
             panic!("expected replayed legacy event");
         };
-        let CoreModuleEventPayload::ProjectWorkspace(event) = &events[0].payload else {
+        let CoreModuleEventPayload::ProjectWorkspace(event) = &events[0].effects[0].payload else {
             panic!("expected Project Workspace event");
         };
         assert_eq!(
@@ -1107,5 +1723,446 @@ mod tests {
             vec![ProjectSessionInvalidationScope::All]
         );
         assert_eq!(event.session_detail_ids, vec!["session:legacy"]);
+    }
+
+    #[test]
+    fn authorized_scan_uses_explicit_checkpoint_across_sequence_gaps_and_filters() {
+        let directory = tempdir().expect("temporary Profile");
+        let kernel = SqliteStoreKernel::open(directory.path()).expect("Core store");
+        let (store_epoch, library_id, first_commit, second_commit) = kernel
+            .writer()
+            .call(|connection| {
+                let (store_epoch, library_id) = store_identity(connection)?;
+                connection.execute(
+                    "INSERT INTO projects(id, library_id, name, created, updated)
+                     VALUES ('project:events', ?1, 'Events', '2026-01-01', '2026-01-01')",
+                    [&library_id],
+                )?;
+                connection.execute(
+                    "INSERT INTO projects(id, library_id, name, created, updated)
+                     VALUES ('project:other', ?1, 'Other', '2026-01-01', '2026-01-01')",
+                    [&library_id],
+                )?;
+                append_finalized_test_event(
+                    connection,
+                    "project_workspace",
+                    NewChangeLogEntry {
+                        project_id: "project:events",
+                        store_epoch: &store_epoch,
+                        kind: "project_workspace.changed",
+                        operation_id: Some("workspace:gap:first"),
+                        block_ids: &[],
+                        document_ids: &[],
+                        database_block_ids: &[],
+                        payload_json: r#"{
+                          "module":"project_workspace","kind":"workspace_changed",
+                          "projectIds":[],"sessionIds":[],"threadIds":[],
+                          "sessionSummaryScopes":[],"sessionDetailIds":[]
+                        }"#,
+                        projection_impact: &ProjectionImpact::None,
+                        committed_at: "2026-08-07T00:00:00Z",
+                    },
+                )?;
+                let first_commit = local_commit::head(connection)?;
+                connection.execute(
+                    "UPDATE sqlite_sequence SET seq = ?1 WHERE name = 'local_commits'",
+                    [first_commit + 7],
+                )?;
+                append_finalized_test_event(
+                    connection,
+                    "project_workspace",
+                    NewChangeLogEntry {
+                        project_id: "project:events",
+                        store_epoch: &store_epoch,
+                        kind: "project_workspace.changed",
+                        operation_id: Some("workspace:gap:second"),
+                        block_ids: &[],
+                        document_ids: &[],
+                        database_block_ids: &[],
+                        payload_json: r#"{
+                          "module":"project_workspace","kind":"workspace_changed",
+                          "projectIds":[],"sessionIds":[],"threadIds":[],
+                          "sessionSummaryScopes":[],"sessionDetailIds":[]
+                        }"#,
+                        projection_impact: &ProjectionImpact::None,
+                        committed_at: "2026-08-07T00:00:01Z",
+                    },
+                )?;
+                let second_commit = local_commit::head(connection)?;
+                Ok((store_epoch, library_id, first_commit, second_commit))
+            })
+            .expect("gapped commit fixture");
+        assert!(second_commit > first_commit + 1);
+        let log = CoreEventLog::new(kernel.readers());
+
+        let CoreAuthorizedEventReplay::Scan {
+            packets,
+            checkpoint,
+            commit_head,
+        } = log
+            .scan_authorized(
+                first_commit,
+                None,
+                "generation:test",
+                &context(&library_id, "project:events"),
+                None,
+            )
+            .expect("authorized scan")
+        else {
+            panic!("expected authorized scan");
+        };
+        assert_eq!(packets.len(), 1);
+        assert_eq!(packets[0].manifest.identity.commit_seq, second_commit);
+        assert_eq!(checkpoint.store_epoch.0, store_epoch);
+        assert_eq!(checkpoint.scanned_through_seq, second_commit);
+        assert_eq!(commit_head, second_commit);
+
+        let CoreAuthorizedEventReplay::Scan {
+            packets,
+            checkpoint,
+            ..
+        } = log
+            .scan_authorized(
+                first_commit,
+                None,
+                "generation:test",
+                &context(&library_id, "project:other"),
+                None,
+            )
+            .expect("filtered scan")
+        else {
+            panic!("expected filtered scan");
+        };
+        assert!(packets.is_empty());
+        assert_eq!(checkpoint.scanned_through_seq, second_commit);
+    }
+
+    #[test]
+    fn exact_document_live_delivery_skips_unrelated_manifest_reconstruction() {
+        let directory = tempdir().expect("temporary Profile");
+        let kernel = SqliteStoreKernel::open(directory.path()).expect("Core store");
+        let (store_epoch, library_id, commit_seq) = kernel
+            .writer()
+            .call(|connection| {
+                let (store_epoch, library_id) = store_identity(connection)?;
+                connection.execute(
+                    "INSERT INTO projects(id, library_id, name, created, updated)
+                     VALUES ('project:events', ?1, 'Events', '2026-01-01', '2026-01-01')",
+                    [&library_id],
+                )?;
+                append_finalized_test_event(
+                    connection,
+                    "project_workspace",
+                    NewChangeLogEntry {
+                        project_id: "project:events",
+                        store_epoch: &store_epoch,
+                        kind: "project_workspace.changed",
+                        operation_id: Some("workspace:unrelated-to-document"),
+                        block_ids: &[],
+                        document_ids: &[],
+                        database_block_ids: &[],
+                        payload_json: r#"{
+                          "module":"project_workspace","kind":"workspace_changed",
+                          "projectIds":[],"sessionIds":[],"threadIds":[],
+                          "sessionSummaryScopes":[],"sessionDetailIds":[]
+                        }"#,
+                        projection_impact: &ProjectionImpact::None,
+                        committed_at: "2026-08-07T00:00:00Z",
+                    },
+                )?;
+                let commit_seq = local_commit::head(connection)?;
+                connection.execute(
+                    "UPDATE local_commits SET canonical_hash = ?1
+                     WHERE commit_seq = ?2",
+                    params!["0".repeat(64), commit_seq],
+                )?;
+                Ok((store_epoch, library_id, commit_seq))
+            })
+            .expect("unrelated corrupt manifest fixture");
+        let log = CoreEventLog::new(kernel.readers());
+
+        let packet = log
+            .authorized_document_live_delivery(
+                commit_seq,
+                &context(&library_id, "project:events"),
+                "document:exact",
+                &StoreEpoch(store_epoch.clone()),
+                "generation:test",
+                0,
+            )
+            .expect("unrelated commit bypasses manifest reconstruction");
+        assert_eq!(packet, DocumentLiveDelivery::Unrelated);
+
+        assert_eq!(
+            log.document_live_routes(&store_epoch, commit_seq)
+                .expect("Document routes"),
+            Vec::<String>::new(),
+        );
+    }
+
+    #[test]
+    fn authorized_scan_returns_typed_resync_when_cursor_predates_retention() {
+        let directory = tempdir().expect("temporary Profile");
+        let kernel = SqliteStoreKernel::open(directory.path()).expect("Core store");
+        let (library_id, retained_commit) = kernel
+            .writer()
+            .call(|connection| {
+                let (store_epoch, library_id) = store_identity(connection)?;
+                connection.execute(
+                    "INSERT INTO projects(id, library_id, name, created, updated)
+                     VALUES ('project:events', ?1, 'Events', '2026-01-01', '2026-01-01')",
+                    [&library_id],
+                )?;
+                for index in 0..2 {
+                    append_finalized_test_event(
+                        connection,
+                        "project_workspace",
+                        NewChangeLogEntry {
+                            project_id: "project:events",
+                            store_epoch: &store_epoch,
+                            kind: "project_workspace.changed",
+                            operation_id: Some(if index == 0 {
+                                "workspace:retention:removed"
+                            } else {
+                                "workspace:retention:retained"
+                            }),
+                            block_ids: &[],
+                            document_ids: &[],
+                            database_block_ids: &[],
+                            payload_json: r#"{
+                              "module":"project_workspace","kind":"workspace_changed",
+                              "projectIds":[],"sessionIds":[],"threadIds":[],
+                              "sessionSummaryScopes":[],"sessionDetailIds":[]
+                            }"#,
+                            projection_impact: &ProjectionImpact::None,
+                            committed_at: "2026-08-07T00:00:00Z",
+                        },
+                    )?;
+                }
+                let (removed_epoch, removed_commit) = connection.query_row(
+                    "SELECT store_epoch, commit_seq FROM local_commits
+                     ORDER BY commit_seq LIMIT 1",
+                    [],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+                )?;
+                let removed_change = connection.query_row(
+                    "SELECT change_log_seq FROM local_commit_effects
+                     WHERE store_epoch = ?1 AND commit_seq = ?2",
+                    params![removed_epoch, removed_commit],
+                    |row| row.get::<_, i64>(0),
+                )?;
+                connection.execute(
+                    "DELETE FROM core_module_receipts
+                     WHERE store_epoch = ?1 AND local_commit_seq = ?2",
+                    params![removed_epoch, removed_commit],
+                )?;
+                connection.execute(
+                    "DELETE FROM local_commit_effects
+                     WHERE store_epoch = ?1 AND commit_seq = ?2",
+                    params![removed_epoch, removed_commit],
+                )?;
+                connection.execute("DELETE FROM change_log WHERE seq = ?1", [removed_change])?;
+                connection.execute(
+                    "DELETE FROM local_commits WHERE commit_seq = ?1",
+                    [removed_commit],
+                )?;
+                Ok((library_id, local_commit::head(connection)?))
+            })
+            .expect("retention fixture");
+
+        let replay = CoreEventLog::new(kernel.readers())
+            .scan_authorized(
+                0,
+                None,
+                "generation:test",
+                &context(&library_id, "project:events"),
+                None,
+            )
+            .expect("typed resync");
+        let CoreAuthorizedEventReplay::ResyncRequired {
+            oldest_available,
+            commit_head,
+            resync_token,
+            ..
+        } = replay
+        else {
+            panic!("cursor before retention must resync");
+        };
+        assert_eq!(oldest_available, retained_commit);
+        assert_eq!(commit_head, retained_commit);
+        assert_eq!(resync_token.len(), 64);
+    }
+
+    #[test]
+    fn post_state_delivery_revokes_source_project_and_grants_target_project() {
+        let directory = tempdir().expect("temporary Profile");
+        let kernel = SqliteStoreKernel::open(directory.path()).expect("Core store");
+        let (store_epoch, library_id, commit_seq) = kernel
+            .writer()
+            .call(|connection| {
+                let (store_epoch, library_id) = store_identity(connection)?;
+                connection.execute_batch(
+                    "INSERT INTO projects(id, library_id, name, created, updated)
+                     VALUES ('project:a', 'library:events', 'A', '2026-08-07', '2026-08-07');
+                     INSERT INTO projects(id, library_id, name, created, updated)
+                     VALUES ('project:b', 'library:events', 'B', '2026-08-07', '2026-08-07');
+                     INSERT INTO blocks(
+                       id, project_id, type, lifecycle, location_kind,
+                       containing_document_id, containing_database_id,
+                       location_revision, metadata_revision, created_at, updated_at
+                     ) VALUES (
+                       'page:moved', 'project:b', 'page', 'active', 'space',
+                       NULL, NULL, 1, 1, '2026-08-07', '2026-08-07'
+                     );
+                     INSERT INTO documents(
+                       id, project_id, generation, head_seq, schema_key, schema_version,
+                       state_vector, state_hash, readiness, authority, created_at, updated_at,
+                       sync_engine
+                     ) VALUES (
+                       'document:moved', 'project:b', 1, 0, 'nodex.page', 2,
+                       X'', '', 'ready', 'ydoc_primary', '2026-08-07', '2026-08-07', 'yjs'
+                     );
+                     INSERT INTO block_documents(block_id, document_id, project_id, created_at)
+                     VALUES ('page:moved', 'document:moved', 'project:b', '2026-08-07');
+                     INSERT INTO pages(
+                       block_id, library_id, document_id, parent_kind, parent_id,
+                       lifecycle, created_at, updated_at
+                     ) VALUES (
+                       'page:moved', 'library:events', 'document:moved', 'library',
+                       'library:events', 'active', '2026-08-07', '2026-08-07'
+                     );",
+                )?;
+                append_finalized_test_event_with_revocations(
+                    connection,
+                    "library",
+                    NewChangeLogEntry {
+                        project_id: "project:a",
+                        store_epoch: &store_epoch,
+                        kind: "library.changed",
+                        operation_id: Some("page:move:a-to-b"),
+                        block_ids: &["page:moved".to_owned()],
+                        document_ids: &[],
+                        database_block_ids: &[],
+                        payload_json: r#"{
+                          "module":"library","affectedPageIds":["page:moved"],
+                          "affectedDatabaseIds":[],"affectedViewIds":[],
+                          "affectedParentKeys":["library:root"]
+                        }"#,
+                        projection_impact: &ProjectionImpact::Resources {
+                            page_ids: vec!["page:moved".to_owned()],
+                            database_ids: Vec::new(),
+                            data_source_ids: Vec::new(),
+                            view_ids: Vec::new(),
+                            document_heads: Vec::new(),
+                        },
+                        committed_at: "2026-08-07T00:00:00Z",
+                    },
+                    &[
+                        ResourceRevocation {
+                            authorization_scope: DeliveryAuthorizationScope::Project {
+                                library_id: "library:events".to_owned(),
+                                project_id: "project:a".to_owned(),
+                            },
+                            resource_kind: RevokedResourceKind::Page,
+                            resource_id: "page:moved".to_owned(),
+                            reason: ResourceRevocationReason::OwnershipMoved,
+                        },
+                        ResourceRevocation {
+                            authorization_scope: DeliveryAuthorizationScope::Project {
+                                library_id: "library:events".to_owned(),
+                                project_id: "project:a".to_owned(),
+                            },
+                            resource_kind: RevokedResourceKind::Document,
+                            resource_id: "document:moved".to_owned(),
+                            reason: ResourceRevocationReason::OwnershipMoved,
+                        },
+                    ],
+                )?;
+                Ok((store_epoch, library_id, local_commit::head(connection)?))
+            })
+            .expect("cross-Project delivery fixture");
+        let log = CoreEventLog::new(kernel.readers());
+
+        let source = log
+            .authorized_packet(commit_seq, &context(&library_id, "project:a"), None, true)
+            .expect("source packet")
+            .expect("source revocation packet");
+        let target = log
+            .authorized_packet(commit_seq, &context(&library_id, "project:b"), None, true)
+            .expect("target packet")
+            .expect("target delivery packet");
+        let root = log
+            .authorized_packet(
+                commit_seq,
+                &BoundModuleContext {
+                    profile_id: ProfileId("profile:events".to_owned()),
+                    library_id: LibraryId(library_id.clone()),
+                    project_id: None,
+                    connection_id: "connection:root".to_owned(),
+                    adapter: AdapterKind::Test,
+                },
+                None,
+                true,
+            )
+            .expect("root packet")
+            .expect("root delivery packet");
+        let broker = log
+            .authorized_packet_for_library_broker(
+                commit_seq,
+                &BoundModuleContext {
+                    profile_id: ProfileId("profile:events".to_owned()),
+                    library_id: LibraryId(library_id.clone()),
+                    project_id: Some(ProjectId("project:a".to_owned())),
+                    connection_id: "connection:broker".to_owned(),
+                    adapter: AdapterKind::ElectronHost,
+                },
+                true,
+            )
+            .expect("broker packet")
+            .expect("broker delivery packet");
+
+        assert!(source.effects.is_empty());
+        assert!(source.document_effects.is_empty());
+        assert!(source.revocations.iter().any(|revocation| {
+            revocation.resource_kind == RevokedResourceKind::Page
+                && revocation.resource_id == "page:moved"
+        }));
+        assert_eq!(target.effects.len(), 1);
+        assert!(target.revocations.is_empty());
+        assert_eq!(root.effects.len(), 1);
+        assert_eq!(root.revocations, source.revocations);
+        assert!(matches!(
+            source.authorization_scope,
+            DeliveryAuthorizationScope::Project { ref project_id, .. }
+                if project_id == "project:a"
+        ));
+        assert!(matches!(
+            target.authorization_scope,
+            DeliveryAuthorizationScope::Project { ref project_id, .. }
+                if project_id == "project:b"
+        ));
+        assert!(matches!(
+            root.authorization_scope,
+            DeliveryAuthorizationScope::Library { .. }
+        ));
+        assert_eq!(broker, root);
+        assert_eq!(
+            log.authorized_document_live_delivery(
+                commit_seq,
+                &context(&library_id, "project:a"),
+                "document:moved",
+                &StoreEpoch(store_epoch),
+                "generation:test",
+                0,
+            )
+            .expect("source exact Document revocation"),
+            DocumentLiveDelivery::AccessRevoked,
+        );
+        assert_eq!(
+            source.manifest.identity.manifest_hash,
+            target.manifest.identity.manifest_hash
+        );
+        assert_ne!(source.packet_hash, target.packet_hash);
+        assert_ne!(source.packet_hash, root.packet_hash);
     }
 }

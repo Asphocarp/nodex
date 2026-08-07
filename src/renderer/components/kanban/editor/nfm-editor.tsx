@@ -189,7 +189,7 @@ import {
   resolveCanvasHostDocumentRuntime,
   resolveCanvasInsertionAfterBlock,
 } from "@/lib/canvas-host-operations";
-import type { PageEditorSession } from "@/lib/page-editor-session-registry";
+import type { EditorSurfaceLease } from "@/lib/document-session-registry";
 import {
   useCodexPermissionState,
   useDefaultCodexAppServerManager,
@@ -212,7 +212,7 @@ import {
   hasNestedTypedOwnerBlock,
   hasTypedOwnerBlock,
   hasTypedOwnerType,
-  typedOwnerBlocks,
+  resolveOwnerSelectionOperation,
   type TypedOwnerBlockLike,
 } from "@/lib/typed-owner-blocks";
 
@@ -265,7 +265,7 @@ interface NfmEditorCommonProps {
     onBoundaryArrow: (direction: VerticalArrowDirection) => boolean;
   };
   /** Optional PageTab-owned model whose lifetime exceeds this React view. */
-  editorSession?: PageEditorSession;
+  editorSession?: EditorSurfaceLease;
 }
 
 interface TypedOwnerSelectionEditor {
@@ -1796,7 +1796,7 @@ function NfmEditorInstance({
         editor as unknown as NfmEditorMutationRuntime,
         container,
       );
-      const sourceHead = await surfaceMutationBarrier.prepareLocalMutation();
+      const sourceHead = await surfaceMutationBarrier.flushAndFence();
 
       const preparedTarget = await prepareOwnedBlockDocument(
         targetProjectId,
@@ -2068,12 +2068,12 @@ function NfmEditorInstance({
           : {}),
         ancestorPageIds: parentBlockReferenceRuntime?.ancestorPageIds ?? [],
         ...(surfaceMutationBarrier
-          ? { prepareLocalMutation: surfaceMutationBarrier.prepareLocalMutation }
+          ? { flushAndFence: surfaceMutationBarrier.flushAndFence }
           : {}),
-        prepareSourceMutation: async (sourceSurfaceId: string) => {
+        flushSourceAndFence: async (sourceSurfaceId: string) => {
           if (sourceSurfaceId === source.clientSessionId) return;
           return await resolveBlockDocumentMutationBarrier(sourceSurfaceId)
-            ?.prepareLocalMutation();
+            ?.flushAndFence();
         },
         createOperationId: () => crypto.randomUUID(),
         transfer: (intent: Parameters<typeof transferBlocks>[1]) =>
@@ -2355,7 +2355,7 @@ function NfmEditorInstance({
         editor as unknown as NfmEditorMutationRuntime,
         container,
       );
-      const hostHead = await surfaceMutationBarrier.prepareLocalMutation();
+      const hostHead = await surfaceMutationBarrier.flushAndFence();
       if (
         hostHead.storeEpoch !== source.storeEpoch
         || hostHead.documentId !== source.documentId
@@ -2407,29 +2407,38 @@ function NfmEditorInstance({
     (
       blocks: readonly TypedOwnerSelectionBlock[],
     ): boolean => {
-      const typedBlocks = typedOwnerBlocks(blocks);
-      if (typedBlocks.length === 0) {
-        if (hasTypedOwnerBlock(blocks)) {
+      const decision = resolveOwnerSelectionOperation(blocks, "delete");
+      if (decision.kind === "generic") return false;
+      if (decision.kind === "forbidden") {
+        if (decision.reason === "nested_owner") {
           toast.info(
-            "A Block containing a Page, Canvas, or Database must be edited through a typed action.",
+            "Remove the nested Page, Canvas, or Database first.",
           );
           return true;
         }
-        return false;
+        if (decision.reason === "mixed_selection") {
+          toast.info("Delete one Page, Canvas, or Database at a time.");
+          return true;
+        }
+        toast.info(
+          "This Database must be archived through its Database action.",
+        );
+        return true;
       }
-      if (typedBlocks.length !== 1 || blocks.length !== 1) {
+      const { block, route } = decision;
+      if (route === "page_lifecycle") {
+        void pageCommandHandlersRef.current.delete(block.id);
+        return true;
+      }
+      if (route === "canvas_lifecycle") {
+        void canvasCommandHandlersRef.current.delete(block.id);
+        return true;
+      }
+      if (route !== "database_lifecycle") {
         toast.info("Delete one Page, Canvas, or Database at a time.");
         return true;
       }
-      const block = typedBlocks[0];
-      if (!block) return true;
-      if (block.type === "page") {
-        void pageCommandHandlersRef.current.delete(block.id);
-      } else if (block.type === "canvas") {
-        void canvasCommandHandlersRef.current.delete(block.id);
-      } else {
-        toast.info("Database blocks must be removed through a typed Database action.");
-      }
+      toast.info("This Database must be archived through its Database action.");
       return true;
     },
     [],

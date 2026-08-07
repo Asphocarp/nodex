@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-pub const CORE_EVENT_VERSION: u32 = 3;
+pub const CORE_EVENT_VERSION: u32 = 6;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(transparent)]
@@ -128,25 +128,6 @@ pub struct ModuleMutationReceipt {
     pub duplicate: bool,
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
-pub struct CommittedModuleValue<T, R> {
-    pub value: T,
-    pub receipt: R,
-    /// Semantic LocalCommit cursor after this operation. Unlike
-    /// `event_sequence`, this does not identify a physical change-log row.
-    /// A no-change receipt still carries the current cursor so callers never
-    /// mistake a physical sequence for projection freshness.
-    #[serde(default)]
-    pub commit_seq: i64,
-    /// Physical change-log effect sequence retained for module-internal event
-    /// reconstruction. It is not a public projection cursor.
-    pub event_sequence: i64,
-    pub store_epoch: StoreEpoch,
-    /// Present when this response represents a durable semantic local commit.
-    /// No-change receipts intentionally have no new local commit.
-    pub local_commit: Option<events::LocalCommitEnvelope>,
-}
-
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ModuleName {
@@ -193,8 +174,14 @@ pub use automation::AUTOMATION_CONTRACT_VERSION;
 pub use database::DATABASE_CONTRACT_VERSION;
 pub use document::OWNED_DOCUMENT_CONTRACT_VERSION;
 pub use events::{
-    CommittedCoreModuleEvent, CoreModuleEventPayload, LocalCommitCursor, LocalCommitEnvelope,
-    PageDocumentHeadImpact, ProjectionImpact,
+    ApplyResponse, AuthorizedDeliveryPacket, AuthorizedDocumentEffect, AuthorizedModuleEffect,
+    AuthorizedModulePayload, AuthorizedOwnedDocumentEvent, CommitIdentity, CommitManifest,
+    CommitManifestHeader, CommittedCoreModuleEvent, CoreModuleEventPayload, DeliveryCoverage,
+    DocumentEffectRef, DocumentEffectResourceKind, LocalCommitReceiptRef, LocalCommitResources,
+    LocalProjectionPatch, LocalProjectionScope, PageDocumentHeadImpact, PhysicalEvidenceDigest,
+    ProjectionEffect, ProjectionImpact, ProjectionScopeKey, ProjectionSnapshotAuthority,
+    ResourceRevocation, ResourceRevocationReason, RevokedResourceKind, RoutingClaim,
+    SemanticEffect, StoreObservation, StreamCheckpoint,
 };
 pub use library::LIBRARY_CONTRACT_VERSION;
 pub use workspace::PROJECT_WORKSPACE_CONTRACT_VERSION;
@@ -278,7 +265,7 @@ mod tests {
             [
                 ModuleContractVersion {
                     module: ModuleName::Library,
-                    contract_version: 9,
+                    contract_version: LIBRARY_CONTRACT_VERSION,
                 },
                 ModuleContractVersion {
                     module: ModuleName::Database,
@@ -286,7 +273,7 @@ mod tests {
                 },
                 ModuleContractVersion {
                     module: ModuleName::OwnedDocument,
-                    contract_version: 3,
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
                 },
                 ModuleContractVersion {
                     module: ModuleName::ProjectWorkspace,

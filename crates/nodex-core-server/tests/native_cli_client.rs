@@ -6,12 +6,15 @@ use std::time::{Duration, Instant};
 
 use nodex_core::infrastructure::schema::CORE_SCHEMA_VERSION;
 use nodex_core_contracts::administration::{StoreAdministrationRead, StoreAdministrationReadValue};
+use nodex_core_contracts::events::DeliveryAuthorizationScope;
 use nodex_core_contracts::library::{
     LibraryAccess, LibraryIntent, LibraryPageFileKind, LibraryPagePrepareKind, LibraryRead,
     LibraryReadValue, LibraryResourceTarget, LibraryWriteParent,
 };
 use nodex_core_contracts::workspace::{ProjectWorkspaceIntent, ProjectWorkspaceStarterPage};
-use nodex_core_contracts::{ModuleApplyRequest, StoreEpoch, VersionedModuleContract};
+use nodex_core_contracts::{
+    ApplyResponse, ModuleApplyRequest, StoreEpoch, VersionedModuleContract,
+};
 use nodex_core_protocol::ResponseEnvelope;
 use nodex_core_protocol::client::{CoreClient, connect_or_launch};
 use tempfile::tempdir;
@@ -110,7 +113,20 @@ fn native_client_cold_starts_reuses_and_reads_the_authenticated_core() {
             },
         )
         .expect("create Page through native client");
-    assert!(matches!(created_page.0, ResponseEnvelope::Ok(_)));
+    let ResponseEnvelope::Ok(ApplyResponse::Committed {
+        delivery: Some(delivery),
+        ..
+    }) = created_page.0
+    else {
+        panic!("expected committed Page creation with fast-path delivery")
+    };
+    assert!(matches!(
+        delivery.authorization_scope,
+        DeliveryAuthorizationScope::Project {
+            ref library_id,
+            project_id: ref delivery_project_id,
+        } if library_id == &client.handshake.library_id && delivery_project_id == project_id
+    ));
     let granted = client
         .library_apply(
             None,

@@ -72,20 +72,20 @@ pub(crate) fn create_page(
         ResponseEnvelope::Ok(committed) => committed,
         ResponseEnvelope::Error(error) => return Err(map_core_error(error)),
     };
-    let created = committed.value.page_create.as_ref().ok_or_else(|| {
+    let created = committed.outcome().page_create.as_ref().ok_or_else(|| {
         CliError::new(
             CliErrorCode::Internal,
             "Core semantic Page creation omitted its exact result",
         )
     })?;
     let mut result = json!({
-        "operation_id": committed.receipt.mutation.operation_id,
-        "duplicate": committed.receipt.mutation.duplicate,
+        "operation_id": committed.receipt().mutation.operation_id,
+        "duplicate": committed.receipt().mutation.duplicate,
         "page_id": created.page_id,
         "document_id": created.document_id,
         "generation": created.document_generation,
         "head_seq": created.document_head_seq,
-        "event_sequence": committed.event_sequence,
+        "commit_seq": committed.commit_cursor(),
         "affected": {
             "created_block_ids": created.block_ids,
         },
@@ -102,7 +102,7 @@ pub(crate) fn create_page(
     {
         result.as_object_mut().expect("result object").insert(
             "commit".to_owned(),
-            serde_json::to_value(&committed.value).map_err(internal)?,
+            serde_json::to_value(committed.outcome()).map_err(internal)?,
         );
     }
     Ok(CommandOutput::Json(result))
@@ -215,23 +215,23 @@ fn transfer_page(
         ResponseEnvelope::Error(error) => return Err(map_core_error(error)),
     };
     let mut result = if duplicate {
-        let copied = committed.value.page_copy.as_ref().ok_or_else(|| {
+        let copied = committed.outcome().page_copy.as_ref().ok_or_else(|| {
             CliError::new(
                 CliErrorCode::Internal,
                 "Core semantic Page duplication omitted its exact result",
             )
         })?;
         json!({
-            "operation_id": committed.receipt.mutation.operation_id,
-            "duplicate": committed.receipt.mutation.duplicate,
+            "operation_id": committed.receipt().mutation.operation_id,
+            "duplicate": committed.receipt().mutation.duplicate,
             "source_page_id": copied.source_page_id,
             "page_id": copied.page_id,
             "document_id": copied.document_id,
             "generation": copied.document_generation,
             "head_seq": copied.document_head_seq,
-            "event_sequence": committed.event_sequence,
+            "commit_seq": committed.commit_cursor(),
             "affected": {
-                "page_ids": committed.receipt.affected_page_ids,
+                "page_ids": committed.receipt().affected_page_ids,
                 "block_ids": copied.block_ids,
                 "document_ids": copied.document_ids,
             },
@@ -241,7 +241,7 @@ fn transfer_page(
             },
         })
     } else {
-        let moved = committed.value.block_transfer.as_ref().ok_or_else(|| {
+        let moved = committed.outcome().block_transfer.as_ref().ok_or_else(|| {
             CliError::new(
                 CliErrorCode::Internal,
                 "Core semantic Page movement omitted its exact result",
@@ -260,13 +260,13 @@ fn transfer_page(
             )
         })?;
         json!({
-            "operation_id": committed.receipt.mutation.operation_id,
-            "duplicate": committed.receipt.mutation.duplicate,
+            "operation_id": committed.receipt().mutation.operation_id,
+            "duplicate": committed.receipt().mutation.duplicate,
             "page_id": page_id,
-            "event_sequence": committed.event_sequence,
+            "commit_seq": committed.commit_cursor(),
             "affected": {
-                "page_ids": committed.receipt.affected_page_ids,
-                "database_ids": committed.receipt.affected_database_ids,
+                "page_ids": committed.receipt().affected_page_ids,
+                "database_ids": committed.receipt().affected_database_ids,
                 "document_ids": moved.document_commits.iter().map(|commit| &commit.document_id).collect::<Vec<_>>(),
                 "location": moved.final_locations.get(&page_id),
                 "view_placement": moved.page_view_placements.get(&page_id),
@@ -277,7 +277,7 @@ fn transfer_page(
             },
         })
     };
-    maybe_include_commit(&mut result, &mutation.r#return, &committed.value)?;
+    maybe_include_commit(&mut result, &mutation.r#return, committed.outcome())?;
     Ok(CommandOutput::Json(result))
 }
 
@@ -310,26 +310,30 @@ pub(crate) fn delete_page(
         ResponseEnvelope::Ok(committed) => committed,
         ResponseEnvelope::Error(error) => return Err(map_core_error(error)),
     };
-    let lifecycle = committed.value.page_lifecycle.as_ref().ok_or_else(|| {
+    let lifecycle = committed.outcome().page_lifecycle.as_ref().ok_or_else(|| {
         CliError::new(
             CliErrorCode::Internal,
             "Core semantic Page deletion omitted its lifecycle receipt",
         )
     })?;
     let mut result = json!({
-        "operation_id": committed.receipt.mutation.operation_id,
-        "duplicate": committed.receipt.mutation.duplicate,
+        "operation_id": committed.receipt().mutation.operation_id,
+        "duplicate": committed.receipt().mutation.duplicate,
         "page_id": page_id,
         "lifecycle": lifecycle.lifecycle,
         "metadata_revision": lifecycle.metadata_revision,
         "parent_revision": lifecycle.parent_revision,
-        "event_sequence": committed.event_sequence,
+        "commit_seq": committed.commit_cursor(),
         "affected": {
-            "page_ids": committed.receipt.affected_page_ids,
-            "database_ids": committed.receipt.affected_database_ids,
+            "page_ids": committed.receipt().affected_page_ids,
+            "database_ids": committed.receipt().affected_database_ids,
         },
     });
-    maybe_include_commit(&mut result, &arguments.mutation.r#return, &committed.value)?;
+    maybe_include_commit(
+        &mut result,
+        &arguments.mutation.r#return,
+        committed.outcome(),
+    )?;
     Ok(CommandOutput::Json(result))
 }
 

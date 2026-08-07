@@ -11,24 +11,34 @@ import {
   BLOCK_TRANSFER_INTENT_CONTRACT_VERSION,
   type BlockTransferIntent,
 } from "../../shared/block-transfer";
-import type { DocumentSyncClientTarget } from "../document-sync-transport";
+import type {
+  DocumentSyncClientTarget,
+} from "../document-sync-transport";
+import type {
+  DocumentSyncSubscribeRequest,
+} from "../../shared/block-documents/document-sync";
 import type { ExecuteNodexAgentDuplicatePageResult } from "../../shared/nodex-agent-tools";
 import { DuplicatePageV3OutputSchema } from "../../shared/nodex-agent-tools/v3-write-schemas";
 import {
   createDesktopDocumentSyncBridge,
+  type DesktopDocumentSyncPort,
+  type DesktopDocumentSyncScope,
 } from "./desktop-document-sync-bridge";
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
 import {
   createFakeCoreHandshake,
   FakeCoreClient,
 } from "./testing/fake-core-client";
+import { createCoreLocalCommitFixture } from "./testing/local-commit-fixture";
 import {
   CoreEventCompatibilityError,
   CoreHttpError,
 } from "./uds-http";
-import type { CoreLocalCommitEnvelope } from "./types";
-import type { LibraryReadSnapshot } from "./types";
-import { LocalCommitDispatcher } from "./local-commit-dispatcher";
+import type {
+  CoreAuthorizedDeliveryPacket,
+  DocumentLiveBarrier,
+} from "./types";
+import { LocalCommitCoordinator } from "./local-commit-coordinator";
 
 class FakeTarget implements DocumentSyncClientTarget {
   readonly sent: Array<{ readonly channel: string; readonly payload: unknown }> = [];
@@ -88,6 +98,7 @@ class TerminalDocumentStreamClient extends FakeCoreClient {
       this.rejectActive = reject;
     });
     return Promise.resolve({
+      barrier: documentLiveBarrier(args[0].documentId),
       done,
       close: resolveDone,
     });
@@ -107,13 +118,16 @@ class ControlledOpeningDocumentStreamClient extends FakeCoreClient {
   }> = [];
 
   override openDocumentEventStream(
+    input: Parameters<FakeCoreClient["openDocumentEventStream"]>[0],
   ): ReturnType<FakeCoreClient["openDocumentEventStream"]> {
     let resolveOpening: (subscription: {
+      readonly barrier: DocumentLiveBarrier;
       readonly done: Promise<void>;
       close(): void;
     }) => void = () => undefined;
     let rejectOpening: (error: unknown) => void = () => undefined;
     const opening = new Promise<{
+      readonly barrier: DocumentLiveBarrier;
       readonly done: Promise<void>;
       close(): void;
     }>((resolve, reject) => {
@@ -126,13 +140,27 @@ class ControlledOpeningDocumentStreamClient extends FakeCoreClient {
         const done = new Promise<void>((resolve) => {
           resolveDone = resolve;
         });
-        resolveOpening({ done, close: resolveDone });
+        resolveOpening({
+          barrier: documentLiveBarrier(input.documentId),
+          done,
+          close: resolveDone,
+        });
       },
       fail: rejectOpening,
     });
     return opening;
   }
 }
+
+const documentLiveBarrier = (documentId: string): DocumentLiveBarrier => ({
+  store_epoch: "epoch:test",
+  core_generation: "fake-core-start",
+  document_id: documentId,
+  document_generation: 1,
+  head_seq: 0,
+  commit_head: 0,
+  engine: "yjs",
+});
 
 const rustRuntime = (
   rootClient: FakeCoreClient,
@@ -161,42 +189,42 @@ const rustRuntime = (
 const documentCommitEnvelope = (
   commitSeq: number,
   documents: readonly string[],
-): CoreLocalCommitEnvelope => {
-  const effects = documents.map((documentId, index) => ({
-    event_version: 3,
-    sequence: commitSeq * 10 + index + 1,
-    store_epoch: "epoch:test",
-    operation_id: `operation:document:${commitSeq}`,
-    committed_at: "2026-07-19T22:00:00.000Z",
-    projection_impact: { kind: "none" as const },
-    payload: {
-      module: "owned_document" as const,
-      event: {
-        kind: "document_updated" as const,
-        document_id: documentId,
-        generation: 1,
-        head_seq: commitSeq,
-        update: [1, 2, 3],
-      },
+  options: { readonly inline?: boolean } = {},
+): CoreAuthorizedDeliveryPacket => {
+  const update = [1, 2, 3] as const;
+  const updateHash = createHash("sha256").update(Uint8Array.from(update)).digest("hex");
+  return createCoreLocalCommitFixture({
+    authorizationScope: {
+      kind: "library",
+      library_id: "library:test",
     },
-  }));
-  return {
-    event_version: 3,
-    commit_seq: commitSeq,
-    store_epoch: "epoch:test",
-    operation_id: `operation:document:${commitSeq}`,
-    committed_at: "2026-07-19T22:00:00.000Z",
-    projection_impact: { kind: "none" },
-    payload: effects.at(-1)!.payload,
-    effects,
-    canonical_hash: String(commitSeq).padStart(64, "0"),
-  };
+    commitSeq,
+    storeEpoch: "epoch:test",
+    operationId: `operation:document:${commitSeq}`,
+    committedAt: "2026-07-19T22:00:00.000Z",
+    documentEffects: documents.map((documentId, effectOrder) => ({
+      reference: {
+        base_head_seq: Math.max(0, commitSeq - 1),
+        document_id: documentId,
+        effect_order: effectOrder,
+        generation: 1,
+        page_id: null,
+        resource_kind: "document_update",
+        result_head_seq: commitSeq,
+        update_byte_length: 3,
+        update_hash: updateHash,
+        update_id: `update:${documentId}:${commitSeq}`,
+      },
+      inline_update: options.inline === false ? null : update,
+    })),
+    canonicalHash: String(commitSeq).padStart(64, "0"),
+  });
 };
 
 const compactedDocumentCommitEnvelope = (
   commitSeq: number,
   documentId: string,
-): CoreLocalCommitEnvelope => {
+): CoreAuthorizedDeliveryPacket => {
   const envelope = documentCommitEnvelope(commitSeq, [documentId]);
   const payload = {
     module: "owned_document" as const,
@@ -209,10 +237,44 @@ const compactedDocumentCommitEnvelope = (
       update_hash: String(commitSeq).padStart(64, "0"),
     },
   };
-  return {
-    ...envelope,
+  return createCoreLocalCommitFixture({
+    authorizationScope: {
+      kind: "library",
+      library_id: "library:test",
+    },
+    commitSeq,
+    storeEpoch: "epoch:test",
+    operationId: `operation:document:${commitSeq}`,
+    committedAt: "2026-07-19T22:00:00.000Z",
     payload,
-    effects: envelope.effects.map((effect) => ({ ...effect, payload })),
+    documentEffects: envelope.document_effects,
+    canonicalHash: envelope.manifest.identity.manifest_hash,
+  });
+};
+
+const updateResourceSnapshot = (
+  packet: CoreAuthorizedDeliveryPacket,
+  update: readonly number[] = [1, 2, 3],
+) => {
+  const reference = packet.document_effects[0]?.reference;
+  if (!reference) throw new Error("Expected a Document effect fixture");
+  return {
+    contract_version: 6 as const,
+    store_epoch: packet.manifest.identity.store_epoch,
+    commit_head: packet.manifest.identity.commit_seq,
+    value: {
+      kind: "update_resource" as const,
+      resource: {
+        document_id: reference.document_id,
+        generation: reference.generation,
+        base_head_seq: reference.base_head_seq,
+        head_seq: reference.result_head_seq,
+        update_id: reference.update_id,
+        update_hash: reference.update_hash,
+        update_byte_length: update.length,
+        update,
+      },
+    },
   };
 };
 
@@ -220,6 +282,30 @@ const subscribeRequest = {
   documentId: "document:one",
   clientSessionId: "renderer:one",
 } as const;
+
+const activateYjsSubscription = async (
+  bridge: DesktopDocumentSyncPort,
+  client: FakeCoreClient,
+  scope: DesktopDocumentSyncScope,
+  target: FakeTarget,
+  request: DocumentSyncSubscribeRequest,
+  headSeq: number,
+): Promise<void> => {
+  client.enqueueDocumentSync({
+    documentId: request.documentId,
+    storeEpoch: "epoch:test",
+    generation: 1,
+    headSeq,
+    update: new Uint8Array(),
+    stateVector: new Uint8Array(),
+  });
+  const result = await bridge.sync(scope, target, {
+    ...request,
+    stateVector: new Uint8Array(),
+  });
+  if (!result.ok) throw new Error(`Document activation failed: ${result.error.message}`);
+  target.sent.splice(0);
+};
 
 const canvasSubscribeRequest = {
   version: CANVAS_SCENE_SYNC_VERSION,
@@ -441,6 +527,114 @@ describe("Desktop Document sync bridge", () => {
     expect(client.openings).toHaveLength(2);
   });
 
+  test("keeps a reserved session outside root fanout until Core opens its barrier", async () => {
+    const client = new ControlledOpeningDocumentStreamClient();
+    const bridge = createDesktopDocumentSyncBridge({
+      authority: Promise.resolve(rustRuntime(client)),
+    });
+    const target = new FakeTarget(30);
+    const opening = bridge.subscribe(
+      { kind: "library" },
+      target,
+      subscribeRequest,
+    );
+    await vi.waitFor(() => expect(client.openings).toHaveLength(1));
+
+    bridge.publishDocumentEffects(documentCommitEnvelope(1, [
+      subscribeRequest.documentId,
+    ]));
+    expect(target.sent).toHaveLength(0);
+
+    client.openings[0]?.open();
+    await expect(opening).resolves.toEqual({
+      ok: true,
+      value: { subscribed: true },
+    });
+    expect(target.sent.filter((delivery) =>
+      typeof delivery.payload === "object"
+      && delivery.payload !== null
+      && "kind" in delivery.payload
+      && delivery.payload.kind === "document-update"
+    )).toHaveLength(0);
+  });
+
+  test("admits an exact session at its barrier but withholds bytes until canonical sync", async () => {
+    const client = new FakeCoreClient();
+    const bridge = createDesktopDocumentSyncBridge({
+      authority: Promise.resolve(rustRuntime(client)),
+    });
+    const target = new FakeTarget(31);
+    const scope = { kind: "library" } as const;
+    await bridge.subscribe(scope, target, subscribeRequest);
+    target.sent.splice(0);
+
+    client.emitDocument(subscribeRequest.documentId, {
+      transport_version: 6,
+      packet: documentCommitEnvelope(1, [subscribeRequest.documentId]),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(target.sent).toHaveLength(0);
+
+    await activateYjsSubscription(
+      bridge,
+      client,
+      scope,
+      target,
+      subscribeRequest,
+      1,
+    );
+    client.emitDocument(subscribeRequest.documentId, {
+      transport_version: 6,
+      packet: documentCommitEnvelope(2, [subscribeRequest.documentId]),
+    });
+    await vi.waitFor(() => {
+      expect(target.sent).toEqual([expect.objectContaining({
+        payload: expect.objectContaining({
+          kind: "document-update",
+          headSeq: 2,
+        }),
+      })]);
+    });
+  });
+
+  test("delivers an identity repair across the previous Yjs Store boundary", async () => {
+    const client = new FakeCoreClient();
+    const bridge = createDesktopDocumentSyncBridge({
+      authority: Promise.resolve(rustRuntime(client)),
+    });
+    const target = new FakeTarget(32);
+    const scope = { kind: "library" } as const;
+    await bridge.subscribe(scope, target, subscribeRequest);
+    await activateYjsSubscription(
+      bridge,
+      client,
+      scope,
+      target,
+      subscribeRequest,
+      1,
+    );
+    target.sent.splice(0);
+
+    client.emitDocumentRepair(subscribeRequest.documentId, {
+      document_id: subscribeRequest.documentId,
+      store_epoch: "epoch:replacement",
+      document_generation: 1,
+      head_seq: 0,
+      commit_head: 0,
+      reason: "identity_changed",
+    });
+
+    await vi.waitFor(() => {
+      expect(target.sent).toContainEqual(expect.objectContaining({
+        payload: expect.objectContaining({
+          kind: "resync-required",
+          storeEpoch: "epoch:replacement",
+          reason: "identity-boundary-changed",
+        }),
+      }));
+    });
+  });
+
   test("releases the bridge binding when an established logical stream terminates", async () => {
     const client = new TerminalDocumentStreamClient();
     const bridge = createDesktopDocumentSyncBridge({
@@ -504,8 +698,9 @@ describe("Desktop Document sync bridge", () => {
   });
 
   test("fans one LocalCommit out to every authorized live Document surface", async () => {
+    const client = new FakeCoreClient();
     const bridge = createDesktopDocumentSyncBridge({
-      authority: Promise.resolve(rustRuntime(new FakeCoreClient())),
+      authority: Promise.resolve(rustRuntime(client)),
     });
     const projectOne = new FakeTarget(1);
     const projectTwo = new FakeTarget(2);
@@ -534,11 +729,35 @@ describe("Desktop Document sync bridge", () => {
         clientSessionId: "renderer:unrelated",
       },
     );
+    await activateYjsSubscription(
+      bridge,
+      client,
+      { kind: "project", projectId: "project:one" },
+      projectOne,
+      { ...subscribeRequest, clientSessionId: "renderer:project:one" },
+      2,
+    );
+    await activateYjsSubscription(
+      bridge,
+      client,
+      { kind: "project", projectId: "project:two" },
+      projectTwo,
+      { ...subscribeRequest, clientSessionId: "renderer:project:two" },
+      2,
+    );
+    await activateYjsSubscription(
+      bridge,
+      client,
+      { kind: "library" },
+      library,
+      { ...subscribeRequest, clientSessionId: "renderer:library" },
+      2,
+    );
     for (const target of [projectOne, projectTwo, library, unrelated]) {
       target.sent.splice(0);
     }
 
-    bridge.publishLocalCommit(documentCommitEnvelope(3, [
+    bridge.publishDocumentEffects(documentCommitEnvelope(3, [
       subscribeRequest.documentId,
     ]));
 
@@ -549,16 +768,418 @@ describe("Desktop Document sync bridge", () => {
           kind: "document-update",
           documentId: subscribeRequest.documentId,
           headSeq: 3,
-          clientSessionId: "core:local-commit",
+          clientSessionId: "core:authorized-delivery",
         }),
       })]);
     }
     expect(unrelated.sent).toHaveLength(0);
   });
 
-  test("deduplicates an apply fast path replayed by the durable stream", async () => {
+  test("revokes only the exact Project Document subscription from a root packet", async () => {
+    const client = new FakeCoreClient();
     const bridge = createDesktopDocumentSyncBridge({
+      authority: Promise.resolve(rustRuntime(client)),
+    });
+    const source = new FakeTarget(5);
+    const target = new FakeTarget(6);
+    const library = new FakeTarget(7);
+    await bridge.subscribe(
+      { kind: "project", projectId: "project:one" },
+      source,
+      { ...subscribeRequest, clientSessionId: "renderer:source" },
+    );
+    await bridge.subscribe(
+      { kind: "project", projectId: "project:two" },
+      target,
+      { ...subscribeRequest, clientSessionId: "renderer:target" },
+    );
+    await bridge.subscribe(
+      { kind: "library" },
+      library,
+      { ...subscribeRequest, clientSessionId: "renderer:library" },
+    );
+    await activateYjsSubscription(
+      bridge,
+      client,
+      { kind: "project", projectId: "project:one" },
+      source,
+      { ...subscribeRequest, clientSessionId: "renderer:source" },
+      3,
+    );
+    await activateYjsSubscription(
+      bridge,
+      client,
+      { kind: "project", projectId: "project:two" },
+      target,
+      { ...subscribeRequest, clientSessionId: "renderer:target" },
+      3,
+    );
+    await activateYjsSubscription(
+      bridge,
+      client,
+      { kind: "library" },
+      library,
+      { ...subscribeRequest, clientSessionId: "renderer:library" },
+      3,
+    );
+    for (const recipient of [source, target, library]) recipient.sent.splice(0);
+    const revocation = {
+      authorization_scope: {
+        kind: "document" as const,
+        library_id: "library:test",
+        project_id: "project:one",
+        document_id: subscribeRequest.documentId,
+      },
+      resource_kind: "document" as const,
+      resource_id: subscribeRequest.documentId,
+      reason: "access_revoked" as const,
+    };
+    const packet = createCoreLocalCommitFixture({
+      authorizationScope: {
+        kind: "library",
+        library_id: "library:test",
+      },
+      commitSeq: 3,
+      storeEpoch: "epoch:test",
+      revocations: [revocation],
+    });
+
+    bridge.publishResourceRevocation(packet, revocation);
+
+    expect(source.sent).toEqual([expect.objectContaining({
+      payload: expect.objectContaining({
+        kind: "resync-required",
+        reason: "access-revoked",
+      }),
+    })]);
+    expect(target.sent).toHaveLength(0);
+    expect(library.sent).toHaveLength(0);
+
+    bridge.publishDocumentEffects(documentCommitEnvelope(4, [subscribeRequest.documentId]));
+    expect(source.sent).toHaveLength(1);
+    expect(target.sent).toHaveLength(1);
+    expect(library.sent).toHaveLength(1);
+  });
+
+  test("suppresses same-packet Document bytes before the revocation lane runs", async () => {
+    const client = new FakeCoreClient();
+    const bridge = createDesktopDocumentSyncBridge({
+      authority: Promise.resolve(rustRuntime(client)),
+    });
+    const source = new FakeTarget(8);
+    const target = new FakeTarget(9);
+    await bridge.subscribe(
+      { kind: "project", projectId: "project:one" },
+      source,
+      { ...subscribeRequest, clientSessionId: "renderer:source-barrier" },
+    );
+    await bridge.subscribe(
+      { kind: "project", projectId: "project:two" },
+      target,
+      { ...subscribeRequest, clientSessionId: "renderer:target-barrier" },
+    );
+    await activateYjsSubscription(
+      bridge,
+      client,
+      { kind: "project", projectId: "project:one" },
+      source,
+      { ...subscribeRequest, clientSessionId: "renderer:source-barrier" },
+      3,
+    );
+    await activateYjsSubscription(
+      bridge,
+      client,
+      { kind: "project", projectId: "project:two" },
+      target,
+      { ...subscribeRequest, clientSessionId: "renderer:target-barrier" },
+      3,
+    );
+    source.sent.splice(0);
+    target.sent.splice(0);
+    const revocation = {
+      authorization_scope: {
+        kind: "document" as const,
+        library_id: "library:test",
+        project_id: "project:one",
+        document_id: subscribeRequest.documentId,
+      },
+      resource_kind: "document" as const,
+      resource_id: subscribeRequest.documentId,
+      reason: "ownership_moved" as const,
+    };
+    const packet = {
+      ...documentCommitEnvelope(4, [subscribeRequest.documentId]),
+      revocations: [revocation],
+    };
+
+    bridge.publishDocumentEffects(packet);
+
+    expect(source.sent).toHaveLength(0);
+    expect(target.sent).toEqual([expect.objectContaining({
+      payload: expect.objectContaining({ kind: "document-update" }),
+    })]);
+
+    bridge.publishResourceRevocation(packet, revocation);
+    expect(source.sent).toEqual([expect.objectContaining({
+      payload: expect.objectContaining({
+        kind: "resync-required",
+        reason: "access-revoked",
+      }),
+    })]);
+  });
+
+  test("closes an exact Document subscription recovered from its durable stream", async () => {
+    const client = new FakeCoreClient();
+    const bridge = createDesktopDocumentSyncBridge({
+      authority: Promise.resolve(rustRuntime(client)),
+    });
+    const target = new FakeTarget(10);
+    const scope = { kind: "project", projectId: "project:one" } as const;
+    await bridge.subscribe(scope, target, subscribeRequest);
+    target.sent.splice(0);
+    const revocation = {
+      authorization_scope: {
+        kind: "document" as const,
+        library_id: "library:test",
+        project_id: "project:one",
+        document_id: subscribeRequest.documentId,
+      },
+      resource_kind: "document" as const,
+      resource_id: subscribeRequest.documentId,
+      reason: "access_revoked" as const,
+    };
+    client.emitDocument(subscribeRequest.documentId, {
+      transport_version: 6,
+      packet: createCoreLocalCommitFixture({
+        authorizationScope: revocation.authorization_scope,
+        commitSeq: 5,
+        storeEpoch: "epoch:test",
+        revocations: [revocation],
+      }),
+    });
+
+    await vi.waitFor(() => expect(target.sent).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          kind: "resync-required",
+          reason: "access-revoked",
+        }),
+      }),
+    ])));
+    await expect(bridge.sync(scope, target, {
+      ...subscribeRequest,
+      stateVector: new Uint8Array(),
+    })).resolves.toMatchObject({
+      ok: false,
+      error: { code: "unauthorized" },
+    });
+  });
+
+  test("publishes an exact coordinator lane without replaying sibling Documents", async () => {
+    const client = new FakeCoreClient();
+    const bridge = createDesktopDocumentSyncBridge({
+      authority: Promise.resolve(rustRuntime(client)),
+    });
+    const first = new FakeTarget(5);
+    const second = new FakeTarget(6);
+    await bridge.subscribe({ kind: "library" }, first, {
+      documentId: "document:first",
+      clientSessionId: "renderer:first",
+    });
+    await bridge.subscribe({ kind: "library" }, second, {
+      documentId: "document:second",
+      clientSessionId: "renderer:second",
+    });
+    await activateYjsSubscription(
+      bridge,
+      client,
+      { kind: "library" },
+      first,
+      { documentId: "document:first", clientSessionId: "renderer:first" },
+      2,
+    );
+    await activateYjsSubscription(
+      bridge,
+      client,
+      { kind: "library" },
+      second,
+      { documentId: "document:second", clientSessionId: "renderer:second" },
+      2,
+    );
+    first.sent.splice(0);
+    second.sent.splice(0);
+    const packet = documentCommitEnvelope(3, [
+      "document:first",
+      "document:second",
+    ]);
+
+    bridge.publishDocumentEffects(packet, "document:first");
+
+    expect(first.sent).toHaveLength(1);
+    expect(second.sent).toHaveLength(0);
+  });
+
+  test("fetches one exact ref for every surface in the same access scope", async () => {
+    const client = new FakeCoreClient();
+    const bridge = createDesktopDocumentSyncBridge({
+      authority: Promise.resolve(rustRuntime(client)),
+    });
+    const first = new FakeTarget(11);
+    const second = new FakeTarget(12);
+    const scope = { kind: "project", projectId: "project:one" } as const;
+    await bridge.subscribe(scope, first, {
+      ...subscribeRequest,
+      clientSessionId: "renderer:first",
+    });
+    await bridge.subscribe(scope, second, {
+      ...subscribeRequest,
+      clientSessionId: "renderer:second",
+    });
+    await activateYjsSubscription(
+      bridge,
+      client,
+      scope,
+      first,
+      { ...subscribeRequest, clientSessionId: "renderer:first" },
+      2,
+    );
+    await activateYjsSubscription(
+      bridge,
+      client,
+      scope,
+      second,
+      { ...subscribeRequest, clientSessionId: "renderer:second" },
+      2,
+    );
+    first.sent.splice(0);
+    second.sent.splice(0);
+    const packet = documentCommitEnvelope(
+      3,
+      [subscribeRequest.documentId],
+      { inline: false },
+    );
+    client.enqueueDocumentRead(updateResourceSnapshot(packet));
+
+    bridge.publishDocumentEffects(packet);
+
+    await vi.waitFor(() => {
+      expect(first.sent).toHaveLength(1);
+      expect(second.sent).toHaveLength(1);
+    });
+    for (const target of [first, second]) {
+      expect(target.sent[0]?.payload).toMatchObject({
+        kind: "document-update",
+        documentId: subscribeRequest.documentId,
+        headSeq: 3,
+        update: Uint8Array.from([1, 2, 3]),
+      });
+    }
+    expect(client.documentReads).toHaveLength(1);
+  });
+
+  test("repairs an unavailable exact ref through typed snapshot resync", async () => {
+    const client = new FakeCoreClient();
+    const bridge = createDesktopDocumentSyncBridge({
+      authority: Promise.resolve(rustRuntime(client)),
+    });
+    const target = new FakeTarget(13);
+    await bridge.subscribe({ kind: "library" }, target, subscribeRequest);
+    target.sent.splice(0);
+    const packet = documentCommitEnvelope(
+      4,
+      [subscribeRequest.documentId],
+      { inline: false },
+    );
+    const reference = packet.document_effects[0]?.reference;
+    if (!reference) throw new Error("Expected a Document effect fixture");
+    client.enqueueDocumentRead({
+      contract_version: 6,
+      store_epoch: "epoch:test",
+      commit_head: 4,
+      value: {
+        kind: "update_resource_unavailable",
+        unavailable: {
+          document_id: reference.document_id,
+          requested_generation: reference.generation,
+          current_generation: reference.generation,
+          current_head_seq: reference.result_head_seq,
+          update_id: reference.update_id,
+          update_hash: reference.update_hash,
+          reason: "compacted",
+        },
+      },
+    });
+
+    bridge.publishDocumentEffects(packet);
+
+    await vi.waitFor(() => expect(target.sent).toHaveLength(1));
+    expect(target.sent[0]?.payload).toMatchObject({
+      kind: "resync-required",
+      reason: "history-compacted",
+      generation: 1,
+      headSeq: 4,
+    });
+  });
+
+  test("fails closed when fetched or inline bytes violate their exact ref", async () => {
+    const client = new FakeCoreClient();
+    const bridge = createDesktopDocumentSyncBridge({
+      authority: Promise.resolve(rustRuntime(client)),
+    });
+    const target = new FakeTarget(14);
+    await bridge.subscribe({ kind: "library" }, target, subscribeRequest);
+    target.sent.splice(0);
+    const fetchedPacket = documentCommitEnvelope(
+      5,
+      [subscribeRequest.documentId],
+      { inline: false },
+    );
+    client.enqueueDocumentRead(updateResourceSnapshot(
+      fetchedPacket,
+      [9, 9, 9],
+    ));
+
+    bridge.publishDocumentEffects(fetchedPacket);
+
+    await vi.waitFor(() => expect(target.sent).toHaveLength(1));
+    expect(target.sent[0]?.payload).toMatchObject({
+      kind: "resync-required",
+      reason: "resource-integrity-failure",
+    });
+
+    const inlineBridge = createDesktopDocumentSyncBridge({
       authority: Promise.resolve(rustRuntime(new FakeCoreClient())),
+    });
+    const inlineTarget = new FakeTarget(15);
+    await inlineBridge.subscribe(
+      { kind: "library" },
+      inlineTarget,
+      { ...subscribeRequest, clientSessionId: "renderer:inline-integrity" },
+    );
+    inlineTarget.sent.splice(0);
+    const inlinePacket = documentCommitEnvelope(6, [subscribeRequest.documentId]);
+    const inlineEffect = inlinePacket.document_effects[0];
+    if (!inlineEffect) throw new Error("Expected a Document effect fixture");
+    inlineBridge.publishDocumentEffects({
+      ...inlinePacket,
+      document_effects: [{
+        ...inlineEffect,
+        reference: {
+          ...inlineEffect.reference,
+          update_hash: "0".repeat(64),
+        },
+      }],
+    });
+    expect(inlineTarget.sent[0]?.payload).toMatchObject({
+      kind: "resync-required",
+      reason: "resource-integrity-failure",
+    });
+  });
+
+  test("deduplicates an apply fast path replayed by the durable stream", async () => {
+    const client = new FakeCoreClient();
+    const bridge = createDesktopDocumentSyncBridge({
+      authority: Promise.resolve(rustRuntime(client)),
     });
     const target = new FakeTarget(1);
     await bridge.subscribe(
@@ -566,18 +1187,27 @@ describe("Desktop Document sync bridge", () => {
       target,
       subscribeRequest,
     );
+    await activateYjsSubscription(
+      bridge,
+      client,
+      { kind: "library" },
+      target,
+      subscribeRequest,
+      3,
+    );
     target.sent.splice(0);
 
     const envelope = documentCommitEnvelope(4, [subscribeRequest.documentId]);
-    bridge.publishLocalCommit(envelope);
-    bridge.publishLocalCommit(envelope);
+    bridge.publishDocumentEffects(envelope);
+    bridge.publishDocumentEffects(envelope);
 
     expect(target.sent).toHaveLength(1);
   });
 
   test("publishes the admitted apply envelope once before the tailer replay", async () => {
+    const client = new FakeCoreClient();
     const bridge = createDesktopDocumentSyncBridge({
-      authority: Promise.resolve(rustRuntime(new FakeCoreClient())),
+      authority: Promise.resolve(rustRuntime(client)),
     });
     const target = new FakeTarget(2);
     await bridge.subscribe(
@@ -585,22 +1215,30 @@ describe("Desktop Document sync bridge", () => {
       target,
       subscribeRequest,
     );
+    await activateYjsSubscription(
+      bridge,
+      client,
+      { kind: "library" },
+      target,
+      subscribeRequest,
+      5,
+    );
     target.sent.splice(0);
 
-    const deliveredCommits: number[] = [];
-    const dispatcher = new LocalCommitDispatcher({
-      onAdmitted: (envelope) => bridge.publishLocalCommit(envelope),
-      onCommit: (envelope) => {
-        deliveredCommits.push(envelope.commit_seq);
-      },
+    const coordinator = new LocalCommitCoordinator({
+      expectedLibraryId: "library:test",
+      expectedStoreEpoch: "epoch:test",
+      onDocument: (packet) => bridge.publishDocumentEffects(packet),
+      onProjection: () => undefined,
+      onNotification: () => undefined,
+      onRevocation: () => undefined,
     });
     const envelope = documentCommitEnvelope(6, [subscribeRequest.documentId]);
 
-    expect(dispatcher.accept(envelope, "apply").kind).toBe("accepted");
-    expect(dispatcher.accept(envelope, "tailer").kind).toBe("duplicate");
-    await dispatcher.waitForIdle();
+    expect(coordinator.admit(envelope, "apply").kind).toBe("accepted");
+    expect(coordinator.admit(envelope, "tailer").kind).toBe("duplicate");
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(deliveredCommits).toEqual([6]);
     expect(target.sent.filter((delivery) =>
       typeof delivery.payload === "object"
       && delivery.payload !== null
@@ -621,7 +1259,7 @@ describe("Desktop Document sync bridge", () => {
     );
     target.sent.splice(0);
 
-    bridge.publishLocalCommit(compactedDocumentCommitEnvelope(
+    bridge.publishDocumentEffects(compactedDocumentCommitEnvelope(
       5,
       subscribeRequest.documentId,
     ));
@@ -660,10 +1298,10 @@ describe("Desktop Document sync bridge", () => {
     });
     target.sent.splice(0);
 
-    bridge.publishLocalCommit(documentCommitEnvelope(3, [subscribeRequest.documentId]));
+    bridge.publishDocumentEffects(documentCommitEnvelope(3, [subscribeRequest.documentId]));
     expect(target.sent).toHaveLength(0);
 
-    bridge.publishLocalCommit(documentCommitEnvelope(2, [subscribeRequest.documentId]));
+    bridge.publishDocumentEffects(documentCommitEnvelope(2, [subscribeRequest.documentId]));
     expect(target.sent.map((delivery) =>
       (delivery.payload as { readonly headSeq: number }).headSeq,
     )).toEqual([2, 3]);
@@ -1042,31 +1680,6 @@ describe("Desktop Document sync bridge", () => {
         committed_at: "2026-07-19T22:00:00.000Z",
       },
     });
-    projectClient.enqueueRead({
-      contract_version: 9,
-      store_epoch: "epoch:test",
-      commit_head: 8,
-      value: {
-        kind: "block_transfer_plan",
-        value: {
-          kind: "prepared",
-          preparation: {
-            source_document_id: "document:source",
-            source_database_id: null,
-            target_document_id: "document:target",
-            target_database_id: null,
-            write_fence: {
-              documents: [
-                { document_id: "document:source", generation: 1, expected_head_seq: 2 },
-                { document_id: "document:target", generation: 1, expected_head_seq: 5 },
-              ],
-              location_revisions: { "block:root": 1 },
-              source_memberships: {},
-            },
-          },
-        },
-      },
-    } satisfies LibraryReadSnapshot);
     const bridge = createDesktopDocumentSyncBridge({
       authority: Promise.resolve(rustRuntime(rootClient, projectClient)),
     });
@@ -1081,6 +1694,22 @@ describe("Desktop Document sync bridge", () => {
       documentId: "document:target",
       clientSessionId: "renderer:target",
     });
+    await activateYjsSubscription(
+      bridge,
+      projectClient,
+      scope,
+      sourceTarget,
+      { documentId: "document:source", clientSessionId: "renderer:source" },
+      8,
+    );
+    await activateYjsSubscription(
+      bridge,
+      projectClient,
+      scope,
+      targetTarget,
+      { documentId: "document:target", clientSessionId: "renderer:target" },
+      8,
+    );
 
     const result = await bridge.transferBlocks(transferIntent);
     if (!result.ok) throw new Error(JSON.stringify(result.error));
@@ -1091,20 +1720,15 @@ describe("Desktop Document sync bridge", () => {
         finalLocationRevisions: { "block:root": 2 },
       },
     });
-    expect(projectClient.reads).toHaveLength(1);
+    expect(projectClient.reads).toHaveLength(0);
     expect(projectClient.applies[0]).toMatchObject({
       operationId: transferIntent.operationId,
       intent: {
         kind: "transfer_blocks",
-        write_fence: {
-          documents: [
-            { document_id: "document:source", expected_head_seq: 2 },
-            { document_id: "document:target", expected_head_seq: 5 },
-          ],
-        },
+        intent: { root_block_ids: ["block:root"] },
       },
     });
-    bridge.publishLocalCommit(documentCommitEnvelope(9, [
+    bridge.publishDocumentEffects(documentCommitEnvelope(9, [
       "document:source",
       "document:target",
     ]));
@@ -1136,6 +1760,17 @@ describe("Desktop Document sync bridge", () => {
       documentId: "document:agent-target",
       clientSessionId: "renderer:agent-target",
     });
+    await activateYjsSubscription(
+      bridge,
+      projectClient,
+      scope,
+      target,
+      {
+        documentId: "document:agent-target",
+        clientSessionId: "renderer:agent-target",
+      },
+      13,
+    );
     const execute = vi.fn(async (): Promise<ExecuteNodexAgentDuplicatePageResult> => ({
       ok: true,
       value: {
@@ -1180,7 +1815,7 @@ describe("Desktop Document sync bridge", () => {
     });
     expect(result).toMatchObject({ ok: true, value: { commitSeq: 14 } });
     expect(execute).toHaveBeenCalledOnce();
-    bridge.publishLocalCommit(documentCommitEnvelope(14, [
+    bridge.publishDocumentEffects(documentCommitEnvelope(14, [
       "document:agent-target",
     ]));
     expect(target.sent.some((delivery) =>
@@ -1268,6 +1903,39 @@ describe("Desktop Document sync bridge", () => {
       ...canvasSubscribeRequest,
       syncRequestId: "sync:canvas",
     }]);
+  });
+
+  test("delivers an identity repair across the previous Canvas Store boundary", async () => {
+    const projectClient = new FakeCoreClient();
+    projectClient.enqueueDocumentCanvasSync(canvasSyncSnapshot("sync:identity"));
+    const bridge = createDesktopDocumentSyncBridge({
+      authority: Promise.resolve(rustRuntime(new FakeCoreClient(), projectClient)),
+    });
+    const target = new FakeTarget(4);
+    await bridge.subscribeCanvasScene(target, canvasSubscribeRequest);
+    await bridge.syncCanvasScene(target, {
+      ...canvasSubscribeRequest,
+      syncRequestId: "sync:identity",
+    });
+    target.sent.splice(0);
+
+    projectClient.emitDocumentRepair(canvasSubscribeRequest.documentId, {
+      document_id: canvasSubscribeRequest.documentId,
+      store_epoch: "epoch:replacement",
+      document_generation: 1,
+      head_seq: 0,
+      commit_head: 0,
+      reason: "identity_changed",
+    });
+
+    await vi.waitFor(() => {
+      expect(target.sent).toContainEqual(expect.objectContaining({
+        payload: expect.objectContaining({
+          type: "canvas_scene_resync_required",
+          storeEpoch: "epoch:replacement",
+        }),
+      }));
+    });
   });
 
   test("binds ephemeral Canvas presence to the exact Host target without Core writes", async () => {

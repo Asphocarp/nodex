@@ -103,7 +103,9 @@ fn document_policy(read: &OwnedDocumentRead) -> ReadBudgetPolicy {
         | OwnedDocumentRead::GetVersion { .. }
         | OwnedDocumentRead::CanvasCompactionEligibility { .. } => ReadBudgetPolicy::Identity,
         OwnedDocumentRead::PrepareAgentSemanticMutation { .. } => ReadBudgetPolicy::BoundedBatch,
-        OwnedDocumentRead::SyncYjs { .. } => ReadBudgetPolicy::LargeObject,
+        OwnedDocumentRead::SyncYjs { .. } | OwnedDocumentRead::FetchUpdate { .. } => {
+            ReadBudgetPolicy::LargeObject
+        }
     }
 }
 
@@ -122,8 +124,7 @@ fn library_policy(read: &LibraryRead) -> ReadBudgetPolicy {
         | LibraryRead::PlanAgentResourceAccess { .. }
         | LibraryRead::PrepareAgentPageCopy { .. }
         | LibraryRead::PrepareAgentCreatePages { .. }
-        | LibraryRead::PrepareAgentMovePages { .. }
-        | LibraryRead::PlanBlockTransfer { .. } => ReadBudgetPolicy::BoundedBatch,
+        | LibraryRead::PrepareAgentMovePages { .. } => ReadBudgetPolicy::BoundedBatch,
         LibraryRead::PageContent { .. } | LibraryRead::PageFile { .. } => {
             ReadBudgetPolicy::LargeObject
         }

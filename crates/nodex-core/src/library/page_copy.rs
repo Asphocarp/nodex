@@ -1,11 +1,11 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::Path;
 
-use nodex_core_contracts::BoundModuleContext;
 use nodex_core_contracts::library::{
     LibraryBlockTransferDocumentCommit, LibraryBlockTransferDocumentHead,
     LibraryPageCopyDestination, LibraryPageCopyResult, LibraryResourceTarget, LibraryWriteParent,
 };
+use nodex_core_contracts::{BoundModuleContext, ModuleName};
 use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::database::{
@@ -17,19 +17,21 @@ use crate::database::{
 use crate::document::{
     BlockDocumentSchema, DocumentMaterialization, PersistYjsGenesis, clone_canvas_genesis,
     decode_block_document, materialize_decoded_document, mint_document_semantic_etags,
-    persist_yjs_genesis, prepare_yjs_clone_genesis, read_document_authority,
+    persist_yjs_genesis_with_local_commit, prepare_yjs_clone_genesis, read_document_authority,
     reconstruct_yjs_engine, sha256,
 };
 use crate::domain::block_materialization::MaterializedBlockNode;
 use crate::domain::block_tree::TextDelta;
 use crate::domain::identity::stable_uuid_v7;
+use crate::infrastructure::durable_mutation::{self, OperationIdentity};
+use crate::infrastructure::local_commit::CommitContext;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::LibraryApplyOutcome;
 use super::mutation::{
-    MutationEffects, append_rank, ensure_default_page_intrinsic_properties, finish_mutation,
-    insert_library_placement, insert_page_read_model, persist_parent_insert,
-    refresh_page_intrinsic_projection, resolve_write_parent, sqlite_now,
+    MutationEffects, append_rank, ensure_default_page_intrinsic_properties,
+    insert_library_placement, insert_page_read_model, library_commit_result, persist_parent_insert,
+    refresh_page_intrinsic_projection, resolve_write_parent, seal_mutation, sqlite_now,
 };
 
 const MAX_COPY_BLOCKS: usize = 10_000;
@@ -111,6 +113,7 @@ struct ExplicitRootIdentity<'a> {
 }
 
 pub(crate) struct OccurrencePageCloneInput<'a> {
+    pub(crate) commit_context: &'a CommitContext,
     pub(crate) operation_id: &'a str,
     pub(crate) source_page_id: &'a str,
     pub(crate) new_page_id: &'a str,
@@ -207,63 +210,80 @@ pub(super) fn copy_page(
     destination: &LibraryPageCopyDestination,
     assets_root: &Path,
 ) -> Result<LibraryApplyOutcome, StoreError> {
-    let execution = execute_page_copy(
+    let now = sqlite_now(connection)?;
+    let commit_result = durable_mutation::run(
         connection,
-        context,
-        store_epoch,
-        library_id,
-        operation_id,
-        source_page_id,
-        expected_location_revision,
-        expected_parent_revision,
-        expected_active_membership_revision,
-        expected_document_generation,
-        expected_document_head_seq,
-        destination,
-        PageCopyParentDocumentMode::Commit,
-        false,
-        assets_root,
-    )?;
-    finish_mutation(
-        connection,
-        context,
-        store_epoch,
-        operation_id,
-        request_hash,
-        MutationEffects {
-            project_id: execution.project_id,
-            operation_kind: "copy_page",
-            change_kind: "library.changed",
-            did_mutate: true,
-            created_target: Some(LibraryResourceTarget::Page {
-                page_id: execution.result.page_id.clone(),
-            }),
-            affected_parent_keys: vec![execution.parent_key],
-            affected_block_ids: Vec::new(),
-            affected_page_ids: execution.affected_page_ids,
-            affected_database_ids: execution.affected_database_ids,
-            affected_view_ids: execution.affected_view_ids,
-            affected_document_ids: execution.affected_document_ids,
-            committed_revisions: execution.committed_revisions,
-            page_create: None,
-            page_copy: Some(execution.result),
-            canvas_mutation: None,
-            block_transfer: None,
-            page_lifecycle: None,
-            block_property_mutation: None,
-            agent_page_copy: None,
-            agent_create_pages: None,
-            agent_move_pages: None,
-            change_payload: None,
-            committed_at: execution.committed_at,
+        OperationIdentity {
+            module: ModuleName::Library,
+            module_name: "library",
+            operation_id,
+            intent_hash: request_hash,
+            store_epoch,
+            committed_at: &now,
+            context,
         },
-    )
+        |scope| {
+            let execution = execute_page_copy(
+                connection,
+                context,
+                scope.evidence(),
+                store_epoch,
+                library_id,
+                operation_id,
+                source_page_id,
+                expected_location_revision,
+                expected_parent_revision,
+                expected_active_membership_revision,
+                expected_document_generation,
+                expected_document_head_seq,
+                destination,
+                PageCopyParentDocumentMode::Commit,
+                false,
+                assets_root,
+                &now,
+            )?;
+            seal_mutation(
+                scope,
+                context,
+                operation_id,
+                MutationEffects {
+                    project_id: execution.project_id,
+                    operation_kind: "copy_page",
+                    change_kind: "library.changed",
+                    did_mutate: true,
+                    created_target: Some(LibraryResourceTarget::Page {
+                        page_id: execution.result.page_id.clone(),
+                    }),
+                    affected_parent_keys: vec![execution.parent_key],
+                    affected_block_ids: Vec::new(),
+                    affected_page_ids: execution.affected_page_ids,
+                    affected_database_ids: execution.affected_database_ids,
+                    affected_view_ids: execution.affected_view_ids,
+                    affected_document_ids: execution.affected_document_ids,
+                    committed_revisions: execution.committed_revisions,
+                    page_create: None,
+                    page_copy: Some(execution.result),
+                    canvas_mutation: None,
+                    block_transfer: None,
+                    page_lifecycle: None,
+                    block_property_mutation: None,
+                    agent_page_copy: None,
+                    agent_create_pages: None,
+                    agent_move_pages: None,
+                    change_payload: None,
+                    committed_at: execution.committed_at,
+                },
+            )
+        },
+    )?;
+    library_commit_result(connection, commit_result)
 }
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn execute_page_copy(
     connection: &Connection,
     context: &BoundModuleContext,
+    commit_context: &CommitContext,
     store_epoch: &str,
     library_id: &str,
     operation_id: &str,
@@ -277,6 +297,7 @@ pub(super) fn execute_page_copy(
     parent_document_mode: PageCopyParentDocumentMode,
     access_prevalidated: bool,
     assets_root: &Path,
+    committed_at: &str,
 ) -> Result<PageCopyExecution, StoreError> {
     let requesting_project_id = context
         .project_id
@@ -390,7 +411,7 @@ pub(super) fn execute_page_copy(
         .cloned()
         .ok_or_else(|| corrupt("Page copy omitted its root Document identity"))?;
     assert_fresh_identities(connection, &plan)?;
-    let now = sqlite_now(connection)?;
+    let now = committed_at.to_owned();
     stage_copy_authority(
         connection,
         library_id,
@@ -404,6 +425,7 @@ pub(super) fn execute_page_copy(
 
     let mut persisted_documents = persist_copy_documents(
         connection,
+        commit_context,
         &plan,
         source_page_id,
         &resolved_parent,
@@ -454,6 +476,7 @@ pub(super) fn execute_page_copy(
                 parent_document,
                 embedded_page(&target_page_id),
                 resolved_parent.before_block_id.clone(),
+                commit_context,
             )
         })
         .transpose()?;
@@ -670,6 +693,7 @@ pub(crate) fn clone_page_for_occurrence(
     )?;
     let document_heads = persist_copy_documents(
         connection,
+        input.commit_context,
         &plan,
         input.source_page_id,
         &resolved_parent,
@@ -889,6 +913,7 @@ pub(crate) fn clone_page_for_occurrence(
 #[allow(clippy::too_many_arguments)]
 fn persist_copy_documents(
     connection: &Connection,
+    commit_context: &CommitContext,
     plan: &CopyPlan,
     source_page_id: &str,
     resolved_parent: &super::mutation::ResolvedWriteParent,
@@ -935,7 +960,7 @@ fn persist_copy_documents(
             sha256(operation_id.as_bytes()),
             sha256(document.source_document_id.as_bytes())
         );
-        let persisted = persist_yjs_genesis(
+        let persisted = persist_yjs_genesis_with_local_commit(
             connection,
             PersistYjsGenesis {
                 authority: &target_authority,
@@ -949,6 +974,7 @@ fn persist_copy_documents(
                 operation_id: &update_id,
                 emit_event: false,
             },
+            commit_context,
         )?;
         document_heads.insert(document.target_document_id.clone(), persisted.head_seq);
         document_commits.push(LibraryBlockTransferDocumentCommit {
@@ -2464,7 +2490,11 @@ mod tests {
             .as_ref()
             .expect("Agent create result");
         assert_eq!(result.pages.len(), 2);
-        assert_eq!(result.document_commits.len(), 2);
+        assert_eq!(result.document_commits.len(), 1);
+        assert_eq!(
+            result.document_commits[0].document_id,
+            "document:agent-create-target"
+        );
         assert!(result.pages.iter().all(|page| page.etags.is_some()));
         assert!(result.pages.iter().all(|page| matches!(
             page.location,
@@ -2505,7 +2535,7 @@ mod tests {
                     [],
                     |row| row.get::<_, i64>(0),
                 )?;
-                assert_eq!(target_head, 3);
+                assert_eq!(target_head, 2);
                 Ok(())
             })
             .expect("verify created Page authority");
@@ -2661,7 +2691,11 @@ mod tests {
             .agent_move_pages
             .expect("Agent Page-move result");
         assert_eq!(result.pages.len(), 2);
-        assert_eq!(result.document_commits.len(), 2);
+        assert_eq!(result.document_commits.len(), 1);
+        assert_eq!(
+            result.document_commits[0].document_id,
+            "document:agent-move-target"
+        );
         assert!(result.pages.iter().all(|page| matches!(
             page.location,
             nodex_core_contracts::library::LibraryAgentPageLocation::Page { ref page_id }
@@ -2692,7 +2726,23 @@ mod tests {
                     [],
                     |row| row.get::<_, i64>(0),
                 )?;
-                assert_eq!(target_head, durable_before + 2);
+                assert_eq!(target_head, durable_before + 1);
+                let semantic_commits = connection.query_row(
+                    "SELECT count(*) FROM local_commits
+                     WHERE operation_id = 'operation:agent-move-pages'
+                        OR operation_id LIKE 'operation:agent-move-pages:page:%'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )?;
+                assert_eq!(semantic_commits, 1);
+                let receipts = connection.query_row(
+                    "SELECT count(*) FROM core_module_receipts
+                     WHERE operation_id = 'operation:agent-move-pages'
+                        OR operation_id LIKE 'operation:agent-move-pages:page:%'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )?;
+                assert_eq!(receipts, 1);
                 Ok(())
             })
             .expect("verify Agent Page move");
@@ -2705,6 +2755,182 @@ mod tests {
             AgentOperationPreparationState::CommittedReplay
         );
         assert!(value.committed.is_some());
+    }
+
+    #[test]
+    fn agent_page_batch_move_merges_distinct_source_and_target_documents_once() {
+        let (_directory, kernel) = seeded_kernel();
+        let module = LibraryModule::new("profile-1", "library-1", &kernel);
+        for (operation, page, document, title) in [
+            (
+                "operation:create-agent-batch-source-a",
+                "page:agent-batch-source-a",
+                "document:agent-batch-source-a",
+                "Source A",
+            ),
+            (
+                "operation:create-agent-batch-source-b",
+                "page:agent-batch-source-b",
+                "document:agent-batch-source-b",
+                "Source B",
+            ),
+            (
+                "operation:create-agent-batch-target",
+                "page:agent-batch-target",
+                "document:agent-batch-aaa-target",
+                "Target",
+            ),
+        ] {
+            create_page(
+                &module,
+                operation,
+                page,
+                document,
+                title,
+                LibraryWriteParent::Library { before: None },
+            );
+        }
+        for (operation, page, document, title, parent) in [
+            (
+                "operation:create-agent-batch-child-a",
+                "page:agent-batch-child-a",
+                "document:agent-batch-child-a",
+                "Child A",
+                "page:agent-batch-source-a",
+            ),
+            (
+                "operation:create-agent-batch-child-b",
+                "page:agent-batch-child-b",
+                "document:agent-batch-child-b",
+                "Child B",
+                "page:agent-batch-source-b",
+            ),
+        ] {
+            create_page(
+                &module,
+                operation,
+                page,
+                document,
+                title,
+                LibraryWriteParent::Page {
+                    page_id: parent.to_owned(),
+                    expected_document_generation: 1,
+                    expected_document_head_seq: 1,
+                    before: None,
+                },
+            );
+        }
+        let authorization = agent_move_authorization(
+            &kernel,
+            &[
+                "page:agent-batch-child-a",
+                "page:agent-batch-child-b",
+                "page:agent-batch-target",
+            ],
+        );
+        let request = LibraryAgentMovePagesRequest {
+            page_ids: vec![
+                "page:agent-batch-child-b".to_owned(),
+                "page:agent-batch-child-a".to_owned(),
+            ],
+            destination: LibraryAgentPageDestination::Page {
+                page_id: "page:agent-batch-target".to_owned(),
+                at: None,
+            },
+        };
+        let prepared = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::PrepareAgentMovePages {
+                        operation_id: "operation:agent-batch-distinct-documents".to_owned(),
+                        store_epoch: "epoch-1".to_owned(),
+                        authorization: Box::new(authorization.clone()),
+                        request: Box::new(request.clone()),
+                    },
+                },
+            )
+            .expect("prepare distinct-Document Agent Page move");
+        let LibraryReadValue::AgentMovePagesPreparation { value } = prepared.value else {
+            panic!("distinct-Document Agent Page-move preparation");
+        };
+        let committed = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "operation:agent-batch-distinct-documents".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::ExecutePreparedAgentMovePages {
+                        authorization: Box::new(AgentPreparedExecution {
+                            authorization,
+                            token: value.preparation.token,
+                        }),
+                        request: Box::new(request),
+                    },
+                },
+            )
+            .expect("execute distinct-Document Agent Page move");
+        let result = committed
+            .committed
+            .value
+            .agent_move_pages
+            .expect("distinct-Document Agent Page-move result");
+        assert_eq!(result.document_commits.len(), 3);
+        assert_eq!(
+            result
+                .document_commits
+                .iter()
+                .map(|commit| commit.document_id.as_str())
+                .collect::<BTreeSet<_>>(),
+            BTreeSet::from([
+                "document:agent-batch-source-a",
+                "document:agent-batch-source-b",
+                "document:agent-batch-aaa-target",
+            ])
+        );
+        kernel
+            .readers()
+            .read_default(|connection| {
+                let target_order = connection
+                    .prepare(
+                        "SELECT block_id FROM document_block_index \
+                         WHERE document_id = 'document:agent-batch-aaa-target' \
+                           AND block_id IN ('page:agent-batch-child-a', 'page:agent-batch-child-b') \
+                         ORDER BY ordinal, block_id",
+                    )?
+                    .query_map([], |row| row.get::<_, String>(0))?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                assert_eq!(
+                    target_order,
+                    vec![
+                        "page:agent-batch-child-b".to_owned(),
+                        "page:agent-batch-child-a".to_owned(),
+                    ]
+                );
+                for document_id in [
+                    "document:agent-batch-source-a",
+                    "document:agent-batch-source-b",
+                    "document:agent-batch-aaa-target",
+                ] {
+                    let head = connection.query_row(
+                        "SELECT head_seq FROM documents WHERE id = ?1",
+                        [document_id],
+                        |row| row.get::<_, i64>(0),
+                    )?;
+                    assert_eq!(head, if document_id.ends_with("target") { 2 } else { 3 });
+                }
+                let semantic_commits = connection.query_row(
+                    "SELECT count(*) FROM local_commits \
+                     WHERE operation_id = 'operation:agent-batch-distinct-documents'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )?;
+                assert_eq!(semantic_commits, 1);
+                Ok(())
+            })
+            .expect("verify distinct-Document Agent Page move");
     }
 
     #[test]

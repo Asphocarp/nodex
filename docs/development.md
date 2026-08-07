@@ -29,6 +29,12 @@ Protocol endpoint on `127.0.0.1:9333` for local debugging. Both commands first
 build the development `target/debug/nodex-core` executable so Electron cannot
 start a stale native authority after a branch switch or rebase.
 
+`scripts/run.sh` sets `NODEX_REMOTE_DEBUGGING_PORT=0` when no port is supplied.
+Electron then asks the operating system for an available port, so multiple
+isolated instances can start concurrently. The actual endpoint is reported by
+Electron when the DevTools HTTP handler starts. Set
+`NODEX_REMOTE_DEBUGGING_PORT` explicitly when a stable port is needed.
+
 After one successful `pnpm run build` or ordinary isolated run, subsequent
 production-mode `scripts/run.sh` launches automatically reuse the prepared
 Electron bundle when it still verifies. To require reuse and fail instead of
@@ -156,7 +162,10 @@ The test commands follow production boundaries:
   shared-CI gate.
 - `pnpm run core:fmt`, `pnpm run core:clippy`, and `pnpm run core:test` validate the native authority.
 - `pnpm run core:protocol:verify` and `pnpm run core:module-boundaries` verify generated contracts and the Rust-only production boundary.
-- `pnpm test:e2e` builds and exercises the complete Electron/preload/IPC/Core chain.
+- `pnpm test:e2e` rebuilds the native Core plus Electron application, then
+  exercises the complete Electron/preload/IPC/Core chain. Do not invoke the
+  Playwright config directly after changing Rust authority code; that can run
+  against a stale `target/debug/nodex-core` binary.
 
 Use the `.stress.` filename segment for a test that intentionally exercises
 high volume, repeated lifecycle work, concurrent calls, or resource pressure:

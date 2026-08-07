@@ -194,13 +194,13 @@ describe("Kanban Card Block transfer drop", () => {
         },
       };
     });
-    const prepareLocalMutation = vi.fn(async () => ({
+    const flushAndFence = vi.fn(async () => ({
       documentId: "document-target",
       storeEpoch: "epoch-a",
       generation: 1,
       expectedHeadSeq: 0,
     }));
-    const prepareSourceMutation = vi.fn(async () => ({
+    const flushSourceAndFence = vi.fn(async () => ({
       documentId: "document-source",
       storeEpoch: "epoch-a",
       generation: 1,
@@ -215,8 +215,8 @@ describe("Kanban Card Block transfer drop", () => {
         documentId: "document-target",
         storeEpoch: "epoch-a",
         ancestorPageIds: [],
-        prepareLocalMutation,
-        prepareSourceMutation,
+        flushAndFence,
+        flushSourceAndFence,
         createOperationId: () => "operation-editor",
         transfer,
         reportError: vi.fn(),
@@ -263,8 +263,8 @@ describe("Kanban Card Block transfer drop", () => {
         source: { kind: "document", documentId: "document-source" },
         target: { kind: "document", documentId: "document-target" },
       });
-      expect(prepareLocalMutation).toHaveBeenCalledOnce();
-      expect(prepareSourceMutation).toHaveBeenCalledWith("surface-source");
+      expect(flushAndFence).toHaveBeenCalledOnce();
+      expect(flushSourceAndFence).toHaveBeenCalledWith("surface-source");
     } finally {
       cleanup();
       endLocalBlockDragSession();

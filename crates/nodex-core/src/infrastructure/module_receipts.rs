@@ -3,6 +3,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde::Serialize;
 use serde_json::Value;
 
+use super::local_commit::{self, CommitContext};
 use super::sqlite::{StoreError, StoreErrorCode};
 
 const MAX_RECEIPT_JSON_BYTES: usize = 1024 * 1024;
@@ -19,16 +20,17 @@ pub struct StoredModuleReceipt {
     pub committed_at: String,
 }
 
-pub struct NewModuleReceipt<'a> {
-    pub module_name: &'a str,
-    pub operation_id: &'a str,
-    pub context: &'a BoundModuleContext,
-    pub operation_kind: &'a str,
-    pub store_epoch: &'a str,
-    pub request_hash: &'a str,
-    pub result: &'a Value,
-    pub event_sequence: Option<i64>,
-    pub committed_at: &'a str,
+pub(crate) struct NewModuleReceipt<'a> {
+    pub(crate) module_name: &'a str,
+    pub(crate) operation_id: &'a str,
+    pub(crate) context: &'a BoundModuleContext,
+    pub(crate) operation_kind: &'a str,
+    pub(crate) store_epoch: &'a str,
+    pub(crate) request_hash: &'a str,
+    pub(crate) result: &'a Value,
+    pub(crate) event_sequence: Option<i64>,
+    pub(crate) local_commit: Option<&'a CommitContext>,
+    pub(crate) committed_at: &'a str,
 }
 
 /// The authority fields that may participate in a durable idempotency
@@ -102,7 +104,7 @@ pub fn read_module_receipt(
     if result_json.len() > MAX_RECEIPT_JSON_BYTES {
         return Err(corrupt("Core Module receipt result exceeds its bound"));
     }
-    let mut result = serde_json::from_str::<Value>(&result_json)
+    let result = serde_json::from_str::<Value>(&result_json)
         .map_err(|_| corrupt("Core Module receipt result JSON is invalid"))?;
     if !result.is_object() {
         return Err(corrupt("Core Module receipt result must be an object"));
@@ -133,31 +135,6 @@ pub fn read_module_receipt(
             ));
         }
     }
-    if let Some(object) = result.as_object_mut()
-        && let Some(commit_seq) = local_commit_seq
-        && object.get("local_commit").is_none_or(Value::is_null)
-    {
-        let local_commit = super::event_log::load_local_commit(connection, commit_seq, None)?;
-        object.insert(
-            "local_commit".to_owned(),
-            serde_json::to_value(local_commit)
-                .map_err(|_| corrupt("Core Module local commit is invalid"))?,
-        );
-    }
-    if let Some(object) = result.as_object_mut()
-        && !object.contains_key("commit_seq")
-    {
-        let commit_seq = local_commit_seq.unwrap_or(
-            connection
-                .query_row(
-                    "SELECT COALESCE(max(commit_seq), 0) FROM local_commits",
-                    [],
-                    |row| row.get::<_, i64>(0),
-                )
-                .map_err(|_| corrupt("Core Module local commit head is invalid"))?,
-        );
-        object.insert("commit_seq".to_owned(), Value::from(commit_seq));
-    }
     Ok(Some(StoredModuleReceipt {
         profile_id,
         project_id,
@@ -170,7 +147,7 @@ pub fn read_module_receipt(
     }))
 }
 
-pub fn insert_module_receipt(
+pub(crate) fn insert_module_receipt(
     connection: &Connection,
     receipt: NewModuleReceipt<'_>,
 ) -> Result<(), StoreError> {
@@ -196,12 +173,12 @@ pub fn insert_module_receipt(
             false,
         ));
     }
+    let local_commit_seq = receipt.local_commit.map(CommitContext::commit_seq);
     connection.execute(
         "INSERT INTO core_module_receipts (\
            module_name, operation_id, profile_id, project_id, adapter_kind, operation_kind, \
            store_epoch, request_hash, result_json, event_sequence, local_commit_seq, committed_at\
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, \
-           (SELECT commit_seq FROM local_commit_effects WHERE change_log_seq = ?10), ?11)",
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
         params![
             receipt.module_name,
             receipt.operation_id,
@@ -213,10 +190,42 @@ pub fn insert_module_receipt(
             receipt.request_hash,
             result_json,
             receipt.event_sequence,
+            local_commit_seq,
             receipt.committed_at,
         ],
     )?;
+    if let Some(context) = receipt.local_commit {
+        let module = parse_module_name(receipt.module_name)?;
+        let result_hash = sha256(result_json.as_bytes());
+        local_commit::record_receipt(
+            connection,
+            context,
+            &nodex_core_contracts::LocalCommitReceiptRef {
+                module,
+                operation_id: receipt.operation_id.to_owned(),
+                result_hash,
+            },
+        )?;
+    }
     Ok(())
+}
+
+fn parse_module_name(value: &str) -> Result<nodex_core_contracts::ModuleName, StoreError> {
+    use nodex_core_contracts::ModuleName;
+    match value {
+        "library" => Ok(ModuleName::Library),
+        "database" => Ok(ModuleName::Database),
+        "owned_document" => Ok(ModuleName::OwnedDocument),
+        "project_workspace" => Ok(ModuleName::ProjectWorkspace),
+        "automation" => Ok(ModuleName::Automation),
+        "store_administration" => Ok(ModuleName::StoreAdministration),
+        _ => Err(corrupt("Core Module receipt Module identity is invalid")),
+    }
+}
+
+fn sha256(value: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    format!("{:x}", Sha256::digest(value))
 }
 
 fn adapter_kind(kind: &AdapterKind) -> &'static str {

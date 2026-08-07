@@ -14,6 +14,7 @@ use crate::infrastructure::document_repository::DocumentSyncEngine;
 use crate::infrastructure::event_log::{
     NewChangeLogEntry, append_change_log, load_committed_event_by_sequence,
 };
+use crate::infrastructure::local_commit::CommitContext;
 use crate::infrastructure::projection_impact::impact_for_page_document;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
@@ -25,8 +26,9 @@ use super::operations::{
     prepare_document_operation_update, prepare_portable_subtree_transfer_updates,
 };
 use super::persistence::{
-    DocumentAuthorityRow, PersistYjsCommit, PersistYjsGenesis, persist_yjs_commit,
-    persist_yjs_genesis, read_document_authority, read_event_head, read_store_epoch, sha256,
+    DocumentAuthorityRow, PersistYjsCommit, PersistYjsGenesis,
+    persist_yjs_commit_with_local_commit, persist_yjs_genesis_with_local_commit,
+    read_document_authority, read_event_head, read_store_epoch, sha256,
 };
 use super::runtime::reconstruct_yjs_engine;
 use super::{
@@ -53,6 +55,7 @@ pub(crate) struct OwnerCommandExecution {
 pub(crate) fn execute_owner_command(
     connection: &Connection,
     context: &BoundModuleContext,
+    commit_context: &CommitContext,
     store_epoch: &str,
     operation_id: &str,
     command: &DocumentOwnerCommand,
@@ -77,6 +80,7 @@ pub(crate) fn execute_owner_command(
         } => create_yjs_owner(
             connection,
             context,
+            commit_context,
             store_epoch,
             operation_id,
             &project_id.0,
@@ -101,6 +105,7 @@ pub(crate) fn execute_owner_command(
         } => create_yjs_owner(
             connection,
             context,
+            commit_context,
             store_epoch,
             operation_id,
             &project_id.0,
@@ -124,6 +129,7 @@ pub(crate) fn execute_owner_command(
             delete_owner(
                 connection,
                 context,
+                commit_context,
                 store_epoch,
                 operation_id,
                 &project_id.0,
@@ -141,6 +147,7 @@ pub(crate) fn execute_owner_command(
         } => promote_synced_source(
             connection,
             context,
+            commit_context,
             store_epoch,
             operation_id,
             &project_id.0,
@@ -158,6 +165,7 @@ pub(crate) fn execute_owner_command(
         } => demote_synced_source(
             connection,
             context,
+            commit_context,
             store_epoch,
             operation_id,
             &project_id.0,
@@ -175,6 +183,7 @@ pub(crate) fn execute_owner_command(
         } => instantiate_template(
             connection,
             context,
+            commit_context,
             store_epoch,
             operation_id,
             &project_id.0,
@@ -203,6 +212,7 @@ struct PersistedPreparedUpdate {
 fn promote_synced_source(
     connection: &Connection,
     context: &BoundModuleContext,
+    commit_context: &CommitContext,
     store_epoch: &str,
     operation_id: &str,
     project_id: &str,
@@ -270,6 +280,7 @@ fn promote_synced_source(
     let host_persisted = persist_prepared_update(
         connection,
         context,
+        commit_context,
         store_epoch,
         &host_operation_id,
         host_loaded,
@@ -292,7 +303,7 @@ fn promote_synced_source(
     )?;
     let source_full_state = source_prepared.engine.full_state_v1();
     let source_operation_id = format!("{operation_id}:source:genesis");
-    let source_persisted = persist_yjs_genesis(
+    let source_persisted = persist_yjs_genesis_with_local_commit(
         connection,
         PersistYjsGenesis {
             authority: &source_authority,
@@ -306,6 +317,7 @@ fn promote_synced_source(
             operation_id: &source_operation_id,
             emit_event: true,
         },
+        commit_context,
     )?;
     let source_event =
         load_committed_event_by_sequence(connection, source_persisted.event_sequence)?;
@@ -338,6 +350,7 @@ fn promote_synced_source(
 fn demote_synced_source(
     connection: &Connection,
     context: &BoundModuleContext,
+    commit_context: &CommitContext,
     store_epoch: &str,
     operation_id: &str,
     project_id: &str,
@@ -420,6 +433,7 @@ fn demote_synced_source(
     let host_after_delete = persist_prepared_update(
         connection,
         context,
+        commit_context,
         store_epoch,
         &host_delete_operation_id,
         host_loaded,
@@ -429,6 +443,7 @@ fn demote_synced_source(
     let source_after_delete = persist_prepared_update(
         connection,
         context,
+        commit_context,
         store_epoch,
         &source_operation_id,
         source_loaded,
@@ -446,6 +461,7 @@ fn demote_synced_source(
     let host_final = persist_prepared_update(
         connection,
         context,
+        commit_context,
         store_epoch,
         &host_insert_operation_id,
         host_after_delete.loaded,
@@ -467,15 +483,16 @@ fn demote_synced_source(
     }
     let source_head = head_revision(&source_after_delete.loaded.authority);
     let invalidation_operation_id = format!("{operation_id}:source:invalidate");
-    let invalidation = persist_invalidation(
+    let invalidation = persist_invalidation(PersistInvalidationInput {
         connection,
         project_id,
         store_epoch,
-        &invalidation_operation_id,
-        &source_head,
-        DocumentInvalidationReason::AccessChanged,
-        &now,
-    )?;
+        operation_id: &invalidation_operation_id,
+        head: &source_head,
+        reason: DocumentInvalidationReason::AccessChanged,
+        now: &now,
+        commit_context,
+    })?;
     let mut events = vec![
         host_after_delete.event,
         source_after_delete.event,
@@ -505,6 +522,7 @@ fn demote_synced_source(
 fn instantiate_template(
     connection: &Connection,
     context: &BoundModuleContext,
+    commit_context: &CommitContext,
     store_epoch: &str,
     operation_id: &str,
     project_id: &str,
@@ -554,6 +572,7 @@ fn instantiate_template(
     let target_persisted = persist_prepared_update(
         connection,
         context,
+        commit_context,
         store_epoch,
         &target_operation_id,
         target_loaded,
@@ -660,6 +679,7 @@ fn apply_prepared_update(
 fn persist_prepared_update(
     connection: &Connection,
     context: &BoundModuleContext,
+    commit_context: &CommitContext,
     store_epoch: &str,
     operation_id: &str,
     loaded: LoadedYjsHead,
@@ -679,7 +699,7 @@ fn persist_prepared_update(
         context,
         &now,
     )?;
-    let persisted = persist_yjs_commit(
+    let persisted = persist_yjs_commit_with_local_commit(
         connection,
         PersistYjsCommit {
             authority: &loaded.authority,
@@ -698,6 +718,7 @@ fn persist_prepared_update(
             write_fence_block_ids: &prepared.write_fence_block_ids,
             title_write_fence_required: prepared.title_write_fence_required,
         },
+        commit_context,
     )?;
     record_document_revision_edit(
         connection,
@@ -884,6 +905,7 @@ struct NewYjsOwner<'a> {
 fn create_yjs_owner(
     connection: &Connection,
     context: &BoundModuleContext,
+    commit_context: &CommitContext,
     store_epoch: &str,
     operation_id: &str,
     project_id: &str,
@@ -918,7 +940,7 @@ fn create_yjs_owner(
     )?;
     let full_state = prepared.engine.full_state_v1();
     let update_id = format!("{operation_id}:genesis");
-    let persisted = persist_yjs_genesis(
+    let persisted = persist_yjs_genesis_with_local_commit(
         connection,
         PersistYjsGenesis {
             authority: &authority,
@@ -932,6 +954,7 @@ fn create_yjs_owner(
             operation_id: &update_id,
             emit_event: true,
         },
+        commit_context,
     )?;
     let event = load_committed_event_by_sequence(connection, persisted.event_sequence)?;
     let mut created_block_ids = vec![input.block_id.to_owned()];
@@ -962,6 +985,7 @@ fn create_yjs_owner(
 fn delete_owner(
     connection: &Connection,
     _context: &BoundModuleContext,
+    commit_context: &CommitContext,
     store_epoch: &str,
     operation_id: &str,
     project_id: &str,
@@ -997,15 +1021,16 @@ fn delete_owner(
     let mut event_sequence = read_event_head(connection)?;
     for (index, head) in closure.document_heads.iter().enumerate() {
         let event_operation_id = format!("{operation_id}:invalidate:{index}");
-        let event = persist_invalidation(
+        let event = persist_invalidation(PersistInvalidationInput {
             connection,
             project_id,
             store_epoch,
-            &event_operation_id,
+            operation_id: &event_operation_id,
             head,
-            DocumentInvalidationReason::AccessChanged,
-            &now,
-        )?;
+            reason: DocumentInvalidationReason::AccessChanged,
+            now: &now,
+            commit_context,
+        })?;
         event_sequence = event.sequence;
         events.push(event);
     }
@@ -1360,15 +1385,30 @@ fn value_references_target(value: &Value, targets: &BTreeSet<&String>) -> bool {
     }
 }
 
-fn persist_invalidation(
-    connection: &Connection,
-    project_id: &str,
-    store_epoch: &str,
-    operation_id: &str,
-    head: &DocumentHeadRevision,
+struct PersistInvalidationInput<'a> {
+    connection: &'a Connection,
+    project_id: &'a str,
+    store_epoch: &'a str,
+    operation_id: &'a str,
+    head: &'a DocumentHeadRevision,
     reason: DocumentInvalidationReason,
-    now: &str,
+    now: &'a str,
+    commit_context: &'a CommitContext,
+}
+
+fn persist_invalidation(
+    input: PersistInvalidationInput<'_>,
 ) -> Result<CommittedCoreModuleEvent, StoreError> {
+    let PersistInvalidationInput {
+        connection,
+        project_id,
+        store_epoch,
+        operation_id,
+        head,
+        reason,
+        now,
+        commit_context,
+    } = input;
     let reason_name = match reason {
         DocumentInvalidationReason::AccessChanged => "access_changed",
         DocumentInvalidationReason::GenerationChanged => "generation_changed",
@@ -1407,6 +1447,7 @@ fn persist_invalidation(
             projection_impact: &projection_impact,
             committed_at: now,
         },
+        commit_context,
     )?;
     load_committed_event_by_sequence(connection, sequence)
 }

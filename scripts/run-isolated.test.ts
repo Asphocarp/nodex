@@ -19,6 +19,7 @@ const createdSandboxes: string[] = [];
 const createSandbox = (): {
   readonly fakeBin: string;
   readonly invocationLog: string;
+  readonly remoteDebuggingPortLog: string;
   readonly runRoot: string;
   readonly sandbox: string;
   readonly sourceCodexHome: string;
@@ -26,6 +27,7 @@ const createSandbox = (): {
   const sandbox = mkdtempSync(path.join(tmpdir(), "nodex-run-script-test-"));
   const fakeBin = path.join(sandbox, "bin");
   const invocationLog = path.join(sandbox, "pnpm-argv.json");
+  const remoteDebuggingPortLog = path.join(sandbox, "remote-debugging-port");
   const runRoot = path.join(sandbox, "run-root");
   const sourceCodexHome = path.join(sandbox, "source-codex-home");
   mkdirSync(fakeBin);
@@ -45,6 +47,12 @@ fs.writeFileSync(process.env.FAKE_PNPM_LOG, JSON.stringify({
   command: path.basename(process.argv[1]),
   args,
 }));
+if (process.env.FAKE_REMOTE_DEBUGGING_PORT_LOG) {
+  fs.writeFileSync(
+    process.env.FAKE_REMOTE_DEBUGGING_PORT_LOG,
+    process.env.NODEX_REMOTE_DEBUGGING_PORT ?? "<unset>",
+  );
+}
 if (process.env.FAKE_PNPM_MODE === "leave-lease") {
   fs.mkdirSync(
     path.join(process.env.NODEX_HOME, "run/isolated-supervisor.lock"),
@@ -60,7 +68,14 @@ process.exit(process.env.FAKE_PNPM_EXIT_CODE
   chmodSync(fakePnpm, 0o700);
   chmodSync(fakeNode, 0o700);
   createdSandboxes.push(sandbox);
-  return { fakeBin, invocationLog, runRoot, sandbox, sourceCodexHome };
+  return {
+    fakeBin,
+    invocationLog,
+    remoteDebuggingPortLog,
+    runRoot,
+    sandbox,
+    sourceCodexHome,
+  };
 };
 
 const runIsolatedScript = (
@@ -69,9 +84,24 @@ const runIsolatedScript = (
     readonly args?: readonly string[];
     readonly mode?: string;
     readonly exitCode?: number;
+    readonly remoteDebuggingPort?: string;
   } = {},
-) =>
-  spawnSync(
+) => {
+  const environment = {
+    ...process.env,
+    FAKE_PNPM_EXIT_CODE: options.exitCode?.toString(),
+    FAKE_PNPM_LOG: input.invocationLog,
+    FAKE_PNPM_MODE: options.mode,
+    FAKE_REMOTE_DEBUGGING_PORT_LOG: input.remoteDebuggingPortLog,
+    CODEX_HOME: input.sourceCodexHome,
+    PATH: `${input.fakeBin}:${process.env.PATH ?? ""}`,
+  };
+  delete environment.NODEX_REMOTE_DEBUGGING_PORT;
+  if (options.remoteDebuggingPort !== undefined) {
+    environment.NODEX_REMOTE_DEBUGGING_PORT = options.remoteDebuggingPort;
+  }
+
+  return spawnSync(
     "bash",
     [
       "scripts/run.sh",
@@ -82,16 +112,10 @@ const runIsolatedScript = (
     {
       cwd: path.resolve("."),
       encoding: "utf8",
-      env: {
-        ...process.env,
-        FAKE_PNPM_EXIT_CODE: options.exitCode?.toString(),
-        FAKE_PNPM_LOG: input.invocationLog,
-        FAKE_PNPM_MODE: options.mode,
-        CODEX_HOME: input.sourceCodexHome,
-        PATH: `${input.fakeBin}:${process.env.PATH ?? ""}`,
-      },
+      env: environment,
     },
   );
+};
 
 afterEach(() => {
   for (const sandbox of createdSandboxes.splice(0)) {
@@ -116,6 +140,24 @@ describe("isolated run shell integration", () => {
       ],
     });
     expect(existsSync(sandbox.runRoot)).toBe(false);
+  });
+
+  test("requests an OS-assigned DevTools port by default", () => {
+    const sandbox = createSandbox();
+    const result = runIsolatedScript(sandbox);
+
+    expect(result.status).toBe(0);
+    expect(readFileSync(sandbox.remoteDebuggingPortLog, "utf8")).toBe("0");
+  });
+
+  test("preserves an explicitly requested DevTools port", () => {
+    const sandbox = createSandbox();
+    const result = runIsolatedScript(sandbox, {
+      remoteDebuggingPort: "9444",
+    });
+
+    expect(result.status).toBe(0);
+    expect(readFileSync(sandbox.remoteDebuggingPortLog, "utf8")).toBe("9444");
   });
 
   test("preserves the root when supervisor ownership evidence remains", () => {
