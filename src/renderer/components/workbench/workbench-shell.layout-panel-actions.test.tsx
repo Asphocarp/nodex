@@ -8,7 +8,8 @@ import { type Project } from "@/lib/types";
 import { __getNodexToastSnapshotForTests } from "@/components/ui/toast";
 import { THREAD_QUEUE_FOLLOW_UPS_STORAGE_KEY } from "@/lib/thread-composer-follow-up-mode";
 import { COMPOSER_ENTER_BEHAVIOR_STORAGE_KEY } from "@/lib/composer-enter-behavior";
-import { BOTTOM_PANEL_HIDDEN_ICON_PREFIX, EXPAND_PANEL_ICON_PREFIX, PANEL_VISIBLE_ICON_PREFIX, RESTORE_PANEL_ICON_PREFIX, clickMenuItem, discardSideChatCalls, executeCommandPaletteCommand, getBottomPanelContentSizer, getConnectedThreadStagePropsByThreadId, getFilesPreviewInteractionTarget, getHeaderShellSlot, getLastTerminalPanelProps, getLastThreadStageActions, getPanelTabById, getThreadRow, getWorkbenchTabProjectionDeleteTabIds, hydrateBackgroundSubagentThreadsCalls, hydrateSubagentPanelCalls, installTerminalEventApiMock, invokeCalls, makeAttachedSession, makeBottomPanelTerminalSession, makePanelLayout, makePanels, makeProject, makeSession, makeSessionTab, moveSidebarPointer, openBottomPanel, openPanelMenu, pointerActivate, pointerDownAndSettle, releasePointerDrag, renderWorkbench, requestThreadStreamSnapshotCalls, setComposerIntentCalls, setWindowInnerWidthForTest, sideChatConversations, startSideChatCalls, setInvokeCalls, setRequestThreadStreamSnapshotImpl, setSideChatConversationProjectId } from "./workbench-testkit/workbench-shell-harness";
+import { makeAttachedSession, makeBottomPanelTerminalSession, makePanelLayout, makePanels, makeProject, makeSession, makeSessionTab } from "./workbench-testkit/workbench-shell-fixtures";
+import { BOTTOM_PANEL_HIDDEN_ICON_PREFIX, EXPAND_PANEL_ICON_PREFIX, PANEL_VISIBLE_ICON_PREFIX, RESTORE_PANEL_ICON_PREFIX, clickMenuItem, discardSideChatCalls, executeCommandPaletteCommand, getBottomPanelContentSizer, getConnectedThreadStagePropsByThreadId, getFilesPreviewInteractionTarget, getHeaderShellSlot, getLastTerminalPanelProps, getLastThreadStageActions, getPanelTabById, getThreadRow, getWorkbenchTabProjectionDeleteTabIds, hydrateBackgroundSubagentThreadsCalls, hydrateSubagentPanelCalls, installReducedMotionMatchMediaForTest, installTerminalEventApiMock, invokeCalls, moveSidebarPointer, openBottomPanel, openPanelMenu, pointerActivate, pointerDownAndSettle, releasePointerDrag, renderWorkbench, requestThreadStreamSnapshotCalls, setComposerIntentCalls, setWindowInnerWidthForTest, sideChatConversations, startSideChatCalls, setInvokeCalls, setRequestThreadStreamSnapshotImpl, setSideChatConversationProjectId } from "./workbench-testkit/workbench-shell-harness";
 
 describe("workbench session shell / layout-panel-actions", () => {
   test("collapsed right panel opens from the global side-panel toggle", async () => {
@@ -438,6 +439,7 @@ describe("workbench session shell / layout-panel-actions", () => {
   });
 
   test("collapsed sidebar full-width right panel reserves the left titlebar width before tabs", async () => {
+    const restoreMatchMedia = installReducedMotionMatchMediaForTest();
     const originalPlatform = navigator.platform;
     Object.defineProperty(navigator, "platform", { configurable: true, value: "MacIntel" });
     try {
@@ -489,7 +491,7 @@ describe("workbench session shell / layout-panel-actions", () => {
 
       await moveSidebarPointer(301);
       await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 600));
+        await Promise.resolve();
       });
       await settleAsyncRender();
       expect(screen.container.querySelector('[data-testid="floating-project-session-sidebar-shell"]')).toBe(null);
@@ -503,6 +505,7 @@ describe("workbench session shell / layout-panel-actions", () => {
       expect(screen.getByRole("button", { name: "Expand panel" }).getAttribute("aria-pressed")).toBe("false");
       expect(screen.container.querySelector('[data-testid="floating-project-session-sidebar-shell"]')).toBe(null);
     } finally {
+      restoreMatchMedia();
       Object.defineProperty(navigator, "platform", { configurable: true, value: originalPlatform });
     }
   });
@@ -1000,62 +1003,67 @@ describe("workbench session shell / layout-panel-actions", () => {
   });
 
   test("right panel content canvas shrinks with the sash after collapse and reopen", async () => {
-    const screen = renderWorkbench({
-      sessionsByProject: {
-        alpha: [
-          makeSession({
-            id: "session:alpha:reopen-resize",
-            title: "Reopen resize",
-            rightCollapsed: false,
-          }),
-        ],
-      },
-    });
-    await settleAsyncRender();
-    await settleAsyncRender();
-
-    const toggleButton = screen.getByRole("button", { name: "Toggle side panel" });
-    await act(async () => {
-      fireEvent.click(toggleButton);
-      await new Promise((resolve) => setTimeout(resolve, 600));
-    });
-    await settleAsyncRender();
-    expect(screen.queryByTestId("session-right-panel")).toBe(null);
-
-    await act(async () => {
-      fireEvent.click(toggleButton);
-      await new Promise((resolve) => setTimeout(resolve, 600));
-    });
-    await settleAsyncRender();
-
-    const rightPanel = screen.getByTestId("session-right-panel");
-    const contentCanvas = rightPanel.querySelector<HTMLElement>(
-      '[data-right-panel-composer-overlay-host="true"]',
-    );
-    if (!contentCanvas) throw new Error("Expected right-panel content canvas");
-    const separator = screen.getByRole("separator", { name: "Resize right panel" });
-    await waitFor(() => {
-      expect(rightPanel.style.width).toBe("372px");
-      expect(contentCanvas.style.width).toBe("372px");
-    });
-
+    const restoreMatchMedia = installReducedMotionMatchMediaForTest();
     try {
+      const screen = renderWorkbench({
+        sessionsByProject: {
+          alpha: [
+            makeSession({
+              id: "session:alpha:reopen-resize",
+              title: "Reopen resize",
+              rightCollapsed: false,
+            }),
+          ],
+        },
+      });
+      await settleAsyncRender();
+      await settleAsyncRender();
+
+      const toggleButton = screen.getByRole("button", { name: "Toggle side panel" });
       await act(async () => {
-        fireEvent.pointerDown(separator, { button: 0, pointerId: 9, clientX: 700 });
-        fireEvent.pointerMove(window, { pointerId: 9, clientX: 750 });
+        fireEvent.click(toggleButton);
         await Promise.resolve();
       });
+      await settleAsyncRender();
+      expect(screen.queryByTestId("session-right-panel")).toBe(null);
 
-      await waitFor(() => {
-        const panelWidth = Number.parseFloat(rightPanel.style.width);
-        const canvasWidth = Number.parseFloat(contentCanvas.style.width);
-        const canvasMinimumWidth = Number.parseFloat(contentCanvas.style.minWidth || "0");
-        expect(panelWidth).toBe(322);
-        expect(canvasWidth).toBe(panelWidth);
-        expect(canvasMinimumWidth).toBeLessThanOrEqual(panelWidth);
+      await act(async () => {
+        fireEvent.click(toggleButton);
+        await Promise.resolve();
       });
+      await settleAsyncRender();
+
+      const rightPanel = screen.getByTestId("session-right-panel");
+      const contentCanvas = rightPanel.querySelector<HTMLElement>(
+        '[data-right-panel-composer-overlay-host="true"]',
+      );
+      if (!contentCanvas) throw new Error("Expected right-panel content canvas");
+      const separator = screen.getByRole("separator", { name: "Resize right panel" });
+      await waitFor(() => {
+        expect(rightPanel.style.width).toBe("372px");
+        expect(contentCanvas.style.width).toBe("372px");
+      });
+
+      try {
+        await act(async () => {
+          fireEvent.pointerDown(separator, { button: 0, pointerId: 9, clientX: 700 });
+          fireEvent.pointerMove(window, { pointerId: 9, clientX: 750 });
+          await Promise.resolve();
+        });
+
+        await waitFor(() => {
+          const panelWidth = Number.parseFloat(rightPanel.style.width);
+          const canvasWidth = Number.parseFloat(contentCanvas.style.width);
+          const canvasMinimumWidth = Number.parseFloat(contentCanvas.style.minWidth || "0");
+          expect(panelWidth).toBe(322);
+          expect(canvasWidth).toBe(panelWidth);
+          expect(canvasMinimumWidth).toBeLessThanOrEqual(panelWidth);
+        });
+      } finally {
+        await releasePointerDrag(9);
+      }
     } finally {
-      await releasePointerDrag(9);
+      restoreMatchMedia();
     }
   });
 

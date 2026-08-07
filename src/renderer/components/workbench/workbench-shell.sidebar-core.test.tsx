@@ -6,8 +6,9 @@ import { getKanbanProjectStore } from "@/lib/kanban-store";
 import { LOCAL_ENVIRONMENT_SELECTIONS_STORAGE_KEY } from "./local-environment-selection";
 import { type CodexSidebarThreadItem } from "@/lib/types";
 import { __getNodexToastSnapshotForTests } from "@/components/ui/toast";
-import { getConnectedThreadStagePropsByThreadId, getLastThreadStageActions, getMountedSessionIds, getMountedSessionRoot, getSidebarProjectGroup, getSidebarSection, getThreadRow, getThreadRowTitles, installReducedMotionMatchMediaForTest, invokeCalls, makeAttachedSession, makePanelLayout, makeProject, makeSession, mockInvokeImpl, renderWorkbench, requestThreadStreamSnapshotCalls, selectSidebarSession, setInvokeCalls, setMockInvokeImpl, setRequestThreadStreamSnapshotImpl } from "./workbench-testkit/workbench-shell-harness";
-import type { ProjectSession } from "./workbench-testkit/workbench-shell-harness";
+import { makeAttachedSession, makePanelLayout, makeProject, makeSession } from "./workbench-testkit/workbench-shell-fixtures";
+import { getConnectedThreadStagePropsByThreadId, getLastThreadStageActions, getMountedSessionIds, getMountedSessionRoot, getSidebarProjectGroup, getSidebarSection, getThreadRow, getThreadRowTitles, installReducedMotionMatchMediaForTest, invokeCalls, mockInvokeImpl, renderWorkbench, requestThreadStreamSnapshotCalls, selectSidebarSession, setInvokeCalls, setMockInvokeImpl, setRequestThreadStreamSnapshotImpl } from "./workbench-testkit/workbench-shell-harness";
+import type { ProjectSession } from "./workbench-testkit/workbench-shell-fixtures";
 
 describe("workbench session shell / sidebar-core", () => {
   test("loads project sessions and renders the Database View DB tab", async () => {

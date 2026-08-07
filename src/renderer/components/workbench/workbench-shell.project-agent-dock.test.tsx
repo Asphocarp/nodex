@@ -2,11 +2,9 @@ import "./workbench-testkit/workbench-shell-harness";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
 import { settleAsyncRender } from "../../test/dom";
+import { makeAttachedSession, makeBlankSession, makeProject } from "./workbench-testkit/workbench-shell-fixtures";
 import {
   invokeCalls,
-  makeAttachedSession,
-  makeBlankSession,
-  makeProject,
   renderWorkbench,
   startThreadForSessionCalls,
 } from "./workbench-testkit/workbench-shell-harness";

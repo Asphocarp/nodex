@@ -469,6 +469,29 @@ when a new control type is genuinely needed.
 - Default renderer component tests to the repository's pnpm-driven Vitest jsdom
   runtime with `@testing-library/react`; use Vitest Browser Mode only when the
   contract depends on real layout, selection, focus, or pointer behavior.
+- Use the filename as the renderer test runtime boundary: pure models, codecs,
+  normalizers, state machines, and transport contracts belong in
+  `*.node.test.{ts,tsx}` and run through `vitest.node.config.ts` without the
+  renderer setup; DOM/React lifecycle tests stay in `*.test.{ts,tsx}`; real
+  browser layout or selection tests stay in `*.browser.test.{ts,tsx}`. Do not
+  move a test merely because its imports mention React, Yjs, or BlockNote;
+  prove that it runs without browser globals first.
+- Keep Workbench pure fixtures separate from the DOM shell harness. Node-safe
+  tests should import builders from
+  `src/renderer/components/workbench/workbench-testkit/workbench-shell-fixtures.ts`;
+  tests that mount `WorkbenchRuntime` may use the harness and its scoped mocks.
+- Renderer tests must be act-clean. Prefer awaited Testing Library queries and
+  observable DOM/API outcomes; use `settleAsyncRender` only when effects,
+  observers, or a macrotask are part of the contract. For debounce, tooltip,
+  and animation tests, use local fake timers or the reduced-motion test seam
+  with `try/finally` restoration rather than real multi-hundred-millisecond
+  sleeps or global timer/isolation changes.
+- When investigating renderer performance, capture both a Vitest JSON report
+  and `/usr/bin/time -lp` under the same dependency/cache conditions, compare
+  warmed repeated medians, and record pass rate plus peak RSS. Keep the normal
+  renderer suite on isolated `forks` with its measured worker limit and keep
+  stress tests on their explicit single-worker protection; do not treat
+  `--silent`, `threads`, or `isolate=false` as performance fixes.
 - Assert user-visible structure, labels, and behavior through rendered DOM queries; keep `data-testid` and raw class checks as fallback tools, not the default.
 - Reserve HTML-string or server-render assertions for cases where serialized markup is the actual contract.
 - Do not add source-string tests that only verify implementation text inside a file.
