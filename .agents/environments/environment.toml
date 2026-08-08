@@ -3,9 +3,6 @@ version = 1
 name = "nodex"
 
 [setup]
-script = "pnpm install"
-
-[[actions]]
-name = "dev"
-icon = "run"
-command = "pnpm dev"
+script = '''
+pnpm install
+ln -s $HOME/repo/nodex/notes.local notes.local'''
