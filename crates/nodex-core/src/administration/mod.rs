@@ -222,11 +222,11 @@ impl StoreAdministrationModule {
             .read_default(move |connection| {
                 let transaction = connection.unchecked_transaction()?;
                 assert_identity(&transaction, &profile_id, &library_id)?;
-                let (store_epoch, change_log_head) = transaction.query_row(
-                    "SELECT metadata.store_epoch, (SELECT COALESCE(max(seq), 0) FROM change_log) \
+                let store_epoch = transaction.query_row(
+                    "SELECT metadata.store_epoch \
                      FROM block_store_metadata metadata WHERE metadata.id = 1",
                     [],
-                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+                    |row| row.get::<_, String>(0),
                 )?;
                 let commit_seq = crate::infrastructure::local_commit::head(&transaction)?;
                 let value = match request.read {
@@ -264,7 +264,7 @@ impl StoreAdministrationModule {
                             backups: backup_window(
                                 &transaction,
                                 &library_id,
-                                change_log_head,
+                                commit_seq,
                                 items,
                                 &window,
                             )?,

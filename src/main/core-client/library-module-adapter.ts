@@ -1438,14 +1438,10 @@ export const createCoreLibraryModuleAdapter = (
       ) {
         throw new Error("Core Page Detail escaped its Library snapshot boundary");
       }
-      const semanticDetail = {
-        ...detail,
-        // The nested Core detail is still shaped around the historical
-        // change-log field. At the transport boundary it is a LocalCommit
-        // cursor, just like every other module snapshot.
-        commit_seq: snapshot.commit_head,
-      };
-      if (snapshot.commit_head >= minimumCommitSeq) return semanticDetail;
+      if (detail.commit_seq !== snapshot.commit_head) {
+        throw new Error("Core Page Detail crossed its LocalCommit snapshot boundary");
+      }
+      if (snapshot.commit_head >= minimumCommitSeq) return detail;
       await new Promise<void>((resolve) => setTimeout(resolve, 5));
     }
     throw new Error(

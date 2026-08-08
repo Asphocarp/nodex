@@ -81,6 +81,15 @@ token again in the same writer transaction, and a mismatch returns a retryable
 revision conflict. The token is deliberately excluded from the idempotent
 intent hash, so response-loss recovery does not create a new logical command.
 
+Every canonical Module read derives its Store epoch, finalized LocalCommit
+head, nested snapshot coordinates, and projected values from one SQLite read
+transaction. Public `commit_head`, `commit_seq`, `covered_commit_seq`, and
+collection freshness authorities therefore share the LocalCommit coordinate
+space even when the private `change_log.seq` has allocation gaps or several
+physical effects belong to one semantic commit. The change-log sequence may
+bound historical evidence queries, but it never crosses a Module, Main, or
+renderer freshness boundary and is never accepted as a causal read floor.
+
 Heavy cross-Document transfer, promotion, copy, and Agent Page batches prepare
 against isolated clones of immutable cached Document bases on read connections.
 The writer revalidates every captured head, owner revision, membership, and

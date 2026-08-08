@@ -391,6 +391,30 @@ describe("Core Library Module Adapter", () => {
     ]);
   });
 
+  test("rejects a nested Page Detail from another LocalCommit coordinate", async () => {
+    const client = new FakeCoreClient();
+    const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
+    const snapshot = pageDetailSnapshot();
+    client.enqueueRead({
+      ...snapshot,
+      value: {
+        ...snapshot.value,
+        value: { ...snapshot.value.value, commit_seq: 10 },
+      },
+    });
+
+    await expect(adapter.readProjectPageDetail(
+      "project:test",
+      "page:one",
+    )).resolves.toMatchObject({
+      ok: false,
+      error: {
+        message: "Core Page Detail crossed its LocalCommit snapshot boundary",
+        retryable: true,
+      },
+    });
+  });
+
   test("selects the Project client or trusted root client for Page Detail", async () => {
     const rootClient = new FakeCoreClient();
     const projectClient = new FakeCoreClient();

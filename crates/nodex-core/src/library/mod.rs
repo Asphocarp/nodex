@@ -226,13 +226,12 @@ impl LibraryModule {
                 .read_default(move |connection| {
                     let transaction = connection.unchecked_transaction()?;
                     let store_epoch = crate::document::read_store_epoch(&transaction)?;
-                    let change_log_head = navigation::change_log_head(&transaction)?;
                     let commit_seq = navigation::commit_head(&transaction)?;
                     let prepared = search_snapshot::prepare(
                         &transaction,
                         &library_id,
                         &store_epoch,
-                        change_log_head,
+                        commit_seq,
                         &prepare_context,
                         prepare_scope,
                         strict_materialization,
@@ -407,7 +406,6 @@ impl LibraryModule {
                                 false,
                             )
                         })?;
-                    let change_log_head = navigation::change_log_head(&transaction)?;
                     let commit_seq = navigation::commit_head(&transaction)?;
                     let value = match request.read {
                         LibraryRead::Metadata => LibraryReadValue::Metadata {
@@ -466,7 +464,7 @@ impl LibraryModule {
                             &transaction,
                             &library_id,
                             &store_epoch,
-                            change_log_head,
+                            commit_seq,
                             &context,
                             read,
                         )?,

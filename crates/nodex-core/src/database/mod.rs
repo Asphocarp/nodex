@@ -118,16 +118,11 @@ impl DatabaseModule {
                     )
                     .optional()?
                     .ok_or_else(|| corrupt("Profile store epoch is unavailable"))?;
-                let change_log_head = transaction.query_row(
-                    "SELECT COALESCE(max(seq), 0) FROM change_log",
-                    [],
-                    |row| row.get::<_, i64>(0),
-                )?;
                 let commit_seq = crate::infrastructure::local_commit::head(&transaction)?;
-                let value = read::read_at_event_head(
+                let value = read::read_at_commit_head(
                     &transaction,
                     &library_id,
-                    change_log_head,
+                    commit_seq,
                     &context,
                     request.read,
                 )?;
@@ -2661,6 +2656,109 @@ mod tests {
             }
         );
         Ok(*value)
+    }
+
+    #[test]
+    fn view_authority_uses_the_local_commit_head_after_a_physical_sequence_gap() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open(&home).expect("fresh store");
+        let module = seed_grouped_fixture(
+            &kernel,
+            vec![GroupRowSpec {
+                page_id: "page:sequence-gap-row",
+                title: "Sequence gap row",
+                value_json: Some("\"triage\""),
+                position: Some(("triage", "a")),
+            }],
+        );
+
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "UPDATE sqlite_sequence SET seq = seq + 100 WHERE name = 'change_log'",
+                    [],
+                )?;
+                Ok(())
+            })
+            .expect("advance the private physical sequence");
+        LibraryModule::new("profile-1", "library-1", &kernel)
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "operation:sequence-gap-page".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::CreatePage {
+                        page_id: "page:sequence-gap".to_owned(),
+                        document_id: "document:sequence-gap".to_owned(),
+                        title: "Physical sequence gap".to_owned(),
+                        parent: LibraryWriteParent::Library { before: None },
+                    },
+                },
+            )
+            .expect("append a valid commit after the physical sequence gap");
+
+        let (physical_head, semantic_head) = kernel
+            .writer()
+            .call(|connection| {
+                Ok((
+                    connection.query_row(
+                        "SELECT COALESCE(MAX(seq), 0) FROM change_log",
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )?,
+                    crate::infrastructure::local_commit::head(connection)?,
+                ))
+            })
+            .expect("read diverged heads");
+        assert!(physical_head > semantic_head);
+
+        for mode in [
+            DatabaseReadMode::ViewWindow,
+            DatabaseReadMode::ViewGroups,
+            DatabaseReadMode::ViewContext,
+        ] {
+            let snapshot = module
+                .read(
+                    &context(),
+                    ModuleReadRequest {
+                        contract_version: DATABASE_CONTRACT_VERSION,
+                        read: DatabaseRead {
+                            target: DatabaseTarget::View {
+                                view_id: VIEW_ID.to_owned(),
+                            },
+                            mode,
+                            filter: None,
+                            sort: None,
+                            window: Some(CollectionWindowRequest {
+                                after: None,
+                                first: Some(10),
+                            }),
+                            page_ids: None,
+                            group_scope: None,
+                        },
+                    },
+                )
+                .expect("read View authority");
+            assert_eq!(snapshot.commit_head, semantic_head);
+            match snapshot.value {
+                DatabaseReadValue::ViewWindow { value } => {
+                    assert_eq!(value.projection.covered_commit_seq, semantic_head);
+                    assert_eq!(value.rows.authority.projection_revision, semantic_head);
+                }
+                DatabaseReadValue::ViewGroups { value } => {
+                    assert_eq!(value.projection.covered_commit_seq, semantic_head);
+                }
+                DatabaseReadValue::ViewContext { value } => {
+                    assert_eq!(value.projection.covered_commit_seq, semantic_head);
+                    assert_eq!(value.groups.projection.covered_commit_seq, semantic_head);
+                    assert_eq!(value.rows.authority.projection_revision, semantic_head);
+                }
+                _ => panic!("unexpected View read value"),
+            }
+        }
     }
 
     #[test]

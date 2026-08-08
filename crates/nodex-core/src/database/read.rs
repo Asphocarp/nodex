@@ -144,14 +144,11 @@ pub(crate) fn read(
     context: &BoundModuleContext,
     request: DatabaseRead,
 ) -> Result<DatabaseReadValue, StoreError> {
-    let commit_head =
-        connection.query_row("SELECT COALESCE(max(seq), 0) FROM change_log", [], |row| {
-            row.get::<_, i64>(0)
-        })?;
-    read_at_event_head(connection, library_id, commit_head, context, request)
+    let commit_head = crate::infrastructure::local_commit::head(connection)?;
+    read_at_commit_head(connection, library_id, commit_head, context, request)
 }
 
-pub(crate) fn read_at_event_head(
+pub(crate) fn read_at_commit_head(
     connection: &Connection,
     library_id: &str,
     commit_head: i64,
