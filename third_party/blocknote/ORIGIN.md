@@ -42,6 +42,7 @@ The vendored source carries these Nodex-maintained deltas from upstream:
 - `react/src/blocks/ToggleWrapper/ToggleWrapper.tsx`: keep React toggle-wrapper behavior aligned with the core toggle-wrapper collapse semantics.
 - `react/src/components/Comments/FloatingComposerController.lazy.tsx` and `react/src/components/Comments/FloatingThreadController.lazy.tsx`: keep the root `@blocknote/react` controller exports available without statically importing the heavy comments controller implementations, so `BlockNoteDefaultUI` can keep its real lazy chunk boundary.
 - `shadcn/src/menu/Menu.tsx`: delay Radix menu trigger pointerdown until click-intent pointerup so native drag gestures from the side-menu handle are not stolen by dropdown opening.
+- `shadcn/src/style.css`, `shadcn/src/components/ui/`, and `shadcn/src/suggestionMenu/`: preserve Nodex `icon-*` geometry anywhere upstream SVG defaults already preserve Tailwind `size-*` geometry.
 
 No generated `dist` hunks are carried forward. Future BlockNote changes should edit the vendored source and update this list when the local delta changes.
 
