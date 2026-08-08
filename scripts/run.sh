@@ -51,6 +51,9 @@ Environment:
   NODEX_REMOTE_DEBUGGING_PORT
                     Electron CDP port (default: 0, letting the OS select an
                     available port for this run).
+  NODEX_SHOW_MACOS_INPUT_SOURCE_LOGS
+                    Set to 1 to show macOS input-source cache diagnostics that
+                    are hidden by default.
   NODEX_INITIAL_PROJECTS_DIR
                     Initial Project parent. Isolated runs set this to the run
                     root's workspace directory.
@@ -71,6 +74,39 @@ EOF
 fail() {
   printf 'Error: %s\n' "$1" >&2
   exit 1
+}
+
+is_known_macos_input_source_noise() {
+  local line="$1"
+  local layout_id
+
+  case "${line}" in
+  *"TISFileInterrogator updateSystemInputSources false but old data invalid:"*)
+    return 0
+    ;;
+  esac
+
+  for layout_id in -17410 -30769 -14934; do
+    if [[ "${line}" == "Keyboard Layouts: duplicate keyboard layout identifier ${layout_id}." ]]; then
+      return 0
+    fi
+    if [[ "${line}" == "Keyboard Layouts: keyboard layout identifier ${layout_id} has been replaced with -"* ]]; then
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+filter_macos_input_source_noise() {
+  local line
+
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    if is_known_macos_input_source_noise "${line}"; then
+      continue
+    fi
+    printf '%s\n' "${line}" >&2
+  done
 }
 
 while (($# > 0)); do
@@ -314,7 +350,7 @@ else
 fi
 printf 'NODEX_REMOTE_DEBUGGING_PORT=%s\n' "${NODEX_REMOTE_DEBUGGING_PORT:-0}"
 
-(
+run_nodex() (
   export NODEX_REMOTE_DEBUGGING_PORT="${NODEX_REMOTE_DEBUGGING_PORT:-0}"
   if [[ "${use_codex_home}" == "true" ]]; then
     export CODEX_HOME="${isolated_codex_home}"
@@ -331,3 +367,9 @@ printf 'NODEX_REMOTE_DEBUGGING_PORT=%s\n' "${NODEX_REMOTE_DEBUGGING_PORT:-0}"
     pnpm --silent run "${run_script}"
   fi
 )
+
+if [[ "${NODEX_SHOW_MACOS_INPUT_SOURCE_LOGS:-0}" == "1" ]]; then
+  run_nodex
+else
+  run_nodex 2> >(filter_macos_input_source_noise)
+fi
