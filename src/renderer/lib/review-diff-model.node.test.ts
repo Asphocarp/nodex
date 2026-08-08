@@ -99,6 +99,17 @@ describe("review diff model", () => {
     expect(filterReviewFiles(FILES, "src/b").length).toBe(1);
   });
 
+  test("keeps an empty file filter separate from uncapped review visibility", () => {
+    expect(filterReviewFiles(FILES, "")).toEqual(FILES);
+    expect(buildReviewVisibleFiles(
+      FILES,
+      null,
+      false,
+      true,
+      REVIEW_CAPPED_MATCH_PAGE_SIZE,
+    )).toEqual(FILES);
+  });
+
   test("resolves capped selected path to the first visible file", () => {
     expect(resolveReviewSelectedPath(FILES, null, true)).toBe("src/a.ts");
   });

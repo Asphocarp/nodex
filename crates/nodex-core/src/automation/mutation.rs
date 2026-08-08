@@ -1821,7 +1821,7 @@ mod tests {
 
     fn harness() -> Harness {
         let home = tempdir().expect("Profile");
-        let kernel = SqliteStoreKernel::open(home.path()).expect("Core store");
+        let kernel = SqliteStoreKernel::open_test(home.path()).expect("Core store");
         kernel
             .writer()
             .call(|connection| {

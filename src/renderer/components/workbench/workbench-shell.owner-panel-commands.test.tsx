@@ -12,9 +12,9 @@ import {
   type WorkbenchSurfaceDescriptor,
 } from "../../../shared/workbench-scene";
 import type { WorkbenchLayoutSnapshot } from "../../../shared/workbench-layout";
+import { makeProject } from "./workbench-testkit/workbench-shell-fixtures";
 import {
   getPanelTabById,
-  makeProject,
   renderWorkbench,
 } from "./workbench-testkit/workbench-shell-harness";
 import { settleAsyncRender } from "../../test/dom";

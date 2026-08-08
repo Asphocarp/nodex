@@ -3,7 +3,8 @@ import { describe, test, expect } from "vitest";
 import { settleAsyncRender, textContent } from "../../test/dom";
 import { within, act, fireEvent, waitFor } from "@testing-library/react";
 import { type CodexSidebarSyncResult, type CodexSidebarThreadItem } from "@/lib/types";
-import { NEW_CHAT_ICON_PREFIX, codexHostMessageListener, getSidebarProjectGroup, getSidebarSection, getThreadRow, getThreadRowTitles, invokeCalls, makeAttachedSession, makePanelLayout, makeProject, makeSession, makeSidebarSnapshotItemForSession, openPanelMenu, renderWorkbench } from "./workbench-testkit/workbench-shell-harness";
+import { makeAttachedSession, makePanelLayout, makeProject, makeSession, makeSidebarSnapshotItemForSession } from "./workbench-testkit/workbench-shell-fixtures";
+import { NEW_CHAT_ICON_PREFIX, codexHostMessageListener, getSidebarProjectGroup, getSidebarSection, getThreadRow, getThreadRowTitles, invokeCalls, openPanelMenu, renderWorkbench } from "./workbench-testkit/workbench-shell-harness";
 
 async function ensureProjectRowExpanded(
   container: HTMLElement,

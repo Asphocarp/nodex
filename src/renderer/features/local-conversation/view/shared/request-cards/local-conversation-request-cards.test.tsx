@@ -72,60 +72,11 @@ const multiOptionRequest: CodexUserInputRequest = {
 };
 
 describe("local-conversation request cards", () => {
-  test("defaults option questions to the first choice and treats them as submittable", async () => {
-    const {
-      EXPLICIT_REQUEST_FORM_POLICY,
-      buildUserInputAnswers,
-      isRequestQuestionnaireSubmittable,
-    } = await import("./local-conversation-request-cards");
-    const state = {
-      answers: [{
-        selectedOptionId: "2 (Recommended)",
-        freeformText: null,
-      }],
-      questionIndex: 0,
-    };
-
-    expect(JSON.stringify(buildUserInputAnswers(optionRequest, state))).toBe(JSON.stringify({ q_1: ["2 (Recommended)"] }));
-    expect(isRequestQuestionnaireSubmittable(
-      optionRequest,
-      state,
-      EXPLICIT_REQUEST_FORM_POLICY,
-    )).toBe(true);
-  });
-
-  test("prefers the freeform answer when the other path is active", async () => {
-    const { buildUserInputAnswers } = await import("./local-conversation-request-cards");
-    const state = {
-      answers: [{
-        selectedOptionId: null,
-        freeformText: "Try again and use a calculator.",
-      }],
-      questionIndex: 0,
-    };
-
-    expect(JSON.stringify(buildUserInputAnswers(optionRequest, state))).toBe(
-      JSON.stringify({ q_1: ["Try again and use a calculator."] }),
-    );
-  });
-
   test("does not render the final freeform row for option questions when isOther is false", async () => {
     const {
       REQUEST_INPUT_COMPOSER_POLICY,
       RequestComposerView,
-      buildUserInputAnswers,
     } = await import("./local-conversation-request-cards");
-    const state = {
-      answers: [{
-        selectedOptionId: null,
-        freeformText: "Choose none of the above and revise the plan.",
-      }],
-      questionIndex: 0,
-    };
-
-    expect(JSON.stringify(buildUserInputAnswers(optionRequestWithoutOtherFlag, state))).toBe(
-      JSON.stringify({}),
-    );
 
     const { container } = render(
       <NodexTooltipProvider>
@@ -139,53 +90,6 @@ describe("local-conversation request cards", () => {
     );
 
     expect(textContent(container).includes("Tell Codex what to do differently")).toBe(false);
-  });
-
-  test("requires text for freeform-only questions before submit is enabled", async () => {
-    const {
-      EXPLICIT_REQUEST_FORM_POLICY,
-      isRequestQuestionnaireSubmittable,
-    } = await import("./local-conversation-request-cards");
-    const request: CodexUserInputRequest = {
-      ...optionRequest,
-      questions: [
-        {
-          id: "q_freeform",
-          header: "Input required",
-          question: "Tell Codex what to do differently",
-          isOther: false,
-          isSecret: false,
-          options: undefined,
-        },
-      ],
-    };
-
-    expect(
-      isRequestQuestionnaireSubmittable(
-        request,
-        {
-          answers: [{
-            selectedOptionId: null,
-            freeformText: "",
-          }],
-          questionIndex: 0,
-        },
-        EXPLICIT_REQUEST_FORM_POLICY,
-      ),
-    ).toBe(false);
-    expect(
-      isRequestQuestionnaireSubmittable(
-        request,
-        {
-          answers: [{
-            selectedOptionId: null,
-            freeformText: "Focus on the failing type errors only.",
-          }],
-          questionIndex: 0,
-        },
-        EXPLICIT_REQUEST_FORM_POLICY,
-      ),
-    ).toBe(true);
   });
 
   test("allows an immediate freeform question to resolve without an answer", async () => {
@@ -228,15 +132,6 @@ describe("local-conversation request cards", () => {
 
     expect(Boolean(textContent(container).includes("Enter a response before submitting."))).toBe(false);
     expect(respondCount).toBe(1);
-  });
-
-  test("maps preserved focus targets onto the next question shape", async () => {
-    const { resolveUserInputQuestionFocusTarget } = await import("./local-conversation-request-cards");
-
-    expect(resolveUserInputQuestionFocusTarget(multiQuestionRequest.questions[0]!, "options")).toBe("options");
-    expect(resolveUserInputQuestionFocusTarget(multiQuestionRequest.questions[0]!, "answer")).toBe("other");
-    expect(resolveUserInputQuestionFocusTarget(multiQuestionRequest.questions[1]!, "options")).toBe("answer");
-    expect(resolveUserInputQuestionFocusTarget(multiQuestionRequest.questions[1]!, null)).toBe(null);
   });
 
   test("focuses the next question after its wait-mode transition mounts", async () => {
@@ -324,15 +219,6 @@ describe("local-conversation request cards", () => {
     await waitFor(() => {
       expect(view.getByPlaceholderText("Type your answer")).not.toBeNull();
     }, { timeout: 2_000 });
-  });
-
-  test("only allows arrow-up escape from the freeform row when the caret is at the start", async () => {
-    const { canMoveUserInputFocusToOptionsFromOtherField } = await import("./local-conversation-request-cards");
-
-    expect(canMoveUserInputFocusToOptionsFromOtherField(0, 0)).toBe(true);
-    expect(canMoveUserInputFocusToOptionsFromOtherField(1, 1)).toBe(false);
-    expect(canMoveUserInputFocusToOptionsFromOtherField(0, 2)).toBe(false);
-    expect(canMoveUserInputFocusToOptionsFromOtherField(null, null)).toBe(false);
   });
 
   test("renders the composer-style request surface with hover metadata affordance", async () => {

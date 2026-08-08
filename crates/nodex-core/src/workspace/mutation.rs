@@ -1969,7 +1969,7 @@ mod tests {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
         fs::create_dir(home.join("assets")).expect("assets root");
-        let kernel = SqliteStoreKernel::open(&home).expect("fresh store");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("fresh store");
         kernel
             .writer()
             .call(|connection| {

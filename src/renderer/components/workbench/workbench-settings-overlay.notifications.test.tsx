@@ -1,4 +1,4 @@
-import { act, fireEvent } from "@testing-library/react";
+import { act, fireEvent, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, test } from "vitest";
 import { AppProviders } from "@/app-providers";
 import { render, settleAsyncRender } from "@/test/dom";
@@ -67,11 +67,16 @@ describe("ThreadNotificationSettingControl", () => {
     expect(permissionSwitch.getAttribute("aria-checked")).toBe("true");
     expect(questionSwitch.getAttribute("aria-checked")).toBe("true");
 
+    const trigger = view.getByRole("button", { name: "Only when unfocused" });
+    await waitFor(() => {
+      expect(trigger.hasAttribute("disabled")).toBe(false);
+    });
     await act(async () => {
-      const trigger = view.getByRole("button", { name: "Only when unfocused" });
       fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
-      fireEvent.click(trigger);
       await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(trigger.getAttribute("aria-expanded")).toBe("true");
     });
     const alwaysOption = await view.findByRole("menuitem", { name: "Always" });
     await act(async () => {

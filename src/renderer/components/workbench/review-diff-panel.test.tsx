@@ -15,7 +15,6 @@ import {
 import { NodexTooltipProvider } from "../ui/tooltip";
 import { FileReferenceRouterProvider } from "@/lib/file-reference-router";
 import { NODEX_REVIEW_DIFF_EXPANSION_LINE_COUNT } from "../../lib/diff-presentation";
-import { buildReviewFileTreeVisibleState } from "@/lib/review-file-tree-model";
 import type {
   CodexConversationSnapshot,
   GitReviewLiveEvent,
@@ -1467,34 +1466,6 @@ describe("review diff panel", () => {
 
     expect(folderRow.getAttribute("data-item-selected")).toBe("true");
     expect(folderRow.getAttribute("data-item-focused")).toBe("true");
-  });
-
-  test("keeps ancestor folders visible when filtering the review file tree", async () => {
-    const state = buildReviewFileTreeVisibleState(
-      [
-        {
-          key: "src/domain-01/feature-01/file-001.ts",
-          displayPath: "src/domain-01/feature-01/file-001.ts",
-        },
-        {
-          key: "src/domain-02/feature-02/file-002.ts",
-          displayPath: "src/domain-02/feature-02/file-002.ts",
-        },
-      ],
-      {
-        fileFilterQuery: "file-001.ts",
-        expandedPaths: new Set(),
-      },
-    );
-    const visiblePaths = state.rows.map((row) => row.path).join("|");
-
-    expect(visiblePaths.includes("src")).toBe(true);
-    expect(visiblePaths.includes("src/domain-01")).toBe(true);
-    expect(visiblePaths.includes("src/domain-01/feature-01")).toBe(true);
-    expect(
-      visiblePaths.includes("src/domain-01/feature-01/file-001.ts"),
-    ).toBe(true);
-    expect(visiblePaths.includes("domain-02")).toBe(false);
   });
 
   test("keeps folder change metadata without rendering modified status markers", async () => {
@@ -3261,38 +3232,6 @@ describe("review diff panel", () => {
     await settleAsyncRender();
     await settleAsyncRender();
     await unmountReviewView(view);
-  });
-
-  test("keeps file filtering separate from review visibility", async () => {
-    const { filterReviewFiles, buildReviewVisibleFiles } = await import(
-      "@/lib/review-diff-model"
-    );
-
-    const files = [
-      {
-        key: "src/example.ts:0:0",
-        displayPath: "src/example.ts",
-        previousPath: null,
-        patchText: "export const review = true;",
-        openPath: null,
-        openLine: 1,
-        additions: 1,
-        deletions: 0,
-        fileDiff: {
-          name: "src/example.ts",
-          prevName: null,
-          type: "modify",
-          hunks: [],
-          additionLines: [],
-          deletionLines: [],
-        },
-      },
-    ];
-
-    expect(filterReviewFiles(files as never, "").length).toBe(1);
-    expect(
-      buildReviewVisibleFiles(files as never, null, false, true, 20).length,
-    ).toBe(1);
   });
 
   test("shows the codex large-diff banner in capped mode", async () => {

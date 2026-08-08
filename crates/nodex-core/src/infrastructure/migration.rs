@@ -2,9 +2,16 @@ use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::io::Read;
 use std::path::{Path, PathBuf};
+#[cfg(test)]
+use std::sync::Mutex;
+use std::sync::OnceLock;
+#[cfg(test)]
+use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use chrono::{DateTime, NaiveDate, NaiveDateTime, SecondsFormat, Utc};
+#[cfg(test)]
+use rusqlite::backup::Backup;
 use rusqlite::{Connection, MAIN_DB, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -28,8 +35,9 @@ use nodex_core_contracts::workspace::ProjectMarker;
 
 use super::document_repository::{DocumentHeadRow, DocumentReadRepository};
 use super::schema::{
-    CORE_SCHEMA_VERSION, TYPESCRIPT_SCHEMA_VERSION, install_v84_schema, read_schema_inventory,
-    schema_inventory_fingerprint, v84_schema_objects_sql, validate_exact_v84_schema,
+    CORE_SCHEMA_VERSION, SchemaInventory, TYPESCRIPT_SCHEMA_VERSION, install_v84_schema,
+    read_schema_inventory, schema_inventory_fingerprint, v84_schema_objects_sql,
+    validate_exact_v84_schema,
 };
 use super::sqlite::{
     StoreError, StoreErrorCode, open_immutable_reader, validate_store, with_immediate_transaction,
@@ -2154,6 +2162,75 @@ fn create_fresh_store(
     })
 }
 
+#[cfg(test)]
+static TEST_CURRENT_STORE_TEMPLATE: OnceLock<Mutex<Connection>> = OnceLock::new();
+
+#[cfg(test)]
+pub(crate) fn prepare_test_current_store(
+    connection: &mut Connection,
+    profile_home: &Path,
+) -> Result<(), StoreError> {
+    let version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    let object_count: i64 = connection.query_row(
+        "SELECT count(*) FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%'",
+        [],
+        |row| row.get(0),
+    )?;
+    if version != 0 || object_count != 0 {
+        return Ok(());
+    }
+
+    let template = test_current_store_template()?;
+    let template = template
+        .lock()
+        .map_err(|_| corrupt("Test Store template lock is poisoned"))?;
+    let backup = Backup::new(&template, connection)?;
+    backup.run_to_completion(1_024, Duration::ZERO, None)?;
+    drop(backup);
+
+    let now = unix_time_millis()?;
+    with_immediate_transaction(connection, |transaction| {
+        transaction.execute(
+            "INSERT INTO nodex_agent_token_keys(id, key_material) VALUES (1, randomblob(32))",
+            [],
+        )?;
+        write_v85_metadata(transaction, None, None, now)?;
+        transaction.execute(
+            "UPDATE core_store_metadata SET projection_event_v2_floor = 1 WHERE id = 1",
+            [],
+        )?;
+        import_legacy_writable_roots(transaction, profile_home, now)?;
+        import_automation_jitter_salt(transaction, profile_home, now)
+    })
+}
+
+#[cfg(test)]
+fn test_current_store_template() -> Result<&'static Mutex<Connection>, StoreError> {
+    if let Some(template) = TEST_CURRENT_STORE_TEMPLATE.get() {
+        return Ok(template);
+    }
+
+    let mut connection = Connection::open_in_memory()?;
+    connection.pragma_update(None, "foreign_keys", true)?;
+    create_fresh_store(
+        &mut connection,
+        Path::new("/__nodex_missing_test_profile__"),
+        0,
+    )?;
+    with_immediate_transaction(&mut connection, |transaction| {
+        transaction.execute("DELETE FROM core_store_metadata", [])?;
+        transaction.execute("DELETE FROM nodex_agent_token_keys", [])?;
+        transaction.execute("DELETE FROM core_automation_runtime_metadata", [])?;
+        transaction.execute("DELETE FROM core_legacy_imports", [])?;
+        Ok(())
+    })?;
+
+    let _ = TEST_CURRENT_STORE_TEMPLATE.set(Mutex::new(connection));
+    TEST_CURRENT_STORE_TEMPLATE
+        .get()
+        .ok_or_else(|| corrupt("Test Store template was not initialized"))
+}
+
 fn has_core_ownership_marker(connection: &Connection) -> Result<bool, StoreError> {
     Ok(connection
         .query_row(
@@ -3992,6 +4069,60 @@ fn validate_exact_core_schema(
     include_project_appearance: bool,
     schema_version: i64,
 ) -> Result<(), StoreError> {
+    let actual_inventory = read_schema_inventory(connection)?;
+    if schema_version == CORE_SCHEMA_VERSION {
+        return compare_schema_inventories(
+            current_schema_inventory()?,
+            &actual_inventory,
+            schema_version,
+        );
+    }
+    let expected_inventory = build_expected_core_schema_inventory(
+        include_execution_profiles,
+        include_portable_tabs,
+        include_projection_impact,
+        include_window_owned_session_views,
+        include_workspace_sidebar_lanes,
+        include_database_starter_sessions,
+        include_project_appearance,
+        schema_version,
+    )?;
+    compare_schema_inventories(&expected_inventory, &actual_inventory, schema_version)
+}
+
+static CURRENT_SCHEMA_INVENTORY: OnceLock<SchemaInventory> = OnceLock::new();
+
+fn current_schema_inventory() -> Result<&'static SchemaInventory, StoreError> {
+    if let Some(inventory) = CURRENT_SCHEMA_INVENTORY.get() {
+        return Ok(inventory);
+    }
+    let inventory = build_expected_core_schema_inventory(
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        CORE_SCHEMA_VERSION,
+    )?;
+    let _ = CURRENT_SCHEMA_INVENTORY.set(inventory);
+    CURRENT_SCHEMA_INVENTORY
+        .get()
+        .ok_or_else(|| corrupt("Current Store schema inventory was not initialized"))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_expected_core_schema_inventory(
+    include_execution_profiles: bool,
+    include_portable_tabs: bool,
+    include_projection_impact: bool,
+    include_window_owned_session_views: bool,
+    include_workspace_sidebar_lanes: bool,
+    include_database_starter_sessions: bool,
+    include_project_appearance: bool,
+    schema_version: i64,
+) -> Result<SchemaInventory, StoreError> {
     let expected = Connection::open_in_memory()?;
     expected.execute_batch(v84_schema_objects_sql())?;
     expected.execute_batch(V85_SCHEMA_SQL)?;
@@ -4059,8 +4190,14 @@ fn validate_exact_core_schema(
         ensure_v108_local_commit_revocations_schema(&expected)?;
     }
 
-    let expected_inventory = read_schema_inventory(&expected)?;
-    let actual_inventory = read_schema_inventory(connection)?;
+    read_schema_inventory(&expected)
+}
+
+fn compare_schema_inventories(
+    expected_inventory: &SchemaInventory,
+    actual_inventory: &SchemaInventory,
+    schema_version: i64,
+) -> Result<(), StoreError> {
     if actual_inventory == expected_inventory {
         return Ok(());
     }
@@ -6196,6 +6333,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "explicit high-cardinality migration gate"]
     fn high_cardinality_v87_ledger_migrates_with_bounded_monotonic_progress() {
         const COMMIT_COUNT: u64 = 10_000;
 

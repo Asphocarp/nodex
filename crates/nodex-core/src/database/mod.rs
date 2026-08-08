@@ -303,7 +303,7 @@ mod tests {
     fn creates_option_and_selects_it_atomically() {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
-        let kernel = SqliteStoreKernel::open(&home).expect("fresh store");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("fresh store");
         kernel
             .writer()
             .call(|connection| {
@@ -558,7 +558,7 @@ mod tests {
     fn reads_catalog_descriptors_views_and_filtered_rows_from_one_authority() {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
-        let kernel = SqliteStoreKernel::open(&home).expect("fresh store");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("fresh store");
         kernel
             .writer()
             .call(|connection| {
@@ -2056,7 +2056,7 @@ mod tests {
     fn schedule_index_follows_direct_property_edits_and_schema_deletion() {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
-        let kernel = SqliteStoreKernel::open(&home).expect("fresh store");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("fresh store");
         let module = seed_grouped_fixture(
             &kernel,
             vec![GroupRowSpec {
@@ -2181,7 +2181,7 @@ mod tests {
     fn relation_property_persists_edges_and_reads_preview_and_full_window() {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
-        let kernel = SqliteStoreKernel::open(&home).expect("fresh store");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("fresh store");
         let module = seed_grouped_fixture(
             &kernel,
             vec![
@@ -2662,7 +2662,7 @@ mod tests {
     fn view_authority_uses_the_local_commit_head_after_a_physical_sequence_gap() {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
-        let kernel = SqliteStoreKernel::open(&home).expect("fresh store");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("fresh store");
         let module = seed_grouped_fixture(
             &kernel,
             vec![GroupRowSpec {
@@ -2765,7 +2765,7 @@ mod tests {
     fn view_context_composes_descriptors_groups_rows_and_signed_move_authority() {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
-        let kernel = SqliteStoreKernel::open(&home).expect("fresh store");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("fresh store");
         let module = seed_grouped_fixture(
             &kernel,
             vec![
@@ -2922,7 +2922,7 @@ mod tests {
     fn group_scoped_windows_partition_the_view_and_agree_with_group_totals() {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
-        let kernel = SqliteStoreKernel::open(&home).expect("fresh store");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("fresh store");
         let module = seed_grouped_fixture(
             &kernel,
             vec![
@@ -3131,7 +3131,7 @@ mod tests {
     fn ungrouped_views_reject_group_scopes_and_report_flat_totals() {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
-        let kernel = SqliteStoreKernel::open(&home).expect("fresh store");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("fresh store");
         let module = seed_grouped_fixture(
             &kernel,
             vec![GroupRowSpec {

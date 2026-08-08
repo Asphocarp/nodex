@@ -56,21 +56,22 @@ describe("review file tree model", () => {
   test("search preserves ancestor folders while hiding non-matching branches", () => {
     const state = buildReviewFileTreeVisibleState(
       [
-        buildEntry("src/example.ts"),
-        buildEntry("docs/readme.md"),
+        buildEntry("src/domain-01/feature-01/file-001.ts"),
+        buildEntry("src/domain-02/feature-02/file-002.ts"),
       ],
       {
-        fileFilterQuery: "example",
+        fileFilterQuery: "file-001.ts",
         expandedPaths: new Set(),
       },
     );
 
     expect(state.filteredEntries.length).toBe(1);
-    expect(state.rows.length).toBe(2);
-    expect(state.rows[0]?.type).toBe("folder");
-    expect(state.rows[0]?.path).toBe("src");
-    expect(state.rows[0]?.isExpanded).toBe(true);
-    expect(state.rows[1]?.path).toBe("src/example.ts");
+    const visiblePaths = state.rows.map((row) => row.path).join("|");
+    expect(visiblePaths.includes("src")).toBe(true);
+    expect(visiblePaths.includes("src/domain-01")).toBe(true);
+    expect(visiblePaths.includes("src/domain-01/feature-01")).toBe(true);
+    expect(visiblePaths.includes("src/domain-01/feature-01/file-001.ts")).toBe(true);
+    expect(visiblePaths.includes("domain-02")).toBe(false);
   });
 
   test("returns default expanded paths for all non-empty folders", () => {

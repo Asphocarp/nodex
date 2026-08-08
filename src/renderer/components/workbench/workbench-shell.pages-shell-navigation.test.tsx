@@ -1,9 +1,10 @@
 import "./workbench-testkit/workbench-shell-harness";
-import { describe, test, expect } from "vitest";
+import { describe, test, expect, vi } from "vitest";
 import { settleAsyncRender, textContent } from "../../test/dom";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import { splitWorkbenchPanelLeaf } from "../../../shared/workbench-panel-layout";
-import { TITLEBAR_NEW_CHAT_ICON_PREFIX, executeCommandPaletteCommand, getHeaderShellSlot, getLastTerminalPanelProps, getThreadRow, installReducedMotionMatchMediaForTest, invokeCalls, makeAttachedSession, makeBlankSession, makePanelLayout, makePanels, makeProject, makeSession, makeSessionTab, moveSidebarPointer, pointerActivate, pointerDownAndSettle, renderWorkbench, startThreadForSessionCalls, setInvokeCalls } from "./workbench-testkit/workbench-shell-harness";
+import { makeAttachedSession, makeBlankSession, makePanelLayout, makePanels, makeProject, makeSession, makeSessionTab } from "./workbench-testkit/workbench-shell-fixtures";
+import { TITLEBAR_NEW_CHAT_ICON_PREFIX, executeCommandPaletteCommand, getHeaderShellSlot, getLastTerminalPanelProps, getThreadRow, installReducedMotionMatchMediaForTest, invokeCalls, moveSidebarPointer, pointerActivate, pointerDownAndSettle, renderWorkbench, startThreadForSessionCalls, setInvokeCalls } from "./workbench-testkit/workbench-shell-harness";
 
 describe("workbench session shell / pages-shell-navigation", () => {
   test("opens a Page in a fresh Session Scene without starting a Thread", async () => {
@@ -637,11 +638,16 @@ describe("workbench session shell / pages-shell-navigation", () => {
     const renamedTitle = screen.container.querySelector('[data-app-shell-tab-title="card-tab"]');
     expect(renamedTitle?.textContent).toBe("Renamed card");
     if (!(renamedTitle instanceof HTMLElement)) throw new Error("Expected renamed card tab title");
-    fireEvent.pointerMove(renamedTitle);
-    fireEvent.mouseEnter(renamedTitle);
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 300));
-    });
+    vi.useFakeTimers();
+    try {
+      fireEvent.pointerMove(renamedTitle);
+      fireEvent.mouseEnter(renamedTitle);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(300);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
     const renamedTooltip = screen.container.ownerDocument.body.querySelector('[role="tooltip"]');
     expect(renamedTooltip?.textContent).toContain("Renamed card");
     expect(renamedTooltip?.textContent).toContain("Project: Beta");
@@ -693,11 +699,16 @@ describe("workbench session shell / pages-shell-navigation", () => {
 
     const tabTitle = screen.container.querySelector('[data-app-shell-tab-title="card-tab"]');
     if (!(tabTitle instanceof HTMLElement)) throw new Error("Expected card tab title");
-    fireEvent.pointerMove(tabTitle);
-    fireEvent.mouseEnter(tabTitle);
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 300));
-    });
+    vi.useFakeTimers();
+    try {
+      fireEvent.pointerMove(tabTitle);
+      fireEvent.mouseEnter(tabTitle);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(300);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
 
     const tooltip = screen.container.ownerDocument.body.querySelector('[role="tooltip"]');
     expect(tooltip?.textContent).toBe("Card One");
@@ -1646,6 +1657,7 @@ describe("workbench session shell / pages-shell-navigation", () => {
   });
 
   test("collapsed sidebar renders Codex-parity left titlebar chrome on macOS", async () => {
+    const restoreMatchMedia = installReducedMotionMatchMediaForTest();
     const originalPlatform = navigator.platform;
     Object.defineProperty(navigator, "platform", { configurable: true, value: "MacIntel" });
     try {
@@ -1711,7 +1723,7 @@ describe("workbench session shell / pages-shell-navigation", () => {
       await settleAsyncRender();
       await moveSidebarPointer(301);
       await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 600));
+        await Promise.resolve();
       });
       await settleAsyncRender();
 
@@ -1726,6 +1738,7 @@ describe("workbench session shell / pages-shell-navigation", () => {
       expect(invokeCalls.some((call) => call[0] === "project-sessions:create")).toBe(false);
       expect(screen.getByRole("button", { name: "Show sidebar" }) !== null).toBe(true);
     } finally {
+      restoreMatchMedia();
       Object.defineProperty(navigator, "platform", { configurable: true, value: originalPlatform });
     }
   });

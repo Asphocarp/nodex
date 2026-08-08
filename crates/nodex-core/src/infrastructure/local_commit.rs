@@ -2845,7 +2845,7 @@ mod tests {
     fn local_commit_child_queries_use_the_complete_epoch_coordinate() {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
-        let kernel = SqliteStoreKernel::open(&home).expect("current Core store");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("current Core store");
 
         kernel
             .readers()
@@ -2888,7 +2888,7 @@ mod tests {
     fn migrated_document_effects_use_receipts_after_update_compaction() {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
-        let kernel = SqliteStoreKernel::open(&home).expect("current Core store");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("current Core store");
 
         kernel
             .writer()

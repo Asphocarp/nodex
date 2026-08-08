@@ -3,6 +3,7 @@ import {
   _electron as electron,
   type CDPSession,
   type ElectronApplication,
+  type Locator,
   type Page,
 } from "playwright";
 import { createHash } from "node:crypto";
@@ -267,6 +268,78 @@ async function seedConvergenceDocument(
     throw new Error("Seed source Page document must contain a transferable block");
   }
   return { ...source, blockIds };
+}
+
+async function dragBlockToBoardWithMouse({
+  page,
+  sourceBlock,
+  sourceEditor,
+  targetColumn,
+}: {
+  page: Page;
+  sourceBlock: Locator;
+  sourceEditor: Locator;
+  targetColumn: Locator;
+}): Promise<void> {
+  await sourceBlock.scrollIntoViewIfNeeded();
+  const sourceBlockContent = sourceBlock.locator(":scope > .bn-block-content");
+  await expect(sourceBlockContent).toBeVisible();
+  await sourceBlockContent.hover();
+
+  // A parent Block's outer box includes its children, so hover its direct
+  // content to reveal the correct dynamic handle. Keep that same connected node
+  // stable for two frames before pressing it; a remount aborts native DnD.
+  const dragHandle = sourceEditor.locator(
+    '.bn-side-menu button[draggable="true"]:visible',
+  );
+  await expect(dragHandle).toHaveCount(1);
+  await expect(dragHandle).toBeVisible();
+  const handleCenter = await dragHandle.evaluate(async (handle) => {
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    });
+    if (!handle.isConnected) {
+      throw new Error("Block drag handle remounted before mouse down");
+    }
+    const box = handle.getBoundingClientRect();
+    if (box.width <= 0 || box.height <= 0) {
+      throw new Error("Block drag handle has no layout box");
+    }
+    return {
+      x: box.x + box.width / 2,
+      y: box.y + box.height / 2,
+    };
+  });
+
+  await page.mouse.move(handleCenter.x, handleCenter.y);
+  await page.mouse.down();
+  let mouseReleased = false;
+  try {
+    // This first segment crosses both Nodex's click tolerance and Chromium's
+    // native drag activation threshold before the long trip to the Board.
+    await page.mouse.move(handleCenter.x + 12, handleCenter.y, { steps: 4 });
+
+    const columnBox = await targetColumn.boundingBox();
+    if (!columnBox) throw new Error("Board target column has no layout box");
+    const dropPoint = {
+      x: columnBox.x + columnBox.width / 2,
+      y: columnBox.y + Math.min(
+        columnBox.height - 12,
+        Math.max(64, columnBox.height * 0.7),
+      ),
+    };
+    await page.mouse.move(dropPoint.x, dropPoint.y, { steps: 30 });
+
+    // The first target move may emit only dragenter. Two tiny in-target moves
+    // reliably produce the accepted dragover required for an HTML5 drop.
+    await page.mouse.move(dropPoint.x + 1, dropPoint.y + 1);
+    await page.mouse.move(dropPoint.x + 2, dropPoint.y + 2);
+    await page.mouse.up();
+    mouseReleased = true;
+  } finally {
+    // Deliberately do not retry: a failed gesture may already have committed.
+    if (!mouseReleased) await page.mouse.up().catch(() => undefined);
+  }
 }
 
 interface ConvergenceDatabase {
@@ -1381,6 +1454,158 @@ test("converges a Block transfer into the live Board Page projection", async () 
   }
 });
 
+// This is the native source-gesture smoke. High-pressure tests below remain on
+// the direct typed transfer boundary because they test transaction convergence,
+// not the handle-to-dragover pipeline exercised here.
+test("moves a Block into a Board with native DnD @dnd-smoke", async () => {
+  test.setTimeout(120_000);
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nx-dnd-smoke-"));
+  const nodexHome = path.join(fixtureRoot, "profile");
+  const workspace = path.join(fixtureRoot, "workspace");
+  fs.mkdirSync(workspace, { recursive: true });
+  prepareRuntimeFixture(fixtureRoot);
+
+  let application: ElectronApplication | undefined;
+  try {
+    application = await launchApplication(fixtureRoot, nodexHome);
+    const page = await application.firstWindow();
+    await page.evaluate(() => window.api?.awaitInitialization?.());
+
+    const project = await createConvergenceProject(
+      page,
+      "Native DnD smoke",
+      workspace,
+    );
+    const database = await readConvergenceDatabase(page, project);
+    await createConvergenceBoardPage(
+      page,
+      project,
+      "Board fixture one",
+      "First existing Board Page",
+    );
+    await createConvergenceBoardPage(
+      page,
+      project,
+      "Board fixture two",
+      "Second existing Board Page",
+    );
+    const source = await createConvergenceBoardPage(
+      page,
+      project,
+      "DnD source Page",
+      "Page containing the native DnD fixture",
+    );
+    await seedConvergenceDocument(
+      page,
+      project,
+      source,
+      [
+        "Before smoke sibling",
+        "DnD smoke title",
+        "\tDnD smoke first child",
+        "\tDnD smoke middle child",
+        "\tDnD smoke last child",
+        "After smoke sibling",
+      ].join("\n"),
+    );
+
+    await page.getByRole("button", {
+      name: "Open Native DnD smoke",
+      exact: true,
+    }).click();
+    await page.getByRole("tab", { name: "Project Home" }).waitFor();
+    const triageColumn = page.locator('[data-kanban-column-id="triage"]');
+    await expect(triageColumn).toBeVisible({ timeout: 15_000 });
+    await expect(triageColumn.locator("[data-kanban-uuid-v7]")).toHaveCount(3, {
+      timeout: 15_000,
+    });
+
+    const sourceCard = triageColumn.locator(
+      `[data-kanban-uuid-v7="${source.pageId}"]`,
+    );
+    await expect(sourceCard).toBeVisible();
+    // Opening the fixture Page is setup for the gesture under test. Dispatch
+    // the card click directly so its delayed hover tooltip cannot race and
+    // intercept Playwright's pointer action during repeat runs.
+    await sourceCard.locator('[data-card-context-menu-trigger="true"]')
+      .evaluate((element) => (element as HTMLElement).click());
+    await page.getByRole("tab", { name: "DnD source Page" }).waitFor();
+    await expect(triageColumn).toBeVisible({ timeout: 15_000 });
+
+    const sourcePanel = page.getByRole("tabpanel", {
+      name: /DnD source Page$/,
+    });
+    await expect(sourcePanel).toBeVisible();
+    const sourceEditor = sourcePanel.locator(".nfm-editor");
+    const sourceSurface = sourceEditor.locator(
+      '.ProseMirror[contenteditable="true"]',
+    );
+    await expect(sourceSurface).toBeVisible({ timeout: 15_000 });
+    const sourceBlock = sourceSurface.locator(".bn-block[data-id]").filter({
+      hasText: "DnD smoke title",
+    }).first();
+    await expect(sourceBlock).toBeVisible();
+
+    await dragBlockToBoardWithMouse({
+      page,
+      sourceBlock,
+      sourceEditor,
+      targetColumn: triageColumn,
+    });
+
+    await expect(triageColumn.locator("[data-kanban-uuid-v7]")).toHaveCount(4, {
+      timeout: 15_000,
+    });
+    await expect.poll(
+      async () => await readConvergenceBoardTotal(page, project),
+      { timeout: 15_000 },
+    ).toBe(4);
+    const promotedCards = triageColumn.locator(
+      `[data-kanban-uuid-v7]:not([data-kanban-uuid-v7="${source.pageId}"])`,
+    ).filter({ hasText: "DnD smoke title" });
+    await expect(promotedCards).toHaveCount(1, { timeout: 15_000 });
+    await expect(promotedCards).toBeVisible();
+    await expect(sourceBlock).toHaveCount(0, { timeout: 15_000 });
+    await expect(sourceSurface.locator(".bn-block[data-id]").filter({
+      hasText: "Before smoke sibling",
+    })).toHaveCount(1);
+    await expect(sourceSurface.locator(".bn-block[data-id]").filter({
+      hasText: "After smoke sibling",
+    })).toHaveCount(1);
+
+    const promotedPageId = requireString(
+      await promotedCards.getAttribute("data-kanban-uuid-v7"),
+      "Native DnD promoted Page id",
+    );
+    const detail = requireIpcValue<Record<string, unknown>>(
+      await invokeIpc(
+        page,
+        "pages:detail:get",
+        project.projectId,
+        promotedPageId,
+      ),
+      "Read native DnD promoted Page detail",
+    );
+    expect(detail.page).toMatchObject({
+      title: "DnD smoke title",
+      parent: {
+        kind: "data_source",
+        dataSourceId: database.dataSourceId,
+      },
+      plainText: expect.stringContaining("DnD smoke first child"),
+    });
+    expect(detail.page).toMatchObject({
+      plainText: expect.stringContaining("DnD smoke last child"),
+    });
+    await expect(page.locator('[data-slot="toast-item"] [role="alert"]'))
+      .toHaveCount(0);
+  } finally {
+    if (application) await stopApplication(application);
+    await shutdownTemporaryCore(nodexHome);
+    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
 test("converges a high-pressure Page promotion across tab groups", async ({}, testInfo) => {
   test.setTimeout(180_000);
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nx-cross-tab-"));
@@ -1540,10 +1765,10 @@ test("converges a high-pressure Page promotion across tab groups", async ({}, te
       throw new Error("Cross-tab source Page did not expose a causal Document head");
     }
 
-    // Native pointer DnD is a manual smoke: Playwright does not reproduce the
-    // BlockNote side-menu gesture reliably. Keep this automated gate at the
-    // renderer IPC mutation boundary while both real destination/source
-    // surfaces remain mounted, then verify the complete publication outcome.
+    // Native pointer DnD has its dedicated isolated smoke above. Keep this
+    // high-pressure gate at the renderer IPC mutation boundary while both real
+    // destination/source surfaces remain mounted, then verify the complete
+    // publication outcome without conflating gesture and convergence pressure.
     const startedAt = performance.now();
     const transfer = requireIpcValue<Record<string, unknown>>(
       await invokeIpc(
