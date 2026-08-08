@@ -21,8 +21,8 @@ pnpm --silent run stage:codex-runtime:mac:cached
 
 remote_debugging_port="${NODEX_REMOTE_DEBUGGING_PORT:-9333}"
 if [[ ! "${remote_debugging_port}" =~ ^[0-9]+$ ]] ||
-  ((remote_debugging_port < 1 || remote_debugging_port > 65535)); then
-  printf 'Error: NODEX_REMOTE_DEBUGGING_PORT must be an integer from 1 to 65535.\n' >&2
+  ((remote_debugging_port < 0 || remote_debugging_port > 65535)); then
+  printf 'Error: NODEX_REMOTE_DEBUGGING_PORT must be an integer from 0 to 65535.\n' >&2
   exit 1
 fi
 

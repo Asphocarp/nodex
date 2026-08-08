@@ -29,6 +29,12 @@ Protocol endpoint on `127.0.0.1:9333` for local debugging. Both commands first
 build the development `target/debug/nodex-core` executable so Electron cannot
 start a stale native authority after a branch switch or rebase.
 
+`scripts/run.sh` sets `NODEX_REMOTE_DEBUGGING_PORT=0` when no port is supplied.
+Electron then asks the operating system for an available port, so multiple
+isolated instances can start concurrently. The actual endpoint is reported by
+Electron when the DevTools HTTP handler starts. Set
+`NODEX_REMOTE_DEBUGGING_PORT` explicitly when a stable port is needed.
+
 After one successful `pnpm run build` or ordinary isolated run, subsequent
 production-mode `scripts/run.sh` launches automatically reuse the prepared
 Electron bundle when it still verifies. To require reuse and fail instead of
