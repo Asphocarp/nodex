@@ -15,6 +15,7 @@ const inlineSvgBaseline = JSON.parse(
 ) as Record<string, number>;
 
 const sourceExtensions = new Set([".ts", ".tsx"]);
+const iconSizeClassPattern = /\bicon-(?:3xs|xxs|2xs|xs|sm|base|md|lg)\b/;
 
 function listSourceFiles(directory: string): string[] {
   return readdirSync(directory).flatMap((entry) => {
@@ -38,6 +39,50 @@ function importedNames(declaration: ts.ImportDeclaration): string[] {
   return bindings.elements.map((element) =>
     (element.propertyName ?? element.name).text
   );
+}
+
+function verifySharedIconIntrinsicSizing(
+  sourceFile: ts.SourceFile,
+  path: string,
+  failures: string[],
+): void {
+  const visit = (node: ts.Node): void => {
+    if (!ts.isJsxOpeningElement(node) && !ts.isJsxSelfClosingElement(node)) {
+      ts.forEachChild(node, visit);
+      return;
+    }
+    if (node.tagName.getText(sourceFile) !== "svg") {
+      ts.forEachChild(node, visit);
+      return;
+    }
+
+    const attributes = node.attributes.properties.filter(ts.isJsxAttribute);
+    const className = attributes.find(
+      (attribute) => attribute.name.getText(sourceFile) === "className",
+    );
+    if (!iconSizeClassPattern.test(className?.initializer?.getText(sourceFile) ?? "")) {
+      ts.forEachChild(node, visit);
+      return;
+    }
+
+    const attributeNames = new Set(
+      attributes.map((attribute) => attribute.name.getText(sourceFile)),
+    );
+    if (attributeNames.has("width") && attributeNames.has("height")) {
+      ts.forEachChild(node, visit);
+      return;
+    }
+
+    const { line } = sourceFile.getLineAndCharacterOfPosition(
+      node.getStart(sourceFile),
+    );
+    failures.push(
+      `${projectPath(path)}:${line + 1} gives a shared SVG an icon-* default without intrinsic width and height.`,
+    );
+    ts.forEachChild(node, visit);
+  };
+
+  visit(sourceFile);
 }
 
 const failures: string[] = [];
@@ -92,7 +137,10 @@ for (const path of listSourceFiles(rendererRoot)) {
     );
   }
 
-  if (path.startsWith(sharedIconRoot)) continue;
+  if (path.startsWith(sharedIconRoot)) {
+    verifySharedIconIntrinsicSizing(sourceFile, path, failures);
+    continue;
+  }
   const inlineSvgCount = sourceText.match(/<svg\b/g)?.length ?? 0;
   if (inlineSvgCount === 0) continue;
   const relativePath = projectPath(path);

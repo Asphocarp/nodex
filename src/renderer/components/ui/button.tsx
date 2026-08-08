@@ -10,7 +10,7 @@ const nodexButtonVariants = cva(
     "focus-visible:ring-token-focus focus-visible:ring-2",
     "cursor-interaction",
     "[&_svg]:pointer-events-none [&_svg]:shrink-0",
-    "[&_svg:not([class*='size-'])]:size-4",
+    "[&_svg:not([class*='size-']):not([class*='icon-'])]:size-4",
   ],
   {
     variants: {
@@ -31,12 +31,12 @@ const nodexButtonVariants = cva(
       size: {
         default: "h-9 rounded-xl px-4 text-sm",
         sm: "h-8 rounded-lg px-3 text-sm",
-        xs: "h-6 rounded-md px-2 text-xs [&_svg:not([class*='size-'])]:size-3",
+        xs: "h-6 rounded-md px-2 text-xs [&_svg:not([class*='size-']):not([class*='icon-'])]:size-3",
         composer: "h-token-button-composer rounded-lg px-2 py-0 text-base leading-[18px]",
         lg: "h-10 rounded-xl px-5 text-sm",
         icon: "size-9 rounded-xl",
         "icon-sm": "size-8 rounded-lg",
-        "icon-xs": "size-6 rounded-md [&_svg:not([class*='size-'])]:size-3",
+        "icon-xs": "size-6 rounded-md [&_svg:not([class*='size-']):not([class*='icon-'])]:size-3",
         "icon-lg": "size-10 rounded-xl",
       },
     },

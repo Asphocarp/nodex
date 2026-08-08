@@ -1,6 +1,6 @@
 @import "@blocknote/react/style.css";
 
-.bn-shadcn svg:not([class*="size-"]) {
+.bn-shadcn svg:not([class*="size-"]):not([class*="icon-"]) {
   width: revert;
   height: revert;
 }

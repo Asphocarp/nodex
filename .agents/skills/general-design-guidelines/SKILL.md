@@ -307,6 +307,8 @@ border-top: 0.5px solid var(--border-token);
 ## Icons
 
 - Size classes: `icon-xxs` (12px), `icon-2xs` (14px), `icon-xs` (16px), `icon-sm` (18px), `icon-base` (20px)
+- Treat `icon-*` as one mutually exclusive two-axis size family. A reusable SVG with a default `icon-*` token also needs matching intrinsic `width` and `height` attributes as a CSS-independent fallback.
+- A button, menu, or editor boundary may auto-size only SVGs without explicit geometry. Treat both Tailwind `size-*` and Nodex `icon-*` as explicit sizes; never overwrite either through a broad descendant selector.
 - Use `shrink-0` on all icons to prevent flex compression
 - Use `currentColor` for fill/stroke — inherit color from parent
 - Use semantic app-owned icons from `@/components/shared/icons` for app-shell chrome, compact menus, sidebars, activities, file types, and resource identity. Component names describe meaning, never provenance.
