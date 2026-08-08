@@ -1,6 +1,8 @@
 import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
+import "@blocknote/shadcn/style.css";
+
 import { CanvasDocumentState } from "@/components/kanban/canvas-document-state";
 import { writeCanvasInlineFramePreference } from "@/lib/canvas-presentation-preference";
 import { CanvasBlockFrame } from "./canvas-block";
@@ -101,7 +103,7 @@ const meta = {
   },
   decorators: [
     (Story) => (
-      <div className="min-h-screen bg-token-main-surface-primary">
+      <div className="bn-shadcn min-h-screen bg-token-main-surface-primary">
         <Story />
       </div>
     ),

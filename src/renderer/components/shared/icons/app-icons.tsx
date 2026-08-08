@@ -460,7 +460,7 @@ export function SettingsSearchIcon({ className }: IconProps) {
 
 export function NewChatIcon({ className }: IconProps) {
   return (
-    <svg viewBox="0 0 20 20" className={cn("icon-xs shrink-0", className)} fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <svg width="16" height="16" viewBox="0 0 20 20" className={cn("icon-xs shrink-0", className)} fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
       <path d={NEW_CHAT_PATH} fill="currentColor" />
     </svg>
   );
@@ -595,7 +595,7 @@ export function AutomationTemplateColorIcon({
 
 export function FolderIcon({ className }: IconProps) {
   return (
-    <svg viewBox="0 0 20 20" className={cn("icon-xs shrink-0", className)} fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <svg width="16" height="16" viewBox="0 0 20 20" className={cn("icon-xs shrink-0", className)} fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
       <path d={FOLDER_PATH} fill="currentColor" />
     </svg>
   );
@@ -603,7 +603,7 @@ export function FolderIcon({ className }: IconProps) {
 
 export function FolderOpenIcon({ className }: IconProps) {
   return (
-    <svg viewBox="0 0 20 20" className={cn("icon-xs shrink-0", className)} fill="currentColor" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <svg width="16" height="16" viewBox="0 0 20 20" className={cn("icon-xs shrink-0", className)} fill="currentColor" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
       <path d={FOLDER_OPEN_PATH} />
     </svg>
   );
@@ -635,7 +635,7 @@ export function PageIcon(props: IconProps) {
 
 export function DatabaseIcon({ className }: IconProps) {
   return (
-    <svg viewBox="0 0 24 24" className={cn("shrink-0", className ?? "icon-xs")} fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <svg width="16" height="16" viewBox="0 0 24 24" className={cn("shrink-0", className ?? "icon-xs")} fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
       <path
         d="M9 3H5A2 2 0 0 0 3 5V9M9 3H19A2 2 0 0 1 21 5V9M9 3V21M9 21H19A2 2 0 0 0 21 19V9M9 21H5A2 2 0 0 1 3 19V9M3 9H21"
         stroke="currentColor"
@@ -649,7 +649,7 @@ export function DatabaseIcon({ className }: IconProps) {
 
 export function BoardIcon({ className }: IconProps) {
   return (
-    <svg viewBox="0 0 24 24" className={cn("shrink-0", className ?? "icon-xs")} fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <svg width="16" height="16" viewBox="0 0 24 24" className={cn("shrink-0", className ?? "icon-xs")} fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
       <rect x="3" y="3" width="18" height="18" rx="2" stroke="currentColor" strokeWidth="1.75" />
       <path d="M8 7V14M12 7V11M16 7V16" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
@@ -658,7 +658,7 @@ export function BoardIcon({ className }: IconProps) {
 
 export function CanvasIcon({ className }: IconProps) {
   return (
-    <svg viewBox="0 0 24 24" className={cn("shrink-0", className ?? "icon-xs")} fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <svg width="16" height="16" viewBox="0 0 24 24" className={cn("shrink-0", className ?? "icon-xs")} fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
       <path d="M8.3 10A.7.7 0 0 1 7.674 8.921L11.4 3A.7.7 0 0 1 12.598 2.957L16.3 8.9A.7.7 0 0 1 15.728 10H8.3Z" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
       <rect x="3" y="14" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="1.75" />
       <circle cx="17.5" cy="17.5" r="3.5" stroke="currentColor" strokeWidth="1.75" />
@@ -1789,7 +1789,7 @@ export function ChevronRightIcon({ className }: IconProps) {
 
 export function CodeBracketsIcon({ className }: IconProps) {
   return (
-    <svg viewBox="0 0 21 21" className={cn("icon-xxs", className)} fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <svg width="12" height="12" viewBox="0 0 21 21" className={cn("icon-xxs", className)} fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
       <path d={CODE_BRACKETS_PATH} fill="currentColor" />
     </svg>
   );
@@ -2316,7 +2316,7 @@ export function StatusIcon({ className }: IconProps) {
 
 export function CalendarIcon({ className }: IconProps) {
   return (
-    <svg viewBox="0 0 24 24" className={cn("shrink-0", className ?? "icon-xs")} fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <svg width="16" height="16" viewBox="0 0 24 24" className={cn("shrink-0", className ?? "icon-xs")} fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
       <path d="M8 2V6M16 2V6" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
       <rect x="3" y="4" width="18" height="18" rx="2" stroke="currentColor" strokeWidth="1.75" />
       <path d="M3 10H21" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />

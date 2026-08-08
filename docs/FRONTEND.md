@@ -318,6 +318,8 @@ when a new control type is genuinely needed.
   - use an app-owned semantic icon before a generic fallback in shell, navigation, menus, and resource identity; never expose a library's default 24px / 2px geometry directly
   - keep reusable custom SVG components under the shared icon directory. Feature-local inline SVG is reserved for tightly coupled diagrams, data marks, or composite artwork and is ratcheted by `pnpm run verify:icons`
   - use `icon-xxs` / `icon-2xs` / `icon-xs` / `icon-sm` / `icon-base` for 12 / 14 / 16 / 18 / 20px geometry. Compact shell and resource-action menus default to `icon-xs`; dense secondary controls may use `icon-2xs`
+  - treat `icon-*` as one mutually exclusive two-axis size family when composing classes. Shared SVGs that own an `icon-*` default must also emit matching intrinsic `width` and `height` attributes as a CSS-independent fallback
+  - primitives may auto-size only SVG descendants with no explicit geometry. Both Tailwind `size-*` and Nodex `icon-*` count as explicit geometry, including across the BlockNote Shadcn editor boundary
   - icons inherit `currentColor`; shared menu primitives own the muted-at-rest and promoted-on-hover color behavior
 - Keep dropdown hierarchy and sizing owned by the shared primitives:
   - `NodexDropdownMenu` uses content-driven width with a compact `172px` minimum and `240px` maximum by default; choose a wider semantic `contentWidth` only when the content type genuinely requires it, never to add empty space

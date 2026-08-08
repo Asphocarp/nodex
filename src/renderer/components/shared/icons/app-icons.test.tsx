@@ -1,7 +1,15 @@
 import { describe, expect, test } from "vitest";
 import { render } from "@/test/dom";
 import {
+  BoardIcon,
+  CalendarIcon,
+  CanvasIcon,
+  CodeBracketsIcon,
+  DatabaseIcon,
   FileIcon,
+  FolderIcon,
+  FolderOpenIcon,
+  NewChatIcon,
   PageIcon,
   SettingsBrowserIcon,
   SettingsComputerUseIcon,
@@ -9,6 +17,25 @@ import {
   SettingsImportIcon,
   SettingsPasswordsIcon,
 } from "./app-icons";
+
+describe("shared icon intrinsic geometry", () => {
+  test.each([
+    ["new chat", NewChatIcon, "16"],
+    ["folder", FolderIcon, "16"],
+    ["open folder", FolderOpenIcon, "16"],
+    ["database", DatabaseIcon, "16"],
+    ["board", BoardIcon, "16"],
+    ["canvas", CanvasIcon, "16"],
+    ["code brackets", CodeBracketsIcon, "12"],
+    ["calendar", CalendarIcon, "16"],
+  ])("provides a CSS-independent fallback for %s", (_label, Icon, size) => {
+    const view = render(<Icon />);
+    const svg = view.container.querySelector("svg");
+
+    expect(svg?.getAttribute("width")).toBe(size);
+    expect(svg?.getAttribute("height")).toBe(size);
+  });
+});
 
 describe("file and page identity icons", () => {
   test("share one geometry while preserving semantic component names", () => {
