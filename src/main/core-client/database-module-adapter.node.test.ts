@@ -45,7 +45,10 @@ const databaseRecord = () => ({
   updatedAt: "2026-07-25T00:00:00.000Z",
 });
 
-const viewAuthorization = (commitSeq: number) => authorizedReadStampFixture({
+const viewAuthorization = (
+  commitSeq: number,
+  storeEpoch = identity.storeEpoch,
+) => authorizedReadStampFixture({
   deliveryAddress: {
     kind: "project",
     library_id: identity.libraryId,
@@ -53,7 +56,7 @@ const viewAuthorization = (commitSeq: number) => authorizedReadStampFixture({
   },
   subject: { kind: "view", view_id: "view:test" },
   commitSeq,
-  storeEpoch: identity.storeEpoch,
+  storeEpoch,
 });
 
 const databaseSnapshot = () => ({
@@ -93,6 +96,41 @@ const emptyViewDescriptorWindowSnapshot = () => ({
       items: [],
       next_cursor: null,
       authority: { projection_revision: 17 },
+    },
+  },
+});
+
+const viewGroupsSnapshot = (storeEpoch: string, commitHead: number) => ({
+  contract_version: 4 as const,
+  store_epoch: storeEpoch,
+  commit_head: commitHead,
+  authorization: viewAuthorization(commitHead, storeEpoch),
+  value: {
+    kind: "view_groups" as const,
+    value: {
+      database_id: "database:test",
+      data_source_id: "source:test",
+      view_id: "view:test",
+      projection: {
+        scope: {
+          schema_version: 1,
+          canonical_key: "scope:view:test",
+          scope: {
+            kind: "database_view" as const,
+            project_id: identity.projectId,
+            database_id: "database:test",
+            data_source_id: "source:test",
+            view_id: "view:test",
+          },
+        },
+        revision: commitHead,
+        covered_commit_seq: commitHead,
+        effect_hash: String(commitHead).padStart(64, "a").slice(-64),
+      },
+      grouped: false,
+      total_rows: 0,
+      truncated: false,
+      groups: [],
     },
   },
 });
@@ -873,6 +911,38 @@ describe("Core Database Module Adapter", () => {
         { groupKey: null, totalRows: 3 },
       ],
     });
+  });
+
+  test("returns replacement authority instead of waiting on an old epoch floor", async () => {
+    const oldClient = new FakeCoreClient();
+    const newClient = new FakeCoreClient();
+    oldClient.enqueueDatabaseRead(viewGroupsSnapshot("epoch:old", 100));
+    newClient.enqueueDatabaseRead(viewGroupsSnapshot("epoch:new", 1));
+    let currentStoreEpoch = "epoch:old";
+    let currentClient = oldClient;
+    const runtime = {
+      backend: "rust",
+      get identity() {
+        return { ...identity, storeEpoch: currentStoreEpoch };
+      },
+      rootClient: oldClient,
+      clientForProject: () => currentClient,
+    } as unknown as RustDataAuthorityRuntime;
+    const bridge = createDesktopDatabaseModuleBridge({
+      authority: Promise.resolve(runtime),
+    });
+
+    await expect(bridge.getDatabaseViewGroups(identity.projectId, {
+      databaseViewId: "view:test",
+    })).resolves.toMatchObject({ storeEpoch: "epoch:old", commitSeq: 100 });
+
+    currentStoreEpoch = "epoch:new";
+    currentClient = newClient;
+    await expect(bridge.getDatabaseViewGroups(identity.projectId, {
+      databaseViewId: "view:test",
+      minimumCommitCursor: { storeEpoch: "epoch:old", commitSeq: 101 },
+    })).resolves.toMatchObject({ storeEpoch: "epoch:new", commitSeq: 1 });
+    expect(newClient.databaseReads).toHaveLength(1);
   });
 
   test("passes a window group scope through to the Core read", async () => {

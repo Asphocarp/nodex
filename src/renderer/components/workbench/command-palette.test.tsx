@@ -52,6 +52,7 @@ function makeCommandContext(
     canGoForward: true,
     canStartNewChat: true,
     canStartNewChatInProject: true,
+    pageCreateUnavailableReason: null,
     showMockCommands: false,
     hasActiveSession: true,
     activeSessionPinned: false,
@@ -73,6 +74,20 @@ function makeCommandContext(
 }
 
 describe("buildCommandPaletteCommands", () => {
+  test("exposes Create Page with contextual availability", () => {
+    const available = buildCommandPaletteCommands(makeCommandContext())
+      .find((command) => command.id === "createPage");
+    const unavailable = buildCommandPaletteCommands(makeCommandContext({
+      pageCreateUnavailableReason: "Focus a Board before creating a Page.",
+    })).find((command) => command.id === "createPage");
+
+    expect(available?.shortcut).toBe("⌘⇧C");
+    expect(Boolean(available?.disabled)).toBe(false);
+    expect(unavailable?.disabled).toBe(true);
+    expect(unavailable?.disabledReason).toBe("Focus a Board before creating a Page.");
+    expect(unavailable?.mockReason).toBeUndefined();
+  });
+
   test("includes the Codex toggleSidebar command with Cmd+B shortcut", async () => {
     const commands = buildCommandPaletteCommands(makeCommandContext());
     const sidebarCommand = commands.find((command) => command.id === TOGGLE_SIDEBAR_COMMAND_ID);
@@ -325,6 +340,7 @@ function makePaletteCommand(overrides: Partial<CommandPaletteCommand> = {}): Com
     shortcut: overrides.shortcut,
     active: overrides.active,
     disabled: overrides.disabled,
+    disabledReason: overrides.disabledReason,
     mockReason: overrides.mockReason,
     priority: overrides.priority ?? 100,
   };

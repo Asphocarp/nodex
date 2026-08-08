@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import {
+  CREATE_PAGE_COMMAND_ID,
   TOGGLE_BOTTOM_PANEL_COMMAND_ID,
   type WorkbenchCommandId,
 } from "../../shared/workbench-commands";
@@ -27,6 +28,7 @@ export interface WorkbenchShortcutActions {
   onRequestSettingsToggle?: () => void;
   onRequestKeyboardShortcuts?: () => void;
   onRequestProcessManager?: () => void;
+  onRequestCreatePage?: () => void;
   onRequestWorkbenchCommand?: (commandId: WorkbenchCommandId) => void;
   navigateBack?: (source: WorkbenchNavigationCommandSource) => void;
   navigateForward?: (source: WorkbenchNavigationCommandSource) => void;
@@ -125,6 +127,13 @@ export function handleWorkbenchShortcut(
 
   if (matchesCommandShortcut(e, actions, "searchPages", isMac)) {
     actions.onRequestCommandPalette?.({ mode: "pages" });
+    return true;
+  }
+
+  if (matchesCommandShortcut(e, actions, CREATE_PAGE_COMMAND_ID, isMac)) {
+    if (targetIsEditable || targetIsComposerSurface) return false;
+    if (!actions.onRequestCreatePage) return false;
+    actions.onRequestCreatePage();
     return true;
   }
 

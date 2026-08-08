@@ -149,6 +149,22 @@ const committed = (
   },
 });
 
+const noOp = (
+  value: Partial<AutomationApplyResult["outcome"]>,
+): AutomationApplyResult => {
+  const committedResult = committed(value);
+  if (committedResult.status !== "committed") {
+    throw new Error("Committed fixture did not return a commit");
+  }
+  const { commit, ...common } = committedResult;
+  void commit;
+  return {
+    ...common,
+    status: "no_op",
+    observed: { store_epoch: "epoch:observed", commit_head: 13 },
+  };
+};
+
 const rustRuntime = (client: FakeCoreClient): RustDataAuthorityRuntime => ({
   backend: "rust",
   rootClient: Object.assign(client, {
@@ -497,7 +513,10 @@ describe("Desktop Automation Module bridge", () => {
         recurrence: null,
         scheduleTimezone: null,
       },
-    })).resolves.toEqual({ success: true });
+    })).resolves.toEqual({
+      success: true,
+      commitCursor: { storeEpoch: "epoch:test", commitSeq: 8 },
+    });
     expect(projectClient.automationApplies[0]).toMatchObject({
       operationId: "calendar:update:1",
       intent: {
@@ -512,6 +531,24 @@ describe("Desktop Automation Module bridge", () => {
           schedule_timezone: null,
         },
       },
+    });
+
+    projectClient.enqueueAutomationApply(noOp({
+      page_occurrence_mutation: {
+        operation_id: "calendar:skip:1",
+        duplicate: true,
+        success: true,
+        created_page_id: null,
+      },
+    }));
+    await expect(bridge.skipPageOccurrence("project:one", {
+      operationId: "calendar:skip:1",
+      pageId: "page:planning",
+      occurrenceStart: new Date("2026-07-20T01:00:00.000Z"),
+      source: "calendar",
+    })).resolves.toEqual({
+      success: true,
+      commitCursor: { storeEpoch: "epoch:observed", commitSeq: 13 },
     });
   });
 

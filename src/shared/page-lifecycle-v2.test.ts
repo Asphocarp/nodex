@@ -32,6 +32,7 @@ const v2Request = () => ({
     title: "Ship v2",
     nfm: "Body",
     status: "triage",
+    viewPlacement: { kind: "start" },
     priority: "p1-high",
     estimate: "m",
     dueDate: "2026-07-31",
@@ -70,7 +71,7 @@ const createDisplayIntent = (): PageLifecycleCreateDisplayIntent => ({
     estimate: "m",
     tags: ["  Cafe\u0301  ", "release", "release"],
     dueDate: "2026-07-31",
-    beforeViewPageId: "page-before",
+    viewPlacement: { kind: "before", pageId: "page-before" },
   },
 });
 
@@ -178,6 +179,25 @@ describe("Page Lifecycle v2 contract", () => {
         },
       }),
     ).toThrow("non-negative safe integer");
+    const operationWithoutPlacement: Record<string, unknown> = {
+      ...v2Request().operation,
+    };
+    delete operationWithoutPlacement.viewPlacement;
+    expect(() =>
+      parsePageLifecycleMutationRequestV2({
+        ...v2Request(),
+        operation: operationWithoutPlacement,
+      }),
+    ).toThrow("missing required fields: viewPlacement");
+    expect(() =>
+      parsePageLifecycleMutationRequestV2({
+        ...v2Request(),
+        operation: {
+          ...v2Request().operation,
+          beforeViewPageId: "page-anchor",
+        },
+      }),
+    ).toThrow("unsupported fields: beforeViewPageId");
   });
 
   test("keeps non-create operation shapes under the v2 envelope", () => {
@@ -309,7 +329,7 @@ describe("Page Lifecycle v2 compiler", () => {
       priority: "p1-high",
       estimate: "m",
       dueDate: "2026-07-31",
-      beforeViewPageId: "page-before",
+      viewPlacement: { kind: "before", pageId: "page-before" },
     });
     expect("tags" in compiled.operation).toBe(false);
   });

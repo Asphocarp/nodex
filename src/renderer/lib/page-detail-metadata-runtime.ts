@@ -98,6 +98,16 @@ export interface PageDetailMetadataRuntimeDependencies {
   ) => Promise<unknown>;
 }
 
+export interface PageMetadataCommitCursor {
+  readonly storeEpoch: string;
+  readonly commitSeq: number;
+}
+
+export interface PageDetailMetadataMutationEnvelope {
+  readonly result: PageStageMetadataMutationResult;
+  readonly commitCursor: PageMetadataCommitCursor | null;
+}
+
 const DEFAULT_DEPENDENCIES: PageDetailMetadataRuntimeDependencies = {
   readDetail: fetchPageDetail,
   mutateProperties: mutateBlockProperties,
@@ -527,20 +537,37 @@ const retryMetadataPropertiesMutation = async (
   return await dependencies.applyMetadataProperties(projectId, request);
 };
 
-export const commitPageDetailMetadataPatch = async (input: {
+const refreshPageDetailBestEffort = async (
+  projectId: string,
+  pageId: string,
+  dependencies: PageDetailMetadataRuntimeDependencies,
+): Promise<void> => {
+  try {
+    await dependencies.refreshDetail(projectId, pageId);
+  } catch {
+    // Projection refresh is a visual follow-up, not part of the durable command.
+  }
+};
+
+const mutationEnvelope = (
+  result: PageStageMetadataMutationResult,
+  commitCursor: PageMetadataCommitCursor | null = null,
+): PageDetailMetadataMutationEnvelope => ({ result, commitCursor });
+
+export const commitPageDetailMetadataPatchWithReceipt = async (input: {
   readonly projectId: string;
   readonly pageId: string;
   readonly operationId: string;
   readonly clientSessionId?: string;
   readonly patch: MetadataPatch;
   readonly dependencies?: PageDetailMetadataRuntimeDependencies;
-}): Promise<PageStageMetadataMutationResult> => {
+}): Promise<PageDetailMetadataMutationEnvelope> => {
   const dependencies = input.dependencies ?? DEFAULT_DEPENDENCIES;
   if (!isPageMetadataPatch(input.patch)) {
     throw new TypeError("Page metadata patch contains unsupported fields");
   }
   const detail = await dependencies.readDetail(input.projectId, input.pageId);
-  if (!detail) return { status: "not_found" };
+  if (!detail) return mutationEnvelope({ status: "not_found" });
   const dataSourceOperations = await compileDataSourceFields(
     detail,
     input.patch,
@@ -548,8 +575,11 @@ export const commitPageDetailMetadataPatch = async (input: {
   );
   const intrinsicFields = compileIntrinsicFields(detail, input.patch);
   if (dataSourceOperations.length === 0 && intrinsicFields.length === 0) {
-    await dependencies.refreshDetail(input.projectId, input.pageId);
-    return { status: "updated", didMutate: false };
+    await refreshPageDetailBestEffort(input.projectId, input.pageId, dependencies);
+    return mutationEnvelope(
+      { status: "updated", didMutate: false },
+      { storeEpoch: detail.storeEpoch, commitSeq: detail.commitSeq },
+    );
   }
 
   if (dataSourceOperations.length > 0 && intrinsicFields.length > 0) {
@@ -572,18 +602,25 @@ export const commitPageDetailMetadataPatch = async (input: {
     );
     if (!result.ok) {
       if (result.error.code === "revision_conflict") {
-        await dependencies.refreshDetail(input.projectId, input.pageId);
-        return { status: "conflict" };
+        await refreshPageDetailBestEffort(input.projectId, input.pageId, dependencies);
+        return mutationEnvelope({ status: "conflict" });
       }
       if (result.error.code === "resource_not_found") {
-        return { status: "not_found" };
+        return mutationEnvelope({ status: "not_found" });
       }
-      return { status: "error", error: result.error.message };
+      return mutationEnvelope({ status: "error", error: result.error.message });
     }
-    await dependencies.refreshDetail(input.projectId, input.pageId);
-    return { status: "updated", didMutate: result.value.didMutate };
+    await refreshPageDetailBestEffort(input.projectId, input.pageId, dependencies);
+    return mutationEnvelope(
+      { status: "updated", didMutate: result.value.didMutate },
+      {
+        storeEpoch: result.value.storeEpoch,
+        commitSeq: result.value.commitSeq,
+      },
+    );
   }
 
+  let commitCursor: PageMetadataCommitCursor | null = null;
   if (dataSourceOperations.length > 0) {
     const databaseResult = await retryDatabaseMutation(
       input.projectId,
@@ -599,17 +636,21 @@ export const commitPageDetailMetadataPatch = async (input: {
     );
     if (!databaseResult.ok) {
       if (databaseResult.error.code === "revision_conflict") {
-        await dependencies.refreshDetail(input.projectId, input.pageId);
-        return { status: "conflict" };
+        await refreshPageDetailBestEffort(input.projectId, input.pageId, dependencies);
+        return mutationEnvelope({ status: "conflict" });
       }
       if (
         databaseResult.error.code === "resource_not_found"
         || databaseResult.error.code === "authorization_denied"
       ) {
-        return { status: "not_found" };
+        return mutationEnvelope({ status: "not_found" });
       }
-      return { status: "error", error: databaseResult.error.message };
+      return mutationEnvelope({ status: "error", error: databaseResult.error.message });
     }
+    commitCursor = {
+      storeEpoch: databaseResult.value.storeEpoch,
+      commitSeq: databaseResult.value.commitSeq,
+    };
   }
 
   if (intrinsicFields.length > 0) {
@@ -628,18 +669,34 @@ export const commitPageDetailMetadataPatch = async (input: {
     );
     if (!result.ok) {
       if (result.error.code === "property_conflict") {
-        await dependencies.refreshDetail(input.projectId, input.pageId);
-        return { status: "conflict" };
+        await refreshPageDetailBestEffort(input.projectId, input.pageId, dependencies);
+        return mutationEnvelope({ status: "conflict" });
       }
       if (result.error.code === "block_not_found" || result.error.code === "project_not_found") {
-        return { status: "not_found" };
+        return mutationEnvelope({ status: "not_found" });
       }
-      return { status: "error", error: result.error.message };
+      return mutationEnvelope({ status: "error", error: result.error.message });
     }
+    commitCursor = {
+      storeEpoch: result.value.storeEpoch,
+      commitSeq: result.value.commitSeq,
+    };
   }
 
-  await dependencies.refreshDetail(input.projectId, input.pageId);
-  return { status: "updated", didMutate: true };
+  await refreshPageDetailBestEffort(input.projectId, input.pageId, dependencies);
+  return mutationEnvelope({ status: "updated", didMutate: true }, commitCursor);
+};
+
+export const commitPageDetailMetadataPatch = async (input: {
+  readonly projectId: string;
+  readonly pageId: string;
+  readonly operationId: string;
+  readonly clientSessionId?: string;
+  readonly patch: MetadataPatch;
+  readonly dependencies?: PageDetailMetadataRuntimeDependencies;
+}): Promise<PageStageMetadataMutationResult> => {
+  const envelope = await commitPageDetailMetadataPatchWithReceipt(input);
+  return envelope.result;
 };
 
 const compileDirectPropertyEdit = (

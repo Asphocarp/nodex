@@ -1,12 +1,23 @@
-import { execFileSync } from "node:child_process";
 import {
+  execFileSync,
+  spawn,
+  type ChildProcessWithoutNullStreams,
+} from "node:child_process";
+import {
+  cpSync,
   existsSync,
   lstatSync,
+  mkdtempSync,
   mkdirSync,
   readdirSync,
+  rmSync,
 } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
+import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
+import { CoreClient } from "../src/main/core-client/core-client";
+import type { CoreRuntimeDescriptor } from "../src/main/core-client/types";
 
 interface Arguments {
   readonly profile: string;
@@ -27,6 +38,7 @@ interface ProfileVerification {
 
 const scriptPath = fileURLToPath(import.meta.url);
 const repositoryRoot = path.resolve(path.dirname(scriptPath), "..");
+const coreExecutable = path.join(repositoryRoot, "target", "debug", "nodex-core");
 
 const rustRows: readonly FailureRow[] = [
   {
@@ -43,7 +55,7 @@ const rustRows: readonly FailureRow[] = [
   },
   {
     failurePoint: "in-transaction-workspace-project",
-    test: "workspace::mutation::tests::rolls_back_the_complete_project_when_a_nested_session_write_fails",
+    test: "workspace::mutation::tests::rolls_back_the_complete_project_when_a_nested_canvas_write_fails",
   },
   {
     failurePoint: "in-transaction-automation-occurrence",
@@ -59,11 +71,11 @@ const rustRows: readonly FailureRow[] = [
   },
   {
     failurePoint: "migration-before-publication",
-    test: "infrastructure::migration::tests::typescript_v84_migration_backs_up_validates_and_publishes_fingerprints_once",
+    test: "infrastructure::migration::tests::typescript_v84_migration_backs_up_validates_and_retires_wire_fingerprints",
   },
   {
     failurePoint: "legacy-import-before-publication",
-    test: "infrastructure::legacy_migration::tests::imports_every_published_legacy_boundary_and_reopens_idempotently",
+    test: "infrastructure::legacy_migration::tests::imports_every_frozen_legacy_inventory_and_reopens_idempotently",
   },
   {
     failurePoint: "legacy-import-sidecar-failure",
@@ -167,17 +179,129 @@ function assertMatrixTestsExist(): void {
   );
 }
 
-function verifyProfile(profile: string): ProfileVerification {
-  capture("cargo", [
-    "run",
-    "--quiet",
-    "-p",
-    "nodex-core-server",
-    "--example",
-    "seed_owned_document_profile",
-    "--",
-    profile,
-  ]);
+function readCoreDescriptor(
+  child: ChildProcessWithoutNullStreams,
+): Promise<CoreRuntimeDescriptor> {
+  return new Promise((resolve, reject) => {
+    const lines = createInterface({ input: child.stdout });
+    const timeout = setTimeout(() => {
+      lines.close();
+      reject(new Error("Core did not publish a runtime descriptor"));
+    }, 10_000);
+    lines.once("line", (line) => {
+      clearTimeout(timeout);
+      lines.close();
+      resolve(JSON.parse(line) as CoreRuntimeDescriptor);
+    });
+    child.once("error", (error) => {
+      clearTimeout(timeout);
+      lines.close();
+      reject(error);
+    });
+  });
+}
+
+function waitForCoreExit(
+  child: ChildProcessWithoutNullStreams,
+): Promise<number | null> {
+  if (child.exitCode !== null) return Promise.resolve(child.exitCode);
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error("Core did not exit after profile seeding"));
+    }, 10_000);
+    child.once("exit", (code) => {
+      clearTimeout(timeout);
+      resolve(code);
+    });
+  });
+}
+
+async function seedProfile(profile: string): Promise<void> {
+  // Unix-domain socket paths are platform-bounded, while the requested
+  // verification Profile deliberately lives under the repository. Seed in a
+  // short disposable runtime home, stop Core, then copy the closed Store into
+  // the already-validated empty verification Profile.
+  const runtimeProfile = mkdtempSync(path.join(tmpdir(), "nodex-failure-matrix-"));
+  const child = spawn(coreExecutable, ["--home", runtimeProfile], {
+    cwd: repositoryRoot,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  child.stderr.pipe(process.stderr);
+  try {
+    await readCoreDescriptor(child);
+    const rootClient = await CoreClient.connect({
+      nodexHome: runtimeProfile,
+      clientKind: "test",
+      buildId: "failure-matrix-profile-seed",
+    });
+    const projectId = "project:failure-matrix";
+    const pageId = "019bf52d-6870-7000-8000-000000000201";
+    const documentId = "019bf52d-6870-7000-8000-000000000202";
+    await rootClient.workspaceApply({
+      operationId: "failure-matrix-seed-project",
+      intent: {
+        kind: "create_initial_project",
+        project_id: projectId,
+        name: "Failure matrix",
+        description: "",
+        appearance: null,
+        source_roots: [path.join(profile, "source")],
+        starter_page: {
+          page_id: "page:failure-matrix-getting-started",
+          document_id: "document:failure-matrix-getting-started",
+          title_markdown: "Welcome to Nodex",
+          nfm: "Welcome to Nodex.",
+        },
+      },
+    });
+    const projectClient = rootClient.forProject(projectId);
+    await projectClient.libraryApply({
+      operationId: "failure-matrix-seed-page",
+      intent: {
+        kind: "create_page",
+        page_id: pageId,
+        document_id: documentId,
+        title: "Failure matrix Page",
+        parent: { kind: "library", before: null },
+      },
+    });
+    await projectClient.documentApply({
+      operationId: "failure-matrix-seed-body",
+      clientSessionId: "failure-matrix:seed",
+      intent: {
+        kind: "replace_from_nfm",
+        document_id: documentId,
+        generation: 1,
+        expected_head_seq: 1,
+        nfm: "Failure matrix body",
+        actor: {
+          kind: "electron_renderer",
+          clientId: "failure-matrix:seed",
+        },
+      },
+    });
+    await rootClient.shutdown();
+    const exitCode = await waitForCoreExit(child);
+    if (exitCode !== 0) {
+      throw new Error(`Core profile seeder exited with code ${String(exitCode)}`);
+    }
+    for (const name of readdirSync(runtimeProfile)) {
+      if (name === "run") continue;
+      cpSync(
+        path.join(runtimeProfile, name),
+        path.join(profile, name),
+        { recursive: true, errorOnExist: true, force: false },
+      );
+    }
+  } finally {
+    if (child.exitCode === null) child.kill();
+    await waitForCoreExit(child).catch(() => null);
+    rmSync(runtimeProfile, { recursive: true, force: true });
+  }
+}
+
+async function verifyProfile(profile: string): Promise<ProfileVerification> {
+  await seedProfile(profile);
   const output = capture("cargo", [
     "run",
     "--quiet",
@@ -200,7 +324,7 @@ function verifyProfile(profile: string): ProfileVerification {
   return verification;
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const { profile: requestedProfile } = parseArguments(process.argv.slice(2));
   const profile = resolveDisposableProfile(repositoryRoot, requestedProfile);
   assertMatrixTestsExist();
@@ -213,7 +337,8 @@ function main(): void {
     "v84_store_recovery",
     "--all-features",
   ]);
-  const verification = verifyProfile(profile);
+  run("cargo", ["build", "-p", "nodex-core-server"]);
+  const verification = await verifyProfile(profile);
   const rows = [
     ...rustRows.map((row) => ({
       ...row,
@@ -241,5 +366,8 @@ function main(): void {
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {
-  main();
+  void main().catch((error: unknown) => {
+    console.error(error);
+    process.exitCode = 1;
+  });
 }

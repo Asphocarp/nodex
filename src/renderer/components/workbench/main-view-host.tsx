@@ -13,6 +13,8 @@ import type {
 } from "@/lib/page-chat-actions";
 
 interface MainViewHostProps {
+  surfaceId: string;
+  panelTabId: string;
   projectId: string;
   databaseViewId: string;
   projects: Project[];
@@ -49,6 +51,8 @@ interface MainViewHostProps {
 }
 
 export function MainViewHost({
+  surfaceId,
+  panelTabId,
   projectId,
   databaseViewId,
   projects,
@@ -73,6 +77,8 @@ export function MainViewHost({
   if (view === "kanban") {
     return (
       <KanbanBoard
+        surfaceId={surfaceId}
+        panelTabId={panelTabId}
         projectId={projectId}
         databaseViewId={databaseViewId}
         projects={projects}

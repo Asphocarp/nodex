@@ -54,7 +54,12 @@ function useCommandPalettePages(
 ): { pages: CommandPalettePage[]; loading: boolean } {
   const [version, setVersion] = useState(0);
   const stores = useMemo(
-    () => projects.map((project) => ({ project, store: getKanbanProjectStore(project.id) })),
+    () => projects.flatMap((project) => project.defaultDatabaseViewId
+      ? [{
+          project,
+          store: getKanbanProjectStore(project.id, project.defaultDatabaseViewId),
+        }]
+      : []),
     [projects],
   );
   const recentIndexByKey = useMemo(() => {

@@ -78,6 +78,7 @@ import type {
   CodexProtocolRequestId,
   DatabasePage,
 } from "../shared/types";
+import type { ProjectionCursor } from "../shared/projection-stream";
 import type {
   AgentImportApplyInput,
   AgentImportScanInput,
@@ -2323,12 +2324,12 @@ export function registerIpcHandlers(
 
   registerHandle(
     "database-row:get",
-    (_, projectId: string, pageId: string, status?: string, minimumCommitSeq?: number) =>
+    (_, projectId: string, pageId: string, status?: string, minimumCommitCursor?: ProjectionCursor) =>
       databaseModule.getDatabaseRowPage(
         projectId,
         pageId,
         status as DatabasePage["status"] | undefined,
-        minimumCommitSeq,
+        minimumCommitCursor,
       ),
   );
 

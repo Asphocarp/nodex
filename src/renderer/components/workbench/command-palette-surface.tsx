@@ -357,15 +357,16 @@ function CommandRow({
   showSubtitle: boolean;
 }) {
   const Glyph = getCommandGlyph(item.id);
-  const subtitle = item.mockReason ?? item.subtitle;
+  const subtitle = item.disabledReason ?? item.mockReason ?? item.subtitle;
   const isMock = Boolean(item.mockReason);
+  const displaySubtitle = showSubtitle || Boolean(item.disabledReason);
 
   return (
-    <div className={cn("flex w-full gap-2", showSubtitle ? "items-start" : "items-center")}>
+    <div className={cn("flex w-full gap-2", displaySubtitle ? "items-start" : "items-center")}>
       <Glyph className={cn(
         "size-4 shrink-0 text-token-description-foreground",
         selected && "text-token-foreground",
-        showSubtitle && "mt-0.5",
+        displaySubtitle && "mt-0.5",
       )} />
       <div className="min-w-0 flex-1 leading-tight">
         <div className="flex min-w-0 items-center gap-1.5">
@@ -383,7 +384,7 @@ function CommandRow({
             </span>
           ) : null}
         </div>
-        {showSubtitle ? (
+        {displaySubtitle ? (
           <div className="mt-0.5 truncate text-xs text-token-description-foreground">
             {subtitle}
           </div>

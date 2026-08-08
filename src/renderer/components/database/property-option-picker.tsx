@@ -16,6 +16,7 @@ import {
   NodexPopoverContent,
   NodexPopoverTrigger,
 } from "@/components/ui/popover";
+import { NODEX_RAISED_CONTROL_CHROME_CLASS_NAME } from "@/components/ui/control-chrome";
 import {
   canCreateDataSourcePropertyOption,
   filterDataSourcePropertyOptions,
@@ -49,10 +50,12 @@ export interface PropertyOptionPickerProps {
   readonly loadingMore?: boolean;
   readonly registryError?: boolean;
   readonly hasMore?: boolean;
-  readonly presentation?: "compact" | "page";
+  readonly presentation?: "compact" | "page" | "chip";
+  readonly triggerPrefix?: ReactNode;
   readonly allowCreate?: boolean;
   readonly allowClear?: boolean;
   readonly onOpen?: () => void;
+  readonly onOpenChange?: (open: boolean) => void;
   readonly onLoadMore?: () => void;
   readonly onSelectedIdsChange: (selectedIds: readonly string[]) => void;
   readonly onCreateOption?: (name: string) => void | Promise<unknown>;
@@ -96,9 +99,11 @@ export function PropertyOptionPicker({
   registryError = false,
   hasMore = false,
   presentation = "compact",
+  triggerPrefix,
   allowCreate = false,
   allowClear = true,
   onOpen,
+  onOpenChange,
   onLoadMore,
   onSelectedIdsChange,
   onCreateOption,
@@ -126,6 +131,10 @@ export function PropertyOptionPicker({
   const canCreate = allowCreate
     && onCreateOption !== undefined
     && canCreateDataSourcePropertyOption(options, query);
+  const changeOpen = (next: boolean) => {
+    setOpen(next);
+    onOpenChange?.(next);
+  };
 
   useEffect(() => {
     if (!open) {
@@ -139,9 +148,10 @@ export function PropertyOptionPicker({
   }, [open]);
 
   useEffect(() => {
-    if (!disabled) return;
+    if (!disabled || !open) return;
     setOpen(false);
-  }, [disabled]);
+    onOpenChange?.(false);
+  }, [disabled, onOpenChange, open]);
 
   useEffect(() => {
     if (!open) {
@@ -165,11 +175,11 @@ export function PropertyOptionPicker({
     if (mutationDisabled) return;
     if (mode === "single") {
       if (selectedSet.has(optionId)) {
-        setOpen(false);
+        changeOpen(false);
         return;
       }
       onSelectedIdsChange([optionId]);
-      setOpen(false);
+      changeOpen(false);
       return;
     }
     onSelectedIdsChange(
@@ -187,7 +197,7 @@ export function PropertyOptionPicker({
     try {
       await onCreateOption(query.trim());
       setQuery("");
-      if (mode === "single") setOpen(false);
+      if (mode === "single") changeOpen(false);
     } catch (cause) {
       console.error("[property-option:create]", cause);
       setError("Couldn’t create option. Try again.");
@@ -196,7 +206,7 @@ export function PropertyOptionPicker({
     }
   };
 
-  const triggerContent = presentedSelected.length === 0
+  const regularTriggerContent = presentedSelected.length === 0
     ? <PropertyEmptyValue />
     : mode === "single"
       ? renderOption(presentedSelected[0]!, {
@@ -217,6 +227,15 @@ export function PropertyOptionPicker({
             ))}
           </span>
         );
+  const triggerContent = presentation === "chip"
+    ? (
+        <span className="max-w-44 truncate">
+          {presentedSelected.length > 0
+            ? presentedSelected.map((option) => option.name).join(", ")
+            : label}
+        </span>
+      )
+    : regularTriggerContent;
 
   return (
     <NodexPopover open={open} onOpenChange={(next) => {
@@ -225,20 +244,28 @@ export function PropertyOptionPicker({
         optionLoadRequestedRef.current = true;
         onOpen?.();
       }
-      setOpen(next);
+      changeOpen(next);
     }}>
       <NodexPopoverTrigger asChild disabled={triggerDisabled}>
         <button
           type="button"
           aria-label={`Edit ${label}`}
           className={cn(
-            "inline-flex min-h-6 min-w-0 max-w-full items-center rounded-md text-left outline-hidden",
+            "inline-flex min-h-6 min-w-0 max-w-full items-center text-left outline-hidden",
             "hover:bg-token-foreground/5 focus-visible:ring-2 focus-visible:ring-token-focus disabled:opacity-50",
-            presentation === "page" ? "px-1 text-sm" : "px-1 text-[11px]",
+            presentation === "page"
+              ? "rounded-md px-1 text-sm"
+              : presentation === "chip"
+                ? cn(
+                    "h-6 gap-1 rounded-full border-[0.5px] px-2 text-xs/3 font-medium",
+                    NODEX_RAISED_CONTROL_CHROME_CLASS_NAME,
+                  )
+                : "rounded-md px-1 text-[11px]",
           )}
         >
+          {triggerPrefix}
           {triggerContent}
-          {mode === "multiple" && presentedSelected.length > 0 ? (
+          {presentation !== "chip" && mode === "multiple" && presentedSelected.length > 0 ? (
             <span className="ml-1 inline-flex shrink-0 items-center gap-0.5 text-token-description-foreground">
               <PlusIcon className="icon-2xs" />
             </span>
@@ -249,6 +276,7 @@ export function PropertyOptionPicker({
         align="start"
         className="w-[min(320px,calc(100vw-16px))] overflow-hidden p-0"
         onOpenAutoFocus={(event) => event.preventDefault()}
+        onEscapeKeyDown={(event) => event.stopPropagation()}
       >
         {mode === "multiple" && presentedSelected.length > 0 ? (
           <div className="flex flex-wrap gap-1 px-2 pb-1 pt-2" aria-label={`Selected ${label}`}>
@@ -293,7 +321,7 @@ export function PropertyOptionPicker({
             onKeyDown={(event) => {
               if (event.key === "Escape") {
                 event.preventDefault();
-                setOpen(false);
+                changeOpen(false);
                 return;
               }
               if (
@@ -360,7 +388,7 @@ export function PropertyOptionPicker({
               onClick={() => {
                 if (mutationDisabled) return;
                 onSelectedIdsChange([]);
-                setOpen(false);
+                changeOpen(false);
               }}
               className="flex min-h-7 w-full items-center rounded-lg px-2 text-left text-sm text-token-description-foreground hover:bg-token-list-hover-background"
             >

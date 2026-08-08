@@ -16,6 +16,7 @@ import {
   projectIdFromContentAccessContext,
 } from "../../../../shared/content-access-context";
 import { NfmEditor } from "./nfm-editor";
+import { PAGE_DESCRIPTION_PLACEHOLDER } from "@/lib/page-description-placeholder";
 
 export interface EmbeddedReferencedPageDocumentProps {
   readonly documentScopeId: string;
@@ -133,7 +134,7 @@ export function EmbeddedReferencedPageDocument({
                   onOpenPage={hostRuntime?.openPage}
                   onOpenCanvas={hostRuntime?.openCanvas}
                   isActivePanelTab={isActive}
-                  placeholder="Add a description…"
+          placeholder={PAGE_DESCRIPTION_PLACEHOLDER}
                   className="min-w-0"
                 />
               </div>

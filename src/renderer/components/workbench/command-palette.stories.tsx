@@ -121,6 +121,7 @@ function CommandPaletteStory({
       canGoForward: true,
       canStartNewChat: true,
       canStartNewChatInProject: true,
+      pageCreateUnavailableReason: null,
       hasActiveSession: true,
       activeSessionPinned: true,
       hasAttachedThread: false,

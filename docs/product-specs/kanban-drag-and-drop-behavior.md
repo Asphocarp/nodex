@@ -2,7 +2,7 @@
 
 ## Status
 - Active
-- Last updated: 2026-07-13
+- Last updated: 2026-08-09
 
 ## Scope
 This spec is the detailed source of truth for drag-and-drop behavior across the Kanban board and its directly connected editor surfaces.
@@ -151,6 +151,9 @@ This post-removal contract must stay identical across:
 - `newOrder` is a post-removal insertion index.
 - `moveCard` and `moveCards` must interpret `newOrder` the same way.
 - Renderer optimistic transforms and backend persistence must produce the same column order for identical inputs.
+- After drop, the Page run stays continuously visible at the intended slot while the command acknowledgement, exact row effect, and canonical repair converge. A successful acknowledgement ends pending UI but does not expose an older Board snapshot.
+- A singleton Database-row effect preserves Core's canonical `position_order`; it must not renumber the affected Page as the first row of its group. Group-scoped windows insert the row only when their scope contains its effective group and remove it otherwise.
+- Move transforms are identity-keyed, all-or-nothing for multi-Page runs, preserve `pageIds` visual order, update each summary's target status, and become a reference no-op once canonical column, slot, and field values satisfy the intent.
 - Drop-derived property patches must be applied atomically with the move, not through a follow-up card update.
 - Group IDs are globally unique and grouped history lookup is global rather than project-local, so undo/redo of a cross-project move restores every affected project atomically and publishes change notifications for each project.
 - Cross-surface Move/Copy carries stable IDs and logical parents only and commits through one idempotent `BlockTransfer`; source and target authority are never separate renderer mutations.

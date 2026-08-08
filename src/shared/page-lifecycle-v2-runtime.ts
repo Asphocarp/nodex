@@ -23,6 +23,7 @@ import type {
 } from "./database-module-v2";
 import type { PageParent } from "./page";
 import type { DatabasePage, PageCreateInput, PageCreatePlacement } from "./types";
+import type { ProjectionCursor } from "./projection-stream";
 import type { WorkflowStatus } from "./workflow-status";
 import type { BlockPropertyJsonValue } from "./block-property-mutations";
 import { MAX_PAGE_TAG_LENGTH } from "./page-limits";
@@ -53,6 +54,7 @@ type PageLifecycleCreateDisplayOptionalFields = Omit<
   | "title"
   | "nfm"
   | "status"
+  | "viewPlacement"
   | "dataSourceId"
   | "tagOptionIds"
   | "newTagOptions"
@@ -65,6 +67,7 @@ export type PageLifecycleCreateDisplayOperation = Readonly<{
   title: string;
   nfm: string;
   status: WorkflowStatus;
+  viewPlacement: CreatePageOperationV2["viewPlacement"];
   tags?: readonly string[];
 }> &
   Partial<PageLifecycleCreateDisplayOptionalFields>;
@@ -272,9 +275,7 @@ const compileCreateOperation = (input: {
     ...(input.operation.beforeBlockId === undefined
       ? {}
       : { beforeBlockId: input.operation.beforeBlockId }),
-    ...(input.operation.beforeViewPageId === undefined
-      ? {}
-      : { beforeViewPageId: input.operation.beforeViewPageId }),
+    viewPlacement: input.operation.viewPlacement,
     dataSourceId,
     tagOptionIds,
     newTagOptions,
@@ -459,8 +460,7 @@ export type PageLifecycleRuntimeErrorCodeV2 =
   | "page_lifecycle_conflict"
   | "page_parent_invalid"
   | "restore_evidence_missing"
-  | "mutation_rejected"
-  | "canonical_read_stale";
+  | "mutation_rejected";
 
 export class PageLifecycleRuntimeErrorV2 extends Error {
   constructor(
@@ -485,6 +485,7 @@ export interface PageLifecycleRuntimeDependenciesV2 {
   readonly readBoardProjection: (
     projectId: string,
     pageId: string,
+    minimumCommitCursor: ProjectionCursor,
   ) => Promise<DatabasePage | null>;
   readonly waitBeforeCanonicalReadRetry?: () => Promise<void>;
 }
@@ -598,14 +599,13 @@ const createDisplayOperation = (
       `Page identity is already reserved: ${intent.pageId}`,
     );
   }
-  const query = primaryView(preflight);
-  const beforeViewPageId =
+  primaryView(preflight);
+  const viewPlacement: CreatePageOperationV2["viewPlacement"] =
     intent.placement === "top"
-      ? query.rows.find((row) => row.effectiveGroupKey === intent.status)?.page
-          .pageId
+      ? { kind: "start" }
       : typeof intent.placement === "object"
-        ? intent.placement.beforePageId
-        : undefined;
+        ? { kind: "before", pageId: intent.placement.beforePageId }
+        : { kind: "end" };
   const input = intent.input;
   return {
     kind: "create_page",
@@ -613,6 +613,7 @@ const createDisplayOperation = (
     title: input.title,
     nfm: input.description ?? "",
     status: intent.status,
+    viewPlacement,
     priority: input.priority ?? null,
     estimate: input.estimate ?? null,
     tags: input.tags ?? [],
@@ -629,7 +630,6 @@ const createDisplayOperation = (
     runInBaseBranch: input.runInBaseBranch ?? null,
     runInWorktreePath: input.runInWorktreePath ?? null,
     runInEnvironmentPath: input.runInEnvironmentPath ?? null,
-    ...(beforeViewPageId ? { beforeViewPageId } : {}),
   };
 };
 
@@ -818,10 +818,18 @@ const readBoardProjection = async (
 ): Promise<DatabasePage | null> => {
   const expectsDeleted = receipt.lifecycle === "deleted";
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const page = await dependencies.readBoardProjection(
-      intent.projectId,
-      receipt.pageId,
-    );
+    let page: DatabasePage | null = null;
+    try {
+      page = await dependencies.readBoardProjection(
+        intent.projectId,
+        receipt.pageId,
+        { storeEpoch: receipt.storeEpoch, commitSeq: receipt.commitSeq },
+      );
+    } catch {
+      // The mutation receipt is already durable. A transient projection read
+      // can improve the immediate renderer result, but must not turn the
+      // successful lifecycle command into a reported failure.
+    }
     const matches = expectsDeleted
       ? page === null
       : page?.id === receipt.pageId &&
@@ -831,10 +839,7 @@ const readBoardProjection = async (
       await (dependencies.waitBeforeCanonicalReadRetry?.() ?? Promise.resolve());
     }
   }
-  return runtimeFail(
-    "canonical_read_stale",
-    `Board projection did not reach Page lifecycle ${receipt.lifecycle}`,
-  );
+  return null;
 };
 
 export const executePageLifecycleIntentV2 = async (

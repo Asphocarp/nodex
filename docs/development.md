@@ -148,13 +148,15 @@ The test commands follow production boundaries:
 - `pnpm test:unit` runs pure shared, script, configuration, and renderer helper
   logic in Node. Renderer tests use the `.node.test.ts` suffix when they do not
   require DOM behavior.
+- `pnpm test:core-client` builds the development Core binary, then runs the
+  Node-side Core client, adapter, projection, and supervisor contracts. These
+  tests seed disposable Stores only through public Core APIs.
 - `pnpm test:main` runs Electron main-process adapter and host tests.
 - `pnpm test:renderer` runs ordinary React and DOM behavior in jsdom.
 - `pnpm test:browser` runs browser-sensitive renderer contracts in Chromium.
 - `pnpm test:integration` runs integration tests in Electron's Node runtime.
 - `pnpm run test:stress` runs volume, repeated-lifecycle, and concurrency
-  contracts in every runtime. It executes one worker at a time, independently
-  of the ordinary suite.
+  contracts one worker at a time, independently of the ordinary suite.
 - `pnpm run test:complete` runs both ordinary and stress tiers without the
   full Electron end-to-end suite.
 - `pnpm run test:performance` runs hardware-sensitive latency gates. Run it
@@ -250,6 +252,9 @@ Use the matching runtime when running one test file:
 ```bash
 # Pure Node/shared logic
 pnpm exec vitest run --config vitest.node.config.ts <test-file>
+
+# Core client and adapter behavior
+pnpm test:core-client <test-file>
 
 # Renderer/jsdom behavior
 pnpm exec vitest run --config vitest.renderer.config.ts <test-file>

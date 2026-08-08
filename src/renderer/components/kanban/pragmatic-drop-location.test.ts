@@ -55,11 +55,11 @@ describe("pragmatic drop location", () => {
   const createSurface = () => ({
     querySelectorAll: () => [
       {
-        dataset: { kanbanPageId: "a" },
+        dataset: { kanbanUuidV7: "a" },
         getBoundingClientRect: () => ({ top: 100, bottom: 140 }),
       },
       {
-        dataset: { kanbanPageId: "b" },
+        dataset: { kanbanUuidV7: "b" },
         getBoundingClientRect: () => ({ top: 150, bottom: 190 }),
       },
     ],

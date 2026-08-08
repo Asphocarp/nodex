@@ -417,7 +417,12 @@ const toCorePageLifecycleMutation = (
         run_in_worktree_path: operation.runInWorktreePath,
         run_in_environment_path: operation.runInEnvironmentPath,
         before_block_id: operation.beforeBlockId ?? null,
-        before_view_page_id: operation.beforeViewPageId ?? null,
+        view_placement: operation.viewPlacement.kind === "before"
+          ? {
+              kind: operation.viewPlacement.kind,
+              page_id: operation.viewPlacement.pageId,
+            }
+          : { kind: operation.viewPlacement.kind },
         data_source_id: operation.dataSourceId,
         tag_option_ids: [...operation.tagOptionIds],
         new_tag_options: operation.newTagOptions.map((option) => ({

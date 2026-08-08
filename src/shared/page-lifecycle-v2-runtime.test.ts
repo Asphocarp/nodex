@@ -194,7 +194,7 @@ const canonicalPage = (archived = false): DatabasePage => ({
 });
 
 describe("Page lifecycle v2 runtime", () => {
-  test("compiles display names into scoped option IDs and preserves View placement", () => {
+  test("compiles display names and semantic View placement without reading row anchors", () => {
     const request = compilePageLifecycleRequestV2({
       intent: {
         kind: "create",
@@ -211,13 +211,46 @@ describe("Page lifecycle v2 runtime", () => {
     expect(request.operation.kind).toBe("create_page");
     if (request.operation.kind !== "create_page") return;
     expect(request.operation.dataSourceId).toBe(dataSourceId);
-    expect(request.operation.beforeViewPageId).toBe("draft-first");
+    expect(request.operation.viewPlacement).toEqual({ kind: "start" });
     expect(request.operation.tagOptionIds).toContain("o_AAAAAAAA");
     expect(request.operation.newTagOptions).toHaveLength(1);
     expect(request.operation.newTagOptions[0]?.name).toBe("新标签");
     expect(request.operation.newTagOptions[0]?.optionId).toMatch(
       /^o_[A-Za-z0-9_-]{8}$/u,
     );
+
+    const endRequest = compilePageLifecycleRequestV2({
+      intent: {
+        kind: "create",
+        projectId: "project-1",
+        operationId: "operation-end",
+        pageId: "page-end",
+        status: "triage",
+        input: { title: "End" },
+        placement: "bottom",
+      },
+      preflight: preflight(null),
+    });
+    const beforeRequest = compilePageLifecycleRequestV2({
+      intent: {
+        kind: "create",
+        projectId: "project-1",
+        operationId: "operation-before",
+        pageId: "page-before",
+        status: "triage",
+        input: { title: "Before" },
+        placement: { beforePageId: "page-anchor" },
+      },
+      preflight: preflight(null),
+    });
+    expect(endRequest.operation).toMatchObject({
+      kind: "create_page",
+      viewPlacement: { kind: "end" },
+    });
+    expect(beforeRequest.operation).toMatchObject({
+      kind: "create_page",
+      viewPlacement: { kind: "before", pageId: "page-anchor" },
+    });
   });
 
   test("compiles delete evidence and revision fences for restore", () => {
@@ -316,6 +349,7 @@ describe("Page lifecycle v2 runtime", () => {
 
   test("retries a lost response with the exact same v2 request", async () => {
     const requests: PageLifecycleMutationRequestV2[] = [];
+    const canonicalReadFloors: Array<{ storeEpoch: string; commitSeq: number }> = [];
     const result = await executePageLifecycleIntentV2(
       {
         kind: "create",
@@ -339,11 +373,52 @@ describe("Page lifecycle v2 runtime", () => {
             },
           };
         },
-        readBoardProjection: async () => canonicalPage(),
+        readBoardProjection: async (_projectId, _pageId, minimumCommitCursor) => {
+          canonicalReadFloors.push(minimumCommitCursor);
+          return canonicalPage();
+        },
       },
     );
     expect(requests).toHaveLength(2);
     expect(requests[0] === requests[1]).toBe(true);
+    expect(canonicalReadFloors).toEqual([{
+      storeEpoch: "epoch-1",
+      commitSeq: 22,
+    }]);
     expect(result.boardProjection?.id).toBe("page-1");
+  });
+
+  test("keeps the durable receipt when the best-effort projection read stays stale", async () => {
+    let readAttempts = 0;
+    const result = await executePageLifecycleIntentV2(
+      {
+        kind: "create",
+        projectId: "project-1",
+        operationId: "operation-1",
+        pageId: "page-1",
+        status: "triage",
+        input: { title: "Page" },
+      },
+      {
+        readPreflight: async () => ({ ok: true, value: preflight(null) }),
+        mutate: async () => ({
+          ok: true,
+          value: receipt(),
+          localCommit: {
+            status: "no_op",
+            observed: { store_epoch: "epoch-1", commit_head: 22 },
+          },
+        }),
+        readBoardProjection: async () => {
+          readAttempts += 1;
+          throw new Error("projection still catching up");
+        },
+        waitBeforeCanonicalReadRetry: async () => undefined,
+      },
+    );
+
+    expect(result.receipt.commitSeq).toBe(22);
+    expect(result.boardProjection).toBeNull();
+    expect(readAttempts).toBe(3);
   });
 });

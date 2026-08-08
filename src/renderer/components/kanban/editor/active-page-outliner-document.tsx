@@ -35,6 +35,7 @@ import {
 import { projectIdFromContentAccessContext } from "../../../../shared/content-access-context";
 import type { VerticalArrowDirection } from "./embedded-surface-arrow-navigation";
 import { NfmEditor, type NfmEditorBoundaryHandle } from "./nfm-editor";
+import { PAGE_DESCRIPTION_PLACEHOLDER } from "@/lib/page-description-placeholder";
 
 export type PageOutlinerFocusIntent =
   | {
@@ -274,7 +275,7 @@ function ActivePageOutlinerContent({
             onOpenPage={hostRuntime.openPage}
             onOpenCanvas={hostRuntime.openCanvas}
             isActivePanelTab={hostRuntime.isActiveSurface}
-            placeholder="Add a description…"
+              placeholder={PAGE_DESCRIPTION_PLACEHOLDER}
             className="min-h-0! min-w-0"
             embeddedBoundary={{
               navigationRef: bodyNavigationRef,

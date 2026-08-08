@@ -1,10 +1,13 @@
 import { describe, expect, test } from "vitest";
 import {
   buildCreateCardTransform,
+  buildCompleteOrSkipOccurrenceTransform,
   buildMovePageTransform,
   buildMovePagesTransform,
   buildPatchPageTransform,
+  conflictKeysForMove,
   createOptimisticCard,
+  overlap,
 } from "./kanban-optimistic-ops";
 import type { BoardSummary, DatabasePageSummary } from "./types";
 import { plainTextToPortableRichText } from "../../shared/block-documents";
@@ -85,6 +88,73 @@ describe("kanban optimistic ops", () => {
     ]);
   });
 
+  test("treats an existing Page identity as a converged create", () => {
+    const board = createBoard();
+    const optimisticCard = {
+      ...createPageSummary("new", 0),
+      title: "Optimistic title",
+      richTitle: plainTextToPortableRichText("Optimistic title"),
+    };
+    const transform = buildCreateCardTransform(
+      "build",
+      optimisticCard,
+      "top",
+    );
+
+    const created = transform(board);
+    const reapplied = transform(created);
+
+    expect(reapplied).toBe(created);
+    expect(
+      reapplied.columns.flatMap((column) => column.cards)
+        .filter((card) => card.id === optimisticCard.id),
+    ).toHaveLength(1);
+  });
+
+  test("preserves requested placement and canonical fields while create authority converges", () => {
+    const baseBoard = createBoard();
+    const canonicalCard = {
+      ...createPageSummary("canonical", 4),
+      title: "Canonical title",
+      richTitle: plainTextToPortableRichText("Canonical title"),
+      revision: 1,
+    };
+    const board: BoardSummary = {
+      ...baseBoard,
+      columns: baseBoard.columns.map((column) =>
+        column.id === "build"
+          ? { ...column, cards: [...column.cards, canonicalCard] }
+          : column
+      ),
+    };
+    const optimisticCard = {
+      ...canonicalCard,
+      title: "Optimistic title",
+      richTitle: plainTextToPortableRichText("Optimistic title"),
+      revision: undefined,
+    };
+
+    const projected = buildCreateCardTransform(
+      "build",
+      optimisticCard,
+      "top",
+    )(board);
+
+    expect(projected.columns[2]?.cards[0]).toMatchObject({
+      id: canonicalCard.id,
+      title: "Canonical title",
+      revision: 1,
+      order: 0,
+    });
+    expect(projected.columns[2]?.cards.map((card) => card.id)).toEqual([
+      "canonical",
+      "a",
+      "b",
+      "c",
+      "d",
+    ]);
+  });
+
   test("treats equivalent projected title and structured values as a no-op", () => {
     const board = createBoard();
 
@@ -116,6 +186,26 @@ describe("kanban optimistic ops", () => {
     expect(nextBoard.columns[2]?.cards.map((card) => card.id).join(",")).toBe("b,a,c,d");
   });
 
+  test("move-card converges by target column, slot, and projected fields", () => {
+    const transform = buildMovePageTransform({
+      pageId: "a",
+      fromStatus: "build",
+      toStatus: "ship",
+      newOrder: 0,
+      fieldPatch: { priority: "p1-high" },
+    });
+
+    const moved = transform(createBoard());
+    const movedCard = moved.columns[4]?.cards[0];
+
+    expect(movedCard).toMatchObject({
+      id: "a",
+      status: "ship",
+      priority: "p1-high",
+    });
+    expect(transform(moved)).toBe(moved);
+  });
+
   test("move-many uses post-removal insertion indices for same-column reorders", () => {
     const board = createBoard();
 
@@ -127,6 +217,32 @@ describe("kanban optimistic ops", () => {
     })(board);
 
     expect(nextBoard.columns[2]?.cards.map((card) => card.id).join(",")).toBe("b,a,c,d");
+  });
+
+  test("move-many preserves the visual input order and converges atomically", () => {
+    const transform = buildMovePagesTransform({
+      pageIds: ["c", "a"],
+      fromStatus: "build",
+      toStatus: "ship",
+      newOrder: 0,
+    });
+
+    const moved = transform(createBoard());
+
+    expect(moved.columns[4]?.cards.map((card) => card.id)).toEqual(["c", "a"]);
+    expect(moved.columns[4]?.cards.every((card) => card.status === "ship")).toBe(true);
+    expect(transform(moved)).toBe(moved);
+  });
+
+  test("move-many does not project a partial run", () => {
+    const board = createBoard();
+
+    expect(buildMovePagesTransform({
+      pageIds: ["a", "missing"],
+      fromStatus: "build",
+      toStatus: "ship",
+      newOrder: 0,
+    })(board)).toBe(board);
   });
 
   test("move-card applies the drag field patch before reinserting", () => {
@@ -156,5 +272,31 @@ describe("kanban optimistic ops", () => {
 
     expect(nextBoard.columns[2]?.cards[1]?.estimate).toBe("m");
     expect(nextBoard.columns[2]?.cards[2]?.estimate).toBe("m");
+  });
+
+  test("complete-or-skip converges once canonical scheduling is already clear", () => {
+    const board = createBoard();
+
+    expect(buildCompleteOrSkipOccurrenceTransform("a")(board)).toBe(board);
+  });
+
+  test("different Page moves coexist while the placement lane serializes authority", () => {
+    const first = conflictKeysForMove({
+      pageId: "a",
+      fromStatus: "build",
+      toStatus: "ship",
+    });
+    const second = conflictKeysForMove({
+      pageId: "b",
+      fromStatus: "build",
+      toStatus: "ship",
+    });
+
+    expect(overlap(first, second)).toBe(false);
+    expect(overlap(first, conflictKeysForMove({
+      pageId: "a",
+      fromStatus: "build",
+      toStatus: "plan",
+    }))).toBe(true);
   });
 });

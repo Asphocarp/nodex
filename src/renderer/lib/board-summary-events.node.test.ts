@@ -86,22 +86,20 @@ describe("board summary events", () => {
     expect(next?.columns[0]?.cards.length).toBe(0);
   });
 
-  test("orders equal-tail summaries deterministically by Card identity", () => {
+  test("inserts remote summaries at their requested ordinal and reindexes siblings", () => {
     const board = makeBoard();
-    const tailOrder = Number.MAX_SAFE_INTEGER;
-    const withLater = upsertCardSummaryInBoard(
-      board,
-      makeCard("card-z", "triage", tailOrder),
-    );
-    const withBoth = upsertCardSummaryInBoard(
-      withLater,
-      makeCard("card-a", "triage", tailOrder),
-    );
+    const withTop = upsertCardSummaryInBoard(board, makeCard("card-z", "triage", 0));
 
-    expect(withBoth.columns[0]?.cards.map((card) => card.id)).toEqual([
-      "card-1",
-      "card-a",
-      "card-z",
+    expect(withTop.columns[0]?.cards.map((card) => [card.id, card.order])).toEqual([
+      ["card-z", 0],
+      ["card-1", 1],
     ]);
+  });
+
+  test("preserves Board identity for a repeated canonical summary", () => {
+    const board = makeBoard();
+    const repeated = upsertCardSummaryInBoard(board, board.columns[0]?.cards[0] as DatabasePageSummary);
+
+    expect(repeated).toBe(board);
   });
 });

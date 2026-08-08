@@ -276,13 +276,13 @@ export function CalendarView({
         });
         return next;
       });
-      const created = await createPage("triage", {
+      const createResult = await createPage("triage", {
         id: pageId,
         title,
         scheduledStart: start,
         scheduledEnd: end,
       });
-      if (created) return;
+      if (createResult.status === "created") return;
       setOccurrenceOverlayById((current) => {
         const next = new Map(current);
         next.delete(optimisticEventId);

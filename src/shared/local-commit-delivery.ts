@@ -4,7 +4,7 @@ import {
   parseAuthorizedDeliveryPacket,
   type AuthorizedDeliveryPacket,
 } from "./authorized-delivery-packet";
-import { projectCoreDatabaseRowSummaries } from "./database-page-projection";
+import { projectCoreDatabaseRowSummary } from "./database-page-projection";
 import type {
   CoreProjectionEffect,
   ProjectionDelivery,
@@ -158,8 +158,7 @@ const mapPatch = (
       groupTotal: patch.group_total ?? null,
     };
   }
-  const row = projectCoreDatabaseRowSummaries([patch.row])[0];
-  if (!row) throw new Error("Projection row patch is empty");
+  const row = projectCoreDatabaseRowSummary(patch.row);
   return {
     kind: patch.kind,
     projectId: patch.project_id,
