@@ -90,9 +90,11 @@ import type {
   RendererClientWebContents,
 } from "./codex/renderer-client-router";
 import {
+  acknowledgeRendererFollowerSnapshotApplied,
   ackRendererThreadOwnerNotification,
   broadcastCodexHostMessageToRendererClients,
   publishRendererThreadOwnerStreamState,
+  requestRendererThreadStreamResync,
   runThreadFollowerActionThroughOwner,
   sendRendererOwnerHostMessage,
   sendRendererThreadStreamControlRelay,
@@ -1498,6 +1500,22 @@ export function registerIpcHandlers(
   registerHandle("codex:thread-owner:stream-state:publish", (event, input) => {
     const sourceClientId = resolveRendererClientId(event);
     return publishRendererThreadOwnerStreamState(
+      codexService,
+      sourceClientId,
+      input,
+    );
+  });
+  registerHandle("codex:thread-follower:snapshot-applied", (event, input) => {
+    const sourceClientId = resolveRendererClientId(event);
+    return acknowledgeRendererFollowerSnapshotApplied(
+      codexService,
+      sourceClientId,
+      input,
+    );
+  });
+  registerHandle("codex:thread:stream-resync:request", (event, input) => {
+    const sourceClientId = resolveRendererClientId(event);
+    return requestRendererThreadStreamResync(
       codexService,
       sourceClientId,
       input,

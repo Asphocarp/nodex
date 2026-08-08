@@ -4230,6 +4230,44 @@ export type CodexThreadStreamStateChange =
       patches: CodexConversationStateUpdate[];
     };
 
+/**
+ * Content-addressed identity for one accepted owner/follower replica state.
+ *
+ * `ownerEpoch` fences publications from replaced renderer owners, `revision`
+ * orders mutations within that epoch, and `canonicalHash` proves that owner,
+ * main recovery replica, and followers accepted the same shared document.
+ */
+export interface CodexThreadStreamCheckpoint {
+  protocolVersion: 1;
+  ownerEpoch: number;
+  revision: number;
+  canonicalHash: string;
+}
+
+export type CodexThreadStreamPublishRejectionReason =
+  | "archived"
+  | "not-owner"
+  | "owner-epoch-mismatch"
+  | "missing-base"
+  | "base-checkpoint-mismatch"
+  | "revision-gap"
+  | "checkpoint-mismatch"
+  | "patch-apply-failed";
+
+export type CodexThreadOwnerStreamStatePublishResult =
+  | {
+      accepted: true;
+      checkpoint: CodexThreadStreamCheckpoint;
+    }
+  | {
+      accepted: false;
+      reason: CodexThreadStreamPublishRejectionReason;
+      recovery: {
+        checkpoint: CodexThreadStreamCheckpoint;
+        conversationState: CodexConversationSnapshot;
+      } | null;
+    };
+
 export interface CodexRendererClientRequestMessage {
   requestId: string;
   method: string;
@@ -4387,12 +4425,11 @@ export interface CodexThreadOwnerLoadCompleteHistoryResult {
 export interface CodexThreadOwnerStreamStatePublishInput {
   conversationId: string;
   change: CodexThreadStreamStateChange;
+  /** Exact compare-and-swap base; null is valid only for a first snapshot. */
+  baseCheckpoint: CodexThreadStreamCheckpoint | null;
+  /** Hash and revision expected after applying `change`. */
+  checkpoint: CodexThreadStreamCheckpoint;
   ownerNotificationSequence?: number;
-  /**
-   * Updates the main-process recovery cache without relaying an owner-local
-   * reducer mutation to follower renderers.
-   */
-  broadcastPatchesToFollowers?: boolean;
 }
 
 export interface CodexThreadOwnerNotificationAckInput {
@@ -4400,17 +4437,40 @@ export interface CodexThreadOwnerNotificationAckInput {
   sequence: number;
 }
 
+export interface CodexThreadFollowerSnapshotAppliedInput {
+  conversationId: string;
+  ownerClientId: string;
+  checkpoint: CodexThreadStreamCheckpoint;
+}
+
+export interface CodexThreadStreamResyncRequestInput {
+  conversationId: string;
+  ownerClientId: string;
+  observedCheckpoint: CodexThreadStreamCheckpoint | null;
+  reason:
+    | "missing-snapshot"
+    | "owner-mismatch"
+    | "owner-epoch-mismatch"
+    | "revision-gap"
+    | "base-hash-mismatch"
+    | "checkpoint-hash-mismatch"
+    | "patch-apply-failed"
+    | "transport-reset";
+}
+
 export type CodexRendererConversationResumeResult =
   | {
       role: "owner";
       conversation: CodexConversationSnapshot;
       revision: number;
+      checkpoint: CodexThreadStreamCheckpoint;
     }
   | {
       role: "follower";
       conversation: CodexConversationSnapshot;
       revision: number;
       ownerClientId: string;
+      checkpoint: CodexThreadStreamCheckpoint;
     };
 
 export type CodexThreadOwnerServerRequest =
@@ -4507,6 +4567,9 @@ export type CodexHostMessage =
       change: CodexThreadStreamStateChange;
       version: number;
       sourceClientId?: string | null;
+      checkpoint: CodexThreadStreamCheckpoint;
+      /** Null only when the accepted state has no previous checkpoint. */
+      baseCheckpoint: CodexThreadStreamCheckpoint | null;
     }
   | {
       type: "threadStreamFollowingStatusRequested";

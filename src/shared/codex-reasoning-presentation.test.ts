@@ -28,6 +28,27 @@ describe("resolveCodexReasoningSummaryPresentation", () => {
     ])).toBeNull();
   });
 
+  it("preserves visible text after inline, multiline, and partial comments", () => {
+    expect(resolveCodexReasoningSummaryPresentation([
+      reasoning("reasoning-1", "<!-- internal --> **Preparing the patch.**"),
+    ])).toEqual({
+      itemId: "reasoning-1",
+      text: "Preparing the patch.",
+    });
+    expect(resolveCodexReasoningSummaryPresentation([
+      reasoning("reasoning-2", "<!-- internal\nstate -->\n**Applying changes.**"),
+    ])).toEqual({
+      itemId: "reasoning-2",
+      text: "Applying changes.",
+    });
+    expect(resolveCodexReasoningSummaryPresentation([
+      reasoning("reasoning-3", "**Still visible.**\n<!-- streaming internal"),
+    ])).toEqual({
+      itemId: "reasoning-3",
+      text: "Still visible.",
+    });
+  });
+
   it("keeps a safe plain-text fallback for incomplete Markdown", () => {
     expect(resolveCodexReasoningSummaryPresentation([
       reasoning("reasoning-1", "**Drafting the patch"),

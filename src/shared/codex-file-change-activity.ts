@@ -39,11 +39,11 @@ export function resolveCodexFileChangeActivity(input: {
   const lifecycle = resolveLifecycle(status);
 
   return {
-    visibility: status === "inProgress"
-      ? "active"
-      : hasTerminalContent
-        ? "terminal"
-        : "suppressed",
+    visibility: !hasTerminalContent
+      ? "suppressed"
+      : status === "inProgress"
+        ? "active"
+        : "terminal",
     lifecycle,
     success,
     hasMaterializedChanges,

@@ -17,6 +17,14 @@ function buildWebSearchEntry(overrides?: Partial<CodexTranscriptEntry>): CodexTr
     kind: "toolCall",
     semanticKind: "webSearch",
     status: "completed",
+    webSearch: {
+      query: "storybook react vite args",
+      action: {
+        type: "search",
+        query: "storybook react vite args",
+      },
+      completed: true,
+    },
     toolCall: {
       subtype: "webSearch",
       toolName: "web_search",
@@ -111,7 +119,15 @@ describe("WebSearchToolCall", () => {
     const { container } = render(
       <WebSearchToolCall
         item={buildWebSearchEntry({
-          status: "inProgress",
+          status: "completed",
+          webSearch: {
+            query: "storybook react vite args",
+            action: {
+              type: "search",
+              query: "storybook react vite args",
+            },
+            completed: false,
+          },
         })}
       />,
     );

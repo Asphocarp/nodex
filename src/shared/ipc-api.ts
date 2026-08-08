@@ -221,8 +221,11 @@ import type {
   CodexScheduledAutomationRunNowResponse,
   CodexScheduledAutomationUpdateInput,
   CodexThreadFollowerActionInput,
+  CodexThreadFollowerSnapshotAppliedInput,
   CodexThreadOwnerNotificationAckInput,
+  CodexThreadOwnerStreamStatePublishResult,
   CodexThreadOwnerStreamStatePublishInput,
+  CodexThreadStreamResyncRequestInput,
   CodexSidebarRefreshPolicy,
   CodexSidebarRefreshReason,
   CodexSidebarSnapshot,
@@ -1638,6 +1641,14 @@ export interface IpcApi {
   };
   "codex:thread-owner:stream-state:publish": {
     args: [input: CodexThreadOwnerStreamStatePublishInput];
+    result: CodexThreadOwnerStreamStatePublishResult;
+  };
+  "codex:thread-follower:snapshot-applied": {
+    args: [input: CodexThreadFollowerSnapshotAppliedInput];
+    result: boolean;
+  };
+  "codex:thread:stream-resync:request": {
+    args: [input: CodexThreadStreamResyncRequestInput];
     result: boolean;
   };
   "codex:thread:resume-buffer:release": {

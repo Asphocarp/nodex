@@ -1,7 +1,6 @@
 import type {
   CodexCommandAction,
   CodexConversationItem,
-  CodexThreadDetailLevel,
   ProtocolAppInfo,
 } from "../../../lib/types";
 import {
@@ -14,6 +13,7 @@ import {
   normalizeAutomaticApprovalReviewPayload,
 } from "../../../../shared/codex-transcript-special-items";
 import { resolveCodexMcpVisualSource } from "../../../../shared/codex-mcp-tool-call";
+import { isCodexWebSearchActivityInProgress } from "../../../../shared/codex-web-search";
 import {
   extractCommandActions,
   isExplorationAction,
@@ -25,15 +25,22 @@ import {
   buildDynamicToolCallSummaryPartKey,
   resolveDynamicToolLabel,
 } from "./tool-metadata/dynamic-tool-call-utils";
-import { resolveMcpToolDisplayName } from "./tool-metadata/mcp-tool-call-labels";
+import { resolveMcpToolActivityLabel } from "./tool-metadata/mcp-tool-call-labels";
+import {
+  isCurlWebSearchCommand,
+  resolveConversationCommandText,
+} from "./tool-metadata/command-activity-classification";
 import { describeWebSearchAction } from "../web-search-display";
 import {
   buildThreadAgentActivityCompletedSummaryParts,
   buildThreadAgentActivityDynamicCompletedParts,
   collectThreadAgentActivitySummaryFacts,
-  formatThreadAgentActivityCompletedSummary,
+  formatThreadAgentActivityGroupHeader,
   orderThreadAgentActivityMcpSources,
+  selectThreadAgentActivityMcpIconItem,
   type ThreadAgentActivityApprovalFailure,
+  type ThreadAgentActivityGroupState,
+  type ThreadAgentActivityMcpItemEvidence,
   type ThreadAgentActivitySummaryFacts,
   type ThreadAgentActivitySummaryFact,
 } from "./agent-activity-v2-summary";
@@ -43,10 +50,9 @@ import {
 import type {
   ThreadAgentActivityGroupBlockModel,
   ThreadAgentActivityGroupActiveSummary,
+  ThreadAgentActivityCompletedSummaryPart,
   ThreadAgentActivityGroupEntryModel,
   ThreadAgentActivityGroupMcpSourceStats,
-  ThreadAgentActivityGroupSummaryCues,
-  ThreadAgentActivityGroupSummaryStats,
   ThreadAgentEntryModel,
   ThreadAgentItemModel,
   ThreadAgentRenderUnit,
@@ -55,16 +61,9 @@ import type {
 
 type CommandExecutionBlock = ThreadTranscriptBlockModel & { type: "exec" };
 
-export { buildAgentActivityGroupSummary } from "./agent-activity-group-summary";
-
 type AutomaticApprovalReviewFailure = ThreadAgentActivityApprovalFailure;
 type McpToolCallSummarySource = Omit<ThreadAgentActivityGroupMcpSourceStats, "count" | "runningCount">;
 export type AgentActivityGroupSummaryFact = ThreadAgentActivitySummaryFact;
-
-const MUTATING_CURL_METHOD_PATTERN = /(?:^|\s)(?:-X\s*|--request(?:=|\s+))(?:POST|PUT|PATCH|DELETE)\b/i;
-const CURL_DATA_OPTION_PATTERN = /(?:^|\s)(?:--data(?:-[^\s=]+)?|--json|--form|--upload-file)(?:=|\s|$)/;
-const CURL_SHORT_DATA_OPTION_PATTERN = /(?:^|\s)-(?:d|F|T)(?:=|\s|$)/;
-const HTTP_URL_PATTERN = /\bhttps?:\/\/[^\s'"<>]+/gi;
 
 function isTranscriptBlock(block: ThreadAgentItemModel | ThreadAgentEntryModel): block is ThreadTranscriptBlockModel {
   return "entry" in block;
@@ -74,38 +73,6 @@ function isExplorationCommandBlock(block: ThreadTranscriptBlockModel): block is 
   if (block.type !== "exec") return false;
   const commandActions = extractCommandActions(block.entry);
   return commandActions.length > 0 && commandActions.every(isExplorationAction);
-}
-
-function isRemoteHttpUrl(value: string): boolean {
-  try {
-    const hostname = new URL(value).hostname.toLowerCase();
-    return hostname !== "localhost" && !hostname.startsWith("127.");
-  } catch {
-    return false;
-  }
-}
-
-function isCurlWebSearchCommand(command: string): boolean {
-  if (!/^\s*curl(?:\s|$)/.test(command)) return false;
-  if (MUTATING_CURL_METHOD_PATTERN.test(command)) return false;
-  if (CURL_DATA_OPTION_PATTERN.test(command)) return false;
-  if (CURL_SHORT_DATA_OPTION_PATTERN.test(command)) return false;
-
-  const urls = command.match(HTTP_URL_PATTERN);
-  if (!urls) return false;
-  return urls.some(isRemoteHttpUrl);
-}
-
-function resolveCommandText(entry: CodexConversationItem): string | null {
-  const directCommand = entry.command?.trim();
-  if (directCommand) return directCommand;
-
-  for (const action of extractCommandActions(entry)) {
-    const actionCommand = action.command?.trim();
-    if (actionCommand) return actionCommand;
-  }
-
-  return null;
 }
 
 function buildSearchableTextFromActivityEntries(entries: ThreadAgentActivityGroupEntryModel[]): string {
@@ -235,7 +202,7 @@ function resolveWebSearchActiveSummary(
   for (let index = entries.length - 1; index >= 0; index -= 1) {
     const entry = entries[index];
     if (!entry) continue;
-    if (inProgressOnly && entry.status !== "inProgress") continue;
+    if (inProgressOnly && !isCodexWebSearchActivityInProgress(entry.entry)) continue;
 
     const detail = resolveWebSearchSummaryDetail(entry.entry);
     return {
@@ -254,7 +221,7 @@ function resolveExecActiveSummary(
   const explorationSummary = resolveExplorationActiveSummary([entry.entry], false);
   if (explorationSummary) return explorationSummary;
 
-  const command = resolveCommandText(entry.entry);
+  const command = resolveConversationCommandText(entry.entry);
   if (entry.status === "interrupted") {
     return {
       kind: "text",
@@ -300,13 +267,18 @@ function resolveAutomaticApprovalReviewActiveSummary(
 
 function resolveMcpActiveSummary(
   entry: ThreadTranscriptBlockModel,
+  resolvedApps: readonly ProtocolAppInfo[],
 ): ThreadAgentActivityGroupActiveSummary | null {
   const payload = entry.entry.mcpToolCall;
   if (!payload) return null;
   return {
     kind: "text",
     key: payload.callId,
-    label: resolveMcpToolDisplayName(payload),
+    label: resolveMcpToolActivityLabel({
+      payload,
+      resolvedApps,
+      completed: false,
+    }),
   };
 }
 
@@ -323,7 +295,7 @@ function resolveDynamicActiveSummary(
 
 function isCollapsedActivityEntryActive(entry: ThreadAgentActivityGroupEntryModel): boolean {
   if (entry.type === "fileChange") return isPatchActivityActive(entry);
-  if (entry.type === "webSearch") return entry.status === "inProgress";
+  if (entry.type === "webSearch") return isCodexWebSearchActivityInProgress(entry.entry);
   if (entry.type === "exec") return entry.status === "inProgress";
   if (entry.type === "mcpToolCall") return entry.entry.mcpToolCall?.completed === false;
   if (entry.type === "dynamicToolCall") return entry.entry.dynamicToolCall?.completed === false;
@@ -336,6 +308,7 @@ function isCollapsedActivityEntryActive(entry: ThreadAgentActivityGroupEntryMode
 function resolveCollapsedActivityActiveSummaryPass(
   entries: readonly ThreadAgentActivityGroupEntryModel[],
   inProgressOnly: boolean,
+  resolvedApps: readonly ProtocolAppInfo[],
 ): ThreadAgentActivityGroupActiveSummary | null {
   for (let index = entries.length - 1; index >= 0; index -= 1) {
     const entry = entries[index];
@@ -353,7 +326,7 @@ function resolveCollapsedActivityActiveSummaryPass(
       continue;
     }
     if (entry.type === "exec") return resolveExecActiveSummary(entry);
-    if (entry.type === "mcpToolCall") return resolveMcpActiveSummary(entry);
+    if (entry.type === "mcpToolCall") return resolveMcpActiveSummary(entry, resolvedApps);
     if (entry.type === "dynamicToolCall") return resolveDynamicActiveSummary(entry);
     if (entry.type === "automaticApprovalReview") {
       const summary = resolveAutomaticApprovalReviewActiveSummary(entry);
@@ -366,26 +339,9 @@ function resolveCollapsedActivityActiveSummaryPass(
 
 export function resolveAgentActivityGroupActiveSummary(
   entries: readonly ThreadAgentActivityGroupEntryModel[],
+  resolvedApps: readonly ProtocolAppInfo[] = [],
 ): ThreadAgentActivityGroupActiveSummary | null {
-  return resolveCollapsedActivityActiveSummaryPass(entries, true);
-}
-
-export function resolveAgentActivityGroupSummaryCues(
-  entries: readonly ThreadAgentActivityGroupEntryModel[],
-): ThreadAgentActivityGroupSummaryCues {
-  const runningSummary = resolveCollapsedActivityActiveSummaryPass(entries, true);
-  return {
-    runningSummary,
-    continuitySummary: runningSummary ?? resolveCollapsedActivityActiveSummaryPass(entries, false),
-  };
-}
-
-export function shouldDisplayAgentActivityGroupActiveSummary(
-  summary: ThreadAgentActivityGroupActiveSummary | null | undefined,
-  threadDetailLevel: CodexThreadDetailLevel,
-): summary is ThreadAgentActivityGroupActiveSummary {
-  if (!summary) return false;
-  return !(threadDetailLevel === "STEPS_PROSE" && summary.kind === "fileChange");
+  return resolveCollapsedActivityActiveSummaryPass(entries, true, resolvedApps);
 }
 
 function resolveConversationItemKeyId(entry: CodexConversationItem): string | null {
@@ -680,7 +636,7 @@ export function buildAgentActivityGroupSummaryFact(
       return buildExplorationSummaryFact([entry.entry], entry.automaticApprovalReviews);
     }
     const isInProgress = entry.status === "inProgress";
-    const command = resolveCommandText(entry.entry);
+    const command = resolveConversationCommandText(entry.entry);
     const automaticApprovalReviewFailures = buildAutomaticApprovalReviewFailures(entry.automaticApprovalReviews ?? []);
     return {
       type: "exec",
@@ -703,7 +659,7 @@ export function buildAgentActivityGroupSummaryFact(
     const automaticApprovalReviewFailures = buildAutomaticApprovalReviewFailures(entry.automaticApprovalReviews ?? []);
     return {
       type: "mcpToolCall",
-      isInProgress: entry.status === "inProgress",
+      isInProgress: entry.entry.mcpToolCall?.completed === false,
       source: resolveMcpToolCallSummarySource(entry.entry, resolvedApps),
       ...(automaticApprovalReviewFailures.length > 0 ? { automaticApprovalReviewFailures } : {}),
     };
@@ -712,35 +668,99 @@ export function buildAgentActivityGroupSummaryFact(
     return {
       type: "webSearch",
       count: 1,
-      runningCount: entry.status === "inProgress" ? 1 : 0,
+      runningCount: isCodexWebSearchActivityInProgress(entry.entry) ? 1 : 0,
     };
   }
   return { type: "other" };
 }
 
-export function collectAgentActivityGroupSummaryStats(
+export function collectAgentActivityGroupCanonicalFacts(
   entries: ThreadAgentActivityGroupEntryModel[],
   resolvedApps: readonly ProtocolAppInfo[] = [],
-): ThreadAgentActivityGroupSummaryStats {
-  const facts = collectAgentActivityGroupCanonicalFacts(entries, resolvedApps);
-  return {
-    ...facts,
-    hookCount: 0,
-    runningHookCount: 0,
-    runningMcpToolCallCount: facts.mcpToolCallSources.reduce(
-      (count, source) => count + source.runningCount,
-      0,
-    ),
-  };
-}
-
-function collectAgentActivityGroupCanonicalFacts(
-  entries: ThreadAgentActivityGroupEntryModel[],
-  resolvedApps: readonly ProtocolAppInfo[],
 ): ThreadAgentActivitySummaryFacts {
   return collectThreadAgentActivitySummaryFacts(
     entries.map((entry) => buildAgentActivityGroupSummaryFact(entry, resolvedApps)),
   );
+}
+
+function isLoadedToolEntry(entry: ThreadAgentActivityGroupEntryModel): boolean {
+  if (!isExplorationCommandBlock(entry)) return false;
+  return extractCommandActions(entry.entry).some((action) => {
+    if (action.type !== "read") return false;
+    const path = resolveExplorationPath(action.path || action.name, entry.entry.cwd ?? null);
+    return resolveExplorationSkillPathInfo(path)?.isSkillDefinitionFile === true;
+  });
+}
+
+function isVisualizationEntry(entry: ThreadAgentActivityGroupEntryModel): boolean {
+  if (entry.type === "fileChange") {
+    return (entry.entry.fileChange?.visualizationActivities?.length ?? 0) > 0;
+  }
+  if (entry.type !== "exec") return false;
+  const command = resolveConversationCommandText(entry.entry);
+  return command != null && resolveThreadVisualizationCommandKind(command) != null;
+}
+
+function isWebSearchEntry(entry: ThreadAgentActivityGroupEntryModel): boolean {
+  if (entry.type === "webSearch") return true;
+  if (entry.type !== "exec") return false;
+  const command = resolveConversationCommandText(entry.entry);
+  return command != null && isCurlWebSearchCommand(command);
+}
+
+function selectCompletedHeaderIconItem(
+  firstPart: ThreadAgentActivityCompletedSummaryPart | undefined,
+  entries: readonly ThreadAgentActivityGroupEntryModel[],
+  mcpItemEvidence: readonly ThreadAgentActivityMcpItemEvidence<ThreadAgentActivityGroupEntryModel>[],
+): ThreadAgentActivityGroupEntryModel | null {
+  if (firstPart == null) return null;
+  if (firstPart.kind === "mcpSources" || firstPart.kind === "unnamedMcpCalls") {
+    return selectThreadAgentActivityMcpIconItem(firstPart, mcpItemEvidence);
+  }
+  if (firstPart.kind === "dynamicToolCall") return firstPart.item;
+  if (firstPart.kind === "loadedTools") return entries.find(isLoadedToolEntry) ?? null;
+  if (firstPart.kind === "fileChanges" || firstPart.kind === "stoppedFileCreation") {
+    return entries.find((entry) => entry.type === "fileChange") ?? null;
+  }
+  if (firstPart.kind === "exploration") return entries.find(isExplorationCommandBlock) ?? null;
+  if (firstPart.kind === "visualization") return entries.find(isVisualizationEntry) ?? null;
+  if (firstPart.kind === "commands") return entries.find((entry) => entry.type === "exec") ?? null;
+  if (firstPart.kind === "webSearch") return entries.find(isWebSearchEntry) ?? null;
+  return null;
+}
+
+function buildAgentActivityGroupHeader(input: {
+  state: ThreadAgentActivityGroupState;
+  thinkingFallbackMessage: string | null;
+  resolvedApps: readonly ProtocolAppInfo[];
+}): ThreadAgentActivityGroupBlockModel["header"] {
+  if (input.state.kind === "summary") return { kind: "summary", key: "summary" };
+  if (input.state.kind === "thinking") {
+    return {
+      kind: "thinking",
+      key: "thinking",
+      message: input.thinkingFallbackMessage,
+    };
+  }
+
+  const item = input.state.item.item;
+  if (!("entry" in item)) {
+    throw new Error("A group active header requires a transcript activity item");
+  }
+  const activeSummary = resolveAgentActivityGroupActiveSummary([item], input.resolvedApps);
+  const label = formatThreadAgentActivityGroupHeader({
+    state: input.state,
+    completedParts: [],
+    activeExplorationLabel: activeSummary?.label,
+    formatMcpToolCall: () => activeSummary?.label ?? null,
+    formatDynamicToolCall: () => activeSummary?.label ?? null,
+  });
+  return {
+    kind: "active",
+    key: activeSummary?.key ?? item.id,
+    item,
+    label,
+  };
 }
 
 export function buildV2AgentActivityGroupBlock(
@@ -750,6 +770,9 @@ export function buildV2AgentActivityGroupBlock(
     bodyEntries?: ThreadAgentActivityGroupEntryModel[];
     canExpand?: boolean;
     resolvedApps?: readonly ProtocolAppInfo[];
+    state?: ThreadAgentActivityGroupState;
+    thinkingFallbackMessage?: string | null;
+    shouldAnimateInitialCollapse?: boolean;
   } = {},
 ): ThreadAgentActivityGroupBlockModel {
   const seed = entries[0];
@@ -788,11 +811,16 @@ export function buildV2AgentActivityGroupBlock(
     orderedMcpSources,
     dynamicParts,
   });
-  const summary = formatThreadAgentActivityCompletedSummary(completedParts, {
-    formatDynamicToolCall: (entry) => resolveDynamicToolLabel(entry.entry),
+  const completedHeader = {
+    parts: completedParts,
+    iconItem: selectCompletedHeaderIconItem(completedParts[0], entries, mcpItemEvidence),
+  };
+  const state = options.state ?? { kind: "summary" as const };
+  const header = buildAgentActivityGroupHeader({
+    state,
+    thinkingFallbackMessage: options.thinkingFallbackMessage ?? null,
+    resolvedApps,
   });
-  const summaryStats = collectAgentActivityGroupSummaryStats(entries, resolvedApps);
-  const summaryCues = resolveAgentActivityGroupSummaryCues(entries);
 
   return {
     id: `${seed.id}::agent-activity-group`,
@@ -802,14 +830,13 @@ export function buildV2AgentActivityGroupBlock(
     updatedAt: Math.max(...entries.map((entry) => entry.updatedAt)),
     searchableText: buildSearchableTextFromActivityEntries(entries),
     type: "agentActivityGroup",
-    entries: options.bodyEntries ?? entries,
+    entries,
+    bodyEntries: options.bodyEntries ?? entries,
+    completedHeader,
+    header,
     mcpApps: resolvedApps,
-    canExpand: options.canExpand,
-    summary,
-    summaryStats,
-    summaryParts: [summary],
-    runningSummary: summaryCues.runningSummary,
-    continuitySummary: summaryCues.continuitySummary,
+    canExpand: options.canExpand ?? entries.length > 0,
+    shouldAnimateInitialCollapse: options.shouldAnimateInitialCollapse ?? false,
     status: mergeActivityStatus(entries),
   };
 }

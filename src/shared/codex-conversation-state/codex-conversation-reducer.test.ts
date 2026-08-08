@@ -282,6 +282,7 @@ describe("canonical item lifecycle reducer", () => {
 
     expect(afterDelayedStart.turns[0]?.sidecar.lifecycleStatusByItemId?.["command-order"])
       .toBe("completed");
+    expect(afterDelayedStart.turns[0]?.items[0]).toEqual(completed);
   });
 
   test("completion infers a missing command start but never overwrites an observed start", () => {
@@ -416,6 +417,8 @@ describe("canonical item lifecycle reducer", () => {
     expect(mismatchedCompletion.turns[0]?.items[0] === enteredReview).toBe(true);
     expect(visibleAgain.turns[0]?.items.length).toBe(1);
     expect(visibleAgain.turns[0]?.items[0] === command).toBe(true);
+    expect(visibleAgain.turns[0]?.sidecar.lifecycleStatusByItemId?.[command.id])
+      .toBe("inProgress");
     expect(clock.calls()).toBe(1);
   });
 

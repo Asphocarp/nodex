@@ -9,10 +9,6 @@ import type {
   CodexTranscriptEntry,
   ProtocolAppInfo,
 } from "@/lib/types";
-import type {
-  ThreadAgentActivityGroupBlockModel,
-  ThreadAgentActivityGroupEntryModel,
-} from "../../../thread-stage-types";
 import {
   buildCodexFileChangeMap,
   resolveCodexPatchSuccess,
@@ -22,9 +18,14 @@ import type {
   CodexAutomaticApprovalReviewRiskLevel,
   CodexAutomaticApprovalReviewStatus,
 } from "../../../../../../shared/codex-transcript-special-items";
+import { ThreadBlockRenderer } from "../../blocks/local-conversation-block-renderer";
+import { ThreadLiveActivityFallback } from "../../local-conversation-thread-turn";
 import {
-  ThreadAgentActivityGroupBlock,
-} from "../../blocks/local-conversation-block-leaves";
+  buildThreadToolActivityProjectionFixture,
+  buildThreadToolActivityProjectionScenario,
+  type ThreadToolActivityProjectionFixtureResult,
+  type ThreadToolActivityProjectionScenarioId,
+} from "../../../projection/test-fixtures/thread-tool-activity-projection-fixtures";
 import { LOCAL_CONVERSATION_CONTENT_CLASS_NAME } from "../local-conversation-view-constants";
 import { TurnDiffPatchFailureDialog, TurnDiffSurface } from "../turn-diff-surface";
 import { getToolComponent } from "./get-tool-component";
@@ -257,84 +258,6 @@ function buildStoryFileChangeItem({
   };
 }
 
-type AgentActivitySummaryStats = NonNullable<ThreadAgentActivityGroupBlockModel["summaryStats"]>;
-
-function buildCollapsedSummaryStats(
-  overrides: Partial<AgentActivitySummaryStats>,
-): AgentActivitySummaryStats {
-  return {
-    createdFileCount: 0,
-    runningCreatedFileCount: 0,
-    stoppedCreatedFileCount: 0,
-    editedFileCount: 0,
-    runningEditedFileCount: 0,
-    deletedFileCount: 0,
-    runningDeletedFileCount: 0,
-    changedLineCount: 0,
-    runningCreatedLineCount: 0,
-    exploredFileCount: 0,
-    runningExploredFileCount: 0,
-    loadedToolCount: 0,
-    runningLoadedToolCount: 0,
-    searchCount: 0,
-    runningSearchCount: 0,
-    listCount: 0,
-    runningListCount: 0,
-    deniedRequestCount: 0,
-    timedOutRequestCount: 0,
-    hookCount: 0,
-    runningHookCount: 0,
-    commandCount: 0,
-    runningCommandCount: 0,
-    completedWebSearchCommandCount: 0,
-    runningFolderCreationCommandCount: 0,
-    runningWebSearchCommandCount: 0,
-    mcpToolCallCount: 0,
-    runningMcpToolCallCount: 0,
-    mcpToolCallSources: [],
-    webSearchCount: 0,
-    runningWebSearchCount: 0,
-    ...overrides,
-  };
-}
-
-function buildFileChangeAgentActivityBlock({
-  entries,
-  id,
-  searchableText,
-  summary,
-  summaryStats,
-}: {
-  entries: CodexTranscriptEntry[];
-  id: string;
-  searchableText: string;
-  summary: string;
-  summaryStats: AgentActivitySummaryStats;
-}): ThreadAgentActivityGroupBlockModel {
-  return {
-    id,
-    turnId: "turn_tool_story",
-    createdAt: 1,
-    updatedAt: 2,
-    searchableText,
-    type: "agentActivityGroup",
-    summary,
-    summaryParts: [summary],
-    status: "completed",
-    summaryStats,
-    entries: entries.map((entry) => ({
-      id: entry.entryId ?? entry.itemId,
-      turnId: entry.turnId,
-      createdAt: entry.createdAt,
-      updatedAt: entry.updatedAt,
-      searchableText,
-      type: "fileChange" as const,
-      entry,
-      status: entry.status,
-    })),
-  };
-}
-
 type StoryAutoReview = {
   status: CodexAutomaticApprovalReviewStatus;
   riskLevel?: CodexAutomaticApprovalReviewRiskLevel | null;
@@ -395,28 +318,63 @@ function ConversationStorySurface({ children }: { children: ReactNode }) {
   );
 }
 
-function AutoOpenAgentActivity({ block }: { block: ThreadAgentActivityGroupBlockModel }) {
+function ProjectedToolActivity({
+  fixture,
+  autoOpen = false,
+}: {
+  fixture: ThreadToolActivityProjectionFixtureResult;
+  autoOpen?: boolean;
+}) {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
+    if (!autoOpen) return;
     const root = containerRef.current;
     if (!root) return;
     const frameId = requestAnimationFrame(() => {
       root.querySelector<HTMLButtonElement>('button[aria-expanded="false"]')?.click();
     });
     return () => cancelAnimationFrame(frameId);
-  }, []);
+  }, [autoOpen]);
 
+  const { model } = fixture;
   return (
-    <div ref={containerRef}>
-      <ThreadAgentActivityGroupBlock
-        block={block}
-        isLatestTurn={false}
-        isStreamingTurn={false}
-        projectWorkspacePath="/workspace/nodex"
-        threadCwd="/workspace/nodex"
-      />
-    </div>
+    <ThreadMcpAppsProvider apps={[]}>
+      <div ref={containerRef} className="flex flex-col gap-[var(--conversation-item-gap,16px)]">
+        {model.agentBodyUnits.map((unit) => (
+          <div
+            key={unit.block.renderKey ?? unit.block.id}
+            {...unit.targetAttributes}
+          >
+            <ThreadBlockRenderer
+              block={unit.block}
+              isLatestTurn={model.isLatestTurn}
+              isStreamingTurn={model.isStreamingTurn}
+              projectWorkspacePath="/workspace/project"
+              threadCwd="/workspace/project"
+            />
+          </div>
+        ))}
+        {model.liveActivity.fallback.owner === "standalone" ? (
+          <ThreadLiveActivityFallback message={model.liveActivity.fallback.message} />
+        ) : null}
+      </div>
+    </ThreadMcpAppsProvider>
+  );
+}
+
+function ProjectedToolActivityScenario({
+  id,
+  autoOpen = false,
+}: {
+  id: ThreadToolActivityProjectionScenarioId;
+  autoOpen?: boolean;
+}) {
+  return (
+    <ProjectedToolActivity
+      fixture={buildThreadToolActivityProjectionScenario(id)}
+      autoOpen={autoOpen}
+    />
   );
 }
 
@@ -498,393 +456,28 @@ function ToolCallStory({
   );
 }
 
-function buildMixedAgentActivityStoryBlock(): ThreadAgentActivityGroupBlockModel {
-  const readCommand = {
-    ...THREAD_TOOL_CALL_STORY_ITEMS.command,
-    itemId: "collapsed_story_read",
-    entryId: "collapsed_story_read",
-    command: "sed -n '1,180p' ARCHITECTURE.md",
-    commandActions: [
-      {
-        type: "read" as const,
-        command: "sed -n '1,180p' ARCHITECTURE.md",
-        name: "ARCHITECTURE.md",
-        path: "ARCHITECTURE.md",
-      },
-    ],
-  };
-  const searchCommand = {
-    ...THREAD_TOOL_CALL_STORY_ITEMS.command,
-    itemId: "collapsed_story_search",
-    entryId: "collapsed_story_search",
-    command: "rg createElement|diffContainerRef|applyFileChangeGutters file-change-tool-call.tsx",
-    commandActions: [
-      {
-        type: "search" as const,
-        command: "rg createElement|diffContainerRef|applyFileChangeGutters file-change-tool-call.tsx",
-        query: "createElement|diffContainerRef|applyFileChangeGutters",
-        path: "file-change-tool-call.tsx",
-      },
-    ],
-  };
-  const listCommand = {
-    ...THREAD_TOOL_CALL_STORY_ITEMS.command,
-    itemId: "collapsed_story_list",
-    entryId: "collapsed_story_list",
-    command: "ls src/renderer/features/local-conversation/view/shared/tools",
-    commandActions: [
-      {
-        type: "listFiles" as const,
-        command: "ls src/renderer/features/local-conversation/view/shared/tools",
-        path: "src/renderer/features/local-conversation/view/shared/tools",
-      },
-    ],
-  };
-  const commandItems = [
-    "bun test src/renderer/features/local-conversation/view/shared/tools/file-change-tool-call.test.tsx",
-    "bun test src/renderer/features/local-conversation/view/shared/turn-diff-surface.test.tsx",
-    "bun run typecheck",
-    "bun run lint",
-  ].map((command, index) => ({
-    ...THREAD_TOOL_CALL_STORY_ITEMS.command,
-    itemId: `collapsed_story_cmd_${index + 1}`,
-    entryId: `collapsed_story_cmd_${index + 1}`,
-    command,
-    commandActions: [],
-    toolCall: {
-      subtype: "command" as const,
-      toolName: "exec_command",
-      args: {},
-      result: "ok",
-    },
-  }));
-  const fileChanges: CodexFileChange[] = [
-    {
-      path: "src/renderer/features/local-conversation/view/shared/tools/file-change-tool-call.tsx",
-      type: "update",
-      movePath: null,
-      unifiedDiff: [
-        "@@ -1,1 +1,1 @@",
-        "-hide grouped tool icons",
-        "+preserve semantic tool icons",
-      ].join("\n"),
-    },
-    {
-      path: "src/renderer/features/local-conversation/view/shared/turn-diff-surface.test.tsx",
-      type: "update",
-      movePath: null,
-      unifiedDiff: [
-        "@@ -1,1 +1,1 @@",
-        "-old assertion",
-        "+semantic icon assertion",
-      ].join("\n"),
-    },
-    {
-      path: "README.md",
-      type: "update",
-      movePath: null,
-      unifiedDiff: [
-        "@@ -1,1 +1,1 @@",
-        "-Grouped rows use a separate muted presentation",
-        "+Grouped rows retain their leaf presentation",
-      ].join("\n"),
-    },
-  ];
-  const fileChangeItem: CodexTranscriptEntry = {
-    ...THREAD_TOOL_CALL_STORY_ITEMS.fileChange,
-    itemId: "collapsed_story_file_change",
-    entryId: "collapsed_story_file_change",
-    fileChange: buildStoryFileChangePayload(fileChanges),
-    toolCall: buildStoryFileChangeToolCall(fileChanges),
-  };
-  const webSearchItem: CodexTranscriptEntry = {
-    ...THREAD_TOOL_CALL_STORY_ITEMS.webSearch,
-    itemId: "collapsed_story_web_search",
-    entryId: "collapsed_story_web_search",
-    toolCall: {
-      subtype: "webSearch",
-      toolName: "web_search",
-      args: { query: "current CSS text decoration guidance" },
-      result: { type: "search", query: "current CSS text decoration guidance" },
-    },
-    rawItem: {
-      action: { type: "search", query: "current CSS text decoration guidance" },
-    },
-  };
-  const mcpItem: CodexTranscriptEntry = {
-    ...THREAD_TOOL_CALL_STORY_ITEMS.mcp,
-    itemId: "collapsed_story_mcp",
-    entryId: "collapsed_story_mcp",
-    mcpToolCall: THREAD_TOOL_CALL_STORY_ITEMS.mcp.mcpToolCall
-      ? {
-          ...THREAD_TOOL_CALL_STORY_ITEMS.mcp.mcpToolCall,
-          callId: "collapsed_story_mcp",
-        }
-      : undefined,
-  };
-  const dynamicItem = buildReadThreadDynamicStoryItem();
-
-  const entries: ThreadAgentActivityGroupEntryModel[] = [
-    {
-      id: readCommand.entryId ?? readCommand.itemId,
-      turnId: "turn_tool_story",
-      createdAt: 1,
-      updatedAt: 1,
-      searchableText: "Read ARCHITECTURE.md",
-      type: "exec",
-      entry: readCommand,
-      status: "completed",
-    },
-    {
-      id: searchCommand.entryId ?? searchCommand.itemId,
-      turnId: "turn_tool_story",
-      createdAt: 1,
-      updatedAt: 1,
-      searchableText: "Searched file-change-tool-call.tsx",
-      type: "exec",
-      entry: searchCommand,
-      status: "completed",
-    },
-    {
-      id: listCommand.entryId ?? listCommand.itemId,
-      turnId: "turn_tool_story",
-      createdAt: 1,
-      updatedAt: 1,
-      searchableText: "Listed tool files",
-      type: "exec",
-      entry: listCommand,
-      status: "completed",
-    },
-    ...commandItems.map((entry) => ({
-      id: entry.entryId ?? entry.itemId,
-      turnId: entry.turnId,
-      createdAt: entry.createdAt,
-      updatedAt: entry.updatedAt,
-      searchableText: "",
-      type: "exec" as const,
-      entry,
-      status: entry.status,
-    })),
-    {
-      id: fileChangeItem.entryId ?? fileChangeItem.itemId,
-      turnId: fileChangeItem.turnId,
-      createdAt: fileChangeItem.createdAt,
-      updatedAt: fileChangeItem.updatedAt,
-      searchableText: "",
+function buildLivePatchProjectionFixture(lineCount: number): ThreadToolActivityProjectionFixtureResult {
+  const addedLines = Array.from(
+    { length: lineCount },
+    (_value, index) => `+Generated line ${index + 1}`,
+  );
+  return buildThreadToolActivityProjectionFixture({
+    id: `live-patch-${lineCount}`,
+    rawItems: [{
       type: "fileChange",
-      entry: fileChangeItem,
-      status: fileChangeItem.status,
-    },
-    {
-      id: webSearchItem.entryId ?? webSearchItem.itemId,
-      turnId: webSearchItem.turnId,
-      createdAt: webSearchItem.createdAt,
-      updatedAt: webSearchItem.updatedAt,
-      searchableText: "current CSS text decoration guidance",
-      type: "webSearch",
-      entry: webSearchItem,
-      status: webSearchItem.status,
-    },
-    {
-      id: mcpItem.entryId ?? mcpItem.itemId,
-      turnId: mcpItem.turnId,
-      createdAt: mcpItem.createdAt,
-      updatedAt: mcpItem.updatedAt,
-      searchableText: "Resolved Storybook documentation",
-      type: "mcpToolCall",
-      entry: mcpItem,
-      status: mcpItem.status,
-    },
-    {
-      id: dynamicItem.entryId ?? dynamicItem.itemId,
-      turnId: dynamicItem.turnId,
-      createdAt: dynamicItem.createdAt,
-      updatedAt: dynamicItem.updatedAt,
-      searchableText: "Read task",
-      type: "dynamicToolCall",
-      entry: dynamicItem,
-      status: dynamicItem.status,
-    },
-  ];
-
-  return {
-    id: "collapsed-activity-story",
-    turnId: "turn_tool_story",
-    createdAt: 1,
-    updatedAt: 2,
-    searchableText: "Read, searched, listed, ran commands, edited files, searched the web, resolved docs, and read a task",
-    type: "agentActivityGroup",
-    summary: "Edited 3 files, explored 3 items, ran 4 commands, searched the web, and used 2 tools",
-    summaryParts: ["Edited 3 files", "explored 3 items", "ran 4 commands", "searched the web", "used 2 tools"],
-    status: "completed",
-    entries,
-  };
-}
-
-function buildLiveFileChangeAgentActivityStoryBlock(lineCount = 85, itemId = "collapsed_story_live_file_change"): ThreadAgentActivityGroupBlockModel {
-  const content = Array.from({ length: lineCount }, (_, index) => `Line ${index + 1}`).join("\n");
-  const fileChangeItem: CodexTranscriptEntry = {
-    ...THREAD_TOOL_CALL_STORY_ITEMS.fileChange,
-    itemId,
-    entryId: itemId,
-    status: "inProgress",
-    fileChange: buildStoryFileChangePayload([{ type: "add", path: "poem.md", content }], null),
-    toolCall: buildStoryFileChangeToolCall([{ type: "add", path: "poem.md", content }]),
-  };
-
-  return {
-    id: "collapsed-activity-live-file-story",
-    turnId: "turn_tool_story",
-    createdAt: 1,
-    updatedAt: 2,
-    searchableText: "Creating poem.md",
-    type: "agentActivityGroup",
-    summary: lineCount === 1 ? "Creating a file • writing a line" : `Creating a file • writing ${lineCount} lines`,
-    summaryParts: [lineCount === 1 ? "Creating a file • writing a line" : `Creating a file • writing ${lineCount} lines`],
-    status: "inProgress",
-    summaryStats: {
-      createdFileCount: 1,
-      runningCreatedFileCount: 1,
-      stoppedCreatedFileCount: 0,
-      editedFileCount: 0,
-      runningEditedFileCount: 0,
-      deletedFileCount: 0,
-      runningDeletedFileCount: 0,
-      changedLineCount: lineCount,
-      runningCreatedLineCount: lineCount,
-      exploredFileCount: 0,
-      runningExploredFileCount: 0,
-      loadedToolCount: 0,
-      runningLoadedToolCount: 0,
-      searchCount: 0,
-      runningSearchCount: 0,
-      listCount: 0,
-      runningListCount: 0,
-      deniedRequestCount: 0,
-      timedOutRequestCount: 0,
-      hookCount: 0,
-      runningHookCount: 0,
-      commandCount: 0,
-      runningCommandCount: 0,
-      completedWebSearchCommandCount: 0,
-      runningFolderCreationCommandCount: 0,
-      runningWebSearchCommandCount: 0,
-      mcpToolCallCount: 0,
-      runningMcpToolCallCount: 0,
-      mcpToolCallSources: [],
-      webSearchCount: 0,
-      runningWebSearchCount: 0,
-    },
-    runningSummary: {
-      kind: "fileChange",
-      key: itemId,
-      label: "Creating",
-      displayPath: "poem.md",
-      additions: lineCount,
-      deletions: 0,
-    },
-    entries: [{
-      id: fileChangeItem.entryId ?? fileChangeItem.itemId,
-      turnId: fileChangeItem.turnId,
-      createdAt: fileChangeItem.createdAt,
-      updatedAt: fileChangeItem.updatedAt,
-      searchableText: "Creating poem.md",
-      type: "fileChange",
-      entry: fileChangeItem,
-      status: fileChangeItem.status,
+      id: "tool-call-file-change-live-patch",
+      status: "inProgress",
+      changes: [{
+        path: "poem.md",
+        kind: { type: "add" },
+        diff: [`@@ -0,0 +1,${lineCount} @@`, ...addedLines].join("\n"),
+      }],
     }],
-  };
-}
-
-function buildCompletedCurrentWebSearchAgentActivityStoryBlock(): ThreadAgentActivityGroupBlockModel {
-  const webSearchItem = THREAD_TOOL_CALL_STORY_ITEMS.webSearch;
-  const webSearchBlock = {
-    id: webSearchItem.entryId ?? webSearchItem.itemId,
-    turnId: webSearchItem.turnId,
-    createdAt: webSearchItem.createdAt,
-    updatedAt: webSearchItem.updatedAt,
-    searchableText: webSearchItem.markdownText ?? "web search",
-    type: "webSearch" as const,
-    entry: webSearchItem,
-    status: "completed" as const,
-  };
-
-  return {
-    id: "collapsed-activity-completed-current-web-search",
-    turnId: "turn_tool_story",
-    createdAt: 1,
-    updatedAt: 2,
-    searchableText: "completed current web search",
-    type: "agentActivityGroup",
-    summary: "Searched the web",
-    summaryParts: ["Searched the web"],
-    status: "completed",
-    summaryStats: buildCollapsedSummaryStats({
-      webSearchCount: 1,
-      runningWebSearchCount: 0,
-    }),
-    runningSummary: null,
-    continuitySummary: {
-      kind: "text",
-      key: "web-search:0",
-      label: "Searching the web",
+    turnStatus: "inProgress",
+    lifecycleStatusByItemId: {
+      "tool-call-file-change-live-patch": "inProgress",
     },
-    entries: [webSearchBlock],
-  };
-}
-
-function buildThinkingOwnedAgentActivityStoryBlock(): ThreadAgentActivityGroupBlockModel {
-  const commandItem = buildCommandItem({
-    itemId: "collapsed-activity-thinking-command",
-    entryId: "collapsed-activity-thinking-command",
-    status: "completed",
-    command: "pnpm test",
-    aggregatedOutput: "Tests passed",
-    exitCode: 0,
   });
-
-  return {
-    id: "collapsed-activity-thinking-owner",
-    turnId: "turn_tool_story",
-    createdAt: 1,
-    updatedAt: 2,
-    searchableText: "Ran pnpm test",
-    type: "agentActivityGroup",
-    liveHeaderKind: "thinking",
-    summary: "Ran a command",
-    summaryParts: ["Ran a command"],
-    status: "completed",
-    summaryStats: buildCollapsedSummaryStats({ commandCount: 1 }),
-    runningSummary: {
-      kind: "text",
-      key: "agent-activity-group:collapsed-activity-thinking-command:thinking",
-      label: "Thinking",
-    },
-    entries: [{
-      id: commandItem.entryId ?? commandItem.itemId,
-      turnId: commandItem.turnId,
-      createdAt: commandItem.createdAt,
-      updatedAt: commandItem.updatedAt,
-      searchableText: "pnpm test",
-      type: "exec",
-      entry: commandItem,
-      status: commandItem.status,
-    }],
-  };
-}
-
-function buildLivePatchUpdateStoryItem(lineCount: number): CodexTranscriptEntry {
-  const content = Array.from({ length: lineCount }, (_, index) => `Generated line ${index + 1}`).join("\n");
-  const changes: CodexFileChange[] = [{ type: "add", path: "poem.md", content }];
-
-  return {
-    ...THREAD_TOOL_CALL_STORY_ITEMS.fileChange,
-    itemId: "tool-call-file-change-live-patch",
-    entryId: "tool-call-file-change-live-patch",
-    status: "inProgress",
-    fileChange: buildStoryFileChangePayload(changes, null),
-    toolCall: buildStoryFileChangeToolCall(changes),
-  };
 }
 
 function FileChangeLivePatchUpdateStory() {
@@ -904,15 +497,8 @@ function FileChangeLivePatchUpdateStory() {
       description="Live draft file edits appear as a single collapsed activity group immediately, then the header digit stack grows from +0 through +85."
     >
       <ConversationStorySurface>
-        <ThreadAgentActivityGroupBlock
-          block={buildLiveFileChangeAgentActivityStoryBlock(
-            counts[countIndex] ?? 85,
-            buildLivePatchUpdateStoryItem(counts[countIndex] ?? 85).itemId,
-          )}
-          isLatestTurn={true}
-          isStreamingTurn={true}
-          projectWorkspacePath="/workspace/nodex"
-          threadCwd="/workspace/nodex"
+        <ProjectedToolActivity
+          fixture={buildLivePatchProjectionFixture(counts[countIndex] ?? 85)}
         />
       </ConversationStorySurface>
     </StorySurface>
@@ -1370,64 +956,37 @@ export const FileChangeVisualizationOnly: Story = {
 };
 
 export const FileChangeSingleCompletedAgentActivity: Story = {
-  render: () => {
-    const item = buildStoryFileChangeItem({
-      id: "tool-call-file-change-single-completed-collapsed",
-      changes: [{
-        path: "src/single.ts",
-        type: "update",
-        movePath: null,
-        unifiedDiff: [
-          "@@ -1 +1 @@",
-          "-export const label = 'draft';",
-          "+export const label = 'ready';",
-        ].join("\n"),
-      }],
-    });
-
-    return (
-      <StorySurface
-        title="File Change Single Completed Collapsed Activity"
-        description="Single completed patch rows remain eligible for collapsed activity, matching the Codex thread activity grouping contract."
-      >
-        <ConversationStorySurface>
-          <ThreadAgentActivityGroupBlock
-            block={buildFileChangeAgentActivityBlock({
-              id: "collapsed-file-change-single-completed",
-              entries: [item],
-              searchableText: "Edited src/single.ts",
-              summary: "Edited a file",
-              summaryStats: buildCollapsedSummaryStats({
-                editedFileCount: 1,
-                changedLineCount: 2,
-              }),
-            })}
-            isLatestTurn={false}
-            isStreamingTurn={false}
-            projectWorkspacePath="/workspace/nodex"
-            threadCwd="/workspace/nodex"
-          />
-        </ConversationStorySurface>
-      </StorySurface>
-    );
-  },
+  render: () => (
+    <StorySurface
+      title="File Change Single Completed Activity"
+      description="The production projection demotes a settled one-file activity to its ordinary file-change row instead of constructing an unreachable collapsed group."
+    >
+      <ConversationStorySurface>
+        <ProjectedToolActivityScenario id="completed-patch-singleton" />
+      </ConversationStorySurface>
+    </StorySurface>
+  ),
 };
 
 export const FileChangeRepeatedSamePathAgentActivity: Story = {
   render: () => {
-    const entries = Array.from({ length: 5 }, (_, index) => buildStoryFileChangeItem({
+    const rawItems = Array.from({ length: 5 }, (_, index) => ({
+      type: "fileChange" as const,
       id: `tool-call-file-change-same-path-${index + 1}`,
+      status: "completed" as const,
       changes: [{
         path: "src/repeated.ts",
-        type: "update",
-        movePath: null,
-        unifiedDiff: [
+        kind: { type: "update" as const, move_path: null },
+        diff: [
           "@@ -1 +1 @@",
           `-export const revision = ${index};`,
           `+export const revision = ${index + 1};`,
         ].join("\n"),
       }],
     }));
+    const lifecycleStatusByItemId = Object.fromEntries(
+      rawItems.map((item) => [item.id, "completed" as const]),
+    );
 
     return (
       <StorySurface
@@ -1435,21 +994,14 @@ export const FileChangeRepeatedSamePathAgentActivity: Story = {
         description="Critical regression fixture: repeated edits to the same display path summarize as Edited a file, not Edited 5 files."
       >
         <ConversationStorySurface>
-          <ThreadAgentActivityGroupBlock
-            block={buildFileChangeAgentActivityBlock({
-              id: "collapsed-file-change-repeated-same-path",
-              entries,
-              searchableText: "Edited src/repeated.ts five times",
-              summary: "Edited a file",
-              summaryStats: buildCollapsedSummaryStats({
-                editedFileCount: 1,
-                changedLineCount: 10,
-              }),
+          <ProjectedToolActivity
+            fixture={buildThreadToolActivityProjectionFixture({
+              id: "repeated-file-change-path",
+              rawItems,
+              turnStatus: "completed",
+              lifecycleStatusByItemId,
+              isLatestTurn: false,
             })}
-            isLatestTurn={false}
-            isStreamingTurn={false}
-            projectWorkspacePath="/workspace/nodex"
-            threadCwd="/workspace/nodex"
           />
         </ConversationStorySurface>
       </StorySurface>
@@ -1951,15 +1503,11 @@ export const WebSearchInProgress: Story = {
 export const WebSearchCompletedCurrentAgentActivity: Story = {
   render: () => (
     <StorySurface
-      title="Web Search Completed Current Collapsed Activity"
-      description="Latest streaming collapsed activity with a completed web search settles immediately instead of shimmering until the turn ends."
+      title="Web Search Completed Singleton Activity"
+      description="The production projection renders a settled web-search singleton as its family row, with no synthetic collapsed group or active shimmer."
     >
       <ConversationStorySurface>
-        <ThreadAgentActivityGroupBlock
-          block={buildCompletedCurrentWebSearchAgentActivityStoryBlock()}
-          isLatestTurn
-          isStreamingTurn
-        />
+        <ProjectedToolActivityScenario id="completed-web-singleton" />
       </ConversationStorySurface>
     </StorySurface>
   ),
@@ -2221,6 +1769,58 @@ export const McpToolCallUnknownBlock: Story = {
   ),
 };
 
+export const ReasoningOnlyLiveActivity: Story = {
+  render: () => (
+    <StorySurface
+      title="Reasoning-only Live Activity"
+      description="A raw reasoning summary with no visible tool is projected into the single standalone live-activity owner."
+    >
+      <ConversationStorySurface>
+        <ProjectedToolActivityScenario id="reasoning-only" />
+      </ConversationStorySurface>
+    </StorySurface>
+  ),
+};
+
+export const EmptyPatchBeforeMaterialization: Story = {
+  render: () => (
+    <StorySurface
+      title="Empty Patch Before Materialization"
+      description="An in-progress fileChange lifecycle with no materialized changes produces no tool row; the reasoning summary remains the live owner."
+    >
+      <ConversationStorySurface>
+        <ProjectedToolActivityScenario id="pre-patch" />
+      </ConversationStorySurface>
+    </StorySurface>
+  ),
+};
+
+export const MixedToolActivityWithReasoningBoundaries: Story = {
+  render: () => (
+    <StorySurface
+      title="Mixed Tool Activity with Reasoning Boundaries"
+      description="Raw command, reasoning, patch, reasoning, and web-search items pass through the production projector; hidden reasoning does not split the group or replace its active web label."
+    >
+      <ConversationStorySurface>
+        <ProjectedToolActivityScenario id="mixed-tools" />
+      </ConversationStorySurface>
+    </StorySurface>
+  ),
+};
+
+export const ActiveStandaloneDynamicActivity: Story = {
+  render: () => (
+    <StorySurface
+      title="Active Standalone Dynamic Activity"
+      description="A registry-declared standalone handoff call stays on its rich dynamic surface and does not acquire an ordinary activity-group wrapper."
+    >
+      <ConversationStorySurface>
+        <ProjectedToolActivityScenario id="active-standalone-dynamic" />
+      </ConversationStorySurface>
+    </StorySurface>
+  ),
+};
+
 export const AgentActivityGroup: Story = {
   render: () => (
     <StorySurface
@@ -2228,13 +1828,7 @@ export const AgentActivityGroup: Story = {
       description="Codex-style grouped activity row preserves original tool units inside a flat Motion body."
     >
       <ConversationStorySurface>
-        <ThreadAgentActivityGroupBlock
-          block={buildMixedAgentActivityStoryBlock()}
-          isLatestTurn={false}
-          isStreamingTurn={false}
-          projectWorkspacePath="/workspace/nodex"
-          threadCwd="/workspace/nodex"
-        />
+        <ProjectedToolActivityScenario id="settled-mixed-tools" />
       </ConversationStorySurface>
     </StorySurface>
   ),
@@ -2244,10 +1838,10 @@ export const AgentActivityGroupExpanded: Story = {
   render: () => (
     <StorySurface
       title="Collapsed Activity Group Expanded"
-      description="Expanded activity groups keep readable conversation-body text and family/source-aware leading icons across read, search, list, command, patch, web, MCP, and dynamic rows."
+      description="Expanded production-projected activity groups keep readable conversation-body text and family/source-aware leading icons across command, patch, web, MCP, and dynamic rows."
     >
       <ConversationStorySurface>
-        <AutoOpenAgentActivity block={buildMixedAgentActivityStoryBlock()} />
+        <ProjectedToolActivityScenario id="settled-mixed-tools" autoOpen />
       </ConversationStorySurface>
     </StorySurface>
   ),
@@ -2260,13 +1854,7 @@ export const AgentActivityGroupLiveFileChange: Story = {
       description="Matches Codex Electron's live patchUpdated fixture: a single in-progress file edit owns the collapsed activity header and animated +85/-0 digit stack."
     >
       <ConversationStorySurface>
-        <ThreadAgentActivityGroupBlock
-          block={buildLiveFileChangeAgentActivityStoryBlock()}
-          isLatestTurn={true}
-          isStreamingTurn={true}
-          projectWorkspacePath="/workspace/nodex"
-          threadCwd="/workspace/nodex"
-        />
+        <ProjectedToolActivityScenario id="materialized-patch" />
       </ConversationStorySurface>
     </StorySurface>
   ),
@@ -2279,11 +1867,7 @@ export const AgentActivityGroupOwnsThinking: Story = {
       description="The latest open activity group carries the live Thinking fallback in its header without adding a second transcript row."
     >
       <ConversationStorySurface>
-        <ThreadAgentActivityGroupBlock
-          block={buildThinkingOwnedAgentActivityStoryBlock()}
-          isLatestTurn={true}
-          isStreamingTurn={true}
-        />
+        <ProjectedToolActivityScenario id="thinking-owner" />
       </ConversationStorySurface>
     </StorySurface>
   ),
@@ -2845,7 +2429,7 @@ function CrossThemeLeafBodyMatrix() {
 
         <ConversationStorySurface>
           <CrossThemeLeafMatrixRow family="Activity group body">
-            <AutoOpenAgentActivity block={buildMixedAgentActivityStoryBlock()} />
+            <ProjectedToolActivityScenario id="settled-mixed-tools" autoOpen />
           </CrossThemeLeafMatrixRow>
 
           <CrossThemeLeafMatrixRow family="Command output">

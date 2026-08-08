@@ -25,7 +25,7 @@ import {
   asRecord,
 } from "./tool-call-utils";
 import { ToolActivityIcon, resolveMcpSourceIcon } from "./tool-call-icons";
-import { resolveMcpToolDisplayName } from "./mcp-tool-call-labels";
+import { resolveMcpToolActivityLabel } from "./mcp-tool-call-labels";
 import { McpCapabilityViewFrame } from "./mcp-capability-view-frame";
 import { useThreadMcpApps } from "./mcp-apps-context";
 import { ToolCallCodePanel, ToolCallRawDialog } from "./tool-call-inspection";
@@ -576,7 +576,13 @@ export function McpToolCall({
     && (!payload?.completed || hasSuccessfulResult)
     && (resourceLoading || resourceError || renderableResource),
   );
-  const summary = payload ? resolveMcpToolDisplayName(payload) : "";
+  const summary = payload
+    ? resolveMcpToolActivityLabel({
+        payload,
+        resolvedApps: mcpApps,
+        completed: payload.completed,
+      })
+    : "";
   const hasApprovalReviews = automaticApprovalReviews.length > 0;
 
   if (!payload) return null;

@@ -125,7 +125,12 @@ MCP and dynamic app-server tool calls are specialized `toolCall` rows with canon
   - leading `hook` items that appear before the first user message
   - `userMessage`
   - selected `modelRerouted`
-  - activity blocks (`reasoning`, `commandExecution`, `patch`, `mcpToolCall`, `dynamicToolCall`, `webSearch`, `multiAgentAction`, inline `hook`, completed `mcpServerElicitation`, completed `userInputResponse`, and `contextCompaction`) plus auxiliary subagent activity state
+  - tool activity blocks (`commandExecution`, materialized `patch`, `mcpToolCall`,
+    `dynamicToolCall`, non-empty `webSearch`, `multiAgentAction`, inline `hook`,
+    completed `mcpServerElicitation`, completed `userInputResponse`, and
+    `contextCompaction`) plus auxiliary subagent activity state; canonical
+    `reasoning` remains available only as turn-level fallback input and is hidden
+    from tool topology
   - `systemEvent`
   - `assistantMessage`
   - post-assistant artifacts such as trailing `hook` items and trailing automatic approval review
@@ -134,11 +139,29 @@ MCP and dynamic app-server tool calls are specialized `toolCall` rows with canon
   - render-time live activity fallback when the current open activity slice resolves to `thinking`
   - completed inline `turn diff`
   - trailing status markers (`remoteTaskCreated`, `personalityChanged`, `forkedFromConversation`)
-- If the active turn has no blocking pending request, the renderer may create one render-time `Thinking` fallback after the proposed-plan block and before any completed inline diff. When the latest open activity group can own that state, the group header owns the fallback instead of a second transcript row; a later standalone unit keeps the fallback standalone. This fallback is not a canonical item, bucket entry, search unit, or persisted transcript row.
-- Exploration groups take precedence over the fallback. Incomplete proposed plans, a visible final answer, safety buffering, and unresolved approval / permission / request-user-input / MCP elicitation state suppress both standalone and group-owned `Thinking`; `workedFor` is an independent elapsed-time row and never closes or suppresses live reasoning activity. A non-empty assistant commentary item does not close an otherwise open streaming activity slice. The visible message uses the last non-comment reasoning summary line when available, otherwise `Thinking`; an active patch or command uses its concrete activity label instead.
+- The parent activity resolver computes global state, the main activity-slice
+  state, and one mutually exclusive fallback owner. The latest open group owns
+  reasoning only while that group is the latest visible unit, the slice remains
+  open, and global state is `thinking`; otherwise an eligible fallback is
+  standalone or absent. The fallback is not a canonical item, bucket entry,
+  search unit, or persisted transcript row.
+- Exploration, incomplete proposed plans, blocking requests, safety buffering,
+  pending generated output, and final assistant output participate in the parent
+  state machine instead of being leaf-level exceptions. A trailing visible
+  assistant commentary closes the main slice; before final-answer output, the
+  parent may still derive a post-assistant standalone fallback when no later unit
+  owns the space. Commentary followed by later tools is not treated as trailing
+  commentary for that later slice. The fallback uses the latest readable,
+  non-comment reasoning-summary line or generic `Thinking`. An active tool always
+  keeps its concrete family label and never displays reasoning in that label.
 - Raw item lifecycle uses one shared decision contract in main fallback and renderer-owner flows. A started item replaces the first same-ID slot or appends; an authoritative completed item does the same only after an existing same-ID/same-protocol-type row is found, except that user messages, hook prompts, and subagent activity may complete without a start. Rejected orphan work completions can still establish turn timing, but never materialize a transcript row.
 - The first raw work item in a turn stamps `firstTurnWorkItemStartedAtMs`; only `userMessage` and `hookPrompt` are excluded, so an `agentMessage` start counts as work and independently stamps `finalAssistantStartedAtMs`. Later events do not overwrite the first-work stamp, while duplicate agent starts may refresh the final-assistant stamp.
-- Statusless reasoning, assistant-message, and plan items retain an item-id lifecycle ledger in the canonical turn sidecar. Duplicate lifecycle events are idempotent, delayed starts cannot reopen a terminal occurrence, and owner/follower snapshots carry the ledger through revision recovery.
+- Statusless reasoning, assistant-message, and plan items retain a lifecycle ledger
+  in the canonical turn sidecar. One occurrence is identified by item ID plus
+  protocol type: duplicate lifecycle events are idempotent and delayed starts
+  cannot reopen a terminal occurrence, while a later item of another protocol
+  type may reuse the ID as a new occurrence. Owner/follower snapshots carry the
+  ledger through checkpoint recovery.
 - Command lifecycle timing is turn-owned. `item/started.startedAtMs` overwrites the command ID's observed start, while completion with a non-null duration backfills only a missing value from `completedAtMs - durationMs`. Final command payloads replace provisional raw state instead of resurrecting fields absent from the authoritative completion.
 - Ordinary generated lifecycle items retain their raw protocol identity. Image-generation rows add normalized `src`; collaboration rows emit receiver-thread hydration and add ordered receiver metadata; context-compaction rows add completion/source state. Review-mode markers remain hidden raw identities, so they count when resolving placeholder turns without creating transcript rows. Pending steering comparison uses the shared exact non-comment text plus image-count key, excludes comment-attachment label/placeholder inputs, and consumes a matching steer only on authoritative user completion.
 - Active running turns with `firstTurnWorkItemStartedAtMs` project a first-class `workedFor` block before the first non-user item. That visible block renders as a plain `Working` label for sub-second elapsed time, then `Working for Xm Ys`, followed by a `border-current/20` divider. It is not a button and has no hover background or chevron. It is presentation-only timing and must not participate in the live-activity eligibility decision.
@@ -165,7 +188,54 @@ MCP and dynamic app-server tool calls are specialized `toolCall` rows with canon
 - Every `imageView` item remains dedicated agent activity. Only raw-consecutive image-view items fold into one row; any intervening raw item, including a hidden review-mode marker, ends the run. Each row is collapsed by default, summarizes as `Viewed an image` / `Viewed N images`, and expands to a horizontally scrollable strip of 80px thumbnails. Thumbnails open one keyboard-accessible preview sequence with previous/next navigation. Review-mode markers (`enteredReviewMode`, `exitedReviewMode`) remain hidden.
 - Image-generation output renders as one post-assistant gallery for the turn. Pending output reserves up to four square slots with the animated dot-field placeholder; completed images retain natural ratios when they fit and switch to a four-slot carousel when they overflow. Completed image output is omitted when the turn's end resources contain a presentation, while still-streaming pending output remains visible. Thumbnail and full-image descriptors resolve independently; the full descriptor owns display, download, and drag data. Gallery controls reveal on hover/focus, retry failed preview loads at most twice for each resolved preview URL, support copy-drag payloads, and open a keyboard-navigable image preview with download support.
 - A hook feedback user row is not editable and links to Hooks settings. Feedback matching trims both the displayed user message and each Stop-hook feedback entry, retains every exact source match, and scopes the destination only when all matches normalize to the same source. Managed/system sources normalize to Admin; project links include the turn cwd only when present; plugin links do not guess a plugin id; a blocked hook prompt has no sent timestamp. Ordinary clicks open the in-app settings route, while modified clicks retain normal link behavior.
-- Active-thread streaming updates are revisioned and frame-batched. When a renderer owner is registered, assistant text, plan text, reasoning text, item lifecycle, turn lifecycle, thread name/settings/status/token usage, turn diff/plan/safety-buffering/hook lifecycle, automatic approval review lifecycle, guardian warning rows, request-resolution, and turn-error notifications are delivered to that owner and published as owner-sourced `threadStreamStateChanged` snapshots or patches for followers; when no owner is registered, main keeps the fallback frame-batched prose patch path and raw host `mcpNotification` command-output path, with terminal prose flushed synchronously before final item/turn state because main has no renderer rAF boundary. Owner-routed notifications carry a per-thread sequence, and final `item/completed` / terminal `turn/*` notifications are ordered by the renderer owner's own prose queue: pending prose patches drain first, then the final authoritative item/turn mutation publishes. Short terminal prose flushes and follower in-progress prose patches force a narrow renderer subscriber commit so Streamdown consumes a real `inProgress` markdown render before completed state, instead of replaying completed text as fake streaming. Nullable `turnId` rows follow the app's owner semantics: prose and item completion resolve to the latest owner turn, `item/started` may rebind placeholder turns or synthesize a missing turn only where the owner reducer has verified that behavior, and command output resolves by `itemId` across turns. Assistant, plan, and reasoning deltas append only to an existing item with the matching kind; missing or kind-mismatched delta targets are dropped/ACKed/logged instead of synthesizing fake transcript rows. Snapshots establish a stream revision, and follower patches apply only from the matching stream source and `baseRevision`; follower mismatches are dropped instead of best-effort merged. Owner publish is only a follower-broadcast side effect: rejected owner patch publishes repair with the current owner snapshot, and repair failure marks the owner conversation `needs_resume` without pulling a source-null snapshot over partial text. Owner-only helper/reducer failures follow that same recovery boundary: follower managers ignore/ACK owner-only events, missing owner state preserves the partial transcript and enters `needs_resume`, and reconnect refresh does not pull host snapshots over an active owner conversation. A renderer that is already owner ignores non-snapshot stream-state patches from main, including source-null fallback patches, so active owner-visible text/request state cannot be advanced by a second reducer. The local-conversation manager coalesces command output for 50 ms, appends it to the matching `commandExecution.aggregatedOutput`, preserves only the latest 20,000 characters with `[output truncated]\n`, drops deltas whose conversation, turn, or item is not present, and ACKs owner-routed command output without publishing an ordinary stream patch; main keeps a silent canonical output cache so snapshots and recovery remain authoritative.
+- Active-thread streaming is revisioned and frame-batched. An established renderer
+  owner receives sequenced app-server notifications, reduces the shared canonical
+  document, applies the scoped view projection, and commits owner-visible state
+  synchronously before its serialized publication outbox sends the next snapshot
+  or patch. Prose, command output, patch updates, MCP structural repair, terminal
+  interactions, item/turn lifecycle, thread metadata, requests, and errors all pass
+  through that owner publication boundary; terminal prose drains before final
+  authoritative lifecycle state. Main runs the same canonical reducers for
+  no-owner recovery facts, but an active owner's accepted replica advances only
+  through an accepted owner publication and main never publishes a competing
+  source-null transcript.
+- Every accepted replica has a content-addressed checkpoint
+  `(protocolVersion, ownerEpoch, revision, canonicalHash)`. Owner publications are
+  compare-and-swap transactions against the exact base checkpoint: main verifies
+  source ownership, epoch, contiguous revision, patch applicability, and the
+  resulting deterministic canonical hash before replacing its accepted document.
+  Rejection returns the current accepted checkpoint/snapshot; the owner rebases by
+  publishing one next-revision snapshot and acknowledges forwarded notification
+  sequences only after publication succeeds.
+- A follower first applies an owner snapshot behind a per-client barrier and sends
+  an explicit snapshot-applied ACK. Main does not include that follower in delta
+  fanout until the ACK matches both the sent and current checkpoint. Later patches
+  require the same source owner, owner epoch, exact base revision/hash, next
+  revision, and matching post-apply hash. A missing snapshot, owner mismatch, epoch
+  mismatch, revision gap, base-hash mismatch, patch failure, checkpoint mismatch,
+  or transport reset requests an explicit snapshot resync instead of best-effort
+  merging. Replacing an owner increments the epoch, invalidates follower barriers,
+  rejects stale publications/ACKs, and requires a fresh snapshot before deltas.
+- Owner adoption/resume and follower `thread/resume` carry the same mandatory
+  checkpoint and exact shared document as a relayed snapshot. Renderer state
+  verifies the returned revision/hash and retains that exact document as the
+  publication/patch CAS baseline before deriving the materialized UI snapshot.
+  A follower can therefore apply the first post-resume delta, and an owner can
+  publish its first optimistic mutation plus any normalization delta, without an
+  intermediate baseline mismatch or synthetic epoch.
+- Terminal item lifecycle is monotonic for one `(itemId, protocol type)` occurrence:
+  delayed starts cannot reopen a completed/failed/interrupted occurrence, while a
+  same-ID item of a different protocol type may replace that slot as a new
+  occurrence. Owner, main recovery, snapshots, and followers carry the same
+  lifecycle sidecar. Renderer turn models are cached by an immutable render
+  revision that observes item identity plus lifecycle/content fields, so reasoning
+  deltas, patch snapshots, command output, MCP results, and terminal states refresh
+  without rebuilding a second tool topology.
+- In no-owner fallback, main retains the frame-batched prose and raw command-output
+  path and flushes terminal prose synchronously because no renderer animation frame
+  owns ordering. Command output remains coalesced for 50 ms, targets the exact
+  command item, preserves the latest 20,000 characters with an explicit truncation
+  marker, and drops missing conversation/turn/item targets.
 - Local file references in transcript markdown are semantic controls rather than ordinary filesystem anchors. A normal click opens the local file in the right-side Files surface as a preview, a double click makes that Files tab durable, and a modified click opens the configured desktop app. References carry line/column/range location into the Files viewer when present; unsupported or failed previews remain an explicit Files fallback with Open externally, while external opener failures fall back to Finder. The reference context menu exposes Open in Files, Open with, Copy path, Copy contents, and Reveal in Finder. In-app route anchors remain owned by their route handlers and are not intercepted globally.
 - The Files surface consumes a one-shot reveal location after its text viewer mounts: a start-only reference centers that line, a line range uses Pierre's range scroll and line selection, and an editable viewer additionally applies the zero-based character selection when column bounds exist. Invalid or reversed ranges are discarded at the tab-state boundary. The Files header `Open`, unsupported/oversized fallback action, and explicit `Open with` choices all use the configured external opener router; a failed opener may fall back to Finder, but no React click event is ever passed as an opener id.
 - Reasoning follows summary-first canonical projection: only the reasoning `summary` is retained in the transcript item, empty summaries produce no reasoning item, and raw `content` remains non-transcript state. The live activity renderer may keep that summary hidden from ordinary activity leaves while projecting its latest readable line into the turn-level fallback or activity-group header.
@@ -182,8 +252,21 @@ MCP and dynamic app-server tool calls are specialized `toolCall` rows with canon
 - Assistant fork targets the owning completed turn. Latest-turn forks execute immediately, while older-turn forks open a confirmation dialog unless the user has opted out. Accepting a destination closes that confirmation synchronously and admits the fork exactly once; retaining the source task or loading the destination cannot keep the confirmation visible. For session-backed threads, forking opens a new project session backed by the forked conversation snapshot and focuses an empty composer in that new session.
 
 ## Tool and Activity Rendering
-- Tool activity first passes through one v2 classifier. Hidden items disappear without breaking adjacency, standalone items flush the current run and render independently, and every maximal run of groupable exec, patch, non-empty web search, ordinary MCP, registered groupable dynamic tool, and in-progress Auto-review items becomes one `agentActivityGroup`; a one-item run is still a group.
-- Group membership is finalized before React leaves render. Command, file-change, MCP, web, dynamic, review, multi-agent, subagent, image-view, and completed-elicitation leaves may keep subtype-specific bodies and disclosure behavior, but they cannot introduce family-specific pre-groups or rewrite v2 unit boundaries.
+- Tool activity passes through one production classifier and one topology
+  projector. Hidden items, including reasoning, do not break adjacency;
+  standalone items flush the current run; and every maximal run of groupable
+  exec, materialized patch, non-empty web search, ordinary MCP, registered
+  groupable dynamic tool, and in-progress Auto-review items first becomes a raw
+  group. A settled non-active singleton is then demoted to its standalone family
+  row, except a file-change singleton remains grouped when it does not represent
+  exactly one ordinary changed file or when it contains visualization activity.
+- Group membership is finalized before React leaves render. Each raw group keeps
+  immutable full entries for state, facts, identity, and icon selection, plus a
+  separately filtered body-entry list for expansion. Running ordinary
+  read/search/list rows, defensive empty patches, and summary-only dynamic rows
+  may be absent from the body without changing the group's header facts or
+  topology. React consumes this presentation and never runs a second grouping
+  pass.
 - Tool and action surfaces use the shared local icon asset module:
   - semantic tool glyphs cover command execution, file edits, web/search, code search, list-files, approvals, denials, skills, hooks, plugins, connectors, and generic source fallbacks
   - decorative row glyphs are hidden from assistive technology; website favicons use decorative empty-alt images, while source logos expose meaningful alt text
@@ -205,13 +288,27 @@ MCP and dynamic app-server tool calls are specialized `toolCall` rows with canon
 - MCP fallback content blocks render normalized `text`, `image`, `audio`, `resource_link`, `embedded_resource`, and `unknown` blocks directly inside the expanded body. Visible annotation text is intentionally restricted to `audience`, `priority`, and `lastModified`; arbitrary annotation keys remain internal and are not displayed in the transcript.
 - The app-server `read_thread` dynamic tool returns `schemaVersion: 1`, thread metadata, newest-first paged turns, and optional truncated outputs as a successful `inputText` JSON result.
 - Transient tool labels use Nodex's `CodexShimmerText` wrapper. Active false renders plain text; active true uses the shared `loading-shimmer-pure-text` timing (`2s`, `steps(48,end)`, `-100%` to `250%`, reduced-motion disabled), with cadenced timing kept as an internal optional variant.
-- Shimmer placement is source-specific: collapsed activity active labels shimmer only while the latest group is running, completed collapsed summaries stay static, command rows shimmer only the active status phrase, web rows shimmer only the top-level `Searching the web` phrase, MCP rows shimmer only the in-progress label text while logos remain static, and file-change rows do not text-shimmer because live patch motion belongs to the `+N` / `-N` digit wheel.
-- Collapsed activity group headers use synthesized activity sentences, never a generic `Completed N actions` fallback. Source-backed segments are ordered as file changes, loaded skill definitions, exploration, approval failures, commands, MCP usage, then web searches; mixed groups render summaries such as `Read 5 files and searched code, ran 2 commands, searched the web`. Reading a skill definition file summarizes as `Loaded a tool` / `Loading a tool` instead of an ordinary file read.
+- Group headers have exactly three presentation states. `summary` is static and
+  transitions immediately; `active` uses the selected tool's family label and
+  icon with shimmer; `thinking` has no tool icon and shimmers the assigned
+  reasoning heading or generic `Thinking`. Nested command, web, MCP, and patch
+  rows retain their own subtype-specific animation rules, but running counts
+  cannot make a completed group summary shimmer.
+- Completed group headers retain ordered typed parts until rendering instead of
+  flattening facts into a projection-owned sentence. Part order is named MCP
+  sources, loaded tools, unnamed MCP calls, file changes, stopped file creation,
+  exploration, visualization, commands, web search, then deduplicated dynamic
+  calls. Node REPL contributes to commands; recognized web curl and visualization
+  commands are removed from ordinary command counts. Reasoning contributes no
+  completed part, and an empty part list renders `Worked`.
 - Collapsed web-search summary facts count every renderable web-search row in `webSearchCount`, with `runningWebSearchCount` as a subset rather than a replacement for completed rows. The visible summary remains count-free: any running web-search renders `Searching the web` / `searching the web`; otherwise it renders `Searched the web` / `searched the web`. While the current still-open activity slice ends in web-search activity, the display stats treat that trailing activity as running so the header stays in the active `Searching the web` state until later turn content closes the slice.
 - Collapsed command summary stats preserve Codex's special exec categories: running `mkdir` commands can summarize as `Creating folder`, and successful or still-running readonly remote `curl` commands can summarize as `Searched the web` / `Searching the web` instead of generic command counts. Mutating curl requests, local curl requests, failed completed curl requests, and mixed running command sets stay generic. Command-row-only labels such as `date` and background terminal state are not collapsed activity summary facts; Node REPL is an MCP source summary special.
 - Collapsed approval failure summaries count only denied and timed-out automatic approval reviews, deduped by canonical review id across standalone and attached review paths before formatting `Denied request(s)` or `Request(s) timed out`. Attached review failures fold through the same fact path for file-change, command/exploration, and MCP tool rows.
 - Collapsed MCP summary stats preserve a source-keyed map with source key/name/logo/native-app metadata plus total and running counts. Same-source calls fold into one source entry; built-in Browser Use and computer-use source kinds take precedence over incidental raw source keys, raw non-integration keys are preserved when no built-in source kind applies, and computer-use target app fields preserve native-app identity. Browser-use displays as `the browser`; `server:node_repl` formats as command activity; app/native/browser source metadata can drive both summary wording and collapsed-header icon fallback. The same source resolver determines ordinary group summary facts and standalone MCP app/computer-use presentation without creating a source-specific pre-group.
-- Collapsed activity group headers choose their summary icon from the original grouped render units by scanning newest-to-oldest for an active meaningful row, then newest-to-oldest for a completed meaningful row, before falling back to the activity-family priority: web, exploration, edits, commands, approvals, then the first MCP source logo. That header icon does not imply nested row icons.
+- Header icon ownership follows header state: a completed summary uses evidence
+  from its first typed part, an active header uses the selected active item, and a
+  thinking header renders no tool icon. Filtering expanded body rows cannot
+  change that choice.
 - Standalone automatic approval review items render as an activity disclosure whose header summarizes the reviewed action, such as `pnpm test`, `Editing src/app.ts`, `Network access to api.openai.com`, `MCP search on Docs`, or `Permission request: reason`. The header shows the muted shield accessory and shimmers only while the review item is in progress. Expanding that activity reveals the same compact review row used by attached tool-body reviews.
 - Compact automatic approval review rows render only the review status title. High-risk denials fold into `Auto-review denied high risk`, and the row does not render separate status chips, risk labels, or an `Automatic approval review` noun label. Expandable rows reveal the trimmed rationale or Codex fallback reviewer-agent summary; non-expandable rows render title text only.
 - Each multi-agent action item is one standalone v2 activity unit and therefore acts as a barrier between mixed groupable runs; consecutive source items are not coalesced by action before v2 grouping. A single source item may still expose multiple receiver rows. `wait`-only collab tool calls stay out of the mounted transcript. The leaf status priority is `inProgress`, then `failed`, then `completed`; other terminal transcript states collapse to `completed`. Headers show the compact subagent glyph and action-specific grammar such as `Creating`, `Created`, `Failed to create`, `Messaging`, `Messaged`, `Closing`, and `Closed`, followed by `an agent` or `# agents` from that item's visible target set. Visible row targets come only from receiver thread metadata, agent state keys, or parent child-membership metadata for the same thread id; sparse receiver id lists still feed background membership/reference state, but without receiver metadata, child membership metadata, or state they render a generic activity row and do not create a clickable child-thread row. Expanded rows expose per-agent activity, inline truncated prompt text for created-agent instructions and sent messages, and separate `Input:` metadata rows for other prompted actions while preserving multiline prompt text. Agent names are inline buttons when thread navigation is available, and open the corresponding child agent thread through the standard thread navigation action.
@@ -235,12 +332,25 @@ MCP and dynamic app-server tool calls are specialized `toolCall` rows with canon
   - measured transcript bodies (`commandExecution`, generic agent-activity groups, `patch`, MCP, reasoning, completed request-user-input answers, plan/todo disclosure, and other transcript expandable rows) animate through explicit `motion.div` height/opacity wrappers fed by a `ResizeObserver`-driven measured-height hook
   - agent-body collapse is a separate presence animation contract and does not reuse the measured-height transcript-body model
 - `fileChange` and turn-level unified diff are separate surfaces:
-  - raw `fileChange` items always stay visible as `patch` tool rows (`Edited …`)
+  - raw `fileChange` lifecycle stays canonical, while semantic visibility is
+    derived separately: ordinary patches enter tool activity only after at least
+    one real change or visualization activity materializes
   - every active Nodex thread-start/fork path uses the shared required capability profile, including `features.apply_patch_streaming_events=true` and `features.thread_tools=true`; this covers ordinary start/resume, heartbeat resume, cron start, side-chat fork, persistent fork, and imported rollout fork. The title-only system start helper is intentionally read-only and does not own an active transcript turn
   - without `features.apply_patch_streaming_events=true`, app-server withholds the drafting-time `item/fileChange/patchUpdated` notifications and only the final completed file-change row can render; Nodex must surface that as a capability/diagnostic distinction rather than a silent static thread
-  - live `item/fileChange/patchUpdated` notifications own the canonical in-progress patch state; they create or update the in-progress `fileChange` row, may rebind the latest active turn to the notification `turnId`, and can render as a single-entry collapsed activity group while the model is drafting the edit
-  - an in-progress `fileChange` remains visible even when both `changes` and visualization activities are empty; its stable item identity renders `Editing files` with shimmer and no fabricated path. Once a real change arrives, the same activity gains paths, stats, and inline diff; terminal empty rows follow their explicit terminal policy and do not use the active-row rule
-  - when a renderer owner exists, `item/fileChange/patchUpdated` is reduced by that owner as an owner-local update with ordinary stream patch emission disabled, while main silently updates canonical cache state for later snapshots and recovery
+  - live `item/fileChange/patchUpdated` notifications own the canonical
+    in-progress patch snapshot, may arrive before `item/started`, may rebind the
+    latest active turn to the notification `turnId`, and keep the same protocol
+    item identity when materialized activity first appears
+  - an ordinary in-progress `fileChange` with no changes and no visualization
+    activity is semantically hidden: it creates neither an empty `Editing files`
+    group nor a fabricated path. During that pre-materialization interval, the
+    parent reasoning/`Thinking` fallback remains eligible. Once a real change
+    arrives, the same item begins showing the active patch header, paths, stats,
+    and inline diff
+  - when a renderer owner exists, both main recovery state and the owner consume
+    the shared canonical patch reducer, but only the owner publishes the accepted
+    revisioned conversation change. Main's accepted replica advances only after
+    that publication; followers receive the same materialized snapshot or patch
   - the live file-edit process row is source-backed as `response.custom_tool_call_input.delta` -> app-server patch parser -> `item/fileChange/patchUpdated`, not as a renderer-only animation layered over the completed row
   - `item/fileChange/outputDelta` burst bytes are deprecated diagnostic output for this surface and do not create or update visible transcript state
   - live `turn/diff/updated` notifications update `turn.diff` for turn-level diff surfaces only; they do not fabricate `fileChange` rows
@@ -293,12 +403,22 @@ MCP and dynamic app-server tool calls are specialized `toolCall` rows with canon
 - MCP rows with attached Auto-review lifecycle show the same compact shield indicator in the header and render attached Auto-review rows before MCP app/resource/content/error/raw-output body content. Normal expanded MCP bodies keep attached review rows expandable so their rationale can be inspected; MCP app/resource card bodies render those attached review rows as title-only, non-expandable compact rows with card-body horizontal padding before the app/loading/error surface.
 - Generic command headers use command-row-specific semantic labels. Active foreground commands render `Running command` with only the status phrase shimmering and may append an elapsed timer. Collapsed settled commands render `Ran <command>` or `Stopped <command>`, while expanded settled commands fall back to `Ran command` or `Stopped command` and expose the exact command through the shell body. Current-date commands render `Checking` / `Checked` / `Stopped checking the current date and time`. Background terminal rows render `Started background terminal...`, `Background terminal finished...`, or `Background terminal stopped...`; skill scripts under a skill `scripts/` folder render as `script <file> from <skill> skill` in the command-specific forms.
 - While the current turn is still active, a trailing activity slice owned by exploration remains visually `in progress` (`Exploring` shimmer) until a non-exploration item appears in that same turn or the turn stops.
-- Generic agent-activity groups keep one measured body and switch between `preview`, `expanded`, and `collapsed`; the preview state reveals the same measured content under a shorter height cap instead of mounting a separate preview tree.
+- Generic agent-activity groups use one local four-phase disclosure
+  (`collapsed`, `opening`, `expanded`, `closing`) and one measured body. The same
+  header node is rendered collapsed and expanded; expansion only adds filtered
+  tool rows. The body remains mounted through transition phases, receives pointer
+  events only when fully expanded, and never gains a separate preview topology.
 - Completed proposed-plan cards render as a 200px in-thread preview with `Plan` header actions for download, copy, rating feedback, and opening the right-panel `Plan` tab. The in-thread card does not own a local accordion.
 - While the right-panel `Plan` tab is active for the same plan key, the card body remains mounted but collapses to `max-height: 0`, `opacity: 0`, `aria-hidden`, and `inert`; clicking the full-card close overlay removes that renderer-local tab. The right-panel tab renders the full markdown in its own scroll container.
 - In-progress proposed-plan cards keep the `Writing plan` header and preview body, suppress the fallback `Thinking` activity row, and do not expose the side-panel open action until the plan item completes.
-- Activity groups are expanded by default only while their current slice is `in progress`; once the group settles, it collapses by default.
-- Running-thread activity uses unit-owned summaries: an exploration-owned group uses `Exploring` / `Explored`, command leaves use the command-header semantic labels above, an ordinary MCP/dynamic call contributes to its mixed group's active or settled summary, and standalone MCP leaves use tool-only labels such as `List MCP resources`.
+- Generic activity groups are steady-state collapsed. The latest open group may
+  receive an initial-collapse entrance signal, but streaming state does not
+  auto-expand it and reduced motion suppresses the nonessential transition.
+- Running group headers are selected from full tool facts: exploration may own
+  `Exploring`, otherwise the newest strict-active ordinary tool owns its concrete
+  label, and an open group with no strict-active tool enters `thinking`.
+  Completed groups render the typed static aggregate. Standalone family leaves
+  keep their own tool-only labels.
 - Command execution headers show `in <cwd>` only when the command ran outside the active project workspace path.
 - Patch rows own their expand/collapse state per file row. MCP tool calls own a local toggle once the call is completed or has a result. Neither surface uses a conversation-level collapsed-tool map.
 - MCP tool-call rows follow the normalized-result and MCP-app state machine instead of renderer-local raw fallbacks:

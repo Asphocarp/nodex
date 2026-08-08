@@ -13,6 +13,8 @@ import type {
 import { THREAD_TOOL_CALL_STORY_ITEMS } from "../thread-stage-story-fixtures";
 import { CodexShimmerText } from "../shared/codex-shimmer-text";
 import { ThreadAgentActivityGroupBlock } from "./local-conversation-block-leaves";
+import { buildV2AgentActivityGroupBlock } from "../../projection/agent-activity-group";
+import { isThreadClassifiableActivityItem } from "../../projection/agent-activity-v2";
 import "../../../../globals.css";
 
 const LARGE_MIXED_GROUP_CYCLES = 30;
@@ -89,17 +91,11 @@ function buildLargeMixedGroup(): ThreadAgentActivityGroupBlockModel {
     families.map(({ base, type }) => buildActivityEntry(base, type, `${type}-${cycle}`))
   )).flat();
 
-  return {
-    id: "agent-activity-performance",
-    turnId: "turn-performance",
-    createdAt: 1,
-    updatedAt: 1,
-    searchableText: "large mixed activity group",
-    type: "agentActivityGroup",
-    summary: "Edited files, ran commands, used tools, and searched the web",
-    status: "completed",
-    entries,
-  };
+  return buildV2AgentActivityGroupBlock(entries, "agent-activity-performance", {
+    bodyEntries: entries,
+    canExpand: true,
+    state: { kind: "summary" },
+  });
 }
 
 function buildStreamingUpdate(
@@ -109,27 +105,36 @@ function buildStreamingUpdate(
   const lastEntry = block.entries.at(-1);
   if (!lastEntry) return block;
 
-  return {
-    ...block,
-    updatedAt: block.updatedAt + 1,
-    summary: `Editing files, running commands, using tools, and searching the web (${revision})`,
+  const activeEntry: ThreadAgentActivityGroupEntryModel = {
+    ...lastEntry,
+    updatedAt: lastEntry.updatedAt + 1,
     status: "inProgress",
-    entries: [
-      ...block.entries.slice(0, -1),
-      {
-        ...lastEntry,
-        updatedAt: lastEntry.updatedAt + 1,
-        status: "inProgress",
-        entry: {
-          ...lastEntry.entry,
-          aggregatedOutput: `${lastEntry.entry.aggregatedOutput ?? ""}\nstream revision ${revision}`,
-          exitCode: undefined,
-          status: "inProgress",
-          updatedAt: lastEntry.entry.updatedAt + 1,
-        },
-      },
-    ],
+    entry: {
+      ...lastEntry.entry,
+      aggregatedOutput: `${lastEntry.entry.aggregatedOutput ?? ""}\nstream revision ${revision}`,
+      exitCode: undefined,
+      status: "inProgress",
+      updatedAt: lastEntry.entry.updatedAt + 1,
+    },
   };
+  if (!isThreadClassifiableActivityItem(activeEntry)) {
+    throw new Error("The performance activity fixture must end in a classifiable tool item.");
+  }
+  const entries = [
+    ...block.entries.slice(0, -1),
+    activeEntry,
+  ];
+  return buildV2AgentActivityGroupBlock(entries, "agent-activity-performance", {
+    bodyEntries: entries,
+    canExpand: true,
+    state: {
+      kind: "active",
+      item: {
+        item: activeEntry,
+        grouping: "groupable",
+      },
+    },
+  });
 }
 
 function sumCommitDuration(commits: readonly ProfileCommit[], stage: TraceStage): number {
@@ -271,10 +276,7 @@ describe("ThreadAgentActivityGroupBlock Chromium behavior", () => {
   });
 
   test("preserves narrow truncation and native disclosure keyboard behavior", async () => {
-    const block = {
-      ...buildLargeMixedGroup(),
-      summary: "Edited many deeply nested files, ran several long commands, used multiple tools, and searched the web repeatedly",
-    };
+    const block = buildLargeMixedGroup();
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });

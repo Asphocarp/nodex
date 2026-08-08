@@ -6,6 +6,7 @@ import type {
   CodexThreadOwnerServerRequest,
   CodexThreadStreamStateChange,
 } from "../../lib/types";
+import type { CodexThreadStreamCheckpoint } from "../../../shared/types";
 
 type AppServerMessageListener<T> = (event: T) => void;
 
@@ -20,6 +21,8 @@ export interface CodexThreadStreamStateChangedEvent {
   change: CodexThreadStreamStateChange;
   version: number;
   sourceClientId?: string | null;
+  checkpoint: CodexThreadStreamCheckpoint;
+  baseCheckpoint: CodexThreadStreamCheckpoint | null;
 }
 
 export interface CodexThreadStreamFollowingStatusRequestedEvent {

@@ -1,6 +1,16 @@
-import type { CodexConversationItem, CodexConversationTurn } from "../../../lib/types";
+import type {
+  CodexConversationItem,
+  CodexConversationTurn,
+  ProtocolAppInfo,
+  ProtocolListMcpServerStatusResponse,
+} from "../../../lib/types";
 import type { CodexTurnScopedConversationRequest } from "../conversation-request-helpers";
-import type { VisibleConversationTurnEntry } from "../selectors";
+import {
+  areVisibleConversationTurnRenderRevisionsEqual,
+  buildVisibleConversationTurnRenderRevision,
+  type VisibleConversationTurnEntry,
+  type VisibleConversationTurnRenderRevision,
+} from "../selectors";
 import { bucketizeTurnItems } from "./bucketize-turn-items";
 import {
   buildRendererItemStream,
@@ -36,6 +46,8 @@ export interface BuildTurnRenderModelInput {
   turnKey?: string;
   cwd?: string | null;
   projectlessOutputDirectory?: string | null;
+  mcpApps?: readonly ProtocolAppInfo[];
+  mcpServerStatuses?: ProtocolListMcpServerStatusResponse | null;
 }
 
 export type TurnRenderSurface = "main" | "preview";
@@ -48,6 +60,8 @@ export interface SelectTurnRenderModelInput {
   backgroundAgents?: readonly ThreadComposerShellBackgroundAgentRowModel[];
   cwd?: string | null;
   projectlessOutputDirectory?: string | null;
+  mcpApps?: readonly ProtocolAppInfo[];
+  mcpServerStatuses?: ProtocolListMcpServerStatusResponse | null;
 }
 
 type TurnRenderModelBuilder = (input: BuildTurnRenderModelInput) => ThreadTurnModel;
@@ -358,24 +372,52 @@ export function buildTurnRenderModel(
     canEditTurnUserPrefix: input.turn.turnId !== null && input.canEditTurnUserPrefix,
     canForkTurn: input.turn.turnId !== null && input.canForkTurn,
     endResourcePaths,
+    mcpApps: input.mcpApps,
+    mcpServerStatuses: input.mcpServerStatuses,
   });
+}
+
+const selectorIdentityByObject = new WeakMap<object, number>();
+let nextSelectorIdentity = 1;
+
+function resolveSelectorIdentity(value: object | null | undefined): number {
+  if (value == null) return 0;
+  const existing = selectorIdentityByObject.get(value);
+  if (existing != null) return existing;
+  const identity = nextSelectorIdentity;
+  nextSelectorIdentity += 1;
+  selectorIdentityByObject.set(value, identity);
+  return identity;
 }
 
 export function createTurnRenderModelSelector(
   build: TurnRenderModelBuilder = buildTurnRenderModel,
 ): TurnRenderModelSelector {
-  const modelsByEntry = new WeakMap<VisibleConversationTurnEntry, Map<string, ThreadTurnModel>>();
+  const cacheByEntry = new WeakMap<
+    VisibleConversationTurnEntry,
+    {
+      revision: VisibleConversationTurnRenderRevision;
+      modelsByVariant: Map<string, ThreadTurnModel>;
+    }
+  >();
 
   return (input) => {
     const surface = input.surface ?? "main";
     const canEditTurnUserPrefix = input.canEditTurnUserPrefix === true;
     const canForkTurn = input.canForkTurn === true;
+    const revision = buildVisibleConversationTurnRenderRevision(
+      input.entry.turn,
+      input.entry.requests,
+    );
     const cacheKey = JSON.stringify([
       surface,
       canEditTurnUserPrefix,
       canForkTurn,
+      input.entry.isMostRecentTurn,
       input.cwd,
       input.projectlessOutputDirectory,
+      resolveSelectorIdentity(input.mcpApps),
+      resolveSelectorIdentity(input.mcpServerStatuses),
       input.entry.turnKey,
       (input.backgroundAgents ?? []).map((row) => [
         row.conversationId,
@@ -386,8 +428,15 @@ export function createTurnRenderModelSelector(
         row.showInlineActivity,
       ]),
     ]);
-    const cachedModels = modelsByEntry.get(input.entry);
-    const cached = cachedModels?.get(cacheKey);
+    const cachedEntry = cacheByEntry.get(input.entry);
+    const isSameRevision = cachedEntry !== undefined
+      && areVisibleConversationTurnRenderRevisionsEqual(
+        cachedEntry.revision,
+        revision,
+      );
+    const cached = isSameRevision
+      ? cachedEntry.modelsByVariant.get(cacheKey)
+      : undefined;
     if (cached) return cached;
 
     const model = build({
@@ -402,12 +451,17 @@ export function createTurnRenderModelSelector(
       turnKey: input.entry.turnKey,
       cwd: input.cwd,
       projectlessOutputDirectory: input.projectlessOutputDirectory,
+      mcpApps: input.mcpApps,
+      mcpServerStatuses: input.mcpServerStatuses,
     });
-    const nextModels = cachedModels ?? new Map<string, ThreadTurnModel>();
+    const nextModels = isSameRevision
+      ? cachedEntry.modelsByVariant
+      : new Map<string, ThreadTurnModel>();
     nextModels.set(cacheKey, model);
-    if (!cachedModels) {
-      modelsByEntry.set(input.entry, nextModels);
-    }
+    cacheByEntry.set(input.entry, {
+      revision,
+      modelsByVariant: nextModels,
+    });
     return model;
   };
 }

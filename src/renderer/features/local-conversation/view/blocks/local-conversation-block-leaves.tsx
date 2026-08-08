@@ -31,8 +31,8 @@ import {
 } from "../shared/thread-message-actions";
 import { TodoListSurface } from "../shared/todo-list-surface";
 import { getToolComponent } from "../shared/tools/get-tool-component";
+import { DynamicToolCallSummary } from "../shared/tools/dynamic-tool-call";
 import { WorktreeInitActivityList } from "../shared/tools/worktree-init-activity-list";
-import { AnimatedDiffStats } from "../shared/tools/diff-file-shared";
 import {
   JsonBlock,
   ThreadActivityDisclosure,
@@ -40,7 +40,7 @@ import {
 } from "../shared/tools/tool-primitives";
 import {
   ToolActivityIcon,
-  resolveAgentActivityGroupIcon,
+  resolveToolActivityEntryIcon,
 } from "../shared/tools/tool-call-icons";
 import { UserMessageText } from "../shared/user-message-collapse";
 import {
@@ -65,10 +65,12 @@ import { DEFAULT_CODEX_HOST_ID } from "../../../../../shared/codex-host";
 import { resolveCompletedMcpServerElicitationView } from "../../projection/mcp-server-elicitation-view";
 import { buildHookFeedbackSettingsHref } from "../../projection/hook-feedback-settings";
 import { resolveHookFeedbackSettingsTarget } from "../../../../lib/codex-hooks-route";
+import { formatThreadAgentActivityCompletedSummaryPart } from "../../projection/agent-activity-v2-summary";
 import type {
   ThreadAssistantMessageActionsModel,
   ThreadBlockModel,
-  ThreadAgentActivityGroupActiveSummary,
+  ThreadAgentActivityCompletedSummaryPart,
+  ThreadAgentActivityGroupHeader,
   ThreadPlanSidePanelState,
   ThreadStageActions,
   ThreadSubagentActivityInlineRowModel,
@@ -298,104 +300,65 @@ function renderCollapsedActivityEntry({
   return null;
 }
 
-function shouldShimmerCollapsedActivitySummary(
-  stats: Extract<ThreadBlockModel, { type: "agentActivityGroup" }>["summaryStats"],
-): boolean {
-  if (!stats) return false;
-  return stats.runningCreatedFileCount > 0
-    || stats.runningEditedFileCount > 0
-    || stats.runningDeletedFileCount > 0
-    || stats.runningExploredFileCount > 0
-    || stats.runningLoadedToolCount > 0
-    || stats.runningSearchCount > 0
-    || stats.runningListCount > 0
-    || stats.runningHookCount > 0
-    || stats.runningCommandCount > 0
-    || stats.runningFolderCreationCommandCount > 0
-    || stats.runningWebSearchCommandCount > 0
-    || stats.runningMcpToolCallCount > 0
-    || stats.runningWebSearchCount > 0;
+function formatCompletedActivityPart(
+  part: ThreadAgentActivityCompletedSummaryPart,
+  index: number,
+): string | null {
+  return formatThreadAgentActivityCompletedSummaryPart(part, {
+    isLeading: index === 0,
+  });
 }
 
-function CollapsedActivitySummaryText({
-  summary,
-  shimmer,
+function CompletedActivitySummaryText({
+  parts,
 }: {
-  summary: string;
-  shimmer: boolean;
+  parts: readonly ThreadAgentActivityCompletedSummaryPart[];
 }) {
-  if (!shimmer) return summary;
+  const labels = parts.flatMap((part, index): Array<{ key: string; content: ReactNode }> => {
+    if (part.kind === "dynamicToolCall") {
+      const call = part.item.entry.dynamicToolCall;
+      if (!call) return [];
+      return [{
+        key: part.key,
+        content: (
+          <DynamicToolCallSummary
+            call={{ ...call, completed: true }}
+            variant="summary-text"
+          />
+        ),
+      }];
+    }
+    const label = formatCompletedActivityPart(part, index);
+    return label == null ? [] : [{ key: `${part.kind}:${index}`, content: label }];
+  });
+  if (labels.length === 0) return "Worked";
 
-  const writingMatch = summary.match(/ • writing (?:a line|\d+ lines?)/i);
-  if (!writingMatch || writingMatch.index === undefined) {
-    return <CodexShimmerText>{summary}</CodexShimmerText>;
+  return labels.map(({ key, content }, index) => (
+    <span key={key}>
+      {index === 0 ? null : ", "}
+      {content}
+    </span>
+  ));
+}
+
+function ActiveActivitySummaryText({
+  header,
+}: {
+  header: Extract<ThreadAgentActivityGroupHeader, { kind: "active" }>;
+}) {
+  if (header.item.type === "dynamicToolCall") {
+    const call = header.item.entry.dynamicToolCall;
+    if (call) {
+      return (
+        <DynamicToolCallSummary
+          call={{ ...call, completed: false }}
+          variant="summary-text"
+        />
+      );
+    }
   }
 
-  const start = writingMatch.index;
-  const writingText = writingMatch[0];
-  const before = summary.slice(0, start);
-  const after = summary.slice(start + writingText.length);
-  return (
-    <>
-      {before.length > 0 ? <CodexShimmerText>{before}</CodexShimmerText> : null}
-      <span>{writingText}</span>
-      {after.length > 0 ? <CodexShimmerText>{after}</CodexShimmerText> : null}
-    </>
-  );
-}
-
-function CollapsedActivityActiveSummaryText({
-  summary,
-}: {
-  summary: ThreadAgentActivityGroupActiveSummary;
-}) {
-  if (summary.kind === "fileChange") {
-    return (
-      <span className="inline-flex max-w-full min-w-0 items-center gap-1.5">
-        <CodexShimmerText
-          className="shrink-0 whitespace-nowrap"
-        >
-          {summary.label}
-        </CodexShimmerText>
-        <span
-          className="max-w-full truncate text-token-text-link-foreground select-text"
-          style={{ WebkitTextFillColor: "currentColor" }}
-        >
-          {summary.displayPath}
-        </span>
-        <AnimatedDiffStats additions={summary.additions} deletions={summary.deletions} />
-      </span>
-    );
-  }
-
-  return <CodexShimmerText>{summary.label}</CodexShimmerText>;
-}
-
-function buildCollapsedActivityAggregateSummaryKey(
-  stats: Extract<ThreadBlockModel, { type: "agentActivityGroup" }>["summaryStats"],
-  fallbackSummary: string,
-): string {
-  if (!stats) return `summary:${fallbackSummary}`;
-
-  return [
-    "completed",
-    stats.createdFileCount,
-    stats.stoppedCreatedFileCount,
-    stats.changedLineCount,
-    stats.editedFileCount,
-    stats.deletedFileCount,
-    stats.exploredFileCount,
-    stats.loadedToolCount,
-    stats.searchCount,
-    stats.listCount,
-    stats.deniedRequestCount,
-    stats.timedOutRequestCount,
-    stats.commandCount,
-    stats.completedWebSearchCommandCount,
-    stats.mcpToolCallCount,
-    stats.webSearchCount,
-    stats.mcpToolCallSources.map((source) => `${source.key}:${source.count}`).join(","),
-  ].join(":");
+  return <CodexShimmerText>{header.label}</CodexShimmerText>;
 }
 
 export function ThreadAgentActivityGroupBlock({
@@ -413,34 +376,27 @@ export function ThreadAgentActivityGroupBlock({
   turnDiffHoverPreviewDisabled,
 }: ThreadSpecialBlockProps) {
   if (block.type !== "agentActivityGroup") return null;
-  const icon = block.liveHeaderKind === "thinking"
+  const iconItem = block.header.kind === "thinking"
     ? null
-    : resolveAgentActivityGroupIcon(block.entries, block.mcpApps);
-  const runningSummary = isLatestTurn
-    && isStreamingTurn
-    && block.runningSummary != null
-    ? block.runningSummary
-    : null;
-  const aggregateSummary = block.summary;
-  const shouldShimmerAggregate = !runningSummary
-    && isLatestTurn
-    && isStreamingTurn
-    && shouldShimmerCollapsedActivitySummary(block.summaryStats);
-  const shouldAnimateSummaryChanges = isLatestTurn && isStreamingTurn;
-  const summaryKey = runningSummary?.key ?? buildCollapsedActivityAggregateSummaryKey(block.summaryStats, aggregateSummary);
-  const summaryTransition: ThreadActivitySummaryTransition = runningSummary
-    ? shouldAnimateSummaryChanges ? "deferred" : "static"
-    : shouldAnimateSummaryChanges ? shouldShimmerAggregate ? "deferred" : "immediate" : "static";
-  const canExpand = block.canExpand ?? (block.entries.length > 0 || (isLatestTurn && isStreamingTurn));
+    : block.header.kind === "active"
+      ? block.header.item
+      : block.completedHeader.iconItem;
+  const icon = iconItem == null
+    ? null
+    : resolveToolActivityEntryIcon(iconItem, block.mcpApps ?? []);
+  const summaryTransition: ThreadActivitySummaryTransition = block.header.kind === "summary"
+    ? "immediate"
+    : "deferred";
+  const summaryText = block.header.kind === "summary"
+    ? <CompletedActivitySummaryText parts={block.completedHeader.parts} />
+    : block.header.kind === "active"
+      ? <ActiveActivitySummaryText header={block.header} />
+      : <CodexShimmerText>{block.header.message ?? "Thinking"}</CodexShimmerText>;
   const summary = (
     <span className="inline-flex max-w-full min-w-0 items-center gap-1.5 overflow-hidden">
       {icon ? <ToolActivityIcon descriptor={icon} /> : null}
       <span className="min-w-0 flex-1 truncate">
-        {runningSummary ? (
-          <CollapsedActivityActiveSummaryText summary={runningSummary} />
-        ) : (
-          <CollapsedActivitySummaryText summary={aggregateSummary} shimmer={shouldShimmerAggregate} />
-        )}
+        {summaryText}
       </span>
     </span>
   );
@@ -451,7 +407,7 @@ export function ThreadAgentActivityGroupBlock({
         "--conversation-patch-file-gap": "var(--conversation-grouped-item-gap, 4px)",
       } as CSSProperties}
     >
-      {block.entries.map((entry) => (
+      {block.bodyEntries.map((entry) => (
         <div key={entry.id}>
           <div
             aria-hidden="true"
@@ -480,10 +436,11 @@ export function ThreadAgentActivityGroupBlock({
   return (
     <ThreadActivityDisclosure
       bodyTestId="agent-activity-group-body"
-      canExpand={canExpand}
+      canExpand={block.canExpand}
       summary={summary}
-      summaryKey={summaryKey}
+      summaryKey={block.header.key}
       summaryTransition={summaryTransition}
+      shouldAnimateInitialCollapse={block.shouldAnimateInitialCollapse}
     >
       {body}
     </ThreadActivityDisclosure>
